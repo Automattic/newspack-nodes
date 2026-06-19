@@ -93,9 +93,14 @@ class HTTP_Out_Node extends Timer_Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
+		// Preserve the caller's FROM (a heartbeat minted with FROM=<remote-source>
+		// keeps it so the spoke's reply can route back); fall back to _http only
+		// when the caller left FROM empty (settings-sync's fire-and-forget path).
+		$from = Core::as_string( $message[ Message::FROM ] );
+
 		$envelope                   = Message::new_message();
 		$envelope[ Message::TYPE ]  = Message::TM_COMMAND;
-		$envelope[ Message::FROM ]  = Node_Names::HTTP;
+		$envelope[ Message::FROM ]  = '' !== $from ? $from : Node_Names::HTTP;
 		$envelope[ Message::TO ]    = Core::as_string( $message[ Message::TO ] );
 		$envelope[ Message::VALUE ] = $message[ Message::VALUE ];
 		$this->batch[]              = $envelope;
@@ -131,6 +136,15 @@ class HTTP_Out_Node extends Timer_Node {
 			return;
 		}
 
+		$cfg = Config::load_config();
+		// Refuse a plaintext spoke when the operator requires HTTPS (mirrors the
+		// legacy heartbeat HTTPS guard): drop the batch, no POST.
+		if ( ( $cfg['vault_require_https'] ?? false ) && ! \str_starts_with( $url, 'https://' ) ) {
+			$dropped = \count( $batch );
+			Core::print_less_often( "HTTP_Out[{$this->server_id}]: vault_require_https set but url is not https; dropping {$dropped} message(s)" );
+			return;
+		}
+
 		$body = '';
 		foreach ( $batch as $envelope ) {
 			$body .= Message::packed( $envelope ) . "\n";
@@ -148,7 +162,6 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		// Mirror Vault_CI_Node::probe_remote: verify on unless explicitly disabled.
-		$cfg    = Config::load_config();
 		$verify = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
 		$opts   = [
 			\CURLOPT_URL            => $url . self::COMMAND_PATH,
@@ -240,6 +253,13 @@ class HTTP_Out_Node extends Timer_Node {
 					} catch ( \InvalidArgumentException $e ) {
 						Core::print_less_often( "HTTP_Out[{$server_id}]: malformed reply line" );
 						continue;
+					}
+					// The spoke's HTTP_In prepends _output/ to the FROM it echoes;
+					// a worker graph has no _output, so strip it so TO=<remote-source>
+					// routes correctly through _command_interpreter → _router.
+					$to = Core::as_string( $reply[ Message::TO ] );
+					if ( \str_starts_with( $to, '_output/' ) ) {
+						$reply[ Message::TO ] = \substr( $to, \strlen( '_output/' ) );
 					}
 					++$this->counter;
 					$this->sink->fill( $reply );

@@ -30,6 +30,10 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_result   = null;
 		Vault::get_instance()->reset_cache();
+		// Drop any per-test config overlay so vault_require_https set via
+		// use_base_dir() doesn't bleed into the next test.
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
 	}
 
@@ -211,6 +215,91 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'austin', $this->read_private( $node, 'server_id' ) );
 		// dump_config emits a round-trippable `make_node` line ending in the args.
 		$this->assertStringEndsWith( 'austin', trim( $node->dump_config() ) );
+	}
+
+	public function test_fill_preserves_caller_from(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node                 = $this->make_node( 'austin' );
+		$m                    = $this->command_message( 'workers', 'heartbeat', '3 60 0' );
+		$m[ Message::FROM ]   = 'spoke-austin';
+		$node->fill( $m );
+		$node->fire();
+		$envelope = Message::unpacked( rtrim( $captured[0][ \CURLOPT_POSTFIELDS ], "\n" ) );
+		$this->assertSame( 'spoke-austin', $envelope[ Message::FROM ] );
+	}
+
+	public function test_fill_falls_back_to_http_when_caller_from_empty(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$m    = $this->command_message( 'workers', 'heartbeat', '3 60 0' ); // FROM left empty
+		$node->fill( $m );
+		$node->fire();
+		$envelope = Message::unpacked( rtrim( $captured[0][ \CURLOPT_POSTFIELDS ], "\n" ) );
+		$this->assertSame( '_http', $envelope[ Message::FROM ] );
+	}
+
+	public function test_on_curl_message_strips_output_prefix_from_reply_to(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$reply[ Message::TO ]    = '_output/spoke-austin';
+		$reply[ Message::VALUE ] = 'status';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'spoke-austin', $sink->captured[0][ Message::TO ] );
+	}
+
+	public function test_on_curl_message_leaves_reply_to_without_prefix_unchanged(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$reply[ Message::TO ]    = 'settings-sync';
+		$reply[ Message::VALUE ] = 'ok';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
+	}
+
+	public function test_fire_refuses_non_https_when_require_https(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_https' => true ] );
+		$this->seed_vault( 'austin', [ 'url' => 'http://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$m    = $this->command_message( 'workers', 'heartbeat', '3 60 0' );
+		$node->fill( $m );
+		$node->fire();
+		$this->assertCount( 0, $captured );
+	}
+
+	public function test_fire_allows_https_when_require_https(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_https' => true ] );
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$m    = $this->command_message( 'workers', 'heartbeat', '3 60 0' );
+		$node->fill( $m );
+		$node->fire();
+		$this->assertCount( 1, $captured );
 	}
 
 	public function test_node_schema_shape(): void {
