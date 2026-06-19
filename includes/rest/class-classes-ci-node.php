@@ -110,7 +110,9 @@ class Classes_CI_Node extends Service_CI_Node {
 								// (e) not Hidden, and has a real category — a class that
 								// inherits Node's empty-category default (e.g. SSE_Out_Node,
 								// a pure HTTP response writer) isn't a palette participant.
-								if ( 'Hidden' === $cat || '' === $cat ) {
+								// A node may also opt out of the palette while keeping a
+								// functional category (SSE_In_Node: I/O but patron-configured).
+								if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
 									continue;
 								}
 								$seen[ $fqcn ]   = true;
