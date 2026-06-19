@@ -112,6 +112,32 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame( 'newspack_nodes_num_segments 8', $out[ Message::VALUE ]['arguments'] );
 	}
 
+	public function test_push_invalidates_options_cache_before_reading(): void {
+		// A long-lived worker freezes an alloptions snapshot, so a concurrent admin
+		// save (reset-to-default, remote_* change) is invisible to get_option until
+		// the cache is dropped. push() must invalidate FIRST. The seam simulates the
+		// clear revealing the current value; without the invalidate it ships stale.
+		\update_option( 'newspack_nodes_num_segments', 2 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_num_segments settings newspack_nodes_num_segments' );
+
+		Settings_Sync_Node::$invalidate_options_cache = static function (): void {
+			$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 9;
+		};
+		try {
+			$msg                   = Message::new_message();
+			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+			$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_num_segments' ];
+			$node->fill( $msg );
+		} finally {
+			Settings_Sync_Node::$invalidate_options_cache = null;
+		}
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( 'newspack_nodes_num_segments 9', $sink->captured[0][ Message::VALUE ]['arguments'] );
+	}
+
 	public function test_fill_scalarizes_array_value_to_csv(): void {
 		\update_option( 'newspack_nodes_remote_servers', [ 'a.com', 'b.com' ] );
 		$sink = new Capture_Sink_Node();
