@@ -49,18 +49,25 @@ class Classes_CI_Node extends Service_CI_Node {
 			if ( '' === $name ) {
 				continue;
 			}
-			$raw_desc    = $command['description'] ?? '';
-			$stripped[]  = [
+			$raw_desc        = $command['description'] ?? '';
+			$stripped_command = [
 				'name'        => $name,
 				'description' => \is_scalar( $raw_desc ) ? (string) $raw_desc : '',
 				'args'        => $command['args'] ?? [],
 			];
+			// Carry the multi-invocation flag so the topology console renders one
+			// row per invocation (N add_setting mappings), not just the first. Added
+			// only when set so single-verb catalog entries keep their lean shape.
+			if ( ! empty( $command['multiple'] ) ) {
+				$stripped_command['multiple'] = true;
+			}
+			$stripped[] = $stripped_command;
 		}
 		return $stripped;
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
 			'description' => 'Class catalog: enumerate every registered node class with its inlined node_schema, plus the formatter registry.',
 			'arguments'   => [],
@@ -155,6 +162,6 @@ class Classes_CI_Node extends Service_CI_Node {
 					},
 				],
 			],
-		];
+		] );
 	}
 }
