@@ -64,6 +64,11 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertContains( 'add_setting', $verb_names );
 	}
 
+	public function test_node_schema_exposes_interval_seconds_constructor_arg(): void {
+		$arg_names = \array_column( Settings_Sync_Node::node_schema()['arguments'], 'name' );
+		$this->assertContains( 'interval_seconds', $arg_names, 'editor CONSTRUCTOR panel must surface the interval arg' );
+	}
+
 	public function test_config_verb_dispatches_to_add_setting(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
