@@ -295,8 +295,37 @@ describe( 'HttpOut', () => {
 		expect( batch[ 0 ][ TO ] ).toBe( '' );
 	} );
 
-	describe( '_post — reply intake (sink, not Core.node)', () => {
-		it( 'fills POST-body replies into this.sink', async () => {
+	describe( '_post — reply intake (routes to _sse, falls back to sink)', () => {
+		it( 'routes a POST-body reply into the _sse node when registered (cd /_sse sync intake)', async () => {
+			const names = require( '../reserved-node-names.json' );
+			const { Node } = require( '../node' );
+			const { node, postBatch } = makeNode();
+
+			// The `_sse` node is the synchronous-intake convergence point: it strips
+			// its own `_sse:{pid}` head so a request-scope (`cd /_sse`) reply routes home.
+			const sseSeen = [];
+			const sse = new Node();
+			sse.name = names.SSE;
+			sse.fill = ( m ) => sseSeen.push( m );
+
+			const sinkSeen = [];
+			const sink = new Node();
+			sink.fill = ( m ) => sinkSeen.push( m );
+			node.sink = sink;
+
+			const reply = newMessage();
+			reply[ VALUE ] = 'pivoted-reply';
+			postBatch.mockResolvedValueOnce( [ reply ] );
+
+			await node.fill( routed( { to: '' } ) );
+			await Promise.resolve();
+
+			expect( sseSeen ).toHaveLength( 1 );
+			expect( sseSeen[ 0 ][ VALUE ] ).toBe( 'pivoted-reply' );
+			expect( sinkSeen ).toHaveLength( 0 );
+		} );
+
+		it( 'falls back to this.sink when no _sse node is registered', async () => {
 			const { Node } = require( '../node' );
 			const { node, postBatch } = makeNode();
 			const seen = [];

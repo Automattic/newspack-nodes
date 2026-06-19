@@ -15,6 +15,8 @@
  */
 
 import { Node } from './node';
+import { Core } from './core';
+import names from './reserved-node-names.json';
 import { TO } from './message';
 
 export class HttpOutNode extends Node {
@@ -92,16 +94,21 @@ export class HttpOutNode extends Node {
 		} );
 	}
 
-	// POST the entries; feed every synchronous reply back into `sink` (the interpreter),
-	// which routes via _router by TO. JSONL body → zero or more reply Messages
-	// (verb response plus any stderr/log lines the command emitted); a routed-
-	// onward command yields [] (bare 202) — its reply arrives over the SSE stream.
+	// POST the entries; feed every synchronous reply back into the `_sse` node —
+	// the receive convergence point that strips its own `_sse:{pid}` head so a
+	// request-scope (`cd /_sse`) reply routes home (falling back to `sink` only
+	// when no `_sse` node is registered, e.g. a bare graph). Routing the reply at
+	// `sink` (the interpreter) instead would leave the `_sse:{pid}` head unpeeled
+	// → _router NOT_AVAILABLE drop. JSONL body → zero or more reply Messages (verb
+	// response plus any stderr/log lines); a routed-onward command yields [] (bare
+	// 202) — its reply arrives over the SSE stream.
 	_post( entries ) {
 		Promise.resolve( this.client.postBatch( entries ) )
 			.then( ( messages ) => {
+				const intake = Core.node( names.SSE ) ?? this.sink;
 				for ( const message of messages ) {
 					this.counter += 1;
-					this.sink?.fill( message );
+					intake?.fill( message );
 				}
 			} )
 			.catch( ( err ) => {
