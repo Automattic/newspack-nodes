@@ -420,7 +420,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * renders the .tsl graph alongside the live fleet so operators see node
 	 * wiring next to worker status.
 	 *
-	 * @return array<string,array{nodes: list<array<string,int|string>>, edges: list<array{0:string,1:string}>}>
+	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}>
 	 */
 	private static function collect_topology_graphs(): array {
 		$graphs = [];
@@ -453,7 +453,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		}
 		foreach ( self::collect_topology_graphs() as $graph ) {
 			foreach ( $graph['nodes'] as $node ) {
-				if ( 'log' !== ( $node['kind'] ?? '' ) || ! isset( $node['path'] ) ) {
+				if ( 'log' !== ( $node['kind'] ?? '' ) || ! isset( $node['path'] ) || ! \is_scalar( $node['path'] ) ) {
 					continue;
 				}
 				$path = self::resolve_path_token( (string) $node['path'] );

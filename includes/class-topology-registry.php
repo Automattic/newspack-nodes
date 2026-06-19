@@ -26,7 +26,7 @@ class Topology_Registry {
 	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
 	private static array $write_set_cache = [];
 
-	/** @var array<string,array{nodes:list<array<string,int|string>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name. */
+	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
 	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name; cleared by reset_basename_cache(). */
@@ -342,11 +342,12 @@ class Topology_Registry {
 
 	/**
 	 * Raw structural graph for `$name` from its TSL: nodes with a class-derived
-	 * kind (+ the log a Partition/Topic writes or a Consumer reads, from the
-	 * path/source ARG — never a name suffix), and edges from `connect_node` plus
+	 * kind, the make_node `type` token + positional `args` list, (+ the log a
+	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
+	 * a name suffix), and edges from `connect_node` plus
 	 * `cmd <node>:config set_*_target <target>`. Memoized.
 	 *
-	 * @return array{nodes: list<array<string,int|string>>, edges: list<array{0:string,1:string}>}
+	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
 	 */
 	public static function graph_for( string $name ): array {
 		if ( isset( self::$graph_cache[ $name ] ) ) {
@@ -381,9 +382,14 @@ class Topology_Registry {
 			}
 			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
 				$kind = $kind_of( $m[1] );
-				$node = [
+				// Tokens 3.. are the positional args after the type + node name; carried so
+				// a CI (e.g. Aggregator_CI) can discover a wired custom node's config.
+				$tokens = \preg_split( '/\s+/', $line ) ?: [];
+				$node   = [
 					'name' => $m[2],
 					'kind' => $kind,
+					'type' => $m[1],
+					'args' => \array_slice( $tokens, 3 ),
 				];
 				if ( ( 'partition' === $kind || 'topic' === $kind ) && isset( $m[3] ) ) {
 					$node['writes'] = $basename( $m[3] );
@@ -392,7 +398,6 @@ class Topology_Registry {
 				} elseif ( 'log' === $kind && isset( $m[3] ) ) {
 					// make_node Log <name> <file> [segment_size] [num_segments].
 					// Carry the raw path + sizes so dump_graph can stat the flat segments.
-					$tokens               = \preg_split( '/\s+/', $line ) ?: [];
 					$node['writes']       = $basename( $m[3] );
 					$node['path']         = $m[3];
 					$node['segment_size'] = isset( $tokens[4] ) && \ctype_digit( $tokens[4] ) ? (int) $tokens[4] : 0;
