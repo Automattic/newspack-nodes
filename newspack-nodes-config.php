@@ -39,6 +39,8 @@ return [
 	'topologies'       => [],
 
 	// Vault — encrypted aggregator-server registry (managed via the Vault API).
-	'vault'            => [],
-	'vault_verify_ssl' => true,
+	'vault'               => [],
+	'vault_verify_ssl'    => true,
+	// Refuse outbound POSTs (HTTP_Out) to a plaintext spoke when true.
+	'vault_require_https' => false,
 ];
