@@ -533,29 +533,54 @@ function VerbRow( {
 	invocation,
 	onToggle,
 	onArgChange,
+	onRemove,
+	multiple = false,
 	nodeNames = [],
 	formatters = [],
 } ) {
 	const checked = !! invocation;
 	const id = `topology-verb-${ spec.name }`;
+	// A `multiple` verb has one row per invocation (always present, removable),
+	// not a single checkbox — the operator wires N independent mappings.
+	const showArgs =
+		( multiple || checked ) &&
+		invocation &&
+		spec.args &&
+		spec.args.length > 0;
 	return (
 		<div className="topology-edit-verb">
-			<label
-				className="topology-edit-row"
-				htmlFor={ id }
-				aria-label={ spec.name }
-			>
-				<input
-					id={ id }
-					type="checkbox"
-					checked={ checked }
-					onChange={ ( e ) => onToggle( e.target.checked ) }
-				/>
-				<span className="topology-edit-row__label">
-					<code>{ spec.name }</code>
-				</span>
-			</label>
-			{ checked && spec.args && spec.args.length > 0 && (
+			{ multiple ? (
+				<div className="topology-edit-row">
+					<span className="topology-edit-row__label">
+						<code>{ spec.name }</code>
+					</span>
+					<button
+						type="button"
+						className="topology-edit-verb__remove"
+						aria-label={ `Remove ${ spec.name }` }
+						onClick={ onRemove }
+					>
+						×
+					</button>
+				</div>
+			) : (
+				<label
+					className="topology-edit-row"
+					htmlFor={ id }
+					aria-label={ spec.name }
+				>
+					<input
+						id={ id }
+						type="checkbox"
+						checked={ checked }
+						onChange={ ( e ) => onToggle( e.target.checked ) }
+					/>
+					<span className="topology-edit-row__label">
+						<code>{ spec.name }</code>
+					</span>
+				</label>
+			) }
+			{ showArgs && (
 				<div className="topology-edit-verb__args">
 					{ spec.args.map( ( arg, i ) => (
 						<CtorField
@@ -870,6 +895,80 @@ function EditForm( {
 						</div>
 					) }
 					{ commandSpecs.map( ( cspec ) => {
+						// A `multiple` verb wires N independent invocations (e.g.
+						// settings-sync's 13 add_setting mappings): render a row per
+						// invocation + an Add button, not one checkbox.
+						if ( cspec.multiple ) {
+							const invIdxs = verbInvocations
+								.map( ( inv, i ) =>
+									inv.verb === cspec.name ? i : -1
+								)
+								.filter( ( i ) => i >= 0 );
+							const handleAdd = () => {
+								if ( ! onUpdateVerbs ) {
+									return;
+								}
+								onUpdateVerbs( node.id, [
+									...verbInvocations,
+									{
+										verb: cspec.name,
+										args: ( cspec.args || [] ).map(
+											() => ''
+										),
+									},
+								] );
+							};
+							return (
+								<div
+									key={ cspec.name }
+									className="topology-edit-verb-group"
+								>
+									{ invIdxs.map( ( invIdx ) => (
+										<VerbRow
+											key={ invIdx }
+											spec={ cspec }
+											invocation={
+												verbInvocations[ invIdx ]
+											}
+											multiple
+											nodeNames={ nodeNames }
+											formatters={ formatters }
+											onArgChange={ ( argIdx, value ) => {
+												if ( ! onUpdateVerbs ) {
+													return;
+												}
+												const next =
+													verbInvocations.slice();
+												const args =
+													next[ invIdx ].args.slice();
+												args[ argIdx ] = value;
+												next[ invIdx ] = {
+													...next[ invIdx ],
+													args,
+												};
+												onUpdateVerbs( node.id, next );
+											} }
+											onRemove={ () => {
+												if ( ! onUpdateVerbs ) {
+													return;
+												}
+												const next =
+													verbInvocations.slice();
+												next.splice( invIdx, 1 );
+												onUpdateVerbs( node.id, next );
+											} }
+										/>
+									) ) }
+									<button
+										type="button"
+										className="topology-edit-verb__add"
+										onClick={ handleAdd }
+									>
+										{ `+ Add ${ cspec.name }` }
+									</button>
+								</div>
+							);
+						}
 						const idx = verbInvocations.findIndex(
 							( inv ) => inv.verb === cspec.name
 						);
