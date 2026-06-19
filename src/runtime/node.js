@@ -279,7 +279,7 @@ export class Node {
 		const next = '' === from ? name : `${ name }/${ from }`;
 		if ( next.length > MAX_FROM_SIZE ) {
 			// Rate-limit: a routing cycle could trigger this per-message.
-			this.print_less_often(
+			this.printLessOften(
 				`ERROR: path exceeded ${ MAX_FROM_SIZE } bytes; dropping from: ${ next }`
 			);
 			return false;
@@ -290,11 +290,9 @@ export class Node {
 
 	// Drop a message with a rate-limited audit line (Perl/PHP Node::drop_message):
 	// "WARNING: <error> - <types> [from: …] [to: …] [payload: …]". A NOT_AVAILABLE
-	// drop within the first 300s of uptime uses the rarer print_least_often (it
-	// dampens boot-time noise from not-yet-registered nodes); else print_less_often.
-	// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl). VALUE is included only
-	// for payload-bearing types; an object VALUE is JSON-rendered (the substrate's
-	// structured-VALUE analogue of Perl's string PAYLOAD).
+	// drop uses printLessOften. NOT_AVAILABLE keeps no "WARNING:" prefix (matches
+	// Perl). VALUE is included only for payload-bearing types; an object VALUE is
+	// JSON-rendered (the substrate's structured-VALUE analogue of Perl's string PAYLOAD).
 	dropMessage( message, error ) {
 		const type = message[ TYPE ];
 		const labels = [];
@@ -326,11 +324,7 @@ export class Node {
 		}
 		const line = parts.join( ' ' );
 
-		if ( 'NOT_AVAILABLE' === error && Core.now() - Core.initTime < 300 ) {
-			this.print_least_often( line );
-			return;
-		}
-		this.print_less_often( line );
+		this.printLessOften( line );
 	}
 
 	// Emit a stderr line tagged with this node's midfix, via Core's stderr sink.
@@ -348,12 +342,8 @@ export class Node {
 
 	// Node-keyed rate-limited logging (per-node via log_midfix), routed through
 	// Core's limiters so the dedup key + emitted line both carry this node's tag.
-	print_less_often( text ) {
+	printLessOften( text ) {
 		Core.printLessOften( this.log_midfix( text ) );
-	}
-
-	print_least_often( text ) {
-		Core.printLeastOften( this.log_midfix( text ) );
 	}
 
 	// Per-node mid-line tag (Tachikoma Node::log_midfix): `{name}: ` on each line,

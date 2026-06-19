@@ -366,7 +366,7 @@ describe( 'HttpOut', () => {
 			expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		} );
 
-		it( 'surfaces a postBatch rejection via print_less_often (no silent swallow)', async () => {
+		it( 'surfaces a postBatch rejection via printLessOften (no silent swallow)', async () => {
 			const node = new HttpOutNode();
 			node.name = '_http';
 			node.client = {
@@ -375,7 +375,7 @@ describe( 'HttpOut', () => {
 					Promise.reject( new Error( 'boom 502 from /command' ) ),
 			};
 			const spy = jest
-				.spyOn( node, 'print_less_often' )
+				.spyOn( node, 'printLessOften' )
 				.mockImplementation( () => {} );
 			node.fill( routed( { to: 'demo.p0' } ) );
 			await new Promise( ( r ) => setTimeout( r, 0 ) );

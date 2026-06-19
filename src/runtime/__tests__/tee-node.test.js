@@ -81,7 +81,7 @@ test( 'fill logs and continues when a routed target throws', () => {
 	t.sink = sink;
 	t.target = [ '_router/a' ];
 	const spy = jest
-		.spyOn( t, 'print_less_often' )
+		.spyOn( t, 'printLessOften' )
 		.mockImplementation( () => {} );
 
 	t.fill( newMessage() );

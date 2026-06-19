@@ -4,16 +4,19 @@ import { TYPE, FROM, TO, TM_ERROR } from './message';
 export class EchoNode extends Node {
 	fill( message ) {
 		const to = message[ TO ];
-		const owner = this.target;
-		// Symlink (owner/to) + loopback (TO=FROM); only a pathless pure
+		// Symlink (this.target/to) + loopback (TO=FROM); only a pathless pure
 		// TM_ERROR is dropped (Tachikoma Echo.pm).
 		if ( message[ TYPE ] === TM_ERROR && '' === to ) {
 			return;
 		}
-		if ( 'string' === typeof owner && '' !== owner && '' !== to ) {
-			message[ TO ] = `${ owner }/${ to }`;
+		if (
+			'string' === typeof this.target &&
+			'' !== this.target &&
+			'' !== to
+		) {
+			message[ TO ] = `${ this.target }/${ to }`;
 		} else if (
-			( 'string' !== typeof owner || '' === owner ) &&
+			( 'string' !== typeof this.target || '' === this.target ) &&
 			'' === to
 		) {
 			message[ TO ] = message[ FROM ];

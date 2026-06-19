@@ -6,13 +6,13 @@ beforeEach( () => Core.reset() );
 
 // dropMessage mirrors Perl/PHP Node::drop_message: a rate-limited audit line
 // "WARNING: <error> - <types> [from: …] [to: …] [payload: …]", with NOT_AVAILABLE
-// during the first 300s of uptime routed to the rarer print_least_often.
+// routed to printLessOften.
 describe( 'Node.dropMessage', () => {
-	it( 'emits "WARNING: <error> - <type>" via print_less_often', () => {
+	it( 'emits "WARNING: <error> - <type>" via printLessOften', () => {
 		const n = new Node();
 		n.name = 'q';
 		const spy = jest
-			.spyOn( n, 'print_less_often' )
+			.spyOn( n, 'printLessOften' )
 			.mockImplementation( () => {} );
 		const m = [];
 		m[ TYPE ] = TM_BYTESTREAM;
@@ -28,7 +28,7 @@ describe( 'Node.dropMessage', () => {
 	it( 'omits from:/to: when both are empty', () => {
 		const n = new Node();
 		const spy = jest
-			.spyOn( n, 'print_less_often' )
+			.spyOn( n, 'printLessOften' )
 			.mockImplementation( () => {} );
 		const m = [];
 		m[ TYPE ] = TM_BYTESTREAM;
@@ -44,7 +44,7 @@ describe( 'Node.dropMessage', () => {
 	it( 'includes from:/to: when present', () => {
 		const n = new Node();
 		const spy = jest
-			.spyOn( n, 'print_less_often' )
+			.spyOn( n, 'printLessOften' )
 			.mockImplementation( () => {} );
 		const m = [];
 		m[ TYPE ] = TM_INFO;
@@ -60,7 +60,7 @@ describe( 'Node.dropMessage', () => {
 	it( 'renders an object VALUE as JSON in the payload (payload-bearing type)', () => {
 		const n = new Node();
 		const spy = jest
-			.spyOn( n, 'print_less_often' )
+			.spyOn( n, 'printLessOften' )
 			.mockImplementation( () => {} );
 		const m = [];
 		m[ TYPE ] = TM_INFO;
@@ -74,7 +74,7 @@ describe( 'Node.dropMessage', () => {
 	it( 'omits payload for a pure control type (TM_BYTESTREAM)', () => {
 		const n = new Node();
 		const spy = jest
-			.spyOn( n, 'print_less_often' )
+			.spyOn( n, 'printLessOften' )
 			.mockImplementation( () => {} );
 		const m = [];
 		m[ TYPE ] = TM_BYTESTREAM;
@@ -89,7 +89,7 @@ describe( 'Node.dropMessage', () => {
 		const n = new Node();
 		jest.spyOn( Core, 'now' ).mockReturnValue( Core.initTime + 1000 );
 		const spy = jest
-			.spyOn( n, 'print_less_often' )
+			.spyOn( n, 'printLessOften' )
 			.mockImplementation( () => {} );
 		const m = [];
 		m[ TYPE ] = TM_INFO;
@@ -102,33 +102,11 @@ describe( 'Node.dropMessage', () => {
 		expect( line ).not.toContain( 'WARNING: NOT_AVAILABLE' );
 	} );
 
-	it( 'routes NOT_AVAILABLE within the first 300s of uptime to print_least_often', () => {
+	it( 'routes NOT_AVAILABLE to printLessOften', () => {
 		const n = new Node();
 		jest.spyOn( Core, 'now' ).mockReturnValue( Core.initTime + 100 );
 		const less = jest
-			.spyOn( n, 'print_less_often' )
-			.mockImplementation( () => {} );
-		const least = jest
-			.spyOn( n, 'print_least_often' )
-			.mockImplementation( () => {} );
-		const m = [];
-		m[ TYPE ] = TM_INFO;
-		m[ FROM ] = '';
-		m[ TO ] = 'nobody-home';
-		m[ VALUE ] = '';
-		n.dropMessage( m, 'NOT_AVAILABLE' );
-		expect( least ).toHaveBeenCalledTimes( 1 );
-		expect( less ).not.toHaveBeenCalled();
-	} );
-
-	it( 'routes NOT_AVAILABLE after 300s of uptime to print_less_often', () => {
-		const n = new Node();
-		jest.spyOn( Core, 'now' ).mockReturnValue( Core.initTime + 301 );
-		const less = jest
-			.spyOn( n, 'print_less_often' )
-			.mockImplementation( () => {} );
-		const least = jest
-			.spyOn( n, 'print_least_often' )
+			.spyOn( n, 'printLessOften' )
 			.mockImplementation( () => {} );
 		const m = [];
 		m[ TYPE ] = TM_INFO;
@@ -137,6 +115,5 @@ describe( 'Node.dropMessage', () => {
 		m[ VALUE ] = '';
 		n.dropMessage( m, 'NOT_AVAILABLE' );
 		expect( less ).toHaveBeenCalledTimes( 1 );
-		expect( least ).not.toHaveBeenCalled();
 	} );
 } );
