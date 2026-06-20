@@ -1,9 +1,9 @@
 /**
- * SseInNode node tests — the `_sse` console node. It is the runtime SseConnector
- * named for the console graph: opens an EventSource, snoops the `connected`
- * envelope for `pid()`, and fills each parsed positional Message into its sink
- * (`_router`, NOT the Dumper). A thin subclass so the published runtime keeps
- * its generic SseConnector primitive.
+ * SseInNode tests — the SSE receive-ingress node. It is the runtime SseConnector
+ * (opens an EventSource, snoops the `connected` envelope for `pid()`) and forwards
+ * each parsed positional Message into its sink. Composed UNNAMED by RemoteLink;
+ * receive-only (no `fill()` override — inbound frames route via the connector's
+ * own EventSource listener → `super.fill`).
  */
 
 import { SseInNode } from '../sse-in-node';
@@ -13,15 +13,11 @@ import { Core } from '../core';
 import {
 	newMessage,
 	TYPE,
-	FROM,
-	TO,
 	KEY,
 	VALUE,
 	TM_INFO,
-	TM_COMMAND,
 	TM_BYTESTREAM,
 } from '../message';
-import names from '../reserved-node-names.json';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -47,7 +43,6 @@ beforeEach( () => {
 
 function makeSseIn() {
 	const sse = new SseInNode();
-	sse.name = '_sse'; // needed so the incoming-stamp breadcrumb has a name
 	sse.arguments = 'demo.p0 /wp-json/ NONCE';
 	const router = new Node();
 	const routed = [];
@@ -93,46 +88,6 @@ describe( 'SseInNode', () => {
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=demo.p0' );
 	} );
 
-	it( 'routes an incoming reply by TO and stamps the _sse provenance breadcrumb', () => {
-		const { sse, routed } = makeSseIn();
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = '_command_interpreter';
-		m[ TO ] = names.OUTPUT;
-		sse.fill( m );
-		expect( routed[ 0 ][ FROM ] ).toBe( '_sse/_command_interpreter' );
-		expect( routed[ 0 ][ TO ] ).toBe( names.OUTPUT );
-	} );
-
-	// The outgoing reply-FROM wrap moved up into RemoteIpc (which owns its own
-	// HttpOut). SseIn is now receive-only: a reply-node FROM is treated like any
-	// incoming message — breadcrumb-stamped and routed by TO, never wrapped into
-	// `_sse:{pid}` and never re-pointed at `_http`.
-	it( 'does NOT wrap a reply-node FROM (receive-only — the wrap moved to RemoteIpc)', () => {
-		const { sse, routed } = makeSseIn();
-		sse.start();
-		sse.setState( 'connected', { pid: 4242, slot: 1 } );
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = names.OUTPUT;
-		m[ TO ] = 'firehose-workers.p0';
-		sse.fill( m );
-		expect( routed[ 0 ][ FROM ] ).toBe( `_sse/${ names.OUTPUT }` );
-		expect( routed[ 0 ][ TO ] ).toBe( 'firehose-workers.p0' );
-	} );
-
-	it( 'strips its own _sse:{pid} head from an intaken POST reply, then routes', () => {
-		const { sse, routed } = makeSseIn();
-		sse.start();
-		sse.setState( 'connected', { pid: 4242, slot: 1 } );
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = '_command_interpreter';
-		m[ TO ] = `${ names.SSE }:4242/${ names.METADATA }`; // unstripped (synchronous POST)
-		sse.fill( m );
-		expect( routed[ 0 ][ TO ] ).toBe( names.METADATA );
-	} );
-
 	describe( 'no-arg ctor + schema-driven arguments', () => {
 		it( 'constructs with no args (deps come via arguments=)', () => {
 			const sse = new SseInNode();
@@ -150,21 +105,19 @@ describe( 'SseInNode', () => {
 			] );
 		} );
 
-		// accepts_fill is a UI wireability hint, not a claim about the runtime fill().
-		// SseIn HAS a receive-side fill(), but you can't drag a connection into it in
-		// the editor (it's composed by RemoteLink, not wired by hand), so it's false.
-		it( 'declares accepts_fill:false (not a drag-into target despite a runtime fill)', () => {
+		// accepts_fill is a UI wireability hint: SseIn is a pure ingress source
+		// composed by RemoteLink, not a drag-into target, so it's false.
+		it( 'declares accepts_fill:false (pure ingress source)', () => {
 			expect( SseInNode.nodeSchema().accepts_fill ).toBe( false );
 		} );
 
-		it( 'declares has_target:true (_sse forwards the outgoing/reply leg)', () => {
+		it( 'declares has_target:true (forwards received frames to its target)', () => {
 			expect( SseInNode.nodeSchema().has_target ).toBe( true );
 		} );
 
-		it( 'describes itself as receive-only ingress composed by RemoteLink', () => {
+		it( 'describes itself as receive-only ingress', () => {
 			const { description } = SseInNode.nodeSchema();
 			expect( description ).toMatch( /receive/i );
-			expect( description ).toContain( ':sse-in' );
 			expect( description ).not.toMatch( /[Bb]idirectional/ );
 		} );
 
@@ -184,7 +137,6 @@ describe( 'SseInNode', () => {
 
 		it( 'opens the EventSource using arguments-assigned config', () => {
 			const sse = new SseInNode();
-			sse.name = '_sse';
 			sse.arguments = 'demo.p0 /wp-json/ NONCE';
 			sse.start();
 			expect( FakeEventSource.last.url ).toContain(

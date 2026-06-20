@@ -12,7 +12,7 @@ import { CompletionNode } from '../runtime/completion-node';
 import { HeartbeatNode } from '../runtime/heartbeat-node';
 import { HttpOutNode } from '../runtime/http-out-node';
 import { SseInNode } from '../runtime/sse-in-node';
-import { RemoteIpcNode } from '../runtime/remote-ipc';
+import { RemoteIpcNode } from '../runtime/remote-ipc-node';
 
 Object.assign( CommandInterpreterNode.includeNodes, {
 	Dumper: DumperNode,

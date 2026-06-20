@@ -7,7 +7,7 @@ import '../includeConsoleNodes';
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { Core } from '../../runtime/core';
 import { MetadataNode } from '../../runtime/metadata-node';
-import { RemoteIpcNode } from '../../runtime/remote-ipc';
+import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 
 beforeEach( () => Core.reset() );
 

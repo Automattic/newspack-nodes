@@ -22,7 +22,7 @@ import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
-import { RemoteIpcNode } from '../../runtime/remote-ipc';
+import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { getCommandClient } from '../utils/commandClient';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';

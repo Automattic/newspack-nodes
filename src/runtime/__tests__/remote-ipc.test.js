@@ -2,18 +2,22 @@
  * RemoteIpcNode tests — the per-worker interactive command channel.
  *
  * One RemoteIpc per active worker, named `{topology}.p{N}`. It EXTENDS RemoteLink
- * (composing a SseIn + HttpOut + Heartbeat + the connected→slot bridge), adding
- * the worker-relay send + the single live-connection steal. A send boots/steals
- * the single live EventSource (closing whichever RemoteIpc held it — the same swap
- * the console does when the cwd changes worker), then routes `[connect_worker_input
- * → topologies, command → {bare reader}]` through its OWN HttpOut as ONE POST.
- * The reply-node FROM wrap (`_sse:{pid}/{node}`) — the server's HTTP_Filter wire
- * contract — lives here now.
+ * but overrides the child composition for the console: it owns an UNNAMED SseIn
+ * (an internal per-worker stream — unregistered, so it never churns the canvas
+ * layout) and SHARES the reserved-name `_http` (HttpOut) + `_heartbeat`
+ * (Heartbeat) singletons with every other RemoteIpc (stable names; `/_http`
+ * resolves). It adds the worker-relay send + the single live-connection steal.
+ * A send boots/steals the single live EventSource (closing whichever RemoteIpc
+ * held it), then routes `[connect_worker_input → topologies, command → {bare
+ * reader}]` through the shared `_http` as ONE POST. The reply-node FROM wrap
+ * (`_sse:{pid}/{node}`) — the server's HTTP_Filter wire contract — lives here.
  */
 
-import { RemoteIpcNode } from '../remote-ipc';
-import { RemoteLinkNode } from '../remote-link';
+import { RemoteIpcNode } from '../remote-ipc-node';
+import { RemoteLinkNode } from '../remote-link-node';
 import { SseInNode } from '../sse-in-node';
+import { HttpOutNode } from '../http-out-node';
+import { HeartbeatNode } from '../heartbeat-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { mountExospine } from '../exospine';
 import { Core } from '../core';
@@ -38,18 +42,19 @@ class FakeEventSource {
 	}
 }
 
+let posted;
+
 beforeEach( () => {
 	Core.reset();
 	global.EventSource = FakeEventSource;
 	RemoteIpcNode.active = null;
+	posted = [];
 } );
 
-// A RemoteIpc named for `reader`, wired to the exospine interpreter (the real
-// graph routes its sends through its OWN composed HttpOut, whose client is a
-// capturing fake — sends land in `posted`).
-function makeRemoteIpc( reader ) {
-	const { interpreter } = mountExospine();
-	const posted = [];
+// A RemoteIpc named for `reader`, wired to a shared exospine interpreter. Its
+// sends route through the shared `_http` HttpOut, whose client is a capturing
+// fake — sends land in the shared `posted`.
+function makeRemoteIpc( reader, interpreter ) {
 	const node = new RemoteIpcNode();
 	node.name = reader;
 	node.sink = interpreter;
@@ -60,7 +65,7 @@ function makeRemoteIpc( reader ) {
 		},
 	};
 	node.arguments = `${ reader } /wp-json/ NONCE`;
-	return { node, posted };
+	return node;
 }
 
 function command( { from = '', to = '' } = {} ) {
@@ -79,16 +84,36 @@ describe( 'RemoteIpcNode', () => {
 		);
 	} );
 
-	it( 'composes via RemoteLink (instanceof RemoteLinkNode, owns a SseIn)', () => {
-		const { node } = makeRemoteIpc( 'aggregator.p0' );
+	it( 'extends RemoteLink and owns an UNNAMED SseIn (not registered in Core)', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		expect( node ).toBeInstanceOf( RemoteLinkNode );
 		node.fill( command() );
 		expect( node.sseIn ).toBeInstanceOf( SseInNode );
 		expect( node.sseIn.sink ).toBe( node.sink );
+		// Unnamed: the old per-worker `{reader}:sse-in` node is gone.
+		expect( Core.node( 'aggregator.p0:sse-in' ) ).toBe( null );
+	} );
+
+	it( 'shares the reserved `_http` + `_heartbeat` singletons across RemoteIpcs', () => {
+		const { interpreter } = mountExospine();
+		const a = makeRemoteIpc( 'aggregator.p0', interpreter );
+		const b = makeRemoteIpc( 'combined.p0', interpreter );
+		a.fill( command() );
+		b.fill( command() );
+		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
+		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
+		// No per-worker child nodes (the churn the unnamed/shared design removes).
+		expect( Core.node( 'aggregator.p0:http' ) ).toBe( null );
+		expect( Core.node( 'combined.p0:heartbeat' ) ).toBe( null );
+		expect( a.httpOut ).toBe( b.httpOut );
+		expect( a.httpOut ).toBe( Core.node( names.HTTP ) );
+		expect( a.heartbeat ).toBe( b.heartbeat );
 	} );
 
 	it( 'boots its SseIn on the first send, subscribed to its worker', () => {
-		const { node } = makeRemoteIpc( 'aggregator.p0' );
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
 		expect( FakeEventSource.last.url ).toContain(
 			'newspack-nodes/v1/messages/stream'
@@ -100,18 +125,20 @@ describe( 'RemoteIpcNode', () => {
 	} );
 
 	it( 'steals the single live connection from the previous RemoteIpc', () => {
-		const a = makeRemoteIpc( 'aggregator.p0' );
-		a.node.fill( command() );
+		const { interpreter } = mountExospine();
+		const a = makeRemoteIpc( 'aggregator.p0', interpreter );
+		a.fill( command() );
 		const aEs = FakeEventSource.last;
-		const b = makeRemoteIpc( 'combined.p0' );
-		b.node.fill( command() );
+		const b = makeRemoteIpc( 'combined.p0', interpreter );
+		b.fill( command() );
 		expect( aEs.closed ).toBe( true );
-		expect( RemoteIpcNode.active ).toBe( b.node );
+		expect( RemoteIpcNode.active ).toBe( b );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=combined.p0' );
 	} );
 
-	it( 'bundles connect_worker_input before the command, through its own HttpOut', () => {
-		const { node, posted } = makeRemoteIpc( 'aggregator.p0' );
+	it( 'bundles connect_worker_input before the command, through the shared `_http`', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
 		expect( posted ).toHaveLength( 2 );
 		expect( posted[ 0 ][ VALUE ] ).toEqual( {
@@ -123,8 +150,18 @@ describe( 'RemoteIpcNode', () => {
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0' );
 	} );
 
+	it( 'bridges its SseIn connected slot into the shared `_heartbeat`', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.fill( command() );
+		node.sseIn.setState( 'connected', { pid: 7, slot: 3, partition: 1 } );
+		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
+		expect( Core.node( names.HEARTBEAT ).partition ).toBe( 1 );
+	} );
+
 	it( 'wraps a reply-node FROM into the private _sse:{pid} pivot (pid from its SseIn)', () => {
-		const { node, posted } = makeRemoteIpc( 'aggregator.p0' );
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
 		node.sseIn.setState( 'connected', { pid: 4242, slot: 1 } );
 		posted.length = 0;
@@ -135,40 +172,72 @@ describe( 'RemoteIpcNode', () => {
 	} );
 
 	it( 'delegates pid() to its composed SseIn', () => {
-		const { node } = makeRemoteIpc( 'aggregator.p0' );
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
 		node.sseIn.setState( 'connected', { pid: 99, slot: 0 } );
 		expect( node.pid() ).toBe( 99 );
 	} );
 
 	it( 'appends a sub-node remainder to the command TO (bare reader/sub)', () => {
-		const { node, posted } = makeRemoteIpc( 'aggregator.p0' );
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command( { to: 'request-builder' } ) );
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0/request-builder' );
 	} );
 
-	it( 'leaves a non-reply FROM untouched (no pivot wrap)', () => {
-		const { node, posted } = makeRemoteIpc( 'aggregator.p0' );
+	it( 'wraps ANY non-empty FROM into the pivot (every worker reply needs demux)', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.fill( command() );
+		node.sseIn.setState( 'connected', { pid: 4242, slot: 1 } );
+		posted.length = 0;
 		node.fill( command( { from: '_command_interpreter' } ) );
-		expect( posted[ 1 ][ FROM ] ).toBe( '_command_interpreter' );
+		expect( posted[ 1 ][ FROM ] ).toBe(
+			`${ names.SSE }:4242/_command_interpreter`
+		);
+	} );
+
+	it( 'leaves an empty FROM unwrapped (no trailing-slash pivot)', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.fill( command( { from: '' } ) );
+		expect( posted[ 1 ][ FROM ] ).toBe( '' );
 	} );
 
 	it( 're-fill on the live node does not reopen the stream (idempotent connect)', () => {
-		const { node } = makeRemoteIpc( 'aggregator.p0' );
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
 		const first = FakeEventSource.last;
 		node.fill( command() );
 		expect( FakeEventSource.last ).toBe( first );
 	} );
 
-	it( 'tears down its composed children + releases the active claim on removeNode', () => {
-		const { node } = makeRemoteIpc( 'aggregator.p0' );
+	it( 'closes its stream + releases active on removeNode, leaving the shared singletons', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
-		expect( Core.node( 'aggregator.p0:sse-in' ) ).toBeInstanceOf(
-			SseInNode
-		);
+		const es = FakeEventSource.last;
 		node.removeNode();
-		expect( Core.node( 'aggregator.p0:sse-in' ) ).toBe( null );
+		expect( es.closed ).toBe( true );
 		expect( RemoteIpcNode.active ).toBe( null );
+		// The shared boundary nodes are owned by the graph, not the link.
+		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
+		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
+		// The RemoteIpc itself is unregistered.
+		expect( Core.node( 'aggregator.p0' ) ).toBe( null );
+	} );
+
+	it( 'clears the shared slot on removeNode only when it was the active link', () => {
+		const { interpreter } = mountExospine();
+		const a = makeRemoteIpc( 'aggregator.p0', interpreter );
+		const b = makeRemoteIpc( 'combined.p0', interpreter );
+		a.fill( command() );
+		b.fill( command() ); // b steals active
+		b.sseIn.setState( 'connected', { pid: 1, slot: 5, partition: 0 } );
+		// Removing the NON-active `a` must not clear b's live slot.
+		a.removeNode();
+		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 5 );
 	} );
 } );

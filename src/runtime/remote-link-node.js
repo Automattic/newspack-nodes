@@ -18,11 +18,13 @@
  * durable cursor, so JS ships only RemoteLink + RemoteIpc.
  */
 
+import { Core } from './core';
 import { Node } from './node';
 import { SseInNode } from './sse-in-node';
 import { HttpOutNode } from './http-out-node';
 import { HeartbeatNode } from './heartbeat-node';
 import { CommandClient } from './command_client';
+import names from './reserved-node-names.json';
 
 export class RemoteLinkNode extends Node {
 	constructor() {
@@ -43,17 +45,6 @@ export class RemoteLinkNode extends Node {
 		this.onClose = null;
 	}
 
-	// Names of the three composed children, derived from this link's name.
-	sseInName() {
-		return `${ this.name }:sse-in`;
-	}
-	httpName() {
-		return `${ this.name }:http`;
-	}
-	heartbeatName() {
-		return `${ this.name }:heartbeat`;
-	}
-
 	/**
 	 * Create + register the three children and wire the connected→slot bridge.
 	 * Idempotent — the first send() or connect() builds them; later calls no-op.
@@ -63,10 +54,7 @@ export class RemoteLinkNode extends Node {
 			return;
 		}
 
-		// Setting `.name` registers the node in Core (Node's name setter), so no
-		// explicit registerNode call — a second one would collide.
 		const sse = new SseInNode();
-		sse.name = this.sseInName();
 		sse.arguments = this.arguments; // `{subscribe} {baseUrl} {nonce}`
 		sse.sink = this.sink;
 		if ( this.target ) {
@@ -74,20 +62,30 @@ export class RemoteLinkNode extends Node {
 		}
 		this.sseIn = sse;
 
-		const http = new HttpOutNode();
-		http.name = this.httpName();
+		let http;
+		if ( Core.node( names.HTTP ) ) {
+			http = Core.node( names.HTTP );
+		} else {
+			http = new HttpOutNode();
+			http.name = names.HTTP;
+			http.sink = this.sink;
+		}
 		http.client =
 			this.client ||
 			new CommandClient( { baseUrl: sse.baseUrl, nonce: sse.nonce } );
-		http.sink = this.sink;
 		this.httpOut = http;
 
-		const hb = new HeartbeatNode();
-		hb.name = this.heartbeatName();
-		hb.sink = this.sink;
-		// Poke routes through THIS link's own HttpOut to the request-scope `workers` CI.
-		hb.target = `${ this.httpName() }/workers`;
-		hb.setTimer();
+		let hb;
+		if ( Core.node( names.HEARTBEAT ) ) {
+			hb = Core.node( names.HEARTBEAT );
+		} else {
+			hb = new HeartbeatNode();
+			hb.name = names.HEARTBEAT;
+			hb.sink = this.sink;
+			// Poke routes through THIS link's own HttpOut to the request-scope `workers` CI.
+			hb.target = `${ names.HTTP }/workers`;
+			hb.setTimer();
+		}
 		this.heartbeat = hb;
 
 		// Slot bridge: the SseIn's `connected` handshake carries the slot the
