@@ -8,7 +8,7 @@
  */
 
 import { HttpOutNode } from '../http-out-node';
-import { CommandClient } from '../command_client';
+import { CommandClient } from '../command-client';
 import {
 	newMessage,
 	TYPE,

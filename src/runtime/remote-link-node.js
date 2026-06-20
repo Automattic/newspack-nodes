@@ -23,7 +23,7 @@ import { Node } from './node';
 import { SseInNode } from './sse-in-node';
 import { HttpOutNode } from './http-out-node';
 import { HeartbeatNode } from './heartbeat-node';
-import { CommandClient } from './command_client';
+import { CommandClient } from './command-client';
 import names from './reserved-node-names.json';
 
 export class RemoteLinkNode extends Node {

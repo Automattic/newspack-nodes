@@ -39,7 +39,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { CommandClient } from '../../runtime/command_client';
+import { CommandClient } from '../../runtime/command-client';
 import {
 	newMessage,
 	TYPE,
