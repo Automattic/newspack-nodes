@@ -845,6 +845,17 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
 	} );
 
+	it( 'clicking New from live mode enters edit mode with a blank draft', async () => {
+		const { getByText } = render( <TopologyConsole /> );
+		expect( lastHeaderProps.mode ).toBe( 'view' );
+		await act( async () => {
+			fireEvent.click( getByText( 'new' ) );
+		} );
+		// New is a "start a fresh topology" affordance — it must switch into edit
+		// mode, not just blank the (unshown) draft while staying in live view.
+		expect( lastHeaderProps.mode ).toBe( 'edit' );
+	} );
+
 	it( 'switching to edit mode flips header + canvas + reveals palette', () => {
 		const { getByText, getByTestId, queryByTestId } = render(
 			<TopologyConsole />

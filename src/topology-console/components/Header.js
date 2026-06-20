@@ -146,6 +146,17 @@ export default function Header( {
 							{ __( 'DELETE', 'newspack-nodes' ) }
 						</button>
 					) }
+					{ /* NEW is available from live mode too (start a fresh
+					     topology); the editor's NEW lives in the edit toolbar above. */ }
+					{ mode !== 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--new"
+							onClick={ () => onNew && onNew() }
+						>
+							{ __( 'NEW', 'newspack-nodes' ) }
+						</button>
+					) }
 					{ canEdit && (
 						<button
 							type="button"
