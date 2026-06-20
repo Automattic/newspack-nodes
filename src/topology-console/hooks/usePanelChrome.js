@@ -66,8 +66,8 @@ function usePersistedCollapse( key, def ) {
  *
  * @param {Object}  opts                    Options.
  * @param {string}  opts.paletteKey         localStorage key for palette-collapsed.
- * @param {boolean} [opts.defaultCollapsed] Default when storage is empty (live: collapsed; edit: open).
- * @return {{ theme: string, onThemeChange: Function, paletteCollapsed: boolean, togglePaletteCollapsed: Function }} Theme + palette chrome.
+ * @param {boolean} [opts.defaultCollapsed] Palette default when storage is empty (live: collapsed; edit: open).
+ * @return {{ theme: string, onThemeChange: Function, paletteCollapsed: boolean, togglePaletteCollapsed: Function, inspectorCollapsed: boolean, toggleInspectorCollapsed: Function }} Theme + palette + inspector chrome.
  */
 export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 	const [ theme, setTheme ] = useState( readStoredTheme );
@@ -91,7 +91,8 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 		);
 	}, [ paletteKey, defaultCollapsed, setPaletteCollapsed ] );
 
-	// Inspector collapse — a single global preference (default expanded).
+	// Inspector collapse — a single global preference (default expanded), shared
+	// by the console and the overlay.
 	const [ inspectorCollapsed, , toggleInspectorCollapsed ] =
 		usePersistedCollapse( INSPECTOR_COLLAPSED_STORAGE_KEY, false );
 
