@@ -133,8 +133,11 @@ export class RemoteLinkNode extends Node {
 		return this.sseIn?.pid() ?? null;
 	}
 
-	// Tear down the children (unregister + close) then remove self.
+	// Tear down the children (unregister + close) then remove self. close() first
+	// because the children's removeNode (Node/TimerNode) unregisters but does NOT
+	// close the SseIn's live EventSource — teardown must, or the stream leaks.
 	removeNode() {
+		this.close();
 		this.sseIn?.unregister( 'connected', this.name );
 		this.heartbeat?.removeNode();
 		this.httpOut?.removeNode();
