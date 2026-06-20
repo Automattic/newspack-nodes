@@ -347,6 +347,7 @@ class CliTest extends TestCase {
 			'offset_dir' => 'firehose.p0', 'consumer' => 'firehose',
 			'cursor_seg' => 5, 'cursor_off' => 100, 'ts' => 1700000000.0,
 			'worker_type' => 'combined', 'source' => 'firehose.log',
+			'bytes_behind' => 4096, 'bytes_total' => 99999,
 		] );
 		$this->seed_probe_record( [
 			'offset_dir' => 'firehose.job-router.p0', 'consumer' => 'firehose.job-router',
@@ -364,6 +365,9 @@ class CliTest extends TestCase {
 		$this->assertSame( 'combined', $rows[0]['worker_type'] );
 		$this->assertSame( 5, $rows[0]['seg'] );
 		$this->assertSame( 100, $rows[0]['off'] );
+		// behind + total ride the row straight from the probe snapshot (no fresh stat).
+		$this->assertSame( 4096, $rows[0]['behind'] );
+		$this->assertSame( 99999, $rows[0]['total'] );
 		$this->assertSame( 'firehose.job-router', $rows[1]['source_basename'] );
 		$this->assertSame( 8, $rows[1]['seg'] );
 	}
@@ -375,62 +379,6 @@ class CliTest extends TestCase {
 			'cursor_seg' => 1, 'cursor_off' => 2, 'source' => 'orphan.log',
 		] );
 		$this->assertSame( [], ( new CLI( $this->tmp ) )->consumer_rows() );
-	}
-
-	// ── calculate_behind() ─────────────────────────────────────────────────────
-
-	public function test_calculate_behind_returns_zero_when_partition_dir_missing(): void {
-		$this->assertSame( 0, CLI::calculate_behind( "{$this->tmp}/missing", 0, 0 ) );
-	}
-
-	public function test_calculate_behind_returns_zero_when_no_segments(): void {
-		mkdir( "{$this->tmp}/p0", 0755, true );
-		$this->assertSame( 0, CLI::calculate_behind( "{$this->tmp}/p0", 0, 0 ) );
-	}
-
-	public function test_calculate_behind_sums_remaining_in_current_and_later_segments(): void {
-		mkdir( "{$this->tmp}/p0", 0755, true );
-		// Three 1KB segments: 0, 1, 2.
-		file_put_contents( "{$this->tmp}/p0/0.log", str_repeat( 'a', 1000 ) );
-		file_put_contents( "{$this->tmp}/p0/1.log", str_repeat( 'b', 2000 ) );
-		file_put_contents( "{$this->tmp}/p0/2.log", str_repeat( 'c', 500 ) );
-
-		// Cursor at seg=0 offset=200 → behind = 800 (seg 0) + 2000 + 500 = 3300.
-		$this->assertSame( 3300, CLI::calculate_behind( "{$this->tmp}/p0", 0, 200 ) );
-
-		// Cursor at end of seg 1 → behind = 0 + 500.
-		$this->assertSame( 500, CLI::calculate_behind( "{$this->tmp}/p0", 1, 2000 ) );
-
-		// Cursor caught up to end of seg 2 → 0.
-		$this->assertSame( 0, CLI::calculate_behind( "{$this->tmp}/p0", 2, 500 ) );
-	}
-
-	public function test_calculate_behind_handles_cursor_seg_not_present(): void {
-		// When cursor seg has been compacted away, all remaining segments count.
-		mkdir( "{$this->tmp}/p0", 0755, true );
-		file_put_contents( "{$this->tmp}/p0/5.log", str_repeat( 'x', 1000 ) );
-		file_put_contents( "{$this->tmp}/p0/6.log", str_repeat( 'y', 1000 ) );
-
-		// Cursor at seg 4 (no longer exists) → both later segs count.
-		$this->assertSame( 2000, CLI::calculate_behind( "{$this->tmp}/p0", 4, 0 ) );
-	}
-
-	public function test_calculate_behind_ignores_non_segment_files(): void {
-		mkdir( "{$this->tmp}/p0", 0755, true );
-		file_put_contents( "{$this->tmp}/p0/0.log", str_repeat( 'a', 100 ) );
-		file_put_contents( "{$this->tmp}/p0/foo.txt", str_repeat( 'b', 9999 ) );
-		file_put_contents( "{$this->tmp}/p0/index.html", str_repeat( 'c', 9999 ) );
-
-		// Only 0.log counts. Cursor at offset 50 → 50 bytes behind.
-		$this->assertSame( 50, CLI::calculate_behind( "{$this->tmp}/p0", 0, 50 ) );
-	}
-
-	public function test_calculate_behind_clamps_negative_remaining_to_zero(): void {
-		// Cursor offset > segment size (e.g., file truncated externally) → don't go negative.
-		mkdir( "{$this->tmp}/p0", 0755, true );
-		file_put_contents( "{$this->tmp}/p0/0.log", str_repeat( 'a', 100 ) );
-
-		$this->assertSame( 0, CLI::calculate_behind( "{$this->tmp}/p0", 0, 9999 ) );
 	}
 
 	// ── format_bytes() ─────────────────────────────────────────────────────────

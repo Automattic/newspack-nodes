@@ -703,7 +703,7 @@ class Consumer_Node extends Timer_Node {
 	 * readers + the dashboards index by (the node `name` is the transient identity;
 	 * the offset_dir is stable across respawns). Empty for an ephemeral consumer.
 	 *
-	 * @return array{consumer:string, offset_dir:string, source:string, cursor_seg:int, cursor_off:int, bytes_read:int, bytes_behind:int, msg_sent:int, worker_type:string}
+	 * @return array{consumer:string, offset_dir:string, source:string, cursor_seg:int, cursor_off:int, bytes_read:int, bytes_behind:int, bytes_total:int, msg_sent:int, worker_type:string}
 	 */
 	public function probe_stats(): array {
 		$lag = $this->compute_lag();
@@ -715,6 +715,7 @@ class Consumer_Node extends Timer_Node {
 			'cursor_off'   => $this->cursor_off,
 			'bytes_read'   => $this->bytes_read,
 			'bytes_behind' => $lag['bytes_behind'],
+			'bytes_total'  => $lag['bytes_total'],
 			'msg_sent'     => $this->counter,
 			'worker_type'  => self::worker_type_env(),
 			// Routing, for the dashboard's per-target fan-out (one row per
@@ -724,21 +725,25 @@ class Consumer_Node extends Timer_Node {
 		];
 	}
 
-	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool} */
+	/** @return array{bytes_behind: int, bytes_total: int, segments_behind: int, caught_up: bool} */
 	private function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true ];
+			return [ 'bytes_behind' => 0, 'bytes_total' => 0, 'segments_behind' => 0, 'caught_up' => true ];
 		}
 		// Recover a deleted/recreated cursor segment first so lag reflects the
 		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
 		$this->normalize_cursor( $segments );
 		$bytes_behind     = 0;
+		$bytes_total      = 0;
 		$segments_behind  = 0;
 		foreach ( $segments as $s ) {
 			$id   = $s['id'];
 			$size = $s['size'];
+			// Partition END, captured in the SAME read as the cursor below, so a
+			// dashboard never compares this snapshot's cursor to a fresher end.
+			$bytes_total += $size;
 			if ( $id < $this->cursor_seg ) {
 				continue;
 			}
@@ -753,6 +758,7 @@ class Consumer_Node extends Timer_Node {
 		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
 		return [
 			'bytes_behind'    => $bytes_behind,
+			'bytes_total'     => $bytes_total,
 			'segments_behind' => $segments_behind,
 			'caught_up'       => 0 === $bytes_behind,
 		];

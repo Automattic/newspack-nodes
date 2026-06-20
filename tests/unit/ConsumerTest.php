@@ -137,6 +137,15 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThan( 0, $stats['cursor_off'] );
 		$this->assertSame( $c->bytes_read(), $stats['bytes_read'] );
 		$this->assertSame( 0, $stats['bytes_behind'], 'caught up after pump' );
+		// bytes_total is the partition END captured in the SAME snapshot as the
+		// cursor (so the dashboard never compares a stale cursor to a live end).
+		// Caught up from the start → everything on disk has been consumed.
+		$this->assertGreaterThan( 0, $stats['bytes_total'] );
+		$this->assertSame(
+			$stats['bytes_read'],
+			$stats['bytes_total'],
+			'caught up: the partition total equals the consumed bytes'
+		);
 		$this->assertSame( 2, $stats['msg_sent'] );
 		// Routing rides along for the dashboard's per-target fan-out.
 		$this->assertArrayHasKey( 'target', $stats );

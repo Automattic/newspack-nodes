@@ -117,9 +117,11 @@ class WorkersCITest extends TestCase {
 			'cursor_off'  => $extra['off'] ?? 0,
 			'ts'          => \microtime( true ),
 			'source'      => $extra['source_log'] ?? '',
-			'target'      => $extra['target'] ?? '',
-			'targets'     => $extra['targets'] ?? [],
-			'worker_type' => $extra['worker_type'] ?? '',
+			'target'       => $extra['target'] ?? '',
+			'targets'      => $extra['targets'] ?? [],
+			'worker_type'  => $extra['worker_type'] ?? '',
+			'bytes_behind' => $extra['bytes_behind'] ?? 0,
+			'bytes_total'  => $extra['bytes_total'] ?? 0,
 		];
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -969,19 +971,22 @@ class WorkersCITest extends TestCase {
 		// the worker has checkpointed (matches `build_log_status_entry`'s
 		// conditional inclusion).
 		$base = $this->arrange_base_dir();
-		// Seed offsetlog metadata + heartbeat + the corresponding log
-		// segments so build_worker_status's Partition scan finds something.
+		// The probe snapshot carries the cursor AND the backlog (behind=150),
+		// measured together. The on-disk log segment (200B) feeds only the
+		// inputs_status segment list (build_log_status_entry), NOT the lag.
 		$this->seed_probe_record(
 			$base,
 			'firehose',
 			0,
 			[
-				'name'        => 'firehose:consumer',
-				'target'      => 'request-builder',
-				'targets'     => [ [ 'name' => 'request-builder' ] ],
-				'worker_type' => 'demo-workers',
-				'seg'         => 0,
-				'off'         => 50,
+				'name'         => 'firehose:consumer',
+				'target'       => 'request-builder',
+				'targets'      => [ [ 'name' => 'request-builder' ] ],
+				'worker_type'  => 'demo-workers',
+				'seg'          => 0,
+				'off'          => 50,
+				'bytes_behind' => 150,
+				'bytes_total'  => 200,
 			]
 		);
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
@@ -1006,10 +1011,9 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 0, $status['segments'][0]['id'] );
 		$this->assertSame( 200, $status['segments'][0]['size'] );
 		$this->assertSame( 200, $status['total_size'] );
-		// Cursor came from the on-disk offsetlog read.
+		// Cursor + behind both came from the probe snapshot, not a fresh stat.
 		$this->assertSame( 0, $row['cursor_seg'] );
 		$this->assertSame( 50, $row['cursor_offset'] );
-		// Behind = (200 - 50) = 150.
 		$this->assertSame( 150, $row['behind'] );
 	}
 

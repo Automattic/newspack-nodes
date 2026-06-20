@@ -166,7 +166,7 @@ class Worker_CLI_Command {
 				continue;
 			}
 			foreach ( $consumers as $cr ) {
-				$behind = self::consumer_behind( $cr, $base_dir );
+				$behind = self::consumer_behind( $cr );
 				$rows[] = self::status_row( $type, $p, $cr['source_basename'], $status, $uptime, $behind, $restart );
 			}
 		}
@@ -213,23 +213,15 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Bytes-behind for one Consumer, measured from its TopicProbe cursor (carried
-	 * on the `CLI::consumer_rows()` row) against the real source-log partition
-	 * dir. '-' when that dir doesn't exist yet.
+	 * Bytes-behind for one Consumer, straight off its `CLI::consumer_rows()` row —
+	 * the backlog the probe measured against the partition end in the SAME snapshot
+	 * as the cursor. NO fresh stat (which, vs a ~15s-old cursor, would overstate
+	 * the lag of a caught-up consumer).
 	 *
-	 * @param array{source_basename:string,partition:int,source_log:string,seg:int,off:int} $cr One `CLI::consumer_rows()` row.
+	 * @param array{behind:int} $cr One `CLI::consumer_rows()` row.
 	 */
-	private static function consumer_behind( array $cr, string $base_dir ): string {
-		$source_log = $cr['source_log'];
-
-		// Flat layout: source_log already carries the partition (`firehose.p<N>`),
-		// so it IS the segment dir — no `/p{partition}` to append.
-		$partition_dir = "{$base_dir}/logs/{$source_log}";
-		if ( '' === $source_log || ! \is_dir( $partition_dir ) ) {
-			return '-';
-		}
-		$bytes = CLI::calculate_behind( $partition_dir, $cr['seg'], $cr['off'] );
-		return CLI::format_bytes( $bytes );
+	private static function consumer_behind( array $cr ): string {
+		return CLI::format_bytes( $cr['behind'] );
 	}
 
 	/**
