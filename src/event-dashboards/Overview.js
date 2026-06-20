@@ -82,12 +82,20 @@ export default function Overview() {
 			<div className="nodes-overview__grid">
 				{ sorted.map( ( t ) => (
 					<div key={ t.name } className="nodes-overview__card">
-						<a
-							className="nodes-overview__name"
-							href={ consoleHref( t.name ) }
-						>
-							{ t.name }
-						</a>
+						{ t.active ? (
+							<a
+								className="nodes-overview__name"
+								href={ consoleHref( t.name ) }
+							>
+								{ t.name }
+							</a>
+						) : (
+							// Stopped: nothing live to open — plain label, not a
+							// live-mode link (Edit below still deep-links).
+							<span className="nodes-overview__name">
+								{ t.name }
+							</span>
+						) }
 						{ t.active ? (
 							<span
 								className={ `nodes-overview__health nodes-overview__health--${ t.health }` }

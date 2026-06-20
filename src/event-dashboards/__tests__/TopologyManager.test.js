@@ -214,6 +214,48 @@ test( 'renders every topology with its name and source badge', () => {
 	expect( container.querySelector( '.nodes-tm__badge--user' ) ).toBeTruthy();
 } );
 
+test( 'only the active topology links its name to live mode; the inactive one is plain text but keeps Edit', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 2,
+					status: activeStatus(),
+				},
+				{
+					name: 'beta',
+					source: 'user',
+					active: false,
+					num_partitions: 1,
+					status: null,
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+
+	const [ alphaName, betaName ] = [
+		...container.querySelectorAll( '.nodes-tm__name' ),
+	];
+	// Active → a live-mode link (topology= without edit=).
+	expect( alphaName.tagName ).toBe( 'A' );
+	expect( alphaName.getAttribute( 'href' ) ).toContain( 'topology=alpha' );
+	expect( alphaName.getAttribute( 'href' ) ).not.toContain( 'edit=1' );
+	// Inactive → plain text, no live-mode link.
+	expect( betaName.tagName ).not.toBe( 'A' );
+	expect( betaName.getAttribute( 'href' ) ).toBeNull();
+	// Both keep their Edit deep-link.
+	const editHrefs = [
+		...container.querySelectorAll( '.nodes-tm__edit' ),
+	].map( ( e ) => e.getAttribute( 'href' ) );
+	expect( editHrefs ).toHaveLength( 2 );
+	editHrefs.forEach( ( href ) => expect( href ).toContain( 'edit=1' ) );
+} );
+
 test( 'floats active topologies above inactive ones, alpha within each group', () => {
 	useTopologyManager.mockReturnValue(
 		hookValue( {
@@ -415,16 +457,16 @@ test( 'clicking the active toggle calls deactivate(name)', () => {
 	expect( value.activate ).not.toHaveBeenCalled();
 } );
 
-test( 'the topology name links to the console for that topology', () => {
+test( 'an active topology name links to the console for that topology', () => {
 	useTopologyManager.mockReturnValue(
 		hookValue( {
 			topologies: [
 				{
 					name: 'alpha',
 					source: 'stock',
-					active: false,
+					active: true,
 					num_partitions: 1,
-					status: null,
+					status: activeStatus(),
 				},
 			],
 		} )
