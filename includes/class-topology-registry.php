@@ -447,7 +447,7 @@ class Topology_Registry {
 			return;
 		}
 		if ( ! \in_array( $path, self::$stock_dirs, true ) ) {
-			self::$stock_dirs[] = $path;
+			\array_unshift( self::$stock_dirs, $path );
 		}
 	}
 

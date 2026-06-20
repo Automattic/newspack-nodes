@@ -128,7 +128,7 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertNull( Topology_Registry::synthesize_entry( 'no-such-topology' ) );
 	}
 
-	public function test_multiple_stock_dirs_first_wins(): void {
+	public function test_multiple_stock_dirs_last_wins(): void {
 		$second = $this->make_temp_dir( 'tsl-stock-2-' );
 		\file_put_contents( "{$second}/only-stock.tsl", '' );
 		Topology_Registry::register_stock_dir( $this->stock );
@@ -136,7 +136,7 @@ class TopologyRegistryTest extends TestCase {
 		Topology_Registry::register_user_dir( $this->user );
 
 		$this->assertSame(
-			"{$this->stock}/only-stock.tsl",
+			"{$second}/only-stock.tsl",
 			Topology_Registry::resolve( 'only-stock' )
 		);
 		$this->rmdir_recursive( $second );
