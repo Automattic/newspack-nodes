@@ -4,7 +4,12 @@ import {
 	useEffect,
 	useState,
 } from '@wordpress/element';
-import { DEFAULT_THEME, isValidTheme, THEME_STORAGE_KEY } from '../themes';
+import {
+	DEFAULT_THEME,
+	isValidTheme,
+	THEME_STORAGE_KEY,
+	INSPECTOR_COLLAPSED_STORAGE_KEY,
+} from '../themes';
 import withViewTransition from '../withViewTransition';
 
 // Read the persisted skin; unknown/absent/disabled storage falls back to default.
@@ -33,6 +38,26 @@ function readStoredPaletteCollapsed( key, def ) {
 	}
 }
 
+// A boolean collapse-state persisted to a localStorage key ('0' open / '1'
+// collapsed). Returns [value, toggle]; the palette + inspector share the recipe.
+function usePersistedCollapse( key, def ) {
+	const [ value, setValue ] = useState( () =>
+		readStoredPaletteCollapsed( key, def )
+	);
+	const toggle = useCallback( () => {
+		setValue( ( prev ) => {
+			const next = ! prev;
+			try {
+				window.localStorage.setItem( key, next ? '1' : '0' );
+			} catch ( _err ) {
+				// localStorage disabled/quota'd; in-session only.
+			}
+			return next;
+		} );
+	}, [ key ] );
+	return [ value, setValue, toggle ];
+}
+
 /**
  * Shared panel chrome for the debug overlay and topology console: the persisted
  * theme (always the global `THEME_STORAGE_KEY`, shared across both surfaces) plus
@@ -57,25 +82,25 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 			// localStorage disabled/quota'd; in-session only.
 		}
 	}, [] );
-	const [ paletteCollapsed, setPaletteCollapsed ] = useState( () =>
-		readStoredPaletteCollapsed( paletteKey, defaultCollapsed )
-	);
+	const [ paletteCollapsed, setPaletteCollapsed, togglePaletteCollapsed ] =
+		usePersistedCollapse( paletteKey, defaultCollapsed );
 	// Reload persisted state when the key changes (console mode switch).
 	useEffect( () => {
 		setPaletteCollapsed(
 			readStoredPaletteCollapsed( paletteKey, defaultCollapsed )
 		);
-	}, [ paletteKey, defaultCollapsed ] );
-	const togglePaletteCollapsed = useCallback( () => {
-		setPaletteCollapsed( ( prev ) => {
-			const next = ! prev;
-			try {
-				window.localStorage.setItem( paletteKey, next ? '1' : '0' );
-			} catch ( _err ) {
-				// localStorage disabled/quota'd; in-session only.
-			}
-			return next;
-		} );
-	}, [ paletteKey ] );
-	return { theme, onThemeChange, paletteCollapsed, togglePaletteCollapsed };
+	}, [ paletteKey, defaultCollapsed, setPaletteCollapsed ] );
+
+	// Inspector collapse — a single global preference (default expanded).
+	const [ inspectorCollapsed, , toggleInspectorCollapsed ] =
+		usePersistedCollapse( INSPECTOR_COLLAPSED_STORAGE_KEY, false );
+
+	return {
+		theme,
+		onThemeChange,
+		paletteCollapsed,
+		togglePaletteCollapsed,
+		inspectorCollapsed,
+		toggleInspectorCollapsed,
+	};
 }

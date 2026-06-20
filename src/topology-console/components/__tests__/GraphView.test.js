@@ -215,4 +215,31 @@ describe( 'GraphView', () => {
 		fireEvent.keyDown( document, { key: 'Delete' } );
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'n1' );
 	} );
+
+	it( 'inspector collapse: expanded shows Inspector + a Collapse toggle; collapsed shows an Expand rail (no Inspector)', () => {
+		const onInspectorToggle = jest.fn();
+		const { getByTestId, getByLabelText, queryByTestId, rerender } = render(
+			<GraphView
+				graph={ twoNodeGraph }
+				frame={ Frame }
+				selection="n2"
+				inspectorCollapsed={ false }
+				onInspectorToggle={ onInspectorToggle }
+			/>
+		);
+		expect( getByTestId( 'inspector' ) ).not.toBeNull();
+		fireEvent.click( getByLabelText( 'Collapse inspector' ) );
+		expect( onInspectorToggle ).toHaveBeenCalled();
+		rerender(
+			<GraphView
+				graph={ twoNodeGraph }
+				frame={ Frame }
+				selection="n2"
+				inspectorCollapsed
+				onInspectorToggle={ onInspectorToggle }
+			/>
+		);
+		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( getByLabelText( 'Expand inspector' ) ).not.toBeNull();
+	} );
 } );

@@ -2146,11 +2146,11 @@ describe( 'TopologyConsole boot', () => {
 		expect( typeof hooks.saveLayout ).toBe( 'function' );
 	} );
 
-	it( 'background-click-consumed callback can swallow the first click', () => {
+	it( 'canvas background click autoscales only (no transcript/inspector dismiss)', () => {
 		render( <TopologyConsole /> );
-		const fn = lastCanvasProps.onBackgroundClickConsumed;
-		expect( typeof fn ).toBe( 'function' );
-		expect( fn() ).toBe( false );
+		expect( lastCanvasProps.backgroundClickAutofitsOnly ).toBe( true );
+		// The repl-dismiss-on-canvas-click was removed, so no consumed handler.
+		expect( lastCanvasProps.onBackgroundClickConsumed ).toBeUndefined();
 	} );
 
 	it( 'toast clears after 5 seconds', () => {
