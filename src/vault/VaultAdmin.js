@@ -37,8 +37,52 @@ function errorMessage( err ) {
 }
 
 /**
- * Minimal confirm dialog — substrate plain-DOM modal (no @wordpress/components).
- * ESC and backdrop-click cancel; the confirm button focuses on mount.
+ * Substrate plain-DOM modal shell (no @wordpress/components): a backdrop + a
+ * role="dialog" box. ESC and backdrop-click invoke `onClose`. Callers own their
+ * own initial focus (so each modal focuses the element that fits it).
+ *
+ * @param {Object}                    props
+ * @param {string}                    props.ariaLabel Accessible dialog label.
+ * @param {Function}                  props.onClose   Dismiss handler (ESC / backdrop).
+ * @param {import('react').ReactNode} props.children  Dialog body.
+ * @return {import('react').ReactElement} The modal.
+ */
+function Modal( { ariaLabel, onClose, children } ) {
+	useEffect( () => {
+		const onKey = ( e ) => {
+			if ( 'Escape' === e.key ) {
+				e.preventDefault();
+				onClose();
+			}
+		};
+		document.addEventListener( 'keydown', onKey );
+		return () => document.removeEventListener( 'keydown', onKey );
+	}, [ onClose ] );
+
+	return (
+		<div
+			className="nodes-vault__modal-backdrop"
+			role="presentation"
+			onMouseDown={ ( e ) => {
+				if ( e.target === e.currentTarget ) {
+					onClose();
+				}
+			} }
+		>
+			<div
+				className="nodes-vault__modal"
+				role="dialog"
+				aria-modal="true"
+				aria-label={ ariaLabel }
+			>
+				{ children }
+			</div>
+		</div>
+	);
+}
+
+/**
+ * Minimal confirm dialog. The confirm button focuses on mount.
  *
  * @param {Object}   props
  * @param {Function} props.onCancel  Dismiss handler.
@@ -50,57 +94,37 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 
 	useEffect( () => {
 		confirmRef.current?.focus();
-		const onKey = ( e ) => {
-			if ( 'Escape' === e.key ) {
-				e.preventDefault();
-				onCancel();
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ onCancel ] );
+	}, [] );
 
 	return (
-		<div
-			className="nodes-vault__modal-backdrop"
-			role="presentation"
-			onMouseDown={ ( e ) => {
-				if ( e.target === e.currentTarget ) {
-					onCancel();
-				}
-			} }
+		<Modal
+			ariaLabel={ __( 'Remove server', 'newspack-nodes' ) }
+			onClose={ onCancel }
 		>
-			<div
-				className="nodes-vault__modal"
-				role="dialog"
-				aria-modal="true"
-				aria-label={ __( 'Remove server', 'newspack-nodes' ) }
-			>
-				<p>
-					{ __(
-						'Are you sure you want to remove this server?',
-						'newspack-nodes'
-					) }
-				</p>
-				<div className="nodes-vault__modal-actions">
-					<button
-						type="button"
-						className="button button-tertiary"
-						onClick={ onCancel }
-					>
-						{ __( 'Cancel', 'newspack-nodes' ) }
-					</button>{ ' ' }
-					<button
-						type="button"
-						ref={ confirmRef }
-						className="button button-primary button-link-delete"
-						onClick={ onConfirm }
-					>
-						{ __( 'Remove', 'newspack-nodes' ) }
-					</button>
-				</div>
+			<p>
+				{ __(
+					'Are you sure you want to remove this server?',
+					'newspack-nodes'
+				) }
+			</p>
+			<div className="nodes-vault__modal-actions">
+				<button
+					type="button"
+					className="button button-tertiary"
+					onClick={ onCancel }
+				>
+					{ __( 'Cancel', 'newspack-nodes' ) }
+				</button>{ ' ' }
+				<button
+					type="button"
+					ref={ confirmRef }
+					className="button button-primary button-link-delete"
+					onClick={ onConfirm }
+				>
+					{ __( 'Remove', 'newspack-nodes' ) }
+				</button>
 			</div>
-		</div>
+		</Modal>
 	);
 }
 
@@ -206,20 +230,27 @@ function ServerRow( { server, onRemove, onTest } ) {
 }
 
 /**
- * The inline "Add New Server" form — id / url / username / password + submit.
- * Owns the field state + the validation/status line.
+ * The "Add New Server" form — id / url / username / password + submit. Owns the
+ * field state + the validation/status line. Rendered inside the add-server modal.
  *
- * @param {Object}   props       Component props.
- * @param {Function} props.onAdd Add callback (fields) → add promise.
+ * @param {Object}   props           Component props.
+ * @param {Function} props.onAdd     Add callback (fields) → add promise.
+ * @param {Function} props.onSuccess Called after a successful add (closes the modal).
  * @return {import('react').ReactElement} The rendered form.
  */
-function AddServerForm( { onAdd } ) {
+function AddServerForm( { onAdd, onSuccess } ) {
 	const [ id, setId ] = useState( '' );
 	const [ url, setUrl ] = useState( '' );
 	const [ username, setUsername ] = useState( '' );
 	const [ password, setPassword ] = useState( '' );
 	const [ status, setStatus ] = useState( { text: '', color: '' } );
 	const [ busy, setBusy ] = useState( false );
+	const idRef = useRef( null );
+
+	// Focus the first field when the modal opens.
+	useEffect( () => {
+		idRef.current?.focus();
+	}, [] );
 
 	const handleAdd = async () => {
 		const trimmedId = id.trim();
@@ -258,15 +289,13 @@ function AddServerForm( { onAdd } ) {
 				auth_username: username.trim(),
 				auth_password: password,
 			} );
-			// Success: the hook re-lists and the table re-renders (no reload).
-			setStatus( {
-				text: __( 'Server added!', 'newspack-nodes' ),
-				color: 'green',
-			} );
+			// Success: the hook re-lists and the table re-renders (no reload);
+			// onSuccess closes the modal, so the fresh row is the confirmation.
 			setId( '' );
 			setUrl( '' );
 			setUsername( '' );
 			setPassword( '' );
+			onSuccess?.();
 		} catch ( err ) {
 			setStatus( {
 				text: sprintf(
@@ -282,131 +311,152 @@ function AddServerForm( { onAdd } ) {
 	};
 
 	return (
-		<>
+		<table className="form-table" style={ { maxWidth: '600px' } }>
+			<tbody>
+				<tr>
+					<th>
+						<label htmlFor="new-server-id">
+							{ __( 'Server ID', 'newspack-nodes' ) }
+						</label>
+					</th>
+					<td>
+						<input
+							ref={ idRef }
+							type="text"
+							id="new-server-id"
+							className="regular-text"
+							placeholder="prod-web-01"
+							pattern="[a-zA-Z0-9_-]+"
+							value={ id }
+							onChange={ ( e ) => setId( e.target.value ) }
+						/>
+						<p className="description">
+							{ __(
+								'Unique identifier (alphanumeric, hyphen, underscore).',
+								'newspack-nodes'
+							) }
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th>
+						<label htmlFor="new-server-url">
+							{ __( 'Server URL', 'newspack-nodes' ) }
+						</label>
+					</th>
+					<td>
+						<input
+							type="url"
+							id="new-server-url"
+							className="regular-text"
+							placeholder="https://example.com"
+							value={ url }
+							onChange={ ( e ) => setUrl( e.target.value ) }
+						/>
+						<p className="description">
+							{ __(
+								'HTTPS URL of the WordPress site.',
+								'newspack-nodes'
+							) }
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th>
+						<label htmlFor="new-server-username">
+							{ __( 'Username', 'newspack-nodes' ) }
+						</label>
+					</th>
+					<td>
+						<input
+							type="text"
+							id="new-server-username"
+							className="regular-text"
+							value={ username }
+							onChange={ ( e ) => setUsername( e.target.value ) }
+						/>
+						<p className="description">
+							{ __(
+								'WordPress username on the remote site.',
+								'newspack-nodes'
+							) }
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th>
+						<label htmlFor="new-server-password">
+							{ __( 'Application Password', 'newspack-nodes' ) }
+						</label>
+					</th>
+					<td>
+						<input
+							type="password"
+							id="new-server-password"
+							className="regular-text"
+							value={ password }
+							onChange={ ( e ) => setPassword( e.target.value ) }
+						/>
+						<p className="description">
+							{ __(
+								'WordPress Application Password (Users → Profile → Application Passwords).',
+								'newspack-nodes'
+							) }
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th />
+					<td>
+						<button
+							type="button"
+							className="button button-primary"
+							id="event-aggregator-add-server"
+							disabled={ busy }
+							onClick={ handleAdd }
+						>
+							{ __( 'Add Server', 'newspack-nodes' ) }
+						</button>{ ' ' }
+						<span
+							id="add-server-status"
+							style={ { color: status.color } }
+						>
+							{ status.text }
+						</span>
+					</td>
+				</tr>
+			</tbody>
+		</table>
+	);
+}
+
+/**
+ * The add-server modal: the heading + the AddServerForm. Closes on a successful
+ * add (onSuccess → onClose) or on ESC / backdrop / Cancel.
+ *
+ * @param {Object}   props         Component props.
+ * @param {Function} props.onAdd   Add callback (fields) → add promise.
+ * @param {Function} props.onClose Dismiss handler.
+ * @return {import('react').ReactElement} The modal.
+ */
+function AddServerModal( { onAdd, onClose } ) {
+	return (
+		<Modal
+			ariaLabel={ __( 'Add new server', 'newspack-nodes' ) }
+			onClose={ onClose }
+		>
 			<h4>{ __( 'Add New Server', 'newspack-nodes' ) }</h4>
-			<table className="form-table" style={ { maxWidth: '600px' } }>
-				<tbody>
-					<tr>
-						<th>
-							<label htmlFor="new-server-id">
-								{ __( 'Server ID', 'newspack-nodes' ) }
-							</label>
-						</th>
-						<td>
-							<input
-								type="text"
-								id="new-server-id"
-								className="regular-text"
-								placeholder="prod-web-01"
-								pattern="[a-zA-Z0-9_-]+"
-								value={ id }
-								onChange={ ( e ) => setId( e.target.value ) }
-							/>
-							<p className="description">
-								{ __(
-									'Unique identifier (alphanumeric, hyphen, underscore).',
-									'newspack-nodes'
-								) }
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th>
-							<label htmlFor="new-server-url">
-								{ __( 'Server URL', 'newspack-nodes' ) }
-							</label>
-						</th>
-						<td>
-							<input
-								type="url"
-								id="new-server-url"
-								className="regular-text"
-								placeholder="https://example.com"
-								value={ url }
-								onChange={ ( e ) => setUrl( e.target.value ) }
-							/>
-							<p className="description">
-								{ __(
-									'HTTPS URL of the WordPress site.',
-									'newspack-nodes'
-								) }
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th>
-							<label htmlFor="new-server-username">
-								{ __( 'Username', 'newspack-nodes' ) }
-							</label>
-						</th>
-						<td>
-							<input
-								type="text"
-								id="new-server-username"
-								className="regular-text"
-								value={ username }
-								onChange={ ( e ) =>
-									setUsername( e.target.value )
-								}
-							/>
-							<p className="description">
-								{ __(
-									'WordPress username on the remote site.',
-									'newspack-nodes'
-								) }
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th>
-							<label htmlFor="new-server-password">
-								{ __(
-									'Application Password',
-									'newspack-nodes'
-								) }
-							</label>
-						</th>
-						<td>
-							<input
-								type="password"
-								id="new-server-password"
-								className="regular-text"
-								value={ password }
-								onChange={ ( e ) =>
-									setPassword( e.target.value )
-								}
-							/>
-							<p className="description">
-								{ __(
-									'WordPress Application Password (Users → Profile → Application Passwords).',
-									'newspack-nodes'
-								) }
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th />
-						<td>
-							<button
-								type="button"
-								className="button button-primary"
-								id="event-aggregator-add-server"
-								disabled={ busy }
-								onClick={ handleAdd }
-							>
-								{ __( 'Add Server', 'newspack-nodes' ) }
-							</button>{ ' ' }
-							<span
-								id="add-server-status"
-								style={ { color: status.color } }
-							>
-								{ status.text }
-							</span>
-						</td>
-					</tr>
-				</tbody>
-			</table>
-		</>
+			<AddServerForm onAdd={ onAdd } onSuccess={ onClose } />
+			<div className="nodes-vault__modal-actions">
+				<button
+					type="button"
+					className="button button-tertiary"
+					onClick={ onClose }
+				>
+					{ __( 'Cancel', 'newspack-nodes' ) }
+				</button>
+			</div>
+		</Modal>
 	);
 }
 
@@ -425,6 +475,8 @@ export default function VaultAdmin() {
 	const model = useNodeState( 'vault:view', 'view' ) ?? EMPTY_MODEL;
 	const { servers, error } = model;
 
+	const [ isAddOpen, setIsAddOpen ] = useState( false );
+
 	return (
 		<div className="event-aggregator-servers-admin">
 			{ error && (
@@ -432,16 +484,33 @@ export default function VaultAdmin() {
 					<p>{ error }</p>
 				</div>
 			) }
+			<p>
+				<button
+					type="button"
+					className="button button-primary nodes-vault__add-trigger"
+					onClick={ () => setIsAddOpen( true ) }
+				>
+					{ __( 'Add Server', 'newspack-nodes' ) }
+				</button>
+			</p>
 			<table
 				className="wp-list-table widefat fixed striped"
 				style={ { maxWidth: '800px' } }
 			>
 				<thead>
 					<tr>
-						<th>{ __( 'ID', 'newspack-nodes' ) }</th>
-						<th>{ __( 'URL', 'newspack-nodes' ) }</th>
-						<th>{ __( 'Status', 'newspack-nodes' ) }</th>
-						<th>{ __( 'Actions', 'newspack-nodes' ) }</th>
+						<th style={ { width: '12%' } }>
+							{ __( 'ID', 'newspack-nodes' ) }
+						</th>
+						<th style={ { width: '53%' } }>
+							{ __( 'URL', 'newspack-nodes' ) }
+						</th>
+						<th style={ { width: '15%' } }>
+							{ __( 'Status', 'newspack-nodes' ) }
+						</th>
+						<th style={ { width: '20%' } }>
+							{ __( 'Actions', 'newspack-nodes' ) }
+						</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -467,7 +536,12 @@ export default function VaultAdmin() {
 				</tbody>
 			</table>
 
-			<AddServerForm onAdd={ addServer } />
+			{ isAddOpen && (
+				<AddServerModal
+					onAdd={ addServer }
+					onClose={ () => setIsAddOpen( false ) }
+				/>
+			) }
 		</div>
 	);
 }
