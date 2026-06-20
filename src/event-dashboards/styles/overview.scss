@@ -1,30 +1,83 @@
 /**
- * Overview hub tab — the at-a-glance landing. A summary toolbar + supervisor card
- * over a responsive grid of compact per-topology cards (name + health/state +
- * Edit deep-link). Palette tracks the event-dashboards dark theme (base.scss),
- * matching the Topologies tab it complements.
+ * Overview hub tab — the at-a-glance FLEET-HEALTH board. A fleet strip (counts +
+ * partitions-up + worst-health pill) and supervisor card over one row per active
+ * topology: worker pills, a live consumer-lag sparkline + value, uptime, sorted
+ * worst-health first; stopped topologies sink into a de-emphasized chip group.
+ * Palette tracks the event-dashboards dark theme (base.scss), matching the
+ * Topologies tab it complements.
  */
 
 @use "base";
+
+// Health palette (shared by the fleet pill, row accents, badges).
+$health-ok: #3fb950;
+$health-behind: #d29922;
+$health-stalled: #f85149;
 
 .nodes-overview {
 	padding: 20px 16px 24px;
 	color: base.$dark-text;
 	font-family: base.$system-font;
 
-	&__toolbar {
+	// ── Fleet strip ───────────────────────────────────────────────────────
+	&__fleet {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 16px;
 		margin-bottom: 16px;
 	}
 
-	&__summary {
+	&__count {
 		font-size: 12px;
 		font-weight: 600;
 		letter-spacing: 0.03em;
 		text-transform: uppercase;
 		color: base.$dark-text-muted;
+	}
+
+	&__partsup {
+		font-size: 12px;
+		color: base.$dark-text-dim;
+	}
+
+	&__fleet-health {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		padding: 4px 10px;
+		border-radius: 999px;
+		border: 1px solid;
+
+		&::before {
+			content: "";
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: currentcolor;
+			flex: 0 0 auto;
+		}
+
+		&--ok {
+			color: $health-ok;
+			border-color: rgba($health-ok, 0.4);
+			background: rgba($health-ok, 0.1);
+		}
+
+		&--behind {
+			color: $health-behind;
+			border-color: rgba($health-behind, 0.4);
+			background: rgba($health-behind, 0.1);
+		}
+
+		&--stalled {
+			color: $health-stalled;
+			border-color: rgba($health-stalled, 0.4);
+			background: rgba($health-stalled, 0.12);
+		}
 	}
 
 	&__new {
@@ -46,24 +99,41 @@
 		}
 	}
 
-	&__grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-		gap: 12px;
+	// ── Active rows ───────────────────────────────────────────────────────
+	&__rows {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-top: 12px;
 	}
 
-	&__card {
+	&__row {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 14px;
+		gap: 14px;
+		padding: 12px 14px;
 		background: base.$dark-bg-secondary;
 		border: 1px solid base.$dark-border;
+		border-left: 3px solid base.$dark-border;
 		border-radius: 6px;
+
+		&--ok {
+			border-left-color: $health-ok;
+		}
+
+		&--behind {
+			border-left-color: $health-behind;
+		}
+
+		&--stalled {
+			border-left-color: $health-stalled;
+		}
 	}
 
 	&__name {
+		flex: 0 0 220px;
 		font-weight: 600;
+		font-size: 15px;
 		color: base.$dark-text;
 		text-decoration: none;
 
@@ -75,6 +145,7 @@
 	}
 
 	&__health {
+		flex: 0 0 auto;
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
@@ -94,28 +165,97 @@
 		}
 
 		&--ok {
-			color: #3fb950;
+			color: $health-ok;
 		}
 
 		&--behind {
-			color: #d29922;
+			color: $health-behind;
 		}
 
 		&--stalled {
-			color: #f85149;
+			color: $health-stalled;
 		}
 	}
 
-	&__state {
-		font-size: 10px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
+	&__parts {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	&__part {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 11px;
+		padding: 2px 7px;
+		border-radius: 4px;
+		background: base.$dark-bg-tertiary;
+		border: 1px solid transparent;
+
+		&--running {
+			color: $health-ok;
+		}
+
+		&--dead {
+			color: $health-stalled;
+			border-color: rgba($health-stalled, 0.4);
+		}
+
+		&.is-stale {
+			color: $health-behind;
+			border-color: rgba($health-behind, 0.4);
+		}
+	}
+
+	&__part-id {
+		font-weight: 700;
+		letter-spacing: 0.02em;
+	}
+
+	&__hb {
 		color: base.$dark-text-dim;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__restart {
+		color: base.$dark-text-muted;
+	}
+
+	&__upcount {
+		font-size: 11px;
+		color: base.$dark-text-dim;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__uptime {
+		font-size: 12px;
+		color: base.$dark-text-dim;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__lag {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		margin-left: auto;
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+		color: base.$dark-text-dim;
+
+		&.is-behind {
+			color: base.$dark-text;
+		}
+	}
+
+	&__lagval {
+		min-width: 64px;
+		text-align: right;
 	}
 
 	&__edit {
-		margin-left: auto;
+		flex: 0 0 auto;
 		font-size: 12px;
 		color: base.$dark-text;
 		text-decoration: none;
@@ -123,5 +263,75 @@
 		&:hover {
 			text-decoration: underline;
 		}
+	}
+
+	// ── Stopped group ─────────────────────────────────────────────────────
+	&__stopped {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-top: 20px;
+		padding-top: 14px;
+		border-top: 1px solid base.$dark-border;
+	}
+
+	&__stopped-label {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: base.$dark-text-dim;
+		margin-right: 4px;
+	}
+
+	&__stopped-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		padding: 4px 10px;
+		border-radius: 6px;
+		background: base.$dark-bg-secondary;
+		border: 1px solid base.$dark-border;
+		color: base.$dark-text-muted;
+
+		.nodes-overview__name {
+			flex: 0 0 auto;
+			font-size: 12px;
+			font-weight: 500;
+			color: base.$dark-text-muted;
+		}
+
+		.nodes-overview__edit {
+			font-size: 11px;
+			color: base.$dark-text-dim;
+		}
+	}
+}
+
+// ── Sparkline ─────────────────────────────────────────────────────────────
+.nodes-spark {
+	display: block;
+	vertical-align: middle;
+
+	&__baseline {
+		stroke: base.$dark-border;
+		stroke-width: 1;
+	}
+
+	&__line {
+		stroke-width: 1.5;
+		stroke-linejoin: round;
+		stroke-linecap: round;
+		vector-effect: non-scaling-stroke;
+	}
+
+	&--rising &__line {
+		stroke: #d29922;
+	}
+
+	&--falling &__line {
+		stroke: #3fb950;
 	}
 }
