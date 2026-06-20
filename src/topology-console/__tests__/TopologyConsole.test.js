@@ -827,6 +827,24 @@ describe( 'TopologyConsole boot', () => {
 		expect( listed ).not.toBeUndefined();
 	} );
 
+	it( 'clicking New keeps the editor body rendered (blank draft carries the _repl anchor, not blanked behind the building gate)', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByTestId } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'new' ) );
+		} );
+		// Regression: handleNew built a raw { nodes: [] } draft (no _repl anchor),
+		// so layoutGraph had 0 nodes → ConsoleShell's ready gate fell to the
+		// building placeholder, blanking palette/canvas/inspector.
+		expect(
+			document.querySelector( '.topology-canvas-building' )
+		).toBeNull();
+		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
+	} );
+
 	it( 'switching to edit mode flips header + canvas + reveals palette', () => {
 		const { getByText, getByTestId, queryByTestId } = render(
 			<TopologyConsole />
