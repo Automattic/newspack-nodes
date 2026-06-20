@@ -53,7 +53,10 @@ class Consumer_Node extends Timer_Node {
 	/** 0 = next event-loop iteration. */
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
-	public const CHECKPOINT_INTERVAL_S = 1;
+	// Offsetlog is crash-resume only (TopicProbe, not the offsetlog, is the position
+	// source now), so checkpoint coarsely — losing <30s of cursor on a crash just
+	// re-delivers those messages on respawn (at-least-once). Cheaper offsetlog I/O.
+	public const CHECKPOINT_INTERVAL_S = 30;
 
 	/** Position is a coarse liveness breadcrumb — publish at most once a second, not every tick. */
 	public const PUBLISH_INTERVAL_S = 1;

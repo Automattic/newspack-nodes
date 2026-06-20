@@ -26,6 +26,7 @@ import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { getCommandClient } from '../utils/commandClient';
 import { useTopology } from './useTopologyList';
 import { parseTsl } from '../utils/parseTsl';
+import { scopeFromCwd } from '../utils/scope';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
 
@@ -212,7 +213,15 @@ export function useConsoleGraph( {
 					const node = Core.node( names.METADATA );
 					const live =
 						node?.rawMap && Object.keys( node.rawMap ).length > 0;
-					if ( node && seeded.nodes.length && ! live ) {
+					// Only paint a topology when the canvas is actually showing one
+					// (a worker scope). At the local root (`/`) or any non-worker cwd
+					// (`_http`, …) the canvas renders the in-browser graph, so seeding
+					// the topology paints the wrong graph and stomps the layout —
+					// foreign node ids miss the scope's saved position map.
+					const onWorker = scopeFromCwd(
+						Core.node( names.CWD )?.target ?? ''
+					).isWorker;
+					if ( node && seeded.nodes.length && ! live && onWorker ) {
 						node.setState( 'metadata', seeded );
 					}
 				} )
