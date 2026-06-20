@@ -1861,11 +1861,13 @@
 	}
 
 	// Rounded controls (DESIGN.product) instead of the square chrome — header
-	// selects + mode group, inspector action buttons, and the edit-mode delete.
+	// selects + mode group, inspector action buttons, the edit-mode delete, and
+	// the routing target select / edit-row inputs (which were left square).
 	.topology-select,
 	.topology-mode,
 	.topology-insp__actions button,
-	.topology-edit-delete {
+	.topology-edit-delete,
+	.topology-edit-row__input {
 		border-radius: 8px;
 	}
 
