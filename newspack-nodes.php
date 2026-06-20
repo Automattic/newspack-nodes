@@ -100,6 +100,7 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	$base_interpreter->make_node( 'Topologies_CI', 'topologies' );
 	$base_interpreter->make_node( 'Raw_Logs_CI',   'raw-logs' );
 	$base_interpreter->make_node( 'Vault_CI',      'vault' );
+	$base_interpreter->make_node( 'Aggregator_CI', 'aggregator' );
 
 	// Workers_CI needs the substrate Cli plus an optional `\Memcached`-shaped
 	// cache (or null) for live-position memcache reads + SSE-slot heartbeats.

@@ -1,0 +1,148 @@
+<?php
+/**
+ * Aggregator_CI: command-dispatch for the hub-side aggregator dashboards.
+ *
+ * Canonical implementation of the three hub-side aggregator endpoints
+ * that the legacy `newspack-nodes-aggregator/v1` namespace exposed:
+ * `status`, `servers`, `health`. The dashboard cutover (commit 1350303)
+ * migrated `AggregatorStatus.js` from `apiFetch('.../v1/status')` to
+ * `commandClient.send('aggregator', 'status')`. The legacy
+ * `AggregatorController` REST shim is preserved for any non-dashboard
+ * caller and holds its `/status` body in parity with the `status` verb
+ * here; the dedicated `AggregatorStatusController` (which the shim used
+ * to delegate to) was deleted in the M4 cutover. Mounts at priority 11
+ * alongside the rest of the M2 service CIs.
+ *
+ * Verbs:
+ *   status  — per-node partition snapshot keyed by the wired Remote_Source
+ *             NODE NAME. Discovers each Remote_Source wired into the active
+ *             `aggregator` topology graph (`Topology_Registry::graph_for`,
+ *             filtered on node `type === 'Remote_Source'`), then reads that
+ *             node's substrate status snapshot from memcache under
+ *             `np:remote:<node-name>:p<partition>` (the `<vault-id>`/`<partition>`
+ *             come from the make_node args). The spoke URL is resolved from the
+ *             Vault by the node's vault-id arg. Cache misses default to an empty
+ *             array, not null.
+ *   health  — cache reachability + wall-clock timestamp. Mirrors the
+ *             legacy {healthy, cache, timestamp} shape. Cache probe is
+ *             wrapped in a Throwable catch so the endpoint never fails
+ *             — a cache outage reports `cache=false`, not 500.
+ *   servers — sequential array of registered servers with public-safe
+ *             shape (id, url, has_credentials, is_config),
+ *             matching the substrate Vault_CI public shape, but RETURNED
+ *             AS A SEQUENTIAL ARRAY rather than a map keyed by id. Legacy
+ *             contract — the React aggregator tree relies on the array
+ *             shape; don't switch to a keyed map here.
+ *
+ * Auth: all three verbs require `manage_options`. Legacy parity — both
+ * controllers gated every route through `read_permissions_check()`,
+ * which enforces the capability.
+ *
+ * Memcache reads go through the shared `Core::$memd` handle: the `status`
+ * verb reads `aggregator_status:{id}:p{N}` per partition; the `health` verb
+ * reports whether the handle is configured. The `status`/`servers` verbs
+ * read the substrate `Newspack_Nodes\Vault` singleton directly — there is
+ * no injected registry dependency.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes\Rest;
+
+use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Core;
+use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\Topology_Registry;
+use Newspack_Nodes\Vault;
+
+\defined( 'ABSPATH' ) || exit;
+
+class Aggregator_CI_Node extends Service_CI_Node {
+
+	/** @api Used by the substrate to provide UI etc. */
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Service',
+			'description' => 'Hub-side aggregator dashboards: per-server status, cache health, registered servers.',
+			'arguments'   => [],
+			'commands'    => [
+				[
+					'name'        => 'status',
+					'description' => 'Per-node partition snapshot for each wired Remote_Source in the active aggregator topology.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
+						self::require_manage_options();
+						$registry = Vault::get_instance();
+						$registry->reset_cache();
+
+						$result = [];
+						foreach ( Topology_Registry::graph_for( 'aggregator' )['nodes'] as $node ) {
+							if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
+								continue;
+							}
+							$name_v = $node['name'] ?? '';
+							$name   = \is_scalar( $name_v ) ? (string) $name_v : '';
+							if ( '' === $name ) {
+								continue;
+							}
+							// args: <vault-id> <remote_topic> <partition> (graph_for types it list<string>).
+							$node_args = $node['args'] ?? [];
+							$vault_id  = $node_args[0] ?? '';
+							$pt        = $node_args[2] ?? '';
+							$partition = \ctype_digit( $pt ) ? (int) $pt : 0;
+
+							$val   = Core::$memd?->get( "np:remote:{$name}:p{$partition}" );
+							$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;
+							$url_v = \is_array( $entry ) ? ( $entry['url'] ?? null ) : null;
+
+							$result[ $name ] = [
+								'id'         => $name,
+								'vault_id'   => $vault_id,
+								'url'        => \is_scalar( $url_v ) ? \esc_url_raw( (string) $url_v ) : '',
+								'partitions' => [ $partition => \is_array( $val ) ? $val : [] ],
+							];
+						}
+
+						return $result;
+					},
+				],
+				[
+					'name'        => 'health',
+					'description' => 'Cache reachability + wall-clock timestamp.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
+						self::require_manage_options();
+						return [
+							'healthy'   => true,
+							'cache'     => null !== Core::$memd,
+							'timestamp' => \time(),
+						];
+					},
+				],
+				[
+					'name'        => 'servers',
+					'description' => 'Registered servers as a sequential array (legacy aggregator-tree contract).',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
+						self::require_manage_options();
+						$registry = Vault::get_instance();
+						$registry->reset_cache();
+						$out = [];
+						foreach ( $registry->get_all() as $id => $cfg ) {
+							$url_v   = $cfg['url'] ?? '';
+							$out[]   = [
+								'id'              => $id,
+								'url'             => \is_scalar( $url_v ) ? (string) $url_v : '',
+								'has_credentials' => ! empty( $cfg['auth_username'] ) && ! empty( $cfg['auth_password'] ),
+								'is_config'       => $registry->is_config_server( $id ),
+							];
+						}
+						// Sequential array, NOT a map keyed by id — legacy contract the
+						// React aggregator tree relies on.
+						return $out;
+					},
+				],
+			],
+		] );
+	}
+}
