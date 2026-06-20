@@ -369,13 +369,14 @@ class Remote_Source_Node extends Timer_Node {
 	private function publish_status(): void {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
-			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF ];
+			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null ];
 		$this->write_status( [
 			'last_connection_attempt' => (int) Core::$now,
 			'connected'               => $conn['connected'],
 			'last_http_code'          => $conn['last_http_code'],
 			'last_error'              => $conn['last_error'],
 			'current_backoff'         => $conn['current_backoff'],
+			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
 		] );
 	}
 

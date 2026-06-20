@@ -143,7 +143,7 @@ describe( 'useAggregatorStatusGraph — end-to-end routing through the exospine'
 		const status = {
 			server1: {
 				id: 'server1',
-				partitions: { 0: { last_connection_status: 'connected' } },
+				partitions: { 0: { connected: true } },
 			},
 			server2: { id: 'server2', partitions: {} },
 		};

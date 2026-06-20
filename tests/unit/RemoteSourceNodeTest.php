@@ -257,6 +257,23 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayHasKey( 'connected', $status );
 		$this->assertArrayHasKey( 'current_backoff', $status );
 		$this->assertArrayHasKey( 'last_connection_attempt', $status );
+		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
+	}
+
+	public function test_published_status_carries_sse_heartbeat_receipt(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		Core::$now = 1748960000;
+		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
+
+		$node->fire();
+
+		$status = Core::$memd->get( 'np:remote:remote-austin:p0' );
+		$this->assertSame( 1748960000, $status['last_sse_heartbeat'] );
 	}
 
 	/** Install an SSE_In connect seam returning a real idle handle (never transferred). */

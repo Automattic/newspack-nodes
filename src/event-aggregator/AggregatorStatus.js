@@ -121,10 +121,15 @@ const getRttClass = ( rtt ) => {
  * @return {import('react').ReactElement} Rendered component.
  */
 function PartitionStatus( { partition, status, now } ) {
-	const connectionStatus = status.last_connection_status || 'disconnected';
-	const heartbeatStatus = status.last_heartbeat_response_status || 'pending';
-	const errorMessage =
-		status.last_connection_error || status.last_heartbeat_error;
+	const connectionStatus = status.connected ? 'connected' : 'disconnected';
+	// Gate on `connected`: last_heartbeat_response is a sticky timestamp (never
+	// cleared once set), so a dead spoke would otherwise latch 'success' forever.
+	// Disconnected → pending, mirroring the old clear-heartbeat-on-disconnect.
+	const heartbeatStatus =
+		status.connected && status.last_heartbeat_response
+			? 'success'
+			: 'pending';
+	const errorMessage = status.last_error;
 	const rtt = status.last_heartbeat_rtt;
 	const rttFormatted = formatRtt( rtt );
 
@@ -187,23 +192,21 @@ function PartitionStatus( { partition, status, now } ) {
 					</span>
 				</div>
 			</div>
-			{ ( status.last_connection_response || errorMessage ) && (
+			{ ( status.last_http_code || errorMessage ) && (
 				<div
 					className="aggregator-partition-error"
 					title={ errorMessage }
 				>
-					{ status.last_connection_response && (
+					{ status.last_http_code && (
 						<span
 							className={ `aggregator-http-code${
-								status.last_connection_response === 200
-									? ' success'
-									: ''
+								status.last_http_code === 200 ? ' success' : ''
 							}` }
 						>
-							HTTP { status.last_connection_response }
+							HTTP { status.last_http_code }
 						</span>
 					) }
-					{ status.last_connection_response && errorMessage && ' ' }
+					{ status.last_http_code && errorMessage && ' ' }
 					{ errorMessage }
 				</div>
 			) }
@@ -227,15 +230,11 @@ function ServerCard( { server, now } ) {
 
 	// Count connected partitions.
 	const connectedPartitions = partitionKeys.filter(
-		( p ) => partitions[ p ]?.last_connection_status === 'connected'
+		( p ) => partitions[ p ]?.connected === true
 	).length;
 
 	return (
-		<div
-			className={ `aggregator-server-card${
-				! server.enabled ? ' disabled' : ''
-			}` }
-		>
+		<div className="aggregator-server-card">
 			{ /* Server Identity */ }
 			<div className="aggregator-server-identity">
 				<div className="aggregator-server-id">{ server.id }</div>
@@ -323,7 +322,7 @@ export default function AggregatorStatus() {
 						</div>
 					) }
 					<select
-						className="event-logger-refresh-select"
+						className="newspack-nodes-refresh-select"
 						value={ refreshInterval }
 						onChange={ ( e ) =>
 							setRefreshInterval( e.target.value )
