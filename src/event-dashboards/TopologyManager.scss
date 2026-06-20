@@ -186,6 +186,52 @@
 		}
 	}
 
+	// Per-topology "Edit" — a link styled like the restart control, deep-links
+	// to the console editor for this topology.
+	&__edit {
+		flex: 0 0 auto;
+		font-size: 12px;
+		line-height: 1;
+		padding: 5px 10px;
+		border-radius: 6px;
+		background: base.$dark-bg-tertiary;
+		color: base.$dark-text;
+		border: 1px solid base.$dark-border;
+		text-decoration: none;
+		cursor: pointer;
+		transition: background 0.15s;
+
+		&:hover {
+			background: base.$dark-bg-hover;
+			color: base.$dark-text;
+		}
+	}
+
+	// Toolbar above the topology list, holding the "+ New Topology" link.
+	&__toolbar {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: 14px;
+	}
+
+	&__new {
+		font-size: 13px;
+		line-height: 1;
+		padding: 7px 14px;
+		border-radius: 8px;
+		background: base.$dark-bg-tertiary;
+		color: base.$dark-text;
+		border: 1px solid base.$dark-border;
+		text-decoration: none;
+		cursor: pointer;
+		transition: background 0.15s;
+
+		&:hover {
+			background: base.$dark-bg-hover;
+			color: base.$dark-text;
+		}
+	}
+
 	&__body {
 		padding: 4px 14px 14px;
 	}
