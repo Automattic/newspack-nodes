@@ -313,7 +313,7 @@ describe( 'VaultAdmin', () => {
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
-		expect( container.textContent ).toContain( 'Server ID is required' );
+		expect( container.textContent ).toContain( 'ID is required' );
 		// A blocked submission keeps the modal open so the user can correct it.
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeTruthy();
 	} );

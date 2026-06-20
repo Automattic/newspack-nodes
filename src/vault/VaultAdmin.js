@@ -257,7 +257,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 		const trimmedId = id.trim();
 		if ( ! trimmedId ) {
 			setStatus( {
-				text: __( 'Server ID is required', 'newspack-nodes' ),
+				text: __( 'ID is required', 'newspack-nodes' ),
 				color: 'red',
 			} );
 			return;
@@ -318,7 +318,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 					<tr>
 						<th>
 							<label htmlFor="new-server-id">
-								{ __( 'Server ID', 'newspack-nodes' ) }
+								{ __( 'ID', 'newspack-nodes' ) }
 							</label>
 						</th>
 						<td>
