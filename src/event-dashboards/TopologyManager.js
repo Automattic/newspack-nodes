@@ -25,9 +25,12 @@ import { useTopologyManager } from './hooks/useTopologyManager';
 import './TopologyManager.scss';
 
 // Opens the DevTools hub's Console tab (the hub reads `?tab=` to pick it). A
-// `name` scopes it via `?topology=`; `edit` adds `?edit=1` so the console lands
-// in the editor (the Topologies tab's Edit/New buttons). New omits `name`.
-const consoleHref = ( name, { edit = false } = {} ) => {
+// `name` scopes it via `?topology=`; `edit` adds `?edit=1` to open that topology
+// in the editor; `isNew` adds `?new=1` to open a BLANK editor draft. `new` is a
+// distinct signal (not `?edit=1` sans topology) because the console's
+// topology→URL sync writes the default `?topology` on mount, which would
+// otherwise make a New link look like an edit of the default topology.
+const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	const params = new URLSearchParams( {
 		page: 'newspack-nodes-hub',
 		tab: 'console',
@@ -37,6 +40,9 @@ const consoleHref = ( name, { edit = false } = {} ) => {
 	}
 	if ( edit ) {
 		params.set( 'edit', '1' );
+	}
+	if ( isNew ) {
+		params.set( 'new', '1' );
 	}
 	return `admin.php?${ params.toString() }`;
 };
@@ -287,7 +293,7 @@ export default function TopologyManager() {
 			<div className="nodes-tm__toolbar">
 				<a
 					className="nodes-tm__new"
-					href={ consoleHref( '', { edit: true } ) }
+					href={ consoleHref( '', { isNew: true } ) }
 					title={ __(
 						'Create a new topology in the console',
 						'newspack-nodes'
