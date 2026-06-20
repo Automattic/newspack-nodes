@@ -26,4 +26,6 @@ final class Node_Names {
 	public const COMPLETION          = '_completion';
 	public const HEARTBEAT           = '_heartbeat';
 	public const CWD                 = '_cwd';
+	public const TOPICPROBE          = '_topicprobe';
+	public const TOPICPROBE_LOG      = '_topicprobe:log';
 }

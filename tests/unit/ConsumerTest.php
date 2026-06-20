@@ -106,6 +106,34 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $packed_size, $c->bytes_read() );
 	}
 
+	public function test_probe_stats_exposes_identity_position_and_exact_volumes(): void {
+		// probe_stats() is the seam TopicProbe reads from OUTSIDE the Consumer
+		// (Tachikoma reads $node->{offset}/{counter} the same way). It carries
+		// identity + seg:off (for the position-readers) + the EXACT byte volumes:
+		// bytes_read (monotonic, → rate) and bytes_behind (backlog, summed from
+		// real on-disk segment sizes — no segment_size approximation).
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->fill( $this->produce( 'first' ) );
+		$source->fill( $this->produce( 'second' ) );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->name( 'firehose' );
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$stats = $c->probe_stats();
+		$this->assertSame( 'firehose', $stats['consumer'] );
+		$this->assertSame( 'p0', $stats['source'] );
+		$this->assertSame( 0, $stats['cursor_seg'] );
+		$this->assertGreaterThan( 0, $stats['cursor_off'] );
+		$this->assertSame( $c->bytes_read(), $stats['bytes_read'] );
+		$this->assertSame( 0, $stats['bytes_behind'], 'caught up after pump' );
+		$this->assertSame( 2, $stats['msg_sent'] );
+	}
+
 	public function test_poll_emits_line_for_each_new_log_entry(): void {
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64*1024 ) . " 4 86400" );

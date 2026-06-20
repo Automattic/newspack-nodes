@@ -24,6 +24,13 @@ class Worker_Base {
 	public const IPC_SEGMENT_SIZE       = 1048576;
 	public const IPC_NUM_SEGMENTS       = 2;
 
+	// Shared topicprobe log: 5 MiB segments × 2, aged out at 24h — a day of
+	// consumer-stats snapshots for the dashboards' rate + backlog graphs.
+	public const TOPICPROBE_SEGMENT_SIZE = 5242880;
+	public const TOPICPROBE_NUM_SEGMENTS = 2;
+	public const TOPICPROBE_MAX_LIFESPAN = 86400;
+	public const TOPICPROBE_INTERVAL_S   = 15;
+
 	protected string $base_dir;
 	protected string $worker_type;
 	protected int $partition;
@@ -200,7 +207,37 @@ class Worker_Base {
 		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );
 		$repl_in->sink( $interpreter );
 
+		$this->mount_topic_probe( $interpreter );
+
 		return $interpreter;
+	}
+
+	/**
+	 * Mount this worker's TopicProbe + the shared topicprobe log. The probe sweeps
+	 * this process's Consumers every TOPICPROBE_INTERVAL_S and routes one snapshot
+	 * per tick to the log via target() (rule #2 — flow steered by TO, not a bespoke
+	 * sink). The log is shared across every worker process (multi-writer atomic
+	 * appends, the firehose pattern); 5 MiB segments × 2, aged out at 24h.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The graph's interpreter (make_node host).
+	 */
+	public function mount_topic_probe( Command_Interpreter_Node $interpreter ): void {
+		$probe_dir = "{$this->base_dir}/logs/topicprobe.p0";
+		if ( ! \is_dir( $probe_dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $probe_dir, 0755, true );
+		}
+		$interpreter->make_node(
+			'Partition',
+			Node_Names::TOPICPROBE_LOG,
+			"{$probe_dir} " . self::TOPICPROBE_SEGMENT_SIZE
+				. ' ' . self::TOPICPROBE_NUM_SEGMENTS
+				. ' ' . self::TOPICPROBE_MAX_LIFESPAN
+		);
+		$probe = $interpreter->make_node( 'TopicProbe', Node_Names::TOPICPROBE, (string) self::TOPICPROBE_INTERVAL_S );
+		if ( $probe instanceof TopicProbe_Node ) {
+			$probe->target( Node_Names::TOPICPROBE_LOG );
+		}
 	}
 
 	/**
