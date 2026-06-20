@@ -101,6 +101,8 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	$base_interpreter->make_node( 'Raw_Logs_CI',   'raw-logs' );
 	$base_interpreter->make_node( 'Vault_CI',      'vault' );
 	$base_interpreter->make_node( 'Aggregator_CI', 'aggregator' );
+	$base_interpreter->make_node( 'Settings_CI',   'settings' );
+	$base_interpreter->make_node( 'Status_CI',     'status' );
 
 	// Workers_CI needs the substrate Cli plus an optional `\Memcached`-shaped
 	// cache (or null) for live-position memcache reads + SSE-slot heartbeats.
@@ -137,6 +139,9 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
+	// Node-graph settings-sync producer: register the option-change hooks once
+	// at load (init() is idempotent), matching the unconditional ELN call site.
+	\Newspack_Nodes\Settings_Event_Writer::init();
 	// Veto-time supervisor-cron diagnostics: these filters run inside
 	// wp_schedule_event/wp_reschedule_event under ANY cron runner, unlike the
 	// cron_*_event_error actions only wp-cron.php fires.
