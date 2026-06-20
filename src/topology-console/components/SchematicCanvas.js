@@ -227,12 +227,6 @@ export default function SchematicCanvas( {
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
-	// Returning truthy skips the canvas's own deselect/autofit for this click.
-	onBackgroundClickConsumed,
-	// When true, a background click ONLY autofits — it never dismisses
-	// (onBackgroundClickConsumed) or deselects, so the transcript/inspector
-	// stay put. The console opts in; the overlay keeps the staged dismiss.
-	backgroundClickAutofitsOnly = false,
 	// Canvas px obstructed at the bottom (the expanded REPL transcript overlay);
 	// the autofit reserves this band so nodes fit above it. 0 = none.
 	bottomObstructionPx = 0,
@@ -719,25 +713,9 @@ export default function SchematicCanvas( {
 		const wasDragged = panRef.current.dragged;
 		panRef.current = null;
 		if ( ! wasDragged ) {
-			// Autofit-only mode: a background click just re-fits, leaving the
-			// transcript + inspector untouched.
-			if ( backgroundClickAutofitsOnly ) {
-				setViewport(
-					parseViewBox(
-						tightViewBoxFor(
-							displayNodes,
-							canvasSize(),
-							bottomObstructionPx
-						)
-					)
-				);
-				return;
-			}
-			// Parent consumer gets first refusal (e.g. dismiss the prompt).
-			if ( onBackgroundClickConsumed && onBackgroundClickConsumed() ) {
-				return;
-			}
-			// First click deselects if anything is selected; else autofit.
+			// A background click deselects the current node/edge if there is one,
+			// else autofits. It never dismisses the transcript (that's the REPL's
+			// own Esc / toggle).
 			if ( selectedId || selectedEdge ) {
 				if ( onDeselect ) {
 					onDeselect();
