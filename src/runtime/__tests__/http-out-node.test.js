@@ -1,9 +1,10 @@
 /**
- * HttpOut tests — the `_http` console node. `_router` peels `_http` and delivers
- * a single positional Message with TO={reader} (or {reader}/{node}); HttpOut
- * POSTs it to /command behind a leading connect_worker_input (the prepend is
- * kept; de-bake deferred per WIRING-PLAN §8). FROM is left untouched — the Shell
- * / poll-builder already stamped the reply pivot.
+ * HttpOut tests — the outbound `/command` POST boundary. `_router` (or the link
+ * that owns it) delivers a single positional Message with TO already routed; HttpOut
+ * POSTs it verbatim. The worker-pivot `connect_worker_input` bundling moved up into
+ * RemoteIpc (which owns its own HttpOut), so HttpOut itself is dumb: POST what it's
+ * given, route every synchronous reply back into its sink (replies route by TO now —
+ * there is no `_sse` convergence node).
  */
 
 import { HttpOutNode } from '../http-out-node';
@@ -38,7 +39,7 @@ const batchOf = ( postBatch ) => {
 	return postBatch.mock.calls[ 0 ][ 0 ];
 };
 
-// Build the positional Message the router would hand HttpOut (TO already peeled).
+// Build the positional Message the router would hand HttpOut (TO already routed).
 function routed( {
 	to,
 	from = '_http/777/_output',
@@ -59,21 +60,16 @@ describe( 'HttpOut', () => {
 		Core.reset();
 	} );
 
-	it( 'POSTs a single routed Message behind a leading connect_worker_input', () => {
+	it( 'POSTs the routed Message verbatim (no connect_worker_input prepend)', () => {
 		const { node, postBatch } = makeNode();
 		node.fill( routed( { to: 'demo.p0' } ) );
 		const batch = batchOf( postBatch );
-		expect( batch ).toHaveLength( 2 );
-		// Leading connect mounts the worker input partition for {reader}.
-		expect( batch[ 0 ][ TO ] ).toBe( 'topologies' );
-		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
-		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p0' );
-		// The routed message rides as-is.
-		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
-		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
+		expect( batch ).toHaveLength( 1 );
+		expect( batch[ 0 ][ TO ] ).toBe( 'demo.p0' );
+		expect( batch[ 0 ][ VALUE ].name ).toBe( 'ls' );
 	} );
 
-	it( 'rides a server-CI target (workers) bare — no connect_worker_input', () => {
+	it( 'POSTs a server-CI target (workers) verbatim', () => {
 		const { node, postBatch } = makeNode();
 		node.fill(
 			routed( {
@@ -88,19 +84,11 @@ describe( 'HttpOut', () => {
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'heartbeat' );
 	} );
 
-	it( 'derives the reader from the head of TO when a node path follows', () => {
-		const { node, postBatch } = makeNode();
-		node.fill( routed( { to: 'demo.p0/firehose-in' } ) );
-		const batch = batchOf( postBatch );
-		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p0' );
-		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0/firehose-in' );
-	} );
-
 	it( 'leaves the reply-pivot FROM untouched', () => {
 		const { node, postBatch } = makeNode();
 		node.fill( routed( { to: 'demo.p0', from: '_http/555/_metadata' } ) );
 		const batch = batchOf( postBatch );
-		expect( batch[ 1 ][ FROM ] ).toBe( '_http/555/_metadata' );
+		expect( batch[ 0 ][ FROM ] ).toBe( '_http/555/_metadata' );
 	} );
 
 	it( 'forwards a TM_PING positional message verbatim (no re-typing)', () => {
@@ -109,8 +97,8 @@ describe( 'HttpOut', () => {
 			routed( { to: 'demo.p0', type: TM_PING, value: 1700000000.5 } )
 		);
 		const batch = batchOf( postBatch );
-		expect( batch[ 1 ][ TYPE ] ).toBe( TM_PING );
-		expect( batch[ 1 ][ VALUE ] ).toBe( 1700000000.5 );
+		expect( batch[ 0 ][ TYPE ] ).toBe( TM_PING );
+		expect( batch[ 0 ][ VALUE ] ).toBe( 1700000000.5 );
 	} );
 
 	it( 'fill() is fire-and-forget (returns nothing) and still POSTs', () => {
@@ -145,7 +133,7 @@ describe( 'HttpOut', () => {
 		reply[ VALUE ] = 'sync-reply';
 		postBatch.mockResolvedValueOnce( [ reply ] ); // JSONL → array of Messages
 
-		await node.fill( routed( { to: '' } ) ); // _http-level → bare POST
+		await node.fill( routed( { to: '' } ) ); // bare POST
 		await Promise.resolve(); // flush the intake microtask
 
 		expect( got ).toHaveLength( 1 );
@@ -191,14 +179,14 @@ describe( 'HttpOut', () => {
 		expect( got ).toHaveLength( 0 );
 	} );
 
-	it( 'when locked, fill() does NOT POST and buffers the entries', () => {
+	it( 'when locked, fill() does NOT POST and buffers the message', () => {
 		const { node, postBatch } = makeNode();
 		node.lock();
-		node.fill( routed( { to: '' } ) ); // bare → 1 entry
-		node.fill( routed( { to: 'demo.p0' } ) ); // worker → 2 entries
+		node.fill( routed( { to: '' } ) );
+		node.fill( routed( { to: 'demo.p0' } ) );
 		expect( postBatch ).not.toHaveBeenCalled();
 		expect( node.locked ).toBe( true );
-		expect( node.buffer ).toHaveLength( 3 );
+		expect( node.buffer ).toHaveLength( 2 );
 	} );
 
 	it( 'flush() POSTs the whole buffer ONCE and clears locked/buffer', () => {
@@ -208,7 +196,7 @@ describe( 'HttpOut', () => {
 		node.fill( routed( { to: 'demo.p0' } ) );
 		node.flush();
 		const batch = batchOf( postBatch );
-		expect( batch ).toHaveLength( 3 );
+		expect( batch ).toHaveLength( 2 );
 		expect( node.locked ).toBe( false );
 		expect( node.buffer ).toHaveLength( 0 );
 	} );
@@ -221,67 +209,7 @@ describe( 'HttpOut', () => {
 		expect( node.locked ).toBe( false );
 	} );
 
-	it( 'dedups connect_worker_input for the SAME worker within one locked batch', () => {
-		const { node, postBatch } = makeNode();
-		node.lock();
-		// dump_metadata + uptime both pivot to aggregator.p0 in one tick.
-		node.fill(
-			routed( { to: 'aggregator.p0', from: '_http/9/_metadata' } )
-		);
-		node.fill( routed( { to: 'aggregator.p0', from: '_http/9/_uptime' } ) );
-		node.flush();
-		const batch = batchOf( postBatch );
-		// One connect, then the two commands — not connect/cmd/connect/cmd.
-		expect( batch ).toHaveLength( 3 );
-		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
-		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'aggregator.p0' );
-		expect(
-			batch.filter( ( m ) => m[ VALUE ].name === 'connect_worker_input' )
-		).toHaveLength( 1 );
-	} );
-
-	it( 'keeps a separate connect for each DISTINCT worker in one locked batch', () => {
-		const { node, postBatch } = makeNode();
-		node.lock();
-		node.fill( routed( { to: 'aggregator.p0' } ) );
-		node.fill( routed( { to: 'firehose.p1' } ) );
-		node.flush();
-		const batch = batchOf( postBatch );
-		// connect(aggregator.p0), cmd, connect(firehose.p1), cmd.
-		expect( batch ).toHaveLength( 4 );
-		const connects = batch
-			.filter( ( m ) => m[ VALUE ].name === 'connect_worker_input' )
-			.map( ( m ) => m[ VALUE ].arguments );
-		expect( connects ).toEqual( [ 'aggregator.p0', 'firehose.p1' ] );
-	} );
-
-	it( 'matches on the reader head so {reader}/{node} dedups against bare {reader}', () => {
-		const { node, postBatch } = makeNode();
-		node.lock();
-		node.fill( routed( { to: 'demo.p0' } ) );
-		node.fill( routed( { to: 'demo.p0/firehose-in' } ) );
-		node.flush();
-		const batch = batchOf( postBatch );
-		expect(
-			batch.filter( ( m ) => m[ VALUE ].name === 'connect_worker_input' )
-		).toHaveLength( 1 );
-	} );
-
-	it( 'flush() resets dedup state so the next locked batch re-prepends connect', () => {
-		const { node, postBatch } = makeNode();
-		node.lock();
-		node.fill( routed( { to: 'aggregator.p0' } ) );
-		node.flush();
-		postBatch.mockClear();
-		node.lock();
-		node.fill( routed( { to: 'aggregator.p0' } ) );
-		node.flush();
-		const batch = batchOf( postBatch );
-		expect( batch ).toHaveLength( 2 );
-		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
-	} );
-
-	it( 'POSTs the bare command (no connect) when addressed to _http itself (cd /_http)', () => {
+	it( 'POSTs the bare command when addressed to _http itself (cd /_http)', () => {
 		const { node, postBatch } = makeNode();
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
@@ -289,43 +217,13 @@ describe( 'HttpOut', () => {
 		m[ VALUE ] = { name: 'ls', arguments: '' };
 		node.fill( m );
 		const batch = batchOf( postBatch );
-		// No connect_worker_input prepend — the request-scope interpreter (HTTP_In) handles it.
 		expect( batch ).toHaveLength( 1 );
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'ls' );
 		expect( batch[ 0 ][ TO ] ).toBe( '' );
 	} );
 
-	describe( '_post — reply intake (routes to _sse, falls back to sink)', () => {
-		it( 'routes a POST-body reply into the _sse node when registered (cd /_sse sync intake)', async () => {
-			const names = require( '../reserved-node-names.json' );
-			const { Node } = require( '../node' );
-			const { node, postBatch } = makeNode();
-
-			// The `_sse` node is the synchronous-intake convergence point: it strips
-			// its own `_sse:{pid}` head so a request-scope (`cd /_sse`) reply routes home.
-			const sseSeen = [];
-			const sse = new Node();
-			sse.name = names.SSE;
-			sse.fill = ( m ) => sseSeen.push( m );
-
-			const sinkSeen = [];
-			const sink = new Node();
-			sink.fill = ( m ) => sinkSeen.push( m );
-			node.sink = sink;
-
-			const reply = newMessage();
-			reply[ VALUE ] = 'pivoted-reply';
-			postBatch.mockResolvedValueOnce( [ reply ] );
-
-			await node.fill( routed( { to: '' } ) );
-			await Promise.resolve();
-
-			expect( sseSeen ).toHaveLength( 1 );
-			expect( sseSeen[ 0 ][ VALUE ] ).toBe( 'pivoted-reply' );
-			expect( sinkSeen ).toHaveLength( 0 );
-		} );
-
-		it( 'falls back to this.sink when no _sse node is registered', async () => {
+	describe( '_post — reply intake routes to sink (route-by-TO)', () => {
+		it( 'feeds a POST-body reply into this.sink', async () => {
 			const { Node } = require( '../node' );
 			const { node, postBatch } = makeNode();
 			const seen = [];

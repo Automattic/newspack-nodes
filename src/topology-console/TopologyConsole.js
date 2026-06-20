@@ -94,7 +94,7 @@ function buildPathOptions( partitions, active ) {
 			.filter( ( t ) => activeSet.has( t ) )
 			.flatMap( ( t ) =>
 				partitionIndices( partitions, t ).map(
-					( p ) => `_sse/${ t }.p${ p }`
+					( p ) => `${ t }.p${ p }`
 				)
 			),
 	];
@@ -112,9 +112,9 @@ const TOPOLOGIES = sortTopologies(
 		[]
 );
 
-// '_sse/{topology}.p{N}' → { topology, partition }; any other cwd → null.
+// '{topology}.p{N}' → { topology, partition }; any other cwd → null.
 function parseWorker( cwd ) {
-	const m = String( cwd ).match( /^_sse\/(.+)\.p(\d+)$/ );
+	const m = String( cwd ).match( /^([^/]+)\.p(\d+)$/ );
 	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
 }
 
@@ -123,7 +123,7 @@ function parseWorker( cwd ) {
 // to their worker. Each unique cwd gets its own storage key so canvas layouts
 // don't bleed across scopes (`/`, `/_http`, `/_sse`, workers all distinct).
 export function scopeFromCwd( cwd ) {
-	const m = String( cwd ).match( /^_sse\/(.+?)\.p(\d+)(?:\/|$)/ );
+	const m = String( cwd ).match( /^([^/]+)\.p(\d+)(?:\/|$)/ );
 	if ( m ) {
 		return {
 			key: `${ m[ 1 ] }.p${ m[ 2 ] }`,
@@ -136,14 +136,6 @@ export function scopeFromCwd( cwd ) {
 		return {
 			key: 'local',
 			label: 'local',
-			partition: null,
-			isWorker: false,
-		};
-	}
-	if ( '_sse' === cwd ) {
-		return {
-			key: '_sse',
-			label: 'request scope',
 			partition: null,
 			isWorker: false,
 		};
@@ -217,7 +209,7 @@ function longestWorkerPrefix( path, options ) {
 // couldn't reach, stranding a slot with no keepalive).
 export function workerPollPath( cwd, pathOptions ) {
 	const worker = longestWorkerPrefix( cwd, pathOptions );
-	return worker ? `_sse/${ worker.topology }.p${ worker.partition }` : null;
+	return worker ? `${ worker.topology }.p${ worker.partition }` : null;
 }
 
 // Whether a send TO requires a live SSE session (pid). ONLY a worker pivot
@@ -229,7 +221,7 @@ export function workerPollPath( cwd, pathOptions ) {
 // send gates use this so a `cd /` (stream closed, pid null) doesn't block local
 // commands with "[no sse_pid yet]".
 export function toNeedsSseSession( to ) {
-	return /^_sse\/[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
+	return /^[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
 }
 
 // REPL transcript ceiling, derived from the MEASURED `.topology-app` height so
@@ -381,7 +373,7 @@ export default function TopologyConsole() {
 	const debugLevelRef = useRef( 0 );
 
 	// The "reset graph" control stashes the cwd here so the [shell] sync effect can restore
-	// it after useConsoleGraph rehomes Shell.path to the default `_sse/{reader}`.
+	// it after useConsoleGraph rehomes Shell.path to the default `{reader}`.
 	// Without this, "reset graph" would yank the user off `/` (or wherever they
 	// were) every time. Null = no restore pending.
 	const cwdRestoreRef = useRef( null );
@@ -414,13 +406,16 @@ export default function TopologyConsole() {
 
 	// SSE off in edit mode so offline authoring doesn't poke the live worker; the
 	// stream also goes quiet when the cwd isn't a (live) worker (nothing to stream),
-	// so a `cd /` or `cd /_sse` drops the EventSource without tearing the graph down.
+	// so a `cd /` or `cd /_http` drops the EventSource without tearing the graph down.
 	// Uses the SAME worker detection as the poll gate (workerPollPath), so the
 	// stream never opens for a path the poll/heartbeat gate can't reach.
 	const { status, ssePid, shell } = useConsoleGraph( {
 		topology,
 		partition,
 		enabled: mode !== 'edit',
+		// One RemoteIpc per active worker: the path-menu entries that parse as a
+		// worker (`{topology}.p{N}`) ARE the active worker readers.
+		workers: pathOptions.filter( ( o ) => parseWorker( o ) ),
 		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
 	} );
@@ -452,8 +447,8 @@ export default function TopologyConsole() {
 	}, [ shell ] );
 
 	// Derive the display/storage scope from the cwd, not the stale topology/
-	// partition state (which only tracks worker paths). `/` → local, `/_sse` →
-	// request scope, a worker (or sub-node) → that worker's `${topology}.p${N}`.
+	// partition state (which only tracks worker paths). `/` → local, a worker
+	// (or sub-node) → that worker's `${topology}.p${N}`.
 	const scope = scopeFromCwd( cwd );
 
 	// Pick the catalog that matches where make_node will actually run: the JS
@@ -713,7 +708,7 @@ export default function TopologyConsole() {
 	// path verbatim (free navigation: ANY path is allowed), then mounts the
 	// deepest worker whose subtree contains it (the largest worker-prefix among
 	// menu items). Mounting a DIFFERENT worker re-keys the graph and re-subscribes
-	// `_sse` to its output (the rebuilt shell remounts at _sse/{worker}; the
+	// its RemoteIpc (the rebuilt shell remounts at `{worker}`; the
 	// [shell] effect syncs cwd). Staying within the current worker — or any
 	// non-worker path — is a pure cwd move with no rebuild.
 	const handlePathChange = useCallback(
@@ -780,7 +775,7 @@ export default function TopologyConsole() {
 	// Clear the METADATA set_state cache on scope change so the canvas doesn't
 	// briefly render the previous scope's nodes (which the canvas's autofit
 	// effect would then lock in via setViewport, causing the "zoom out / bleed"
-	// reported on /_sse → / transitions). With the cache cleared, parsed.nodes
+	// reported on worker → / transitions). With the cache cleared, parsed.nodes
 	// is empty until the next poll arrives for the new scope; the autofit only
 	// commits against FRESH data.
 	useEffect( () => {
@@ -1312,7 +1307,7 @@ export default function TopologyConsole() {
 	// "Reset graph" — the shared useGraphReset rebuild (removeNode all → bump the
 	// generation so useConsoleGraph rebuilds off the canonical wiring → keep the
 	// layout + surface Reset Layout). cwdRestoreRef carries the user's cwd through
-	// the remount (otherwise the rebuilt Shell snaps path back to `_sse/{reader}`
+	// the remount (otherwise the rebuilt Shell snaps path back to `{reader}`
 	// and the [shell] sync effect drags cwd along).
 	const handleResetGraph = useCallback( () => {
 		cwdRestoreRef.current = cwd;
@@ -1475,7 +1470,7 @@ export default function TopologyConsole() {
 						? handleSaveLayout
 						: null,
 					// Only the local in-browser graph (cwd root) is ephemeral;
-					// any pivoted view — a worker over _sse OR the _http
+					// any pivoted view — a worker RemoteIpc OR the _http
 					// broadcast boundary — self-heals on respawn, so a reset is
 					// meaningless. canResetGraph already gates on local scope +
 					// live mode + (a mutating edit OR a surviving user node).
@@ -1488,7 +1483,7 @@ export default function TopologyConsole() {
 					pathOptions,
 					path: cwd,
 					onPathChange: handlePathChange,
-					canEdit: cwd.startsWith( '_sse/' ),
+					canEdit: null !== longestWorkerPrefix( cwd, pathOptions ),
 					streamStatus: status,
 					uptime,
 					mode,

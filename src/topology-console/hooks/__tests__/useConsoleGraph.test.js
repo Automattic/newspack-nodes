@@ -1,8 +1,13 @@
 /**
- * useConsoleGraph tests — the in-browser node graph (WIRING-PLAN §2/§4 spine).
- * SseInNode is mocked with a fake connector; Router, CommandInterpreter, Dumper,
- * Metadata, Uptime, HttpOut, and the anonymous Shell are real. Reserved node
- * names come from runtime/reserved-node-names.json.
+ * useConsoleGraph tests — the in-browser node graph. SseIn is mocked with a fake
+ * connector (the EventSource bits) so the session wrap/routing logic still runs;
+ * Router, CommandInterpreter, Dumper, Metadata, Uptime, RemoteIpc (composing the
+ * fake SseIn + a real HttpOut + Heartbeat), and the anonymous Shell are real.
+ * Reserved node names come from runtime/reserved-node-names.json.
+ *
+ * The worker-pivot is now one RemoteIpc per active worker (named `{topology}.p{N}`);
+ * the session's own worker is always present. The active RemoteIpc owns the single
+ * live SseIn — `lastConnector` is its composed SseIn child (`{reader}:sse-in`).
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -13,8 +18,7 @@ import { DumperNode } from '../../../runtime/dumper-node';
 import { MetadataNode } from '../../../runtime/metadata-node';
 import { UptimeNode } from '../../../runtime/uptime-node';
 import { CompletionNode } from '../../../runtime/completion-node';
-import { HeartbeatNode } from '../../../runtime/heartbeat-node';
-import { HttpOutNode } from '../../../runtime/http-out-node';
+import { RemoteIpcNode } from '../../../runtime/remote-ipc';
 import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 
@@ -22,10 +26,10 @@ let lastConnector = null;
 
 jest.mock( '../../../runtime/sse-in-node', () => {
 	// Extend the REAL SseInNode so the session wrap/routing logic is exercised; only
-	// the EventSource bits (start/close/pid) are stubbed. Task 10 moved deps from
-	// the ctor to public properties (subscribe/baseUrl/nonce via arguments=); the
-	// fake exposes an `opts`-shaped read-back from those public properties so the
-	// existing tests can keep asserting against `lastConnector.opts.…`.
+	// the EventSource bits (start/close/pid) are stubbed. The RemoteIpc/RemoteLink
+	// composes this as its receive child, so `lastConnector` tracks the active
+	// worker's composed SseIn. The fake exposes an `opts`-shaped read-back of the
+	// public config properties so the tests can assert against `lastConnector.opts.…`.
 	const { SseInNode: RealSseIn } = jest.requireActual(
 		'../../../runtime/sse-in-node'
 	);
@@ -36,6 +40,7 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			this.closed = false;
 			this.startCount = 0;
 			this._pid = null;
+			this._es = null;
 			lastConnector = this;
 		}
 		// Read-back of the ctor-time config now living as public properties.
@@ -49,9 +54,11 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 		start() {
 			this.started = true;
 			this.startCount += 1;
+			this._es = {};
 		}
 		close() {
 			this.closed = true;
+			this._es = null;
 		}
 		pid() {
 			return this._pid;
@@ -69,6 +76,7 @@ import { useConsoleGraph } from '../useConsoleGraph';
 beforeEach( () => {
 	Core.reset();
 	lastConnector = null;
+	RemoteIpcNode.active = null;
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 } );
 
@@ -85,8 +93,11 @@ const renderGraph = ( props = {} ) =>
 		{ initialProps: props }
 	);
 
+// The composed HttpOut of the session worker's RemoteIpc — where its sends land.
+const httpOf = ( reader ) => Core.node( reader )?.httpOut;
+
 describe( 'useConsoleGraph — graph topology', () => {
-	it( 'mounts the full spine under the reserved node names', () => {
+	it( 'mounts the spine + the session worker RemoteIpc under the reserved node names', () => {
 		renderGraph();
 		expect( Core.node( names.ROUTER ) ).toBeInstanceOf( RouterNode );
 		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeInstanceOf(
@@ -98,9 +109,21 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( names.COMPLETION ) ).toBeInstanceOf(
 			CompletionNode
 		);
-		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
-		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
-		expect( Core.node( names.SSE ) ).toBe( lastConnector );
+		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
+		// No more shared _sse / _http / _heartbeat top-level nodes.
+		expect( Core.node( names.SSE ) ).toBeNull();
+		expect( Core.node( names.HTTP ) ).toBeNull();
+		expect( Core.node( names.HEARTBEAT ) ).toBeNull();
+	} );
+
+	it( 'creates one RemoteIpc per active worker (plus the session worker)', () => {
+		renderGraph( {
+			topology: 'demo',
+			partition: 0,
+			workers: [ 'demo.p0', 'other.p1' ],
+		} );
+		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
+		expect( Core.node( 'other.p1' ) ).toBeInstanceOf( RemoteIpcNode );
 	} );
 
 	it( 'bumping the graph generation tears down + rebuilds the graph (fresh Router)', () => {
@@ -122,9 +145,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 				'Metadata',
 				'Uptime',
 				'Completion',
-				'Heartbeat',
-				'HttpOut',
-				'SseIn',
+				'RemoteIpc',
 			] ) {
 				expect( built ).toContain( type );
 			}
@@ -145,42 +166,35 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( cwd.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
 	} );
 
-	it( 'points the canvas poll nodes at _cwd and the heartbeat at _http/workers (no pollTo)', () => {
+	it( 'seeds _cwd.target to the bare session worker reader', () => {
+		renderGraph( { topology: 'demo', partition: 2 } );
+		expect( Core.node( names.CWD ).target ).toBe( 'demo.p2' );
+	} );
+
+	it( 'points the canvas poll nodes at _cwd (no pollTo)', () => {
 		renderGraph();
 		expect( Core.node( names.METADATA ).target ).toBe( names.CWD );
 		expect( Core.node( names.UPTIME ).target ).toBe( names.CWD );
-		expect( Core.node( names.HEARTBEAT ).target ).toBe(
-			`${ names.HTTP }/workers`
-		);
 		expect( Core.node( names.METADATA ).pollTo ).toBeUndefined();
 		expect( Core.node( names.UPTIME ).pollTo ).toBeUndefined();
-		expect( Core.node( names.HEARTBEAT ).pollTo ).toBeUndefined();
 	} );
 
-	it( 'wires _sse.sink → _command_interpreter (rule #2: everything sinks into the interpreter)', () => {
+	it( 'wires the session RemoteIpc sink → _command_interpreter (rule #2)', () => {
 		renderGraph();
-		// The interpreter forwards non-command / non-empty-TO SSE traffic to the router;
-		// steering stays the SSE node's target (_output), not a direct router sink.
-		expect( lastConnector.sink ).toBe(
+		expect( Core.node( 'demo.p0' ).sink ).toBe(
 			Core.node( names.COMMAND_INTERPRETER )
 		);
-		expect( lastConnector.started ).toBe( true );
 	} );
 
 	it( 'sinks every node into the interpreter — _router is the only node with no sink (rule #2)', () => {
 		renderGraph();
 		const interpreter = Core.node( names.COMMAND_INTERPRETER );
-		// The reply/boundary nodes are terminal (they render or POST in fill, never
-		// forwarding through sink), but rule #2 still wires their sink to the interpreter so
-		// the declared topology is uniform — only _router is bare.
 		for ( const name of [
 			names.OUTPUT,
 			names.COMPLETION,
-			names.HTTP,
-			names.SSE,
 			names.METADATA,
 			names.UPTIME,
-			names.HEARTBEAT,
+			'demo.p0',
 		] ) {
 			expect( Core.node( name ).sink ).toBe( interpreter );
 		}
@@ -198,16 +212,67 @@ describe( 'useConsoleGraph — graph topology', () => {
 		);
 	} );
 
-	it( 'subscribes the connector to {topology}.p{N} with baseUrl + nonce', () => {
+	it( 'subscribes the active connector to {topology}.p{N} with baseUrl + nonce', () => {
 		renderGraph( { topology: 'demo', partition: 3 } );
+		// First poll/connect boots the session worker's stream.
 		expect( lastConnector.opts.subscribe ).toEqual( [ 'demo.p3' ] );
 		expect( lastConnector.opts.baseUrl ).toBe( '/wp-json/' );
 		expect( lastConnector.opts.nonce ).toBe( 'NONCE' );
 	} );
 
-	it( 'sets the Shell cwd path to the private session default _sse/{reader}', () => {
+	it( 'sets the Shell cwd path to the bare session worker reader', () => {
 		const { result } = renderGraph( { topology: 'demo', partition: 2 } );
-		expect( result.current.shell.path ).toBe( '_sse/demo.p2' );
+		expect( result.current.shell.path ).toBe( 'demo.p2' );
+	} );
+} );
+
+describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
+	it( 'batches one tick of the active worker polls into a SINGLE postBatch', () => {
+		renderGraph();
+		act( () => lastConnector.emitConnected( 4242 ) );
+		const postBatch = jest.fn().mockResolvedValue( [] );
+		httpOf( 'demo.p0' ).client = { postBatch };
+		// Point the cwd at the active worker so the polls route out to its HttpOut.
+		Core.node( names.CWD ).target = 'demo.p0';
+		// One Router TIMER tick: every poll this tick emits (dump_metadata + any
+		// uptime) rides ONE POST via the active RemoteIpc's HttpOut.
+		act( () => Core.node( names.ROUTER ).fireCb() );
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
+		const { VALUE } = require( '../../../runtime/message' );
+		const verbNames = postBatch.mock.calls[ 0 ][ 0 ]
+			.map( ( m ) => m && m[ VALUE ] && m[ VALUE ].name )
+			.filter( Boolean );
+		expect( verbNames ).toContain( 'dump_metadata' );
+	} );
+
+	it( 'flushes the SAME node it locked when a steal swaps active mid-notify', () => {
+		renderGraph( {
+			topology: 'demo',
+			partition: 0,
+			workers: [ 'demo.p0', 'other.p1' ],
+		} );
+		const router = Core.node( names.ROUTER );
+		const oldActive = Core.node( 'demo.p0' );
+		const newActive = Core.node( 'other.p1' );
+		// Make demo.p0 the active link.
+		act( () => oldActive.connect() );
+		expect( RemoteIpcNode.active ).toBe( oldActive );
+		// Spy lock/flush on both links' HttpOuts.
+		oldActive.ensureChildren();
+		newActive.ensureChildren();
+		const oldFlush = jest.spyOn( oldActive.httpOut, 'flush' );
+		const newFlush = jest.spyOn( newActive.httpOut, 'flush' );
+		// Run the bracket by hand, stealing active in between (what a poll that
+		// reconnects a different worker does mid-notifyTimer).
+		act( () => {
+			router.beforeTimerNotify();
+			RemoteIpcNode.active = newActive; // steal mid-notify
+			router.afterTimerNotify();
+		} );
+		// The flush must land on the node locked in before (demo.p0), NOT the
+		// stolen new active — otherwise demo.p0's HttpOut strands locked.
+		expect( oldFlush ).toHaveBeenCalledTimes( 1 );
+		expect( newFlush ).not.toHaveBeenCalled();
 	} );
 } );
 
@@ -225,64 +290,35 @@ describe( 'useConsoleGraph — connection state', () => {
 		expect( result.current.ssePid ).toBe( 12345 );
 	} );
 
-	it( 'exposes the connected pid (the wrap reads it from _sse, not the Shell)', () => {
+	it( 'exposes the connected pid (the active RemoteIpc reads it from its SseIn)', () => {
 		const { result } = renderGraph();
 		act( () => lastConnector.emitConnected( 777 ) );
 		expect( result.current.ssePid ).toBe( 777 );
-		expect( lastConnector.pid() ).toBe( 777 );
+		expect( Core.node( 'demo.p0' ).pid() ).toBe( 777 );
 	} );
 
-	it( 'pokes workers/heartbeat (with this partition) on the TIMER once a slot is held', () => {
-		expectConsoleWarn( '_http: HttpOut POST failed:' );
-		jest.useFakeTimers();
-		try {
-			const { getCommandClient } = require( '../../utils/commandClient' );
-			const calls = [];
-			getCommandClient().postBatch = jest.fn( ( entries ) => {
-				calls.push( entries );
-				return Promise.resolve( null );
-			} );
-			renderGraph( { topology: 'demo', partition: 0 } );
-			act( () => lastConnector.emitConnected( 777 ) ); // payload { pid, slot: 1 }
-			calls.length = 0;
-			act( () => jest.advanceTimersByTime( 5000 ) );
-			const { TO, VALUE } = require( '../../../runtime/message' );
-			const poke = calls
-				.flat()
-				.find(
-					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
-				);
-			expect( poke ).toBeTruthy();
-			expect( poke[ VALUE ].arguments ).toBe( '1 10 0' );
-			expect( poke[ TO ] ).toBe( 'workers' );
-		} finally {
-			jest.useRealTimers();
-		}
+	it( 'holds a Heartbeat slot on the active worker after the connected handshake (slot keepalive)', () => {
+		renderGraph();
+		// The fake SseIn's connected envelope carries slot 1; the RemoteLink bridge
+		// hands it to the composed Heartbeat so the slot is kept alive.
+		act( () => lastConnector.emitConnected( 4242 ) );
+		expect( Core.node( 'demo.p0' ).heartbeat.slot ).toBe( 1 );
 	} );
 
-	it( 'does not poke heartbeat before a slot is acquired', () => {
-		expectConsoleWarn( '_http: HttpOut POST failed:' );
-		jest.useFakeTimers();
-		try {
-			const { getCommandClient } = require( '../../utils/commandClient' );
-			const calls = [];
-			getCommandClient().postBatch = jest.fn( ( entries ) => {
-				calls.push( entries );
-				return Promise.resolve( null );
-			} );
-			renderGraph( { topology: 'demo', partition: 0 } );
-			// No emitConnected → no slot.
-			act( () => jest.advanceTimersByTime( 5000 ) );
-			const { VALUE } = require( '../../../runtime/message' );
-			const poke = calls
-				.flat()
-				.find(
-					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
-				);
-			expect( poke ).toBeUndefined();
-		} finally {
-			jest.useRealTimers();
-		}
+	it( 'resets the displayed pid when a steal closes the active worker (onClose)', () => {
+		const { result } = renderGraph( {
+			topology: 'demo',
+			partition: 0,
+			workers: [ 'demo.p0', 'other.p1' ],
+		} );
+		// Session worker connects → pid displayed.
+		act( () => Core.node( 'demo.p0' ).connect() );
+		act( () => Core.node( 'demo.p0' ).sseIn.emitConnected( 4242 ) );
+		expect( result.current.ssePid ).toBe( 4242 );
+		// Steal to the other worker: its connect() closes demo.p0, whose onClose
+		// must clear the displayed pid (the new worker repopulates it on handshake).
+		act( () => Core.node( 'other.p1' ).connect() );
+		expect( result.current.ssePid ).toBeNull();
 	} );
 } );
 
@@ -306,8 +342,6 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 	} );
 
 	it( 'closes the stream and clears the pid when the tab is hidden', () => {
-		// A long-hidden tab throttles the heartbeat TIMER → the slot TTLs out, so
-		// close proactively (same pattern as the dashboards) rather than rot.
 		const { result } = renderGraph( { streamEnabled: true } );
 		act( () => lastConnector.emitConnected( 42 ) );
 		expect( result.current.ssePid ).toBe( 42 );
@@ -326,10 +360,15 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 
 	it( 'does NOT open the stream while streaming is off, even when visible', () => {
 		renderGraph( { streamEnabled: false } );
-		lastConnector.startCount = 0;
+		// The session worker's RemoteIpc EXISTS (it's always mounted)…
+		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
 		act( () => setVisibility( 'hidden' ) );
 		act( () => setVisibility( 'visible' ) );
-		expect( lastConnector.startCount ).toBe( 0 );
+		// …but its stream was never opened: with streaming off, connect() never
+		// ran, so no SseIn child was ever built (a null connector is the proof, not
+		// a vacuous fallback). If one HAD been built, it must not have started.
+		expect( Core.node( 'demo.p0' ).sseIn ).toBeNull();
+		expect( lastConnector ).toBeNull();
 	} );
 } );
 
@@ -357,9 +396,6 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 	} );
 
 	it( 'an SSE broadcast with empty TO lands in the Dumper transcript', () => {
-		// A broadcast (e.g. `send _repl ...`) arrives over SSE with TO='' (no
-		// reply-node). The browser _router can't peel an empty TO, so it must
-		// forward to its sink (_output) — otherwise the broadcast is dropped.
 		renderGraph();
 		const {
 			newMessage,
@@ -428,12 +464,11 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		).toHaveLength( 0 );
 	} );
 
-	it( 'a typed Shell command flows Shell → interpreter → Router → HttpOut → POST', () => {
-		expectConsoleWarn( '_http: HttpOut POST failed:' );
+	it( 'a typed Shell command flows Shell → interpreter → Router → RemoteIpc → POST', () => {
 		const { result } = renderGraph();
 		act( () => lastConnector.emitConnected( 4242 ) );
-		const postBatch = jest.fn().mockResolvedValue( null );
-		Core.node( names.HTTP ).client.postBatch = postBatch;
+		const postBatch = jest.fn().mockResolvedValue( [] );
+		httpOf( 'demo.p0' ).client = { postBatch };
 		act( () => {
 			result.current.shell.fill( 'ls -al' );
 		} );
@@ -445,7 +480,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
-		// `_sse` wrapped the bare `_output` FROM into the private reply pivot.
+		// RemoteIpc wrapped the bare `_output` FROM into the private reply pivot.
 		expect( batch[ 1 ][ FROM ] ).toBe( `${ names.SSE }:4242/_output` );
 	} );
 
@@ -458,7 +493,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( recv ).toBeTruthy();
 		expect( recv.text ).toContain( names.COMMAND_INTERPRETER );
 		expect( recv.text ).toContain( names.OUTPUT );
-		expect( recv.text ).toContain( names.SSE );
+		expect( recv.text ).toContain( 'demo.p0' );
 	} );
 
 	it( 'ls -c at the local root renders the full _cmdList COUNT column (not a flat name dump)', () => {
@@ -472,20 +507,17 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( recv.text ).toContain( 'NAME' );
 	} );
 
-	it( 'bare ls at the local root lists the interpreter siblings (everything that sinks into the interpreter), not _router', () => {
+	it( 'bare ls at the local root lists the interpreter siblings, not _router', () => {
 		const { result } = renderGraph();
 		act( () => result.current.shell.fill( 'cd /' ) );
 		act( () => result.current.shell.fill( 'ls' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
-		// Default = siblings (sink IS the interpreter). Per rule #2 every node sinks into
-		// the interpreter, so the poll nodes AND the terminal reply/boundary nodes are all
-		// siblings now (_output included).
 		expect( recv.text ).toContain( names.METADATA );
 		expect( recv.text ).toContain( names.UPTIME );
 		expect( recv.text ).toContain( names.OUTPUT );
-		// _router is the ONLY node with no sink → never a interpreter sibling.
+		// _router is the ONLY node with no sink → never an interpreter sibling.
 		expect( recv.text.split( '\n' ) ).not.toContain( names.ROUTER );
 	} );
 } );
@@ -513,17 +545,14 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 	};
 
 	it( 'a worker cwd re-stamps the poll TO out to the worker and POSTs (reply rides the stream)', () => {
-		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		renderGraph();
 		act( () => lastConnector.emitConnected( 4242 ) );
-		const postBatch = jest.fn().mockResolvedValue( null );
-		Core.node( names.HTTP ).client.postBatch = postBatch;
-		// cd onto a worker: the gating effect sets `_cwd.target` to the worker path.
-		Core.node( names.CWD ).target = '_sse/demo.p0';
+		const postBatch = jest.fn().mockResolvedValue( [] );
+		httpOf( 'demo.p0' ).client = { postBatch };
+		// cd onto a worker: the gating effect sets `_cwd.target` to the bare reader.
+		Core.node( names.CWD ).target = 'demo.p0';
 		act( () => {
-			Core.node( names.HTTP ).lock();
 			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
-			Core.node( names.HTTP ).flush();
 		} );
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		const batch = postBatch.mock.calls[ 0 ][ 0 ];
@@ -531,9 +560,8 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 			( m ) => m && m[ VALUE ] && 'dump_metadata' === m[ VALUE ].name
 		);
 		expect( routed ).toBeTruthy();
-		// `_sse` peeled, leaving the worker reader as TO.
 		expect( routed[ TO ] ).toBe( 'demo.p0' );
-		// FROM survived the `_cwd` hop (a plain Node doesn't stamp FROM); `_sse`
+		// FROM survived the `_cwd` hop (a plain Node doesn't stamp FROM); RemoteIpc
 		// wrapped the reply pivot with the live pid.
 		expect( routed[ FROM ] ).toBe(
 			`${ names.SSE }:4242/${ names.METADATA }`
@@ -543,89 +571,17 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 	it( 'the local root (_cwd.target = "") interprets the poll in-browser (no POST)', () => {
 		renderGraph();
 		act( () => lastConnector.emitConnected( 4242 ) );
-		const postBatch = jest.fn().mockResolvedValue( null );
-		Core.node( names.HTTP ).client.postBatch = postBatch;
+		const postBatch = jest.fn().mockResolvedValue( [] );
+		httpOf( 'demo.p0' ).client = { postBatch };
 		// cd /: the gating effect leaves `_cwd.target` empty (local root).
 		Core.node( names.CWD ).target = '';
 		act( () => {
-			Core.node( names.HTTP ).lock();
 			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
-			Core.node( names.HTTP ).flush();
 		} );
-		// Empty TO → the local interpreter interprets the poll; the reply routes back to
-		// _metadata (in-browser), never out over HTTP.
 		expect( postBatch ).not.toHaveBeenCalled();
 		expect(
 			Core.node( names.METADATA ).setStateCache.metadata
 		).toBeDefined();
-	} );
-} );
-
-describe( 'useConsoleGraph — TIMER batching', () => {
-	// Pull every verb out of a single postBatch call's entries.
-	const { VALUE } = require( '../../../runtime/message' );
-	const verbsIn = ( entries ) =>
-		entries
-			.map( ( m ) => m && m[ VALUE ] && m[ VALUE ].name )
-			.filter( Boolean );
-
-	it( 'batches dump_metadata + uptime into ONE postBatch on the 5s tick', () => {
-		expectConsoleWarn( '_http: HttpOut POST failed:' );
-		jest.useFakeTimers();
-		try {
-			const { getCommandClient } = require( '../../utils/commandClient' );
-			const calls = [];
-			getCommandClient().postBatch = jest.fn( ( entries ) => {
-				calls.push( entries );
-				return Promise.resolve( null );
-			} );
-			renderGraph( { topology: 'demo', partition: 0 } );
-			act( () => lastConnector.emitConnected( 4242 ) );
-			// Drain calls accumulated up to the connected paint.
-			calls.length = 0;
-			// Advance to the 5s tick (Core.now advances with fake timers, so the
-			// uptime 5s throttle releases).
-			act( () => jest.advanceTimersByTime( 5000 ) );
-			// Exactly one tick batched BOTH verbs into a single postBatch.
-			const batched = calls.filter( ( entries ) => {
-				const verbs = verbsIn( entries );
-				return (
-					verbs.includes( 'dump_metadata' ) &&
-					verbs.includes( 'uptime' )
-				);
-			} );
-			expect( batched ).toHaveLength( 1 );
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	it( 'a non-5s tick posts only dump_metadata (no uptime)', () => {
-		expectConsoleWarn( '_http: HttpOut POST failed:' );
-		jest.useFakeTimers();
-		try {
-			const { getCommandClient } = require( '../../utils/commandClient' );
-			const calls = [];
-			getCommandClient().postBatch = jest.fn( ( entries ) => {
-				calls.push( entries );
-				return Promise.resolve( null );
-			} );
-			renderGraph( { topology: 'demo', partition: 0 } );
-			act( () => lastConnector.emitConnected( 4242 ) );
-			// First tick after subscriber registration cold-fires every
-			// throttled subscriber (their lastFired=0); drain past it before
-			// asserting throttle behavior.
-			act( () => jest.advanceTimersByTime( 1000 ) );
-			calls.length = 0;
-			// Second 1s tick — well short of the 5s uptime cadence.
-			act( () => jest.advanceTimersByTime( 1000 ) );
-			expect( calls ).toHaveLength( 1 );
-			const verbs = verbsIn( calls[ 0 ] );
-			expect( verbs ).toContain( 'dump_metadata' );
-			expect( verbs ).not.toContain( 'uptime' );
-		} finally {
-			jest.useRealTimers();
-		}
 	} );
 } );
 
@@ -645,12 +601,10 @@ describe( 'useConsoleGraph — lifecycle', () => {
 		const connector = lastConnector;
 		unmount();
 		expect( connector.closed ).toBe( true );
-		for ( const key of Object.values( names ) ) {
-			if ( key === names.REPL ) {
-				continue; // _repl is server-side only; never mounted here.
-			}
-			expect( Core.node( key ) ).toBeNull();
-		}
+		expect( Core.node( names.ROUTER ) ).toBeNull();
+		expect( Core.node( names.OUTPUT ) ).toBeNull();
+		expect( Core.node( 'demo.p0' ) ).toBeNull();
+		expect( RemoteIpcNode.active ).toBeNull();
 	} );
 
 	it( 're-mounts cleanly when the partition changes (no name collision)', () => {
@@ -683,7 +637,7 @@ describe( 'useConsoleGraph — lifecycle', () => {
 		} );
 		expect( connector.closed ).toBe( true );
 		expect( Core.node( names.OUTPUT ) ).toBeNull();
-		expect( Core.node( names.HTTP ) ).toBeNull();
+		expect( Core.node( 'demo.p0' ) ).toBeNull();
 	} );
 } );
 
@@ -698,12 +652,17 @@ describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
 
 	it( 'does NOT open the stream when streamEnabled is false (cwd not a worker)', () => {
 		renderGraph( { streamEnabled: false } );
-		expect( lastConnector.started ).toBe( false );
+		// The session worker's RemoteIpc is mounted but its stream is never opened:
+		// connect() never ran, so no SseIn child was built. Asserting the node
+		// exists AND has no connector beats the old `lastConnector ? … : false`,
+		// which passed vacuously when no SseIn was ever constructed.
+		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
+		expect( Core.node( 'demo.p0' ).sseIn ).toBeNull();
+		expect( lastConnector ).toBeNull();
 	} );
 
 	it( 'opens the stream when streamEnabled flips true (cd back onto a worker)', () => {
 		const { rerender } = renderGraph( { streamEnabled: false } );
-		expect( lastConnector.started ).toBe( false );
 		act( () => rerender( rerenderProps( true ) ) );
 		expect( lastConnector.started ).toBe( true );
 	} );
@@ -715,13 +674,5 @@ describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
 		act( () => rerender( rerenderProps( false ) ) );
 		expect( lastConnector.closed ).toBe( true );
 		expect( result.current.ssePid ).toBeNull();
-	} );
-
-	it( 'clears the heartbeat slot when the stream is gated off', () => {
-		const { rerender } = renderGraph( { streamEnabled: true } );
-		act( () => lastConnector.emitConnected( 4242 ) ); // sets slot 1
-		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 1 );
-		act( () => rerender( rerenderProps( false ) ) );
-		expect( Core.node( names.HEARTBEAT ).slot ).toBeNull();
 	} );
 } );

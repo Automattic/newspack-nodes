@@ -33,6 +33,14 @@ export class RemoteLinkNode extends Node {
 		this.sseIn = null;
 		this.httpOut = null;
 		this.heartbeat = null;
+		// Optional consumer hook fired with the SseIn's `connected` payload (after
+		// the internal slot bridge) — lets a graph track which link's stream is live
+		// (e.g. the console's ssePid as the active worker changes).
+		this.onConnected = null;
+		// Optional consumer hook fired AFTER close() finishes — lets a graph reset
+		// state tied to this stream (e.g. the console's ssePid when a steal closes
+		// the old active link before the new one handshakes).
+		this.onClose = null;
 	}
 
 	// Names of the three composed children, derived from this link's name.
@@ -98,6 +106,7 @@ export class RemoteLinkNode extends Node {
 			} else {
 				hb.clearSlot();
 			}
+			this.onConnected?.( payload );
 			return true;
 		} );
 	}
@@ -108,10 +117,12 @@ export class RemoteLinkNode extends Node {
 		this.sseIn.start();
 	}
 
-	// Close the inbound stream and forget the slot (nothing to keep alive).
+	// Close the inbound stream and forget the slot (nothing to keep alive), then
+	// fire the consumer's onClose hook.
 	close() {
 		this.sseIn?.close();
 		this.heartbeat?.clearSlot();
+		this.onClose?.();
 	}
 
 	// Re-point the stream at a new subscription (the dashboards' selectLog).
