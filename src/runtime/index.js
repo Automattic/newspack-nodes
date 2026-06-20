@@ -12,6 +12,8 @@ export { CommandInterpreterNode } from './command-interpreter-node';
 export { mountExospine } from './exospine';
 export { SseConnectorNode } from './sse-connector-node';
 export { SseInNode } from './sse-in-node';
+export { RemoteLinkNode } from './remote-link';
+export { RemoteIpcNode } from './remote-ipc';
 export { HttpOutNode } from './http-out-node';
 export { CompletionNode } from './completion-node';
 export { DumperNode } from './dumper-node';

@@ -7,6 +7,7 @@ import '../includeConsoleNodes';
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { Core } from '../../runtime/core';
 import { MetadataNode } from '../../runtime/metadata-node';
+import { RemoteIpcNode } from '../../runtime/remote-ipc';
 
 beforeEach( () => Core.reset() );
 
@@ -18,5 +19,12 @@ describe( 'includeConsoleNodes', () => {
 		const node = Core.node( 'mymeta' );
 		expect( node ).toBeInstanceOf( MetadataNode );
 		expect( node.sink ).toBe( interpreter );
+	} );
+
+	it( 'make_node resolves RemoteIpc (the per-worker command channel)', () => {
+		const interpreter = new CommandInterpreterNode();
+		interpreter.name = '_command_interpreter';
+		interpreter.dispatch( 'make_node', 'RemoteIpc aggregator.p0' );
+		expect( Core.node( 'aggregator.p0' ) ).toBeInstanceOf( RemoteIpcNode );
 	} );
 } );
