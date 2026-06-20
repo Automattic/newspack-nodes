@@ -72,7 +72,7 @@ class StatusCITest extends TestCase {
 		$this->use_base_dir( $this->tmp, [
 			'num_partitions' => 4,
 		] );
-		$this->activate_topologies( [ 'aggregator', 'job-worker' ] );
+		$this->activate_topologies( [ 'hub-control', 'job-worker' ] );
 		Core::$memd = new InMemoryMemcached();
 		$interpreter         = new Status_CI_Node();
 
@@ -84,7 +84,7 @@ class StatusCITest extends TestCase {
 		$this->assertSame( 'ok', $result['status'] );
 		$this->assertSame( \NEWSPACK_NODES_VERSION, $result['runtime_version'] );
 		$this->assertSame( 4, $result['num_partitions'] );
-		$this->assertSame( [ 'aggregator', 'job-worker' ], $result['topologies'] );
+		$this->assertSame( [ 'hub-control', 'job-worker' ], $result['topologies'] );
 		$this->assertTrue( $result['cache_available'] );
 		$this->assertIsInt( $result['timestamp'] );
 		$this->assertGreaterThanOrEqual( $before, $result['timestamp'] );
@@ -96,12 +96,12 @@ class StatusCITest extends TestCase {
 		// (`Bootstrap::get_topologies()` keys), which drops names that don't
 		// resolve to a real topology — NOT the raw config `topologies` array,
 		// which would echo the bogus name verbatim.
-		$this->activate_topologies( [ 'aggregator', 'no-such-topology' ] );
+		$this->activate_topologies( [ 'job-worker', 'no-such-topology' ] );
 		$interpreter = new Status_CI_Node();
 
 		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
 
-		$this->assertSame( [ 'aggregator' ], $result['topologies'] );
+		$this->assertSame( [ 'job-worker' ], $result['topologies'] );
 	}
 
 	public function test_cache_unavailable_reports_false_when_memd_null(): void {
