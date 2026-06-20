@@ -344,6 +344,9 @@ export default function TopologyConsole() {
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const jsCatalog = useJsCatalog();
 	const [ replExpanded, setReplExpanded ] = useState( false );
+	// Px the expanded transcript overlays the canvas with (reported by ReplFooter);
+	// fed to the canvas autofit so nodes fit above the transcript.
+	const [ transcriptOverlayPx, setTranscriptOverlayPx ] = useState( 0 );
 	const replInputRef = useRef( null );
 	const refocusReplIfExpanded = useCallback( () => {
 		if ( replExpanded ) {
@@ -1573,6 +1576,7 @@ export default function TopologyConsole() {
 					// A canvas background click only re-fits the view; it no
 					// longer dismisses the transcript or deselects the inspector.
 					backgroundClickAutofitsOnly: true,
+					bottomObstructionPx: transcriptOverlayPx,
 					inspectorCollapsed,
 					onInspectorToggle: toggleInspectorCollapsed,
 				} }
@@ -1592,6 +1596,7 @@ export default function TopologyConsole() {
 					onComplete: requestCompletion,
 					onShowCandidates: handleShowCandidates,
 					maxHeightPx: replMaxHeightPx,
+					onOverlayHeightChange: setTranscriptOverlayPx,
 				} }
 			/>
 			{ discardModal && (

@@ -77,6 +77,9 @@ export default function ReplFooter( {
 	// inner height minus header height so the transcript can't grow past
 	// the overlay's bounds (default maxHeight assumes a full-page console).
 	maxHeightPx = null,
+	// Reports the px the transcript overlays the canvas with (its height when
+	// expanded, 0 when collapsed) so the canvas autofit can reserve that band.
+	onOverlayHeightChange,
 } ) {
 	const [ value, setValue ] = useState( '' );
 	// Command history (oldest→newest). `historyCursor` points at the recalled
@@ -112,6 +115,12 @@ export default function ReplFooter( {
 		() => loadStoredHeight() ?? defaultHeight()
 	);
 	const dragState = useRef( null );
+
+	// Report the canvas overlap (transcript height when expanded, else 0) so the
+	// consumer can feed the canvas autofit a bottom obstruction.
+	useEffect( () => {
+		onOverlayHeightChange?.( expanded ? height : 0 );
+	}, [ expanded, height, onOverlayHeightChange ] );
 
 	// Click in the transcript refocuses the input, unless on a selection
 	// or a button (preserves copy/paste; via ownerDocument for the linter).

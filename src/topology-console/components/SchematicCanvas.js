@@ -64,7 +64,12 @@ const CENTER_PAD = 80;
 // smaller than 1:1 (a 1-node graph stays node-sized regardless of panel size).
 const AUTOFIT_FALLBACK_W = 1280;
 const AUTOFIT_FALLBACK_H = 720;
-function tightViewBoxFor( nodes, canvasSize = null ) {
+// `bottomInsetPx` reserves that many canvas px at the BOTTOM as obstructed (the
+// expanded REPL transcript overlays there): the fitted graph is pushed into the
+// unobstructed band above it by extending the viewBox below the bbox by the
+// obstruction's world-height (so the bbox bottom lands at `minH - bottomInsetPx`
+// under the SVG's `meet` fit), keeping nodes clear of the transcript.
+function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	const minW = canvasSize?.w || AUTOFIT_FALLBACK_W;
 	const minH = canvasSize?.h || AUTOFIT_FALLBACK_H;
 	if ( ! nodes.length ) {
@@ -92,6 +97,11 @@ function tightViewBoxFor( nodes, canvasSize = null ) {
 	const centerY = ( minY + maxY ) / 2;
 	const x = centerX - w / 2;
 	const y = centerY - h / 2;
+	if ( bottomInsetPx > 0 && minH > bottomInsetPx ) {
+		// Keep the top edge; add the obstruction's world-height below the bbox.
+		const insetWorld = ( h * bottomInsetPx ) / ( minH - bottomInsetPx );
+		return `${ x } ${ y } ${ w } ${ h + insetWorld }`;
+	}
 	return `${ x } ${ y } ${ w } ${ h }`;
 }
 
@@ -220,6 +230,9 @@ export default function SchematicCanvas( {
 	// (onBackgroundClickConsumed) or deselects, so the transcript/inspector
 	// stay put. The console opts in; the overlay keeps the staged dismiss.
 	backgroundClickAutofitsOnly = false,
+	// Canvas px obstructed at the bottom (the expanded REPL transcript overlay);
+	// the autofit reserves this band so nodes fit above it. 0 = none.
+	bottomObstructionPx = 0,
 	// shell_name → schema; drives port visibility (accepts_fill/has_target).
 	classCatalog = {},
 } ) {
@@ -480,8 +493,13 @@ export default function SchematicCanvas( {
 	}, [] );
 
 	const defaultViewBox = useMemo(
-		() => tightViewBoxFor( displayNodes, canvasPx.w ? canvasPx : null ),
-		[ displayNodes, canvasPx ]
+		() =>
+			tightViewBoxFor(
+				displayNodes,
+				canvasPx.w ? canvasPx : null,
+				bottomObstructionPx
+			),
+		[ displayNodes, canvasPx, bottomObstructionPx ]
 	);
 	const viewBox = viewport
 		? `${ viewport.x } ${ viewport.y } ${ viewport.w } ${ viewport.h }`
@@ -516,10 +534,16 @@ export default function SchematicCanvas( {
 		const currentNodes = nodesRef.current;
 		if ( ! viewport && currentNodes.length > 0 ) {
 			setViewport(
-				parseViewBox( tightViewBoxFor( currentNodes, canvasSize() ) )
+				parseViewBox(
+					tightViewBoxFor(
+						currentNodes,
+						canvasSize(),
+						bottomObstructionPx
+					)
+				)
 			);
 		}
-	}, [ viewport, nodes.length, setViewport ] );
+	}, [ viewport, nodes.length, setViewport, bottomObstructionPx ] );
 
 	// hoveredId is lifted so the Inspector can drive the same highlight.
 	const setHovered = ( id ) => {
@@ -697,7 +721,11 @@ export default function SchematicCanvas( {
 			if ( backgroundClickAutofitsOnly ) {
 				setViewport(
 					parseViewBox(
-						tightViewBoxFor( displayNodes, canvasSize() )
+						tightViewBoxFor(
+							displayNodes,
+							canvasSize(),
+							bottomObstructionPx
+						)
 					)
 				);
 				return;
@@ -714,7 +742,11 @@ export default function SchematicCanvas( {
 			} else {
 				setViewport(
 					parseViewBox(
-						tightViewBoxFor( displayNodes, canvasSize() )
+						tightViewBoxFor(
+							displayNodes,
+							canvasSize(),
+							bottomObstructionPx
+						)
 					)
 				);
 			}

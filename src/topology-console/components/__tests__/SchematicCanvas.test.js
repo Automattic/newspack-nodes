@@ -387,6 +387,29 @@ describe( 'SchematicCanvas', () => {
 		expect( viewBox.split( /\s+/ ) ).toHaveLength( 4 );
 	} );
 
+	it( 'autofit insets the viewBox height by bottomObstructionPx so nodes clear the transcript', () => {
+		const base = render( <SchematicCanvas { ...baseProps } /> );
+		const baseH = Number(
+			base.container
+				.querySelector( 'svg' )
+				.getAttribute( 'viewBox' )
+				.split( /\s+/ )[ 3 ]
+		);
+		base.unmount();
+		const inset = render(
+			<SchematicCanvas { ...baseProps } bottomObstructionPx={ 200 } />
+		);
+		const insetH = Number(
+			inset.container
+				.querySelector( 'svg' )
+				.getAttribute( 'viewBox' )
+				.split( /\s+/ )[ 3 ]
+		);
+		// The added bottom space (transcript world-height) keeps the bbox in the
+		// unobstructed band, so the autofit viewBox is taller than without it.
+		expect( insetH ).toBeGreaterThan( baseH );
+	} );
+
 	it( 'shows AUTOFIT_MIN size for empty graphs', () => {
 		const { container } = render(
 			<SchematicCanvas
