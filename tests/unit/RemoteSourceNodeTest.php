@@ -246,6 +246,38 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNotNull( $status['last_heartbeat_response'] );
 	}
 
+	public function test_publish_status_ages_out_stale_heartbeat_response(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->set_slot( $sse, 5 );
+
+		Core::$now = 1000.0;
+		$node->fire(); // mints the heartbeat (records send-time)
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = 'remote-austin';
+		$reply[ Message::VALUE ] = [ 'success' => true ];
+		$node->fill( $reply ); // records last_heartbeat_response at t=1000
+
+		// A tick right after the reply keeps the fresh response in the snapshot.
+		$node->fire();
+		$this->assertNotNull(
+			Core::$memd->get( 'np:remote:remote-austin:p0' )['last_heartbeat_response']
+		);
+
+		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
+		// The Status badge must not latch 'success' on a stale timestamp, so the
+		// snapshot ages the response out to null (mirrors the old clear-on-disconnect).
+		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
+		$node->fire();
+		$status = Core::$memd->get( 'np:remote:remote-austin:p0' );
+		$this->assertNull( $status['last_heartbeat_response'] );
+		$this->assertNull( $status['last_heartbeat_rtt'] );
+	}
+
 	public function test_tick_publishes_status_snapshot(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node ] = $this->make_remote( 'remote-austin' );
