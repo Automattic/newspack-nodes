@@ -644,6 +644,20 @@ describe( 'useConsoleGraph — lifecycle', () => {
 		expect( RemoteIpcNode.active ).toBeNull();
 	} );
 
+	it( 'tears down the shared _http/_heartbeat singletons on unmount (no orphan for the next tab to collide with)', () => {
+		const { unmount } = renderGraph();
+		// The session worker's RemoteIpc composed the shared singletons on its
+		// mount-time connect.
+		expect( Core.node( names.HTTP ) ).not.toBeNull();
+		expect( Core.node( names.HEARTBEAT ) ).not.toBeNull();
+		unmount();
+		// They must NOT survive the console unmount: the next tab's
+		// `makeNode( 'HttpOut', '_http' )` registers unconditionally and would
+		// throw "node name collision" against an orphan.
+		expect( Core.node( names.HTTP ) ).toBeNull();
+		expect( Core.node( names.HEARTBEAT ) ).toBeNull();
+	} );
+
 	it( 're-mounts cleanly when the partition changes (no name collision)', () => {
 		const { rerender } = renderGraph( { partition: 0 } );
 		const first = lastConnector;
