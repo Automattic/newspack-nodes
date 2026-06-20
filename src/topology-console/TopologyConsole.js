@@ -1305,6 +1305,9 @@ export default function TopologyConsole() {
 			edges: [],
 			frontmatter: {},
 		} );
+		// New is a "start a fresh topology" affordance available from live mode
+		// too — land the user in edit mode (no-op when already editing).
+		setMode( 'edit' );
 		setDraft( blank );
 		setBaseline( blank );
 		setEditingName( '' );

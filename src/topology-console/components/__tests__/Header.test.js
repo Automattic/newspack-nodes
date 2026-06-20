@@ -135,6 +135,15 @@ describe( 'Header', () => {
 		expect( onSave ).toHaveBeenCalled();
 	} );
 
+	it( 'shows a NEW button in live (view) mode and wires onNew', () => {
+		const onNew = jest.fn();
+		const { getByText } = render(
+			<Header { ...baseProps } mode="view" onNew={ onNew } />
+		);
+		fireEvent.click( getByText( 'NEW' ) );
+		expect( onNew ).toHaveBeenCalled();
+	} );
+
 	it( 'shows DELETE only when canDelete is true', () => {
 		const onDelete = jest.fn();
 		const { getByText, rerender, queryByText } = render(
