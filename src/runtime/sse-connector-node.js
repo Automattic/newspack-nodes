@@ -18,6 +18,12 @@ export class SseConnectorNode extends Node {
 		this.subscribe = [];
 		this.baseUrl = '';
 		this.nonce = '';
+		// Optional per-subscription seek seed, `{ <sub>: { <partition>: pos } }`
+		// where pos is 'start' (replay from the oldest retained record), 'end'
+		// (tail — the default when unset), or a `{seg,off}`. Set programmatically
+		// (a structured blob, NOT a positional arg); serialized into the stream
+		// URL by start(). null/empty → omit the param → the server tail-seeks.
+		this.positions = null;
 		this._es = null;
 		// Wall-clock of the last inbound frame (data row OR idle heartbeat). The
 		// connector is the only node that sees every frame, so it owns stream
@@ -46,10 +52,15 @@ export class SseConnectorNode extends Node {
 
 	start() {
 		this.close();
-		const url =
+		let url =
 			`${ this.baseUrl }newspack-nodes/v1/messages/stream` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
 			`&_wpnonce=${ this.nonce }`;
+		if ( this.positions && Object.keys( this.positions ).length > 0 ) {
+			url += `&positions=${ encodeURIComponent(
+				JSON.stringify( this.positions )
+			) }`;
+		}
 		const es = new EventSource( url, { withCredentials: true } );
 		this._es = es;
 		// A frame from a stream we've since close()d (or reopened past) must not

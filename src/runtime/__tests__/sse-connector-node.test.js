@@ -59,6 +59,35 @@ test( 'start opens an EventSource with the right URL', () => {
 	);
 } );
 
+test( 'start omits the positions param when none is set (default tail-seek)', () => {
+	const s = makeConnector();
+	s.start();
+	expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+} );
+
+test( 'start appends positions as an encoded JSON blob when set', () => {
+	// The dashboards seed a per-subscription start/end (or {seg,off}) so the
+	// server's open_subscription seeks there instead of tailing the end.
+	const s = makeConnector( {
+		subscribe: [ 'topicprobe.p0' ],
+		baseUrl: '/',
+		nonce: 'n',
+	} );
+	const positions = { 'topicprobe.p0': { 0: 'start' } };
+	s.positions = positions;
+	s.start();
+	expect( FakeEventSource.last.url ).toContain(
+		`&positions=${ encodeURIComponent( JSON.stringify( positions ) ) }`
+	);
+} );
+
+test( 'an empty positions object is not appended (it would just tail-seek anyway)', () => {
+	const s = makeConnector();
+	s.positions = {};
+	s.start();
+	expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+} );
+
 test( 'msg event with TM_INFO + KEY=connected stores pid via setState', () => {
 	const s = makeConnector();
 	s.start();

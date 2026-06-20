@@ -109,9 +109,13 @@ export class RemoteLinkNode extends Node {
 		} );
 	}
 
-	// Open the inbound stream (children built lazily on first use).
-	connect() {
+	// Open the inbound stream (children built lazily on first use). An optional
+	// `positions` seed (`{ <sub>: { <partition>: 'start'|'end'|{seg,off} } }`)
+	// seeks the server cursor — the Overview tab passes 'start' for 24h replay;
+	// omitting it tail-seeks (the live-follow default).
+	connect( positions = null ) {
 		this.ensureChildren();
+		this.sseIn.positions = positions;
 		this.sseIn.start();
 	}
 
@@ -123,11 +127,13 @@ export class RemoteLinkNode extends Node {
 		this.onClose?.();
 	}
 
-	// Re-point the stream at a new subscription (the dashboards' selectLog).
-	setSubscribe( subscribe ) {
+	// Re-point the stream at a new subscription (the dashboards' selectLog), with
+	// an optional `positions` seek seed (omitted → tail-seek).
+	setSubscribe( subscribe, positions = null ) {
 		this.ensureChildren();
 		this.sseIn.close();
 		this.sseIn.subscribe = subscribe;
+		this.sseIn.positions = positions;
 		this.sseIn.start();
 	}
 
