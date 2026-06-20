@@ -9,7 +9,6 @@ import { Core } from '../../runtime/core';
 import CanvasFrame from '../../topology-console/components/CanvasFrame';
 import ConsoleShell from '../../topology-console/components/ConsoleShell';
 import { NewNodeModal } from '../../topology-console/components/Modal';
-import { makeReplDismissHandler } from '../../topology-console/utils/replDismissHandler';
 import { useJsCatalog } from '../../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../../topology-console/hooks/useClassCatalog';
 import { ShellNode } from '../../runtime/shell-node';
@@ -89,7 +88,6 @@ export default function InspectorTab( {
 	onHeaderPointerDown,
 	toggleMaximize,
 } ) {
-	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 	// Measure the DevtoolsTabHost tab bar that sits above this body so the
@@ -120,8 +118,14 @@ export default function InspectorTab( {
 	// Theme + palette are shared with the topology console so a preference picked
 	// in either surface applies in both. The overlay is always live (no edit
 	// mode), so it uses the live palette key (default collapsed).
-	const { theme, onThemeChange, paletteCollapsed, togglePaletteCollapsed } =
-		usePanelChrome( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
+	const {
+		theme,
+		onThemeChange,
+		paletteCollapsed,
+		togglePaletteCollapsed,
+		inspectorCollapsed,
+		toggleInspectorCollapsed,
+	} = usePanelChrome( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
 	// One Shell instance per panel mount, shared by useDebugGraph (handler
 	// dispatch) and useDebugRepl (typed-line dispatch). cwd is empty: the overlay
 	// is local-only. useDebugRepl binds shell.sink to the page's interpreter
@@ -244,12 +248,6 @@ export default function InspectorTab( {
 	// the measured tab bar above this body (the ReplFooter is transcript +
 	// always-visible prompt stacked).
 	const replMaxHeightPx = replMaxHeight( frame.h, tabBarHeight );
-	// Shared canvas-background-click dismiss pattern (mirrors the console).
-	const onCanvasBackgroundClick = makeReplDismissHandler( {
-		replExpanded,
-		setReplExpanded,
-		inputRef: replInputRef,
-	} );
 
 	return (
 		<div
@@ -258,8 +256,8 @@ export default function InspectorTab( {
 			data-testid="inspector-tab"
 		>
 			<div
-				className={ `topology-app theme-${ theme }${
-					selected ? ' is-inspector-open' : ''
+				className={ `topology-app theme-${ theme } is-inspector-open${
+					inspectorCollapsed ? ' is-inspector-collapsed' : ''
 				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 			>
 				<ConsoleShell
@@ -345,8 +343,9 @@ export default function InspectorTab( {
 								payload
 							);
 						},
-						onSelectionChange: setSelected,
-						onBackgroundClickConsumed: onCanvasBackgroundClick,
+						backgroundClickAutofitsOnly: true,
+						inspectorCollapsed,
+						onInspectorToggle: toggleInspectorCollapsed,
 					} }
 					replProps={ {
 						prompt: `/${ cwd }`,
