@@ -67,7 +67,9 @@
 		color: base.$dark-text;
 		text-decoration: none;
 
-		&:hover {
+		// Only the active-topology name is an <a> (it has an href); the stopped
+		// one is a <span> with none, so only the link underlines on hover.
+		&[href]:hover {
 			text-decoration: underline;
 		}
 	}
