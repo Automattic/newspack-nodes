@@ -186,10 +186,12 @@ class Workers_CI_Node extends Service_CI_Node {
 						$stale_to,
 						$handler,
 						[
-							'seg'    => self::to_int( $row['seg'] ),
-							'off'    => self::to_int( $row['off'] ),
-							'behind' => self::to_int( $row['behind'] ),
-							'total'  => self::to_int( $row['total'] ),
+							'seg'        => self::to_int( $row['seg'] ),
+							'off'        => self::to_int( $row['off'] ),
+							'behind'     => self::to_int( $row['behind'] ),
+							'total'      => self::to_int( $row['total'] ),
+							'read_rate'  => $row['read_rate'],
+							'write_rate' => $row['write_rate'],
 						]
 					);
 					$worker['target']         = $t['name'] ?? '';
@@ -249,9 +251,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * Build the per-worker rich descriptor, adding `live`/`stale`/`heartbeat_at`
 	 * from the heartbeat mtime so the dashboard renders status badges in one round-trip.
 	 *
-	 * @param array{seg:int,off:int,behind:int,total:int}|null $cursor The reader's
-	 *     TopicProbe snapshot (cursor + backlog + partition-end, all from the same
-	 *     instant, via `consumer_rows()`); null for a not-yet-checkpointed placeholder.
+	 * @param array{seg:int,off:int,behind:int,total:int,read_rate:float,write_rate:float}|null $cursor
+	 *     The reader's TopicProbe snapshot (cursor + backlog + partition-end + the
+	 *     probe-computed read/write byte rates, all from the same instant, via
+	 *     `consumer_rows()`); null for a not-yet-checkpointed placeholder.
 	 * @return array<string, mixed>
 	 */
 	private static function build_worker_status(
@@ -276,6 +279,10 @@ class Workers_CI_Node extends Service_CI_Node {
 		$cursor_offset = $cursor['off'] ?? 0;
 		$behind        = $cursor['behind'] ?? 0;
 		$total_size    = $cursor['total'] ?? 0;
+		// Byte rates the PROBE computed (Δ over its 15s ts) — displayed as-is, the
+		// single rate source so read + write move together and never client-delta.
+		$read_rate     = $cursor['read_rate'] ?? 0.0;
+		$write_rate    = $cursor['write_rate'] ?? 0.0;
 
 		// Status: heartbeat freshness inside the lock dir.
 		$status        = 'dead';
@@ -313,6 +320,8 @@ class Workers_CI_Node extends Service_CI_Node {
 			'cursor_seg'      => $cursor_seg,
 			'cursor_offset'   => $cursor_offset,
 			'behind'          => $behind,
+			'read_rate'       => $read_rate,
+			'write_rate'      => $write_rate,
 			'handler'         => $handler_name,
 		];
 	}
@@ -627,7 +636,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * (`CLI::consumer_rows()`, sourced from the TopicProbe log) — shared with
 	 * `wp nodes status` so the dashboard and cli read positions exactly one way.
 	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,ts:float}>
+	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,read_rate:float,write_rate:float,ts:float}>
 	 */
 	private static function enumerate_offsetlog_rows( string $base_dir ): array {
 		return ( new CLI( $base_dir ) )->consumer_rows();

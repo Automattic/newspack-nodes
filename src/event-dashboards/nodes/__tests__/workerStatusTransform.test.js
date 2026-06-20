@@ -90,31 +90,6 @@ const producerSnapshot = ( totalSize ) => ( {
 	logs: [],
 } );
 
-// One request consumer reading firehose.p0; cursor advances between snapshots.
-const consumerSnapshot = ( cursorOffset ) => ( {
-	workers: [
-		{
-			type: 'request-workers',
-			handler: 'request-workers',
-			partition: 0,
-			inputs: [ 'firehose.p0' ],
-			outputs: [],
-			inputs_status: [
-				{
-					name: 'firehose.p0',
-					segments: [ { id: 1, size: 100000 } ],
-					total_size: 100000,
-					cursor_seg: 1,
-					cursor_offset: cursorOffset,
-				},
-			],
-			outputs_status: [],
-		},
-	],
-	supervisor: null,
-	logs: [],
-} );
-
 describe( 'workerstatus:transform — model envelope', () => {
 	test( 'emits a TM_STRUCT { action:"model", model } for a metadata snapshot', () => {
 		const sink = capture();
@@ -265,94 +240,86 @@ describe( 'workerstatus:transform — model envelope', () => {
 	} );
 } );
 
-describe( 'workerstatus:transform — rate math from two snapshots', () => {
-	test( 'first snapshot yields no rates (no previous to delta against)', () => {
+describe( 'workerstatus:transform — rates come from the probe-computed worker descriptors', () => {
+	// The PROBE computes read_rate/write_rate (Δbytes / Δ its own 15s ts) and
+	// rides them on each worker descriptor; the transform just reads them — no
+	// client-side delta of poll snapshots, so a SINGLE snapshot already has rates.
+	const workersMsg = ( workers ) =>
+		metadataMsg( { workers, supervisor: null, logs: [] } );
+
+	function fireOnce( workers ) {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
-		const { model } = sink.got[ 0 ][ VALUE ];
+		t.fill( workersMsg( workers ) );
+		return sink.got[ 0 ][ VALUE ].model;
+	}
+
+	test( 'byteRates reads worker.read_rate, keyed (handler-partition-source)', () => {
+		const model = fireOnce( [
+			{
+				type: 'request-workers',
+				handler: 'request-workers',
+				partition: 0,
+				source: '',
+				input_log: 'requests.p0',
+				read_rate: 2000,
+				write_rate: 0,
+				inputs_status: [],
+				outputs_status: [],
+			},
+		] );
+		expect( model.byteRates[ 'request-workers-0-' ] ).toBe( 2000 );
+	} );
+
+	test( 'writeRates reads worker.write_rate, keyed by the concrete input_log', () => {
+		const model = fireOnce( [
+			{
+				type: 'firehose-workers',
+				handler: 'firehose-workers',
+				partition: 0,
+				source: '',
+				input_log: 'firehose.p0',
+				read_rate: 0,
+				write_rate: 500,
+				inputs_status: [],
+				outputs_status: [],
+			},
+		] );
+		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 500 );
+	} );
+
+	test( 'a SINGLE snapshot already carries both rates (no two-snapshot delta)', () => {
+		const model = fireOnce( [
+			{
+				type: 'w',
+				handler: 'w',
+				partition: 0,
+				source: '',
+				input_log: 'l.p0',
+				read_rate: 10,
+				write_rate: 20,
+				inputs_status: [],
+				outputs_status: [],
+			},
+		] );
+		expect( model.byteRates[ 'w-0-' ] ).toBe( 10 );
+		expect( model.writeRates[ 'l.p0' ] ).toBe( 20 );
+	} );
+
+	test( 'missing rate fields default to 0; a worker with no input_log adds no writeRate', () => {
+		const model = fireOnce( [
+			{
+				type: 'w',
+				handler: 'w',
+				partition: 0,
+				source: '',
+				inputs_status: [],
+				outputs_status: [],
+			},
+		] );
+		expect( model.byteRates[ 'w-0-' ] ).toBe( 0 );
 		expect( model.writeRates ).toEqual( {} );
-		expect( model.byteRates ).toEqual( {} );
-	} );
-
-	test( 'second snapshot computes write rate from total_size delta / time', () => {
-		withClock( ( advance ) => {
-			const sink = capture();
-			const t = makeTransform( 'workerstatus:transform' );
-			t.sink = sink.node;
-			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
-			advance( 2000 ); // 2s between snapshots
-			t.fill( metadataMsg( producerSnapshot( 1100 ) ) );
-			const { model } = sink.got[ 1 ][ VALUE ];
-			// (1100 - 100) bytes / 2s = 500 B/s, keyed on the CONCRETE log name
-			// verbatim (`firehose.p0`) — byte-identical to the render side.
-			expect( model.writeRates[ 'firehose.p0' ] ).toBe( 500 );
-		} );
-	} );
-
-	test( 'second snapshot computes per-worker read rate from cursor delta', () => {
-		withClock( ( advance ) => {
-			const sink = capture();
-			const t = makeTransform( 'workerstatus:transform' );
-			t.sink = sink.node;
-			t.fill( metadataMsg( consumerSnapshot( 0 ) ) );
-			advance( 1000 ); // 1s
-			t.fill( metadataMsg( consumerSnapshot( 2000 ) ) );
-			const { model } = sink.got[ 1 ][ VALUE ];
-			// processed went 0 → 2000 over 1s; key `${handler}-${partition}-${source}`.
-			expect( model.byteRates[ 'request-workers-0-' ] ).toBe( 2000 );
-		} );
-	} );
-
-	test( 'keys the write rate on a NON-.p{N} concrete name verbatim (layout-agnostic)', () => {
-		withClock( ( advance ) => {
-			const sink = capture();
-			const t = makeTransform( 'workerstatus:transform' );
-			t.sink = sink.node;
-			// A concrete dir whose partition token is NOT a trailing `.p{N}`
-			// (`feed_p0`). The key must be the concrete name verbatim — no
-			// logical derivation — so it matches the render side regardless of
-			// where the partition token sits.
-			const snap = ( total ) => ( {
-				workers: [
-					{
-						type: 'firehose-workers',
-						handler: 'firehose-workers',
-						partition: 0,
-						outputs: [ 'feed_p0' ],
-						inputs_status: [],
-						outputs_status: [
-							{
-								name: 'feed_p0',
-								segments: [ { id: 1, size: total } ],
-								total_size: total,
-							},
-						],
-					},
-				],
-				supervisor: null,
-				logs: [],
-			} );
-			t.fill( metadataMsg( snap( 100 ) ) );
-			advance( 2000 );
-			t.fill( metadataMsg( snap( 1100 ) ) );
-			const { model } = sink.got[ 1 ][ VALUE ];
-			expect( model.writeRates.feed_p0 ).toBe( 500 );
-		} );
-	} );
-
-	test( 'a shrinking total_size clamps the write rate to zero (stale snapshot)', () => {
-		withClock( ( advance ) => {
-			const sink = capture();
-			const t = makeTransform( 'workerstatus:transform' );
-			t.sink = sink.node;
-			t.fill( metadataMsg( producerSnapshot( 1100 ) ) );
-			advance( 2000 );
-			t.fill( metadataMsg( producerSnapshot( 100 ) ) ); // went backwards
-			const { model } = sink.got[ 1 ][ VALUE ];
-			expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
-		} );
 	} );
 } );
 
