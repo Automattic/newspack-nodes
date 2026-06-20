@@ -9,5 +9,7 @@
 	"UPTIME": "_uptime",
 	"COMPLETION": "_completion",
 	"HEARTBEAT": "_heartbeat",
-	"CWD": "_cwd"
+	"CWD": "_cwd",
+	"TOPICPROBE": "_topicprobe",
+	"TOPICPROBE_LOG": "_topicprobe:log"
 }

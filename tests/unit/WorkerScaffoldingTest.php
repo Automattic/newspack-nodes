@@ -6,6 +6,7 @@ use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\TopicProbe_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
 
@@ -27,6 +28,29 @@ class WorkerScaffoldingTest extends TestCase {
 		$interpreter = $w->build_scaffolding();
 		$this->assertSame( $interpreter, Core::node( '_command_interpreter' ) );
 		$this->assertNotNull( Core::node( '_router' ) );
+	}
+
+	public function test_build_scaffolding_mounts_topic_probe_targeting_the_log(): void {
+		// Every worker process runs its own TopicProbe, sweeping its local Consumers
+		// into the shared topicprobe log. It steers there with target() (rule #2:
+		// everything sinks into the interpreter; flow is routed by TO), and the log
+		// is a 5 MiB / 2-segment / 24h Partition.
+		$w = new Worker_Base( $this->tmp, 'test', 0 );
+		$w->build_scaffolding();
+
+		$probe = Core::node( '_topicprobe' );
+		$log   = Core::node( '_topicprobe:log' );
+		$this->assertInstanceOf( TopicProbe_Node::class, $probe );
+		$this->assertInstanceOf( Partition_Node::class, $log );
+		$this->assertSame( '_topicprobe:log', $probe->target() );
+
+		[ , $segment_size, $num_segments, $max_lifespan ] = \explode(
+			' ',
+			$log->arguments()
+		);
+		$this->assertSame( (string) ( 5 * 1024 * 1024 ), $segment_size );
+		$this->assertSame( '2', $num_segments );
+		$this->assertSame( '86400', $max_lifespan );
 	}
 
 	public function test_ipc_input_consumer_resumes_from_prior_offsetlog(): void {

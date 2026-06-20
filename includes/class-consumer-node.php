@@ -770,6 +770,32 @@ class Consumer_Node extends Timer_Node {
 		);
 	}
 
+	/**
+	 * Probe seam: the stats TopicProbe reads from outside this Consumer (the
+	 * Tachikoma probe reads $node->{offset}/{counter} the same way). Identity +
+	 * the `source` (the concrete per-partition log basename it tails, e.g.
+	 * `requests.p0` — partition stays encoded there, never re-parsed by hardcoding
+	 * `.pN`) + seg:off (for the position-readers) + the EXACT byte volumes:
+	 * bytes_read (monotonic consumed, → byte-rate) and bytes_behind (backlog,
+	 * summed from the real on-disk segment sizes via compute_lag, no segment_size
+	 * guess).
+	 *
+	 * @return array{consumer:string, source:string, cursor_seg:int, cursor_off:int, bytes_read:int, bytes_behind:int, msg_sent:int, worker_type:string}
+	 */
+	public function probe_stats(): array {
+		$lag = $this->compute_lag();
+		return [
+			'consumer'     => $this->name,
+			'source'       => '' !== $this->source_dir ? \basename( $this->source_dir ) : '',
+			'cursor_seg'   => $this->cursor_seg,
+			'cursor_off'   => $this->cursor_off,
+			'bytes_read'   => $this->bytes_read,
+			'bytes_behind' => $lag['bytes_behind'],
+			'msg_sent'     => $this->counter,
+			'worker_type'  => self::worker_type_env(),
+		];
+	}
+
 	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool} */
 	private function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
