@@ -987,25 +987,6 @@ export default function TopologyConsole() {
 		[ mode, draft, baseline, topology, fetchTopology ]
 	);
 
-	// Honor a `?edit=1` deep-link (the Topologies tab's Edit / New buttons): land
-	// in edit mode for the `?topology` (or a blank draft when none), then consume
-	// the param so a later LIVE toggle or refresh doesn't snap back into edit.
-	useEffect( () => {
-		if ( '1' !== readUrlParam( 'edit' ) ) {
-			return;
-		}
-		handleModeChange( 'edit' );
-		try {
-			const url = new URL( window.location.href );
-			url.searchParams.delete( 'edit' );
-			window.history.replaceState( null, '', url.toString() );
-		} catch ( _e ) {
-			// Best-effort param cleanup.
-		}
-		// Mount-only: consume the deep-link once.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [] );
-
 	// Source of truth: live `parsed` in view mode, frozen draft in edit mode.
 	const baseCanvasGraph = mode === 'edit' ? draft : parsed;
 
@@ -1332,6 +1313,31 @@ export default function TopologyConsole() {
 		setSettingsOpen( false );
 		resetLayout();
 	}, [ resetLayout ] );
+
+	// Honor a `?edit=1` deep-link (the Topologies tab's Edit / New buttons), then
+	// consume the param so a later LIVE toggle or refresh doesn't snap back into
+	// edit. Branch on the URL, NOT the `topology` state: with no `?topology` the
+	// state falls back to TOPOLOGIES[0], so `handleModeChange('edit')` would load
+	// that default — "New" must instead blank via `handleNew`.
+	useEffect( () => {
+		if ( '1' !== readUrlParam( 'edit' ) ) {
+			return;
+		}
+		if ( readUrlParam( 'topology' ) ) {
+			handleModeChange( 'edit' );
+		} else {
+			handleNew();
+		}
+		try {
+			const url = new URL( window.location.href );
+			url.searchParams.delete( 'edit' );
+			window.history.replaceState( null, '', url.toString() );
+		} catch ( _e ) {
+			// Best-effort param cleanup.
+		}
+		// Mount-only: consume the deep-link once.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [] );
 
 	// "Reset graph" — the shared useGraphReset rebuild (removeNode all → bump the
 	// generation so useConsoleGraph rebuilds off the canonical wiring → keep the
