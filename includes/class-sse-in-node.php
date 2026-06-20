@@ -88,6 +88,7 @@ class SSE_In_Node extends Node {
 	private bool  $connected       = false;
 	private ?string $last_error    = null;
 	private ?int  $last_http_code  = null;
+	private ?int  $last_sse_heartbeat = null;
 
 	/** Tachikoma-parity: no-arg ctor. Config arrives via configure(); no I/O here (ADR-5). */
 	public function __construct() {
@@ -181,14 +182,15 @@ class SSE_In_Node extends Node {
 	 * Connection-state snapshot for the patron.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int}
+	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int}
 	 */
 	public function connection(): array {
 		return [
-			'connected'       => $this->connected,
-			'last_http_code'  => $this->last_http_code,
-			'last_error'      => $this->last_error,
-			'current_backoff' => $this->current_backoff,
+			'connected'          => $this->connected,
+			'last_http_code'     => $this->last_http_code,
+			'last_error'         => $this->last_error,
+			'current_backoff'    => $this->current_backoff,
+			'last_sse_heartbeat' => $this->last_sse_heartbeat,
 		];
 	}
 
@@ -306,10 +308,11 @@ class SSE_In_Node extends Node {
 		$this->buffer          = '';
 		$this->current_event   = [ 'event' => '', 'data' => '' ];
 		$this->last_event_time = $now;
-		$this->connected       = true;
-		$this->last_error      = null;
-		$this->last_http_code  = null;
-		$this->handle          = $ch;
+		$this->connected          = true;
+		$this->last_error         = null;
+		$this->last_http_code     = null;
+		$this->last_sse_heartbeat = null;
+		$this->handle             = $ch;
 		$this->last_attempt    = $now;
 		$this->slot            = null;
 		return true;
@@ -512,7 +515,8 @@ class SSE_In_Node extends Node {
 		// The remote's messages-stream emits periodic `heartbeat` events when a
 		// stream is idle-but-live. Record the receipt (not forwarded).
 		if ( 'heartbeat' === $type ) {
-			$this->last_event_time = Core::$now ?: \microtime( true );
+			$this->last_event_time    = Core::$now ?: \microtime( true );
+			$this->last_sse_heartbeat = (int) Core::$now;
 			return true;
 		}
 

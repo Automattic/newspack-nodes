@@ -85,7 +85,7 @@ export class AggregatorViewNode extends Node {
 		const connectedCount = servers.filter( ( s ) => {
 			const partitions = s.partitions || {};
 			return Object.values( partitions ).some(
-				( p ) => p?.last_connection_status === 'connected'
+				( p ) => p?.connected === true
 			);
 		} ).length;
 		this.model = {

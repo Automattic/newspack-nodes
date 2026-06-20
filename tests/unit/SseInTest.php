@@ -80,6 +80,36 @@ class SseInTest extends TestCase {
 		$this->assertCount( 0, $sink->captured );
 	}
 
+	public function test_heartbeat_frame_records_last_sse_heartbeat(): void {
+		[ $node ] = $this->configured_node();
+		Core::$now = 1748960000;
+
+		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
+
+		$this->assertSame( 1748960000, $node->connection()['last_sse_heartbeat'] );
+	}
+
+	public function test_fresh_node_has_null_last_sse_heartbeat(): void {
+		[ $node ] = $this->configured_node();
+
+		$this->assertNull( $node->connection()['last_sse_heartbeat'] );
+	}
+
+	public function test_reconnect_resets_last_sse_heartbeat_to_null(): void {
+		[ $node ] = $this->configured_node();
+		Core::$now = 1748960000;
+		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
+		$this->assertSame( 1748960000, $node->connection()['last_sse_heartbeat'] );
+
+		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$node->maybe_connect();
+
+		$this->assertNull( $node->connection()['last_sse_heartbeat'] );
+	}
+
 	public function test_oversized_message_dropped_not_forwarded(): void {
 		[ $node, $sink ] = $this->configured_node();
 		$huge = \str_repeat( 'x', 8000 );

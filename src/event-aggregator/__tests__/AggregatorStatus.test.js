@@ -30,27 +30,24 @@ const SAMPLE_SERVERS = [
 	{
 		id: 'server1',
 		url: 'https://a.example.test',
-		enabled: true,
 		partitions: {
 			0: {
-				last_connection_status: 'connected',
-				last_heartbeat_response_status: 'success',
+				connected: true,
+				last_heartbeat_response: 1748960010,
 				last_heartbeat_rtt: 42,
 				last_connection_attempt: 1748960000,
 				last_sse_heartbeat: 1748960010,
-				last_heartbeat_response: 1748960010,
 			},
 			1: {
-				last_connection_status: 'disconnected',
-				last_connection_error: 'timeout',
-				last_connection_response: 504,
+				connected: false,
+				last_error: 'timeout',
+				last_http_code: 504,
 			},
 		},
 	},
 	{
 		id: 'server2',
 		url: 'https://b.example.test',
-		enabled: false,
 		partitions: {},
 	},
 ];
@@ -212,6 +209,35 @@ describe( 'AggregatorStatus', () => {
 		expect( container.textContent ).toContain( 'timeout' );
 	} );
 
+	it( 'shows the heartbeat status as pending (not success) when disconnected, even with a stale last_heartbeat_response', () => {
+		registerViewFixture( {
+			servers: [
+				{
+					id: 'gone',
+					url: 'https://gone.example.test',
+					partitions: {
+						// Was connected once (stale heartbeat ts present) but the
+						// SSE link is now down — the Status badge must reflect that.
+						0: {
+							connected: false,
+							last_heartbeat_response: 1748960010,
+						},
+					},
+				},
+			],
+			connectedCount: 0,
+			totalCount: 1,
+			loading: false,
+		} );
+		const { container } = mount();
+		expect(
+			container.querySelector( '.aggregator-heartbeat-badge.pending' )
+		).toBeTruthy();
+		expect(
+			container.querySelector( '.aggregator-heartbeat-badge.success' )
+		).toBeNull();
+	} );
+
 	it( 'shows the RTT badge for the heartbeat', () => {
 		registerViewFixture( {
 			servers: SAMPLE_SERVERS,
@@ -230,24 +256,22 @@ describe( 'AggregatorStatus', () => {
 				{
 					id: 'srv-rtt',
 					url: 'https://rtt.example.test',
-					enabled: true,
 					partitions: {
 						0: {
-							last_connection_status: 'connected',
-							last_heartbeat_response_status: 'success',
+							connected: true,
+							last_heartbeat_response: 9999,
 							last_heartbeat_rtt: 0.5,
 							last_connection_attempt: 9880,
 							last_sse_heartbeat: 5000,
-							last_heartbeat_response: 9999,
 						},
 						1: {
-							last_connection_status: 'connected',
-							last_heartbeat_response_status: 'success',
+							connected: true,
+							last_heartbeat_response: 9999,
 							last_heartbeat_rtt: 250,
 						},
 						2: {
-							last_connection_status: 'connected',
-							last_heartbeat_response_status: 'success',
+							connected: true,
+							last_heartbeat_response: 9999,
 							last_heartbeat_rtt: 600,
 						},
 					},
@@ -277,10 +301,9 @@ describe( 'AggregatorStatus', () => {
 				{
 					id: 'srv',
 					url: 'https://s.example.test',
-					enabled: true,
 					partitions: {
 						0: {
-							last_connection_status: 'connected',
+							connected: true,
 							// Recorded 1s before the snapshot serverNow below.
 							last_sse_heartbeat: 1999,
 						},
@@ -301,7 +324,7 @@ describe( 'AggregatorStatus', () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
 		const select = container.querySelector(
-			'.event-logger-refresh-select'
+			'.newspack-nodes-refresh-select'
 		);
 		expect( select ).toBeTruthy();
 		expect( select.value ).toBe( '2000' );

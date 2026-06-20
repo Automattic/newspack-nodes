@@ -61,16 +61,14 @@ const SAMPLE = {
 	server1: {
 		id: 'server1',
 		url: 'https://a.example.test',
-		enabled: true,
 		partitions: {
-			0: { last_connection_status: 'connected' },
-			1: { last_connection_status: 'disconnected' },
+			0: { connected: true },
+			1: { connected: false },
 		},
 	},
 	server2: {
 		id: 'server2',
 		url: 'https://b.example.test',
-		enabled: false,
 		partitions: {},
 	},
 };
