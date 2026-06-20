@@ -161,6 +161,28 @@
 // Palette
 // =====================================================================
 
+// Shared chevron-toggle box for the palette + inspector collapse/expand
+// controls — one definition so every hide/show button matches exactly (same
+// size + padding). Each consumer adds only its own positioning.
+%topology-panel-toggle {
+	width: 18px;
+	height: 18px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	background: var(--paper-3);
+	color: var(--ink);
+	border: 1px solid var(--ink-4);
+	border-radius: 2px;
+	cursor: pointer;
+	font: 700 12px/1 var(--font-mono);
+
+	&:hover {
+		background: var(--paper);
+	}
+}
+
 .topology-palette {
 	grid-area: palette;
 	border-right: 1px solid var(--ink);
@@ -180,28 +202,15 @@
 	}
 
 	// Chevron button — collapse (open palette) or expand (collapsed rail).
+	// Shares %topology-panel-toggle with the inspector so both panels' hide/show
+	// controls are pixel-identical; only the positioning differs.
 	&__toggle {
+		@extend %topology-panel-toggle;
 		position: sticky;
 		top: 0;
 		align-self: flex-end;
-		margin: 4px 6px 0;
-		width: 18px;
-		height: 18px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: var(--paper-3);
-		color: var(--ink);
-		border: 1px solid var(--ink-4);
-		border-radius: 2px;
-		cursor: pointer;
-		font: 700 12px/1 var(--font-mono);
-		padding: 0;
+		margin: 6px 6px 0;
 		z-index: 1;
-
-		&:hover {
-			background: var(--paper);
-		}
 
 		&--collapsed {
 			align-self: center;
@@ -866,29 +875,15 @@
 		align-items: center;
 	}
 
-	// Chevron — collapse (open inspector) or expand (collapsed rail). Pinned
-	// top-right so the left-aligned inspector body reads clear of it.
+	// Chevron — collapse (open inspector) or expand (collapsed rail). Pinned to
+	// the INNER (left) edge — the boundary with the canvas — mirroring how the
+	// palette's chevron sits on its inner edge. Shares %topology-panel-toggle.
 	.topology-inspector__toggle {
+		@extend %topology-panel-toggle;
 		position: absolute;
 		top: 6px;
-		right: 6px;
+		left: 6px;
 		z-index: 2;
-		width: 18px;
-		height: 18px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: var(--paper-3);
-		color: var(--ink);
-		border: 1px solid var(--ink-4);
-		border-radius: 2px;
-		cursor: pointer;
-		font: 700 12px/1 var(--font-mono);
-		padding: 0;
-
-		&:hover {
-			background: var(--paper);
-		}
 	}
 
 	&--collapsed .topology-inspector__toggle {
@@ -901,7 +896,9 @@
 	flex: 1;
 	min-height: 0;
 	background: var(--paper-2);
-	padding: 20px 18px 24px;
+	// Extra top padding clears the inner-edge collapse chevron (top: 6px + 18px)
+	// so the left-aligned body doesn't run under it.
+	padding: 32px 18px 24px;
 	overflow-y: auto;
 }
 
