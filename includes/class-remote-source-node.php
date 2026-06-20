@@ -52,6 +52,7 @@ class Remote_Source_Node extends Timer_Node {
 	private float $last_commit_time = 0.0;
 	private int   $last_heartbeat   = 0;
 	private int   $last_heartbeat_sent = 0;
+	private int   $last_heartbeat_response = 0;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
@@ -91,7 +92,8 @@ class Remote_Source_Node extends Timer_Node {
 				return;
 			}
 			$now = (int) Core::$now;
-			$rtt = $this->last_heartbeat_sent > 0 ? ( $now - $this->last_heartbeat_sent ) : 0;
+			$rtt                           = $this->last_heartbeat_sent > 0 ? ( $now - $this->last_heartbeat_sent ) : 0;
+			$this->last_heartbeat_response = $now;
 			$this->write_status( [
 				'last_heartbeat_response' => $now,
 				'last_heartbeat_rtt'      => $rtt,
@@ -370,14 +372,28 @@ class Remote_Source_Node extends Timer_Node {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
 			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null ];
-		$this->write_status( [
+		$data = [
 			'last_connection_attempt' => (int) Core::$now,
 			'connected'               => $conn['connected'],
 			'last_http_code'          => $conn['last_http_code'],
 			'last_error'              => $conn['last_error'],
 			'current_backoff'         => $conn['current_backoff'],
 			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
-		] );
+		];
+		// Age out the heartbeat round-trip so the dashboard's Status badge can't
+		// latch 'success' on a stale timestamp: the response is only "live" while
+		// connected AND seen within the node's own HEARTBEAT_INTERVAL*4 window
+		// (the same span as the slot TTL). Otherwise null it (mirrors the old
+		// clear-heartbeat-on-disconnect). When live, leave the fill()-written
+		// values untouched via the merge in write_status().
+		$hb_live = $conn['connected']
+			&& $this->last_heartbeat_response > 0
+			&& ( (int) Core::$now - $this->last_heartbeat_response ) <= self::HEARTBEAT_INTERVAL * 4;
+		if ( ! $hb_live ) {
+			$data['last_heartbeat_response'] = null;
+			$data['last_heartbeat_rtt']      = null;
+		}
+		$this->write_status( $data );
 	}
 
 	/** Set target. Tee overrides to append to its fan-out array. */
