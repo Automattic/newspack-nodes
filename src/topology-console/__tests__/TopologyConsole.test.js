@@ -704,7 +704,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 		expect( getByTestId( 'palette' ) ).not.toBeNull();
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		// The inspector is always present now (like the palette), empty until a
+		// node is selected.
+		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
 
@@ -1184,44 +1186,42 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	it( 'select node mounts the inspector', async () => {
+	it( 'selecting a node fills the (always-present) inspector', async () => {
 		const { getByText, queryByTestId } = render( <TopologyConsole /> );
 		await publishMeta();
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
-		fireEvent.click( getByText( 'select-n1' ) );
 		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
+		fireEvent.click( getByText( 'select-n1' ) );
 		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( 'n1' );
 	} );
 
-	it( 'deselect unmounts the inspector', async () => {
+	it( 'deselecting clears the (always-present) inspector', async () => {
 		const { getByText, queryByTestId } = render( <TopologyConsole /> );
 		await publishMeta();
 		fireEvent.click( getByText( 'select-n1' ) );
-		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( 'n1' );
 		fireEvent.click( getByText( 'deselect' ) );
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
-	it( 'deselect removes the is-inspector-open grid column', async () => {
+	it( 'keeps the inspector column reserved regardless of selection (like the palette)', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
 		await publishMeta();
+		const cls = () => container.querySelector( '.topology-app' ).className;
+		expect( cls() ).toContain( 'is-inspector-open' );
 		fireEvent.click( getByText( 'select-n1' ) );
-		expect(
-			container.querySelector( '.topology-app' ).className
-		).toContain( 'is-inspector-open' );
+		expect( cls() ).toContain( 'is-inspector-open' );
 		fireEvent.click( getByText( 'deselect' ) );
-		expect(
-			container.querySelector( '.topology-app' ).className
-		).not.toContain( 'is-inspector-open' );
+		expect( cls() ).toContain( 'is-inspector-open' );
 	} );
 
 	it( 'select edge clears any selected node', async () => {
 		const { getByText, queryByTestId } = render( <TopologyConsole /> );
 		await publishMeta();
 		fireEvent.click( getByText( 'select-n1' ) );
-		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( 'n1' );
 		fireEvent.click( getByText( 'select-edge' ) );
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
 	it( 'Inspector dump action emits a sent transcript entry', async () => {
@@ -1424,7 +1424,7 @@ describe( 'TopologyConsole boot', () => {
 		fireEvent.click( getByText( 'select-n1' ) );
 		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
 		fireEvent.click( getByText( 'new' ) );
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
 	it( 'header save in view mode is a no-op (still mounted)', () => {
@@ -2088,7 +2088,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'remove-n1' ) );
 		} );
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
 	it( 'edit mode: removing the selected edge clears selectedEdge', async () => {
@@ -2255,7 +2255,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.keyDown( document, { key: 'Delete' } );
 		} );
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
 	it( 'edit mode: keyboard handler ignored when focus is in an input', async () => {
@@ -2296,7 +2296,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.keyDown( document, { key: 'Backspace' } );
 		} );
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
 	it( 'edit mode: Delete key removes the selected edge', async () => {

@@ -1487,14 +1487,10 @@ export default function TopologyConsole() {
 	return (
 		<div
 			ref={ appRef }
-			className={ `topology-app theme-${ theme }${
-				selectedId ? ' is-inspector-open' : ''
-			}${ mode === 'edit' ? ' is-edit-mode' : '' }${
-				paletteCollapsed ? ' is-palette-collapsed' : ''
-			}${
-				selectedId && inspectorCollapsed
-					? ' is-inspector-collapsed'
-					: ''
+			className={ `topology-app theme-${ theme } is-inspector-open${
+				mode === 'edit' ? ' is-edit-mode' : ''
+			}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
+				inspectorCollapsed ? ' is-inspector-collapsed' : ''
 			}` }
 		>
 			<ConsoleShell

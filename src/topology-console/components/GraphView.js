@@ -217,7 +217,10 @@ export default function GraphView( {
 					classCatalog={ classCatalog }
 				/>
 			</Frame>
-			{ selectedId && (
+			{ /* Always present (like the palette): a slim rail when collapsed,
+			     the inspector when expanded — its empty state reads "select a
+			     node" until one is picked. */ }
+			{
 				<div
 					className={ `topology-inspector-dock${
 						inspectorCollapsed
@@ -266,7 +269,7 @@ export default function GraphView( {
 						/>
 					) }
 				</div>
-			) }
+			}
 		</>
 	);
 }

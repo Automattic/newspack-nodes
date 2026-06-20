@@ -63,13 +63,15 @@ describe( 'GraphView', () => {
 		expect( onConnect ).toHaveBeenCalledWith( 'a', 'b' );
 	} );
 
-	it( 'shows the inspector only after a node is selected', () => {
-		const { queryByTestId, getByText } = render(
+	it( 'inspector is always present (like the palette); fills in once a node is selected', () => {
+		const { getByTestId, getByText } = render(
 			<GraphView graph={ graph } frame={ Frame } resetKey="k" />
 		);
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		// Present even before a selection (empty state reads "select a node").
+		expect( getByTestId( 'inspector' ) ).not.toBeNull();
+		expect( getByTestId( 'inspector' ).textContent ).not.toContain( 'n1' );
 		fireEvent.click( getByText( 'select-n1' ) );
-		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
+		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n1' );
 	} );
 
 	it( 'renders the palette only when showPalette is set', () => {
@@ -89,7 +91,7 @@ describe( 'GraphView', () => {
 	} );
 
 	it( 're-syncs internal selection when the controlled `selection` prop changes', () => {
-		const { getByText, getByTestId, queryByTestId, rerender } = render(
+		const { getByText, getByTestId, rerender } = render(
 			<GraphView
 				graph={ twoNodeGraph }
 				frame={ Frame }
@@ -110,7 +112,8 @@ describe( 'GraphView', () => {
 			/>
 		);
 		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n2' );
-		// External clear (e.g. console "new"): selection→null hides inspector.
+		// External clear (e.g. console "new"): selection→null clears the
+		// inspector content but the (always-present) panel stays.
 		rerender(
 			<GraphView
 				graph={ twoNodeGraph }
@@ -119,7 +122,8 @@ describe( 'GraphView', () => {
 				selection={ null }
 			/>
 		);
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( getByTestId( 'inspector' ) ).not.toBeNull();
+		expect( getByTestId( 'inspector' ).textContent ).not.toContain( 'n2' );
 	} );
 
 	it( 'canvas deselect notifies the consumer via onSelectionChange(null)', () => {
