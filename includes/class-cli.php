@@ -55,90 +55,41 @@ class CLI {
 	}
 
 	/**
-	 * Read a live worker-cursor position from memcache.
+	 * Representative live cursor for a worker (type, partition), from the
+	 * TopicProbe index: the position of its primary input Consumer — the matching
+	 * record (same worker_type, `.p{N}` suffix) with the shortest offset_dir, so a
+	 * disambiguated reader (`firehose.job-router`) never shadows the base input
+	 * (`firehose`). Null when the worker has no probe record yet.
 	 *
-	 * Hits the same `np:pos:{host}:{source_basename}.p{N}` per-reader key
-	 * Consumer_Node publishes — derives the source basename from the worker's
-	 * recorded input, falling back to the conventional `firehose` when none yet.
-	 *
-	 * @param object $cache    Anything with a `get(string)` method; null to skip.
-	 * @param string $type     Worker type.
-	 * @param int    $partition Partition index.
-	 * @return array{seg:int,off:int,ts?:int}|null Position or null if not cached / unreachable.
-	 */
-	public function live_position( ?object $cache, string $type, int $partition ): ?array {
-		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
-			return null;
-		}
-		$basename = $this->input_basename( $type, $partition ) ?: 'firehose';
-		$host     = \gethostname() ?: 'unknown';
-		try {
-			$value = $cache->get( Consumer_Node::position_key( $host, "{$basename}.p{$partition}" ) );
-		} catch ( \Throwable $e ) {
-			return null;
-		}
-		return self::normalize_position( $value );
-	}
-
-	/**
-	 * The input-log basename a worker drains, read from its offsetlog's latest
-	 * checkpoint (`source_basename`). Empty string if no offsetlog yet — lets
-	 * callers locate the worker's partition dir without assuming `firehose.log`.
-	 *
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition index.
-	 */
-	public function input_basename( string $type, int $partition ): string {
-		$offset_dir = "{$this->base_dir}/offsets/{$type}.p{$partition}";
-		if ( ! \is_dir( $offset_dir ) ) {
-			return '';
-		}
-		$files = @\scandir( $offset_dir );
-		if ( false === $files ) {
-			return '';
-		}
-		$segments = [];
-		foreach ( $files as $f ) {
-			if ( \preg_match( '/^(\d+)\.log$/', $f, $m ) ) {
-				$segments[] = (int) $m[1];
-			}
-		}
-		if ( empty( $segments ) ) {
-			return '';
-		}
-		\sort( $segments );
-		$path = "{$offset_dir}/" . \end( $segments ) . '.log';
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$bytes = @\file_get_contents( $path );
-		if ( false === $bytes || '' === $bytes ) {
-			return '';
-		}
-		$lines = \array_filter( \explode( "\n", \rtrim( $bytes, "\n" ) ), static fn ( $l ) => '' !== $l );
-		if ( empty( $lines ) ) {
-			return '';
-		}
-		$last = \json_decode( \end( $lines ), true );
-		if ( ! \is_array( $last ) || ! isset( $last['source_basename'] ) ) {
-			return '';
-		}
-		$basename = $last['source_basename'];
-		return \is_scalar( $basename ) ? (string) $basename : '';
-	}
-
-	/**
-	 * Coerce a raw memcache/offsetlog position value to `{seg,off,ts}` ints, or
-	 * null when it's not a usable position record.
-	 *
-	 * @param mixed $value Raw cache value.
+	 * @param array<string,array<mixed>> $index     `read_probe_index()` output.
+	 * @param string                     $type      Worker type.
+	 * @param int                        $partition Partition index.
 	 * @return array{seg:int,off:int,ts:int}|null
 	 */
-	private static function normalize_position( $value ): ?array {
-		if ( ! \is_array( $value ) || ! isset( $value['seg'], $value['off'] ) ) {
-			return null;
+	public function live_position( array $index, string $type, int $partition ): ?array {
+		$suffix = ".p{$partition}";
+		$best   = null;
+		foreach ( $index as $offset_dir => $record ) {
+			if ( $type !== ( $record['worker_type'] ?? null ) || ! \str_ends_with( $offset_dir, $suffix ) ) {
+				continue;
+			}
+			if ( null === $best || \strlen( $offset_dir ) < \strlen( $best ) ) {
+				$best = $offset_dir;
+			}
 		}
-		$seg = $value['seg'];
-		$off = $value['off'];
-		$ts  = $value['ts'] ?? 0;
+		return null === $best ? null : self::normalize_probe_position( $index[ $best ] );
+	}
+
+	/**
+	 * Coerce a probe record's cursor_seg/cursor_off/ts to a `{seg,off,ts}` int position.
+	 *
+	 * @param array<mixed> $record A `read_probe_index()` record.
+	 * @return array{seg:int,off:int,ts:int}
+	 */
+	private static function normalize_probe_position( array $record ): array {
+		$seg = $record['cursor_seg'] ?? 0;
+		$off = $record['cursor_off'] ?? 0;
+		$ts  = $record['ts'] ?? 0;
 		return [
 			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
 			'off' => \is_numeric( $off ) ? (int) $off : 0,
@@ -147,92 +98,58 @@ class CLI {
 	}
 
 	/**
-	 * Live cursor for a specific Consumer, keyed by its offset-dir identity
-	 * (`{source_basename}.p{N}`) — the per-reader key `Consumer_Node` publishes.
-	 * Unlike live_position(), this addresses ONE Consumer, not a whole worker type.
+	 * Index of every active Consumer's latest stats record from the shared
+	 * topicprobe log, keyed by `offset_dir` (`{source_basename}.p{N}`) — the
+	 * durable per-reader identity. This is the single live-position source the
+	 * dashboard + `wp nodes ls/status` read (it replaced memcache + the offsetlog
+	 * fallback); TopicProbe appends one record per Consumer every ~15s.
 	 *
-	 * @param object|null $cache           `\Memcached`-shaped (or null to skip).
-	 * @param string      $offset_dir_name e.g. `firehose.job-router.p0`.
-	 * @return array{seg:int,off:int,ts?:int}|null
+	 * @return array<string,array<mixed>> offset_dir → the latest probe record VALUE.
 	 */
-	public function live_position_for( ?object $cache, string $offset_dir_name ): ?array {
-		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
-			return null;
-		}
-		$host = \gethostname() ?: 'unknown';
-		try {
-			$value = $cache->get( Consumer_Node::position_key( $host, $offset_dir_name ) );
-		} catch ( \Throwable $e ) {
-			return null;
-		}
-		return self::normalize_position( $value );
+	public function read_probe_index(): array {
+		return Partition_Node::read_tail_index_by(
+			"{$this->base_dir}/logs/" . Worker_Base::TOPICPROBE_LOG_DIR,
+			'offset_dir'
+		);
 	}
 
 	/**
-	 * One row per active Consumer: scan `offsets/` for `{source_basename}.p{N}`
-	 * dirs and read each latest checkpoint. Rows whose checkpoint records no
-	 * worker_type are skipped (nothing to attribute them to). This is the
-	 * canonical per-Consumer enumeration shared by the Worker Status dashboard
-	 * (`Workers_CI_Node`) and `wp nodes status`.
+	 * One row per active Consumer, mapped from the topicprobe index
+	 * (`read_probe_index()`). Rows whose record carries no worker_type are skipped
+	 * (nothing to attribute them to). This is the canonical per-Consumer
+	 * enumeration shared by the Worker Status dashboard (`Workers_CI_Node`) and
+	 * `wp nodes status`.
 	 *
 	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,ts:float}>
 	 */
 	public function consumer_rows(): array {
-		$offsets_dir = "{$this->base_dir}/offsets";
-		if ( ! \is_dir( $offsets_dir ) ) {
-			return [];
-		}
-		$entries = @\scandir( $offsets_dir );
-		if ( false === $entries ) {
-			return [];
-		}
 		$rows = [];
-		foreach ( $entries as $entry ) {
-			if ( '.' === $entry || '..' === $entry ) {
+		foreach ( $this->read_probe_index() as $offset_dir => $record ) {
+			// offset_dir is `{source_basename}.p{N}` — the partition lives in the name.
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $offset_dir, $m ) ) {
 				continue;
 			}
-			// Expect `{source_basename}.p{N}` directory naming.
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $entry, $m ) ) {
-				continue;
-			}
-			$value = $this->read_offsetlog_entry( $entry );
-			if ( null === $value ) {
-				continue;
-			}
-			$worker_type = self::scalar_string( $value['worker_type'] ?? '' );
-			// Skip entries pre-dating the metadata addition — no worker to attribute to.
+			$worker_type = self::scalar_string( $record['worker_type'] ?? '' );
+			// Skip records that can't be attributed to a worker.
 			if ( '' === $worker_type ) {
 				continue;
 			}
-			/** @var array<int,array<string,mixed>> $targets Decoded offsetlog `targets`: a list of `{name,…}` objects. */
-			$targets = \is_array( $value['targets'] ?? null ) ? $value['targets'] : [];
+			/** @var array<int,array<string,mixed>> $targets Probe `targets`: a list of `{name,…}` objects. */
+			$targets = \is_array( $record['targets'] ?? null ) ? $record['targets'] : [];
 			$rows[]  = [
-				'name'            => self::scalar_string( $value['name']   ?? '' ),
-				'target'          => self::scalar_string( $value['target'] ?? '' ),
+				'name'            => self::scalar_string( $record['consumer'] ?? '' ),
+				'target'          => self::scalar_string( $record['target'] ?? '' ),
 				'targets'         => $targets,
 				'worker_type'     => $worker_type,
 				'source_basename' => $m[1],
-				'source_log'      => self::scalar_string( $value['source_log'] ?? '' ),
+				'source_log'      => self::scalar_string( $record['source'] ?? '' ),
 				'partition'       => (int) $m[2],
-				'seg'             => self::scalar_int( $value['seg'] ?? 0 ),
-				'off'             => self::scalar_int( $value['off'] ?? 0 ),
-				'ts'              => self::scalar_float( $value['ts']  ?? 0 ),
+				'seg'             => self::scalar_int( $record['cursor_seg'] ?? 0 ),
+				'off'             => self::scalar_int( $record['cursor_off'] ?? 0 ),
+				'ts'              => self::scalar_float( $record['ts'] ?? 0 ),
 			];
 		}
 		return $rows;
-	}
-
-	/**
-	 * Read the latest committed checkpoint VALUE from an offset dir under
-	 * `offsets/` (e.g. `firehose.job-router.p0`). The offsetlog is a flat
-	 * segmented-log dir (`{base}/offsets/{name}/{seg}.log`); the dir name encodes
-	 * the spoke partition. Null if empty/unreadable. The checkpoint is a packed Message —
-	 * unpacked here (NOT a flat json_decode of the raw line).
-	 *
-	 * @return array<string,mixed>|null The decoded VALUE object.
-	 */
-	public function read_offsetlog_entry( string $offset_dir_name ): ?array {
-		return Partition_Node::read_latest_value_at( "{$this->base_dir}/offsets/{$offset_dir_name}" );
 	}
 
 	/**

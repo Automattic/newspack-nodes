@@ -764,6 +764,68 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Index the newest segment's TAIL by a VALUE field, latest-record-wins.
+	 *
+	 * Reads at most `$max_bytes` from the END of the NEWEST segment and returns
+	 * `key => VALUE` for the LAST record carrying each distinct `$key_field`.
+	 * Records append chronologically, so the tail holds the most recent ones; a
+	 * producer that writes every key on a short interval (TopicProbe: every 15s)
+	 * keeps every active key present. A bounded tail read is cheaper than the
+	 * whole segment. A leading partial line (the tail may start mid-record) is
+	 * dropped; records whose key is missing/empty/non-string are skipped.
+	 *
+	 * Scope caveat: only the newest segment is read, so a key whose latest record
+	 * predates the last rotation — a producer silent for longer than the newest
+	 * segment currently spans, or, transiently, every key for the seconds right
+	 * after a rotation until the next sweep repopulates the fresh segment — is
+	 * absent. Intended for "currently-active" state, not a full historical sweep.
+	 *
+	 * @param string $dir       The partition dir.
+	 * @param string $key_field VALUE field to index by.
+	 * @param int    $max_bytes Max tail bytes to scan (default 128 KiB).
+	 * @return array<string,array<mixed>> key → the latest record's VALUE.
+	 */
+	public static function read_tail_index_by( string $dir, string $key_field, int $max_bytes = 131072 ): array {
+		$index = [];
+		try {
+			$log = new self();
+			$log->arguments( $dir );
+			$segments = $log->get_segments( true );
+			if ( empty( $segments ) ) {
+				return [];
+			}
+			$newest = \end( $segments );
+			$size   = $newest['size'];
+			$offset = $size > $max_bytes ? $size - $max_bytes : 0;
+			$bytes  = $log->read_at( $newest['id'], $offset, $size - $offset );
+			if ( '' === $bytes ) {
+				return [];
+			}
+			// A non-zero start may land mid-record; drop the partial leading line.
+			if ( $offset > 0 ) {
+				$nl    = \strpos( $bytes, "\n" );
+				$bytes = false === $nl ? '' : \substr( $bytes, $nl + 1 );
+			}
+			foreach ( \explode( "\n", $bytes ) as $line ) {
+				if ( '' === $line ) {
+					continue;
+				}
+				$value = Message::unpacked( $line )[ Message::VALUE ] ?? null;
+				if ( ! \is_array( $value ) ) {
+					continue;
+				}
+				$key = $value[ $key_field ] ?? '';
+				if ( \is_string( $key ) && '' !== $key ) {
+					$index[ $key ] = $value; // chronological → last wins
+				}
+			}
+			return $index;
+		} catch ( \Throwable $e ) {
+			return [];
+		}
+	}
+
+	/**
 	 * Read the latest committed record's VALUE from an offsetlog directory.
 	 *
 	 * The offsetlog is a flat segmented-log dir; this opens it at $offset_dir,

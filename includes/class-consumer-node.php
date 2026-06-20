@@ -25,29 +25,6 @@ class Consumer_Node extends Timer_Node {
 	 */
 	public const READ_BLOCK_BYTES = 65536;
 
-	/** Memcache key prefix Consumer_Node uses to publish its live cursor (read by Workers_CI + CLI). */
-	public const POSITION_KEY_PREFIX = 'np:pos:';
-
-	/**
-	 * Canonical `np:pos:{host}:{reader_id}` cursor cache key. `$reader_id` is the
-	 * per-reader offset-dir name (`{source_basename}.p{N}`) — unique per Consumer,
-	 * so two readers tailing the same log don't collide on a shared key.
-	 */
-	public static function position_key( string $host, string $reader_id ): string {
-		return self::POSITION_KEY_PREFIX . "{$host}:{$reader_id}";
-	}
-
-	/**
-	 * This reader's live-position cache key, keyed by its offset-dir name.
-	 * Empty when ephemeral (no durable offsetlog) — publish_position skips it.
-	 */
-	public function position_cache_key( string $host ): string {
-		if ( '' === $this->offsetlog_base_dir ) {
-			return '';
-		}
-		return self::position_key( $host, \basename( $this->offsetlog_base_dir ) );
-	}
-
 	public const POLL_INTERVAL_EOF_MS = 100;
 
 	/** 0 = next event-loop iteration. */
@@ -58,11 +35,7 @@ class Consumer_Node extends Timer_Node {
 	// re-delivers those messages on respawn (at-least-once). Cheaper offsetlog I/O.
 	public const CHECKPOINT_INTERVAL_S = 30;
 
-	/** Position is a coarse liveness breadcrumb — publish at most once a second, not every tick. */
-	public const PUBLISH_INTERVAL_S = 1;
-
 	protected float $last_checkpoint = 0.0;
-	protected float $last_publish    = 0.0;
 
 	/**
 	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
@@ -224,14 +197,9 @@ class Consumer_Node extends Timer_Node {
 		$this->sink->fill( $reply );
 	}
 
-	/** Timer-driven: poll, periodically publish position + checkpoint, then re-arm (busy/EOF cadence). */
+	/** Timer-driven: poll, periodically checkpoint the cursor, then re-arm (busy/EOF cadence). */
 	protected function fire(): void {
 		$this->poll();
-		// Position is a liveness breadcrumb, not a hot read — publish at most once a second.
-		if ( ( Core::$now - $this->last_publish ) >= self::PUBLISH_INTERVAL_S ) {
-			$this->publish_position();
-			$this->last_publish = Core::$now;
-		}
 		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
 		if (
 			null !== $this->offsetlog
@@ -714,63 +682,10 @@ class Consumer_Node extends Timer_Node {
 		return -1 !== $this->checkpoint_seg || -1 !== $this->checkpoint_off;
 	}
 
-	/**
-	 * Publish the current cursor to memcache, keyed by hostname + source path, for live dashboards.
-	 *
-	 * No-op when Memcached is missing or unreachable; a failed connect is sticky for this worker.
-	 */
 	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
 	private static function worker_type_env(): string {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
-	}
-
-	private function publish_position(): void {
-		if ( ! \class_exists( '\\Memcached' ) ) {
-			return;
-		}
-		// Ephemeral readers (no offsetlog) have no durable per-reader identity — skip.
-		$host = \gethostname() ?: 'unknown';
-		$key  = $this->position_cache_key( $host );
-		if ( '' === $key ) {
-			return;
-		}
-		/** @var \Memcached|false|null $memd */
-		static $memd = null;
-		if ( false === $memd ) {
-			return;
-		}
-		if ( null === $memd ) {
-			$config  = Config::load_config();
-			$servers = $config['memcache_servers'] ?? [];
-			if ( ! \is_array( $servers ) || empty( $servers ) ) {
-				$memd = false;
-				return;
-			}
-			$memd = new \Memcached();
-			foreach ( $servers as $hp ) {
-				$hp_str    = \is_scalar( $hp ) ? (string) $hp : '';
-				[ $h, $p ] = \array_pad( \explode( ':', \trim( $hp_str ) ), 2, '11211' );
-				$memd->addServer( $h, (int) $p );
-			}
-			if ( empty( $memd->getServerList() ) ) {
-				$memd = false;
-				return;
-			}
-		}
-		$memd->set(
-			$key,
-			[
-				'seg'         => $this->cursor_seg,
-				'off'         => $this->cursor_off,
-				'ts'          => Core::$now,
-				'name'        => $this->name,
-				'target'      => \is_string( $this->target ) ? $this->target : '',
-				'targets'     => $this->resolve_downstream_targets(),
-				'worker_type' => self::worker_type_env(),
-			],
-			60
-		);
 	}
 
 	/**

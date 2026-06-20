@@ -3,8 +3,8 @@
  * WorkerCliCommand: WP-CLI subcommands for worker lifecycle management.
  *
  * Adds `wp nodes types` / `run <type>` / `restart <type>` / `status` beyond the
- * existing `ls` / `cli`. The cache lookup is filterable via
- * `newspack_nodes/worker_cli_cache` so applications wire their own memcache.
+ * existing `ls` / `cli`. Live positions come from the shared TopicProbe log
+ * (via `CLI::consumer_rows()`), not memcache.
  *
  * @package Newspack_Nodes
  */
@@ -126,7 +126,6 @@ class Worker_CLI_Command {
 		$cli      = $this->cli();
 		$workers  = $this->workers();
 		$base_dir = $this->base_dir();
-		$cache    = $this->cache();
 
 		if ( empty( $workers ) ) {
 			\WP_CLI::warning( 'No topologies registered.' );
@@ -167,7 +166,7 @@ class Worker_CLI_Command {
 				continue;
 			}
 			foreach ( $consumers as $cr ) {
-				$behind = $this->consumer_behind( $cli, $cache, $cr, $base_dir );
+				$behind = self::consumer_behind( $cr, $base_dir );
 				$rows[] = self::status_row( $type, $p, $cr['source_basename'], $status, $uptime, $behind, $restart );
 			}
 		}
@@ -197,17 +196,6 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Resolve the cache instance applications wire in for live cursor reads.
-	 * If no cache is filtered in, callers fall back to the offsetlog on disk.
-	 *
-	 * @return object|null
-	 */
-	private function cache(): ?object {
-		$cache = \apply_filters( 'newspack_nodes/worker_cli_cache', null );
-		return \is_object( $cache ) ? $cache : null;
-	}
-
-	/**
 	 * Assemble one `wp nodes status` row.
 	 *
 	 * @return array{Type:string,Partition:int,Source:string,Status:string,Uptime:string,Behind:string,Restart:string}
@@ -225,17 +213,14 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Bytes-behind for one Consumer: its live per-reader memcache position, or
-	 * the on-disk checkpoint cursor, measured against the real source-log
-	 * partition dir. '-' when that dir doesn't exist yet.
+	 * Bytes-behind for one Consumer, measured from its TopicProbe cursor (carried
+	 * on the `CLI::consumer_rows()` row) against the real source-log partition
+	 * dir. '-' when that dir doesn't exist yet.
 	 *
 	 * @param array{source_basename:string,partition:int,source_log:string,seg:int,off:int} $cr One `CLI::consumer_rows()` row.
 	 */
-	private function consumer_behind( CLI $cli, ?object $cache, array $cr, string $base_dir ): string {
-		$partition  = $cr['partition'];
+	private static function consumer_behind( array $cr, string $base_dir ): string {
 		$source_log = $cr['source_log'];
-		$position   = $cli->live_position_for( $cache, "{$cr['source_basename']}.p{$partition}" )
-			?? [ 'seg' => $cr['seg'], 'off' => $cr['off'] ];
 
 		// Flat layout: source_log already carries the partition (`firehose.p<N>`),
 		// so it IS the segment dir — no `/p{partition}` to append.
@@ -243,7 +228,7 @@ class Worker_CLI_Command {
 		if ( '' === $source_log || ! \is_dir( $partition_dir ) ) {
 			return '-';
 		}
-		$bytes = CLI::calculate_behind( $partition_dir, $position['seg'], $position['off'] );
+		$bytes = CLI::calculate_behind( $partition_dir, $cr['seg'], $cr['off'] );
 		return CLI::format_bytes( $bytes );
 	}
 

@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
@@ -114,8 +115,10 @@ class ConsumerTest extends TestCase {
 		// real on-disk segment sizes — no segment_size approximation).
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
-		$source->fill( $this->produce( 'first' ) );
-		$source->fill( $this->produce( 'second' ) );
+		$first  = $this->produce( 'first' );
+		$second = $this->produce( 'second' );
+		$source->fill( $first );
+		$source->fill( $second );
 		$source->flush();
 
 		$c = new Consumer_Node();
@@ -139,6 +142,53 @@ class ConsumerTest extends TestCase {
 		$this->assertArrayHasKey( 'target', $stats );
 		$this->assertArrayHasKey( 'targets', $stats );
 		$this->assertIsArray( $stats['targets'] );
+	}
+
+	public function test_probe_stats_round_trips_through_cli_consumer_rows(): void {
+		// Pin the writer→reader field contract: the exact keys probe_stats()
+		// EMITS are the keys CLI::consumer_rows() READS back off the topicprobe
+		// log. A rename on either side that isn't mirrored fails HERE, instead
+		// of silently zeroing a column on the dashboard / `wp nodes status`.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$first = $this->produce( 'first' );
+		$source->fill( $first );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->name( 'firehose' );
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/firehose.job-router.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		// worker_type must be non-empty or consumer_rows() (correctly) skips it.
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE'] = 'combined';
+		try {
+			$stats = $c->probe_stats();
+		} finally {
+			unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
+		}
+
+		// Write the record exactly as TopicProbe would, then read it back.
+		$dir = "{$this->tmp}/logs/topicprobe.p0";
+		\mkdir( $dir, 0755, true );
+		$record                    = $stats;
+		$record['ts']              = 1700000000.0;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $record;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$this->assertCount( 1, $rows );
+		$row = $rows[0];
+		$this->assertSame( $stats['consumer'], $row['name'] );
+		$this->assertSame( $stats['source'], $row['source_log'] );
+		$this->assertSame( $stats['cursor_seg'], $row['seg'] );
+		$this->assertSame( $stats['cursor_off'], $row['off'] );
+		$this->assertSame( $stats['worker_type'], $row['worker_type'] );
+		$this->assertSame( 'firehose.job-router', $row['source_basename'] );
+		$this->assertSame( 0, $row['partition'] );
 	}
 
 	public function test_poll_emits_line_for_each_new_log_entry(): void {
@@ -326,30 +376,6 @@ class ConsumerTest extends TestCase {
 		$entry          = $message[ Message::VALUE ];
 
 		$this->assertSame( 'firehose.p0', $entry['source_log'] ?? null );
-	}
-
-	public function test_position_cache_key_is_per_reader_offset_dir(): void {
-		// Two readers tailing the SAME log get DISTINCT live-position keys —
-		// keyed by their offset-dir name, not the shared log path — so their
-		// memcache positions don't collide.
-		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/firehose.log/p0 {$this->tmp}/offsets/firehose.job-router.p0" );
-		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/firehose.log/p0 {$this->tmp}/offsets/firehose.p0" );
-
-		$this->assertSame(
-			Consumer_Node::position_key( 'h', 'firehose.job-router.p0' ),
-			$a->position_cache_key( 'h' )
-		);
-		$this->assertNotSame( $a->position_cache_key( 'h' ), $b->position_cache_key( 'h' ) );
-	}
-
-	public function test_position_cache_key_empty_for_ephemeral_reader(): void {
-		// Ephemeral reader (no offsetlog) has no durable identity — nothing to
-		// publish under, so the key is empty and publish_position skips it.
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/firehose.log/p0" );
-		$this->assertSame( '', $c->position_cache_key( 'h' ) );
 	}
 
 	public function test_checkpoint_writes_offsetlog_entry(): void {
@@ -1186,8 +1212,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	// ============================================================================
-	// fire() — Timer hook (protected). Verifies poll(), publish_position(), and
-	// conditional checkpoint() all run; timer is re-armed.
+	// fire() — Timer hook (protected). Verifies poll() and conditional
+	// checkpoint() run; timer is re-armed.
 	// ============================================================================
 
 	public function test_fire_polls_source_and_emits_messages(): void {
@@ -1383,84 +1409,6 @@ class ConsumerTest extends TestCase {
 			$timers[ $id ]->interval_ms,
 			'busy fire must re-arm with BUSY interval (drain ASAP next tick)'
 		);
-	}
-
-	// ============================================================================
-	// publish_position() — memcache cursor publishing. Verify the no-op early-exit
-	// branches; the actual set() call needs a live Memcached server which the
-	// test env may not provide. The branches we CAN cover exercise the static
-	// `$memd = false` sticky-fail logic and the class_exists() guard.
-	// ============================================================================
-
-	#[RunInSeparateProcess]
-	#[PreserveGlobalState( false )]
-	public function test_publish_position_short_circuits_on_empty_memcache_servers(): void {
-		// Spec: with no memcache_servers configured, publish_position must
-		// sticky-fail (set static $memd = false) on first call, short-circuit
-		// on every subsequent call. No exception, no side effects.
-		//
-		// Runs in a separate process so the function-static `$memd` is null
-		// (other tests in this class call fire() which initializes $memd).
-		if ( ! \class_exists( '\\Memcached' ) ) {
-			$this->markTestSkipped( 'Memcached extension not loaded.' );
-		}
-
-		// Force Config to return memcache_servers=[] by injecting directly via
-		// reflection (the disk default is non-empty).
-		\Newspack_Nodes\Config::reset();
-		$config_ref = new \ReflectionClass( \Newspack_Nodes\Config::class );
-		$cf         = $config_ref->getProperty( 'config' );
-		$cf->setAccessible( true );
-		$cf->setValue( null, [
-			'base_directory'   => '/tmp/newspack-nodes',
-			'memcache_servers' => [],
-		] );
-
-		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$ref = new \ReflectionClass( $c );
-		$pp  = $ref->getMethod( 'publish_position' );
-		$pp->setAccessible( true );
-
-		// First call: class_exists OK → $memd null → load config → servers
-		// empty → sets $memd=false sticky → return.
-		// Second call: $memd is false → early return.
-		// Both must complete without throwing.
-		$pp->invoke( $c );
-		$pp->invoke( $c );
-
-		$this->assertTrue( true, 'empty memcache_servers must produce no error' );
-	}
-
-	public function test_publish_position_runs_on_fire_hot_path_without_crashing(): void {
-		// Behavioral spec: publish_position is called every fire() tick. It
-		// must NEVER throw — even when the configured memcache server isn't
-		// reachable. Verifies the no-throw contract through fire()'s caller
-		// view (poll continues past publish_position to checkpoint).
-		\Newspack_Nodes\Config::reset();
-
-		$source = new Partition_Node();
-
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64*1024 ) . " 4 86400" );
-		$this->produce_line( $source, 'a' );
-
-		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$c->sink( new Capture_Sink_Node() );
-		$ref = new \ReflectionClass( $c );
-
-		// Fire twice: first init may construct Memcached + addServer; second
-		// must not redo that work (verifying the static-memoization path).
-		Core::$now = \microtime(true);
-		$fire = $ref->getMethod( 'fire' );
-		$fire->setAccessible( true );
-		$fire->invoke( $c );
-		$fire->invoke( $c );
-
-		// poll() emitted the line on first fire — counter increments via
-		// Node::fill on each emit. Verifies fire() reached past
-		// publish_position to its tail.
-		$this->assertGreaterThanOrEqual( 1, $c->counter(), 'fire() must reach poll() past publish_position' );
 	}
 
 	// ============================================================================
