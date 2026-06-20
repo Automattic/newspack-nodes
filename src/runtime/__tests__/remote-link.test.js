@@ -161,4 +161,12 @@ describe( 'RemoteLinkNode', () => {
 		expect( Core.node( 'dash:link:http' ) ).toBe( null );
 		expect( Core.node( 'dash:link:heartbeat' ) ).toBe( null );
 	} );
+
+	it( 'removeNode closes the live EventSource (teardown is self-sufficient)', () => {
+		const { link } = makeLink();
+		link.connect();
+		const es = FakeEventSource.last;
+		link.removeNode();
+		expect( es.closed ).toBe( true );
+	} );
 } );
