@@ -169,4 +169,28 @@ describe( 'RemoteLinkNode', () => {
 		link.removeNode();
 		expect( es.closed ).toBe( true );
 	} );
+
+	it( 'fires the optional onClose hook once when the link closes', () => {
+		const { link } = makeLink();
+		let calls = 0;
+		link.onClose = () => {
+			calls += 1;
+		};
+		link.connect();
+		link.close();
+		expect( calls ).toBe( 1 );
+	} );
+
+	it( 'fires the optional onConnected hook with the connected payload', () => {
+		const { link } = makeLink();
+		const seen = [];
+		link.onConnected = ( payload ) => seen.push( payload );
+		link.connect();
+		Core.node( 'dash:link:sse-in' ).setState( 'connected', {
+			pid: 4242,
+			slot: 3,
+			partition: 1,
+		} );
+		expect( seen ).toEqual( [ { pid: 4242, slot: 3, partition: 1 } ] );
+	} );
 } );

@@ -93,56 +93,6 @@ describe( 'SseInNode', () => {
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=demo.p0' );
 	} );
 
-	// Outgoing leg: a command routed in via TO=_sse/… (head already peeled).
-	it( 'wraps an outgoing reply-node FROM into the private pivot and prepends _http to TO', () => {
-		const { sse, routed } = makeSseIn();
-		sse.start();
-		sse.setState( 'connected', { pid: 4242, slot: 1 } ); // so pid() resolves
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = names.OUTPUT;
-		m[ TO ] = 'firehose-workers.p0';
-		sse.fill( m );
-		expect( routed[ 0 ][ FROM ] ).toBe(
-			`${ names.SSE }:4242/${ names.OUTPUT }`
-		);
-		expect( routed[ 0 ][ TO ] ).toBe(
-			`${ names.HTTP }/firehose-workers.p0`
-		);
-	} );
-
-	it( 'wraps an outgoing _completion FROM into the private pivot (tab-completion query)', () => {
-		const { sse, routed } = makeSseIn();
-		sse.start();
-		sse.setState( 'connected', { pid: 4242, slot: 1 } );
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = names.COMPLETION;
-		m[ TO ] = 'firehose-workers.p0';
-		sse.fill( m );
-		expect( routed[ 0 ][ FROM ] ).toBe(
-			`${ names.SSE }:4242/${ names.COMPLETION }`
-		);
-		expect( routed[ 0 ][ TO ] ).toBe(
-			`${ names.HTTP }/firehose-workers.p0`
-		);
-	} );
-
-	it( 'wraps an outgoing _heartbeat FROM into the private pivot (slot poke)', () => {
-		const { sse, routed } = makeSseIn();
-		sse.start();
-		sse.setState( 'connected', { pid: 4242, slot: 1 } );
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = names.HEARTBEAT;
-		m[ TO ] = 'workers';
-		sse.fill( m );
-		expect( routed[ 0 ][ FROM ] ).toBe(
-			`${ names.SSE }:4242/${ names.HEARTBEAT }`
-		);
-		expect( routed[ 0 ][ TO ] ).toBe( `${ names.HTTP }/workers` );
-	} );
-
 	it( 'routes an incoming reply by TO and stamps the _sse provenance breadcrumb', () => {
 		const { sse, routed } = makeSseIn();
 		const m = newMessage();
@@ -152,6 +102,23 @@ describe( 'SseInNode', () => {
 		sse.fill( m );
 		expect( routed[ 0 ][ FROM ] ).toBe( '_sse/_command_interpreter' );
 		expect( routed[ 0 ][ TO ] ).toBe( names.OUTPUT );
+	} );
+
+	// The outgoing reply-FROM wrap moved up into RemoteIpc (which owns its own
+	// HttpOut). SseIn is now receive-only: a reply-node FROM is treated like any
+	// incoming message — breadcrumb-stamped and routed by TO, never wrapped into
+	// `_sse:{pid}` and never re-pointed at `_http`.
+	it( 'does NOT wrap a reply-node FROM (receive-only — the wrap moved to RemoteIpc)', () => {
+		const { sse, routed } = makeSseIn();
+		sse.start();
+		sse.setState( 'connected', { pid: 4242, slot: 1 } );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = names.OUTPUT;
+		m[ TO ] = 'firehose-workers.p0';
+		sse.fill( m );
+		expect( routed[ 0 ][ FROM ] ).toBe( `_sse/${ names.OUTPUT }` );
+		expect( routed[ 0 ][ TO ] ).toBe( 'firehose-workers.p0' );
 	} );
 
 	it( 'strips its own _sse:{pid} head from an intaken POST reply, then routes', () => {
@@ -184,14 +151,21 @@ describe( 'SseInNode', () => {
 		} );
 
 		// accepts_fill is a UI wireability hint, not a claim about the runtime fill().
-		// _sse HAS a fill() (it's bidirectional), but you can't drag a connection into
-		// it in the editor (pivoting cwd onto _sse shows the other leg), so it's false.
+		// SseIn HAS a receive-side fill(), but you can't drag a connection into it in
+		// the editor (it's composed by RemoteLink, not wired by hand), so it's false.
 		it( 'declares accepts_fill:false (not a drag-into target despite a runtime fill)', () => {
 			expect( SseInNode.nodeSchema().accepts_fill ).toBe( false );
 		} );
 
 		it( 'declares has_target:true (_sse forwards the outgoing/reply leg)', () => {
 			expect( SseInNode.nodeSchema().has_target ).toBe( true );
+		} );
+
+		it( 'describes itself as receive-only ingress composed by RemoteLink', () => {
+			const { description } = SseInNode.nodeSchema();
+			expect( description ).toMatch( /receive/i );
+			expect( description ).toContain( ':sse-in' );
+			expect( description ).not.toMatch( /[Bb]idirectional/ );
 		} );
 
 		it( 'arguments= parses three tokens; subscribe becomes the comma-split array', () => {

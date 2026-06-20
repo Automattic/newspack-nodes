@@ -2,6 +2,9 @@
  * scopeFromCwd — derives the display/storage scope from a cwd so the canvas
  * header + the viewport/positions localStorage keys follow `cd` instead of
  * inheriting the last worker's stale topology/partition React state.
+ *
+ * Worker cwds are now the bare `{topology}.p{N}` (no `_sse/` prefix — the worker's
+ * name IS the address).
  */
 
 import { scopeFromCwd } from '../TopologyConsole';
@@ -16,17 +19,8 @@ describe( 'scopeFromCwd', () => {
 		} );
 	} );
 
-	it( 'request scope (_sse) → request-scope label, not a worker', () => {
-		expect( scopeFromCwd( '_sse' ) ).toEqual( {
-			key: '_sse',
-			label: 'request scope',
-			partition: null,
-			isWorker: false,
-		} );
-	} );
-
 	it( 'a worker cwd resolves to its topology + partition', () => {
-		expect( scopeFromCwd( '_sse/digest.p0' ) ).toEqual( {
+		expect( scopeFromCwd( 'digest.p0' ) ).toEqual( {
 			key: 'digest.p0',
 			label: 'digest',
 			partition: 0,
@@ -35,7 +29,7 @@ describe( 'scopeFromCwd', () => {
 	} );
 
 	it( 'a sub-node beneath a worker resolves to that worker', () => {
-		expect( scopeFromCwd( '_sse/digest.p0/summarizer' ) ).toEqual( {
+		expect( scopeFromCwd( 'digest.p0/summarizer' ) ).toEqual( {
 			key: 'digest.p0',
 			label: 'digest',
 			partition: 0,
@@ -44,11 +38,26 @@ describe( 'scopeFromCwd', () => {
 	} );
 
 	it( 'a worker key equals `${topology}.p${partition}` (back-compat with persisted worker layouts)', () => {
-		// The OLD storage key was `${topology}.p${partition}`. For a worker cwd
-		// the new scope.key must match it so existing viewports/layouts load.
-		const scope = scopeFromCwd( '_sse/demo-workers.p3' );
+		const scope = scopeFromCwd( 'demo-workers.p3' );
 		expect( scope.key ).toBe( 'demo-workers.p3' );
 		expect( scope.partition ).toBe( 3 );
 		expect( scope.isWorker ).toBe( true );
+	} );
+
+	it( 'a non-worker top-level cwd (_http) gets its own key, stripped for display', () => {
+		expect( scopeFromCwd( '_http' ) ).toEqual( {
+			key: '_http',
+			label: 'http',
+			partition: null,
+			isWorker: false,
+		} );
+	} );
+
+	it( 'a worker-shaped segment under a non-worker boundary (_http/foo.p3) is NOT a worker', () => {
+		// The topology capture is anchored to `[^/]+`, so a slash-containing path
+		// like `_http/foo.p3` can't be mistaken for the worker `_http/foo`.p3.
+		const scope = scopeFromCwd( '_http/foo.p3' );
+		expect( scope.isWorker ).toBe( false );
+		expect( scope.key ).toBe( '_http/foo.p3' );
 	} );
 } );

@@ -2,9 +2,10 @@
 /**
  * TopologyConsole tests. useConsoleGraph is mocked to build the REAL receive
  * graph (Router → Dumper/_output, Metadata/_metadata, Uptime/_uptime) plus a
- * real Shell whose sink is the (capture-only) CommandInterpreter and a fake
- * HttpOut that records POSTs. SSE replies are simulated by filling the Router
- * with a POSITIONAL Message (the substrate's only format). Mocked child
+ * real Shell whose sink is the (capture-only) CommandInterpreter and a real
+ * per-worker RemoteIpc (named `{topology}.p{N}`) whose composed HttpOut records
+ * POSTs via a capturing postBatch client. SSE replies are simulated by filling
+ * the RemoteIpc's composed SseIn (the substrate's only format). Mocked child
  * components expose every prop callback as a button so handlers run end-to-end.
  */
 
@@ -44,6 +45,18 @@ globalThis.__httpPosts = [];
 // {topology}.p{N} the mock graph is built for; a change rebuilds a fresh graph.
 globalThis.__graphKey = null;
 globalThis.__shell = null;
+// The reader the current mock RemoteIpc is registered under (for teardown).
+globalThis.__reader = null;
+// A no-op EventSource so the RemoteIpc's composed SseIn can start() without a
+// real network connection.
+class FakeEventSource {
+	constructor( url ) {
+		this.url = url;
+	}
+	addEventListener() {}
+	close() {}
+}
+global.EventSource = FakeEventSource;
 jest.mock( '../hooks/useConsoleGraph', () => {
 	const { Core } = require( '../../runtime/core' );
 	const { RouterNode } = require( '../../runtime/router-node' );
@@ -55,8 +68,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { MetadataNode } = require( '../../runtime/metadata-node' );
 	const { UptimeNode } = require( '../../runtime/uptime-node' );
 	const { CompletionNode } = require( '../../runtime/completion-node' );
-	const { HttpOutNode } = require( '../../runtime/http-out-node' );
-	const { SseInNode } = require( '../../runtime/sse-in-node' );
+	const { RemoteIpcNode } = require( '../../runtime/remote-ipc' );
 	const { ShellNode } = require( '../../runtime/shell-node' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
 	const NAMES = [
@@ -66,17 +78,21 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.METADATA,
 		reserved.UPTIME,
 		reserved.COMPLETION,
-		reserved.HTTP,
-		reserved.SSE,
 		reserved.CWD,
 	];
 	const teardown = () => {
 		Core.node( reserved.ROUTER )?.stopTimer();
+		// The per-worker RemoteIpc tears down its composed children + stream.
+		if ( globalThis.__reader ) {
+			Core.node( globalThis.__reader )?.removeNode();
+		}
+		RemoteIpcNode.active = null;
 		for ( const n of NAMES ) {
 			Core.unregisterNode( n );
 		}
 		globalThis.__graphKey = null;
 		globalThis.__shell = null;
+		globalThis.__reader = null;
 	};
 	return {
 		useConsoleGraph: ( {
@@ -115,26 +131,29 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const uptime = new UptimeNode();
 				uptime.name = reserved.UPTIME;
 				new CompletionNode().name = reserved.COMPLETION;
-				// Fake HttpOut: capture the routed message instead of POSTing.
-				const httpOut = new HttpOutNode();
-				httpOut.client = {
-					buildMessage: () => null,
-					postBatch: () => Promise.resolve( null ),
+				// One RemoteIpc for the session's worker, named `{reader}`. It
+				// composes a SseIn (receive) + an HttpOut (POST) + a Heartbeat; its
+				// composed HttpOut's client captures the routed batch instead of
+				// POSTing. The RemoteIpc wraps a reply-node FROM into `_sse:{pid}` and
+				// bundles connect_worker_input — the worker-pivot send path.
+				const remote = interpreter.makeNode(
+					'RemoteIpc',
+					reader,
+					`${ reader } / `
+				);
+				remote.target = reserved.OUTPUT;
+				remote.client = {
+					postBatch: ( entries ) => {
+						globalThis.__httpPosts.push( ...entries );
+						return Promise.resolve( [] );
+					},
 				};
-				httpOut.fill = ( message ) => {
-					globalThis.__httpPosts.push( message );
-				};
-				httpOut.name = reserved.HTTP;
-				// `_sse` session node: wraps an outgoing reply-node FROM with the
-				// pid; routing `_sse/{reader}` peels here before `_http`.
-				const sse = new SseInNode();
-				sse.name = reserved.SSE;
-				sse.arguments = `${ reader } / `;
-				sse.sink = router;
-				sse.target = reserved.OUTPUT;
-				sse.pid = () => 1234;
+				// Boot its stream + force a connected pid so the FROM-wrap resolves to
+				// the stable 1234 the assertions expect.
+				remote.connect();
+				remote.sseIn.setState( 'connected', { pid: 1234, slot: 1 } );
 				const shell = new ShellNode();
-				shell.path = `${ reserved.SSE }/${ reader }`;
+				shell.path = reader;
 				shell.sink = interpreter;
 				// `_cwd` indirection node: a plain Node whose target IS the cwd.
 				const cwdNode = new Node();
@@ -142,13 +161,15 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				cwdNode.sink = interpreter;
 				cwdNode.target = shell.path;
 				// Mirror the real timer wiring so the cadence test exercises the
-				// Router TIMER → notify_timer → Metadata/Uptime fire → … → HttpOut path.
+				// Router TIMER → notify_timer → Metadata/Uptime fire → … → RemoteIpc path.
 				metadata.sink = interpreter;
 				uptime.sink = interpreter;
 				metadata.target = reserved.CWD;
 				uptime.target = reserved.CWD;
-				router.beforeTimerNotify = () => httpOut.lock();
-				router.afterTimerNotify = () => httpOut.flush();
+				router.beforeTimerNotify = () =>
+					RemoteIpcNode.active?.httpOut?.lock();
+				router.afterTimerNotify = () =>
+					RemoteIpcNode.active?.httpOut?.flush();
 				// Metadata/Uptime hitchhike the _router TIMER (set_timer() no args):
 				// notify_timer calls their fireCb -> fire each tick.
 				metadata.setTimer();
@@ -161,6 +182,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				// fake-timer interval below before relying on it.
 				router.stopTimer();
 				globalThis.__shell = shell;
+				globalThis.__reader = reader;
 				globalThis.__graphKey = key;
 			}
 			// `__connecting` simulates the pre-connect window: enabled (worker cwd)
@@ -723,7 +745,7 @@ describe( 'TopologyConsole boot', () => {
 			// Immediate paint: one of each.
 			expect( dumps().length ).toBeGreaterThanOrEqual( 1 );
 			expect( uptimes().length ).toBeGreaterThanOrEqual( 1 );
-			// `_sse` wrapped each poll's bare reply-node FROM into the private pivot.
+			// RemoteIpc wrapped each poll's bare reply-node FROM into the private pivot.
 			expect( fromOf( dumps()[ 0 ] ) ).toBe(
 				`${ names.SSE }:1234/${ names.METADATA }`
 			);
@@ -766,7 +788,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( completions.length ).toBe( 1 );
 		const m = completions[ 0 ];
 		expect( m[ VALUE ].name ).toBe( 'help' );
-		// `_sse` wrapped the bare _completion reply-node FROM into the private pivot.
+		// RemoteIpc wrapped the bare _completion reply-node FROM into the private pivot.
 		expect( m[ FROM ] ).toBe( `${ names.SSE }:1234/${ names.COMPLETION }` );
 		expect( m[ TO ] ).toBe( 'demo.p0' );
 		// Minted in-process → LOCAL taint set (the wire pack() strips it later).
@@ -1265,7 +1287,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toBe( 'command_node n1 set_is_hub' );
 		// TO routes to the bare node (prefix(cwd, 'n1')), not n1:config.
 		expect( captured ).toHaveLength( 1 );
-		expect( captured[ 0 ][ TO ] ).toBe( '_sse/demo.p0/n1' );
+		expect( captured[ 0 ][ TO ] ).toBe( 'demo.p0/n1' );
 	} );
 
 	it( 'Inspector command invoke on a NON-interpreter node targets <name>:config', async () => {
@@ -1294,7 +1316,7 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( sent.textContent ).toBe( 'command_node n1:config set_is_hub' );
 		expect( captured ).toHaveLength( 1 );
-		expect( captured[ 0 ][ TO ] ).toBe( '_sse/demo.p0/n1:config' );
+		expect( captured[ 0 ][ TO ] ).toBe( 'demo.p0/n1:config' );
 	} );
 
 	it( 'Inspector disconnect action emits disconnect_node', async () => {
@@ -1382,12 +1404,12 @@ describe( 'TopologyConsole boot', () => {
 	it( 'Header receives pathOptions built from topologies + partitions', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		// demo has 2 partitions → '', '_http', '_sse/demo.p0', '_sse/demo.p1'.
+		// demo has 2 partitions → '', '_http', 'demo.p0', 'demo.p1'.
 		expect( lastHeaderProps.pathOptions ).toEqual( [
 			'',
 			'_http',
-			'_sse/demo.p0',
-			'_sse/demo.p1',
+			'demo.p0',
+			'demo.p1',
 		] );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
@@ -1406,12 +1428,10 @@ describe( 'TopologyConsole boot', () => {
 			expect( lastHeaderProps.pathOptions ).toEqual( [
 				'',
 				'_http',
-				'_sse/demo.p0',
-				'_sse/demo.p1',
+				'demo.p0',
+				'demo.p1',
 			] );
-			expect( lastHeaderProps.pathOptions ).not.toContain(
-				'_sse/idle.p0'
-			);
+			expect( lastHeaderProps.pathOptions ).not.toContain( 'idle.p0' );
 		} finally {
 			window.NewspackNodesData = prev;
 		}
@@ -1432,9 +1452,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( lastHeaderProps.pathOptions ).toEqual( [
 			'',
 			'_http',
-			'_sse/demo.p0',
-			'_sse/extra.p0',
-			'_sse/extra.p1',
+			'demo.p0',
+			'extra.p0',
+			'extra.p1',
 		] );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
@@ -1486,7 +1506,7 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastHeaderProps.onPathChange( '_sse/demo.p1' );
+			lastHeaderProps.onPathChange( 'demo.p1' );
 		} );
 		expect( window.location.search ).toMatch( /partition=1/ );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
@@ -1497,9 +1517,9 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastHeaderProps.onPathChange( '_sse' );
+			lastHeaderProps.onPathChange( '_http' );
 		} );
-		expect( lastHeaderProps.path ).toBe( '_sse' );
+		expect( lastHeaderProps.path ).toBe( '_http' );
 		expect( window.location.search ).not.toMatch( /partition=/ );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
@@ -1509,10 +1529,10 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse/demo.p1' );
+			lastReplProps.onSubmit( 'cd /demo.p1' );
 		} );
 		expect( window.location.search ).toMatch( /partition=1/ );
-		expect( lastHeaderProps.path ).toBe( '_sse/demo.p1' );
+		expect( lastHeaderProps.path ).toBe( 'demo.p1' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
 	} );
@@ -1521,10 +1541,10 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse/demo.p0/firehose-in' );
+			lastReplProps.onSubmit( 'cd /demo.p0/firehose-in' );
 		} );
 		// cwd follows the deep path; same worker → no rebuild, no partition URL.
-		expect( lastHeaderProps.path ).toBe( '_sse/demo.p0/firehose-in' );
+		expect( lastHeaderProps.path ).toBe( 'demo.p0/firehose-in' );
 		expect( window.location.search ).not.toMatch( /partition=/ );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
@@ -1534,9 +1554,9 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse/demo.p1/firehose-in' );
+			lastReplProps.onSubmit( 'cd /demo.p1/firehose-in' );
 		} );
-		// Longest menu prefix is _sse/demo.p1 → mount p1.
+		// Longest menu prefix is demo.p1 → mount p1.
 		expect( window.location.search ).toMatch( /partition=1/ );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
@@ -1558,12 +1578,10 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse/demo.p0/firehose-in' );
+			lastReplProps.onSubmit( 'cd /demo.p0/firehose-in' );
 		} );
 		// The poll nodes target `_cwd`; the cwd is re-stamped from `_cwd.target`.
-		expect( Core.node( names.CWD ).target ).toBe(
-			'_sse/demo.p0/firehose-in'
-		);
+		expect( Core.node( names.CWD ).target ).toBe( 'demo.p0/firehose-in' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
 	} );
@@ -1579,9 +1597,9 @@ describe( 'TopologyConsole boot', () => {
 			window.history.replaceState( {}, '', '/?topology=demo' );
 			render( <TopologyConsole /> );
 			act( () => {
-				lastReplProps.onSubmit( 'cd /_sse/demo.p0' );
+				lastReplProps.onSubmit( 'cd /demo.p0' );
 			} );
-			expect( Core.node( names.CWD ).target ).toBe( '_sse/demo.p0' );
+			expect( Core.node( names.CWD ).target ).toBe( 'demo.p0' );
 		} finally {
 			globalThis.__connecting = false;
 		}
@@ -1589,13 +1607,13 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {} );
 	} );
 
-	it( 'request scope (cd /_sse) sets _cwd.target to _sse', async () => {
+	it( 'a non-worker root (cd /_http) sets _cwd.target to that path verbatim', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse' );
+			lastReplProps.onSubmit( 'cd /_http' );
 		} );
-		expect( Core.node( names.CWD ).target ).toBe( '_sse' );
+		expect( Core.node( names.CWD ).target ).toBe( '_http' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
 	} );
@@ -1615,9 +1633,9 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse/demo.p1' );
+			lastReplProps.onSubmit( 'cd /demo.p1' );
 		} );
-		expect( Core.node( names.CWD ).target ).toBe( '_sse/demo.p1' );
+		expect( Core.node( names.CWD ).target ).toBe( 'demo.p1' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
 	} );
@@ -1626,12 +1644,12 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse' );
+			lastReplProps.onSubmit( 'cd /_http' );
 		} );
 		const sent = ( lastReplProps.transcript || [] ).filter(
 			( t ) => t.kind === 'sent'
 		);
-		expect( sent.map( ( t ) => t.text ) ).toContain( 'cd /_sse' );
+		expect( sent.map( ( t ) => t.text ) ).toContain( 'cd /_http' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
 	} );
@@ -1751,7 +1769,7 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', async () => {
 		// Boot into a worker, navigate to '/' (local), then reset-graph.
-		// Previously the rebuild snapped Shell.path back to _sse/{reader} and
+		// Previously the rebuild snapped Shell.path back to {reader} and
 		// the [shell] sync effect dragged cwd along, taking the user off '/'.
 		// Reset must rebuild AND keep cwd at '/'.
 		window.history.replaceState( {}, '', '/?topology=demo' );
@@ -1913,7 +1931,7 @@ describe( 'TopologyConsole boot', () => {
 		};
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		// Default boot is /_sse/demo.p0 (a worker); the palette (in GraphView)
+		// Default boot is /demo.p0 (a worker); the palette (in GraphView)
 		// renders once the layout graph is ready.
 		await publishMeta();
 		const paletteNames = ( lastPaletteProps?.classes || [] ).map(
@@ -1925,7 +1943,7 @@ describe( 'TopologyConsole boot', () => {
 	it( 'reset-graph control shows only on the local graph with user-added nodes', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { queryByText, findByText } = render( <TopologyConsole /> );
-		// Boots into a worker view (_sse/demo.p0); a worker graph self-heals on
+		// Boots into a worker view (demo.p0); a worker graph self-heals on
 		// respawn, so resetting the local console graph is meaningless → no chip.
 		expect( queryByText( 'reset-graph' ) ).toBeNull();
 		// cd to the local browser graph; without user-added nodes the chip is
@@ -2495,7 +2513,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'canEdit is true when the cwd names a worker', async () => {
-		// Default mount lands cwd at _sse/{reader} (a worker).
+		// Default mount lands cwd at {reader} (a worker).
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		expect( lastHeaderProps.canEdit ).toBe( true );
@@ -2507,7 +2525,7 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastHeaderProps.onPathChange( '_sse' );
+			lastHeaderProps.onPathChange( '_http' );
 		} );
 		expect( lastHeaderProps.canEdit ).toBe( false );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
@@ -2637,14 +2655,14 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
-		// `ls` → default TM_COMMAND posted to the worker via _http. The Router
-		// peeled _http before HttpOut captured it, so TO is the bare reader.
+		// `ls` → default TM_COMMAND routed to the worker's RemoteIpc, which POSTs
+		// the bare reader as TO.
 		const posted = globalThis.__httpPosts.find(
 			( m ) => m[ VALUE ] && m[ VALUE ].name === 'ls'
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TO ] ).toBe( 'demo.p0' );
-		// `_sse` wrapped the bare `_output` FROM into the private reply pivot.
+		// RemoteIpc wrapped the bare `_output` FROM into the private reply pivot.
 		expect( posted[ FROM ] ).toBe(
 			`${ names.SSE }:1234/${ names.OUTPUT }`
 		);
@@ -3149,7 +3167,7 @@ describe( 'TopologyConsole boot', () => {
 				.length
 		).toBeGreaterThan( 0 );
 		await act( async () => {
-			lastHeaderProps.onPathChange( '_sse/demo.p1' );
+			lastHeaderProps.onPathChange( 'demo.p1' );
 		} );
 		expect(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
@@ -3251,7 +3269,7 @@ describe( 'TopologyConsole boot', () => {
 		// Pivot to the topology's worker — scope.key = `demo.p0`, which is
 		// what the server-saved layout is for.
 		act( () => {
-			lastReplProps.onSubmit( 'cd /_sse/demo.p0' );
+			lastReplProps.onSubmit( 'cd /demo.p0' );
 		} );
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );

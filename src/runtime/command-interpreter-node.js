@@ -9,6 +9,7 @@ import { CompletionNode } from './completion-node';
 import { UptimeNode } from './uptime-node';
 import { SseInNode } from './sse-in-node';
 import { RemoteLinkNode } from './remote-link';
+import { RemoteIpcNode } from './remote-ipc';
 import { HttpOutNode } from './http-out-node';
 import { HeartbeatNode } from './heartbeat-node';
 import {
@@ -1049,6 +1050,7 @@ CommandInterpreterNode.includeNodes = {
 	Uptime: UptimeNode,
 	SseIn: SseInNode,
 	RemoteLink: RemoteLinkNode,
+	RemoteIpc: RemoteIpcNode,
 	HttpOut: HttpOutNode,
 	Heartbeat: HeartbeatNode,
 };
