@@ -56,13 +56,6 @@ class Topic_Node extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		// Surface bytes-through + largest message on the Topic itself for dump_metadata.
-		$packed_size = Message::packed_size( $message );
-		$this->bytes_written += $packed_size;
-		if ( $packed_size > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $packed_size;
-		}
-
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.
 		$to = Core::as_string( $message[ Message::TO ] );
 		if ( '' !== $to && \preg_match( '/^p(\d+)/', $to, $m ) ) {
@@ -120,6 +113,22 @@ class Topic_Node extends Node {
 		foreach ( $this->partitions as $p ) {
 			$p->flush();
 		}
+	}
+
+	public function largest_msg_sent(): int {
+		$max = 0;
+		foreach ( $this->partitions as $p ) {
+			$max = max( $max, $p->largest_msg_sent() );
+		}
+		return $max;
+	}
+
+	public function bytes_written(): int {
+		$sum = 0;
+		foreach ( $this->partitions as $p ) {
+			$sum += $p->bytes_written();
+		}
+		return $sum;
 	}
 
 	/** Tear down owned Partitions before normal Node teardown so file handles close deterministically. */
