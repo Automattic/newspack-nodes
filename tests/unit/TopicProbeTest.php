@@ -35,6 +35,7 @@ class TopicProbeTest extends TestCase {
 		};
 		$c->canned = [
 			'consumer'     => $name,
+			'offset_dir'   => "{$name}.p0",
 			'source'       => 'requests.p0',
 			'cursor_seg'   => 3,
 			'cursor_off'   => 100,

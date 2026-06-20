@@ -783,12 +783,18 @@ class Consumer_Node extends Timer_Node {
 	 * summed from the real on-disk segment sizes via compute_lag, no segment_size
 	 * guess).
 	 *
-	 * @return array{consumer:string, source:string, cursor_seg:int, cursor_off:int, bytes_read:int, bytes_behind:int, msg_sent:int, worker_type:string}
+	 * `offset_dir` is the consumer's DURABLE position key — `basename` of its
+	 * offsetlog dir (e.g. `firehose.job-router.p0`), the exact name the position
+	 * readers + the dashboards index by (the node `name` is the transient identity;
+	 * the offset_dir is stable across respawns). Empty for an ephemeral consumer.
+	 *
+	 * @return array{consumer:string, offset_dir:string, source:string, cursor_seg:int, cursor_off:int, bytes_read:int, bytes_behind:int, msg_sent:int, worker_type:string}
 	 */
 	public function probe_stats(): array {
 		$lag = $this->compute_lag();
 		return [
 			'consumer'     => $this->name,
+			'offset_dir'   => '' !== $this->offsetlog_base_dir ? \basename( $this->offsetlog_base_dir ) : '',
 			'source'       => '' !== $this->source_dir ? \basename( $this->source_dir ) : '',
 			'cursor_seg'   => $this->cursor_seg,
 			'cursor_off'   => $this->cursor_off,

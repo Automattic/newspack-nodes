@@ -120,12 +120,15 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node();
 		$c->name( 'firehose' );
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/firehose.job-router.p0" );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
 		$stats = $c->probe_stats();
 		$this->assertSame( 'firehose', $stats['consumer'] );
+		// offset_dir is the durable position key (basename of the offsetlog dir),
+		// distinct from the source log it tails.
+		$this->assertSame( 'firehose.job-router.p0', $stats['offset_dir'] );
 		$this->assertSame( 'p0', $stats['source'] );
 		$this->assertSame( 0, $stats['cursor_seg'] );
 		$this->assertGreaterThan( 0, $stats['cursor_off'] );
