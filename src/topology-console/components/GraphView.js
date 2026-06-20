@@ -43,6 +43,7 @@ import '../styles/graph-view.scss';
  * @param {string}   props.selection                   Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
  * @param {Function} props.onBackgroundClickConsumed   — optional; truthy skips canvas deselect.
  * @param {boolean}  props.backgroundClickAutofitsOnly — optional; when true a background click only re-fits the view (no deselect / consume). Default false.
+ * @param {number}   props.bottomObstructionPx         Canvas px obstructed at the bottom (expanded transcript overlay); the autofit reserves that band. Default 0.
  * @param {boolean}  props.inspectorCollapsed          When true, the inspector collapses to a slim expand-rail (consumer-owned state, mirrors the palette). Default false.
  * @param {Function} props.onInspectorToggle           () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
  * @return {Element} the graph-editing surface as a Fragment.
@@ -78,6 +79,7 @@ export default function GraphView( {
 	selection,
 	onBackgroundClickConsumed,
 	backgroundClickAutofitsOnly = false,
+	bottomObstructionPx = 0,
 	inspectorCollapsed = false,
 	onInspectorToggle,
 } ) {
@@ -199,6 +201,7 @@ export default function GraphView( {
 					} }
 					onBackgroundClickConsumed={ onBackgroundClickConsumed }
 					backgroundClickAutofitsOnly={ backgroundClickAutofitsOnly }
+					bottomObstructionPx={ bottomObstructionPx }
 					hoveredId={ hoveredId }
 					onHover={ setHoveredId }
 					rateRef={ rateRef }
