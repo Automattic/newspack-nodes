@@ -24,12 +24,22 @@ import { formatAge } from './formatters';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import './TopologyManager.scss';
 
-// Opens the DevTools hub's Console tab scoped to that topology (the console
-// reads `?topology=`; the hub reads `?tab=` to pick the Console tab).
-const consoleHref = ( name ) =>
-	`admin.php?page=newspack-nodes-hub&tab=console&topology=${ encodeURIComponent(
-		name
-	) }`;
+// Opens the DevTools hub's Console tab (the hub reads `?tab=` to pick it). A
+// `name` scopes it via `?topology=`; `edit` adds `?edit=1` so the console lands
+// in the editor (the Topologies tab's Edit/New buttons). New omits `name`.
+const consoleHref = ( name, { edit = false } = {} ) => {
+	const params = new URLSearchParams( {
+		page: 'newspack-nodes-hub',
+		tab: 'console',
+	} );
+	if ( name ) {
+		params.set( 'topology', name );
+	}
+	if ( edit ) {
+		params.set( 'edit', '1' );
+	}
+	return `admin.php?${ params.toString() }`;
+};
 
 // Source → badge label. Mirrors the topology-resolution provenance: stock-only,
 // user-only, or user-shadows-stock.
@@ -191,6 +201,16 @@ const TopologyRow = memo( function TopologyRow( {
 						↻
 					</button>
 				) }
+				<a
+					className="nodes-tm__edit"
+					href={ consoleHref( name, { edit: true } ) }
+					title={ __(
+						'Edit this topology in the console',
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'Edit', 'newspack-nodes' ) }
+				</a>
 			</div>
 			<div className="nodes-tm__body">
 				{ section ? (
@@ -264,6 +284,18 @@ export default function TopologyManager() {
 				connectionError={ ! connected }
 				message={ __( 'Disconnected — retrying…', 'newspack-nodes' ) }
 			/>
+			<div className="nodes-tm__toolbar">
+				<a
+					className="nodes-tm__new"
+					href={ consoleHref( '', { edit: true } ) }
+					title={ __(
+						'Create a new topology in the console',
+						'newspack-nodes'
+					) }
+				>
+					{ __( '+ New Topology', 'newspack-nodes' ) }
+				</a>
+			</div>
 			{ supervisor && (
 				<SupervisorStatus
 					supervisor={ supervisor }

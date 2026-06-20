@@ -735,3 +735,29 @@ test( 'a rejected restart/deactivate is swallowed from the render but surfaced i
 	);
 	expect( getByText( /drain failed: workers busy/ ) ).toBeTruthy();
 } );
+
+it( 'renders a per-topology Edit link that deep-links to the console in edit mode', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [ { name: 'alpha', source: 'user', active: false } ],
+		} )
+	);
+	const { container } = render( <TopologyManager /> );
+	const edit = container.querySelector( '.nodes-tm__edit' );
+	expect( edit ).not.toBeNull();
+	const href = edit.getAttribute( 'href' );
+	expect( href ).toContain( 'tab=console' );
+	expect( href ).toContain( 'topology=alpha' );
+	expect( href ).toContain( 'edit=1' );
+} );
+
+it( 'renders a New Topology link that deep-links to a blank console editor', () => {
+	useTopologyManager.mockReturnValue( hookValue( { topologies: [] } ) );
+	const { container } = render( <TopologyManager /> );
+	const create = container.querySelector( '.nodes-tm__new' );
+	expect( create ).not.toBeNull();
+	const href = create.getAttribute( 'href' );
+	expect( href ).toContain( 'tab=console' );
+	expect( href ).toContain( 'edit=1' );
+	expect( href ).not.toContain( 'topology=' );
+} );

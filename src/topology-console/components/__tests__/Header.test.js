@@ -144,6 +144,19 @@ describe( 'Header', () => {
 		expect( onNew ).toHaveBeenCalled();
 	} );
 
+	it( 'hides the live NEW button in the debug overlay (onClose set)', () => {
+		const { queryByText } = render(
+			<Header
+				{ ...baseProps }
+				mode="view"
+				onNew={ () => {} }
+				onClose={ () => {} }
+			/>
+		);
+		// The overlay reuses Header but has no editor to land in.
+		expect( queryByText( 'NEW' ) ).toBeNull();
+	} );
+
 	it( 'shows DELETE only when canDelete is true', () => {
 		const onDelete = jest.fn();
 		const { getByText, rerender, queryByText } = render(

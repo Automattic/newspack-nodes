@@ -147,8 +147,10 @@ export default function Header( {
 						</button>
 					) }
 					{ /* NEW is available from live mode too (start a fresh
-					     topology); the editor's NEW lives in the edit toolbar above. */ }
-					{ mode !== 'edit' && (
+					     topology); the editor's NEW lives in the edit toolbar
+					     above. Not in the debug overlay (onClose), which has no
+					     editor to land in. */ }
+					{ mode !== 'edit' && ! onClose && (
 						<button
 							type="button"
 							className="topology-mode__btn topology-mode__btn--new"

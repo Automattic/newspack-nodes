@@ -845,6 +845,15 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
 	} );
 
+	it( 'auto-enters edit mode on mount when the URL carries ?edit=1 (Topologies-tab deep link)', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo&edit=1' );
+		render( <TopologyConsole /> );
+		await act( async () => {} );
+		// The Topologies tab's Edit/New buttons deep-link with ?edit=1; the console
+		// must land in edit mode rather than live view.
+		expect( lastHeaderProps.mode ).toBe( 'edit' );
+	} );
+
 	it( 'clicking New from live mode enters edit mode with a blank draft', async () => {
 		const { getByText } = render( <TopologyConsole /> );
 		expect( lastHeaderProps.mode ).toBe( 'view' );
