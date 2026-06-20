@@ -63,13 +63,16 @@ describe( 'GraphView', () => {
 		expect( onConnect ).toHaveBeenCalledWith( 'a', 'b' );
 	} );
 
-	it( 'opens the inspector only after a node is selected (selection-driven)', () => {
-		const { queryByTestId, getByText } = render(
+	it( 'inspector is always present (rail/panel); shows the node once selected', () => {
+		const { getByTestId, getByText } = render(
 			<GraphView graph={ graph } frame={ Frame } resetKey="k" />
 		);
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		// Default-expanded in the unit test → the Inspector renders even before a
+		// selection (its empty state); selecting fills it.
+		expect( getByTestId( 'inspector' ) ).not.toBeNull();
+		expect( getByTestId( 'inspector' ).textContent ).not.toContain( 'n1' );
 		fireEvent.click( getByText( 'select-n1' ) );
-		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
+		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n1' );
 	} );
 
 	it( 'renders the palette only when showPalette is set', () => {
@@ -89,7 +92,7 @@ describe( 'GraphView', () => {
 	} );
 
 	it( 're-syncs internal selection when the controlled `selection` prop changes', () => {
-		const { getByText, getByTestId, queryByTestId, rerender } = render(
+		const { getByText, getByTestId, rerender } = render(
 			<GraphView
 				graph={ twoNodeGraph }
 				frame={ Frame }
@@ -110,7 +113,8 @@ describe( 'GraphView', () => {
 			/>
 		);
 		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n2' );
-		// External clear (e.g. console "new"): selection→null closes the inspector.
+		// External clear (e.g. console "new"): selection→null clears the content;
+		// the always-present panel stays.
 		rerender(
 			<GraphView
 				graph={ twoNodeGraph }
@@ -119,7 +123,8 @@ describe( 'GraphView', () => {
 				selection={ null }
 			/>
 		);
-		expect( queryByTestId( 'inspector' ) ).toBeNull();
+		expect( getByTestId( 'inspector' ) ).not.toBeNull();
+		expect( getByTestId( 'inspector' ).textContent ).not.toContain( 'n2' );
 	} );
 
 	it( 'canvas deselect notifies the consumer via onSelectionChange(null)', () => {

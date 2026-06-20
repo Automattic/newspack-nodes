@@ -328,6 +328,7 @@ export default function TopologyConsole() {
 		paletteCollapsed,
 		togglePaletteCollapsed,
 		inspectorCollapsed,
+		setInspectorCollapsed,
 		toggleInspectorCollapsed,
 	} = usePanelChrome( {
 		paletteKey: paletteKeyFor( mode ),
@@ -1487,14 +1488,10 @@ export default function TopologyConsole() {
 	return (
 		<div
 			ref={ appRef }
-			className={ `topology-app theme-${ theme }${
-				selectedId ? ' is-inspector-open' : ''
-			}${ mode === 'edit' ? ' is-edit-mode' : '' }${
-				paletteCollapsed ? ' is-palette-collapsed' : ''
-			}${
-				selectedId && inspectorCollapsed
-					? ' is-inspector-collapsed'
-					: ''
+			className={ `topology-app theme-${ theme } is-inspector-open${
+				mode === 'edit' ? ' is-edit-mode' : ''
+			}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
+				inspectorCollapsed ? ' is-inspector-collapsed' : ''
 			}` }
 		>
 			<ConsoleShell
@@ -1570,6 +1567,10 @@ export default function TopologyConsole() {
 					onUpdateVerbs: handleUpdateVerbs,
 					onSelectionChange: ( id ) => {
 						setSelectedId( id );
+						// Selecting a node auto-opens the inspector (rail → panel).
+						if ( id ) {
+							setInspectorCollapsed( false );
+						}
 						refocusReplIfExpanded();
 					},
 					selection: selectedId,

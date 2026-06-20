@@ -124,25 +124,33 @@ describe( 'usePanelChrome', () => {
 	} );
 
 	describe( 'inspector', () => {
-		it( 'defaults to expanded', () => {
-			const { result } = render();
-			expect( result.current.inspectorCollapsed ).toBe( false );
-		} );
-
-		it( "reads stored '1' as collapsed", () => {
-			window.localStorage.setItem( INSPECTOR, '1' );
+		it( 'defaults to collapsed (a rail until a selection or the toggle opens it)', () => {
 			const { result } = render();
 			expect( result.current.inspectorCollapsed ).toBe( true );
+		} );
+
+		it( "reads stored '0' as expanded", () => {
+			window.localStorage.setItem( INSPECTOR, '0' );
+			const { result } = render();
+			expect( result.current.inspectorCollapsed ).toBe( false );
 		} );
 
 		it( 'toggleInspectorCollapsed flips + persists', () => {
 			const { result } = render();
 			act( () => result.current.toggleInspectorCollapsed() );
-			expect( result.current.inspectorCollapsed ).toBe( true );
-			expect( window.localStorage.getItem( INSPECTOR ) ).toBe( '1' );
-			act( () => result.current.toggleInspectorCollapsed() );
 			expect( result.current.inspectorCollapsed ).toBe( false );
 			expect( window.localStorage.getItem( INSPECTOR ) ).toBe( '0' );
+			act( () => result.current.toggleInspectorCollapsed() );
+			expect( result.current.inspectorCollapsed ).toBe( true );
+			expect( window.localStorage.getItem( INSPECTOR ) ).toBe( '1' );
+		} );
+
+		it( 'setInspectorCollapsed(false) opens it (for auto-expand on select)', () => {
+			window.localStorage.setItem( INSPECTOR, '1' );
+			const { result } = render();
+			expect( result.current.inspectorCollapsed ).toBe( true );
+			act( () => result.current.setInspectorCollapsed( false ) );
+			expect( result.current.inspectorCollapsed ).toBe( false );
 		} );
 	} );
 

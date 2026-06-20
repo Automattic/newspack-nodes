@@ -88,7 +88,6 @@ export default function InspectorTab( {
 	onHeaderPointerDown,
 	toggleMaximize,
 } ) {
-	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 	// Measure the DevtoolsTabHost tab bar that sits above this body so the
@@ -125,6 +124,7 @@ export default function InspectorTab( {
 		paletteCollapsed,
 		togglePaletteCollapsed,
 		inspectorCollapsed,
+		setInspectorCollapsed,
 		toggleInspectorCollapsed,
 	} = usePanelChrome( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
 	// One Shell instance per panel mount, shared by useDebugGraph (handler
@@ -257,12 +257,8 @@ export default function InspectorTab( {
 			data-testid="inspector-tab"
 		>
 			<div
-				className={ `topology-app theme-${ theme }${
-					selected ? ' is-inspector-open' : ''
-				}${
-					selected && inspectorCollapsed
-						? ' is-inspector-collapsed'
-						: ''
+				className={ `topology-app theme-${ theme } is-inspector-open${
+					inspectorCollapsed ? ' is-inspector-collapsed' : ''
 				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 			>
 				<ConsoleShell
@@ -348,7 +344,12 @@ export default function InspectorTab( {
 								payload
 							);
 						},
-						onSelectionChange: setSelected,
+						onSelectionChange: ( id ) => {
+							// Selecting a node auto-opens the inspector.
+							if ( id ) {
+								setInspectorCollapsed( false );
+							}
+						},
 						inspectorCollapsed,
 						onInspectorToggle: toggleInspectorCollapsed,
 					} }
