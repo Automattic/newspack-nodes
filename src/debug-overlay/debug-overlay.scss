@@ -87,8 +87,14 @@
 			"palette canvas inspector"
 			"palette repl   inspector";
 
+		// Inspector column: 360px panel, or a 28px rail when collapsed.
+		--inspector-col: 360px;
+		&.is-inspector-collapsed {
+			--inspector-col: 28px;
+		}
+
 		&.is-inspector-open {
-			grid-template-columns: 200px 1fr 360px;
+			grid-template-columns: 200px 1fr var(--inspector-col);
 			grid-template-areas:
 				"header  header header"
 				"palette canvas inspector"
@@ -100,7 +106,7 @@
 			grid-template-columns: 28px 1fr 0;
 		}
 		&.is-palette-collapsed.is-inspector-open {
-			grid-template-columns: 28px 1fr 360px;
+			grid-template-columns: 28px 1fr var(--inspector-col);
 		}
 	}
 
