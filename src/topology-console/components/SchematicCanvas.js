@@ -55,20 +55,21 @@ function edgePath( a, b ) {
 	},${ y2 }`;
 }
 
-// Padded tight bbox of every node. The width/height floor caps the
-// effective zoom so small graphs don't autofit to giant nodes.
-const CENTER_PAD = 80;
-// Fallback (only used when the canvas hasn't been measured yet) — picked to
-// match a roughly desktop-sized panel. Once we know the actual canvas pixel
-// size we use THAT as the minimum, so the autofit never zooms the graph
-// smaller than 1:1 (a 1-node graph stays node-sized regardless of panel size).
+// Fallback canvas size (only used before the canvas is measured — jsdom / first
+// render). Once measured we fit against the real pixel size.
 const AUTOFIT_FALLBACK_W = 1280;
 const AUTOFIT_FALLBACK_H = 720;
-// `bottomInsetPx` reserves that many canvas px at the BOTTOM as obstructed (the
-// expanded REPL transcript overlays there): the fitted graph is pushed into the
-// unobstructed band above it by extending the viewBox below the bbox by the
-// obstruction's world-height (so the bbox bottom lands at `minH - bottomInsetPx`
-// under the SVG's `meet` fit), keeping nodes clear of the transcript.
+// Fraction of the binding dimension the graph fills (the rest is uniform
+// margin). "Fit-all, zoom to ~90%."
+const AUTOFIT_FILL = 0.9;
+// Cap on autofit zoom-IN (px per world unit) so a tiny graph fills generously
+// without ballooning a lone node to fill the whole canvas.
+const AUTOFIT_MAX_SCALE = 2;
+// Compute the autofit viewBox: a `meet`-fit that scales the node bbox to fill
+// AUTOFIT_FILL of whichever canvas dimension binds (no cropping), capped at
+// AUTOFIT_MAX_SCALE so a one-node graph doesn't balloon. `bottomInsetPx` marks
+// canvas px obstructed at the BOTTOM (the expanded REPL transcript) — the graph
+// is fit + centered into the unobstructed band above it.
 function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	const minW = canvasSize?.w || AUTOFIT_FALLBACK_W;
 	const minH = canvasSize?.h || AUTOFIT_FALLBACK_H;
@@ -85,23 +86,25 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 		maxX = Math.max( maxX, n.position.x + NODE_W );
 		maxY = Math.max( maxY, n.position.y + NODE_H );
 	}
-	const bboxW = maxX - minX + CENTER_PAD * 2;
-	const bboxH = maxY - minY + CENTER_PAD * 2;
-	// minW/H is the canvas pixel size — using it as the floor pins the autofit
-	// at native zoom (1 SVG unit = 1 canvas px) for small graphs. Larger graphs
-	// stretch the viewBox past the canvas, zooming out as before.
-	const w = Math.max( minW, bboxW );
-	const h = Math.max( minH, bboxH );
-	// Center the (possibly enlarged) viewBox on the bbox center.
+	const bboxW = maxX - minX || NODE_W;
+	const bboxH = maxY - minY || NODE_H;
+	// Usable height = canvas minus the bottom obstruction; the graph fits into
+	// (and centers within) that top band so it never hides behind the transcript.
+	const usableH = Math.max( 1, minH - Math.max( 0, bottomInsetPx ) );
+	// Scale to fill AUTOFIT_FILL of the binding dimension, capped so tiny graphs
+	// don't balloon. The viewBox then spans the full canvas at that scale.
+	const scale = Math.min(
+		AUTOFIT_MAX_SCALE,
+		AUTOFIT_FILL * Math.min( minW / bboxW, usableH / bboxH )
+	);
+	const w = minW / scale;
+	const h = minH / scale;
 	const centerX = ( minX + maxX ) / 2;
 	const centerY = ( minY + maxY ) / 2;
 	const x = centerX - w / 2;
-	const y = centerY - h / 2;
-	if ( bottomInsetPx > 0 && minH > bottomInsetPx ) {
-		// Keep the top edge; add the obstruction's world-height below the bbox.
-		const insetWorld = ( h * bottomInsetPx ) / ( minH - bottomInsetPx );
-		return `${ x } ${ y } ${ w } ${ h + insetWorld }`;
-	}
+	// Center the bbox in the top usable band (half the band's world-height above
+	// the center); with no obstruction this reduces to the full-canvas center.
+	const y = centerY - usableH / ( 2 * scale );
 	return `${ x } ${ y } ${ w } ${ h }`;
 }
 

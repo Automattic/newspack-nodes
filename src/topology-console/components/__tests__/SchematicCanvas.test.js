@@ -387,27 +387,36 @@ describe( 'SchematicCanvas', () => {
 		expect( viewBox.split( /\s+/ ) ).toHaveLength( 4 );
 	} );
 
-	it( 'autofit insets the viewBox height by bottomObstructionPx so nodes clear the transcript', () => {
+	it( 'autofit zooms a small graph in to fill the canvas (not floored at native zoom)', () => {
+		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const [ , , w ] = container
+			.querySelector( 'svg' )
+			.getAttribute( 'viewBox' )
+			.split( /\s+/ )
+			.map( Number );
+		// baseProps' graph is smaller than the 1280 fallback canvas. The old
+		// floor pinned the viewBox to 1280 (native zoom, sea of margin); the
+		// fill-autofit zooms in so the viewBox is smaller than the canvas.
+		expect( w ).toBeLessThan( 1280 );
+	} );
+
+	it( 'autofit shifts content up by bottomObstructionPx so nodes clear the transcript', () => {
+		const yOf = ( result ) =>
+			Number(
+				result.container
+					.querySelector( 'svg' )
+					.getAttribute( 'viewBox' )
+					.split( /\s+/ )[ 1 ]
+			);
 		const base = render( <SchematicCanvas { ...baseProps } /> );
-		const baseH = Number(
-			base.container
-				.querySelector( 'svg' )
-				.getAttribute( 'viewBox' )
-				.split( /\s+/ )[ 3 ]
-		);
+		const baseY = yOf( base );
 		base.unmount();
 		const inset = render(
 			<SchematicCanvas { ...baseProps } bottomObstructionPx={ 200 } />
 		);
-		const insetH = Number(
-			inset.container
-				.querySelector( 'svg' )
-				.getAttribute( 'viewBox' )
-				.split( /\s+/ )[ 3 ]
-		);
-		// The added bottom space (transcript world-height) keeps the bbox in the
-		// unobstructed band, so the autofit viewBox is taller than without it.
-		expect( insetH ).toBeGreaterThan( baseH );
+		// Reserving the bottom band moves the viewBox window down in world space,
+		// i.e. pushes the graph UP on screen, clear of the transcript.
+		expect( yOf( inset ) ).toBeGreaterThan( baseY );
 	} );
 
 	it( 'shows AUTOFIT_MIN size for empty graphs', () => {

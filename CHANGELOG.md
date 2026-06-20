@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Topology Console: clicking the canvas background now only re-fits the view.** It no longer dismisses the transcript or deselects the inspector — a background click autoscales only (`backgroundClickAutofitsOnly`), so the transcript and inspector stay put. (The debug overlay keeps its staged dismiss.)
-- **Topology Console: autoscaling treats the unobstructed canvas as the viewport.** The expanded REPL transcript overlays the canvas bottom, so the autofit now reserves that band (`bottomObstructionPx`, reported by `ReplFooter`) and fits the graph into the space *above* it — nodes no longer end up hidden behind the transcript. (The inspector is a grid column, so it already shrinks the canvas; only the transcript overlay needed reserving.)
+- **Topology Console: autofit fills the canvas instead of sitting at native zoom.** `tightViewBoxFor` no longer floors the viewBox to the canvas size (which left small/short graphs marooned in a sea of margin). It now does a fit-all `meet` scale that fills ~90% of the binding dimension (capped at 2× so a lone node doesn't balloon), and treats the unobstructed canvas as the viewport: the expanded REPL transcript's overlay height (`bottomObstructionPx`, reported by `ReplFooter`) is reserved and the graph is fit + centered into the band *above* it, so nodes never hide behind the transcript. (The inspector is a grid column, so it already shrinks the canvas; only the transcript overlay needed reserving.)
 
 ### Added
 
