@@ -25,14 +25,7 @@
 import { SseConnectorNode } from './sse-connector-node';
 import { FROM, TO } from './message';
 import names from './reserved-node-names.json';
-
-const REPLY_NODES = [
-	names.OUTPUT,
-	names.METADATA,
-	names.UPTIME,
-	names.COMPLETION,
-	names.HEARTBEAT,
-];
+import { REPLY_NODES } from './reply-nodes';
 
 export class SseInNode extends SseConnectorNode {
 	fill( message ) {

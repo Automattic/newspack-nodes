@@ -12,6 +12,7 @@ import { CompletionNode } from '../runtime/completion-node';
 import { HeartbeatNode } from '../runtime/heartbeat-node';
 import { HttpOutNode } from '../runtime/http-out-node';
 import { SseInNode } from '../runtime/sse-in-node';
+import { RemoteIpcNode } from '../runtime/remote-ipc';
 
 Object.assign( CommandInterpreterNode.includeNodes, {
 	Dumper: DumperNode,
@@ -21,4 +22,5 @@ Object.assign( CommandInterpreterNode.includeNodes, {
 	Heartbeat: HeartbeatNode,
 	HttpOut: HttpOutNode,
 	SseIn: SseInNode,
+	RemoteIpc: RemoteIpcNode,
 } );
