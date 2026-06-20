@@ -217,6 +217,44 @@ describe( 'VaultAdmin', () => {
 		).toBeTruthy();
 	} );
 
+	it( 'groups Add Server and Cancel together in the modal footer (not split into the form body)', () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		const footer = container.querySelector(
+			'[role="dialog"] .nodes-vault__modal-actions'
+		);
+		expect( footer ).toBeTruthy();
+		// The primary submit lives in the footer, not floating in the form table.
+		expect(
+			footer.querySelector( '#event-aggregator-add-server' )
+		).toBeTruthy();
+		expect(
+			container.querySelector(
+				'table.form-table #event-aggregator-add-server'
+			)
+		).toBeNull();
+		// Cancel is in the SAME footer as the submit.
+		const cancel = Array.from( footer.querySelectorAll( 'button' ) ).find(
+			( b ) => b.textContent.trim() === 'Cancel'
+		);
+		expect( cancel ).toBeTruthy();
+	} );
+
+	it( 'closes the add modal when the footer Cancel is clicked (without adding)', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		expect( document.querySelector( '[role="dialog"]' ) ).toBeTruthy();
+		await act( async () => {
+			dialogButton( 'Cancel' ).dispatchEvent(
+				new Event( 'click', { bubbles: true } )
+			);
+		} );
+		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+		expect( addServer ).not.toHaveBeenCalled();
+	} );
+
 	it( 'closes the add modal after a successful add', async () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();

@@ -236,9 +236,10 @@ function ServerRow( { server, onRemove, onTest } ) {
  * @param {Object}   props           Component props.
  * @param {Function} props.onAdd     Add callback (fields) → add promise.
  * @param {Function} props.onSuccess Called after a successful add (closes the modal).
+ * @param {Function} props.onCancel  Dismiss handler for the footer Cancel button.
  * @return {import('react').ReactElement} The rendered form.
  */
-function AddServerForm( { onAdd, onSuccess } ) {
+function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 	const [ id, setId ] = useState( '' );
 	const [ url, setUrl ] = useState( '' );
 	const [ username, setUsername ] = useState( '' );
@@ -311,122 +312,136 @@ function AddServerForm( { onAdd, onSuccess } ) {
 	};
 
 	return (
-		<table className="form-table" style={ { maxWidth: '600px' } }>
-			<tbody>
-				<tr>
-					<th>
-						<label htmlFor="new-server-id">
-							{ __( 'Server ID', 'newspack-nodes' ) }
-						</label>
-					</th>
-					<td>
-						<input
-							ref={ idRef }
-							type="text"
-							id="new-server-id"
-							className="regular-text"
-							placeholder="prod-web-01"
-							pattern="[a-zA-Z0-9_-]+"
-							value={ id }
-							onChange={ ( e ) => setId( e.target.value ) }
-						/>
-						<p className="description">
-							{ __(
-								'Unique identifier (alphanumeric, hyphen, underscore).',
-								'newspack-nodes'
-							) }
-						</p>
-					</td>
-				</tr>
-				<tr>
-					<th>
-						<label htmlFor="new-server-url">
-							{ __( 'Server URL', 'newspack-nodes' ) }
-						</label>
-					</th>
-					<td>
-						<input
-							type="url"
-							id="new-server-url"
-							className="regular-text"
-							placeholder="https://example.com"
-							value={ url }
-							onChange={ ( e ) => setUrl( e.target.value ) }
-						/>
-						<p className="description">
-							{ __(
-								'HTTPS URL of the WordPress site.',
-								'newspack-nodes'
-							) }
-						</p>
-					</td>
-				</tr>
-				<tr>
-					<th>
-						<label htmlFor="new-server-username">
-							{ __( 'Username', 'newspack-nodes' ) }
-						</label>
-					</th>
-					<td>
-						<input
-							type="text"
-							id="new-server-username"
-							className="regular-text"
-							value={ username }
-							onChange={ ( e ) => setUsername( e.target.value ) }
-						/>
-						<p className="description">
-							{ __(
-								'WordPress username on the remote site.',
-								'newspack-nodes'
-							) }
-						</p>
-					</td>
-				</tr>
-				<tr>
-					<th>
-						<label htmlFor="new-server-password">
-							{ __( 'Application Password', 'newspack-nodes' ) }
-						</label>
-					</th>
-					<td>
-						<input
-							type="password"
-							id="new-server-password"
-							className="regular-text"
-							value={ password }
-							onChange={ ( e ) => setPassword( e.target.value ) }
-						/>
-						<p className="description">
-							{ __(
-								'WordPress Application Password (Users → Profile → Application Passwords).',
-								'newspack-nodes'
-							) }
-						</p>
-					</td>
-				</tr>
-				<tr>
-					<th />
-					<td>
-						<button
-							type="button"
-							className="button button-primary"
-							id="event-aggregator-add-server"
-							disabled={ busy }
-							onClick={ handleAdd }
-						>
-							{ __( 'Add Server', 'newspack-nodes' ) }
-						</button>{ ' ' }
-						<span
-							id="add-server-status"
-							style={ { color: status.color } }
-						>
-							{ status.text }
-						</span>
-					</td>
-				</tr>
-			</tbody>
-		</table>
+		<>
+			<table className="form-table" style={ { maxWidth: '600px' } }>
+				<tbody>
+					<tr>
+						<th>
+							<label htmlFor="new-server-id">
+								{ __( 'Server ID', 'newspack-nodes' ) }
+							</label>
+						</th>
+						<td>
+							<input
+								ref={ idRef }
+								type="text"
+								id="new-server-id"
+								className="regular-text"
+								placeholder="prod-web-01"
+								pattern="[a-zA-Z0-9_-]+"
+								value={ id }
+								onChange={ ( e ) => setId( e.target.value ) }
+							/>
+							<p className="description">
+								{ __(
+									'Unique identifier (alphanumeric, hyphen, underscore).',
+									'newspack-nodes'
+								) }
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th>
+							<label htmlFor="new-server-url">
+								{ __( 'Server URL', 'newspack-nodes' ) }
+							</label>
+						</th>
+						<td>
+							<input
+								type="url"
+								id="new-server-url"
+								className="regular-text"
+								placeholder="https://example.com"
+								value={ url }
+								onChange={ ( e ) => setUrl( e.target.value ) }
+							/>
+							<p className="description">
+								{ __(
+									'HTTPS URL of the WordPress site.',
+									'newspack-nodes'
+								) }
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th>
+							<label htmlFor="new-server-username">
+								{ __( 'Username', 'newspack-nodes' ) }
+							</label>
+						</th>
+						<td>
+							<input
+								type="text"
+								id="new-server-username"
+								className="regular-text"
+								value={ username }
+								onChange={ ( e ) =>
+									setUsername( e.target.value )
+								}
+							/>
+							<p className="description">
+								{ __(
+									'WordPress username on the remote site.',
+									'newspack-nodes'
+								) }
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th>
+							<label htmlFor="new-server-password">
+								{ __(
+									'Application Password',
+									'newspack-nodes'
+								) }
+							</label>
+						</th>
+						<td>
+							<input
+								type="password"
+								id="new-server-password"
+								className="regular-text"
+								value={ password }
+								onChange={ ( e ) =>
+									setPassword( e.target.value )
+								}
+							/>
+							<p className="description">
+								{ __(
+									'WordPress Application Password (Users → Profile → Application Passwords).',
+									'newspack-nodes'
+								) }
+							</p>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+			<div className="nodes-vault__modal-actions">
+				<span
+					id="add-server-status"
+					className="nodes-vault__add-status"
+					style={ { color: status.color } }
+				>
+					{ status.text }
+				</span>
+				<button
+					type="button"
+					className="button button-tertiary"
+					onClick={ onCancel }
+				>
+					{ __( 'Cancel', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
+					className="button button-primary"
+					id="event-aggregator-add-server"
+					disabled={ busy }
+					onClick={ handleAdd }
+				>
+					{ __( 'Add Server', 'newspack-nodes' ) }
+				</button>
+			</div>
+		</>
 	);
 }
 
@@ -446,16 +461,11 @@ function AddServerModal( { onAdd, onClose } ) {
 			onClose={ onClose }
 		>
 			<h4>{ __( 'Add New Server', 'newspack-nodes' ) }</h4>
-			<AddServerForm onAdd={ onAdd } onSuccess={ onClose } />
-			<div className="nodes-vault__modal-actions">
-				<button
-					type="button"
-					className="button button-tertiary"
-					onClick={ onClose }
-				>
-					{ __( 'Cancel', 'newspack-nodes' ) }
-				</button>
-			</div>
+			<AddServerForm
+				onAdd={ onAdd }
+				onSuccess={ onClose }
+				onCancel={ onClose }
+			/>
 		</Modal>
 	);
 }
