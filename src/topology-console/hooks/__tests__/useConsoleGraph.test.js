@@ -22,6 +22,17 @@ import { RemoteIpcNode } from '../../../runtime/remote-ipc-node';
 import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 
+// The command client is the singleton useConsoleGraph hands each RemoteIpc AND
+// uses for the mount-time `topologies get` TSL seed. Mock it so no real fetch
+// fires; `mockSend` defaults to resolving null (seed no-ops) and tests override
+// it to drive a TSL reply.
+const mockSend = jest.fn().mockResolvedValue( null );
+const mockPostBatch = jest.fn().mockResolvedValue( [] );
+jest.mock( '../../utils/commandClient', () => ( {
+	getCommandClient: () => ( { send: mockSend, postBatch: mockPostBatch } ),
+	__resetCommandClientForTests: () => {},
+} ) );
+
 let lastConnector = null;
 
 // Minimal FakeEventSource — same shape as the substrate's `sse_connector.test.js`
@@ -100,6 +111,10 @@ beforeEach( () => {
 	FakeEventSource.last = null;
 	global.EventSource = FakeEventSource;
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	mockSend.mockReset();
+	mockSend.mockResolvedValue( null );
+	mockPostBatch.mockReset();
+	mockPostBatch.mockResolvedValue( [] );
 } );
 
 const renderGraph = ( props = {} ) =>
@@ -473,6 +488,34 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect(
 			Core.node( names.OUTPUT ).setStateCache.transcript ?? []
 		).toHaveLength( 0 );
+	} );
+
+	it( 'seeds the Metadata node with the topology TSL on mount (instant structure before dump_metadata)', async () => {
+		const { newMessage, VALUE } = require( '../../../runtime/message' );
+		const tsl = 'make_node Echo greeter\n';
+		const reply = newMessage();
+		reply[ VALUE ] = {
+			name: 'get',
+			payload: { name: 'demo', source: 'user', tsl },
+		};
+		mockSend.mockResolvedValue( reply );
+		await act( async () => {
+			renderGraph();
+			await Promise.resolve();
+		} );
+		// Fired the topologies `get` for the live topology — the same direct REST
+		// command edit mode uses, independent of the SSE stream.
+		expect( mockSend ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				to: 'topologies',
+				verb: 'get',
+				args: 'demo',
+			} )
+		);
+		// parseTsl( tsl ).nodes seeded the canvas graph (useGraphSource reads this)
+		// before any dump_metadata reply.
+		const seeded = Core.node( names.METADATA ).setStateCache.metadata;
+		expect( seeded.nodes.map( ( n ) => n.id ) ).toContain( 'greeter' );
 	} );
 
 	it( 'an SSE reply with TO=_completion lands in the Completion node (not the transcript)', () => {
