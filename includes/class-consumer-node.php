@@ -802,6 +802,10 @@ class Consumer_Node extends Timer_Node {
 			'bytes_behind' => $lag['bytes_behind'],
 			'msg_sent'     => $this->counter,
 			'worker_type'  => self::worker_type_env(),
+			// Routing, for the dashboard's per-target fan-out (one row per
+			// downstream processor) — parity with the offsetlog VALUE this replaces.
+			'target'       => \is_string( $this->target ) ? $this->target : '',
+			'targets'      => $this->resolve_downstream_targets(),
 		];
 	}
 
