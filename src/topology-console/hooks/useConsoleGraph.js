@@ -24,6 +24,8 @@ import { DumperNode } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
 import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { getCommandClient } from '../utils/commandClient';
+import { useTopology } from './useTopologyList';
+import { parseTsl } from '../utils/parseTsl';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
 
@@ -58,6 +60,10 @@ export function useConsoleGraph( {
 	// (cleanup tears down the spine, the effect rebuilds it fresh off the canonical
 	// wiring) — recovering a self-broken browser graph without a page reload.
 	const generation = useGraphGeneration();
+
+	// Direct `topologies get` fetch (the same one edit mode uses) for the mount
+	// TSL seed below; stable identity, so the build effect can call it freely.
+	const fetchTopologyTsl = useTopology();
 
 	// Stash the latest debugLevelRef so the effect wires it without re-subscribing.
 	const debugLevelRefRef = useRef( debugLevelRef );
@@ -188,6 +194,32 @@ export function useConsoleGraph( {
 		// the router's notify_timer calls their fireCb -> fire directly each tick.
 		metadata.setTimer();
 		uptime.setTimer();
+
+		// Paint the topology's declared structure immediately: the same direct
+		// `topologies get` edit mode uses (independent of the SSE stream), parsed
+		// via parseTsl and published as the metadata graph — so the schematic shows
+		// while the SSE connect, the first TIMER tick, and the dump_metadata
+		// round-trip are still in flight. The first real dump_metadata reply then
+		// overwrites it with the live-enriched graph.
+		if ( topology ) {
+			fetchTopologyTsl( topology )
+				.then( ( resp ) => {
+					const seeded = parseTsl( resp?.tsl || '' );
+					// Resolve the LIVE metadata node by name (not the closed-over
+					// build instance): a rebuild may have replaced it while this was
+					// in flight. Skip if a dump_metadata reply already populated the
+					// graph (the round-trip can beat this async seed on a warm worker).
+					const node = Core.node( names.METADATA );
+					const live =
+						node?.rawMap && Object.keys( node.rawMap ).length > 0;
+					if ( node && seeded.nodes.length && ! live ) {
+						node.setState( 'metadata', seeded );
+					}
+				} )
+				.catch( () => {
+					// Best-effort seed; the live poll fills the canvas regardless.
+				} );
+		}
 
 		setShell( consoleShell );
 		// The EventSource is opened/closed by the stream-gating effect below (it
