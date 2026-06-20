@@ -95,6 +95,7 @@ class Admin {
 		// snapshot its dropdown reads).
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_event_dashboards_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_vault_tab_bundle' ] );
+		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_aggregator_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_topology_console_tab_bundle' ] );
 
 		// Both hooks so first + subsequent saves restart correctly.
@@ -310,6 +311,22 @@ class Admin {
 			'handle' => 'newspack-nodes-vault',
 			'dir'    => \NEWSPACK_NODES_DIR . 'build/vault',
 			'url'    => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/vault',
+		];
+		return $bundles;
+	}
+
+	/**
+	 * Advertise the aggregator bundle as a DevTools tab bundle so the hub page
+	 * enqueues it and its `host: 'hub'` Aggregator tab registers there.
+	 *
+	 * @param array<int,mixed> $bundles Existing tab bundles.
+	 * @return array<int,mixed> Bundles with the aggregator bundle appended.
+	 */
+	public function register_aggregator_tab_bundle( array $bundles ): array {
+		$bundles[] = [
+			'handle' => 'newspack-nodes-aggregator-tab',
+			'dir'    => \NEWSPACK_NODES_DIR . 'build/event-aggregator',
+			'url'    => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-aggregator',
 		];
 		return $bundles;
 	}

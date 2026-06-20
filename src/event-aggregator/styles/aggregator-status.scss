@@ -1,0 +1,479 @@
+/**
+ * Aggregator Status Dashboard Styles
+ *
+ * Full-page dark theme for monitoring remote server connections.
+ */
+
+@use "base";
+
+// =============================================================================
+// Dashboard Container
+// =============================================================================
+
+.aggregator-status-dashboard {
+	background: base.$dark-bg;
+	color: base.$dark-text;
+	font-family: base.$system-font;
+	min-height: 100%;
+	padding: 20px 24px;
+	box-sizing: border-box;
+}
+
+// =============================================================================
+// Header
+// =============================================================================
+
+.aggregator-status-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 24px;
+	padding-bottom: 16px;
+	border-bottom: 1px solid base.$dark-header-border;
+
+	h2 {
+		margin: 0;
+		font-size: 16px;
+		font-weight: 600;
+		color: base.$white;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+}
+
+.aggregator-status-meta {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	font-size: 12px;
+	color: base.$dark-text-muted;
+}
+
+.aggregator-status-refresh-indicator {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+
+	&.refreshing {
+		color: base.$dark-info;
+	}
+}
+
+.aggregator-status-refresh-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: base.$dark-success;
+	transition: background 0.2s ease;
+
+	&.refreshing {
+		background: base.$dark-info;
+		animation: pulse 1s ease-in-out infinite;
+	}
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+
+	50% {
+		opacity: 0.6;
+		transform: scale(1.2);
+	}
+}
+
+.aggregator-status-server-count {
+	font-family: base.$mono-font;
+	color: base.$dark-text-muted;
+
+	strong {
+		color: base.$white;
+	}
+}
+
+// =============================================================================
+// Server Grid
+// =============================================================================
+
+.aggregator-status-servers {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.aggregator-status-empty {
+	text-align: center;
+	padding: 48px 24px;
+	color: base.$dark-text-placeholder;
+	font-size: 14px;
+	background: base.$dark-bg-secondary;
+	border-radius: base.$border-radius-lg;
+	border: 1px dashed base.$dark-border;
+}
+
+// =============================================================================
+// Server Card
+// =============================================================================
+
+.aggregator-server-card {
+	background: base.$dark-bg-secondary;
+	border-radius: base.$border-radius-lg;
+	padding: 16px 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	transition: background 0.15s ease;
+
+	&:hover {
+		background: base.$dark-bg-hover;
+	}
+
+	&.disabled {
+		opacity: 0.5;
+	}
+}
+
+// Server Identity
+.aggregator-server-identity {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 16px;
+	min-width: 0;
+}
+
+.aggregator-server-id {
+	font-family: base.$mono-font;
+	font-size: 14px;
+	font-weight: 600;
+	color: base.$white;
+}
+
+.aggregator-server-url {
+	font-size: 12px;
+	color: base.$dark-text-muted;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+}
+
+.aggregator-server-partition-count {
+	font-size: 11px;
+	color: base.$dark-text-dim;
+	font-family: base.$mono-font;
+}
+
+// =============================================================================
+// Partitions Grid
+// =============================================================================
+
+.aggregator-partitions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.aggregator-partition {
+	background: base.$dark-bg-tertiary;
+	border-radius: base.$border-radius-sm;
+	padding: 10px 14px;
+	min-width: 250px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.aggregator-partition-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding-bottom: 6px;
+	border-bottom: 1px solid base.$dark-border;
+}
+
+.aggregator-partition-label {
+	font-family: base.$mono-font;
+	font-size: 12px;
+	font-weight: 600;
+	color: base.$white;
+}
+
+.aggregator-partition-stats {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.aggregator-partition-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	font-size: 11px;
+}
+
+.aggregator-partition-stat-label {
+	color: base.$dark-text-placeholder;
+	text-transform: uppercase;
+	font-size: 9px;
+	letter-spacing: 0.3px;
+}
+
+.aggregator-partition-stat-value {
+	color: base.$dark-text;
+	font-family: base.$mono-font;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.aggregator-partition-error {
+	font-size: 10px;
+	color: base.$error-text;
+	background: rgba(base.$error-bg, 0.2);
+	padding: 4px 8px;
+	border-radius: base.$border-radius-sm;
+	margin-top: 4px;
+}
+
+// Connection Status
+.aggregator-server-connection {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	min-width: 100px;
+}
+
+.aggregator-status-badge {
+	@include base.status-badge;
+
+	&.small {
+		font-size: 9px;
+		padding: 2px 6px;
+	}
+
+	&.connected {
+		background: base.$success-bg;
+		color: base.$white;
+	}
+
+	&.connecting {
+		background: base.$dark-info;
+		color: base.$white;
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	&.backoff {
+		background: base.$warning-color;
+		color: #000;
+	}
+
+	&.disconnected,
+	&.connection_refused {
+		background: base.$status-inactive;
+		color: base.$white;
+	}
+
+	&.error,
+	&.ssl_error,
+	&.auth_failed {
+		background: base.$error-bg;
+		color: base.$white;
+	}
+}
+
+.aggregator-connection-time {
+	font-size: 10px;
+	color: base.$dark-text-dim;
+}
+
+// Heartbeat Section
+.aggregator-server-heartbeat {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.aggregator-heartbeat-row {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	font-size: 12px;
+}
+
+.aggregator-heartbeat-label {
+	color: base.$dark-text-placeholder;
+	min-width: 80px;
+	text-transform: uppercase;
+	font-size: 10px;
+	letter-spacing: 0.5px;
+}
+
+.aggregator-heartbeat-value {
+	color: base.$dark-text;
+	font-family: base.$mono-font;
+
+	&.success {
+		color: base.$dark-success;
+	}
+
+	&.error {
+		color: base.$error-text;
+	}
+
+	&.warning {
+		color: base.$warning-color;
+	}
+
+	&.muted {
+		color: base.$dark-text-dim;
+	}
+}
+
+.aggregator-heartbeat-rtt {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 2px;
+
+	.rtt-value {
+		font-weight: 600;
+		color: base.$dark-info;
+	}
+
+	.rtt-unit {
+		font-size: 10px;
+		color: base.$dark-text-dim;
+	}
+}
+
+// Heartbeat Status Badge
+.aggregator-heartbeat-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.aggregator-heartbeat-badge {
+	@include base.status-badge;
+
+	&.small {
+		font-size: 9px;
+		padding: 2px 6px;
+	}
+
+	&.success {
+		background: base.$success-bg;
+		color: base.$white;
+	}
+
+	&.slot_expired {
+		background: base.$warning-color;
+		color: #000;
+	}
+
+	&.error {
+		background: base.$error-bg;
+		color: base.$white;
+	}
+
+	&.pending {
+		background: base.$dark-bg-tertiary;
+		color: base.$dark-text-muted;
+	}
+}
+
+.aggregator-heartbeat-rtt.small {
+	font-size: 10px;
+	color: base.$dark-text-muted;
+}
+
+.aggregator-http-code {
+	font-size: 10px;
+	color: base.$dark-text;
+
+	&.small {
+		font-size: 9px;
+	}
+
+	&.success {
+		background: base.$success-bg;
+		color: base.$white;
+		padding: 1px 4px;
+		border-radius: base.$border-radius-sm;
+	}
+}
+
+// Error Display
+.aggregator-server-error {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	min-width: 200px;
+}
+
+.aggregator-error-message {
+	font-size: 11px;
+	color: base.$error-text;
+	background: rgba(base.$error-bg, 0.3);
+	padding: 4px 10px;
+	border-radius: base.$border-radius-sm;
+	max-width: 250px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+// =============================================================================
+// Loading State
+// =============================================================================
+
+.aggregator-status-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	min-height: 200px;
+	gap: 16px;
+	color: base.$dark-text-muted;
+
+	.spinner {
+		width: 32px;
+		height: 32px;
+		border: 3px solid base.$dark-border;
+		border-top-color: base.$dark-info;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+// =============================================================================
+// Responsive
+// =============================================================================
+
+@media (max-width: 768px) {
+	.aggregator-server-identity {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+	}
+
+	.aggregator-partitions {
+		flex-direction: column;
+	}
+
+	.aggregator-partition {
+		min-width: 100%;
+	}
+}
