@@ -89,6 +89,9 @@ export default function InspectorTab( {
 	toggleMaximize,
 } ) {
 	const [ replExpanded, setReplExpanded ] = useState( false );
+	// Px the expanded transcript overlays the canvas with (reported by ReplFooter),
+	// fed to the autofit so nodes fit above it — same as the console.
+	const [ transcriptOverlayPx, setTranscriptOverlayPx ] = useState( 0 );
 	const replInputRef = useRef( null );
 	// Measure the DevtoolsTabHost tab bar that sits above this body so the
 	// transcript ceiling reserves exactly its rendered height (it may be absent
@@ -352,6 +355,7 @@ export default function InspectorTab( {
 						},
 						inspectorCollapsed,
 						onInspectorToggle: toggleInspectorCollapsed,
+						bottomObstructionPx: transcriptOverlayPx,
 					} }
 					replProps={ {
 						prompt: `/${ cwd }`,
@@ -366,6 +370,7 @@ export default function InspectorTab( {
 						onExpandedChange: setReplExpanded,
 						inputRef: replInputRef,
 						maxHeightPx: replMaxHeightPx,
+						onOverlayHeightChange: setTranscriptOverlayPx,
 					} }
 				/>
 			</div>
