@@ -213,11 +213,7 @@ export function useConsoleGraph( {
 					const node = Core.node( names.METADATA );
 					const live =
 						node?.rawMap && Object.keys( node.rawMap ).length > 0;
-					// Only paint a topology when the canvas is actually showing one
-					// (a worker scope). At the local root (`/`) or any non-worker cwd
-					// (`_http`, …) the canvas renders the in-browser graph, so seeding
-					// the topology paints the wrong graph and stomps the layout —
-					// foreign node ids miss the scope's saved position map.
+					// Seed a topology only at a worker scope: at `/` (or `_http`) the canvas shows the in-browser graph, so seeding would paint the wrong graph and stomp its layout.
 					const onWorker = scopeFromCwd(
 						Core.node( names.CWD )?.target ?? ''
 					).isWorker;
