@@ -104,27 +104,18 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	$base_interpreter->make_node( 'Settings_CI',   'settings' );
 	$base_interpreter->make_node( 'Status_CI',     'status' );
 
-	// Workers_CI needs the substrate Cli plus an optional `\Memcached`-shaped
-	// cache (or null) for live-position memcache reads + SSE-slot heartbeats.
-	// Substrate doesn't build a connection itself, so apply a filter for an
-	// application to provide one (event-logger-nodes hands over the shared
-	// `Core::$memd`). Null cache means live-position falls back to on-disk
-	// offsetlog and the `heartbeat` verb throws "cache not configured".
+	// Workers_CI needs the substrate Cli. Live positions come from the shared
+	// TopicProbe log (via the Cli), and the `heartbeat` verb uses the shared
+	// `Core::$memd` directly — so there's no cache to inject here.
 	//
 	// Construction follows the Tachikoma uniform pattern: `make_node` calls a
-	// no-arg ctor + `arguments()` for scalar config; programmatic deps (Cli,
-	// cache) come in via public-property assignment immediately after, since
+	// no-arg ctor + `arguments()` for scalar config; the programmatic dep (Cli)
+	// comes in via public-property assignment immediately after, since
 	// `arguments()` only handles round-trippable scalar tokens.
-	$cli = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
-	// apply_filters() returns mixed by design; the documented contract is a \Memcached or null.
-	/** @var \Memcached|null $cache */
-	$cache = \function_exists( 'apply_filters' )
-		? \apply_filters( 'newspack_nodes/workers_cache', null )
-		: null;
+	$cli        = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
 	$workers_ci = $base_interpreter->make_node( 'Workers_CI', 'workers' );
 	if ( $workers_ci instanceof \Newspack_Nodes\Rest\Workers_CI_Node ) {
-		$workers_ci->cli   = $cli;
-		$workers_ci->cache = $cache;
+		$workers_ci->cli = $cli;
 	}
 }
 

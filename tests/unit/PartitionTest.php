@@ -2221,6 +2221,33 @@ class PartitionTest extends TestCase {
 			$probe->probe_record( $message )
 		);
 	}
+
+	public function test_read_tail_index_by_returns_latest_record_per_key(): void {
+		// Topicprobe-style reader: index the newest segment's tail by a VALUE
+		// field, latest record wins (records append chronologically).
+		$dir = "{$this->tmp}/probe";
+		$log = new Partition_Node();
+		$log->arguments( "{$dir} " . ( 64 * 1024 ) . ' 2 0' );
+		foreach (
+			[
+				[ 'offset_dir' => 'a.p0', 'cursor_off' => 1 ],
+				[ 'offset_dir' => 'b.p0', 'cursor_off' => 2 ],
+				[ 'offset_dir' => '', 'cursor_off' => 7 ],     // empty key → skipped
+				[ 'offset_dir' => 'a.p0', 'cursor_off' => 9 ], // newer a → wins
+			] as $value
+		) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_STRUCT;
+			$message[ Message::VALUE ] = $value;
+			$log->fill( $message );
+		}
+		$log->flush();
+
+		$index = Partition_Node::read_tail_index_by( $dir, 'offset_dir' );
+		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
+		$this->assertSame( 9, $index['a.p0']['cursor_off'], 'latest record per key wins' );
+		$this->assertSame( 2, $index['b.p0']['cursor_off'] );
+	}
 }
 
 /**

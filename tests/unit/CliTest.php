@@ -267,165 +267,91 @@ class CliTest extends TestCase {
 
 	// ── live_position() ────────────────────────────────────────────────────────
 
-	public function test_live_position_returns_null_when_cache_is_null(): void {
-		$cli = new CLI( $this->tmp );
-		$this->assertNull( $cli->live_position( null, 'jobs', 0 ) );
+	public function test_live_position_returns_null_when_no_matching_record(): void {
+		$this->assertNull( ( new CLI( $this->tmp ) )->live_position( [], 'jobs', 0 ) );
 	}
 
-	public function test_live_position_returns_null_when_cache_lacks_get_method(): void {
-		// Object with no get() method → method_exists() returns false → null.
-		$cli         = new CLI( $this->tmp );
-		$bogus_cache = new \stdClass();
-		$this->assertNull( $cli->live_position( $bogus_cache, 'jobs', 0 ) );
-	}
-
-	public function test_live_position_returns_null_when_cache_throws(): void {
-		// Cache::get throws → caught and returned as null (memcache unreachable).
-		$cli   = new CLI( $this->tmp );
-		$cache = new class() {
-			public function get( $key ) {
-				throw new \RuntimeException( 'memcache down' );
-			}
-		};
-		$this->assertNull( $cli->live_position( $cache, 'jobs', 0 ) );
-	}
-
-	public function test_live_position_returns_null_for_malformed_value(): void {
-		$cli   = new CLI( $this->tmp );
-		// Missing 'seg' / 'off' → null. Also non-array values.
-		$cache = new class() {
-			public function get( $key ) {
-				return 'not-an-array';
-			}
-		};
-		$this->assertNull( $cli->live_position( $cache, 'jobs', 0 ) );
-
-		$cache2 = new class() {
-			public function get( $key ) {
-				return [ 'foo' => 'bar' ];
-			}
-		};
-		$this->assertNull( $cli->live_position( $cache2, 'jobs', 0 ) );
-	}
-
-	public function test_live_position_returns_normalized_position(): void {
-		// Worker's offsetlog records source_basename so live_position can derive
-		// the same key Consumer_Node::publish_position() wrote.
-		$this->seed_offsetlog( 'firehose-workers', 3, 'firehose' );
-
-		$cli      = new CLI( $this->tmp );
-		$host     = \gethostname() ?: 'unknown';
-		$expected = Consumer_Node::position_key( $host, 'firehose.p3' );
-
-		$cache = new class() {
-			public string $last_key = '';
-			public function get( $key ) {
-				$this->last_key = $key;
-				return [ 'seg' => '12', 'off' => '345', 'ts' => '1700000000' ];
-			}
-		};
-		$pos = $cli->live_position( $cache, 'firehose-workers', 3 );
-
-		// CLI must hit the SAME key Workers_CI reads and Consumer writes.
-		$this->assertSame( $expected, $cache->last_key );
-
-		// Values cast to int.
+	public function test_live_position_returns_the_workers_consumer_position(): void {
+		// Matches by worker_type + `.p{N}` suffix; cursor_seg/off/ts cast to int.
+		$index = [
+			'jobintake.p0' => [ 'worker_type' => 'jobs', 'cursor_seg' => '12', 'cursor_off' => '345', 'ts' => '1700000000' ],
+		];
+		$pos = ( new CLI( $this->tmp ) )->live_position( $index, 'jobs', 0 );
 		$this->assertSame( 12, $pos['seg'] );
 		$this->assertSame( 345, $pos['off'] );
 		$this->assertSame( 1700000000, $pos['ts'] );
 	}
 
-	public function test_live_position_key_matches_consumer_publish_key(): void {
-		// The cli reads Consumer_Node's per-reader key: `np:pos:{host}:{offset-dir}`
-		// (offset-dir = `{source_basename}.p{N}`). Pin the contract via
-		// Consumer_Node::position_key() so reader and writer can't drift.
-		$this->seed_offsetlog( 'jobs', 2, 'jobintake' );
-
-		$cli      = new CLI( $this->tmp );
-		$host     = \gethostname() ?: 'unknown';
-		$expected = Consumer_Node::position_key( $host, 'jobintake.p2' );
-
-		$cache = new class() {
-			public string $last_key = '';
-			public function get( $key ) {
-				$this->last_key = $key;
-				return [ 'seg' => 0, 'off' => 0 ];
-			}
-		};
-		$cli->live_position( $cache, 'jobs', 2 );
-
-		$this->assertSame( $expected, $cache->last_key );
+	public function test_live_position_prefers_the_primary_input_over_disambiguated_readers(): void {
+		// A worker reading one log under several offset dirs: the shortest
+		// offset_dir is the base input; a disambiguated reader must not shadow it.
+		$index = [
+			'firehose.job-router.p0' => [ 'worker_type' => 'combined', 'cursor_seg' => 8, 'cursor_off' => 7 ],
+			'firehose.p0'            => [ 'worker_type' => 'combined', 'cursor_seg' => 5, 'cursor_off' => 100 ],
+		];
+		$pos = ( new CLI( $this->tmp ) )->live_position( $index, 'combined', 0 );
+		$this->assertSame( 5, $pos['seg'], 'primary input (shortest offset_dir) wins' );
+		$this->assertSame( 100, $pos['off'] );
 	}
 
-	public function test_live_position_falls_back_to_firehose_when_no_offsetlog(): void {
-		// No offsetlog yet → CLI assumes the conventional `firehose` source.
-		$cli      = new CLI( $this->tmp );
-		$host     = \gethostname() ?: 'unknown';
-		$expected = Consumer_Node::position_key( $host, 'firehose.p0' );
-
-		$cache = new class() {
-			public string $last_key = '';
-			public function get( $key ) {
-				$this->last_key = $key;
-				return [ 'seg' => 0, 'off' => 0 ];
-			}
-		};
-		$cli->live_position( $cache, 'fresh-worker', 0 );
-
-		$this->assertSame( $expected, $cache->last_key );
-	}
-
-	/** Seed an offsetlog with one checkpoint that records $source_basename. */
-	private function seed_offsetlog( string $type, int $partition, string $source_basename ): void {
-		$dir = "{$this->tmp}/offsets/{$type}.p{$partition}";
-		mkdir( $dir, 0755, true );
-		file_put_contents(
-			"{$dir}/0.log",
-			json_encode( [
-				'seg'             => 0,
-				'off'             => 0,
-				'ts'              => 1700000000,
-				'source_basename' => $source_basename,
-			] ) . "\n"
-		);
+	public function test_live_position_ignores_other_partitions_and_types(): void {
+		$index = [
+			'firehose.p1' => [ 'worker_type' => 'combined', 'cursor_seg' => 1, 'cursor_off' => 1 ],
+			'jobs.p0'     => [ 'worker_type' => 'jobs', 'cursor_seg' => 2, 'cursor_off' => 2 ],
+		];
+		$this->assertNull( ( new CLI( $this->tmp ) )->live_position( $index, 'combined', 0 ) );
 	}
 
 	public function test_live_position_defaults_ts_to_zero_when_missing(): void {
-		$cli   = new CLI( $this->tmp );
-		$cache = new class() {
-			public function get( $key ) {
-				return [ 'seg' => 5, 'off' => 100 ];
-			}
-		};
-		$pos = $cli->live_position( $cache, 'jobs', 0 );
-
+		$index = [ 'jobs.p0' => [ 'worker_type' => 'jobs', 'cursor_seg' => 5, 'cursor_off' => 100 ] ];
+		$pos   = ( new CLI( $this->tmp ) )->live_position( $index, 'jobs', 0 );
 		$this->assertSame( 0, $pos['ts'] );
 	}
 
-	// ── consumer_rows() / read_offsetlog_entry() ────────────────────────────────
+	// ── read_probe_index() ───────────────────────────────────────────────────────
 
-	/** Seed a real packed-Message checkpoint at offsets/{source_basename}.p{partition}/0.log. */
-	private function seed_packed_checkpoint( string $source_basename, int $partition, array $value ): void {
-		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}";
-		mkdir( $dir, 0755, true );
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = 1700000000.0;
-		$message[ Message::VALUE ]     = $value;
-		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
+	/** Append a packed-Message probe record to logs/topicprobe.p0/0.log. */
+	private function seed_probe_record( array $value ): void {
+		$dir = "{$this->tmp}/logs/topicprobe.p0";
+		if ( ! is_dir( $dir ) ) {
+			mkdir( $dir, 0755, true );
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $value;
+		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
-	public function test_consumer_rows_enumerates_per_consumer_from_packed_checkpoints(): void {
+	public function test_read_probe_index_keys_topicprobe_records_by_offset_dir(): void {
+		$this->seed_probe_record( [ 'offset_dir' => 'firehose.p0', 'cursor_seg' => 2, 'cursor_off' => 50, 'consumer' => 'firehose' ] );
+		$this->seed_probe_record( [ 'offset_dir' => 'jobintake.p0', 'cursor_seg' => 1, 'cursor_off' => 9, 'consumer' => 'jobintake' ] );
+
+		$index = ( new CLI( $this->tmp ) )->read_probe_index();
+
+		$this->assertSame( [ 'firehose.p0', 'jobintake.p0' ], \array_keys( $index ) );
+		$this->assertSame( 2, $index['firehose.p0']['cursor_seg'] );
+		$this->assertSame( 9, $index['jobintake.p0']['cursor_off'] );
+	}
+
+	public function test_read_probe_index_empty_when_no_log(): void {
+		$this->assertSame( [], ( new CLI( $this->tmp ) )->read_probe_index() );
+	}
+
+	// ── consumer_rows() ──────────────────────────────────────────────────────────
+
+	public function test_consumer_rows_enumerates_per_consumer_from_probe_records(): void {
 		// Two readers tail the SAME firehose.log under distinct offset dirs; the
-		// enumeration returns one row per Consumer, keyed by the source-named dir,
-		// carrying the worker_type + real source_log from the packed checkpoint.
-		$this->seed_packed_checkpoint( 'firehose', 0, [
-			'seg' => 5, 'off' => 100, 'ts' => 1700000000.0,
-			'worker_type' => 'combined', 'source_log' => 'firehose.log',
+		// enumeration returns one row per Consumer, keyed by the source-named
+		// offset_dir, carrying the worker_type + real source from the probe record.
+		$this->seed_probe_record( [
+			'offset_dir' => 'firehose.p0', 'consumer' => 'firehose',
+			'cursor_seg' => 5, 'cursor_off' => 100, 'ts' => 1700000000.0,
+			'worker_type' => 'combined', 'source' => 'firehose.log',
 		] );
-		$this->seed_packed_checkpoint( 'firehose.job-router', 0, [
-			'seg' => 8, 'off' => 7, 'ts' => 1700000001.0,
-			'worker_type' => 'combined', 'source_log' => 'firehose.log',
+		$this->seed_probe_record( [
+			'offset_dir' => 'firehose.job-router.p0', 'consumer' => 'firehose.job-router',
+			'cursor_seg' => 8, 'cursor_off' => 7, 'ts' => 1700000001.0,
+			'worker_type' => 'combined', 'source' => 'firehose.log',
 		] );
 
 		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
@@ -433,6 +359,7 @@ class CliTest extends TestCase {
 
 		$this->assertCount( 2, $rows );
 		$this->assertSame( 'firehose', $rows[0]['source_basename'] );
+		$this->assertSame( 'firehose', $rows[0]['name'] );
 		$this->assertSame( 'firehose.log', $rows[0]['source_log'] );
 		$this->assertSame( 'combined', $rows[0]['worker_type'] );
 		$this->assertSame( 5, $rows[0]['seg'] );
@@ -441,38 +368,13 @@ class CliTest extends TestCase {
 		$this->assertSame( 8, $rows[1]['seg'] );
 	}
 
-	public function test_consumer_rows_skips_checkpoints_without_worker_type(): void {
-		// A checkpoint with no worker_type can't be attributed to a worker — skip it.
-		$this->seed_packed_checkpoint( 'orphan', 0, [ 'seg' => 1, 'off' => 2, 'source_log' => 'orphan.log' ] );
-		$this->assertSame( [], ( new CLI( $this->tmp ) )->consumer_rows() );
-	}
-
-	public function test_read_offsetlog_entry_reads_packed_value(): void {
-		$this->seed_packed_checkpoint( 'jobintake', 0, [
-			'seg' => 3, 'off' => 42, 'worker_type' => 'combined', 'source_log' => 'jobintake.log',
+	public function test_consumer_rows_skips_records_without_worker_type(): void {
+		// A record with no worker_type can't be attributed to a worker — skip it.
+		$this->seed_probe_record( [
+			'offset_dir' => 'orphan.p0', 'consumer' => 'orphan',
+			'cursor_seg' => 1, 'cursor_off' => 2, 'source' => 'orphan.log',
 		] );
-		$entry = ( new CLI( $this->tmp ) )->read_offsetlog_entry( 'jobintake.p0' );
-		$this->assertIsArray( $entry );
-		$this->assertSame( 3, $entry['seg'] );
-		$this->assertSame( 42, $entry['off'] );
-		$this->assertSame( 'jobintake.log', $entry['source_log'] );
-	}
-
-	public function test_read_offsetlog_entry_returns_null_for_missing_dir(): void {
-		$this->assertNull( ( new CLI( $this->tmp ) )->read_offsetlog_entry( 'nope.p0' ) );
-	}
-
-	public function test_read_offsetlog_entry_returns_null_when_value_not_array(): void {
-		// A checkpoint whose Message VALUE is a string (not the expected object)
-		// must be rejected, not returned as a bogus entry.
-		$dir = "{$this->tmp}/offsets/firehose.p0";
-		mkdir( $dir, 0755, true );
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = 'not-an-object';
-		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
-
-		$this->assertNull( ( new CLI( $this->tmp ) )->read_offsetlog_entry( 'firehose.p0' ) );
+		$this->assertSame( [], ( new CLI( $this->tmp ) )->consumer_rows() );
 	}
 
 	// ── calculate_behind() ─────────────────────────────────────────────────────

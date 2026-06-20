@@ -56,13 +56,27 @@ class CliWorkerCommandTest extends TestCase {
 
 	/** Seed a real packed-Message Consumer checkpoint at offsets/{source_basename}.p{partition}/0.log. */
 	private function seed_consumer_checkpoint( string $source_basename, int $partition, array $value ): void {
-		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}";
-		\mkdir( $dir, 0755, true );
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = 1700000000.0;
-		$message[ Message::VALUE ]     = $value;
-		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
+		// status() enumerates Consumers from the TopicProbe log now; seed a probe
+		// record there, mapping the legacy offsetlog-shaped $value onto its fields.
+		$dir = "{$this->tmp}/logs/topicprobe.p0";
+		if ( ! \is_dir( $dir ) ) {
+			\mkdir( $dir, 0755, true );
+		}
+		$record                    = [
+			'offset_dir'  => "{$source_basename}.p{$partition}",
+			'consumer'    => $value['name'] ?? "{$source_basename}:consumer",
+			'cursor_seg'  => $value['seg'] ?? 0,
+			'cursor_off'  => $value['off'] ?? 0,
+			'ts'          => 1700000000.0,
+			'source'      => $value['source_log'] ?? '',
+			'target'      => $value['target'] ?? '',
+			'targets'     => $value['targets'] ?? [],
+			'worker_type' => $value['worker_type'] ?? '',
+		];
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $record;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
 	private function register_topology( string $type, int $num_partitions, ?string $topology_path = null ): void {
@@ -437,63 +451,6 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'firehose.job-router', $haystack );
 		$this->assertStringContainsString( '400B', $haystack );
 		$this->assertStringContainsString( '200B', $haystack );
-	}
-
-	public function test_status_uses_filtered_cache_when_provided(): void {
-		// Live-position memcache is hooked via newspack_nodes/worker_cli_cache.
-		// Apps providing a `\Memcached`-compatible object see their cached
-		// positions in the Behind column.
-		$this->register_topology( 'firehose-workers', 1 );
-		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
-
-		$this->seed_consumer_checkpoint( 'firehose', 0, [
-			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.p0',
-		] );
-		$partition_dir = "{$this->tmp}/logs/firehose.p0";
-		\mkdir( $partition_dir, 0755, true );
-		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'b', 500 ) );
-
-		$cache = new class {
-			public array $hits = [];
-			public function get( string $key ) {
-				$this->hits[] = $key;
-				return [ 'seg' => 0, 'off' => 50, 'ts' => \time() ];
-			}
-		};
-
-		\add_filter( 'newspack_nodes/worker_cli_cache', function () use ( $cache ) {
-			return $cache;
-		} );
-
-		( new Worker_CLI_Command() )->status( [], [] );
-
-		$this->assertNotEmpty( $cache->hits, 'cache must be consulted via live_position' );
-		// CLI hits the same Consumer_Node::position_key shape (np:pos:{host}:{source_basename}.p{N}).
-		$this->assertStringStartsWith( 'np:pos:', $cache->hits[0] );
-		$this->assertStringContainsString( '.p0', $cache->hits[0] );
-	}
-
-	public function test_status_ignores_filter_value_that_is_not_object(): void {
-		// `cache()` returns null when the filter delivers a non-object;
-		// status() then falls back to saved_position. Validates the
-		// `is_object()` guard branch.
-		$this->register_topology( 'firehose-workers', 1 );
-		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
-
-		\add_filter( 'newspack_nodes/worker_cli_cache', function () {
-			// Junk value — must be filtered out by the is_object check.
-			return 'not-an-object';
-		} );
-
-		( new Worker_CLI_Command() )->status( [], [] );
-
-		// No exception, output produced.
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'firehose-workers', $haystack );
 	}
 
 	public function test_status_exits_cleanly_with_fallback_renderer(): void {

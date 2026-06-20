@@ -15,7 +15,6 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Workers_CI_Node;
-use Newspack_Nodes\Tests\Helpers\FakeMemcached;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -101,31 +100,31 @@ class WorkersCITest extends TestCase {
 	}
 
 	/**
-	 * Seed an offsetlog entry for a `{source}.p{partition}` worker.
-	 * Mirrors Consumer::checkpoint shape so the dump_metadata verb's
-	 * enumerate path picks up the row.
+	 * Seed a TopicProbe record at logs/topicprobe.p0 for a `{source}.p{partition}`
+	 * consumer — the single enumeration + cursor source dump_metadata now reads.
+	 * Accepts the legacy offsetlog-shaped `$extra` (seg/off/source_log/name) and
+	 * maps it onto the probe record's fields. Appends so several seeds accumulate.
 	 */
-	private function seed_offsetlog( string $base_dir, string $source_basename, int $partition, array $extra = [] ): void {
-		$dir = "{$base_dir}/offsets/{$source_basename}.p{$partition}";
+	private function seed_probe_record( string $base_dir, string $source_basename, int $partition, array $extra = [] ): void {
+		$dir = "{$base_dir}/logs/topicprobe.p0";
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}
-		$entry                     = \array_merge(
-			[
-				'seg'         => 0,
-				'off'         => 0,
-				'ts'          => \microtime( true ),
-				'name'        => "{$source_basename}:consumer",
-				'target'      => '',
-				'worker_type' => '',
-			],
-			$extra
-		);
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = \microtime( true );
-		$message[ Message::VALUE ]     = $entry;
-		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
+		$record                    = [
+			'offset_dir'  => "{$source_basename}.p{$partition}",
+			'consumer'    => $extra['name'] ?? "{$source_basename}:consumer",
+			'cursor_seg'  => $extra['seg'] ?? 0,
+			'cursor_off'  => $extra['off'] ?? 0,
+			'ts'          => \microtime( true ),
+			'source'      => $extra['source_log'] ?? '',
+			'target'      => $extra['target'] ?? '',
+			'targets'     => $extra['targets'] ?? [],
+			'worker_type' => $extra['worker_type'] ?? '',
+		];
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $record;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
 	/**
@@ -199,7 +198,6 @@ class WorkersCITest extends TestCase {
 		$this->arrange_base_dir();
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_metadata' );
 
@@ -224,7 +222,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
@@ -251,7 +248,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
@@ -269,7 +265,8 @@ class WorkersCITest extends TestCase {
 					[ 'type' => 'demo-workers', 'partition' => 0, 'live' => true ],
 				];
 			}
-			public function live_position( $cache, string $type, int $partition ): ?array {
+			public function read_probe_index(): array { return []; }
+			public function live_position( array $index, string $type, int $partition ): ?array {
 				return [ 'seg' => 0, 'off' => 100, 'ts' => 1747000000 ];
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
@@ -293,7 +290,8 @@ class WorkersCITest extends TestCase {
 					[ 'type' => 'job-workers',                'partition' => 0 ],
 				];
 			}
-			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
+			public function read_probe_index(): array { return []; }
+			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
 				$this->called_with = [ 'workers' => $workers, 'filter' => $filter, 'partition' => $partition ];
 				$matched = 0;
@@ -326,7 +324,8 @@ class WorkersCITest extends TestCase {
 			public int  $supervisor_calls = 0;
 			public ?array $restart_called_with = null;
 			public function ls_workers(): array { return []; }
-			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
+			public function read_probe_index(): array { return []; }
+			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
 			public function restart_supervisor(): bool {
 				++$this->supervisor_calls;
 				return true;
@@ -349,36 +348,40 @@ class WorkersCITest extends TestCase {
 		$this->assertNull( $fake_cli->restart_called_with );
 	}
 
-	public function test_list_verb_threads_constructor_cache_into_cli(): void {
-		// Stateful-migration guard: node_schema() is static and cannot `use`
-		// the ctor-injected $cli/$cache, so the migrated handler must reach
-		// them via instance access on the dispatched $self (`$self->cli` /
-		// `$self->cache`). This pins that both arrive intact: the fake Cli
-		// records the exact $cache object the handler passed into
-		// live_position(); we assert it is the SAME instance we constructed
-		// the interpreter with (not null, not some other handle).
-		$sentinel_cache = new \stdClass();
-		$fake_cli       = new class {
-			public mixed $seen_cache = 'unset';
+	public function test_list_verb_threads_probe_index_into_cli(): void {
+		// node_schema() is static and can't `use` the ctor-injected $cli, so the
+		// handler reaches it via $self->cli. It reads the TopicProbe index ONCE
+		// (not per worker) and threads that SAME index into each live_position()
+		// call — pinning both the single read and the threading.
+		$sentinel_index = [ 'firehose.p0' => [ 'worker_type' => 'demo-workers', 'cursor_seg' => 0, 'cursor_off' => 7 ] ];
+		$fake_cli       = new class( $sentinel_index ) {
+			public mixed $seen_index = 'unset';
 			public int   $list_calls = 0;
+			public int   $index_reads = 0;
+			/** @param array<string,mixed> $index */
+			public function __construct( public array $index ) {}
 			public function ls_workers(): array {
 				return [ [ 'type' => 'demo-workers', 'partition' => 0 ] ];
 			}
-			public function live_position( $cache, string $type, int $partition ): ?array {
+			public function read_probe_index(): array {
+				++$this->index_reads;
+				return $this->index;
+			}
+			public function live_position( array $index, string $type, int $partition ): ?array {
 				++$this->list_calls;
-				$this->seen_cache = $cache;
+				$this->seen_index = $index;
 				return [ 'seg' => 0, 'off' => 7 ];
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
 		$interpreter = new Workers_CI_Node();
-		$interpreter->cli   = $fake_cli;
-		$interpreter->cache = $sentinel_cache;
+		$interpreter->cli = $fake_cli;
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'list' );
 
+		$this->assertSame( 1, $fake_cli->index_reads, 'handler must read the probe index exactly once' );
 		$this->assertSame( 1, $fake_cli->list_calls, 'handler must reach $self->cli->live_position' );
-		$this->assertSame( $sentinel_cache, $fake_cli->seen_cache, 'handler must thread $self->cache into the cli call' );
+		$this->assertSame( $sentinel_index, $fake_cli->seen_index, 'handler must thread the probe index into the cli call' );
 		$this->assertSame( [ 'seg' => 0, 'off' => 7 ], $result[0]['position'] );
 	}
 
@@ -393,7 +396,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = \Newspack_Nodes\Core::$memd;
 		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', (string) $slot );
 
 		$this->assertSame( [ 'success' => true, 'slot' => 0 ], $result );
@@ -425,7 +427,6 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = \Newspack_Nodes\Core::$memd;
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', '' );  // no slot
 
@@ -490,7 +491,8 @@ class WorkersCITest extends TestCase {
 	private function stub_cli(): object {
 		return new class {
 			public function ls_workers(): array { return []; }
-			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
+			public function read_probe_index(): array { return []; }
+			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
 	}
@@ -508,10 +510,8 @@ class WorkersCITest extends TestCase {
 		// configured + no disk state, every envelope key must be present so
 		// the dashboard can fan out from a stable shape.
 		$this->arrange_base_dir();
-		$cache = new FakeMemcached();
 		$interpreter    = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = $cache;
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
@@ -546,7 +546,7 @@ class WorkersCITest extends TestCase {
 		// fields the WorkerStatus.js code already touches: status,
 		// started_at, restart_pending).
 		$base = $this->arrange_base_dir();
-		$this->seed_offsetlog(
+		$this->seed_probe_record(
 			$base,
 			'firehose',
 			0,
@@ -559,10 +559,8 @@ class WorkersCITest extends TestCase {
 		);
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 
-		$cache  = new FakeMemcached();
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = $cache;
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$rows = \array_values( \array_filter(
@@ -617,7 +615,7 @@ class WorkersCITest extends TestCase {
 		// the offset-dir-derived `firehose.job-router.p0` phantom that scans a
 		// nonexistent segment dir and renders as "No segments".
 		$base = $this->arrange_base_dir();
-		$this->seed_offsetlog(
+		$this->seed_probe_record(
 			$base,
 			'firehose.job-router',
 			0,
@@ -633,7 +631,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$rows = \array_values( \array_filter(
@@ -654,7 +651,7 @@ class WorkersCITest extends TestCase {
 		// sibling's — even though both now label as `firehose.log`. Regression
 		// guard: keying the cursor by the display log would read the wrong dir.
 		$base = $this->arrange_base_dir();
-		$this->seed_offsetlog(
+		$this->seed_probe_record(
 			$base,
 			'firehose.job-router',
 			0,
@@ -669,12 +666,11 @@ class WorkersCITest extends TestCase {
 		);
 		// Sibling reader of the same log under the plain offset dir — different
 		// cursor. Present so a wrong-dir lookup would bleed THIS value through.
-		$this->seed_offsetlog( $base, 'firehose', 0, [ 'seg' => 9, 'off' => 999 ] );
+		$this->seed_probe_record( $base, 'firehose', 0, [ 'seg' => 9, 'off' => 999 ] );
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$rows = \array_values( \array_filter(
@@ -686,48 +682,6 @@ class WorkersCITest extends TestCase {
 
 		$this->assertSame( 5, $row['cursor_seg'], 'cursor must come from the reader\'s own offset dir' );
 		$this->assertSame( 100, $row['cursor_offset'] );
-	}
-
-	public function test_dump_metadata_cursor_prefers_live_per_reader_memcache_key(): void {
-		// The cursor reads the reader's OWN per-reader memcache key (offset-dir
-		// identity), preferring the live position over the staler offsetlog
-		// checkpoint. Two readers of one log no longer collide on a shared key.
-		$base = $this->arrange_base_dir();
-		$this->seed_offsetlog(
-			$base,
-			'firehose.job-router',
-			0,
-			[
-				'seg'         => 5,
-				'off'         => 100,
-				'name'        => 'firehose:consumer',
-				'targets'     => [ [ 'name' => 'job-router' ] ],
-				'worker_type' => 'demo-workers',
-				'source_log'  => 'firehose.p0',
-			]
-		);
-		$this->seed_heartbeat( $base, 'demo-workers', 0 );
-
-		$host  = \gethostname() ?: 'unknown';
-		$cache = new FakeMemcached();
-		// Fresher live cursor than the offsetlog checkpoint above, under THIS
-		// reader's per-reader key.
-		$cache->set( Consumer_Node::position_key( $host, 'firehose.job-router.p0' ), [ 'seg' => 8, 'off' => 7 ], 60 );
-
-		$interpreter        = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = $cache;
-		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
-
-		$rows = \array_values( \array_filter(
-			$result['workers'],
-			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
-		) );
-		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
-		$row = $rows[0];
-
-		$this->assertSame( 8, $row['cursor_seg'], 'cursor must come from the per-reader live key' );
-		$this->assertSame( 7, $row['cursor_offset'] );
 	}
 
 	public function test_dump_metadata_includes_logs_enumeration(): void {
@@ -743,7 +697,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsArray( $result['logs'] );
@@ -796,7 +749,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
@@ -840,7 +792,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
@@ -880,7 +831,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
@@ -927,7 +877,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$names = \array_column( $result['logs'], 'name' );
@@ -969,7 +918,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
@@ -1006,7 +954,6 @@ class WorkersCITest extends TestCase {
 		$base = $this->arrange_base_dir();
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsArray( $result['supervisor'] );
@@ -1024,7 +971,7 @@ class WorkersCITest extends TestCase {
 		$base = $this->arrange_base_dir();
 		// Seed offsetlog metadata + heartbeat + the corresponding log
 		// segments so build_worker_status's Partition scan finds something.
-		$this->seed_offsetlog(
+		$this->seed_probe_record(
 			$base,
 			'firehose',
 			0,
@@ -1042,7 +989,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$rows = \array_values( \array_filter(
@@ -1077,7 +1023,6 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$rows = \array_values( \array_filter(
@@ -1101,90 +1046,42 @@ class WorkersCITest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
-	public function test_dump_metadata_uses_live_position_from_memcache(): void {
-		// Memcache cursor wins over on-disk offsetlog. Per-reader key shape:
-		// `np:pos:{host}:{source_basename}.p{N}`.
-		$base = $this->arrange_base_dir();
-		$this->seed_offsetlog(
-			$base,
-			'firehose',
-			0,
-			[
-				'name'        => 'firehose:consumer',
-				'target'      => 'request-builder',
-				'targets'     => [ [ 'name' => 'request-builder' ] ],
-				'worker_type' => 'demo-workers',
-				'seg'         => 0,
-				'off'         => 0,
-			]
-		);
-		$this->seed_heartbeat( $base, 'demo-workers', 0 );
-		$this->seed_log_segment( $base, 'firehose', 0, 0, 1000 );
-
-		$cache = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
-		$host  = \gethostname() ?: 'unknown';
-		$cache->set(
-			Consumer_Node::position_key( $host, 'firehose.p0' ),
-			[ 'seg' => 0, 'off' => 600, 'ts' => \microtime( true ) ],
-			60
-		);
-
-		$interpreter     = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$interpreter->cache = $cache;
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
-
-		$rows = \array_values( \array_filter(
-			$result['workers'],
-			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
-		) );
-		$this->assertNotEmpty( $rows );
-		$this->assertSame( 0, $rows[0]['cursor_seg'] );
-		$this->assertSame( 600, $rows[0]['cursor_offset'] );
-		$this->assertSame( 400, $rows[0]['behind'] );
-	}
-
 	/**
 	 * Tachikoma uniform-construction parity: the substrate `make_node` no
 	 * longer forwards positional ctor args (it filters to scalar-only and
-	 * the simplified path calls `new $fqcn()` then `arguments()`). Programmatic
-	 * dependencies — Cli, cache — must therefore reach the interpreter via public
-	 * property assignment AFTER construction, not through the ctor.
+	 * the simplified path calls `new $fqcn()` then `arguments()`). The
+	 * programmatic dependency — Cli — must therefore reach the interpreter via
+	 * public property assignment AFTER construction, not through the ctor.
 	 *
 	 * This pins that contract: a bare `new Workers_CI_Node()` succeeds, and
-	 * `$interpreter->cli = ...; $interpreter->cache = ...` plus a verb dispatch threads the
-	 * assigned deps into the handler exactly as the ctor used to.
+	 * `$interpreter->cli = ...` plus a verb dispatch threads the assigned dep
+	 * into the handler exactly as the ctor used to.
 	 */
 	public function test_constructible_via_no_arg_ctor_and_public_property_assignment(): void {
-		$sentinel_cache = new \stdClass();
-		$fake_cli       = new class {
-			public mixed $seen_cache = 'unset';
+		$fake_cli = new class {
 			public function ls_workers(): array {
 				return [ [ 'type' => 'demo-workers', 'partition' => 0 ] ];
 			}
-			public function live_position( $cache, string $type, int $partition ): ?array {
-				$this->seen_cache = $cache;
+			public function read_probe_index(): array { return []; }
+			public function live_position( array $index, string $type, int $partition ): ?array {
 				return [ 'seg' => 0, 'off' => 42 ];
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
 
-		$interpreter        = new Workers_CI_Node();
-		$interpreter->cli   = $fake_cli;
-		$interpreter->cache = $sentinel_cache;
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $fake_cli;
 
 		$this->assertSame( $fake_cli, $interpreter->cli );
-		$this->assertSame( $sentinel_cache, $interpreter->cache );
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'list' );
 		$this->assertSame( 'demo-workers', $result[0]['type'] );
-		$this->assertSame( $sentinel_cache, $fake_cli->seen_cache );
+		$this->assertSame( [ 'seg' => 0, 'off' => 42 ], $result[0]['position'] );
 	}
 }
