@@ -80,6 +80,33 @@ describe( 'Overview', () => {
 		).toContain( 'edit=1' );
 	} );
 
+	it( 'does NOT link an inactive topology to live mode, but keeps its Edit link', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					{
+						name: 'beta',
+						source: 'stock',
+						active: false,
+						health: 'ok',
+					},
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		const name = container.querySelector( '.nodes-overview__name' );
+		// The name renders (so the card is labeled) but is NOT a live-mode link.
+		expect( name.textContent ).toBe( 'beta' );
+		expect( name.tagName ).not.toBe( 'A' );
+		expect( name.getAttribute( 'href' ) ).toBeNull();
+		// Edit deep-link survives.
+		expect(
+			container
+				.querySelector( '.nodes-overview__edit' )
+				.getAttribute( 'href' )
+		).toContain( 'edit=1' );
+	} );
+
 	it( 'offers a New Topology deep-link', () => {
 		useTopologyManager.mockReturnValue( hookValue() );
 		const { container } = render( <Overview /> );

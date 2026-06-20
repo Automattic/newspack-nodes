@@ -125,9 +125,15 @@ const TopologyRow = memo( function TopologyRow( {
 	return (
 		<div className="nodes-tm__topology">
 			<div className="nodes-tm__heading">
-				<a className="nodes-tm__name" href={ consoleHref( name ) }>
-					{ name }
-				</a>
+				{ active ? (
+					<a className="nodes-tm__name" href={ consoleHref( name ) }>
+						{ name }
+					</a>
+				) : (
+					// Stopped: nothing live to open — plain label, not a
+					// live-mode link (Edit still deep-links into the console).
+					<span className="nodes-tm__name">{ name }</span>
+				) }
 				{ parts.map( ( p ) => (
 					<span key={ p.partition } className="topology-partition">
 						<span
