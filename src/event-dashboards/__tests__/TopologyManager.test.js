@@ -758,6 +758,8 @@ it( 'renders a New Topology link that deep-links to a blank console editor', () 
 	expect( create ).not.toBeNull();
 	const href = create.getAttribute( 'href' );
 	expect( href ).toContain( 'tab=console' );
-	expect( href ).toContain( 'edit=1' );
+	// Distinct `new=1` signal (not edit=1) so the console's topology→URL sync
+	// can't make it look like editing the default topology.
+	expect( href ).toContain( 'new=1' );
 	expect( href ).not.toContain( 'topology=' );
 } );

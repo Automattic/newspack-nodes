@@ -1314,22 +1314,26 @@ export default function TopologyConsole() {
 		resetLayout();
 	}, [ resetLayout ] );
 
-	// Honor a `?edit=1` deep-link (the Topologies tab's Edit / New buttons), then
-	// consume the param so a later LIVE toggle or refresh doesn't snap back into
-	// edit. Branch on the URL, NOT the `topology` state: with no `?topology` the
-	// state falls back to TOPOLOGIES[0], so `handleModeChange('edit')` would load
-	// that default — "New" must instead blank via `handleNew`.
+	// Honor the Topologies tab's deep-links, then consume the param so a later
+	// LIVE toggle or refresh doesn't snap back into edit. `?new=1` is a DISTINCT
+	// signal (not `?edit=1` with no `?topology`): the `(topology, partition)` URL
+	// sync above writes the default `?topology=TOPOLOGIES[0]` on mount, so by the
+	// time this effect runs a "New" link would already look like an edit of that
+	// default — `?new=1` is sync-proof and always blanks via `handleNew`.
 	useEffect( () => {
-		if ( '1' !== readUrlParam( 'edit' ) ) {
+		const isNew = '1' === readUrlParam( 'new' );
+		const isEdit = '1' === readUrlParam( 'edit' );
+		if ( ! isNew && ! isEdit ) {
 			return;
 		}
-		if ( readUrlParam( 'topology' ) ) {
-			handleModeChange( 'edit' );
-		} else {
+		if ( isNew ) {
 			handleNew();
+		} else {
+			handleModeChange( 'edit' );
 		}
 		try {
 			const url = new URL( window.location.href );
+			url.searchParams.delete( 'new' );
 			url.searchParams.delete( 'edit' );
 			window.history.replaceState( null, '', url.toString() );
 		} catch ( _e ) {
