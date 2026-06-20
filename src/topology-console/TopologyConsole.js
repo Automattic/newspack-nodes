@@ -1294,7 +1294,17 @@ export default function TopologyConsole() {
 	}, [] );
 
 	const handleNew = useCallback( () => {
-		const blank = { nodes: [], edges: [], frontmatter: {} };
+		// Carry the _repl anchor like handleModeChange's blank draft — without a
+		// node the layout graph is empty, layoutReady stays false, and the whole
+		// editor body (palette/canvas/inspector) blanks behind the building gate.
+		// Carry the _repl anchor like handleModeChange's blank draft — without a
+		// node the layout graph is empty, layoutReady stays false, and the whole
+		// editor body (palette/canvas/inspector) blanks behind the building gate.
+		const blank = withReplAnchor( {
+			nodes: [],
+			edges: [],
+			frontmatter: {},
+		} );
 		setDraft( blank );
 		setBaseline( blank );
 		setEditingName( '' );
