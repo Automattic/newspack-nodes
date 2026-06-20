@@ -207,6 +207,13 @@ export function useConsoleGraph( {
 			for ( const remote of remotes ) {
 				remote.removeNode();
 			}
+			// The RemoteIpcs share these reserved-name singletons and deliberately
+			// leave them registered on their own teardown ("for the graph to tear
+			// down"). The graph IS here — remove them while the router still exists
+			// (the Heartbeat unregisters from its TIMER set), so the next tab's
+			// `makeNode( 'HttpOut', '_http' )` can't collide with an orphan.
+			Core.node( names.HTTP )?.removeNode();
+			Core.node( names.HEARTBEAT )?.removeNode();
 			cwdNode.removeNode();
 			// The backbone last: stops the router TIMER and removes interpreter + router.
 			teardownSpine();

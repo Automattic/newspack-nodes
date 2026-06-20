@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **PHPStan now includes the ShipMonk dead-code detector.** `npm run lint:phpstan` runs through `phpstan-deadcode.neon`, so dead-code findings stay in the normal PHPStan/lint-staged/pre-push gate instead of being an opt-in sweep. `npm run lint:deadcode` remains as an alias for the same gate. Most findings on a substrate are public API / WP-CLI entrypoints / JS↔PHP wire constants / test seams, not real dead code — verify against all call paths before deleting.
 
+### Fixed
+
+- **Topology Console left `_http`/`_heartbeat` orphaned on unmount → white-screen on the next tab.** Each `RemoteIpc` composes the shared reserved-name `_http`/`_heartbeat` singletons lazily (on first send) and deliberately leaves them registered when it tears down ("for the graph to tear down"), but `useConsoleGraph` never completed that contract. The orphaned `_http` survived the console unmount, so switching to a tab whose `useDashboardGraph` does `makeNode( 'HttpOut', '_http' )` (an unconditional register) threw `node name collision: _http already registered` and blanked the dashboard. The console teardown now removes both singletons (before tearing down the spine, so the Heartbeat can unregister from the live router's TIMER set).
+
 ## [0.18.3] - 2026-06-17
 
 ### Fixed
