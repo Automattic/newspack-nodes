@@ -135,6 +135,10 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $c->bytes_read(), $stats['bytes_read'] );
 		$this->assertSame( 0, $stats['bytes_behind'], 'caught up after pump' );
 		$this->assertSame( 2, $stats['msg_sent'] );
+		// Routing rides along for the dashboard's per-target fan-out.
+		$this->assertArrayHasKey( 'target', $stats );
+		$this->assertArrayHasKey( 'targets', $stats );
+		$this->assertIsArray( $stats['targets'] );
 	}
 
 	public function test_poll_emits_line_for_each_new_log_entry(): void {
