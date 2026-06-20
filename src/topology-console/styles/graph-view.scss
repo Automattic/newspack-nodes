@@ -57,8 +57,16 @@
 		"palette canvas"
 		"palette repl";
 
+	// The right inspector column width: 380px expanded, a 28px rail collapsed.
+	// `.is-inspector-collapsed` (only set alongside `.is-inspector-open`) flips
+	// the var, so the `.is-inspector-open` rules below stay single-sourced.
+	--inspector-col: 380px;
+	&.is-inspector-collapsed {
+		--inspector-col: 28px;
+	}
+
 	&.is-inspector-open {
-		grid-template-columns: 232px 1fr 380px;
+		grid-template-columns: 232px 1fr var(--inspector-col);
 		grid-template-areas:
 			"header  header header"
 			"palette canvas inspector"
@@ -75,7 +83,7 @@
 
 	&.is-edit-mode.is-inspector-open {
 		grid-template-rows: 64px 1fr;
-		grid-template-columns: 232px 1fr 380px;
+		grid-template-columns: 232px 1fr var(--inspector-col);
 		grid-template-areas:
 			"header  header header"
 			"palette canvas inspector";
@@ -89,13 +97,13 @@
 		grid-template-columns: 28px 1fr;
 	}
 	&.is-palette-collapsed.is-inspector-open {
-		grid-template-columns: 28px 1fr 380px;
+		grid-template-columns: 28px 1fr var(--inspector-col);
 	}
 	&.is-palette-collapsed.is-edit-mode {
 		grid-template-columns: 28px 1fr;
 	}
 	&.is-palette-collapsed.is-edit-mode.is-inspector-open {
-		grid-template-columns: 28px 1fr 380px;
+		grid-template-columns: 28px 1fr var(--inspector-col);
 	}
 	font-family: var(--font-mono);
 	font-size: 13px;
@@ -841,10 +849,58 @@
 // Inspector
 // =====================================================================
 
-.topology-inspector {
+// The inspector lives in a dock wrapper (grid cell) so the collapse chevron can
+// pin to the corner and the inspector body scrolls beneath it; collapsed, the
+// dock is the 28px rail (just the expand chevron), mirroring the palette.
+.topology-inspector-dock {
 	grid-area: inspector;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
 	background: var(--paper-2);
 	border-left: 1px solid var(--ink);
+	overflow: hidden;
+
+	&--collapsed {
+		align-items: center;
+	}
+
+	// Chevron — collapse (open inspector) or expand (collapsed rail). Pinned
+	// top-right so the left-aligned inspector body reads clear of it.
+	.topology-inspector__toggle {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		z-index: 2;
+		width: 18px;
+		height: 18px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--paper-3);
+		color: var(--ink);
+		border: 1px solid var(--ink-4);
+		border-radius: 2px;
+		cursor: pointer;
+		font: 700 12px/1 var(--font-mono);
+		padding: 0;
+
+		&:hover {
+			background: var(--paper);
+		}
+	}
+
+	&--collapsed .topology-inspector__toggle {
+		position: static;
+		margin-top: 8px;
+	}
+}
+
+.topology-inspector {
+	flex: 1;
+	min-height: 0;
+	background: var(--paper-2);
 	padding: 20px 18px 24px;
 	overflow-y: auto;
 }

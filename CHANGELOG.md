@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Topology Console: clicking the canvas background now only re-fits the view.** It no longer dismisses the transcript or deselects the inspector — a background click autoscales only (`backgroundClickAutofitsOnly`), so the transcript and inspector stay put. (The debug overlay keeps its staged dismiss.)
+
 ### Added
 
+- **Topology Console: a show/hide toggle for the inspector** — mirrors the palette. A chevron in the inspector dock collapses it to a slim 28px rail (with an expand chevron) and back; the choice persists (`newspack-nodes:inspector-collapsed`). The right grid column shrinks to the rail via a new `--inspector-col` custom property.
 - **Topology Console: instant structural paint on open.** On entering live mode the console now fires a direct `topologies get` (the same REST command edit mode uses, independent of the SSE stream), parses the TSL, and publishes it as the metadata graph — so the schematic renders immediately instead of waiting for the SSE connect + first Router TIMER tick (up to ~1s) + the `dump_metadata` round-trip. The first real `dump_metadata` reply then overwrites it with the live-enriched graph (worker status, rates). The seed resolves the live `_metadata` node by name (rebuild-safe) and skips if a `dump_metadata` reply already populated the graph.
 
 - **Topologies tab: a "+ New Topology" button and a per-topology "Edit" button.** Both deep-link into the Console editor — Edit opens that topology (`?tab=console&topology=<name>&edit=1`), New opens a blank draft (`?tab=console&new=1`). The console honors `?edit=1` (edit the `?topology`) and `?new=1` (blank `handleNew` draft) on mount and consumes the param so a later LIVE toggle/refresh doesn't snap back. New uses a distinct `?new=1` rather than `?edit=1`-without-topology because the console's topology→URL sync writes the default `?topology` on mount, which would otherwise make a topology-less edit link open the default topology. (The live-mode NEW button is suppressed in the debug overlay, which has no editor to land in.)

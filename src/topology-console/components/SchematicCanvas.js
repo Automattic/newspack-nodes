@@ -216,6 +216,10 @@ export default function SchematicCanvas( {
 	onSelectEdge,
 	// Returning truthy skips the canvas's own deselect/autofit for this click.
 	onBackgroundClickConsumed,
+	// When true, a background click ONLY autofits — it never dismisses
+	// (onBackgroundClickConsumed) or deselects, so the transcript/inspector
+	// stay put. The console opts in; the overlay keeps the staged dismiss.
+	backgroundClickAutofitsOnly = false,
 	// shell_name → schema; drives port visibility (accepts_fill/has_target).
 	classCatalog = {},
 } ) {
@@ -688,6 +692,16 @@ export default function SchematicCanvas( {
 		const wasDragged = panRef.current.dragged;
 		panRef.current = null;
 		if ( ! wasDragged ) {
+			// Autofit-only mode: a background click just re-fits, leaving the
+			// transcript + inspector untouched.
+			if ( backgroundClickAutofitsOnly ) {
+				setViewport(
+					parseViewBox(
+						tightViewBoxFor( displayNodes, canvasSize() )
+					)
+				);
+				return;
+			}
 			// Parent consumer gets first refusal (e.g. dismiss the prompt).
 			if ( onBackgroundClickConsumed && onBackgroundClickConsumed() ) {
 				return;

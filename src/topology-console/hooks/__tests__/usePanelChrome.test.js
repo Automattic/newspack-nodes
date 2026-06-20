@@ -5,10 +5,12 @@ import {
 	THEME_STORAGE_KEY,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
+	INSPECTOR_COLLAPSED_STORAGE_KEY,
 } from '../../themes';
 
 const LIVE = PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
 const EDIT = PALETTE_COLLAPSED_STORAGE_KEY_EDIT;
+const INSPECTOR = INSPECTOR_COLLAPSED_STORAGE_KEY;
 
 function render( props ) {
 	return renderHook( ( p ) => usePanelChrome( p ), {
@@ -118,6 +120,29 @@ describe( 'usePanelChrome', () => {
 			expect( result.current.paletteCollapsed ).toBe( true );
 			rerender( { paletteKey: EDIT, defaultCollapsed: false } );
 			expect( result.current.paletteCollapsed ).toBe( false );
+		} );
+	} );
+
+	describe( 'inspector', () => {
+		it( 'defaults to expanded', () => {
+			const { result } = render();
+			expect( result.current.inspectorCollapsed ).toBe( false );
+		} );
+
+		it( "reads stored '1' as collapsed", () => {
+			window.localStorage.setItem( INSPECTOR, '1' );
+			const { result } = render();
+			expect( result.current.inspectorCollapsed ).toBe( true );
+		} );
+
+		it( 'toggleInspectorCollapsed flips + persists', () => {
+			const { result } = render();
+			act( () => result.current.toggleInspectorCollapsed() );
+			expect( result.current.inspectorCollapsed ).toBe( true );
+			expect( window.localStorage.getItem( INSPECTOR ) ).toBe( '1' );
+			act( () => result.current.toggleInspectorCollapsed() );
+			expect( result.current.inspectorCollapsed ).toBe( false );
+			expect( window.localStorage.getItem( INSPECTOR ) ).toBe( '0' );
 		} );
 	} );
 

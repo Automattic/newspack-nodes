@@ -47,7 +47,6 @@ import {
 import { snapToGrid } from './utils/autoLayout';
 import { augmentWithVirtualEdges } from './utils/virtualEdges';
 import { parseTsl } from './utils/parseTsl';
-import { makeReplDismissHandler } from './utils/replDismissHandler';
 import { serializeTsl } from './utils/serializeTsl';
 import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from './core/dispatchLocalCommand';
@@ -323,11 +322,17 @@ export default function TopologyConsole() {
 	// Theme + palette chrome shared with the debug overlay. The console picks
 	// the palette key by mode (live vs edit, with per-mode defaults); the hook
 	// reloads palette state whenever the key/default change on a mode switch.
-	const { theme, onThemeChange, paletteCollapsed, togglePaletteCollapsed } =
-		usePanelChrome( {
-			paletteKey: paletteKeyFor( mode ),
-			defaultCollapsed: 'edit' !== mode,
-		} );
+	const {
+		theme,
+		onThemeChange,
+		paletteCollapsed,
+		togglePaletteCollapsed,
+		inspectorCollapsed,
+		toggleInspectorCollapsed,
+	} = usePanelChrome( {
+		paletteKey: paletteKeyFor( mode ),
+		defaultCollapsed: 'edit' !== mode,
+	} );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
@@ -1279,12 +1284,6 @@ export default function TopologyConsole() {
 	);
 
 	// Shared canvas-background-click dismiss pattern (mirrored in the overlay).
-	const handleCanvasBackgroundClickConsumed = makeReplDismissHandler( {
-		replExpanded,
-		setReplExpanded,
-		inputRef: replInputRef,
-	} );
-
 	const handleSave = useCallback( () => {
 		setSaveModal( {} );
 	}, [] );
@@ -1489,6 +1488,10 @@ export default function TopologyConsole() {
 				selectedId ? ' is-inspector-open' : ''
 			}${ mode === 'edit' ? ' is-edit-mode' : '' }${
 				paletteCollapsed ? ' is-palette-collapsed' : ''
+			}${
+				selectedId && inspectorCollapsed
+					? ' is-inspector-collapsed'
+					: ''
 			}` }
 		>
 			<ConsoleShell
@@ -1567,8 +1570,11 @@ export default function TopologyConsole() {
 						refocusReplIfExpanded();
 					},
 					selection: selectedId,
-					onBackgroundClickConsumed:
-						handleCanvasBackgroundClickConsumed,
+					// A canvas background click only re-fits the view; it no
+					// longer dismisses the transcript or deselects the inspector.
+					backgroundClickAutofitsOnly: true,
+					inspectorCollapsed,
+					onInspectorToggle: toggleInspectorCollapsed,
 				} }
 				replProps={ {
 					prompt: `/${ cwd }`,

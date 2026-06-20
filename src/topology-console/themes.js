@@ -18,6 +18,12 @@ export const PALETTE_COLLAPSED_STORAGE_KEY_LIVE =
 export const PALETTE_COLLAPSED_STORAGE_KEY_EDIT =
 	'newspack-nodes:palette-collapsed:edit';
 
+// Inspector collapse is a single global preference (not per-mode like the
+// palette): the user's choice to keep the inspector railed persists across
+// mode switches and mounts.
+export const INSPECTOR_COLLAPSED_STORAGE_KEY =
+	'newspack-nodes:inspector-collapsed';
+
 export const DEFAULT_THEME = 'newspack';
 
 export const THEMES = [
