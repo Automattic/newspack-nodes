@@ -1,0 +1,106 @@
+/**
+ * useTopicProbeStream — mounts a single substrate `RemoteLink` onto the canonical
+ * backbone (`_command_interpreter → _router`) tailing the shared `topicprobe.p0`
+ * log, feeding a `topicprobe:view` view-model node:
+ *
+ *   topicprobe:link   (RemoteLink — composes SseIn/HttpOut/Heartbeat + slot bridge)
+ *   topicprobe:view   (TopicProbeView — per-offset_dir rate+backlog series)
+ *
+ * `mode` selects the seek:
+ *   - 'history' → positions=start: the server replays the full 24h retention so
+ *     the Overview tab can draw real byte-rate + backlog graphs (not a thin
+ *     client-side ring).
+ *   - 'follow'  → tail-seek (the default): current + live, for the Topologies tab.
+ *
+ * The INITIAL connect uses the mode's seek; a visibility-driven RECONNECT always
+ * tail-follows (positions=null) so refocusing a 'history' tab resumes live instead
+ * of replaying — and re-appending — the whole 24h into the already-populated view.
+ *
+ * React reads the model via `useNodeState('topicprobe:view','view')`.
+ */
+
+import { useEffect, useRef } from '@wordpress/element';
+import { mountExospine } from '../../runtime/exospine';
+import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
+import { CommandClient } from '../../runtime/command-client';
+import '../nodes/register';
+
+const LINK = 'topicprobe:link';
+const VIEW = 'topicprobe:view';
+// Explicit `.p0` so the server's `{type}.p{N}` branch routes through its
+// no-worker → log-feed fallback to `logs/topicprobe.p0` (the probe is always
+// single-partition, regardless of the global num_partitions).
+const SUBSCRIBE = 'topicprobe.p0';
+
+function positionsForMode( mode ) {
+	return 'history' === mode ? { [ SUBSCRIBE ]: { 0: 'start' } } : null;
+}
+
+/**
+ * @param {Object} [opts]
+ * @param {string} [opts.mode]          'history' (24h replay) or 'follow' (tail).
+ * @param {Object} [opts.commandClient] CommandClient seam for the link's HttpOut.
+ */
+export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
+	const modeRef = useRef( mode );
+	modeRef.current = mode;
+	const optsRef = useRef( { commandClient } );
+	optsRef.current = { commandClient };
+
+	const linkRef = useRef( null );
+	// First connect uses the mode's seek; later (visibility) reconnects tail-follow.
+	const hasConnectedRef = useRef( false );
+
+	const isPageVisible = usePageVisibility();
+
+	useEffect( () => {
+		const build = ( { interpreter } ) => {
+			const data =
+				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
+				{};
+			const baseUrl = data.restUrl || '/wp-json/';
+			const nonce = data.nonce || '';
+
+			const link = interpreter.makeNode(
+				'RemoteLink',
+				LINK,
+				`${ SUBSCRIBE } ${ baseUrl } ${ nonce }`
+			);
+			link.target = VIEW;
+			link.client =
+				optsRef.current.commandClient ||
+				new CommandClient( { baseUrl, nonce } );
+
+			interpreter.makeNode( 'TopicProbeView', VIEW );
+			linkRef.current = link;
+
+			// The visibility effect drives the actual open (so mount doesn't
+			// double-connect); reset the latch on each (re)build.
+			hasConnectedRef.current = false;
+
+			return () => {
+				link.removeNode();
+				linkRef.current = null;
+			};
+		};
+
+		const { teardown } = mountExospine( build );
+		return teardown;
+	}, [] );
+
+	useEffect( () => {
+		const link = linkRef.current;
+		if ( ! link ) {
+			return;
+		}
+		if ( isPageVisible ) {
+			const positions = hasConnectedRef.current
+				? null
+				: positionsForMode( modeRef.current );
+			hasConnectedRef.current = true;
+			link.connect( positions );
+		} else {
+			link.close();
+		}
+	}, [ isPageVisible ] );
+}

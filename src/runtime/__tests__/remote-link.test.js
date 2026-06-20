@@ -80,6 +80,40 @@ describe( 'RemoteLinkNode', () => {
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=errors' );
 	} );
 
+	it( 'connect() with no positions leaves the SseIn tailing (positions null)', () => {
+		const { link } = makeLink();
+		link.connect();
+		expect( link.sseIn.positions ).toBeNull();
+		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+	} );
+
+	it( 'connect(positions) threads the seek seed into the SseIn stream URL', () => {
+		const { link } = makeLink( 'topicprobe.p0' );
+		link.connect( { 'topicprobe.p0': { 0: 'start' } } );
+		expect( link.sseIn.positions ).toEqual( {
+			'topicprobe.p0': { 0: 'start' },
+		} );
+		expect( FakeEventSource.last.url ).toContain( 'positions=' );
+	} );
+
+	it( 'setSubscribe(subscribe, positions) re-points the stream with a new seek seed', () => {
+		const { link } = makeLink( 'topicprobe.p0' );
+		link.connect( { 'topicprobe.p0': { 0: 'start' } } );
+		link.setSubscribe( [ 'topicprobe.p0' ], {
+			'topicprobe.p0': { 0: 'end' },
+		} );
+		expect( link.sseIn.positions ).toEqual( {
+			'topicprobe.p0': { 0: 'end' },
+		} );
+	} );
+
+	it( 'setSubscribe(subscribe) without positions clears the seed (tail-seek)', () => {
+		const { link } = makeLink( 'topicprobe.p0' );
+		link.connect( { 'topicprobe.p0': { 0: 'start' } } );
+		link.setSubscribe( [ 'errors' ] );
+		expect( link.sseIn.positions ).toBeNull();
+	} );
+
 	it( 'points the shared Heartbeat at the workers CI via the shared `_http`', () => {
 		const { link } = makeLink();
 		link.connect();
