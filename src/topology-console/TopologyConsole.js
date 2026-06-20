@@ -1316,9 +1316,6 @@ export default function TopologyConsole() {
 		// Carry the _repl anchor like handleModeChange's blank draft — without a
 		// node the layout graph is empty, layoutReady stays false, and the whole
 		// editor body (palette/canvas/inspector) blanks behind the building gate.
-		// Carry the _repl anchor like handleModeChange's blank draft — without a
-		// node the layout graph is empty, layoutReady stays false, and the whole
-		// editor body (palette/canvas/inspector) blanks behind the building gate.
 		const blank = withReplAnchor( {
 			nodes: [],
 			edges: [],
