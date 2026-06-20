@@ -14,7 +14,7 @@ import { useClassCatalog } from '../../topology-console/hooks/useClassCatalog';
 import { ShellNode } from '../../runtime/shell-node';
 import { useNodeState } from '../../runtime/react';
 import { useCompletion } from '../../topology-console/hooks/useCompletion';
-import { usePanelChrome } from '../../topology-console/hooks/usePanelChrome';
+import { useGraphSurface } from '../../topology-console/hooks/useGraphSurface';
 import names from '../../runtime/reserved-node-names.json';
 import {
 	THEMES,
@@ -88,11 +88,7 @@ export default function InspectorTab( {
 	onHeaderPointerDown,
 	toggleMaximize,
 } ) {
-	const [ replExpanded, setReplExpanded ] = useState( false );
-	// Px the expanded transcript overlays the canvas with (reported by ReplFooter),
-	// fed to the autofit so nodes fit above it — same as the console.
-	const [ transcriptOverlayPx, setTranscriptOverlayPx ] = useState( 0 );
-	const replInputRef = useRef( null );
+	// replExpanded / setReplExpanded / replInputRef come from useGraphSurface.
 	// Measure the DevtoolsTabHost tab bar that sits above this body so the
 	// transcript ceiling reserves exactly its rendered height (it may be absent
 	// on a single-tab host). A ResizeObserver keeps it correct if the bar wraps.
@@ -125,11 +121,12 @@ export default function InspectorTab( {
 		theme,
 		onThemeChange,
 		paletteCollapsed,
-		togglePaletteCollapsed,
 		inspectorCollapsed,
-		setInspectorCollapsed,
-		toggleInspectorCollapsed,
-	} = usePanelChrome( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
+		openInspectorOnSelect,
+		canvasChromeProps,
+		replChromeProps,
+		setReplExpanded,
+	} = useGraphSurface( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
 	// One Shell instance per panel mount, shared by useDebugGraph (handler
 	// dispatch) and useDebugRepl (typed-line dispatch). cwd is empty: the overlay
 	// is local-only. useDebugRepl binds shell.sink to the page's interpreter
@@ -318,13 +315,12 @@ export default function InspectorTab( {
 						onClose,
 					} }
 					canvasProps={ {
+						...canvasChromeProps,
 						resetKey: storageKey,
 						interactive: true,
 						editMode: false,
 						showPalette: true,
 						paletteLoading: catalog.loading,
-						paletteCollapsed,
-						onPaletteToggle: togglePaletteCollapsed,
 						classCatalog: schemasByShellName,
 						catalog: catalog.classes,
 						formatters: catalog.formatters,
@@ -347,17 +343,11 @@ export default function InspectorTab( {
 								payload
 							);
 						},
-						onSelectionChange: ( id ) => {
-							// Selecting a node auto-opens the inspector.
-							if ( id ) {
-								setInspectorCollapsed( false );
-							}
-						},
-						inspectorCollapsed,
-						onInspectorToggle: toggleInspectorCollapsed,
-						bottomObstructionPx: transcriptOverlayPx,
+						// Selecting a node auto-opens the inspector (rail → panel).
+						onSelectionChange: openInspectorOnSelect,
 					} }
 					replProps={ {
+						...replChromeProps,
 						prompt: `/${ cwd }`,
 						canSend: true,
 						onSubmit: sendLine,
@@ -366,11 +356,7 @@ export default function InspectorTab( {
 						completion,
 						onComplete: requestCompletion,
 						onShowCandidates: handleShowCandidates,
-						expanded: replExpanded,
-						onExpandedChange: setReplExpanded,
-						inputRef: replInputRef,
 						maxHeightPx: replMaxHeightPx,
-						onOverlayHeightChange: setTranscriptOverlayPx,
 					} }
 				/>
 			</div>

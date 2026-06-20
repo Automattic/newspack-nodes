@@ -29,7 +29,7 @@ import { useConsoleGraph } from './hooks/useConsoleGraph';
 import { useGraphSource } from './hooks/useGraphSource';
 import { useCompletion } from './hooks/useCompletion';
 import { useGraphHandlers } from './hooks/useGraphHandlers';
-import { usePanelChrome } from './hooks/usePanelChrome';
+import { useGraphSurface } from './hooks/useGraphSurface';
 import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
@@ -326,11 +326,14 @@ export default function TopologyConsole() {
 		theme,
 		onThemeChange,
 		paletteCollapsed,
-		togglePaletteCollapsed,
 		inspectorCollapsed,
-		setInspectorCollapsed,
-		toggleInspectorCollapsed,
-	} = usePanelChrome( {
+		openInspectorOnSelect,
+		canvasChromeProps,
+		replChromeProps,
+		replExpanded,
+		setReplExpanded,
+		replInputRef,
+	} = useGraphSurface( {
 		paletteKey: paletteKeyFor( mode ),
 		defaultCollapsed: 'edit' !== mode,
 	} );
@@ -344,16 +347,12 @@ export default function TopologyConsole() {
 	// this realm). The choice is made below once `scope` is known.
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const jsCatalog = useJsCatalog();
-	const [ replExpanded, setReplExpanded ] = useState( false );
-	// Px the expanded transcript overlays the canvas with (reported by ReplFooter);
-	// fed to the canvas autofit so nodes fit above the transcript.
-	const [ transcriptOverlayPx, setTranscriptOverlayPx ] = useState( 0 );
-	const replInputRef = useRef( null );
+	// replExpanded / setReplExpanded / replInputRef come from useGraphSurface.
 	const refocusReplIfExpanded = useCallback( () => {
 		if ( replExpanded ) {
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		}
-	}, [ replExpanded ] );
+	}, [ replExpanded, replInputRef ] );
 
 	// Measure the `.topology-app` grid so the REPL transcript ceiling tracks the
 	// real available height (the console lives inside the DevtoolsTabHost tab bar,
@@ -932,7 +931,7 @@ export default function TopologyConsole() {
 			setReplExpanded( true );
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},
-		[ liveHandlers ]
+		[ liveHandlers, setReplExpanded, replInputRef ]
 	);
 
 	// useCanvasLayout owns positions: it runs autoLayout once (or adopts the
@@ -1542,13 +1541,12 @@ export default function TopologyConsole() {
 					themes: THEMES,
 				} }
 				canvasProps={ {
+					...canvasChromeProps,
 					resetKey: `${ scope.key }|${ mode }|${ editingName }`,
 					interactive: true,
 					editMode: mode === 'edit',
 					showPalette: true,
 					paletteLoading: catalog.loading,
-					paletteCollapsed,
-					onPaletteToggle: togglePaletteCollapsed,
 					classCatalog: schemasByShellName,
 					catalog: catalog.classes,
 					formatters: catalog.formatters,
@@ -1568,17 +1566,13 @@ export default function TopologyConsole() {
 					onSelectionChange: ( id ) => {
 						setSelectedId( id );
 						// Selecting a node auto-opens the inspector (rail → panel).
-						if ( id ) {
-							setInspectorCollapsed( false );
-						}
+						openInspectorOnSelect( id );
 						refocusReplIfExpanded();
 					},
 					selection: selectedId,
-					bottomObstructionPx: transcriptOverlayPx,
-					inspectorCollapsed,
-					onInspectorToggle: toggleInspectorCollapsed,
 				} }
 				replProps={ {
+					...replChromeProps,
 					prompt: `/${ cwd }`,
 					streamStatus: status,
 					// Input is always enabled: a poll/command for any scope routes
@@ -1587,14 +1581,10 @@ export default function TopologyConsole() {
 					onSubmit: sendLine,
 					onClear: clearTranscript,
 					transcript,
-					expanded: replExpanded,
-					onExpandedChange: setReplExpanded,
-					inputRef: replInputRef,
 					completion,
 					onComplete: requestCompletion,
 					onShowCandidates: handleShowCandidates,
 					maxHeightPx: replMaxHeightPx,
-					onOverlayHeightChange: setTranscriptOverlayPx,
 				} }
 			/>
 			{ discardModal && (
