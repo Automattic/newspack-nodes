@@ -120,7 +120,7 @@ class CLI {
 	 * enumeration shared by the Worker Status dashboard (`Workers_CI_Node`) and
 	 * `wp nodes status`.
 	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,ts:float}>
+	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,ts:float}>
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
@@ -146,6 +146,11 @@ class CLI {
 				'partition'       => (int) $m[2],
 				'seg'             => self::scalar_int( $record['cursor_seg'] ?? 0 ),
 				'off'             => self::scalar_int( $record['cursor_off'] ?? 0 ),
+				// Backlog + partition-end as the probe measured them in ONE snapshot
+				// (cursor vs end at the same instant) — readers use these instead of
+				// re-statting the live partition against this stale cursor.
+				'behind'          => self::scalar_int( $record['bytes_behind'] ?? 0 ),
+				'total'           => self::scalar_int( $record['bytes_total'] ?? 0 ),
 				'ts'              => self::scalar_float( $record['ts'] ?? 0 ),
 			];
 		}
@@ -254,53 +259,6 @@ class CLI {
 	 */
 	public function restart_supervisor(): bool {
 		return Lock_Node::request_restart_at( "{$this->base_dir}/locks/supervisor.lock.d" );
-	}
-
-	/**
-	 * Sum bytes still ahead of a cursor across a partition's segments (the "Behind" column).
-	 *
-	 * @param string $partition_dir Absolute path to the partition directory.
-	 * @param int    $cursor_seg    Cursor segment id.
-	 * @param int    $cursor_offset Cursor offset within $cursor_seg.
-	 * @return int Bytes remaining (0 if caught up or partition missing).
-	 */
-	public static function calculate_behind( string $partition_dir, int $cursor_seg, int $cursor_offset ): int {
-		if ( ! \is_dir( $partition_dir ) ) {
-			return 0;
-		}
-		$files = @\scandir( $partition_dir );
-		if ( false === $files ) {
-			return 0;
-		}
-		$segments = [];
-		foreach ( $files as $file ) {
-			if ( \preg_match( '/^(\d+)\.log$/', $file, $m ) ) {
-				$seg_id = (int) $m[1];
-				$size   = @\filesize( "{$partition_dir}/{$file}" );
-				if ( false !== $size ) {
-					$segments[ $seg_id ] = $size;
-				}
-			}
-		}
-		if ( empty( $segments ) ) {
-			return 0;
-		}
-		\ksort( $segments );
-
-		$behind        = 0;
-		$found_current = false;
-		foreach ( $segments as $seg_id => $size ) {
-			if ( $seg_id === $cursor_seg ) {
-				$found_current = true;
-				$remaining     = $size - $cursor_offset;
-				if ( $remaining > 0 ) {
-					$behind += $remaining;
-				}
-			} elseif ( $found_current || $seg_id > $cursor_seg ) {
-				$behind += $size;
-			}
-		}
-		return $behind;
 	}
 
 	/**

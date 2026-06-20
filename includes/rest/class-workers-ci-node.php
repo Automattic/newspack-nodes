@@ -30,7 +30,6 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
-use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Base;
@@ -141,7 +140,6 @@ class Workers_CI_Node extends Service_CI_Node {
 					$partition,
 					'',
 					null,
-					$log_base,
 					$lock_dir,
 					$now,
 					$stale_to,
@@ -183,14 +181,15 @@ class Workers_CI_Node extends Service_CI_Node {
 						$partition,
 						$input_log,
 						$target_nm,
-						$log_base,
 						$lock_dir,
 						$now,
 						$stale_to,
 						$handler,
 						[
-							'seg' => self::to_int( $row['seg'] ),
-							'off' => self::to_int( $row['off'] ),
+							'seg'    => self::to_int( $row['seg'] ),
+							'off'    => self::to_int( $row['off'] ),
+							'behind' => self::to_int( $row['behind'] ),
+							'total'  => self::to_int( $row['total'] ),
 						]
 					);
 					$worker['target']         = $t['name'] ?? '';
@@ -250,9 +249,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * Build the per-worker rich descriptor, adding `live`/`stale`/`heartbeat_at`
 	 * from the heartbeat mtime so the dashboard renders status badges in one round-trip.
 	 *
-	 * @param array{seg:int,off:int}|null $cursor The reader's live cursor (from its
-	 *                                            TopicProbe record via `consumer_rows()`);
-	 *                                            null for a not-yet-checkpointed placeholder.
+	 * @param array{seg:int,off:int,behind:int,total:int}|null $cursor The reader's
+	 *     TopicProbe snapshot (cursor + backlog + partition-end, all from the same
+	 *     instant, via `consumer_rows()`); null for a not-yet-checkpointed placeholder.
 	 * @return array<string, mixed>
 	 */
 	private static function build_worker_status(
@@ -260,52 +259,23 @@ class Workers_CI_Node extends Service_CI_Node {
 		int $partition,
 		string $input_log,
 		?string $output_log,
-		string $log_base,
 		string $lock_dir,
 		int $now,
 		int $stale_timeout,
 		?string $handler_name,
 		?array $cursor = null
 	): array {
-		// Workers without a local tail (e.g. SSE aggregator pulls) have no Partition;
-		// skip the segment lookup and report zeroed stats.
-		if ( '' === $input_log ) {
-			$segments      = [];
-			$total_size    = 0;
-			$cursor_seg    = 0;
-			$cursor_offset = 0;
-			$behind        = 0;
-		} else {
-			// Flat layout: `$input_log` IS the concrete physical partition dir
-			// (`firehose.p0`). Stat it directly — no nested `/p{N}`, no `.p{N}`
-			// parse. The cursor stays keyed per-reader by source_basename below.
-			$partition_obj = new Partition_Node();
-			$partition_obj->arguments( "{$log_base}/{$input_log}" );
-			$segments      = $partition_obj->get_segments();
-			$total_size    = \array_sum( \array_column( $segments, 'size' ) );
-
-			// Cursor comes from the reader's own TopicProbe record (passed in via
-			// the consumer_rows row) — per-reader by offset_dir identity, so two
-			// readers of one log keep separate cursors. No memcache/offsetlog read.
-			$cursor_seg    = $cursor['seg'] ?? 0;
-			$cursor_offset = $cursor['off'] ?? 0;
-
-			// Bytes-behind: sum remaining bytes in segments at/after cursor_seg.
-			$behind        = 0;
-			$found_current = false;
-			foreach ( $segments as $seg ) {
-				$sid = $seg['id'];
-				if ( $sid === $cursor_seg ) {
-					$found_current = true;
-					$remaining     = $seg['size'] - $cursor_offset;
-					if ( $remaining > 0 ) {
-						$behind += $remaining;
-					}
-				} elseif ( $found_current || $sid > $cursor_seg ) {
-					$behind += $seg['size'];
-				}
-			}
-		}
+		// Cursor, backlog (`behind`) and partition-end (`total_size`) ALL come from
+		// the reader's TopicProbe record — captured in ONE snapshot (cursor vs end
+		// at the same instant), passed in via the consumer_rows row. NO fresh
+		// get_segments: comparing a ~15s-old cursor against a freshly-statted end
+		// falsely inflates the lag (the partition grew since the snapshot), which is
+		// exactly what made a caught-up consumer look behind. Per-reader by
+		// offset_dir, so two readers of one log keep separate cursors.
+		$cursor_seg    = $cursor['seg'] ?? 0;
+		$cursor_offset = $cursor['off'] ?? 0;
+		$behind        = $cursor['behind'] ?? 0;
+		$total_size    = $cursor['total'] ?? 0;
 
 		// Status: heartbeat freshness inside the lock dir.
 		$status        = 'dead';
@@ -339,7 +309,6 @@ class Workers_CI_Node extends Service_CI_Node {
 			'live'            => $live,
 			'stale'           => $stale,
 			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
-			'segments'        => $segments,
 			'total_size'      => $total_size,
 			'cursor_seg'      => $cursor_seg,
 			'cursor_offset'   => $cursor_offset,
@@ -658,7 +627,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * (`CLI::consumer_rows()`, sourced from the TopicProbe log) — shared with
 	 * `wp nodes status` so the dashboard and cli read positions exactly one way.
 	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,ts:float}>
+	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,ts:float}>
 	 */
 	private static function enumerate_offsetlog_rows( string $base_dir ): array {
 		return ( new CLI( $base_dir ) )->consumer_rows();
