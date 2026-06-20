@@ -50,6 +50,10 @@ const ENTRIES = [
 		entry: 'src/vault/index.js',
 		outDir: path.resolve( ROOT, 'build/vault' ),
 	},
+	{
+		entry: 'src/event-aggregator/index.js',
+		outDir: path.resolve( ROOT, 'build/event-aggregator' ),
+	},
 ];
 
 buildDashboards( {
