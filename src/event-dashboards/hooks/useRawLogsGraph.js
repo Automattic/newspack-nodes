@@ -29,7 +29,7 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
-import { CommandClient } from '../../runtime/command_client';
+import { CommandClient } from '../../runtime/command-client';
 import {
 	newMessage,
 	TYPE,

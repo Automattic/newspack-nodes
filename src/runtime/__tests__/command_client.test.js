@@ -1,4 +1,4 @@
-import { CommandClient } from '../command_client';
+import { CommandClient } from '../command-client';
 import {
 	TYPE,
 	FROM,

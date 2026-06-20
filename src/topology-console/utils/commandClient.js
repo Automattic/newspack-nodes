@@ -3,7 +3,7 @@
  * baseUrl + nonce come from window.NewspackNodesData, with safe defaults.
  */
 
-import { CommandClient } from '../../runtime/command_client';
+import { CommandClient } from '../../runtime/command-client';
 
 let instance = null;
 
