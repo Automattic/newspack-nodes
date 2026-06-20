@@ -80,6 +80,14 @@ class Log_Cleaner {
 			foreach ( self::producer_log_dirs() as $dir ) {
 				$logs[ $dir ] = true;
 			}
+			// The substrate's auto-mounted probe log (Worker_Base::mount_topic_probe)
+			// is declared by no .tsl — whitelist it so the orphan sweep spares it.
+			// Only ride along when a real declared set already exists: topicprobe
+			// must not by itself flip the empty→non-empty fail-closed gate (which
+			// skips the sweep before the app/topologies are registered).
+			if ( ! empty( $logs ) ) {
+				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] = true;
+			}
 		}
 
 		return [

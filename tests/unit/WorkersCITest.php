@@ -464,7 +464,8 @@ class WorkersCITest extends TestCase {
 
 		$this->assertSame( $logs, $result['logs_dir'] );
 		$this->assertSame( [ '0-req', '1-req', 'ghost' ], $result['on_disk_basenames'] );
-		$this->assertSame( [ '0-req', '1-req' ], $result['expected_basenames'] );
+		// topicprobe.p0 is an expected substrate log (auto-mounted, GC-whitelisted).
+		$this->assertSame( [ '0-req', '1-req', 'topicprobe.p0' ], $result['expected_basenames'] );
 		$this->assertSame( [ 'ghost' ], $result['orphans'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();

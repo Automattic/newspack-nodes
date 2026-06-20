@@ -93,6 +93,18 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $kept );
 	}
 
+	public function test_keeps_the_substrate_topicprobe_log(): void {
+		// topicprobe.p0 is auto-mounted by every worker (Worker_Base), not declared
+		// in any .tsl — the GC must spare it as a substrate-reserved log, else the
+		// sweep wipes it between probe writes (appear → delete → recreate churn).
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$probe = $this->seed_log_partition( 'topicprobe', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $probe );
+	}
+
 	public function test_keeps_declared_log_dirs_all_partitions(): void {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 
@@ -337,7 +349,8 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1' ], $result );
+		// topicprobe.p0 rides along once a real declared set exists (substrate probe log).
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'topicprobe.p0' ], $result );
 	}
 
 	public function test_declared_log_dirs_skips_non_string_producers(): void {
@@ -352,7 +365,7 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		$this->assertSame( [ 'firehose.p0', 'requests.p0' ], $result );
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'topicprobe.p0' ], $result );
 	}
 
 	// ── frontmatter-less, multi-partition: SPAWN-aligned partition count ─────
