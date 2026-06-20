@@ -8,8 +8,8 @@ import { DumperNode } from './dumper-node';
 import { CompletionNode } from './completion-node';
 import { UptimeNode } from './uptime-node';
 import { SseInNode } from './sse-in-node';
-import { RemoteLinkNode } from './remote-link';
-import { RemoteIpcNode } from './remote-ipc';
+import { RemoteLinkNode } from './remote-link-node';
+import { RemoteIpcNode } from './remote-ipc-node';
 import { HttpOutNode } from './http-out-node';
 import { HeartbeatNode } from './heartbeat-node';
 import {

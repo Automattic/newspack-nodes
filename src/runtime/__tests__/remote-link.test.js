@@ -1,16 +1,16 @@
 /**
  * RemoteLinkNode tests — the full-duplex "be the browser" SSE+HTTP channel base.
  *
- * A single node that composes the three children every SSE dashboard + the
- * console worker-pivot used to wire by hand: a SseIn (inbound stream), an HttpOut
- * (outbound commands), and a Heartbeat (slot keepalive), plus the
- * `connected → slot` bridge between them. Dashboards make ONE RemoteLink instead
- * of three nodes; RemoteIpc extends it with the worker-relay send + single-conn
- * steal. Mirrors the PHP Remote_Source patron (which owns SSE_In + HTTP_Out); the
- * durable offsetlog stays a PHP-only `Remote_Source extends Remote_Link` concern.
+ * One node that composes an UNNAMED per-link SseIn (an internal stream — not
+ * registered in Core, so it never churns the canvas layout) and SHARES the
+ * reserved-name `_http` (HttpOut) + `_heartbeat` (Heartbeat) singletons, plus the
+ * `connected → slot` bridge. A dashboard makes ONE RemoteLink; RemoteIpc extends
+ * it with the worker-relay send + single-connection steal. Mirrors the PHP
+ * Remote_Source patron; the durable offsetlog stays a PHP-only `Remote_Source
+ * extends Remote_Link` concern.
  */
 
-import { RemoteLinkNode } from '../remote-link';
+import { RemoteLinkNode } from '../remote-link-node';
 import { SseInNode } from '../sse-in-node';
 import { HttpOutNode } from '../http-out-node';
 import { HeartbeatNode } from '../heartbeat-node';
@@ -18,6 +18,7 @@ import { CommandInterpreterNode } from '../command-interpreter-node';
 import { Core } from '../core';
 import { mountExospine } from '../exospine';
 import { newMessage, TYPE, FROM, TO, VALUE, TM_COMMAND } from '../message';
+import names from '../reserved-node-names.json';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -57,57 +58,52 @@ function makeLink( subscribe = 'raw-logs' ) {
 }
 
 describe( 'RemoteLinkNode', () => {
-	it( 'composes + registers three named children on connect', () => {
+	it( 'composes an UNNAMED SseIn + the shared `_http`/`_heartbeat` singletons on connect', () => {
 		const { link } = makeLink();
 		link.connect();
-		expect( Core.node( 'dash:link:sse-in' ) ).toBeInstanceOf( SseInNode );
-		expect( Core.node( 'dash:link:http' ) ).toBeInstanceOf( HttpOutNode );
-		expect( Core.node( 'dash:link:heartbeat' ) ).toBeInstanceOf(
-			HeartbeatNode
-		);
+		// SseIn is internal — held, but NOT registered (no canvas churn).
+		expect( link.sseIn ).toBeInstanceOf( SseInNode );
+		expect( Core.node( 'dash:link:sse-in' ) ).toBe( null );
+		// HttpOut + Heartbeat are shared reserved-name singletons.
+		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
+		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
+		expect( link.httpOut ).toBe( Core.node( names.HTTP ) );
+		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
 	} );
 
 	it( 'subscribes its SseIn to the configured topic, forwarding to the link sink/target', () => {
 		const { link } = makeLink( 'errors' );
 		link.connect();
-		const sse = Core.node( 'dash:link:sse-in' );
-		expect( sse.subscribe ).toEqual( [ 'errors' ] );
-		expect( sse.sink ).toBe( link.sink );
-		expect( sse.target ).toBe( 'dash:view' );
+		expect( link.sseIn.subscribe ).toEqual( [ 'errors' ] );
+		expect( link.sseIn.sink ).toBe( link.sink );
+		expect( link.sseIn.target ).toBe( 'dash:view' );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=errors' );
 	} );
 
-	it( 'points its Heartbeat at the workers CI via its own HttpOut', () => {
+	it( 'points the shared Heartbeat at the workers CI via the shared `_http`', () => {
 		const { link } = makeLink();
 		link.connect();
-		expect( Core.node( 'dash:link:heartbeat' ).target ).toBe(
-			'dash:link:http/workers'
+		expect( Core.node( names.HEARTBEAT ).target ).toBe(
+			`${ names.HTTP }/workers`
 		);
 	} );
 
-	it( 'bridges the SseIn connected slot into its Heartbeat', () => {
+	it( 'bridges the SseIn connected slot into the shared Heartbeat', () => {
 		const { link } = makeLink();
 		link.connect();
-		Core.node( 'dash:link:sse-in' ).setState( 'connected', {
-			pid: 7,
-			slot: 3,
-			partition: 1,
-		} );
-		expect( Core.node( 'dash:link:heartbeat' ).slot ).toBe( 3 );
-		expect( Core.node( 'dash:link:heartbeat' ).partition ).toBe( 1 );
+		link.sseIn.setState( 'connected', { pid: 7, slot: 3, partition: 1 } );
+		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
+		expect( Core.node( names.HEARTBEAT ).partition ).toBe( 1 );
 	} );
 
 	it( 'delegates pid() to its composed SseIn', () => {
 		const { link } = makeLink();
 		link.connect();
-		Core.node( 'dash:link:sse-in' ).setState( 'connected', {
-			pid: 4242,
-			slot: 0,
-		} );
+		link.sseIn.setState( 'connected', { pid: 4242, slot: 0 } );
 		expect( link.pid() ).toBe( 4242 );
 	} );
 
-	it( 'routes send() out through its own HttpOut with the address intact', () => {
+	it( 'routes send() out through the shared `_http` with the address intact', () => {
 		const { link, posted } = makeLink();
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
@@ -130,10 +126,10 @@ describe( 'RemoteLinkNode', () => {
 		);
 	} );
 
-	it( 'clears the Heartbeat slot on close', () => {
+	it( 'clears the Heartbeat slot + closes the stream on close', () => {
 		const { link } = makeLink();
 		link.connect();
-		const hb = Core.node( 'dash:link:heartbeat' );
+		const hb = Core.node( names.HEARTBEAT );
 		hb.setSlot( 5, 0 );
 		link.close();
 		expect( hb.slot ).toBe( null );
@@ -145,21 +141,21 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.pid() ).toBe( null );
 	} );
 
-	it( 'ensureChildren is idempotent — a second connect reuses the children', () => {
+	it( 'ensureChildren is idempotent — a second connect reuses the SseIn', () => {
 		const { link } = makeLink();
 		link.connect();
-		const sse = Core.node( 'dash:link:sse-in' );
-		link.connect(); // must not throw a name collision
-		expect( Core.node( 'dash:link:sse-in' ) ).toBe( sse );
+		const sse = link.sseIn;
+		link.connect();
+		expect( link.sseIn ).toBe( sse );
 	} );
 
-	it( 'removeNode tears down all three children', () => {
+	it( 'removeNode tears down the SseIn + the shared singletons (single-link owner)', () => {
 		const { link } = makeLink();
 		link.connect();
 		link.removeNode();
-		expect( Core.node( 'dash:link:sse-in' ) ).toBe( null );
-		expect( Core.node( 'dash:link:http' ) ).toBe( null );
-		expect( Core.node( 'dash:link:heartbeat' ) ).toBe( null );
+		expect( link.sseIn ).toBe( null );
+		expect( Core.node( names.HTTP ) ).toBe( null );
+		expect( Core.node( names.HEARTBEAT ) ).toBe( null );
 	} );
 
 	it( 'removeNode closes the live EventSource (teardown is self-sufficient)', () => {
@@ -186,7 +182,7 @@ describe( 'RemoteLinkNode', () => {
 		const seen = [];
 		link.onConnected = ( payload ) => seen.push( payload );
 		link.connect();
-		Core.node( 'dash:link:sse-in' ).setState( 'connected', {
+		link.sseIn.setState( 'connected', {
 			pid: 4242,
 			slot: 3,
 			partition: 1,

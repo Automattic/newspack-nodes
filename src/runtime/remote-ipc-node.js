@@ -24,15 +24,58 @@
  * process.
  */
 
-import { RemoteLinkNode } from './remote-link';
+import { Node } from './node';
+import { RemoteLinkNode } from './remote-link-node';
 import { newMessage, TYPE, FROM, TO, VALUE, TM_COMMAND } from './message';
 import names from './reserved-node-names.json';
-import { REPLY_NODES } from './reply-nodes';
 
 export class RemoteIpcNode extends RemoteLinkNode {
 	// The single RemoteIpc currently holding the live SseIn (one stream per
 	// browser session; a send swaps it). Static so siblings can hand it off.
 	static active = null;
+
+	/**
+	 * Send path: a command routed in via TO={worker} (the Router peeled this
+	 * node's name). Boot/steal the live connection, then route the bundled
+	 * `[connect_worker_input, command]` pair through this link's own HttpOut as
+	 * one POST.
+	 *
+	 * @param {Array} message Positional Message; TO is the remainder past {worker}.
+	 */
+	fill( message ) {
+		this.counter += 1;
+		this.connect();
+
+		const reader = this.name;
+		const remainder = message[ TO ];
+		const command = message.slice();
+		if ( '' !== command[ FROM ] ) {
+			command[ FROM ] = `${ names.SSE }:${ this.pid() }/${
+				command[ FROM ]
+			}`;
+		}
+		command[ TO ] =
+			'' === remainder ? reader : `${ reader }/${ remainder }`;
+
+		const connect = newMessage();
+		connect[ TYPE ] = TM_COMMAND;
+		connect[ TO ] = 'topologies';
+		connect[ VALUE ] = { name: 'connect_worker_input', arguments: reader };
+
+		// One POST: ride a pre-existing lock (the console's TIMER batch) or open
+		// our own around just this pair so the mount + command share a server
+		// process.
+		const h = this.httpOut;
+		const pre = h.locked;
+		if ( ! pre ) {
+			h.lock();
+		}
+		h.fill( connect );
+		h.fill( command );
+		if ( ! pre ) {
+			h.flush();
+		}
+	}
 
 	// Make this link's SseIn the live stream, replacing whichever RemoteIpc held
 	// it. Idempotent while already live (a steady poll stream doesn't reconnect).
@@ -57,48 +100,25 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	}
 
 	/**
-	 * Send path: a command routed in via TO={worker} (the Router peeled this
-	 * node's name). Boot/steal the live connection, then route the bundled
-	 * `[connect_worker_input, command]` pair through this link's own HttpOut as
-	 * one POST.
-	 *
-	 * @param {Array} message Positional Message; TO is the remainder past {worker}.
+	 * Console teardown: close THIS link's own (unnamed) stream and unregister the
+	 * RemoteIpc, but leave the SHARED `_http`/`_heartbeat` for the graph to tear
+	 * down. Clear the shared slot only when we were the active stream (so removing
+	 * a cd'd-away link can't drop the live worker's keepalive).
 	 */
-	fill( message ) {
-		this.counter += 1;
-		this.connect();
-
-		const reader = this.name;
-		const remainder = message[ TO ];
-		const command = message.slice();
-		if ( REPLY_NODES.includes( command[ FROM ] ) ) {
-			command[ FROM ] = `${ names.SSE }:${ this.pid() }/${
-				command[ FROM ]
-			}`;
+	removeNode() {
+		this.sseIn?.unregister( 'connected', this.name );
+		this.sseIn?.close();
+		if ( RemoteIpcNode.active === this ) {
+			this.heartbeat?.clearSlot();
+			RemoteIpcNode.active = null;
 		}
-		// Bare reader — RemoteIpc owns its HttpOut, which POSTs the TO directly
-		// (no `_http/` prefix; the server interprets it request-scope).
-		command[ TO ] =
-			'' === remainder ? reader : `${ reader }/${ remainder }`;
-
-		const connect = newMessage();
-		connect[ TYPE ] = TM_COMMAND;
-		connect[ TO ] = 'topologies';
-		connect[ VALUE ] = { name: 'connect_worker_input', arguments: reader };
-
-		// One POST: ride a pre-existing lock (the console's TIMER batch) or open
-		// our own around just this pair so the mount + command share a server
-		// process.
-		const h = this.httpOut;
-		const pre = h.locked;
-		if ( ! pre ) {
-			h.lock();
-		}
-		h.fill( connect );
-		h.fill( command );
-		if ( ! pre ) {
-			h.flush();
-		}
+		this.onClose?.();
+		this.sseIn = null;
+		this.httpOut = null;
+		this.heartbeat = null;
+		// Skip RemoteLink.removeNode (it tears down the children) — the shared
+		// singletons are the graph's; Node.removeNode just unregisters this node.
+		Node.prototype.removeNode.call( this );
 	}
 
 	static nodeSchema() {

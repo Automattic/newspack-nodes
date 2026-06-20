@@ -18,18 +18,44 @@ import { DumperNode } from '../../../runtime/dumper-node';
 import { MetadataNode } from '../../../runtime/metadata-node';
 import { UptimeNode } from '../../../runtime/uptime-node';
 import { CompletionNode } from '../../../runtime/completion-node';
-import { RemoteIpcNode } from '../../../runtime/remote-ipc';
+import { RemoteIpcNode } from '../../../runtime/remote-ipc-node';
 import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 
 let lastConnector = null;
 
+// Minimal FakeEventSource — same shape as the substrate's `sse_connector.test.js`
+// and `useRawLogsGraph.test.js`. Lets the reply-routing tests drive a real `msg`
+// frame the way production delivers it (through the EventSource), so it lands on
+// the REAL SseConnectorNode `msg` listener → `Node.fill` (route-by-TO), NOT the
+// `SseInNode.fill` empty-name stamp path that a direct `connector.fill()` hits.
+class FakeEventSource {
+	constructor( url ) {
+		this.url = url;
+		this.listeners = {};
+		this.closed = false;
+		FakeEventSource.last = this;
+	}
+	addEventListener( name, cb ) {
+		( this.listeners[ name ] ||= [] ).push( cb );
+	}
+	close() {
+		this.closed = true;
+	}
+	dispatch( name, data ) {
+		( this.listeners[ name ] || [] ).forEach( ( cb ) => cb( { data } ) );
+	}
+}
+
 jest.mock( '../../../runtime/sse-in-node', () => {
-	// Extend the REAL SseInNode so the session wrap/routing logic is exercised; only
-	// the EventSource bits (start/close/pid) are stubbed. The RemoteIpc/RemoteLink
-	// composes this as its receive child, so `lastConnector` tracks the active
-	// worker's composed SseIn. The fake exposes an `opts`-shaped read-back of the
-	// public config properties so the tests can assert against `lastConnector.opts.…`.
+	// Extend the REAL SseInNode so the session wrap/routing logic is exercised. The
+	// EventSource itself is the suite's FakeEventSource (`global.EventSource`), so
+	// `start()` runs the REAL connector path — registering the production `msg`
+	// listener — and only the start/close BOOKKEEPING is layered on. The
+	// RemoteIpc/RemoteLink composes this as its receive child, so `lastConnector`
+	// tracks the active worker's composed SseIn. The fake exposes an `opts`-shaped
+	// read-back of the public config properties so the tests can assert against
+	// `lastConnector.opts.…`.
 	const { SseInNode: RealSseIn } = jest.requireActual(
 		'../../../runtime/sse-in-node'
 	);
@@ -39,8 +65,6 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			this.started = false;
 			this.closed = false;
 			this.startCount = 0;
-			this._pid = null;
-			this._es = null;
 			lastConnector = this;
 		}
 		// Read-back of the ctor-time config now living as public properties.
@@ -54,17 +78,13 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 		start() {
 			this.started = true;
 			this.startCount += 1;
-			this._es = {};
+			super.start();
 		}
 		close() {
 			this.closed = true;
-			this._es = null;
-		}
-		pid() {
-			return this._pid;
+			super.close();
 		}
 		emitConnected( pid ) {
-			this._pid = pid;
 			this.setState( 'connected', { pid, slot: 1 } );
 		}
 	}
@@ -77,6 +97,8 @@ beforeEach( () => {
 	Core.reset();
 	lastConnector = null;
 	RemoteIpcNode.active = null;
+	FakeEventSource.last = null;
+	global.EventSource = FakeEventSource;
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 } );
 
@@ -110,10 +132,16 @@ describe( 'useConsoleGraph — graph topology', () => {
 			CompletionNode
 		);
 		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
-		// No more shared _sse / _http / _heartbeat top-level nodes.
+		// No top-level `_sse` node (each RemoteIpc owns an UNNAMED SseIn), but
+		// `_http`/`_heartbeat` ARE the SHARED reserved-name singletons every
+		// RemoteIpc composes — present once the session worker connects on mount.
 		expect( Core.node( names.SSE ) ).toBeNull();
-		expect( Core.node( names.HTTP ) ).toBeNull();
-		expect( Core.node( names.HEARTBEAT ) ).toBeNull();
+		expect( Core.node( names.HTTP ) ).toBe(
+			Core.node( 'demo.p0' ).httpOut
+		);
+		expect( Core.node( names.HEARTBEAT ) ).toBe(
+			Core.node( 'demo.p0' ).heartbeat
+		);
 	} );
 
 	it( 'creates one RemoteIpc per active worker (plus the session worker)', () => {
@@ -254,25 +282,26 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 		const router = Core.node( names.ROUTER );
 		const oldActive = Core.node( 'demo.p0' );
 		const newActive = Core.node( 'other.p1' );
-		// Make demo.p0 the active link.
+		// Make demo.p0 the active link; every RemoteIpc shares the one `_http`.
 		act( () => oldActive.connect() );
 		expect( RemoteIpcNode.active ).toBe( oldActive );
-		// Spy lock/flush on both links' HttpOuts.
-		oldActive.ensureChildren();
 		newActive.ensureChildren();
-		const oldFlush = jest.spyOn( oldActive.httpOut, 'flush' );
-		const newFlush = jest.spyOn( newActive.httpOut, 'flush' );
+		const sharedHttp = Core.node( names.HTTP );
+		expect( oldActive.httpOut ).toBe( sharedHttp );
+		expect( newActive.httpOut ).toBe( sharedHttp );
+		const flush = jest.spyOn( sharedHttp, 'flush' );
 		// Run the bracket by hand, stealing active in between (what a poll that
-		// reconnects a different worker does mid-notifyTimer).
+		// reconnects a different worker does mid-notifyTimer). `beforeTimerNotify`
+		// captures the node active at lock-time; `afterTimerNotify` must flush
+		// THAT captured node's httpOut (the shared `_http`) exactly once, even
+		// though active was stolen — never re-resolving the flush off the new
+		// active (which would risk a double-flush or a stranded lock).
 		act( () => {
 			router.beforeTimerNotify();
 			RemoteIpcNode.active = newActive; // steal mid-notify
 			router.afterTimerNotify();
 		} );
-		// The flush must land on the node locked in before (demo.p0), NOT the
-		// stolen new active — otherwise demo.p0's HttpOut strands locked.
-		expect( oldFlush ).toHaveBeenCalledTimes( 1 );
-		expect( newFlush ).not.toHaveBeenCalled();
+		expect( flush ).toHaveBeenCalledTimes( 1 );
 	} );
 } );
 
@@ -375,8 +404,12 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 describe( 'useConsoleGraph — reply routing through _router', () => {
 	it( 'an SSE reply with TO=_output lands in the Dumper transcript', () => {
 		renderGraph();
+		// Deliver the reply the way production does — a packed `msg` frame through
+		// the live EventSource — so it lands on the REAL SseConnector `msg` listener
+		// → Node.fill (route-by-TO), not the SseInNode.fill empty-name stamp path.
 		const {
 			newMessage,
+			pack,
 			TYPE,
 			TO,
 			VALUE,
@@ -386,7 +419,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ TYPE ] = TM_BYTESTREAM;
 		m[ TO ] = names.OUTPUT;
 		m[ VALUE ] = 'hello from worker';
-		act( () => lastConnector.fill( m ) );
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
 		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
 			expect.objectContaining( {
 				kind: 'recv',
@@ -397,8 +430,10 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 
 	it( 'an SSE broadcast with empty TO lands in the Dumper transcript', () => {
 		renderGraph();
+		// Empty TO falls back to the connector's target (_output) in Node.fill.
 		const {
 			newMessage,
+			pack,
 			TYPE,
 			TO,
 			VALUE,
@@ -408,7 +443,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ TYPE ] = TM_BYTESTREAM;
 		m[ TO ] = ''; // broadcast — unaddressed
 		m[ VALUE ] = 'broadcast from worker';
-		act( () => lastConnector.fill( m ) );
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
 		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
 			expect.objectContaining( {
 				kind: 'recv',
@@ -421,6 +456,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		renderGraph();
 		const {
 			newMessage,
+			pack,
 			TYPE,
 			TO,
 			VALUE,
@@ -430,7 +466,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ TYPE ] = TM_STRUCT;
 		m[ TO ] = names.METADATA;
 		m[ VALUE ] = { n1: { class: 'Echo', counter: 1, target: '' } };
-		act( () => lastConnector.fill( m ) );
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
 		expect(
 			Core.node( names.METADATA ).setStateCache.metadata.nodes
 		).toHaveLength( 1 );
@@ -443,6 +479,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		renderGraph();
 		const {
 			newMessage,
+			pack,
 			TYPE,
 			TO,
 			KEY,
@@ -455,7 +492,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ TO ] = names.COMPLETION;
 		m[ KEY ] = 'completion';
 		m[ VALUE ] = { name: 'help', payload: 'connect\nconnect_node' };
-		act( () => lastConnector.fill( m ) );
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
 		expect(
 			Core.node( names.COMPLETION ).setStateCache.candidates.candidates
 		).toEqual( [ 'connect', 'connect_node' ] );

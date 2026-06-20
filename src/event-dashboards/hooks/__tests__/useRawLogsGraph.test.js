@@ -3,16 +3,17 @@
  * substrate's canonical rule-#2 backbone (`_command_interpreter → _router`) via
  * a SINGLE `RemoteLink` node plus the single `rawlogs:view` view-model node.
  *
- * RemoteLink composes the three I/O children every SSE dashboard used to wire by
- * hand — `rawlogs:link:sse-in` (SseIn), `rawlogs:link:http` (HttpOut) and
- * `rawlogs:link:heartbeat` (Heartbeat) — and wires the `connected → slot` bridge
- * to its own heartbeat. The bespoke `rawlogs:route` / `rawlogs:transform` nodes
- * are gone — envelope→row shaping is inlined into the view itself.
+ * RemoteLink composes an UNNAMED per-link SseIn (held as `link.sseIn`, NOT
+ * registered in Core — no canvas churn) and SHARES the reserved-name `_http`
+ * (HttpOut) + `_heartbeat` (Heartbeat) singletons, wiring the `connected → slot`
+ * bridge to that shared heartbeat. The bespoke `rawlogs:route` /
+ * `rawlogs:transform` nodes are gone — envelope→row shaping is inlined into the
+ * view itself.
  *
  * EventSource is faked via `global.EventSource`; SseInNode's connection logic
  * (already covered by the substrate's `sse_connector.test.js`) is unmocked
  * here — we drive a `msg` event through the fake EventSource and assert it
- * actually routes the composed sse-in → view.
+ * actually routes the composed (unnamed) sse-in → view.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -33,6 +34,7 @@ import {
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { useNodeState } from '../../../runtime/react';
+import names from '../../../runtime/reserved-node-names.json';
 
 // Minimal FakeEventSource — same shape as the substrate's `sse_connector.test.js`.
 class FakeEventSource {
@@ -67,11 +69,11 @@ import { useRawLogsGraph } from '../useRawLogsGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const LINK = 'rawlogs:link';
-const SSE = 'rawlogs:link:sse-in';
-const HTTP = 'rawlogs:link:http';
-const HEARTBEAT = 'rawlogs:link:heartbeat';
+// The composed SseIn is UNNAMED (held as link.sseIn, never registered); HttpOut
+// + Heartbeat are the SHARED reserved-name singletons.
+const HTTP = names.HTTP;
+const HEARTBEAT = names.HEARTBEAT;
 const VIEW = 'rawlogs:view';
-const COMPOSED_NAMES = [ SSE, HTTP, HEARTBEAT ];
 
 // CommandClient double mirroring HttpOut's seam: postBatch returns reply
 // Messages addressed back along FROM. Used for `list_logs` (initial dropdown)
@@ -134,18 +136,25 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		// The view sinks into the interpreter.
 		expect( Core.node( VIEW ) ).toBeTruthy();
 		expect( Core.node( VIEW ).sink ).toBe( interpreter );
-		// RemoteLink's three composed children are registered and sink into the interpreter.
-		for ( const name of COMPOSED_NAMES ) {
+		// The composed SseIn is UNNAMED — held on the link, never registered.
+		const link = Core.node( LINK );
+		expect( link.sseIn ).toBeTruthy();
+		expect( Core.node( 'rawlogs:link:sse-in' ) ).toBeNull();
+		// HttpOut + Heartbeat are the SHARED reserved-name singletons, sinking
+		// into the interpreter; the link holds the same instances.
+		for ( const name of [ HTTP, HEARTBEAT ] ) {
 			const node = Core.node( name );
 			expect( node ).toBeTruthy();
 			expect( node.sink ).toBe( interpreter );
 		}
+		expect( link.httpOut ).toBe( Core.node( HTTP ) );
+		expect( link.heartbeat ).toBe( Core.node( HEARTBEAT ) );
 	} );
 
-	test( 'steers flow with targets: composed sse-in → view; heartbeat → {link}:http/workers', async () => {
+	test( 'steers flow with targets: composed (unnamed) sse-in → view; shared heartbeat → _http/workers', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		expect( Core.node( SSE ).target ).toBe( VIEW );
+		expect( Core.node( LINK ).sseIn.target ).toBe( VIEW );
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
 	} );
 
@@ -271,7 +280,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 } );
 
 describe( 'useRawLogsGraph — teardown', () => {
-	test( 'unmount tears down the RemoteLink children + the backbone and closes the EventSource', async () => {
+	test( 'unmount tears down the RemoteLink + shared singletons + the backbone and closes the EventSource', async () => {
 		const { unmount } = mountGraph(
 			makeFakeClient( { list_logs: oneLogReply() } )
 		);
@@ -279,8 +288,11 @@ describe( 'useRawLogsGraph — teardown', () => {
 		const es = FakeEventSource.last;
 		unmount();
 		expect( es.closed ).toBe( true );
+		// The single-link owner tears down the shared `_http`/`_heartbeat`; the
+		// link, view, and backbone all unregister.
 		for ( const name of [
-			...COMPOSED_NAMES,
+			HTTP,
+			HEARTBEAT,
 			LINK,
 			VIEW,
 			INTERPRETER,
