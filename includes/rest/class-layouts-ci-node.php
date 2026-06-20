@@ -76,11 +76,11 @@ class Layouts_CI_Node extends Service_CI_Node {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
 			'description' => 'Per-topology canvas layout: get / save node positions.',
-			'arguments'        => [],
-			'commands'       => [
+			'arguments'   => [],
+			'commands'    => [
 				[
 					'name'        => 'get',
 					'description' => 'Read saved node positions for a layout name.',
@@ -159,6 +159,6 @@ class Layouts_CI_Node extends Service_CI_Node {
 					},
 				],
 			],
-		];
+		] );
 	}
 }

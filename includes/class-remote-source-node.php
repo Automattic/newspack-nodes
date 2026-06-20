@@ -25,7 +25,6 @@ namespace Newspack_Nodes;
 class Remote_Source_Node extends Timer_Node {
 	use Schema_Reflection;
 
-	/** Tick cadence (ms): drives the passive SSE_In every second (mirrors the old Remote_Source). */
 	private const TICK_INTERVAL_MS = 1000;
 
 	/** Offsetlog commit cadence (seconds). */
@@ -168,12 +167,12 @@ class Remote_Source_Node extends Timer_Node {
 
 		$entry = Vault::get_instance()->get( $this->vault_id );
 		if ( null === $entry ) {
-			Core::print_less_often( "Remote_Source[{$this->vault_id}]: no Vault entry; staying disconnected" );
+			$this->print_less_often( "no Vault entry; staying disconnected" );
 			return null;
 		}
 		$url = \rtrim( Core::as_string( $entry['url'] ?? '' ), '/' );
 		if ( '' === $url ) {
-			Core::print_less_often( "Remote_Source[{$this->vault_id}]: Vault entry has no url; staying disconnected" );
+			$this->print_less_often( "Vault entry has no url; staying disconnected" );
 			return null;
 		}
 
@@ -247,7 +246,7 @@ class Remote_Source_Node extends Timer_Node {
 		try {
 			$message = Message::unpacked( \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
-			Core::print_less_often( "Remote_Source[{$this->vault_id}]: ignoring unparseable offsetlog entry: {$e->getMessage()}" );
+			$this->print_less_often( "ignoring unparseable offsetlog entry: {$e->getMessage()}" );
 			return [];
 		}
 		$value = $message[ Message::VALUE ];

@@ -80,11 +80,11 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
 			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition.',
-			'arguments'        => [],
-			'commands'       => [
+			'arguments'   => [],
+			'commands'    => [
 				[
 					'name'        => 'list',
 					'description' => 'List topologies with source (user/stock/both) and active state.',
@@ -365,6 +365,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 					},
 				],
 			],
-		];
+		] );
 	}
 }

@@ -225,7 +225,7 @@ class SSE_In_Node extends Node {
 
 		if ( $this->require_https && \stripos( $this->url, 'https://' ) !== 0 ) {
 			$this->last_error = 'refusing non-HTTPS URL';
-			Core::print_less_often( "SSE_In[{$this->source}]: non-HTTPS URL refused: {$this->url}" );
+			$this->print_less_often( "non-HTTPS URL refused: {$this->url}" );
 			$this->increase_backoff();
 			return false;
 		}
@@ -409,10 +409,10 @@ class SSE_In_Node extends Node {
 
 		if ( \CURLE_OK !== $result ) {
 			$this->last_error = "cURL error {$result}: {$err}";
-			Core::print_less_often( "SSE_In[{$this->source}]: disconnected: {$this->last_error}" );
+			$this->print_less_often( "disconnected: {$this->last_error}" );
 		} elseif ( 200 !== $http_code && 0 !== $http_code ) {
 			$this->last_error = "HTTP {$http_code}";
-			Core::print_less_often( "SSE_In[{$this->source}]: HTTP {$http_code}" );
+			$this->print_less_often( "HTTP {$http_code}" );
 		} else {
 			$this->last_error = 'Connection closed by server';
 		}
@@ -600,7 +600,7 @@ class SSE_In_Node extends Node {
 		$message[ Message::VALUE ]     = $value;
 
 		if ( Message::packed_size( $message ) > Partition_Node::MAX_LINE_SIZE ) {
-			Core::print_less_often( "SSE_In[{$this->source}]: dropping entry > " . Partition_Node::MAX_LINE_SIZE . ' bytes' );
+			$this->print_less_often( "dropping entry > " . Partition_Node::MAX_LINE_SIZE . ' bytes' );
 			return;
 		}
 
@@ -628,7 +628,7 @@ class SSE_In_Node extends Node {
 		}
 		$stale_seconds    = (int) $elapsed;
 		$this->last_error = "Stale connection (no events for {$stale_seconds}s)";
-		Core::print_less_often( "SSE_In[{$this->source}]: stale ({$stale_seconds}s) — reconnecting" );
+		$this->print_less_often( "stale ({$stale_seconds}s) — reconnecting" );
 
 		$this->detach_handle();
 		$this->increase_backoff();

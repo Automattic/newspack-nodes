@@ -129,7 +129,7 @@ class Job_Worker_Node extends Node {
 		}
 		$encoded = \wp_json_encode( $entry );
 		if ( false !== $encoded && \strlen( $encoded ) > self::MAX_JOB_SIZE ) {
-			Core::print_less_often( 'JobWorker: oversized entry, skipping' );
+			$this->print_less_often( 'oversized entry, skipping' );
 			return;
 		}
 		// Canonical jobs.log / jobintake.log entry: {k, handler, parameters, ts}.
@@ -143,12 +143,12 @@ class Job_Worker_Node extends Node {
 		$raw_handler = $entry['handler'] ?? '';
 		$handler     = (string) $raw_handler;
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
-			Core::print_less_often( "JobWorker: invalid handler name: $handler" );
+			$this->print_less_often( "JobWorker: invalid handler name: {$handler}" );
 			return;
 		}
 		$handlers = ( 'remote_job' === $kind ) ? $this->remote_handlers : $this->local_handlers;
 		if ( ! isset( $handlers[ $handler ] ) ) {
-			Core::print_less_often( "JobWorker: no $kind handler registered for: $handler" );
+			$this->print_less_often( "no {$kind} handler registered for: {$handler}" );
 			return;
 		}
 		$parameters = $entry['parameters'] ?? [];
@@ -165,7 +165,7 @@ class Job_Worker_Node extends Node {
 			\do_action( 'newspack_nodes/job_worker/before_job', $handler );
 			( $handlers[ $handler ] )( $parameters );
 		} catch ( \Throwable $e ) {
-			Core::print_less_often( "JobWorker: job $handler threw: " . $e->getMessage() );
+			$this->print_less_often( "job {$handler} threw: " . $e->getMessage() );
 		} finally {
 			\do_action( 'newspack_nodes/job_worker/after_job', $handler );
 		}

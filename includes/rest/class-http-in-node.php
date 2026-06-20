@@ -328,8 +328,8 @@ class HTTP_In_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => '/command response-writer Node (registered as `_output` at request scope).',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 			'has_target'  => false,
 		];
 	}
