@@ -43,7 +43,13 @@
 
 .nodes-vault__modal-actions {
 	display: flex;
+	align-items: center;
 	justify-content: flex-end;
 	gap: 8px;
 	margin-top: 16px;
+
+	// Validation/status text sits on the left; the buttons stay right-aligned.
+	.nodes-vault__add-status {
+		margin-right: auto;
+	}
 }
