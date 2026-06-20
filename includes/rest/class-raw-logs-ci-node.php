@@ -68,11 +68,11 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
 			'description' => 'Log inspection: catalog on-disk logs and report a log\'s partition/segment status.',
-			'arguments'        => [],
-			'commands'       => [
+			'arguments'   => [],
+			'commands'    => [
 				[
 					'name'        => 'list_logs',
 					'description' => 'List the on-disk log keys.',
@@ -127,6 +127,6 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					},
 				],
 			],
-		];
+		] );
 	}
 }

@@ -1,0 +1,22 @@
+# Aggregator topology (hub side).
+#
+#   Remote_Source(s) ─→ Remote_Job_Rewrite ─→ Topic (firehose:topic)
+#
+# Remote_Job_Rewrite flips aggregated k:"job" entries to k:"remote_job" so they
+# dispatch on the hub via newspack_nodes/remote_job_handlers; non-job entries
+# pass through. The firehose Topic is the multi-partition, KEY-routed sink.
+#
+# Per-spoke Remote_Source nodes are NOT shipped in this stock topology — the
+# operator wires them on the console canvas, one per spoke/partition:
+#
+#   make_node Remote_Source spoke-<id> <vault-id> firehose <partition>
+#   connect_node spoke-<id> remote-job-rewrite
+#
+# Each substrate Remote_Source is self-sufficient (it patrons its own SSE_In +
+# HTTP_Out, owns its offsetlog, and publishes a status snapshot to
+# np:remote:<node-name>:p<partition>). SSL/HTTPS policy comes from the substrate
+# vault_verify_ssl / vault_require_https config — not a per-topology setter.
+
+make_node Remote_Job_Rewrite remote-job-rewrite
+make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} <config:num_partitions> <config:segment_size> <config:num_segments> <config:max_lifespan>
+connect_node remote-job-rewrite firehose:topic

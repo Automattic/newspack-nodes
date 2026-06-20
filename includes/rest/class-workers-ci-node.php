@@ -765,11 +765,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
 			'description' => 'Worker fleet control: list workers, dump operator metadata, audit/cleanup orphans, restart, and refresh SSE slot heartbeats.',
-			'arguments'        => [],
-			'commands'       => [
+			'arguments'   => [],
+			'commands'    => [
 				[
 					'name'        => 'list',
 					'description' => 'List workers with live positions.',
@@ -883,6 +883,6 @@ class Workers_CI_Node extends Service_CI_Node {
 					},
 				],
 			],
-		];
+		] );
 	}
 }

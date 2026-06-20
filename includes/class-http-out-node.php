@@ -132,7 +132,7 @@ class HTTP_Out_Node extends Timer_Node {
 		$url    = \is_array( $server ) ? \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) : '';
 		if ( '' === $url ) {
 			$dropped = \count( $batch );
-			Core::print_less_often( "HTTP_Out[{$this->server_id}]: no Vault entry / url; dropping {$dropped} message(s)" );
+			$this->print_less_often( "no Vault entry / url; dropping {$dropped} message(s)" );
 			return;
 		}
 
@@ -141,7 +141,7 @@ class HTTP_Out_Node extends Timer_Node {
 		// legacy heartbeat HTTPS guard): drop the batch, no POST.
 		if ( ( $cfg['vault_require_https'] ?? false ) && ! \str_starts_with( $url, 'https://' ) ) {
 			$dropped = \count( $batch );
-			Core::print_less_often( "HTTP_Out[{$this->server_id}]: vault_require_https set but url is not https; dropping {$dropped} message(s)" );
+			$this->print_less_often( "vault_require_https set but url is not https; dropping {$dropped} message(s)" );
 			return;
 		}
 
@@ -189,7 +189,7 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$easy = $dispatch( $multi, $opts );
 		if ( ! $easy instanceof \CurlHandle ) {
-			Core::print_less_often( "HTTP_Out[{$this->server_id}]: curl_init failed" );
+			$this->print_less_often( "curl_init failed" );
 			return;
 		}
 		// Keep the handle alive in $inflight: a freed handle's spl_object_id is
@@ -236,11 +236,11 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$result = $info['result'] ?? \CURLE_OK;
 		if ( \CURLE_OK !== $result ) {
-			Core::print_less_often( "HTTP_Out[{$server_id}]: transport error {$result}" );
+			$this->print_less_often( "transport error {$result}" );
 		} else {
 			$res = $this->read_result( $easy );
 			if ( 200 !== $res['code'] ) {
-				Core::print_less_often( "HTTP_Out[{$server_id}]: HTTP {$res['code']}" );
+				$this->print_less_often( "HTTP {$res['code']}" );
 			} elseif ( null !== $this->sink && '' !== $res['body'] ) {
 				foreach ( \explode( "\n", $res['body'] ) as $line ) {
 					if ( '' === $line ) {
@@ -251,7 +251,7 @@ class HTTP_Out_Node extends Timer_Node {
 					try {
 						$reply = Message::unpacked( $line );
 					} catch ( \InvalidArgumentException $e ) {
-						Core::print_less_often( "HTTP_Out[{$server_id}]: malformed reply line" );
+						$this->print_less_often( "malformed reply line" );
 						continue;
 					}
 					// The spoke's HTTP_In prepends _output/ to the FROM it echoes;
@@ -262,7 +262,7 @@ class HTTP_Out_Node extends Timer_Node {
 						$reply[ Message::TO ] = \substr( $to, \strlen( '_output/' ) );
 					}
 					++$this->counter;
-					$this->sink->fill( $reply );
+					$this->sink?->fill( $reply );
 				}
 			}
 		}

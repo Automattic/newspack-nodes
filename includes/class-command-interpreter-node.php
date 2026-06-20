@@ -1111,10 +1111,12 @@ class Command_Interpreter_Node extends Node {
 
 	public static function node_schema(): array {
 		return [
-			'category'    => 'Hidden',
-			'description' => 'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
-			'arguments'   => [],
-			'commands'    => [],
+			'category'     => 'Hidden',
+			'description'  => 'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
+			'arguments'    => [],
+			'commands'     => [],
+			'accepts_fill' => false,
+			'has_target'   => false,
 		];
 	}
 }
