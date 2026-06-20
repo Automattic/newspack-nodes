@@ -1487,10 +1487,14 @@ export default function TopologyConsole() {
 	return (
 		<div
 			ref={ appRef }
-			className={ `topology-app theme-${ theme } is-inspector-open${
-				mode === 'edit' ? ' is-edit-mode' : ''
-			}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
-				inspectorCollapsed ? ' is-inspector-collapsed' : ''
+			className={ `topology-app theme-${ theme }${
+				selectedId ? ' is-inspector-open' : ''
+			}${ mode === 'edit' ? ' is-edit-mode' : '' }${
+				paletteCollapsed ? ' is-palette-collapsed' : ''
+			}${
+				selectedId && inspectorCollapsed
+					? ' is-inspector-collapsed'
+					: ''
 			}` }
 		>
 			<ConsoleShell
@@ -1569,9 +1573,6 @@ export default function TopologyConsole() {
 						refocusReplIfExpanded();
 					},
 					selection: selectedId,
-					// A canvas background click only re-fits the view; it no
-					// longer dismisses the transcript or deselects the inspector.
-					backgroundClickAutofitsOnly: true,
 					bottomObstructionPx: transcriptOverlayPx,
 					inspectorCollapsed,
 					onInspectorToggle: toggleInspectorCollapsed,

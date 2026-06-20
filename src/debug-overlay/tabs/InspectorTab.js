@@ -88,6 +88,7 @@ export default function InspectorTab( {
 	onHeaderPointerDown,
 	toggleMaximize,
 } ) {
+	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 	// Measure the DevtoolsTabHost tab bar that sits above this body so the
@@ -256,8 +257,12 @@ export default function InspectorTab( {
 			data-testid="inspector-tab"
 		>
 			<div
-				className={ `topology-app theme-${ theme } is-inspector-open${
-					inspectorCollapsed ? ' is-inspector-collapsed' : ''
+				className={ `topology-app theme-${ theme }${
+					selected ? ' is-inspector-open' : ''
+				}${
+					selected && inspectorCollapsed
+						? ' is-inspector-collapsed'
+						: ''
 				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 			>
 				<ConsoleShell
@@ -343,7 +348,7 @@ export default function InspectorTab( {
 								payload
 							);
 						},
-						backgroundClickAutofitsOnly: true,
+						onSelectionChange: setSelected,
 						inspectorCollapsed,
 						onInspectorToggle: toggleInspectorCollapsed,
 					} }

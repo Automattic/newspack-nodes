@@ -63,15 +63,13 @@ describe( 'GraphView', () => {
 		expect( onConnect ).toHaveBeenCalledWith( 'a', 'b' );
 	} );
 
-	it( 'inspector is always present (like the palette); fills in once a node is selected', () => {
-		const { getByTestId, getByText } = render(
+	it( 'opens the inspector only after a node is selected (selection-driven)', () => {
+		const { queryByTestId, getByText } = render(
 			<GraphView graph={ graph } frame={ Frame } resetKey="k" />
 		);
-		// Present even before a selection (empty state reads "select a node").
-		expect( getByTestId( 'inspector' ) ).not.toBeNull();
-		expect( getByTestId( 'inspector' ).textContent ).not.toContain( 'n1' );
+		expect( queryByTestId( 'inspector' ) ).toBeNull();
 		fireEvent.click( getByText( 'select-n1' ) );
-		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n1' );
+		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
 	} );
 
 	it( 'renders the palette only when showPalette is set', () => {
@@ -91,7 +89,7 @@ describe( 'GraphView', () => {
 	} );
 
 	it( 're-syncs internal selection when the controlled `selection` prop changes', () => {
-		const { getByText, getByTestId, rerender } = render(
+		const { getByText, getByTestId, queryByTestId, rerender } = render(
 			<GraphView
 				graph={ twoNodeGraph }
 				frame={ Frame }
@@ -112,8 +110,7 @@ describe( 'GraphView', () => {
 			/>
 		);
 		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n2' );
-		// External clear (e.g. console "new"): selection→null clears the
-		// inspector content but the (always-present) panel stays.
+		// External clear (e.g. console "new"): selection→null closes the inspector.
 		rerender(
 			<GraphView
 				graph={ twoNodeGraph }
@@ -122,8 +119,7 @@ describe( 'GraphView', () => {
 				selection={ null }
 			/>
 		);
-		expect( getByTestId( 'inspector' ) ).not.toBeNull();
-		expect( getByTestId( 'inspector' ).textContent ).not.toContain( 'n2' );
+		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 
 	it( 'canvas deselect notifies the consumer via onSelectionChange(null)', () => {
