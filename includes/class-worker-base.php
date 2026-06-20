@@ -25,7 +25,10 @@ class Worker_Base {
 	public const IPC_NUM_SEGMENTS       = 2;
 
 	// Shared topicprobe log: 5 MiB segments × 2, aged out at 24h — a day of
-	// consumer-stats snapshots for the dashboards' rate + backlog graphs.
+	// consumer-stats snapshots for the dashboards' rate + backlog graphs. Single
+	// fixed partition (.p0); every worker process appends to this one dir, so
+	// Log_Cleaner must whitelist it (it's declared by no .tsl).
+	public const TOPICPROBE_LOG_DIR      = 'topicprobe.p0';
 	public const TOPICPROBE_SEGMENT_SIZE = 5242880;
 	public const TOPICPROBE_NUM_SEGMENTS = 2;
 	public const TOPICPROBE_MAX_LIFESPAN = 86400;
@@ -222,7 +225,7 @@ class Worker_Base {
 	 * @param Command_Interpreter_Node $interpreter The graph's interpreter (make_node host).
 	 */
 	public function mount_topic_probe( Command_Interpreter_Node $interpreter ): void {
-		$probe_dir = "{$this->base_dir}/logs/topicprobe.p0";
+		$probe_dir = "{$this->base_dir}/logs/" . self::TOPICPROBE_LOG_DIR;
 		if ( ! \is_dir( $probe_dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $probe_dir, 0755, true );
