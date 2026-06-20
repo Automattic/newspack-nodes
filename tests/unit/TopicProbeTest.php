@@ -41,6 +41,7 @@ class TopicProbeTest extends TestCase {
 			'cursor_off'   => 100,
 			'bytes_read'   => $bytes_read,
 			'bytes_behind' => $bytes_behind,
+			'bytes_total'  => $bytes_read + $bytes_behind,
 			'msg_sent'     => 42,
 			'worker_type'  => 'firehose',
 		];
@@ -102,6 +103,30 @@ class TopicProbeTest extends TestCase {
 
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 'firehose', $capture->captured[0][ Message::VALUE ]['consumer'] );
+	}
+
+	public function test_fire_computes_read_and_write_rate_from_consecutive_snapshots(): void {
+		// Rates are computed BY THE PROBE from its own consecutive 15s samples
+		// (Δbytes / Δts) — the single source, so downstream never re-deltas a
+		// live value at a different cadence. First sample has no prior → rate 0.
+		$c = $this->stub_consumer( 'firehose', 1000, 0 );
+		$c->canned['bytes_total'] = 5000;
+		$capture = new Capture_Sink_Node();
+		$probe   = new TopicProbe_Node();
+		$probe->name( '_topicprobe' );
+		$probe->sink( $capture );
+
+		Core::$now = 1000;
+		$probe->fire_cb();
+		$this->assertSame( 0.0, $capture->captured[0][ Message::VALUE ]['read_rate'] );
+		$this->assertSame( 0.0, $capture->captured[0][ Message::VALUE ]['write_rate'] );
+
+		$c->canned['bytes_read']  = 4000;  // +3000 bytes read
+		$c->canned['bytes_total'] = 12500; // +7500 bytes written to the partition
+		Core::$now = 1015;                 // +15s
+		$probe->fire_cb();
+		$this->assertSame( 200.0, $capture->captured[1][ Message::VALUE ]['read_rate'], 'Δread/Δts = 3000/15' );
+		$this->assertSame( 500.0, $capture->captured[1][ Message::VALUE ]['write_rate'], 'Δtotal/Δts = 7500/15' );
 	}
 
 	public function test_fire_gates_to_the_interval_against_last_fire_time(): void {

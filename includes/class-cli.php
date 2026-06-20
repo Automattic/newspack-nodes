@@ -120,7 +120,7 @@ class CLI {
 	 * enumeration shared by the Worker Status dashboard (`Workers_CI_Node`) and
 	 * `wp nodes status`.
 	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,ts:float}>
+	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,read_rate:float,write_rate:float,ts:float}>
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
@@ -151,6 +151,11 @@ class CLI {
 				// re-statting the live partition against this stale cursor.
 				'behind'          => self::scalar_int( $record['bytes_behind'] ?? 0 ),
 				'total'           => self::scalar_int( $record['bytes_total'] ?? 0 ),
+				// Byte rates the PROBE computed (Δ over its own ts). Displayed as-is —
+				// never client-deltaed against a faster poll, which is what made the
+				// read rate flicker (0 between 15s probe ticks) against a live write rate.
+				'read_rate'       => self::scalar_float( $record['read_rate'] ?? 0 ),
+				'write_rate'      => self::scalar_float( $record['write_rate'] ?? 0 ),
 				'ts'              => self::scalar_float( $record['ts'] ?? 0 ),
 			];
 		}

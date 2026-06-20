@@ -18,13 +18,16 @@ import {
  * `dump_graph` reply is ignored — the view is the receiver for restart /
  * error replies (FROM=view).
  *
- * Stateful: it holds the PREVIOUS snapshot's per-worker positions, per-log
- * total sizes, segment ids/data, and a last-receive time on the node instance.
- * On each dump_graph reply it computes the delta vs that previous snapshot
- * (read rate per worker, write rate per log, segment add/remove) using
- * `Date.now()` for the time delta — exactly the math the old
- * `WorkerStatus.fetchWorkers` ran against its refs — then emits
- * `{ action:'model', model }` to its sink, stamped TO=target (→ view).
+ * Read + write byte rates are NOT computed here — they come straight off each
+ * worker descriptor, where the PROBE already computed them (Δbytes / Δ its own
+ * 15s ts). That's the single rate source, so read and write move together at one
+ * cadence; the old client-side delta (live `total_size` vs the 15s-stale cursor,
+ * divided by the poll interval) is gone — it made the read rate flicker 0 between
+ * probe ticks while the write rate kept moving.
+ *
+ * Stateful only for the segment slide-in/-out animation: it holds the PREVIOUS
+ * snapshot's segment ids/data so the render path can flag genuinely-new and
+ * just-removed segments, then emits `{ action:'model', model }` stamped TO=target.
  *
  * The model's `prevSegments` is the PRIOR snapshot's segment ids (so the render
  * path can flag genuinely-new segments for the slide-in animation); the node's
@@ -34,11 +37,8 @@ import {
 export class WorkerStatusTransformNode extends Node {
 	constructor() {
 		super();
-		this._prevPositions = {};
-		this._prevTotalSizes = {};
 		this._prevSegments = {}; // logKey → Set of segment ids
 		this._prevSegmentData = {}; // logKey → Map id → segment
-		this._lastReceiveTime = null;
 		// Sticky scalars: a poll that OMITS segment_size / timestamp retains the
 		// last good value (matches WorkerStatus's `if (data.x) setX(...)`). Seeds
 		// match the old useState seeds — 64MB and the client clock.
@@ -81,78 +81,38 @@ export class WorkerStatusTransformNode extends Node {
 	// advance the node's prev-state, and emit. Math ported verbatim from
 	// WorkerStatus.fetchWorkers.
 	_emitModel( data ) {
-		const now = Date.now();
-
 		const newPrevSegments = {};
 		const newPrevSegmentData = {};
-		const newPositions = {};
 		const newByteRates = {};
 		const newWriteRates = {};
-		const newTotalSizes = {};
 		const newRemoving = {};
 
-		// Time delta in seconds; zero on the first snapshot (no prior receive).
-		const timeDelta = this._lastReceiveTime
-			? ( now - this._lastReceiveTime ) / 1000
-			: 0;
-
-		// Per-worker read rates, keyed by (handler, partition, source) so
-		// multi-Consumer handlers don't collapse into one slot.
+		// Byte rates come straight off each worker descriptor — the PROBE computed
+		// them (Δbytes / Δ its own 15s ts), so read + write share one cadence and
+		// we never client-delta a live value at a faster poll. byteRates keyed by
+		// (handler, partition, source) so multi-Consumer handlers don't collapse;
+		// writeRates keyed by the concrete partition (input_log) to match the
+		// SegmentBar's rateKey.
 		( data.workers || [] ).forEach( ( worker ) => {
 			const workerKey = `${ worker.handler || worker.type }-${
 				worker.partition
 			}-${ worker.source || '' }`;
-
-			// Sum processed bytes across every input (workers tail many logs).
-			let totalProcessed = 0;
-			( worker.inputs_status || [] ).forEach( ( input ) => {
-				if (
-					input.cursor_seg === undefined ||
-					input.cursor_offset === undefined
-				) {
-					return;
-				}
-				( input.segments || [] ).forEach( ( seg ) => {
-					if ( seg.id < input.cursor_seg ) {
-						totalProcessed += seg.size;
-					} else if ( seg.id === input.cursor_seg ) {
-						totalProcessed += input.cursor_offset;
-					}
-				} );
-			} );
-			newPositions[ workerKey ] = totalProcessed;
-
-			if (
-				timeDelta > 0 &&
-				this._prevPositions[ workerKey ] !== undefined
-			) {
-				const bytesDelta =
-					totalProcessed - this._prevPositions[ workerKey ];
-				newByteRates[ workerKey ] =
-					bytesDelta >= 0 ? bytesDelta / timeDelta : 0;
+			newByteRates[ workerKey ] = Number( worker.read_rate ) || 0;
+			if ( worker.input_log ) {
+				newWriteRates[ worker.input_log ] =
+					Number( worker.write_rate ) || 0;
 			}
 		} );
 
-		// Per-log write rates + segment tracking by (logName, partition); max
-		// total_size and segment union so a stale snapshot can't shrink it.
+		// Segment tracking by concrete partition (logName.pN) for the slide-in/out
+		// animation — union the segment ids across the workers reading/writing it.
 		const logSnapshots = new Map();
 		const recordLog = ( log ) => {
 			if ( ! log || ! log.name ) {
 				return;
 			}
-			// Flat data, grouped render: log.name is the concrete per-partition dir
-			// (`firehose.p0`). Key on that concrete name verbatim — byte-identical
-			// to TreeEntity's LogRows rateKey (the partition's concrete `name`), so
-			// the grouped logical entity's rates line up regardless of layout.
 			const logKey = log.name;
-			const prior = logSnapshots.get( logKey ) || {
-				total_size: 0,
-				segments: new Map(),
-			};
-			prior.total_size = Math.max(
-				prior.total_size,
-				log.total_size || 0
-			);
+			const prior = logSnapshots.get( logKey ) || { segments: new Map() };
 			( log.segments || [] ).forEach( ( seg ) => {
 				prior.segments.set( seg.id, seg );
 			} );
@@ -164,16 +124,6 @@ export class WorkerStatusTransformNode extends Node {
 		} );
 
 		logSnapshots.forEach( ( snap, logKey ) => {
-			newTotalSizes[ logKey ] = snap.total_size;
-			if (
-				timeDelta > 0 &&
-				this._prevTotalSizes[ logKey ] !== undefined
-			) {
-				const sizeDelta =
-					snap.total_size - this._prevTotalSizes[ logKey ];
-				newWriteRates[ logKey ] =
-					sizeDelta >= 0 ? sizeDelta / timeDelta : 0;
-			}
 			const currentIds = new Set( snap.segments.keys() );
 			newPrevSegments[ logKey ] = currentIds;
 			newPrevSegmentData[ logKey ] = snap.segments;
@@ -229,10 +179,7 @@ export class WorkerStatusTransformNode extends Node {
 			loading: false,
 		};
 
-		// Advance prev-state for the next snapshot.
-		this._lastReceiveTime = now;
-		this._prevPositions = newPositions;
-		this._prevTotalSizes = newTotalSizes;
+		// Advance the segment-animation prev-state for the next snapshot.
 		this._prevSegments = newPrevSegments;
 		this._prevSegmentData = newPrevSegmentData;
 
