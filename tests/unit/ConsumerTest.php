@@ -367,6 +367,45 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThan( 0, $entry['off'] );
 	}
 
+	public function test_fire_checkpoints_at_most_once_per_30s(): void {
+		// The offsetlog is crash-resume only (not a position source — TopicProbe is),
+		// so fire() checkpoints at most every CHECKPOINT_INTERVAL_S (30s), not every
+		// poll. Each checkpoint appends one offsetlog entry, so entry-count == checkpoints.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new class() extends Consumer_Node {
+			public function probe_fire(): void {
+				$this->fire();
+			}
+		};
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$offsetlog = "{$this->tmp}/offsets/r/p0/0.log";
+		$entries   = static fn (): int => \is_file( $offsetlog )
+			? \count( \array_filter( \explode( "\n", (string) \file_get_contents( $offsetlog ) ) ) )
+			: 0;
+
+		Core::$now = 1000.0;
+		$c->probe_fire(); // first fire → checkpoint
+		$first = $entries();
+		$this->assertGreaterThan( 0, $first );
+
+		// New data → the +15s fire's poll ADVANCES the cursor, but the checkpoint
+		// is still gated below 30s (the point: cursor moves, offsetlog doesn't).
+		$this->produce_line( $source, 'world' );
+		Core::$now = 1015.0;
+		$c->probe_fire();
+		$this->assertSame( $first, $entries(), 'cursor advanced but no checkpoint before 30s' );
+
+		Core::$now = 1030.0;
+		$c->probe_fire(); // 30s elapsed → checkpoint the advanced cursor
+		$this->assertSame( $first + 1, $entries(), 'checkpoint at the 30s boundary' );
+	}
+
 	public function test_checkpoint_co_commits_snapshot_node_state_and_restores_it(): void {
 		// Tachikoma snapshot pattern: the Consumer co-commits {offset, cache} as ONE
 		// offsetlog record, so the read offset and the named node's state stay

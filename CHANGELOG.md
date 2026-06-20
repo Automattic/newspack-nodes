@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Consumer_Node` checkpoints its offsetlog every 30s, not every second.** Now that TopicProbe (not the offsetlog) is the position source, the offsetlog is crash-resume only — `CHECKPOINT_INTERVAL_S` 1 → 30 cuts offsetlog write volume ~30×; a crash re-delivers under 30s of cursor on respawn (at-least-once, unchanged).
 - **Topologies tab + Overview tab: a stopped topology's name no longer links to live mode.** Live mode is meaningless for an inactive topology (nothing is running to inspect), so its name now renders as plain text — no link, and no hover underline (the Overview hover rule is scoped to the `[href]` anchor). Only an active topology's name deep-links into the live console. The per-topology **Edit** deep-link is unchanged for both active and stopped topologies.
 - **Vault admin: the add-server form label + validation read just "ID"** (was "Server ID"), matching the list column header.
 - **Topology Console + debug overlay: a canvas-background click no longer dismisses the transcript.** It still deselects the current node/edge when there is one (the always-present inspector panel stays, showing "select a node"), and autofits when there isn't — but it never collapses the REPL transcript (that stays an Esc / footer-toggle action). The repl-dismiss-on-canvas-click was removed from both the console and the overlay.

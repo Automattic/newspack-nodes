@@ -518,6 +518,31 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( seeded.nodes.map( ( n ) => n.id ) ).toContain( 'greeter' );
 	} );
 
+	it( 'does NOT seed the Metadata node at the local root (cwd "/") — only at a worker scope', async () => {
+		const { newMessage, VALUE } = require( '../../../runtime/message' );
+		const reply = newMessage();
+		reply[ VALUE ] = {
+			name: 'get',
+			payload: {
+				name: 'demo',
+				source: 'user',
+				tsl: 'make_node Echo greeter\n',
+			},
+		};
+		mockSend.mockResolvedValue( reply );
+		renderGraph();
+		// cd / before the async TSL seed resolves. The local root renders the
+		// in-browser graph, never the topology — seeding it here paints the wrong
+		// graph and stomps the layout (foreign node ids miss the 'local' map).
+		Core.node( names.CWD ).target = '';
+		await act( async () => {
+			await Promise.resolve();
+		} );
+		expect(
+			Core.node( names.METADATA ).setStateCache?.metadata
+		).toBeUndefined();
+	} );
+
 	it( 'an SSE reply with TO=_completion lands in the Completion node (not the transcript)', () => {
 		renderGraph();
 		const {
