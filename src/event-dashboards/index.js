@@ -1,8 +1,8 @@
 /**
  * Dashboards Entry Point
  *
- * Registers the hub DevTools tabs the event-dashboards bundle owns (Topology
- * Manager + Raw Logs) via the side-effecting `./tabs` import. There is no
+ * Registers the hub DevTools tabs the event-dashboards bundle owns (Overview,
+ * Topology Manager, Raw Logs) via the side-effecting `./tabs` import. There is no
  * standalone React mount — Raw Logs is a hub tab now.
  */
 

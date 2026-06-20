@@ -1,9 +1,10 @@
 /**
  * Register the Topology Console as a `host: 'hub'` DevTools tab. Imported (for
  * its side effect) by the topology-console bundle entry so the tab registers
- * wherever the bundle loads. Order 0 puts the Console FIRST in the hub bar,
- * before the Topology Manager (order 10). `fullBleed` opts the console out of
- * the tab host's default scroll container — it owns its own full-height canvas.
+ * wherever the bundle loads. Order 5 puts the Console after the Overview landing
+ * (order 0) and before the Topology Manager (order 10). `fullBleed` opts the
+ * console out of the tab host's default scroll container — it owns its own
+ * full-height canvas.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -16,7 +17,7 @@ registerDevtoolsTab( {
 	host: 'hub',
 	slug: 'console',
 	param: 'topology',
-	order: 0,
+	order: 5,
 	fullBleed: true,
 	component: TopologyConsole,
 } );

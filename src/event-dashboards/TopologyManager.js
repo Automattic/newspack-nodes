@@ -30,7 +30,7 @@ import './TopologyManager.scss';
 // distinct signal (not `?edit=1` sans topology) because the console's
 // topology→URL sync writes the default `?topology` on mount, which would
 // otherwise make a New link look like an edit of the default topology.
-const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
+export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	const params = new URLSearchParams( {
 		page: 'newspack-nodes-hub',
 		tab: 'console',
