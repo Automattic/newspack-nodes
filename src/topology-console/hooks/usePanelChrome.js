@@ -91,10 +91,15 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 		);
 	}, [ paletteKey, defaultCollapsed, setPaletteCollapsed ] );
 
-	// Inspector collapse — a single global preference (default expanded), shared
-	// by the console and the overlay.
-	const [ inspectorCollapsed, , toggleInspectorCollapsed ] =
-		usePersistedCollapse( INSPECTOR_COLLAPSED_STORAGE_KEY, false );
+	// Inspector collapse — a single global preference shared by the console and
+	// overlay. Default collapsed (a slim rail) so it's compact until a selection
+	// auto-expands it (consumers call setInspectorCollapsed(false) on select) or
+	// the user expands it via the chevron.
+	const [
+		inspectorCollapsed,
+		setInspectorCollapsed,
+		toggleInspectorCollapsed,
+	] = usePersistedCollapse( INSPECTOR_COLLAPSED_STORAGE_KEY, true );
 
 	return {
 		theme,
@@ -102,6 +107,7 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 		paletteCollapsed,
 		togglePaletteCollapsed,
 		inspectorCollapsed,
+		setInspectorCollapsed,
 		toggleInspectorCollapsed,
 	};
 }

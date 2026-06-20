@@ -211,10 +211,11 @@ export default function GraphView( {
 					classCatalog={ classCatalog }
 				/>
 			</Frame>
-			{ /* Selection-driven: the inspector opens when a node is selected
-			     (a canvas-background click deselects → closes it). While open, the
-			     chevron collapses it to a slim rail and back. */ }
-			{ selectedId && (
+			{ /* Always present so the show/hide chevron is reachable even with no
+			     selection: a slim rail when collapsed, the inspector when expanded
+			     (its empty state reads "select a node"). Selecting a node
+			     auto-expands it (the consumer sets inspectorCollapsed=false). */ }
+			{
 				<div
 					className={ `topology-inspector-dock${
 						inspectorCollapsed
@@ -263,7 +264,7 @@ export default function GraphView( {
 						/>
 					) }
 				</div>
-			) }
+			}
 		</>
 	);
 }
