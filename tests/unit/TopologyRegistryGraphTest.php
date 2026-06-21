@@ -63,6 +63,24 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertContains( [ 'request-builder', 'errors:partition' ], $g['edges'] );
 	}
 
+	public function test_graph_for_consumer_carries_reader_from_offsetlog_arg(): void {
+		// `make_node Consumer <node> <source> <offsetlog>` — the offsetlog basename
+		// is the consumer's READER id, the unique key that disambiguates two
+		// topologies reading the SAME source (e.g. request-builder + job-router both
+		// tail firehose.p<N> but write distinct offsetlogs).
+		$this->write_tsl(
+			'rb',
+			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.request-builder.p<partition>\n"
+		);
+		$g      = \Newspack_Nodes\Topology_Registry::graph_for( 'rb' );
+		$byName = [];
+		foreach ( $g['nodes'] as $n ) {
+			$byName[ $n['name'] ] = $n;
+		}
+		$this->assertSame( 'firehose.p<partition>', $byName['firehose:consumer']['reads'] );
+		$this->assertSame( 'firehose.request-builder.p<partition>', $byName['firehose:consumer']['reader'] );
+	}
+
 	public function test_graph_for_kind_ignores_name_suffix(): void {
 		// A Partition whose NAME has no :partition suffix — kind must still be 'partition' (from the class).
 		$this->write_tsl( 'x', "make_node Partition plainname <config:logs_dir>/out.log <partition> 1 2 0\n" );

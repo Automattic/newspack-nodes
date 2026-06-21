@@ -395,6 +395,12 @@ class Topology_Registry {
 					$node['writes'] = $basename( $m[3] );
 				} elseif ( 'consumer' === $kind && isset( $m[3] ) ) {
 					$node['reads'] = $basename( $m[3] );
+					// Consumer args are `<source> <offsetlog>`; the offsetlog basename
+					// (2nd positional, token 4) is the consumer's unique READER id —
+					// disambiguates two topologies tailing the SAME source.
+					if ( isset( $tokens[4] ) ) {
+						$node['reader'] = $basename( $tokens[4] );
+					}
 				} elseif ( 'log' === $kind && isset( $m[3] ) ) {
 					// make_node Log <name> <file> [segment_size] [num_segments].
 					// Carry the raw path + sizes so dump_graph can stat the flat segments.
