@@ -35,6 +35,11 @@ export class RemoteLinkNode extends Node {
 		this.sseIn = null;
 		this.httpOut = null;
 		this.heartbeat = null;
+		// A RemoteLink is a log/topic SUBSCRIPTION: every received record goes to
+		// the link's target, so its SseIn re-homes any server-side TO the records
+		// carry (PARTITION replays do). RemoteIpc (pivoted IPC) overrides this to
+		// false so worker reply frames keep their TO=FROM breadcrumb routing.
+		this.rehomeReceived = true;
 		// Optional consumer hook fired with the SseIn's `connected` payload (after
 		// the internal slot bridge) — lets a graph track which link's stream is live
 		// (e.g. the console's ssePid as the active worker changes).
@@ -60,10 +65,9 @@ export class RemoteLinkNode extends Node {
 		if ( this.target ) {
 			sse.target = this.target;
 		}
-		// A RemoteLink is a log/topic subscription: deliver EVERY received record
-		// to the link's target, re-homing any server-side TO the records carry
-		// (PARTITION replays do). RemoteIpc deliberately does not set this.
-		sse.homeToTarget = true;
+		// Subscriptions re-home received records to the target; RemoteIpc opts out
+		// (see `rehomeReceived`) so its worker reply frames keep TO=FROM routing.
+		sse.homeToTarget = this.rehomeReceived;
 		this.sseIn = sse;
 
 		let http;

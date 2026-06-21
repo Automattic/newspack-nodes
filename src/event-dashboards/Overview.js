@@ -315,13 +315,6 @@ export default function Overview() {
 					{ __( '+ New Topology', 'newspack-nodes' ) }
 				</a>
 			</div>
-			{ supervisor && (
-				<SupervisorStatus
-					supervisor={ supervisor }
-					currentTime={ currentTime }
-					onRestart={ () => restart( 'supervisor' ) }
-				/>
-			) }
 			<div className="nodes-overview__panels">
 				<TopicsChart
 					title={ __( 'Topics Message Rate', 'newspack-nodes' ) }
@@ -339,6 +332,13 @@ export default function Overview() {
 					formatValue={ formatBytes }
 				/>
 			</div>
+			{ supervisor && (
+				<SupervisorStatus
+					supervisor={ supervisor }
+					currentTime={ currentTime }
+					onRestart={ () => restart( 'supervisor' ) }
+				/>
+			) }
 			<div className="nodes-overview__rows">
 				{ activeSorted.map( ( t ) => (
 					<ActiveRow
