@@ -236,7 +236,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$reply[ Message::VALUE ] = [ 'success' => true ];
 		$node->fill( $reply );
 
-		$status = Core::$memd->get( 'np:remote:firehose.p0' );
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
 		$this->assertIsArray( $status );
 		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
 		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
@@ -262,7 +262,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// A tick right after the reply keeps the fresh response in the snapshot.
 		$node->fire();
 		$this->assertNotNull(
-			Core::$memd->get( 'np:remote:firehose.p0' )['last_heartbeat_response']
+			Core::$memd->get( 'np:remote:remote-austin:firehose.p0' )['last_heartbeat_response']
 		);
 
 		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
@@ -270,7 +270,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// snapshot ages the response out to null (mirrors the old clear-on-disconnect).
 		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
 		$node->fire();
-		$status = Core::$memd->get( 'np:remote:firehose.p0' );
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
 		$this->assertNull( $status['last_heartbeat_response'] );
 		$this->assertNull( $status['last_heartbeat_rtt'] );
 	}
@@ -281,7 +281,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:firehose.p0' );
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
 		$this->assertIsArray( $status );
 		$this->assertArrayHasKey( 'connected', $status );
 		$this->assertArrayHasKey( 'current_backoff', $status );
@@ -301,7 +301,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:firehose.p0' );
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
 		$this->assertSame( 1748960000, $status['last_sse_heartbeat'] );
 	}
 
