@@ -253,6 +253,39 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
+	public function test_thrown_error_message_is_html_decoded_in_the_reply_payload(): void {
+		// Verb handlers esc_html() their dynamic throw messages to satisfy the
+		// phpcs EscapeOutput sniff, but the TM_ERROR payload is plain text for a
+		// JSON/terminal sink (React + the cli both re-escape / print raw). interpret()
+		// must decode so the UI shows `'`/`<`/`>`, not `&#039;`/`&lt;`/`&gt;`.
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$interpreter->commands(
+			[
+				'boom' => static function (): string {
+					throw new \RuntimeException(
+						"activating &#039;perf&#039; conflicts: a &lt;b&gt;"
+					);
+				},
+			]
+		);
+
+		$message = $this->command_message( 'boom', '', true );
+		$interpreter->fill( $message );
+
+		$this->assertCount( 1, $sink->captured );
+		$reply = $sink->captured[0];
+		$this->assertSame(
+			Message::TM_COMMAND | Message::TM_ERROR,
+			$reply[ Message::TYPE ]
+		);
+		$this->assertSame(
+			"activating 'perf' conflicts: a <b>",
+			$reply[ Message::VALUE ]['payload']
+		);
+	}
+
 	public function test_dispatch_throws_on_unknown_command(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

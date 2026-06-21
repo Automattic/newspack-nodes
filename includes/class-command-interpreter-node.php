@@ -120,7 +120,11 @@ class Command_Interpreter_Node extends Node {
 				);
 				$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
 			} catch ( \Throwable $e ) {
-				$result    = $e->getMessage();
+				// Verb handlers esc_html() their dynamic throw messages for the phpcs
+				// EscapeOutput sniff, but this payload is plain text for a JSON/terminal
+				// sink (React + the cli re-escape / print raw) — decode so the UI shows
+				// `'`/`<`/`>`, not `&#039;`/`&lt;`/`&gt;`.
+				$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
 				$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 			}
 		}
