@@ -107,8 +107,15 @@ class Settings_Sync_Node extends Timer_Node {
 		// than a stale value the worker cached at first read. Mirrors Discovery_Collector_Node.
 		( self::$invalidate_options_cache ?? static fn () => Config::invalidate_options_cache() )();
 		// App-overridable: ELN resolves a blank remote_* to the file default here.
-		$value     = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
-		$arguments = Command_Args::format( [ $spec['remote'], self::scalarize( $value ) ], [] );
+		$value  = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
+		$scalar = self::scalarize( $value );
+		// Unencodable (malformed UTF-8 etc.): skip rather than ship an empty token
+		// that would decode to [] and WIPE the option on the spoke.
+		if ( null === $scalar ) {
+			$this->print_less_often( "settings-sync: cannot encode value for {$local}; skipping" );
+			return;
+		}
+		$arguments = Command_Args::format( [ $spec['remote'], $scalar ], [] );
 
 		$target                = \is_array( $this->target ) ? ( $this->target[0] ?? '' ) : $this->target;
 		$out                   = Message::new_message();
@@ -122,9 +129,17 @@ class Settings_Sync_Node extends Timer_Node {
 		$this->sink->fill( $out );
 	}
 
-	/** Flatten a value to one positional token: arrays become csv, scalars stringify. */
-	private static function scalarize( mixed $v ): string {
-		return \is_array( $v ) ? \implode( ',', \array_map( '\strval', $v ) ) : Core::as_string( $v );
+	// Flatten a value to one positional token: arrays become JSON (lossless for
+	// associative maps like custom_events, whose keys carry the data — implode()
+	// would drop them); scalars stringify. The receiver json_decodes array options.
+	// null signals an unencodable value (json_encode failed) so push() can skip it
+	// rather than ship an empty token that would wipe the option on the spoke.
+	private static function scalarize( mixed $v ): ?string {
+		if ( \is_array( $v ) ) {
+			$json = \wp_json_encode( $v, \JSON_UNESCAPED_SLASHES );
+			return false === $json ? null : $json;
+		}
+		return Core::as_string( $v );
 	}
 
 	/**

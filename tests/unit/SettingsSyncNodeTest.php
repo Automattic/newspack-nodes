@@ -138,7 +138,11 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame( 'newspack_nodes_num_segments 9', $sink->captured[0][ Message::VALUE ]['arguments'] );
 	}
 
-	public function test_fill_scalarizes_array_value_to_csv(): void {
+	public function test_fill_scalarizes_array_value_to_json(): void {
+		// Array option values ride the wire as JSON, not a comma-list — lossless
+		// even for associative maps (custom_events: event_name => true), whose keys
+		// implode() would drop. Parse the emitted args back and json_decode the
+		// value to assert the round-trip rather than match the escaped wire string.
 		\update_option( 'newspack_nodes_remote_servers', [ 'a.com', 'b.com' ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
@@ -149,8 +153,46 @@ class SettingsSyncNodeTest extends TestCase {
 		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_servers' ];
 		$node->fill( $msg );
 
-		$out = $sink->captured[0];
-		$this->assertStringContainsString( 'a.com,b.com', $out[ Message::VALUE ]['arguments'] );
+		$parsed = \Newspack_Nodes\Command_Args::parse( $sink->captured[0][ Message::VALUE ]['arguments'] );
+		$this->assertSame( 'newspack_nodes_remote_servers', $parsed['positional'][0] );
+		$this->assertSame( [ 'a.com', 'b.com' ], \json_decode( $parsed['positional'][1], true ) );
+	}
+
+	public function test_fill_preserves_associative_array_keys_via_json(): void {
+		// The custom_events shape: keys ARE the data. implode(',') would emit a
+		// meaningless "1,1"; JSON keeps the event names.
+		\update_option( 'newspack_nodes_remote_servers', [ 'advancedemail' => true, 'amazons3' => true ] );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_servers settings newspack_nodes_remote_servers' );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_servers' ];
+		$node->fill( $msg );
+
+		$parsed = \Newspack_Nodes\Command_Args::parse( $sink->captured[0][ Message::VALUE ]['arguments'] );
+		$this->assertSame(
+			[ 'advancedemail' => true, 'amazons3' => true ],
+			\json_decode( $parsed['positional'][1], true )
+		);
+	}
+
+	public function test_push_skips_when_value_cannot_be_encoded(): void {
+		// A value json_encode rejects (malformed UTF-8) must NOT emit a `set` with
+		// an empty argument — that would decode to [] on the spoke and WIPE the
+		// option. push() drops it instead (rate-limited log), leaving the spoke be.
+		\update_option( 'newspack_nodes_remote_servers', [ "bad\xB1utf8" ] );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_servers settings newspack_nodes_remote_servers' );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_servers' ];
+		$node->fill( $msg );
+
+		$this->assertCount( 0, $sink->captured );
 	}
 
 	public function test_fill_drops_unregistered_option(): void {
