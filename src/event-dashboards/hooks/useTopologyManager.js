@@ -32,7 +32,7 @@
  * `status = byName[row.name] ?? null`.
  */
 
-import { useCallback } from '@wordpress/element';
+import { useCallback, useMemo } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import {
 	newMessage,
@@ -265,22 +265,33 @@ export function useTopologyManager( opts = {} ) {
 	const workerModel = useNodeState( WORKER_VIEW, 'view' );
 	const topologyModel = useNodeState( TOPOLOGY_VIEW, 'view' );
 
-	const rows = topologyModel?.topologies || [];
-	const byName = sectionsByName( workerModel );
-	const topologies = rows.map( ( row ) => {
-		const status = byName[ row.name ] ?? null;
-		const { partitions, health, etaSeconds: eta } = deriveHealth( status );
-		return {
-			name: row.name,
-			source: row.source,
-			active: row.active,
-			num_partitions: row.num_partitions,
-			status,
-			partitions,
-			health,
-			etaSeconds: eta,
-		};
-	} );
+	// Memoized on the two view models so the topologies array (and every topology
+	// object) keeps a STABLE identity between renders that don't change the data —
+	// e.g. an Overview drag-reorder, which re-renders every frame. Without this, a
+	// fresh array each render breaks `memo` on every consumer (SummaryCards, each
+	// TopologyRow), forcing a full re-render storm mid-drag.
+	const topologies = useMemo( () => {
+		const rows = topologyModel?.topologies || [];
+		const byName = sectionsByName( workerModel );
+		return rows.map( ( row ) => {
+			const status = byName[ row.name ] ?? null;
+			const {
+				partitions,
+				health,
+				etaSeconds: eta,
+			} = deriveHealth( status );
+			return {
+				name: row.name,
+				source: row.source,
+				active: row.active,
+				num_partitions: row.num_partitions,
+				status,
+				partitions,
+				health,
+				etaSeconds: eta,
+			};
+		} );
+	}, [ topologyModel, workerModel ] );
 
 	const supervisor = workerModel?.supervisor ?? null;
 	const currentTime = workerModel?.currentTime;
