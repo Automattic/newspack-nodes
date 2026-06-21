@@ -6,7 +6,7 @@
  * the Topology Manager don't depend on that module.
  */
 
-import { memo } from '@wordpress/element';
+import { memo, useState, useEffect } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { formatBytes } from './formatters';
 
@@ -37,7 +37,19 @@ export const SegmentBar = memo( function SegmentBar( {
 	isRemoving,
 } ) {
 	const size = segment.size;
-	const pct = ( bytes ) => ( maxSize > 0 ? ( bytes / maxSize ) * 100 : 0 );
+	// A new segment mounts with empty fills, then flips to real widths next frame
+	// so the staggered width transition animates them in (transitions don't fire
+	// on mount). Existing segments draw at full width immediately.
+	const [ drawn, setDrawn ] = useState( ! isNew );
+	useEffect( () => {
+		if ( drawn ) {
+			return undefined;
+		}
+		const id = window.requestAnimationFrame( () => setDrawn( true ) );
+		return () => window.cancelAnimationFrame( id );
+	}, [ drawn ] );
+	const pct = ( bytes ) =>
+		drawn && maxSize > 0 ? ( bytes / maxSize ) * 100 : 0;
 	// cursor + end arrive together; a tree with no consumer of this log has both null.
 	const hasConsumer = cursorSeg !== undefined && cursorSeg !== null;
 
