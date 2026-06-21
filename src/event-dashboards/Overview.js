@@ -85,6 +85,23 @@ function activeRowRects() {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function Overview() {
+	// Pointer-drag reorder state, declared FIRST so it can pause everything else
+	// while a drag is in flight. `dragName` = the row being dragged; `liveOrder` =
+	// the transient order it produces (committed to `order` on pointer-up only).
+	// `dragNameRef` mirrors `dragName` for the pointer handlers (which fire from the
+	// captured grip, not React state).
+	const [ dragName, setDragName ] = useState( null );
+	const [ liveOrder, setLiveOrder ] = useState( null );
+	const dragNameRef = useRef( null );
+	// rAF-coalesce pointer moves: store the latest Y, apply at most once per frame.
+	const dragRafRef = useRef( null );
+	const dragYRef = useRef( 0 );
+	const dragging = null !== dragName;
+
+	// PAUSE all background updates while dragging: the 4s poll is suspended (so it
+	// can't fire reconstructWorkers mid-drag) and the SSE-fed probe view is frozen
+	// (so the live topicprobe stream doesn't recompute/redraw the Topics charts
+	// under the drag). Everything resumes on drop.
 	const {
 		topologies,
 		supervisor,
@@ -96,7 +113,8 @@ export default function Overview() {
 		deactivate,
 		restart,
 		connected,
-	} = useTopologyManager();
+	} = useTopologyManager( { paused: dragging } );
+
 	// A rejected activate/deactivate/restart ({ name, message }) raises this alert.
 	const [ alert, setAlert ] = useState( null );
 	// Active topology names currently UNFOLDED — restored from localStorage
@@ -105,16 +123,6 @@ export default function Overview() {
 	const [ expanded, setExpanded ] = useState( readExpanded );
 	const [ order, setOrder ] = useState( readOrder );
 	const [ collapsed, setCollapsed ] = useState( () => new Set() );
-	// Pointer-drag reorder: the name being dragged + the transient live order it
-	// produces (committed to `order` only on pointer-up, so we don't thrash
-	// localStorage on every move). `dragNameRef` mirrors `dragName` for the
-	// pointer-move/up handlers (which fire from the captured grip, not React state).
-	const [ dragName, setDragName ] = useState( null );
-	const [ liveOrder, setLiveOrder ] = useState( null );
-	const dragNameRef = useRef( null );
-	// rAF-coalesce pointer moves: store the latest Y, apply at most once per frame.
-	const dragRafRef = useRef( null );
-	const dragYRef = useRef( 0 );
 
 	useEffect( () => writeExpanded( expanded ), [ expanded ] );
 	useEffect( () => writeOrder( order ), [ order ] );
@@ -129,9 +137,14 @@ export default function Overview() {
 	);
 
 	// Second link: replay the durable topicprobe.p0 log (24h from `start`) into
-	// `topicprobe:view`, the source for the Topics panels.
+	// `topicprobe:view`, the source for the Topics panels. Frozen during a drag.
 	useTopicProbeStream( { mode: 'history' } );
-	const probeView = useNodeState( 'topicprobe:view', 'view' );
+	const probeLive = useNodeState( 'topicprobe:view', 'view' );
+	const frozenProbeRef = useRef( probeLive );
+	if ( ! dragging ) {
+		frozenProbeRef.current = probeLive;
+	}
+	const probeView = dragging ? frozenProbeRef.current : probeLive;
 
 	const actives = topologies.filter( ( t ) => t.active );
 	const stopped = topologies

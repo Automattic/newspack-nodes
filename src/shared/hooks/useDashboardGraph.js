@@ -113,6 +113,12 @@ export function useDashboardGraph( opts ) {
 		}
 		const intervalMs = parseInt( refreshMs, 10 );
 		const id = setInterval( () => {
+			// Skip ticks while the consumer is paused (e.g. an in-progress drag),
+			// so background polling doesn't fight an interaction. Read live from
+			// optsRef so toggling pause never re-times the interval.
+			if ( optsRef.current.paused ) {
+				return;
+			}
 			const interpreter = interpreterRef.current;
 			if ( interpreter ) {
 				optsRef.current.poll( interpreter );
