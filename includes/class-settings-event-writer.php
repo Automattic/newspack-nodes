@@ -18,6 +18,11 @@ namespace Newspack_Nodes;
  */
 class Settings_Event_Writer {
 
+	public const SETTINGS_LOG_DIR      = 'settings.p0';
+	public const SETTINGS_SEGMENT_SIZE = 5242880;
+	public const SETTINGS_NUM_SEGMENTS = 2;
+	public const SETTINGS_MAX_LIFESPAN = 86400;
+
 	/** Only options whose name starts with this prefix are watched. */
 	private const WATCH_PREFIX = 'newspack_';
 
@@ -82,7 +87,11 @@ class Settings_Event_Writer {
 	private static function default_append( array $message ): void {
 		$writer = new Partition_Node();
 		$writer->name( 'settings:writer' );
-		$writer->arguments( Config::get_logs_directory() . '/settings.p0' );
+		$writer->arguments( Config::get_logs_directory()
+			. '/' . self::SETTINGS_LOG_DIR
+			. ' ' . self::SETTINGS_SEGMENT_SIZE
+			. ' ' . self::SETTINGS_NUM_SEGMENTS
+			. ' ' . self::SETTINGS_MAX_LIFESPAN );
 		try {
 			$writer->fill( $message );
 			$writer->flush();

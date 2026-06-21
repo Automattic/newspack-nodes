@@ -349,8 +349,9 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		// topicprobe.p0 rides along once a real declared set exists (substrate probe log).
-		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'topicprobe.p0' ], $result );
+		// topicprobe.p0 + settings.p0 ride along once a real declared set exists
+		// (substrate probe log + settings-sync log, both written outside any .tsl).
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'settings.p0', 'topicprobe.p0' ], $result );
 	}
 
 	public function test_declared_log_dirs_skips_non_string_producers(): void {
@@ -365,7 +366,7 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'topicprobe.p0' ], $result );
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'settings.p0', 'topicprobe.p0' ], $result );
 	}
 
 	// ── frontmatter-less, multi-partition: SPAWN-aligned partition count ─────
