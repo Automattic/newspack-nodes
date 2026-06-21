@@ -62,6 +62,55 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( [ 'firehose-workers', 'only-stock', 'only-user' ], $names );
 	}
 
+	public function test_register_builtin_dir_is_lowest_priority_so_consumers_override(): void {
+		$builtin  = $this->make_temp_dir( 'tsl-builtin-' );
+		$consumer = $this->make_temp_dir( 'tsl-consumer-' );
+		\file_put_contents( "{$builtin}/hub-control.tsl", '' );
+		\file_put_contents( "{$consumer}/hub-control.tsl", '' );
+
+		// Builtin registered AFTER the consumer: priority must not depend on order.
+		Topology_Registry::register_stock_dir( $consumer );
+		Topology_Registry::register_builtin_dir( $builtin );
+
+		$this->assertSame( "{$consumer}/hub-control.tsl", Topology_Registry::resolve( 'hub-control' ) );
+
+		$this->rmdir_recursive( $builtin );
+		$this->rmdir_recursive( $consumer );
+	}
+
+	public function test_register_builtin_dir_resolves_when_no_consumer_registered(): void {
+		$builtin = $this->make_temp_dir( 'tsl-builtin-' );
+		\file_put_contents( "{$builtin}/hub-control.tsl", '' );
+
+		Topology_Registry::register_builtin_dir( $builtin );
+
+		$this->assertSame( "{$builtin}/hub-control.tsl", Topology_Registry::resolve( 'hub-control' ) );
+
+		$this->rmdir_recursive( $builtin );
+	}
+
+	public function test_register_builtin_dir_is_idempotent(): void {
+		$builtin = $this->make_temp_dir( 'tsl-builtin-' );
+		\file_put_contents( "{$builtin}/only-builtin.tsl", '' );
+
+		Topology_Registry::register_builtin_dir( $builtin );
+		Topology_Registry::register_builtin_dir( $builtin );
+
+		$this->assertSame( [ 'only-builtin' ], Topology_Registry::list() );
+
+		$this->rmdir_recursive( $builtin );
+	}
+
+	public function test_register_stock_dir_does_not_inject_the_substrate_topologies(): void {
+		// A consumer/test registering its own dir must NOT pull in nodes' real
+		// production topologies — that builtin dir is opt-in via register_builtin_dir.
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$names = Topology_Registry::list();
+		\sort( $names );
+		$this->assertSame( [ 'firehose-workers', 'only-stock' ], $names );
+	}
+
 	public function test_list_ignores_tsl_named_directories(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
 		Topology_Registry::register_user_dir( $this->user );
