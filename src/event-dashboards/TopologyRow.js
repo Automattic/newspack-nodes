@@ -221,33 +221,32 @@ const TopologyRow = memo( function TopologyRow( {
 						</span>
 					) ) }
 				</span>
-				{ allRunning && (
-					<span className="worker-status-badge running small">
-						{ __( 'ALL RUN', 'newspack-nodes' ) }
-					</span>
-				) }
-				{ allDead && (
-					<span className="worker-status-badge dead small">
-						{ __( 'ALL DEAD', 'newspack-nodes' ) }
-					</span>
-				) }
-				{ parts.length > 0 && ! allRunning && ! allDead && (
-					<span className="worker-status-badge small">
-						{ sprintf(
-							// translators: %1$d: running partitions; %2$d: total.
-							__( '%1$d/%2$d up', 'newspack-nodes' ),
-							up,
-							parts.length
-						) }
-					</span>
-				) }
-				<span className="nodes-tm__badge-cell">
-					<span
-						className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
-					>
-						{ SOURCE_LABELS[ source ] ?? source }
-					</span>
+				{ /* Fixed-width liveness slot so the health (● OK) after it lines up
+				    across rows regardless of ALL RUN / ALL DEAD / "k/n up". */ }
+				<span className="nodes-tm__liveness">
+					{ allRunning && (
+						<span className="worker-status-badge running small">
+							{ __( 'ALL RUN', 'newspack-nodes' ) }
+						</span>
+					) }
+					{ allDead && (
+						<span className="worker-status-badge dead small">
+							{ __( 'ALL DEAD', 'newspack-nodes' ) }
+						</span>
+					) }
+					{ parts.length > 0 && ! allRunning && ! allDead && (
+						<span className="worker-status-badge small">
+							{ sprintf(
+								// translators: %1$d: running partitions; %2$d: total.
+								__( '%1$d/%2$d up', 'newspack-nodes' ),
+								up,
+								parts.length
+							) }
+						</span>
+					) }
 				</span>
+				{ /* Health (● OK) sits right after the liveness badge; the catch-up
+				    ETA next to it. */ }
 				{ active && (
 					<span
 						className={ `nodes-tm__health nodes-tm__health--${ health }` }
@@ -256,8 +255,8 @@ const TopologyRow = memo( function TopologyRow( {
 					</span>
 				) }
 				{ active && (
-					// A fixed (often empty) slot so the controls don't shift between
-					// a caught-up row and a behind one; populated only when behind.
+					// A fixed (often empty) slot so the provenance pill after it
+					// doesn't shift between a caught-up row and a behind one.
 					<span
 						className="nodes-tm__eta"
 						title={ __(
@@ -274,6 +273,14 @@ const TopologyRow = memo( function TopologyRow( {
 							: '' }
 					</span>
 				) }
+				{ /* Provenance pill pushed to the right edge, next to the controls. */ }
+				<span className="nodes-tm__badge-cell">
+					<span
+						className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
+					>
+						{ SOURCE_LABELS[ source ] ?? source }
+					</span>
+				</span>
 				<TopologyControls
 					name={ name }
 					active={ active }

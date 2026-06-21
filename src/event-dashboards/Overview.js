@@ -28,7 +28,13 @@
  * Reuses the same `consoleHref` deep-links so navigation stays single-sourced.
  */
 
-import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
+import {
+	useState,
+	useEffect,
+	useRef,
+	useMemo,
+	useCallback,
+} from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import SummaryCards from './SummaryCards';
@@ -146,18 +152,29 @@ export default function Overview() {
 		.map( ( name ) => actives.find( ( t ) => t.name === name ) )
 		.filter( Boolean );
 
-	const expandTopology = ( name ) =>
-		setExpanded( ( prev ) => new Set( prev ).add( name ) );
-	const collapseTopology = ( name ) =>
+	// Mirror the current display order + live order into refs so the drag handlers
+	// can stay referentially STABLE (useCallback []) — stable handler props are
+	// what let `memo(TopologyRow)` skip a re-render on every drag frame.
+	const displayedRef = useRef( displayedNames );
+	displayedRef.current = displayedNames;
+	const liveOrderRef = useRef( null );
+	liveOrderRef.current = liveOrder;
+
+	const expandTopology = useCallback(
+		( name ) => setExpanded( ( prev ) => new Set( prev ).add( name ) ),
+		[]
+	);
+	const collapseTopology = useCallback( ( name ) => {
 		setExpanded( ( prev ) => {
 			const next = new Set( prev );
 			next.delete( name );
 			return next;
 		} );
+	}, [] );
 	const foldAll = () => setExpanded( new Set() );
 	const unfoldAll = () =>
 		setExpanded( new Set( actives.map( ( t ) => t.name ) ) );
-	const onToggleFold = ( key ) =>
+	const onToggleFold = useCallback( ( key ) => {
 		setCollapsed( ( prev ) => {
 			const next = new Set( prev );
 			if ( next.has( key ) ) {
@@ -167,18 +184,20 @@ export default function Overview() {
 			}
 			return next;
 		} );
+	}, [] );
 
 	// Pointer-drag reorder (cross-browser; native HTML5 DnD was too flaky). The
-	// grip captures the pointer, so move/up keep firing even over other rows;
-	// each move recomputes the live order from the row geometry under the cursor.
-	const onGripPointerDown = ( name, e ) => {
+	// grip captures the pointer, so move/up keep firing even over other rows; each
+	// move recomputes the live order from the row geometry under the cursor. All
+	// three are stable (read current order via refs) so they don't bust row memo.
+	const onGripPointerDown = useCallback( ( name, e ) => {
 		e.preventDefault();
 		e.currentTarget.setPointerCapture?.( e.pointerId );
 		dragNameRef.current = name;
 		setDragName( name );
-		setLiveOrder( displayedNames );
-	};
-	const onGripPointerMove = ( e ) => {
+		setLiveOrder( displayedRef.current );
+	}, [] );
+	const onGripPointerMove = useCallback( ( e ) => {
 		if ( ! dragNameRef.current ) {
 			return;
 		}
@@ -196,15 +215,15 @@ export default function Overview() {
 			}
 			setLiveOrder( ( prev ) =>
 				dragReorder(
-					prev ?? displayedNames,
+					prev ?? displayedRef.current,
 					name,
 					activeRowRects(),
 					dragYRef.current
 				)
 			);
 		} );
-	};
-	const onGripPointerUp = () => {
+	}, [] );
+	const onGripPointerUp = useCallback( () => {
 		if ( ! dragNameRef.current ) {
 			return;
 		}
@@ -215,12 +234,14 @@ export default function Overview() {
 		}
 		// Commit: fold the live active order back over the full persisted order
 		// (carrying inactive names) — once, so localStorage isn't thrashed.
-		if ( liveOrder ) {
-			setOrder( ( prev ) => mergeStoredOrder( prev, liveOrder ) );
+		if ( liveOrderRef.current ) {
+			setOrder( ( prev ) =>
+				mergeStoredOrder( prev, liveOrderRef.current )
+			);
 		}
 		setDragName( null );
 		setLiveOrder( null );
-	};
+	}, [] );
 
 	// Per-topic (source) 24h series for the three Topics panels — message rate,
 	// byte rate, backlog. MEMOIZED on the probe consumers so a drag-reorder (which

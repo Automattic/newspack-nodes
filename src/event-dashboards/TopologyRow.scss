@@ -139,8 +139,16 @@
 	// Source badge starts the right-hand group (badge, health, toggle, restart);
 	// push it — and everything after — to the right edge, leaving the name +
 	// per-partition pills on the left.
-	// Fixed-width cell that starts the right-hand group (badge, health, ETA,
-	// controls) and pushes it to the right edge. The provenance pill sits
+	// Fixed-width liveness slot (ALL RUN / ALL DEAD / "k/n up") so the health
+	// badge that follows it lines up vertically across rows.
+	&__liveness {
+		display: inline-flex;
+		align-items: center;
+		min-width: 70px;
+	}
+
+	// Fixed-width cell that pushes the provenance pill (and the controls after it)
+	// to the right edge. The provenance pill sits
 	// right-aligned inside at its NATURAL width (no stretched background), so a
 	// wide "USER ▸ SHADOWS STOCK" and a bare "STOCK" both end at the same x —
 	// which lines up the health (● OK), ETA and controls after them across rows.
