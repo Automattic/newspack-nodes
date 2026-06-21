@@ -60,21 +60,11 @@ class SSE_In_Node extends Node {
 	 */
 	public static ?\Closure $curl_dispatch = null;
 
-	/**
-	 * Re-home received records to the link target. True (default) for a log/topic
-	 * subscription: every forwarded record is stamped TO=target. A patron driving
-	 * a pivoted IPC stream (Remote_IPC) sets this false so a worker reply frame
-	 * keeps its own TO (the TO=FROM breadcrumb the browser/_router must honor).
-	 * Mirrors the JS SseConnectorNode `homeToTarget`.
-	 */
-	public bool $home_to_target = true;
-
 	protected string $url           = '';
 	protected string $auth_username = '';
 	protected string $auth_password = '';
 	protected string $auth_token    = '';
 	protected string $subscribe     = '';
-	protected string $source        = '';
 
 	private bool $verify_ssl    = true;
 	private bool $require_https  = false;
@@ -149,7 +139,6 @@ class SSE_In_Node extends Node {
 		$this->auth_password = $auth_password;
 		$this->auth_token    = $auth_token;
 		$this->subscribe     = $subscribe;
-		$this->source        = $source;
 		$this->verify_ssl    = $verify_ssl;
 		$this->require_https = $require_https;
 		$this->position      = [
@@ -531,7 +520,7 @@ class SSE_In_Node extends Node {
 		$this->current_backoff = self::INITIAL_BACKOFF;
 		$this->last_event_time = Core::$now ?: \microtime( true );
 
-		$decoded = \json_decode( $raw_data, true, 16 );
+		$message = \json_decode( $raw_data, true, 16 );
 
 		// The remote's messages-stream emits periodic `heartbeat` events when a
 		// stream is idle-but-live. Record the receipt (not forwarded).
@@ -542,33 +531,33 @@ class SSE_In_Node extends Node {
 		}
 
 		// `/messages/stream` data lines are `msg` events carrying a 7-field
-		// Message envelope; any other event type is silently ignored.
-		if ( 'msg' === $type && \is_array( $decoded ) && \count( $decoded ) === 7 ) {
-			return $this->dispatch_msg_envelope( \array_values( $decoded ) );
+		// Message; any other event type is silently ignored.
+		if ( 'msg' === $type && \is_array( $message ) && \count( $message ) === 7 ) {
+			return $this->dispatch_message( \array_values( $message ) );
 		}
 
 		return true;
 	}
 
 	/**
-	 * Dispatch a parsed `msg`-event Message envelope (7-field array).
+	 * Dispatch a parsed message (7-field array).
 	 *
-	 * The only envelope inspected is the substrate's bookkeeping `connected` frame
+	 * The only message inspected is the substrate's bookkeeping `connected` frame
 	 * (KEY = 'connected', VALUE = `{slot, ...}`), which feeds local slot/connection
-	 * state and is NOT forwarded. Everything else is forwarded. Per-envelope
+	 * state and is NOT forwarded. Everything else is forwarded. Per-message
 	 * position rides `ID = "seg:off"` (Consumer stamps at emit).
 	 *
-	 * @param array<int,mixed> $envelope 7-field Message array.
+	 * @param array<int,mixed> $message 7-field Message array.
 	 */
-	private function dispatch_msg_envelope( array $envelope ): bool {
-		$id_raw  = $envelope[ Message::ID ];
-		$key_raw = $envelope[ Message::KEY ];
+	private function dispatch_message( array $message ): bool {
+		$id_raw  = $message[ Message::ID ];
+		$key_raw = $message[ Message::KEY ];
 		$id      = \is_scalar( $id_raw ) ? (string) $id_raw : '';
 		$key     = \is_scalar( $key_raw ) ? (string) $key_raw : '';
-		$value   = $envelope[ Message::VALUE ];
+		$value   = $message[ Message::VALUE ];
 
-		// Position from envelope ID — `{segment_id}:{offset}` shape. Empty ID
-		// (e.g. the connected envelope) is a no-op. The ctype check is defensive:
+		// Position from message ID — `{segment_id}:{offset}` shape. Empty ID
+		// (e.g. the connected message) is a no-op. The ctype check is defensive:
 		// `(int)` on a non-numeric string silently returns 0, resetting the cursor.
 		if ( '' !== $id ) {
 			$colon = \strpos( $id, ':' );
@@ -584,7 +573,7 @@ class SSE_In_Node extends Node {
 			}
 		}
 
-		// `connected` envelope is the substrate's bookkeeping handshake — capture
+		// `connected` message is the substrate's bookkeeping handshake — capture
 		// slot, mark connected, do NOT forward.
 		if ( 'connected' === $key && \is_array( $value ) && isset( $value['slot'] ) ) {
 			$slot_raw        = $value['slot'];
@@ -595,47 +584,24 @@ class SSE_In_Node extends Node {
 			return true;
 		}
 
-		$this->forward( $envelope );
+		$this->forward( $message );
 		return true;
 	}
 
 	/**
-	 * Forward a parsed envelope to the sink with TO=target. VALUE is the firehose
-	 * entry array, stamped with `_source` (the configured Vault id). Guarded by
-	 * Message::packed_size() against the Partition PIPE_BUF cap — an oversized
-	 * post-stamp message is dropped + rate-limited rather than forwarded.
+	 * Forward a parsed message to the sink with TO=target.
 	 *
-	 * @param array<int,mixed> $envelope 7-field Message array.
+	 * @param array<int,mixed> $message 7-field Message array.
 	 */
-	private function forward( array $envelope ): void {
+	private function forward( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'SSE_In::forward requires a wired sink' );
 		}
-		$value   = $envelope[ Message::VALUE ];
-		$key_raw = $envelope[ Message::KEY ];
 
-		if ( \is_array( $value ) ) {
-			$value['_source'] = $this->source;
+		if ( $this->target ) {
+			$message[ Message::TO ] = \is_string( $this->target ) ? $this->target : '';
 		}
-
-		// Subscription mode re-homes to the link target; IPC mode keeps the
-		// envelope's own TO so a worker reply routes by its TO=FROM breadcrumb.
-		$to = $this->home_to_target
-			? ( \is_string( $this->target ) ? $this->target : '' )
-			: Core::as_string( $envelope[ Message::TO ] );
-
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = $envelope[ Message::TYPE ];
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = $this->name;
-		$message[ Message::TO ]        = $to;
-		$message[ Message::KEY ]       = \is_scalar( $key_raw ) ? (string) $key_raw : '';
-		$message[ Message::VALUE ]     = $value;
-
-		if ( Message::packed_size( $message ) > Partition_Node::MAX_LINE_SIZE ) {
-			$this->print_less_often( "dropping entry > " . Partition_Node::MAX_LINE_SIZE . ' bytes' );
-			return;
-		}
+		$this->stamp_message( $message, $this->name );
 
 		++$this->counter;
 		$this->sink->fill( $message );

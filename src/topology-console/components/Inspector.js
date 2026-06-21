@@ -330,9 +330,9 @@ function NameField( { node, takenNames, onRenameNode } ) {
 				trimmed
 			);
 		}
-		if ( ! /^[a-zA-Z0-9_:-]+$/.test( trimmed ) ) {
+		if ( ! /^[a-zA-Z0-9._:-]+$/.test( trimmed ) ) {
 			return __(
-				'Letters, digits, dash, underscore, colon only.',
+				'Letters, digits, dot, dash, underscore, colon only.',
 				'newspack-nodes'
 			);
 		}
