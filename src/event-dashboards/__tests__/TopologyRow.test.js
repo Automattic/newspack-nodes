@@ -181,7 +181,10 @@ describe( 'TopologyRow — folded mode', () => {
 				{ ...rowProps( { folded: true, onExpand: jest.fn() } ) }
 			/>
 		);
-		expect( ok.container.querySelector( '.nodes-tm__eta' ) ).toBeNull();
+		// The ETA slot is reserved (present) but empty when caught up.
+		expect(
+			ok.container.querySelector( '.nodes-tm__eta' ).textContent
+		).toBe( '' );
 	} );
 
 	it( 'exposes a draggable grip that calls onDragStart with the name', () => {

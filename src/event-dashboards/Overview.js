@@ -55,8 +55,9 @@ import {
 } from './overviewPrefs';
 import './styles/overview.scss';
 
-// dataTransfer MIME for a row-reorder drag (mirrors the palette's DRAG_MIME idiom).
-const DRAG_MIME = 'application/x-newspack-topology-order';
+// dataTransfer MIME for a row-reorder drag. Plain text (not a custom type) is the
+// most cross-browser-reliable — Firefox is finicky about custom drag data types.
+const DRAG_MIME = 'text/plain';
 
 /**
  * Overview hub tab.
