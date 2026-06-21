@@ -166,4 +166,32 @@ describe( 'useTopicProbeStream', () => {
 		expect( snap[ 'firehose.p0' ].latest.backlog ).toBe( 7800 );
 		expect( snap[ 'firehose.p0' ].source ).toBe( 'firehose.p0' );
 	} );
+
+	it( 'reconnects (re-seeking history) after a graph rebuild drops + recreates the link', async () => {
+		// A graph-generation bump (Reset Graph, or a co-mounted dashboard's
+		// rebuild) tears down + recreates the link. The connect must re-fire on the
+		// fresh link — even though page visibility never changed — or the rebuilt
+		// link sits unconnected and the panels go empty.
+		renderHook( () =>
+			useTopicProbeStream( {
+				mode: 'history',
+				commandClient: fakeClient(),
+			} )
+		);
+		await act( async () => {} );
+		const firstLink = Core.node( LINK );
+		const before = FakeEventSource.instances.length;
+
+		await act( async () => {
+			Core.bumpGraphGeneration();
+		} );
+
+		expect( Core.node( LINK ) ).not.toBe( firstLink ); // rebuilt
+		expect( FakeEventSource.instances.length ).toBeGreaterThan( before ); // reconnected
+		expect( FakeEventSource.last.url ).toContain(
+			encodeURIComponent(
+				JSON.stringify( { 'topicprobe.p0': { 0: 'start' } } )
+			)
+		); // re-seeks history, not a tail-follow
+	} );
 } );
