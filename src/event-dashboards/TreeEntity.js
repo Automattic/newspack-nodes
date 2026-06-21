@@ -93,9 +93,6 @@ function LogRows( {
 	return sorted.map( ( p ) => {
 		const rateKey = p.name;
 		const segs = p.segments || [];
-		const newestSegId = segs.length
-			? Math.max( ...segs.map( ( s ) => s.id ) )
-			: 0;
 		// cursor + recorded end arrive together (this tree's own consumer); a tree
 		// with no consumer of the log has neither → SegmentBar paints all-gray.
 		const cursor =
@@ -134,7 +131,6 @@ function LogRows( {
 							cursorOffset={ cursor?.offset }
 							endSeg={ cursor?.endSeg }
 							endSize={ cursor?.endSize }
-							newestSegId={ newestSegId }
 							isNew={
 								prevSegments?.[ rateKey ] &&
 								! prevSegments[ rateKey ].has( seg.id )

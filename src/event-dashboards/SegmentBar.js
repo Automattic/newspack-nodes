@@ -20,7 +20,6 @@ import { formatBytes } from './formatters';
  * @param {number}  props.cursorOffset Reader cursor offset within cursorSeg.
  * @param {number}  props.endSeg       Recorded probe-end segment ID (null = no consumer).
  * @param {number}  props.endSize      Recorded probe-end offset within endSeg.
- * @param {number}  props.newestSegId  ID of the newest segment.
  * @param {boolean} props.isNew        Whether this segment is newly appeared.
  * @param {boolean} props.isRemoving   Whether this segment is being removed.
  * @return {import('react').ReactElement} Rendered component.
@@ -32,7 +31,6 @@ export const SegmentBar = memo( function SegmentBar( {
 	cursorOffset,
 	endSeg,
 	endSize,
-	newestSegId,
 	isNew,
 	isRemoving,
 } ) {
@@ -60,7 +58,9 @@ export const SegmentBar = memo( function SegmentBar( {
 	const recordedEnd = hasConsumer ? bytesUpTo( endSeg, endSize ) : 0;
 	const recorded = Math.max( readEnd, recordedEnd );
 
-	const backlogClass = segment.id === newestSegId ? 'pending' : ''; // Yellow only for newest, red otherwise.
+	// The whole backlog is ONE color: yellow when the lag stays within the segment
+	// the cursor is in, red when it spans a segment boundary (a bigger fall-behind).
+	const backlogClass = endSeg > cursorSeg ? '' : 'pending';
 
 	const classNames = [
 		'worker-segment-h',
