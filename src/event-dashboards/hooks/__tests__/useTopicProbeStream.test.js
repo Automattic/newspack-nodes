@@ -11,6 +11,7 @@ import {
 	newMessage,
 	TYPE,
 	FROM,
+	TO,
 	TIMESTAMP,
 	VALUE,
 	TM_STRUCT,
@@ -70,6 +71,10 @@ function probeFrame( {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ FROM ] = 'topicprobe.p0';
+	// topicprobe.p0 is a PARTITION, so each replayed record carries the TO the
+	// probe stamped server-side (routing it to the partition) — a path that means
+	// nothing in the browser. The RemoteLink must re-home it to its target.
+	m[ TO ] = 'topicprobe';
 	m[ TIMESTAMP ] = ts;
 	const v = [];
 	v[ SOURCE ] = source;
