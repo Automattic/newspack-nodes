@@ -40,12 +40,14 @@ class Log_Cleaner {
 
 		$declared = self::declared_dirs();
 
+		// Each bucket is already a `name => partition` map: its KEYS are the
+		// declared dir names the sweep keeps, so it doubles as the membership set.
 		if ( null !== $declared['logs'] && ! empty( $declared['logs'] ) ) {
-			self::sweep( "{$base_dir}/logs", \array_flip( $declared['logs'] ), $base_dir, $deleted );
+			self::sweep( "{$base_dir}/logs", $declared['logs'], $base_dir, $deleted );
 		}
 
 		if ( null !== $declared['offsets'] && ! empty( $declared['offsets'] ) ) {
-			self::sweep( "{$base_dir}/offsets", \array_flip( $declared['offsets'] ), $base_dir, $deleted );
+			self::sweep( "{$base_dir}/offsets", $declared['offsets'], $base_dir, $deleted );
 		}
 
 		return $deleted;
@@ -58,7 +60,11 @@ class Log_Cleaner {
 	 * sweep (the producer union cannot mask it). The log bucket additionally unions
 	 * the PHP-registered producers (firehose/jobintake × clamped config num_partitions).
 	 *
-	 * @return array{logs: array<int,string>|null, offsets: array<int,string>|null}
+	 * Each non-null bucket is a `concrete dir name => enumerated partition index`
+	 * map (the partition comes from the resolver's enumeration loop, never parsed
+	 * out of a name); the whitelisted non-.tsl logs are partition 0.
+	 *
+	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null}
 	 */
 	private static function declared_dirs(): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
@@ -68,17 +74,17 @@ class Log_Cleaner {
 		$offsets = [];
 		foreach ( Topology_Registry::list() as $name ) {
 			$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
-			foreach ( $resolved['logs'] as $dir ) {
-				$logs[ $dir ] = true;
+			foreach ( $resolved['logs'] as $dir => $partition ) {
+				$logs[ $dir ] ??= $partition;
 			}
-			foreach ( $resolved['offsets'] as $dir ) {
-				$offsets[ $dir ] = true;
+			foreach ( $resolved['offsets'] as $dir => $partition ) {
+				$offsets[ $dir ] ??= $partition;
 			}
 		}
 
 		if ( '' !== $logs_root ) {
-			foreach ( self::producer_log_dirs() as $dir ) {
-				$logs[ $dir ] = true;
+			foreach ( self::producer_log_dirs() as $dir => $partition ) {
+				$logs[ $dir ] ??= $partition;
 			}
 			// The substrate's auto-mounted probe log (Worker_Base::mount_topic_probe)
 			// is declared by no .tsl — whitelist it so the orphan sweep spares it.
@@ -86,14 +92,14 @@ class Log_Cleaner {
 			// must not by itself flip the empty→non-empty fail-closed gate (which
 			// skips the sweep before the app/topologies are registered).
 			if ( ! empty( $logs ) ) {
-				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] = true;
-				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] = true;
+				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] ??= 0;
+				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] ??= 0;
 			}
 		}
 
 		return [
-			'logs'    => '' === $logs_root ? null : \array_keys( $logs ),
-			'offsets' => '' === $offsets_root ? null : \array_keys( $offsets ),
+			'logs'    => '' === $logs_root ? null : $logs,
+			'offsets' => '' === $offsets_root ? null : $offsets,
 		];
 	}
 
@@ -104,14 +110,14 @@ class Log_Cleaner {
 	 * writer layout (exactly what Log_Manager / Job_Intake write). Shared by the
 	 * GC's declared set and the Workers dashboard catalog so both read one source.
 	 *
-	 * @return array<int,string>
+	 * @return array<string,int> `concrete dir name => enumerated partition index`.
 	 */
 	public static function producer_log_dirs(): array {
 		$cfg_np = self::config_num_partitions();
 		$dirs   = [];
 		foreach ( self::registered_producers() as $producer ) {
 			for ( $p = 0; $p < $cfg_np; $p++ ) {
-				$dirs[] = "{$producer}.p{$p}";
+				$dirs[ "{$producer}.p{$p}" ] = $p;
 			}
 		}
 		return $dirs;
@@ -151,7 +157,7 @@ class Log_Cleaner {
 	 * `{file}.{seg}` segments sit at the first level as files, not dirs).
 	 *
 	 * @param string             $dir      Directory to sweep (e.g. `{base}/logs`).
-	 * @param array<string,int>  $declared Declared dir names flipped to a set.
+	 * @param array<string,int>  $declared `name => partition` map; membership is by KEY.
 	 * @param string             $base_dir Jail root for delete_directory_recursive.
 	 * @param array<int,string>  $deleted  Accumulator, appended in place when a dir is gone.
 	 */
@@ -180,6 +186,20 @@ class Log_Cleaner {
 	 * @return array<int,string>
 	 */
 	public static function declared_log_dirs(): array {
+		return \array_keys( self::declared_dirs()['logs'] ?? [] );
+	}
+
+	/**
+	 * Same declared LOG set as `declared_log_dirs()`, but as the
+	 * `concrete dir name => enumerated partition index` map (the partition comes
+	 * from the resolver's enumeration loop, never parsed out of a name). The
+	 * dashboard catalog stamps each log entry with this real partition so it
+	 * joins logs[] to consumers[] on `${name}#${partition}`. An unresolvable
+	 * `<config:logs_dir>` root yields `[]` (same fail-closed behavior).
+	 *
+	 * @return array<string,int>
+	 */
+	public static function declared_log_partitions(): array {
 		return self::declared_dirs()['logs'] ?? [];
 	}
 }

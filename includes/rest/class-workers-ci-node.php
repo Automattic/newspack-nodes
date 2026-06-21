@@ -394,8 +394,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * Enumerate the flat partition-in-name log layout, ONE flat entry per concrete
 	 * dir (NAMED by that dir, e.g. `requests.p0`, carrying that single partition's
-	 * segments). The dir list is the GC's declared set
-	 * (`Log_Cleaner::declared_log_dirs`) — ONE source of truth with the sweep:
+	 * segments) stamped with its REAL enumerated partition. The dir list is the
+	 * GC's declared set (`Log_Cleaner::declared_log_partitions`) — ONE source of
+	 * truth with the sweep:
 	 * every on-disk topology's resolved per-partition log dirs PLUS the
 	 * externally-written logs no .tsl declares (the PHP producers firehose /
 	 * jobintake, the auto-mounted topicprobe, the settings log). Sourcing the
@@ -415,17 +416,17 @@ class Workers_CI_Node extends Service_CI_Node {
 	): array {
 		$logs = [];
 		$seen = [];
-		$add  = function ( string $concrete ) use ( &$logs, &$seen, $log_base, $segment_size_overrides, $default_segment_size ): void {
+		$add  = function ( string $concrete, int $partition ) use ( &$logs, &$seen, $log_base, $segment_size_overrides, $default_segment_size ): void {
 			if ( isset( $seen[ $concrete ] ) ) {
 				return;
 			}
 			$seen[ $concrete ] = true;
-			$status            = self::build_log_status_entry( $concrete, 0, null, null, $log_base );
+			$status            = self::build_log_status_entry( $concrete, $partition, null, null, $log_base );
 			$logs[]            = [
 				'name'         => $concrete,
 				'partitions'   => [
 					[
-						'partition'  => 0,
+						'partition'  => $partition,
 						'segments'   => $status['segments'] ?? [],
 						'total_size' => $status['total_size'] ?? 0,
 					],
@@ -433,8 +434,10 @@ class Workers_CI_Node extends Service_CI_Node {
 				'segment_size' => self::segment_size_for( $concrete, $segment_size_overrides, $default_segment_size ),
 			];
 		};
-		foreach ( Log_Cleaner::declared_log_dirs() as $concrete ) {
-			$add( $concrete );
+		// Stamp each entry with the REAL enumerated partition (from the resolver),
+		// not a hardcoded 0 — the dashboard joins logs[] to consumers[] on it.
+		foreach ( Log_Cleaner::declared_log_partitions() as $concrete => $partition ) {
+			$add( $concrete, $partition );
 		}
 		return $logs;
 	}

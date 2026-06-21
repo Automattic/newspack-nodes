@@ -50,9 +50,10 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		);
 
 		$result = Topology_Registry::resolved_resource_dirs( 'req', 2 );
-		\sort( $result['logs'] );
+		\ksort( $result['logs'] );
 
-		$this->assertSame( [ 'req.p0', 'req.p1' ], $result['logs'] );
+		// Map is `concrete dir name => enumerated partition index`.
+		$this->assertSame( [ 'req.p0' => 0, 'req.p1' => 1 ], $result['logs'] );
 		$this->assertSame( [], $result['offsets'] );
 	}
 
@@ -63,9 +64,9 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		);
 
 		$result = Topology_Registry::resolved_resource_dirs( 'req', 2 );
-		\sort( $result['logs'] );
+		\ksort( $result['logs'] );
 
-		$this->assertSame( [ '0-req', '1-req' ], $result['logs'] );
+		$this->assertSame( [ '0-req' => 0, '1-req' => 1 ], $result['logs'] );
 	}
 
 	public function test_nested_partition_token_yields_first_level_dir_only(): void {
@@ -76,7 +77,10 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 
 		$result = Topology_Registry::resolved_resource_dirs( 'req', 2 );
 
-		$this->assertSame( [ 'req' ], $result['logs'] );
+		// Nested layout: every partition collapses to one first-level dir; the
+		// FIRST seen partition (0) is kept — nested layouts aren't represented
+		// per-partition here.
+		$this->assertSame( [ 'req' => 0 ], $result['logs'] );
 	}
 
 	public function test_topic_curly_partition_token_expands(): void {
@@ -86,9 +90,9 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		);
 
 		$result = Topology_Registry::resolved_resource_dirs( 'fan', 2 );
-		\sort( $result['logs'] );
+		\ksort( $result['logs'] );
 
-		$this->assertSame( [ 'fan.p0', 'fan.p1' ], $result['logs'] );
+		$this->assertSame( [ 'fan.p0' => 0, 'fan.p1' => 1 ], $result['logs'] );
 	}
 
 	public function test_consumer_offsetlog_lands_in_offsets_and_source_is_not_a_log(): void {
@@ -98,9 +102,9 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		);
 
 		$result = Topology_Registry::resolved_resource_dirs( 'digest', 2 );
-		\sort( $result['offsets'] );
+		\ksort( $result['offsets'] );
 
-		$this->assertSame( [ 'cur.p0', 'cur.p1' ], $result['offsets'] );
+		$this->assertSame( [ 'cur.p0' => 0, 'cur.p1' => 1 ], $result['offsets'] );
 		// The Consumer's source (1st arg) is a READ, not a write — no logs entry.
 		$this->assertSame( [], $result['logs'] );
 	}
