@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Command error messages no longer show HTML entities (`&#039;`, `&lt;`, `&gt;`) in the dashboard or the cli.** Verb handlers `esc_html()` their dynamic throw messages to satisfy the phpcs `EscapeOutput` sniff, but `interpret()` placed that HTML-escaped string verbatim into the `TM_ERROR` payload — which is plain text bound for a JSON→React text node (which re-escapes) and the `wp nodes` cli terminal, neither an HTML sink. So a topology activate write-conflict (and every other verb error) rendered as `activating &#039;perf&#039; conflicts: a &lt;b&gt;`. `interpret()` now `html_entity_decode()`s the caught message, normalizing it to plain text at the data boundary — fixing the modal and the cli for all throw sites at once.
+
 ### Changed
 
 - **Remote Min Retention accepts 0 (= disabled), matching the hub's Minimum Retention field.** The setting (`remote_max_lifespan`) floored at 60s in both the number input's `min` attribute and `sanitize_remote_max_lifespan`, so the browser blocked `0` with "Please select a value that is no less than 60." But `Partition_Node` clamps `max_lifespan` with `\max( 0, … )` and treats `0` as "age never blocks trimming" (pure count-based retention) — the hub `max_lifespan` field already exposes this as `min=0`, "0 = disabled (pure count-based)." The remote twin now matches: `min=0`, clamp `[0, 604800]`, and the description documents the disabled mode. (Blank still means "use the config-file default.")
