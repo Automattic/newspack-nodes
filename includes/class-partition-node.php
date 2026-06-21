@@ -780,12 +780,12 @@ class Partition_Node extends Timer_Node {
 	 * after a rotation until the next sweep repopulates the fresh segment — is
 	 * absent. Intended for "currently-active" state, not a full historical sweep.
 	 *
-	 * @param string $dir       The partition dir.
-	 * @param string $key_field VALUE field to index by.
-	 * @param int    $max_bytes Max tail bytes to scan (default 128 KiB).
+	 * @param string     $dir       The partition dir.
+	 * @param int|string $key_field VALUE field to index by (an int for a positional record).
+	 * @param int        $max_bytes Max tail bytes to scan (default 128 KiB).
 	 * @return array<string,array<mixed>> key → the latest record's VALUE.
 	 */
-	public static function read_tail_index_by( string $dir, string $key_field, int $max_bytes = 131072 ): array {
+	public static function read_tail_index_by( string $dir, int|string $key_field, int $max_bytes = 131072 ): array {
 		$index = [];
 		try {
 			$log = new self();

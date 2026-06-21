@@ -107,111 +107,30 @@ class Workers_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		// Each offsetlog entry carries `name`, `target`, `worker_type` so the
-		// dashboard can render one row per (worker_type, consumer_name,
-		// partition) without hardcoding a per-type inputs/outputs map.
-		$offsetlog_rows = self::enumerate_offsetlog_rows( $base_dir );
-		$rows_by_worker = [];
-		foreach ( $offsetlog_rows as $row ) {
-			$key = $row['worker_type'] . '|' . $row['partition'];
-			if ( ! isset( $rows_by_worker[ $key ] ) ) {
-				$rows_by_worker[ $key ] = [];
-			}
-			$rows_by_worker[ $key ][] = $row;
-		}
-
+		// `workers[]` is pure per-(type,partition) liveness now — heartbeat status,
+		// nothing per-consumer. The dashboard joins the per-reader STATE
+		// (`consumers[]`, the TopicProbe snapshot) and the live segment lists
+		// (`logs[]`) onto the topology `graph` by reader/source.
 		$workers = [];
 		foreach ( $descriptors as $w ) {
 			$type      = $w['type'];
 			$partition = $w['partition'];
-			$stale_to  = self::to_int( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
 			if ( '' === $type ) {
 				continue;
 			}
-			$lock_dir      = "{$locks_base}/{$type}.p{$partition}.lock.d";
-			$consumer_rows = $rows_by_worker[ "{$type}|{$partition}" ] ?? [];
-
-			if ( empty( $consumer_rows ) ) {
-				// Worker hasn't checkpointed yet (fresh spawn) — emit a
-				// single placeholder row so the dashboard still renders
-				// the worker_type. No consumer metadata available.
-				$placeholder = self::build_worker_status(
-					$type,
-					$partition,
-					'',
-					null,
-					$lock_dir,
-					$now,
-					$stale_to,
-					null,
-					null
-				);
-				$placeholder['inputs']         = [];
-				$placeholder['outputs']        = [];
-				$placeholder['inputs_status']  = [];
-				$placeholder['outputs_status'] = [];
-				$placeholder['target']         = '';
-				$placeholder['source']         = null;
-				$workers[]                     = $placeholder;
-				continue;
-			}
-
-			foreach ( $consumer_rows as $row ) {
-				// Flat layout: the Consumer's recorded `source_log` IS the concrete
-				// physical partition dir (`firehose.p0`) — already the catalog
-				// entry's name, so the dashboard's rate keys line up. Two readers of
-				// one log keep this shared physical name (cursor identity stays
-				// per-reader via source_basename below). Fall back to the offset-dir
-				// concrete name only for pre-source_log checkpoints.
-				$input_log = '' !== $row['source_log']
-					? $row['source_log']
-					: "{$row['source_basename']}.p{$partition}";
-				// Each Consumer can have multiple downstream processors
-				// (Tee fan-out: firehose:tee → request-builder + job-router).
-				// Emit one dashboard row per processor so the operator sees
-				// the actual work units, not the Consumer plumbing.
-				$targets = ! empty( $row['targets'] )
-					? $row['targets']
-					: [ [ 'name' => $row['target'] ] ];
-				foreach ( $targets as $t ) {
-					$handler   = self::to_string( $t['name'] ?? '' );
-					$target_nm = isset( $t['name'] ) ? self::to_string( $t['name'] ) : null;
-					$worker    = self::build_worker_status(
-						$type,
-						$partition,
-						$input_log,
-						$target_nm,
-						$lock_dir,
-						$now,
-						$stale_to,
-						$handler,
-						[
-							'seg'        => self::to_int( $row['seg'] ),
-							'off'        => self::to_int( $row['off'] ),
-							'behind'     => self::to_int( $row['behind'] ),
-							'total'      => self::to_int( $row['total'] ),
-							'read_rate'  => $row['read_rate'],
-							'write_rate' => $row['write_rate'],
-						]
-					);
-					$worker['target']         = $t['name'] ?? '';
-					$worker['source']         = $row['name'];
-					$worker['inputs']         = [ $input_log ];
-					$worker['outputs']        = [];
-					$worker['inputs_status']  = [
-						self::build_log_status_entry(
-							$input_log,
-							$partition,
-							self::to_int( $worker['cursor_seg'] ),
-							self::to_int( $worker['cursor_offset'] ),
-							$log_base
-						),
-					];
-					$worker['outputs_status'] = [];
-					$workers[]                = $worker;
-				}
-			}
+			$stale_to  = self::to_int( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
+			$workers[] = self::build_worker_status(
+				$type,
+				$partition,
+				"{$locks_base}/{$type}.p{$partition}.lock.d",
+				$now,
+				$stale_to
+			);
 		}
+
+		// Per-reader probe STATE (cursor, partition end, distance, msgs), keyed by
+		// reader — the dashboard attaches these to the graph's consumer nodes.
+		$consumers = self::enumerate_offsetlog_rows( $base_dir );
 
 		// Supervisor status. Singleton — there is exactly one supervisor per
 		// install, at `supervisor.lock.d/` (no partition suffix). The
@@ -237,6 +156,7 @@ class Workers_CI_Node extends Service_CI_Node {
 
 		return [
 			'workers'        => $workers,
+			'consumers'      => $consumers,
 			'supervisor'     => $supervisor,
 			'logs'           => $logs,
 			'num_partitions' => $num_partitions,
@@ -248,43 +168,22 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the per-worker rich descriptor, adding `live`/`stale`/`heartbeat_at`
-	 * from the heartbeat mtime so the dashboard renders status badges in one round-trip.
+	 * Build one worker's liveness descriptor (`status`/`live`/`stale`/`heartbeat_at`)
+	 * from the lock-dir heartbeat mtime, so the dashboard renders status badges in
+	 * one round-trip.
 	 *
-	 * @param array{seg:int,off:int,behind:int,total:int,read_rate:float,write_rate:float}|null $cursor
-	 *     The reader's TopicProbe snapshot (cursor + backlog + partition-end + the
-	 *     probe-computed read/write byte rates, all from the same instant, via
-	 *     `consumer_rows()`); null for a not-yet-checkpointed placeholder.
 	 * @return array<string, mixed>
 	 */
 	private static function build_worker_status(
 		string $type,
 		int $partition,
-		string $input_log,
-		?string $output_log,
 		string $lock_dir,
 		int $now,
-		int $stale_timeout,
-		?string $handler_name,
-		?array $cursor = null
+		int $stale_timeout
 	): array {
-		// Cursor, backlog (`behind`) and partition-end (`total_size`) ALL come from
-		// the reader's TopicProbe record — captured in ONE snapshot (cursor vs end
-		// at the same instant), passed in via the consumer_rows row. NO fresh
-		// get_segments: comparing a ~15s-old cursor against a freshly-statted end
-		// falsely inflates the lag (the partition grew since the snapshot), which is
-		// exactly what made a caught-up consumer look behind. Per-reader by
-		// offset_dir, so two readers of one log keep separate cursors.
-		$cursor_seg    = $cursor['seg'] ?? 0;
-		$cursor_offset = $cursor['off'] ?? 0;
-		$behind        = $cursor['behind'] ?? 0;
-		$total_size    = $cursor['total'] ?? 0;
-		// Byte rates the PROBE computed (Δ over its 15s ts) — displayed as-is, the
-		// single rate source so read + write move together and never client-delta.
-		$read_rate     = $cursor['read_rate'] ?? 0.0;
-		$write_rate    = $cursor['write_rate'] ?? 0.0;
-
-		// Status: heartbeat freshness inside the lock dir.
+		// Pure liveness per (type, partition) from the lock-dir heartbeat. The
+		// per-consumer cursor/distance/segments are NOT here — the dashboard joins
+		// those from `consumers[]` (the probe) + `logs[]` (live segments).
 		$status        = 'dead';
 		$heartbeat_age = null;
 		$heartbeat_at  = 0;
@@ -299,16 +198,12 @@ class Workers_CI_Node extends Service_CI_Node {
 				}
 			}
 		}
-		// `live`/`stale`: Cli::ls_workers()-style heartbeat projections surfaced here so the
-		// dashboard skips a second `list` round-trip. stale = heartbeat older than stale_timeout.
 		$live  = ( 'running' === $status );
 		$stale = ( ! $live && null !== $heartbeat_age );
 
 		return [
 			'type'            => $type,
 			'partition'       => $partition,
-			'input_log'       => $input_log,
-			'output_log'      => $output_log,
 			'status'          => $status,
 			'started_at'      => Lock_Node::get_started_time( $lock_dir ),
 			'heartbeat_age'   => $heartbeat_age,
@@ -316,13 +211,6 @@ class Workers_CI_Node extends Service_CI_Node {
 			'live'            => $live,
 			'stale'           => $stale,
 			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
-			'total_size'      => $total_size,
-			'cursor_seg'      => $cursor_seg,
-			'cursor_offset'   => $cursor_offset,
-			'behind'          => $behind,
-			'read_rate'       => $read_rate,
-			'write_rate'      => $write_rate,
-			'handler'         => $handler_name,
 		];
 	}
 
@@ -636,7 +524,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * (`CLI::consumer_rows()`, sourced from the TopicProbe log) — shared with
 	 * `wp nodes status` so the dashboard and cli read positions exactly one way.
 	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,read_rate:float,write_rate:float,ts:float}>
+	 * @return array<int,array<string,mixed>>
 	 */
 	private static function enumerate_offsetlog_rows( string $base_dir ): array {
 		return ( new CLI( $base_dir ) )->consumer_rows();
@@ -664,31 +552,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		return 0;
 	}
 
-	/**
-	 * Coerce a mixed value to string, reproducing PHP's `(string)` cast
-	 * (null→'', scalar→its string form, array→'Array') without a mixed-cast.
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function to_string( $v ): string {
-		if ( \is_string( $v ) ) {
-			return $v;
-		}
-		if ( null === $v ) {
-			return '';
-		}
-		if ( \is_array( $v ) ) {
-			return 'Array';
-		}
-		if ( \is_object( $v ) ) {
-			return $v instanceof \Stringable ? $v->__toString() : '';
-		}
-		if ( \is_scalar( $v ) ) {
-			return (string) $v;
-		}
-		return '';
-	}
-
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
@@ -697,20 +560,13 @@ class Workers_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'list',
-					'description' => 'List workers with live positions.',
+					'description' => 'List workers with heartbeat liveness.',
 					'args'        => [],
 					// $self is the dispatching interpreter instance — always a Workers_CI_Node here
-					// (dispatch() passes $this), so it's typed concretely to read the
-					// ctor-injected cli/cache off it (node_schema is static, can't `use` them).
+					// (dispatch() passes $this), so it reads the ctor-injected cli off it.
+					// Liveness only; cursor positions live in dump_graph / `wp nodes status`.
 					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						$cli     = $self->cli();
-						$workers = $cli->ls_workers();
-						$index   = $cli->read_probe_index();
-						foreach ( $workers as &$w ) {
-							$w['position'] = $cli->live_position( $index, $w['type'], $w['partition'] );
-						}
-						unset( $w );
-						return $workers;
+						return $self->cli()->ls_workers();
 					},
 				],
 				[

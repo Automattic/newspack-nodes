@@ -10,6 +10,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -107,12 +108,11 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $packed_size, $c->bytes_read() );
 	}
 
-	public function test_probe_stats_exposes_identity_position_and_exact_volumes(): void {
-		// probe_stats() is the seam TopicProbe reads from OUTSIDE the Consumer
-		// (Tachikoma reads $node->{offset}/{counter} the same way). It carries
-		// identity + seg:off (for the position-readers) + the EXACT byte volumes:
-		// bytes_read (monotonic, → rate) and bytes_behind (backlog, summed from
-		// real on-disk segment sizes — no segment_size approximation).
+	public function test_probe_stats_is_a_lean_positional_snapshot(): void {
+		// probe_stats() is the raw snapshot TopicProbe reads from OUTSIDE the
+		// Consumer — the POSITIONAL Probe_Record: SOURCE (partition tailed) +
+		// READER (offsetlog dir basename) + cursor + partition END (last seg + size)
+		// + DISTANCE (backlog) + MSGS. No derived/extra fields.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
 		$first  = $this->produce( 'first' );
@@ -128,36 +128,22 @@ class ConsumerTest extends TestCase {
 		$this->pump_consumer( $c );
 
 		$stats = $c->probe_stats();
-		$this->assertSame( 'firehose', $stats['consumer'] );
-		// offset_dir is the durable position key (basename of the offsetlog dir),
-		// distinct from the source log it tails.
-		$this->assertSame( 'firehose.job-router.p0', $stats['offset_dir'] );
-		$this->assertSame( 'p0', $stats['source'] );
-		$this->assertSame( 0, $stats['cursor_seg'] );
-		$this->assertGreaterThan( 0, $stats['cursor_off'] );
-		$this->assertSame( $c->bytes_read(), $stats['bytes_read'] );
-		$this->assertSame( 0, $stats['bytes_behind'], 'caught up after pump' );
-		// bytes_total is the partition END captured in the SAME snapshot as the
-		// cursor (so the dashboard never compares a stale cursor to a live end).
-		// Caught up from the start → everything on disk has been consumed.
-		$this->assertGreaterThan( 0, $stats['bytes_total'] );
-		$this->assertSame(
-			$stats['bytes_read'],
-			$stats['bytes_total'],
-			'caught up: the partition total equals the consumed bytes'
-		);
-		$this->assertSame( 2, $stats['msg_sent'] );
-		// Routing rides along for the dashboard's per-target fan-out.
-		$this->assertArrayHasKey( 'target', $stats );
-		$this->assertArrayHasKey( 'targets', $stats );
-		$this->assertIsArray( $stats['targets'] );
+		$this->assertCount( 8, $stats, 'lean positional record' );
+		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
+		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
+		$this->assertSame( 'p0', $stats[ Probe_Record::SOURCE ] );
+		$this->assertSame( 0, $stats[ Probe_Record::CURSOR_SEG ] );
+		$this->assertGreaterThan( 0, $stats[ Probe_Record::CURSOR_OFF ] );
+		$this->assertSame( 0, $stats[ Probe_Record::DISTANCE ], 'caught up after pump' );
+		// Partition END = the one segment + its (non-zero) size.
+		$this->assertSame( 0, $stats[ Probe_Record::END_SEG ] );
+		$this->assertGreaterThan( 0, $stats[ Probe_Record::END_SIZE ] );
+		$this->assertSame( 2, $stats[ Probe_Record::MSGS ] );
 	}
 
 	public function test_probe_stats_round_trips_through_cli_consumer_rows(): void {
-		// Pin the writer→reader field contract: the exact keys probe_stats()
-		// EMITS are the keys CLI::consumer_rows() READS back off the topicprobe
-		// log. A rename on either side that isn't mirrored fails HERE, instead
-		// of silently zeroing a column on the dashboard / `wp nodes status`.
+		// Pin the writer→reader contract by index: the exact positions probe_stats()
+		// WRITES are the positions CLI::consumer_rows() READS back off the log.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
 		$first = $this->produce( 'first' );
@@ -170,33 +156,27 @@ class ConsumerTest extends TestCase {
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
-		// worker_type must be non-empty or consumer_rows() (correctly) skips it.
-		$_SERVER['NEWSPACK_NODES_WORKER_TYPE'] = 'combined';
-		try {
-			$stats = $c->probe_stats();
-		} finally {
-			unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
-		}
+		$stats = $c->probe_stats();
 
-		// Write the record exactly as TopicProbe would, then read it back.
+		// Write the record exactly as TopicProbe would (positional VALUE), read back.
 		$dir = "{$this->tmp}/logs/topicprobe.p0";
 		\mkdir( $dir, 0755, true );
-		$record                    = $stats;
-		$record['ts']              = 1700000000.0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = $record;
+		$message[ Message::VALUE ] = $stats;
 		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
 
 		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
 		$this->assertCount( 1, $rows );
 		$row = $rows[0];
-		$this->assertSame( $stats['consumer'], $row['name'] );
-		$this->assertSame( $stats['source'], $row['source_log'] );
-		$this->assertSame( $stats['cursor_seg'], $row['seg'] );
-		$this->assertSame( $stats['cursor_off'], $row['off'] );
-		$this->assertSame( $stats['worker_type'], $row['worker_type'] );
-		$this->assertSame( 'firehose.job-router', $row['source_basename'] );
+		$this->assertSame( $stats[ Probe_Record::READER ], $row['reader'] );
+		$this->assertSame( $stats[ Probe_Record::SOURCE ], $row['source'] );
+		$this->assertSame( $stats[ Probe_Record::CURSOR_SEG ], $row['cursor_seg'] );
+		$this->assertSame( $stats[ Probe_Record::CURSOR_OFF ], $row['cursor_off'] );
+		$this->assertSame( $stats[ Probe_Record::END_SEG ], $row['end_seg'] );
+		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $row['end_size'] );
+		$this->assertSame( $stats[ Probe_Record::DISTANCE ], $row['distance'] );
+		$this->assertSame( $stats[ Probe_Record::MSGS ], $row['msgs'] );
 		$this->assertSame( 0, $row['partition'] );
 	}
 

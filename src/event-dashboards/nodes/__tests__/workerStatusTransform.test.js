@@ -1,15 +1,21 @@
 /**
  * workerstatus:transform tests — the stateful transform that turns a raw
  * `dump_graph` reply (VALUE=`{ name, payload }`, payload=the snapshot) into
- * an enriched `{ action:'model', model }`. Post-migration to substrate `_http`,
- * the transform receives the reply directly from HttpOut (TO=transform,
- * FROM=workers); the payload is the metadata. Rate + segment math is ported
- * verbatim from WorkerStatus.fetchWorkers, so the tests feed two consecutive
- * snapshots and assert the computed deltas.
+ * an enriched `{ action:'model', model }`.
  *
- * Date.now() is faked (not jest fake timers) so the time-delta between the two
- * snapshots is deterministic — the node reads Date.now() for its receive-time
- * delta exactly like the old lastFetchTimeRef logic.
+ * Post-migration the dump_graph payload is LEAN and POSITIONAL: PHP no longer
+ * pre-joins worker attribution. The transform now REBUILDS the old rich
+ * `workers[]` array (the shape `topologyGraph.buildTopologySections`,
+ * `TreeEntity`, and `SegmentBar` were written against) by joining the four new
+ * inputs — `graph` (.tsl structure), `workers` (liveness only), `consumers`
+ * (per-reader probe STATE), and `logs` (live segment lists) — entirely here,
+ * so everything downstream stays unchanged.
+ *
+ * Read/write byte rates are now CLIENT-SIDE deltas across two polls (the probe
+ * no longer rides a rate on each descriptor), so the rate tests feed two
+ * consecutive snapshots and assert the computed deltas. Date.now is NOT read
+ * for the delta — `data.timestamp` is the clock — but it seeds the sticky
+ * currentTime, so we pin it for determinism.
  */
 
 import {
@@ -25,26 +31,20 @@ import {
 import { Core } from '../../../runtime/core';
 import { WorkerStatusTransformNode } from '../workerStatusTransform';
 
-// setName registers in the per-process Core registry; clear it between tests so
-// re-creating the same-named node doesn't collide (matches the sibling tests).
 beforeEach( () => Core.reset() );
 
-// Construct the node directly (production wires it via interpreter.makeNode;
-// bare-newing the class is fine inside a test).
 function makeTransform( name ) {
 	const node = new WorkerStatusTransformNode();
 	node.name = name;
 	return node;
 }
 
-// Capture sink: a minimal node whose fill() records every message it receives.
 function capture() {
 	const got = [];
 	return { node: { fill: ( m ) => got.push( m ) }, got };
 }
 
-// A dump_graph reply Message as HttpOut delivers it: VALUE = { name, payload }
-// where `payload` is the workers/logs metadata snapshot.
+// A dump_graph reply Message as HttpOut delivers it: VALUE = { name, payload }.
 function metadataMsg( metadata ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
@@ -52,54 +52,562 @@ function metadataMsg( metadata ) {
 	return m;
 }
 
-// Pin Date.now() so the receive-time delta is deterministic.
+// Pin Date.now() for the sticky currentTime seed only.
 function withClock( fn ) {
 	const realNow = Date.now;
-	let t = 1_000_000;
-	Date.now = () => t;
+	Date.now = () => 1_000_000;
 	try {
-		fn( ( ms ) => {
-			t += ms;
-		} );
+		fn();
 	} finally {
 		Date.now = realNow;
 	}
 }
 
-// One firehose producer writing the concrete partition dir firehose.p0;
-// total_size grows between snapshots.
-const producerSnapshot = ( totalSize ) => ( {
-	workers: [
+// A single-stage firehose producer topology: one Consumer reading firehose
+// straight into a Log (no logic node), partition 0 only.
+const firehoseGraph = () => ( {
+	'firehose-workers': {
+		nodes: [
+			{
+				name: 'firehose-in',
+				kind: 'consumer',
+				reads: 'firehose.p<partition>',
+			},
+			{
+				name: 'firehose-log',
+				kind: 'log',
+				writes: 'firehose.p<partition>',
+			},
+		],
+		edges: [ [ 'firehose-in', 'firehose-log' ] ],
+	},
+} );
+
+// A request topology: Consumer reads requests → request-builder (logic) →
+// completed Log. Two partitions.
+const requestGraph = () => ( {
+	'request-workers': {
+		nodes: [
+			{
+				name: 'req-in',
+				kind: 'consumer',
+				reads: 'requests.p<partition>',
+			},
+			{ name: 'request-builder', kind: 'logic' },
+			{
+				name: 'completed-log',
+				kind: 'log',
+				writes: 'completed.p<partition>',
+			},
+		],
+		edges: [
+			[ 'req-in', 'request-builder' ],
+			[ 'request-builder', 'completed-log' ],
+		],
+	},
+} );
+
+// A consumer feeding through a tee before the logic node — tee must contract.
+const teeGraph = () => ( {
+	'request-workers': {
+		nodes: [
+			{
+				name: 'req-in',
+				kind: 'consumer',
+				reads: 'requests.p<partition>',
+			},
+			{ name: 'fanout', kind: 'tee' },
+			{ name: 'request-builder', kind: 'logic' },
+		],
+		edges: [
+			[ 'req-in', 'fanout' ],
+			[ 'fanout', 'request-builder' ],
+		],
+	},
+} );
+
+// liveness row for a (type, partition).
+const liveness = ( type, partition, extra = {} ) => ( {
+	type,
+	partition,
+	status: 'running',
+	started_at: 1000,
+	heartbeat_age: 1,
+	heartbeat_at: 999,
+	live: true,
+	stale: false,
+	restart_pending: false,
+	...extra,
+} );
+
+// probe STATE row for a reader.
+const consumerRow = ( reader, source, partition, extra = {} ) => ( {
+	reader,
+	source,
+	partition,
+	cursor_seg: 0,
+	cursor_off: 0,
+	end_seg: 0,
+	end_size: 0,
+	distance: 0,
+	msgs: 0,
+	...extra,
+} );
+
+// a logs[] entry: one concrete partition with the given segments.
+const logEntry = ( name, partition, segments ) => ( {
+	name,
+	partitions: [
 		{
-			type: 'firehose-workers',
-			handler: 'firehose-workers',
-			partition: 0,
-			inputs: [],
-			outputs: [ 'firehose.p0' ],
-			inputs_status: [],
-			outputs_status: [
-				{
-					name: 'firehose.p0',
-					segments: [ { id: 1, size: totalSize } ],
-					total_size: totalSize,
-				},
-			],
+			partition,
+			segments,
+			total_size: segments.reduce( ( a, s ) => a + s.size, 0 ),
 		},
 	],
-	supervisor: null,
-	logs: [],
+	segment_size: 16 * 1024 * 1024,
+} );
+
+describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
+	test( 'a single-stage consumer (feeds a Log) gets handler = its own node name', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: firehoseGraph(),
+					workers: [ liveness( 'firehose-workers', 0 ) ],
+					consumers: [
+						consumerRow( 'firehose.p0', 'firehose.p0', 0 ),
+					],
+					logs: [
+						logEntry( 'firehose.p0', 0, [ { id: 0, size: 100 } ] ),
+					],
+				} )
+			)
+		);
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.workers ).toHaveLength( 1 );
+		const wkr = model.workers[ 0 ];
+		expect( wkr.type ).toBe( 'firehose-workers' );
+		expect( wkr.handler ).toBe( 'firehose-in' );
+		expect( wkr.source ).toBe( 'firehose.p0' );
+		expect( wkr.inputs ).toEqual( [ 'firehose.p0' ] );
+		expect( wkr.outputs ).toEqual( [] );
+		expect( wkr.outputs_status ).toEqual( [] );
+	} );
+
+	test( 'a consumer feeding a logic node gets handler = that logic node', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: requestGraph(),
+					workers: [ liveness( 'request-workers', 0 ) ],
+					consumers: [
+						consumerRow( 'requests.p0', 'requests.p0', 0 ),
+					],
+					logs: [ logEntry( 'requests.p0', 0, [] ) ],
+				} )
+			)
+		);
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.workers[ 0 ].handler ).toBe( 'request-builder' );
+	} );
+
+	test( 'a tee between consumer and logic node is contracted out', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: teeGraph(),
+					workers: [ liveness( 'request-workers', 0 ) ],
+					consumers: [
+						consumerRow( 'requests.p0', 'requests.p0', 0 ),
+					],
+					logs: [ logEntry( 'requests.p0', 0, [] ) ],
+				} )
+			)
+		);
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.workers[ 0 ].handler ).toBe( 'request-builder' );
+	} );
+
+	test( 'joins probe cursor/distance onto the rich worker (cursor_off→cursor_offset, distance→behind)', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: firehoseGraph(),
+					workers: [ liveness( 'firehose-workers', 0 ) ],
+					consumers: [
+						consumerRow( 'firehose.p0', 'firehose.p0', 0, {
+							cursor_seg: 2,
+							cursor_off: 50,
+							distance: 4096,
+						} ),
+					],
+					logs: [
+						logEntry( 'firehose.p0', 0, [ { id: 2, size: 100 } ] ),
+					],
+				} )
+			)
+		);
+		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
+		expect( wkr.cursor_seg ).toBe( 2 );
+		expect( wkr.cursor_offset ).toBe( 50 );
+		expect( wkr.behind ).toBe( 4096 );
+	} );
+
+	test( 'joins liveness status onto the rich worker', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: firehoseGraph(),
+					workers: [
+						liveness( 'firehose-workers', 0, {
+							status: 'stale',
+							live: false,
+							stale: true,
+							restart_pending: true,
+							heartbeat_age: 99,
+						} ),
+					],
+					consumers: [
+						consumerRow( 'firehose.p0', 'firehose.p0', 0 ),
+					],
+					logs: [ logEntry( 'firehose.p0', 0, [] ) ],
+				} )
+			)
+		);
+		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
+		expect( wkr.status ).toBe( 'stale' );
+		expect( wkr.live ).toBe( false );
+		expect( wkr.stale ).toBe( true );
+		expect( wkr.restart_pending ).toBe( true );
+		expect( wkr.heartbeat_age ).toBe( 99 );
+	} );
+
+	test( 'a consumer row with no liveness row defaults status to dead', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: firehoseGraph(),
+					workers: [],
+					consumers: [
+						consumerRow( 'firehose.p0', 'firehose.p0', 0 ),
+					],
+					logs: [ logEntry( 'firehose.p0', 0, [] ) ],
+				} )
+			)
+		);
+		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
+		expect( wkr.status ).toBe( 'dead' );
+	} );
+
+	test( 'a liveness row with no consumer row still emits a worker (so the tree shows it)', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: firehoseGraph(),
+					workers: [ liveness( 'firehose-workers', 0 ) ],
+					consumers: [],
+					logs: [ logEntry( 'firehose.p0', 0, [] ) ],
+				} )
+			)
+		);
+		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
+		expect( wkr.type ).toBe( 'firehose-workers' );
+		expect( wkr.status ).toBe( 'running' );
+	} );
+
+	test( 'expands all partitions present across the inputs', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: requestGraph(),
+					workers: [
+						liveness( 'request-workers', 0 ),
+						liveness( 'request-workers', 1 ),
+					],
+					consumers: [
+						consumerRow( 'requests.p0', 'requests.p0', 0 ),
+						consumerRow( 'requests.p1', 'requests.p1', 1 ),
+					],
+					logs: [
+						logEntry( 'requests.p0', 0, [] ),
+						logEntry( 'requests.p1', 1, [] ),
+					],
+				} )
+			)
+		);
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.workers.map( ( wkr ) => wkr.partition ).sort() ).toEqual(
+			[ 0, 1 ]
+		);
+		expect( model.workers.map( ( wkr ) => wkr.source ).sort() ).toEqual( [
+			'requests.p0',
+			'requests.p1',
+		] );
+	} );
+
+	test( 'disambiguated readers of one source each get their own rich worker row', () => {
+		// Two readers of firehose.p0 under distinct reader ids — both get a row.
+		const graph = {
+			'firehose-workers-and-jobs': {
+				nodes: [
+					{
+						name: 'job-router',
+						kind: 'consumer',
+						reads: 'firehose.p<partition>',
+					},
+					{
+						name: 'request-builder',
+						kind: 'consumer',
+						reads: 'firehose.p<partition>',
+					},
+					{
+						name: 'jobs-log',
+						kind: 'log',
+						writes: 'jobs.p<partition>',
+					},
+				],
+				edges: [
+					[ 'job-router', 'jobs-log' ],
+					[ 'request-builder', 'jobs-log' ],
+				],
+			},
+		};
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph,
+					workers: [ liveness( 'firehose-workers-and-jobs', 0 ) ],
+					consumers: [
+						consumerRow(
+							'firehose.job-router.p0',
+							'firehose.p0',
+							0,
+							{ msgs: 5 }
+						),
+						consumerRow(
+							'firehose.request-builder.p0',
+							'firehose.p0',
+							0,
+							{ msgs: 9 }
+						),
+					],
+					logs: [
+						logEntry( 'firehose.p0', 0, [ { id: 0, size: 100 } ] ),
+					],
+				} )
+			)
+		);
+		const { model } = sink.got[ 0 ][ VALUE ];
+		const fromP0 = model.workers.filter(
+			( wkr ) => wkr.source === 'firehose.p0'
+		);
+		expect( fromP0 ).toHaveLength( 2 );
+	} );
+} );
+
+describe( 'workerstatus:transform — inputs_status trimmed to the probe snapshot', () => {
+	test( 'drops segments past end_seg and caps the end segment size at end_size', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill(
+				metadataMsg( {
+					graph: firehoseGraph(),
+					workers: [ liveness( 'firehose-workers', 0 ) ],
+					consumers: [
+						consumerRow( 'firehose.p0', 'firehose.p0', 0, {
+							cursor_seg: 1,
+							cursor_off: 0,
+							end_seg: 1,
+							end_size: 40,
+						} ),
+					],
+					// Live partition has grown past the snapshot: seg 2 is new, seg 1
+					// is now bigger than end_size.
+					logs: [
+						logEntry( 'firehose.p0', 0, [
+							{ id: 0, size: 100 },
+							{ id: 1, size: 100 },
+							{ id: 2, size: 30 },
+						] ),
+					],
+				} )
+			)
+		);
+		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
+		const status = wkr.inputs_status[ 0 ];
+		expect( status.name ).toBe( 'firehose.p0' );
+		// seg 2 dropped (id > end_seg), seg 1 capped at end_size 40.
+		expect( status.segments ).toEqual( [
+			{ id: 0, size: 100 },
+			{ id: 1, size: 40 },
+		] );
+		// total recomputed from the trimmed segments.
+		expect( status.total_size ).toBe( 140 );
+		expect( status.cursor_seg ).toBe( 1 );
+		expect( status.cursor_offset ).toBe( 0 );
+	} );
+} );
+
+describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => {
+	// Read rate = Δ(absolute cursor byte position)/Δts; absolute position =
+	// Σ(trimmed seg.size for id < cursor_seg) + cursor_off. Write rate =
+	// Δ(partition total live bytes)/Δts.
+	const snapshot = (
+		ts,
+		cursorSeg,
+		cursorOff,
+		segSizes,
+		endSeg,
+		endSize
+	) => ( {
+		graph: firehoseGraph(),
+		timestamp: ts,
+		workers: [ liveness( 'firehose-workers', 0 ) ],
+		consumers: [
+			consumerRow( 'firehose.p0', 'firehose.p0', 0, {
+				cursor_seg: cursorSeg,
+				cursor_off: cursorOff,
+				end_seg: endSeg,
+				end_size: endSize,
+			} ),
+		],
+		logs: [
+			logEntry(
+				'firehose.p0',
+				0,
+				segSizes.map( ( size, id ) => ( { id, size } ) )
+			),
+		],
+	} );
+
+	test( 'first snapshot reports a zero read_rate and write_rate', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () =>
+			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) )
+		);
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
+	} );
+
+	test( 'read_rate = Δ(absolute cursor position)/Δts across two polls', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			// Poll 1: cursor at seg 0 offset 0 → abs pos 0.
+			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
+			// Poll 2 at ts 1002 (Δ 2s): cursor at seg 1 offset 50, end_seg 1,
+			// end_size 80 → abs pos = seg0(80? no: seg0 is full 100 trimmed) ...
+			// trimmed segs: id0 size 100 (id<end_seg 1, full), id1 capped at 80.
+			// abs pos = Σ(seg.size for id < cursor_seg 1) + cursor_off
+			//         = 100 + 50 = 150. Δ = 150 - 0 = 150 over 2s = 75 B/s.
+			t.fill(
+				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )
+			);
+		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 75 );
+	} );
+
+	test( 'write_rate = Δ(partition total live bytes)/Δts across two polls', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			// Poll 1: total live = 100.
+			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
+			// Poll 2 at ts 1004 (Δ 4s): total live = 100 + 300 = 400.
+			// Δ = 400 - 100 = 300 over 4s = 75 B/s.
+			t.fill(
+				metadataMsg( snapshot( 1004, 0, 0, [ 100, 300 ], 1, 300 ) )
+			);
+		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 75 );
+	} );
+
+	test( 'a cursor that goes backwards (worker restart) yields read_rate 0, never negative', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			// Poll 1: cursor well advanced.
+			t.fill(
+				metadataMsg( snapshot( 1000, 1, 50, [ 100, 100 ], 1, 100 ) )
+			);
+			// Poll 2: cursor reset to the start (restart).
+			t.fill(
+				metadataMsg( snapshot( 1002, 0, 0, [ 100, 100 ], 1, 100 ) )
+			);
+		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+	} );
+
+	test( 'a zero time delta yields rate 0 (no divide-by-zero)', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
+			t.fill(
+				metadataMsg( snapshot( 1000, 1, 0, [ 100, 100 ], 1, 100 ) )
+			);
+		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
+	} );
 } );
 
 describe( 'workerstatus:transform — model envelope', () => {
-	test( 'emits a TM_STRUCT { action:"model", model } for a metadata snapshot', () => {
+	const snap = () => ( {
+		graph: firehoseGraph(),
+		workers: [ liveness( 'firehose-workers', 0 ) ],
+		consumers: [ consumerRow( 'firehose.p0', 'firehose.p0', 0 ) ],
+		logs: [ logEntry( 'firehose.p0', 0, [ { id: 0, size: 100 } ] ) ],
+	} );
+
+	test( 'emits a TM_STRUCT { action:"model", model } stamped TO=target', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.target = 'workerstatus:view';
-		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
+		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		expect( sink.got ).toHaveLength( 1 );
 		expect( sink.got[ 0 ][ TYPE ] ).toBe( TM_STRUCT );
-		// Rule #2: the model emit stamps TO=target for router delivery.
 		expect( sink.got[ 0 ][ TO ] ).toBe( 'workerstatus:view' );
 		expect( sink.got[ 0 ][ VALUE ].action ).toBe( 'model' );
 	} );
@@ -108,7 +616,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
+		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
 		expect( Object.keys( model ).sort() ).toEqual(
 			[
@@ -129,262 +637,155 @@ describe( 'workerstatus:transform — model envelope', () => {
 		);
 	} );
 
-	test( 'threads the graph field from the payload into the model', () => {
+	test( 'threads the graph field straight through into the model', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		const snap = producerSnapshot( 100 );
-		snap.graph = { 'firehose-workers': [ 'node-a', 'node-b' ] };
-		t.fill( metadataMsg( snap ) );
+		const s = snap();
+		withClock( () => t.fill( metadataMsg( s ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
-		expect( model.graph ).toEqual( {
-			'firehose-workers': [ 'node-a', 'node-b' ],
-		} );
+		expect( model.graph ).toEqual( s.graph );
 	} );
 
 	test( 'defaults graph to an empty object when the payload omits it', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
+		withClock( () =>
+			t.fill( metadataMsg( { workers: [], consumers: [], logs: [] } ) )
+		);
 		const { model } = sink.got[ 0 ][ VALUE ];
 		expect( model.graph ).toEqual( {} );
 	} );
 
-	test( 'forwards the workers / supervisor / logs straight through', () => {
+	test( 'forwards supervisor / logs straight through', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		const snap = producerSnapshot( 100 );
-		snap.supervisor = { type: 'supervisor', status: 'running' };
-		snap.logs = [ { name: 'firehose.log', partitions: [] } ];
-		t.fill( metadataMsg( snap ) );
+		const s = snap();
+		s.supervisor = { type: 'supervisor', status: 'running' };
+		withClock( () => t.fill( metadataMsg( s ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
-		expect( model.workers ).toEqual( snap.workers );
-		expect( model.supervisor ).toEqual( snap.supervisor );
-		expect( model.logs ).toEqual( snap.logs );
+		expect( model.supervisor ).toEqual( s.supervisor );
+		expect( model.logs ).toEqual( s.logs );
 	} );
 
-	test( 'passes heartbeat_interval_s through to the model', () => {
+	test( 'passes heartbeat_interval_s through and retains it on a later omitting poll', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		const snap = producerSnapshot( 100 );
-		snap.heartbeat_interval_s = 10;
-		t.fill( metadataMsg( snap ) );
-		const { model } = sink.got[ 0 ][ VALUE ];
-		expect( model.heartbeatIntervalS ).toBe( 10 );
+		const s = snap();
+		s.heartbeat_interval_s = 10;
+		withClock( () => {
+			t.fill( metadataMsg( s ) );
+			t.fill( metadataMsg( snap() ) );
+		} );
+		expect( sink.got[ 0 ][ VALUE ].model.heartbeatIntervalS ).toBe( 10 );
+		expect( sink.got[ 1 ][ VALUE ].model.heartbeatIntervalS ).toBe( 10 );
 	} );
 
-	test( 'retains the last heartbeat_interval_s when a later poll omits it', () => {
+	test( 'passes segment_size and timestamp through and retains them on a later omitting poll', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		const withInterval = producerSnapshot( 100 );
-		withInterval.heartbeat_interval_s = 10;
-		t.fill( metadataMsg( withInterval ) );
-		t.fill( metadataMsg( producerSnapshot( 200 ) ) ); // no interval
-		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.heartbeatIntervalS ).toBe( 10 );
-	} );
-
-	test( 'passes segment_size and timestamp through to the model', () => {
-		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
-		t.sink = sink.node;
-		const snap = producerSnapshot( 100 );
-		snap.segment_size = 1048576;
-		snap.timestamp = 4242;
-		t.fill( metadataMsg( snap ) );
-		const { model } = sink.got[ 0 ][ VALUE ];
-		expect( model.segmentSize ).toBe( 1048576 );
-		expect( model.currentTime ).toBe( 4242 );
-	} );
-
-	test( 'retains the last segment_size when a later poll omits it', () => {
-		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
-		t.sink = sink.node;
-		// Poll 1 carries a segment_size; poll 2 omits it.
-		const withSize = producerSnapshot( 100 );
-		withSize.segment_size = 1048576;
-		t.fill( metadataMsg( withSize ) );
-		t.fill( metadataMsg( producerSnapshot( 200 ) ) ); // no segment_size
-		const { model } = sink.got[ 1 ][ VALUE ];
-		// Retained poll-1's value, NOT reset to the 64MB default.
-		expect( model.segmentSize ).toBe( 1048576 );
-	} );
-
-	test( 'retains the last timestamp when a later poll omits it', () => {
-		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
-		t.sink = sink.node;
-		// Poll 1 carries a timestamp; poll 2 omits it.
-		const withTs = producerSnapshot( 100 );
-		withTs.timestamp = 4242;
-		t.fill( metadataMsg( withTs ) );
-		t.fill( metadataMsg( producerSnapshot( 200 ) ) ); // no timestamp
-		const { model } = sink.got[ 1 ][ VALUE ];
-		// Retained poll-1's value, NOT reset to the client clock.
-		expect( model.currentTime ).toBe( 4242 );
+		const s = snap();
+		s.segment_size = 1048576;
+		s.timestamp = 4242;
+		withClock( () => {
+			t.fill( metadataMsg( s ) );
+			t.fill( metadataMsg( snap() ) );
+		} );
+		expect( sink.got[ 0 ][ VALUE ].model.segmentSize ).toBe( 1048576 );
+		expect( sink.got[ 0 ][ VALUE ].model.currentTime ).toBe( 4242 );
+		expect( sink.got[ 1 ][ VALUE ].model.segmentSize ).toBe( 1048576 );
+		expect( sink.got[ 1 ][ VALUE ].model.currentTime ).toBe( 4242 );
 	} );
 
 	test( 'first snapshot reports loading=false and a null error', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
+		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
 		expect( model.loading ).toBe( false );
 		expect( model.error ).toBeNull();
 	} );
 } );
 
-describe( 'workerstatus:transform — rates come from the probe-computed worker descriptors', () => {
-	// The PROBE computes read_rate/write_rate (Δbytes / Δ its own 15s ts) and
-	// rides them on each worker descriptor; the transform just reads them — no
-	// client-side delta of poll snapshots, so a SINGLE snapshot already has rates.
-	const workersMsg = ( workers ) =>
-		metadataMsg( { workers, supervisor: null, logs: [] } );
+describe( 'workerstatus:transform — segment tracking from the TRIMMED inputs_status', () => {
+	const grow = ( segments, endSeg, endSize ) => ( {
+		graph: firehoseGraph(),
+		timestamp: 1000,
+		workers: [ liveness( 'firehose-workers', 0 ) ],
+		consumers: [
+			consumerRow( 'firehose.p0', 'firehose.p0', 0, {
+				end_seg: endSeg,
+				end_size: endSize,
+			} ),
+		],
+		logs: [ logEntry( 'firehose.p0', 0, segments ) ],
+	} );
 
-	function fireOnce( workers ) {
+	test( 'a removed segment shows up in removingSegments on the next snapshot', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
-		t.fill( workersMsg( workers ) );
-		return sink.got[ 0 ][ VALUE ].model;
-	}
-
-	test( 'byteRates reads worker.read_rate, keyed (handler-partition-source)', () => {
-		const model = fireOnce( [
-			{
-				type: 'request-workers',
-				handler: 'request-workers',
-				partition: 0,
-				source: '',
-				input_log: 'requests.p0',
-				read_rate: 2000,
-				write_rate: 0,
-				inputs_status: [],
-				outputs_status: [],
-			},
-		] );
-		expect( model.byteRates[ 'request-workers-0-' ] ).toBe( 2000 );
-	} );
-
-	test( 'writeRates reads worker.write_rate, keyed by the concrete input_log', () => {
-		const model = fireOnce( [
-			{
-				type: 'firehose-workers',
-				handler: 'firehose-workers',
-				partition: 0,
-				source: '',
-				input_log: 'firehose.p0',
-				read_rate: 0,
-				write_rate: 500,
-				inputs_status: [],
-				outputs_status: [],
-			},
-		] );
-		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 500 );
-	} );
-
-	test( 'a SINGLE snapshot already carries both rates (no two-snapshot delta)', () => {
-		const model = fireOnce( [
-			{
-				type: 'w',
-				handler: 'w',
-				partition: 0,
-				source: '',
-				input_log: 'l.p0',
-				read_rate: 10,
-				write_rate: 20,
-				inputs_status: [],
-				outputs_status: [],
-			},
-		] );
-		expect( model.byteRates[ 'w-0-' ] ).toBe( 10 );
-		expect( model.writeRates[ 'l.p0' ] ).toBe( 20 );
-	} );
-
-	test( 'missing rate fields default to 0; a worker with no input_log adds no writeRate', () => {
-		const model = fireOnce( [
-			{
-				type: 'w',
-				handler: 'w',
-				partition: 0,
-				source: '',
-				inputs_status: [],
-				outputs_status: [],
-			},
-		] );
-		expect( model.byteRates[ 'w-0-' ] ).toBe( 0 );
-		expect( model.writeRates ).toEqual( {} );
-	} );
-} );
-
-describe( 'workerstatus:transform — segment tracking', () => {
-	test( 'a removed segment shows up in removingSegments on the next snapshot', () => {
-		withClock( ( advance ) => {
-			const sink = capture();
-			const t = makeTransform( 'workerstatus:transform' );
-			t.sink = sink.node;
-			// Snapshot 1: two segments.
-			const two = producerSnapshot( 200 );
-			two.workers[ 0 ].outputs_status[ 0 ].segments = [
-				{ id: 1, size: 100 },
-				{ id: 2, size: 100 },
-			];
-			t.fill( metadataMsg( two ) );
-			advance( 2000 );
-			// Snapshot 2: segment 1 rolled off.
-			const one = producerSnapshot( 100 );
-			one.workers[ 0 ].outputs_status[ 0 ].segments = [
-				{ id: 2, size: 100 },
-			];
-			t.fill( metadataMsg( one ) );
-			const { model } = sink.got[ 1 ][ VALUE ];
-			expect( model.removingSegments[ 'firehose.p0' ] ).toEqual( [
-				{ id: 1, size: 100 },
-			] );
+		withClock( () => {
+			t.fill(
+				metadataMsg(
+					grow(
+						[
+							{ id: 1, size: 100 },
+							{ id: 2, size: 100 },
+						],
+						2,
+						100
+					)
+				)
+			);
+			t.fill( metadataMsg( grow( [ { id: 2, size: 100 } ], 2, 100 ) ) );
 		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.removingSegments[ 'firehose.p0' ] ).toEqual( [
+			{ id: 1, size: 100 },
+		] );
 	} );
 
 	test( 'prevSegments reflects the PRIOR snapshot ids so new segments animate in', () => {
-		withClock( ( advance ) => {
-			const sink = capture();
-			const t = makeTransform( 'workerstatus:transform' );
-			t.sink = sink.node;
-			// Snapshot 1: one segment.
-			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
-			advance( 2000 );
-			// Snapshot 2: a second segment appeared.
-			const two = producerSnapshot( 200 );
-			two.workers[ 0 ].outputs_status[ 0 ].segments = [
-				{ id: 1, size: 100 },
-				{ id: 2, size: 100 },
-			];
-			t.fill( metadataMsg( two ) );
-			const { model } = sink.got[ 1 ][ VALUE ];
-			// The model's prevSegments is the PRIOR snapshot (only id 1), so id 2
-			// is detected as new by the render path.
-			const prev = model.prevSegments[ 'firehose.p0' ];
-			expect( prev.has( 1 ) ).toBe( true );
-			expect( prev.has( 2 ) ).toBe( false );
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			t.fill( metadataMsg( grow( [ { id: 1, size: 100 } ], 1, 100 ) ) );
+			t.fill(
+				metadataMsg(
+					grow(
+						[
+							{ id: 1, size: 100 },
+							{ id: 2, size: 100 },
+						],
+						2,
+						100
+					)
+				)
+			);
 		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		const prev = model.prevSegments[ 'firehose.p0' ];
+		expect( prev.has( 1 ) ).toBe( true );
+		expect( prev.has( 2 ) ).toBe( false );
 	} );
 
 	test( 'no removals → removingSegments is empty', () => {
-		withClock( ( advance ) => {
-			const sink = capture();
-			const t = makeTransform( 'workerstatus:transform' );
-			t.sink = sink.node;
-			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
-			advance( 2000 );
-			t.fill( metadataMsg( producerSnapshot( 200 ) ) );
-			const { model } = sink.got[ 1 ][ VALUE ];
-			expect( model.removingSegments ).toEqual( {} );
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			t.fill( metadataMsg( grow( [ { id: 1, size: 100 } ], 1, 100 ) ) );
+			t.fill( metadataMsg( grow( [ { id: 1, size: 200 } ], 1, 200 ) ) );
 		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.removingSegments ).toEqual( {} );
 	} );
 } );
 
@@ -398,11 +799,7 @@ describe( 'workerstatus:transform — non-metadata replies', () => {
 		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 		reply[ VALUE ] = { name: 'something_else', payload: {} };
 		t.fill( reply );
-		// Transform only acts on dump_graph replies; anything else is a no-op
-		// (the view is the receiver for restart/error replies).
 		expect( sink.got ).toHaveLength( 0 );
-		// Suppress unused-var lint on TM_STRUCT now that the control-pass-through
-		// test is gone — TM_STRUCT is still used for the emit assertion above.
 		void TM_STRUCT;
 	} );
 
@@ -413,19 +810,21 @@ describe( 'workerstatus:transform — non-metadata replies', () => {
 		t.target = 'workerstatus:view';
 		const err = newMessage();
 		err[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
-		err[ VALUE ] = {
-			name: 'dump_graph',
-			payload: 'Server disconnected',
-		};
+		err[ VALUE ] = { name: 'dump_graph', payload: 'Server disconnected' };
 		t.fill( err );
-		// Transform forwards (rather than dropping) so the view's
-		// un-correlated-error path can surface the disconnect banner.
 		expect( sink.got ).toHaveLength( 1 );
 		expect( sink.got[ 0 ][ TO ] ).toBe( 'workerstatus:view' );
 	} );
 } );
 
 describe( 'workerstatus:transform — node wiring', () => {
+	const snap = () => ( {
+		graph: firehoseGraph(),
+		workers: [ liveness( 'firehose-workers', 0 ) ],
+		consumers: [ consumerRow( 'firehose.p0', 'firehose.p0', 0 ) ],
+		logs: [ logEntry( 'firehose.p0', 0, [] ) ],
+	} );
+
 	test( 'names the node', () => {
 		const t = makeTransform( 'workerstatus:transform' );
 		expect( t.name ).toBe( 'workerstatus:transform' );
@@ -434,7 +833,7 @@ describe( 'workerstatus:transform — node wiring', () => {
 	test( 'does nothing without a sink', () => {
 		const t = makeTransform( 'workerstatus:transform' );
 		expect( () =>
-			t.fill( metadataMsg( producerSnapshot( 100 ) ) )
+			withClock( () => t.fill( metadataMsg( snap() ) ) )
 		).not.toThrow();
 	} );
 
@@ -444,7 +843,7 @@ describe( 'workerstatus:transform — node wiring', () => {
 		t.sink = sink.node;
 		t.target = 'workerstatus:view';
 		expect( t.counter ).toBe( 0 );
-		withClock( () => t.fill( metadataMsg( producerSnapshot( 100 ) ) ) );
+		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		expect( t.counter ).toBe( 1 );
 	} );
 } );

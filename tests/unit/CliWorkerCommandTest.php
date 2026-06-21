@@ -13,6 +13,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_CLI_Command;
@@ -56,25 +57,21 @@ class CliWorkerCommandTest extends TestCase {
 
 	/** Seed a real packed-Message Consumer checkpoint at offsets/{source_basename}.p{partition}/0.log. */
 	private function seed_consumer_checkpoint( string $source_basename, int $partition, array $value ): void {
-		// status() enumerates Consumers from the TopicProbe log now; seed a probe
-		// record there, mapping the legacy offsetlog-shaped $value onto its fields.
+		// status() enumerates Consumers from the TopicProbe log; seed a lean
+		// positional Probe_Record there.
 		$dir = "{$this->tmp}/logs/topicprobe.p0";
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}
-		$record                    = [
-			'offset_dir'  => "{$source_basename}.p{$partition}",
-			'consumer'    => $value['name'] ?? "{$source_basename}:consumer",
-			'cursor_seg'  => $value['seg'] ?? 0,
-			'cursor_off'  => $value['off'] ?? 0,
-			'ts'          => 1700000000.0,
-			'source'      => $value['source_log'] ?? '',
-			'target'       => $value['target'] ?? '',
-			'targets'      => $value['targets'] ?? [],
-			'worker_type'  => $value['worker_type'] ?? '',
-			'bytes_behind' => $value['bytes_behind'] ?? 0,
-			'bytes_total'  => $value['bytes_total'] ?? 0,
-		];
+		$record                             = [];
+		$record[ Probe_Record::SOURCE ]     = $value['source'] ?? $value['source_log'] ?? "{$source_basename}.p{$partition}";
+		$record[ Probe_Record::READER ]     = "{$source_basename}.p{$partition}";
+		$record[ Probe_Record::CURSOR_SEG ] = $value['seg'] ?? 0;
+		$record[ Probe_Record::CURSOR_OFF ] = $value['off'] ?? 0;
+		$record[ Probe_Record::END_SEG ]    = $value['end_seg'] ?? 0;
+		$record[ Probe_Record::END_SIZE ]   = $value['end_size'] ?? 0;
+		$record[ Probe_Record::DISTANCE ]   = $value['distance'] ?? $value['bytes_behind'] ?? 0;
+		$record[ Probe_Record::MSGS ]       = $value['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;
@@ -202,35 +199,17 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_warns'] );
 	}
 
-	public function test_status_renders_rows_for_each_partition(): void {
-		$this->register_topology( 'firehose-workers', 2 );
-
-		// Simulate one running, one dead.
-		$lock_p0 = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
-		\mkdir( $lock_p0, 0755, true );
-		\file_put_contents( "{$lock_p0}/heartbeat", (string) \getmypid() );
-		\file_put_contents( "{$lock_p0}/started", (string) ( \time() - 30 ) );
-		// p1 has no lock dir at all => 'dead' with '-' uptime.
+	public function test_status_renders_a_row_per_active_consumer(): void {
+		// status() lists active consumers from the probe — reader + source +
+		// behind. Worker heartbeat liveness is `wp nodes ls`, not status.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [ 'source' => 'firehose.p0', 'distance' => 0 ] );
+		$this->seed_consumer_checkpoint( 'requests', 1, [ 'source' => 'requests.p1', 'distance' => 0 ] );
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'firehose-workers', $haystack );
-		$this->assertStringContainsString( 'running', $haystack );
-		$this->assertStringContainsString( 'dead', $haystack );
-	}
-
-	public function test_status_shows_restart_pending(): void {
-		$this->register_topology( 'aggregator', 1 );
-		$lock = "{$this->tmp}/locks/aggregator.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
-		Lock_Node::request_restart_at( $lock );
-
-		( new Worker_CLI_Command() )->status( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'restart=yes', $haystack );
+		$this->assertStringContainsString( 'firehose.p0', $haystack );
+		$this->assertStringContainsString( 'requests.p1', $haystack );
 	}
 
 	// -------------------------------------------------------------------------
@@ -385,85 +364,45 @@ class CliWorkerCommandTest extends TestCase {
 	// status command — saved_position + Behind + cache filter branches
 	// -------------------------------------------------------------------------
 
-	public function test_status_renders_uptime_when_started_file_present(): void {
-		// `Uptime` reads Lock::get_started_time(); produce a real `started`
-		// file via the substrate convention so the format_duration path runs.
-		$this->register_topology( 'firehose-workers', 1 );
-		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
-		\file_put_contents( "{$lock}/started", (string) ( \time() - 120 ) );
-
-		( new Worker_CLI_Command() )->status( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		// 120 seconds → format_duration emits "2m" or similar minute-grain.
-		// Allow some clock slop in case the test machine is busy.
-		$this->assertMatchesRegularExpression( '/\d+(m|s)/', $haystack );
-	}
-
 	public function test_status_renders_per_consumer_behind_from_the_probe_snapshot(): void {
-		// status() shows each Consumer's Source + Behind, with Behind read straight
-		// off the probe snapshot's bytes_behind (cursor vs partition-end measured
-		// together) — NOT recomputed against a freshly-statted, now-larger end.
-		$this->register_topology( 'firehose-workers-and-jobs', 1 );
-		$lock = "{$this->tmp}/locks/firehose-workers-and-jobs.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
-
+		// Behind is read straight off the probe snapshot's DISTANCE (cursor vs
+		// partition-end measured together) — never recomputed against a fresh stat.
 		$this->seed_consumer_checkpoint( 'firehose', 0, [
-			'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.p0',
-			'bytes_behind' => 200,
+			'source' => 'firehose.p0', 'distance' => 200,
 		] );
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'firehose', $haystack );
+		$this->assertStringContainsString( 'firehose.p0', $haystack );
 		$this->assertStringContainsString( '200B', $haystack );
 	}
 
-	public function test_status_renders_per_consumer_behind_for_disambiguated_readers(): void {
-		// Two Consumers of the SAME log under distinct offset dirs each get their
-		// OWN Behind row, each from its own probe snapshot.
-		$this->register_topology( 'firehose-workers-and-jobs', 1 );
-		$lock = "{$this->tmp}/locks/firehose-workers-and-jobs.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
-
-		$this->seed_consumer_checkpoint( 'firehose', 0, [
-			'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.p0',
-			'bytes_behind' => 400,
-		] );
-		$this->seed_consumer_checkpoint( 'firehose.job-router', 0, [
-			'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.p0',
-			'bytes_behind' => 200,
-		] );
+	public function test_status_renders_a_row_per_disambiguated_reader(): void {
+		// Two Consumers of the SAME source under distinct readers each get their
+		// OWN row + Behind, from their own probe snapshot.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [ 'source' => 'firehose.p0', 'distance' => 400 ] );
+		$this->seed_consumer_checkpoint( 'firehose.job-router', 0, [ 'source' => 'firehose.p0', 'distance' => 200 ] );
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'firehose.job-router', $haystack );
+		$this->assertStringContainsString( 'firehose.job-router.p0', $haystack );
 		$this->assertStringContainsString( '400B', $haystack );
 		$this->assertStringContainsString( '200B', $haystack );
 	}
 
 	public function test_status_exits_cleanly_with_fallback_renderer(): void {
 		// `WP_CLI\Utils\format_items` is not stubbed in this test harness, so
-		// status() emits via the printf-style fallback. Pin the contract so a
-		// future regression removing the fallback fails this test.
-		$this->register_topology( 'firehose-workers', 1 );
-		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+		// status() emits via the printf-style fallback. Pin the contract.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [ 'source' => 'firehose.p0', 'msgs' => 7 ] );
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
-		// Plain-text fallback emits one log line per row.
+		// Plain-text fallback emits one log line per consumer row.
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'firehose-workers', $haystack );
-		$this->assertStringContainsString( 'p0', $haystack );
-		$this->assertStringContainsString( 'restart=no', $haystack );
+		$this->assertStringContainsString( 'firehose.p0', $haystack );
+		$this->assertStringContainsString( 'msgs=7', $haystack );
 	}
 
 	// -------------------------------------------------------------------------

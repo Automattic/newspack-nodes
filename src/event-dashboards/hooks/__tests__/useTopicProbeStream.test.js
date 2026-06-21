@@ -11,9 +11,20 @@ import {
 	newMessage,
 	TYPE,
 	FROM,
+	TIMESTAMP,
 	VALUE,
 	TM_STRUCT,
 } from '../../../runtime/message';
+import {
+	SOURCE,
+	READER,
+	CURSOR_SEG,
+	CURSOR_OFF,
+	END_SEG,
+	END_SIZE,
+	DISTANCE,
+	MSGS,
+} from '../../../runtime/probe-record';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -49,20 +60,27 @@ const VIEW = 'topicprobe:view';
 
 const fakeClient = () => ( { postBatch: () => Promise.resolve( [] ) } );
 
-function probeFrame( overrides = {} ) {
+function probeFrame( {
+	ts = 1000,
+	reader = 'firehose.p0',
+	source = 'firehose.p0',
+	distance = 0,
+	msgs = 0,
+} = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ FROM ] = 'topicprobe.p0';
-	m[ VALUE ] = {
-		ts: 1000,
-		consumer: 'firehose:consumer',
-		offset_dir: 'firehose.p0',
-		source: 'firehose.p0',
-		worker_type: 'combined',
-		bytes_read: 0,
-		bytes_behind: 0,
-		...overrides,
-	};
+	m[ TIMESTAMP ] = ts;
+	const v = [];
+	v[ SOURCE ] = source;
+	v[ READER ] = reader;
+	v[ CURSOR_SEG ] = 0;
+	v[ CURSOR_OFF ] = 0;
+	v[ END_SEG ] = 0;
+	v[ END_SIZE ] = 0;
+	v[ DISTANCE ] = distance;
+	v[ MSGS ] = msgs;
+	m[ VALUE ] = v;
 	return m;
 }
 
@@ -125,28 +143,20 @@ describe( 'useTopicProbeStream', () => {
 			FakeEventSource.last.dispatch(
 				'msg',
 				JSON.stringify(
-					probeFrame( {
-						bytes_read: 1000,
-						bytes_behind: 50,
-						ts: 100,
-					} )
+					probeFrame( { msgs: 1000, distance: 50, ts: 100 } )
 				)
 			);
 			FakeEventSource.last.dispatch(
 				'msg',
 				JSON.stringify(
-					probeFrame( {
-						bytes_read: 4000,
-						bytes_behind: 7800,
-						ts: 103,
-					} )
+					probeFrame( { msgs: 4000, distance: 7800, ts: 103 } )
 				)
 			);
 		} );
 		const snap = Core.node( VIEW ).snapshot();
 		expect( snap[ 'firehose.p0' ] ).toBeTruthy();
-		expect( snap[ 'firehose.p0' ].latest.rate ).toBe( 1000 );
+		expect( snap[ 'firehose.p0' ].latest.rate ).toBe( 1000 ); // +3000 msgs / 3s
 		expect( snap[ 'firehose.p0' ].latest.backlog ).toBe( 7800 );
-		expect( snap[ 'firehose.p0' ].worker_type ).toBe( 'combined' );
+		expect( snap[ 'firehose.p0' ].source ).toBe( 'firehose.p0' );
 	} );
 } );

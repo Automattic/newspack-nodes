@@ -14,6 +14,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Rest\Workers_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
@@ -110,19 +111,15 @@ class WorkersCITest extends TestCase {
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}
-		$record                    = [
-			'offset_dir'  => "{$source_basename}.p{$partition}",
-			'consumer'    => $extra['name'] ?? "{$source_basename}:consumer",
-			'cursor_seg'  => $extra['seg'] ?? 0,
-			'cursor_off'  => $extra['off'] ?? 0,
-			'ts'          => \microtime( true ),
-			'source'      => $extra['source_log'] ?? '',
-			'target'       => $extra['target'] ?? '',
-			'targets'      => $extra['targets'] ?? [],
-			'worker_type'  => $extra['worker_type'] ?? '',
-			'bytes_behind' => $extra['bytes_behind'] ?? 0,
-			'bytes_total'  => $extra['bytes_total'] ?? 0,
-		];
+		$record                             = [];
+		$record[ Probe_Record::SOURCE ]     = $extra['source'] ?? $extra['source_log'] ?? "{$source_basename}.p{$partition}";
+		$record[ Probe_Record::READER ]     = "{$source_basename}.p{$partition}";
+		$record[ Probe_Record::CURSOR_SEG ] = $extra['seg'] ?? 0;
+		$record[ Probe_Record::CURSOR_OFF ] = $extra['off'] ?? 0;
+		$record[ Probe_Record::END_SEG ]    = $extra['end_seg'] ?? 0;
+		$record[ Probe_Record::END_SIZE ]   = $extra['end_size'] ?? 0;
+		$record[ Probe_Record::DISTANCE ]   = $extra['distance'] ?? $extra['bytes_behind'] ?? 0;
+		$record[ Probe_Record::MSGS ]       = $extra['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;
@@ -350,43 +347,6 @@ class WorkersCITest extends TestCase {
 		$this->assertNull( $fake_cli->restart_called_with );
 	}
 
-	public function test_list_verb_threads_probe_index_into_cli(): void {
-		// node_schema() is static and can't `use` the ctor-injected $cli, so the
-		// handler reaches it via $self->cli. It reads the TopicProbe index ONCE
-		// (not per worker) and threads that SAME index into each live_position()
-		// call — pinning both the single read and the threading.
-		$sentinel_index = [ 'firehose.p0' => [ 'worker_type' => 'demo-workers', 'cursor_seg' => 0, 'cursor_off' => 7 ] ];
-		$fake_cli       = new class( $sentinel_index ) {
-			public mixed $seen_index = 'unset';
-			public int   $list_calls = 0;
-			public int   $index_reads = 0;
-			/** @param array<string,mixed> $index */
-			public function __construct( public array $index ) {}
-			public function ls_workers(): array {
-				return [ [ 'type' => 'demo-workers', 'partition' => 0 ] ];
-			}
-			public function read_probe_index(): array {
-				++$this->index_reads;
-				return $this->index;
-			}
-			public function live_position( array $index, string $type, int $partition ): ?array {
-				++$this->list_calls;
-				$this->seen_index = $index;
-				return [ 'seg' => 0, 'off' => 7 ];
-			}
-			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
-		};
-		$interpreter = new Workers_CI_Node();
-		$interpreter->cli = $fake_cli;
-
-		$result = VerbHarness::fire( $interpreter, 'workers', 'list' );
-
-		$this->assertSame( 1, $fake_cli->index_reads, 'handler must read the probe index exactly once' );
-		$this->assertSame( 1, $fake_cli->list_calls, 'handler must reach $self->cli->live_position' );
-		$this->assertSame( $sentinel_index, $fake_cli->seen_index, 'handler must thread the probe index into the cli call' );
-		$this->assertSame( [ 'seg' => 0, 'off' => 7 ], $result[0]['position'] );
-	}
-
 	public function test_heartbeat_verb_refreshes_slot_via_pool(): void {
 		// Heartbeat refreshes the SSE slot through Sse_Slot_Pool::touch, keyed
 		// off the shared Core::$memd handle. Seed a held slot then heartbeat it.
@@ -540,150 +500,83 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 'supervisor', $result['supervisor']['type'] );
 	}
 
-	public function test_dump_metadata_workers_each_have_rich_descriptor_fields(): void {
-		// Each worker entry must carry the dashboard's full read surface:
-		// type, partition, handler, source, target, inputs, outputs,
-		// inputs_status, outputs_status, heartbeat_age, behind, cursor_seg,
-		// cursor_offset, live, heartbeat_at, stale (plus legacy parity
-		// fields the WorkerStatus.js code already touches: status,
-		// started_at, restart_pending).
+	public function test_dump_metadata_workers_carry_liveness_and_consumers_carry_state(): void {
+		// workers[] is pure per-(type,partition) liveness; the per-reader cursor /
+		// distance / msgs live in consumers[] (the probe snapshot), which the
+		// dashboard joins onto the .tsl graph.
 		$base = $this->arrange_base_dir();
 		$this->seed_probe_record(
 			$base,
 			'firehose',
 			0,
-			[
-				'name'        => 'firehose:consumer',
-				'target'      => 'firehose:tee',
-				'targets'     => [ [ 'name' => 'request-builder' ] ],
-				'worker_type' => 'demo-workers',
-			]
+			[ 'source' => 'firehose.p0', 'seg' => 2, 'off' => 50, 'distance' => 128, 'msgs' => 7 ]
 		);
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 
-		$interpreter     = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
-		$rows = \array_values( \array_filter(
+		$workers = \array_values( \array_filter(
 			$result['workers'],
 			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
 		) );
-		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
-		$row = $rows[0];
-
+		$this->assertNotEmpty( $workers, 'expected a demo-workers liveness row' );
 		foreach (
-			[
-				'type',
-				'partition',
-				'handler',
-				'source',
-				'target',
-				'inputs',
-				'outputs',
-				'inputs_status',
-				'outputs_status',
-				'heartbeat_age',
-				'behind',
-				'cursor_seg',
-				'cursor_offset',
-				'live',
-				'heartbeat_at',
-				'stale',
-				// Legacy parity fields WorkerStatus.js reads directly.
-				'status',
-				'started_at',
-				'restart_pending',
-			] as $field
+			[ 'type', 'partition', 'status', 'started_at', 'heartbeat_age', 'heartbeat_at', 'live', 'stale', 'restart_pending' ] as $field
 		) {
-			$this->assertArrayHasKey( $field, $row, "worker missing field: $field" );
+			$this->assertArrayHasKey( $field, $workers[0], "worker missing liveness field: $field" );
 		}
-		$this->assertSame( 'demo-workers', $row['type'] );
-		$this->assertSame( 0, $row['partition'] );
-		$this->assertSame( 'request-builder', $row['handler'] );
-		$this->assertSame( 'firehose:consumer', $row['source'] );
-		$this->assertTrue( $row['live'] );
-		$this->assertFalse( $row['stale'] );
-		$this->assertSame( 'running', $row['status'] );
-		$this->assertIsArray( $row['inputs_status'] );
-		$this->assertNotEmpty( $row['inputs_status'] );
+		$this->assertTrue( $workers[0]['live'] );
+		$this->assertSame( 'running', $workers[0]['status'] );
+
+		$consumers = \array_values( \array_filter(
+			$result['consumers'],
+			static fn ( $c ) => 'firehose.p0' === ( $c['reader'] ?? '' )
+		) );
+		$this->assertNotEmpty( $consumers, 'expected a probe consumer row' );
+		$this->assertSame( 'firehose.p0', $consumers[0]['source'] );
+		$this->assertSame( 2, $consumers[0]['cursor_seg'] );
+		$this->assertSame( 128, $consumers[0]['distance'] );
+		$this->assertSame( 7, $consumers[0]['msgs'] );
 	}
 
-	public function test_dump_metadata_input_log_uses_recorded_source_log_not_offset_dir_name(): void {
-		// A Consumer whose offset dir is disambiguated (two readers tail the
-		// same log under distinct offset names: `firehose` and
-		// `firehose.job-router`) must still report the REAL physical source log —
-		// the concrete `firehose.p0` recorded as `source_log` — as its input, not
-		// the offset-dir-derived `firehose.job-router.p0` phantom that scans a
-		// nonexistent segment dir and renders as "No segments".
+	public function test_dump_metadata_consumers_carry_the_recorded_source_partition(): void {
+		// A disambiguated reader (`firehose.job-router.p0`) reports the REAL source
+		// partition it tails (`firehose.p0`) via SOURCE — not its offset-dir name.
 		$base = $this->arrange_base_dir();
-		$this->seed_probe_record(
-			$base,
-			'firehose.job-router',
-			0,
-			[
-				'name'        => 'firehose:consumer',
-				'target'      => 'job-router',
-				'targets'     => [ [ 'name' => 'job-router' ] ],
-				'worker_type' => 'demo-workers',
-				'source_log'  => 'firehose.p0',
-			]
-		);
-		$this->seed_heartbeat( $base, 'demo-workers', 0 );
+		$this->seed_probe_record( $base, 'firehose.job-router', 0, [ 'source' => 'firehose.p0' ] );
 
-		$interpreter        = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
-		$rows = \array_values( \array_filter(
-			$result['workers'],
-			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
+		$consumers = \array_values( \array_filter(
+			$result['consumers'],
+			static fn ( $c ) => 'firehose.job-router.p0' === ( $c['reader'] ?? '' )
 		) );
-		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
-		$row = $rows[0];
-
-		$this->assertSame( [ 'firehose.p0' ], $row['inputs'] );
-		$this->assertSame( 'firehose.p0', $row['inputs_status'][0]['name'] );
+		$this->assertNotEmpty( $consumers );
+		$this->assertSame( 'firehose.p0', $consumers[0]['source'] );
 	}
 
-	public function test_dump_metadata_disambiguated_reader_cursor_reads_its_own_offset_dir(): void {
-		// The disambiguated reader (offset dir `firehose.job-router.p0`) shares
-		// the real log `firehose.log` with a sibling reader (offset dir
-		// `firehose.p0`). Its cursor MUST come from its OWN offset dir, not the
-		// sibling's — even though both now label as `firehose.log`. Regression
-		// guard: keying the cursor by the display log would read the wrong dir.
+	public function test_dump_metadata_each_reader_carries_its_own_cursor(): void {
+		// Two readers tail the same source under distinct reader ids; each keeps its
+		// OWN cursor in consumers[], keyed by reader.
 		$base = $this->arrange_base_dir();
-		$this->seed_probe_record(
-			$base,
-			'firehose.job-router',
-			0,
-			[
-				'seg'         => 5,
-				'off'         => 100,
-				'name'        => 'firehose:consumer',
-				'targets'     => [ [ 'name' => 'job-router' ] ],
-				'worker_type' => 'demo-workers',
-				'source_log'  => 'firehose.p0',
-			]
-		);
-		// Sibling reader of the same log under the plain offset dir — different
-		// cursor. Present so a wrong-dir lookup would bleed THIS value through.
-		$this->seed_probe_record( $base, 'firehose', 0, [ 'seg' => 9, 'off' => 999 ] );
-		$this->seed_heartbeat( $base, 'demo-workers', 0 );
+		$this->seed_probe_record( $base, 'firehose.job-router', 0, [ 'source' => 'firehose.p0', 'seg' => 5, 'off' => 100 ] );
+		$this->seed_probe_record( $base, 'firehose', 0, [ 'source' => 'firehose.p0', 'seg' => 9, 'off' => 999 ] );
 
-		$interpreter        = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
-		$rows = \array_values( \array_filter(
-			$result['workers'],
-			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
-		) );
-		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
-		$row = $rows[0];
-
-		$this->assertSame( 5, $row['cursor_seg'], 'cursor must come from the reader\'s own offset dir' );
-		$this->assertSame( 100, $row['cursor_offset'] );
+		$by_reader = [];
+		foreach ( $result['consumers'] as $c ) {
+			$by_reader[ $c['reader'] ] = $c;
+		}
+		$this->assertSame( 5, $by_reader['firehose.job-router.p0']['cursor_seg'] );
+		$this->assertSame( 100, $by_reader['firehose.job-router.p0']['cursor_off'] );
+		$this->assertSame( 9, $by_reader['firehose.p0']['cursor_seg'] );
 	}
 
 	public function test_dump_metadata_includes_logs_enumeration(): void {
@@ -964,82 +857,65 @@ class WorkersCITest extends TestCase {
 		$this->assertArrayHasKey( 'status', $result['supervisor'] );
 	}
 
-	public function test_dump_metadata_inputs_status_includes_segments_metadata(): void {
-		// inputs_status[] is the per-input segment metadata + cursor. Each
-		// entry = {name, partition, segments: [{id, size, mtime}], total_size,
-		// cursor_seg, cursor_offset}. Cursor_seg/offset are present only when
-		// the worker has checkpointed (matches `build_log_status_entry`'s
-		// conditional inclusion).
+	public function test_dump_metadata_logs_carry_segments_and_consumers_carry_cursor(): void {
+		// Segment lists (the bar's raw data) come from logs[] — the live scandir.
+		// The reader's cursor + distance come from consumers[] — the probe snapshot.
+		// The topologies tab joins the two (trim live segments to the probe end).
 		$base = $this->arrange_base_dir();
-		// The probe snapshot carries the cursor AND the backlog (behind=150),
-		// measured together. The on-disk log segment (200B) feeds only the
-		// inputs_status segment list (build_log_status_entry), NOT the lag.
+		$this->declare_partitions( $base, 'demo-workers', [ 'firehose' ] );
+		$this->seed_log_segment( $base, 'firehose', 0, 0, 200 );
 		$this->seed_probe_record(
 			$base,
 			'firehose',
 			0,
-			[
-				'name'         => 'firehose:consumer',
-				'target'       => 'request-builder',
-				'targets'      => [ [ 'name' => 'request-builder' ] ],
-				'worker_type'  => 'demo-workers',
-				'seg'          => 0,
-				'off'          => 50,
-				'bytes_behind' => 150,
-				'bytes_total'  => 200,
-			]
+			[ 'source' => 'firehose.p0', 'seg' => 0, 'off' => 50, 'distance' => 150, 'end_seg' => 0, 'end_size' => 200 ]
 		);
-		$this->seed_heartbeat( $base, 'demo-workers', 0 );
-		$this->seed_log_segment( $base, 'firehose', 0, 0, 200 );
 
-		$interpreter     = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
-		$rows = \array_values( \array_filter(
-			$result['workers'],
-			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
+		$logs = [];
+		foreach ( $result['logs'] as $l ) {
+			$logs[ $l['name'] ] = $l;
+		}
+		$this->assertArrayHasKey( 'firehose.p0', $logs );
+		$segments = $logs['firehose.p0']['partitions'][0]['segments'];
+		$this->assertCount( 1, $segments );
+		$this->assertSame( 200, $segments[0]['size'] );
+
+		$consumers = \array_values( \array_filter(
+			$result['consumers'],
+			static fn ( $c ) => 'firehose.p0' === ( $c['reader'] ?? '' )
 		) );
-		$this->assertNotEmpty( $rows );
-		$row    = $rows[0];
-		$status = $row['inputs_status'][0];
-		// No source_log recorded → falls back to the concrete offset-dir name `firehose.p0`.
-		$this->assertSame( 'firehose.p0', $status['name'] );
-		$this->assertSame( 0, $status['partition'] );
-		$this->assertIsArray( $status['segments'] );
-		$this->assertCount( 1, $status['segments'] );
-		$this->assertSame( 0, $status['segments'][0]['id'] );
-		$this->assertSame( 200, $status['segments'][0]['size'] );
-		$this->assertSame( 200, $status['total_size'] );
-		// Cursor + behind both came from the probe snapshot, not a fresh stat.
-		$this->assertSame( 0, $row['cursor_seg'] );
-		$this->assertSame( 50, $row['cursor_offset'] );
-		$this->assertSame( 150, $row['behind'] );
+		$this->assertNotEmpty( $consumers );
+		$this->assertSame( 0, $consumers[0]['cursor_seg'] );
+		$this->assertSame( 50, $consumers[0]['cursor_off'] );
+		$this->assertSame( 150, $consumers[0]['distance'] );
+		$this->assertSame( 0, $consumers[0]['end_seg'] );
+		$this->assertSame( 200, $consumers[0]['end_size'] );
 	}
 
-	public function test_dump_metadata_emits_placeholder_when_worker_has_not_checkpointed(): void {
-		// A topology worker with no offsetlog entry (fresh spawn, no
-		// Consumer checkpoint yet) must still emit one row so the
-		// dashboard sees the worker_type. The row's inputs/outputs/etc.
-		// are empty arrays; target = ''.
+	public function test_dump_metadata_emits_a_liveness_row_for_a_worker_with_no_consumers(): void {
+		// A worker with no probe record yet still appears in workers[] (liveness),
+		// and simply has no consumers[] row.
 		$base = $this->arrange_base_dir();
 		$this->seed_heartbeat( $base, 'request-workers', 0 );
 
-		$interpreter     = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$rows = \array_values( \array_filter(
 			$result['workers'],
 			static fn ( $w ) => 'request-workers' === ( $w['type'] ?? '' )
 		) );
-		$this->assertNotEmpty( $rows, 'expected placeholder row for request-workers' );
-		$placeholder = $rows[0];
-		$this->assertSame( [], $placeholder['inputs'] );
-		$this->assertSame( [], $placeholder['outputs'] );
-		$this->assertSame( [], $placeholder['inputs_status'] );
-		$this->assertSame( [], $placeholder['outputs_status'] );
-		$this->assertSame( '', $placeholder['target'] );
+		$this->assertNotEmpty( $rows, 'expected a liveness row for request-workers' );
+		$this->assertTrue( $rows[0]['live'] );
+		$this->assertSame( [], \array_values( \array_filter(
+			$result['consumers'],
+			static fn ( $c ) => \str_starts_with( $c['reader'] ?? '', 'request' )
+		) ) );
 	}
 
 	public function test_dump_metadata_rejects_unauthorized(): void {
@@ -1070,11 +946,7 @@ class WorkersCITest extends TestCase {
 	public function test_constructible_via_no_arg_ctor_and_public_property_assignment(): void {
 		$fake_cli = new class {
 			public function ls_workers(): array {
-				return [ [ 'type' => 'demo-workers', 'partition' => 0 ] ];
-			}
-			public function read_probe_index(): array { return []; }
-			public function live_position( array $index, string $type, int $partition ): ?array {
-				return [ 'seg' => 0, 'off' => 42 ];
+				return [ [ 'type' => 'demo-workers', 'partition' => 0, 'live' => true ] ];
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
@@ -1084,8 +956,9 @@ class WorkersCITest extends TestCase {
 
 		$this->assertSame( $fake_cli, $interpreter->cli );
 
+		// `list` is the Cli::ls_workers() liveness projection, threaded off $self->cli.
 		$result = VerbHarness::fire( $interpreter, 'workers', 'list' );
 		$this->assertSame( 'demo-workers', $result[0]['type'] );
-		$this->assertSame( [ 'seg' => 0, 'off' => 42 ], $result[0]['position'] );
+		$this->assertTrue( $result[0]['live'] );
 	}
 }

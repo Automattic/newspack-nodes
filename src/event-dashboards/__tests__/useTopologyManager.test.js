@@ -323,11 +323,35 @@ describe( 'useTopologyManager', () => {
 	} );
 } );
 
-// Build a single-active-topology client whose dump_graph carries the given
-// per-partition workers (heartbeat_age / behind) at the given interval.
+// Build a single-active-topology client whose LEAN dump_graph payload carries
+// the per-partition liveness + probe rows (heartbeat_age / behind) the
+// transform reconstructs into rich workers. Topology `a` reads `a.p<partition>`.
 function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
 	const dump = {
-		workers,
+		// Liveness only — heartbeat_age + status per (type, partition).
+		workers: workers.map( ( w ) => ( {
+			type: w.type,
+			partition: w.partition,
+			status: w.status,
+			started_at: w.started_at,
+			heartbeat_age: w.heartbeat_age,
+			heartbeat_at: 999,
+			live: 'running' === w.status,
+			stale: 'stale' === w.status,
+			restart_pending: false,
+		} ) ),
+		// Probe STATE — `distance` reconstructs to `behind`.
+		consumers: workers.map( ( w ) => ( {
+			reader: `a.p${ w.partition }`,
+			source: `a.p${ w.partition }`,
+			partition: w.partition,
+			cursor_seg: 0,
+			cursor_off: 0,
+			end_seg: 0,
+			end_size: 0,
+			distance: w.behind,
+			msgs: 0,
+		} ) ),
 		supervisor: {
 			type: 'supervisor',
 			status: 'running',
@@ -335,8 +359,22 @@ function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
 			heartbeat_age: 2,
 			restart_pending: false,
 		},
-		logs: [],
-		graph: { a: { nodes: [ { name: 'a', kind: 'logic' } ], edges: [] } },
+		logs: workers.map( ( w ) => ( {
+			name: `a.p${ w.partition }`,
+			partitions: [
+				{ partition: w.partition, segments: [], total_size: 0 },
+			],
+			segment_size: 16 * 1024 * 1024,
+		} ) ),
+		graph: {
+			a: {
+				nodes: [
+					{ name: 'a-in', kind: 'consumer', reads: 'a.p<partition>' },
+					{ name: 'a-log', kind: 'log', writes: 'a.p<partition>' },
+				],
+				edges: [ [ 'a-in', 'a-log' ] ],
+			},
+		},
 	};
 	if ( heartbeatIntervalS !== undefined ) {
 		dump.heartbeat_interval_s = heartbeatIntervalS;
@@ -353,20 +391,15 @@ function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
 	return makeRecordingClient( { dump_graph: dump, list: topologies } );
 }
 
-function worker( partition, { heartbeatAge, behind } ) {
+// A lean per-partition fixture: liveness (status/heartbeat_age) + probe behind.
+function worker( partition, { heartbeatAge, behind, status = 'running' } ) {
 	return {
 		type: 'a',
-		handler: 'a',
 		partition,
-		source: '',
-		status: 'running',
+		status,
 		started_at: 1000,
 		heartbeat_age: heartbeatAge,
 		behind,
-		inputs: [],
-		outputs: [],
-		inputs_status: [],
-		outputs_status: [],
 	};
 }
 
