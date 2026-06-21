@@ -11,12 +11,12 @@
  */
 
 import { memo } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import TopologySection from './TopologySection';
 import TopologyControls from './TopologyControls';
 import { buildTopologySections } from './topologyGraph';
 import { partitionSummaries } from './partitionSummaries';
-import { formatAge } from './formatters';
+import { formatAge, formatEtaSeconds } from './formatters';
 import './TopologyRow.scss';
 
 // Opens the DevTools hub's Console tab (the hub reads `?tab=` to pick it). A
@@ -74,53 +74,90 @@ export function sectionFor( name, status ) {
 }
 
 /**
- * One topology's unfolded detail row.
+ * One topology's row — the SAME heading whether folded (compact summary) or
+ * unfolded (heading + live detail tree); only the chevron (▸/▾) and the presence
+ * of the body differ. So the folded summary and the expanded view share one set
+ * of per-partition pills + badges, and each partition shows its OWN uptime.
  *
- * @param {Object}   props                    Component props.
- * @param {Object}   props.topology           Topology row from useTopologyManager.
- * @param {Function} props.onActivate         (name) => Promise.
- * @param {Function} props.onDeactivate       (name) => Promise.
- * @param {Function} props.onRestart          (name) => Promise.
- * @param {Function} props.onError            ({name,message}) => void; a rejected mutation.
- * @param {Function} props.onCollapseTopology (name) => void; fold this row to its compact summary.
- * @param {Set}      props.collapsed          Within-tree node-fold set.
- * @param {Function} props.onToggleFold       (key) => void within-tree node-fold toggler.
+ * @param {Object}   props                      Component props.
+ * @param {Object}   props.topology             Topology row from useTopologyManager.
+ * @param {boolean}  [props.folded]             Render the heading only (▸ expand) vs heading + body (▾ collapse).
+ * @param {Function} props.onActivate           (name) => Promise.
+ * @param {Function} props.onDeactivate         (name) => Promise.
+ * @param {Function} props.onRestart            (name) => Promise.
+ * @param {Function} props.onError              ({name,message}) => void; a rejected mutation.
+ * @param {Function} [props.onExpand]           (name) => void; unfold this row (folded chevron).
+ * @param {Function} [props.onCollapseTopology] (name) => void; fold this row (unfolded chevron).
+ * @param {Function} [props.onDragStart]        (name, event) => void; begin a row-reorder drag (adds a grip).
+ * @param {Function} [props.onDropOn]           (name, event) => void; drop a dragged row before this one.
+ * @param {Set}      [props.collapsed]          Within-tree node-fold set (unfolded only).
+ * @param {Function} [props.onToggleFold]       (key) => void within-tree node-fold toggler.
  * @return {import('react').ReactElement} Rendered row.
  */
 const TopologyRow = memo( function TopologyRow( {
 	topology,
+	folded = false,
 	onActivate,
 	onDeactivate,
 	onRestart,
 	onError,
+	onExpand,
 	onCollapseTopology,
+	onDragStart,
+	onDropOn,
 	collapsed,
 	onToggleFold,
 } ) {
-	const { name, source, active, health = 'ok' } = topology;
-	const section = active ? sectionFor( name, topology.status ) : null;
+	const { name, source, active, health = 'ok', etaSeconds = 0 } = topology;
+	const section =
+		! folded && active ? sectionFor( name, topology.status ) : null;
 	// Per-partition process summary (uptime + heartbeat + restart_pending) and
 	// the rolled-up ALL RUN / ALL DEAD badge.
 	const parts = active
 		? partitionSummaries( topology.status?.workers || [] )
 		: [];
 	const currentTime = topology.status?.currentTime;
-	const allRunning =
-		parts.length > 0 && parts.every( ( p ) => p.status === 'running' );
+	const up = parts.filter( ( p ) => p.status === 'running' ).length;
+	const allRunning = parts.length > 0 && up === parts.length;
 	const allDead =
 		parts.length > 0 && parts.every( ( p ) => p.status === 'dead' );
+	// ETA to catch up — shown only when behind/stalled (sub-minute lag reads ok).
+	const eta = 'ok' !== health ? formatEtaSeconds( etaSeconds ) : '';
 
 	return (
-		<div className="nodes-tm__topology">
+		<div
+			className="nodes-tm__topology"
+			onDragOver={ onDropOn ? ( e ) => e.preventDefault() : undefined }
+			onDrop={ onDropOn ? ( e ) => onDropOn( name, e ) : undefined }
+		>
 			<div className="nodes-tm__heading">
+				{ onDragStart && (
+					<span
+						className="nodes-tm__grip"
+						draggable={ true }
+						aria-label={ __( 'Drag to reorder', 'newspack-nodes' ) }
+						title={ __( 'Drag to reorder', 'newspack-nodes' ) }
+						onDragStart={ ( e ) => onDragStart( name, e ) }
+					>
+						⠿
+					</span>
+				) }
 				<button
 					type="button"
-					className="nodes-tm__collapse"
-					title={ __( 'Collapse', 'newspack-nodes' ) }
-					aria-expanded={ true }
-					onClick={ () => onCollapseTopology( name ) }
+					className={
+						folded ? 'nodes-tm__expand' : 'nodes-tm__collapse'
+					}
+					title={
+						folded
+							? __( 'Expand', 'newspack-nodes' )
+							: __( 'Collapse', 'newspack-nodes' )
+					}
+					aria-expanded={ ! folded }
+					onClick={ () =>
+						folded ? onExpand( name ) : onCollapseTopology( name )
+					}
 				>
-					▾
+					{ folded ? '▸' : '▾' }
 				</button>
 				{ active ? (
 					<a className="nodes-tm__name" href={ consoleHref( name ) }>
@@ -176,6 +213,16 @@ const TopologyRow = memo( function TopologyRow( {
 						{ __( 'ALL DEAD', 'newspack-nodes' ) }
 					</span>
 				) }
+				{ parts.length > 0 && ! allRunning && ! allDead && (
+					<span className="worker-status-badge small">
+						{ sprintf(
+							// translators: %1$d: running partitions; %2$d: total.
+							__( '%1$d/%2$d up', 'newspack-nodes' ),
+							up,
+							parts.length
+						) }
+					</span>
+				) }
 				<span
 					className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
 				>
@@ -188,6 +235,21 @@ const TopologyRow = memo( function TopologyRow( {
 						{ HEALTH_LABELS[ health ] ?? health }
 					</span>
 				) }
+				{ eta && (
+					<span
+						className="nodes-tm__eta"
+						title={ __(
+							'Estimated time to catch up',
+							'newspack-nodes'
+						) }
+					>
+						{ sprintf(
+							// translators: %s: ETA duration, e.g. "10m".
+							__( 'ETA %s', 'newspack-nodes' ),
+							eta
+						) }
+					</span>
+				) }
 				<TopologyControls
 					name={ name }
 					active={ active }
@@ -198,26 +260,30 @@ const TopologyRow = memo( function TopologyRow( {
 					editHref={ consoleHref( name, { edit: true } ) }
 				/>
 			</div>
-			<div className="nodes-tm__body">
-				{ section ? (
-					<TopologySection
-						section={ section }
-						workers={ section.workers }
-						byteRates={ topology.status.byteRates }
-						writeRates={ topology.status.writeRates }
-						segmentSize={ topology.status.segmentSize }
-						currentTime={ topology.status.currentTime }
-						prevSegments={ topology.status.prevSegments }
-						removingSegments={ topology.status.removingSegments }
-						collapsed={ collapsed }
-						onToggle={ onToggleFold }
-					/>
-				) : (
-					<p className="nodes-tm__stopped">
-						{ __( 'Stopped', 'newspack-nodes' ) }
-					</p>
-				) }
-			</div>
+			{ ! folded && (
+				<div className="nodes-tm__body">
+					{ section ? (
+						<TopologySection
+							section={ section }
+							workers={ section.workers }
+							byteRates={ topology.status.byteRates }
+							writeRates={ topology.status.writeRates }
+							segmentSize={ topology.status.segmentSize }
+							currentTime={ topology.status.currentTime }
+							prevSegments={ topology.status.prevSegments }
+							removingSegments={
+								topology.status.removingSegments
+							}
+							collapsed={ collapsed }
+							onToggle={ onToggleFold }
+						/>
+					) : (
+						<p className="nodes-tm__stopped">
+							{ __( 'Stopped', 'newspack-nodes' ) }
+						</p>
+					) }
+				</div>
+			) }
 		</div>
 	);
 } );

@@ -282,7 +282,24 @@ export function reconstructWorkers( data, prior ) {
 				cursor_seg: row.cursor_seg,
 				cursor_offset: row.cursor_off,
 			};
+
+			// Rates are PROBE-cadence (steppedRate), computed ONCE per probe row.
+			// READ = Δ(cursor byte position within the snapshot partition); WRITE =
+			// Δ(partition END position) where `total` (the trimmed segment sum) IS
+			// the end position — both snapshot-stable, so they update only when new
+			// probe data advances the cursor / end, never on the ~1s poll. Computed
+			// before the worker push so each worker carries its own read_rate (for
+			// the ETA rollup + the eta-aware "behind" health).
+			const readStep = steppedRate(
+				priorRead[ row.reader ],
+				cursorBytes( segments, row.cursor_seg, row.cursor_off ),
+				ts
+			);
+			nextRead[ row.reader ] = readStep;
+
 			chosen.handlers.forEach( ( handler ) => {
+				byteRates[ `${ handler }-${ row.partition }-${ concrete }` ] =
+					readStep.rate;
 				workers.push( {
 					type: topology,
 					handler,
@@ -297,27 +314,12 @@ export function reconstructWorkers( data, prior ) {
 					cursor_seg: row.cursor_seg,
 					cursor_offset: row.cursor_off,
 					behind: row.distance,
+					read_rate: readStep.rate,
 					inputs: [ concrete ],
 					outputs: [],
 					inputs_status: [ inputsStatus ],
 					outputs_status: [],
 				} );
-			} );
-
-			// Rates are PROBE-cadence (steppedRate), computed ONCE per probe row.
-			// READ = Δ(cursor byte position within the snapshot partition); WRITE =
-			// Δ(partition END position) where `total` (the trimmed segment sum) IS
-			// the end position — both snapshot-stable, so they update only when new
-			// probe data advances the cursor / end, never on the ~1s poll.
-			const readStep = steppedRate(
-				priorRead[ row.reader ],
-				cursorBytes( segments, row.cursor_seg, row.cursor_off ),
-				ts
-			);
-			nextRead[ row.reader ] = readStep;
-			chosen.handlers.forEach( ( handler ) => {
-				byteRates[ `${ handler }-${ row.partition }-${ concrete }` ] =
-					readStep.rate;
 			} );
 
 			const writeStep = steppedRate( priorWrite[ concrete ], total, ts );

@@ -368,6 +368,11 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 			write: first.nextWrite,
 		} );
 		expect( second.byteRates[ rb ] ).toBe( 10 );
+		// Each worker also carries its own read_rate (for the ETA rollup / health).
+		const w = second.workers.find(
+			( x ) => x.handler === 'request-builder'
+		);
+		expect( w.read_rate ).toBe( 10 );
 	} );
 
 	it( 'never reports a negative rate when the cursor goes backward (worker restart)', () => {

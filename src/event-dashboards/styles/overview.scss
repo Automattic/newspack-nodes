@@ -1,18 +1,12 @@
 /**
- * Overview hub tab — the at-a-glance FLEET-HEALTH board. A fleet strip (counts +
- * partitions-up + worst-health pill) and supervisor card over one row per active
- * topology: worker pills, a live consumer-lag sparkline + value, uptime, sorted
- * worst-health first; stopped topologies sink into a de-emphasized chip group.
- * Palette tracks the event-dashboards dark theme (base.scss), matching the
- * Topologies tab it complements.
+ * Overview hub tab — the merged board. SummaryCards + Topics panels + supervisor
+ * over a fold-all/unfold-all toolbar and one TopologyRow per active topology (its
+ * own `.nodes-tm__*` styles, folded or unfolded), in the user's drag order;
+ * stopped topologies sink into a de-emphasized chip group. Palette tracks the
+ * event-dashboards dark theme (base.scss).
  */
 
 @use "base";
-
-// Health palette (shared by the fleet pill, row accents, badges).
-$health-ok: #3fb950;
-$health-behind: #d29922;
-$health-stalled: #f85149;
 
 .nodes-overview {
 	padding: 20px 16px 24px;
@@ -43,53 +37,12 @@ $health-stalled: #f85149;
 		}
 	}
 
-	// ── Active rows ───────────────────────────────────────────────────────
+	// ── Active rows (each a TopologyRow — see TopologyRow.scss) ────────────
 	&__rows {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
 		margin-top: 12px;
-	}
-
-	// Per-row expand chevron — unfolds the compact row to its full detail tree.
-	&__expand {
-		flex: 0 0 auto;
-		font-size: 12px;
-		line-height: 1;
-		padding: 2px 6px;
-		border: 0;
-		border-radius: 4px;
-		background: transparent;
-		color: base.$dark-text-muted;
-		cursor: pointer;
-
-		&:hover {
-			color: base.$dark-text;
-			background: base.$dark-bg-hover;
-		}
-	}
-
-	&__row {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-		padding: 12px 14px;
-		background: base.$dark-bg-secondary;
-		border: 1px solid base.$dark-border;
-		border-left: 3px solid base.$dark-border;
-		border-radius: 6px;
-
-		&--ok {
-			border-left-color: $health-ok;
-		}
-
-		&--behind {
-			border-left-color: $health-behind;
-		}
-
-		&--stalled {
-			border-left-color: $health-stalled;
-		}
 	}
 
 	&__name {
@@ -104,124 +57,6 @@ $health-stalled: #f85149;
 		&[href]:hover {
 			text-decoration: underline;
 		}
-	}
-
-	&__health {
-		flex: 0 0 auto;
-		// Floor so "ok"/"behind"/"stalled" don't shift the columns after it.
-		min-width: 68px;
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		font-size: 10px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-		color: base.$dark-text-muted;
-
-		&::before {
-			content: "";
-			width: 8px;
-			height: 8px;
-			border-radius: 50%;
-			background: currentcolor;
-			flex: 0 0 auto;
-		}
-
-		&--ok {
-			color: $health-ok;
-		}
-
-		&--behind {
-			color: $health-behind;
-		}
-
-		&--stalled {
-			color: $health-stalled;
-		}
-	}
-
-	&__parts {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 6px;
-		// Reserve room for two partition pills + the "N/N up" tally so a
-		// single-partition row's uptime/lag align with a 2-partition row's
-		// (extra partitions wrap rather than widen the column).
-		min-width: 210px;
-	}
-
-	&__part {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		font-size: 11px;
-		padding: 2px 7px;
-		border-radius: 4px;
-		background: base.$dark-bg-tertiary;
-		border: 1px solid transparent;
-
-		&--running {
-			color: $health-ok;
-		}
-
-		&--dead {
-			color: $health-stalled;
-			border-color: rgba($health-stalled, 0.4);
-		}
-
-		&.is-stale {
-			color: $health-behind;
-			border-color: rgba($health-behind, 0.4);
-		}
-	}
-
-	&__part-id {
-		font-weight: 700;
-		letter-spacing: 0.02em;
-	}
-
-	&__hb {
-		color: base.$dark-text-dim;
-		font-variant-numeric: tabular-nums;
-	}
-
-	&__restart {
-		color: base.$dark-text-muted;
-	}
-
-	&__upcount {
-		font-size: 11px;
-		color: base.$dark-text-dim;
-		font-variant-numeric: tabular-nums;
-	}
-
-	&__uptime {
-		flex: 0 0 auto;
-		min-width: 44px;
-		font-size: 12px;
-		color: base.$dark-text-dim;
-		font-variant-numeric: tabular-nums;
-	}
-
-	&__lag {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		margin-left: auto;
-		font-size: 12px;
-		font-variant-numeric: tabular-nums;
-		color: base.$dark-text-dim;
-
-		&.is-behind {
-			color: base.$dark-text;
-		}
-	}
-
-	&__lagval {
-		min-width: 64px;
-		text-align: right;
 	}
 
 	// ── Stopped group ─────────────────────────────────────────────────────

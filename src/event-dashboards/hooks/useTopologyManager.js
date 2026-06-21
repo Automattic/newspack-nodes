@@ -50,11 +50,16 @@ import {
 	makeOpId,
 } from '@newspack-nodes/shared/hooks/useDashboardGraph';
 import { globalRates } from '../globalRates';
+import { etaSeconds } from '../formatters';
 import '../nodes/register';
 
 // A partition is stalled when its heartbeat age exceeds interval × STALL_PAD;
 // the pad tolerates a couple of missed beats without flicker.
 export const STALL_PAD = 3;
+
+// A consumer is "behind" only once its catch-up ETA reaches this many seconds —
+// a sub-minute backlog drains on its own and isn't worth flagging.
+const BEHIND_ETA_S = 60;
 
 const HTTP = '_http';
 const TRANSFORM = 'workerstatus:transform';
@@ -131,18 +136,25 @@ function sectionsByName( model ) {
  * @param {?Object} section A topology's enriched status section (or null).
  * @return {{ partitions: Array, health: string }} Partition stall flags + health.
  */
-function deriveHealth( section ) {
+export function deriveHealth( section ) {
 	if ( ! section ) {
-		return { partitions: [], health: 'ok' };
+		return { partitions: [], health: 'ok', etaSeconds: 0 };
 	}
 	const workers = section.workers || [];
 	const intervalS = section.heartbeatIntervalS ?? 10;
 	const threshold = intervalS * STALL_PAD;
 	const byPartition = new Map();
 	let anyBehind = false;
+	let worstEta = 0;
 	for ( const wk of workers ) {
-		if ( wk.behind > 0 ) {
+		// A consumer counts as "behind" only if its ETA to catch up is >= 1 min;
+		// a sub-minute backlog drains on its own and isn't worth flagging.
+		const eta = etaSeconds( wk.behind, wk.read_rate );
+		if ( eta >= BEHIND_ETA_S ) {
 			anyBehind = true;
+		}
+		if ( eta > worstEta ) {
+			worstEta = eta;
 		}
 		const age = wk.heartbeat_age;
 		const stalled = age !== null && age !== undefined && age > threshold;
@@ -166,7 +178,7 @@ function deriveHealth( section ) {
 	} else if ( anyBehind ) {
 		health = 'behind';
 	}
-	return { partitions, health };
+	return { partitions, health, etaSeconds: worstEta };
 }
 
 /**
@@ -257,7 +269,7 @@ export function useTopologyManager( opts = {} ) {
 	const byName = sectionsByName( workerModel );
 	const topologies = rows.map( ( row ) => {
 		const status = byName[ row.name ] ?? null;
-		const { partitions, health } = deriveHealth( status );
+		const { partitions, health, etaSeconds: eta } = deriveHealth( status );
 		return {
 			name: row.name,
 			source: row.source,
@@ -266,6 +278,7 @@ export function useTopologyManager( opts = {} ) {
 			status,
 			partitions,
 			health,
+			etaSeconds: eta,
 		};
 	} );
 

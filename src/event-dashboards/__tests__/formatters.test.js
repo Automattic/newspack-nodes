@@ -3,6 +3,7 @@ import {
 	formatByteRate,
 	formatAge,
 	formatEta,
+	etaSeconds,
 } from '../formatters';
 
 describe( 'formatters', () => {
@@ -26,5 +27,15 @@ describe( 'formatters', () => {
 		expect( formatEta( 50, 10 ) ).toBe( '5s' );
 		expect( formatEta( 1200, 10 ) ).toBe( '2m' );
 		expect( formatEta( 7200, 1 ) ).toBe( '2h0m' );
+	} );
+	it( 'etaSeconds', () => {
+		// Not behind → 0; stalled (rate<=0 with lag) → Infinity; else ceil(behind/rate).
+		expect( etaSeconds( 0, 10 ) ).toBe( 0 );
+		expect( etaSeconds( -5, 10 ) ).toBe( 0 );
+		expect( etaSeconds( 100, 0 ) ).toBe( Infinity );
+		expect( etaSeconds( 50, 10 ) ).toBe( 5 );
+		expect( etaSeconds( 1200, 10 ) ).toBe( 120 );
+		// formatEta is the formatted view of the same seconds.
+		expect( formatEta( 50, 10 ) ).toBe( '5s' );
 	} );
 } );

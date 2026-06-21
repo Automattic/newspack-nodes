@@ -134,6 +134,110 @@ describe( 'sectionFor', () => {
 	} );
 } );
 
+describe( 'TopologyRow — folded mode', () => {
+	it( 'folded renders the heading but NO body, with an expand chevron', () => {
+		const props = rowProps( { folded: true, onExpand: jest.fn() } );
+		const { container } = render( <TopologyRow { ...props } /> );
+		expect( container.querySelector( '.nodes-tm__body' ) ).toBeNull();
+		const chevron = container.querySelector( '.nodes-tm__expand' );
+		expect( chevron ).toBeTruthy();
+		chevron.click();
+		expect( props.onExpand ).toHaveBeenCalledWith( 'alpha' );
+		// Still shows the same per-partition heading pills as the unfolded view.
+		expect(
+			container.querySelectorAll( '.topology-partition' ).length
+		).toBeGreaterThan( 0 );
+	} );
+
+	it( 'unfolded (default) renders the body + a collapse chevron', () => {
+		const { container } = render( <TopologyRow { ...rowProps() } /> );
+		expect( container.querySelector( '.nodes-tm__body' ) ).toBeTruthy();
+		expect( container.querySelector( '.nodes-tm__collapse' ) ).toBeTruthy();
+	} );
+
+	it( 'shows the catch-up ETA when behind, hides it when ok', () => {
+		const behind = render(
+			<TopologyRow
+				{ ...rowProps( {
+					folded: true,
+					onExpand: jest.fn(),
+					topology: {
+						name: 'alpha',
+						source: 'stock',
+						active: true,
+						health: 'behind',
+						etaSeconds: 600,
+						status: activeStatus(),
+					},
+				} ) }
+			/>
+		);
+		expect(
+			behind.container.querySelector( '.nodes-tm__eta' ).textContent
+		).toContain( '10m' );
+
+		const ok = render(
+			<TopologyRow
+				{ ...rowProps( { folded: true, onExpand: jest.fn() } ) }
+			/>
+		);
+		expect( ok.container.querySelector( '.nodes-tm__eta' ) ).toBeNull();
+	} );
+
+	it( 'exposes a draggable grip that calls onDragStart with the name', () => {
+		const props = rowProps( {
+			folded: true,
+			onExpand: jest.fn(),
+			onDragStart: jest.fn(),
+			onDropOn: jest.fn(),
+		} );
+		const { container } = render( <TopologyRow { ...props } /> );
+		const grip = container.querySelector( '.nodes-tm__grip' );
+		expect( grip ).toBeTruthy();
+		expect( grip.getAttribute( 'draggable' ) ).toBe( 'true' );
+	} );
+
+	it( 'shows a k/n up badge for a partially-up topology (not ALL RUN / ALL DEAD)', () => {
+		const props = rowProps( {
+			folded: true,
+			onExpand: jest.fn(),
+			topology: {
+				name: 'alpha',
+				source: 'stock',
+				active: true,
+				health: 'ok',
+				status: {
+					graph: { nodes: [], edges: [] },
+					workers: [
+						{
+							type: 'alpha',
+							handler: 'alpha',
+							partition: 0,
+							status: 'running',
+							started_at: 1000,
+						},
+						{
+							type: 'alpha',
+							handler: 'alpha',
+							partition: 1,
+							status: 'dead',
+							started_at: 1000,
+						},
+					],
+					currentTime: 2000,
+				},
+			},
+		} );
+		const { container } = render( <TopologyRow { ...props } /> );
+		const badges = [
+			...container.querySelectorAll( '.worker-status-badge' ),
+		].map( ( b ) => b.textContent );
+		expect( badges ).toContain( '1/2 up' );
+		expect( badges ).not.toContain( 'ALL RUN' );
+		expect( badges ).not.toContain( 'ALL DEAD' );
+	} );
+} );
+
 describe( 'TopologyRow', () => {
 	it( 'renders the live TopologySection subtree for an active topology', () => {
 		const { container } = render( <TopologyRow { ...rowProps() } /> );
