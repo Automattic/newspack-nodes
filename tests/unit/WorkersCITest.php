@@ -274,6 +274,33 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 3, $result['log_partitions'] );
 	}
 
+	public function test_dump_graph_log_catalog_equals_the_gc_declared_set(): void {
+		// The dashboard log catalog is sourced from the SAME declared set the GC
+		// sweeps against (Log_Cleaner::declared_log_dirs) — one source of truth — so
+		// an externally-written, GC-whitelisted log (topicprobe, settings.p0) that a
+		// topology only CONSUMES shows its segments instead of "No segments".
+		$base = $this->arrange_base_dir();
+		$this->declare_partitions( $base, 'demo-workers', [ 'firehose' ] );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$catalog = \array_column( $result['logs'], 'name' );
+		// Every GC-declared log dir must appear in the dashboard catalog (the catalog
+		// is a SUPERSET: dump_graph also append_log_sinks() the active Log file-sinks
+		// on top, so assert subset, not equality).
+		foreach ( \Newspack_Nodes\Log_Cleaner::declared_log_dirs() as $declared ) {
+			$this->assertContains( $declared, $catalog, "declared log '{$declared}' missing from catalog" );
+		}
+		// The whitelisted non-.tsl logs (only CONSUMED by topologies) must resolve.
+		$this->assertContains( 'topicprobe.p0', $catalog );
+		$this->assertContains( 'settings.p0', $catalog );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	public function test_list_verb_returns_workers_from_cli(): void {
 		$fake_cli = new class {
 			public function ls_workers(): array {
@@ -444,8 +471,9 @@ class WorkersCITest extends TestCase {
 
 		$this->assertSame( $logs, $result['logs_dir'] );
 		$this->assertSame( [ '0-req', '1-req', 'ghost' ], $result['on_disk_basenames'] );
-		// topicprobe.p0 is an expected substrate log (auto-mounted, GC-whitelisted).
-		$this->assertSame( [ '0-req', '1-req', 'topicprobe.p0' ], $result['expected_basenames'] );
+		// topicprobe.p0 + settings.p0 are expected substrate logs (written outside
+		// any .tsl, GC-whitelisted in Log_Cleaner::declared_log_dirs).
+		$this->assertSame( [ '0-req', '1-req', 'settings.p0', 'topicprobe.p0' ], $result['expected_basenames'] );
 		$this->assertSame( [ 'ghost' ], $result['orphans'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();
