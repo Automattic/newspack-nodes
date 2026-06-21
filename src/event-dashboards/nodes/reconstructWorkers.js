@@ -112,8 +112,13 @@ function trimToSnapshot( segments, endSeg, endSize ) {
 		if ( seg.id > endSeg ) {
 			return;
 		}
-		const size =
-			seg.id === endSeg ? Math.min( seg.size, endSize ) : seg.size;
+		// The head segment is drawn to the consumer's END offset — its authoritative
+		// head — NOT min(seg.size, endSize). The live segment size is sampled on a
+		// separate, laggier clock; when it lags below endSize the min collapsed the
+		// drawn head onto the cursor and HID the read-lag (the partition still
+		// reported a real `distance`). endSize never exceeds the bytes the consumer
+		// has actually seen, so it is the correct head to draw.
+		const size = seg.id === endSeg ? endSize : seg.size;
 		trimmed.push( { ...seg, size } );
 		total += size;
 	} );
