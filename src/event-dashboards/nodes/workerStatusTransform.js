@@ -44,9 +44,10 @@ export class WorkerStatusTransformNode extends Node {
 		super();
 		this._prevSegments = {}; // logKey → Set of segment ids
 		this._prevSegmentData = {}; // logKey → Map id → segment
-		this._prevCursorBytes = {}; // reader → absolute cursor byte position
-		this._prevTotalBytes = {}; // source → partition total live bytes
-		this._prevTimestamp = null; // last snapshot timestamp (rate Δt denominator)
+		// Probe-cadence rate state: reader/source → { value, ts, rate }. Held
+		// across polls so a rate only changes when new probe data advances.
+		this._prevRead = {};
+		this._prevWrite = {};
 		// Sticky scalars: a poll that OMITS segment_size / timestamp retains the
 		// last good value (matches WorkerStatus's `if (data.x) setX(...)`). Seeds
 		// match the old useState seeds — 64MB and the client clock.
@@ -95,11 +96,11 @@ export class WorkerStatusTransformNode extends Node {
 
 		// Join graph + liveness + probe state + live segments into the rich
 		// `workers[]` shape the downstream reads, plus the client-side rate
-		// deltas (read = Δcursor-bytes/Δt, write = Δtotal-bytes/Δt).
+		// PROBE-cadence rate deltas (read = Δcursor-bytes, write = Δend-bytes,
+		// each over the elapsed time since the probe last advanced — held between).
 		const rebuilt = reconstructWorkers( data, {
-			cursorBytes: this._prevCursorBytes,
-			totalBytes: this._prevTotalBytes,
-			timestamp: this._prevTimestamp,
+			read: this._prevRead,
+			write: this._prevWrite,
 		} );
 		const richWorkers = rebuilt.workers;
 		// Segments TRIMMED to each partition's probe snapshot end — the segment bar
@@ -188,9 +189,8 @@ export class WorkerStatusTransformNode extends Node {
 		// Advance the segment-animation + rate-delta prev-state for the next snapshot.
 		this._prevSegments = newPrevSegments;
 		this._prevSegmentData = newPrevSegmentData;
-		this._prevCursorBytes = rebuilt.nextCursorBytes;
-		this._prevTotalBytes = rebuilt.nextTotalBytes;
-		this._prevTimestamp = data.timestamp ?? this._prevTimestamp;
+		this._prevRead = rebuilt.nextRead;
+		this._prevWrite = rebuilt.nextWrite;
 
 		if ( ! this.sink ) {
 			return;
