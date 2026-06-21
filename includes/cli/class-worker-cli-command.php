@@ -123,55 +123,27 @@ class Worker_CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function status( array $args, array $assoc_args ): void {
-		$cli      = $this->cli();
-		$workers  = $this->workers();
-		$base_dir = $this->base_dir();
+		// One row per ACTIVE Consumer, straight from the TopicProbe snapshot:
+		// reader id, the partition it tails, and its backlog (`distance`) measured
+		// against the partition end in the SAME snapshot as the cursor (never a
+		// fresh stat vs a stale cursor). Worker liveness is `wp nodes ls`.
+		$rows = [];
+		foreach ( $this->cli()->consumer_rows() as $cr ) {
+			$rows[] = [
+				'Reader'    => $cr['reader'],
+				'Source'    => $cr['source'],
+				'Partition' => $cr['partition'],
+				'Behind'    => CLI::format_bytes( $cr['distance'] ),
+				'Msgs'      => $cr['msgs'],
+			];
+		}
 
-		if ( empty( $workers ) ) {
-			\WP_CLI::warning( 'No topologies registered.' );
+		if ( empty( $rows ) ) {
+			\WP_CLI::warning( 'No active consumers (TopicProbe has no records yet).' );
 			return;
 		}
 
-		// One row per Consumer (via the canonical enumeration the dashboard uses),
-		// grouped under its worker. A worker with no checkpointed Consumer still
-		// gets a single Source='-' row so its Status/Uptime/Restart show.
-		$consumers_by_worker = [];
-		foreach ( $cli->consumer_rows() as $cr ) {
-			$consumers_by_worker[ $cr['worker_type'] . '|' . $cr['partition'] ][] = $cr;
-		}
-
-		$now  = \time();
-		$rows = [];
-		foreach ( $workers as $w ) {
-			$type     = $w['type'];
-			$p        = $w['partition'];
-			$lock_dir = "{$base_dir}/locks/{$type}.p{$p}.lock.d";
-
-			$status        = 'dead';
-			$stale_timeout = self::entry_int( $w, 'stale_timeout', Lock_Node::STALE_TIMEOUT );
-			$hb            = "{$lock_dir}/heartbeat";
-			\clearstatcache( true, $hb );
-			$mtime = \file_exists( $hb ) ? @\filemtime( $hb ) : false;
-			if ( false !== $mtime && ( $now - $mtime ) < $stale_timeout ) {
-				$status = 'running';
-			}
-
-			$started_at = Lock_Node::get_started_time( $lock_dir );
-			$uptime     = $started_at ? CLI::format_duration( $now - $started_at ) : '-';
-			$restart    = Lock_Node::is_restart_pending( $lock_dir ) ? 'yes' : 'no';
-
-			$consumers = $consumers_by_worker[ "{$type}|{$p}" ] ?? [];
-			if ( empty( $consumers ) ) {
-				$rows[] = self::status_row( $type, $p, '-', $status, $uptime, '-', $restart );
-				continue;
-			}
-			foreach ( $consumers as $cr ) {
-				$behind = self::consumer_behind( $cr );
-				$rows[] = self::status_row( $type, $p, $cr['source_basename'], $status, $uptime, $behind, $restart );
-			}
-		}
-
-		$columns = [ 'Type', 'Partition', 'Source', 'Status', 'Uptime', 'Behind', 'Restart' ];
+		$columns = [ 'Reader', 'Source', 'Partition', 'Behind', 'Msgs' ];
 		$format  = self::entry_string( $assoc_args, 'format' );
 		if ( '' === $format ) {
 			$format = 'table';
@@ -182,46 +154,15 @@ class Worker_CLI_Command {
 			// Test fallback: dump a stable plain-text representation.
 			foreach ( $rows as $row ) {
 				\WP_CLI::log( \sprintf(
-					'%-30s p%-2d  %-20s  %-7s  %-8s  %-10s  restart=%s',
-					$row['Type'],
-					$row['Partition'],
+					'%-24s  %-20s  p%-2d  %-10s  msgs=%d',
+					$row['Reader'],
 					$row['Source'],
-					$row['Status'],
-					$row['Uptime'],
+					$row['Partition'],
 					$row['Behind'],
-					$row['Restart']
+					$row['Msgs']
 				) );
 			}
 		}
-	}
-
-	/**
-	 * Assemble one `wp nodes status` row.
-	 *
-	 * @return array{Type:string,Partition:int,Source:string,Status:string,Uptime:string,Behind:string,Restart:string}
-	 */
-	private static function status_row( string $type, int $partition, string $source, string $status, string $uptime, string $behind, string $restart ): array {
-		return [
-			'Type'      => $type,
-			'Partition' => $partition,
-			'Source'    => $source,
-			'Status'    => $status,
-			'Uptime'    => $uptime,
-			'Behind'    => $behind,
-			'Restart'   => $restart,
-		];
-	}
-
-	/**
-	 * Bytes-behind for one Consumer, straight off its `CLI::consumer_rows()` row —
-	 * the backlog the probe measured against the partition end in the SAME snapshot
-	 * as the cursor. NO fresh stat (which, vs a ~15s-old cursor, would overstate
-	 * the lag of a caught-up consumer).
-	 *
-	 * @param array{behind:int} $cr One `CLI::consumer_rows()` row.
-	 */
-	private static function consumer_behind( array $cr ): string {
-		return CLI::format_bytes( $cr['behind'] );
 	}
 
 	/**

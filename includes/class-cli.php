@@ -54,48 +54,6 @@ class CLI {
 		return [ $m[1], (int) $m[2] ];
 	}
 
-	/**
-	 * Representative live cursor for a worker (type, partition), from the
-	 * TopicProbe index: the position of its primary input Consumer — the matching
-	 * record (same worker_type, `.p{N}` suffix) with the shortest offset_dir, so a
-	 * disambiguated reader (`firehose.job-router`) never shadows the base input
-	 * (`firehose`). Null when the worker has no probe record yet.
-	 *
-	 * @param array<string,array<mixed>> $index     `read_probe_index()` output.
-	 * @param string                     $type      Worker type.
-	 * @param int                        $partition Partition index.
-	 * @return array{seg:int,off:int,ts:int}|null
-	 */
-	public function live_position( array $index, string $type, int $partition ): ?array {
-		$suffix = ".p{$partition}";
-		$best   = null;
-		foreach ( $index as $offset_dir => $record ) {
-			if ( $type !== ( $record['worker_type'] ?? null ) || ! \str_ends_with( $offset_dir, $suffix ) ) {
-				continue;
-			}
-			if ( null === $best || \strlen( $offset_dir ) < \strlen( $best ) ) {
-				$best = $offset_dir;
-			}
-		}
-		return null === $best ? null : self::normalize_probe_position( $index[ $best ] );
-	}
-
-	/**
-	 * Coerce a probe record's cursor_seg/cursor_off/ts to a `{seg,off,ts}` int position.
-	 *
-	 * @param array<mixed> $record A `read_probe_index()` record.
-	 * @return array{seg:int,off:int,ts:int}
-	 */
-	private static function normalize_probe_position( array $record ): array {
-		$seg = $record['cursor_seg'] ?? 0;
-		$off = $record['cursor_off'] ?? 0;
-		$ts  = $record['ts'] ?? 0;
-		return [
-			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
-			'off' => \is_numeric( $off ) ? (int) $off : 0,
-			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
-		];
-	}
 
 	/**
 	 * Index of every active Consumer's latest stats record from the shared
@@ -109,54 +67,36 @@ class CLI {
 	public function read_probe_index(): array {
 		return Partition_Node::read_tail_index_by(
 			"{$this->base_dir}/logs/" . Worker_Base::TOPICPROBE_LOG_DIR,
-			'offset_dir'
+			Probe_Record::READER
 		);
 	}
 
 	/**
-	 * One row per active Consumer, mapped from the topicprobe index
-	 * (`read_probe_index()`). Rows whose record carries no worker_type are skipped
-	 * (nothing to attribute them to). This is the canonical per-Consumer
-	 * enumeration shared by the Worker Status dashboard (`Workers_CI_Node`) and
-	 * `wp nodes status`.
+	 * One row per active Consumer — the lean per-reader STATE from the topicprobe
+	 * snapshot (`read_probe_index()`). Topology attribution (which topology/targets
+	 * a reader belongs to) is NOT here: the dashboard joins these rows onto the
+	 * `.tsl` graph by `reader`/`source`, and `wp nodes status` joins via
+	 * `Topology_Registry`. Keyed in the array by insertion; `reader` is the id.
 	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,behind:int,total:int,read_rate:float,write_rate:float,ts:float}>
+	 * @return array<int,array{reader:string,source:string,partition:int,cursor_seg:int,cursor_off:int,end_seg:int,end_size:int,distance:int,msgs:int}>
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
-		foreach ( $this->read_probe_index() as $offset_dir => $record ) {
-			// offset_dir is `{source_basename}.p{N}` — the partition lives in the name.
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $offset_dir, $m ) ) {
+		foreach ( $this->read_probe_index() as $reader => $record ) {
+			// reader is `{source_basename}.p{N}` — the partition lives in the name.
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $reader, $m ) ) {
 				continue;
 			}
-			$worker_type = self::scalar_string( $record['worker_type'] ?? '' );
-			// Skip records that can't be attributed to a worker.
-			if ( '' === $worker_type ) {
-				continue;
-			}
-			/** @var array<int,array<string,mixed>> $targets Probe `targets`: a list of `{name,…}` objects. */
-			$targets = \is_array( $record['targets'] ?? null ) ? $record['targets'] : [];
-			$rows[]  = [
-				'name'            => self::scalar_string( $record['consumer'] ?? '' ),
-				'target'          => self::scalar_string( $record['target'] ?? '' ),
-				'targets'         => $targets,
-				'worker_type'     => $worker_type,
-				'source_basename' => $m[1],
-				'source_log'      => self::scalar_string( $record['source'] ?? '' ),
-				'partition'       => (int) $m[2],
-				'seg'             => self::scalar_int( $record['cursor_seg'] ?? 0 ),
-				'off'             => self::scalar_int( $record['cursor_off'] ?? 0 ),
-				// Backlog + partition-end as the probe measured them in ONE snapshot
-				// (cursor vs end at the same instant) — readers use these instead of
-				// re-statting the live partition against this stale cursor.
-				'behind'          => self::scalar_int( $record['bytes_behind'] ?? 0 ),
-				'total'           => self::scalar_int( $record['bytes_total'] ?? 0 ),
-				// Byte rates the PROBE computed (Δ over its own ts). Displayed as-is —
-				// never client-deltaed against a faster poll, which is what made the
-				// read rate flicker (0 between 15s probe ticks) against a live write rate.
-				'read_rate'       => self::scalar_float( $record['read_rate'] ?? 0 ),
-				'write_rate'      => self::scalar_float( $record['write_rate'] ?? 0 ),
-				'ts'              => self::scalar_float( $record['ts'] ?? 0 ),
+			$rows[] = [
+				'reader'     => $reader,
+				'source'     => self::scalar_string( $record[ Probe_Record::SOURCE ] ?? '' ),
+				'partition'  => (int) $m[2],
+				'cursor_seg' => self::scalar_int( $record[ Probe_Record::CURSOR_SEG ] ?? 0 ),
+				'cursor_off' => self::scalar_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
+				'end_seg'    => self::scalar_int( $record[ Probe_Record::END_SEG ] ?? 0 ),
+				'end_size'   => self::scalar_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
+				'distance'   => self::scalar_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
+				'msgs'       => self::scalar_int( $record[ Probe_Record::MSGS ] ?? 0 ),
 			];
 		}
 		return $rows;
@@ -178,15 +118,6 @@ class CLI {
 	 */
 	private static function scalar_int( $v ): int {
 		return \is_scalar( $v ) ? (int) $v : 0;
-	}
-
-	/**
-	 * Coerce a mixed value to float (non-scalar → 0.0).
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function scalar_float( $v ): float {
-		return \is_scalar( $v ) ? (float) $v : 0.0;
 	}
 
 
@@ -282,19 +213,4 @@ class CLI {
 		return \round( $bytes / ( 1024 * 1024 * 1024 ), 1 ) . 'GB';
 	}
 
-	/**
-	 * Format an uptime duration compactly for `wp nodes status`.
-	 */
-	public static function format_duration( int $seconds ): string {
-		if ( $seconds < 60 ) {
-			return $seconds . 's';
-		}
-		if ( $seconds < 3600 ) {
-			return \floor( $seconds / 60 ) . 'm';
-		}
-		if ( $seconds < 86400 ) {
-			return \floor( $seconds / 3600 ) . 'h';
-		}
-		return \floor( $seconds / 86400 ) . 'd';
-	}
 }

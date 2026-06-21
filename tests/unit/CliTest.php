@@ -5,6 +5,7 @@ use Newspack_Nodes\CLI;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -265,72 +266,38 @@ class CliTest extends TestCase {
 		$this->assertFileExists( "{$this->tmp}/locks/supervisor.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
-	// ── live_position() ────────────────────────────────────────────────────────
-
-	public function test_live_position_returns_null_when_no_matching_record(): void {
-		$this->assertNull( ( new CLI( $this->tmp ) )->live_position( [], 'jobs', 0 ) );
-	}
-
-	public function test_live_position_returns_the_workers_consumer_position(): void {
-		// Matches by worker_type + `.p{N}` suffix; cursor_seg/off/ts cast to int.
-		$index = [
-			'jobintake.p0' => [ 'worker_type' => 'jobs', 'cursor_seg' => '12', 'cursor_off' => '345', 'ts' => '1700000000' ],
-		];
-		$pos = ( new CLI( $this->tmp ) )->live_position( $index, 'jobs', 0 );
-		$this->assertSame( 12, $pos['seg'] );
-		$this->assertSame( 345, $pos['off'] );
-		$this->assertSame( 1700000000, $pos['ts'] );
-	}
-
-	public function test_live_position_prefers_the_primary_input_over_disambiguated_readers(): void {
-		// A worker reading one log under several offset dirs: the shortest
-		// offset_dir is the base input; a disambiguated reader must not shadow it.
-		$index = [
-			'firehose.job-router.p0' => [ 'worker_type' => 'combined', 'cursor_seg' => 8, 'cursor_off' => 7 ],
-			'firehose.p0'            => [ 'worker_type' => 'combined', 'cursor_seg' => 5, 'cursor_off' => 100 ],
-		];
-		$pos = ( new CLI( $this->tmp ) )->live_position( $index, 'combined', 0 );
-		$this->assertSame( 5, $pos['seg'], 'primary input (shortest offset_dir) wins' );
-		$this->assertSame( 100, $pos['off'] );
-	}
-
-	public function test_live_position_ignores_other_partitions_and_types(): void {
-		$index = [
-			'firehose.p1' => [ 'worker_type' => 'combined', 'cursor_seg' => 1, 'cursor_off' => 1 ],
-			'jobs.p0'     => [ 'worker_type' => 'jobs', 'cursor_seg' => 2, 'cursor_off' => 2 ],
-		];
-		$this->assertNull( ( new CLI( $this->tmp ) )->live_position( $index, 'combined', 0 ) );
-	}
-
-	public function test_live_position_defaults_ts_to_zero_when_missing(): void {
-		$index = [ 'jobs.p0' => [ 'worker_type' => 'jobs', 'cursor_seg' => 5, 'cursor_off' => 100 ] ];
-		$pos   = ( new CLI( $this->tmp ) )->live_position( $index, 'jobs', 0 );
-		$this->assertSame( 0, $pos['ts'] );
-	}
-
 	// ── read_probe_index() ───────────────────────────────────────────────────────
 
-	/** Append a packed-Message probe record to logs/topicprobe.p0/0.log. */
-	private function seed_probe_record( array $value ): void {
+	/** Append a positional Probe_Record snapshot to logs/topicprobe.p0/0.log. */
+	private function seed_probe_record( array $fields ): void {
 		$dir = "{$this->tmp}/logs/topicprobe.p0";
 		if ( ! is_dir( $dir ) ) {
 			mkdir( $dir, 0755, true );
 		}
+		$record                             = [];
+		$record[ Probe_Record::SOURCE ]     = $fields['source'] ?? 'firehose.p0';
+		$record[ Probe_Record::READER ]     = $fields['reader'] ?? 'firehose.p0';
+		$record[ Probe_Record::CURSOR_SEG ] = $fields['cursor_seg'] ?? 0;
+		$record[ Probe_Record::CURSOR_OFF ] = $fields['cursor_off'] ?? 0;
+		$record[ Probe_Record::END_SEG ]    = $fields['end_seg'] ?? 0;
+		$record[ Probe_Record::END_SIZE ]   = $fields['end_size'] ?? 0;
+		$record[ Probe_Record::DISTANCE ]   = $fields['distance'] ?? 0;
+		$record[ Probe_Record::MSGS ]       = $fields['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = $value;
+		$message[ Message::VALUE ] = $record;
 		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
-	public function test_read_probe_index_keys_topicprobe_records_by_offset_dir(): void {
-		$this->seed_probe_record( [ 'offset_dir' => 'firehose.p0', 'cursor_seg' => 2, 'cursor_off' => 50, 'consumer' => 'firehose' ] );
-		$this->seed_probe_record( [ 'offset_dir' => 'jobintake.p0', 'cursor_seg' => 1, 'cursor_off' => 9, 'consumer' => 'jobintake' ] );
+	public function test_read_probe_index_keys_records_by_reader(): void {
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'cursor_seg' => 2, 'cursor_off' => 50 ] );
+		$this->seed_probe_record( [ 'reader' => 'jobintake.p0', 'cursor_seg' => 1, 'cursor_off' => 9 ] );
 
 		$index = ( new CLI( $this->tmp ) )->read_probe_index();
 
 		$this->assertSame( [ 'firehose.p0', 'jobintake.p0' ], \array_keys( $index ) );
-		$this->assertSame( 2, $index['firehose.p0']['cursor_seg'] );
-		$this->assertSame( 9, $index['jobintake.p0']['cursor_off'] );
+		$this->assertSame( 2, $index['firehose.p0'][ Probe_Record::CURSOR_SEG ] );
+		$this->assertSame( 9, $index['jobintake.p0'][ Probe_Record::CURSOR_OFF ] );
 	}
 
 	public function test_read_probe_index_empty_when_no_log(): void {
@@ -339,45 +306,36 @@ class CliTest extends TestCase {
 
 	// ── consumer_rows() ──────────────────────────────────────────────────────────
 
-	public function test_consumer_rows_enumerates_per_consumer_from_probe_records(): void {
-		// Two readers tail the SAME firehose.log under distinct offset dirs; the
-		// enumeration returns one row per Consumer, keyed by the source-named
-		// offset_dir, carrying the worker_type + real source from the probe record.
+	public function test_consumer_rows_returns_lean_per_reader_state(): void {
 		$this->seed_probe_record( [
-			'offset_dir' => 'firehose.p0', 'consumer' => 'firehose',
-			'cursor_seg' => 5, 'cursor_off' => 100, 'ts' => 1700000000.0,
-			'worker_type' => 'combined', 'source' => 'firehose.log',
-			'bytes_behind' => 4096, 'bytes_total' => 99999,
-		] );
-		$this->seed_probe_record( [
-			'offset_dir' => 'firehose.job-router.p0', 'consumer' => 'firehose.job-router',
-			'cursor_seg' => 8, 'cursor_off' => 7, 'ts' => 1700000001.0,
-			'worker_type' => 'combined', 'source' => 'firehose.log',
+			'reader' => 'firehose.job-router.p0', 'source' => 'firehose.p0',
+			'cursor_seg' => 5, 'cursor_off' => 100,
+			'end_seg' => 7, 'end_size' => 2048, 'distance' => 4096, 'msgs' => 31,
 		] );
 
 		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
-		\usort( $rows, static fn ( $a, $b ) => $a['source_basename'] <=> $b['source_basename'] );
 
-		$this->assertCount( 2, $rows );
-		$this->assertSame( 'firehose', $rows[0]['source_basename'] );
-		$this->assertSame( 'firehose', $rows[0]['name'] );
-		$this->assertSame( 'firehose.log', $rows[0]['source_log'] );
-		$this->assertSame( 'combined', $rows[0]['worker_type'] );
-		$this->assertSame( 5, $rows[0]['seg'] );
-		$this->assertSame( 100, $rows[0]['off'] );
-		// behind + total ride the row straight from the probe snapshot (no fresh stat).
-		$this->assertSame( 4096, $rows[0]['behind'] );
-		$this->assertSame( 99999, $rows[0]['total'] );
-		$this->assertSame( 'firehose.job-router', $rows[1]['source_basename'] );
-		$this->assertSame( 8, $rows[1]['seg'] );
+		$this->assertCount( 1, $rows );
+		$row = $rows[0];
+		$this->assertSame( 'firehose.job-router.p0', $row['reader'] );
+		$this->assertSame( 'firehose.p0', $row['source'] );
+		$this->assertSame( 0, $row['partition'] );
+		$this->assertSame( 5, $row['cursor_seg'] );
+		$this->assertSame( 100, $row['cursor_off'] );
+		$this->assertSame( 7, $row['end_seg'] );
+		$this->assertSame( 2048, $row['end_size'] );
+		$this->assertSame( 4096, $row['distance'] );
+		$this->assertSame( 31, $row['msgs'] );
 	}
 
-	public function test_consumer_rows_skips_records_without_worker_type(): void {
-		// A record with no worker_type can't be attributed to a worker — skip it.
-		$this->seed_probe_record( [
-			'offset_dir' => 'orphan.p0', 'consumer' => 'orphan',
-			'cursor_seg' => 1, 'cursor_off' => 2, 'source' => 'orphan.log',
-		] );
+	public function test_consumer_rows_parses_partition_from_the_reader_name(): void {
+		$this->seed_probe_record( [ 'reader' => 'requests.p3', 'source' => 'requests.p3' ] );
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$this->assertSame( 3, $rows[0]['partition'] );
+	}
+
+	public function test_consumer_rows_skips_a_reader_without_a_partition_suffix(): void {
+		$this->seed_probe_record( [ 'reader' => 'malformed' ] );
 		$this->assertSame( [], ( new CLI( $this->tmp ) )->consumer_rows() );
 	}
 
@@ -399,15 +357,4 @@ class CliTest extends TestCase {
 
 	// ── format_duration() ──────────────────────────────────────────────────────
 
-	public function test_format_duration_units(): void {
-		$this->assertSame( '0s', CLI::format_duration( 0 ) );
-		$this->assertSame( '59s', CLI::format_duration( 59 ) );
-		$this->assertSame( '1m', CLI::format_duration( 60 ) );
-		$this->assertSame( '5m', CLI::format_duration( 5 * 60 ) );
-		$this->assertSame( '59m', CLI::format_duration( 59 * 60 + 30 ) );
-		$this->assertSame( '1h', CLI::format_duration( 3600 ) );
-		$this->assertSame( '23h', CLI::format_duration( 86399 ) );
-		$this->assertSame( '1d', CLI::format_duration( 86400 ) );
-		$this->assertSame( '7d', CLI::format_duration( 7 * 86400 ) );
-	}
 }

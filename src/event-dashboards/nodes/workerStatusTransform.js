@@ -7,6 +7,7 @@ import {
 	TM_ERROR,
 	newMessage,
 } from '../../runtime/message';
+import { reconstructWorkers } from './reconstructWorkers';
 
 /**
  * `workerstatus:transform` — turn a `dump_graph` reply into the enriched
@@ -18,27 +19,34 @@ import {
  * `dump_graph` reply is ignored — the view is the receiver for restart /
  * error replies (FROM=view).
  *
- * Read + write byte rates are NOT computed here — they come straight off each
- * worker descriptor, where the PROBE already computed them (Δbytes / Δ its own
- * 15s ts). That's the single rate source, so read and write move together at one
- * cadence; the old client-side delta (live `total_size` vs the 15s-stale cursor,
- * divided by the poll interval) is gone — it made the read rate flicker 0 between
- * probe ticks while the write rate kept moving.
+ * The dump_graph payload is now LEAN and POSITIONAL — PHP no longer pre-joins
+ * worker attribution. This transform REBUILDS the old rich `workers[]` array
+ * (the shape `topologyGraph.buildTopologySections` / `TreeEntity` / `SegmentBar`
+ * read) by joining the four inputs: `graph` (.tsl structure), `workers`
+ * (liveness only), `consumers` (per-reader probe STATE), and `logs` (live
+ * segment lists) — see `reconstructWorkers`. The join lives entirely here so
+ * everything downstream stays unchanged.
  *
- * Stateful only for the segment slide-in/-out animation: it holds the PREVIOUS
- * snapshot's segment ids/data so the render path can flag genuinely-new and
- * just-removed segments, then emits `{ action:'model', model }` stamped TO=target.
+ * Read/write byte rates are CLIENT-SIDE deltas across two polls (the probe no
+ * longer rides a rate on each descriptor): read_rate = Δ(absolute cursor byte
+ * position)/Δts, write_rate = Δ(partition total live bytes)/Δts, both keyed as
+ * the downstream already reads them. Stateful for the rate deltas (per-reader
+ * prior cursor position, per-source prior total bytes) and the segment
+ * slide-in/-out animation (PREVIOUS snapshot's segment ids/data, sourced from
+ * the TRIMMED inputs_status so animations match what's rendered).
  *
  * The model's `prevSegments` is the PRIOR snapshot's segment ids (so the render
  * path can flag genuinely-new segments for the slide-in animation); the node's
- * own `_prevSegments` is advanced synchronously for the NEXT delta. Across the
- * 1s–10s poll cadence this matches the old 500ms-delayed ref update.
+ * own `_prevSegments` is advanced synchronously for the NEXT delta.
  */
 export class WorkerStatusTransformNode extends Node {
 	constructor() {
 		super();
 		this._prevSegments = {}; // logKey → Set of segment ids
 		this._prevSegmentData = {}; // logKey → Map id → segment
+		this._prevCursorBytes = {}; // reader → absolute cursor byte position
+		this._prevTotalBytes = {}; // source → partition total live bytes
+		this._prevTimestamp = null; // last snapshot timestamp (rate Δt denominator)
 		// Sticky scalars: a poll that OMITS segment_size / timestamp retains the
 		// last good value (matches WorkerStatus's `if (data.x) setX(...)`). Seeds
 		// match the old useState seeds — 64MB and the client clock.
@@ -77,35 +85,29 @@ export class WorkerStatusTransformNode extends Node {
 		this._emitModel( value.payload || {} );
 	}
 
-	// Compute the enriched model from `data` (vs the held previous snapshot),
-	// advance the node's prev-state, and emit. Math ported verbatim from
-	// WorkerStatus.fetchWorkers.
+	// Rebuild the rich render model from the LEAN dump_graph payload: join the
+	// four inputs into rich `workers[]` + rate maps (reconstructWorkers), then
+	// advance the node's prev-state and emit.
 	_emitModel( data ) {
 		const newPrevSegments = {};
 		const newPrevSegmentData = {};
-		const newByteRates = {};
-		const newWriteRates = {};
 		const newRemoving = {};
 
-		// Byte rates come straight off each worker descriptor — the PROBE computed
-		// them (Δbytes / Δ its own 15s ts), so read + write share one cadence and
-		// we never client-delta a live value at a faster poll. byteRates keyed by
-		// (handler, partition, source) so multi-Consumer handlers don't collapse;
-		// writeRates keyed by the concrete partition (input_log) to match the
-		// SegmentBar's rateKey.
-		( data.workers || [] ).forEach( ( worker ) => {
-			const workerKey = `${ worker.handler || worker.type }-${
-				worker.partition
-			}-${ worker.source || '' }`;
-			newByteRates[ workerKey ] = Number( worker.read_rate ) || 0;
-			if ( worker.input_log ) {
-				newWriteRates[ worker.input_log ] =
-					Number( worker.write_rate ) || 0;
-			}
+		// Join graph + liveness + probe state + live segments into the rich
+		// `workers[]` shape the downstream reads, plus the client-side rate
+		// deltas (read = Δcursor-bytes/Δt, write = Δtotal-bytes/Δt).
+		const rebuilt = reconstructWorkers( data, {
+			cursorBytes: this._prevCursorBytes,
+			totalBytes: this._prevTotalBytes,
+			timestamp: this._prevTimestamp,
 		} );
+		const richWorkers = rebuilt.workers;
+		const newByteRates = rebuilt.byteRates;
+		const newWriteRates = rebuilt.writeRates;
 
-		// Segment tracking by concrete partition (logName.pN) for the slide-in/out
-		// animation — union the segment ids across the workers reading/writing it.
+		// Segment tracking by concrete partition for the slide-in/out animation —
+		// sourced from the TRIMMED inputs_status (so animations match the bar that
+		// renders), union the segment ids across the workers reading/writing it.
 		const logSnapshots = new Map();
 		const recordLog = ( log ) => {
 			if ( ! log || ! log.name ) {
@@ -118,7 +120,7 @@ export class WorkerStatusTransformNode extends Node {
 			} );
 			logSnapshots.set( logKey, prior );
 		};
-		( data.workers || [] ).forEach( ( w ) => {
+		richWorkers.forEach( ( w ) => {
 			( w.inputs_status || [] ).forEach( ( log ) => recordLog( log ) );
 			( w.outputs_status || [] ).forEach( ( log ) => recordLog( log ) );
 		} );
@@ -164,7 +166,7 @@ export class WorkerStatusTransformNode extends Node {
 		}
 
 		const model = {
-			workers: data.workers || [],
+			workers: richWorkers,
 			supervisor: data.supervisor ?? null,
 			logs: data.logs || [],
 			graph: data.graph ?? {},
@@ -179,9 +181,12 @@ export class WorkerStatusTransformNode extends Node {
 			loading: false,
 		};
 
-		// Advance the segment-animation prev-state for the next snapshot.
+		// Advance the segment-animation + rate-delta prev-state for the next snapshot.
 		this._prevSegments = newPrevSegments;
 		this._prevSegmentData = newPrevSegmentData;
+		this._prevCursorBytes = rebuilt.nextCursorBytes;
+		this._prevTotalBytes = rebuilt.nextTotalBytes;
+		this._prevTimestamp = data.timestamp ?? this._prevTimestamp;
 
 		if ( ! this.sink ) {
 			return;

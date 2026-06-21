@@ -689,61 +689,45 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Probe seam: the stats TopicProbe reads from outside this Consumer (the
-	 * Tachikoma probe reads $node->{offset}/{counter} the same way). Identity +
-	 * the `source` (the concrete per-partition log basename it tails, e.g.
-	 * `requests.p0` — partition stays encoded there, never re-parsed by hardcoding
-	 * `.pN`) + seg:off (for the position-readers) + the EXACT byte volumes:
-	 * bytes_read (monotonic consumed, → byte-rate) and bytes_behind (backlog,
-	 * summed from the real on-disk segment sizes via compute_lag, no segment_size
-	 * guess).
+	 * Probe seam: the raw snapshot `TopicProbe` reads from outside this Consumer,
+	 * as the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). Just
+	 * the state at this instant — `SOURCE` (partition tailed) + `READER` (offsetlog
+	 * dir basename, the durable per-reader id) + the consumer cursor + the partition
+	 * END (newest segment + size, so the topologies tab trims its live list back to
+	 * here) + `DISTANCE` (bytes behind, for the overview graph) + `MSGS`. Rates and
+	 * totals are NOT logged — readers derive them from consecutive records.
 	 *
-	 * `offset_dir` is the consumer's DURABLE position key — `basename` of its
-	 * offsetlog dir (e.g. `firehose.job-router.p0`), the exact name the position
-	 * readers + the dashboards index by (the node `name` is the transient identity;
-	 * the offset_dir is stable across respawns). Empty for an ephemeral consumer.
-	 *
-	 * @return array{consumer:string, offset_dir:string, source:string, cursor_seg:int, cursor_off:int, bytes_read:int, bytes_behind:int, bytes_total:int, msg_sent:int, worker_type:string}
+	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
 	 */
 	public function probe_stats(): array {
-		$lag = $this->compute_lag();
-		return [
-			'consumer'     => $this->name,
-			'offset_dir'   => '' !== $this->offsetlog_base_dir ? \basename( $this->offsetlog_base_dir ) : '',
-			'source'       => '' !== $this->source_dir ? \basename( $this->source_dir ) : '',
-			'cursor_seg'   => $this->cursor_seg,
-			'cursor_off'   => $this->cursor_off,
-			'bytes_read'   => $this->bytes_read,
-			'bytes_behind' => $lag['bytes_behind'],
-			'bytes_total'  => $lag['bytes_total'],
-			'msg_sent'     => $this->counter,
-			'worker_type'  => self::worker_type_env(),
-			// Routing, for the dashboard's per-target fan-out (one row per
-			// downstream processor) — parity with the offsetlog VALUE this replaces.
-			'target'       => \is_string( $this->target ) ? $this->target : '',
-			'targets'      => $this->resolve_downstream_targets(),
-		];
+		$lag                            = $this->compute_lag();
+		$record                         = [];
+		$record[ Probe_Record::SOURCE ]     = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
+		$record[ Probe_Record::READER ]     = '' !== $this->offsetlog_base_dir ? \basename( $this->offsetlog_base_dir ) : '';
+		$record[ Probe_Record::CURSOR_SEG ] = $this->cursor_seg;
+		$record[ Probe_Record::CURSOR_OFF ] = $this->cursor_off;
+		$record[ Probe_Record::END_SEG ]    = $lag['end_seg'];
+		$record[ Probe_Record::END_SIZE ]   = $lag['end_size'];
+		$record[ Probe_Record::DISTANCE ]   = $lag['bytes_behind'];
+		$record[ Probe_Record::MSGS ]       = $this->counter;
+		return $record;
 	}
 
-	/** @return array{bytes_behind: int, bytes_total: int, segments_behind: int, caught_up: bool} */
+	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int} */
 	private function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'bytes_total' => 0, 'segments_behind' => 0, 'caught_up' => true ];
+			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0 ];
 		}
 		// Recover a deleted/recreated cursor segment first so lag reflects the
 		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
 		$this->normalize_cursor( $segments );
 		$bytes_behind     = 0;
-		$bytes_total      = 0;
 		$segments_behind  = 0;
 		foreach ( $segments as $s ) {
 			$id   = $s['id'];
 			$size = $s['size'];
-			// Partition END, captured in the SAME read as the cursor below, so a
-			// dashboard never compares this snapshot's cursor to a fresher end.
-			$bytes_total += $size;
 			if ( $id < $this->cursor_seg ) {
 				continue;
 			}
@@ -756,11 +740,15 @@ class Consumer_Node extends Timer_Node {
 		}
 		// Count buffered (already-read) bytes as consumed so lag reflects bytes-still-to-emit.
 		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
+		// Partition END (newest segment + its size) captured in the SAME read as
+		// the cursor — the topologies tab trims its live segment list back to here.
+		$last = \end( $segments );
 		return [
 			'bytes_behind'    => $bytes_behind,
-			'bytes_total'     => $bytes_total,
 			'segments_behind' => $segments_behind,
 			'caught_up'       => 0 === $bytes_behind,
+			'end_seg'         => $last['id'],
+			'end_size'        => $last['size'],
 		];
 	}
 

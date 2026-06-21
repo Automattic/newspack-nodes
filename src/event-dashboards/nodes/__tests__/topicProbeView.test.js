@@ -1,84 +1,98 @@
 import { TopicProbeViewNode } from '../topicProbeView';
-import { newMessage, TYPE, VALUE, TM_STRUCT } from '../../../runtime/message';
+import {
+	newMessage,
+	TYPE,
+	TIMESTAMP,
+	VALUE,
+	TM_STRUCT,
+} from '../../../runtime/message';
+import {
+	SOURCE,
+	READER,
+	CURSOR_SEG,
+	CURSOR_OFF,
+	END_SEG,
+	END_SIZE,
+	DISTANCE,
+	MSGS,
+} from '../../../runtime/probe-record';
 
-// Build a probe record TM_STRUCT message (the shape Consumer_Node::probe_stats()
-// emits, with ts/host added by TopicProbe). `overrides` carries the snake_case
-// wire keys directly (object-literal keys, not destructured locals).
-function probeMsg( overrides = {} ) {
+// Build a probe record TM_STRUCT message: a lean POSITIONAL Probe_Record VALUE,
+// with the snapshot instant carried in the Message TIMESTAMP (not in VALUE).
+function probeMsg( {
+	ts = 1000,
+	reader = 'firehose.p0',
+	source = 'firehose.p0',
+	distance = 0,
+	msgs = 0,
+} = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
-	m[ VALUE ] = {
-		ts: 1000,
-		consumer: 'firehose:consumer',
-		offset_dir: 'firehose.p0',
-		source: 'firehose.p0',
-		worker_type: 'combined',
-		bytes_read: 0,
-		bytes_behind: 0,
-		...overrides,
-	};
+	m[ TIMESTAMP ] = ts;
+	const v = [];
+	v[ SOURCE ] = source;
+	v[ READER ] = reader;
+	v[ CURSOR_SEG ] = 0;
+	v[ CURSOR_OFF ] = 0;
+	v[ END_SEG ] = 0;
+	v[ END_SIZE ] = 0;
+	v[ DISTANCE ] = distance;
+	v[ MSGS ] = msgs;
+	m[ VALUE ] = v;
 	return m;
 }
 
 describe( 'TopicProbeViewNode', () => {
-	it( 'indexes samples by offset_dir, carrying worker_type/source/consumer', () => {
+	it( 'indexes samples by reader, carrying the source', () => {
 		const v = new TopicProbeViewNode();
-		v.fill(
-			probeMsg( { offset_dir: 'firehose.p0', worker_type: 'combined' } )
-		);
-		v.fill(
-			probeMsg( { offset_dir: 'jobs.p0', worker_type: 'job-worker' } )
-		);
+		v.fill( probeMsg( { reader: 'firehose.p0', source: 'firehose.p0' } ) );
+		v.fill( probeMsg( { reader: 'jobs.p0', source: 'jobs.p0' } ) );
 		const snap = v.snapshot();
 		expect( Object.keys( snap ).sort() ).toEqual( [
 			'firehose.p0',
 			'jobs.p0',
 		] );
-		expect( snap[ 'firehose.p0' ].worker_type ).toBe( 'combined' );
 		expect( snap[ 'firehose.p0' ].source ).toBe( 'firehose.p0' );
 	} );
 
-	it( 'computes byte-rate from consecutive bytes_read deltas over the ts gap', () => {
+	it( 'computes msgs-rate from consecutive msgs deltas over the ts gap', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { bytes_read: 1000, ts: 100 } ) );
-		v.fill( probeMsg( { bytes_read: 4000, ts: 103 } ) ); // +3000 over 3s = 1000 B/s
-		const c = v.snapshot()[ 'firehose.p0' ];
-		expect( c.latest.rate ).toBe( 1000 );
+		v.fill( probeMsg( { msgs: 1000, ts: 100 } ) );
+		v.fill( probeMsg( { msgs: 4000, ts: 103 } ) ); // +3000 over 3s = 1000 msg/s
+		expect( v.snapshot()[ 'firehose.p0' ].latest.rate ).toBe( 1000 );
 	} );
 
-	it( 'reports the latest bytes_behind as the backlog', () => {
+	it( 'reports the latest distance as the backlog', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { bytes_behind: 500, ts: 100 } ) );
-		v.fill( probeMsg( { bytes_behind: 7800, ts: 115 } ) );
+		v.fill( probeMsg( { distance: 500, ts: 100 } ) );
+		v.fill( probeMsg( { distance: 7800, ts: 115 } ) );
 		expect( v.snapshot()[ 'firehose.p0' ].latest.backlog ).toBe( 7800 );
 	} );
 
-	it( 'treats a bytes_read DROP (worker restart resets the counter) as rate 0, never negative', () => {
+	it( 'treats a msgs DROP (worker restart resets the counter) as rate 0, never negative', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { bytes_read: 9000, ts: 100 } ) );
-		// Worker restarted: bytes_read is per-process, so it resets below the prior.
-		v.fill( probeMsg( { bytes_read: 200, ts: 115 } ) );
+		v.fill( probeMsg( { msgs: 9000, ts: 100 } ) );
+		v.fill( probeMsg( { msgs: 200, ts: 115 } ) ); // per-process counter reset
 		expect( v.snapshot()[ 'firehose.p0' ].latest.rate ).toBe( 0 );
 	} );
 
 	it( 'the first sample for a consumer has rate 0 (no prior to delta against)', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { bytes_read: 5000, ts: 100 } ) );
+		v.fill( probeMsg( { msgs: 5000, ts: 100 } ) );
 		expect( v.snapshot()[ 'firehose.p0' ].latest.rate ).toBe( 0 );
 	} );
 
 	it( 'keeps a bounded rate+backlog series per consumer (ring-capped)', () => {
 		const v = new TopicProbeViewNode( 3 ); // cap = 3 samples
 		for ( let i = 0; i < 6; i++ ) {
-			v.fill( probeMsg( { bytes_read: i * 1000, ts: 100 + i } ) );
+			v.fill( probeMsg( { msgs: i * 1000, ts: 100 + i } ) );
 		}
 		const c = v.snapshot()[ 'firehose.p0' ];
 		expect( c.series.length ).toBe( 3 );
-		// Newest sample's backlog/ts reflect the last record.
 		expect( c.series[ c.series.length - 1 ].ts ).toBe( 105 );
 	} );
 
-	it( 'ignores a non-probe message (no offset_dir) without throwing', () => {
+	it( 'ignores a non-probe message (VALUE not a positional array) without throwing', () => {
 		const v = new TopicProbeViewNode();
 		const m = newMessage();
 		m[ TYPE ] = TM_STRUCT;
@@ -93,9 +107,9 @@ describe( 'TopicProbeViewNode', () => {
 			const v = new TopicProbeViewNode();
 			const published = [];
 			v.setState = ( key, value ) => published.push( value );
-			v.fill( probeMsg( { bytes_behind: 100, ts: 100 } ) ); // leading edge → publishes
+			v.fill( probeMsg( { distance: 100, ts: 100 } ) ); // leading edge → publishes
 			expect( published.length ).toBe( 1 );
-			v.fill( probeMsg( { bytes_behind: 999, ts: 101 } ) ); // within window → deferred
+			v.fill( probeMsg( { distance: 999, ts: 101 } ) ); // within window → deferred
 			expect( published.length ).toBe( 1 );
 			jest.advanceTimersByTime( 500 );
 			expect( published.length ).toBe( 2 ); // trailing flush fired
@@ -120,11 +134,10 @@ describe( 'TopicProbeViewNode', () => {
 		jest.useFakeTimers();
 		try {
 			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
-			v.fill( probeMsg( { offset_dir: 'gone.p0', ts: 100 } ) );
+			v.fill( probeMsg( { reader: 'gone.p0', ts: 100 } ) );
 			expect( v.snapshot()[ 'gone.p0' ] ).toBeTruthy();
 			jest.advanceTimersByTime( 2000 ); // past the TTL
-			// A live frame from a DIFFERENT consumer triggers the eviction sweep.
-			v.fill( probeMsg( { offset_dir: 'alive.p0', ts: 200 } ) );
+			v.fill( probeMsg( { reader: 'alive.p0', ts: 200 } ) );
 			expect( v.snapshot()[ 'gone.p0' ] ).toBeUndefined();
 			expect( v.snapshot()[ 'alive.p0' ] ).toBeTruthy();
 		} finally {
@@ -153,7 +166,6 @@ describe( 'TopicProbeViewNode', () => {
 		const published = [];
 		v.setState = ( key, value ) => published.push( [ key, value ] );
 		v.fill( probeMsg( { ts: 100 } ) );
-		// At least one publish with the 'view' key carrying the consumers snapshot.
 		expect( published.length ).toBeGreaterThanOrEqual( 1 );
 		expect( published[ 0 ][ 0 ] ).toBe( 'view' );
 		expect( published[ 0 ][ 1 ].consumers[ 'firehose.p0' ] ).toBeTruthy();
