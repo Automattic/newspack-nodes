@@ -18,6 +18,19 @@ const w = ( o ) => ( {
 	outputs_status: o.outputs_status ?? [],
 } );
 const names = ( entities ) => entities.map( ( e ) => e.name );
+// Depth-first search for the first entity (at any depth) matching a predicate.
+const findEntity = ( entities, pred ) => {
+	for ( const e of entities ) {
+		if ( pred( e ) ) {
+			return e;
+		}
+		const hit = findEntity( e.children || [], pred );
+		if ( hit ) {
+			return hit;
+		}
+	}
+	return undefined;
+};
 
 it( 'groups one section per topology key in the graph', () => {
 	const sections = buildTopologySections(
@@ -902,4 +915,162 @@ it( 'joins nested convergence inside a joined group too', () => {
 	const mid = root.children[ 0 ];
 	expect( mid.names ).toEqual( [ 'mid1', 'mid2' ] );
 	expect( names( mid.children ) ).toEqual( [ 'leaf' ] );
+} );
+
+describe( 'collectLogPartitions — per-topology cursor + recorded end merge', () => {
+	// One topology reads firehose.log: its worker carries cursor + end on its
+	// inputs_status. The canonical catalog slot (segments only, no cursor/end)
+	// must come back with BOTH cursor and end merged from THIS topology's worker.
+	const READER_GRAPH = {
+		t: {
+			nodes: [
+				gn( 'in', 'consumer', { reads: 'firehose.log' } ),
+				gn( 'proc', 'logic' ),
+			],
+			edges: [ [ 'in', 'proc' ] ],
+		},
+	};
+	const CATALOG = [
+		{
+			name: 'firehose.log',
+			partitions: [
+				{
+					partition: 0,
+					segments: [ { id: 0, size: 100 } ],
+					total_size: 100,
+				},
+			],
+		},
+	];
+
+	it( 'merges cursor + end_seg/end_size from this topology consumer into the canonical slot', () => {
+		const workers = [
+			w( {
+				type: 't',
+				handler: 'proc',
+				source: 'firehose.log',
+				inputs: [ 'firehose.log' ],
+				inputs_status: [
+					{
+						name: 'firehose.log',
+						partition: 0,
+						segments: [ { id: 0, size: 100 } ],
+						total_size: 100,
+						cursor_seg: 0,
+						cursor_offset: 40,
+						end_seg: 0,
+						end_size: 80,
+					},
+				],
+			} ),
+		];
+		const [ section ] = buildTopologySections(
+			READER_GRAPH,
+			workers,
+			CATALOG
+		);
+		const firehose = section.tree.find(
+			( e ) => 'log' === e.kind && 'firehose.log' === e.name
+		);
+		const part = firehose.partitions[ 0 ];
+		expect( part.cursor_seg ).toBe( 0 );
+		expect( part.cursor_offset ).toBe( 40 );
+		expect( part.end_seg ).toBe( 0 );
+		expect( part.end_size ).toBe( 80 );
+	} );
+
+	it( 'a topology with NO consumer of the log gets a slot with segments but no cursor/end', () => {
+		// Topology `agg` references firehose.log as a partition it WRITES — it has
+		// no consumer reading it, so the bar must be all-gray (no cursor, no end).
+		const NO_CONSUMER_GRAPH = {
+			agg: {
+				nodes: [
+					gn( 'src', 'logic' ),
+					gn( 'fh', 'partition', { writes: 'firehose.log' } ),
+				],
+				edges: [ [ 'src', 'fh' ] ],
+			},
+		};
+		const workers = [
+			w( {
+				type: 'agg',
+				handler: 'src',
+				source: '',
+				outputs: [ 'firehose.log' ],
+				outputs_status: [],
+			} ),
+		];
+		const [ section ] = buildTopologySections(
+			NO_CONSUMER_GRAPH,
+			workers,
+			CATALOG
+		);
+		const firehose = findEntity(
+			section.tree,
+			( e ) => 'log' === e.kind && 'firehose.log' === e.name
+		);
+		const part = firehose.partitions[ 0 ];
+		expect( part.segments.map( ( s ) => s.id ) ).toEqual( [ 0 ] );
+		expect( part.cursor_seg ).toBeUndefined();
+		expect( part.end_seg ).toBeUndefined();
+		expect( firehose.hasCursor ).toBe( false );
+	} );
+
+	it( 'two topologies reading the same log do NOT share each other cursor/end (no lockstep)', () => {
+		const TWO_READERS_GRAPH = {
+			rb: {
+				nodes: [
+					gn( 'in', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'request-builder', 'logic' ),
+				],
+				edges: [ [ 'in', 'request-builder' ] ],
+			},
+			jr: {
+				nodes: [
+					gn( 'in', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'job-router', 'logic' ),
+				],
+				edges: [ [ 'in', 'job-router' ] ],
+			},
+		};
+		const reader = ( type, handler, cursorOffset, endSize ) =>
+			w( {
+				type,
+				handler,
+				source: 'firehose.log',
+				inputs: [ 'firehose.log' ],
+				inputs_status: [
+					{
+						name: 'firehose.log',
+						partition: 0,
+						segments: [ { id: 0, size: 100 } ],
+						total_size: 100,
+						cursor_seg: 0,
+						cursor_offset: cursorOffset,
+						end_seg: 0,
+						end_size: endSize,
+					},
+				],
+			} );
+		const sections = buildTopologySections(
+			TWO_READERS_GRAPH,
+			[
+				reader( 'rb', 'request-builder', 40, 80 ),
+				reader( 'jr', 'job-router', 10, 50 ),
+			],
+			CATALOG
+		);
+		const slotIn = ( topo ) => {
+			const section = sections.find( ( s ) => s.topology === topo );
+			const firehose = section.tree.find(
+				( e ) => 'log' === e.kind && 'firehose.log' === e.name
+			);
+			return firehose.partitions[ 0 ];
+		};
+		// Each tree shows ITS OWN consumer's cursor/end — not the other's.
+		expect( slotIn( 'rb' ).cursor_offset ).toBe( 40 );
+		expect( slotIn( 'rb' ).end_size ).toBe( 80 );
+		expect( slotIn( 'jr' ).cursor_offset ).toBe( 10 );
+		expect( slotIn( 'jr' ).end_size ).toBe( 50 );
+	} );
 } );

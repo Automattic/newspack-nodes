@@ -432,8 +432,8 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 	} );
 } );
 
-describe( 'workerstatus:transform — inputs_status trimmed to the probe snapshot', () => {
-	test( 'drops segments past end_seg and caps the end segment size at end_size', () => {
+describe( 'workerstatus:transform — inputs_status carries full live segments + recorded end', () => {
+	test( 'keeps the full live segments and carries the consumer end_seg/end_size', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
@@ -451,7 +451,8 @@ describe( 'workerstatus:transform — inputs_status trimmed to the probe snapsho
 						} ),
 					],
 					// Live partition has grown past the snapshot: seg 2 is new, seg 1
-					// is now bigger than end_size.
+					// is now bigger than end_size. The bar paints the full live data
+					// (gray beyond the recorded end), so NOTHING is trimmed here.
 					logs: [
 						logEntry( 'firehose.p0', 0, [
 							{ id: 0, size: 100 },
@@ -465,22 +466,25 @@ describe( 'workerstatus:transform — inputs_status trimmed to the probe snapsho
 		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
 		const status = wkr.inputs_status[ 0 ];
 		expect( status.name ).toBe( 'firehose.p0' );
-		// seg 2 dropped (id > end_seg), seg 1 capped at end_size 40.
+		// Full live segments — none dropped, none capped.
 		expect( status.segments ).toEqual( [
 			{ id: 0, size: 100 },
-			{ id: 1, size: 40 },
+			{ id: 1, size: 100 },
+			{ id: 2, size: 30 },
 		] );
-		// total recomputed from the trimmed segments.
-		expect( status.total_size ).toBe( 140 );
+		expect( status.total_size ).toBe( 230 );
 		expect( status.cursor_seg ).toBe( 1 );
 		expect( status.cursor_offset ).toBe( 0 );
+		// The recorded probe end rides along so the bar can paint its red/gray split.
+		expect( status.end_seg ).toBe( 1 );
+		expect( status.end_size ).toBe( 40 );
 	} );
 } );
 
 describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => {
 	// Read rate = Δ(absolute cursor byte position)/Δts; absolute position =
-	// Σ(trimmed seg.size for id < cursor_seg) + cursor_off. Write rate =
-	// Δ(partition total live bytes)/Δts.
+	// Σ(live seg.size for id < cursor_seg) + cursor_off. Write rate =
+	// Δ(partition end position)/Δts.
 	const snapshot = (
 		ts,
 		cursorSeg,
@@ -528,10 +532,9 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 		withClock( () => {
 			// Poll 1: cursor at seg 0 offset 0 → abs pos 0.
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Poll 2 at ts 1002 (Δ 2s): cursor at seg 1 offset 50, end_seg 1,
-			// end_size 80 → abs pos = seg0(80? no: seg0 is full 100 trimmed) ...
-			// trimmed segs: id0 size 100 (id<end_seg 1, full), id1 capped at 80.
-			// abs pos = Σ(seg.size for id < cursor_seg 1) + cursor_off
+			// Poll 2 at ts 1002 (Δ 2s): cursor at seg 1 offset 50. The cursor seg
+			// contributes only its offset, segments below it their full live size.
+			// abs pos = Σ(live seg.size for id < cursor_seg 1) + cursor_off
 			//         = 100 + 50 = 150. Δ = 150 - 0 = 150 over 2s = 75 B/s.
 			t.fill(
 				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )

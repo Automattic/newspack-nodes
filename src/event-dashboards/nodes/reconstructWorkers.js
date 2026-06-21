@@ -9,10 +9,10 @@
  *   consumers — per-reader probe STATE (cursor / partition end / distance).
  *   logs      — LIVE per-partition segment lists.
  *
- * The point of the trim (see `trimToSnapshot`): the live partition is usually
- * LARGER than the probe's snapshot, so each consumer's `inputs_status` is the
- * live segments clipped back to (end_seg, end_size) — the bar must reflect the
- * probe instant, not the now-grown partition.
+ * The segment bar paints the FULL live segments in three regions (green read,
+ * red/yellow recorded backlog, gray live-beyond-the-probe), so this join carries
+ * the untrimmed live segments through plus each consumer's recorded (end_seg,
+ * end_size) — the bar derives the regions itself per tree, never a global trim.
  *
  * PARTITION token substitution mirrors `topologyGraph.concreteLogNames`: a
  * `<partition>` in the consumer's `reads` template becomes the partition NUMBER.
@@ -95,39 +95,12 @@ function consumerHandlers( graphTopo ) {
 	return out;
 }
 
-/**
- * Trim a live partition's segments back to the probe snapshot: drop any segment
- * past `end_seg`, and cap the `end_seg` segment's size at `end_size`. Returns
- * the trimmed segments plus their recomputed total.
- *
- * @param {Array}  segments Live `{id,size,mtime?}` segments for the partition.
- * @param {number} endSeg   Last segment id at the snapshot instant.
- * @param {number} endSize  Size of the last segment at the snapshot instant.
- * @return {{segments:Array,total:number}} Trimmed segments + recomputed total.
- */
-function trimToSnapshot( segments, endSeg, endSize ) {
-	const trimmed = [];
-	let total = 0;
-	segments.forEach( ( seg ) => {
-		if ( seg.id > endSeg ) {
-			return;
-		}
-		// The head segment is drawn to the consumer's END offset — its authoritative
-		// head — NOT min(seg.size, endSize). The live segment size is sampled on a
-		// separate, laggier clock; when it lags below endSize the min collapsed the
-		// drawn head onto the cursor and HID the read-lag (the partition still
-		// reported a real `distance`). endSize never exceeds the bytes the consumer
-		// has actually seen, so it is the correct head to draw.
-		const size = seg.id === endSeg ? endSize : seg.size;
-		trimmed.push( { ...seg, size } );
-		total += size;
-	} );
-	trimmed.sort( ( a, b ) => a.id - b.id );
-	return { segments: trimmed, total };
-}
+// Sum of every live segment's size — the partition's full size on disk.
+const liveTotal = ( segments ) =>
+	segments.reduce( ( acc, seg ) => acc + ( seg.size || 0 ), 0 );
 
-// Absolute byte position of a cursor within its TRIMMED partition: the sum of
-// every segment fully behind the cursor plus the offset into the current one.
+// Absolute byte position of a cursor within its partition: the sum of every
+// segment fully behind the cursor plus the offset into the current one.
 const cursorBytes = ( segments, cursorSeg, cursorOff ) =>
 	segments.reduce(
 		( acc, seg ) => ( seg.id < cursorSeg ? acc + seg.size : acc ),
@@ -136,10 +109,10 @@ const cursorBytes = ( segments, cursorSeg, cursorOff ) =>
 
 // Absolute byte position of a partition's HEAD as the consumer knows it: full
 // segments below `endSeg` plus the fresh `endSize` offset. Mirrors `cursorBytes`
-// and, crucially, does NOT cap `endSize` at the live head-segment's size the way
-// `trimToSnapshot` does — that segment size is sampled separately and often lags
-// `endSize`, which stuck the write rate at 0 while the read rate (fresh cursor
-// offset) advanced. Used only for the write RATE; the segment BAR still trims.
+// and, crucially, does NOT cap `endSize` at the live head-segment's size — that
+// segment size is sampled separately and often lags `endSize`, which stuck the
+// write rate at 0 while the read rate (fresh cursor offset) advanced. Used only
+// for the write RATE.
 const endPosition = ( segments, endSeg, endSize ) =>
 	segments.reduce(
 		( acc, seg ) => ( seg.id < endSeg ? acc + seg.size : acc ),
@@ -181,8 +154,8 @@ function steppedRate( prev, value, now ) {
  * Join the four lean inputs into the rich `workers[]` array plus the
  * partition-keyed rate maps the downstream reads. Stateless: the caller passes
  * the prior-poll rate state and gets the next state back, so the node owns no
- * join logic. Rates are PROBE-cadence (see `steppedRate`) — only the segment
- * lists use live data (and only trimmed to the snapshot).
+ * join logic. Rates are PROBE-cadence (see `steppedRate`) — the segment lists
+ * carry the FULL live data (the bar derives its regions from the recorded end).
  *
  * @param {Object} data  The lean dump_graph payload (`graph`, `workers`, `consumers`, `logs`, `timestamp`).
  * @param {Object} prior `{ read:{reader→step}, write:{source→step} }` from the previous poll.
@@ -213,35 +186,6 @@ export function reconstructWorkers( data, prior ) {
 	liveness.forEach( ( w ) =>
 		liveByKey.set( `${ w.type }#${ w.partition }`, w )
 	);
-
-	// Each partition's snapshot END, from the consumer reading it (`source#partition`
-	// → {end_seg,end_size}). The dashboard's segment bar renders the canonical
-	// `logs[]` (live), so to honor the probe snapshot we TRIM those live segments
-	// here — not just the (discarded) per-worker inputs_status — clipping each
-	// partition back to its reader's (end_seg,end_size). A partition with no reader
-	// (a pure output log) keeps its live segments (no snapshot to clip to).
-	const endByKey = new Map();
-	consumers.forEach( ( row ) =>
-		endByKey.set( `${ row.source }#${ row.partition }`, {
-			endSeg: row.end_seg,
-			endSize: row.end_size,
-		} )
-	);
-	const trimmedLogs = logs.map( ( log ) => ( {
-		...log,
-		partitions: ( log.partitions || [] ).map( ( p ) => {
-			const end = endByKey.get( `${ log.name }#${ p.partition }` );
-			if ( ! end ) {
-				return p;
-			}
-			const { segments, total } = trimToSnapshot(
-				p.segments || [],
-				end.endSeg,
-				end.endSize
-			);
-			return { ...p, segments, total_size: total };
-		} ),
-	} ) );
 
 	const workers = [];
 	const byteRates = {};
@@ -320,36 +264,33 @@ export function reconstructWorkers( data, prior ) {
 
 			const live =
 				liveByName.get( `${ concrete }#${ row.partition }` ) || [];
-			const { segments, total } = trimToSnapshot(
-				live,
-				row.end_seg,
-				row.end_size
-			);
 			const status = liveByKey.get( `${ topology }#${ row.partition }` );
 
 			// One worker row PER downstream handler so a fanned-out consumer
 			// (firehose → request-builder AND job-router) lands a row on EACH
 			// processor's collapsed-graph vertex, exactly as the old one-row-per-
-			// target data did. They share the reader's cursor/behind/segments.
+			// target data did. They share the reader's cursor/end/segments. The bar
+			// carries the FULL live segments plus the reader's recorded (end_seg,
+			// end_size) so it can paint the green/red/gray regions itself.
 			const inputsStatus = {
 				name: concrete,
 				partition: row.partition,
-				segments,
-				total_size: total,
+				segments: live,
+				total_size: liveTotal( live ),
 				cursor_seg: row.cursor_seg,
 				cursor_offset: row.cursor_off,
+				end_seg: row.end_seg,
+				end_size: row.end_size,
 			};
 
 			// Rates are PROBE-cadence (steppedRate), computed ONCE per probe row.
-			// READ = Δ(cursor byte position within the snapshot partition); WRITE =
-			// Δ(partition END position) where `total` (the trimmed segment sum) IS
-			// the end position — both snapshot-stable, so they update only when new
-			// probe data advances the cursor / end, never on the ~1s poll. Computed
-			// before the worker push so each worker carries its own read_rate (for
-			// the ETA rollup + the eta-aware "behind" health).
+			// READ = Δ(cursor byte position); both snapshot-stable, so they update
+			// only when new probe data advances the cursor / end, never on the ~1s
+			// poll. Computed before the worker push so each worker carries its own
+			// read_rate (for the ETA rollup + the eta-aware "behind" health).
 			const readStep = steppedRate(
 				priorRead[ row.reader ],
-				cursorBytes( segments, row.cursor_seg, row.cursor_off ),
+				cursorBytes( live, row.cursor_seg, row.cursor_off ),
 				ts
 			);
 			nextRead[ row.reader ] = readStep;
@@ -419,7 +360,7 @@ export function reconstructWorkers( data, prior ) {
 
 	return {
 		workers,
-		logs: trimmedLogs,
+		logs,
 		byteRates,
 		writeRates,
 		nextRead,

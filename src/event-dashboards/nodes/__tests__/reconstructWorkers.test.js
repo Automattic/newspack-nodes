@@ -252,8 +252,8 @@ describe( 'reconstructWorkers — two topologies sharing one source', () => {
 	} );
 } );
 
-describe( 'reconstructWorkers — segment trim + cursor rate', () => {
-	it( 'trims live segments to the probe (end_seg, end_size)', () => {
+describe( 'reconstructWorkers — full live segments + recorded end', () => {
+	it( 'the logs payload carries FULL live segments (untrimmed) + full total_size', () => {
 		const data = {
 			...FANOUT_DATA,
 			consumers: [
@@ -286,26 +286,66 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 				},
 			],
 		};
-		const { workers, logs } = reconstructWorkers( data, EMPTY_PRIOR );
-		const segs = workers[ 0 ].inputs_status[ 0 ].segments;
-		// id 2 dropped (past end_seg=1); id 1 capped at end_size=30.
-		expect( segs.map( ( s ) => [ s.id, s.size ] ) ).toEqual( [
-			[ 0, 100 ],
-			[ 1, 30 ],
-		] );
-		expect( workers[ 0 ].inputs_status[ 0 ].total_size ).toBe( 130 );
-
-		// The CANONICAL logs[] — what the segment bar actually renders via
-		// collectLogPartitions — must be trimmed too, not just inputs_status.
+		const { logs } = reconstructWorkers( data, EMPTY_PRIOR );
+		// The bar paints the live head with a gray "beyond" region, so the
+		// payload must carry the FULL live segments — NOT trimmed to the probe.
 		const logSegs = logs[ 0 ].partitions[ 0 ].segments;
 		expect( logSegs.map( ( s ) => [ s.id, s.size ] ) ).toEqual( [
 			[ 0, 100 ],
-			[ 1, 30 ],
+			[ 1, 250 ],
+			[ 2, 999 ],
 		] );
-		expect( logs[ 0 ].partitions[ 0 ].total_size ).toBe( 130 );
+		expect( logs[ 0 ].partitions[ 0 ].total_size ).toBe( 1349 );
 	} );
 
-	it( 'the segment bar (buildTopologySections log entity) shows the TRIMMED segments', () => {
+	it( 'inputs_status carries FULL live segments and the consumer end_seg/end_size', () => {
+		const data = {
+			...FANOUT_DATA,
+			consumers: [
+				{
+					reader: 'firehose.p0',
+					source: 'firehose.p0',
+					partition: 0,
+					cursor_seg: 0,
+					cursor_off: 50,
+					end_seg: 1,
+					end_size: 30,
+					distance: 0,
+					msgs: 1,
+				},
+			],
+			logs: [
+				{
+					name: 'firehose.p0',
+					partitions: [
+						{
+							partition: 0,
+							segments: [
+								{ id: 0, size: 100 },
+								{ id: 1, size: 250 },
+								{ id: 2, size: 999 },
+							],
+							total_size: 1349,
+						},
+					],
+				},
+			],
+		};
+		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
+		const status = workers[ 0 ].inputs_status[ 0 ];
+		expect( status.segments.map( ( s ) => [ s.id, s.size ] ) ).toEqual( [
+			[ 0, 100 ],
+			[ 1, 250 ],
+			[ 2, 999 ],
+		] );
+		expect( status.total_size ).toBe( 1349 );
+		expect( status.cursor_seg ).toBe( 0 );
+		expect( status.cursor_offset ).toBe( 50 );
+		expect( status.end_seg ).toBe( 1 );
+		expect( status.end_size ).toBe( 30 );
+	} );
+
+	it( 'the segment bar (buildTopologySections log entity) shows the FULL live segments with the consumer end merged', () => {
 		const data = {
 			...FANOUT_DATA,
 			consumers: [
@@ -343,55 +383,13 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 		const firehose = flatten( sections[ 0 ].tree ).find(
 			( e ) => 'log' === e.kind && 'firehose' === e.name
 		);
-		// id 2 (live, past the probe end) must NOT appear in the rendered bar.
-		expect(
-			firehose.partitions[ 0 ].segments.map( ( s ) => s.id )
-		).toEqual( [ 0, 1 ] );
-		expect(
-			firehose.partitions[ 0 ].segments.find( ( s ) => 1 === s.id ).size
-		).toBe( 30 );
-	} );
-
-	it( 'draws the head to the consumer END, not a stale-smaller live size, so read-lag stays visible', () => {
-		const data = {
-			...FANOUT_DATA,
-			consumers: [
-				{
-					reader: 'firehose.p0',
-					source: 'firehose.p0',
-					partition: 0,
-					cursor_seg: 0,
-					cursor_off: 20,
-					end_seg: 0,
-					end_size: 80, // consumer knows the head is at 80…
-					distance: 60,
-					msgs: 1,
-				},
-			],
-			logs: [
-				{
-					name: 'firehose.p0',
-					partitions: [
-						{
-							partition: 0,
-							// …but the live head-segment stat LAGS at 40. Capping the bar
-							// at 40 collapses the head onto the cursor and hides the lag.
-							segments: [ { id: 0, size: 40 } ],
-							total_size: 40,
-						},
-					],
-				},
-			],
-		};
-		const { workers, logs } = reconstructWorkers( data, EMPTY_PRIOR );
-		const sections = buildTopologySections( FANOUT_GRAPH, workers, logs );
-		const firehose = flatten( sections[ 0 ].tree ).find(
-			( e ) => 'log' === e.kind && 'firehose' === e.name
-		);
-		expect(
-			firehose.partitions[ 0 ].segments.find( ( s ) => 0 === s.id ).size
-		).toBe( 80 );
-		expect( firehose.partitions[ 0 ].total_size ).toBe( 80 );
+		const part = firehose.partitions[ 0 ];
+		// id 2 (live, past the probe end) STAYS — it paints as the gray beyond region.
+		expect( part.segments.map( ( s ) => s.id ) ).toEqual( [ 0, 1, 2 ] );
+		expect( part.cursor_seg ).toBe( 0 );
+		expect( part.cursor_offset ).toBe( 50 );
+		expect( part.end_seg ).toBe( 1 );
+		expect( part.end_size ).toBe( 30 );
 	} );
 
 	it( 'derives read_rate from the absolute cursor-byte delta across polls; first poll is 0', () => {

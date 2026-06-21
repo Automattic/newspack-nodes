@@ -16,8 +16,10 @@ import { formatBytes } from './formatters';
  * @param {Object}  props              Component props.
  * @param {Object}  props.segment      Segment data { id, size, mtime }.
  * @param {number}  props.maxSize      Max segment size for scaling.
- * @param {number}  props.cursorSeg    Current cursor segment ID.
- * @param {number}  props.cursorOffset Current cursor offset.
+ * @param {number}  props.cursorSeg    Reader cursor segment ID (null = no consumer).
+ * @param {number}  props.cursorOffset Reader cursor offset within cursorSeg.
+ * @param {number}  props.endSeg       Recorded probe-end segment ID (null = no consumer).
+ * @param {number}  props.endSize      Recorded probe-end offset within endSeg.
  * @param {number}  props.newestSegId  ID of the newest segment.
  * @param {boolean} props.isNew        Whether this segment is newly appeared.
  * @param {boolean} props.isRemoving   Whether this segment is being removed.
@@ -28,23 +30,37 @@ export const SegmentBar = memo( function SegmentBar( {
 	maxSize,
 	cursorSeg,
 	cursorOffset,
+	endSeg,
+	endSize,
 	newestSegId,
 	isNew,
 	isRemoving,
 } ) {
-	const fillPercent = maxSize > 0 ? ( segment.size / maxSize ) * 100 : 0;
-	// No cursor (output-only log) → treat all segments as processed.
-	const hasReader = cursorSeg !== undefined && cursorSeg !== null;
-	const isCurrent = hasReader && segment.id === cursorSeg;
-	const isProcessed = ! hasReader || segment.id < cursorSeg;
-	const isNewest = segment.id === newestSegId;
+	const size = segment.size;
+	const pct = ( bytes ) => ( maxSize > 0 ? ( bytes / maxSize ) * 100 : 0 );
+	// cursor + end arrive together; a tree with no consumer of this log has both null.
+	const hasConsumer = cursorSeg !== undefined && cursorSeg !== null;
 
-	const processedPercent =
-		isCurrent && segment.size > 0
-			? ( cursorOffset / segment.size ) * fillPercent
-			: 0;
-	const pendingPercent = isCurrent ? fillPercent - processedPercent : 0;
-	const pendingClass = isNewest ? 'pending' : ''; // Yellow only for newest, red otherwise.
+	// Bytes of THIS segment up to a (boundarySeg, boundaryOffset) marker: whole
+	// segment if the marker is past it, the offset if the marker is inside it,
+	// 0 if the marker is before it.
+	const bytesUpTo = ( boundarySeg, boundaryOffset ) => {
+		if ( segment.id < boundarySeg ) {
+			return size;
+		}
+		if ( segment.id === boundarySeg ) {
+			return Math.min( boundaryOffset, size );
+		}
+		return 0;
+	};
+
+	// Green stops at the read cursor; red/yellow backlog stops at the recorded
+	// probe end; gray fills past it to the live head. No consumer → all gray.
+	const readEnd = hasConsumer ? bytesUpTo( cursorSeg, cursorOffset ) : 0;
+	const recordedEnd = hasConsumer ? bytesUpTo( endSeg, endSize ) : 0;
+	const recorded = Math.max( readEnd, recordedEnd );
+
+	const backlogClass = segment.id === newestSegId ? 'pending' : ''; // Yellow only for newest, red otherwise.
 
 	const classNames = [
 		'worker-segment-h',
@@ -61,34 +77,25 @@ export const SegmentBar = memo( function SegmentBar( {
 				// translators: 1: segment id, 2: formatted segment size.
 				__( 'Segment %1$s: %2$s', 'newspack-nodes' ),
 				segment.id,
-				formatBytes( segment.size )
+				formatBytes( size )
 			) }
 		>
 			<div className="segment-label-h">{ segment.id }</div>
 			<div className="segment-bar-h">
-				{ isCurrent ? (
-					<>
-						<div
-							className="segment-fill-h processed"
-							style={ { width: `${ processedPercent }%` } }
-						/>
-						<div
-							className={ `segment-fill-h ${ pendingClass }` }
-							style={ { width: `${ pendingPercent }%` } }
-						/>
-					</>
-				) : (
-					<div
-						className={ `segment-fill-h ${
-							isProcessed ? 'processed' : ''
-						}` }
-						style={ { width: `${ fillPercent }%` } }
-					/>
-				) }
+				<div
+					className="segment-fill-h processed"
+					style={ { width: `${ pct( readEnd ) }%` } }
+				/>
+				<div
+					className={ `segment-fill-h ${ backlogClass }` }
+					style={ { width: `${ pct( recorded - readEnd ) }%` } }
+				/>
+				<div
+					className="segment-fill-h beyond"
+					style={ { width: `${ pct( size - recorded ) }%` } }
+				/>
 			</div>
-			<div className="segment-size-h">
-				{ formatBytes( segment.size ) }
-			</div>
+			<div className="segment-size-h">{ formatBytes( size ) }</div>
 		</div>
 	);
 } );
