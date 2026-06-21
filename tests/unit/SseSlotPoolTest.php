@@ -26,9 +26,8 @@ class SseSlotPoolTest extends TestCase {
 		SSE_Out_Node::$acquire_slot = null;
 		SSE_Out_Node::$release_slot = null;
 		SSE_Out_Node::$check_slot   = null;
-		SSE_Slot_Pool::$max_slots      = 8;
-		SSE_Slot_Pool::$ttl_browser    = 30;
-		SSE_Slot_Pool::$ttl_aggregator = 60;
+		SSE_Slot_Pool::$max_slots   = 10;
+		SSE_Slot_Pool::$ttl         = 30;
 		Core::$memd = new InMemoryMemcached();
 	}
 
@@ -43,27 +42,27 @@ class SseSlotPoolTest extends TestCase {
 	// ── slot algorithm (direct) ──────────────────────────────────────────────
 
 	public function test_acquire_returns_first_free_slot(): void {
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30, -1 ) );
-		$this->assertSame( 1, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30, -1 ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
+		$this->assertSame( 1, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
 	}
 
 	public function test_acquire_returns_false_when_pool_exhausted(): void {
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30, -1 ) );
-		$this->assertSame( 1, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30, -1 ) );
-		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 2, 30, -1 ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
+		$this->assertSame( 1, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
+		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
 	}
 
 	public function test_release_frees_the_slot_for_reacquire(): void {
-		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30, -1 );
+		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 );
 		$this->assertSame( 0, $slot );
-		$this->assertTrue( SSE_Slot_Pool::release( 1, 'abc', $slot, -1 ) );
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30, -1 ) );
+		$this->assertTrue( SSE_Slot_Pool::release( 1, 'abc', $slot ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
 	}
 
 	public function test_check_true_for_held_slot_false_for_free(): void {
-		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30, -1 );
-		$this->assertTrue( SSE_Slot_Pool::check( 1, 'abc', $slot, -1 ) );
-		$this->assertFalse( SSE_Slot_Pool::check( 1, 'abc', 5, -1 ) );
+		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 );
+		$this->assertTrue( SSE_Slot_Pool::check( 1, 'abc', $slot ) );
+		$this->assertFalse( SSE_Slot_Pool::check( 1, 'abc', 5 ) );
 	}
 
 	public function test_touch_returns_true_for_held_slot_false_for_missing(): void {
@@ -72,32 +71,26 @@ class SseSlotPoolTest extends TestCase {
 		$this->assertFalse( SSE_Slot_Pool::touch( 1, 'abc', 5, 30 ) );
 	}
 
-	public function test_partition_scopes_slot_keys_independently(): void {
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 1, 30 ) );
-		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 1, 30 ) );
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
-	}
-
 	// ── fail-closed when Core::$memd is null ─────────────────────────────────
 
 	public function test_acquire_fails_closed_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 8, 30, -1 ) );
+		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
 	}
 
 	public function test_check_fails_closed_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertFalse( SSE_Slot_Pool::check( 1, 'abc', 0, -1 ) );
+		$this->assertFalse( SSE_Slot_Pool::check( 1, 'abc', 0 ) );
 	}
 
 	public function test_release_fails_open_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertTrue( SSE_Slot_Pool::release( 1, 'abc', 0, -1 ) );
+		$this->assertTrue( SSE_Slot_Pool::release( 1, 'abc', 0 ) );
 	}
 
 	public function test_touch_fails_open_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertTrue( SSE_Slot_Pool::touch( 1, 'abc', 0, 30, -1 ) );
+		$this->assertTrue( SSE_Slot_Pool::touch( 1, 'abc', 0, 30 ) );
 	}
 
 	// ── wire() installs the SSE_Out seams ────────────────────────────────────
@@ -117,7 +110,7 @@ class SseSlotPoolTest extends TestCase {
 	public function test_wired_acquire_claims_a_slot(): void {
 		SSE_Slot_Pool::wire();
 		$acquire = SSE_Out_Node::$acquire_slot;
-		$this->assertSame( 0, $acquire( -1 ) );
+		$this->assertSame( 0, $acquire() );
 	}
 
 	public function test_wired_release_returns_slot_to_pool(): void {
@@ -125,10 +118,10 @@ class SseSlotPoolTest extends TestCase {
 		$acquire = SSE_Out_Node::$acquire_slot;
 		$release = SSE_Out_Node::$release_slot;
 
-		$slot = $acquire( -1 );
+		$slot = $acquire();
 		$this->assertSame( 0, $slot );
-		$release( $slot, -1 );
-		$this->assertSame( 0, $acquire( -1 ) );
+		$release( $slot );
+		$this->assertSame( 0, $acquire() );
 	}
 
 	public function test_wired_check_returns_true_for_held_slot(): void {
@@ -136,8 +129,8 @@ class SseSlotPoolTest extends TestCase {
 		$acquire = SSE_Out_Node::$acquire_slot;
 		$check   = SSE_Out_Node::$check_slot;
 
-		$slot = $acquire( -1 );
-		$this->assertTrue( $check( $slot, -1 ) );
+		$slot = $acquire();
+		$this->assertTrue( $check( $slot ) );
 	}
 
 	public function test_wired_acquire_returns_false_when_pool_exhausted(): void {
@@ -145,8 +138,8 @@ class SseSlotPoolTest extends TestCase {
 		SSE_Slot_Pool::wire();
 		$acquire = SSE_Out_Node::$acquire_slot;
 
-		$this->assertNotFalse( $acquire( -1 ) );
-		$this->assertNotFalse( $acquire( -1 ) );
-		$this->assertFalse( $acquire( -1 ) );
+		$this->assertNotFalse( $acquire() );
+		$this->assertNotFalse( $acquire() );
+		$this->assertFalse( $acquire() );
 	}
 }
