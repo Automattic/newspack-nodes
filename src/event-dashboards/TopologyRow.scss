@@ -23,7 +23,8 @@
 	font-family: base.$system-font;
 
 	&__topology {
-		margin-bottom: 18px;
+		// No row margin — the Overview's `.nodes-overview__rows` flex `gap`
+		// owns the (small) inter-row spacing; a margin here double-stacked it.
 		background: base.$dark-bg-secondary;
 		border: 1px solid base.$dark-border;
 		border-radius: 6px;
@@ -96,9 +97,11 @@
 		}
 	}
 
-	// Catch-up ETA shown beside the health badge when behind/stalled.
+	// Catch-up ETA beside the health badge — a fixed slot (empty when caught up)
+	// so the controls after it stay aligned whether or not a row is behind.
 	&__eta {
 		flex: 0 0 auto;
+		min-width: 72px;
 		font-size: 11px;
 		color: base.$dark-text-dim;
 		font-variant-numeric: tabular-nums;
@@ -120,6 +123,10 @@
 	&__badge {
 		margin-left: auto;
 		display: inline-block;
+		// Fixed column so a wide "USER ▸ SHADOWS STOCK" and a bare "STOCK" land
+		// the health + ETA + controls after them at the same x across every row.
+		min-width: 150px;
+		text-align: center;
 		font-size: 10px;
 		padding: 2px 8px;
 		border-radius: 10px;

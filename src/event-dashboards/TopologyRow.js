@@ -127,7 +127,16 @@ const TopologyRow = memo( function TopologyRow( {
 	return (
 		<div
 			className="nodes-tm__topology"
-			onDragOver={ onDropOn ? ( e ) => e.preventDefault() : undefined }
+			onDragOver={
+				onDropOn
+					? ( e ) => {
+							// preventDefault AND a 'move' dropEffect are BOTH required
+							// for the drop to fire (Firefox is strict about this).
+							e.preventDefault();
+							e.dataTransfer.dropEffect = 'move';
+					  }
+					: undefined
+			}
 			onDrop={ onDropOn ? ( e ) => onDropOn( name, e ) : undefined }
 		>
 			<div className="nodes-tm__heading">
@@ -160,7 +169,13 @@ const TopologyRow = memo( function TopologyRow( {
 					{ folded ? '▸' : '▾' }
 				</button>
 				{ active ? (
-					<a className="nodes-tm__name" href={ consoleHref( name ) }>
+					// draggable=false so the native link-drag doesn't hijack the
+					// row-reorder drag (the classic Firefox handle-drag killer).
+					<a
+						className="nodes-tm__name"
+						href={ consoleHref( name ) }
+						draggable={ false }
+					>
 						{ name }
 					</a>
 				) : (
@@ -235,7 +250,9 @@ const TopologyRow = memo( function TopologyRow( {
 						{ HEALTH_LABELS[ health ] ?? health }
 					</span>
 				) }
-				{ eta && (
+				{ active && (
+					// A fixed (often empty) slot so the controls don't shift between
+					// a caught-up row and a behind one; populated only when behind.
 					<span
 						className="nodes-tm__eta"
 						title={ __(
@@ -243,11 +260,13 @@ const TopologyRow = memo( function TopologyRow( {
 							'newspack-nodes'
 						) }
 					>
-						{ sprintf(
-							// translators: %s: ETA duration, e.g. "10m".
-							__( 'ETA %s', 'newspack-nodes' ),
-							eta
-						) }
+						{ eta
+							? sprintf(
+									// translators: %s: ETA duration, e.g. "10m".
+									__( 'ETA %s', 'newspack-nodes' ),
+									eta
+							  )
+							: '' }
 					</span>
 				) }
 				<TopologyControls
