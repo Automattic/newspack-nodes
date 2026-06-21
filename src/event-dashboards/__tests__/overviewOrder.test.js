@@ -7,6 +7,7 @@
 import {
 	orderTopologies,
 	dragReorder,
+	dragGapTransforms,
 	mergeStoredOrder,
 } from '../overviewOrder';
 
@@ -92,6 +93,43 @@ describe( 'dragReorder', () => {
 
 	it( 'is a no-op when the dragged name is missing', () => {
 		expect( dragReorder( names, 'x', rects, 250 ) ).toEqual( names );
+	} );
+} );
+
+describe( 'dragGapTransforms', () => {
+	// 4 rows, 100px pitch: a[0-100] b[100-200] c[200-300] d[300-400].
+	const rects = [
+		{ top: 0, bottom: 100 },
+		{ top: 100, bottom: 200 },
+		{ top: 200, bottom: 300 },
+		{ top: 300, bottom: 400 },
+	];
+
+	it( 'drags the row by dy and shifts the rows it passes UP to open a gap below', () => {
+		// Drag row 0 down to slot 2 (cursor y=260, past c midpoint).
+		const { transforms, toIndex } = dragGapTransforms( rects, 0, 55, 260 );
+		expect( toIndex ).toBe( 2 );
+		// row0 = dy; rows 1,2 shift up one pitch to fill the vacated space; row3 stays.
+		expect( transforms ).toEqual( [ 55, -100, -100, 0 ] );
+	} );
+
+	it( 'shifts rows DOWN when dragging upward', () => {
+		// Drag row 3 up to slot 1 (cursor y=120, between a & b midpoints).
+		const { transforms, toIndex } = dragGapTransforms(
+			rects,
+			3,
+			-140,
+			120
+		);
+		expect( toIndex ).toBe( 1 );
+		// row3 = dy; rows 1,2 shift down one pitch; row0 stays.
+		expect( transforms ).toEqual( [ 0, 100, 100, -140 ] );
+	} );
+
+	it( 'opens no gap when the row is held over its own slot', () => {
+		const { transforms, toIndex } = dragGapTransforms( rects, 1, 20, 120 );
+		expect( toIndex ).toBe( 1 );
+		expect( transforms ).toEqual( [ 0, 20, 0, 0 ] );
 	} );
 } );
 
