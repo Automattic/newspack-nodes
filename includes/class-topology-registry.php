@@ -257,7 +257,14 @@ class Topology_Registry {
 	 * No `.p{N}` regex. `$num_partitions` is passed by the caller (keeps the
 	 * registry free of a Bootstrap dep); pass `Bootstrap::num_partitions_for($name)`.
 	 *
-	 * @return array{logs: array<int,string>, offsets: array<int,string>}
+	 * Each bucket is a `concrete dir name => enumerated partition index` map; the
+	 * partition number comes FROM the enumeration loop, never parsed back out of a
+	 * name. In the flat layout (`firehose.p<partition>`) every partition yields a
+	 * unique first-level name (1:1). In a nested layout (`<partition>` below the
+	 * first level) several partitions collapse to one first-level dir — the FIRST
+	 * seen is kept; nested layouts aren't represented per-partition here.
+	 *
+	 * @return array{logs: array<string,int>, offsets: array<string,int>}
 	 */
 	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
@@ -286,16 +293,18 @@ class Topology_Registry {
 				if ( '' === $first ) {
 					continue;
 				}
+				// Keep the FIRST partition seen for this name (a nested layout
+				// collapses several partitions onto one first-level dir).
 				if ( 'partition' === $kind ) {
-					$logs[ $first ] = true;
+					$logs[ $first ] ??= $p;
 				} else {
-					$offsets[ $first ] = true;
+					$offsets[ $first ] ??= $p;
 				}
 			}
 		}
 		return [
-			'logs'    => \array_keys( $logs ),
-			'offsets' => \array_keys( $offsets ),
+			'logs'    => $logs,
+			'offsets' => $offsets,
 		];
 	}
 

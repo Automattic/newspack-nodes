@@ -301,6 +301,32 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	public function test_dump_graph_logs_carry_the_real_enumerated_partition_number(): void {
+		// Headline regression: each concrete per-partition log dir's `partition`
+		// field must be its enumerated partition index, NOT a hardcoded 0. The
+		// dashboard joins logs[] to consumers[] on `${name}#${partition}`; a
+		// hardcoded 0 makes P1+ miss the join and ignore the consumer offset.
+		$base = $this->arrange_base_dir();
+		$this->declare_partitions( $base, 'firehose-workers', [ 'firehose' ], 2 );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$by_name = [];
+		foreach ( $result['logs'] as $log ) {
+			$by_name[ $log['name'] ] = $log;
+		}
+
+		$this->assertArrayHasKey( 'firehose.p0', $by_name );
+		$this->assertArrayHasKey( 'firehose.p1', $by_name );
+		$this->assertSame( 0, $by_name['firehose.p0']['partitions'][0]['partition'] );
+		$this->assertSame( 1, $by_name['firehose.p1']['partitions'][0]['partition'] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	public function test_list_verb_returns_workers_from_cli(): void {
 		$fake_cli = new class {
 			public function ls_workers(): array {

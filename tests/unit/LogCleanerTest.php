@@ -354,6 +354,49 @@ class LogCleanerTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'settings.p0', 'topicprobe.p0' ], $result );
 	}
 
+	public function test_declared_log_partitions_maps_names_to_enumerated_partitions(): void {
+		// The map form carries each concrete log dir's enumerated partition index
+		// (the dashboard joins logs[] to consumers[] on it). declared_log_dirs()
+		// stays byte-for-byte the NAME set (array_keys of the same map).
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ 'firehose' ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
+		Config::reset();
+
+		$map = Log_Cleaner::declared_log_partitions();
+		\ksort( $map );
+
+		// requests is 2-partition; firehose producer + the whitelisted non-.tsl
+		// logs (topicprobe, settings) are partition 0.
+		$this->assertSame(
+			[
+				'firehose.p0'  => 0,
+				'requests.p0'  => 0,
+				'requests.p1'  => 1,
+				'settings.p0'  => 0,
+				'topicprobe.p0' => 0,
+			],
+			$map
+		);
+
+		// declared_log_dirs() is unchanged: the same NAME set the GC sweeps.
+		$names = Log_Cleaner::declared_log_dirs();
+		\sort( $names );
+		$this->assertSame( \array_keys( $map ), $names );
+	}
+
+	public function test_declared_log_partitions_null_root_returns_empty_map(): void {
+		// Fail-closed: an unresolvable logs_dir root yields an empty map (mirrors
+		// declared_log_dirs()'s `?? []`).
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		Core::$config_resolvers = [];
+
+		$this->assertSame( [], Log_Cleaner::declared_log_partitions() );
+	}
+
 	public function test_declared_log_dirs_skips_non_string_producers(): void {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		\add_filter(
