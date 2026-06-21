@@ -539,18 +539,28 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 				};
 			} );
 		const { container } = render( <Overview /> );
-		// Grab alpha, drag past beta's midpoint (y=160), release.
+		// The dragged row floats via an imperative transform on its own element.
+		const fakeRow = { style: {} };
+		// Grab alpha at y=50, drag past beta's midpoint (y=160), release.
 		act( () =>
 			rowProps( 'alpha' ).onGripPointerDown( 'alpha', {
 				preventDefault: jest.fn(),
 				pointerId: 1,
-				currentTarget: { setPointerCapture: jest.fn() },
+				clientY: 50,
+				currentTarget: {
+					setPointerCapture: jest.fn(),
+					closest: () => fakeRow,
+				},
 			} )
 		);
 		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 160 } ) );
-		// Mid-drag the rows already show the new order.
-		expect( rowNames( container ) ).toEqual( [ 'beta', 'alpha' ] );
+		// Mid-drag: the dragged row follows the cursor via transform (dy = 160−50),
+		// and the LIST does NOT re-render/reorder (that is the whole point).
+		expect( fakeRow.style.transform ).toBe( 'translateY(110px)' );
+		expect( rowNames( container ) ).toEqual( [ 'alpha', 'beta' ] );
 		act( () => rowProps( 'alpha' ).onGripPointerUp() );
+		// On drop: transform cleared, reorder committed + persisted once.
+		expect( fakeRow.style.transform ).toBe( '' );
 		expect( overviewPrefs.writeOrder ).toHaveBeenLastCalledWith( [
 			'beta',
 			'alpha',

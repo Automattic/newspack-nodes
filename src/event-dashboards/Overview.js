@@ -87,16 +87,23 @@ function activeRowRects() {
  */
 export default function Overview() {
 	// Pointer-drag reorder state, declared FIRST so it can pause everything else
-	// while a drag is in flight. `dragName` = the row being dragged; `liveOrder` =
-	// the transient order it produces (committed to `order` on pointer-up only).
-	// `dragNameRef` mirrors `dragName` for the pointer handlers (which fire from the
-	// captured grip, not React state).
+	// while a drag is in flight. `dragName` = the row being dragged. The drag is a
+	// FLOAT: the dragged row follows the cursor via a compositor transform set
+	// imperatively in the rAF handler — NO React render per move — and the reorder
+	// commits to `order` once on pointer-up. (Re-rendering the list every frame is
+	// what made the row lag the cursor and build GC pressure the longer you held.)
 	const [ dragName, setDragName ] = useState( null );
-	const [ liveOrder, setLiveOrder ] = useState( null );
 	const dragNameRef = useRef( null );
 	// rAF-coalesce pointer moves: store the latest Y, apply at most once per frame.
 	const dragRafRef = useRef( null );
 	const dragYRef = useRef( 0 );
+	// Drag geometry, cached at pointer-down (a float-drag doesn't move the other
+	// rows, so these stay valid for the whole gesture): the dragged row element,
+	// the grab Y, and the row bounds + names in display order for the drop math.
+	const dragStartYRef = useRef( 0 );
+	const dragElRef = useRef( null );
+	const dragRectsRef = useRef( [] );
+	const dragNamesRef = useRef( [] );
 	const dragging = null !== dragName;
 
 	// PAUSE all background updates while dragging: the 4s poll is suspended (so it
@@ -154,25 +161,20 @@ export default function Overview() {
 
 	// Display order is the user's drag order (stored names first, new ones
 	// appended alphabetically) — never health, so badges flapping doesn't reorder.
-	// Mid-drag, `liveOrder` (the in-progress reorder) takes over so rows visibly
-	// shuffle under the cursor.
-	const displayedNames =
-		liveOrder ??
-		orderTopologies(
-			actives.map( ( t ) => t.name ),
-			order
-		);
+	// The dragged row floats over this order; it only changes on drop.
+	const displayedNames = orderTopologies(
+		actives.map( ( t ) => t.name ),
+		order
+	);
 	const orderedActives = displayedNames
 		.map( ( name ) => actives.find( ( t ) => t.name === name ) )
 		.filter( Boolean );
 
-	// Mirror the current display order + live order into refs so the drag handlers
-	// can stay referentially STABLE (useCallback []) — stable handler props are
-	// what let `memo(TopologyRow)` skip a re-render on every drag frame.
+	// Mirror the current display order into a ref so the (stable, useCallback [])
+	// drag handlers can read it without re-subscribing — stable handler props are
+	// what let `memo(TopologyRow)` skip re-renders.
 	const displayedRef = useRef( displayedNames );
 	displayedRef.current = displayedNames;
-	const liveOrderRef = useRef( null );
-	liveOrderRef.current = liveOrder;
 
 	const expandTopology = useCallback(
 		( name ) => setExpanded( ( prev ) => new Set( prev ).add( name ) ),
@@ -201,60 +203,77 @@ export default function Overview() {
 	}, [] );
 
 	// Pointer-drag reorder (cross-browser; native HTML5 DnD was too flaky). The
-	// grip captures the pointer, so move/up keep firing even over other rows; each
-	// move recomputes the live order from the row geometry under the cursor. All
-	// three are stable (read current order via refs) so they don't bust row memo.
+	// grip captures the pointer, so move/up keep firing even over other rows. The
+	// gesture is a FLOAT: cache the geometry once, translate only the dragged row
+	// per frame (compositor, no React), and commit the reorder once on drop. All
+	// three handlers are stable (read state via refs) so they don't bust row memo.
 	const onGripPointerDown = useCallback( ( name, e ) => {
 		e.preventDefault();
-		e.currentTarget.setPointerCapture?.( e.pointerId );
+		// Capture so move/up keep firing as the cursor leaves the grip. A throw
+		// (e.g. no active pointer) must not abort the rest of the gesture setup.
+		try {
+			e.currentTarget.setPointerCapture?.( e.pointerId );
+		} catch {
+			// no-op — drag proceeds without capture.
+		}
 		dragNameRef.current = name;
+		dragStartYRef.current = e.clientY;
+		dragRectsRef.current = activeRowRects();
+		dragNamesRef.current = displayedRef.current;
+		dragElRef.current =
+			e.currentTarget.closest?.( '[data-topology-row]' ) ?? null;
 		setDragName( name );
-		setLiveOrder( displayedRef.current );
 	}, [] );
 	const onGripPointerMove = useCallback( ( e ) => {
 		if ( ! dragNameRef.current ) {
 			return;
 		}
-		// Coalesce to one reorder per animation frame using the latest pointer Y —
-		// pointermove fires far faster than we can usefully re-render.
+		// Coalesce to one transform per animation frame using the latest pointer Y —
+		// pointermove fires far faster than the display refreshes.
 		dragYRef.current = e.clientY;
 		if ( null !== dragRafRef.current ) {
 			return;
 		}
 		dragRafRef.current = window.requestAnimationFrame( () => {
 			dragRafRef.current = null;
-			const name = dragNameRef.current;
-			if ( ! name ) {
+			const el = dragElRef.current;
+			if ( ! el ) {
 				return;
 			}
-			setLiveOrder( ( prev ) =>
-				dragReorder(
-					prev ?? displayedRef.current,
-					name,
-					activeRowRects(),
-					dragYRef.current
-				)
-			);
+			el.style.transform = `translateY(${
+				dragYRef.current - dragStartYRef.current
+			}px)`;
+			el.style.zIndex = '10';
+			el.style.position = 'relative';
 		} );
 	}, [] );
 	const onGripPointerUp = useCallback( () => {
 		if ( ! dragNameRef.current ) {
 			return;
 		}
+		const name = dragNameRef.current;
 		dragNameRef.current = null;
 		if ( null !== dragRafRef.current ) {
 			window.cancelAnimationFrame( dragRafRef.current );
 			dragRafRef.current = null;
 		}
-		// Commit: fold the live active order back over the full persisted order
-		// (carrying inactive names) — once, so localStorage isn't thrashed.
-		if ( liveOrderRef.current ) {
-			setOrder( ( prev ) =>
-				mergeStoredOrder( prev, liveOrderRef.current )
-			);
+		const el = dragElRef.current;
+		if ( el ) {
+			el.style.transform = '';
+			el.style.zIndex = '';
+			el.style.position = '';
 		}
+		dragElRef.current = null;
+		// Commit ONCE: where the cursor ended vs the cached row geometry, folded
+		// back over the full persisted order (carrying inactive names).
+		const reordered = dragReorder(
+			dragNamesRef.current,
+			name,
+			dragRectsRef.current,
+			dragYRef.current
+		);
+		setOrder( ( prev ) => mergeStoredOrder( prev, reordered ) );
 		setDragName( null );
-		setLiveOrder( null );
 	}, [] );
 
 	// Per-topic (source) 24h series for the three Topics panels — message rate,
