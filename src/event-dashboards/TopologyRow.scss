@@ -1,11 +1,12 @@
 /**
- * Topology Manager hub tab styles. A list of per-topology cards: a flex heading
- * row (name + per-partition pills on the left so they scan against the tree's
- * per-node pills; source badge, health, active toggle and restart pushed to the
- * right) over the live worker-status subtree. Palette
- * tracks the event-dashboards dark theme (see styles/base.scss) so the embedded
- * worker-status tree stays visually consistent. The live subtree itself is
- * styled by worker-status.scss; this file only dresses the manager chrome.
+ * TopologyRow styles — the UNFOLDED per-topology detail card the merged Overview
+ * tab renders: a flex heading row (collapse chevron + name + per-partition pills
+ * on the left so they scan against the tree's per-node pills; source badge,
+ * health, active toggle and restart pushed to the right) over the live
+ * worker-status subtree. Palette tracks the event-dashboards dark theme (see
+ * styles/base.scss) so the embedded worker-status tree stays visually
+ * consistent. The live subtree itself is styled by worker-status.scss; this file
+ * only dresses the row chrome.
  */
 
 @use "styles/base";
@@ -58,6 +59,25 @@
 		// the trailing badges stay aligned across rows.
 		.topology-partition {
 			min-width: 116px;
+		}
+	}
+
+	// Topology-level fold chevron — folds the whole row back to its compact
+	// Overview summary (separate from the within-tree node-fold carets).
+	&__collapse {
+		flex: 0 0 auto;
+		font-size: 12px;
+		line-height: 1;
+		padding: 2px 6px;
+		border: 0;
+		border-radius: 4px;
+		background: transparent;
+		color: base.$dark-text-muted;
+		cursor: pointer;
+
+		&:hover {
+			color: base.$dark-text;
+			background: base.$dark-bg-hover;
 		}
 	}
 

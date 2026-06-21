@@ -8,7 +8,7 @@
  * hook's data contract is exercised by its own suite; here it's mocked.
  */
 
-import { render } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import Overview from '../Overview';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
@@ -61,6 +61,24 @@ jest.mock( '../TopologyControls', () => {
 	return ( props ) => {
 		( globalThis.__topologyControls ||= [] ).push( props );
 		return el.createElement( 'span', { className: 'nodes-ctl-stub' } );
+	};
+} );
+// TopologyRow renders the real d3/TopologySection tree (its OWN suite). Here it's
+// a prop-capturing stub so the Overview suite stays free of that tree and can
+// assert that the merged tab unfolds the right topology with the right handlers.
+// consoleHref is a real (non-component) re-export the tab imports, so keep it.
+jest.mock( '../TopologyRow', () => {
+	const el = require( '@wordpress/element' );
+	const actual = jest.requireActual( '../TopologyRow' );
+	return {
+		...actual,
+		TopologyRow: ( props ) => {
+			( globalThis.__topologyRows ||= [] ).push( props );
+			return el.createElement( 'div', {
+				className: 'nodes-tm__topology-stub',
+				'data-name': props.topology.name,
+			} );
+		},
 	};
 } );
 
@@ -116,6 +134,7 @@ beforeEach( () => {
 	globalThis.__topicsPanels = [];
 	globalThis.__summaryCards = [];
 	globalThis.__topologyControls = [];
+	globalThis.__topologyRows = [];
 } );
 afterEach( () => {
 	useTopologyManager.mockReset();
@@ -283,5 +302,126 @@ describe( 'Overview fleet board', () => {
 		expect( globalThis.__summaryCards[ 0 ].newTopologyHref ).toContain(
 			'new=1'
 		);
+	} );
+} );
+
+describe( 'Overview fold/unfold merge', () => {
+	it( 'renders every active topology FOLDED by default (compact row, no detail tree)', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		// Two compact rows, zero unfolded detail trees.
+		expect(
+			container.querySelectorAll( '.nodes-overview__row' )
+		).toHaveLength( 2 );
+		expect( globalThis.__topologyRows ).toHaveLength( 0 );
+	} );
+
+	it( 'unfolds a topology when its expand chevron is clicked', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		const alphaRow = [
+			...container.querySelectorAll( '.nodes-overview__row' ),
+		].find( ( r ) =>
+			r
+				.querySelector( '.nodes-overview__name' )
+				.textContent.includes( 'alpha' )
+		);
+		fireEvent.click( alphaRow.querySelector( '.nodes-overview__expand' ) );
+		// alpha is now an unfolded TopologyRow; beta stays a compact row.
+		expect( globalThis.__topologyRows ).toHaveLength( 1 );
+		const row = globalThis.__topologyRows[ 0 ];
+		expect( row.topology.name ).toBe( 'alpha' );
+		// The tab threads its handlers into the unfolded row.
+		expect( typeof row.onCollapseTopology ).toBe( 'function' );
+		expect( typeof row.onToggleFold ).toBe( 'function' );
+		expect( row.onRestart ).toBe(
+			useTopologyManager.mock.results[ 0 ].value.restart
+		);
+		expect(
+			container.querySelectorAll( '.nodes-overview__row' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'collapsing an unfolded row via onCollapseTopology folds it back', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		fireEvent.click( container.querySelector( '.nodes-overview__expand' ) );
+		expect( globalThis.__topologyRows ).toHaveLength( 1 );
+		act( () =>
+			globalThis.__topologyRows[ 0 ].onCollapseTopology( 'alpha' )
+		);
+		// Back to a compact row.
+		expect(
+			container.querySelectorAll( '.nodes-overview__row' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'Unfold all expands every active topology; Fold all collapses them', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const { getByText, container } = render( <Overview /> );
+		fireEvent.click( getByText( 'Unfold all' ) );
+		expect(
+			globalThis.__topologyRows.map( ( r ) => r.topology.name )
+		).toEqual( expect.arrayContaining( [ 'alpha', 'beta' ] ) );
+		expect(
+			container.querySelectorAll( '.nodes-overview__row' )
+		).toHaveLength( 0 );
+		fireEvent.click( getByText( 'Fold all' ) );
+		expect(
+			container.querySelectorAll( '.nodes-overview__row' )
+		).toHaveLength( 2 );
+	} );
+
+	it( 'shows the fold-all toolbar only when there is at least one active topology', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					{ name: 'beta', source: 'stock', active: false },
+				],
+			} )
+		);
+		const { queryByText } = render( <Overview /> );
+		expect( queryByText( 'Fold all' ) ).toBeNull();
+		expect( queryByText( 'Unfold all' ) ).toBeNull();
+	} );
+
+	it( 'never offers a fold affordance for inactive topologies', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					{ name: 'beta', source: 'stock', active: false },
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		const stopped = container.querySelector( '.nodes-overview__stopped' );
+		expect( stopped ).not.toBeNull();
+		expect( stopped.querySelector( '.nodes-overview__expand' ) ).toBeNull();
+		expect( globalThis.__topologyRows ).toHaveLength( 0 );
 	} );
 } );

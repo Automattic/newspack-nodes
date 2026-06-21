@@ -37,7 +37,7 @@ import { useNodeState } from '../runtime/react';
 import { topicChartSeries } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
 import { SupervisorStatus } from './SupervisorStatus';
-import { consoleHref } from './TopologyManager';
+import { consoleHref, TopologyRow } from './TopologyRow';
 import { partitionSummaries } from './partitionSummaries';
 import {
 	formatBytes,
@@ -93,6 +93,7 @@ function vitals( t ) {
  * @param {Function} props.onDeactivate (name) => Promise.
  * @param {Function} props.onRestart    (name) => Promise.
  * @param {Function} props.onError      ({name,message}) => void for a rejected mutation.
+ * @param {Function} props.onExpand     (name) => void; unfold this row to its full detail tree.
  * @return {import('react').ReactElement} The row.
  */
 function ActiveRow( {
@@ -102,6 +103,7 @@ function ActiveRow( {
 	onDeactivate,
 	onRestart,
 	onError,
+	onExpand,
 } ) {
 	const health = topology.health || 'ok';
 	const { parts, up, total, behind, startedAt } = vitals( topology );
@@ -109,6 +111,15 @@ function ActiveRow( {
 		<div
 			className={ `nodes-overview__row nodes-overview__row--${ health }` }
 		>
+			<button
+				type="button"
+				className="nodes-overview__expand"
+				title={ __( 'Expand', 'newspack-nodes' ) }
+				aria-expanded={ false }
+				onClick={ () => onExpand( topology.name ) }
+			>
+				▸
+			</button>
 			<a
 				className="nodes-overview__name"
 				href={ consoleHref( topology.name ) }
@@ -228,6 +239,10 @@ export default function Overview() {
 	} = useTopologyManager();
 	// A rejected activate/deactivate/restart ({ name, message }) raises this alert.
 	const [ alert, setAlert ] = useState( null );
+	// Active topology names currently UNFOLDED (empty = all folded on load).
+	const [ expanded, setExpanded ] = useState( () => new Set() );
+	// Within-tree node-fold set, threaded into each unfolded TopologySection.
+	const [ collapsed, setCollapsed ] = useState( () => new Set() );
 
 	// Second link: replay the durable topicprobe.p0 log (24h from `start`) into
 	// `topicprobe:view`, the source for the per-topology lag sparklines.
@@ -245,6 +260,28 @@ export default function Overview() {
 		const rb = HEALTH_RANK[ b.health ] ?? HEALTH_RANK.ok;
 		return ra !== rb ? ra - rb : a.name.localeCompare( b.name );
 	} );
+
+	const expandTopology = ( name ) =>
+		setExpanded( ( prev ) => new Set( prev ).add( name ) );
+	const collapseTopology = ( name ) =>
+		setExpanded( ( prev ) => {
+			const next = new Set( prev );
+			next.delete( name );
+			return next;
+		} );
+	const foldAll = () => setExpanded( new Set() );
+	const unfoldAll = () =>
+		setExpanded( new Set( actives.map( ( t ) => t.name ) ) );
+	const onToggleFold = ( key ) =>
+		setCollapsed( ( prev ) => {
+			const next = new Set( prev );
+			if ( next.has( key ) ) {
+				next.delete( key );
+			} else {
+				next.add( key );
+			}
+			return next;
+		} );
 
 	// Per-topic (source) 24h series for the three Topics panels — message rate,
 	// byte rate, backlog — each ranked by max in its own legend.
@@ -291,18 +328,51 @@ export default function Overview() {
 					onRestart={ () => restart( 'supervisor' ) }
 				/>
 			) }
+			{ actives.length > 0 && (
+				<div className="nodes-overview__toolbar">
+					<button
+						type="button"
+						className="nodes-overview__foldall"
+						onClick={ foldAll }
+					>
+						{ __( 'Fold all', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="nodes-overview__unfoldall"
+						onClick={ unfoldAll }
+					>
+						{ __( 'Unfold all', 'newspack-nodes' ) }
+					</button>
+				</div>
+			) }
 			<div className="nodes-overview__rows">
-				{ activeSorted.map( ( t ) => (
-					<ActiveRow
-						key={ t.name }
-						topology={ t }
-						currentTime={ currentTime }
-						onActivate={ activate }
-						onDeactivate={ deactivate }
-						onRestart={ restart }
-						onError={ setAlert }
-					/>
-				) ) }
+				{ activeSorted.map( ( t ) =>
+					expanded.has( t.name ) ? (
+						<TopologyRow
+							key={ t.name }
+							topology={ t }
+							onActivate={ activate }
+							onDeactivate={ deactivate }
+							onRestart={ restart }
+							onError={ setAlert }
+							onCollapseTopology={ collapseTopology }
+							collapsed={ collapsed }
+							onToggleFold={ onToggleFold }
+						/>
+					) : (
+						<ActiveRow
+							key={ t.name }
+							topology={ t }
+							currentTime={ currentTime }
+							onActivate={ activate }
+							onDeactivate={ deactivate }
+							onRestart={ restart }
+							onError={ setAlert }
+							onExpand={ expandTopology }
+						/>
+					)
+				) }
 			</div>
 			{ stopped.length > 0 && (
 				<div className="nodes-overview__stopped">

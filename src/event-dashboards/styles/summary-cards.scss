@@ -81,6 +81,10 @@ $health-stalled: #f85149;
 	&--write &__value {
 		color: base.$dark-accent;
 	}
+
+	&--msgrate &__value {
+		color: base.$dark-info;
+	}
 }
 
 // "+ New Topology" — trails the card row, right-aligned.
