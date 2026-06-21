@@ -107,6 +107,37 @@ it( 'keys each partition write/read rate on the CONCRETE partition name', () => 
 	expect( rates[ 1 ] ).toMatch( /2/ );
 } );
 
+it( 'a consumed (hasCursor) log still shows its WRITE rate, labeled W', () => {
+	// A log being read by a Consumer must still surface how fast it is WRITTEN —
+	// the consumer's read rate already shows on its own node row.
+	const consumed = {
+		...logEntity,
+		hasCursor: true,
+		partitions: [
+			{
+				partition: 0,
+				name: 'firehose.p0',
+				segments: [ { id: 0, size: 100 } ],
+				cursor_seg: 0,
+				cursor_offset: 50,
+			},
+		],
+		children: [],
+	};
+	const { container } = render(
+		<TreeEntity
+			entity={ consumed }
+			depth={ 0 }
+			{ ...props }
+			writeRates={ { 'firehose.p0': 35000 } }
+		/>
+	);
+	const rate = container.querySelector( '.log-write-rate' ).textContent;
+	expect( rate ).toMatch( /W/ );
+	expect( rate ).not.toMatch( /R/ );
+	expect( rate ).toMatch( /34/ ); // 35000 B/s ≈ 34.2 KB/s
+} );
+
 it( 'shows behind on a node row when behind > 0', () => {
 	const e = {
 		...logEntity,

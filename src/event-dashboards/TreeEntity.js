@@ -112,8 +112,9 @@ function LogRows( {
 						P{ p.partition }
 					</span>
 					<span className="log-write-rate">
-						{ entity.hasCursor ? 'R' : 'W' }{ ' ' }
-						{ formatByteRate( writeRates[ rateKey ] ) }
+						{ /* A log always shows its WRITE rate; a consumer's read
+						     rate shows on its own node row. */ }
+						W { formatByteRate( writeRates[ rateKey ] ) }
 					</span>
 				</div>
 				<div className="partition-segments">
