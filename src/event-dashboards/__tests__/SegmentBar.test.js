@@ -1,9 +1,11 @@
 /**
- * SegmentBar — the three-region segment fill: green processed (0→cursor), a
- * red/yellow backlog the consumer knows about but hasn't read (cursor→recorded
- * probe end), and a gray "beyond" region for live bytes past the recorded end
- * (recorded end→live head). A segment in a tree with no consumer of the log
- * (cursorSeg null) renders entirely gray.
+ * SegmentBar — the three-region segment fill: green processed (0→cursor), the
+ * backlog the consumer knows about but hasn't read (cursor→recorded probe end),
+ * and a gray "beyond" region for live bytes past the recorded end (recorded
+ * end→live head). The backlog is ONE color: YELLOW when the lag stays within the
+ * segment the cursor is in (green→yellow→gray), RED when it spans a segment
+ * boundary (green→red→gray, a bigger fall-behind). A segment in a tree with no
+ * consumer of the log (cursorSeg null) renders entirely gray.
  */
 
 import { render } from '@testing-library/react';
@@ -20,8 +22,8 @@ function fills( container ) {
 }
 
 describe( 'SegmentBar — three regions', () => {
-	it( 'a consumer caught up partway in its segment shows green + red, no gray', () => {
-		// maxSize 100, segment id 0 size 100, cursor at 40, recorded end at 100.
+	it( 'a lag within the current segment is green → YELLOW → gray', () => {
+		// cursor at 40, recorded end at 80, live head at 100 — all in segment 0.
 		const { container } = render(
 			<SegmentBar
 				segment={ { id: 0, size: 100 } }
@@ -29,24 +31,22 @@ describe( 'SegmentBar — three regions', () => {
 				cursorSeg={ 0 }
 				cursorOffset={ 40 }
 				endSeg={ 0 }
-				endSize={ 100 }
-				newestSegId={ 5 }
+				endSize={ 80 }
 			/>
 		);
 		const f = fills( container );
 		expect( f ).toHaveLength( 3 );
 		expect( f[ 0 ].className ).toContain( 'processed' );
 		expect( f[ 0 ].width ).toBe( '40%' );
-		// Backlog = recorded(100) − read(40) = 60; not the newest segment → red ('').
-		expect( f[ 1 ].className ).toBe( 'segment-fill-h ' );
-		expect( f[ 1 ].width ).toBe( '60%' );
-		// Beyond = size(100) − recorded(100) = 0.
+		// Backlog (40→80) is yellow — the lag never leaves this segment.
+		expect( f[ 1 ].className ).toContain( 'pending' );
+		expect( f[ 1 ].width ).toBe( '40%' );
+		// Beyond (80→100) gray.
 		expect( f[ 2 ].className ).toContain( 'beyond' );
-		expect( f[ 2 ].width ).toBe( '0%' );
+		expect( f[ 2 ].width ).toBe( '20%' );
 	} );
 
-	it( 'a stale recorded end (behind the live segment size) leaves a gray tail', () => {
-		// Segment 0 is 100 bytes live, but the consumer's recorded end is only 60.
+	it( 'a stale recorded end (within the segment) is yellow backlog + a gray tail', () => {
 		const { container } = render(
 			<SegmentBar
 				segment={ { id: 0, size: 100 } }
@@ -55,15 +55,12 @@ describe( 'SegmentBar — three regions', () => {
 				cursorOffset={ 20 }
 				endSeg={ 0 }
 				endSize={ 60 }
-				newestSegId={ 5 }
 			/>
 		);
 		const f = fills( container );
-		expect( f[ 0 ].className ).toContain( 'processed' );
 		expect( f[ 0 ].width ).toBe( '20%' );
-		// Backlog = recorded(60) − read(20) = 40.
+		expect( f[ 1 ].className ).toContain( 'pending' ); // yellow, within-segment lag
 		expect( f[ 1 ].width ).toBe( '40%' );
-		// Beyond = size(100) − recorded(60) = 40 of live data past the probe.
 		expect( f[ 2 ].className ).toContain( 'beyond' );
 		expect( f[ 2 ].width ).toBe( '40%' );
 	} );
@@ -77,34 +74,49 @@ describe( 'SegmentBar — three regions', () => {
 				cursorOffset={ null }
 				endSeg={ null }
 				endSize={ null }
-				newestSegId={ 5 }
 			/>
 		);
 		const f = fills( container );
 		expect( f[ 0 ].width ).toBe( '0%' ); // processed
 		expect( f[ 1 ].width ).toBe( '0%' ); // backlog
 		expect( f[ 2 ].className ).toContain( 'beyond' );
-		expect( f[ 2 ].width ).toBe( '80%' ); // whole segment, scaled to maxSize 100
+		expect( f[ 2 ].width ).toBe( '80%' );
 	} );
 
-	it( 'the newest backlog segment is yellow (pending), older backlog is red', () => {
-		const { container } = render(
-			<SegmentBar
-				segment={ { id: 5, size: 100 } }
-				maxSize={ 100 }
-				cursorSeg={ 5 }
-				cursorOffset={ 30 }
-				endSeg={ 5 }
-				endSize={ 100 }
-				newestSegId={ 5 }
-			/>
+	it( 'a lag that spans a segment boundary is RED (no yellow), across every segment it covers', () => {
+		// cursor in segment 0 at 40; recorded end is in segment 1 (at 50).
+		const lag = { cursorSeg: 0, cursorOffset: 40, endSeg: 1, endSize: 50 };
+		// Segment 0: green read + RED remainder (lag continues into seg 1), no gray.
+		const seg0 = fills(
+			render(
+				<SegmentBar
+					segment={ { id: 0, size: 100 } }
+					maxSize={ 100 }
+					{ ...lag }
+				/>
+			).container
 		);
-		const f = fills( container );
-		expect( f[ 1 ].className ).toContain( 'pending' );
+		expect( seg0[ 0 ].width ).toBe( '40%' ); // green
+		expect( seg0[ 1 ].className ).toBe( 'segment-fill-h ' ); // RED, not pending
+		expect( seg0[ 1 ].width ).toBe( '60%' );
+		expect( seg0[ 2 ].width ).toBe( '0%' );
+		// Segment 1 (ahead): red backlog up to the recorded end, gray beyond.
+		const seg1 = fills(
+			render(
+				<SegmentBar
+					segment={ { id: 1, size: 100 } }
+					maxSize={ 100 }
+					{ ...lag }
+				/>
+			).container
+		);
+		expect( seg1[ 1 ].className ).toBe( 'segment-fill-h ' ); // RED
+		expect( seg1[ 1 ].width ).toBe( '50%' );
+		expect( seg1[ 2 ].className ).toContain( 'beyond' );
+		expect( seg1[ 2 ].width ).toBe( '50%' );
 	} );
 
 	it( 'a fully-read older segment is all green (read past it)', () => {
-		// Segment 0, cursor is in segment 1 → segment 0 is fully processed.
 		const { container } = render(
 			<SegmentBar
 				segment={ { id: 0, size: 100 } }
@@ -113,7 +125,6 @@ describe( 'SegmentBar — three regions', () => {
 				cursorOffset={ 10 }
 				endSeg={ 1 }
 				endSize={ 50 }
-				newestSegId={ 1 }
 			/>
 		);
 		const f = fills( container );
