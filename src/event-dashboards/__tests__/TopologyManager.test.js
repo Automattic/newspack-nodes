@@ -10,15 +10,52 @@
  *    deactivate, and the active restart button calls restart.
  */
 
-import { render, fireEvent, waitFor } from '@testing-library/react';
+/* global globalThis */
+import { render, fireEvent, act } from '@testing-library/react';
 import TopologyManager from '../TopologyManager';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
 	__esModule: true,
 	useTopologyManager: jest.fn(),
 } ) );
+// The probe stream is its own suite; here the link is a no-op and the cards'
+// 24h totals come from useNodeState (mocked undefined by default).
+jest.mock( '../hooks/useTopicProbeStream', () => ( {
+	useTopicProbeStream: jest.fn(),
+} ) );
+jest.mock( '../../runtime/react', () => ( {
+	...jest.requireActual( '../../runtime/react' ),
+	useNodeState: jest.fn(),
+} ) );
+// SummaryCards has its OWN suite (the fleet-card math + the "+ New Topology"
+// link). Here it's a prop-capturing stub so the tab only proves it wired the
+// right inputs.
+jest.mock( '../SummaryCards', () => {
+	const el = require( '@wordpress/element' );
+	return ( props ) => {
+		( globalThis.__summaryCards ||= [] ).push( props );
+		return el.createElement( 'div', { className: 'nodes-cards-stub' } );
+	};
+} );
+// TopologyControls has its OWN suite (the toggle/restart/edit DOM + the
+// click→activate/deactivate/restart behavior + onError on rejection). Here it's
+// a prop-capturing stub so the tab only proves it wired the right handlers +
+// active flag + editHref per topology.
+jest.mock( '../TopologyControls', () => {
+	const el = require( '@wordpress/element' );
+	return ( props ) => {
+		( globalThis.__topologyControls ||= [] ).push( props );
+		return el.createElement( 'span', { className: 'nodes-ctl-stub' } );
+	};
+} );
 
 const { useTopologyManager } = require( '../hooks/useTopologyManager' );
+const { useNodeState } = require( '../../runtime/react' );
+
+// Find the captured TopologyControls props for a topology by name.
+function controlFor( name ) {
+	return globalThis.__topologyControls.find( ( c ) => c.name === name );
+}
 
 // A live status section for the active topology. The shape mirrors the enriched
 // worker-status MODEL slices the hook now attaches per active topology (graph +
@@ -60,6 +97,9 @@ function hookValue( overrides = {} ) {
 		topologies: [],
 		supervisor: null,
 		currentTime: 2000,
+		readRate: 0,
+		writeRate: 0,
+		logPartitions: 0,
 		activate: jest.fn( () => Promise.resolve() ),
 		deactivate: jest.fn( () => Promise.resolve() ),
 		restart: jest.fn( () => Promise.resolve() ),
@@ -68,8 +108,14 @@ function hookValue( overrides = {} ) {
 	};
 }
 
+beforeEach( () => {
+	useNodeState.mockReturnValue( undefined );
+	globalThis.__summaryCards = [];
+	globalThis.__topologyControls = [];
+} );
 afterEach( () => {
 	useTopologyManager.mockReset();
+	useNodeState.mockReset();
 } );
 
 // A supervisor descriptor for the supervisor-card tests.
@@ -248,12 +294,9 @@ test( 'only the active topology links its name to live mode; the inactive one is
 	// Inactive → plain text, no live-mode link.
 	expect( betaName.tagName ).not.toBe( 'A' );
 	expect( betaName.getAttribute( 'href' ) ).toBeNull();
-	// Both keep their Edit deep-link.
-	const editHrefs = [
-		...container.querySelectorAll( '.nodes-tm__edit' ),
-	].map( ( e ) => e.getAttribute( 'href' ) );
-	expect( editHrefs ).toHaveLength( 2 );
-	editHrefs.forEach( ( href ) => expect( href ).toContain( 'edit=1' ) );
+	// Both keep their Edit deep-link — now carried on TopologyControls (own suite).
+	expect( controlFor( 'alpha' ).editHref ).toContain( 'edit=1' );
+	expect( controlFor( 'beta' ).editHref ).toContain( 'edit=1' );
 } );
 
 test( 'floats active topologies above inactive ones, alpha within each group', () => {
@@ -411,7 +454,10 @@ test( 'folding an active topology section hides and restores its segment rows', 
 	expect( container.querySelector( '.worker-segment-h' ) ).toBeTruthy();
 } );
 
-test( 'clicking the inactive toggle calls activate(name)', () => {
+test( 'an inactive topology hands its controls active=false + the hook mutations', () => {
+	// The toggle DOM and its click→activate behavior live in TopologyControls'
+	// own suite; here the tab proves it passed the inactive flag and the hook's
+	// activate/deactivate spies down.
 	const value = hookValue( {
 		topologies: [
 			{
@@ -425,16 +471,14 @@ test( 'clicking the inactive toggle calls activate(name)', () => {
 	} );
 	useTopologyManager.mockReturnValue( value );
 
-	const { container } = render( <TopologyManager /> );
-	const toggle = container.querySelector( '.nodes-tm__toggle' );
-	expect( toggle.getAttribute( 'aria-checked' ) ).toBe( 'false' );
-	fireEvent.click( toggle );
-
-	expect( value.activate ).toHaveBeenCalledWith( 'beta' );
-	expect( value.deactivate ).not.toHaveBeenCalled();
+	render( <TopologyManager /> );
+	const ctl = controlFor( 'beta' );
+	expect( ctl.active ).toBe( false );
+	expect( ctl.onActivate ).toBe( value.activate );
+	expect( ctl.onDeactivate ).toBe( value.deactivate );
 } );
 
-test( 'clicking the active toggle calls deactivate(name)', () => {
+test( 'an active topology hands its controls active=true + the hook mutations', () => {
 	const value = hookValue( {
 		topologies: [
 			{
@@ -448,13 +492,11 @@ test( 'clicking the active toggle calls deactivate(name)', () => {
 	} );
 	useTopologyManager.mockReturnValue( value );
 
-	const { container } = render( <TopologyManager /> );
-	const toggle = container.querySelector( '.nodes-tm__toggle.is-on' );
-	expect( toggle.getAttribute( 'aria-checked' ) ).toBe( 'true' );
-	fireEvent.click( toggle );
-
-	expect( value.deactivate ).toHaveBeenCalledWith( 'alpha' );
-	expect( value.activate ).not.toHaveBeenCalled();
+	render( <TopologyManager /> );
+	const ctl = controlFor( 'alpha' );
+	expect( ctl.active ).toBe( true );
+	expect( ctl.onDeactivate ).toBe( value.deactivate );
+	expect( ctl.onRestart ).toBe( value.restart );
 } );
 
 test( 'an active topology name links to the console for that topology', () => {
@@ -564,7 +606,9 @@ test( 'the manager heading shows ALL DEAD when every partition is dead', () => {
 	expect( heading.textContent ).toMatch( /ALL DEAD/ );
 } );
 
-test( 'clicking the restart button on an active topology calls restart(name)', () => {
+test( "an active topology's controls carry the hook restart spy", () => {
+	// The restart button (active-only) and its click→restart behavior live in
+	// TopologyControls' own suite; here the tab proves it threaded the spy.
 	const value = hookValue( {
 		topologies: [
 			{
@@ -578,17 +622,15 @@ test( 'clicking the restart button on an active topology calls restart(name)', (
 	} );
 	useTopologyManager.mockReturnValue( value );
 
-	const { container } = render( <TopologyManager /> );
-	const restartBtn = container.querySelector( '.nodes-tm__restart' );
-	expect( restartBtn ).toBeTruthy();
-	fireEvent.click( restartBtn );
-
-	expect( value.restart ).toHaveBeenCalledWith( 'alpha' );
+	render( <TopologyManager /> );
+	expect( controlFor( 'alpha' ).onRestart ).toBe( value.restart );
 } );
 
-test( 'a rejected mutation does not crash the render', async () => {
+test( 'a rejected mutation reported via onError raises an alert without crashing', () => {
+	// TopologyControls owns the click→mutation→catch→onError path (own suite);
+	// the tab owns onError→AlertModal. Drive the tab's half by invoking the
+	// captured onError directly.
 	const value = hookValue( {
-		activate: jest.fn( () => Promise.reject( new Error( 'boom' ) ) ),
 		topologies: [
 			{
 				name: 'beta',
@@ -602,15 +644,11 @@ test( 'a rejected mutation does not crash the render', async () => {
 	useTopologyManager.mockReturnValue( value );
 
 	const { container } = render( <TopologyManager /> );
-	const toggle = container.querySelector( '.nodes-tm__toggle' );
-	expect( () => fireEvent.click( toggle ) ).not.toThrow();
-	expect( value.activate ).toHaveBeenCalledWith( 'beta' );
-	// The rejection resolves asynchronously into an alert; await it so the
-	// catch→setAlert update flushes inside act() and we confirm the render
-	// survived rather than crashed.
-	await waitFor( () =>
-		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
-	);
+	const { onError } = controlFor( 'beta' );
+	expect( () =>
+		act( () => onError( { name: 'beta', message: 'boom' } ) )
+	).not.toThrow();
+	expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy();
 } );
 
 test( 'shows the rolled-up health indicator on the topology heading', () => {
@@ -696,7 +734,9 @@ test( 'the partition pills sit left of the source badge so they scan against the
 	).toBeTruthy();
 } );
 
-test( 'a rejected activate surfaces the reason in an alert modal', async () => {
+test( 'the alert modal names the topology and shows the rejection reason via onError', () => {
+	// TopologyControls catches the rejection and calls onError({name,message});
+	// the tab renders that into the modal. Drive the tab's half directly.
 	const value = hookValue( {
 		topologies: [
 			{
@@ -707,20 +747,18 @@ test( 'a rejected activate surfaces the reason in an alert modal', async () => {
 				status: null,
 			},
 		],
-		activate: jest.fn( () =>
-			Promise.reject(
-				new Error( 'conflict: beta and alpha both write requests.p0' )
-			)
-		),
 	} );
 	useTopologyManager.mockReturnValue( value );
 
 	const { container, getByText } = render( <TopologyManager /> );
-	fireEvent.click( container.querySelector( '.nodes-tm__toggle' ) );
-
-	await waitFor( () =>
-		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
+	act( () =>
+		controlFor( 'beta' ).onError( {
+			name: 'beta',
+			message: 'conflict: beta and alpha both write requests.p0',
+		} )
 	);
+
+	expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy();
 	expect( getByText( /both write requests\.p0/ ) ).toBeTruthy();
 	// The topology name is named in the modal title so an operator knows which failed.
 	expect(
@@ -728,7 +766,7 @@ test( 'a rejected activate surfaces the reason in an alert modal', async () => {
 	).toMatch( /beta/ );
 } );
 
-test( 'the alert modal closes via its OK button', async () => {
+test( 'the alert modal closes via its OK button', () => {
 	const value = hookValue( {
 		topologies: [
 			{
@@ -739,20 +777,19 @@ test( 'the alert modal closes via its OK button', async () => {
 				status: null,
 			},
 		],
-		activate: jest.fn( () => Promise.reject( new Error( 'boom' ) ) ),
 	} );
 	useTopologyManager.mockReturnValue( value );
 
 	const { container, getByRole } = render( <TopologyManager /> );
-	fireEvent.click( container.querySelector( '.nodes-tm__toggle' ) );
-	await waitFor( () =>
-		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
+	act( () =>
+		controlFor( 'beta' ).onError( { name: 'beta', message: 'boom' } )
 	);
+	expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy();
 	fireEvent.click( getByRole( 'button', { name: 'OK' } ) );
 	expect( container.querySelector( '.nodes-tm__alert' ) ).toBeFalsy();
 } );
 
-test( 'a rejected restart/deactivate is swallowed from the render but surfaced in the modal', async () => {
+test( 'a rejected restart/deactivate is surfaced in the modal via onError', () => {
 	const value = hookValue( {
 		topologies: [
 			{
@@ -763,42 +800,42 @@ test( 'a rejected restart/deactivate is swallowed from the render but surfaced i
 				status: activeStatus(),
 			},
 		],
-		deactivate: jest.fn( () =>
-			Promise.reject( new Error( 'drain failed: workers busy' ) )
-		),
 	} );
 	useTopologyManager.mockReturnValue( value );
 
 	const { container, getByText } = render( <TopologyManager /> );
-	fireEvent.click( container.querySelector( '.nodes-tm__toggle.is-on' ) );
-
-	await waitFor( () =>
-		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
+	act( () =>
+		controlFor( 'alpha' ).onError( {
+			name: 'alpha',
+			message: 'drain failed: workers busy',
+		} )
 	);
+
+	expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy();
 	expect( getByText( /drain failed: workers busy/ ) ).toBeTruthy();
 } );
 
-it( 'renders a per-topology Edit link that deep-links to the console in edit mode', () => {
+it( 'hands TopologyControls a per-topology Edit deep-link in edit mode', () => {
+	// The Edit <a> itself lives in TopologyControls (own suite); the tab proves
+	// it passed the correct console edit deep-link.
 	useTopologyManager.mockReturnValue(
 		hookValue( {
 			topologies: [ { name: 'alpha', source: 'user', active: false } ],
 		} )
 	);
-	const { container } = render( <TopologyManager /> );
-	const edit = container.querySelector( '.nodes-tm__edit' );
-	expect( edit ).not.toBeNull();
-	const href = edit.getAttribute( 'href' );
+	render( <TopologyManager /> );
+	const href = controlFor( 'alpha' ).editHref;
 	expect( href ).toContain( 'tab=console' );
 	expect( href ).toContain( 'topology=alpha' );
 	expect( href ).toContain( 'edit=1' );
 } );
 
-it( 'renders a New Topology link that deep-links to a blank console editor', () => {
+it( 'hands SummaryCards a New Topology deep-link to a blank console editor', () => {
+	// The "+ New Topology" link itself lives in SummaryCards (own suite); the
+	// tab proves it passed the new-editor deep-link.
 	useTopologyManager.mockReturnValue( hookValue( { topologies: [] } ) );
-	const { container } = render( <TopologyManager /> );
-	const create = container.querySelector( '.nodes-tm__new' );
-	expect( create ).not.toBeNull();
-	const href = create.getAttribute( 'href' );
+	render( <TopologyManager /> );
+	const href = globalThis.__summaryCards[ 0 ].newTopologyHref;
 	expect( href ).toContain( 'tab=console' );
 	// Distinct `new=1` signal (not edit=1) so the console's topology→URL sync
 	// can't make it look like editing the default topology.

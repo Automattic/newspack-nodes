@@ -19,86 +19,6 @@ $health-stalled: #f85149;
 	color: base.$dark-text;
 	font-family: base.$system-font;
 
-	// ── Fleet strip ───────────────────────────────────────────────────────
-	&__fleet {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		margin-bottom: 16px;
-	}
-
-	&__count {
-		font-size: 12px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-		color: base.$dark-text-muted;
-	}
-
-	&__partsup {
-		font-size: 12px;
-		color: base.$dark-text-dim;
-	}
-
-	&__fleet-health {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		font-size: 11px;
-		font-weight: 700;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-		padding: 4px 10px;
-		border-radius: 999px;
-		border: 1px solid;
-
-		&::before {
-			content: "";
-			width: 8px;
-			height: 8px;
-			border-radius: 50%;
-			background: currentcolor;
-			flex: 0 0 auto;
-		}
-
-		&--ok {
-			color: $health-ok;
-			border-color: rgba($health-ok, 0.4);
-			background: rgba($health-ok, 0.1);
-		}
-
-		&--behind {
-			color: $health-behind;
-			border-color: rgba($health-behind, 0.4);
-			background: rgba($health-behind, 0.1);
-		}
-
-		&--stalled {
-			color: $health-stalled;
-			border-color: rgba($health-stalled, 0.4);
-			background: rgba($health-stalled, 0.12);
-		}
-	}
-
-	&__new {
-		margin-left: auto;
-		font-size: 13px;
-		line-height: 1;
-		padding: 7px 14px;
-		border-radius: 8px;
-		background: base.$dark-bg-tertiary;
-		color: base.$dark-text;
-		border: 1px solid base.$dark-border;
-		text-decoration: none;
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: base.$dark-bg-hover;
-			color: base.$dark-text;
-		}
-	}
-
 	// ── Active rows ───────────────────────────────────────────────────────
 	&__rows {
 		display: flex;
@@ -146,6 +66,8 @@ $health-stalled: #f85149;
 
 	&__health {
 		flex: 0 0 auto;
+		// Floor so "ok"/"behind"/"stalled" don't shift the columns after it.
+		min-width: 68px;
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
@@ -182,6 +104,10 @@ $health-stalled: #f85149;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 6px;
+		// Reserve room for two partition pills + the "N/N up" tally so a
+		// single-partition row's uptime/lag align with a 2-partition row's
+		// (extra partitions wrap rather than widen the column).
+		min-width: 210px;
 	}
 
 	&__part {
@@ -230,6 +156,8 @@ $health-stalled: #f85149;
 	}
 
 	&__uptime {
+		flex: 0 0 auto;
+		min-width: 44px;
 		font-size: 12px;
 		color: base.$dark-text-dim;
 		font-variant-numeric: tabular-nums;
@@ -252,17 +180,6 @@ $health-stalled: #f85149;
 	&__lagval {
 		min-width: 64px;
 		text-align: right;
-	}
-
-	&__edit {
-		flex: 0 0 auto;
-		font-size: 12px;
-		color: base.$dark-text;
-		text-decoration: none;
-
-		&:hover {
-			text-decoration: underline;
-		}
 	}
 
 	// ── Stopped group ─────────────────────────────────────────────────────
@@ -301,11 +218,6 @@ $health-stalled: #f85149;
 			font-size: 12px;
 			font-weight: 500;
 			color: base.$dark-text-muted;
-		}
-
-		.nodes-overview__edit {
-			font-size: 11px;
-			color: base.$dark-text-dim;
 		}
 	}
 }

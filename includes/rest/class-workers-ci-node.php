@@ -154,11 +154,17 @@ class Workers_CI_Node extends Service_CI_Node {
 		$segment_size_overrides = self::collect_segment_size_overrides();
 		$logs                   = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides );
 
+		// On-disk log partitions: the concrete `.pN` dirs under logs/, globbed
+		// fresh (layout-agnostic, like Log_Cleaner::sweep) so the summary card
+		// counts every partition that exists, not just the active topologies'.
+		$log_partitions = \count( @\glob( "{$log_base}/*", \GLOB_ONLYDIR ) ?: [] );
+
 		return [
 			'workers'        => $workers,
 			'consumers'      => $consumers,
 			'supervisor'     => $supervisor,
 			'logs'           => $logs,
+			'log_partitions' => $log_partitions,
 			'num_partitions' => $num_partitions,
 			'num_segments'   => $num_segments,
 			'segment_size'   => $segment_size,

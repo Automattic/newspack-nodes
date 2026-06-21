@@ -42,9 +42,35 @@ jest.mock( '../TopicsChart', () => {
 		},
 	};
 } );
+// SummaryCards has its OWN suite (the fleet-card math + the "+ New Topology"
+// link live there). Here it's a prop-capturing stub: the tab is only on the hook
+// for handing it the right inputs, so assert against the captured props.
+jest.mock( '../SummaryCards', () => {
+	const el = require( '@wordpress/element' );
+	return ( props ) => {
+		( globalThis.__summaryCards ||= [] ).push( props );
+		return el.createElement( 'div', { className: 'nodes-cards-stub' } );
+	};
+} );
+// TopologyControls has its OWN suite (the toggle/restart/edit DOM + the
+// click→activate/deactivate/restart behavior + onError on rejection live there).
+// Here it's a prop-capturing stub so the tab only proves it wired the right
+// handlers + active flag + editHref per topology.
+jest.mock( '../TopologyControls', () => {
+	const el = require( '@wordpress/element' );
+	return ( props ) => {
+		( globalThis.__topologyControls ||= [] ).push( props );
+		return el.createElement( 'span', { className: 'nodes-ctl-stub' } );
+	};
+} );
 
 const { useTopologyManager } = require( '../hooks/useTopologyManager' );
 const { useNodeState } = require( '../../runtime/react' );
+
+// Find the captured TopologyControls props for a topology by name.
+function controlFor( name ) {
+	return globalThis.__topologyControls.find( ( c ) => c.name === name );
+}
 
 // A worker descriptor (server `dump_graph` shape, passed through verbatim).
 function worker( overrides = {} ) {
@@ -74,6 +100,9 @@ function hookValue( overrides = {} ) {
 		topologies: [],
 		supervisor: null,
 		currentTime: 5000,
+		readRate: 0,
+		writeRate: 0,
+		logPartitions: 0,
 		activate: jest.fn(),
 		deactivate: jest.fn(),
 		restart: jest.fn(),
@@ -85,6 +114,8 @@ function hookValue( overrides = {} ) {
 beforeEach( () => {
 	useNodeState.mockReturnValue( undefined );
 	globalThis.__topicsPanels = [];
+	globalThis.__summaryCards = [];
+	globalThis.__topologyControls = [];
 } );
 afterEach( () => {
 	useTopologyManager.mockReset();
@@ -92,44 +123,33 @@ afterEach( () => {
 } );
 
 describe( 'Overview fleet board', () => {
-	it( 'fleet strip summarizes topology + active counts and partitions-up', () => {
+	it( 'feeds SummaryCards the fleet topologies and the hook R/W rates + partition count', () => {
+		// The fleet counts/partitions-up/health now live in SummaryCards (own
+		// suite); the tab's job is to hand it the right inputs.
+		const topologies = [
+			active( 'alpha', 'ok', [
+				worker( { partition: 0 } ),
+				worker( { partition: 1 } ),
+			] ),
+			active( 'beta', 'stalled', [
+				worker( { partition: 0, status: 'dead' } ),
+			] ),
+			{ name: 'gamma', source: 'stock', active: false },
+		];
 		useTopologyManager.mockReturnValue(
 			hookValue( {
-				topologies: [
-					active( 'alpha', 'ok', [
-						worker( { partition: 0 } ),
-						worker( { partition: 1 } ),
-					] ),
-					active( 'beta', 'stalled', [
-						worker( { partition: 0, status: 'dead' } ),
-					] ),
-					{ name: 'gamma', source: 'stock', active: false },
-				],
+				topologies,
+				readRate: 4096,
+				writeRate: 8192,
+				logPartitions: 3,
 			} )
 		);
-		const { container } = render( <Overview /> );
-		const fleet = container.querySelector( '.nodes-overview__fleet' );
-		expect( fleet.textContent ).toMatch( /3 topologies/ );
-		expect( fleet.textContent ).toMatch( /2 active/ );
-		// 2 active partitions running (alpha p0+p1), 1 dead (beta) → 2/3 up.
-		expect( fleet.textContent ).toMatch( /2\s*\/\s*3/ );
-	} );
-
-	it( 'shows a worst-health pill: stalled outranks behind outranks ok', () => {
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [
-					active( 'a', 'behind', [ worker( { behind: 4096 } ) ] ),
-					active( 'b', 'stalled', [ worker( { status: 'dead' } ) ] ),
-				],
-			} )
-		);
-		const { container } = render( <Overview /> );
-		const pill = container.querySelector( '.nodes-overview__fleet-health' );
-		expect( pill.className ).toContain(
-			'nodes-overview__fleet-health--stalled'
-		);
-		expect( pill.textContent ).toMatch( /1 stalled/ );
+		render( <Overview /> );
+		const cards = globalThis.__summaryCards[ 0 ];
+		expect( cards.topologies ).toBe( topologies );
+		expect( cards.readRate ).toBe( 4096 );
+		expect( cards.writeRate ).toBe( 8192 );
+		expect( cards.logPartitions ).toBe( 3 );
 	} );
 
 	it( 'an active row shows partition pills, lag, and a live-mode name link', () => {
@@ -155,10 +175,11 @@ describe( 'Overview fleet board', () => {
 		expect(
 			row.querySelector( '.nodes-overview__lag' ).textContent
 		).toMatch( /lag/i );
-		// Edit deep-link survives.
-		expect(
-			row.querySelector( '.nodes-overview__edit' ).getAttribute( 'href' )
-		).toContain( 'edit=1' );
+		// The active-topology controls are wired through TopologyControls (own
+		// suite): active flag set, hook handlers passed, Edit deep-link survives.
+		const ctl = controlFor( 'alpha' );
+		expect( ctl.active ).toBe( true );
+		expect( ctl.editHref ).toContain( 'edit=1' );
 	} );
 
 	it( 'sorts problem topologies above healthy ones', () => {
@@ -198,11 +219,10 @@ describe( 'Overview fleet board', () => {
 		const name = stopped.querySelector( '.nodes-overview__name' );
 		expect( name.textContent ).toBe( 'beta' );
 		expect( name.tagName ).not.toBe( 'A' );
-		expect(
-			stopped
-				.querySelector( '.nodes-overview__edit' )
-				.getAttribute( 'href' )
-		).toContain( 'edit=1' );
+		// Edit deep-link now rides on TopologyControls (active=false), own suite.
+		const ctl = controlFor( 'beta' );
+		expect( ctl.active ).toBe( false );
+		expect( ctl.editHref ).toContain( 'edit=1' );
 	} );
 
 	it( 'renders the three Topics panels (message rate, byte rate, backlog)', () => {
@@ -255,13 +275,13 @@ describe( 'Overview fleet board', () => {
 		).toEqual( [ 0, 0 ] );
 	} );
 
-	it( 'offers a New Topology deep-link', () => {
+	it( 'offers a New Topology deep-link via SummaryCards', () => {
 		useTopologyManager.mockReturnValue( hookValue() );
-		const { container } = render( <Overview /> );
-		expect(
-			container
-				.querySelector( '.nodes-overview__new' )
-				.getAttribute( 'href' )
-		).toContain( 'new=1' );
+		render( <Overview /> );
+		// The "+ New Topology" link itself is SummaryCards' (own suite); the tab
+		// only proves it passed the new-editor deep-link down.
+		expect( globalThis.__summaryCards[ 0 ].newTopologyHref ).toContain(
+			'new=1'
+		);
 	} );
 } );

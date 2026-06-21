@@ -626,6 +626,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 				'graph',
 				'heartbeatIntervalS',
 				'loading',
+				'logPartitions',
 				'logs',
 				'prevSegments',
 				'removingSegments',
@@ -704,6 +705,20 @@ describe( 'workerstatus:transform — model envelope', () => {
 		expect( sink.got[ 0 ][ VALUE ].model.currentTime ).toBe( 4242 );
 		expect( sink.got[ 1 ][ VALUE ].model.segmentSize ).toBe( 1048576 );
 		expect( sink.got[ 1 ][ VALUE ].model.currentTime ).toBe( 4242 );
+	} );
+
+	test( 'threads log_partitions into the model and retains it on a later omitting poll', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		const s = snap();
+		s.log_partitions = 11;
+		withClock( () => {
+			t.fill( metadataMsg( s ) );
+			t.fill( metadataMsg( snap() ) );
+		} );
+		expect( sink.got[ 0 ][ VALUE ].model.logPartitions ).toBe( 11 );
+		expect( sink.got[ 1 ][ VALUE ].model.logPartitions ).toBe( 11 );
 	} );
 
 	test( 'first snapshot reports loading=false and a null error', () => {

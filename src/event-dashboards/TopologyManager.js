@@ -17,11 +17,15 @@ import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import TopologySection from './TopologySection';
 import AlertModal from './AlertModal';
+import SummaryCards from './SummaryCards';
+import TopologyControls from './TopologyControls';
 import { SupervisorStatus } from './SupervisorStatus';
 import { buildTopologySections } from './topologyGraph';
 import { partitionSummaries } from './partitionSummaries';
 import { formatAge } from './formatters';
 import { useTopologyManager } from './hooks/useTopologyManager';
+import { useTopicProbeStream } from './hooks/useTopicProbeStream';
+import { useNodeState } from '../runtime/react';
 import './TopologyManager.scss';
 
 // Opens the DevTools hub's Console tab (the hub reads `?tab=` to pick it). A
@@ -102,13 +106,6 @@ const TopologyRow = memo( function TopologyRow( {
 	onToggleFold,
 } ) {
 	const { name, source, active, health = 'ok' } = topology;
-	// A rejected mutation must never crash the render — but instead of swallowing
-	// it, surface the reason (e.g. an activate that write-conflicts) via onError
-	// so the parent can show it in a modal.
-	const fire = ( fn ) => () =>
-		Promise.resolve( fn( name ) ).catch( ( err ) =>
-			onError( { name, message: err?.message || String( err ) } )
-		);
 	const section = active ? sectionFor( name, topology.status ) : null;
 	// Per-partition process summary (uptime + heartbeat + restart_pending) and
 	// the rolled-up ALL RUN / ALL DEAD badge — moved up from the old section
@@ -191,38 +188,15 @@ const TopologyRow = memo( function TopologyRow( {
 						{ HEALTH_LABELS[ health ] ?? health }
 					</span>
 				) }
-				<button
-					type="button"
-					role="switch"
-					aria-checked={ active }
-					className={ `nodes-tm__toggle${ active ? ' is-on' : '' }` }
-					title={
-						active
-							? __( 'Deactivate', 'newspack-nodes' )
-							: __( 'Activate', 'newspack-nodes' )
-					}
-					onClick={ fire( active ? onDeactivate : onActivate ) }
+				<TopologyControls
+					name={ name }
+					active={ active }
+					onActivate={ onActivate }
+					onDeactivate={ onDeactivate }
+					onRestart={ onRestart }
+					onError={ onError }
+					editHref={ consoleHref( name, { edit: true } ) }
 				/>
-				{ active && (
-					<button
-						type="button"
-						className="nodes-tm__restart"
-						title={ __( 'Restart fleet', 'newspack-nodes' ) }
-						onClick={ fire( onRestart ) }
-					>
-						↻
-					</button>
-				) }
-				<a
-					className="nodes-tm__edit"
-					href={ consoleHref( name, { edit: true } ) }
-					title={ __(
-						'Edit this topology in the console',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Edit', 'newspack-nodes' ) }
-				</a>
 			</div>
 			<div className="nodes-tm__body">
 				{ section ? (
@@ -258,11 +232,17 @@ export default function TopologyManager() {
 		topologies,
 		supervisor,
 		currentTime,
+		readRate,
+		writeRate,
+		logPartitions,
 		activate,
 		deactivate,
 		restart,
 		connected,
 	} = useTopologyManager();
+	// Same 24h probe replay the Overview mounts — feeds the cards' 24h totals.
+	useTopicProbeStream( { mode: 'history' } );
+	const probeView = useNodeState( 'topicprobe:view', 'view' );
 	const [ collapsed, setCollapsed ] = useState( () => new Set() );
 	// A rejected mutation ({ name, message }) raises this alert; null = hidden.
 	const [ alert, setAlert ] = useState( null );
@@ -296,18 +276,14 @@ export default function TopologyManager() {
 				connectionError={ ! connected }
 				message={ __( 'Disconnected — retrying…', 'newspack-nodes' ) }
 			/>
-			<div className="nodes-tm__toolbar">
-				<a
-					className="nodes-tm__new"
-					href={ consoleHref( '', { isNew: true } ) }
-					title={ __(
-						'Create a new topology in the console',
-						'newspack-nodes'
-					) }
-				>
-					{ __( '+ New Topology', 'newspack-nodes' ) }
-				</a>
-			</div>
+			<SummaryCards
+				topologies={ topologies }
+				readRate={ readRate }
+				writeRate={ writeRate }
+				logPartitions={ logPartitions }
+				consumers={ probeView?.consumers }
+				newTopologyHref={ consoleHref( '', { isNew: true } ) }
+			/>
 			{ supervisor && (
 				<SupervisorStatus
 					supervisor={ supervisor }

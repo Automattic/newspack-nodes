@@ -135,40 +135,6 @@
 		}
 	}
 
-	&__toggle {
-		flex: 0 0 auto;
-		width: 34px;
-		height: 19px;
-		border-radius: 10px;
-		position: relative;
-		display: inline-block;
-		border: 0;
-		padding: 0;
-		cursor: pointer;
-		background: base.$dark-bg-active;
-		transition: background 0.15s;
-
-		&::after {
-			content: "";
-			position: absolute;
-			top: 2px;
-			left: 2px;
-			width: 15px;
-			height: 15px;
-			border-radius: 50%;
-			background: #fff;
-			transition: left 0.15s;
-		}
-
-		&.is-on {
-			background: #3fb950;
-
-			&::after {
-				left: 17px;
-			}
-		}
-	}
-
 	&__restart {
 		flex: 0 0 auto;
 		font-size: 15px;
@@ -183,52 +149,6 @@
 
 		&:hover {
 			background: base.$dark-bg-hover;
-		}
-	}
-
-	// Per-topology "Edit" — a link styled like the restart control, deep-links
-	// to the console editor for this topology.
-	&__edit {
-		flex: 0 0 auto;
-		font-size: 12px;
-		line-height: 1;
-		padding: 5px 10px;
-		border-radius: 6px;
-		background: base.$dark-bg-tertiary;
-		color: base.$dark-text;
-		border: 1px solid base.$dark-border;
-		text-decoration: none;
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: base.$dark-bg-hover;
-			color: base.$dark-text;
-		}
-	}
-
-	// Toolbar above the topology list, holding the "+ New Topology" link.
-	&__toolbar {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: 14px;
-	}
-
-	&__new {
-		font-size: 13px;
-		line-height: 1;
-		padding: 7px 14px;
-		border-radius: 8px;
-		background: base.$dark-bg-tertiary;
-		color: base.$dark-text;
-		border: 1px solid base.$dark-border;
-		text-decoration: none;
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: base.$dark-bg-hover;
-			color: base.$dark-text;
 		}
 	}
 
