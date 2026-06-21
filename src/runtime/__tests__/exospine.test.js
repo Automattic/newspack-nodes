@@ -294,3 +294,23 @@ describe( 'mountExospine — Core.reinit stash', () => {
 		expect( Core.reinitNames ).toBeNull();
 	} );
 } );
+
+test( 'a second build-mount reuses the backbone without tearing it down (no orphaned interpreter)', () => {
+	const a = mountExospine( () => {} ); // owner — creates the backbone
+	const b = mountExospine( () => {} ); // reuser — must NOT rebuild it out from under itself
+
+	// The reuser sees the SAME live backbone; its mount must not have triggered a
+	// generation bump that swapped the shared backbone (orphaning nodes wired to it).
+	expect( b.interpreter ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+	expect( a.interpreter ).toBe( b.interpreter );
+	expect( b.interpreter.sink ).toBe( Core.node( names.ROUTER ) );
+
+	// Tearing down the reuser leaves the backbone intact for the owner.
+	b.teardown();
+	expect( Core.node( names.COMMAND_INTERPRETER ) ).toBe( a.interpreter );
+	expect( a.interpreter.sink ).toBe( Core.node( names.ROUTER ) );
+
+	// The owner still tears the backbone down.
+	a.teardown();
+	expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
+} );
