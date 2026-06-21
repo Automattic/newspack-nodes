@@ -471,6 +471,45 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 		expect( p3.writeRates[ src ] ).toBe( 20 );
 	} );
 
+	it( 'tracks the consumer END for write rate even when the live head-segment size lags it (no cap)', () => {
+		// The live head-segment size is sampled separately from the consumer end and
+		// can be STALE/smaller; the write position must follow the fresh end (as the
+		// READ rate follows the fresh cursor offset), not the capped live size — that
+		// cap is why firehose.p1 stuck at 0 B/s while clearly filling.
+		const src = 'firehose.p0';
+		const make = ( endSize, ts ) => ( {
+			...FANOUT_DATA,
+			consumers: [
+				{
+					...FANOUT_DATA.consumers[ 0 ],
+					end_seg: 0,
+					end_size: endSize,
+				},
+			],
+			logs: [
+				{
+					name: src,
+					partitions: [
+						{
+							partition: 0,
+							segments: [ { id: 0, size: 50 } ], // lags the end below
+							total_size: 50,
+						},
+					],
+				},
+			],
+			timestamp: ts,
+		} );
+		const p1 = reconstructWorkers( make( 100, 1000 ), EMPTY_PRIOR );
+		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
+		const p2 = reconstructWorkers( make( 300, 1010 ), {
+			read: p1.nextRead,
+			write: p1.nextWrite,
+		} );
+		// (300 − 100)/10 = 20 — NOT 0 from the capped live size of 50.
+		expect( p2.writeRates[ src ] ).toBe( 20 );
+	} );
+
 	it( 'collapses a partition read by MULTIPLE consumers to one write rate (max end), stable across flipped row order', () => {
 		// Two separate consumers (distinct readers) of the SAME partition, with
 		// differing end snapshots; the head = max(end) advances 1000→2000→3000 over

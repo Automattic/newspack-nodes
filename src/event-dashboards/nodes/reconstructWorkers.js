@@ -129,6 +129,18 @@ const cursorBytes = ( segments, cursorSeg, cursorOff ) =>
 		0
 	) + cursorOff;
 
+// Absolute byte position of a partition's HEAD as the consumer knows it: full
+// segments below `endSeg` plus the fresh `endSize` offset. Mirrors `cursorBytes`
+// and, crucially, does NOT cap `endSize` at the live head-segment's size the way
+// `trimToSnapshot` does — that segment size is sampled separately and often lags
+// `endSize`, which stuck the write rate at 0 while the read rate (fresh cursor
+// offset) advanced. Used only for the write RATE; the segment BAR still trims.
+const endPosition = ( segments, endSeg, endSize ) =>
+	segments.reduce(
+		( acc, seg ) => ( seg.id < endSeg ? acc + seg.size : acc ),
+		0
+	) + endSize;
+
 /**
  * Probe-cadence rate step. The cursor/end byte positions come from the 15s
  * TopicProbe snapshot but dump_graph polls ~1s, so deltaing against the poll
@@ -244,7 +256,7 @@ export function reconstructWorkers( data, prior ) {
 	consumers.forEach( ( row ) => {
 		const live =
 			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
-		const { total } = trimToSnapshot( live, row.end_seg, row.end_size );
+		const total = endPosition( live, row.end_seg, row.end_size );
 		const prevMax = maxEndBySource.get( row.source );
 		if ( prevMax === undefined || total > prevMax ) {
 			maxEndBySource.set( row.source, total );
