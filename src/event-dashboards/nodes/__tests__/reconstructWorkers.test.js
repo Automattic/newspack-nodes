@@ -58,6 +58,7 @@ const FANOUT_DATA = {
 			stale: false,
 			restart_pending: false,
 			heartbeat_age: 2,
+			started_at: 1700000000,
 		},
 	],
 	consumers: [
@@ -93,11 +94,13 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 		const { workers } = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
 		const handlers = workers.map( ( w ) => w.handler ).sort();
 		expect( handlers ).toEqual( [ 'job-router', 'request-builder' ] );
-		// Both rows share the reader's snapshot state.
+		// Both rows share the reader's snapshot state + the worker's liveness
+		// (including started_at, which drives the per-partition uptime).
 		workers.forEach( ( w ) => {
 			expect( w.behind ).toBe( 150 );
 			expect( w.cursor_offset ).toBe( 50 );
 			expect( w.status ).toBe( 'running' );
+			expect( w.started_at ).toBe( 1700000000 );
 		} );
 	} );
 
@@ -216,5 +219,6 @@ describe( 'reconstructWorkers — liveness backfill', () => {
 		expect( workers ).toHaveLength( 1 );
 		expect( workers[ 0 ].type ).toBe( 'combined' );
 		expect( workers[ 0 ].live ).toBe( true );
+		expect( workers[ 0 ].started_at ).toBe( 1700000000 );
 	} );
 } );
