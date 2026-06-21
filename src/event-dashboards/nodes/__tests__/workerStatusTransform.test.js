@@ -658,12 +658,17 @@ describe( 'workerstatus:transform — model envelope', () => {
 		expect( model.graph ).toEqual( {} );
 	} );
 
-	test( 'forwards supervisor / logs straight through', () => {
+	test( 'forwards supervisor straight through; forwards logs when the reader is at the live end', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		const s = snap();
 		s.supervisor = { type: 'supervisor', status: 'running' };
+		// Reader caught up to the live end (end_size matches the 100B segment) →
+		// the snapshot trim is a no-op, so logs pass through unchanged.
+		s.consumers = [
+			consumerRow( 'firehose.p0', 'firehose.p0', 0, { end_size: 100 } ),
+		];
 		withClock( () => t.fill( metadataMsg( s ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
 		expect( model.supervisor ).toEqual( s.supervisor );

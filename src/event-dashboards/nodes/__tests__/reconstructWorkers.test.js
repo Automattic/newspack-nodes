@@ -155,7 +155,7 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 				},
 			],
 		};
-		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
+		const { workers, logs } = reconstructWorkers( data, EMPTY_PRIOR );
 		const segs = workers[ 0 ].inputs_status[ 0 ].segments;
 		// id 2 dropped (past end_seg=1); id 1 capped at end_size=30.
 		expect( segs.map( ( s ) => [ s.id, s.size ] ) ).toEqual( [
@@ -163,6 +163,62 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 			[ 1, 30 ],
 		] );
 		expect( workers[ 0 ].inputs_status[ 0 ].total_size ).toBe( 130 );
+
+		// The CANONICAL logs[] — what the segment bar actually renders via
+		// collectLogPartitions — must be trimmed too, not just inputs_status.
+		const logSegs = logs[ 0 ].partitions[ 0 ].segments;
+		expect( logSegs.map( ( s ) => [ s.id, s.size ] ) ).toEqual( [
+			[ 0, 100 ],
+			[ 1, 30 ],
+		] );
+		expect( logs[ 0 ].partitions[ 0 ].total_size ).toBe( 130 );
+	} );
+
+	it( 'the segment bar (buildTopologySections log entity) shows the TRIMMED segments', () => {
+		const data = {
+			...FANOUT_DATA,
+			consumers: [
+				{
+					reader: 'firehose.p0',
+					source: 'firehose.p0',
+					partition: 0,
+					cursor_seg: 0,
+					cursor_off: 50,
+					end_seg: 1,
+					end_size: 30,
+					distance: 0,
+					msgs: 1,
+				},
+			],
+			logs: [
+				{
+					name: 'firehose.p0',
+					partitions: [
+						{
+							partition: 0,
+							segments: [
+								{ id: 0, size: 100 },
+								{ id: 1, size: 250 },
+								{ id: 2, size: 999 },
+							],
+							total_size: 1349,
+						},
+					],
+				},
+			],
+		};
+		const { workers, logs } = reconstructWorkers( data, EMPTY_PRIOR );
+		const sections = buildTopologySections( FANOUT_GRAPH, workers, logs );
+		const firehose = flatten( sections[ 0 ].tree ).find(
+			( e ) => 'log' === e.kind && 'firehose' === e.name
+		);
+		// id 2 (live, past the probe end) must NOT appear in the rendered bar.
+		expect(
+			firehose.partitions[ 0 ].segments.map( ( s ) => s.id )
+		).toEqual( [ 0, 1 ] );
+		expect(
+			firehose.partitions[ 0 ].segments.find( ( s ) => 1 === s.id ).size
+		).toBe( 30 );
 	} );
 
 	it( 'derives read_rate from the absolute cursor-byte delta across polls; first poll is 0', () => {

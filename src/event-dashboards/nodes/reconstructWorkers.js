@@ -163,6 +163,35 @@ export function reconstructWorkers( data, prior ) {
 		liveByKey.set( `${ w.type }#${ w.partition }`, w )
 	);
 
+	// Each partition's snapshot END, from the consumer reading it (`source#partition`
+	// → {end_seg,end_size}). The dashboard's segment bar renders the canonical
+	// `logs[]` (live), so to honor the probe snapshot we TRIM those live segments
+	// here — not just the (discarded) per-worker inputs_status — clipping each
+	// partition back to its reader's (end_seg,end_size). A partition with no reader
+	// (a pure output log) keeps its live segments (no snapshot to clip to).
+	const endByKey = new Map();
+	consumers.forEach( ( row ) =>
+		endByKey.set( `${ row.source }#${ row.partition }`, {
+			endSeg: row.end_seg,
+			endSize: row.end_size,
+		} )
+	);
+	const trimmedLogs = logs.map( ( log ) => ( {
+		...log,
+		partitions: ( log.partitions || [] ).map( ( p ) => {
+			const end = endByKey.get( `${ log.name }#${ p.partition }` );
+			if ( ! end ) {
+				return p;
+			}
+			const { segments, total } = trimToSnapshot(
+				p.segments || [],
+				end.endSeg,
+				end.endSize
+			);
+			return { ...p, segments, total_size: total };
+		} ),
+	} ) );
+
 	const workers = [];
 	const byteRates = {};
 	const writeRates = {};
@@ -297,5 +326,12 @@ export function reconstructWorkers( data, prior ) {
 		} );
 	} );
 
-	return { workers, byteRates, writeRates, nextCursorBytes, nextTotalBytes };
+	return {
+		workers,
+		logs: trimmedLogs,
+		byteRates,
+		writeRates,
+		nextCursorBytes,
+		nextTotalBytes,
+	};
 }
