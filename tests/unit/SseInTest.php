@@ -158,6 +158,42 @@ class SseInTest extends TestCase {
 		$this->assertNull( $node->test_get_handle() );
 	}
 
+	public function test_home_to_target_true_by_default_rehomes_to_target(): void {
+		[ $node, $sink ] = $this->configured_node();
+		$this->assertTrue( $node->home_to_target );
+
+		$node->process_sse_chunk( $this->msg_frame( '1:0', 'k', [ 'x' => 1 ] ) );
+
+		$this->assertSame( 'merger', $sink->captured[0][ Message::TO ] );
+	}
+
+	public function test_home_to_target_false_preserves_envelope_to(): void {
+		[ $node, $sink ] = $this->configured_node();
+		$node->home_to_target = false;
+
+		// A pivoted worker reply carries its own TO (the TO=FROM breadcrumb); IPC
+		// mode must route by that, not overwrite it with the link's target.
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = '2:64';
+		$m[ Message::TO ]    = '_metadata';
+		$m[ Message::KEY ]   = 'meta';
+		$m[ Message::VALUE ] = [ 'x' => 1 ];
+		$node->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( '_metadata', $sink->captured[0][ Message::TO ] );
+	}
+
+	public function test_connected_handshake_captures_session_pid(): void {
+		[ $node ] = $this->configured_node();
+		$this->assertNull( $node->pid() );
+
+		$node->process_sse_chunk( $this->msg_frame( '', 'connected', [ 'slot' => 7, 'pid' => 4242 ] ) );
+
+		$this->assertSame( 4242, $node->pid() );
+	}
+
 	public function test_node_schema_is_hidden_io(): void {
 		$schema = SSE_In_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
