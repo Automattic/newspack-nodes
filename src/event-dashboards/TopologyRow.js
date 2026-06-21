@@ -88,8 +88,10 @@ export function sectionFor( name, status ) {
  * @param {Function} props.onError              ({name,message}) => void; a rejected mutation.
  * @param {Function} [props.onExpand]           (name) => void; unfold this row (folded chevron).
  * @param {Function} [props.onCollapseTopology] (name) => void; fold this row (unfolded chevron).
- * @param {Function} [props.onDragStart]        (name, event) => void; begin a row-reorder drag (adds a grip).
- * @param {Function} [props.onDropOn]           (name, event) => void; drop a dragged row before this one.
+ * @param {boolean}  [props.isDragging]         True while this row is the one being pointer-dragged.
+ * @param {Function} [props.onGripPointerDown]  (name, event) => void; begin a pointer-drag from the grip.
+ * @param {Function} [props.onGripPointerMove]  (event) => void; pointer moved mid-drag (live reorder).
+ * @param {Function} [props.onGripPointerUp]    (event) => void; end the pointer-drag (commit).
  * @param {Set}      [props.collapsed]          Within-tree node-fold set (unfolded only).
  * @param {Function} [props.onToggleFold]       (key) => void within-tree node-fold toggler.
  * @return {import('react').ReactElement} Rendered row.
@@ -103,8 +105,10 @@ const TopologyRow = memo( function TopologyRow( {
 	onError,
 	onExpand,
 	onCollapseTopology,
-	onDragStart,
-	onDropOn,
+	isDragging = false,
+	onGripPointerDown,
+	onGripPointerMove,
+	onGripPointerUp,
 	collapsed,
 	onToggleFold,
 } ) {
@@ -126,27 +130,21 @@ const TopologyRow = memo( function TopologyRow( {
 
 	return (
 		<div
-			className="nodes-tm__topology"
-			onDragOver={
-				onDropOn
-					? ( e ) => {
-							// preventDefault AND a 'move' dropEffect are BOTH required
-							// for the drop to fire (Firefox is strict about this).
-							e.preventDefault();
-							e.dataTransfer.dropEffect = 'move';
-					  }
-					: undefined
-			}
-			onDrop={ onDropOn ? ( e ) => onDropOn( name, e ) : undefined }
+			className={ `nodes-tm__topology${
+				isDragging ? ' is-dragging' : ''
+			}` }
+			data-topology-row={ name }
 		>
 			<div className="nodes-tm__heading">
-				{ onDragStart && (
+				{ onGripPointerDown && (
 					<span
 						className="nodes-tm__grip"
-						draggable={ true }
 						aria-label={ __( 'Drag to reorder', 'newspack-nodes' ) }
 						title={ __( 'Drag to reorder', 'newspack-nodes' ) }
-						onDragStart={ ( e ) => onDragStart( name, e ) }
+						onPointerDown={ ( e ) => onGripPointerDown( name, e ) }
+						onPointerMove={ onGripPointerMove }
+						onPointerUp={ onGripPointerUp }
+						onPointerCancel={ onGripPointerUp }
 					>
 						⠿
 					</span>
@@ -183,41 +181,46 @@ const TopologyRow = memo( function TopologyRow( {
 					// live-mode link (Edit still deep-links into the console).
 					<span className="nodes-tm__name">{ name }</span>
 				) }
-				{ parts.map( ( p ) => (
-					<span key={ p.partition } className="topology-partition">
+				<span className="nodes-tm__parts">
+					{ parts.map( ( p ) => (
 						<span
-							className={ `worker-status-badge compact ${ p.status }` }
+							key={ p.partition }
+							className="topology-partition"
 						>
-							P{ p.partition }
-						</span>
-						<span className="supervisor-age">
-							{ p.started_at && p.status === 'running'
-								? formatAge( p.started_at, currentTime )
-								: '' }
-						</span>
-						{ p.heartbeat_age !== null &&
-							p.heartbeat_age !== undefined && (
+							<span
+								className={ `worker-status-badge compact ${ p.status }` }
+							>
+								P{ p.partition }
+							</span>
+							<span className="supervisor-age">
+								{ p.started_at && p.status === 'running'
+									? formatAge( p.started_at, currentTime )
+									: '' }
+							</span>
+							{ p.heartbeat_age !== null &&
+								p.heartbeat_age !== undefined && (
+									<span
+										className={ `connector-heartbeat ${
+											p.heartbeat_age > 30 ? 'stale' : ''
+										}` }
+									>
+										{ p.heartbeat_age }s
+									</span>
+								) }
+							{ p.restart_pending && (
 								<span
-									className={ `connector-heartbeat ${
-										p.heartbeat_age > 30 ? 'stale' : ''
-									}` }
+									className="connector-restart-pending"
+									title={ __(
+										'Restart pending',
+										'newspack-nodes'
+									) }
 								>
-									{ p.heartbeat_age }s
+									⟳
 								</span>
 							) }
-						{ p.restart_pending && (
-							<span
-								className="connector-restart-pending"
-								title={ __(
-									'Restart pending',
-									'newspack-nodes'
-								) }
-							>
-								⟳
-							</span>
-						) }
-					</span>
-				) ) }
+						</span>
+					) ) }
+				</span>
 				{ allRunning && (
 					<span className="worker-status-badge running small">
 						{ __( 'ALL RUN', 'newspack-nodes' ) }

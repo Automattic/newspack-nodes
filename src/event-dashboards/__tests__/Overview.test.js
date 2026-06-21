@@ -1,4 +1,4 @@
-/* global globalThis */
+/* global globalThis, Element */
 /**
  * Overview — the merged hub board. Every active topology renders as a TopologyRow
  * (folded compact ↔ unfolded detail), in the user's persisted drag order (NOT
@@ -84,7 +84,9 @@ jest.mock( '../TopologyRow', () => {
 			return el.createElement( 'div', {
 				className: 'nodes-tm__topology-stub',
 				'data-name': props.topology.name,
+				'data-topology-row': props.topology.name,
 				'data-folded': String( !! props.folded ),
+				'data-dragging': String( !! props.isDragging ),
 			} );
 		},
 	};
@@ -216,8 +218,9 @@ describe( 'Overview fleet board', () => {
 		const row = rowProps( 'alpha' );
 		expect( row.folded ).toBe( true );
 		expect( typeof row.onExpand ).toBe( 'function' );
-		expect( typeof row.onDragStart ).toBe( 'function' );
-		expect( typeof row.onDropOn ).toBe( 'function' );
+		expect( typeof row.onGripPointerDown ).toBe( 'function' );
+		expect( typeof row.onGripPointerMove ).toBe( 'function' );
+		expect( typeof row.onGripPointerUp ).toBe( 'function' );
 		expect( row.onRestart ).toBe(
 			useTopologyManager.mock.results[ 0 ].value.restart
 		);
@@ -478,21 +481,7 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 		);
 	} );
 
-	it( 'onDragStart puts the topology name on dataTransfer', () => {
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
-			} )
-		);
-		render( <Overview /> );
-		const setData = jest.fn();
-		rowProps( 'alpha' ).onDragStart( 'alpha', {
-			dataTransfer: { setData, effectAllowed: '' },
-		} );
-		expect( setData ).toHaveBeenCalledWith( expect.any( String ), 'alpha' );
-	} );
-
-	it( 'onDropOn reorders + persists: dropping beta before alpha writes the new order', () => {
+	it( 'pointer-down on the grip marks the row as dragging', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [
@@ -503,16 +492,62 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 		);
 		const { container } = render( <Overview /> );
 		act( () =>
-			rowProps( 'alpha' ).onDropOn( 'alpha', {
+			rowProps( 'alpha' ).onGripPointerDown( 'alpha', {
 				preventDefault: jest.fn(),
-				dataTransfer: { getData: () => 'beta' },
+				pointerId: 1,
+				currentTarget: { setPointerCapture: jest.fn() },
 			} )
 		);
+		expect(
+			container
+				.querySelector( '[data-name="alpha"]' )
+				.getAttribute( 'data-dragging' )
+		).toBe( 'true' );
+	} );
+
+	it( 'a pointer drag (down → move past a lower row → up) reorders + persists', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		// Geometry: alpha [0–100], beta [100–200] (jsdom has no layout).
+		const rectSpy = jest
+			.spyOn( Element.prototype, 'getBoundingClientRect' )
+			.mockImplementation( function () {
+				const name = this.getAttribute?.( 'data-topology-row' );
+				const idx = 'beta' === name ? 1 : 0;
+				return {
+					top: idx * 100,
+					bottom: idx * 100 + 100,
+					left: 0,
+					right: 0,
+					width: 0,
+					height: 100,
+					x: 0,
+					y: idx * 100,
+				};
+			} );
+		const { container } = render( <Overview /> );
+		// Grab alpha, drag past beta's midpoint (y=160), release.
+		act( () =>
+			rowProps( 'alpha' ).onGripPointerDown( 'alpha', {
+				preventDefault: jest.fn(),
+				pointerId: 1,
+				currentTarget: { setPointerCapture: jest.fn() },
+			} )
+		);
+		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 160 } ) );
+		// Mid-drag the rows already show the new order.
+		expect( rowNames( container ) ).toEqual( [ 'beta', 'alpha' ] );
+		act( () => rowProps( 'alpha' ).onGripPointerUp() );
 		expect( overviewPrefs.writeOrder ).toHaveBeenLastCalledWith( [
 			'beta',
 			'alpha',
 		] );
-		// And the rows re-render in the new order.
-		expect( rowNames( container ) ).toEqual( [ 'beta', 'alpha' ] );
+		rectSpy.mockRestore();
 	} );
 } );

@@ -26,25 +26,34 @@ export function orderTopologies( activeNames, storedOrder ) {
 }
 
 /**
- * Compute a drag-reorder move: remove `draggedName` and re-insert it
- * immediately before `targetName`'s position. A no-op (returns the input
- * unchanged) when dragged === target or either name is missing.
+ * Live pointer-drag reorder: move `draggedName` to the slot the cursor's Y is
+ * over. `rects` are the rendered rows' vertical bounds IN DISPLAY ORDER; the
+ * insertion slot is the count of rows whose vertical midpoint is above `y`
+ * (so the dragged row follows the cursor in BOTH directions, not just up). The
+ * dragged row's own removal is accounted for so a downward drag isn't sticky.
  *
- * @param {string[]} currentOrder The full current display order.
- * @param {string}   draggedName  The name being dragged.
- * @param {string}   targetName   The name to drop before.
- * @return {string[]} The new order (or `currentOrder` unchanged on a no-op).
+ * @param {string[]}                          names       Current display order.
+ * @param {string}                            draggedName The name being dragged.
+ * @param {Array<{top:number,bottom:number}>} rects       Row bounds, aligned to `names`.
+ * @param {number}                            y           Pointer clientY.
+ * @return {string[]} The new display order (unchanged if dragged isn't present).
  */
-export function reorderNames( currentOrder, draggedName, targetName ) {
-	if (
-		draggedName === targetName ||
-		! currentOrder.includes( draggedName ) ||
-		! currentOrder.includes( targetName )
-	) {
-		return currentOrder;
+export function dragReorder( names, draggedName, rects, y ) {
+	const cur = names.indexOf( draggedName );
+	if ( cur === -1 ) {
+		return names;
 	}
-	const without = currentOrder.filter( ( name ) => name !== draggedName );
-	const at = without.indexOf( targetName );
+	let slot = 0;
+	for ( const r of rects ) {
+		if ( ( r.top + r.bottom ) / 2 < y ) {
+			slot++;
+		}
+	}
+	// `slot` counts over the full list (incl. the dragged row); once the dragged
+	// row is removed, a slot past its old index shifts left by one.
+	const insertAt = slot > cur ? slot - 1 : slot;
+	const without = names.filter( ( name ) => name !== draggedName );
+	const at = Math.max( 0, Math.min( without.length, insertAt ) );
 	return [ ...without.slice( 0, at ), draggedName, ...without.slice( at ) ];
 }
 

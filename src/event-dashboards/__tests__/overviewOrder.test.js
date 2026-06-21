@@ -6,7 +6,7 @@
 
 import {
 	orderTopologies,
-	reorderNames,
+	dragReorder,
 	mergeStoredOrder,
 } from '../overviewOrder';
 
@@ -45,46 +45,53 @@ describe( 'orderTopologies', () => {
 	} );
 } );
 
-describe( 'reorderNames', () => {
-	const order = [ 'a', 'b', 'c', 'd' ];
+describe( 'dragReorder', () => {
+	const names = [ 'a', 'b', 'c', 'd' ];
+	// Rows 100px tall stacked from y=0: a[0-100] b[100-200] c[200-300] d[300-400].
+	const rects = [
+		{ top: 0, bottom: 100 },
+		{ top: 100, bottom: 200 },
+		{ top: 200, bottom: 300 },
+		{ top: 300, bottom: 400 },
+	];
 
-	it( 'moves a name up, inserting it immediately before the target', () => {
-		expect( reorderNames( order, 'd', 'b' ) ).toEqual( [
-			'a',
-			'd',
+	it( 'moves a row DOWN to where the cursor is (not sticky)', () => {
+		// Drag 'a' down past c's midpoint (y=260) → a lands between c and d.
+		expect( dragReorder( names, 'a', rects, 260 ) ).toEqual( [
 			'b',
 			'c',
-		] );
-	} );
-
-	it( 'moves a name down, inserting it immediately before the target', () => {
-		expect( reorderNames( order, 'a', 'd' ) ).toEqual( [
-			'b',
-			'c',
 			'a',
-			'd',
-		] );
-	} );
-
-	it( 'moves a name to the top when the target is the first element', () => {
-		expect( reorderNames( order, 'c', 'a' ) ).toEqual( [
-			'c',
-			'a',
-			'b',
 			'd',
 		] );
 	} );
 
-	it( 'returns the order unchanged when dragged === target', () => {
-		expect( reorderNames( order, 'b', 'b' ) ).toEqual( order );
+	it( 'moves a row UP to where the cursor is', () => {
+		// Drag 'd' up past b's midpoint (y=160, b's lower half) → d below b.
+		expect( dragReorder( names, 'd', rects, 160 ) ).toEqual( [
+			'a',
+			'b',
+			'd',
+			'c',
+		] );
 	} );
 
-	it( 'returns the order unchanged when the dragged name is missing', () => {
-		expect( reorderNames( order, 'x', 'b' ) ).toEqual( order );
+	it( 'moves to the top when the cursor is above the first midpoint', () => {
+		expect( dragReorder( names, 'c', rects, 10 ) ).toEqual( [
+			'c',
+			'a',
+			'b',
+			'd',
+		] );
 	} );
 
-	it( 'returns the order unchanged when the target name is missing', () => {
-		expect( reorderNames( order, 'b', 'x' ) ).toEqual( order );
+	it( 'keeps the row in place when the cursor is over its own band', () => {
+		// 'b' band is 100-200, midpoint 150; cursor 120 (above b's mid, below a's)
+		// → slot 1 == b's index → no move.
+		expect( dragReorder( names, 'b', rects, 120 ) ).toEqual( names );
+	} );
+
+	it( 'is a no-op when the dragged name is missing', () => {
+		expect( dragReorder( names, 'x', rects, 250 ) ).toEqual( names );
 	} );
 } );
 

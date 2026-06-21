@@ -28,7 +28,7 @@
  * Reuses the same `consoleHref` deep-links so navigation stays single-sourced.
  */
 
-import { useState, useEffect } from '@wordpress/element';
+import { useState, useEffect, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import SummaryCards from './SummaryCards';
@@ -44,7 +44,7 @@ import { consoleHref, TopologyRow } from './TopologyRow';
 import { formatBytes, formatByteRate, formatMsgRate } from './formatters';
 import {
 	orderTopologies,
-	reorderNames,
+	dragReorder,
 	mergeStoredOrder,
 } from './overviewOrder';
 import {
@@ -55,9 +55,23 @@ import {
 } from './overviewPrefs';
 import './styles/overview.scss';
 
-// dataTransfer MIME for a row-reorder drag. Plain text (not a custom type) is the
-// most cross-browser-reliable — Firefox is finicky about custom drag data types.
-const DRAG_MIME = 'text/plain';
+// Read the rendered active-row vertical bounds (in display order) for the live
+// pointer-drag reorder. Native DnD proved too browser-finicky (esp. Firefox), so
+// reordering is pointer-events based and geometry-driven.
+function activeRowRects() {
+	return [
+		...document.querySelectorAll(
+			'.nodes-overview__rows [data-topology-row]'
+		),
+	].map( ( el ) => {
+		const r = el.getBoundingClientRect();
+		return {
+			name: el.getAttribute( 'data-topology-row' ),
+			top: r.top,
+			bottom: r.bottom,
+		};
+	} );
+}
 
 /**
  * Overview hub tab.
@@ -85,6 +99,13 @@ export default function Overview() {
 	const [ expanded, setExpanded ] = useState( readExpanded );
 	const [ order, setOrder ] = useState( readOrder );
 	const [ collapsed, setCollapsed ] = useState( () => new Set() );
+	// Pointer-drag reorder: the name being dragged + the transient live order it
+	// produces (committed to `order` only on pointer-up, so we don't thrash
+	// localStorage on every move). `dragNameRef` mirrors `dragName` for the
+	// pointer-move/up handlers (which fire from the captured grip, not React state).
+	const [ dragName, setDragName ] = useState( null );
+	const [ liveOrder, setLiveOrder ] = useState( null );
+	const dragNameRef = useRef( null );
 
 	useEffect( () => writeExpanded( expanded ), [ expanded ] );
 	useEffect( () => writeOrder( order ), [ order ] );
@@ -101,11 +122,15 @@ export default function Overview() {
 
 	// Display order is the user's drag order (stored names first, new ones
 	// appended alphabetically) — never health, so badges flapping doesn't reorder.
-	const orderedNames = orderTopologies(
-		actives.map( ( t ) => t.name ),
-		order
-	);
-	const orderedActives = orderedNames
+	// Mid-drag, `liveOrder` (the in-progress reorder) takes over so rows visibly
+	// shuffle under the cursor.
+	const displayedNames =
+		liveOrder ??
+		orderTopologies(
+			actives.map( ( t ) => t.name ),
+			order
+		);
+	const orderedActives = displayedNames
 		.map( ( name ) => actives.find( ( t ) => t.name === name ) )
 		.filter( Boolean );
 
@@ -131,26 +156,42 @@ export default function Overview() {
 			return next;
 		} );
 
-	// Native HTML5 row reorder (mirrors the palette's dataTransfer idiom): the grip
-	// carries the dragged name; dropping on a row inserts it before that row.
-	const onRowDragStart = ( name, e ) => {
-		e.dataTransfer.setData( DRAG_MIME, name );
-		e.dataTransfer.effectAllowed = 'move';
-	};
-	const onRowDropOn = ( targetName, e ) => {
+	// Pointer-drag reorder (cross-browser; native HTML5 DnD was too flaky). The
+	// grip captures the pointer, so move/up keep firing even over other rows;
+	// each move recomputes the live order from the row geometry under the cursor.
+	const onGripPointerDown = ( name, e ) => {
 		e.preventDefault();
-		const dragged = e.dataTransfer.getData( DRAG_MIME );
-		if ( ! dragged || dragged === targetName ) {
+		e.currentTarget.setPointerCapture?.( e.pointerId );
+		dragNameRef.current = name;
+		setDragName( name );
+		setLiveOrder( displayedNames );
+	};
+	const onGripPointerMove = ( e ) => {
+		const name = dragNameRef.current;
+		if ( ! name ) {
 			return;
 		}
-		// Merge the reordered ACTIVE names back over the full persisted order so a
-		// drag while some topology is inactive doesn't drop its saved slot.
-		setOrder( ( prev ) =>
-			mergeStoredOrder(
-				prev,
-				reorderNames( orderedNames, dragged, targetName )
+		setLiveOrder( ( prev ) =>
+			dragReorder(
+				prev ?? displayedNames,
+				name,
+				activeRowRects(),
+				e.clientY
 			)
 		);
+	};
+	const onGripPointerUp = () => {
+		if ( ! dragNameRef.current ) {
+			return;
+		}
+		dragNameRef.current = null;
+		// Commit: fold the live active order back over the full persisted order
+		// (carrying inactive names) — once, so localStorage isn't thrashed.
+		if ( liveOrder ) {
+			setOrder( ( prev ) => mergeStoredOrder( prev, liveOrder ) );
+		}
+		setDragName( null );
+		setLiveOrder( null );
 	};
 
 	// Per-topic (source) 24h series for the three Topics panels — message rate,
@@ -228,8 +269,10 @@ export default function Overview() {
 						onError={ setAlert }
 						onExpand={ expandTopology }
 						onCollapseTopology={ collapseTopology }
-						onDragStart={ onRowDragStart }
-						onDropOn={ onRowDropOn }
+						isDragging={ dragName === t.name }
+						onGripPointerDown={ onGripPointerDown }
+						onGripPointerMove={ onGripPointerMove }
+						onGripPointerUp={ onGripPointerUp }
 						collapsed={ collapsed }
 						onToggleFold={ onToggleFold }
 					/>
