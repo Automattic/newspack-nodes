@@ -121,6 +121,137 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 	} );
 } );
 
+// Two SEPARATE topologies tailing the SAME source log (firehose.p<N>) via their
+// own offsetlogs — the request-builder / job-router shape. Each consumer carries
+// a distinct `reader` template; the join must match each topology to ITS reader,
+// not every probe row that happens to share the source.
+const SHARED_SOURCE_GRAPH = {
+	'request-builder': {
+		nodes: [
+			{
+				name: 'firehose:consumer',
+				kind: 'consumer',
+				reads: 'firehose.p<partition>',
+				reader: 'firehose.request-builder.p<partition>',
+			},
+			{ name: 'request-builder', kind: 'logic' },
+			{
+				name: 'requests:partition',
+				kind: 'partition',
+				writes: 'requests.p<partition>',
+			},
+		],
+		edges: [
+			[ 'firehose:consumer', 'request-builder' ],
+			[ 'request-builder', 'requests:partition' ],
+		],
+	},
+	'job-router': {
+		nodes: [
+			{
+				name: 'firehose:consumer',
+				kind: 'consumer',
+				reads: 'firehose.p<partition>',
+				reader: 'firehose.job-router.p<partition>',
+			},
+			{ name: 'job-router', kind: 'logic' },
+			{
+				name: 'jobs:partition',
+				kind: 'partition',
+				writes: 'jobs.p<partition>',
+			},
+		],
+		edges: [
+			[ 'firehose:consumer', 'job-router' ],
+			[ 'job-router', 'jobs:partition' ],
+		],
+	},
+};
+const wk = ( type ) => ( {
+	type,
+	partition: 0,
+	status: 'running',
+	live: true,
+	stale: false,
+	restart_pending: false,
+	heartbeat_age: 2,
+	started_at: 1700000000,
+} );
+const SHARED_SOURCE_DATA = {
+	graph: SHARED_SOURCE_GRAPH,
+	workers: [ wk( 'request-builder' ), wk( 'job-router' ) ],
+	consumers: [
+		{
+			reader: 'firehose.request-builder.p0',
+			source: 'firehose.p0',
+			partition: 0,
+			cursor_seg: 0,
+			cursor_off: 50,
+			end_seg: 0,
+			end_size: 200,
+			distance: 150,
+			msgs: 7,
+		},
+		{
+			reader: 'firehose.job-router.p0',
+			source: 'firehose.p0',
+			partition: 0,
+			cursor_seg: 0,
+			cursor_off: 10,
+			end_seg: 0,
+			end_size: 200,
+			distance: 190,
+			msgs: 3,
+		},
+	],
+	logs: [
+		{
+			name: 'firehose.p0',
+			partitions: [
+				{
+					partition: 0,
+					segments: [ { id: 0, size: 200 } ],
+					total_size: 200,
+				},
+			],
+		},
+	],
+	timestamp: 1000,
+};
+
+describe( 'reconstructWorkers — two topologies sharing one source', () => {
+	it( 'matches each topology to ITS OWN reader, not the foreign one', () => {
+		const { workers } = reconstructWorkers(
+			SHARED_SOURCE_DATA,
+			EMPTY_PRIOR
+		);
+		const rb = workers.filter( ( w ) => w.type === 'request-builder' );
+		const jr = workers.filter( ( w ) => w.type === 'job-router' );
+		expect( rb ).toHaveLength( 1 );
+		expect( jr ).toHaveLength( 1 );
+		// Each shows its OWN reader's distance, not the other's.
+		expect( rb[ 0 ].behind ).toBe( 150 );
+		expect( jr[ 0 ].behind ).toBe( 190 );
+	} );
+
+	it( 'each topology node entity shows exactly one worker per partition', () => {
+		const { workers } = reconstructWorkers(
+			SHARED_SOURCE_DATA,
+			EMPTY_PRIOR
+		);
+		const sections = buildTopologySections(
+			SHARED_SOURCE_GRAPH,
+			workers,
+			SHARED_SOURCE_DATA.logs
+		);
+		const entities = flatten( sections.flatMap( ( s ) => s.tree ) );
+		const byName = ( name ) =>
+			entities.find( ( e ) => 'node' === e.kind && e.name === name );
+		expect( byName( 'request-builder' )?.workers ?? [] ).toHaveLength( 1 );
+		expect( byName( 'job-router' )?.workers ?? [] ).toHaveLength( 1 );
+	} );
+} );
+
 describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 	it( 'trims live segments to the probe (end_seg, end_size)', () => {
 		const data = {

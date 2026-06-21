@@ -85,6 +85,10 @@ function consumerHandlers( graphTopo ) {
 		out.push( {
 			name: node.name,
 			sourceTemplate: node.reads || '',
+			// The consumer's offsetlog basename template — its UNIQUE reader id.
+			// Two topologies can read the same source via distinct offsetlogs, so
+			// match probe rows by reader (when known), not just source.
+			readerTemplate: node.reader || '',
 			handlers: downstream.length > 0 ? downstream : [ node.name ],
 		} );
 	} );
@@ -237,10 +241,16 @@ export function reconstructWorkers( data, prior ) {
 		// share that template, prefer the one whose name is embedded in the
 		// disambiguated reader id, else the first match.
 		consumers.forEach( ( row ) => {
-			const matching = handlers.filter(
-				( h ) =>
-					concreteSource( h.sourceTemplate, row.partition ) ===
-					row.source
+			// Match by the consumer's READER (its offsetlog) when known — that's
+			// the unique key, so two topologies sharing a source don't both claim
+			// the other's probe row. Fall back to source for consumers whose graph
+			// node carries no reader template (single-reader sources, unchanged).
+			const matching = handlers.filter( ( h ) =>
+				h.readerTemplate
+					? concreteSource( h.readerTemplate, row.partition ) ===
+					  row.reader
+					: concreteSource( h.sourceTemplate, row.partition ) ===
+					  row.source
 			);
 			if ( 0 === matching.length ) {
 				return;
