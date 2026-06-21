@@ -514,6 +514,13 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 				],
 			} )
 		);
+		// Pointer moves are rAF-coalesced; run the frame synchronously here.
+		const rafSpy = jest
+			.spyOn( window, 'requestAnimationFrame' )
+			.mockImplementation( ( cb ) => {
+				cb();
+				return 1;
+			} );
 		// Geometry: alpha [0–100], beta [100–200] (jsdom has no layout).
 		const rectSpy = jest
 			.spyOn( Element.prototype, 'getBoundingClientRect' )
@@ -549,5 +556,6 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 			'alpha',
 		] );
 		rectSpy.mockRestore();
+		rafSpy.mockRestore();
 	} );
 } );

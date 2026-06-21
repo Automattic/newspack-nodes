@@ -8,6 +8,7 @@
  * formatters); this component is just the presentation + i18n.
  */
 
+import { memo } from '@wordpress/element';
 import { __, sprintf, _n } from '@wordpress/i18n';
 import { fleetSummary } from './fleetSummary';
 import { probe24hTotals } from './probe24hTotals';
@@ -40,7 +41,7 @@ function Card( { mod, value, label, extraClass = '' } ) {
  * @param {string}  props.newTopologyHref Console deep-link for "+ New Topology".
  * @return {import('react').ReactElement} The card row.
  */
-export default function SummaryCards( {
+function SummaryCards( {
 	topologies,
 	readRate,
 	writeRate,
@@ -142,3 +143,7 @@ export default function SummaryCards( {
 		</div>
 	);
 }
+
+// Memoized: its 24h derives (probe24hTotals etc.) are heavy, and the Overview
+// re-renders on every drag-reorder frame with otherwise-unchanged card props.
+export default memo( SummaryCards );

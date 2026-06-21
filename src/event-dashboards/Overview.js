@@ -28,7 +28,7 @@
  * Reuses the same `consoleHref` deep-links so navigation stays single-sourced.
  */
 
-import { useState, useEffect, useRef } from '@wordpress/element';
+import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import SummaryCards from './SummaryCards';
@@ -106,9 +106,21 @@ export default function Overview() {
 	const [ dragName, setDragName ] = useState( null );
 	const [ liveOrder, setLiveOrder ] = useState( null );
 	const dragNameRef = useRef( null );
+	// rAF-coalesce pointer moves: store the latest Y, apply at most once per frame.
+	const dragRafRef = useRef( null );
+	const dragYRef = useRef( 0 );
 
 	useEffect( () => writeExpanded( expanded ), [ expanded ] );
 	useEffect( () => writeOrder( order ), [ order ] );
+	// Cancel a pending drag frame if we unmount mid-drag.
+	useEffect(
+		() => () => {
+			if ( null !== dragRafRef.current ) {
+				window.cancelAnimationFrame( dragRafRef.current );
+			}
+		},
+		[]
+	);
 
 	// Second link: replay the durable topicprobe.p0 log (24h from `start`) into
 	// `topicprobe:view`, the source for the Topics panels.
@@ -167,24 +179,40 @@ export default function Overview() {
 		setLiveOrder( displayedNames );
 	};
 	const onGripPointerMove = ( e ) => {
-		const name = dragNameRef.current;
-		if ( ! name ) {
+		if ( ! dragNameRef.current ) {
 			return;
 		}
-		setLiveOrder( ( prev ) =>
-			dragReorder(
-				prev ?? displayedNames,
-				name,
-				activeRowRects(),
-				e.clientY
-			)
-		);
+		// Coalesce to one reorder per animation frame using the latest pointer Y —
+		// pointermove fires far faster than we can usefully re-render.
+		dragYRef.current = e.clientY;
+		if ( null !== dragRafRef.current ) {
+			return;
+		}
+		dragRafRef.current = window.requestAnimationFrame( () => {
+			dragRafRef.current = null;
+			const name = dragNameRef.current;
+			if ( ! name ) {
+				return;
+			}
+			setLiveOrder( ( prev ) =>
+				dragReorder(
+					prev ?? displayedNames,
+					name,
+					activeRowRects(),
+					dragYRef.current
+				)
+			);
+		} );
 	};
 	const onGripPointerUp = () => {
 		if ( ! dragNameRef.current ) {
 			return;
 		}
 		dragNameRef.current = null;
+		if ( null !== dragRafRef.current ) {
+			window.cancelAnimationFrame( dragRafRef.current );
+			dragRafRef.current = null;
+		}
 		// Commit: fold the live active order back over the full persisted order
 		// (carrying inactive names) — once, so localStorage isn't thrashed.
 		if ( liveOrder ) {
@@ -195,11 +223,22 @@ export default function Overview() {
 	};
 
 	// Per-topic (source) 24h series for the three Topics panels — message rate,
-	// byte rate, backlog — each ranked by max in its own legend.
-	const consumers = probeView?.consumers || {};
-	const msgRateSeries = topicChartSeries( consumers, 'msgRate' );
-	const byteRateSeries = topicChartSeries( consumers, 'byteRate' );
-	const backlogSeries = topicChartSeries( consumers, 'backlog' );
+	// byte rate, backlog. MEMOIZED on the probe consumers so a drag-reorder (which
+	// re-renders Overview on every pointer frame) doesn't recompute these heavy
+	// 24h rollups — that was the source of the progressive drag lag.
+	const consumers = probeView?.consumers;
+	const msgRateSeries = useMemo(
+		() => topicChartSeries( consumers, 'msgRate' ),
+		[ consumers ]
+	);
+	const byteRateSeries = useMemo(
+		() => topicChartSeries( consumers, 'byteRate' ),
+		[ consumers ]
+	);
+	const backlogSeries = useMemo(
+		() => topicChartSeries( consumers, 'backlog' ),
+		[ consumers ]
+	);
 
 	return (
 		<div className="nodes-overview">
@@ -212,7 +251,7 @@ export default function Overview() {
 				readRate={ readRate }
 				writeRate={ writeRate }
 				logPartitions={ logPartitions }
-				consumers={ probeView?.consumers }
+				consumers={ consumers }
 				newTopologyHref={ consoleHref( '', { isNew: true } ) }
 			/>
 			<div className="nodes-overview__panels">
