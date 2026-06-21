@@ -26,7 +26,8 @@
 	"dependencies": {
 		"@wordpress/api-fetch": "^7.0.0",
 		"@wordpress/element": "^6.0.0",
-		"@wordpress/i18n": "^6.18.0"
+		"@wordpress/i18n": "^6.18.0",
+		"d3": "^7.9.0"
 	},
 	"devDependencies": {
 		"@babel/preset-env": "^7.29.5",

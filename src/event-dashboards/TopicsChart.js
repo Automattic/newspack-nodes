@@ -1,168 +1,176 @@
 /**
- * TopicsChart — one Tachikoma-style topics panel: a multi-series filled-area
- * time chart (one series per topic/source, overlaid, time on X) beside a ranked
- * legend (max + avg per series, sorted by max desc). Modeled on Grafana's Topics
- * Message Rate / Byte Rate / Backlog panels. Fed by `topicChartSeries`.
+ * TopicsChart — one Tachikoma-style Topics panel (Message Rate / Byte Rate /
+ * Backlog): a d3 multi-series overlaid-area time chart with X/Y axes, an
+ * interactive hover tooltip, and a ranked color legend. Built on the SHARED
+ * charting infra (`@newspack-nodes/shared/hooks/useTimeChart`) the event-logger
+ * dashboards use — same grid/legend/colors/mouseover — so this is a thin
+ * renderer modeled on the event-logger's `CategoryTimeChart`.
  *
- * Dependency-free SVG: the series are evenly-spaced 15s probe samples; X is the
- * shared time domain, Y is 0..global-max. Strokes are non-scaling so the
- * full-width stretch stays crisp.
+ * Fed by `topicChartSeries`: `{ [topic]: { points:[{ts,value}], max, avg } }`
+ * (ts in seconds). The topics' samples sweep together, but to draw + hover
+ * cleanly we align every topic onto ONE sorted date axis (the union of sample
+ * ts), filling gaps with 0.
  */
 
-import { memo } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { useCallback, useMemo } from '@wordpress/element';
+import * as d3 from 'd3';
+import {
+	MARGIN,
+	PALETTE,
+	drawLegend,
+	formatXTick,
+	setupTooltip,
+	useTimeChart,
+} from '@newspack-nodes/shared/hooks/useTimeChart';
 
-// Distinct, muted series colors (cycled by ranked order — busiest topic first).
-const PALETTE = [
-	'#e2a0a0',
-	'#d8c489',
-	'#8fb8d8',
-	'#9bd3a4',
-	'#c2a3da',
-	'#dba97f',
-	'#84d2c6',
-	'#d98ba6',
-	'#b6c98a',
-	'#9aa0db',
-];
+const HEIGHT = 200;
 
-const VIEW_W = 600;
-const PAD = { l: 4, r: 4, t: 6, b: 16 };
+export function TopicsChart( { title, series, formatValue } ) {
+	const chartState = useMemo( () => {
+		const ranked = Object.keys( series || {} )
+			.map( ( key ) => ( { key, ...series[ key ] } ) )
+			.filter( ( s ) => ( s.points || [] ).length > 0 )
+			.sort( ( a, b ) => b.max - a.max );
 
-function hhmm( ts ) {
-	const d = new Date( ts * 1000 );
-	const p = ( n ) => String( n ).padStart( 2, '0' );
-	return `${ p( d.getHours() ) }:${ p( d.getMinutes() ) }`;
-}
+		// One shared, sorted date axis (union of every topic's sample instants);
+		// each topic is then aligned onto it (gaps → 0) so the areas + the hover
+		// index line up across topics.
+		const tsSet = new Set();
+		ranked.forEach( ( s ) =>
+			s.points.forEach( ( p ) => tsSet.add( p.ts ) )
+		);
+		const tsList = [ ...tsSet ].sort( ( a, b ) => a - b );
+		const dates = tsList.map( ( ts ) => new Date( ts * 1000 ) );
 
-/**
- * @param {Object}   props
- * @param {string}   props.title       Panel title.
- * @param {Object}   props.series      `topicChartSeries` output: key → {points,max,avg}.
- * @param {Function} props.formatValue Value → display string (rate/bytes).
- * @param {number}   [props.height]    SVG viewBox height (default 200).
- * @return {import('react').ReactElement} The panel.
- */
-export const TopicsChart = memo( function TopicsChart( {
-	title,
-	series,
-	formatValue,
-	height = 200,
-} ) {
-	const ranked = Object.keys( series || {} )
-		.map( ( key ) => ( { key, ...series[ key ] } ) )
-		.sort( ( a, b ) => b.max - a.max );
+		const aligned = ranked.map( ( s ) => {
+			const byTs = new Map( s.points.map( ( p ) => [ p.ts, p.value ] ) );
+			return {
+				label: s.key,
+				values: tsList.map( ( ts, i ) => ( {
+					date: dates[ i ],
+					value: byTs.get( ts ) ?? 0,
+				} ) ),
+			};
+		} );
 
-	let tMin = Infinity;
-	let tMax = -Infinity;
-	let vMax = 0;
-	ranked.forEach( ( s ) =>
-		s.points.forEach( ( p ) => {
-			if ( p.ts < tMin ) {
-				tMin = p.ts;
+		return { series: aligned, dates };
+	}, [ series ] );
+
+	const renderFn = useCallback(
+		( refs ) => {
+			if (
+				! refs.containerRef.current ||
+				chartState.series.length === 0
+			) {
+				return;
 			}
-			if ( p.ts > tMax ) {
-				tMax = p.ts;
-			}
-			if ( p.value > vMax ) {
-				vMax = p.value;
-			}
-		} )
+			const { series: aligned, dates } = chartState;
+
+			d3.select( refs.containerRef.current ).selectAll( '*' ).remove();
+
+			const width = refs.containerRef.current.clientWidth || 800;
+			const innerW = width - MARGIN.left - MARGIN.right;
+			const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
+
+			const svg = d3
+				.select( refs.containerRef.current )
+				.append( 'svg' )
+				.attr( 'width', width )
+				.attr( 'height', HEIGHT );
+			const g = svg
+				.append( 'g' )
+				.attr(
+					'transform',
+					`translate(${ MARGIN.left },${ MARGIN.top })`
+				);
+
+			const x = d3
+				.scaleTime()
+				.domain( d3.extent( dates ) )
+				.range( [ 0, innerW ] );
+			const maxVal =
+				d3.max( aligned, ( s ) =>
+					d3.max( s.values, ( v ) => v.value )
+				) || 1;
+			const y = d3
+				.scaleLinear()
+				.domain( [ 0, maxVal * 1.1 ] )
+				.range( [ innerH, 0 ] );
+
+			g.append( 'g' )
+				.attr( 'transform', `translate(0,${ innerH })` )
+				.call( d3.axisBottom( x ).ticks( 8 ).tickFormat( formatXTick ) )
+				.selectAll( 'text' )
+				.attr( 'transform', 'rotate(-45)' )
+				.style( 'text-anchor', 'end' );
+
+			g.append( 'g' )
+				.call(
+					d3
+						.axisLeft( y )
+						.ticks( 5 )
+						.tickFormat( ( v ) => formatValue( v ) )
+				)
+				.selectAll( 'text' )
+				.style( 'font-size', '10px' );
+
+			const area = d3
+				.area()
+				.x( ( d ) => x( d.date ) )
+				.y0( innerH )
+				.y1( ( d ) => y( d.value ) )
+				.curve( d3.curveMonotoneX );
+
+			aligned.forEach( ( s, i ) => {
+				const color = PALETTE[ i % PALETTE.length ];
+				g.append( 'path' )
+					.datum( s.values )
+					.attr( 'fill', color )
+					.attr( 'fill-opacity', 0.4 )
+					.attr( 'stroke', color )
+					.attr( 'stroke-width', 1 )
+					.attr( 'd', area );
+			} );
+
+			setupTooltip( g, {
+				innerW,
+				innerH,
+				dates,
+				x,
+				formatEntry: ( idx ) =>
+					aligned
+						.map( ( s ) => ( {
+							label: s.label,
+							value: formatValue( s.values[ idx ]?.value || 0 ),
+							raw: s.values[ idx ]?.value || 0,
+						} ) )
+						.filter( ( e ) => e.raw > 0 )
+						.sort( ( a, b ) => b.raw - a.raw )
+						.slice( 0, 12 ),
+				tooltipRef: refs.tooltipRef,
+				lastMouseXRef: refs.lastMouseXRef,
+				containerRef: refs.containerRef,
+			} );
+
+			drawLegend(
+				svg,
+				aligned.map( ( s, i ) => ( {
+					color: PALETTE[ i % PALETTE.length ],
+					label: s.label,
+				} ) ),
+				width
+			);
+		},
+		[ chartState, formatValue ]
 	);
-	const hasData = ranked.some( ( s ) => s.points.length > 0 ) && tMax >= tMin;
 
-	const innerW = VIEW_W - PAD.l - PAD.r;
-	const innerH = height - PAD.t - PAD.b;
-	const tSpan = tMax - tMin || 1;
-	const vSpan = vMax || 1;
-	const xOf = ( ts ) => PAD.l + ( ( ts - tMin ) / tSpan ) * innerW;
-	const yOf = ( v ) => PAD.t + innerH - ( v / vSpan ) * innerH;
-	const baseY = yOf( 0 );
+	const { containerRef, tooltipRef } = useTimeChart( renderFn );
 
 	return (
 		<div className="nodes-topics">
 			<div className="nodes-topics__title">{ title }</div>
-			<div className="nodes-topics__body">
-				<svg
-					className="nodes-topics__chart"
-					viewBox={ `0 0 ${ VIEW_W } ${ height }` }
-					preserveAspectRatio="none"
-					role="img"
-					aria-label={ title }
-				>
-					{ hasData &&
-						ranked.map( ( s, i ) => {
-							if ( ! s.points.length ) {
-								return null;
-							}
-							const color = PALETTE[ i % PALETTE.length ];
-							const line = s.points
-								.map(
-									( p ) =>
-										`${ xOf( p.ts ).toFixed( 1 ) },${ yOf(
-											p.value
-										).toFixed( 1 ) }`
-								)
-								.join( ' ' );
-							const area = `${ xOf( s.points[ 0 ].ts ).toFixed(
-								1
-							) },${ baseY.toFixed( 1 ) } ${ line } ${ xOf(
-								s.points[ s.points.length - 1 ].ts
-							).toFixed( 1 ) },${ baseY.toFixed( 1 ) }`;
-							return (
-								<g key={ s.key }>
-									<polygon
-										className="nodes-topics__area"
-										points={ area }
-										fill={ color }
-									/>
-									<polyline
-										className="nodes-topics__line"
-										points={ line }
-										fill="none"
-										stroke={ color }
-										vectorEffect="non-scaling-stroke"
-									/>
-								</g>
-							);
-						} ) }
-				</svg>
-				<table className="nodes-topics__legend">
-					<thead>
-						<tr>
-							<th className="nodes-topics__series">
-								{ __( 'topic', 'newspack-nodes' ) }
-							</th>
-							<th>{ __( 'max', 'newspack-nodes' ) }</th>
-							<th>{ __( 'avg', 'newspack-nodes' ) }</th>
-						</tr>
-					</thead>
-					<tbody>
-						{ ranked.map( ( s, i ) => (
-							<tr key={ s.key }>
-								<td className="nodes-topics__series">
-									<span
-										className="nodes-topics__swatch"
-										style={ {
-											background:
-												PALETTE[ i % PALETTE.length ],
-										} }
-									/>
-									{ s.key }
-								</td>
-								<td>{ formatValue( s.max ) }</td>
-								<td>{ formatValue( s.avg ) }</td>
-							</tr>
-						) ) }
-					</tbody>
-				</table>
-			</div>
-			{ hasData && (
-				<div className="nodes-topics__xaxis">
-					<span>{ hhmm( tMin ) }</span>
-					<span>{ hhmm( tMax ) }</span>
-				</div>
-			) }
+			<div ref={ containerRef } className="nodes-topics__chart" />
+			<div ref={ tooltipRef } className="nodes-topics__tooltip" />
 		</div>
 	);
-} );
+}

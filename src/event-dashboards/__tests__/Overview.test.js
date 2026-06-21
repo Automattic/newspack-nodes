@@ -1,3 +1,4 @@
+/* global globalThis */
 /**
  * Overview — the hub's at-a-glance fleet-health board (the first paint). A live
  * "is everything OK right now?" glance over useTopologyManager: a fleet strip
@@ -22,6 +23,25 @@ jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
 	useNodeState: jest.fn(),
 } ) );
+// TopicsChart is d3-driven (its own suite); here it's a prop-capturing stub so
+// the Overview suite stays free of d3 and can assert what each panel was fed.
+jest.mock( '../TopicsChart', () => {
+	const el = require( '@wordpress/element' );
+	return {
+		TopicsChart: ( props ) => {
+			( globalThis.__topicsPanels ||= [] ).push( props );
+			return el.createElement(
+				'div',
+				{ className: 'nodes-topics' },
+				el.createElement(
+					'div',
+					{ className: 'nodes-topics__title' },
+					props.title
+				)
+			);
+		},
+	};
+} );
 
 const { useTopologyManager } = require( '../hooks/useTopologyManager' );
 const { useNodeState } = require( '../../runtime/react' );
@@ -62,7 +82,10 @@ function hookValue( overrides = {} ) {
 	};
 }
 
-beforeEach( () => useNodeState.mockReturnValue( undefined ) );
+beforeEach( () => {
+	useNodeState.mockReturnValue( undefined );
+	globalThis.__topicsPanels = [];
+} );
 afterEach( () => {
 	useTopologyManager.mockReset();
 	useNodeState.mockReset();
@@ -199,9 +222,7 @@ describe( 'Overview fleet board', () => {
 		] );
 	} );
 
-	it( 'draws a per-topic series in a panel from the 24h topicprobe data', () => {
-		// The probe view carries a 2-point byte-rate series for firehose.p0 → the
-		// Byte Rate panel draws a 2-point polyline + lists the topic in its legend.
+	it( 'feeds each panel its per-topic 24h series rolled up from the probe view', () => {
 		useNodeState.mockReturnValue( {
 			consumers: {
 				'firehose.p0': {
@@ -218,14 +239,20 @@ describe( 'Overview fleet board', () => {
 				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
 			} )
 		);
-		const { container } = render( <Overview /> );
-		const line = container.querySelector( '.nodes-topics__chart polyline' );
-		expect( line ).not.toBeNull();
+		render( <Overview /> );
+		const panel = ( title ) =>
+			globalThis.__topicsPanels.find( ( p ) => p.title === title );
+		// The Byte Rate panel gets firehose.p0's byte-rate series (2 points).
+		const byteRate = panel( 'Topics Byte Rate' ).series[ 'firehose.p0' ];
+		expect( byteRate.points.map( ( p ) => p.value ) ).toEqual( [
+			4096, 8192,
+		] );
+		// The Backlog panel groups the same topic, value 0 (caught up).
 		expect(
-			line.getAttribute( 'points' ).trim().split( /\s+/ )
-		).toHaveLength( 2 );
-		const legend = container.querySelector( '.nodes-topics__legend' );
-		expect( legend.textContent ).toContain( 'firehose.p0' );
+			panel( 'Topics Backlog' ).series[ 'firehose.p0' ].points.map(
+				( p ) => p.value
+			)
+		).toEqual( [ 0, 0 ] );
 	} );
 
 	it( 'offers a New Topology deep-link', () => {

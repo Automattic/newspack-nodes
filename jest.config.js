@@ -11,4 +11,10 @@ const { createJestConfig } = require( './src/build-kit/jest.cjs' );
 module.exports = createJestConfig( {
 	aliasBase: path.resolve( __dirname, 'src' ),
 	testPathIgnorePatterns: [ '/node_modules/', '/examples/' ],
+	// d3 (used by the Overview's TopicsChart via the shared useTimeChart) ships
+	// ESM-only, so it + its ESM deps must opt OUT of the node_modules transform
+	// skip — else a test that transitively imports it (index.test) fails to parse.
+	transformIgnorePatterns: [
+		'node_modules/(?!(d3|d3-.*|internmap|delaunator|robust-predicates)/)',
+	],
 } );

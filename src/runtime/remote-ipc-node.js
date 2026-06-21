@@ -34,6 +34,14 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	// browser session; a send swaps it). Static so siblings can hand it off.
 	static active = null;
 
+	constructor() {
+		super();
+		// Pivoted IPC, NOT a log subscription: worker reply frames carry a real
+		// TO (the TO=FROM breadcrumb) the browser router must honor, so DON'T
+		// re-home received frames to the target (that's RemoteLink's behavior).
+		this.rehomeReceived = false;
+	}
+
 	/**
 	 * Send path: a command routed in via TO={worker} (the Router peeled this
 	 * node's name). Boot/steal the live connection, then route the bundled
