@@ -41,7 +41,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	/** Build a named Remote_Source wired to a capture sink + downstream target. */
-	private function make_remote( string $name = 'remote-austin', string $args = 'austin firehose 0' ): array {
+	private function make_remote( string $name = 'remote-austin', string $args = 'austin firehose.p0' ): array {
 		$node = new Remote_Source_Node();
 		$node->name( $name );
 		$sink = new Capture_Sink_Node();
@@ -59,8 +59,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_arguments_parses_positional_tokens(): void {
 		[ $node ] = $this->make_remote();
 		$this->assertSame( 'austin', $this->read_private( $node, 'vault_id' ) );
-		$this->assertSame( 'firehose', $this->read_private( $node, 'remote_topic' ) );
-		$this->assertSame( 0, $this->read_private( $node, 'partition' ) );
+		$this->assertSame( 'firehose.p0', $this->read_private( $node, 'remote_partition' ) );
 	}
 
 	public function test_arguments_arms_recurring_timer(): void {
@@ -80,7 +79,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'https://austin.example', $this->read_private( $sse, 'url' ) );
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
 		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
-		$this->assertSame( 'austin', $this->read_private( $sse, 'source' ) );
 		// SSE_In forwards to the Remote_Source's OWN downstream target, not back to it.
 		$this->assertSame( $sink, $sse->sink() );
 		$this->assertSame( 'downstream', $sse->target() );
@@ -92,18 +90,18 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$http = Core::node( 'remote-austin:remote' );
+		$http = Core::node( 'remote-austin:http-out' );
 		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
 		$this->assertSame( 'austin', $this->read_private( $http, 'server_id' ) );
 	}
 
 	public function test_missing_vault_entry_stays_disconnected_no_patrons(): void {
-		[ $node ] = $this->make_remote( 'remote-ghost', 'ghost firehose 0' );
+		[ $node ] = $this->make_remote( 'remote-ghost', 'ghost firehose.p0' );
 
 		$node->fire();
 
 		$this->assertNull( Core::node( 'remote-ghost:sse-in' ) );
-		$this->assertNull( Core::node( 'remote-ghost:remote' ) );
+		$this->assertNull( Core::node( 'remote-ghost:http-out' ) );
 	}
 
 	public function test_remove_node_tears_down_patrons_and_offsetlog(): void {
@@ -111,13 +109,13 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'remote-austin:sse-in' ) );
-		$this->assertInstanceOf( HTTP_Out_Node::class, Core::node( 'remote-austin:remote' ) );
+		$this->assertInstanceOf( HTTP_Out_Node::class, Core::node( 'remote-austin:http-out' ) );
 
 		$node->remove_node();
 
 		$this->assertNull( Core::node( 'remote-austin:sse-in' ) );
-		$this->assertNull( Core::node( 'remote-austin:remote' ) );
-		$this->assertNull( Core::node( 'remote-austin:offsetlog' ) );
+		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
+		$this->assertNull( Core::node( 'remote-austin:firehose.p0:offsetlog' ) );
 	}
 
 	public function test_node_schema_visible_io_with_args(): void {
@@ -125,7 +123,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertArrayNotHasKey( 'hidden', $schema );
 		$names = \array_column( $schema['arguments'], 'name' );
-		$this->assertSame( [ 'vault_id', 'remote_topic', 'partition' ], $names );
+		$this->assertSame( [ 'vault_id', 'remote_partition' ], $names );
 	}
 
 	// ---------------------------------------------------------------------
@@ -137,7 +135,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		// Pre-seed the per-node offsetlog with a committed {seg,off} line.
 		$offsets_dir = \Newspack_Nodes\Config::get_offsets_directory();
-		$dir         = "{$offsets_dir}/remote-austin.p0";
+		$dir         = "{$offsets_dir}/remote-austin.firehose.p0";
 		\mkdir( $dir, 0755, true );
 		$pre = new Partition_Node();
 		$pre->name( 'preseed:offsetlog' );
@@ -186,7 +184,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 
-		$http = Core::node( 'remote-austin:remote' );
+		$http = Core::node( 'remote-austin:http-out' );
 		$this->assertCount( 0, $this->read_private( $http, 'batch' ) );
 	}
 
@@ -204,7 +202,7 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$now = \microtime( true ) + 16;
 		$node->fire();
 
-		$http  = Core::node( 'remote-austin:remote' );
+		$http  = Core::node( 'remote-austin:http-out' );
 		$batch = $this->read_private( $http, 'batch' );
 		$this->assertCount( 1, $batch );
 		$envelope = $batch[0];
@@ -213,11 +211,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'workers', $envelope[ Message::TO ] );
 		$value = $envelope[ Message::VALUE ];
 		$this->assertSame( 'heartbeat', $value['name'] );
-		// args: <slot> <ttl> <partition>
-		[ $slot, $ttl, $partition ] = \explode( ' ', $value['arguments'] );
+		// args: <slot> <ttl> — ttl must outlive the heartbeat interval.
+		[ $slot, $ttl ] = \explode( ' ', $value['arguments'] );
 		$this->assertSame( '5', $slot );
-		$this->assertSame( '0', $partition );
-		$this->assertGreaterThan( 15, (int) $ttl );
+		$this->assertGreaterThan( Remote_Source_Node::HEARTBEAT_INTERVAL, (int) $ttl );
 	}
 
 	public function test_heartbeat_reply_into_fill_records_rtt_and_response(): void {
@@ -239,7 +236,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$reply[ Message::VALUE ] = [ 'success' => true ];
 		$node->fill( $reply );
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:p0' );
+		$status = Core::$memd->get( 'np:remote:firehose.p0' );
 		$this->assertIsArray( $status );
 		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
 		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
@@ -265,7 +262,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// A tick right after the reply keeps the fresh response in the snapshot.
 		$node->fire();
 		$this->assertNotNull(
-			Core::$memd->get( 'np:remote:remote-austin:p0' )['last_heartbeat_response']
+			Core::$memd->get( 'np:remote:firehose.p0' )['last_heartbeat_response']
 		);
 
 		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
@@ -273,7 +270,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// snapshot ages the response out to null (mirrors the old clear-on-disconnect).
 		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
 		$node->fire();
-		$status = Core::$memd->get( 'np:remote:remote-austin:p0' );
+		$status = Core::$memd->get( 'np:remote:firehose.p0' );
 		$this->assertNull( $status['last_heartbeat_response'] );
 		$this->assertNull( $status['last_heartbeat_rtt'] );
 	}
@@ -284,7 +281,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:p0' );
+		$status = Core::$memd->get( 'np:remote:firehose.p0' );
 		$this->assertIsArray( $status );
 		$this->assertArrayHasKey( 'connected', $status );
 		$this->assertArrayHasKey( 'current_backoff', $status );
@@ -304,7 +301,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:p0' );
+		$status = Core::$memd->get( 'np:remote:firehose.p0' );
 		$this->assertSame( 1748960000, $status['last_sse_heartbeat'] );
 	}
 

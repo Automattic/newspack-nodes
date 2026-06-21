@@ -82,7 +82,7 @@ describe( 'Inspector (edit mode)', () => {
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: 'bad/name' } } );
 		fireEvent.blur( input );
-		expect( container.textContent ).toMatch( /Letters, digits, dash/ );
+		expect( container.textContent ).toMatch( /Letters, digits, dot, dash/ );
 	} );
 
 	it( 'NameField: snaps back when the caller refuses a rename', () => {

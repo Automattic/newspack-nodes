@@ -48,7 +48,7 @@ class SseInTest extends TestCase {
 		return "event: msg\ndata: " . Message::packed( $m ) . "\n\n";
 	}
 
-	public function test_msg_frame_forwarded_with_source_stamp_and_position_update(): void {
+	public function test_msg_frame_forwarded_to_target_with_position_update(): void {
 		[ $node, $sink ] = $this->configured_node( 'austin' );
 
 		$node->process_sse_chunk( $this->msg_frame( '3:128', 'req', [ 'rid' => 'abc', 'url' => '/x' ] ) );
@@ -58,7 +58,6 @@ class SseInTest extends TestCase {
 		$this->assertSame( 'merger', $fwd[ Message::TO ] );
 		$this->assertIsArray( $fwd[ Message::VALUE ] );
 		$this->assertSame( 'abc', $fwd[ Message::VALUE ]['rid'] );
-		$this->assertSame( 'austin', $fwd[ Message::VALUE ]['_source'] );
 		$this->assertSame( [ 'segment_id' => 3, 'offset' => 128 ], $node->position() );
 	}
 
@@ -110,13 +109,15 @@ class SseInTest extends TestCase {
 		$this->assertNull( $node->connection()['last_sse_heartbeat'] );
 	}
 
-	public function test_oversized_message_dropped_not_forwarded(): void {
+	public function test_oversized_message_is_forwarded_no_size_gate(): void {
+		// SSE_In no longer enforces the Partition PIPE_BUF cap on forward — the
+		// downstream Partition owns size policy. An oversized frame flows through.
 		[ $node, $sink ] = $this->configured_node();
 		$huge = \str_repeat( 'x', 8000 );
 
 		$node->process_sse_chunk( $this->msg_frame( '1:0', 'big', [ 'blob' => $huge ] ) );
 
-		$this->assertCount( 0, $sink->captured );
+		$this->assertCount( 1, $sink->captured );
 	}
 
 	public function test_restore_position_then_connect_carries_positions_and_subscribe(): void {

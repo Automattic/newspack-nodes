@@ -45,7 +45,7 @@ class RemoteIpcNodeTest extends TestCase {
 		};
 	}
 
-	private function make_ipc( string $name = 'combined.p0', string $args = 'austin combined 0' ): array {
+	private function make_ipc( string $name = 'combined.p0', string $args = 'austin combined.p0' ): array {
 		$node = new Remote_IPC_Node();
 		$node->name( $name );
 		$sink = new Capture_Sink_Node();
@@ -81,7 +81,7 @@ class RemoteIpcNodeTest extends TestCase {
 		$cmd = $this->command( '_metadata', 'dump_metadata' );
 		$node->fill( $cmd );
 
-		$http  = Core::node( 'combined.p0:remote' );
+		$http  = Core::node( 'combined.p0:http-out' );
 		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
 		$batch = $this->read_private( $http, 'batch' );
 		$this->assertCount( 2, $batch );
@@ -103,7 +103,7 @@ class RemoteIpcNodeTest extends TestCase {
 		$cmd = $this->command( '_metadata', '' );
 		$node->fill( $cmd );
 
-		$batch = $this->read_private( Core::node( 'combined.p0:remote' ), 'batch' );
+		$batch = $this->read_private( Core::node( 'combined.p0:http-out' ), 'batch' );
 		$this->assertSame( 'combined.p0', $batch[1][ Message::TO ] );
 	}
 
@@ -117,15 +117,15 @@ class RemoteIpcNodeTest extends TestCase {
 		$cmd = $this->command( '_metadata', 'dump_metadata' );
 		$node->fill( $cmd );
 
-		$batch = $this->read_private( Core::node( 'combined.p0:remote' ), 'batch' );
+		$batch = $this->read_private( Core::node( 'combined.p0:http-out' ), 'batch' );
 		$this->assertSame( Node_Names::SSE . ':4242/_metadata', $batch[1][ Message::FROM ] );
 	}
 
 	public function test_connect_steals_the_single_live_connection(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
-		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined 0' );
-		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame 0' );
+		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined.p0' );
+		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame.p0' );
 
 		$a->connect();
 		$this->assertSame( $a, Remote_IPC_Node::$active );
@@ -150,14 +150,14 @@ class RemoteIpcNodeTest extends TestCase {
 		$node->fill( $reply );
 
 		// A reply is RTT bookkeeping, not a command to relay — nothing batched.
-		$this->assertCount( 0, $this->read_private( Core::node( 'combined.p0:remote' ), 'batch' ) );
+		$this->assertCount( 0, $this->read_private( Core::node( 'combined.p0:http-out' ), 'batch' ) );
 	}
 
 	public function test_only_the_active_link_ticks_a_heartbeat(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
-		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined 0' );
-		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame 0' );
+		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined.p0' );
+		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame.p0' );
 
 		$a->connect();
 		$this->feed_connected( Core::node( 'combined.p0:sse-in' ), 5, 4242 );
@@ -170,8 +170,8 @@ class RemoteIpcNodeTest extends TestCase {
 		$a->fire();
 		$b->fire();
 
-		$this->assertCount( 0, $this->read_private( Core::node( 'combined.p0:remote' ), 'batch' ) );
-		$batch_b = $this->read_private( Core::node( 'flame.p0:remote' ), 'batch' );
+		$this->assertCount( 0, $this->read_private( Core::node( 'combined.p0:http-out' ), 'batch' ) );
+		$batch_b = $this->read_private( Core::node( 'flame.p0:http-out' ), 'batch' );
 		$this->assertCount( 1, $batch_b );
 		$this->assertSame( 'heartbeat', $batch_b[0][ Message::VALUE ]['name'] );
 	}
@@ -182,6 +182,6 @@ class RemoteIpcNodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'hidden', $schema );
 		// arguments inherit from the base via array_merge (single source of truth).
 		$names = \array_column( $schema['arguments'], 'name' );
-		$this->assertSame( [ 'vault_id', 'remote_topic', 'partition' ], $names );
+		$this->assertSame( [ 'vault_id', 'remote_partition' ], $names );
 	}
 }
