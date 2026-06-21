@@ -87,8 +87,16 @@ export function canonicalReplyPivot( rawPwd ) {
 	return ( rawPwd || '' ).replace( /\/[^/]+$/, `/${ reservedNames.OUTPUT }` );
 }
 
-// The rule-#2 backbone every node sinks through — hidden from the canvas.
-const SCAFFOLDING = new Set( [ '_command_interpreter', '_router' ] );
+// Process plumbing hidden from the canvas: the rule-#2 backbone every node sinks
+// through, plus the per-worker TopicProbe + its shared log (auto-mounted by
+// Worker_Base, present in every worker's dump_metadata but not part of any
+// topology the operator authored).
+const SCAFFOLDING = new Set( [
+	reservedNames.COMMAND_INTERPRETER,
+	reservedNames.ROUTER,
+	reservedNames.TOPICPROBE,
+	reservedNames.TOPICPROBE_LOG,
+] );
 
 /**
  * Parse a `dump_metadata` payload (object keyed by node name) into

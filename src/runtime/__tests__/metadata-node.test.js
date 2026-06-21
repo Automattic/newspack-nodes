@@ -392,4 +392,26 @@ describe( 'Metadata node', () => {
 			expect( nodes[ 0 ].has_target ).toBe( true );
 		} );
 	} );
+
+	describe( 'parseMetadata hides process scaffolding', () => {
+		it( 'drops the backbone + the per-worker TopicProbe and its log (nodes + edges)', () => {
+			const { nodes, edges } = parseMetadata( {
+				_command_interpreter: {
+					class: 'Command_Interpreter',
+					sink: '_router',
+				},
+				_router: { class: 'Router' },
+				_topicprobe: { class: 'TopicProbe', target: '_topicprobe:log' },
+				'_topicprobe:log': { class: 'Partition' },
+				firehose: { class: 'Consumer', target: 'request-builder' },
+				'request-builder': { class: 'Request_Builder' },
+			} );
+			const ids = nodes.map( ( n ) => n.id ).sort();
+			expect( ids ).toEqual( [ 'firehose', 'request-builder' ] );
+			// No edge references the hidden probe/log (the probe→log edge is gone).
+			const touched = edges.flatMap( ( e ) => [ e.from, e.to ] );
+			expect( touched ).not.toContain( '_topicprobe' );
+			expect( touched ).not.toContain( '_topicprobe:log' );
+		} );
+	} );
 } );
