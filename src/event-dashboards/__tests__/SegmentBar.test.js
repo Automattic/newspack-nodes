@@ -116,6 +116,24 @@ describe( 'SegmentBar — three regions', () => {
 		expect( seg1[ 2 ].width ).toBe( '50%' );
 	} );
 
+	it( 'staggers the fill/offset transition left-to-right by segment index', () => {
+		// index 2 → its fills wait 2 bar-durations so it starts as bar 1 finishes
+		// (the slide-left keyframe is separate and stays simultaneous).
+		const { container } = render(
+			<SegmentBar
+				segment={ { id: 2, size: 100 } }
+				maxSize={ 100 }
+				cursorSeg={ 2 }
+				cursorOffset={ 50 }
+				endSeg={ 2 }
+				endSize={ 100 }
+				index={ 2 }
+			/>
+		);
+		const bar = container.querySelector( '.worker-segment-h' );
+		expect( bar.style.getPropertyValue( '--seg-delay' ) ).toBe( '0.6s' );
+	} );
+
 	it( 'a fully-read older segment is all green (read past it)', () => {
 		const { container } = render(
 			<SegmentBar

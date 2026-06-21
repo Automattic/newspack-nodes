@@ -20,6 +20,7 @@ import { formatBytes } from './formatters';
  * @param {number}  props.cursorOffset Reader cursor offset within cursorSeg.
  * @param {number}  props.endSeg       Recorded probe-end segment ID (null = no consumer).
  * @param {number}  props.endSize      Recorded probe-end offset within endSeg.
+ * @param {number}  props.index        Position in the row; staggers the fill animation.
  * @param {boolean} props.isNew        Whether this segment is newly appeared.
  * @param {boolean} props.isRemoving   Whether this segment is being removed.
  * @return {import('react').ReactElement} Rendered component.
@@ -31,6 +32,7 @@ export const SegmentBar = memo( function SegmentBar( {
 	cursorOffset,
 	endSeg,
 	endSize,
+	index = 0,
 	isNew,
 	isRemoving,
 } ) {
@@ -70,9 +72,15 @@ export const SegmentBar = memo( function SegmentBar( {
 		.filter( Boolean )
 		.join( ' ' );
 
+	// Stagger the fill/offset transition left-to-right: each bar waits one bar's
+	// duration (0.3s, matching the .segment-fill-h transition) per index, so it
+	// starts as the previous bar finishes. The slide-left keyframe is unaffected.
+	const segDelay = { '--seg-delay': `${ index * 0.3 }s` };
+
 	return (
 		<div
 			className={ classNames }
+			style={ segDelay }
 			title={ sprintf(
 				// translators: 1: segment id, 2: formatted segment size.
 				__( 'Segment %1$s: %2$s', 'newspack-nodes' ),
