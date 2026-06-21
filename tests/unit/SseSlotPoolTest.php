@@ -67,16 +67,15 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	public function test_touch_returns_true_for_held_slot_false_for_missing(): void {
-		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30, -1 );
-		$this->assertTrue( SSE_Slot_Pool::touch( 1, 'abc', $slot, 30, -1 ) );
-		$this->assertFalse( SSE_Slot_Pool::touch( 1, 'abc', 5, 30, -1 ) );
+		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 );
+		$this->assertTrue( SSE_Slot_Pool::touch( 1, 'abc', $slot, 30 ) );
+		$this->assertFalse( SSE_Slot_Pool::touch( 1, 'abc', 5, 30 ) );
 	}
 
 	public function test_partition_scopes_slot_keys_independently(): void {
-		// A shared-pool (-1) claim must not collide with a per-partition claim.
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 1, 30, -1 ) );
-		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 1, 30, -1 ) );
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 1, 30, 3 ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 1, 30 ) );
+		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 1, 30 ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
 	}
 
 	// ── fail-closed when Core::$memd is null ─────────────────────────────────
@@ -149,16 +148,5 @@ class SseSlotPoolTest extends TestCase {
 		$this->assertNotFalse( $acquire( -1 ) );
 		$this->assertNotFalse( $acquire( -1 ) );
 		$this->assertFalse( $acquire( -1 ) );
-	}
-
-	public function test_wired_acquire_uses_aggregator_ttl_for_partition_pool(): void {
-		// Per-partition (>= 0) pools use the longer aggregator TTL; the shared
-		// browser pool (-1) uses the shorter browser TTL. We can't read the TTL
-		// back through \Memcached, so assert the two pools are independent and
-		// both claim slot 0 (proving the partition arg threads through wire()).
-		SSE_Slot_Pool::wire();
-		$acquire = SSE_Out_Node::$acquire_slot;
-		$this->assertSame( 0, $acquire( -1 ) );
-		$this->assertSame( 0, $acquire( 5 ) );
 	}
 }

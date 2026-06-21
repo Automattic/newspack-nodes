@@ -647,7 +647,6 @@ class Workers_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
 						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
-						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
 					],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
 						if ( null === Core::$memd ) {
@@ -658,9 +657,8 @@ class Workers_CI_Node extends Service_CI_Node {
 						if ( $slot < 0 ) {
 							throw new \RuntimeException( 'slot required' );
 						}
-						$ttl       = isset( $parts[1] ) ? (int) $parts[1] : 10;
-						$partition = isset( $parts[2] ) ? (int) $parts[2] : -1;
-						$success   = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl, $partition );
+						$ttl     = isset( $parts[1] ) ? (int) $parts[1] : 10;
+						$success = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl );
 						return [ 'success' => $success, 'slot' => $slot ];
 					},
 				],

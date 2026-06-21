@@ -3,19 +3,18 @@
  * Remote_Link: the full-duplex "be the browser" SSE+HTTP channel, as one node.
  *
  * One Remote_Link patrons two hidden siblings: an `SSE_In_Node` (`<name>:sse-in`)
- * that pulls one remote topic/partition, and an `HTTP_Out_Node` (`<name>:remote`)
+ * that pulls one remote partition, and an `HTTP_Out_Node` (`<name>:http-out`)
  * that carries outbound commands + the slot-keepalive heartbeat. A recurring tick
  * drives the passive SSE_In (`check_stale` + `maybe_connect`), mints a
  * `workers.heartbeat` every ~HEARTBEAT_INTERVAL (filled into the patron HTTP_Out,
- * whose reply self-routes back into `fill()` for RTT bookkeeping), and publishes a
- * per-node status snapshot to memcache under `np:remote:<name>:p<partition>`.
+ * whose reply self-routes back into `fill()` for RTT bookkeeping)
  *
  * Credentials + URL come from the Vault entry resolved by `<vault-id>`; a missing
  * entry leaves the node disconnected (no mis-configured patrons created).
  *
- * Mirrors the JS RemoteLinkNode. Two subclasses specialize the base via four
- * protected seams (`restore_position`, `persist_cursor`, `should_connect`,
- * `rehome_received`): `Remote_Source_Node` adds the durable aggregation offsetlog;
+ * Mirrors the JS RemoteLinkNode. Two subclasses specialize the base via three
+ * protected seams (`restore_position`, `persist_cursor`, `should_connect`).
+ * `Remote_Source_Node` adds the durable aggregation offsetlog;
  * `Remote_IPC_Node` adds the worker-pivot send + single-connection steal.
  *
  * @package Newspack_Nodes
@@ -31,19 +30,18 @@ class Remote_Link_Node extends Timer_Node {
 	private const TICK_INTERVAL_MS = 1000;
 
 	/** Slot-keepalive heartbeat cadence (seconds). */
-	public const HEARTBEAT_INTERVAL = 15;
+	public const HEARTBEAT_INTERVAL = 10;
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
 
-	protected string $vault_id     = '';
-	protected string $remote_topic = '';
-	protected int    $partition    = 0;
+	protected string $vault_id         = '';
+	protected string $remote_partition = '';
 
 	/** Patron SSE_In sibling (`<name>:sse-in`); null until first connect / Vault-resolved. */
 	protected ?SSE_In_Node $sse_in = null;
 
-	/** Patron HTTP_Out sibling (`<name>:remote`); carries commands + the heartbeat. */
+	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
 	protected ?HTTP_Out_Node $http_out = null;
 
 	private int $last_heartbeat          = 0;
@@ -56,7 +54,7 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Parse `<vault-id> <remote_topic> <partition>` and arm the recurring tick.
+	 * Parse `<vault-id> <remote_partition>` and arm the recurring tick.
 	 * A Timer_Node subclass does not self-schedule, so we explicitly set_timer().
 	 *
 	 * @api Dynamic entrypoint.
@@ -68,7 +66,6 @@ class Remote_Link_Node extends Timer_Node {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
-		$this->partition = \max( 0, $this->partition );
 		if ( '' !== $args ) {
 			$this->set_timer( self::TICK_INTERVAL_MS );
 		}
@@ -186,17 +183,12 @@ class Remote_Link_Node extends Timer_Node {
 		return true;
 	}
 
-	/** Whether forwarded records are re-homed to the target. Base subscribes (true). */
-	protected function rehome_received(): bool {
-		return true;
-	}
-
 	// =========================================================================
 	// Status snapshot — generic per-node memcache key.
 	// =========================================================================
 
 	private function status_key(): string {
-		return "np:remote:{$this->name}:p{$this->partition}";
+		return "np:remote:{$this->remote_partition}";
 	}
 
 	/**
@@ -257,7 +249,6 @@ class Remote_Link_Node extends Timer_Node {
 		$sse = new SSE_In_Node();
 		$sse->name( "{$this->name}:sse-in" );
 		$sse->patron( $this );
-		$sse->home_to_target = $this->rehome_received();
 		// SSE_In forwards parsed output to THIS node's own downstream wiring.
 		if ( null !== $this->sink ) {
 			$sse->sink( $this->sink );
@@ -270,21 +261,19 @@ class Remote_Link_Node extends Timer_Node {
 			Core::as_string( $entry['auth_username'] ?? '' ),
 			Core::as_string( $entry['auth_password'] ?? '' ),
 			Core::as_string( $entry['token'] ?? '' ),
-			"{$this->remote_topic}.p{$this->partition}",
+			"{$this->remote_partition}",
 			$restored,
 			$this->vault_id,
 			$verify_ssl,
 			$require_https
 		);
-		Core::register_node( "{$this->name}:sse-in", $sse );
 		$this->sse_in = $sse;
 
 		$http = new HTTP_Out_Node();
-		$http->name( "{$this->name}:remote" );
+		$http->name( "{$this->name}:http-out" );
 		$http->patron( $this );
 		$http->arguments( $this->vault_id );
 		$http->sink( $this->sink );
-		Core::register_node( "{$this->name}:remote", $http );
 		$this->http_out = $http;
 
 		return $sse;
@@ -321,7 +310,7 @@ class Remote_Link_Node extends Timer_Node {
 		$message[ Message::TO ]    = 'workers';
 		$message[ Message::VALUE ] = [
 			'name'      => 'heartbeat',
-			'arguments' => $slot . ' ' . ( self::HEARTBEAT_INTERVAL * 4 ) . ' ' . $this->partition,
+			'arguments' => $slot . ' ' . ( self::HEARTBEAT_INTERVAL * 3 ),
 		];
 		++$this->counter;
 		$this->http_out->fill( $message );
@@ -384,12 +373,11 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	public static function node_schema(): array {
 		return [
-			'category'     => 'Hidden',
+			'category'    => 'I/O',
 			'description'  => 'Full-duplex SSE+HTTP channel base: composes an SSE_In + HTTP_Out and drives the heartbeat/status tick.',
 			'arguments'    => [
-				[ 'name' => 'vault_id',     'type' => 'string', 'required' => true ],
-				[ 'name' => 'remote_topic', 'type' => 'string' ],
-				[ 'name' => 'partition',    'type' => 'int' ],
+				[ 'name' => 'vault_id',         'type' => 'string', 'required' => true ],
+				[ 'name' => 'remote_partition', 'type' => 'string', 'required' => true ],
 			],
 			'commands'     => [],
 			'requests'     => [],

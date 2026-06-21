@@ -3,7 +3,7 @@
  * Remote_Source: a self-sufficient, topology-visible SSE-pull aggregation node.
  *
  * Extends Remote_Link with the one concern that distinguishes durable aggregation
- * from a transient channel: a per-node offsetlog (`<offsets_dir>/<name>.p<partition>`,
+ * from a transient channel: a per-node offsetlog (`<offsets_dir>/<name>.<remote_partition>`,
  * keyed by NODE NAME). It restores the committed `{seg,off}` cursor into SSE_In
  * before connect (the `restore_position` seam) and commits the live cursor every
  * ~COMMIT_INTERVAL seconds (the `persist_cursor` seam). Everything else — the
@@ -25,7 +25,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Offsetlog commit cadence (seconds). */
 	private const COMMIT_INTERVAL = 5;
 
-	/** Durable per-node offsetlog (`<offsets_dir>/<name>.p<partition>`). */
+	/** Durable per-node offsetlog (`<offsets_dir>/<name>.<remote_partition>`). */
 	private ?Partition_Node $offsetlog = null;
 
 	private float $last_commit_time = 0.0;
@@ -99,13 +99,13 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( '' === $offsets_dir ) {
 			return null;
 		}
-		$dir = "{$offsets_dir}/{$this->name}.p{$this->partition}";
+		$dir = "{$offsets_dir}/{$this->name}.{$this->remote_partition}";
 		if ( ! \is_dir( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $dir, 0755, true );
 		}
 		$offsetlog = new Partition_Node();
-		$offsetlog->name( "{$this->name}:offsetlog" );
+		$offsetlog->name( "{$this->name}:{$this->remote_partition}:offsetlog" );
 		$offsetlog->patron( $this );
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null === $offsetlog->sink() && null !== $ci ) {
@@ -155,8 +155,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'I/O',
-			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke topic/partition (Vault-resolved).',
+			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
 		] );
 	}
 }

@@ -460,7 +460,7 @@ msgid "Name '%s' already in use."
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:302
-msgid "Letters, digits, dash, underscore, colon only."
+msgid "Letters, digits, dot, dash, underscore, colon only."
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:325

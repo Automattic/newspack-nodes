@@ -137,15 +137,6 @@ class RemoteIpcNodeTest extends TestCase {
 		$this->assertFalse( Core::node( 'combined.p0:sse-in' )->connection()['connected'] );
 	}
 
-	public function test_sse_in_does_not_rehome_received_frames(): void {
-		$this->seed_vault();
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_ipc( 'combined.p0' );
-		$node->connect();
-
-		$this->assertFalse( Core::node( 'combined.p0:sse-in' )->home_to_target );
-	}
-
 	public function test_reply_records_not_sent(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
@@ -185,8 +176,12 @@ class RemoteIpcNodeTest extends TestCase {
 		$this->assertSame( 'heartbeat', $batch_b[0][ Message::VALUE ]['name'] );
 	}
 
-	public function test_node_schema_is_hidden(): void {
+	public function test_node_schema_is_visible_io_inheriting_base_args(): void {
 		$schema = Remote_IPC_Node::node_schema();
-		$this->assertSame( 'Hidden', $schema['category'] );
+		$this->assertSame( 'I/O', $schema['category'] );
+		$this->assertArrayNotHasKey( 'hidden', $schema );
+		// arguments inherit from the base via array_merge (single source of truth).
+		$names = \array_column( $schema['arguments'], 'name' );
+		$this->assertSame( [ 'vault_id', 'remote_topic', 'partition' ], $names );
 	}
 }

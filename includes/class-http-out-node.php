@@ -240,7 +240,9 @@ class HTTP_Out_Node extends Timer_Node {
 		} else {
 			$res = $this->read_result( $easy );
 			if ( 200 !== $res['code'] ) {
-				$this->print_less_often( "HTTP {$res['code']}" );
+				if ( 202 !== $res['code'] ) {
+					$this->print_less_often( "HTTP {$res['code']}" );
+				}
 			} elseif ( null !== $this->sink && '' !== $res['body'] ) {
 				foreach ( \explode( "\n", $res['body'] ) as $line ) {
 					if ( '' === $line ) {

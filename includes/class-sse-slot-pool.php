@@ -25,33 +25,29 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 class SSE_Slot_Pool {
 
 	/** Maximum concurrent SSE streams per user/IP per pool. */
-	public static int $max_slots = 8;
+	public static int $max_slots = 10;
 
-	/** Slot TTL (seconds) for the shared browser pool (partition === -1). */
-	public static int $ttl_browser = 30;
-
-	/** Slot TTL (seconds) for per-partition aggregator pools (partition >= 0). */
-	public static int $ttl_aggregator = 60;
+	/** Slot TTL (seconds) */
+	public static int $ttl = 30;
 
 	/**
 	 * Install the three `SSE_Out` slot-pool seams. Idempotent. Call from the
 	 * application bootstrap once `Core::$memd` is set.
 	 */
 	public static function wire(): void {
-		SSE_Out_Node::$acquire_slot = static function ( int $partition ): int|false {
-			$ttl = $partition >= 0 ? self::$ttl_aggregator : self::$ttl_browser;
-			return self::acquire( self::user_id(), self::ip_hash(), self::$max_slots, $ttl, $partition );
+		SSE_Out_Node::$acquire_slot = static function (): int|false {
+			return self::acquire( self::user_id(), self::ip_hash(), self::$max_slots, self::$ttl );
 		};
-		SSE_Out_Node::$release_slot = static function ( int $slot, int $partition ): void {
-			self::release( self::user_id(), self::ip_hash(), $slot, $partition );
+		SSE_Out_Node::$release_slot = static function ( int $slot ): void {
+			self::release( self::user_id(), self::ip_hash(), $slot );
 		};
-		SSE_Out_Node::$check_slot = static function ( int $slot, int $partition ): bool {
+		SSE_Out_Node::$check_slot = static function ( int $slot ): bool {
 			// Check-only — NEVER refresh the TTL here. The slot TTL is refreshed
 			// EXCLUSIVELY by the client's periodic `workers/heartbeat` poke
 			// (Workers_CI -> Sse_Slot_Pool::touch). A stream draining is not proof
 			// the browser is alive; refresh-on-check would let a zombie connection
 			// hold a slot indefinitely, defeating the rate-limit invariant.
-			return self::check( self::user_id(), self::ip_hash(), $slot, $partition );
+			return self::check( self::user_id(), self::ip_hash(), $slot );
 		};
 	}
 
@@ -61,14 +57,14 @@ class SSE_Slot_Pool {
 	 *
 	 * @return int|false Slot index 0..max_slots-1, or false if all taken / no memcache.
 	 */
-	public static function acquire( int $user_id, string $ip_hash, int $max_slots, int $ttl, int $partition = -1 ): int|false {
+	public static function acquire( int $user_id, string $ip_hash, int $max_slots, int $ttl ): int|false {
 		if ( null === Core::$memd ) {
 			return false;
 		}
 		// Opaque per-connection marker; only its presence (not value) is read.
 		$connection_id = \bin2hex( \random_bytes( 8 ) );
 		for ( $slot = 0; $slot < $max_slots; $slot++ ) {
-			$key = self::slot_key( $user_id, $ip_hash, $slot, $partition );
+			$key = self::slot_key( $user_id, $ip_hash, $slot );
 			if ( Core::$memd->add( $key, $connection_id, $ttl ) ) {
 				return $slot;
 			}
@@ -77,13 +73,9 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Slot cache key. Per-partition pools (>= 0) get their own key space so a
-	 * stream-merger can't crowd browser tabs out of the shared pool.
+	 * Slot cache key.
 	 */
-	private static function slot_key( int $user_id, string $ip_hash, int $slot, int $partition ): string {
-		if ( $partition >= 0 ) {
-			return "evlog:sse:{$user_id}:{$ip_hash}:p{$partition}:{$slot}";
-		}
+	private static function slot_key( int $user_id, string $ip_hash, int $slot ): string {
 		return "evlog:sse:{$user_id}:{$ip_hash}:{$slot}";
 	}
 
@@ -102,26 +94,26 @@ class SSE_Slot_Pool {
 	}
 
 	/** Release a slot. Fail-OPEN (slots auto-expire via TTL). */
-	public static function release( int $user_id, string $ip_hash, int $slot, int $partition = -1 ): bool {
+	public static function release( int $user_id, string $ip_hash, int $slot ): bool {
 		if ( null === Core::$memd ) {
 			return true;
 		}
-		return Core::$memd->delete( self::slot_key( $user_id, $ip_hash, $slot, $partition ) );
+		return Core::$memd->delete( self::slot_key( $user_id, $ip_hash, $slot ) );
 	}
 
 	/** Whether the slot is still held (no TTL refresh). Fail-CLOSED. */
-	public static function check( int $user_id, string $ip_hash, int $slot, int $partition = -1 ): bool {
+	public static function check( int $user_id, string $ip_hash, int $slot ): bool {
 		if ( null === Core::$memd ) {
 			return false;
 		}
-		return false !== Core::$memd->get( self::slot_key( $user_id, $ip_hash, $slot, $partition ) );
+		return false !== Core::$memd->get( self::slot_key( $user_id, $ip_hash, $slot ) );
 	}
 
 	/** Refresh slot TTL (client heartbeat). Fail-OPEN (true when no memcache). */
-	public static function touch( int $user_id, string $ip_hash, int $slot, int $ttl, int $partition = -1 ): bool {
+	public static function touch( int $user_id, string $ip_hash, int $slot, int $ttl ): bool {
 		if ( null === Core::$memd ) {
 			return true;
 		}
-		return Core::$memd->touch( self::slot_key( $user_id, $ip_hash, $slot, $partition ), $ttl );
+		return Core::$memd->touch( self::slot_key( $user_id, $ip_hash, $slot ), $ttl );
 	}
 }

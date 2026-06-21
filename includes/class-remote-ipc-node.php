@@ -19,9 +19,7 @@
  *    the same server process.
  *
  * Single live connection: a send boots this link's SSE_In, closing whichever
- * Remote_IPC held it (the cwd-changes-worker swap). `rehome_received()` is false so
- * worker reply frames keep their TO=FROM breadcrumb routing instead of being
- * re-homed to a target.
+ * Remote_IPC held it (the cwd-changes-worker swap).
  *
  * @package Newspack_Nodes
  */
@@ -80,7 +78,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 			return;
 		}
 
-		$reader    = $this->name;
+		$reader    = $this->remote_partition;
 		$remainder = Core::as_string( $message[ Message::TO ] );
 		$command   = $message;
 		$from      = Core::as_string( $command[ Message::FROM ] );
@@ -105,11 +103,6 @@ class Remote_IPC_Node extends Remote_Link_Node {
 		return self::$active === $this;
 	}
 
-	/** Pivoted IPC, not a subscription: reply frames keep their TO=FROM routing. */
-	protected function rehome_received(): bool {
-		return false;
-	}
-
 	/**
 	 * Teardown: release the live-connection claim, then tear down the patrons + self.
 	 *
@@ -127,7 +120,6 @@ class Remote_IPC_Node extends Remote_Link_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
-		// Category stays Hidden (inherited); only the description differs.
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Per-worker interactive command channel: cd onto it and commands ride to the remote worker.',
 		] );
