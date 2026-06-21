@@ -134,6 +134,26 @@ describe( 'SegmentBar — three regions', () => {
 		expect( bar.style.getPropertyValue( '--seg-delay' ) ).toBe( '0.6s' );
 	} );
 
+	it( 'a newly-arrived segment (isNew) mounts with empty fills so they animate in', () => {
+		// CSS transitions do not fire on mount, so a new segment must render at
+		// 0-width first and flip to its real widths on the next frame.
+		const { container } = render(
+			<SegmentBar
+				segment={ { id: 3, size: 100 } }
+				maxSize={ 100 }
+				cursorSeg={ 3 }
+				cursorOffset={ 40 }
+				endSeg={ 3 }
+				endSize={ 80 }
+				isNew={ true }
+			/>
+		);
+		const f = fills( container );
+		expect( f[ 0 ].width ).toBe( '0%' );
+		expect( f[ 1 ].width ).toBe( '0%' );
+		expect( f[ 2 ].width ).toBe( '0%' );
+	} );
+
 	it( 'a fully-read older segment is all green (read past it)', () => {
 		const { container } = render(
 			<SegmentBar
