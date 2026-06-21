@@ -99,7 +99,7 @@ class Bootstrap {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
-		Topology_Registry::register_stock_dir( \dirname( __DIR__ ) . '/topologies' );
+		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
