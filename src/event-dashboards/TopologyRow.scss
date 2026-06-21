@@ -62,9 +62,11 @@
 		}
 	}
 
-	// Topology-level fold chevron — folds the whole row back to its compact
-	// Overview summary (separate from the within-tree node-fold carets).
-	&__collapse {
+	// Topology-level fold chevron — ▸ expands / ▾ collapses the whole row between
+	// its compact Overview summary and the detail tree (separate from the
+	// within-tree node-fold carets).
+	&__collapse,
+	&__expand {
 		flex: 0 0 auto;
 		font-size: 12px;
 		line-height: 1;
@@ -79,6 +81,27 @@
 			color: base.$dark-text;
 			background: base.$dark-bg-hover;
 		}
+	}
+
+	// Drag handle for row reorder (native HTML5 DnD).
+	&__grip {
+		flex: 0 0 auto;
+		color: base.$dark-text-dim;
+		cursor: grab;
+		user-select: none;
+		padding: 0 2px;
+
+		&:active {
+			cursor: grabbing;
+		}
+	}
+
+	// Catch-up ETA shown beside the health badge when behind/stalled.
+	&__eta {
+		flex: 0 0 auto;
+		font-size: 11px;
+		color: base.$dark-text-dim;
+		font-variant-numeric: tabular-nums;
 	}
 
 	&__name {

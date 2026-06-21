@@ -119,20 +119,38 @@ export function formatAge( startedAt, now ) {
 }
 
 /**
- * Format ETA as human readable duration.
+ * Seconds to drain `bytesBehind` at `readRate`. 0 when not behind; Infinity when
+ * there's lag but no read progress (stalled). The numeric core behind formatEta
+ * and the health rollup's "behind" threshold.
  *
  * @param {number} bytesBehind Bytes remaining to process.
  * @param {number} readRate    Current read rate in bytes per second.
- * @return {string} Formatted ETA string or empty if not applicable.
+ * @return {number} Seconds (0 / Infinity / ceil(behind/rate)).
  */
-export function formatEta( bytesBehind, readRate ) {
+export function etaSeconds( bytesBehind, readRate ) {
 	if ( ! bytesBehind || bytesBehind <= 0 ) {
-		return '';
+		return 0;
 	}
 	if ( ! readRate || readRate <= 0 ) {
+		return Infinity;
+	}
+	return Math.ceil( bytesBehind / readRate );
+}
+
+/**
+ * Format an ETA already expressed in seconds (the output of `etaSeconds`).
+ * 0 → '' (caught up); Infinity → 'stalled'; else a human duration.
+ *
+ * @param {number} seconds ETA seconds (0 / Infinity / finite).
+ * @return {string} Formatted ETA string or empty.
+ */
+export function formatEtaSeconds( seconds ) {
+	if ( ! seconds || seconds <= 0 ) {
+		return '';
+	}
+	if ( ! Number.isFinite( seconds ) ) {
 		return __( 'stalled', 'newspack-nodes' );
 	}
-	const seconds = Math.ceil( bytesBehind / readRate );
 	if ( seconds < 60 ) {
 		return `${ seconds }s`;
 	}
@@ -143,4 +161,15 @@ export function formatEta( bytesBehind, readRate ) {
 	const hours = Math.floor( seconds / 3600 );
 	const mins = Math.ceil( ( seconds % 3600 ) / 60 );
 	return `${ hours }h${ mins }m`;
+}
+
+/**
+ * Format ETA as human readable duration.
+ *
+ * @param {number} bytesBehind Bytes remaining to process.
+ * @param {number} readRate    Current read rate in bytes per second.
+ * @return {string} Formatted ETA string or empty if not applicable.
+ */
+export function formatEta( bytesBehind, readRate ) {
+	return formatEtaSeconds( etaSeconds( bytesBehind, readRate ) );
 }

@@ -29,7 +29,68 @@ import {
 	TM_ERROR,
 } from '../../runtime/message';
 import { Core } from '../../runtime/core';
-import { useTopologyManager, STALL_PAD } from '../hooks/useTopologyManager';
+import {
+	useTopologyManager,
+	STALL_PAD,
+	deriveHealth,
+} from '../hooks/useTopologyManager';
+
+describe( 'deriveHealth — eta-aware behind', () => {
+	const sect = ( workers ) => ( { workers, heartbeatIntervalS: 10 } );
+
+	it( 'returns ok + eta 0 for no section', () => {
+		expect( deriveHealth( null ) ).toEqual( {
+			partitions: [],
+			health: 'ok',
+			etaSeconds: 0,
+		} );
+	} );
+
+	it( 'does NOT count a sub-minute ETA as behind', () => {
+		// behind 100B at 10 B/s = 10s ETA → caught up enough; health stays ok.
+		const r = deriveHealth(
+			sect( [
+				{ partition: 0, heartbeat_age: 5, behind: 100, read_rate: 10 },
+			] )
+		);
+		expect( r.health ).toBe( 'ok' );
+		expect( r.etaSeconds ).toBe( 10 );
+	} );
+
+	it( 'counts a >=1min ETA as behind and reports the worst eta', () => {
+		const r = deriveHealth(
+			sect( [
+				{ partition: 0, heartbeat_age: 5, behind: 6000, read_rate: 10 },
+			] )
+		);
+		expect( r.health ).toBe( 'behind' );
+		expect( r.etaSeconds ).toBe( 600 );
+	} );
+
+	it( 'counts lag with no read progress (rate 0) as behind (Infinity eta)', () => {
+		const r = deriveHealth(
+			sect( [
+				{ partition: 0, heartbeat_age: 5, behind: 4096, read_rate: 0 },
+			] )
+		);
+		expect( r.health ).toBe( 'behind' );
+		expect( r.etaSeconds ).toBe( Infinity );
+	} );
+
+	it( 'heartbeat stall outranks behind', () => {
+		const r = deriveHealth(
+			sect( [
+				{
+					partition: 0,
+					heartbeat_age: 40,
+					behind: 6000,
+					read_rate: 10,
+				},
+			] )
+		);
+		expect( r.health ).toBe( 'stalled' );
+	} );
+} );
 
 jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
 	__esModule: true,

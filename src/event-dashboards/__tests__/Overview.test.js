@@ -1,11 +1,10 @@
 /* global globalThis */
 /**
- * Overview — the hub's at-a-glance fleet-health board (the first paint). A live
- * "is everything OK right now?" glance over useTopologyManager: a fleet strip
- * (counts + partitions-up + a worst-health pill), the supervisor card, one row
- * per ACTIVE topology (per-partition worker pills + consumer lag + uptime,
- * problems sorted first), and a de-emphasized group of stopped topologies. The
- * hook's data contract is exercised by its own suite; here it's mocked.
+ * Overview — the merged hub board. Every active topology renders as a TopologyRow
+ * (folded compact ↔ unfolded detail), in the user's persisted drag order (NOT
+ * health), with a de-emphasized stopped group. TopologyRow is stubbed here (its
+ * own suite owns the heading/tree DOM); this suite asserts the tab wired the right
+ * props (folded flag, handlers, order) and persisted order + fold state.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
@@ -13,6 +12,14 @@ import Overview from '../Overview';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
 	useTopologyManager: jest.fn(),
+} ) );
+// Persistence is its own suite; here it's mocked so the tab's read-on-init +
+// write-through wiring can be asserted without touching real localStorage.
+jest.mock( '../overviewPrefs', () => ( {
+	readOrder: jest.fn( () => [] ),
+	writeOrder: jest.fn(),
+	readExpanded: jest.fn( () => new Set() ),
+	writeExpanded: jest.fn(),
 } ) );
 // The probe stream is its own suite; here the link is a no-op and the view model
 // is fed directly via useNodeState.
@@ -77,6 +84,7 @@ jest.mock( '../TopologyRow', () => {
 			return el.createElement( 'div', {
 				className: 'nodes-tm__topology-stub',
 				'data-name': props.topology.name,
+				'data-folded': String( !! props.folded ),
 			} );
 		},
 	};
@@ -84,6 +92,7 @@ jest.mock( '../TopologyRow', () => {
 
 const { useTopologyManager } = require( '../hooks/useTopologyManager' );
 const { useNodeState } = require( '../../runtime/react' );
+const overviewPrefs = require( '../overviewPrefs' );
 
 // Find the captured TopologyControls props for a topology by name.
 function controlFor( name ) {
@@ -131,6 +140,10 @@ function hookValue( overrides = {} ) {
 
 beforeEach( () => {
 	useNodeState.mockReturnValue( undefined );
+	overviewPrefs.readOrder.mockReturnValue( [] );
+	overviewPrefs.readExpanded.mockReturnValue( new Set() );
+	overviewPrefs.writeOrder.mockClear();
+	overviewPrefs.writeExpanded.mockClear();
 	globalThis.__topicsPanels = [];
 	globalThis.__summaryCards = [];
 	globalThis.__topologyControls = [];
@@ -141,10 +154,30 @@ afterEach( () => {
 	useNodeState.mockReset();
 } );
 
+// Active rows are TopologyRow stubs (data-name / data-folded); DOM order = display order.
+function rowNames( container ) {
+	return [ ...container.querySelectorAll( '.nodes-tm__topology-stub' ) ].map(
+		( n ) => n.dataset.name
+	);
+}
+function foldedByName( container ) {
+	const out = {};
+	for ( const n of container.querySelectorAll(
+		'.nodes-tm__topology-stub'
+	) ) {
+		out[ n.dataset.name ] = n.dataset.folded === 'true';
+	}
+	return out;
+}
+// Latest captured props for a topology row (last render wins).
+function rowProps( name ) {
+	return globalThis.__topologyRows
+		.filter( ( r ) => r.topology.name === name )
+		.at( -1 );
+}
+
 describe( 'Overview fleet board', () => {
 	it( 'feeds SummaryCards the fleet topologies and the hook R/W rates + partition count', () => {
-		// The fleet counts/partitions-up/health now live in SummaryCards (own
-		// suite); the tab's job is to hand it the right inputs.
 		const topologies = [
 			active( 'alpha', 'ok', [
 				worker( { partition: 0 } ),
@@ -171,37 +204,26 @@ describe( 'Overview fleet board', () => {
 		expect( cards.logPartitions ).toBe( 3 );
 	} );
 
-	it( 'an active row shows partition pills, lag, and a live-mode name link', () => {
+	it( 'renders each active topology as a TopologyRow wired with the hook handlers + folded flag', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [
-					active( 'alpha', 'behind', [
-						worker( { partition: 0, behind: 4096 } ),
-					] ),
+					active( 'alpha', 'behind', [ worker( { behind: 4096 } ) ] ),
 				],
 			} )
 		);
-		const { container } = render( <Overview /> );
-		const row = container.querySelector( '.nodes-overview__row' );
-		// Name links to live mode.
-		const name = row.querySelector( '.nodes-overview__name' );
-		expect( name.tagName ).toBe( 'A' );
-		expect( name.getAttribute( 'href' ) ).toContain( 'topology=alpha' );
-		expect( name.getAttribute( 'href' ) ).not.toContain( 'edit=1' );
-		// A partition pill is present.
-		expect( row.querySelector( '.nodes-overview__part' ) ).not.toBeNull();
-		// Consumer lag is surfaced (the critique's headline metric).
-		expect(
-			row.querySelector( '.nodes-overview__lag' ).textContent
-		).toMatch( /lag/i );
-		// The active-topology controls are wired through TopologyControls (own
-		// suite): active flag set, hook handlers passed, Edit deep-link survives.
-		const ctl = controlFor( 'alpha' );
-		expect( ctl.active ).toBe( true );
-		expect( ctl.editHref ).toContain( 'edit=1' );
+		render( <Overview /> );
+		const row = rowProps( 'alpha' );
+		expect( row.folded ).toBe( true );
+		expect( typeof row.onExpand ).toBe( 'function' );
+		expect( typeof row.onDragStart ).toBe( 'function' );
+		expect( typeof row.onDropOn ).toBe( 'function' );
+		expect( row.onRestart ).toBe(
+			useTopologyManager.mock.results[ 0 ].value.restart
+		);
 	} );
 
-	it( 'sorts problem topologies above healthy ones', () => {
+	it( 'does NOT reorder by health — rows stay alphabetical (nothing stored), badge aside', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [
@@ -213,13 +235,24 @@ describe( 'Overview fleet board', () => {
 			} )
 		);
 		const { container } = render( <Overview /> );
-		const names = [
-			...container.querySelectorAll(
-				'.nodes-overview__row .nodes-overview__name'
-			),
-		].map( ( n ) => n.textContent );
-		// 'zzz-stalled' floats above 'aaa-ok' despite sorting last alphabetically.
-		expect( names ).toEqual( [ 'zzz-stalled', 'aaa-ok' ] );
+		// Alphabetical — the stalled one stays put at the bottom (no float-to-top).
+		expect( rowNames( container ) ).toEqual( [ 'aaa-ok', 'zzz-stalled' ] );
+	} );
+
+	it( 'renders active rows in the persisted stored order, not alphabetical', () => {
+		overviewPrefs.readOrder.mockReturnValue( [ 'zzz', 'aaa' ] );
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'aaa', 'ok', [ worker() ] ),
+					active( 'mmm', 'ok', [ worker() ] ),
+					active( 'zzz', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		// Stored 'zzz','aaa' first; the unstored 'mmm' appended at the end.
+		expect( rowNames( container ) ).toEqual( [ 'zzz', 'aaa', 'mmm' ] );
 	} );
 
 	it( 'puts stopped topologies in a de-emphasized group: plain name, Edit only, no live link', () => {
@@ -231,14 +264,15 @@ describe( 'Overview fleet board', () => {
 			} )
 		);
 		const { container } = render( <Overview /> );
-		// Not rendered as an active row.
-		expect( container.querySelector( '.nodes-overview__row' ) ).toBeNull();
+		// Inactive topologies are never active rows.
+		expect(
+			container.querySelector( '.nodes-tm__topology-stub' )
+		).toBeNull();
 		const stopped = container.querySelector( '.nodes-overview__stopped' );
 		expect( stopped ).not.toBeNull();
 		const name = stopped.querySelector( '.nodes-overview__name' );
 		expect( name.textContent ).toBe( 'beta' );
 		expect( name.tagName ).not.toBe( 'A' );
-		// Edit deep-link now rides on TopologyControls (active=false), own suite.
 		const ctl = controlFor( 'beta' );
 		expect( ctl.active ).toBe( false );
 		expect( ctl.editHref ).toContain( 'edit=1' );
@@ -281,12 +315,11 @@ describe( 'Overview fleet board', () => {
 		render( <Overview /> );
 		const panel = ( title ) =>
 			globalThis.__topicsPanels.find( ( p ) => p.title === title );
-		// The Byte Rate panel gets firehose.p0's byte-rate series (2 points).
-		const byteRate = panel( 'Topics Byte Rate' ).series[ 'firehose.p0' ];
-		expect( byteRate.points.map( ( p ) => p.value ) ).toEqual( [
-			4096, 8192,
-		] );
-		// The Backlog panel groups the same topic, value 0 (caught up).
+		expect(
+			panel( 'Topics Byte Rate' ).series[ 'firehose.p0' ].points.map(
+				( p ) => p.value
+			)
+		).toEqual( [ 4096, 8192 ] );
 		expect(
 			panel( 'Topics Backlog' ).series[ 'firehose.p0' ].points.map(
 				( p ) => p.value
@@ -297,8 +330,6 @@ describe( 'Overview fleet board', () => {
 	it( 'offers a New Topology deep-link via SummaryCards', () => {
 		useTopologyManager.mockReturnValue( hookValue() );
 		render( <Overview /> );
-		// The "+ New Topology" link itself is SummaryCards' (own suite); the tab
-		// only proves it passed the new-editor deep-link down.
 		expect( globalThis.__summaryCards[ 0 ].newTopologyHref ).toContain(
 			'new=1'
 		);
@@ -306,7 +337,7 @@ describe( 'Overview fleet board', () => {
 } );
 
 describe( 'Overview fold/unfold merge', () => {
-	it( 'renders every active topology FOLDED by default (compact row, no detail tree)', () => {
+	it( 'renders every active topology FOLDED by default', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [
@@ -316,14 +347,13 @@ describe( 'Overview fold/unfold merge', () => {
 			} )
 		);
 		const { container } = render( <Overview /> );
-		// Two compact rows, zero unfolded detail trees.
-		expect(
-			container.querySelectorAll( '.nodes-overview__row' )
-		).toHaveLength( 2 );
-		expect( globalThis.__topologyRows ).toHaveLength( 0 );
+		expect( foldedByName( container ) ).toEqual( {
+			alpha: true,
+			beta: true,
+		} );
 	} );
 
-	it( 'unfolds a topology when its expand chevron is clicked', () => {
+	it( 'unfolds a topology when its onExpand handler fires', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [
@@ -333,45 +363,24 @@ describe( 'Overview fold/unfold merge', () => {
 			} )
 		);
 		const { container } = render( <Overview /> );
-		const alphaRow = [
-			...container.querySelectorAll( '.nodes-overview__row' ),
-		].find( ( r ) =>
-			r
-				.querySelector( '.nodes-overview__name' )
-				.textContent.includes( 'alpha' )
-		);
-		fireEvent.click( alphaRow.querySelector( '.nodes-overview__expand' ) );
-		// alpha is now an unfolded TopologyRow; beta stays a compact row.
-		expect( globalThis.__topologyRows ).toHaveLength( 1 );
-		const row = globalThis.__topologyRows[ 0 ];
-		expect( row.topology.name ).toBe( 'alpha' );
-		// The tab threads its handlers into the unfolded row.
-		expect( typeof row.onCollapseTopology ).toBe( 'function' );
-		expect( typeof row.onToggleFold ).toBe( 'function' );
-		expect( row.onRestart ).toBe(
-			useTopologyManager.mock.results[ 0 ].value.restart
-		);
-		expect(
-			container.querySelectorAll( '.nodes-overview__row' )
-		).toHaveLength( 1 );
+		act( () => rowProps( 'alpha' ).onExpand( 'alpha' ) );
+		expect( foldedByName( container ) ).toEqual( {
+			alpha: false,
+			beta: true,
+		} );
 	} );
 
 	it( 'collapsing an unfolded row via onCollapseTopology folds it back', () => {
+		overviewPrefs.readExpanded.mockReturnValue( new Set( [ 'alpha' ] ) );
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
 			} )
 		);
 		const { container } = render( <Overview /> );
-		fireEvent.click( container.querySelector( '.nodes-overview__expand' ) );
-		expect( globalThis.__topologyRows ).toHaveLength( 1 );
-		act( () =>
-			globalThis.__topologyRows[ 0 ].onCollapseTopology( 'alpha' )
-		);
-		// Back to a compact row.
-		expect(
-			container.querySelectorAll( '.nodes-overview__row' )
-		).toHaveLength( 1 );
+		expect( foldedByName( container ) ).toEqual( { alpha: false } );
+		act( () => rowProps( 'alpha' ).onCollapseTopology( 'alpha' ) );
+		expect( foldedByName( container ) ).toEqual( { alpha: true } );
 	} );
 
 	it( 'Unfold all expands every active topology; Fold all collapses them', () => {
@@ -385,16 +394,15 @@ describe( 'Overview fold/unfold merge', () => {
 		);
 		const { getByText, container } = render( <Overview /> );
 		fireEvent.click( getByText( 'Unfold all' ) );
-		expect(
-			globalThis.__topologyRows.map( ( r ) => r.topology.name )
-		).toEqual( expect.arrayContaining( [ 'alpha', 'beta' ] ) );
-		expect(
-			container.querySelectorAll( '.nodes-overview__row' )
-		).toHaveLength( 0 );
+		expect( foldedByName( container ) ).toEqual( {
+			alpha: false,
+			beta: false,
+		} );
 		fireEvent.click( getByText( 'Fold all' ) );
-		expect(
-			container.querySelectorAll( '.nodes-overview__row' )
-		).toHaveLength( 2 );
+		expect( foldedByName( container ) ).toEqual( {
+			alpha: true,
+			beta: true,
+		} );
 	} );
 
 	it( 'shows the fold-all toolbar only when there is at least one active topology', () => {
@@ -410,7 +418,7 @@ describe( 'Overview fold/unfold merge', () => {
 		expect( queryByText( 'Unfold all' ) ).toBeNull();
 	} );
 
-	it( 'never offers a fold affordance for inactive topologies', () => {
+	it( 'never renders an active row for inactive topologies', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [
@@ -419,9 +427,92 @@ describe( 'Overview fold/unfold merge', () => {
 			} )
 		);
 		const { container } = render( <Overview /> );
-		const stopped = container.querySelector( '.nodes-overview__stopped' );
-		expect( stopped ).not.toBeNull();
-		expect( stopped.querySelector( '.nodes-overview__expand' ) ).toBeNull();
-		expect( globalThis.__topologyRows ).toHaveLength( 0 );
+		expect(
+			container.querySelector( '.nodes-tm__topology-stub' )
+		).toBeNull();
+		expect(
+			container.querySelector( '.nodes-overview__stopped' )
+		).not.toBeNull();
+	} );
+} );
+
+describe( 'Overview persistence + drag-to-reorder', () => {
+	it( 'initializes the unfolded set from readExpanded()', () => {
+		overviewPrefs.readExpanded.mockReturnValue( new Set( [ 'alpha' ] ) );
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		expect( foldedByName( container ) ).toEqual( {
+			alpha: false,
+			beta: true,
+		} );
+	} );
+
+	it( 'write-throughs the unfolded set on expand, unfold-all, and fold-all', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const { getByText } = render( <Overview /> );
+		act( () => rowProps( 'alpha' ).onExpand( 'alpha' ) );
+		expect( overviewPrefs.writeExpanded ).toHaveBeenLastCalledWith(
+			new Set( [ 'alpha' ] )
+		);
+		fireEvent.click( getByText( 'Unfold all' ) );
+		expect(
+			[ ...overviewPrefs.writeExpanded.mock.calls.at( -1 )[ 0 ] ].sort()
+		).toEqual( [ 'alpha', 'beta' ] );
+		fireEvent.click( getByText( 'Fold all' ) );
+		expect( overviewPrefs.writeExpanded ).toHaveBeenLastCalledWith(
+			new Set()
+		);
+	} );
+
+	it( 'onDragStart puts the topology name on dataTransfer', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		render( <Overview /> );
+		const setData = jest.fn();
+		rowProps( 'alpha' ).onDragStart( 'alpha', {
+			dataTransfer: { setData, effectAllowed: '' },
+		} );
+		expect( setData ).toHaveBeenCalledWith( expect.any( String ), 'alpha' );
+	} );
+
+	it( 'onDropOn reorders + persists: dropping beta before alpha writes the new order', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		act( () =>
+			rowProps( 'alpha' ).onDropOn( 'alpha', {
+				preventDefault: jest.fn(),
+				dataTransfer: { getData: () => 'beta' },
+			} )
+		);
+		expect( overviewPrefs.writeOrder ).toHaveBeenLastCalledWith( [
+			'beta',
+			'alpha',
+		] );
+		// And the rows re-render in the new order.
+		expect( rowNames( container ) ).toEqual( [ 'beta', 'alpha' ] );
 	} );
 } );
