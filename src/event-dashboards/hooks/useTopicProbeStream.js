@@ -19,7 +19,7 @@
  * React reads the model via `useNodeState('topicprobe:view','view')`.
  */
 
-import { useEffect, useRef } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { CommandClient } from '../../runtime/command-client';
@@ -48,8 +48,15 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 	optsRef.current = { commandClient };
 
 	const linkRef = useRef( null );
-	// First connect uses the mode's seek; later (visibility) reconnects tail-follow.
+	// First connect of a link uses the mode's seek; a hide→show reconnect of the
+	// SAME link tail-follows. `connectedLinkRef` records which link is currently
+	// streaming, so a re-render never reconnects (→ tail) a link already on its
+	// seek connection — and a REBUILT link (exospine reinit, e.g. Reset Graph or a
+	// co-mounted dashboard's rebuild) is reconnected even though `isPageVisible`
+	// never changed. `buildGen` bumps on each build to re-run the connect effect.
 	const hasConnectedRef = useRef( false );
+	const connectedLinkRef = useRef( null );
+	const [ buildGen, bumpBuildGen ] = useState( 0 );
 
 	const isPageVisible = usePageVisibility();
 
@@ -74,13 +81,15 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 			interpreter.makeNode( 'TopicProbeView', VIEW );
 			linkRef.current = link;
 
-			// The visibility effect drives the actual open (so mount doesn't
-			// double-connect); reset the latch on each (re)build.
+			// A fresh link: re-seek from the mode's position; the connect effect
+			// re-runs because buildGen changes.
 			hasConnectedRef.current = false;
+			bumpBuildGen( ( n ) => n + 1 );
 
 			return () => {
 				link.removeNode();
 				linkRef.current = null;
+				connectedLinkRef.current = null;
 			};
 		};
 
@@ -93,14 +102,21 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 		if ( ! link ) {
 			return;
 		}
-		if ( isPageVisible ) {
-			const positions = hasConnectedRef.current
-				? null
-				: positionsForMode( modeRef.current );
-			hasConnectedRef.current = true;
-			link.connect( positions );
-		} else {
+		if ( ! isPageVisible ) {
 			link.close();
+			connectedLinkRef.current = null;
+			return;
 		}
-	}, [ isPageVisible ] );
+		// Already streaming this exact link — a buildGen re-render must NOT tear the
+		// seek connection down into a tail reconnect.
+		if ( connectedLinkRef.current === link ) {
+			return;
+		}
+		const positions = hasConnectedRef.current
+			? null
+			: positionsForMode( modeRef.current );
+		hasConnectedRef.current = true;
+		connectedLinkRef.current = link;
+		link.connect( positions );
+	}, [ isPageVisible, buildGen ] );
 }
