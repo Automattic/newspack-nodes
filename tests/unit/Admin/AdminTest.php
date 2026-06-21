@@ -923,7 +923,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_sanitize_remote_max_lifespan_clamps_to_range(): void {
-		$this->assertSame( 60, Admin::sanitize_remote_max_lifespan( '10' ) );
+		// 0 = disabled (pure count-based), matching the hub max_lifespan; no 60s floor.
+		$this->assertSame( 0, Admin::sanitize_remote_max_lifespan( '0' ) );
+		$this->assertSame( 10, Admin::sanitize_remote_max_lifespan( '10' ) );
 		$this->assertSame( 604800, Admin::sanitize_remote_max_lifespan( '999999999' ) );
 		$this->assertSame( 3600, Admin::sanitize_remote_max_lifespan( '3600' ) );
 	}
@@ -972,7 +974,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		Admin::remote_max_lifespan_callback();
 		$out = \ob_get_clean();
 		$this->assertStringContainsString( 'name="newspack_nodes_remote_max_lifespan"', $out );
-		$this->assertStringContainsString( 'min="60"', $out );
+		$this->assertStringContainsString( 'min="0"', $out );
 		$this->assertStringContainsString( 'max="604800"', $out );
 	}
 

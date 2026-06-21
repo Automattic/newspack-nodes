@@ -559,7 +559,8 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize the remote max_lifespan setting: clamp to [60, 604800] seconds, or '' when unset.
+	 * Sanitize the remote max_lifespan setting: clamp to [0, 604800] seconds, or '' when unset.
+	 * 0 = disabled (pure count-based), matching the hub max_lifespan.
 	 *
 	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
 	 * @return int|string Clamped lifespan in seconds, or '' when blank/unset.
@@ -568,7 +569,7 @@ class Admin {
 		if ( '' === $value || null === $value ) {
 			return '';
 		}
-		return \max( 60, \min( 604800, \absint( $value ) ) );
+		return \max( 0, \min( 604800, \absint( $value ) ) );
 	}
 
 	// -- Section callbacks --------------------------------------------------
@@ -635,7 +636,7 @@ class Admin {
 	}
 
 	public static function remote_max_lifespan_callback(): void {
-		self::render_number( 'remote_max_lifespan', 3600, 60, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull.', 'newspack-nodes' ) );
+		self::render_number( 'remote_max_lifespan', 3600, 0, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
 	}
 
 	/** Echo a number field: default from the config file, value from the stored option. */
