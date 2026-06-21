@@ -58,6 +58,53 @@ export function dragReorder( names, draggedName, rects, y ) {
 }
 
 /**
+ * Live gap-opening for the float drag: given the cached row geometry, which row
+ * is being dragged, its vertical offset, and the cursor Y, return the translateY
+ * each row should carry — the dragged row floats by `dy`, and the rows it has
+ * passed shift one slot to OPEN the gap it will drop into. All compositor
+ * transforms; no React render. Mirrors `dragReorder`'s slot math so the visible
+ * gap and the committed order agree.
+ *
+ * @param {Array<{top:number,bottom:number}>} rects     Row bounds in display order.
+ * @param {number}                            fromIndex Index of the dragged row.
+ * @param {number}                            dy        Dragged row's pixel offset from grab.
+ * @param {number}                            y         Pointer clientY.
+ * @return {{ transforms: number[], toIndex: number }} Per-row translateY + the target slot.
+ */
+export function dragGapTransforms( rects, fromIndex, dy, y ) {
+	let slot = 0;
+	for ( const r of rects ) {
+		if ( ( r.top + r.bottom ) / 2 < y ) {
+			slot++;
+		}
+	}
+	const toIndex = Math.max(
+		0,
+		Math.min( rects.length - 1, slot > fromIndex ? slot - 1 : slot )
+	);
+	// How far a displaced row travels = the dragged row's slot pitch (its height
+	// plus the inter-row gap), read off whichever neighbour exists.
+	let pitch = 0;
+	if ( rects.length > 1 ) {
+		const lo = fromIndex < rects.length - 1 ? fromIndex : fromIndex - 1;
+		pitch = rects[ lo + 1 ].top - rects[ lo ].top;
+	}
+	const transforms = rects.map( ( _r, i ) => {
+		if ( i === fromIndex ) {
+			return dy;
+		}
+		if ( fromIndex < toIndex && i > fromIndex && i <= toIndex ) {
+			return -pitch;
+		}
+		if ( toIndex < fromIndex && i >= toIndex && i < fromIndex ) {
+			return pitch;
+		}
+		return 0;
+	} );
+	return { transforms, toIndex };
+}
+
+/**
  * Fold a freshly-reordered ACTIVE order back into the full persisted order,
  * carrying any prior names that aren't currently active (inactive/stale) so a
  * drag performed while a topology is down doesn't erase its saved slot. Carried

@@ -52,6 +52,7 @@ import { formatBytes, formatByteRate, formatMsgRate } from './formatters';
 import {
 	orderTopologies,
 	dragReorder,
+	dragGapTransforms,
 	mergeStoredOrder,
 } from './overviewOrder';
 import {
@@ -97,13 +98,14 @@ export default function Overview() {
 	// rAF-coalesce pointer moves: store the latest Y, apply at most once per frame.
 	const dragRafRef = useRef( null );
 	const dragYRef = useRef( 0 );
-	// Drag geometry, cached at pointer-down (a float-drag doesn't move the other
-	// rows, so these stay valid for the whole gesture): the dragged row element,
-	// the grab Y, and the row bounds + names in display order for the drop math.
+	// Drag geometry, cached at pointer-down (transforms don't change layout, so
+	// these stay valid for the whole gesture): the grab Y, all row elements + their
+	// bounds + names in display order, and the dragged row's index.
 	const dragStartYRef = useRef( 0 );
-	const dragElRef = useRef( null );
+	const dragElsRef = useRef( [] );
 	const dragRectsRef = useRef( [] );
 	const dragNamesRef = useRef( [] );
+	const dragFromRef = useRef( -1 );
 	const dragging = null !== dragName;
 
 	// PAUSE all background updates while dragging: the 4s poll is suspended (so it
@@ -204,9 +206,10 @@ export default function Overview() {
 
 	// Pointer-drag reorder (cross-browser; native HTML5 DnD was too flaky). The
 	// grip captures the pointer, so move/up keep firing even over other rows. The
-	// gesture is a FLOAT: cache the geometry once, translate only the dragged row
-	// per frame (compositor, no React), and commit the reorder once on drop. All
-	// three handlers are stable (read state via refs) so they don't bust row memo.
+	// gesture is a FLOAT: cache the geometry once, then per frame translate the
+	// dragged row to the cursor AND shift the rows it passes to open the drop gap —
+	// all compositor transforms, NO React render — committing the reorder once on
+	// drop. The handlers are stable (state via refs) so they don't bust row memo.
 	const onGripPointerDown = useCallback( ( name, e ) => {
 		e.preventDefault();
 		// Capture so move/up keep firing as the cursor leaves the grip. A throw
@@ -216,35 +219,56 @@ export default function Overview() {
 		} catch {
 			// no-op — drag proceeds without capture.
 		}
+		const els = [
+			...document.querySelectorAll(
+				'.nodes-overview__rows [data-topology-row]'
+			),
+		];
 		dragNameRef.current = name;
 		dragStartYRef.current = e.clientY;
+		dragElsRef.current = els;
 		dragRectsRef.current = activeRowRects();
 		dragNamesRef.current = displayedRef.current;
-		dragElRef.current =
-			e.currentTarget.closest?.( '[data-topology-row]' ) ?? null;
+		dragFromRef.current = els.findIndex(
+			( el ) => el.getAttribute( 'data-topology-row' ) === name
+		);
+		// The passed-over rows animate their shift; the dragged row tracks the
+		// cursor 1:1 (no transition) and lifts above its siblings.
+		els.forEach( ( el, i ) => {
+			el.style.transition =
+				i === dragFromRef.current ? '' : 'transform 0.15s ease';
+		} );
 		setDragName( name );
 	}, [] );
 	const onGripPointerMove = useCallback( ( e ) => {
 		if ( ! dragNameRef.current ) {
 			return;
 		}
-		// Coalesce to one transform per animation frame using the latest pointer Y —
-		// pointermove fires far faster than the display refreshes.
+		// Coalesce to one transform pass per animation frame using the latest
+		// pointer Y — pointermove fires far faster than the display refreshes.
 		dragYRef.current = e.clientY;
 		if ( null !== dragRafRef.current ) {
 			return;
 		}
 		dragRafRef.current = window.requestAnimationFrame( () => {
 			dragRafRef.current = null;
-			const el = dragElRef.current;
-			if ( ! el ) {
+			const els = dragElsRef.current;
+			const from = dragFromRef.current;
+			if ( from < 0 || ! els[ from ] ) {
 				return;
 			}
-			el.style.transform = `translateY(${
-				dragYRef.current - dragStartYRef.current
-			}px)`;
-			el.style.zIndex = '10';
-			el.style.position = 'relative';
+			const { transforms } = dragGapTransforms(
+				dragRectsRef.current,
+				from,
+				dragYRef.current - dragStartYRef.current,
+				dragYRef.current
+			);
+			els.forEach( ( el, i ) => {
+				el.style.transform = `translateY(${ transforms[ i ] }px)`;
+			} );
+			const dragged = els[ from ];
+			dragged.style.zIndex = '10';
+			dragged.style.position = 'relative';
 		} );
 	}, [] );
 	const onGripPointerUp = useCallback( () => {
@@ -257,13 +281,14 @@ export default function Overview() {
 			window.cancelAnimationFrame( dragRafRef.current );
 			dragRafRef.current = null;
 		}
-		const el = dragElRef.current;
-		if ( el ) {
+		// Reset every row's inline drag styling; React re-renders into the new order.
+		dragElsRef.current.forEach( ( el ) => {
 			el.style.transform = '';
+			el.style.transition = '';
 			el.style.zIndex = '';
 			el.style.position = '';
-		}
-		dragElRef.current = null;
+		} );
+		dragElsRef.current = [];
 		// Commit ONCE: where the cursor ended vs the cached row geometry, folded
 		// back over the full persisted order (carrying inactive names).
 		const reordered = dragReorder(

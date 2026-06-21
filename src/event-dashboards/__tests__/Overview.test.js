@@ -539,28 +539,28 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 				};
 			} );
 		const { container } = render( <Overview /> );
-		// The dragged row floats via an imperative transform on its own element.
-		const fakeRow = { style: {} };
+		const rowEl = ( name ) =>
+			container.querySelector( `[data-topology-row="${ name }"]` );
 		// Grab alpha at y=50, drag past beta's midpoint (y=160), release.
 		act( () =>
 			rowProps( 'alpha' ).onGripPointerDown( 'alpha', {
 				preventDefault: jest.fn(),
 				pointerId: 1,
 				clientY: 50,
-				currentTarget: {
-					setPointerCapture: jest.fn(),
-					closest: () => fakeRow,
-				},
+				currentTarget: { setPointerCapture: jest.fn() },
 			} )
 		);
 		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 160 } ) );
-		// Mid-drag: the dragged row follows the cursor via transform (dy = 160−50),
-		// and the LIST does NOT re-render/reorder (that is the whole point).
-		expect( fakeRow.style.transform ).toBe( 'translateY(110px)' );
+		// Mid-drag: the dragged row floats to the cursor (dy = 160−50) and beta
+		// shifts UP one pitch to open the gap — all via transform, and the LIST
+		// itself does NOT re-render/reorder (the whole point).
+		expect( rowEl( 'alpha' ).style.transform ).toBe( 'translateY(110px)' );
+		expect( rowEl( 'beta' ).style.transform ).toBe( 'translateY(-100px)' );
 		expect( rowNames( container ) ).toEqual( [ 'alpha', 'beta' ] );
 		act( () => rowProps( 'alpha' ).onGripPointerUp() );
-		// On drop: transform cleared, reorder committed + persisted once.
-		expect( fakeRow.style.transform ).toBe( '' );
+		// On drop: transforms cleared, reorder committed + persisted once.
+		expect( rowEl( 'alpha' ).style.transform ).toBe( '' );
+		expect( rowEl( 'beta' ).style.transform ).toBe( '' );
 		expect( overviewPrefs.writeOrder ).toHaveBeenLastCalledWith( [
 			'beta',
 			'alpha',
