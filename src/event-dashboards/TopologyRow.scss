@@ -45,6 +45,14 @@
 		background: base.$dark-bg-deep;
 		border-bottom: 1px solid base.$dark-border;
 
+		// The provenance cell owns the single right-push (margin-left:auto). The
+		// controls carry their own auto-margin (used in the stopped chips); cancel
+		// it here so a SECOND auto-margin doesn't split the gap and strand the
+		// provenance pill mid-row instead of flush against the controls.
+		.nodes-ctl {
+			margin-left: 0;
+		}
+
 		// Fixed-width pill details so the P0/P1 pills don't reflow as their
 		// uptime / heartbeat values change or a restart marker blinks in.
 		.supervisor-age {
