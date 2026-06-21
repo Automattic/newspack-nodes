@@ -22,8 +22,12 @@ import {
 	setupTooltip,
 	useTimeChart,
 } from '@newspack-nodes/shared/hooks/useTimeChart';
+import { buildAlignedSeries } from './buildAlignedSeries';
 
 const HEIGHT = 200;
+// A panel is ~1800px wide, so a denser axis than this is sub-pixel; capping here
+// is what keeps the d3 redraw cheap (the 24h union is ~30k points/topic).
+const MAX_POINTS = 1000;
 
 // Memoized: d3-driven and re-rendered by Overview on every drag-reorder frame;
 // the memoized `series` props are stable mid-drag, so it skips the redraw.
@@ -32,35 +36,10 @@ export const TopicsChart = memo( function TopicsChart( {
 	series,
 	formatValue,
 } ) {
-	const chartState = useMemo( () => {
-		const ranked = Object.keys( series || {} )
-			.map( ( key ) => ( { key, ...series[ key ] } ) )
-			.filter( ( s ) => ( s.points || [] ).length > 0 )
-			.sort( ( a, b ) => b.max - a.max );
-
-		// One shared, sorted date axis (union of every topic's sample instants);
-		// each topic is then aligned onto it (gaps → 0) so the areas + the hover
-		// index line up across topics.
-		const tsSet = new Set();
-		ranked.forEach( ( s ) =>
-			s.points.forEach( ( p ) => tsSet.add( p.ts ) )
-		);
-		const tsList = [ ...tsSet ].sort( ( a, b ) => a - b );
-		const dates = tsList.map( ( ts ) => new Date( ts * 1000 ) );
-
-		const aligned = ranked.map( ( s ) => {
-			const byTs = new Map( s.points.map( ( p ) => [ p.ts, p.value ] ) );
-			return {
-				label: s.key,
-				values: tsList.map( ( ts, i ) => ( {
-					date: dates[ i ],
-					value: byTs.get( ts ) ?? 0,
-				} ) ),
-			};
-		} );
-
-		return { series: aligned, dates };
-	}, [ series ] );
+	const chartState = useMemo(
+		() => buildAlignedSeries( series, MAX_POINTS ),
+		[ series ]
+	);
 
 	const renderFn = useCallback(
 		( refs ) => {
