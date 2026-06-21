@@ -330,6 +330,7 @@ class SSE_Out_Node extends Node {
 			);
 		}
 
+		\set_time_limit( 0 );
 		$this->init_sse_headers();
 		$this->run_stream_loop( $subs, $positions, $interval, $slot, $partition );
 		exit;
