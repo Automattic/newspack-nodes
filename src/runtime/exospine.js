@@ -54,6 +54,12 @@ export function mountExospine( build ) {
 	const spine = {};
 	let router;
 	let interpreter;
+	// Whether THIS mount created the backbone. A second build-mount on the same
+	// page (e.g. the Overview runs useTopologyManager AND useTopicProbeStream)
+	// REUSES the existing backbone — it must not own it: no generation bump (which
+	// would full-rebuild and tear the shared backbone out from under the first
+	// mount's nodes) and no backbone teardown.
+	let ownsBackbone = false;
 
 	// (Re)create the rule-#2 backbone. Mutable so the FULL rebuild can recreate it,
 	// not just the soft build nodes — "Reset Graph" rebuilds everything.
@@ -68,6 +74,7 @@ export function mountExospine( build ) {
 			spine.router = router;
 			return;
 		}
+		ownsBackbone = true;
 
 		router = new RouterNode();
 		router.name = names.ROUTER;
@@ -138,9 +145,12 @@ export function mountExospine( build ) {
 			unsubscribe();
 		}
 		teardownBuilt();
-		teardownBackbone();
-		Core.reinit = null;
-		Core.reinitNames = null;
+		// Only the owner tears the shared backbone down (and owns Core.reinit).
+		if ( ownsBackbone ) {
+			teardownBackbone();
+			Core.reinit = null;
+			Core.reinitNames = null;
+		}
 	};
 
 	mountBackbone();
@@ -151,10 +161,19 @@ export function mountExospine( build ) {
 	// that builds its own nodes — leaves Core.reinit null (hiding the overlay
 	// chip) and drives its own resetKey instead of the shared generation.
 	if ( 'function' === typeof build ) {
-		Core.reinit = spine.reinit;
-		// Pre-subscribe bump: an open overlay rebuilds its poll on the new backbone.
-		Core.bumpGraphGeneration();
-		unsubscribe = Core.subscribeGraphGeneration( fullRebuild );
+		if ( ownsBackbone ) {
+			Core.reinit = spine.reinit;
+			// Pre-subscribe bump: an open overlay rebuilds its poll on the new backbone.
+			Core.bumpGraphGeneration();
+			unsubscribe = Core.subscribeGraphGeneration( fullRebuild );
+		} else {
+			// Reused backbone — the owner manages full rebuilds. Don't bump (it
+			// would tear the shared backbone out from under us). Just rebuild OUR
+			// build nodes when the generation bumps: the owner's fullRebuild (it
+			// subscribed first) recreates the backbone, then our reinit re-runs our
+			// build against it.
+			unsubscribe = Core.subscribeGraphGeneration( spine.reinit );
+		}
 	}
 
 	return spine;
