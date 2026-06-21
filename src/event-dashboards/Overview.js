@@ -34,6 +34,7 @@ import {
 	useRef,
 	useMemo,
 	useCallback,
+	useDeferredValue,
 } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
@@ -257,10 +258,13 @@ export default function Overview() {
 	}, [] );
 
 	// Per-topic (source) 24h series for the three Topics panels — message rate,
-	// byte rate, backlog. MEMOIZED on the probe consumers so a drag-reorder (which
-	// re-renders Overview on every pointer frame) doesn't recompute these heavy
-	// 24h rollups — that was the source of the progressive drag lag.
-	const consumers = probeView?.consumers;
+	// byte rate, backlog. The probe consumers feed the heavy 24h rollups + d3
+	// chart redraws (~100ms each); deferring them keeps that work OFF the
+	// interaction's critical path. When a probe publish lands (or a drag commits
+	// and unfreezes), the urgent render paints with the prior series — memoized,
+	// so the charts skip — and React catches the charts up in a follow-up
+	// low-priority render. That is what holds grip-drag INP down.
+	const consumers = useDeferredValue( probeView?.consumers );
 	const msgRateSeries = useMemo(
 		() => topicChartSeries( consumers, 'msgRate' ),
 		[ consumers ]
