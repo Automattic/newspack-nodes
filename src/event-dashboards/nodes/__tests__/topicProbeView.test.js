@@ -15,6 +15,7 @@ import {
 	END_SIZE,
 	DISTANCE,
 	MSGS,
+	END_BYTES,
 } from '../../../runtime/probe-record';
 
 // Build a probe record TM_STRUCT message: a lean POSITIONAL Probe_Record VALUE,
@@ -25,6 +26,7 @@ function probeMsg( {
 	source = 'firehose.p0',
 	distance = 0,
 	msgs = 0,
+	endBytes = 0,
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -38,6 +40,7 @@ function probeMsg( {
 	v[ END_SIZE ] = 0;
 	v[ DISTANCE ] = distance;
 	v[ MSGS ] = msgs;
+	v[ END_BYTES ] = endBytes;
 	m[ VALUE ] = v;
 	return m;
 }
@@ -59,7 +62,21 @@ describe( 'TopicProbeViewNode', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { msgs: 1000, ts: 100 } ) );
 		v.fill( probeMsg( { msgs: 4000, ts: 103 } ) ); // +3000 over 3s = 1000 msg/s
-		expect( v.snapshot()[ 'firehose.p0' ].latest.rate ).toBe( 1000 );
+		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 );
+	} );
+
+	it( 'computes byte-rate from consecutive END_BYTES deltas over the ts gap', () => {
+		const v = new TopicProbeViewNode();
+		v.fill( probeMsg( { endBytes: 1000, ts: 100 } ) );
+		v.fill( probeMsg( { endBytes: 4000, ts: 103 } ) ); // +3000 over 3s = 1000 B/s
+		expect( v.snapshot()[ 'firehose.p0' ].latest.byteRate ).toBe( 1000 );
+	} );
+
+	it( 'treats an END_BYTES drop (segment GC) as byte-rate 0, never negative', () => {
+		const v = new TopicProbeViewNode();
+		v.fill( probeMsg( { endBytes: 9000, ts: 100 } ) );
+		v.fill( probeMsg( { endBytes: 200, ts: 115 } ) ); // GC dropped old segments
+		expect( v.snapshot()[ 'firehose.p0' ].latest.byteRate ).toBe( 0 );
 	} );
 
 	it( 'reports the latest distance as the backlog', () => {
@@ -73,13 +90,13 @@ describe( 'TopicProbeViewNode', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { msgs: 9000, ts: 100 } ) );
 		v.fill( probeMsg( { msgs: 200, ts: 115 } ) ); // per-process counter reset
-		expect( v.snapshot()[ 'firehose.p0' ].latest.rate ).toBe( 0 );
+		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 0 );
 	} );
 
 	it( 'the first sample for a consumer has rate 0 (no prior to delta against)', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { msgs: 5000, ts: 100 } ) );
-		expect( v.snapshot()[ 'firehose.p0' ].latest.rate ).toBe( 0 );
+		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 0 );
 	} );
 
 	it( 'keeps a bounded rate+backlog series per consumer (ring-capped)', () => {

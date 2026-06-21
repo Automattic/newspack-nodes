@@ -16,7 +16,7 @@ class ProbeRecordTest extends TestCase {
 	/** The canonical layout — dense 0..N. */
 	public function test_php_indices_are_dense_and_ordered(): void {
 		$this->assertSame(
-			[ 0, 1, 2, 3, 4, 5, 6, 7 ],
+			[ 0, 1, 2, 3, 4, 5, 6, 7, 8 ],
 			[
 				Probe_Record::SOURCE,
 				Probe_Record::READER,
@@ -26,6 +26,7 @@ class ProbeRecordTest extends TestCase {
 				Probe_Record::END_SIZE,
 				Probe_Record::DISTANCE,
 				Probe_Record::MSGS,
+				Probe_Record::END_BYTES,
 			]
 		);
 	}
@@ -45,6 +46,7 @@ class ProbeRecordTest extends TestCase {
 			'END_SIZE'   => Probe_Record::END_SIZE,
 			'DISTANCE'   => Probe_Record::DISTANCE,
 			'MSGS'       => Probe_Record::MSGS,
+			'END_BYTES'  => Probe_Record::END_BYTES,
 		];
 		foreach ( $expected as $name => $value ) {
 			$this->assertSame(

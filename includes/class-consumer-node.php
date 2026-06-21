@@ -710,24 +710,30 @@ class Consumer_Node extends Timer_Node {
 		$record[ Probe_Record::END_SIZE ]   = $lag['end_size'];
 		$record[ Probe_Record::DISTANCE ]   = $lag['bytes_behind'];
 		$record[ Probe_Record::MSGS ]       = $this->counter;
+		$record[ Probe_Record::END_BYTES ]  = $lag['end_bytes'];
 		return $record;
 	}
 
-	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int} */
+	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int, end_bytes: int} */
 	private function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0 ];
+			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
 		}
 		// Recover a deleted/recreated cursor segment first so lag reflects the
 		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
 		$this->normalize_cursor( $segments );
 		$bytes_behind     = 0;
 		$segments_behind  = 0;
+		$end_bytes        = 0;
 		foreach ( $segments as $s ) {
 			$id   = $s['id'];
 			$size = $s['size'];
+			// Absolute partition byte position (Σ all live segment sizes) — the
+			// browser derives the byte THROUGHPUT from its delta (Δ end_bytes/Δt),
+			// the only way it can: the lean record carries no per-segment sizes.
+			$end_bytes += $size;
 			if ( $id < $this->cursor_seg ) {
 				continue;
 			}
@@ -749,6 +755,7 @@ class Consumer_Node extends Timer_Node {
 			'caught_up'       => 0 === $bytes_behind,
 			'end_seg'         => $last['id'],
 			'end_size'        => $last['size'],
+			'end_bytes'       => $end_bytes,
 		];
 	}
 

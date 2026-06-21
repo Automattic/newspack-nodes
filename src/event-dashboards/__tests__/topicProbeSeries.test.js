@@ -1,13 +1,9 @@
-import { topologySeries, downsample } from '../topicProbeSeries';
+import { topicChartSeries, downsample } from '../topicProbeSeries';
 
 // Build a topicprobe:view `consumers` map entry (the real snapshot() shape:
-// keyed by reader, carrying `source` + `series`, NO worker_type).
+// keyed by reader, carrying `source` + a {ts,msgRate,byteRate,backlog} series).
 function consumer( source, series ) {
-	return {
-		source,
-		latest: series[ series.length - 1 ] || { ts: 0, rate: 0, backlog: 0 },
-		series,
-	};
+	return { source, series };
 }
 
 describe( 'downsample', () => {
@@ -27,77 +23,81 @@ describe( 'downsample', () => {
 	} );
 } );
 
-describe( 'topologySeries', () => {
-	it( 'groups consumers by source and sums backlog + rate across its readers per ts', () => {
+describe( 'topicChartSeries', () => {
+	it( 'sums the chosen metric across a source’s readers per ts, with max/avg', () => {
 		const consumers = {
-			// Two distinct readers of the SAME source sum together.
+			// Two readers of the SAME source sum per ts.
 			'firehose.p0': consumer( 'firehose.p0', [
-				{ ts: 100, rate: 10, backlog: 1000 },
-				{ ts: 115, rate: 20, backlog: 500 },
+				{ ts: 100, msgRate: 10, byteRate: 1000, backlog: 4000 },
+				{ ts: 115, msgRate: 20, byteRate: 2000, backlog: 0 },
 			] ),
 			'firehose.job-router.p0': consumer( 'firehose.p0', [
-				{ ts: 100, rate: 5, backlog: 200 },
-				{ ts: 115, rate: 5, backlog: 0 },
+				{ ts: 100, msgRate: 5, byteRate: 500, backlog: 200 },
+				{ ts: 115, msgRate: 5, byteRate: 500, backlog: 0 },
 			] ),
 			'jobs.p0': consumer( 'jobs.p0', [
-				{ ts: 100, rate: 1, backlog: 50 },
+				{ ts: 100, msgRate: 1, byteRate: 50, backlog: 50 },
 			] ),
 		};
-		const out = topologySeries( consumers, 48 );
+		const byteRate = topicChartSeries( consumers, 'byteRate' );
+		expect( byteRate[ 'firehose.p0' ].points ).toEqual( [
+			{ ts: 100, value: 1500 }, // 1000 + 500
+			{ ts: 115, value: 2500 }, // 2000 + 500
+		] );
+		expect( byteRate[ 'firehose.p0' ].max ).toBe( 2500 );
+		expect( byteRate[ 'firehose.p0' ].avg ).toBe( 2000 );
+		expect( byteRate[ 'jobs.p0' ].points ).toEqual( [
+			{ ts: 100, value: 50 },
+		] );
 
-		// firehose.p0 = the two readers summed per ts.
-		expect( out[ 'firehose.p0' ].backlog ).toEqual( [ 1200, 500 ] ); // 1000+200, 500+0
-		expect( out[ 'firehose.p0' ].rate ).toEqual( [ 15, 25 ] ); // 10+5, 20+5
-		expect( out[ 'firehose.p0' ].latestBacklog ).toBe( 500 );
-		expect( out[ 'firehose.p0' ].latestRate ).toBe( 25 );
-		// jobs.p0 stands alone.
-		expect( out[ 'jobs.p0' ].backlog ).toEqual( [ 50 ] );
+		// Same consumers, different metric → backlog series.
+		const backlog = topicChartSeries( consumers, 'backlog' );
+		expect(
+			backlog[ 'firehose.p0' ].points.map( ( p ) => p.value )
+		).toEqual( [ 4200, 0 ] );
+		expect( backlog[ 'firehose.p0' ].max ).toBe( 4200 );
 	} );
 
-	it( 'orders the aggregated series by ts ascending regardless of consumer order', () => {
+	it( 'orders points by ts ascending regardless of consumer order', () => {
 		const consumers = {
 			'a.p0': consumer( 'a.p0', [
-				{ ts: 300, rate: 0, backlog: 3 },
-				{ ts: 100, rate: 0, backlog: 1 },
-				{ ts: 200, rate: 0, backlog: 2 },
+				{ ts: 300, msgRate: 0, byteRate: 0, backlog: 3 },
+				{ ts: 100, msgRate: 0, byteRate: 0, backlog: 1 },
+				{ ts: 200, msgRate: 0, byteRate: 0, backlog: 2 },
 			] ),
 		};
-		expect( topologySeries( consumers )[ 'a.p0' ].backlog ).toEqual( [
-			1, 2, 3,
-		] );
-	} );
-
-	it( 'skips consumers with no source and tolerates an empty map', () => {
-		expect( topologySeries( {} ) ).toEqual( {} );
 		expect(
-			topologySeries( {
-				'a.p0': consumer( '', [ { ts: 1, rate: 1, backlog: 1 } ] ),
-			} )
-		).toEqual( {} );
+			topicChartSeries( consumers, 'backlog' )[ 'a.p0' ].points.map(
+				( p ) => p.value
+			)
+		).toEqual( [ 1, 2, 3 ] );
 	} );
 
-	it( 'groups by a caller key (source→topology) so the Overview rolls readers up per topology', () => {
-		// Two sources of one topology + a source of another; keyOf maps source→topology.
+	it( 'groups by a caller key (source→topology) when given keyOf', () => {
 		const consumers = {
 			'firehose.p0': consumer( 'firehose.p0', [
-				{ ts: 100, rate: 10, backlog: 1000 },
+				{ ts: 100, msgRate: 0, byteRate: 0, backlog: 1000 },
 			] ),
 			'requests.p0': consumer( 'requests.p0', [
-				{ ts: 100, rate: 5, backlog: 200 },
-			] ),
-			'jobs.p0': consumer( 'jobs.p0', [
-				{ ts: 100, rate: 1, backlog: 50 },
+				{ ts: 100, msgRate: 0, byteRate: 0, backlog: 200 },
 			] ),
 		};
-		const map = {
-			'firehose.p0': 'combined',
-			'requests.p0': 'combined',
-			'jobs.p0': 'job-worker',
-		};
-		const out = topologySeries( consumers, 48, ( c ) => map[ c.source ] );
-		// combined = firehose + requests summed per ts; job-worker stands alone.
-		expect( out.combined.backlog ).toEqual( [ 1200 ] );
-		expect( out.combined.rate ).toEqual( [ 15 ] );
-		expect( out[ 'job-worker' ].backlog ).toEqual( [ 50 ] );
+		const map = { 'firehose.p0': 'combined', 'requests.p0': 'combined' };
+		const out = topicChartSeries(
+			consumers,
+			'backlog',
+			( c ) => map[ c.source ]
+		);
+		expect( out.combined.points ).toEqual( [ { ts: 100, value: 1200 } ] );
+	} );
+
+	it( 'skips consumers with no group key and tolerates an empty map', () => {
+		expect( topicChartSeries( {}, 'backlog' ) ).toEqual( {} );
+		expect(
+			topicChartSeries(
+				{ 'a.p0': consumer( '', [ { ts: 1, backlog: 1 } ] ) },
+				'backlog'
+			)
+		).toEqual( {} );
 	} );
 } );

@@ -42,4 +42,7 @@ class Probe_Record {
 	/** Messages the consumer has sent. */
 	public const MSGS = 7;
 
+	/** Absolute partition byte position (Σ live segment sizes); readers derive the byte rate from its delta. */
+	public const END_BYTES = 8;
+
 }

@@ -1,6 +1,12 @@
 import { Node } from '../../runtime/node';
 import { TIMESTAMP, VALUE } from '../../runtime/message';
-import { SOURCE, READER, DISTANCE, MSGS } from '../../runtime/probe-record';
+import {
+	SOURCE,
+	READER,
+	DISTANCE,
+	MSGS,
+	END_BYTES,
+} from '../../runtime/probe-record';
 
 // 24h of probe records at the 15s sweep cadence ≈ 5760 samples per consumer.
 const MAX_SAMPLES = 5760;
@@ -74,6 +80,7 @@ export class TopicProbeViewNode extends Node {
 				source: '',
 				series: [],
 				_lastMsgs: null,
+				_lastEndBytes: null,
 				_lastTs: 0,
 				_lastSeen: 0,
 			};
@@ -83,17 +90,26 @@ export class TopicProbeViewNode extends Node {
 		c.source = String( value[ SOURCE ] ?? c.source );
 
 		const msgs = Number( value[ MSGS ] ) || 0;
+		const endBytes = Number( value[ END_BYTES ] ) || 0;
 		const backlog = Number( value[ DISTANCE ] ) || 0;
-		// Rate = messages/sec, derived from consecutive probe records (Δ msgs / Δ ts).
-		// First sample (no prior) or a counter reset (restart drops msgs) → 0.
-		let rate = 0;
-		if ( null !== c._lastMsgs && ts > c._lastTs && msgs >= c._lastMsgs ) {
-			rate = ( msgs - c._lastMsgs ) / ( ts - c._lastTs );
-		}
+		// msgRate (messages/sec) + byteRate (bytes/sec) derived from consecutive
+		// probe records (Δ / Δ ts) — each replayed record IS a distinct 15s sweep,
+		// so the gap is the real probe interval. First sample, or a counter reset
+		// (worker restart drops msgs / segment GC drops end_bytes) → 0, never negative.
+		const dt = ts > c._lastTs ? ts - c._lastTs : 0;
+		const msgRate =
+			null !== c._lastMsgs && dt > 0 && msgs >= c._lastMsgs
+				? ( msgs - c._lastMsgs ) / dt
+				: 0;
+		const byteRate =
+			null !== c._lastEndBytes && dt > 0 && endBytes >= c._lastEndBytes
+				? ( endBytes - c._lastEndBytes ) / dt
+				: 0;
 		c._lastMsgs = msgs;
+		c._lastEndBytes = endBytes;
 		c._lastTs = ts;
 
-		c.series.push( { ts, rate, backlog } );
+		c.series.push( { ts, msgRate, byteRate, backlog } );
 		if ( c.series.length > this.maxSamples ) {
 			c.series.shift();
 		}
@@ -140,19 +156,20 @@ export class TopicProbeViewNode extends Node {
 	}
 
 	/**
-	 * Per-consumer view: source identity + the latest rate/backlog + the series.
+	 * Per-consumer view: source identity + the latest sample + the series.
 	 *
 	 * @return {Object<string,{source:string,
-	 *   latest:{ts:number,rate:number,backlog:number},
-	 *   series:Array<{ts:number,rate:number,backlog:number}>}>} Each active
-	 *   consumer's source + latest rate/backlog + its bounded sample series.
+	 *   latest:{ts:number,msgRate:number,byteRate:number,backlog:number},
+	 *   series:Array<{ts:number,msgRate:number,byteRate:number,backlog:number}>}>}
+	 *   Each active consumer's source + latest sample + its bounded sample series.
 	 */
 	snapshot() {
 		const out = {};
 		for ( const [ reader, c ] of Object.entries( this.consumers ) ) {
 			const latest = c.series[ c.series.length - 1 ] || {
 				ts: 0,
-				rate: 0,
+				msgRate: 0,
+				byteRate: 0,
 				backlog: 0,
 			};
 			out[ reader ] = {

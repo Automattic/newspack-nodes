@@ -44,6 +44,7 @@ class TopicProbeTest extends TestCase {
 		$record[ Probe_Record::END_SIZE ]   = 100 + $distance;
 		$record[ Probe_Record::DISTANCE ]   = $distance;
 		$record[ Probe_Record::MSGS ]       = 42;
+		$record[ Probe_Record::END_BYTES ]  = 100 + $distance;
 		$c->canned = $record;
 		$c->name( $name ); // registers into Core::$nodes_by_name (the sweep set)
 		return $c;
@@ -67,7 +68,7 @@ class TopicProbeTest extends TestCase {
 			$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
 			$this->assertSame( Core::$now, $msg[ Message::TIMESTAMP ] );
 			$this->assertCount(
-				8,
+				9,
 				$msg[ Message::VALUE ],
 				'lean positional record — no ts/host/derived fields'
 			);

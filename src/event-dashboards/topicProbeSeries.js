@@ -1,16 +1,17 @@
 /**
- * Roll the TopicProbe view's per-`reader` series up to per-`source` (the
- * partition a consumer tails) backlog + rate series for the Overview sparklines.
+ * Roll the TopicProbe view's per-`reader` samples up to per-group (default
+ * per-`source`, the topic a consumer tails) TIME SERIES for the Overview's
+ * Topics panels: message rate, byte rate, and backlog — modeled on Tachikoma's
+ * Grafana Topics dashboard (rate + backlog, ranked by max).
  *
- * Readers of one source all sweep on the same 15s tick (one shared `ts` per
- * sweep), so summing by `ts` aligns cleanly: backlog = total bytes behind that
- * source, rate = total msgs/sec across its readers. The series is then
- * downsampled to a fixed sparkline width.
+ * Readers of one source sweep on the same 15s tick (one shared `ts`), so summing
+ * by `ts` aligns cleanly. Each series also carries its `max`/`avg` for the ranked
+ * legend.
  */
 
 /**
- * Downsample to at most `width` points, taking the MAX per bucket so a backlog
- * (or throughput) spike survives the reduction rather than being averaged away.
+ * Downsample to at most `width` points, taking the MAX per bucket so a spike
+ * survives the reduction rather than being averaged away.
  *
  * @param {number[]} values Oldest-first samples.
  * @param {number}   width  Target point count.
@@ -37,16 +38,18 @@ export function downsample( values, width ) {
 }
 
 /**
- * @param {Object<string,{source:string,series:Array<{ts:number,rate:number,backlog:number}>}>} consumers
- *                                                                                                        The `topicprobe:view` consumers map.
- * @param {number}                                                                              [width]   Sparkline point count (default 48).
- * @param {Function}                                                                            [keyOf]   Group key per consumer (default its `source`); the Overview passes a source→topology map to roll readers up per topology.
- * @return {Object<string,{backlog:number[],rate:number[],latestBacklog:number,latestRate:number}>}
- *   Per group key: downsampled backlog + rate series and the latest values.
+ * Per-group time series for ONE metric, summed across the group's readers by ts.
+ *
+ * @param {Object<string,{source:string,series:Array<{ts:number,msgRate:number,byteRate:number,backlog:number}>}>} consumers
+ *                                                                                                                           The `topicprobe:view` consumers map.
+ * @param {string}                                                                                                 metric    One of `msgRate` | `byteRate` | `backlog`.
+ * @param {Function}                                                                                               [keyOf]   Group key per consumer (default its `source`).
+ * @return {Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>}
+ *   Per group key: the ts-sorted points + the series max + avg (for the ranked legend).
  */
-export function topologySeries(
+export function topicChartSeries(
 	consumers,
-	width = 48,
+	metric,
 	keyOf = ( c ) => c.source
 ) {
 	const byKey = {};
@@ -60,29 +63,23 @@ export function topologySeries(
 
 	const out = {};
 	for ( const [ key, list ] of Object.entries( byKey ) ) {
-		const backlogByTs = new Map();
-		const rateByTs = new Map();
+		const byTs = new Map();
 		for ( const c of list ) {
 			for ( const s of c.series || [] ) {
-				backlogByTs.set(
+				byTs.set(
 					s.ts,
-					( backlogByTs.get( s.ts ) || 0 ) + ( s.backlog || 0 )
-				);
-				rateByTs.set(
-					s.ts,
-					( rateByTs.get( s.ts ) || 0 ) + ( s.rate || 0 )
+					( byTs.get( s.ts ) || 0 ) + ( s[ metric ] || 0 )
 				);
 			}
 		}
-		const tss = [ ...backlogByTs.keys() ].sort( ( a, b ) => a - b );
-		const backlog = tss.map( ( ts ) => backlogByTs.get( ts ) );
-		const rate = tss.map( ( ts ) => rateByTs.get( ts ) );
-		out[ key ] = {
-			backlog: downsample( backlog, width ),
-			rate: downsample( rate, width ),
-			latestBacklog: backlog.length ? backlog[ backlog.length - 1 ] : 0,
-			latestRate: rate.length ? rate[ rate.length - 1 ] : 0,
-		};
+		const tss = [ ...byTs.keys() ].sort( ( a, b ) => a - b );
+		const points = tss.map( ( ts ) => ( { ts, value: byTs.get( ts ) } ) );
+		const values = points.map( ( p ) => p.value );
+		const max = values.length ? Math.max( ...values ) : 0;
+		const avg = values.length
+			? values.reduce( ( a, b ) => a + b, 0 ) / values.length
+			: 0;
+		out[ key ] = { points, max, avg };
 	}
 	return out;
 }

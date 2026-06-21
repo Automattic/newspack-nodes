@@ -8,7 +8,7 @@
  */
 
 import { render } from '@testing-library/react';
-import Overview, { sourceTopologyMap } from '../Overview';
+import Overview from '../Overview';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
 	useTopologyManager: jest.fn(),
@@ -182,66 +182,50 @@ describe( 'Overview fleet board', () => {
 		).toContain( 'edit=1' );
 	} );
 
-	it( 'renders a live lag sparkline in each active row', () => {
+	it( 'renders the three Topics panels (message rate, byte rate, backlog)', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
-				topologies: [
-					active( 'alpha', 'behind', [ worker( { behind: 4096 } ) ] ),
-				],
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
 			} )
 		);
 		const { container } = render( <Overview /> );
-		expect(
-			container.querySelector( '.nodes-overview__row .nodes-spark' )
-		).not.toBeNull();
+		const titles = [
+			...container.querySelectorAll( '.nodes-topics__title' ),
+		].map( ( n ) => n.textContent );
+		expect( titles ).toEqual( [
+			'Topics Message Rate',
+			'Topics Byte Rate',
+			'Topics Backlog',
+		] );
 	} );
 
-	it( 'draws the per-topology lag sparkline from the 24h topicprobe series', () => {
-		// The probe view carries a 2-point backlog series for firehose.p0; the
-		// worker maps that source to topology 'alpha', so the row's sparkline is
-		// the rolled-up backlog trend (NOT a client-side per-poll ring).
+	it( 'draws a per-topic series in a panel from the 24h topicprobe data', () => {
+		// The probe view carries a 2-point byte-rate series for firehose.p0 → the
+		// Byte Rate panel draws a 2-point polyline + lists the topic in its legend.
 		useNodeState.mockReturnValue( {
 			consumers: {
 				'firehose.p0': {
 					source: 'firehose.p0',
 					series: [
-						{ ts: 100, rate: 0, backlog: 4096 },
-						{ ts: 115, rate: 0, backlog: 8192 },
+						{ ts: 100, msgRate: 1, byteRate: 4096, backlog: 0 },
+						{ ts: 115, msgRate: 2, byteRate: 8192, backlog: 0 },
 					],
 				},
 			},
 		} );
 		useTopologyManager.mockReturnValue(
 			hookValue( {
-				topologies: [
-					active( 'alpha', 'behind', [
-						worker( { source: 'firehose.p0' } ),
-					] ),
-				],
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
 			} )
 		);
 		const { container } = render( <Overview /> );
-		const line = container.querySelector( '.nodes-overview__row polyline' );
+		const line = container.querySelector( '.nodes-topics__chart polyline' );
 		expect( line ).not.toBeNull();
-		// Two probe samples → a 2-point polyline.
 		expect(
 			line.getAttribute( 'points' ).trim().split( /\s+/ )
 		).toHaveLength( 2 );
-	} );
-
-	it( 'sourceTopologyMap maps each consumed source to its active topology (first writer wins)', () => {
-		const map = sourceTopologyMap( [
-			active( 'combined', 'ok', [
-				worker( { source: 'firehose.p0' } ),
-				worker( { source: 'requests.p0' } ),
-			] ),
-			active( 'jobs-wk', 'ok', [ worker( { source: 'jobs.p0' } ) ] ),
-		] );
-		expect( map ).toEqual( {
-			'firehose.p0': 'combined',
-			'requests.p0': 'combined',
-			'jobs.p0': 'jobs-wk',
-		} );
+		const legend = container.querySelector( '.nodes-topics__legend' );
+		expect( legend.textContent ).toContain( 'firehose.p0' );
 	} );
 
 	it( 'offers a New Topology deep-link', () => {

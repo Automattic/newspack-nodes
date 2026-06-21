@@ -128,7 +128,7 @@ class ConsumerTest extends TestCase {
 		$this->pump_consumer( $c );
 
 		$stats = $c->probe_stats();
-		$this->assertCount( 8, $stats, 'lean positional record' );
+		$this->assertCount( 9, $stats, 'lean positional record' );
 		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
 		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
 		$this->assertSame( 'p0', $stats[ Probe_Record::SOURCE ] );
@@ -139,6 +139,8 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 0, $stats[ Probe_Record::END_SEG ] );
 		$this->assertGreaterThan( 0, $stats[ Probe_Record::END_SIZE ] );
 		$this->assertSame( 2, $stats[ Probe_Record::MSGS ] );
+		// END_BYTES = the partition's total bytes; caught up → equals what we consumed.
+		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $stats[ Probe_Record::END_BYTES ] );
 	}
 
 	public function test_probe_stats_round_trips_through_cli_consumer_rows(): void {
