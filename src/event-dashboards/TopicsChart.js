@@ -12,7 +12,7 @@
  * ts), filling gaps with 0.
  */
 
-import { useCallback, useMemo } from '@wordpress/element';
+import { memo, useCallback, useMemo } from '@wordpress/element';
 import * as d3 from 'd3';
 import {
 	MARGIN,
@@ -25,7 +25,13 @@ import {
 
 const HEIGHT = 200;
 
-export function TopicsChart( { title, series, formatValue } ) {
+// Memoized: d3-driven and re-rendered by Overview on every drag-reorder frame;
+// the memoized `series` props are stable mid-drag, so it skips the redraw.
+export const TopicsChart = memo( function TopicsChart( {
+	title,
+	series,
+	formatValue,
+} ) {
 	const chartState = useMemo( () => {
 		const ranked = Object.keys( series || {} )
 			.map( ( key ) => ( { key, ...series[ key ] } ) )
@@ -173,4 +179,4 @@ export function TopicsChart( { title, series, formatValue } ) {
 			<div ref={ tooltipRef } className="nodes-topics__tooltip" />
 		</div>
 	);
-}
+} );
