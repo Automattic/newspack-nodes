@@ -11,5 +11,6 @@
 	"HEARTBEAT": "_heartbeat",
 	"CWD": "_cwd",
 	"TOPICPROBE": "_topicprobe",
-	"TOPICPROBE_LOG": "_topicprobe:log"
+	"TOPICPROBE_LOG": "_topicprobe:log",
+	"SETTINGS_LOG": "_settings:log"
 }

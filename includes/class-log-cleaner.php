@@ -87,6 +87,7 @@ class Log_Cleaner {
 			// skips the sweep before the app/topologies are registered).
 			if ( ! empty( $logs ) ) {
 				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] = true;
+				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] = true;
 			}
 		}
 

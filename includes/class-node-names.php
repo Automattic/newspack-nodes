@@ -28,4 +28,5 @@ final class Node_Names {
 	public const CWD                 = '_cwd';
 	public const TOPICPROBE          = '_topicprobe';
 	public const TOPICPROBE_LOG      = '_topicprobe:log';
+	public const SETTINGS_LOG        = '_settings:log';
 }
