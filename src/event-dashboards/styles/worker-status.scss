@@ -333,6 +333,9 @@
 	transition:
 		width 0.3s ease,
 		background-color 0.3s ease;
+	// Per-bar stagger (set on .worker-segment-h): each bar's fill/offset waits one
+	// bar-duration per index so the cascade runs left→right, one bar at a time.
+	transition-delay: var(--seg-delay, 0s);
 	position: relative;
 
 	&:first-child {

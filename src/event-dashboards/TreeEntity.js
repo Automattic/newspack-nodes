@@ -122,10 +122,11 @@ function LogRows( {
 					</span>
 				</div>
 				<div className="partition-segments">
-					{ all.map( ( seg ) => (
+					{ all.map( ( seg, index ) => (
 						<SegmentBar
 							key={ seg.id }
 							segment={ seg }
+							index={ index }
 							maxSize={ entity.segment_size || segmentSize }
 							cursorSeg={ cursor?.seg }
 							cursorOffset={ cursor?.offset }
