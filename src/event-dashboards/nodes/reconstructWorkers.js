@@ -252,17 +252,33 @@ export function reconstructWorkers( data, prior ) {
 	// monotonic series. Keying per-row by source instead (the old bug) let the two
 	// readers clobber each other non-monotonically and stranded fanned partitions
 	// at 0 B/s. Computed once here, reader-count- and order-independent.
-	const maxEndBySource = new Map();
+	const writeTotals = new Map();
 	consumers.forEach( ( row ) => {
 		const live =
 			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
 		const total = endPosition( live, row.end_seg, row.end_size );
-		const prevMax = maxEndBySource.get( row.source );
+		const prevMax = writeTotals.get( row.source );
 		if ( prevMax === undefined || total > prevMax ) {
-			maxEndBySource.set( row.source, total );
+			writeTotals.set( row.source, total );
 		}
 	} );
-	maxEndBySource.forEach( ( total, source ) => {
+	// OUTPUT logs (written but read by nothing in the graph) have no consumer row,
+	// so fall back to the live segment head — else a busy output partition shows
+	// W 0 B/s forever. A CONSUMED log keeps its reader's END (set above): that is
+	// intentionally NOT the live total, so only fill keys not already present.
+	logs.forEach( ( log ) => {
+		( log.partitions || [] ).forEach( ( p ) => {
+			if ( writeTotals.has( log.name ) ) {
+				return;
+			}
+			const head = ( p.segments || [] ).reduce(
+				( acc, seg ) => acc + ( seg.size || 0 ),
+				0
+			);
+			writeTotals.set( log.name, head );
+		} );
+	} );
+	writeTotals.forEach( ( total, source ) => {
 		const step = steppedRate( priorWrite[ source ], total, ts );
 		nextWrite[ source ] = step;
 		writeRates[ source ] = step.rate;

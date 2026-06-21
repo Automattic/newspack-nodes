@@ -471,6 +471,37 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 		expect( p3.writeRates[ src ] ).toBe( 20 );
 	} );
 
+	it( 'computes write rate for an OUTPUT log with no consumer (from the live head)', () => {
+		// `completed` is written but nothing in the graph reads it — there are no
+		// consumer rows, so its rate must come from the live segment head, else an
+		// output log under a constant stream shows W 0 B/s forever.
+		const src = 'completed.p0';
+		const make = ( headSize, ts ) => ( {
+			...FANOUT_DATA,
+			consumers: [],
+			logs: [
+				{
+					name: src,
+					partitions: [
+						{
+							partition: 0,
+							segments: [ { id: 0, size: headSize } ],
+							total_size: headSize,
+						},
+					],
+				},
+			],
+			timestamp: ts,
+		} );
+		const p1 = reconstructWorkers( make( 100, 1000 ), EMPTY_PRIOR );
+		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
+		const p2 = reconstructWorkers( make( 300, 1010 ), {
+			read: p1.nextRead,
+			write: p1.nextWrite,
+		} );
+		expect( p2.writeRates[ src ] ).toBe( 20 ); // live head 100→300 over 10s
+	} );
+
 	it( 'tracks the consumer END for write rate even when the live head-segment size lags it (no cap)', () => {
 		// The live head-segment size is sampled separately from the consumer end and
 		// can be STALE/smaller; the write position must follow the fresh end (as the
