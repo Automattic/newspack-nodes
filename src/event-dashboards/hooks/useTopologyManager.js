@@ -222,7 +222,7 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
  *   count for the summary cards, the mutation verbs, and connected.
  */
 export function useTopologyManager( opts = {} ) {
-	const { commandClient, refreshMs = 4000 } = opts;
+	const { commandClient, refreshMs = 4000, paused = false } = opts;
 
 	const { interpreterRef } = useDashboardGraph( {
 		mountNodes: ( interpreter ) => {
@@ -260,6 +260,7 @@ export function useTopologyManager( opts = {} ) {
 		},
 		refreshMs,
 		commandClient,
+		paused,
 	} );
 
 	const workerModel = useNodeState( WORKER_VIEW, 'view' );
