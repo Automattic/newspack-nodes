@@ -257,6 +257,23 @@ class WorkersCITest extends TestCase {
 		);
 	}
 
+	public function test_dump_graph_payload_includes_on_disk_log_partition_count(): void {
+		// The Overview/Topologies "log partitions" card counts the concrete .pN
+		// dirs on disk — globbed fresh (not the active-topology logs[]).
+		$base = $this->arrange_base_dir();
+		$this->seed_log_segment( $base, 'firehose', 0, 0 );
+		$this->seed_log_segment( $base, 'requests', 0, 0 );
+		$this->seed_log_segment( $base, 'topicprobe', 0, 0 );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertArrayHasKey( 'log_partitions', $result );
+		$this->assertSame( 3, $result['log_partitions'] );
+	}
+
 	public function test_list_verb_returns_workers_from_cli(): void {
 		$fake_cli = new class {
 			public function ls_workers(): array {

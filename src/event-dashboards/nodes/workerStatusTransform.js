@@ -55,6 +55,8 @@ export class WorkerStatusTransformNode extends Node {
 		this._currentTime = Math.floor( Date.now() / 1000 );
 		// Worker_Base::HEARTBEAT_INTERVAL_S — the stall-pad denominator.
 		this._heartbeatIntervalS = 10;
+		// On-disk log-partition count (the summary card); sticky like the scalars above.
+		this._logPartitions = 0;
 	}
 
 	fill( message ) {
@@ -169,6 +171,9 @@ export class WorkerStatusTransformNode extends Node {
 		if ( data.heartbeat_interval_s ) {
 			this._heartbeatIntervalS = data.heartbeat_interval_s;
 		}
+		if ( data.log_partitions !== undefined ) {
+			this._logPartitions = data.log_partitions;
+		}
 
 		const model = {
 			workers: richWorkers,
@@ -177,6 +182,7 @@ export class WorkerStatusTransformNode extends Node {
 			graph: data.graph ?? {},
 			byteRates: newByteRates,
 			writeRates: newWriteRates,
+			logPartitions: this._logPartitions,
 			segmentSize: this._segmentSize,
 			currentTime: this._currentTime,
 			heartbeatIntervalS: this._heartbeatIntervalS,

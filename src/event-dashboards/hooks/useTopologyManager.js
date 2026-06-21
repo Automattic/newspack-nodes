@@ -49,6 +49,7 @@ import {
 	useDashboardGraph,
 	makeOpId,
 } from '@newspack-nodes/shared/hooks/useDashboardGraph';
+import { globalRates } from '../globalRates';
 import '../nodes/register';
 
 // A partition is stalled when its heartbeat age exceeds interval × STALL_PAD;
@@ -201,10 +202,12 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
  * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`.
  * @param {number} [opts.refreshMs]     Poll interval in ms (default 4000).
  * @return {{ topologies: Array, supervisor: ?Object, currentTime: ?number,
+ *   readRate: number, writeRate: number, logPartitions: number,
  *   activate: Function, deactivate: Function, restart: Function,
  *   connected: boolean }} The Topology Manager data + mutations: every topology
  *   row (status merged onto the active ones), the supervisor card, the clock for
- *   supervisor uptime, the mutation verbs, and connected.
+ *   supervisor uptime, the fleet-global R/W byte rates + on-disk log-partition
+ *   count for the summary cards, the mutation verbs, and connected.
  */
 export function useTopologyManager( opts = {} ) {
 	const { commandClient, refreshMs = 4000 } = opts;
@@ -269,6 +272,13 @@ export function useTopologyManager( opts = {} ) {
 	const supervisor = workerModel?.supervisor ?? null;
 	const currentTime = workerModel?.currentTime;
 	const connected = ! ( topologyModel?.error || workerModel?.error );
+	// Fleet-global byte rates (Σ the live per-reader / per-log rate maps) and the
+	// on-disk log-partition count — the SummaryCards' R / W / partitions numbers.
+	const { readRate, writeRate } = globalRates(
+		workerModel?.byteRates,
+		workerModel?.writeRates
+	);
+	const logPartitions = workerModel?.logPartitions ?? 0;
 
 	// Request a graceful restart for a worker type (FROM=workerstatus:view so the
 	// reply settles the worker view's pending-Map).
@@ -314,6 +324,9 @@ export function useTopologyManager( opts = {} ) {
 		topologies,
 		supervisor,
 		currentTime,
+		readRate,
+		writeRate,
+		logPartitions,
 		activate,
 		deactivate,
 		restart,

@@ -1,0 +1,182 @@
+/**
+ * SummaryCards + TopologyControls — the fleet-vitals card row and the shared
+ * per-topology action cluster, used by BOTH the Overview and Topologies hub tabs
+ * so the two carry identical chrome. Tracks the event-dashboards dark theme
+ * (base.scss) and the shared health palette.
+ */
+
+@use "base";
+
+$health-ok: #3fb950;
+$health-behind: #d29922;
+$health-stalled: #f85149;
+
+// ── Card row ───────────────────────────────────────────────────────────────
+.nodes-cards {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: stretch;
+	gap: 10px;
+	margin: 4px 0 18px;
+	font-family: base.$system-font;
+}
+
+.nodes-card {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 104px;
+	padding: 10px 14px;
+	border-radius: 10px;
+	background: base.$dark-bg-secondary;
+	border: 1px solid base.$dark-border;
+
+	&__value {
+		font-size: 16px;
+		font-weight: 700;
+		color: base.$dark-text;
+		line-height: 1.2;
+	}
+
+	&__label {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: base.$dark-text-muted;
+	}
+
+	// Health card: tint the value + add a status dot.
+	&--health &__value {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+
+		&::before {
+			content: "";
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: currentcolor;
+			flex: 0 0 auto;
+		}
+	}
+
+	&--health-ok &__value {
+		color: $health-ok;
+	}
+
+	&--health-behind &__value {
+		color: $health-behind;
+	}
+
+	&--health-stalled &__value {
+		color: $health-stalled;
+	}
+
+	&--read &__value {
+		color: base.$dark-info;
+	}
+
+	&--write &__value {
+		color: base.$dark-accent;
+	}
+}
+
+// "+ New Topology" — trails the card row, right-aligned.
+.nodes-cards__new {
+	margin-left: auto;
+	align-self: center;
+	font-size: 13px;
+	line-height: 1;
+	padding: 7px 14px;
+	border-radius: 8px;
+	background: base.$dark-bg-tertiary;
+	color: base.$dark-text;
+	border: 1px solid base.$dark-border;
+	text-decoration: none;
+	transition: background 0.15s;
+
+	&:hover {
+		background: base.$dark-bg-hover;
+		color: base.$dark-text;
+	}
+}
+
+// ── Shared per-topology controls (toggle + restart + edit) ───────────────────
+.nodes-ctl {
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+
+	&__toggle {
+		flex: 0 0 auto;
+		width: 34px;
+		height: 19px;
+		border-radius: 10px;
+		position: relative;
+		display: inline-block;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+		background: base.$dark-bg-active;
+		transition: background 0.15s;
+
+		&::after {
+			content: "";
+			position: absolute;
+			top: 2px;
+			left: 2px;
+			width: 15px;
+			height: 15px;
+			border-radius: 50%;
+			background: #fff;
+			transition: left 0.15s;
+		}
+
+		&.is-on {
+			background: $health-ok;
+
+			&::after {
+				left: 17px;
+			}
+		}
+	}
+
+	&__restart {
+		flex: 0 0 auto;
+		font-size: 15px;
+		line-height: 1;
+		padding: 4px 9px;
+		border-radius: 6px;
+		background: base.$dark-bg-tertiary;
+		color: $health-behind;
+		border: 1px solid base.$dark-border;
+		cursor: pointer;
+		transition: background 0.15s;
+
+		&:hover {
+			background: base.$dark-bg-hover;
+		}
+	}
+
+	&__edit {
+		flex: 0 0 auto;
+		font-size: 12px;
+		line-height: 1;
+		padding: 5px 10px;
+		border-radius: 6px;
+		background: base.$dark-bg-tertiary;
+		color: base.$dark-text;
+		border: 1px solid base.$dark-border;
+		text-decoration: none;
+		cursor: pointer;
+		transition: background 0.15s;
+
+		&:hover {
+			background: base.$dark-bg-hover;
+			color: base.$dark-text;
+		}
+	}
+}

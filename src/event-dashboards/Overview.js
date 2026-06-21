@@ -7,7 +7,8 @@
  * because what matters is whether the backlog is draining or climbing.
  *
  * A live view over useTopologyManager + the TopicProbe stream:
- *  - a fleet strip (topology/active counts, partitions-up, a worst-health pill),
+ *  - the shared SummaryCards row (topology/active counts, worker liveness,
+ *    on-disk partitions, health, global R/W rates, 24h produced totals),
  *  - the supervisor card,
  *  - THREE Tachikoma-style Topics panels — Message Rate, Byte Rate, Backlog —
  *    each a multi-series 24h time chart (one series per topic/source) with a
@@ -24,8 +25,12 @@
  * same `consoleHref` deep-links so navigation stays single-sourced.
  */
 
-import { __, sprintf, _n } from '@wordpress/i18n';
+import { useState } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import SummaryCards from './SummaryCards';
+import TopologyControls from './TopologyControls';
+import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useTopicProbeStream } from './hooks/useTopicProbeStream';
 import { useNodeState } from '../runtime/react';
@@ -78,15 +83,26 @@ function vitals( t ) {
 
 /**
  * One active-topology row: name (live link) + health badge + per-partition
- * worker pills + uptime + a live lag sparkline & current lag, with an Edit
- * deep-link.
+ * worker pills + uptime + current lag, with the shared activate/restart/edit
+ * controls.
  *
- * @param {Object}  props
- * @param {Object}  props.topology    The active topology row.
- * @param {?number} props.currentTime Server clock (for uptime).
+ * @param {Object}   props
+ * @param {Object}   props.topology     The active topology row.
+ * @param {?number}  props.currentTime  Server clock (for uptime).
+ * @param {Function} props.onActivate   (name) => Promise.
+ * @param {Function} props.onDeactivate (name) => Promise.
+ * @param {Function} props.onRestart    (name) => Promise.
+ * @param {Function} props.onError      ({name,message}) => void for a rejected mutation.
  * @return {import('react').ReactElement} The row.
  */
-function ActiveRow( { topology, currentTime } ) {
+function ActiveRow( {
+	topology,
+	currentTime,
+	onActivate,
+	onDeactivate,
+	onRestart,
+	onError,
+} ) {
 	const health = topology.health || 'ok';
 	const { parts, up, total, behind, startedAt } = vitals( topology );
 	return (
@@ -179,50 +195,17 @@ function ActiveRow( { topology, currentTime } ) {
 						: __( 'caught up', 'newspack-nodes' ) }
 				</span>
 			</span>
-			<a
-				className="nodes-overview__edit"
-				href={ consoleHref( topology.name, { edit: true } ) }
-				title={ __(
-					'Edit this topology in the console',
-					'newspack-nodes'
-				) }
-			>
-				{ __( 'Edit', 'newspack-nodes' ) }
-			</a>
+			<TopologyControls
+				name={ topology.name }
+				active={ true }
+				onActivate={ onActivate }
+				onDeactivate={ onDeactivate }
+				onRestart={ onRestart }
+				onError={ onError }
+				editHref={ consoleHref( topology.name, { edit: true } ) }
+			/>
 		</div>
 	);
-}
-
-/**
- * Worst-health rollup + pill label across the active fleet.
- *
- * @param {Array} actives Active topology rows.
- * @return {{ worst: string, label: string }} Worst health + its pill label.
- */
-function fleetHealth( actives ) {
-	const stalled = actives.filter( ( t ) => 'stalled' === t.health ).length;
-	const behind = actives.filter( ( t ) => 'behind' === t.health ).length;
-	if ( stalled ) {
-		return {
-			worst: 'stalled',
-			label: sprintf(
-				// translators: %d: number of stalled topologies.
-				_n( '%d stalled', '%d stalled', stalled, 'newspack-nodes' ),
-				stalled
-			),
-		};
-	}
-	if ( behind ) {
-		return {
-			worst: 'behind',
-			label: sprintf(
-				// translators: %d: number of lagging topologies.
-				_n( '%d behind', '%d behind', behind, 'newspack-nodes' ),
-				behind
-			),
-		};
-	}
-	return { worst: 'ok', label: __( 'all systems ok', 'newspack-nodes' ) };
 }
 
 /**
@@ -231,8 +214,20 @@ function fleetHealth( actives ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function Overview() {
-	const { topologies, supervisor, currentTime, restart, connected } =
-		useTopologyManager();
+	const {
+		topologies,
+		supervisor,
+		currentTime,
+		readRate,
+		writeRate,
+		logPartitions,
+		activate,
+		deactivate,
+		restart,
+		connected,
+	} = useTopologyManager();
+	// A rejected activate/deactivate/restart ({ name, message }) raises this alert.
+	const [ alert, setAlert ] = useState( null );
 
 	// Second link: replay the durable topicprobe.p0 log (24h from `start`) into
 	// `topicprobe:view`, the source for the per-topology lag sparklines.
@@ -258,63 +253,20 @@ export default function Overview() {
 	const byteRateSeries = topicChartSeries( consumers, 'byteRate' );
 	const backlogSeries = topicChartSeries( consumers, 'backlog' );
 
-	const fleet = actives.reduce(
-		( acc, t ) => {
-			const v = vitals( t );
-			acc.up += v.up;
-			acc.total += v.total;
-			return acc;
-		},
-		{ up: 0, total: 0 }
-	);
-	const { worst, label: fleetHealthLabel } = fleetHealth( actives );
-
 	return (
 		<div className="nodes-overview">
 			<ConnectionBanner
 				connectionError={ ! connected }
 				message={ __( 'Disconnected — retrying…', 'newspack-nodes' ) }
 			/>
-			<div className="nodes-overview__fleet">
-				<span className="nodes-overview__count">
-					{ sprintf(
-						// translators: %1$d: total topologies; %2$d: active count.
-						_n(
-							'%1$d topology · %2$d active',
-							'%1$d topologies · %2$d active',
-							topologies.length,
-							'newspack-nodes'
-						),
-						topologies.length,
-						actives.length
-					) }
-				</span>
-				{ fleet.total > 0 && (
-					<span className="nodes-overview__partsup">
-						{ sprintf(
-							// translators: %1$d: running partitions; %2$d: total active partitions.
-							__( '%1$d / %2$d partitions up', 'newspack-nodes' ),
-							fleet.up,
-							fleet.total
-						) }
-					</span>
-				) }
-				<span
-					className={ `nodes-overview__fleet-health nodes-overview__fleet-health--${ worst }` }
-				>
-					{ fleetHealthLabel }
-				</span>
-				<a
-					className="nodes-overview__new"
-					href={ consoleHref( '', { isNew: true } ) }
-					title={ __(
-						'Create a new topology in the console',
-						'newspack-nodes'
-					) }
-				>
-					{ __( '+ New Topology', 'newspack-nodes' ) }
-				</a>
-			</div>
+			<SummaryCards
+				topologies={ topologies }
+				readRate={ readRate }
+				writeRate={ writeRate }
+				logPartitions={ logPartitions }
+				consumers={ probeView?.consumers }
+				newTopologyHref={ consoleHref( '', { isNew: true } ) }
+			/>
 			<div className="nodes-overview__panels">
 				<TopicsChart
 					title={ __( 'Topics Message Rate', 'newspack-nodes' ) }
@@ -345,6 +297,10 @@ export default function Overview() {
 						key={ t.name }
 						topology={ t }
 						currentTime={ currentTime }
+						onActivate={ activate }
+						onDeactivate={ deactivate }
+						onRestart={ restart }
+						onError={ setAlert }
 					/>
 				) ) }
 			</div>
@@ -361,19 +317,31 @@ export default function Overview() {
 							<span className="nodes-overview__name">
 								{ t.name }
 							</span>
-							<a
-								className="nodes-overview__edit"
-								href={ consoleHref( t.name, { edit: true } ) }
-								title={ __(
-									'Edit this topology in the console',
-									'newspack-nodes'
-								) }
-							>
-								{ __( 'Edit', 'newspack-nodes' ) }
-							</a>
+							<TopologyControls
+								name={ t.name }
+								active={ false }
+								onActivate={ activate }
+								onDeactivate={ deactivate }
+								onRestart={ restart }
+								onError={ setAlert }
+								editHref={ consoleHref( t.name, {
+									edit: true,
+								} ) }
+							/>
 						</span>
 					) ) }
 				</div>
+			) }
+			{ alert && (
+				<AlertModal
+					title={ sprintf(
+						// translators: %s: topology name.
+						__( 'Couldn’t update “%s”', 'newspack-nodes' ),
+						alert.name
+					) }
+					message={ alert.message }
+					onClose={ () => setAlert( null ) }
+				/>
 			) }
 		</div>
 	);

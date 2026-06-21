@@ -67,6 +67,34 @@ export function formatMsgRate( perSec ) {
 }
 
 /**
+ * Compact whole-count (K/M/B) for a 24h total — e.g. 1500 → "1.5K", 2000 → "2K".
+ *
+ * @param {number} n A count.
+ * @return {string} Compacted count.
+ */
+export function formatCount( n ) {
+	if ( ! Number.isFinite( n ) || n <= 0 ) {
+		return '0';
+	}
+	if ( n < 1000 ) {
+		return String( Math.round( n ) );
+	}
+	const units = [ '', 'K', 'M', 'B' ];
+	let i = Math.min(
+		units.length - 1,
+		Math.floor( Math.log( n ) / Math.log( 1000 ) )
+	);
+	let value = parseFloat( ( n / Math.pow( 1000, i ) ).toFixed( 1 ) );
+	// Rounding can push the value to 1000 (e.g. 999999 → "1000.0"); promote to the
+	// next unit so it reads "1M", not "1000K".
+	if ( value >= 1000 && i < units.length - 1 ) {
+		i++;
+		value = parseFloat( ( n / Math.pow( 1000, i ) ).toFixed( 1 ) );
+	}
+	return value + units[ i ];
+}
+
+/**
  * Format age as human readable duration.
  *
  * @param {number} startedAt Unix timestamp when worker started.
