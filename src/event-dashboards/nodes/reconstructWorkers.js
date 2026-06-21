@@ -232,6 +232,30 @@ export function reconstructWorkers( data, prior ) {
 	const nextRead = {};
 	const nextWrite = {};
 
+	// Write rate = Δ(probe END) of a partition — snapshot-stable, intentionally NOT
+	// the live total. A partition can be read by SEVERAL consumers (distinct
+	// topologies/readers) whose end snapshots differ and whose row order in
+	// `consumers[]` is unstable across polls; collapse them per concrete source to
+	// the MAX end (the reader closest to the head) so steppedRate sees ONE
+	// monotonic series. Keying per-row by source instead (the old bug) let the two
+	// readers clobber each other non-monotonically and stranded fanned partitions
+	// at 0 B/s. Computed once here, reader-count- and order-independent.
+	const maxEndBySource = new Map();
+	consumers.forEach( ( row ) => {
+		const live =
+			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
+		const { total } = trimToSnapshot( live, row.end_seg, row.end_size );
+		const prevMax = maxEndBySource.get( row.source );
+		if ( prevMax === undefined || total > prevMax ) {
+			maxEndBySource.set( row.source, total );
+		}
+	} );
+	maxEndBySource.forEach( ( total, source ) => {
+		const step = steppedRate( priorWrite[ source ], total, ts );
+		nextWrite[ source ] = step;
+		writeRates[ source ] = step.rate;
+	} );
+
 	Object.entries( graph ).forEach( ( [ topology, graphTopo ] ) => {
 		const handlers = consumerHandlers( graphTopo );
 
@@ -321,10 +345,8 @@ export function reconstructWorkers( data, prior ) {
 					outputs_status: [],
 				} );
 			} );
-
-			const writeStep = steppedRate( priorWrite[ concrete ], total, ts );
-			nextWrite[ concrete ] = writeStep;
-			writeRates[ concrete ] = writeStep.rate;
+			// Write rate is computed once per source up front (see maxEndBySource) —
+			// NOT here per consumer row, which clobbered fanned partitions.
 		} );
 
 		// A liveness row with no matching consumer row still emits a worker so the

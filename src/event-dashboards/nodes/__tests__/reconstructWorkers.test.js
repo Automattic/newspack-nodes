@@ -470,6 +470,52 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 		} );
 		expect( p3.writeRates[ src ] ).toBe( 20 );
 	} );
+
+	it( 'collapses a partition read by MULTIPLE consumers to one write rate (max end), stable across flipped row order', () => {
+		// Two separate consumers (distinct readers) of the SAME partition, with
+		// differing end snapshots; the head = max(end) advances 1000→2000→3000 over
+		// 10s steps = 100 B/s. The committed rate must track the head and NOT depend
+		// on the (unstable) consumers[] order — the bug stranded a fanned partition
+		// at 0 because the two readers clobbered one writeRates key non-monotonically.
+		const src = 'firehose.p0';
+		const make = ( endA, endB, order, ts ) => ( {
+			...FANOUT_DATA,
+			consumers: order.map( ( which ) => ( {
+				...FANOUT_DATA.consumers[ 0 ],
+				reader: 'A' === which ? 'rb/firehose.p0' : 'jr/firehose.p0',
+				end_seg: 0,
+				end_size: 'A' === which ? endA : endB,
+			} ) ),
+			logs: [
+				{
+					name: src,
+					partitions: [
+						{
+							partition: 0,
+							segments: [ { id: 0, size: 999999 } ],
+							total_size: 999999,
+						},
+					],
+				},
+			],
+			timestamp: ts,
+		} );
+		const p1 = reconstructWorkers(
+			make( 1000, 100, [ 'A', 'B' ], 1000 ),
+			EMPTY_PRIOR
+		);
+		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
+		const p2 = reconstructWorkers( make( 2000, 200, [ 'B', 'A' ], 1010 ), {
+			read: p1.nextRead,
+			write: p1.nextWrite,
+		} );
+		expect( p2.writeRates[ src ] ).toBe( 100 ); // Δmax = 1000/10s, order-independent
+		const p3 = reconstructWorkers( make( 3000, 300, [ 'A', 'B' ], 1020 ), {
+			read: p2.nextRead,
+			write: p2.nextWrite,
+		} );
+		expect( p3.writeRates[ src ] ).toBe( 100 );
+	} );
 } );
 
 describe( 'reconstructWorkers — liveness backfill', () => {
