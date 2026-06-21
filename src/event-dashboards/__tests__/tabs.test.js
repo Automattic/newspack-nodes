@@ -1,8 +1,9 @@
 /**
  * tabs.js registers the hub DevTools tabs the event-dashboards bundle owns:
- * the Overview landing (order 0 — the default first paint), the Topology Manager
- * (order 5), and Raw Logs (order 20). Importing the module (for its side effect)
- * must put them in the shared registry under host 'hub'.
+ * the Overview landing (order 0 — the default first paint, now folding in the
+ * old Topologies tab's per-topology detail tree) and Raw Logs (order 20).
+ * Importing the module (for its side effect) must put them in the shared
+ * registry under host 'hub'.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -30,14 +31,17 @@ test( 'importing tabs registers the overview tab first (order 0) on the hub host
 	expect( hubTabs[ 0 ].id ).toBe( 'overview' );
 } );
 
-test( 'importing tabs registers the topology-manager tab on the hub host', () => {
-	const { getDevtoolsTabs } = require( '../../shared/devtools/tabRegistry' );
+test( 'importing tabs no longer registers a separate topology-manager tab (merged into Overview)', () => {
+	const {
+		getDevtoolsTabs,
+		resetDevtoolsTabs,
+	} = require( '../../shared/devtools/tabRegistry' );
+	resetDevtoolsTabs();
 	require( '../tabs' );
 	const hubTabs = getDevtoolsTabs( 'hub' );
-	const tab = hubTabs.find( ( t ) => t.id === 'topology-manager' );
-	expect( tab ).toBeTruthy();
-	expect( tab.host ).toBe( 'hub' );
-	expect( typeof tab.component ).toBe( 'function' );
+	expect(
+		hubTabs.find( ( t ) => t.id === 'topology-manager' )
+	).toBeUndefined();
 } );
 
 test( 'importing tabs registers the raw-logs tab on the hub host at order 20, full-bleed', () => {

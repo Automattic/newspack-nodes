@@ -1,32 +1,23 @@
 /**
- * Topology Manager — the `host: 'hub'` DevTools tab. A thin view over
- * `useTopologyManager` that lists EVERY topology (active + inactive) with its
- * provenance badge + an active toggle (immediate activate/deactivate) + a fleet
- * restart, reusing the live worker-status tree for the active ones.
+ * TopologyRow — one topology's UNFOLDED detail row, shared by the merged Overview
+ * tab. The heading carries the name (live link when active) + per-partition pills
+ * + source/health badges + a topology-level collapse chevron (folds the row back
+ * to its compact summary) + the shared activate/restart/edit controls; the body
+ * renders the live `TopologySection` subtree (or a "Stopped" row when inactive).
  *
- * This EXTENDS the shipped grouped worker-status tree: an active topology's
- * heading carries the controls (badge / toggle / restart) and its body renders
- * the same `TopologySection` subtree WorkerStatus.js uses, built from the
- * topology's live status section. An inactive topology shows only its heading +
- * a "Stopped" row. Fold state for the live subtrees is owned here, mirroring
- * WorkerStatus.js.
+ * The topology-level fold (`onCollapseTopology`, whole-row expand/collapse) and
+ * the within-tree node fold (`collapsed`/`onToggleFold`, threaded straight into
+ * TopologySection) are SEPARATE concerns — don't conflate them.
  */
 
-import { memo, useState } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
-import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import { memo } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import TopologySection from './TopologySection';
-import AlertModal from './AlertModal';
-import SummaryCards from './SummaryCards';
 import TopologyControls from './TopologyControls';
-import { SupervisorStatus } from './SupervisorStatus';
 import { buildTopologySections } from './topologyGraph';
 import { partitionSummaries } from './partitionSummaries';
 import { formatAge } from './formatters';
-import { useTopologyManager } from './hooks/useTopologyManager';
-import { useTopicProbeStream } from './hooks/useTopicProbeStream';
-import { useNodeState } from '../runtime/react';
-import './TopologyManager.scss';
+import './TopologyRow.scss';
 
 // Opens the DevTools hub's Console tab (the hub reads `?tab=` to pick it). A
 // `name` scopes it via `?topology=`; `edit` adds `?edit=1` to open that topology
@@ -70,7 +61,7 @@ const HEALTH_LABELS = {
 // `status` carries the topology's `.tsl` graphTopo + workers (plus the enriched
 // rate/segment/time slices the body threads through); buildTopologySections keys
 // on topology name, so wrap the graph in a one-entry map and take the section.
-function sectionFor( name, status ) {
+export function sectionFor( name, status ) {
 	if ( ! status || ! status.graph ) {
 		return null;
 	}
@@ -83,17 +74,17 @@ function sectionFor( name, status ) {
 }
 
 /**
- * One topology's row: heading (name + partitions + source badge + active toggle
- * + restart) and body (live TopologySection when active, else a Stopped row).
+ * One topology's unfolded detail row.
  *
- * @param {Object}   props              Component props.
- * @param {Object}   props.topology     Topology row from useTopologyManager.
- * @param {Function} props.onActivate   (name) => Promise.
- * @param {Function} props.onDeactivate (name) => Promise.
- * @param {Function} props.onRestart    (name) => Promise.
- * @param {Function} props.onError      ({name,message}) => void; a rejected mutation.
- * @param {Set}      props.collapsed    Fold-state set for the live subtree.
- * @param {Function} props.onToggleFold (key) => void fold toggler.
+ * @param {Object}   props                    Component props.
+ * @param {Object}   props.topology           Topology row from useTopologyManager.
+ * @param {Function} props.onActivate         (name) => Promise.
+ * @param {Function} props.onDeactivate       (name) => Promise.
+ * @param {Function} props.onRestart          (name) => Promise.
+ * @param {Function} props.onError            ({name,message}) => void; a rejected mutation.
+ * @param {Function} props.onCollapseTopology (name) => void; fold this row to its compact summary.
+ * @param {Set}      props.collapsed          Within-tree node-fold set.
+ * @param {Function} props.onToggleFold       (key) => void within-tree node-fold toggler.
  * @return {import('react').ReactElement} Rendered row.
  */
 const TopologyRow = memo( function TopologyRow( {
@@ -102,14 +93,14 @@ const TopologyRow = memo( function TopologyRow( {
 	onDeactivate,
 	onRestart,
 	onError,
+	onCollapseTopology,
 	collapsed,
 	onToggleFold,
 } ) {
 	const { name, source, active, health = 'ok' } = topology;
 	const section = active ? sectionFor( name, topology.status ) : null;
 	// Per-partition process summary (uptime + heartbeat + restart_pending) and
-	// the rolled-up ALL RUN / ALL DEAD badge — moved up from the old section
-	// header so the manager card heading is the single head.
+	// the rolled-up ALL RUN / ALL DEAD badge.
 	const parts = active
 		? partitionSummaries( topology.status?.workers || [] )
 		: [];
@@ -122,6 +113,15 @@ const TopologyRow = memo( function TopologyRow( {
 	return (
 		<div className="nodes-tm__topology">
 			<div className="nodes-tm__heading">
+				<button
+					type="button"
+					className="nodes-tm__collapse"
+					title={ __( 'Collapse', 'newspack-nodes' ) }
+					aria-expanded={ true }
+					onClick={ () => onCollapseTopology( name ) }
+				>
+					▾
+				</button>
 				{ active ? (
 					<a className="nodes-tm__name" href={ consoleHref( name ) }>
 						{ name }
@@ -222,98 +222,4 @@ const TopologyRow = memo( function TopologyRow( {
 	);
 } );
 
-/**
- * Topology Manager hub tab.
- *
- * @return {import('react').ReactElement} Rendered component.
- */
-export default function TopologyManager() {
-	const {
-		topologies,
-		supervisor,
-		currentTime,
-		readRate,
-		writeRate,
-		logPartitions,
-		activate,
-		deactivate,
-		restart,
-		connected,
-	} = useTopologyManager();
-	// Same 24h probe replay the Overview mounts — feeds the cards' 24h totals.
-	useTopicProbeStream( { mode: 'history' } );
-	const probeView = useNodeState( 'topicprobe:view', 'view' );
-	const [ collapsed, setCollapsed ] = useState( () => new Set() );
-	// A rejected mutation ({ name, message }) raises this alert; null = hidden.
-	const [ alert, setAlert ] = useState( null );
-	const onToggleFold = ( key ) =>
-		setCollapsed( ( prev ) => {
-			const next = new Set( prev );
-			if ( next.has( key ) ) {
-				next.delete( key );
-			} else {
-				next.add( key );
-			}
-			return next;
-		} );
-
-	// Active topologies float to the top (they carry the live tree worth
-	// watching); alphabetical within each group. Normalize `active` to a real
-	// boolean so the group split stays a valid total order even if a row ever
-	// arrives with active undefined/absent.
-	const sorted = [ ...topologies ].sort( ( a, b ) => {
-		const aActive = !! a.active;
-		const bActive = !! b.active;
-		if ( aActive !== bActive ) {
-			return aActive ? -1 : 1;
-		}
-		return a.name.localeCompare( b.name );
-	} );
-
-	return (
-		<div className="nodes-tm">
-			<ConnectionBanner
-				connectionError={ ! connected }
-				message={ __( 'Disconnected — retrying…', 'newspack-nodes' ) }
-			/>
-			<SummaryCards
-				topologies={ topologies }
-				readRate={ readRate }
-				writeRate={ writeRate }
-				logPartitions={ logPartitions }
-				consumers={ probeView?.consumers }
-				newTopologyHref={ consoleHref( '', { isNew: true } ) }
-			/>
-			{ supervisor && (
-				<SupervisorStatus
-					supervisor={ supervisor }
-					currentTime={ currentTime }
-					onRestart={ () => restart( 'supervisor' ) }
-				/>
-			) }
-			{ sorted.map( ( topology ) => (
-				<TopologyRow
-					key={ topology.name }
-					topology={ topology }
-					onActivate={ activate }
-					onDeactivate={ deactivate }
-					onRestart={ restart }
-					onError={ setAlert }
-					collapsed={ collapsed }
-					onToggleFold={ onToggleFold }
-				/>
-			) ) }
-			{ alert && (
-				<AlertModal
-					title={ sprintf(
-						// translators: %s: topology name.
-						__( 'Couldn’t update “%s”', 'newspack-nodes' ),
-						alert.name
-					) }
-					message={ alert.message }
-					onClose={ () => setAlert( null ) }
-				/>
-			) }
-		</div>
-	);
-}
+export { TopologyRow };

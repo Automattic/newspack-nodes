@@ -11,7 +11,13 @@
 import { __, sprintf, _n } from '@wordpress/i18n';
 import { fleetSummary } from './fleetSummary';
 import { probe24hTotals } from './probe24hTotals';
-import { formatBytes, formatByteRate, formatCount } from './formatters';
+import { globalMsgRate } from './globalMsgRate';
+import {
+	formatBytes,
+	formatByteRate,
+	formatMsgRate,
+	formatCount,
+} from './formatters';
 import './styles/summary-cards.scss';
 
 // One card: a big value + a muted label, keyed by `mod` for styling/tests.
@@ -107,6 +113,11 @@ export default function SummaryCards( {
 				mod="write"
 				value={ formatByteRate( writeRate ) }
 				label={ __( 'Write', 'newspack-nodes' ) }
+			/>
+			<Card
+				mod="msgrate"
+				value={ formatMsgRate( globalMsgRate( consumers ) ) }
+				label={ __( 'Messages/s', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="messages"

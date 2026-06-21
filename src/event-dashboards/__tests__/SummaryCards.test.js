@@ -69,6 +69,17 @@ it( 'formats the global read and write rates', () => {
 	expect( card( container, 'write' ) ).toContain( '1.6 MB/s' );
 } );
 
+it( 'shows the global produced message rate from the probe consumers', () => {
+	// Two distinct sources, each one reader; latest msgRate 7 + 3 = 10/s.
+	const { container } = renderCards( {
+		consumers: {
+			r1: { source: 'firehose.p0', latest: { msgRate: 7 } },
+			r2: { source: 'requests.p0', latest: { msgRate: 3 } },
+		},
+	} );
+	expect( card( container, 'msgrate' ) ).toContain( '10/s' );
+} );
+
 it( 'formats the 24h produced messages + bytes from the probe consumers', () => {
 	const series = [
 		{ ts: 0, msgRate: 0, byteRate: 0 },
