@@ -31,11 +31,6 @@ export const SupervisorStatus = memo( function SupervisorStatus( {
 
 	return (
 		<div className="supervisor-section">
-			<div className="supervisor-header">
-				<span className="supervisor-title">
-					{ __( 'Supervisor', 'newspack-nodes' ) }
-				</span>
-			</div>
 			<div className="supervisor-list">
 				<div className={ `supervisor-row ${ isDead ? 'dead' : '' }` }>
 					<span className="supervisor-name">
