@@ -60,6 +60,15 @@ class SSE_In_Node extends Node {
 	 */
 	public static ?\Closure $curl_dispatch = null;
 
+	/**
+	 * Re-home received records to the link target. True (default) for a log/topic
+	 * subscription: every forwarded record is stamped TO=target. A patron driving
+	 * a pivoted IPC stream (Remote_IPC) sets this false so a worker reply frame
+	 * keeps its own TO (the TO=FROM breadcrumb the browser/_router must honor).
+	 * Mirrors the JS SseConnectorNode `homeToTarget`.
+	 */
+	public bool $home_to_target = true;
+
 	protected string $url           = '';
 	protected string $auth_username = '';
 	protected string $auth_password = '';
@@ -80,6 +89,8 @@ class SSE_In_Node extends Node {
 	/** @var array{event:string, data:string} Current SSE event accumulator. */
 	private array $current_event   = [ 'event' => '', 'data' => '' ];
 	private ?int  $slot            = null;
+	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM pivot). */
+	private ?int  $session_pid    = null;
 	/** @var array{segment_id:int, offset:int} Read cursor. */
 	private array $position        = [ 'segment_id' => 0, 'offset' => 0 ];
 	private float $last_event_time = 0.0;
@@ -176,6 +187,16 @@ class SSE_In_Node extends Node {
 	 */
 	public function slot(): ?int {
 		return $this->slot;
+	}
+
+	/**
+	 * Session pid captured from the `connected` handshake. Null until connected.
+	 * Remote_IPC stamps it into the reply-FROM pivot (`_sse:{pid}/{node}`).
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function pid(): ?int {
+		return $this->session_pid;
 	}
 
 	/**
@@ -568,6 +589,8 @@ class SSE_In_Node extends Node {
 		if ( 'connected' === $key && \is_array( $value ) && isset( $value['slot'] ) ) {
 			$slot_raw        = $value['slot'];
 			$this->slot      = \is_scalar( $slot_raw ) ? (int) $slot_raw : 0;
+			$pid_raw         = $value['pid'] ?? null;
+			$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
 			$this->connected = true;
 			return true;
 		}
@@ -595,11 +618,17 @@ class SSE_In_Node extends Node {
 			$value['_source'] = $this->source;
 		}
 
+		// Subscription mode re-homes to the link target; IPC mode keeps the
+		// envelope's own TO so a worker reply routes by its TO=FROM breadcrumb.
+		$to = $this->home_to_target
+			? ( \is_string( $this->target ) ? $this->target : '' )
+			: Core::as_string( $envelope[ Message::TO ] );
+
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = $envelope[ Message::TYPE ];
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::FROM ]      = $this->name;
-		$message[ Message::TO ]        = \is_string( $this->target ) ? $this->target : '';
+		$message[ Message::TO ]        = $to;
 		$message[ Message::KEY ]       = \is_scalar( $key_raw ) ? (string) $key_raw : '';
 		$message[ Message::VALUE ]     = $value;
 
