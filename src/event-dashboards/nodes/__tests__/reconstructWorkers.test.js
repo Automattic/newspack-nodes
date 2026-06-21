@@ -352,6 +352,48 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 		).toBe( 30 );
 	} );
 
+	it( 'draws the head to the consumer END, not a stale-smaller live size, so read-lag stays visible', () => {
+		const data = {
+			...FANOUT_DATA,
+			consumers: [
+				{
+					reader: 'firehose.p0',
+					source: 'firehose.p0',
+					partition: 0,
+					cursor_seg: 0,
+					cursor_off: 20,
+					end_seg: 0,
+					end_size: 80, // consumer knows the head is at 80…
+					distance: 60,
+					msgs: 1,
+				},
+			],
+			logs: [
+				{
+					name: 'firehose.p0',
+					partitions: [
+						{
+							partition: 0,
+							// …but the live head-segment stat LAGS at 40. Capping the bar
+							// at 40 collapses the head onto the cursor and hides the lag.
+							segments: [ { id: 0, size: 40 } ],
+							total_size: 40,
+						},
+					],
+				},
+			],
+		};
+		const { workers, logs } = reconstructWorkers( data, EMPTY_PRIOR );
+		const sections = buildTopologySections( FANOUT_GRAPH, workers, logs );
+		const firehose = flatten( sections[ 0 ].tree ).find(
+			( e ) => 'log' === e.kind && 'firehose' === e.name
+		);
+		expect(
+			firehose.partitions[ 0 ].segments.find( ( s ) => 0 === s.id ).size
+		).toBe( 80 );
+		expect( firehose.partitions[ 0 ].total_size ).toBe( 80 );
+	} );
+
 	it( 'derives read_rate from the absolute cursor-byte delta across polls; first poll is 0', () => {
 		const first = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
 		const rb = `request-builder-0-firehose.p0`;
