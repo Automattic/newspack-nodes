@@ -102,6 +102,10 @@ export class WorkerStatusTransformNode extends Node {
 			timestamp: this._prevTimestamp,
 		} );
 		const richWorkers = rebuilt.workers;
+		// Segments TRIMMED to each partition's probe snapshot end — the segment bar
+		// renders these (the canonical logs[]), so the trim must live here, not only
+		// in the discarded per-worker inputs_status.
+		const trimmedLogs = rebuilt.logs;
 		const newByteRates = rebuilt.byteRates;
 		const newWriteRates = rebuilt.writeRates;
 
@@ -168,7 +172,7 @@ export class WorkerStatusTransformNode extends Node {
 		const model = {
 			workers: richWorkers,
 			supervisor: data.supervisor ?? null,
-			logs: data.logs || [],
+			logs: trimmedLogs,
 			graph: data.graph ?? {},
 			byteRates: newByteRates,
 			writeRates: newWriteRates,
