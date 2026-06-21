@@ -105,16 +105,16 @@ export class WorkerStatusTransformNode extends Node {
 			write: this._prevWrite,
 		} );
 		const richWorkers = rebuilt.workers;
-		// Segments TRIMMED to each partition's probe snapshot end — the segment bar
-		// renders these (the canonical logs[]), so the trim must live here, not only
-		// in the discarded per-worker inputs_status.
-		const trimmedLogs = rebuilt.logs;
+		// FULL live per-partition segments (the canonical logs[] the bar renders);
+		// the bar derives its green/red/gray regions per tree from the consumer's
+		// recorded end, so there is no global trim here.
+		const liveLogs = rebuilt.logs;
 		const newByteRates = rebuilt.byteRates;
 		const newWriteRates = rebuilt.writeRates;
 
 		// Segment tracking by concrete partition for the slide-in/out animation —
-		// sourced from the TRIMMED inputs_status (so animations match the bar that
-		// renders), union the segment ids across the workers reading/writing it.
+		// sourced from the live inputs_status (matching the bar that renders),
+		// union the segment ids across the workers reading/writing it.
 		const logSnapshots = new Map();
 		const recordLog = ( log ) => {
 			if ( ! log || ! log.name ) {
@@ -178,7 +178,7 @@ export class WorkerStatusTransformNode extends Node {
 		const model = {
 			workers: richWorkers,
 			supervisor: data.supervisor ?? null,
-			logs: trimmedLogs,
+			logs: liveLogs,
 			graph: data.graph ?? {},
 			byteRates: newByteRates,
 			writeRates: newWriteRates,

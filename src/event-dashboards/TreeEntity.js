@@ -96,11 +96,18 @@ function LogRows( {
 		const newestSegId = segs.length
 			? Math.max( ...segs.map( ( s ) => s.id ) )
 			: 0;
+		// cursor + recorded end arrive together (this tree's own consumer); a tree
+		// with no consumer of the log has neither → SegmentBar paints all-gray.
 		const cursor =
 			entity.hasCursor &&
 			p.cursor_seg !== undefined &&
 			p.cursor_seg !== null
-				? { seg: p.cursor_seg, offset: p.cursor_offset }
+				? {
+						seg: p.cursor_seg,
+						offset: p.cursor_offset,
+						endSeg: p.end_seg,
+						endSize: p.end_size,
+				  }
 				: undefined;
 		const removing = removingSegments[ rateKey ] || [];
 		const all = [ ...removing, ...segs ].sort( ( a, b ) => a.id - b.id );
@@ -125,6 +132,8 @@ function LogRows( {
 							maxSize={ entity.segment_size || segmentSize }
 							cursorSeg={ cursor?.seg }
 							cursorOffset={ cursor?.offset }
+							endSeg={ cursor?.endSeg }
+							endSize={ cursor?.endSize }
 							newestSegId={ newestSegId }
 							isNew={
 								prevSegments?.[ rateKey ] &&

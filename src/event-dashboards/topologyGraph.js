@@ -151,8 +151,11 @@ function collectLogPartitions( logName, ctx ) {
 	const { stepByKey, producers, consumers, logSlotsByName } = ctx;
 	const consumerKeys = consumers.get( logName ) || [];
 
-	// Cursor data by partition from any worker reading this log.
-	const cursorByPartition = new Map();
+	// Cursor + recorded probe end by partition from THIS topology's worker
+	// reading this log. Per-topology so two trees of the same log never share a
+	// cursor/end — the bar derives its green/red/gray regions from this tree's
+	// own consumer (or none, leaving the bar all-gray).
+	const probeByPartition = new Map();
 	let hasCursor = false;
 	for ( const ckey of consumerKeys ) {
 		const step = stepByKey.get( ckey );
@@ -164,9 +167,11 @@ function collectLogPartitions( logName, ctx ) {
 				( s ) => s && s.name === logName
 			);
 			if ( entry && entry.cursor_seg !== undefined ) {
-				cursorByPartition.set( wk.partition, {
+				probeByPartition.set( wk.partition, {
 					cursor_seg: entry.cursor_seg,
 					cursor_offset: entry.cursor_offset,
+					end_seg: entry.end_seg,
+					end_size: entry.end_size,
 				} );
 				hasCursor = true;
 			}
@@ -176,8 +181,8 @@ function collectLogPartitions( logName, ctx ) {
 	const canonical = logSlotsByName.get( logName );
 	if ( canonical && canonical.length > 0 ) {
 		const partitions = canonical.map( ( slot ) => {
-			const cursor = cursorByPartition.get( slot.partition );
-			return cursor ? { ...slot, ...cursor } : slot;
+			const probe = probeByPartition.get( slot.partition );
+			return probe ? { ...slot, ...probe } : slot;
 		} );
 		return { partitions, hasCursor };
 	}
@@ -201,6 +206,8 @@ function collectLogPartitions( logName, ctx ) {
 					total_size: entry.total_size || 0,
 					cursor_seg: entry.cursor_seg,
 					cursor_offset: entry.cursor_offset,
+					end_seg: entry.end_seg,
+					end_size: entry.end_size,
 				} );
 			}
 		} );

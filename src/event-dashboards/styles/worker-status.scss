@@ -354,6 +354,10 @@
 	&.pending {
 		background: base.$warning-color; // Yellow/amber - pending in current segment
 	}
+
+	&.beyond {
+		background: base.$dark-bg-active; // Muted gray - live on disk, past the recorded probe end
+	}
 }
 
 .no-segments-h {
