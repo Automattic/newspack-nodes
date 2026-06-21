@@ -1,7 +1,7 @@
 import { reconstructWorkers } from '../reconstructWorkers';
 import { buildTopologySections } from '../../topologyGraph';
 
-const EMPTY_PRIOR = { cursorBytes: {}, totalBytes: {}, timestamp: null };
+const EMPTY_PRIOR = { read: {}, write: {} };
 
 // Flatten a buildTopologySections tree into all entities, for attachment asserts.
 function flatten( entities, acc = [] ) {
@@ -233,9 +233,8 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 			timestamp: 1010,
 		};
 		const second = reconstructWorkers( next, {
-			cursorBytes: first.nextCursorBytes,
-			totalBytes: first.nextTotalBytes,
-			timestamp: 1000,
+			read: first.nextRead,
+			write: first.nextWrite,
 		} );
 		expect( second.byteRates[ rb ] ).toBe( 10 );
 	} );
@@ -258,13 +257,82 @@ describe( 'reconstructWorkers — segment trim + cursor rate', () => {
 				],
 				timestamp: 1010,
 			},
-			{
-				cursorBytes: first.nextCursorBytes,
-				totalBytes: first.nextTotalBytes,
-				timestamp: 1000,
-			}
+			{ read: first.nextRead, write: first.nextWrite }
 		);
 		expect( reset.byteRates[ `request-builder-0-firehose.p0` ] ).toBe( 0 );
+	} );
+
+	it( 'HOLDS the read rate across polls where the cursor is unchanged (no flicker to 0)', () => {
+		const rb = `request-builder-0-firehose.p0`;
+		// Poll 1: baseline (rate 0). Poll 2 (probe advanced the cursor): rate 10.
+		const p1 = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
+		const p2 = reconstructWorkers(
+			{
+				...FANOUT_DATA,
+				consumers: [
+					{ ...FANOUT_DATA.consumers[ 0 ], cursor_off: 150 },
+				],
+				timestamp: 1010,
+			},
+			{ read: p1.nextRead, write: p1.nextWrite }
+		);
+		expect( p2.byteRates[ rb ] ).toBe( 10 );
+		// Poll 3: SAME probe data (cursor unchanged), poll clock advanced 1s. The
+		// rate must HOLD at 10 — not drop to 0 because the poll saw no new probe.
+		const p3 = reconstructWorkers(
+			{
+				...FANOUT_DATA,
+				consumers: [
+					{ ...FANOUT_DATA.consumers[ 0 ], cursor_off: 150 },
+				],
+				timestamp: 1011,
+			},
+			{ read: p2.nextRead, write: p2.nextWrite }
+		);
+		expect( p3.byteRates[ rb ] ).toBe( 10 );
+	} );
+
+	it( 'derives write_rate from the probe END delta (not the live total) and holds it between ticks', () => {
+		const src = 'firehose.p0';
+		const base = ( endSize, timestamp ) => ( {
+			...FANOUT_DATA,
+			consumers: [
+				{
+					...FANOUT_DATA.consumers[ 0 ],
+					end_seg: 0,
+					end_size: endSize,
+				},
+			],
+			// Live total GROWS every poll, but the write rate must ignore it and
+			// track only the probe END — so a poll with unchanged end holds.
+			logs: [
+				{
+					name: 'firehose.p0',
+					partitions: [
+						{
+							partition: 0,
+							segments: [ { id: 0, size: 9999 } ],
+							total_size: 9999,
+						},
+					],
+				},
+			],
+			timestamp,
+		} );
+		const p1 = reconstructWorkers( base( 100, 1000 ), EMPTY_PRIOR );
+		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
+		// End advances 100 → 300 over 10s → 20 B/s (NOT the live 9999).
+		const p2 = reconstructWorkers( base( 300, 1010 ), {
+			read: p1.nextRead,
+			write: p1.nextWrite,
+		} );
+		expect( p2.writeRates[ src ] ).toBe( 20 );
+		// Same end, poll clock advanced → HOLD 20.
+		const p3 = reconstructWorkers( base( 300, 1011 ), {
+			read: p2.nextRead,
+			write: p2.nextWrite,
+		} );
+		expect( p3.writeRates[ src ] ).toBe( 20 );
 	} );
 } );
 

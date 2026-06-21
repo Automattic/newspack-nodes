@@ -126,14 +126,46 @@ const cursorBytes = ( segments, cursorSeg, cursorOff ) =>
 	) + cursorOff;
 
 /**
+ * Probe-cadence rate step. The cursor/end byte positions come from the 15s
+ * TopicProbe snapshot but dump_graph polls ~1s, so deltaing against the poll
+ * clock gives 14 zeros then a 15× spike. Instead recompute ONLY when the value
+ * actually advances (= new probe data), over the real elapsed time since the
+ * last advance, and HOLD the rate while the value is unchanged. A value that
+ * goes backward (segment GC / worker restart) rebaselines and holds the last
+ * rate rather than spiking negative.
+ *
+ * @param {?{value:number,ts:number,rate:number}} prev  Prior step (or undefined).
+ * @param {number}                                value Current byte position.
+ * @param {number}                                now   Current snapshot time (s).
+ * @return {{value:number,ts:number,rate:number}} The next step (carry forward).
+ */
+function steppedRate( prev, value, now ) {
+	if ( ! prev ) {
+		return { value, ts: now, rate: 0 }; // first sample — nothing to delta
+	}
+	if ( value > prev.value && now > prev.ts ) {
+		return {
+			value,
+			ts: now,
+			rate: ( value - prev.value ) / ( now - prev.ts ),
+		};
+	}
+	if ( value === prev.value ) {
+		return { value, ts: prev.ts, rate: prev.rate }; // unchanged probe data → hold
+	}
+	return { value, ts: now, rate: prev.rate }; // went backward → rebaseline, hold rate
+}
+
+/**
  * Join the four lean inputs into the rich `workers[]` array plus the
  * partition-keyed rate maps the downstream reads. Stateless: the caller passes
- * the prior-poll state and gets the next state back, so the node owns no join
- * logic.
+ * the prior-poll rate state and gets the next state back, so the node owns no
+ * join logic. Rates are PROBE-cadence (see `steppedRate`) — only the segment
+ * lists use live data (and only trimmed to the snapshot).
  *
  * @param {Object} data  The lean dump_graph payload (`graph`, `workers`, `consumers`, `logs`, `timestamp`).
- * @param {Object} prior `{ cursorBytes, totalBytes, timestamp }` from the previous poll.
- * @return {Object} `{ workers, byteRates, writeRates, nextCursorBytes, nextTotalBytes }`.
+ * @param {Object} prior `{ read:{reader→step}, write:{source→step} }` from the previous poll.
+ * @return {Object} `{ workers, logs, byteRates, writeRates, nextRead, nextWrite }`.
  */
 export function reconstructWorkers( data, prior ) {
 	const graph = data.graph || {};
@@ -141,10 +173,8 @@ export function reconstructWorkers( data, prior ) {
 	const consumers = data.consumers || [];
 	const logs = data.logs || [];
 	const ts = data.timestamp;
-	const dt =
-		null !== prior.timestamp && undefined !== ts && ts > prior.timestamp
-			? ts - prior.timestamp
-			: 0;
+	const priorRead = prior.read || {};
+	const priorWrite = prior.write || {};
 
 	// Live per-(name, partition) segment lists, indexed by concrete source name.
 	const liveByName = new Map();
@@ -195,8 +225,8 @@ export function reconstructWorkers( data, prior ) {
 	const workers = [];
 	const byteRates = {};
 	const writeRates = {};
-	const nextCursorBytes = {};
-	const nextTotalBytes = {};
+	const nextRead = {};
+	const nextWrite = {};
 
 	Object.entries( graph ).forEach( ( [ topology, graphTopo ] ) => {
 		const handlers = consumerHandlers( graphTopo );
@@ -262,33 +292,27 @@ export function reconstructWorkers( data, prior ) {
 					inputs_status: [ inputsStatus ],
 					outputs_status: [],
 				} );
-
-				// read_rate: Δ(absolute cursor byte position)/Δt, keyed as the
-				// downstream NodeRow reads it (`handler-partition-source`).
-				const pos = cursorBytes(
-					segments,
-					row.cursor_seg,
-					row.cursor_off
-				);
-				const prevPos = prior.cursorBytes[ row.reader ];
-				const rateKey = `${ handler }-${ row.partition }-${ concrete }`;
-				byteRates[ rateKey ] =
-					dt > 0 && undefined !== prevPos && pos >= prevPos
-						? ( pos - prevPos ) / dt
-						: 0;
 			} );
 
-			// Per-reader cursor position (rate Δ baseline) + per-source write rate
-			// — recorded ONCE per probe row (independent of the handler fan-out).
-			const pos = cursorBytes( segments, row.cursor_seg, row.cursor_off );
-			nextCursorBytes[ row.reader ] = pos;
-			const liveTotal = live.reduce( ( a, s ) => a + s.size, 0 );
-			nextTotalBytes[ concrete ] = liveTotal;
-			const prevTotal = prior.totalBytes[ concrete ];
-			writeRates[ concrete ] =
-				dt > 0 && undefined !== prevTotal && liveTotal >= prevTotal
-					? ( liveTotal - prevTotal ) / dt
-					: 0;
+			// Rates are PROBE-cadence (steppedRate), computed ONCE per probe row.
+			// READ = Δ(cursor byte position within the snapshot partition); WRITE =
+			// Δ(partition END position) where `total` (the trimmed segment sum) IS
+			// the end position — both snapshot-stable, so they update only when new
+			// probe data advances the cursor / end, never on the ~1s poll.
+			const readStep = steppedRate(
+				priorRead[ row.reader ],
+				cursorBytes( segments, row.cursor_seg, row.cursor_off ),
+				ts
+			);
+			nextRead[ row.reader ] = readStep;
+			chosen.handlers.forEach( ( handler ) => {
+				byteRates[ `${ handler }-${ row.partition }-${ concrete }` ] =
+					readStep.rate;
+			} );
+
+			const writeStep = steppedRate( priorWrite[ concrete ], total, ts );
+			nextWrite[ concrete ] = writeStep;
+			writeRates[ concrete ] = writeStep.rate;
 		} );
 
 		// A liveness row with no matching consumer row still emits a worker so the
@@ -331,7 +355,7 @@ export function reconstructWorkers( data, prior ) {
 		logs: trimmedLogs,
 		byteRates,
 		writeRates,
-		nextCursorBytes,
-		nextTotalBytes,
+		nextRead,
+		nextWrite,
 	};
 }
