@@ -75,4 +75,29 @@ describe( 'topologySeries', () => {
 			} )
 		).toEqual( {} );
 	} );
+
+	it( 'groups by a caller key (source→topology) so the Overview rolls readers up per topology', () => {
+		// Two sources of one topology + a source of another; keyOf maps source→topology.
+		const consumers = {
+			'firehose.p0': consumer( 'firehose.p0', [
+				{ ts: 100, rate: 10, backlog: 1000 },
+			] ),
+			'requests.p0': consumer( 'requests.p0', [
+				{ ts: 100, rate: 5, backlog: 200 },
+			] ),
+			'jobs.p0': consumer( 'jobs.p0', [
+				{ ts: 100, rate: 1, backlog: 50 },
+			] ),
+		};
+		const map = {
+			'firehose.p0': 'combined',
+			'requests.p0': 'combined',
+			'jobs.p0': 'job-worker',
+		};
+		const out = topologySeries( consumers, 48, ( c ) => map[ c.source ] );
+		// combined = firehose + requests summed per ts; job-worker stands alone.
+		expect( out.combined.backlog ).toEqual( [ 1200 ] );
+		expect( out.combined.rate ).toEqual( [ 15 ] );
+		expect( out[ 'job-worker' ].backlog ).toEqual( [ 50 ] );
+	} );
 } );

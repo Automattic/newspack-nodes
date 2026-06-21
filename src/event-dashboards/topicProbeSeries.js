@@ -40,21 +40,26 @@ export function downsample( values, width ) {
  * @param {Object<string,{source:string,series:Array<{ts:number,rate:number,backlog:number}>}>} consumers
  *                                                                                                        The `topicprobe:view` consumers map.
  * @param {number}                                                                              [width]   Sparkline point count (default 48).
+ * @param {Function}                                                                            [keyOf]   Group key per consumer (default its `source`); the Overview passes a source→topology map to roll readers up per topology.
  * @return {Object<string,{backlog:number[],rate:number[],latestBacklog:number,latestRate:number}>}
- *   Per source: downsampled backlog + rate series and the latest values.
+ *   Per group key: downsampled backlog + rate series and the latest values.
  */
-export function topologySeries( consumers, width = 48 ) {
-	const bySource = {};
+export function topologySeries(
+	consumers,
+	width = 48,
+	keyOf = ( c ) => c.source
+) {
+	const byKey = {};
 	for ( const c of Object.values( consumers || {} ) ) {
-		const source = c.source || '';
-		if ( '' === source ) {
+		const key = keyOf( c ) || '';
+		if ( '' === key ) {
 			continue;
 		}
-		( bySource[ source ] ||= [] ).push( c );
+		( byKey[ key ] ||= [] ).push( c );
 	}
 
 	const out = {};
-	for ( const [ source, list ] of Object.entries( bySource ) ) {
+	for ( const [ key, list ] of Object.entries( byKey ) ) {
 		const backlogByTs = new Map();
 		const rateByTs = new Map();
 		for ( const c of list ) {
@@ -72,7 +77,7 @@ export function topologySeries( consumers, width = 48 ) {
 		const tss = [ ...backlogByTs.keys() ].sort( ( a, b ) => a - b );
 		const backlog = tss.map( ( ts ) => backlogByTs.get( ts ) );
 		const rate = tss.map( ( ts ) => rateByTs.get( ts ) );
-		out[ source ] = {
+		out[ key ] = {
 			backlog: downsample( backlog, width ),
 			rate: downsample( rate, width ),
 			latestBacklog: backlog.length ? backlog[ backlog.length - 1 ] : 0,

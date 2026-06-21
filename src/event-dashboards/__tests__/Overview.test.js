@@ -8,13 +8,23 @@
  */
 
 import { render } from '@testing-library/react';
-import Overview from '../Overview';
+import Overview, { sourceTopologyMap } from '../Overview';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
 	useTopologyManager: jest.fn(),
 } ) );
+// The probe stream is its own suite; here the link is a no-op and the view model
+// is fed directly via useNodeState.
+jest.mock( '../hooks/useTopicProbeStream', () => ( {
+	useTopicProbeStream: jest.fn(),
+} ) );
+jest.mock( '../../runtime/react', () => ( {
+	...jest.requireActual( '../../runtime/react' ),
+	useNodeState: jest.fn(),
+} ) );
 
 const { useTopologyManager } = require( '../hooks/useTopologyManager' );
+const { useNodeState } = require( '../../runtime/react' );
 
 // A worker descriptor (server `dump_graph` shape, passed through verbatim).
 function worker( overrides = {} ) {
@@ -52,7 +62,11 @@ function hookValue( overrides = {} ) {
 	};
 }
 
-afterEach( () => useTopologyManager.mockReset() );
+beforeEach( () => useNodeState.mockReturnValue( undefined ) );
+afterEach( () => {
+	useTopologyManager.mockReset();
+	useNodeState.mockReset();
+} );
 
 describe( 'Overview fleet board', () => {
 	it( 'fleet strip summarizes topology + active counts and partitions-up', () => {
@@ -182,35 +196,52 @@ describe( 'Overview fleet board', () => {
 		).not.toBeNull();
 	} );
 
-	it( 'accumulates lag samples across polls into the sparkline', () => {
+	it( 'draws the per-topology lag sparkline from the 24h topicprobe series', () => {
+		// The probe view carries a 2-point backlog series for firehose.p0; the
+		// worker maps that source to topology 'alpha', so the row's sparkline is
+		// the rolled-up backlog trend (NOT a client-side per-poll ring).
+		useNodeState.mockReturnValue( {
+			consumers: {
+				'firehose.p0': {
+					source: 'firehose.p0',
+					series: [
+						{ ts: 100, rate: 0, backlog: 4096 },
+						{ ts: 115, rate: 0, backlog: 8192 },
+					],
+				},
+			},
+		} );
 		useTopologyManager.mockReturnValue(
 			hookValue( {
-				currentTime: 5000,
 				topologies: [
-					active( 'alpha', 'behind', [ worker( { behind: 4096 } ) ] ),
+					active( 'alpha', 'behind', [
+						worker( { source: 'firehose.p0' } ),
+					] ),
 				],
 			} )
 		);
-		const { container, rerender } = render( <Overview /> );
-		// One sample so far → flat baseline, no polyline yet.
-		expect(
-			container.querySelector( '.nodes-overview__row polyline' )
-		).toBeNull();
-		// A second poll (new server tick, higher lag) appends a sample.
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				currentTime: 5004,
-				topologies: [
-					active( 'alpha', 'behind', [ worker( { behind: 8192 } ) ] ),
-				],
-			} )
-		);
-		rerender( <Overview /> );
+		const { container } = render( <Overview /> );
 		const line = container.querySelector( '.nodes-overview__row polyline' );
 		expect( line ).not.toBeNull();
+		// Two probe samples → a 2-point polyline.
 		expect(
 			line.getAttribute( 'points' ).trim().split( /\s+/ )
 		).toHaveLength( 2 );
+	} );
+
+	it( 'sourceTopologyMap maps each consumed source to its active topology (first writer wins)', () => {
+		const map = sourceTopologyMap( [
+			active( 'combined', 'ok', [
+				worker( { source: 'firehose.p0' } ),
+				worker( { source: 'requests.p0' } ),
+			] ),
+			active( 'jobs-wk', 'ok', [ worker( { source: 'jobs.p0' } ) ] ),
+		] );
+		expect( map ).toEqual( {
+			'firehose.p0': 'combined',
+			'requests.p0': 'combined',
+			'jobs.p0': 'jobs-wk',
+		} );
 	} );
 
 	it( 'offers a New Topology deep-link', () => {

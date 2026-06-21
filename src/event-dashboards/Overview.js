@@ -15,22 +15,25 @@
  *  - a de-emphasized group of stopped topologies (Edit only; nothing's live to
  *    open).
  *
- * The hub has no time-series store (the unfed-Prometheus gap), so the sparkline
- * is a client-side rolling window of the recent poll samples — the live
- * mini-version of Grafana's Topics-Backlog panel; long history stays in Grafana.
+ * The lag sparkline is the real 24h backlog trend: a second `RemoteLink`
+ * (`useTopicProbeStream` in 'history' mode) replays the durable `topicprobe.p0`
+ * log from `start`, and `topologySeries` rolls the per-reader series up per
+ * topology — the live mini-version of Grafana's Topics-Backlog panel.
  *
  * Deliberately a SUMMARY, not the Topologies tab's full live tree. Reuses the
  * same `consoleHref` deep-links so navigation stays single-sourced.
  */
 
-import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf, _n } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import { useTopologyManager } from './hooks/useTopologyManager';
+import { useTopicProbeStream } from './hooks/useTopicProbeStream';
+import { useNodeState } from '../runtime/react';
+import { topologySeries } from './topicProbeSeries';
 import { SupervisorStatus } from './SupervisorStatus';
 import { consoleHref } from './TopologyManager';
 import { partitionSummaries } from './partitionSummaries';
-import { Sparkline, appendCapped } from './Sparkline';
+import { Sparkline } from './Sparkline';
 import { formatBytes, formatAge } from './formatters';
 import './styles/overview.scss';
 
@@ -44,8 +47,28 @@ const HEALTH_RANK = { stalled: 0, behind: 1, ok: 2 };
 // Heartbeat age (s) past which a worker pill flags stale — mirrors the
 // Topologies tab's connector-heartbeat threshold.
 const STALE_HEARTBEAT_S = 30;
-// Lag-sparkline ring-buffer depth (~2.5 min at the 4s poll cadence).
-const SPARK_SAMPLES = 40;
+// Lag-sparkline width: the 24h probe series is downsampled to this many points.
+const SPARK_SAMPLES = 48;
+
+/**
+ * Map each consumed partition (`source`) to the active topology that reads it,
+ * from the reconstructed worker rows — so the per-reader probe series can be
+ * rolled up per topology. First writer wins (a source is one topology's input).
+ *
+ * @param {Array} actives Active topology rows (with live `status.workers`).
+ * @return {Object<string,string>} source → topology name.
+ */
+export function sourceTopologyMap( actives ) {
+	const map = {};
+	actives.forEach( ( t ) => {
+		( t.status?.workers || [] ).forEach( ( w ) => {
+			if ( w.source && ! ( w.source in map ) ) {
+				map[ w.source ] = t.name;
+			}
+		} );
+	} );
+	return map;
+}
 
 /**
  * Roll a topology's live workers up to the per-partition + fleet vitals the row
@@ -78,10 +101,10 @@ function vitals( t ) {
  * @param {Object}   props
  * @param {Object}   props.topology    The active topology row.
  * @param {?number}  props.currentTime Server clock (for uptime).
- * @param {number[]} props.lagHistory  Recent consumer-lag samples (oldest first).
+ * @param {number[]} props.lagSeries   24h backlog trend (downsampled, oldest first).
  * @return {import('react').ReactElement} The row.
  */
-function ActiveRow( { topology, currentTime, lagHistory } ) {
+function ActiveRow( { topology, currentTime, lagSeries } ) {
 	const health = topology.health || 'ok';
 	const { parts, up, total, behind, startedAt } = vitals( topology );
 	return (
@@ -165,7 +188,7 @@ function ActiveRow( { topology, currentTime, lagHistory } ) {
 				) }
 			>
 				<Sparkline
-					values={ lagHistory }
+					values={ lagSeries }
 					className="nodes-overview__lagspark"
 				/>
 				<span className="nodes-overview__lagval">
@@ -233,6 +256,11 @@ export default function Overview() {
 	const { topologies, supervisor, currentTime, restart, connected } =
 		useTopologyManager();
 
+	// Second link: replay the durable topicprobe.p0 log (24h from `start`) into
+	// `topicprobe:view`, the source for the per-topology lag sparklines.
+	useTopicProbeStream( { mode: 'history' } );
+	const probeView = useNodeState( 'topicprobe:view', 'view' );
+
 	const actives = topologies.filter( ( t ) => t.active );
 	const stopped = topologies
 		.filter( ( t ) => ! t.active )
@@ -245,28 +273,13 @@ export default function Overview() {
 		return ra !== rb ? ra - rb : a.name.localeCompare( b.name );
 	} );
 
-	// Live lag history: one sample per server tick, oldest-trimmed, keyed by
-	// topology name (stale topologies drop out on the next tick).
-	const [ lagHistory, setLagHistory ] = useState( {} );
-	useEffect( () => {
-		if ( currentTime === null || currentTime === undefined ) {
-			return;
-		}
-		setLagHistory( ( prev ) => {
-			const next = {};
-			actives.forEach( ( t ) => {
-				next[ t.name ] = appendCapped(
-					prev[ t.name ] || [],
-					vitals( t ).behind,
-					SPARK_SAMPLES
-				);
-			} );
-			return next;
-		} );
-		// One sample per server tick — intentionally NOT re-running on every
-		// `actives` re-render (that would double-count within a tick).
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ currentTime ] );
+	// Roll the per-reader probe series up per topology (sources → topology),
+	// for the 24h backlog sparkline on each active row.
+	const lagSeries = topologySeries(
+		probeView?.consumers || {},
+		SPARK_SAMPLES,
+		( c ) => sourceTopologyMap( actives )[ c.source ]
+	);
 
 	const fleet = actives.reduce(
 		( acc, t ) => {
@@ -338,7 +351,7 @@ export default function Overview() {
 						key={ t.name }
 						topology={ t }
 						currentTime={ currentTime }
-						lagHistory={ lagHistory[ t.name ] || [] }
+						lagSeries={ lagSeries[ t.name ]?.backlog || [] }
 					/>
 				) ) }
 			</div>
