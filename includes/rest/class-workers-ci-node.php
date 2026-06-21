@@ -392,18 +392,18 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Enumerate the flat partition-in-name log layout: for every active topology,
-	 * ask the layout-agnostic resolver
-	 * (`Topology_Registry::resolved_resource_dirs`) for its concrete per-partition
-	 * log dir names, then stat each dir's segments. Emits ONE flat entry per
-	 * concrete dir, NAMED by that dir (`requests.p0`) and carrying that single
-	 * partition's data. The resolver's 0..N-1 expansion already enumerates every
-	 * partition dir, present or not (a missing dir stats to empty segments) — no
-	 * `.p{N}` parsing, no padding math here. Then unions the request-scope PHP
-	 * producer dirs (`Log_Cleaner::producer_log_dirs`) — firehose / jobintake,
-	 * declared in no .tsl — so the dashboard's `firehose.p{N}` vertex resolves.
-	 * Per-log `segment_size` honors any TSL literal override (keyed by the
-	 * override basename when the concrete name starts with it).
+	 * Enumerate the flat partition-in-name log layout, ONE flat entry per concrete
+	 * dir (NAMED by that dir, e.g. `requests.p0`, carrying that single partition's
+	 * segments). The dir list is the GC's declared set
+	 * (`Log_Cleaner::declared_log_dirs`) — ONE source of truth with the sweep:
+	 * every on-disk topology's resolved per-partition log dirs PLUS the
+	 * externally-written logs no .tsl declares (the PHP producers firehose /
+	 * jobintake, the auto-mounted topicprobe, the settings log). Sourcing the
+	 * catalog from the same set the GC retains means a log a topology only
+	 * CONSUMES (written elsewhere) still resolves to a concrete entry and shows
+	 * its segments, instead of "No segments". A missing dir stats to empty
+	 * segments. Per-log `segment_size` honors any TSL literal override (keyed by
+	 * the override basename when the concrete name starts with it).
 	 *
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
 	 * @return array<int,array{name:string,partitions:array<int, mixed>,segment_size:int}>
@@ -433,17 +433,7 @@ class Workers_CI_Node extends Service_CI_Node {
 				'segment_size' => self::segment_size_for( $concrete, $segment_size_overrides, $default_segment_size ),
 			];
 		};
-		foreach ( self::active_topologies() as $name => $_cfg ) {
-			$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
-			foreach ( $resolved['logs'] as $concrete ) {
-				$add( $concrete );
-			}
-		}
-		// Request-scope PHP producers (firehose / jobintake — Log_Manager /
-		// Job_Intake) are declared in no .tsl, so the topology loop never yields
-		// their dirs. Union them from the same source the GC reads so the
-		// dashboard's `firehose.p{N}` vertex resolves to a concrete entry.
-		foreach ( Log_Cleaner::producer_log_dirs() as $concrete ) {
+		foreach ( Log_Cleaner::declared_log_dirs() as $concrete ) {
 			$add( $concrete );
 		}
 		return $logs;
