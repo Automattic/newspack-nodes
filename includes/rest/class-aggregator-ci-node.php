@@ -17,12 +17,14 @@
  *   status  — per-node partition snapshot keyed by the wired Remote_Source
  *             NODE NAME. Discovers each Remote_Source wired into the active
  *             `aggregator` topology graph (`Topology_Registry::graph_for`,
- *             filtered on node `type === 'Remote_Source'`), then reads that
- *             node's substrate status snapshot from memcache under
- *             `np:remote:<node-name>:p<partition>` (the `<vault-id>`/`<partition>`
- *             come from the make_node args). The spoke URL is resolved from the
- *             Vault by the node's vault-id arg. Cache misses default to an empty
- *             array, not null.
+ *             filtered on node `type === 'Remote_Source'`), then for every
+ *             configured partition reads that node's substrate status snapshot
+ *             from memcache under `np:remote:<node-name>:<remote_partition>` —
+ *             the exact key Remote_Link writes. The `<vault-id>` and the
+ *             `<remote_partition>` template come from the 2-arg make_node line;
+ *             the `<partition>` token is substituted 0..num_partitions-1. The
+ *             spoke URL is resolved from the Vault by the node's vault-id arg.
+ *             Cache misses default to an empty array, not null.
  *   health  — cache reachability + wall-clock timestamp. Mirrors the
  *             legacy {healthy, cache, timestamp} shape. Cache probe is
  *             wrapped in a Throwable catch so the endpoint never fails
@@ -39,8 +41,8 @@
  * which enforces the capability.
  *
  * Memcache reads go through the shared `Core::$memd` handle: the `status`
- * verb reads `aggregator_status:{id}:p{N}` per partition; the `health` verb
- * reports whether the handle is configured. The `status`/`servers` verbs
+ * verb reads `np:remote:<node-name>:<remote_partition>` per partition; the
+ * `health` verb reports whether the handle is configured. The `status`/`servers` verbs
  * read the substrate `Newspack_Nodes\Vault` singleton directly — there is
  * no injected registry dependency.
  *
@@ -49,6 +51,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
@@ -75,6 +78,9 @@ class Aggregator_CI_Node extends Service_CI_Node {
 						$registry = Vault::get_instance();
 						$registry->reset_cache();
 
+						// remote_partition embeds the `<partition>` token → fan across the SPAWN-aligned count.
+						$num_partitions = Bootstrap::num_partitions_for( 'aggregator' );
+
 						$result = [];
 						foreach ( Topology_Registry::graph_for( 'aggregator' )['nodes'] as $node ) {
 							if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
@@ -85,13 +91,19 @@ class Aggregator_CI_Node extends Service_CI_Node {
 							if ( '' === $name ) {
 								continue;
 							}
-							// args: <vault-id> <remote_topic> <partition> (graph_for types it list<string>).
+							// args: <vault-id> <remote_partition> (the Remote_Link 2-arg schema).
 							$node_args = $node['args'] ?? [];
 							$vault_id  = $node_args[0] ?? '';
-							$pt        = $node_args[2] ?? '';
-							$partition = \ctype_digit( $pt ) ? (int) $pt : 0;
+							$template  = $node_args[1] ?? '';
 
-							$val   = Core::$memd?->get( "np:remote:{$name}:p{$partition}" );
+							// Reconstruct the writer's exact key np:remote:<node-name>:<concrete remote_partition>.
+							$partitions = [];
+							for ( $p = 0; $p < $num_partitions; $p++ ) {
+								$concrete         = Core::resolve_partition_template( $template, $p );
+								$val              = Core::$memd?->get( "np:remote:{$name}:{$concrete}" );
+								$partitions[ $p ] = \is_array( $val ) ? $val : [];
+							}
+
 							$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;
 							$url_v = \is_array( $entry ) ? ( $entry['url'] ?? null ) : null;
 
@@ -99,7 +111,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 								'id'         => $name,
 								'vault_id'   => $vault_id,
 								'url'        => \is_scalar( $url_v ) ? \esc_url_raw( (string) $url_v ) : '',
-								'partitions' => [ $partition => \is_array( $val ) ? $val : [] ],
+								'partitions' => $partitions,
 							];
 						}
 

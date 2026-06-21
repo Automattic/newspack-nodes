@@ -15,6 +15,13 @@ class CoreTest extends TestCase {
 		Core::reset();
 	}
 
+	// $config_resolvers is process-lifetime (Core::reset leaves it), so a test that
+	// registers a stub namespace must clear it or it leaks into the next test class.
+	protected function tearDown(): void {
+		Core::$config_resolvers = [];
+		parent::tearDown();
+	}
+
 	public function test_register_and_lookup_node_by_name(): void {
 		$obj = new \Newspack_Nodes\Node();
 		Core::register_node( 'foo', $obj );
@@ -49,6 +56,22 @@ class CoreTest extends TestCase {
 		$this->assertSame(
 			'/req.p0',
 			Core::resolve_config_tokens( '<config:logs_dir>/req.p0' )
+		);
+	}
+
+	public function test_resolve_partition_template_substitutes_both_token_forms_and_config(): void {
+		// The shared partition-token resolver: both `<partition>` angle and
+		// `{partition}` curly become $p, then `<ns:key>` config tokens resolve.
+		Core::register_config_namespace(
+			'config',
+			static fn ( string $key ): string => 'logs_dir' === $key ? '/data/logs' : ''
+		);
+
+		$this->assertSame( 'firehose.p3', Core::resolve_partition_template( 'firehose.p<partition>', 3 ) );
+		$this->assertSame( 'firehose.p3', Core::resolve_partition_template( 'firehose.p{partition}', 3 ) );
+		$this->assertSame(
+			'/data/logs/firehose.p2',
+			Core::resolve_partition_template( '<config:logs_dir>/firehose.p<partition>', 2 )
 		);
 	}
 

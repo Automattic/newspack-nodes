@@ -54,6 +54,16 @@ class Core {
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
+	// Single substitution rule for a partition-token template: both `<partition>`
+	// angle and `{partition}` curly → $p, then `<ns:key>` config tokens. Shared by
+	// the topology loader's resolved_resource_dirs and Aggregator_CI status keys so
+	// the GC dirs and the dashboard read the identical concrete paths.
+	public static function resolve_partition_template( string $template, int $p ): string {
+		return self::resolve_config_tokens(
+			\str_replace( [ '<partition>', '{partition}' ], (string) $p, $template )
+		);
+	}
+
 	/** Resolve every `<ns:key>` token in $path via resolve_config_token; an unknown token becomes ''. */
 	public static function resolve_config_tokens( string $path ): string {
 		return (string) \preg_replace_callback(

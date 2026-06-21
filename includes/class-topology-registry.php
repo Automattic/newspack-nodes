@@ -277,10 +277,8 @@ class Topology_Registry {
 				continue;
 			}
 			for ( $p = 0; $p < $num_partitions; $p++ ) {
-				$concrete = Core::resolve_config_tokens(
-					\str_replace( [ '<partition>', '{partition}' ], (string) $p, $token )
-				);
-				$prefix = $root . '/';
+				$concrete = Core::resolve_partition_template( $token, $p );
+				$prefix   = $root . '/';
 				if ( 0 !== \strpos( $concrete, $prefix ) ) {
 					continue;
 				}

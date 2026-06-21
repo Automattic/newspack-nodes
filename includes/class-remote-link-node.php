@@ -184,15 +184,17 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	// =========================================================================
-	// Status snapshot — generic per-node memcache key.
+	// Status snapshot — per-node memcache key (node name + remote_partition).
 	// =========================================================================
 
+	// Keyed by NODE NAME first so two spokes pulling the same remote_partition
+	// (e.g. firehose.p0) don't collide; Aggregator_CI reads the identical key.
 	private function status_key(): string {
-		return "np:remote:{$this->remote_partition}";
+		return "np:remote:{$this->name}:{$this->remote_partition}";
 	}
 
 	/**
-	 * Merge $data into the status snapshot under the generic per-node key.
+	 * Merge $data into the status snapshot under the per-node key.
 	 *
 	 * @param array<string,mixed> $data
 	 */
