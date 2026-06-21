@@ -1,7 +1,7 @@
 /**
  * tabs.js registers the hub DevTools tabs the event-dashboards bundle owns:
  * the Overview landing (order 0 — the default first paint), the Topology Manager
- * (order 10), and Raw Logs (order 20). Importing the module (for its side effect)
+ * (order 5), and Raw Logs (order 20). Importing the module (for its side effect)
  * must put them in the shared registry under host 'hub'.
  */
 

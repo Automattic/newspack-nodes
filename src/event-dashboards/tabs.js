@@ -1,7 +1,7 @@
 /**
  * Register the hub DevTools tabs the event-dashboards bundle owns: the Overview
- * landing (order 0 — the default first paint), the Topology Manager (order 10),
- * and Raw Logs (order 20). Imported (for its side effect) by the event-dashboards
+ * landing (order 0 — the default first paint), the Topology Manager (order 5,
+ * ahead of the Console at order 15), and Raw Logs (order 20). Imported (for its side effect) by the event-dashboards
  * bundle entry so the tabs register wherever the bundle loads (the Hub page
  * enqueues it via the `newspack_nodes/devtools_tab_bundles` filter). Raw Logs is
  * `fullBleed` — it owns its own full-height canvas/scroll like the Console — and
@@ -15,7 +15,7 @@ import Overview from './Overview';
 import TopologyManager from './TopologyManager';
 import RawLogs from './RawLogs';
 
-// Order 0 → the hub's default first paint, ahead of the Console (order 5): a
+// Order 0 → the hub's default first paint, ahead of the Console (order 15): a
 // light landing glance instead of the Console's heavy graph build.
 registerDevtoolsTab( {
 	id: 'overview',
@@ -31,7 +31,7 @@ registerDevtoolsTab( {
 	label: __( 'Topologies', 'newspack-nodes' ),
 	host: 'hub',
 	slug: 'topologies',
-	order: 10,
+	order: 5,
 	component: TopologyManager,
 } );
 
