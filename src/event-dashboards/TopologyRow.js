@@ -241,10 +241,12 @@ const TopologyRow = memo( function TopologyRow( {
 						) }
 					</span>
 				) }
-				<span
-					className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
-				>
-					{ SOURCE_LABELS[ source ] ?? source }
+				<span className="nodes-tm__badge-cell">
+					<span
+						className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
+					>
+						{ SOURCE_LABELS[ source ] ?? source }
+					</span>
 				</span>
 				{ active && (
 					<span

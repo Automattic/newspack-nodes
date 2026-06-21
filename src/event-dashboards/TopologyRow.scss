@@ -139,8 +139,19 @@
 	// Source badge starts the right-hand group (badge, health, toggle, restart);
 	// push it — and everything after — to the right edge, leaving the name +
 	// per-partition pills on the left.
-	&__badge {
+	// Fixed-width cell that starts the right-hand group (badge, health, ETA,
+	// controls) and pushes it to the right edge. The provenance pill sits
+	// right-aligned inside at its NATURAL width (no stretched background), so a
+	// wide "USER ▸ SHADOWS STOCK" and a bare "STOCK" both end at the same x —
+	// which lines up the health (● OK), ETA and controls after them across rows.
+	&__badge-cell {
 		margin-left: auto;
+		min-width: 160px;
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	&__badge {
 		display: inline-block;
 		font-size: 10px;
 		padding: 2px 8px;
