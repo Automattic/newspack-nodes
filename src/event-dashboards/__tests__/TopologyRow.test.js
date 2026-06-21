@@ -187,17 +187,23 @@ describe( 'TopologyRow — folded mode', () => {
 		).toBe( '' );
 	} );
 
-	it( 'exposes a draggable grip that calls onDragStart with the name', () => {
+	it( 'exposes a grip whose pointer-down starts the drag with the name', () => {
+		const onGripPointerDown = jest.fn();
 		const props = rowProps( {
 			folded: true,
 			onExpand: jest.fn(),
-			onDragStart: jest.fn(),
-			onDropOn: jest.fn(),
+			onGripPointerDown,
+			onGripPointerMove: jest.fn(),
+			onGripPointerUp: jest.fn(),
 		} );
 		const { container } = render( <TopologyRow { ...props } /> );
 		const grip = container.querySelector( '.nodes-tm__grip' );
 		expect( grip ).toBeTruthy();
-		expect( grip.getAttribute( 'draggable' ) ).toBe( 'true' );
+		fireEvent.pointerDown( grip );
+		expect( onGripPointerDown ).toHaveBeenCalledWith(
+			'alpha',
+			expect.anything()
+		);
 	} );
 
 	it( 'shows a k/n up badge for a partially-up topology (not ALL RUN / ALL DEAD)', () => {

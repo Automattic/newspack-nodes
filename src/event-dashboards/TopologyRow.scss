@@ -29,6 +29,12 @@
 		border: 1px solid base.$dark-border;
 		border-radius: 6px;
 		overflow: hidden;
+
+		// The row being pointer-dragged: lifted + dimmed for live feedback.
+		&.is-dragging {
+			opacity: 0.55;
+			border-color: base.$dark-text-muted;
+		}
 	}
 
 	&__heading {
@@ -63,6 +69,17 @@
 		}
 	}
 
+	// The whole partition group is a fixed-width column (sized for two partitions)
+	// so the liveness badge, provenance pill, health, etc. line up vertically
+	// across rows whether a topology has one partition or two.
+	&__parts {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 10px;
+		min-width: 250px;
+	}
+
 	// Topology-level fold chevron — ▸ expands / ▾ collapses the whole row between
 	// its compact Overview summary and the detail tree (separate from the
 	// within-tree node-fold carets).
@@ -84,12 +101,14 @@
 		}
 	}
 
-	// Drag handle for row reorder (native HTML5 DnD).
+	// Drag handle for row reorder (pointer-events drag). touch-action:none so a
+	// touch-drag of the handle reorders instead of scrolling the page.
 	&__grip {
 		flex: 0 0 auto;
 		color: base.$dark-text-dim;
 		cursor: grab;
 		user-select: none;
+		touch-action: none;
 		padding: 0 2px;
 
 		&:active {
@@ -123,10 +142,6 @@
 	&__badge {
 		margin-left: auto;
 		display: inline-block;
-		// Fixed column so a wide "USER ▸ SHADOWS STOCK" and a bare "STOCK" land
-		// the health + ETA + controls after them at the same x across every row.
-		min-width: 150px;
-		text-align: center;
 		font-size: 10px;
 		padding: 2px 8px;
 		border-radius: 10px;
