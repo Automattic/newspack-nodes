@@ -1,7 +1,7 @@
 /* global EventSource */
 import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
-import { TYPE, KEY, VALUE, TM_INFO, unpack } from './message';
+import { TYPE, TO, KEY, VALUE, TM_INFO, unpack } from './message';
 
 /**
  * Browser-side Node opening an EventSource and filling each `msg` into the
@@ -100,6 +100,15 @@ export class SseConnectorNode extends Node {
 				// the transcript).
 				this.setState( 'connected', message[ VALUE ] );
 				return;
+			}
+			// A log/topic SUBSCRIPTION (RemoteLink, homeToTarget) re-homes every
+			// received record to its target: records replayed from a PARTITION carry
+			// the TO the producer stamped server-side (routing it to that partition)
+			// — a path that means nothing here, so the router would silently drop it.
+			// RemoteIpc leaves this off so worker reply frames keep their TO=FROM
+			// breadcrumb routing.
+			if ( this.homeToTarget && this.target ) {
+				message[ TO ] = this.target;
 			}
 			super.fill( message );
 		} );

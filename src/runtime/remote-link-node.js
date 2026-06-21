@@ -60,6 +60,10 @@ export class RemoteLinkNode extends Node {
 		if ( this.target ) {
 			sse.target = this.target;
 		}
+		// A RemoteLink is a log/topic subscription: deliver EVERY received record
+		// to the link's target, re-homing any server-side TO the records carry
+		// (PARTITION replays do). RemoteIpc deliberately does not set this.
+		sse.homeToTarget = true;
 		this.sseIn = sse;
 
 		let http;
