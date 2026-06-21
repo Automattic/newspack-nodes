@@ -25,6 +25,7 @@ import {
 	END_SIZE,
 	DISTANCE,
 	MSGS,
+	END_BYTES,
 } from '../../../runtime/probe-record';
 
 class FakeEventSource {
@@ -85,6 +86,7 @@ function probeFrame( {
 	v[ END_SIZE ] = 0;
 	v[ DISTANCE ] = distance;
 	v[ MSGS ] = msgs;
+	v[ END_BYTES ] = msgs;
 	m[ VALUE ] = v;
 	return m;
 }
@@ -160,7 +162,7 @@ describe( 'useTopicProbeStream', () => {
 		} );
 		const snap = Core.node( VIEW ).snapshot();
 		expect( snap[ 'firehose.p0' ] ).toBeTruthy();
-		expect( snap[ 'firehose.p0' ].latest.rate ).toBe( 1000 ); // +3000 msgs / 3s
+		expect( snap[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 ); // +3000 msgs / 3s
 		expect( snap[ 'firehose.p0' ].latest.backlog ).toBe( 7800 );
 		expect( snap[ 'firehose.p0' ].source ).toBe( 'firehose.p0' );
 	} );

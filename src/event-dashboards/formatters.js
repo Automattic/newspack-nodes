@@ -45,6 +45,28 @@ export function formatByteRate( bytesPerSec ) {
 }
 
 /**
+ * Compact count (K/M/B) for a message rate — e.g. 2996 → "3.0K/s".
+ *
+ * @param {number} perSec Messages per second.
+ * @return {string} Formatted rate.
+ */
+export function formatMsgRate( perSec ) {
+	if ( ! perSec || perSec === 0 ) {
+		return '0/s';
+	}
+	const units = [ '', 'K', 'M', 'B' ];
+	const i = Math.min(
+		units.length - 1,
+		Math.floor( Math.log( perSec ) / Math.log( 1000 ) )
+	);
+	return (
+		parseFloat( ( perSec / Math.pow( 1000, i ) ).toFixed( 1 ) ) +
+		units[ i ] +
+		'/s'
+	);
+}
+
+/**
  * Format age as human readable duration.
  *
  * @param {number} startedAt Unix timestamp when worker started.

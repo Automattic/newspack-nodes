@@ -6,19 +6,19 @@
  * LAG (the health metric of a log pipeline) — as a live trend, not just a number,
  * because what matters is whether the backlog is draining or climbing.
  *
- * A live view over useTopologyManager:
+ * A live view over useTopologyManager + the TopicProbe stream:
  *  - a fleet strip (topology/active counts, partitions-up, a worst-health pill),
  *  - the supervisor card,
- *  - one row per ACTIVE topology — per-partition worker pills (running/dead +
- *    heartbeat freshness), a live lag SPARKLINE + current lag, and fleet uptime —
- *    sorted worst health first so problems surface, and
- *  - a de-emphasized group of stopped topologies (Edit only; nothing's live to
- *    open).
+ *  - THREE Tachikoma-style Topics panels — Message Rate, Byte Rate, Backlog —
+ *    each a multi-series 24h time chart (one series per topic/source) with a
+ *    ranked max/avg legend, and
+ *  - one row per ACTIVE topology (worker pills + uptime + current lag), sorted
+ *    worst health first, plus a de-emphasized group of stopped topologies.
  *
- * The lag sparkline is the real 24h backlog trend: a second `RemoteLink`
- * (`useTopicProbeStream` in 'history' mode) replays the durable `topicprobe.p0`
- * log from `start`, and `topologySeries` rolls the per-reader series up per
- * topology — the live mini-version of Grafana's Topics-Backlog panel.
+ * The panels are the real 24h history: a second `RemoteLink` (`useTopicProbeStream`
+ * in 'history' mode) replays the durable `topicprobe.p0` log from `start`, and
+ * `topicChartSeries` rolls the per-reader samples up per topic into the three
+ * metrics — the in-product mirror of Grafana's Topics dashboard.
  *
  * Deliberately a SUMMARY, not the Topologies tab's full live tree. Reuses the
  * same `consoleHref` deep-links so navigation stays single-sourced.
@@ -29,12 +29,17 @@ import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useTopicProbeStream } from './hooks/useTopicProbeStream';
 import { useNodeState } from '../runtime/react';
-import { topologySeries } from './topicProbeSeries';
+import { topicChartSeries } from './topicProbeSeries';
+import { TopicsChart } from './TopicsChart';
 import { SupervisorStatus } from './SupervisorStatus';
 import { consoleHref } from './TopologyManager';
 import { partitionSummaries } from './partitionSummaries';
-import { Sparkline } from './Sparkline';
-import { formatBytes, formatAge } from './formatters';
+import {
+	formatBytes,
+	formatByteRate,
+	formatMsgRate,
+	formatAge,
+} from './formatters';
 import './styles/overview.scss';
 
 // Health → label + sort rank (lower = worse = surfaces first).
@@ -47,28 +52,6 @@ const HEALTH_RANK = { stalled: 0, behind: 1, ok: 2 };
 // Heartbeat age (s) past which a worker pill flags stale — mirrors the
 // Topologies tab's connector-heartbeat threshold.
 const STALE_HEARTBEAT_S = 30;
-// Lag-sparkline width: the 24h probe series is downsampled to this many points.
-const SPARK_SAMPLES = 48;
-
-/**
- * Map each consumed partition (`source`) to the active topology that reads it,
- * from the reconstructed worker rows — so the per-reader probe series can be
- * rolled up per topology. First writer wins (a source is one topology's input).
- *
- * @param {Array} actives Active topology rows (with live `status.workers`).
- * @return {Object<string,string>} source → topology name.
- */
-export function sourceTopologyMap( actives ) {
-	const map = {};
-	actives.forEach( ( t ) => {
-		( t.status?.workers || [] ).forEach( ( w ) => {
-			if ( w.source && ! ( w.source in map ) ) {
-				map[ w.source ] = t.name;
-			}
-		} );
-	} );
-	return map;
-}
 
 /**
  * Roll a topology's live workers up to the per-partition + fleet vitals the row
@@ -98,13 +81,12 @@ function vitals( t ) {
  * worker pills + uptime + a live lag sparkline & current lag, with an Edit
  * deep-link.
  *
- * @param {Object}   props
- * @param {Object}   props.topology    The active topology row.
- * @param {?number}  props.currentTime Server clock (for uptime).
- * @param {number[]} props.lagSeries   24h backlog trend (downsampled, oldest first).
+ * @param {Object}  props
+ * @param {Object}  props.topology    The active topology row.
+ * @param {?number} props.currentTime Server clock (for uptime).
  * @return {import('react').ReactElement} The row.
  */
-function ActiveRow( { topology, currentTime, lagSeries } ) {
+function ActiveRow( { topology, currentTime } ) {
 	const health = topology.health || 'ok';
 	const { parts, up, total, behind, startedAt } = vitals( topology );
 	return (
@@ -183,14 +165,10 @@ function ActiveRow( { topology, currentTime, lagSeries } ) {
 					behind > 0 ? ' is-behind' : ''
 				}` }
 				title={ __(
-					'Consumer lag (bytes behind) — sparkline is the recent trend',
+					'Consumer lag (bytes behind) — see the Backlog panel for the 24h trend',
 					'newspack-nodes'
 				) }
 			>
-				<Sparkline
-					values={ lagSeries }
-					className="nodes-overview__lagspark"
-				/>
 				<span className="nodes-overview__lagval">
 					{ behind > 0
 						? sprintf(
@@ -273,13 +251,12 @@ export default function Overview() {
 		return ra !== rb ? ra - rb : a.name.localeCompare( b.name );
 	} );
 
-	// Roll the per-reader probe series up per topology (sources → topology),
-	// for the 24h backlog sparkline on each active row.
-	const lagSeries = topologySeries(
-		probeView?.consumers || {},
-		SPARK_SAMPLES,
-		( c ) => sourceTopologyMap( actives )[ c.source ]
-	);
+	// Per-topic (source) 24h series for the three Topics panels — message rate,
+	// byte rate, backlog — each ranked by max in its own legend.
+	const consumers = probeView?.consumers || {};
+	const msgRateSeries = topicChartSeries( consumers, 'msgRate' );
+	const byteRateSeries = topicChartSeries( consumers, 'byteRate' );
+	const backlogSeries = topicChartSeries( consumers, 'backlog' );
 
 	const fleet = actives.reduce(
 		( acc, t ) => {
@@ -345,13 +322,29 @@ export default function Overview() {
 					onRestart={ () => restart( 'supervisor' ) }
 				/>
 			) }
+			<div className="nodes-overview__panels">
+				<TopicsChart
+					title={ __( 'Topics Message Rate', 'newspack-nodes' ) }
+					series={ msgRateSeries }
+					formatValue={ formatMsgRate }
+				/>
+				<TopicsChart
+					title={ __( 'Topics Byte Rate', 'newspack-nodes' ) }
+					series={ byteRateSeries }
+					formatValue={ formatByteRate }
+				/>
+				<TopicsChart
+					title={ __( 'Topics Backlog', 'newspack-nodes' ) }
+					series={ backlogSeries }
+					formatValue={ formatBytes }
+				/>
+			</div>
 			<div className="nodes-overview__rows">
 				{ activeSorted.map( ( t ) => (
 					<ActiveRow
 						key={ t.name }
 						topology={ t }
 						currentTime={ currentTime }
-						lagSeries={ lagSeries[ t.name ]?.backlog || [] }
 					/>
 				) ) }
 			</div>
