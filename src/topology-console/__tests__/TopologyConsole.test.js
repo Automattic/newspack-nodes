@@ -2505,6 +2505,42 @@ describe( 'TopologyConsole boot', () => {
 		expect( tslArg ).toContain( 'var num_partitions = 4' );
 	} );
 
+	it( 'edit mode: renaming a node preserves the num_partitions frontmatter on save', async () => {
+		// Regression: the rename handler rebuilt the draft as { nodes, edges } and
+		// dropped frontmatter, so a rename silently unset the partitions setting —
+		// a node DROP didn't, because removeNode spreads the whole graph.
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'var num_partitions = 4\nmake_node Echo n1\n',
+			name: 'demo',
+			source: 'user',
+		} );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'demo',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'rename-n1' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		const tslArg =
+			hooks.saveTopology.mock.calls[ 0 ] &&
+			hooks.saveTopology.mock.calls[ 0 ][ 0 ].tsl;
+		expect( tslArg ).toContain( 'var num_partitions = 4' );
+	} );
+
 	it( 'closes the settings panel when starting a New topology', async () => {
 		const { getByText, getByRole, queryByRole } = render(
 			<TopologyConsole />

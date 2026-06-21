@@ -1198,7 +1198,9 @@ export default function TopologyConsole() {
 					} );
 					return { ...n, verbInvocations: nextInvs };
 				} );
-				return { nodes, edges: renamed.edges };
+				// Spread `renamed` so frontmatter (num_partitions, …) + name survive
+				// the verb-rewrite; only the nodes array is replaced.
+				return { ...renamed, nodes };
 			} );
 			// Carry the position override onto the new key. Dirty-neutral —
 			// rename isn't a user-driven position change.
