@@ -8,6 +8,11 @@
  * topology-console.scss.
  */
 
+// Canonical Newspack tokens (the --np-* the .theme-newspack skin maps onto).
+// @use'd so the console + debug-overlay bundles are self-contained: graph-view
+// rides into both, so both get the tokens without a separate enqueued sheet.
+@use '../../theme/newspack-theme';
+
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
 // through to the final CSS without trying to inline it.
@@ -1744,31 +1749,35 @@
 // 00 — Newspack (Product · default). DESIGN.product.md: Cobalt + neutrals,
 // status colors only. Light surface, dark REPL (Swiss precedent).
 .topology-app.theme-newspack {
-	--paper: #fff;
-	--paper-2: #f7f7f7;
-	--paper-3: #f0f0f0;
-	--paper-shadow: #ddd;
-	--ink: #1e1e1e;
+	// Mapped onto the canonical --np-* tokens (src/theme/newspack-theme.scss,
+	// @use'd above) so the console's Newspack skin and every dashboard share one
+	// source. The --ink-2/-4, *-dark, repl, and grid values have no product
+	// token (neutral 800/500, hand-tuned dark-shades) and stay literal.
+	--paper: var(--np-surface);
+	--paper-2: var(--np-surface-subtle);
+	--paper-3: var(--np-surface-muted);
+	--paper-shadow: var(--np-border);
+	--ink: var(--np-text);
 	--ink-2: #3e3e3e;
-	--ink-3: #6c6c6c;
+	--ink-3: var(--np-text-secondary);
 	--ink-4: #949494;
 	// Constant 1px now (non-scaling-stroke), so it needs more than the old
 	// 10%-watermark alpha to read.
 	--grid: rgba(108, 118, 130, 0.22);
-	--oxide: #b32d2e;
+	--oxide: var(--np-error);
 	--oxide-dark: #8a2324;
-	--brass: #bd8600;
+	--brass: var(--np-warning);
 	--brass-dark: #8a6200;
-	--cyan: #003da5;
-	--cyan-dark: #00296e;
-	--sage: #007017;
+	--cyan: var(--np-primary);
+	--cyan-dark: var(--np-primary-hover);
+	--sage: var(--np-success);
 	--sage-dark: #00510f;
 	--repl-bg: #1e1e1e;
 	--repl-fg: #f7f7f7;
-	--font-mono: "Inter", system-ui, sans-serif;
-	--font-terminal: "JetBrains Mono", ui-monospace, monospace;
-	--font-display-brand: "Inter", system-ui, sans-serif;
-	--font-display-stencil: "Inter", system-ui, sans-serif;
+	--font-mono: var(--np-font);
+	--font-terminal: var(--np-font-mono);
+	--font-display-brand: var(--np-font);
+	--font-display-stencil: var(--np-font);
 
 	.topology-brand {
 		font-weight: 700;

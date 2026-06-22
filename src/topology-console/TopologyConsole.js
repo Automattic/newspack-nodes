@@ -1477,7 +1477,7 @@ export default function TopologyConsole() {
 	return (
 		<div
 			ref={ appRef }
-			className={ `topology-app theme-${ theme } is-inspector-open${
+			className={ `topology-app newspack-nodes-theme theme-${ theme } is-inspector-open${
 				mode === 'edit' ? ' is-edit-mode' : ''
 			}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
 				inspectorCollapsed ? ' is-inspector-collapsed' : ''
