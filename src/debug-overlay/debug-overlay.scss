@@ -48,10 +48,17 @@
 	z-index: 999998;
 	background: #f0e7d6;
 	border: 1px solid #18222e;
+	border-radius: 10px;
 	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+
+	// Square off when maximized — rounded corners against the screen edges
+	// read wrong full-screen.
+	&.is-maximized {
+		border-radius: 0;
+	}
 
 	// The InspectorTab's root wrapper. It now sits between the panel and
 	// .topology-app — DevtoolsTabHost wraps the active tab in

@@ -28,6 +28,7 @@ export default function DebugPanel( { storageKey, onClose } ) {
 		onHeaderPointerDown,
 		getResizeHandlers,
 		toggleMaximize,
+		maximized,
 		// Global frame key — same overlay dimensions across every dashboard.
 	} = useDebugFrame( 'newspack-nodes:debug:frame', true );
 
@@ -83,7 +84,9 @@ export default function DebugPanel( { storageKey, onClose } ) {
 	return (
 		<div
 			ref={ setPanelRef }
-			className="nodes-debug__panel"
+			className={ `nodes-debug__panel${
+				maximized ? ' is-maximized' : ''
+			}` }
 			data-testid="debug-panel"
 			style={ frameStyle }
 			// Block the page behind the overlay from scrolling whenever the

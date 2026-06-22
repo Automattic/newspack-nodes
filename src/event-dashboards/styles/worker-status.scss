@@ -403,8 +403,6 @@
 	align-items: center;
 	gap: 12px;
 	padding: 4px 8px;
-	background: base.$dark-bg-deep;
-	border-radius: 4px;
 
 	&.dead .supervisor-name {
 		opacity: 0.5;
@@ -463,9 +461,9 @@
 
 .caret {
 	display: inline-block;
-	width: 12px;
+	width: 14px;
 	cursor: pointer;
-	font-size: 10px;
+	font-size: 13px;
 	color: base.$dark-text-muted;
 	user-select: none;
 	transition: transform 0.1s;

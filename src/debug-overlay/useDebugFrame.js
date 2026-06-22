@@ -282,5 +282,6 @@ export function useDebugFrame( storageKey, visible = true ) {
 		onHeaderPointerDown,
 		getResizeHandlers,
 		toggleMaximize,
+		maximized,
 	};
 }
