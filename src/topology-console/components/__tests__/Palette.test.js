@@ -133,7 +133,7 @@ describe( 'Palette', () => {
 		expect( glyphOf( 'Both' ).className ).toBe( 'topology-palette__glyph' );
 	} );
 
-	it( 'the drag ghost shows the connector-aware glyph for the dragged class', () => {
+	it( 'the drag ghost renders the actual node card with schema-correct ports', () => {
 		const classes = [
 			{
 				shell_name: 'Sourcey',
@@ -147,13 +147,17 @@ describe( 'Palette', () => {
 		);
 		const item = container.querySelector( '[data-shell-name="Sourcey"]' );
 		fireEvent.pointerDown( item, { pointerId: 1, clientX: 5, clientY: 5 } );
-		const ghostGlyph = container.querySelector(
-			'.topology-palette__drag-ghost .topology-palette__glyph'
+		const ghost = container.querySelector(
+			'.topology-palette__drag-ghost'
 		);
-		expect( ghostGlyph ).not.toBeNull();
-		expect( ghostGlyph.className ).toContain(
-			'topology-palette__glyph--no-in'
-		);
+		expect( ghost ).not.toBeNull();
+		// It's the node card: the type label is the class name.
+		expect(
+			ghost.querySelector( '.topology-node__type' ).textContent
+		).toBe( 'Sourcey' );
+		// Source (no accepts_fill): out-port present, in-port absent.
+		expect( ghost.querySelector( '.topology-port--out' ) ).not.toBeNull();
+		expect( ghost.querySelector( '.topology-port--in' ) ).toBeNull();
 	} );
 
 	it( 'shows a drag ghost with the shell name on pointer-down', () => {

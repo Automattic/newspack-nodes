@@ -17,9 +17,10 @@ import {
 	clipSegmentExit,
 } from '../utils/viewportCull';
 
-const NODE_W = 196;
-const NODE_H = 84;
-const PORT_R = 4.5;
+// Exported so the palette drag ghost can render the same node-card geometry.
+export const NODE_W = 196;
+export const NODE_H = 84;
+export const PORT_R = 4.5;
 // Movement (SVG units) before a pointer-down counts as a drag, not a click.
 const DRAG_THRESHOLD = 3;
 
