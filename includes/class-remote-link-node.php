@@ -383,7 +383,7 @@ class Remote_Link_Node extends Timer_Node {
 			],
 			'commands'     => [],
 			'requests'     => [],
-			'accepts_fill' => true,
+			'accepts_fill' => false,
 		];
 	}
 }
