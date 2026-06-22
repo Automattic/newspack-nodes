@@ -27,6 +27,15 @@ const concreteSource = ( template, partition ) =>
 		? template.split( PARTITION_TOKEN ).join( String( partition ) )
 		: template;
 
+// True when `reader` IS handler `name` — exactly, or `name` followed by a
+// partition suffix at a separator boundary (`prereq.p0`, `prereq-0`). Anchored so
+// `req` does NOT claim `prereq.p0` (the loose-substring bug): a substring hit must
+// align with the start AND end at a separator, never mid-token.
+const readerIsHandler = ( reader, name ) =>
+	reader === name ||
+	( reader.startsWith( name ) &&
+		/^[._-]/.test( reader.slice( name.length ) ) );
+
 /**
  * For each `consumer` node, resolve ALL the logic handlers it feeds — every
  * non-tee/non-log node reachable after contracting `tee` nodes out (same in×out
@@ -233,6 +242,26 @@ export function reconstructWorkers( data, prior ) {
 		writeRates[ source ] = step.rate;
 	} );
 
+	// Read step per reader, computed ONCE up front: it depends only on the probe
+	// row (reader / source / cursor) + the live segments + ts — never the topology.
+	// Computing it inside the per-topology loop made it N×M (most discarded). One
+	// reader's cursor advances at one rate no matter how many topologies read it.
+	const readStepByReader = new Map();
+	consumers.forEach( ( row ) => {
+		if ( readStepByReader.has( row.reader ) ) {
+			return;
+		}
+		const live =
+			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
+		const step = steppedRate(
+			priorRead[ row.reader ],
+			cursorBytes( live, row.cursor_seg, row.cursor_off ),
+			ts
+		);
+		readStepByReader.set( row.reader, step );
+		nextRead[ row.reader ] = step;
+	} );
+
 	Object.entries( graph ).forEach( ( [ topology, graphTopo ] ) => {
 		const handlers = consumerHandlers( graphTopo );
 
@@ -258,7 +287,7 @@ export function reconstructWorkers( data, prior ) {
 			}
 			const chosen =
 				matching.find( ( h ) =>
-					String( row.reader ).includes( h.name )
+					readerIsHandler( String( row.reader ), h.name )
 				) || matching[ 0 ];
 			const concrete = row.source;
 
@@ -283,17 +312,11 @@ export function reconstructWorkers( data, prior ) {
 				end_size: row.end_size,
 			};
 
-			// Rates are PROBE-cadence (steppedRate), computed ONCE per probe row.
-			// READ = Δ(cursor byte position); both snapshot-stable, so they update
-			// only when new probe data advances the cursor / end, never on the ~1s
-			// poll. Computed before the worker push so each worker carries its own
-			// read_rate (for the ETA rollup + the eta-aware "behind" health).
-			const readStep = steppedRate(
-				priorRead[ row.reader ],
-				cursorBytes( live, row.cursor_seg, row.cursor_off ),
-				ts
-			);
-			nextRead[ row.reader ] = readStep;
+			// Read rate is PROBE-cadence (steppedRate), computed ONCE per reader up
+			// front (see readStepByReader) — NOT here per topology, which recomputed
+			// the identical step N times. Each worker carries its own read_rate (for
+			// the ETA rollup + the eta-aware "behind" health).
+			const readStep = readStepByReader.get( row.reader );
 
 			chosen.handlers.forEach( ( handler ) => {
 				byteRates[ `${ handler }-${ row.partition }-${ concrete }` ] =

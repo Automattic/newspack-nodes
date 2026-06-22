@@ -593,6 +593,63 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
 		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
 	} );
+
+	test( 'a long gap between snapshots (hidden tab) rebaselines rate to 0, not a one-frame spike', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			// Poll 1 establishes a baseline at ts 1000.
+			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
+			// Poll 2 resumes after a multi-minute hidden gap: ts jumps far ahead
+			// and the cursor/end advanced over the whole gap. Without gap-awareness
+			// this divides a huge Δvalue by a huge Δts; the fix treats it as a fresh
+			// baseline (rate 0), like a first sample / counter reset.
+			t.fill(
+				metadataMsg( snapshot( 1000 + 600, 1, 50, [ 100, 90 ], 1, 80 ) )
+			);
+		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
+	} );
+
+	test( 'after a gap rebaseline, the NEXT normal-cadence poll computes a real rate', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
+			// Gap → rebaseline at ts 1600, cursor abs pos = 100 + 50 = 150.
+			t.fill(
+				metadataMsg( snapshot( 1000 + 600, 1, 50, [ 100, 90 ], 1, 80 ) )
+			);
+			// Normal 2s cadence after the gap: cursor abs pos = 100 + 100 = 200.
+			// Δ = 200 - 150 = 50 over 2s = 25 B/s.
+			t.fill(
+				metadataMsg( snapshot( 1602, 1, 100, [ 100, 110 ], 1, 110 ) )
+			);
+		} );
+		const { model } = sink.got[ 2 ][ VALUE ];
+		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 25 );
+	} );
+
+	test( 'a normal-cadence gap (within bound) still computes a real rate', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		withClock( () => {
+			// Two polls 2s apart — well within a sane sample-gap bound, so the
+			// existing cross-poll delta still applies (regression guard for the
+			// gap check not being over-eager).
+			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
+			t.fill(
+				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )
+			);
+		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 75 );
+	} );
 } );
 
 describe( 'workerstatus:transform — model envelope', () => {

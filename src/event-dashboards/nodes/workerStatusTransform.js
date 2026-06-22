@@ -9,6 +9,12 @@ import {
 } from '../../runtime/message';
 import { reconstructWorkers } from './reconstructWorkers';
 
+// A sample gap (Δ`data.timestamp`) beyond this many heartbeat intervals means
+// the dashboard was paused (hidden tab) and resumed — the next sample's delta
+// would span the whole gap, so rebaseline instead of dividing a huge Δvalue by a
+// huge Δts and flashing a one-frame spike.
+const GAP_INTERVALS = 6;
+
 /**
  * `workerstatus:transform` — turn a `dump_graph` reply into the enriched
  * render model.
@@ -48,6 +54,9 @@ export class WorkerStatusTransformNode extends Node {
 		// across polls so a rate only changes when new probe data advances.
 		this._prevRead = {};
 		this._prevWrite = {};
+		// `data.timestamp` of the last processed snapshot — used to detect a long
+		// hidden-tab gap and rebaseline the rate/segment state (see GAP_INTERVALS).
+		this._lastSampleTs = null;
 		// Sticky scalars: a poll that OMITS segment_size / timestamp retains the
 		// last good value (matches WorkerStatus's `if (data.x) setX(...)`). Seeds
 		// match the old useState seeds — 64MB and the client clock.
@@ -95,6 +104,25 @@ export class WorkerStatusTransformNode extends Node {
 		const newPrevSegments = {};
 		const newPrevSegmentData = {};
 		const newRemoving = {};
+
+		// Hidden-tab gap detection: if this snapshot's timestamp jumped more than
+		// GAP_INTERVALS heartbeat intervals past the last one, the dashboard was
+		// paused and resumed. Drop the prev rate + segment state so this sample is
+		// a fresh baseline (rate 0, no spurious segment removals) instead of a
+		// gap-spanning one-frame spike.
+		const ts = data.timestamp;
+		const maxGapS = this._heartbeatIntervalS * GAP_INTERVALS;
+		if (
+			null !== this._lastSampleTs &&
+			ts !== undefined &&
+			ts - this._lastSampleTs > maxGapS
+		) {
+			this._prevRead = {};
+			this._prevWrite = {};
+			this._prevSegments = {};
+			this._prevSegmentData = {};
+		}
+		this._lastSampleTs = ts !== undefined ? ts : this._lastSampleTs;
 
 		// Join graph + liveness + probe state + live segments into the rich
 		// `workers[]` shape the downstream reads, plus the client-side rate
