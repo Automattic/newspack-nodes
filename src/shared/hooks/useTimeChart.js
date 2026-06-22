@@ -156,8 +156,10 @@ export const setupTooltip = (
 		.attr( 'y', 0 )
 		.attr( 'height', innerH )
 		.attr( 'width', bucketWidth )
-		.attr( 'fill', 'rgba(255,255,255,0.1)' )
-		.attr( 'stroke', 'rgba(255,255,255,0.3)' )
+		// Neutral grey translucent so the hover column reads on BOTH a light
+		// chart panel and a dark one (white was invisible on light).
+		.attr( 'fill', 'rgba(128,128,128,0.18)' )
+		.attr( 'stroke', 'rgba(128,128,128,0.4)' )
 		.attr( 'stroke-width', 1 )
 		.attr( 'opacity', 0 );
 
