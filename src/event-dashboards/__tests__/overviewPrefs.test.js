@@ -10,8 +10,11 @@ import {
 	writeOrder,
 	readExpanded,
 	writeExpanded,
+	readCollapsed,
+	writeCollapsed,
 	ORDER_KEY,
 	EXPANDED_KEY,
+	COLLAPSED_KEY,
 } from '../overviewPrefs';
 
 describe( 'overviewPrefs order', () => {
@@ -62,6 +65,34 @@ describe( 'overviewPrefs expanded', () => {
 	it( 'returns an empty Set on corrupt JSON', () => {
 		window.localStorage.setItem( EXPANDED_KEY, '<broken>' );
 		expect( readExpanded().size ).toBe( 0 );
+	} );
+} );
+
+describe( 'overviewPrefs collapsed (inner node/partition folds)', () => {
+	beforeEach( () => window.localStorage.clear() );
+
+	it( 'round-trips a Set under its OWN key, separate from expanded', () => {
+		writeCollapsed( new Set( [ 'firehose', 'firehose>completed' ] ) );
+		expect(
+			JSON.parse( window.localStorage.getItem( COLLAPSED_KEY ) )
+		).toEqual( [ 'firehose', 'firehose>completed' ] );
+		// Does not bleed into the expanded key.
+		expect( window.localStorage.getItem( EXPANDED_KEY ) ).toBeNull();
+		const set = readCollapsed();
+		expect( set ).toBeInstanceOf( Set );
+		expect( [ ...set ].sort() ).toEqual( [
+			'firehose',
+			'firehose>completed',
+		] );
+	} );
+
+	it( 'returns an empty Set when nothing is stored', () => {
+		expect( readCollapsed().size ).toBe( 0 );
+	} );
+
+	it( 'returns an empty Set on corrupt JSON', () => {
+		window.localStorage.setItem( COLLAPSED_KEY, '<broken>' );
+		expect( readCollapsed().size ).toBe( 0 );
 	} );
 } );
 
