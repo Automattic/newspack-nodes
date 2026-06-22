@@ -1,7 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
+use Newspack_Nodes\Timer_Node;
+use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -154,5 +157,88 @@ class EventFrameworkTest extends TestCase {
 		$this->assertLessThan( 1.0, $elapsed );
 
 		\curl_multi_close( $mh );
+	}
+
+	// --- pump(): in-job cooperative heartbeat -------------------------------
+
+	/** A oneshot timer that runs an injected closure on fire — drives pump() from inside a live drain. */
+	private function fire_once( callable $cb ): Timer_Node {
+		$timer = new class extends Timer_Node {
+			/** @var callable */
+			public $on_fire;
+			public function fire_cb(): void {
+				( $this->on_fire )();
+			}
+		};
+		$timer->on_fire = $cb;
+		$timer->set_timer( 1, true );
+		return $timer;
+	}
+
+	/** Stop-predicate that advances the clock so the timer fires, and bails after a tick cap so a missed fire fails clean instead of hanging. */
+	private function clocked_predicate( object $state ): callable {
+		return function () use ( $state ): bool {
+			Core::$now = \microtime( true );
+			return ! $state->stop && ++$state->ticks < 1000;
+		};
+	}
+
+	public function test_pump_is_noop_outside_a_drain(): void {
+		$ef = Event_Framework::instance();
+		$ef->pump(); // no stored predicate (web-request context) — must not throw.
+		$this->assertFalse( $ef->is_running() );
+	}
+
+	public function test_pump_is_noop_for_a_plain_non_worker_drain(): void {
+		// A plain (non-cooperative_stop) drain — cli / SSE — must never have pump() throw at it.
+		$ef    = Event_Framework::instance();
+		$state = (object) [ 'stop' => false, 'ticks' => 0, 'reached' => false ];
+		$this->fire_once( function () use ( $ef, $state ) {
+			$state->stop    = true; // predicate now false …
+			$ef->pump();            // … but this drain didn't opt in → no throw
+			$state->reached = true;
+		} );
+
+		$ef->drain( $this->clocked_predicate( $state ) ); // no cooperative_stop flag
+		$this->assertTrue( $state->reached, 'pump() stayed inert in a plain drain' );
+	}
+
+	public function test_pump_throws_worker_should_stop_when_predicate_reports_stop(): void {
+		$ef    = Event_Framework::instance();
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$this->fire_once( function () use ( $ef, $state ) {
+			$state->stop = true; // worker should now stop
+			$ef->pump();         // predicate now false → cooperative abort
+		} );
+
+		$this->expectException( Worker_Should_Stop::class );
+		$ef->drain( $this->clocked_predicate( $state ), cooperative_stop: true );
+	}
+
+	public function test_pump_does_not_throw_while_worker_should_continue(): void {
+		$ef    = Event_Framework::instance();
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$this->fire_once( function () use ( $ef, $state ) {
+			$ef->pump();         // predicate still true → no throw
+			$state->stop = true; // then end the loop normally
+			$state->pumped = true;
+		} );
+
+		$ef->drain( $this->clocked_predicate( $state ), cooperative_stop: true );
+		$this->assertTrue( $state->pumped ?? false, 'pump() ran inside the drain without throwing' );
+	}
+
+	public function test_pump_throttles_rapid_successive_calls(): void {
+		$ef    = Event_Framework::instance();
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$this->fire_once( function () use ( $ef, $state ) {
+			$ef->pump();         // first pump: predicate true (stop still false) → no throw
+			$state->stop = true; // a second, un-throttled pump WOULD now see false and throw
+			$ef->pump();         // throttled (same instant) → predicate not re-run → no throw
+			$state->reached = true;
+		} );
+
+		$ef->drain( $this->clocked_predicate( $state ), cooperative_stop: true );
+		$this->assertTrue( $state->reached ?? false, 'second rapid pump was throttled, not re-checked' );
 	}
 }

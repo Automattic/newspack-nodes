@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Job_Worker_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -695,5 +696,27 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 1, $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
 		$this->assertSame( 1, $ref->getProperty( 'stale_timeout' )->getValue( $jw ) );
 		$this->assertSame( 1, $ref->getProperty( 'max_runtime' )->getValue( $jw ) );
+	}
+
+	public function test_worker_should_stop_escapes_the_per_job_throwable_catch(): void {
+		// Worker_Should_Stop must escape the per-job catch(\Throwable); after_job still runs.
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'stopper', function () {
+			throw new Worker_Should_Stop();
+		} );
+
+		$after = 0;
+		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
+
+		$escaped = false;
+		try {
+			$message = $this->job_message( 'stopper' );
+			$jw->fill( $message );
+		} catch ( Worker_Should_Stop $e ) {
+			$escaped = true;
+		}
+
+		$this->assertTrue( $escaped, 'Worker_Should_Stop propagates past the per-job Throwable catch' );
+		$this->assertSame( 1, $after, 'after_job cleanup still fires before the stop propagates' );
 	}
 }

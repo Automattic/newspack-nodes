@@ -164,6 +164,9 @@ class Job_Worker_Node extends Node {
 		try {
 			\do_action( 'newspack_nodes/job_worker/before_job', $handler );
 			( $handlers[ $handler ] )( $parameters );
+		} catch ( Worker_Should_Stop $e ) {
+			// pump()'s stop must escape the Throwable swallow below; after_job still runs.
+			throw $e;
 		} catch ( \Throwable $e ) {
 			$this->print_less_often( "job {$handler} threw: " . $e->getMessage() );
 		} finally {
