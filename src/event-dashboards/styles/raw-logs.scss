@@ -12,7 +12,7 @@
 .newspack-nodes-raw-logs {
 	background: base.$dark-bg;
 	color: base.$dark-text;
-	padding: 20px 16px 16px;
+	padding: 10px 20px;
 	height: 100%;
 	display: flex;
 	flex-direction: column;
@@ -193,11 +193,11 @@ input.newspack-nodes-raw-logs-search {
 	white-space: pre;
 
 	&.row-odd {
-		background: base.$term-bg;
+		background: base.$term-bg-alt;
 	}
 
 	&.row-even {
-		background: base.$term-bg-alt;
+		background: base.$term-bg;
 	}
 
 	&:hover {

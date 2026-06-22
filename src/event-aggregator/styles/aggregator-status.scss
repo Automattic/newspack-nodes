@@ -15,7 +15,7 @@
 	color: base.$dark-text;
 	font-family: base.$system-font;
 	min-height: 100%;
-	padding: 20px 24px;
+	padding: 16px 20px;
 	box-sizing: border-box;
 }
 
@@ -30,12 +30,6 @@
 	margin-bottom: 24px;
 	padding-bottom: 16px;
 	border-bottom: 1px solid base.$dark-header-border;
-
-	h2 {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-	}
 }
 
 .aggregator-status-meta {

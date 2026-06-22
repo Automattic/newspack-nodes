@@ -5,7 +5,7 @@
 .event-aggregator-servers-admin {
 	box-sizing: border-box;
 	min-height: 100%;
-	padding: 16px;
+	padding: 16px 20px;
 	background: var(--np-surface-subtle);
 
 	// Title + its trailing action, like the WP "Posts / Add Post" page header.
@@ -16,9 +16,8 @@
 		margin-bottom: 16px;
 	}
 
-	// "Add Server" trails the title using WP's native `.page-title-action`
-	// (the standard "Add Post" button) — intentionally left unstyled so it
-	// matches WP exactly.
+	// The header "Add Server" trigger reuses the shared `.nodes-cards__new`
+	// button (the Overview's "+ New Topology" look), styled there — not here.
 
 	// Primary action (the modal's Add submit) — solid Newspack Cobalt.
 	.button.button-primary {
