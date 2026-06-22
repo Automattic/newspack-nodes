@@ -27,7 +27,7 @@ $health-stalled: var(--np-error);
 	gap: 4px;
 	min-width: 104px;
 	padding: 10px 14px;
-	border-radius: 10px;
+	border-radius: var(--np-radius-md);
 	background: base.$dark-bg-secondary;
 	border: 1px solid base.$dark-border;
 
@@ -90,22 +90,13 @@ $health-stalled: var(--np-error);
 
 // "+ New Topology" — trails the card row, right-aligned.
 .nodes-cards__new {
+	@include base.secondary-button;
 	margin-left: auto;
 	align-self: center;
 	font-size: 13px;
 	line-height: 1;
 	padding: 7px 14px;
-	border-radius: 8px;
-	background: base.$dark-bg-tertiary;
-	color: base.$dark-text;
-	border: 1px solid base.$dark-border;
 	text-decoration: none;
-	transition: background 0.15s;
-
-	&:hover {
-		background: base.$dark-bg-hover;
-		color: base.$dark-text;
-	}
 }
 
 // ── Shared per-topology controls (toggle + restart + edit) ───────────────────
@@ -153,38 +144,20 @@ $health-stalled: var(--np-error);
 	}
 
 	&__restart {
+		@include base.secondary-button;
 		flex: 0 0 auto;
 		font-size: 15px;
 		line-height: 1;
 		padding: 4px 9px;
-		border-radius: 6px;
-		background: base.$dark-bg-tertiary;
-		color: $health-behind;
-		border: 1px solid base.$dark-border;
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: base.$dark-bg-hover;
-		}
+		color: $health-behind; // amber ↻ icon on the white button
 	}
 
 	&__edit {
+		@include base.secondary-button;
 		flex: 0 0 auto;
 		font-size: 12px;
 		line-height: 1;
 		padding: 5px 10px;
-		border-radius: 6px;
-		background: base.$dark-bg-tertiary;
-		color: base.$dark-text;
-		border: 1px solid base.$dark-border;
 		text-decoration: none;
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: base.$dark-bg-hover;
-			color: base.$dark-text;
-		}
 	}
 }

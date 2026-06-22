@@ -25,9 +25,11 @@
 	&__topology {
 		// No row margin — the Overview's `.nodes-overview__rows` flex `gap`
 		// owns the (small) inter-row spacing; a margin here double-stacked it.
+		// A clean white card on the subtle page; the heading is transparent (part
+		// of the card) so a collapsed row reads as one white card, not a band.
 		background: base.$dark-bg-secondary;
 		border: 1px solid base.$dark-border;
-		border-radius: 6px;
+		border-radius: var(--np-radius-md);
 		overflow: hidden;
 
 		// The row being pointer-dragged: lifted + dimmed for live feedback.
@@ -42,8 +44,6 @@
 		align-items: center;
 		gap: 10px;
 		padding: 12px 14px;
-		background: base.$dark-bg-deep;
-		border-bottom: 1px solid base.$dark-border;
 
 		// The provenance cell owns the single right-push (margin-left:auto). The
 		// controls carry their own auto-margin (used in the stopped chips); cancel
@@ -230,24 +230,20 @@
 	}
 
 	&__restart {
+		@include base.secondary-button;
 		flex: 0 0 auto;
 		font-size: 15px;
 		line-height: 1;
 		padding: 4px 9px;
-		border-radius: 6px;
-		background: base.$dark-bg-tertiary;
-		color: var(--np-warning);
-		border: 1px solid base.$dark-border;
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: base.$dark-bg-hover;
-		}
+		color: var(--np-warning); // amber ↻ icon on the white button
 	}
 
+	// The expanded detail tree. The divider lives here (not on the heading) so a
+	// COLLAPSED row stays a clean borderless white card — the rule only appears
+	// when there's a body to separate.
 	&__body {
-		padding: 4px 14px 14px;
+		padding: 8px 14px 14px;
+		border-top: 1px solid base.$dark-border;
 	}
 
 	&__stopped {

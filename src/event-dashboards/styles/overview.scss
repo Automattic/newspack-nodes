@@ -22,19 +22,10 @@
 
 	&__foldall,
 	&__unfoldall {
+		@include base.secondary-button;
 		font-size: 12px;
 		line-height: 1;
 		padding: 6px 12px;
-		border-radius: 6px;
-		background: base.$dark-bg-tertiary;
-		color: base.$dark-text;
-		border: 1px solid base.$dark-border;
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: base.$dark-bg-hover;
-		}
 	}
 
 	// ── Active rows (each a TopologyRow — see TopologyRow.scss) ────────────
@@ -138,7 +129,7 @@
 	// Light Newspack chart panel — a white card on the subtle hub backdrop.
 	background: var(--np-surface);
 	border: 1px solid base.$dark-border;
-	border-radius: 4px;
+	border-radius: var(--np-radius-md);
 	padding: 8px 10px;
 
 	&__title {
