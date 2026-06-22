@@ -91,31 +91,6 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Default send: relay the message out through the patron HTTP_Out. Remote_IPC
-	 * overrides this to wrap the reply-FROM pivot + bundle a `connect_worker_input`.
-	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
-	 */
-	protected function send( array &$message ): void {
-		$this->ensure_patrons();
-		$this->http_out?->fill( $message );
-	}
-
-	/** Record a heartbeat reply's round-trip into the status snapshot. */
-	private function record_heartbeat_reply(): void {
-		if ( 0 === $this->last_heartbeat_sent ) {
-			return;
-		}
-		$now                           = (int) Core::$now;
-		$rtt                           = $this->last_heartbeat_sent > 0 ? ( $now - $this->last_heartbeat_sent ) : 0;
-		$this->last_heartbeat_response = $now;
-		$this->write_status( [
-			'last_heartbeat_response' => $now,
-			'last_heartbeat_rtt'      => $rtt,
-		] );
-	}
-
-	/**
 	 * Per-tick housekeeping (Timer_Node::fire_cb calls this): drive the passive
 	 * SSE_In, persist the cursor, and keep the slot alive. Idempotent and cheap.
 	 * `should_connect()` gates whether a tick initiates/keeps the connection —
@@ -138,59 +113,18 @@ class Remote_Link_Node extends Timer_Node {
 		$this->publish_status();
 	}
 
-	/**
-	 * Open the inbound stream (children built lazily). Mirrors JS RemoteLink.connect.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function connect(): void {
-		$sse = $this->ensure_patrons();
-		$sse?->maybe_connect();
-	}
-
-	/**
-	 * Close the inbound stream. Mirrors JS RemoteLink.close.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function close(): void {
-		$this->sse_in?->disconnect();
-	}
-
-	/** True while the SSE_In holds a live stream (a steady poll doesn't reconnect). */
-	protected function is_streaming(): bool {
-		return null !== $this->sse_in && $this->sse_in->connection()['connected'];
-	}
-
-	// =========================================================================
-	// Subclass seams.
-	// =========================================================================
-
-	/**
-	 * Initial SSE_In cursor. Base seeds none; Remote_Source restores its offsetlog.
-	 *
-	 * @return array{segment_id?:int,offset?:int}
-	 */
-	protected function restore_position(): array {
-		return [];
-	}
-
-	/** Per-tick cursor persistence. Base no-op; Remote_Source commits its offsetlog. */
-	protected function persist_cursor(): void {}
-
-	/** Whether a tick initiates/keeps the connection. Base always pulls. */
-	protected function should_connect(): bool {
-		return true;
-	}
-
-	// =========================================================================
-	// Status snapshot — per-node memcache key (node name + remote_partition).
-	// =========================================================================
-
-	// Keyed by NODE NAME first so two spokes pulling the same remote_partition
-	// (e.g. firehose.p0) don't collide; Aggregator_CI reads the identical key.
-	private function status_key(): string {
-		return "np:remote:{$this->name}:{$this->remote_partition}";
+	/** Record a heartbeat reply's round-trip into the status snapshot. */
+	private function record_heartbeat_reply(): void {
+		if ( 0 === $this->last_heartbeat_sent ) {
+			return;
+		}
+		$now                           = (int) Core::$now;
+		$rtt                           = $this->last_heartbeat_sent > 0 ? ( $now - $this->last_heartbeat_sent ) : 0;
+		$this->last_heartbeat_response = $now;
+		$this->write_status( [
+			'last_heartbeat_response' => $now,
+			'last_heartbeat_rtt'      => $rtt,
+		] );
 	}
 
 	/**
@@ -209,6 +143,27 @@ class Remote_Link_Node extends Timer_Node {
 			$existing = [];
 		}
 		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
+	}
+
+	// =========================================================================
+	// Status snapshot — per-node memcache key (node name + remote_partition).
+	// =========================================================================
+
+	// Keyed by NODE NAME first so two spokes pulling the same remote_partition
+	// (e.g. firehose.p0) don't collide; Aggregator_CI reads the identical key.
+	private function status_key(): string {
+		return "np:remote:{$this->name}:{$this->remote_partition}";
+	}
+
+	/**
+	 * Default send: relay the message out through the patron HTTP_Out. Remote_IPC
+	 * overrides this to wrap the reply-FROM pivot + bundle a `connect_worker_input`.
+	 *
+	 * @param array<int, mixed> $message The 7-field positional message array.
+	 */
+	protected function send( array &$message ): void {
+		$this->ensure_patrons();
+		$this->http_out?->fill( $message );
 	}
 
 	// =========================================================================
@@ -282,6 +237,27 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	// =========================================================================
+	// Subclass seams.
+	// =========================================================================
+
+	/**
+	 * Initial SSE_In cursor. Base seeds none; Remote_Source restores its offsetlog.
+	 *
+	 * @return array{segment_id?:int,offset?:int}
+	 */
+	protected function restore_position(): array {
+		return [];
+	}
+
+	/** Whether a tick initiates/keeps the connection. Base always pulls. */
+	protected function should_connect(): bool {
+		return true;
+	}
+
+	/** Per-tick cursor persistence. Base no-op; Remote_Source commits its offsetlog. */
+	protected function persist_cursor(): void {}
+
+	// =========================================================================
 	// Heartbeat — minted as a workers.heartbeat command, routed through HTTP_Out.
 	// =========================================================================
 
@@ -348,6 +324,30 @@ class Remote_Link_Node extends Timer_Node {
 			$data['last_heartbeat_rtt']      = null;
 		}
 		$this->write_status( $data );
+	}
+
+	/**
+	 * Open the inbound stream (children built lazily). Mirrors JS RemoteLink.connect.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function connect(): void {
+		$sse = $this->ensure_patrons();
+		$sse?->maybe_connect();
+	}
+
+	/**
+	 * Close the inbound stream. Mirrors JS RemoteLink.close.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function close(): void {
+		$this->sse_in?->disconnect();
+	}
+
+	/** True while the SSE_In holds a live stream (a steady poll doesn't reconnect). */
+	protected function is_streaming(): bool {
+		return null !== $this->sse_in && $this->sse_in->connection()['connected'];
 	}
 
 	/** Set target. Tee overrides to append to its fan-out array. */

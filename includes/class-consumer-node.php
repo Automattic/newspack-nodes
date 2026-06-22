@@ -163,6 +163,21 @@ class Consumer_Node extends Timer_Node {
 		parent::fill( $message );
 	}
 
+	/** Timer-driven: poll, periodically checkpoint the cursor, then re-arm (busy/EOF cadence). */
+	protected function fire(): void {
+		$this->poll();
+		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
+		if (
+			null !== $this->offsetlog
+			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
+		) {
+			$this->checkpoint();
+			$this->last_checkpoint = Core::$now;
+		}
+		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
+		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
+	}
+
 	/** @param array<int, mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
 		if ( null === $this->sink ) {
@@ -197,19 +212,80 @@ class Consumer_Node extends Timer_Node {
 		$this->sink->fill( $reply );
 	}
 
-	/** Timer-driven: poll, periodically checkpoint the cursor, then re-arm (busy/EOF cadence). */
-	protected function fire(): void {
-		$this->poll();
-		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
-		if (
-			null !== $this->offsetlog
-			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
-		) {
-			$this->checkpoint();
-			$this->last_checkpoint = Core::$now;
+	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int, end_bytes: int} */
+	private function compute_lag(): array {
+		\clearstatcache( true, $this->source()->partition_dir() );
+		$segments = $this->source()->get_segments( true );
+		if ( empty( $segments ) ) {
+			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
 		}
-		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
-		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
+		// Recover a deleted/recreated cursor segment first so lag reflects the
+		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
+		$this->normalize_cursor( $segments );
+		$bytes_behind     = 0;
+		$segments_behind  = 0;
+		$end_bytes        = 0;
+		foreach ( $segments as $s ) {
+			$id   = $s['id'];
+			$size = $s['size'];
+			// Absolute partition byte position (Σ all live segment sizes) — the
+			// browser derives the byte THROUGHPUT from its delta (Δ end_bytes/Δt),
+			// the only way it can: the lean record carries no per-segment sizes.
+			$end_bytes += $size;
+			if ( $id < $this->cursor_seg ) {
+				continue;
+			}
+			if ( $id === $this->cursor_seg ) {
+				$bytes_behind += \max( 0, $size - $this->cursor_off );
+			} else {
+				$bytes_behind += $size;
+				++$segments_behind;
+			}
+		}
+		// Count buffered (already-read) bytes as consumed so lag reflects bytes-still-to-emit.
+		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
+		// Partition END (newest segment + its size) captured in the SAME read as
+		// the cursor — the topologies tab trims its live segment list back to here.
+		$last = \end( $segments );
+		return [
+			'bytes_behind'    => $bytes_behind,
+			'segments_behind' => $segments_behind,
+			'caught_up'       => 0 === $bytes_behind,
+			'end_seg'         => $last['id'],
+			'end_size'        => $last['size'],
+			'end_bytes'       => $end_bytes,
+		];
+	}
+
+	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
+	private function source(): Partition_Node {
+		if ( null === $this->source ) {
+			throw new \RuntimeException( 'Consumer source partition not initialized; call arguments() first' );
+		}
+		return $this->source;
+	}
+
+	/**
+	 * Clamp the cursor against the live (non-empty) segment list.
+	 *
+	 * Two recoveries: the cursor segment was deleted by cleanup (rewind to the
+	 * oldest segment), or it was wiped and recreated smaller — a full sweep
+	 * restarts ids at 0, so a durable checkpoint can sit past EOF (rewind to
+	 * the segment start instead of waiting forever for the file to grow back).
+	 * Shared by poll() and compute_lag() so reads and lag agree on position.
+	 *
+	 * @param array<int, array{id: int, size: int}> $segments Live segment list.
+	 */
+	protected function normalize_cursor( array $segments ): void {
+		$sizes = \array_column( $segments, 'size', 'id' );
+		if ( ! isset( $sizes[ $this->cursor_seg ] ) ) {
+			$this->cursor_seg = $segments[0]['id'];
+			$this->cursor_off = 0;
+			$this->buffer     = '';
+		} elseif ( $sizes[ $this->cursor_seg ] < $this->cursor_off + \strlen( $this->buffer ) ) {
+			$this->cursor_off = 0;
+			$this->buffer     = '';
+		}
 	}
 
 	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */
@@ -245,6 +321,117 @@ class Consumer_Node extends Timer_Node {
 		}
 		$this->poll_cb = $this->poll_active( ... );
 		( $this->poll_cb )();
+	}
+
+	/**
+	 * Seed the cursor from the newest offsetlog entry and stash any co-committed
+	 * snapshot cache. When a durable checkpoint is found it resumes the cursor from
+	 * it — overriding any pre-poll next_offset() seek (resume wins); otherwise the
+	 * cursor is left as-is (offsetlog disabled, empty, or corrupt).
+	 */
+	protected function load_offsetlog(): void {
+		if ( null === $this->offsetlog ) {
+			return;
+		}
+		$segments = $this->offsetlog->get_segments( true );
+		if ( empty( $segments ) ) {
+			return;
+		}
+		$newest = \end( $segments );
+		$bytes  = $this->offsetlog->read_at( $newest['id'], 0, $newest['size'] );
+		$lines  = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
+		if ( empty( $lines ) ) {
+			return;
+		}
+		try {
+			$message = Message::unpacked( \end( $lines ) );
+		} catch ( \InvalidArgumentException $e ) {
+			// Unparseable entry: keep the current position rather than resuming.
+			$this->print_less_often( "WARNING: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
+			return;
+		}
+		$entry = $message[ Message::VALUE ];
+		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
+			return;
+		}
+		$seg                  = $entry['seg'];
+		$off                  = $entry['off'];
+		$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
+		$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
+		$this->checkpoint_seg = $this->cursor_seg;
+		$this->checkpoint_off = $this->cursor_off;
+		// Offset + cache come from ONE record, so the resumed cursor and the
+		// restored state are always aligned.
+		$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
+	}
+
+	/**
+	 * True if this Consumer resumed from a durable offsetlog checkpoint (seg/off
+	 * default to -1; poll_init's load_offsetlog seeds them ≥0). Only meaningful
+	 * after the first poll — construction does no I/O. To pick a first-spawn start
+	 * position, call next_offset() at build; poll_init resumes from the checkpoint
+	 * when one exists (overriding that seek) and keeps it otherwise.
+	 */
+	public function has_checkpoint(): bool {
+		return -1 !== $this->checkpoint_seg || -1 !== $this->checkpoint_off;
+	}
+
+	/**
+	 * Seam (Tail overrides → 'end'): first-spawn cursor when there's no durable
+	 * checkpoint AND no explicit next_offset(). null = leave at the constructed
+	 * default (0:0 = start), which is Consumer's behavior.
+	 */
+	protected function default_offset(): ?string {
+		return null;
+	}
+
+	/**
+	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
+	 *
+	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
+	 */
+	public function next_offset( $position ): void {
+		$this->offset_set = true;
+		$this->buffer     = '';
+		$this->at_eof     = false;
+
+		if ( \is_array( $position ) ) {
+			$seg              = $position['seg'] ?? 0;
+			$off              = $position['off'] ?? 0;
+			$this->cursor_seg = \is_numeric( $seg ) ? (int) $seg : 0;
+			$this->cursor_off = \max( 0, \is_numeric( $off ) ? (int) $off : 0 );
+			return;
+		}
+
+		$segments = $this->source()->get_segments( true );
+
+		switch ( $position ) {
+			case 'end':
+				if ( ! empty( $segments ) ) {
+					$newest           = \end( $segments );
+					$this->cursor_seg = $newest['id'];
+					$this->cursor_off = $newest['size'];
+				}
+				break;
+
+			case 'recent':
+				if ( ! empty( $segments ) ) {
+					$count = \count( $segments );
+					if ( $count >= 2 ) {
+						$this->cursor_seg = $segments[ $count - 2 ]['id'];
+					} else {
+						$this->cursor_seg = $segments[0]['id'];
+					}
+					$this->cursor_off = 0;
+				}
+				break;
+
+			case 'start':
+			default:
+				$this->cursor_seg = 0;
+				$this->cursor_off = 0;
+				break;
+		}
 	}
 
 	/**
@@ -397,11 +584,6 @@ class Consumer_Node extends Timer_Node {
 		$this->at_eof    = $disk_caught_up && ! $this->buffer_has_line();
 	}
 
-	/** True when $buffer holds at least one complete (newline-terminated) line still to drain. */
-	private function buffer_has_line(): bool {
-		return false !== \strpos( $this->buffer, "\n" );
-	}
-
 	/**
 	 * Smallest live segment id greater than $after, or null when $after is the newest.
 	 *
@@ -417,210 +599,9 @@ class Consumer_Node extends Timer_Node {
 		return $next;
 	}
 
-	/**
-	 * Clamp the cursor against the live (non-empty) segment list.
-	 *
-	 * Two recoveries: the cursor segment was deleted by cleanup (rewind to the
-	 * oldest segment), or it was wiped and recreated smaller — a full sweep
-	 * restarts ids at 0, so a durable checkpoint can sit past EOF (rewind to
-	 * the segment start instead of waiting forever for the file to grow back).
-	 * Shared by poll() and compute_lag() so reads and lag agree on position.
-	 *
-	 * @param array<int, array{id: int, size: int}> $segments Live segment list.
-	 */
-	protected function normalize_cursor( array $segments ): void {
-		$sizes = \array_column( $segments, 'size', 'id' );
-		if ( ! isset( $sizes[ $this->cursor_seg ] ) ) {
-			$this->cursor_seg = $segments[0]['id'];
-			$this->cursor_off = 0;
-			$this->buffer     = '';
-		} elseif ( $sizes[ $this->cursor_seg ] < $this->cursor_off + \strlen( $this->buffer ) ) {
-			$this->cursor_off = 0;
-			$this->buffer     = '';
-		}
-	}
-
-	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
-	private function source(): Partition_Node {
-		if ( null === $this->source ) {
-			throw new \RuntimeException( 'Consumer source partition not initialized; call arguments() first' );
-		}
-		return $this->source;
-	}
-
-	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
-	public function set_stamp_as( string $stamp ): void {
-		$this->stamp_override = $stamp;
-	}
-
-	/**
-	 * Seed the cursor from the newest offsetlog entry and stash any co-committed
-	 * snapshot cache. When a durable checkpoint is found it resumes the cursor from
-	 * it — overriding any pre-poll next_offset() seek (resume wins); otherwise the
-	 * cursor is left as-is (offsetlog disabled, empty, or corrupt).
-	 */
-	protected function load_offsetlog(): void {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		$segments = $this->offsetlog->get_segments( true );
-		if ( empty( $segments ) ) {
-			return;
-		}
-		$newest = \end( $segments );
-		$bytes  = $this->offsetlog->read_at( $newest['id'], 0, $newest['size'] );
-		$lines  = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-		if ( empty( $lines ) ) {
-			return;
-		}
-		try {
-			$message = Message::unpacked( \end( $lines ) );
-		} catch ( \InvalidArgumentException $e ) {
-			// Unparseable entry: keep the current position rather than resuming.
-			$this->print_less_often( "WARNING: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
-			return;
-		}
-		$entry = $message[ Message::VALUE ];
-		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
-			return;
-		}
-		$seg                  = $entry['seg'];
-		$off                  = $entry['off'];
-		$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
-		$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
-		$this->checkpoint_seg = $this->cursor_seg;
-		$this->checkpoint_off = $this->cursor_off;
-		// Offset + cache come from ONE record, so the resumed cursor and the
-		// restored state are always aligned.
-		$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
-	}
-
-	/**
-	 * Name the node whose state is snapshotted into the offsetlog alongside the
-	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot). On checkpoint the
-	 * named node's save_state() rides in the committed record; the first poll
-	 * (poll_init) restores it into the by-then-built node. Recording the name is
-	 * all this does — the restore is deferred so topology declaration order can't
-	 * forward-reference a node that doesn't exist yet. Lifts the offsetlog's
-	 * PIPE_BUF cap (void_warranty): the worker holding the topology lock is the
-	 * offsetlog's sole writer, so no per-write lock is needed.
-	 */
-	public function set_snapshot_node( string $name ): void {
-		$this->snapshot_node = $name;
-		$this->offsetlog?->void_warranty();
-	}
-
-	public function set_line_mode( bool $flag ): void {
-		$this->line_mode = $flag;
-	}
-
-	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
-	protected function make_source(): Partition_Node {
-		return new Partition_Node();
-	}
-
-	/**
-	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
-	 * Consumer's schema args are source_dir + offsetlog_base_dir.
-	 *
-	 * @return array{0:string,1:string}
-	 */
-	protected function resolve_args(): array {
-		return [ $this->source_dir, $this->offsetlog_base_dir ];
-	}
-
-	/**
-	 * Seam (Tail overrides → 'end'): first-spawn cursor when there's no durable
-	 * checkpoint AND no explicit next_offset(). null = leave at the constructed
-	 * default (0:0 = start), which is Consumer's behavior.
-	 */
-	protected function default_offset(): ?string {
-		return null;
-	}
-
-	/**
-	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
-	 *
-	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
-	 */
-	public function next_offset( $position ): void {
-		$this->offset_set = true;
-		$this->buffer     = '';
-		$this->at_eof     = false;
-
-		if ( \is_array( $position ) ) {
-			$seg              = $position['seg'] ?? 0;
-			$off              = $position['off'] ?? 0;
-			$this->cursor_seg = \is_numeric( $seg ) ? (int) $seg : 0;
-			$this->cursor_off = \max( 0, \is_numeric( $off ) ? (int) $off : 0 );
-			return;
-		}
-
-		$segments = $this->source()->get_segments( true );
-
-		switch ( $position ) {
-			case 'end':
-				if ( ! empty( $segments ) ) {
-					$newest           = \end( $segments );
-					$this->cursor_seg = $newest['id'];
-					$this->cursor_off = $newest['size'];
-				}
-				break;
-
-			case 'recent':
-				if ( ! empty( $segments ) ) {
-					$count = \count( $segments );
-					if ( $count >= 2 ) {
-						$this->cursor_seg = $segments[ $count - 2 ]['id'];
-					} else {
-						$this->cursor_seg = $segments[0]['id'];
-					}
-					$this->cursor_off = 0;
-				}
-				break;
-
-			case 'start':
-			default:
-				$this->cursor_seg = 0;
-				$this->cursor_off = 0;
-				break;
-		}
-	}
-
-	/**
-	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
-	 *
-	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
-	 *
-	 * @return array<int,array{name:string,class:string}>
-	 */
-	private function resolve_downstream_targets(): array {
-		if ( ! \is_string( $this->target ) || '' === $this->target ) {
-			return [];
-		}
-		$node = Core::node( $this->target );
-		if ( null === $node ) {
-			// Not yet registered or removed; surface the name without a class.
-			return [ [ 'name' => $this->target, 'class' => '' ] ];
-		}
-		$class = Command_Interpreter_Node::shell_name_for( $node );
-		if ( 'Tee' !== $class ) {
-			return [ [ 'name' => $this->target, 'class' => $class ] ];
-		}
-		$tee_targets = $node->target;
-		if ( ! \is_array( $tee_targets ) ) {
-			return [ [ 'name' => $this->target, 'class' => 'Tee' ] ];
-		}
-		$out = [];
-		foreach ( $tee_targets as $t ) {
-			if ( '' === $t ) {
-				continue;
-			}
-			$tn = Core::node( $t );
-			$tc = null === $tn ? '' : Command_Interpreter_Node::shell_name_for( $tn );
-			$out[] = [ 'name' => $t, 'class' => $tc ];
-		}
-		return $out;
+	/** True when $buffer holds at least one complete (newline-terminated) line still to drain. */
+	private function buffer_has_line(): bool {
+		return false !== \strpos( $this->buffer, "\n" );
 	}
 
 	public function checkpoint(): void {
@@ -672,20 +653,84 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * True if this Consumer resumed from a durable offsetlog checkpoint (seg/off
-	 * default to -1; poll_init's load_offsetlog seeds them ≥0). Only meaningful
-	 * after the first poll — construction does no I/O. To pick a first-spawn start
-	 * position, call next_offset() at build; poll_init resumes from the checkpoint
-	 * when one exists (overriding that seek) and keeps it otherwise.
+	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
+	 *
+	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
+	 *
+	 * @return array<int,array{name:string,class:string}>
 	 */
-	public function has_checkpoint(): bool {
-		return -1 !== $this->checkpoint_seg || -1 !== $this->checkpoint_off;
+	private function resolve_downstream_targets(): array {
+		if ( ! \is_string( $this->target ) || '' === $this->target ) {
+			return [];
+		}
+		$node = Core::node( $this->target );
+		if ( null === $node ) {
+			// Not yet registered or removed; surface the name without a class.
+			return [ [ 'name' => $this->target, 'class' => '' ] ];
+		}
+		$class = Command_Interpreter_Node::shell_name_for( $node );
+		if ( 'Tee' !== $class ) {
+			return [ [ 'name' => $this->target, 'class' => $class ] ];
+		}
+		$tee_targets = $node->target;
+		if ( ! \is_array( $tee_targets ) ) {
+			return [ [ 'name' => $this->target, 'class' => 'Tee' ] ];
+		}
+		$out = [];
+		foreach ( $tee_targets as $t ) {
+			if ( '' === $t ) {
+				continue;
+			}
+			$tn = Core::node( $t );
+			$tc = null === $tn ? '' : Command_Interpreter_Node::shell_name_for( $tn );
+			$out[] = [ 'name' => $t, 'class' => $tc ];
+		}
+		return $out;
 	}
 
 	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
 	private static function worker_type_env(): string {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
+	}
+
+	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
+	public function set_stamp_as( string $stamp ): void {
+		$this->stamp_override = $stamp;
+	}
+
+	/**
+	 * Name the node whose state is snapshotted into the offsetlog alongside the
+	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot). On checkpoint the
+	 * named node's save_state() rides in the committed record; the first poll
+	 * (poll_init) restores it into the by-then-built node. Recording the name is
+	 * all this does — the restore is deferred so topology declaration order can't
+	 * forward-reference a node that doesn't exist yet. Lifts the offsetlog's
+	 * PIPE_BUF cap (void_warranty): the worker holding the topology lock is the
+	 * offsetlog's sole writer, so no per-write lock is needed.
+	 */
+	public function set_snapshot_node( string $name ): void {
+		$this->snapshot_node = $name;
+		$this->offsetlog?->void_warranty();
+	}
+
+	public function set_line_mode( bool $flag ): void {
+		$this->line_mode = $flag;
+	}
+
+	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
+	protected function make_source(): Partition_Node {
+		return new Partition_Node();
+	}
+
+	/**
+	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
+	 * Consumer's schema args are source_dir + offsetlog_base_dir.
+	 *
+	 * @return array{0:string,1:string}
+	 */
+	protected function resolve_args(): array {
+		return [ $this->source_dir, $this->offsetlog_base_dir ];
 	}
 
 	/**
@@ -712,51 +757,6 @@ class Consumer_Node extends Timer_Node {
 		$record[ Probe_Record::MSGS ]       = $this->counter;
 		$record[ Probe_Record::END_BYTES ]  = $lag['end_bytes'];
 		return $record;
-	}
-
-	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int, end_bytes: int} */
-	private function compute_lag(): array {
-		\clearstatcache( true, $this->source()->partition_dir() );
-		$segments = $this->source()->get_segments( true );
-		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
-		}
-		// Recover a deleted/recreated cursor segment first so lag reflects the
-		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
-		$this->normalize_cursor( $segments );
-		$bytes_behind     = 0;
-		$segments_behind  = 0;
-		$end_bytes        = 0;
-		foreach ( $segments as $s ) {
-			$id   = $s['id'];
-			$size = $s['size'];
-			// Absolute partition byte position (Σ all live segment sizes) — the
-			// browser derives the byte THROUGHPUT from its delta (Δ end_bytes/Δt),
-			// the only way it can: the lean record carries no per-segment sizes.
-			$end_bytes += $size;
-			if ( $id < $this->cursor_seg ) {
-				continue;
-			}
-			if ( $id === $this->cursor_seg ) {
-				$bytes_behind += \max( 0, $size - $this->cursor_off );
-			} else {
-				$bytes_behind += $size;
-				++$segments_behind;
-			}
-		}
-		// Count buffered (already-read) bytes as consumed so lag reflects bytes-still-to-emit.
-		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
-		// Partition END (newest segment + its size) captured in the SAME read as
-		// the cursor — the topologies tab trims its live segment list back to here.
-		$last = \end( $segments );
-		return [
-			'bytes_behind'    => $bytes_behind,
-			'segments_behind' => $segments_behind,
-			'caught_up'       => 0 === $bytes_behind,
-			'end_seg'         => $last['id'],
-			'end_size'        => $last['size'],
-			'end_bytes'       => $end_bytes,
-		];
 	}
 
 	protected function check_name_availability( string $name ): void {
