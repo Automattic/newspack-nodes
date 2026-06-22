@@ -494,15 +494,18 @@ export default function VaultAdmin() {
 					<p>{ error }</p>
 				</div>
 			) }
-			<p>
+			<div className="nodes-vault__header">
+				<h1 className="newspack-dashboard-title">
+					{ __( 'Vault', 'newspack-nodes' ) }
+				</h1>
 				<button
 					type="button"
-					className="button button-primary nodes-vault__add-trigger"
+					className="button nodes-vault__add-trigger"
 					onClick={ () => setIsAddOpen( true ) }
 				>
 					{ __( 'Add Server', 'newspack-nodes' ) }
 				</button>
-			</p>
+			</div>
 			<table
 				className="wp-list-table widefat fixed striped"
 				style={ { maxWidth: '800px' } }
