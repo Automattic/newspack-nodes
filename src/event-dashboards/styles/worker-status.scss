@@ -213,11 +213,13 @@
 	&.running {
 		background: var(--np-success-subtle);
 		color: var(--np-success);
+		border: 1px solid var(--np-success);
 	}
 
 	&.dead {
 		background: var(--np-error-subtle);
 		color: var(--np-error);
+		border: 1px solid var(--np-error);
 		opacity: 0.6;
 	}
 }
@@ -252,16 +254,19 @@
 	&.running {
 		background: var(--np-success-subtle);
 		color: var(--np-success);
+		border: 1px solid var(--np-success);
 	}
 
 	&.dead {
 		background: var(--np-error-subtle);
 		color: var(--np-error);
+		border: 1px solid var(--np-error);
 	}
 
 	&.idle {
 		background: var(--np-surface-muted);
 		color: var(--np-text-secondary);
+		border: 1px solid var(--np-border-strong);
 	}
 }
 
