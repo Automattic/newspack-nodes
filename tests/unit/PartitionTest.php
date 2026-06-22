@@ -2,8 +2,11 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Timer_Node;
+use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -2247,6 +2250,42 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
 		$this->assertSame( 9, $index['a.p0']['cursor_off'], 'latest record per key wins' );
 		$this->assertSame( 2, $index['b.p0']['cursor_off'] );
+	}
+
+	public function test_fill_pumps_event_framework_so_a_blocked_worker_can_stop_mid_write(): void {
+		// fill() must pump the worker heartbeat so a stuck worker can stop from inside the write.
+		Event_Framework::reset();
+		$ef = Event_Framework::instance();
+
+		$p = new Partition_Node();
+		$p->name( 'firehose-part' );
+		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$timer = new class extends Timer_Node {
+			/** @var callable */
+			public $on_fire;
+			public function fire_cb(): void {
+				( $this->on_fire )();
+			}
+		};
+		$timer->on_fire = function () use ( $p, $state ) {
+			$state->stop           = true; // worker should now stop
+			$message               = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::VALUE ] = 'line';
+			$p->fill( $message );          // fill → pump → predicate false → throw
+		};
+		$timer->set_timer( 1, true );
+
+		$this->expectException( Worker_Should_Stop::class );
+		$ef->drain(
+			function () use ( $state ): bool {
+				Core::$now = \microtime( true );
+				return ! $state->stop && ++$state->ticks < 1000;
+			},
+			cooperative_stop: true
+		);
 	}
 }
 

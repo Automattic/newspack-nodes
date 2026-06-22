@@ -125,6 +125,9 @@ class Partition_Node extends Timer_Node {
 			}
 		}
 
+		// Beat the worker heartbeat from inside a long in-process job (see pump()).
+		Event_Framework::instance()->pump();
+
 		// Size cap is on the final packed bytes (not VALUE alone) — that's what hits PIPE_BUF.
 		$record = $this->serialize_record( $message );
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;

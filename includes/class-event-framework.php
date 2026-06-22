@@ -24,8 +24,45 @@ class Event_Framework {
 	/** True while inside `drain()`; lets callers detect "am I inside a worker event loop?" (false in web-request contexts). */
 	private bool $draining = false;
 
+	/** The drain's continue-predicate, parked for pump() to re-run from inside a long job. Null outside a drain. */
+	private ?\Closure $continue_predicate = null;
+
+	/** Monotonic throttle for pump(): per-write callers hit it many times/sec; the liveness check runs at most this often. */
+	private const PUMP_INTERVAL_S = 1.0;
+	private float $last_pump = 0.0;
+
 	public function is_running(): bool {
 		return $this->draining;
+	}
+
+	/**
+	 * Re-run the worker drain's continue-predicate from inside a long in-process
+	 * job (called on the firehose write path) so the worker lock keeps beating
+	 * and a max_runtime / restart / memory stop is honored even while the job is
+	 * starving the drain loop. No-op unless a cooperative-stop drain is active
+	 * (so web requests + cli/SSE drains never throw); throttled so per-line
+	 * writes don't re-run the check every time.
+	 *
+	 * Throttle reads the wall clock directly, not Core::$now — that clock is
+	 * frozen for the whole blocking job, so it can't gate this.
+	 *
+	 * A Worker_Should_Stop raised here is swallowed by an intervening Tee /
+	 * Command_Interpreter catch(\Throwable), so the mid-job stop is guaranteed
+	 * only on the direct Log_Manager->Topic->Partition firehose path; elsewhere
+	 * the worker still stops at the next drain tick.
+	 */
+	public function pump(): void {
+		if ( null === $this->continue_predicate ) {
+			return;
+		}
+		$now = \microtime( true );
+		if ( $now - $this->last_pump < self::PUMP_INTERVAL_S ) {
+			return;
+		}
+		$this->last_pump = $now;
+		if ( ! ( $this->continue_predicate )() ) {
+			throw new Worker_Should_Stop();
+		}
 	}
 
 	private function __construct() {}
@@ -109,13 +146,31 @@ class Event_Framework {
 		return \max( 0, $soonest );
 	}
 
-	public function drain( callable $should_continue ): void {
-		$has_pcntl       = \function_exists( 'pcntl_signal_dispatch' );
-		$this->draining  = true;
+	/**
+	 * @param callable $should_continue Loop predicate; false ends the loop.
+	 * @param bool     $cooperative_stop When true, $should_continue carries
+	 *   worker-stop semantics: pump() may re-run it from inside a long job and
+	 *   raise Worker_Should_Stop. Only Worker_Base opts in — cli / SSE drains
+	 *   pass a generic "this loop is done" predicate and must NOT have it thrown.
+	 *   Save/restore (not null) keeps a nested drain from disabling an outer
+	 *   worker's pump seam.
+	 */
+	public function drain( callable $should_continue, bool $cooperative_stop = false ): void {
+		$has_pcntl      = \function_exists( 'pcntl_signal_dispatch' );
+		$prev_draining  = $this->draining;
+		$prev_predicate = $this->continue_predicate;
+		$prev_last_pump = $this->last_pump;
+		$this->draining = true;
+		if ( $cooperative_stop ) {
+			$this->continue_predicate = \Closure::fromCallable( $should_continue );
+			$this->last_pump          = 0.0;
+		}
 		try {
 			$this->drain_inner( $should_continue, $has_pcntl );
 		} finally {
-			$this->draining = false;
+			$this->draining           = $prev_draining;
+			$this->continue_predicate = $prev_predicate;
+			$this->last_pump          = $prev_last_pump;
 		}
 	}
 

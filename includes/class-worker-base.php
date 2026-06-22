@@ -98,7 +98,10 @@ class Worker_Base {
 
 			$ef = Event_Framework::instance();
 			$ef->install_signal_handlers();
-			$ef->drain( fn() => $this->should_continue() );
+			$ef->drain( fn() => $this->should_continue(), cooperative_stop: true );
+		} catch ( Worker_Should_Stop $e ) {
+			// pump() said stop from inside a job; normal exit — finally releases + respawns.
+			Core::stderr( "{$this->worker_type}.p{$this->partition}: stopped mid-job (pump)" );
 		} finally {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
