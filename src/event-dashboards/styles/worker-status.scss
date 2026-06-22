@@ -211,14 +211,14 @@
 	font-size: 9px;
 
 	&.running {
-		background: base.$success-bg;
-		color: base.$white;
+		background: var(--np-success-subtle);
+		color: var(--np-success);
 	}
 
 	&.dead {
-		background: base.$dead-bg;
-		color: base.$white;
-		opacity: 0.5;
+		background: var(--np-error-subtle);
+		color: var(--np-error);
+		opacity: 0.6;
 	}
 }
 
@@ -250,18 +250,18 @@
 	text-transform: uppercase;
 
 	&.running {
-		background: base.$success-bg;
-		color: base.$white;
+		background: var(--np-success-subtle);
+		color: var(--np-success);
 	}
 
 	&.dead {
-		background: base.$dead-bg;
-		color: base.$white;
+		background: var(--np-error-subtle);
+		color: var(--np-error);
 	}
 
 	&.idle {
-		background: base.$idle-bg;
-		color: base.$white;
+		background: var(--np-surface-muted);
+		color: var(--np-text-secondary);
 	}
 }
 
@@ -319,7 +319,7 @@
 
 .segment-bar-h {
 	width: 100%;
-	height: 32px;
+	height: 22px;
 	background: base.$dark-bg-deepest;
 	border-radius: 3px;
 	overflow: hidden;
@@ -351,7 +351,9 @@
 	}
 
 	&.processed {
-		background: base.$success-bg; // Green - processed
+		// Softened green (lighter than solid Cobalt-success) so the wide bars
+		// don't dominate the light dashboard.
+		background: color-mix(in srgb, var(--np-success) 68%, white); // processed
 	}
 
 	&.pending {
@@ -359,8 +361,9 @@
 	}
 
 	&.beyond {
-		// Mid-gray (not #ccc) so it reads against the light segment track.
-		background: var(--np-text-secondary); // Live on disk, past the recorded probe end
+		// Soft light-mid gray — reads against the light track without the
+		// heavy near-black weight of the secondary-text grey.
+		background: color-mix(in srgb, var(--np-text-secondary) 45%, white); // live on disk, past the recorded probe end
 	}
 }
 
