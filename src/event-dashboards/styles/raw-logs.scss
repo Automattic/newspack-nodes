@@ -1,7 +1,10 @@
 /**
  * Raw Logs Styles
  *
- * Dark theme styling for the raw log viewer.
+ * Light Newspack toolbar/chrome above a DARK log pane — the log content stays
+ * dark (terminal convention, parity with the console's Newspack REPL, and the
+ * canvas renderer draws light text tuned for a dark surface). Pane surfaces use
+ * the shared $term-* tokens; the toolbar uses the light chrome tokens.
  */
 
 @use "base";
@@ -30,7 +33,7 @@
 		margin: 0;
 		font-size: 14px;
 		font-weight: 600;
-		color: base.$white;
+		color: base.$dark-text;
 	}
 }
 
@@ -47,7 +50,7 @@ select.newspack-nodes-raw-logs-select {
 	appearance: none;
 	background: base.$dark-bg-tertiary;
 	border: 1px solid base.$dark-border;
-	color: base.$white;
+	color: base.$dark-text;
 	padding: 0 8px;
 	border-radius: base.$border-radius;
 	font-size: 12px;
@@ -57,18 +60,18 @@ select.newspack-nodes-raw-logs-select {
 
 	&:hover {
 		background: base.$dark-bg-hover;
-		color: base.$white;
+		color: base.$dark-text;
 	}
 
 	&:focus {
 		outline: none;
 		border-color: base.$dark-accent;
-		color: base.$white;
+		color: base.$dark-text;
 	}
 
 	option {
 		background: base.$dark-bg;
-		color: base.$white;
+		color: base.$dark-text;
 	}
 }
 
@@ -105,7 +108,8 @@ input.newspack-nodes-raw-logs-search {
 	&.paused {
 		background: base.$warning-color;
 		border-color: base.$warning-color;
-		color: base.$dark-bg;
+		// Dark ink on amber — warning is a mid-tone, weak under white text.
+		color: base.$dark-text;
 	}
 
 	&:disabled {
@@ -118,12 +122,14 @@ input.newspack-nodes-raw-logs-search {
 	@include base.dark-error-banner;
 }
 
-// Canvas-based rendering container.
+// Canvas-based rendering container — the DARK log pane.
 .newspack-nodes-raw-logs-canvas-container {
 	flex: 1;
 	position: relative;
 	overflow: hidden;
 	border-radius: base.$border-radius;
+	background: base.$term-bg;
+	border: 1px solid base.$term-border;
 }
 
 .newspack-nodes-raw-logs-canvas {
@@ -152,16 +158,16 @@ input.newspack-nodes-raw-logs-search {
 	}
 
 	&::-webkit-scrollbar-track {
-		background: base.$dark-bg;
+		background: base.$term-bg;
 		border-radius: 4px;
 	}
 
 	&::-webkit-scrollbar-thumb {
-		background: base.$dark-border;
+		background: base.$term-border;
 		border-radius: 4px;
 
 		&:hover {
-			background: base.$dark-bg-active;
+			background: base.$term-text-dim;
 		}
 	}
 }
@@ -171,7 +177,7 @@ input.newspack-nodes-raw-logs-search {
 	align-items: center;
 	justify-content: center;
 	height: 100%;
-	color: base.$dark-text-dim;
+	color: base.$term-text-dim;
 	font-size: 14px;
 	font-style: italic;
 }
@@ -183,6 +189,7 @@ input.newspack-nodes-raw-logs-search {
 	font-size: 12px;
 	line-height: 1.5;
 	white-space: pre;
+	color: base.$term-text;
 }
 
 // Single div per line, partition via ::before pseudo-element.
@@ -193,15 +200,15 @@ input.newspack-nodes-raw-logs-search {
 	white-space: pre;
 
 	&.row-odd {
-		background: base.$dark-bg-secondary;
+		background: base.$term-bg;
 	}
 
 	&.row-even {
-		background: base.$dark-bg-row-even;
+		background: base.$term-bg-alt;
 	}
 
 	&:hover {
-		background: base.$dark-bg-row-hover;
+		background: #30363d;
 	}
 
 	// Partition number from data attribute.
@@ -212,10 +219,10 @@ input.newspack-nodes-raw-logs-search {
 		width: 32px;
 		padding-right: 8px;
 		text-align: right;
-		color: base.$dark-text-dim;
+		color: base.$term-text-dim;
 		font-size: 10px;
 		user-select: none;
-		border-right: 1px solid base.$dark-border;
+		border-right: 1px solid base.$term-border;
 		box-sizing: border-box;
 	}
 }

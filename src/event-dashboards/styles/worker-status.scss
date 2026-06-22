@@ -106,7 +106,7 @@
 .connector-name {
 	font-weight: 600;
 	font-size: 13px;
-	color: base.$white;
+	color: base.$dark-text;
 	min-width: 150px;
 }
 
@@ -138,7 +138,7 @@
 	min-width: 20px;
 
 	&.stale {
-		color: #ffa726;
+		color: base.$warning-color;
 	}
 }
 
@@ -359,7 +359,8 @@
 	}
 
 	&.beyond {
-		background: base.$dark-bg-active; // Muted gray - live on disk, past the recorded probe end
+		// Mid-gray (not #ccc) so it reads against the light segment track.
+		background: var(--np-text-secondary); // Live on disk, past the recorded probe end
 	}
 }
 
@@ -386,7 +387,7 @@
 .supervisor-name {
 	font-weight: 600;
 	font-size: 13px;
-	color: base.$white;
+	color: base.$dark-text;
 	min-width: 150px;
 	font-family: base.$mono-font;
 }
@@ -420,7 +421,7 @@
 
 // Per-topology foldable section + node/log tree
 .topology-section {
-	border: 1px solid #2a2e35;
+	border: 1px solid base.$dark-border;
 	border-radius: 9px;
 	margin-bottom: 14px;
 	overflow: hidden;
@@ -451,7 +452,7 @@
 .tree-kids {
 	margin-left: 11px;
 	padding-left: 14px;
-	border-left: 1px solid #2a2e35;
+	border-left: 1px solid base.$dark-border;
 }
 
 .caret {
@@ -459,7 +460,7 @@
 	width: 12px;
 	cursor: pointer;
 	font-size: 10px;
-	color: #8a8f98;
+	color: base.$dark-text-muted;
 	user-select: none;
 	transition: transform 0.1s;
 }

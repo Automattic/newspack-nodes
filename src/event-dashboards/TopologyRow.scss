@@ -177,19 +177,21 @@
 		text-transform: uppercase;
 		white-space: nowrap;
 
+		// Light Newspack provenance chips — Cobalt (stock), neutral (user),
+		// amber (user shadows stock).
 		&--stock {
-			background: #2a313b;
-			color: #9bb4d4;
+			background: var(--np-primary-subtle);
+			color: var(--np-primary);
 		}
 
 		&--user {
-			background: #2d2a3b;
-			color: #b79bd4;
+			background: var(--np-surface-muted);
+			color: var(--np-text-secondary);
 		}
 
 		&--both {
-			background: #3b352a;
-			color: #d4bf9b;
+			background: var(--np-warning-subtle);
+			color: var(--np-warning);
 		}
 	}
 
@@ -215,15 +217,15 @@
 		}
 
 		&--ok {
-			color: #3fb950;
+			color: var(--np-success);
 		}
 
 		&--behind {
-			color: #d29922;
+			color: var(--np-warning);
 		}
 
 		&--stalled {
-			color: #f85149;
+			color: var(--np-error);
 		}
 	}
 
@@ -234,7 +236,7 @@
 		padding: 4px 9px;
 		border-radius: 6px;
 		background: base.$dark-bg-tertiary;
-		color: #d29922;
+		color: var(--np-warning);
 		border: 1px solid base.$dark-border;
 		cursor: pointer;
 		transition: background 0.15s;

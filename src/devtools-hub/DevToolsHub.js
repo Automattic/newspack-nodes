@@ -29,7 +29,7 @@ export default function DevToolsHub() {
 
 	return (
 		<div
-			className="nodes-devtools-hub"
+			className="nodes-devtools-hub newspack-nodes-theme"
 			style={ {
 				position: 'fixed',
 				top: '32px',

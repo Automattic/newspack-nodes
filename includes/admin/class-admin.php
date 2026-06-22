@@ -86,6 +86,11 @@ class Admin {
 		\add_action( 'admin_menu', [ $this, 'register_event_dashboard_pages' ], 11 );
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
+		// Register the canonical Newspack token stylesheet early (priority 1) so it
+		// exists before any dashboard enqueues with it as a dependency — including
+		// the sibling plugins' (event-logger-nodes, pyrobase), which run on the same
+		// admin pages while nodes is active (a hard `Requires Plugins` dep).
+		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
@@ -188,7 +193,11 @@ class Admin {
 		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
 
 		if ( \file_exists( "{$dir}/index.css" ) ) {
-			\wp_enqueue_style( $handle, "{$url}/index.css", $args['style_deps'] ?? [ 'wp-components' ], $version );
+			// Default every dashboard onto the Newspack token sheet so its
+			// var(--np-*) references resolve (the `.newspack-nodes-theme` root
+			// class carries the tokens; this loads their definitions).
+			$style_deps = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-theme' ];
+			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $version );
 			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
 				\wp_style_add_data( $handle, 'rtl', 'replace' );
 			}
@@ -206,6 +215,34 @@ class Admin {
 		\wp_localize_script( $handle, 'NewspackNodesData', $localized );
 
 		return $handle;
+	}
+
+	/**
+	 * Register the canonical Newspack theme stylesheet — the `newspack-nodes-theme`
+	 * handle that ships the `--np-*` design tokens. Dashboards (this plugin's and
+	 * the sibling plugins') enqueue it as a style dependency and carry the
+	 * `.newspack-nodes-theme` root class, then reference `var(--np-*)`. Idempotent
+	 * so the multiple consumers registering it (each plugin defensively) collapse
+	 * to one registration.
+	 */
+	public function register_theme_style(): void {
+		if (
+			! \function_exists( 'wp_register_style' )
+			|| \wp_style_is( 'newspack-nodes-theme', 'registered' )
+		) {
+			return;
+		}
+		$dir = \NEWSPACK_NODES_DIR . 'build/theme';
+		$url = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/theme';
+		$css = "{$dir}/index.css";
+		if ( ! \file_exists( $css ) ) {
+			return;
+		}
+		$version = (string) ( \filemtime( $css ) ?: \NEWSPACK_NODES_VERSION );
+		\wp_register_style( 'newspack-nodes-theme', "{$url}/index.css", [], $version );
+		if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
+			\wp_style_add_data( 'newspack-nodes-theme', 'rtl', 'replace' );
+		}
 	}
 
 	/**
