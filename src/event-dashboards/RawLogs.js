@@ -407,7 +407,9 @@ export default function RawLogs() {
 			aria-label={ __( 'Raw logs', 'newspack-nodes' ) }
 		>
 			<div className="newspack-nodes-raw-logs-header">
-				<h3>{ __( 'Raw Logs', 'newspack-nodes' ) }</h3>
+				<h3 className="newspack-dashboard-title">
+					{ __( 'Raw Logs', 'newspack-nodes' ) }
+				</h3>
 				<div className="newspack-nodes-raw-logs-controls">
 					{ availableLogs.length === 0 && (
 						<span className="newspack-nodes-raw-logs-status">
