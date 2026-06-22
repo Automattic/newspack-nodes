@@ -7,20 +7,11 @@ import {
 import {
 	DEFAULT_THEME,
 	isValidTheme,
+	getStoredTheme,
 	THEME_STORAGE_KEY,
 	INSPECTOR_COLLAPSED_STORAGE_KEY,
 } from '../themes';
 import withViewTransition from '../withViewTransition';
-
-// Read the persisted skin; unknown/absent/disabled storage falls back to default.
-function readStoredTheme() {
-	try {
-		const slug = window.localStorage.getItem( THEME_STORAGE_KEY );
-		return isValidTheme( slug ) ? slug : DEFAULT_THEME;
-	} catch ( _err ) {
-		return DEFAULT_THEME;
-	}
-}
 
 // Stored '0' = open, '1' = collapsed; absent/disabled storage uses the default.
 function readStoredPaletteCollapsed( key, def ) {
@@ -70,7 +61,7 @@ function usePersistedCollapse( key, def ) {
  * @return {{ theme: string, onThemeChange: Function, paletteCollapsed: boolean, togglePaletteCollapsed: Function, inspectorCollapsed: boolean, toggleInspectorCollapsed: Function }} Theme + palette + inspector chrome.
  */
 export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
-	const [ theme, setTheme ] = useState( readStoredTheme );
+	const [ theme, setTheme ] = useState( getStoredTheme );
 	const onThemeChange = useCallback( ( slug ) => {
 		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
 		// Crossfade the skin swap; flushSync commits the new theme class

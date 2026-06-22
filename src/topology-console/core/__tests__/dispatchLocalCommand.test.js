@@ -166,3 +166,71 @@ describe( 'dispatchLocalCommand', () => {
 		expect( clear ).not.toHaveBeenCalled();
 	} );
 } );
+
+describe( 'dispatchLocalCommand — skin builtins', () => {
+	const SKINS = [
+		{ slug: 'newspack', label: 'Newspack' },
+		{ slug: 'crt', label: 'CRT Phosphor Terminal' },
+	];
+
+	it( 'list_skins: appends one recv line per skin and marks the current', () => {
+		const { append, clear, debugLevelRef } = make();
+		const setSkin = jest.fn();
+		const handled = dispatchLocalCommand( {
+			parsed: { kind: 'local', name: 'list_skins' },
+			append,
+			clear,
+			debugLevelRef,
+			setSkin,
+			skins: SKINS,
+			currentSkin: 'crt',
+		} );
+		expect( handled ).toBe( true );
+		expect( append ).toHaveBeenCalledTimes( 2 );
+		const crtLine = append.mock.calls.find( ( [ e ] ) =>
+			e.text.includes( 'crt' )
+		)[ 0 ];
+		expect( crtLine.text.trim().startsWith( '*' ) ).toBe( true );
+		expect( setSkin ).not.toHaveBeenCalled();
+	} );
+
+	it( 'set_skin known: resolves the slug, applies it, confirms with the label', () => {
+		const { append, clear, debugLevelRef } = make();
+		const setSkin = jest.fn();
+		const handled = dispatchLocalCommand( {
+			parsed: { kind: 'local', name: 'set_skin', skin: 'CRT Phosphor' },
+			append,
+			clear,
+			debugLevelRef,
+			setSkin,
+			skins: SKINS,
+			currentSkin: 'newspack',
+		} );
+		expect( handled ).toBe( true );
+		expect( setSkin ).toHaveBeenCalledWith( 'crt' );
+		expect( append ).toHaveBeenCalledWith( {
+			kind: 'info',
+			text: 'skin: CRT Phosphor Terminal',
+		} );
+	} );
+
+	it( 'set_skin unknown: errors without applying anything', () => {
+		const { append, clear, debugLevelRef } = make();
+		const setSkin = jest.fn();
+		const handled = dispatchLocalCommand( {
+			parsed: { kind: 'local', name: 'set_skin', skin: 'nope' },
+			append,
+			clear,
+			debugLevelRef,
+			setSkin,
+			skins: SKINS,
+			currentSkin: 'newspack',
+		} );
+		expect( handled ).toBe( true );
+		expect( setSkin ).not.toHaveBeenCalled();
+		expect( append ).toHaveBeenCalledWith( {
+			kind: 'error',
+			text: "set_skin: unknown skin 'nope' (try list_skins)",
+		} );
+	} );
+} );

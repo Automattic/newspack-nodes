@@ -67,3 +67,20 @@ const SLUGS = THEMES.map( ( t ) => t.slug );
 export function isValidTheme( slug ) {
 	return typeof slug === 'string' && SLUGS.includes( slug );
 }
+
+/**
+ * Read the persisted skin slug. The single source of truth for "which skin is
+ * live" — unknown/absent/disabled storage falls back to the default. Reading it
+ * fresh at call time (rather than threading the reactive `theme`) lets the
+ * `list_skins` builtin mark the current skin without closure staleness.
+ *
+ * @return {string} The persisted skin slug, or DEFAULT_THEME.
+ */
+export function getStoredTheme() {
+	try {
+		const slug = window.localStorage.getItem( THEME_STORAGE_KEY );
+		return isValidTheme( slug ) ? slug : DEFAULT_THEME;
+	} catch ( _err ) {
+		return DEFAULT_THEME;
+	}
+}

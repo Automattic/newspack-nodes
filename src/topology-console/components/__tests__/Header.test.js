@@ -1,8 +1,9 @@
 /**
  * Header — top bar with a single cwd "Path" selector and the view/edit
- * mode toggle. Edit-only buttons appear conditionally; the EDIT button
- * shows only when canEdit (cwd names a worker); LIVE LED pulses when
- * streamStatus === 'open'.
+ * mode toggle. The skin picker was removed (skins now switch via the
+ * undocumented `set_skin` REPL builtin). Edit-only buttons appear
+ * conditionally; the EDIT button shows only when canEdit (cwd names a
+ * worker); LIVE LED pulses when streamStatus === 'open'.
  */
 
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -16,22 +17,15 @@ const baseProps = {
 	uptime: '',
 	mode: 'view',
 	canEdit: true,
-	theme: 'current',
-	onThemeChange: () => {},
-	themes: [
-		{ slug: 'current', label: 'Current' },
-		{ slug: 'blueprint', label: 'Blueprint' },
-	],
 };
 
 describe( 'Header', () => {
-	it( 'renders the path selector and the skin picker in view mode', () => {
+	it( 'renders only the path selector in view mode (no skin picker)', () => {
 		const { container } = render( <Header { ...baseProps } /> );
 		const selects = container.querySelectorAll( 'select' );
-		expect( selects ).toHaveLength( 2 );
+		expect( selects ).toHaveLength( 1 );
 		// Path select is selected to the current cwd ('' renders as value '').
 		expect( selects[ 0 ].value ).toBe( '' );
-		expect( selects[ 1 ].value ).toBe( 'current' );
 	} );
 
 	it( 'renders each pathOption with a /-prefixed label', () => {
@@ -87,31 +81,14 @@ describe( 'Header', () => {
 		expect( onPathChange ).toHaveBeenCalledWith( '_sse/demo.p0' );
 	} );
 
-	it( 'hides the path select in edit mode but keeps the skin picker', () => {
-		const { container, getByLabelText } = render(
-			<Header { ...baseProps } mode="edit" />
-		);
-		const selects = container.querySelectorAll( 'select' );
-		expect( selects ).toHaveLength( 1 );
-		expect( getByLabelText( 'Skin' ) ).toBe( selects[ 0 ] );
+	it( 'hides the path select in edit mode (no selects at all)', () => {
+		const { container } = render( <Header { ...baseProps } mode="edit" /> );
+		expect( container.querySelectorAll( 'select' ) ).toHaveLength( 0 );
 	} );
 
-	it( 'renders the skin picker and fires onThemeChange', () => {
-		const onThemeChange = jest.fn();
-		const { getByLabelText } = render(
-			<Header { ...baseProps } onThemeChange={ onThemeChange } />
-		);
-		const skin = getByLabelText( 'Skin' );
-		expect( skin.value ).toBe( 'current' );
-		fireEvent.change( skin, { target: { value: 'blueprint' } } );
-		expect( onThemeChange ).toHaveBeenCalledWith( 'blueprint' );
-	} );
-
-	it( 'lists every supplied skin as an option', () => {
-		const { getByLabelText } = render( <Header { ...baseProps } /> );
-		expect(
-			getByLabelText( 'Skin' ).querySelectorAll( 'option' )
-		).toHaveLength( 2 );
+	it( 'renders no skin picker (skins move to the set_skin REPL builtin)', () => {
+		const { queryByLabelText } = render( <Header { ...baseProps } /> );
+		expect( queryByLabelText( 'Skin' ) ).toBeNull();
 	} );
 
 	it( 'shows NEW/OPEN/SAVE buttons in edit mode and wires them', () => {

@@ -9,6 +9,15 @@ import {
 } from '@newspack-nodes/shared/devtools/tabRegistry';
 import DebugOverlay from '../DebugOverlay';
 
+// Type a line into the overlay's real ReplFooter and submit it on Enter.
+function submitRepl( container, line ) {
+	const input = container.querySelector( '.topology-repl__input' );
+	act( () => {
+		fireEvent.change( input, { target: { value: line } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+	} );
+}
+
 describe( 'DebugOverlay', () => {
 	beforeEach( () => {
 		Core.reset();
@@ -153,7 +162,7 @@ describe( 'DebugOverlay', () => {
 		// Skip the round-trip assertion; coverage rides on the hook's own test.
 	} );
 
-	it( 'applies the selected theme class to the overlay shell', () => {
+	it( 'set_skin REPL builtin applies the selected theme class to the overlay shell', () => {
 		mountExospine();
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
@@ -163,11 +172,8 @@ describe( 'DebugOverlay', () => {
 		expect(
 			container.querySelector( '.topology-app.theme-newspack' )
 		).not.toBeNull();
-		// Theme picker is the shared Header's skin <select>.
-		const themeSelect = container.querySelector( '.topology-select--skin' );
-		expect( themeSelect ).not.toBeNull();
-		// Picking another registered theme flips the class.
-		fireEvent.change( themeSelect, { target: { value: 'blueprint' } } );
+		// set_skin via the shared REPL flips the class.
+		submitRepl( container, 'set_skin blueprint' );
 		expect(
 			container.querySelector( '.topology-app.theme-blueprint' )
 		).not.toBeNull();
@@ -250,8 +256,7 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		const themeSelect = container.querySelector( '.topology-select--skin' );
-		fireEvent.change( themeSelect, { target: { value: 'blueprint' } } );
+		submitRepl( container, 'set_skin blueprint' );
 		// THEME_STORAGE_KEY is shared with topology-console; the overlay writes it.
 		expect( window.localStorage.getItem( 'newspack-nodes:theme' ) ).toBe(
 			'blueprint'
@@ -387,21 +392,18 @@ describe( 'DebugOverlay', () => {
 		}
 	} );
 
-	it( 'onThemeChange swallows a localStorage.setItem throw (in-session only)', () => {
+	it( 'set_skin swallows a localStorage.setItem throw (in-session only)', () => {
 		mountExospine();
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		const themeSelect = container.querySelector( '.topology-select--skin' );
 		const originalSet = window.Storage.prototype.setItem;
 		window.Storage.prototype.setItem = jest.fn( () => {
 			throw new Error( 'quota' );
 		} );
 		try {
-			fireEvent.change( themeSelect, {
-				target: { value: 'blueprint' },
-			} );
+			submitRepl( container, 'set_skin blueprint' );
 			// Theme flipped despite the throw.
 			expect(
 				container.querySelector( '.topology-app.theme-blueprint' )
@@ -411,21 +413,20 @@ describe( 'DebugOverlay', () => {
 		}
 	} );
 
-	it( 'onThemeChange falls back to default when given an invalid slug', () => {
+	it( 'set_skin rejects an unknown skin name and leaves the theme unchanged', () => {
 		mountExospine();
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		const themeSelect = container.querySelector( '.topology-select--skin' );
-		// Invalid → next = DEFAULT_THEME ('newspack'); persisted key reflects it.
-		fireEvent.change( themeSelect, { target: { value: 'not-a-theme' } } );
+		// Unrecognized name → resolveSkin returns null → no skin applied.
+		submitRepl( container, 'set_skin not-a-theme' );
 		expect(
 			container.querySelector( '.topology-app.theme-newspack' )
 		).not.toBeNull();
-		expect( window.localStorage.getItem( 'newspack-nodes:theme' ) ).toBe(
-			'newspack'
-		);
+		expect(
+			window.localStorage.getItem( 'newspack-nodes:theme' )
+		).toBeNull();
 	} );
 
 	it( 'header double-click on background fires toggleMaximize (frame expands)', () => {
@@ -446,7 +447,7 @@ describe( 'DebugOverlay', () => {
 		expect( afterWidth ).not.toBe( beforeWidth );
 	} );
 
-	it( 'header double-click on a SELECT control does NOT maximize (skip path)', () => {
+	it( 'header double-click on a control (button) does NOT maximize (skip path)', () => {
 		mountExospine();
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
@@ -454,8 +455,9 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		const panel = container.querySelector( '.nodes-debug__panel' );
 		const beforeWidth = panel.style.width;
-		const themeSelect = container.querySelector( '.topology-select--skin' );
-		fireEvent.doubleClick( themeSelect );
+		// The skin <select> is gone; the skip path also covers header buttons.
+		const headerBtn = container.querySelector( '.topology-mode__btn' );
+		fireEvent.doubleClick( headerBtn );
 		// Skip branch — maximize MUST NOT fire on header-control targets.
 		expect( panel.style.width ).toBe( beforeWidth );
 	} );

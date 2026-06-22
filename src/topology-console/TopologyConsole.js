@@ -58,6 +58,7 @@ import { TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
+	getStoredTheme,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
@@ -824,9 +825,21 @@ export default function TopologyConsole() {
 				append: appendTranscript,
 				clear: clearTranscript,
 				debugLevelRef,
+				setSkin: onThemeChange,
+				skins: THEMES,
+				// Read fresh (not the reactive `theme`) so list_skins marks the
+				// live skin regardless of this callback's stale closure.
+				currentSkin: getStoredTheme(),
 			} );
 		},
-		[ shell, ssePid, appendTranscript, clearTranscript, handlePathChange ]
+		[
+			shell,
+			ssePid,
+			appendTranscript,
+			clearTranscript,
+			handlePathChange,
+			onThemeChange,
+		]
 	);
 
 	// Live-canvas poll gating (WIRING-PLAN §4/§5). The Router TIMER in
@@ -1513,9 +1526,6 @@ export default function TopologyConsole() {
 					settingsActive: settingsOpen,
 					onDelete: handleDelete,
 					canDelete: canDeleteCurrent,
-					theme,
-					onThemeChange,
-					themes: THEMES,
 				} }
 				canvasProps={ {
 					...canvasChromeProps,
