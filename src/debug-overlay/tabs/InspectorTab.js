@@ -254,7 +254,7 @@ export default function InspectorTab( {
 			data-testid="inspector-tab"
 		>
 			<div
-				className={ `topology-app theme-${ theme } is-inspector-open${
+				className={ `topology-app newspack-nodes-theme theme-${ theme } is-inspector-open${
 					inspectorCollapsed ? ' is-inspector-collapsed' : ''
 				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 			>
@@ -358,7 +358,7 @@ export default function InspectorTab( {
 				// display:contents themed host so the sibling-rendered modal
 				// inherits .topology-app's --paper/--ink tokens.
 				<div
-					className={ `topology-app theme-${ theme }` }
+					className={ `topology-app newspack-nodes-theme theme-${ theme }` }
 					style={ { display: 'contents' } }
 				>
 					<NewNodeModal

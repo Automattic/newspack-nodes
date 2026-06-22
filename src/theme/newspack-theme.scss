@@ -1,0 +1,83 @@
+/**
+ * Canonical Newspack in-product theme tokens — the SINGLE source of truth for
+ * the `--np-*` custom properties every dashboard consumes (this plugin's event
+ * dashboards, the Topology Console, event-logger-nodes, and pyrobase). Shipped
+ * as the `newspack-nodes-theme` style handle: a consumer enqueues it as a style
+ * dependency, carries `.newspack-nodes-theme` on its dashboard root, and then
+ * references `var(--np-*)` — one definition, no per-plugin SCSS sharing or build
+ * coupling (works for standalone pyrobase because nodes is a hard runtime dep).
+ *
+ * Values mirror DESIGN.product.md (Cobalt-led, Inter, light neutrals) and the
+ * Topology Console's `.theme-newspack` skin — which maps its own `--paper/--ink/
+ * --cyan/…` onto these tokens, so the console and the dashboards never drift.
+ *
+ * This file defines ONLY custom properties (no font/color/background on the
+ * class itself) so adding `.newspack-nodes-theme` to the console root can't
+ * clobber the console's own skinned base look — consumers apply the base look in
+ * their own root rule using these tokens.
+ */
+
+.newspack-nodes-theme {
+	/* Primary — Cobalt */
+	--np-primary: #003da5;
+	--np-primary-hover: #00296e;
+	--np-primary-active: #001f53;
+	--np-primary-subtle: #dfe7f4;
+	--np-on-primary: #fff;
+
+	/* Surfaces + borders (neutrals) */
+	--np-surface: #fff;
+	--np-surface-subtle: #f7f7f7;
+	--np-surface-muted: #f0f0f0;
+	--np-border: #ddd;
+	--np-border-strong: #ccc;
+
+	/* Text */
+	--np-text: #1e1e1e;
+	--np-text-secondary: #6c6c6c;
+
+	/* Functional status (signal-only — always paired with text/icon) */
+	--np-success: #007017;
+	--np-success-subtle: #edfaef;
+	--np-warning: #bd8600;
+	--np-warning-subtle: #f5e6ab;
+	--np-error: #b32d2e;
+	--np-error-subtle: #fcf0f1;
+	--np-on-status: #fff;
+
+	/* Type — Inter in product; mono reserved for log/terminal surfaces */
+	--np-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+	--np-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+	--np-text-2xs: 12px;
+	--np-text-xs: 14px;
+	--np-text-s: 16px;
+	--np-text-m: 20px;
+	--np-text-l: 24px;
+	--np-text-xl: 32px;
+	--np-lh-2xs: 16px;
+	--np-lh-xs: 20px;
+	--np-lh-s: 24px;
+	--np-lh-m: 32px;
+	--np-lh-l: 36px;
+	--np-lh-xl: 44px;
+
+	/* Shape + spacing scale */
+	--np-radius-sm: 4px;
+	--np-radius-md: 8px;
+	--np-radius-lg: 16px;
+	--np-radius-full: 9999px;
+	--np-space-xs: 4px;
+	--np-space-sm: 8px;
+	--np-space-md: 16px;
+	--np-space-lg: 24px;
+	--np-space-xl: 32px;
+
+	/* Categorical chart palette — functional colors + the brand accents
+	   DESIGN.brand sanctions for data series (the one in-product brand use). */
+	--np-chart-1: #003da5;
+	--np-chart-2: #117644;
+	--np-chart-3: #bd8600;
+	--np-chart-4: #b32d2e;
+	--np-chart-5: #2055b0;
+	--np-chart-6: #905665;
+}
