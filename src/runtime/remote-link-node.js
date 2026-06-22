@@ -176,7 +176,7 @@ export class RemoteLinkNode extends Node {
 			category: 'I/O',
 			description:
 				'Full-duplex SSE+HTTP channel: composes a SseIn, HttpOut and Heartbeat as one node.',
-			accepts_fill: true,
+			accepts_fill: false,
 			has_target: true,
 			arguments: SseInNode.nodeSchema().arguments,
 			commands: [],
