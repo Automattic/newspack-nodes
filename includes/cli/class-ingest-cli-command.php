@@ -13,10 +13,50 @@ namespace Newspack_Nodes;
 class Ingest_CLI_Command {
 
 	/**
-	 * Replay packed segment records through a Topic's fill(), re-partitioning onto disk.
+	 * Replay packed segment records back through a Topic onto disk.
 	 *
-	 * Records pinned via their original TO (`pN…`) honor that pin per Topic::fill()
-	 * semantics; everything else (the firehose case) re-partitions by KEY.
+	 * Reads each file line-by-line, unpacks every packed record, and runs it through
+	 * Topic::fill() — re-partitioning by the record's KEY (records pinned via their
+	 * original TO honor that pin) and appending to the destination segments.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <topic>
+	 * : Destination. Either a dir-template carrying a {partition}/<partition> token
+	 *   (e.g. <config:logs_dir>/firehose.p<partition>), used verbatim; or a bare log
+	 *   name (e.g. firehose), expanded to <config:logs_dir>/<name>.p<partition>.
+	 *
+	 * <file>...
+	 * : One or more packed segment files to replay.
+	 *
+	 * [--num_partitions=<n>]
+	 * : Destination partition count. Defaults to the global config num_partitions
+	 *   (or 1 for an explicit dir-template).
+	 *
+	 * [--segment_size=<bytes>]
+	 * : Destination segment size in bytes. Defaults to the Partition default.
+	 *
+	 * [--num_segments=<n>]
+	 * : Destination segment-retention count. Defaults to the Partition default.
+	 *
+	 * [--allow_large_writes]
+	 * : Lift the 4KB PIPE_BUF cap to 10MB via a held per-partition write lock.
+	 *
+	 * [--void_warranty]
+	 * : Lift the 4KB cap to 10MB with NO lock (caller asserts single-writer).
+	 *
+	 * [--dry-run]
+	 * : Sample record sizes and report whether a large-write flag is needed; write nothing.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Re-segment topicprobe.p0 down to 1 MiB segments
+	 *     wp nodes ingest '<config:logs_dir>/topicprobe.p<partition>' topicprobe.p0.old/*.log --num_partitions=1 --segment_size=1048576 --num_segments=2
+	 *
+	 *     # Dry-run a firehose replay to check for oversize records
+	 *     wp nodes ingest firehose firehose.p0.old/*.log --dry-run
+	 *
+	 * @when after_wp_load
 	 *
 	 * @param array<int, string>   $args       Positional: <topic> then one or more files.
 	 * @param array<string, mixed> $assoc_args --num_partitions / --segment_size / --num_segments / --allow_large_writes / --void_warranty / --dry-run.
