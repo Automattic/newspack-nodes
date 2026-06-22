@@ -17,7 +17,16 @@ import { HeartbeatNode } from '../heartbeat-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { Core } from '../core';
 import { mountExospine } from '../exospine';
-import { newMessage, TYPE, FROM, TO, VALUE, TM_COMMAND } from '../message';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	VALUE,
+	TM_COMMAND,
+	TM_BYTESTREAM,
+} from '../message';
 import names from '../reserved-node-names.json';
 
 class FakeEventSource {
@@ -69,6 +78,22 @@ describe( 'RemoteLinkNode', () => {
 		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
 		expect( link.httpOut ).toBe( Core.node( names.HTTP ) );
 		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
+	} );
+
+	it( 'resumePositions() exposes the SseIn last-seen offset so a reconnect resumes', () => {
+		const { link } = makeLink( 'errors' );
+		link.connect();
+		const m = newMessage();
+		m[ TYPE ] = TM_BYTESTREAM;
+		m[ FROM ] = 'errors.p0/request-builder';
+		m[ ID ] = '3:99';
+		m[ VALUE ] = 'a line';
+		FakeEventSource.last.listeners.msg[ 0 ]( {
+			data: JSON.stringify( m ),
+		} );
+		expect( link.resumePositions() ).toEqual( {
+			errors: { 0: { seg: 3, off: 99 } },
+		} );
 	} );
 
 	it( 'subscribes its SseIn to the configured topic, forwarding to the link sink/target', () => {

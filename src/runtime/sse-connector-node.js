@@ -1,7 +1,13 @@
 /* global EventSource */
 import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
-import { TYPE, TO, KEY, VALUE, TM_INFO, unpack } from './message';
+import { TYPE, FROM, TO, ID, KEY, VALUE, TM_INFO, unpack } from './message';
+
+// A record's ID is the Consumer's `seg:offset` breadcrumb; FROM carries the
+// producer path `<sub>.p<partition>/…`. Parsing both lets the client resume a
+// reconnect from exactly where it left off (no gap, no replay).
+const ID_POSITION_RE = /^(\d+):(\d+)$/;
+const FROM_PARTITION_RE = /^(.+)\.p(\d+)(?:\/|$)/;
 
 // Heartbeat-timeout watchdog. The server beats every 2s; force a fresh stream
 // only after STALE (3 missed beats) + GRACE (self-recovery observe window) of
@@ -33,6 +39,9 @@ export class SseConnectorNode extends Node {
 		// (a structured blob, NOT a positional arg); serialized into the stream
 		// URL by start(). null/empty → omit the param → the server tail-seeks.
 		this.positions = null;
+		// Last seen record position per `[sub][partition] = { seg, off }`, parsed
+		// from each frame's ID + FROM — so a reconnect resumes from the exact offset.
+		this.lastPositions = {};
 		this._es = null;
 		// Wall-clock of the last inbound frame (data row OR idle heartbeat). The
 		// connector is the only node that sees every frame, so it owns stream
@@ -143,8 +152,38 @@ export class SseConnectorNode extends Node {
 			if ( this.homeToTarget && this.target ) {
 				message[ TO ] = this.target;
 			}
+			this._trackPosition( message );
 			super.fill( message );
 		} );
+	}
+
+	// Remember a record's `{seg,off}` per sub+partition (from ID + FROM); a
+	// non-`seg:offset` ID (a command reply's correlation id) is ignored.
+	_trackPosition( message ) {
+		const idMatch = ID_POSITION_RE.exec(
+			'string' === typeof message[ ID ] ? message[ ID ] : ''
+		);
+		const fromMatch = FROM_PARTITION_RE.exec( message[ FROM ] || '' );
+		if ( ! idMatch || ! fromMatch ) {
+			return;
+		}
+		const sub = fromMatch[ 1 ];
+		( this.lastPositions[ sub ] ??= {} )[ Number( fromMatch[ 2 ] ) ] = {
+			seg: Number( idMatch[ 1 ] ),
+			off: Number( idMatch[ 2 ] ),
+		};
+	}
+
+	// A positions seed resuming each subscribed sub from its last seen offset, or
+	// null when nothing's been tracked yet (→ the caller tail-seeks).
+	resumePositions() {
+		const seed = {};
+		for ( const sub of this.subscribe ) {
+			if ( this.lastPositions[ sub ] ) {
+				seed[ sub ] = { ...this.lastPositions[ sub ] };
+			}
+		}
+		return Object.keys( seed ).length > 0 ? seed : null;
 	}
 
 	// Reopen the stream, throttled to one attempt per watchdog interval.
@@ -154,9 +193,9 @@ export class SseConnectorNode extends Node {
 			return;
 		}
 		this._lastForce = now;
-		// Resume live, not a replay: a recovery reconnect tail-follows so a
-		// history-seeded link doesn't re-stream its whole window on every drop.
-		this.positions = null;
+		// Resume from the last seen offset (no gap, no replay); null when nothing
+		// was tracked → tail, so a history seed is never re-streamed on a drop.
+		this.positions = this.resumePositions();
 		this.start();
 	}
 

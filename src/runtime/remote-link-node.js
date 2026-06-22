@@ -145,6 +145,12 @@ export class RemoteLinkNode extends Node {
 		this.sseIn.start();
 	}
 
+	// Resume seed (last seen `{seg,off}` per sub/partition) so a reconnect picks up
+	// exactly where the stream left off; null (→ tail) when nothing's been seen.
+	resumePositions() {
+		return this.sseIn?.resumePositions() ?? null;
+	}
+
 	// Send a command out through this link's own HttpOut.
 	send( message ) {
 		this.ensureChildren();

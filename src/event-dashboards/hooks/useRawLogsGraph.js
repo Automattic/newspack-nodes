@@ -185,7 +185,9 @@ export function useRawLogsGraph( opts = {} ) {
 		if ( isPageVisible ) {
 			const selected = viewRef.current?.setStateCache?.view?.selected;
 			if ( selected ) {
-				link.setSubscribe( [ selected ] );
+				// Refocus resumes from the last seen offset (replays only the lines
+				// emitted while hidden), not a blind tail-seek that drops them.
+				link.setSubscribe( [ selected ], link.resumePositions() );
 			}
 		} else {
 			link.close();
