@@ -35,7 +35,7 @@
 		margin: 0;
 		font-size: 16px;
 		font-weight: 600;
-		color: base.$white;
+		color: base.$dark-text;
 		display: flex;
 		align-items: center;
 		gap: 12px;
@@ -91,7 +91,7 @@
 	color: base.$dark-text-muted;
 
 	strong {
-		color: base.$white;
+		color: base.$dark-text;
 	}
 }
 
@@ -146,7 +146,7 @@
 	font-family: base.$mono-font;
 	font-size: 14px;
 	font-weight: 600;
-	color: base.$white;
+	color: base.$dark-text;
 }
 
 .aggregator-server-url {
@@ -196,7 +196,7 @@
 	font-family: base.$mono-font;
 	font-size: 12px;
 	font-weight: 600;
-	color: base.$white;
+	color: base.$dark-text;
 }
 
 .aggregator-partition-stats {
@@ -228,10 +228,13 @@
 	gap: 6px;
 }
 
+// Neutral container — it wraps the HTTP-code chip (which is a green `.success`
+// chip on HTTP 200) plus the error message. Only the message TEXT is error-red;
+// the wrapper must stay neutral so a 200 doesn't read green-on-red.
 .aggregator-partition-error {
 	font-size: 10px;
 	color: base.$error-text;
-	background: rgba(base.$error-bg, 0.2);
+	background: var(--np-surface-subtle);
 	padding: 4px 8px;
 	border-radius: base.$border-radius-sm;
 	margin-top: 4px;
@@ -398,8 +401,8 @@
 	}
 
 	&.success {
-		background: base.$success-bg;
-		color: base.$white;
+		background: var(--np-success-subtle);
+		color: base.$status-success;
 		padding: 1px 4px;
 		border-radius: base.$border-radius-sm;
 	}
@@ -416,7 +419,7 @@
 .aggregator-error-message {
 	font-size: 11px;
 	color: base.$error-text;
-	background: rgba(base.$error-bg, 0.3);
+	background: var(--np-error-subtle);
 	padding: 4px 10px;
 	border-radius: base.$border-radius-sm;
 	max-width: 250px;

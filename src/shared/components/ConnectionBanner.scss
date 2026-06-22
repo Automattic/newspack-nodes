@@ -1,11 +1,10 @@
-// Shared connection/reconnect banner. Ported from the Error Log dashboard's
-// dark error-banner style (a `dark-error-banner` mixin pulled from that
-// dashboard's `base.scss`). Variables resolved to literals here because
-// src/shared/ has no `base.scss` to `@use`; keep the look identical, only the
-// selector name changed.
+// Shared connection/reconnect banner — a functional error banner. Uses the
+// Newspack error token (the consuming dashboard root carries
+// `.newspack-nodes-theme`); the literal fallback keeps the prior look for any
+// host without the token sheet. src/shared/ has no `base.scss` to `@use`.
 .newspack-nodes-connection-banner {
-	background: #b71c1c;
-	color: #fff;
+	background: var(--np-error, #b71c1c);
+	color: var(--np-on-status, #fff);
 	padding: 8px 12px;
 	border-radius: 3px;
 	margin-bottom: 12px;
