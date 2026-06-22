@@ -317,18 +317,6 @@ function mockCanvasMarkup( props ) {
 				vp-change
 			</button>
 			<button
-				onClick={ () =>
-					props.onDropNode &&
-					props.onDropNode( {
-						shellName: 'Echo',
-						x: 50,
-						y: 60,
-					} )
-				}
-			>
-				drop-echo
-			</button>
-			<button
 				onClick={ () => props.onConnect && props.onConnect( 'a', 'b' ) }
 			>
 				connect-a-b
@@ -475,7 +463,22 @@ jest.mock( '../components/Header', () => ( props ) => {
 let lastPaletteProps = null;
 jest.mock( '../components/Palette', () => ( props ) => {
 	lastPaletteProps = props;
-	return <aside data-testid="palette" />;
+	return (
+		<aside data-testid="palette">
+			<button
+				onClick={ () =>
+					props.onDropNode &&
+					props.onDropNode( {
+						shellName: 'Echo',
+						x: 50,
+						y: 60,
+					} )
+				}
+			>
+				drop-echo
+			</button>
+		</aside>
+	);
 } );
 let lastReplProps = null;
 jest.mock( '../components/ReplFooter', () => ( props ) => {
