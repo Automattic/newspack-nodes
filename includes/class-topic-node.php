@@ -101,29 +101,14 @@ class Topic_Node extends Node {
 		return $this->partitions[ $i ];
 	}
 
-	/** Override Node::sink() so child Partitions inherit the new sink. */
-	public function sink( ?Node $node = null ): ?Node {
-		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
-		if ( \func_num_args() > 0 ) {
-			foreach ( $this->partitions as $p ) {
-				$p->sink( $node );
-			}
-		}
-		return $result;
-	}
-
-	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
-	private function apply_large_write_mode( Partition_Node $p ): void {
-		if ( 'lock' === $this->large_write_mode ) {
-			$p->allow_large_writes();
-		} elseif ( 'void' === $this->large_write_mode ) {
-			$p->void_warranty();
-		}
-	}
-
 	/** Lift the 4KB cap on every partition via a held write lock — propagates to future children too. See Partition_Node::allow_large_writes(). */
 	public function allow_large_writes(): self {
 		return $this->set_large_write_mode( 'lock' );
+	}
+
+	/** Lift the 4KB cap on every partition with NO lock — caller asserts single-writer. See Partition_Node::void_warranty(). */
+	public function void_warranty(): self {
+		return $this->set_large_write_mode( 'void' );
 	}
 
 	/** Set the mode once and apply to already-materialized partitions; a repeat call in the same mode is a no-op (Partition::allow_large_writes re-locks). */
@@ -138,9 +123,24 @@ class Topic_Node extends Node {
 		return $this;
 	}
 
-	/** Lift the 4KB cap on every partition with NO lock — caller asserts single-writer. See Partition_Node::void_warranty(). */
-	public function void_warranty(): self {
-		return $this->set_large_write_mode( 'void' );
+	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
+	private function apply_large_write_mode( Partition_Node $p ): void {
+		if ( 'lock' === $this->large_write_mode ) {
+			$p->allow_large_writes();
+		} elseif ( 'void' === $this->large_write_mode ) {
+			$p->void_warranty();
+		}
+	}
+
+	/** Override Node::sink() so child Partitions inherit the new sink. */
+	public function sink( ?Node $node = null ): ?Node {
+		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
+		if ( \func_num_args() > 0 ) {
+			foreach ( $this->partitions as $p ) {
+				$p->sink( $node );
+			}
+		}
+		return $result;
 	}
 
 	/** @api Flush every materialized partition's batch (request-scope callers land pending writes). */

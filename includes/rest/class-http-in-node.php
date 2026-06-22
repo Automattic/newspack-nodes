@@ -111,27 +111,6 @@ class HTTP_In_Node extends Node {
 		echo Message::packed( $message ) . "\n";
 	}
 
-	public function reset(): void {
-		$this->sent_headers = false;
-	}
-
-	/** @api Support for unit tests. */
-	public function set_test_mode( bool $on ): void {
-		$this->test_mode = $on;
-	}
-
-	public function register_routes(): void {
-		\register_rest_route(
-			self::REST_NAMESPACE,
-			self::ROUTE,
-			[
-				'methods'             => 'POST',
-				'callback'            => [ $this, 'dispatch' ],
-				'permission_callback' => [ $this, 'check_permission' ],
-			]
-		);
-	}
-
 	/**
 	 * Permission check: manage_options THEN per-user rate limit. Capability
 	 * is verified first so an unauthenticated burst can't poison the
@@ -322,6 +301,27 @@ class HTTP_In_Node extends Node {
 		$r[ Message::VALUE ] = $err;
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo Message::packed( $r );
+	}
+
+	public function reset(): void {
+		$this->sent_headers = false;
+	}
+
+	/** @api Support for unit tests. */
+	public function set_test_mode( bool $on ): void {
+		$this->test_mode = $on;
+	}
+
+	public function register_routes(): void {
+		\register_rest_route(
+			self::REST_NAMESPACE,
+			self::ROUTE,
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'dispatch' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+			]
+		);
 	}
 
 	public static function node_schema(): array {

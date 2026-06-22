@@ -214,10 +214,6 @@ class Lock_Node extends Node {
 		$this->set_state( 'RELEASED', $this->lock_path );
 	}
 
-	public function is_held(): bool {
-		return $this->is_held;
-	}
-
 	/**
 	 * Static unconditional release: clear a lock dir regardless of staleness.
 	 *
@@ -236,6 +232,10 @@ class Lock_Node extends Node {
 		@\unlink( $lock_dir . '/' . self::RESTART_FLAG );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
 		@\rmdir( $lock_dir );
+	}
+
+	public function is_held(): bool {
+		return $this->is_held;
 	}
 
 	/**

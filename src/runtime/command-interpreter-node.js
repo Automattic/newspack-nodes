@@ -209,6 +209,48 @@ export class CommandInterpreterNode extends Node {
 		}
 	}
 
+	// `make_node <type> <name> [<ctor_args>...]` — mirrors PHP
+	// Command_Interpreter_Node::make_node: split the args on whitespace, the
+	// remaining tokens spread straight into the constructor as positional args,
+	// then name() + sink($self). The browser builds it locally (no deferring to a
+	// worker) so the console graph is live + hackable. A bad/short arg list
+	// throws in the constructor — that's fine, breaking is how you learn.
+	_cmdMakeNode( args ) {
+		const parts = String( args ?? '' )
+			.trim()
+			.split( /\s+/ )
+			.filter( Boolean );
+		if ( parts.length < 2 ) {
+			return 'usage: make_node <type> <name> [<ctor_args>...]';
+		}
+		const type = parts.shift();
+		// Unknown class returns a string (builds nothing); a name collision still
+		// throws out so interpret()'s central catch wraps it as TM_ERROR.
+		if ( ! CommandInterpreterNode.includeNodes[ type ] ) {
+			return `unknown class: ${ type }`;
+		}
+		const name = parts.shift();
+		this.makeNode( type, name, parts.join( ' ' ) );
+		return 'ok';
+	}
+
+	// Programmatic graph construction: create a registered class, name + sink it
+	// into this interpreter, return the node. The make_node verb delegates here.
+	makeNode( type, name, args = '' ) {
+		const NodeClass = CommandInterpreterNode.includeNodes[ type ];
+		if ( ! NodeClass ) {
+			throw new Error( `unknown class: ${ type }` );
+		}
+		const node = new NodeClass();
+		node.name = name;
+		node.arguments = String( args ?? '' ).trim();
+		node.sink = this;
+		if ( ( this.debugState ?? 0 ) > 0 ) {
+			node.debugState = this.debugState;
+		}
+		return node;
+	}
+
 	/**
 	 * Getter/setter for the verb table; passing a table merges (extends) it over
 	 * the built-in defaults.
@@ -314,48 +356,6 @@ export class CommandInterpreterNode extends Node {
 		m[ LOCAL ] = true;
 		this.fill( m );
 		return '';
-	}
-
-	// Programmatic graph construction: create a registered class, name + sink it
-	// into this interpreter, return the node. The make_node verb delegates here.
-	makeNode( type, name, args = '' ) {
-		const NodeClass = CommandInterpreterNode.includeNodes[ type ];
-		if ( ! NodeClass ) {
-			throw new Error( `unknown class: ${ type }` );
-		}
-		const node = new NodeClass();
-		node.name = name;
-		node.arguments = String( args ?? '' ).trim();
-		node.sink = this;
-		if ( ( this.debugState ?? 0 ) > 0 ) {
-			node.debugState = this.debugState;
-		}
-		return node;
-	}
-
-	// `make_node <type> <name> [<ctor_args>...]` — mirrors PHP
-	// Command_Interpreter_Node::make_node: split the args on whitespace, the
-	// remaining tokens spread straight into the constructor as positional args,
-	// then name() + sink($self). The browser builds it locally (no deferring to a
-	// worker) so the console graph is live + hackable. A bad/short arg list
-	// throws in the constructor — that's fine, breaking is how you learn.
-	_cmdMakeNode( args ) {
-		const parts = String( args ?? '' )
-			.trim()
-			.split( /\s+/ )
-			.filter( Boolean );
-		if ( parts.length < 2 ) {
-			return 'usage: make_node <type> <name> [<ctor_args>...]';
-		}
-		const type = parts.shift();
-		// Unknown class returns a string (builds nothing); a name collision still
-		// throws out so interpret()'s central catch wraps it as TM_ERROR.
-		if ( ! CommandInterpreterNode.includeNodes[ type ] ) {
-			return `unknown class: ${ type }`;
-		}
-		const name = parts.shift();
-		this.makeNode( type, name, parts.join( ' ' ) );
-		return 'ok';
 	}
 
 	// `pwd` to ` <cwd> -> <envelope.from>`.

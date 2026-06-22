@@ -71,8 +71,10 @@ export class SseConnectorNode extends Node {
 		}
 	}
 
-	pid() {
-		return this.setStateCache.connected?.pid ?? null;
+	// A node owns its teardown: drop the stream + watchdog before unregistering.
+	removeNode() {
+		this.close();
+		super.removeNode();
 	}
 
 	start() {
@@ -199,12 +201,6 @@ export class SseConnectorNode extends Node {
 		this.start();
 	}
 
-	// A node owns its teardown: drop the stream + watchdog before unregistering.
-	removeNode() {
-		this.close();
-		super.removeNode();
-	}
-
 	close() {
 		if ( this._watchdog ) {
 			clearInterval( this._watchdog );
@@ -222,6 +218,10 @@ export class SseConnectorNode extends Node {
 		// reopen (the stream can be closed/reopened on cd off/onto a worker); a
 		// fresh `connected` envelope repopulates it.
 		this.setStateCache.connected = undefined;
+	}
+
+	pid() {
+		return this.setStateCache.connected?.pid ?? null;
 	}
 
 	static nodeSchema() {

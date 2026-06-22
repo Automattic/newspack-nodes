@@ -109,117 +109,6 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Programmatic configuration entry point for the patron. Sets every field
-	 * directly. `$subscribe` is the full `<remote_topic>.p<partition>` string;
-	 * `$source` is the Vault server id stamped into forwarded VALUEs as `_source`.
-	 *
-	 * @param string             $url           Base URL (no trailing slash).
-	 * @param string             $auth_username Application-Password user (Basic auth).
-	 * @param string             $auth_password Application-Password secret.
-	 * @param string             $auth_token    Optional Bearer token fallback.
-	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
-	 * @param array{segment_id?:int,offset?:int} $positions Initial cursor.
-	 * @param string             $source        Vault server id stamped as `_source`.
-	 * @param bool               $verify_ssl    Verify the remote SSL cert.
-	 * @param bool               $require_https Refuse non-HTTPS remote URLs.
-	 */
-	public function configure(
-		string $url,
-		string $auth_username = '',
-		string $auth_password = '',
-		string $auth_token    = '',
-		string $subscribe     = '',
-		array $positions      = [],
-		string $source        = '',
-		bool $verify_ssl      = true,
-		bool $require_https   = false
-	): void {
-		$this->url           = \rtrim( $url, '/' );
-		$this->auth_username = $auth_username;
-		$this->auth_password = $auth_password;
-		$this->auth_token    = $auth_token;
-		$this->subscribe     = $subscribe;
-		$this->verify_ssl    = $verify_ssl;
-		$this->require_https = $require_https;
-		$this->position      = [
-			'segment_id' => \max( 0, $positions['segment_id'] ?? 0 ),
-			'offset'     => \max( 0, $positions['offset'] ?? 0 ),
-		];
-	}
-
-	/**
-	 * Restore last-committed position. Called by the patron before `maybe_connect()`.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function restore_position( int $segment_id, int $offset ): void {
-		$this->position = [
-			'segment_id' => \max( 0, $segment_id ),
-			'offset'     => \max( 0, $offset ),
-		];
-	}
-
-	/**
-	 * Current in-memory cursor.
-	 *
-	 * @api Dynamic entrypoint.
-	 * @return array{segment_id:int,offset:int}
-	 */
-	public function position(): array {
-		return $this->position;
-	}
-
-	/**
-	 * Slot captured from the `connected` handshake.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function slot(): ?int {
-		return $this->slot;
-	}
-
-	/**
-	 * Session pid captured from the `connected` handshake. Null until connected.
-	 * Remote_IPC stamps it into the reply-FROM pivot (`_sse:{pid}/{node}`).
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function pid(): ?int {
-		return $this->session_pid;
-	}
-
-	/**
-	 * Connection-state snapshot for the patron.
-	 *
-	 * @api Dynamic entrypoint.
-	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int}
-	 */
-	public function connection(): array {
-		return [
-			'connected'          => $this->connected,
-			'last_http_code'     => $this->last_http_code,
-			'last_error'         => $this->last_error,
-			'current_backoff'    => $this->current_backoff,
-			'last_sse_heartbeat' => $this->last_sse_heartbeat,
-		];
-	}
-
-	// =========================================================================
-	// cURL lifecycle
-	// =========================================================================
-
-	/** Ensure the owned multi handle exists and is registered. Idempotent. */
-	private function ensure_multi(): \CurlMultiHandle {
-		if ( null !== $this->multi ) {
-			return $this->multi;
-		}
-		$multi       = \curl_multi_init();
-		$this->multi = $multi;
-		Event_Framework::instance()->register_curl_handle( $this, $multi );
-		return $multi;
-	}
-
-	/**
 	 * Open an easy handle if currently disconnected and outside backoff.
 	 *
 	 * @api Dynamic entrypoint.
@@ -328,6 +217,21 @@ class SSE_In_Node extends Node {
 		return true;
 	}
 
+	// =========================================================================
+	// cURL lifecycle
+	// =========================================================================
+
+	/** Ensure the owned multi handle exists and is registered. Idempotent. */
+	private function ensure_multi(): \CurlMultiHandle {
+		if ( null !== $this->multi ) {
+			return $this->multi;
+		}
+		$multi       = \curl_multi_init();
+		$this->multi = $multi;
+		Event_Framework::instance()->register_curl_handle( $this, $multi );
+		return $multi;
+	}
+
 	/**
 	 * Split `<topic>.p<N>` into [topic, partition-index].
 	 *
@@ -338,31 +242,6 @@ class SSE_In_Node extends Node {
 			return [ $m[1], (int) $m[2] ];
 		}
 		return [ $this->subscribe, 0 ];
-	}
-
-	/**
-	 * Detach the active handle from the multi + close it. Idempotent.
-	 * Order matters: curl_multi_remove_handle() MUST run before curl_close().
-	 */
-	private function detach_handle(): void {
-		if ( ! ( $this->handle instanceof \CurlHandle ) ) {
-			return;
-		}
-		if ( null !== $this->multi ) {
-			@\curl_multi_remove_handle( $this->multi, $this->handle );
-		}
-		@\curl_close( $this->handle );
-		$this->handle    = null;
-		$this->connected = false;
-	}
-
-	/**
-	 * Force-disconnect. Called externally by the patron on teardown.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function disconnect(): void {
-		$this->detach_handle();
 	}
 
 	// =========================================================================
@@ -432,10 +311,6 @@ class SSE_In_Node extends Node {
 
 		$this->detach_handle();
 		$this->increase_backoff();
-	}
-
-	private function increase_backoff(): void {
-		$this->current_backoff = \min( self::MAX_BACKOFF, \max( self::INITIAL_BACKOFF, $this->current_backoff * 2 ) );
 	}
 
 	// =========================================================================
@@ -633,9 +508,8 @@ class SSE_In_Node extends Node {
 		$this->increase_backoff();
 	}
 
-	/** @api Used by tests. */
-	public function test_get_handle(): ?\CurlHandle {
-		return $this->handle;
+	private function increase_backoff(): void {
+		$this->current_backoff = \min( self::MAX_BACKOFF, \max( self::INITIAL_BACKOFF, $this->current_backoff * 2 ) );
 	}
 
 	/**
@@ -653,6 +527,132 @@ class SSE_In_Node extends Node {
 			$this->multi = null;
 		}
 		parent::remove_node();
+	}
+
+	/**
+	 * Force-disconnect. Called externally by the patron on teardown.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function disconnect(): void {
+		$this->detach_handle();
+	}
+
+	/**
+	 * Detach the active handle from the multi + close it. Idempotent.
+	 * Order matters: curl_multi_remove_handle() MUST run before curl_close().
+	 */
+	private function detach_handle(): void {
+		if ( ! ( $this->handle instanceof \CurlHandle ) ) {
+			return;
+		}
+		if ( null !== $this->multi ) {
+			@\curl_multi_remove_handle( $this->multi, $this->handle );
+		}
+		@\curl_close( $this->handle );
+		$this->handle    = null;
+		$this->connected = false;
+	}
+
+	/**
+	 * Programmatic configuration entry point for the patron. Sets every field
+	 * directly. `$subscribe` is the full `<remote_topic>.p<partition>` string;
+	 * `$source` is the Vault server id stamped into forwarded VALUEs as `_source`.
+	 *
+	 * @param string             $url           Base URL (no trailing slash).
+	 * @param string             $auth_username Application-Password user (Basic auth).
+	 * @param string             $auth_password Application-Password secret.
+	 * @param string             $auth_token    Optional Bearer token fallback.
+	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
+	 * @param array{segment_id?:int,offset?:int} $positions Initial cursor.
+	 * @param string             $source        Vault server id stamped as `_source`.
+	 * @param bool               $verify_ssl    Verify the remote SSL cert.
+	 * @param bool               $require_https Refuse non-HTTPS remote URLs.
+	 */
+	public function configure(
+		string $url,
+		string $auth_username = '',
+		string $auth_password = '',
+		string $auth_token    = '',
+		string $subscribe     = '',
+		array $positions      = [],
+		string $source        = '',
+		bool $verify_ssl      = true,
+		bool $require_https   = false
+	): void {
+		$this->url           = \rtrim( $url, '/' );
+		$this->auth_username = $auth_username;
+		$this->auth_password = $auth_password;
+		$this->auth_token    = $auth_token;
+		$this->subscribe     = $subscribe;
+		$this->verify_ssl    = $verify_ssl;
+		$this->require_https = $require_https;
+		$this->position      = [
+			'segment_id' => \max( 0, $positions['segment_id'] ?? 0 ),
+			'offset'     => \max( 0, $positions['offset'] ?? 0 ),
+		];
+	}
+
+	/**
+	 * Restore last-committed position. Called by the patron before `maybe_connect()`.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function restore_position( int $segment_id, int $offset ): void {
+		$this->position = [
+			'segment_id' => \max( 0, $segment_id ),
+			'offset'     => \max( 0, $offset ),
+		];
+	}
+
+	/**
+	 * Current in-memory cursor.
+	 *
+	 * @api Dynamic entrypoint.
+	 * @return array{segment_id:int,offset:int}
+	 */
+	public function position(): array {
+		return $this->position;
+	}
+
+	/**
+	 * Slot captured from the `connected` handshake.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function slot(): ?int {
+		return $this->slot;
+	}
+
+	/**
+	 * Session pid captured from the `connected` handshake. Null until connected.
+	 * Remote_IPC stamps it into the reply-FROM pivot (`_sse:{pid}/{node}`).
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function pid(): ?int {
+		return $this->session_pid;
+	}
+
+	/**
+	 * Connection-state snapshot for the patron.
+	 *
+	 * @api Dynamic entrypoint.
+	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int}
+	 */
+	public function connection(): array {
+		return [
+			'connected'          => $this->connected,
+			'last_http_code'     => $this->last_http_code,
+			'last_error'         => $this->last_error,
+			'current_backoff'    => $this->current_backoff,
+			'last_sse_heartbeat' => $this->last_sse_heartbeat,
+		];
+	}
+
+	/** @api Used by tests. */
+	public function test_get_handle(): ?\CurlHandle {
+		return $this->handle;
 	}
 
 	/**

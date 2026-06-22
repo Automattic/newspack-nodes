@@ -37,36 +37,6 @@ class Remote_IPC_Node extends Remote_Link_Node {
 	public static ?Remote_IPC_Node $active = null;
 
 	/**
-	 * Make this link's SSE_In the live stream, replacing whichever Remote_IPC held
-	 * it. Idempotent while already streaming (a steady poll doesn't reconnect).
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function connect(): void {
-		$current = self::$active;
-		if ( $current === $this && $this->is_streaming() ) {
-			return;
-		}
-		if ( null !== $current && $current !== $this ) {
-			$current->close();
-		}
-		parent::connect();
-		self::$active = $this;
-	}
-
-	/**
-	 * Close the composed stream and release the live-connection claim.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function close(): void {
-		parent::close();
-		if ( self::$active === $this ) {
-			self::$active = null;
-		}
-	}
-
-	/**
 	 * Worker-pivot send: boot/steal the live connection, then route the bundled
 	 * `[connect_worker_input, command]` pair through the patron HTTP_Out (one POST).
 	 *
@@ -96,6 +66,36 @@ class Remote_IPC_Node extends Remote_Link_Node {
 		// mount and the command land in the same server process.
 		$this->http_out->fill( $connect );
 		$this->http_out->fill( $command );
+	}
+
+	/**
+	 * Make this link's SSE_In the live stream, replacing whichever Remote_IPC held
+	 * it. Idempotent while already streaming (a steady poll doesn't reconnect).
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function connect(): void {
+		$current = self::$active;
+		if ( $current === $this && $this->is_streaming() ) {
+			return;
+		}
+		if ( null !== $current && $current !== $this ) {
+			$current->close();
+		}
+		parent::connect();
+		self::$active = $this;
+	}
+
+	/**
+	 * Close the composed stream and release the live-connection claim.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function close(): void {
+		parent::close();
+		if ( self::$active === $this ) {
+			self::$active = null;
+		}
 	}
 
 	/** Only the active link's tick keeps the stream alive; the rest stay dormant. */

@@ -200,16 +200,6 @@ class Partition_Node extends Timer_Node {
 		$this->flush();
 	}
 
-	/** Seam (Log overrides): per-writer exclusivity lock dir for allow_large_writes(). */
-	protected function write_lock_path(): string {
-		return "{$this->segment_dir()}/write.lock.d";
-	}
-
-	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
-	protected function segment_dir(): string {
-		return $this->partition_dir;
-	}
-
 	/**
 	 * Seam (Log overrides): bytes written per fill()'d message. Partition = packed envelope + newline.
 	 *
@@ -217,95 +207,6 @@ class Partition_Node extends Timer_Node {
 	 */
 	protected function serialize_record( array $message ): string {
 		return Message::packed( $message ) . "\n";
-	}
-
-	/**
-	 * Initialize current segment state from existing segments on disk.
-	 *
-	 * Does NOT create files — segment files materialize on first write via fopen('a').
-	 */
-	protected function init_current_segment(): void {
-		$this->close_handle();
-		$segments = $this->get_segments( true );
-		if ( empty( $segments ) ) {
-			$this->current_segment_id = 0;
-			$this->current_size       = 0;
-			$this->current_log_path   = $this->get_segment_path( 0 );
-			$this->current_idx_path   = $this->get_index_path( 0 );
-			return;
-		}
-		$newest                   = \end( $segments );
-		$this->current_segment_id = $newest['id'];
-		$this->current_size       = $newest['size'];
-		$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
-		$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
-	}
-
-	protected function close_handle(): void {
-		if ( \is_resource( $this->fh ) ) {
-			@\fclose( $this->fh );
-			$this->fh = null;
-			$this->fh_segment_id = -1;
-		}
-		if ( \is_resource( $this->idx_fh ) ) {
-			@\fclose( $this->idx_fh );
-			$this->idx_fh = null;
-		}
-	}
-
-	/**
-	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
-	 *
-	 * @param bool $force_refresh Skip the cache and rescan.
-	 * @return array<int,array{id:int,size:int}>
-	 */
-	public function get_segments( bool $force_refresh = false ): array {
-		$now = \microtime( true );
-		if ( ! $force_refresh && null !== $this->segments_cache && ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL ) {
-			return $this->segments_cache;
-		}
-		$segments = [];
-		$dir      = $this->segment_dir();
-		if ( ! \is_dir( $dir ) ) {
-			$this->segments_cache      = [];
-			$this->segments_cache_time = $now;
-			return [];
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
-		$files = @\scandir( $dir );
-		if ( ! $files ) {
-			$this->segments_cache      = [];
-			$this->segments_cache_time = $now;
-			return [];
-		}
-		$pattern = $this->segment_pattern();
-		foreach ( $files as $f ) {
-			if ( \preg_match( $pattern, $f, $m ) ) {
-				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$dir}/{$f}" ) ?: 0 ];
-			}
-		}
-		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
-		$this->segments_cache      = $segments;
-		$this->segments_cache_time = $now;
-		return $segments;
-	}
-
-	/** Seam (Log overrides): regex matching a data filename in segment_dir(); group 1 = id. */
-	protected function segment_pattern(): string {
-		return self::SEGMENT_PATTERN;
-	}
-
-	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
-	public function get_segment_path( int $segment_id ): string {
-		if ( $segment_id < 0 ) {
-			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
-		}
-		return "{$this->segment_dir()}/{$segment_id}.log";
-	}
-
-	/** Seam (Log overrides): companion-index path for a segment. Partition = {dir}/{seg}.idx. */
-	protected function get_index_path( int $segment_id ): string {
-		return "{$this->segment_dir()}/{$segment_id}.idx";
 	}
 
 	/**
@@ -329,6 +230,16 @@ class Partition_Node extends Timer_Node {
 			$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
 			$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
 		}
+	}
+
+	public function partition_dir(): string {
+		return $this->segment_dir();
+	}
+
+	public function __destruct() {
+		// Flush residual batched messages so request-scope writes aren't GC'd unwritten.
+		$this->flush();
+		$this->close_handle();
 	}
 
 	/** Append $batch to the current segment, then write companion index entries with post-flush offsets. */
@@ -563,6 +474,28 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Initialize current segment state from existing segments on disk.
+	 *
+	 * Does NOT create files — segment files materialize on first write via fopen('a').
+	 */
+	protected function init_current_segment(): void {
+		$this->close_handle();
+		$segments = $this->get_segments( true );
+		if ( empty( $segments ) ) {
+			$this->current_segment_id = 0;
+			$this->current_size       = 0;
+			$this->current_log_path   = $this->get_segment_path( 0 );
+			$this->current_idx_path   = $this->get_index_path( 0 );
+			return;
+		}
+		$newest                   = \end( $segments );
+		$this->current_segment_id = $newest['id'];
+		$this->current_size       = $newest['size'];
+		$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
+		$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
+	}
+
+	/**
 	 * Write one companion-index entry for a serialized record at $offset. Caller guards on $index_callback.
 	 *
 	 * @param mixed $data Opaque per-message data passed through to the index callback.
@@ -607,16 +540,6 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
-	public function partition_dir(): string {
-		return $this->segment_dir();
-	}
-
-	public function __destruct() {
-		// Flush residual batched messages so request-scope writes aren't GC'd unwritten.
-		$this->flush();
-		$this->close_handle();
-	}
-
 	/** Close file handles + release write lock before normal Node teardown. */
 	public function remove_node(): void {
 		$this->close_handle();
@@ -627,9 +550,16 @@ class Partition_Node extends Timer_Node {
 		parent::remove_node();
 	}
 
-	public static function hash_to_partition( string $key, int $num_partitions ): int {
-		[ $stripped ] = \explode( '?', $key, 2 );
-		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
+	protected function close_handle(): void {
+		if ( \is_resource( $this->fh ) ) {
+			@\fclose( $this->fh );
+			$this->fh = null;
+			$this->fh_segment_id = -1;
+		}
+		if ( \is_resource( $this->idx_fh ) ) {
+			@\fclose( $this->idx_fh );
+			$this->idx_fh = null;
+		}
 	}
 
 	/**
@@ -684,6 +614,161 @@ class Partition_Node extends Timer_Node {
 		return $this;
 	}
 
+	/** Seam (Log overrides): per-writer exclusivity lock dir for allow_large_writes(). */
+	protected function write_lock_path(): string {
+		return "{$this->segment_dir()}/write.lock.d";
+	}
+
+	/**
+	 * Read bytes from a segment at a given offset (bounds-checked).
+	 *
+	 * @param int $segment_id Segment to read from.
+	 * @param int $offset     Byte offset within segment.
+	 * @param int $length     Number of bytes to read.
+	 * @return string Bytes read; empty string on bounds violation, missing file, or read failure.
+	 */
+	public function read_at( int $segment_id, int $offset, int $length ): string {
+		if ( $segment_id < 0 || $offset < 0 || $length < 0 ) {
+			return '';
+		}
+		if ( 0 === $length ) {
+			return '';  // fread() throws on $length === 0 in PHP 8.1+; short-circuit.
+		}
+		$path = $this->get_segment_path( $segment_id );
+		if ( ! \file_exists( $path ) ) {
+			return '';
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+		$fh = @\fopen( $path, 'r' );
+		if ( false === $fh ) {
+			return '';
+		}
+		@\fseek( $fh, $offset );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
+		$bytes = @\fread( $fh, $length );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+		@\fclose( $fh );
+		if ( false !== $bytes ) {
+			$this->bytes_read += \strlen( $bytes );
+			return $bytes;
+		}
+		return '';
+	}
+
+	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
+	public function get_segment_path( int $segment_id ): string {
+		if ( $segment_id < 0 ) {
+			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
+		}
+		return "{$this->segment_dir()}/{$segment_id}.log";
+	}
+
+	/**
+	 * Walk every JSONL .idx entry across all segments and invoke the callback per entry.
+	 *
+	 * Only meaningful when a with_index() formatter is installed — without it no
+	 * .idx is written, so this early-returns. Callback signature: fn(string $line,
+	 * int $segment_id). Return false from the callback to terminate the scan early.
+	 *
+	 * @api
+	 * @param callable $cb           Per-entry callback.
+	 * @param bool     $newest_first Iterate newest segment first when true.
+	 */
+	public function scan_index( callable $cb, bool $newest_first = false ): void {
+		if ( null === $this->index_callback ) {
+			return;
+		}
+
+		$segments = $this->get_segments();
+		if ( $newest_first ) {
+			$segments = \array_reverse( $segments );
+		}
+
+		foreach ( $segments as $s ) {
+			$idx_path = $this->get_index_path( $s['id'] );
+			if ( ! \file_exists( $idx_path ) ) {
+				continue;
+			}
+
+			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+			$idx = @\file_get_contents( $idx_path );
+			if ( false === $idx ) {
+				continue;
+			}
+
+			$lines = \explode( "\n", \rtrim( $idx, "\n" ) );
+			if ( $newest_first ) {
+				$lines = \array_reverse( $lines );
+			}
+			foreach ( $lines as $line ) {
+				if ( '' === $line ) {
+					continue;
+				}
+				$result = $cb( $line, $s['id'] );
+				if ( false === $result ) {
+					return;
+				}
+			}
+		}
+	}
+
+	/**
+	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
+	 *
+	 * @param bool $force_refresh Skip the cache and rescan.
+	 * @return array<int,array{id:int,size:int}>
+	 */
+	public function get_segments( bool $force_refresh = false ): array {
+		$now = \microtime( true );
+		if ( ! $force_refresh && null !== $this->segments_cache && ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL ) {
+			return $this->segments_cache;
+		}
+		$segments = [];
+		$dir      = $this->segment_dir();
+		if ( ! \is_dir( $dir ) ) {
+			$this->segments_cache      = [];
+			$this->segments_cache_time = $now;
+			return [];
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
+		$files = @\scandir( $dir );
+		if ( ! $files ) {
+			$this->segments_cache      = [];
+			$this->segments_cache_time = $now;
+			return [];
+		}
+		$pattern = $this->segment_pattern();
+		foreach ( $files as $f ) {
+			if ( \preg_match( $pattern, $f, $m ) ) {
+				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$dir}/{$f}" ) ?: 0 ];
+			}
+		}
+		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
+		$this->segments_cache      = $segments;
+		$this->segments_cache_time = $now;
+		return $segments;
+	}
+
+	/** Seam (Log overrides): regex matching a data filename in segment_dir(); group 1 = id. */
+	protected function segment_pattern(): string {
+		return self::SEGMENT_PATTERN;
+	}
+
+	/** Seam (Log overrides): companion-index path for a segment. Partition = {dir}/{seg}.idx. */
+	protected function get_index_path( int $segment_id ): string {
+		return "{$this->segment_dir()}/{$segment_id}.idx";
+	}
+
+	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
+	protected function segment_dir(): string {
+		return $this->partition_dir;
+	}
+
+	public static function hash_to_partition( string $key, int $num_partitions ): int {
+		[ $stripped ] = \explode( '?', $key, 2 );
+		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
+	}
+
 	/**
 	 * Lift the PIPE_BUF cap WITHOUT acquiring the per-partition exclusivity lock —
 	 * the no-lock sibling of allow_large_writes(). The caller ASSERTS it is this
@@ -728,42 +813,6 @@ class Partition_Node extends Timer_Node {
 			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
 		}
 		return $out;
-	}
-
-	/**
-	 * Read bytes from a segment at a given offset (bounds-checked).
-	 *
-	 * @param int $segment_id Segment to read from.
-	 * @param int $offset     Byte offset within segment.
-	 * @param int $length     Number of bytes to read.
-	 * @return string Bytes read; empty string on bounds violation, missing file, or read failure.
-	 */
-	public function read_at( int $segment_id, int $offset, int $length ): string {
-		if ( $segment_id < 0 || $offset < 0 || $length < 0 ) {
-			return '';
-		}
-		if ( 0 === $length ) {
-			return '';  // fread() throws on $length === 0 in PHP 8.1+; short-circuit.
-		}
-		$path = $this->get_segment_path( $segment_id );
-		if ( ! \file_exists( $path ) ) {
-			return '';
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-		$fh = @\fopen( $path, 'r' );
-		if ( false === $fh ) {
-			return '';
-		}
-		@\fseek( $fh, $offset );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
-		$bytes = @\fread( $fh, $length );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
-		@\fclose( $fh );
-		if ( false !== $bytes ) {
-			$this->bytes_read += \strlen( $bytes );
-			return $bytes;
-		}
-		return '';
 	}
 
 	/**
@@ -863,55 +912,6 @@ class Partition_Node extends Timer_Node {
 			return $value;
 		} catch ( \Throwable $e ) {
 			return null;
-		}
-	}
-
-	/**
-	 * Walk every JSONL .idx entry across all segments and invoke the callback per entry.
-	 *
-	 * Only meaningful when a with_index() formatter is installed — without it no
-	 * .idx is written, so this early-returns. Callback signature: fn(string $line,
-	 * int $segment_id). Return false from the callback to terminate the scan early.
-	 *
-	 * @api
-	 * @param callable $cb           Per-entry callback.
-	 * @param bool     $newest_first Iterate newest segment first when true.
-	 */
-	public function scan_index( callable $cb, bool $newest_first = false ): void {
-		if ( null === $this->index_callback ) {
-			return;
-		}
-
-		$segments = $this->get_segments();
-		if ( $newest_first ) {
-			$segments = \array_reverse( $segments );
-		}
-
-		foreach ( $segments as $s ) {
-			$idx_path = $this->get_index_path( $s['id'] );
-			if ( ! \file_exists( $idx_path ) ) {
-				continue;
-			}
-
-			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-			$idx = @\file_get_contents( $idx_path );
-			if ( false === $idx ) {
-				continue;
-			}
-
-			$lines = \explode( "\n", \rtrim( $idx, "\n" ) );
-			if ( $newest_first ) {
-				$lines = \array_reverse( $lines );
-			}
-			foreach ( $lines as $line ) {
-				if ( '' === $line ) {
-					continue;
-				}
-				$result = $cb( $line, $s['id'] );
-				if ( false === $result ) {
-					return;
-				}
-			}
 		}
 	}
 

@@ -186,6 +186,11 @@ export class DumperNode extends Node {
 		}
 	}
 
+	// Append a caller-supplied entry (REPL echo of typed input / local info).
+	append( entry ) {
+		this._push( entry );
+	}
+
 	_push( entry ) {
 		const next = this._transcript.concat( {
 			...entry,
@@ -198,11 +203,6 @@ export class DumperNode extends Node {
 				? next.slice( next.length - TRANSCRIPT_MAX )
 				: next;
 		this.setState( 'transcript', this._transcript );
-	}
-
-	// Append a caller-supplied entry (REPL echo of typed input / local info).
-	append( entry ) {
-		this._push( entry );
 	}
 
 	// Empty the transcript (the `clear` builtin); emits a fresh empty array.

@@ -238,6 +238,18 @@ class Job_Worker_Node extends Node {
 		$this->sink->fill( $reply );
 	}
 
+	/**
+	 * Whether memory_get_usage(true) has crossed MEMORY_WATERMARK_PCT of
+	 * memory_limit. Returns false if memory_limit is unlimited (-1).
+	 */
+	public function is_memory_high(): bool {
+		$limit = $this->memory_limit_bytes();
+		if ( $limit <= 0 ) {
+			return false;
+		}
+		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
+	}
+
 	private function memory_limit_bytes(): int {
 		$ini = \ini_get( 'memory_limit' );
 		if ( '-1' === $ini ) {
@@ -256,18 +268,6 @@ class Job_Worker_Node extends Node {
 				break;
 		}
 		return $num;
-	}
-
-	/**
-	 * Whether memory_get_usage(true) has crossed MEMORY_WATERMARK_PCT of
-	 * memory_limit. Returns false if memory_limit is unlimited (-1).
-	 */
-	public function is_memory_high(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
 	}
 
 	/**

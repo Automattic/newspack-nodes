@@ -83,6 +83,28 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->commit_offsetlog();
 	}
 
+	/** Write a single `{seg,off,_ts}` JSONL line covering this node's cursor. */
+	private function commit_offsetlog(): void {
+		if ( null === $this->sse_in ) {
+			return;
+		}
+		$offsetlog = $this->ensure_offsetlog();
+		if ( null === $offsetlog ) {
+			return;
+		}
+		$pos                           = $this->sse_in->position();
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::VALUE ]     = [
+			'seg' => $pos['segment_id'],
+			'off' => $pos['offset'],
+			'_ts' => (int) Core::$now,
+		];
+		$offsetlog->fill( $message );
+		$offsetlog->flush();
+	}
+
 	// =========================================================================
 	// Durable offsetlog — per-node, keyed by NODE NAME.
 	// =========================================================================
@@ -114,28 +136,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$offsetlog->arguments( $dir );
 		$this->offsetlog = $offsetlog;
 		return $offsetlog;
-	}
-
-	/** Write a single `{seg,off,_ts}` JSONL line covering this node's cursor. */
-	private function commit_offsetlog(): void {
-		if ( null === $this->sse_in ) {
-			return;
-		}
-		$offsetlog = $this->ensure_offsetlog();
-		if ( null === $offsetlog ) {
-			return;
-		}
-		$pos                           = $this->sse_in->position();
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::VALUE ]     = [
-			'seg' => $pos['segment_id'],
-			'off' => $pos['offset'],
-			'_ts' => (int) Core::$now,
-		];
-		$offsetlog->fill( $message );
-		$offsetlog->flush();
 	}
 
 	/**

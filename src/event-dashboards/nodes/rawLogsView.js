@@ -186,13 +186,6 @@ export class RawLogsViewNode extends Node {
 		this._updateLinesPerSecond( 1 );
 	}
 
-	// Write one row into the ring at the head and advance, capping at maxLines.
-	_writeRow( row ) {
-		this._ring[ this._head ] = row;
-		this._head = ( this._head + 1 ) % this.maxLines;
-		this._count = Math.min( this._count + 1, this.maxLines );
-	}
-
 	// Lines per second over a 10s window, smoothed with a 0.1 EMA. Counts are
 	// aggregated into per-second buckets with a running total, so each line is
 	// O(1) (one bucket bump + bounded expiry) — not an O(n) scan of the window.
@@ -221,22 +214,6 @@ export class RawLogsViewNode extends Node {
 		this.lps = this.smoothedLPS;
 	}
 
-	// Number of live rows in the ring (O(1)).
-	get linesCount() {
-		return this._count;
-	}
-
-	// The i-th row newest-first (i=0 is newest), O(1); undefined out of range.
-	// The canvas reads only its on-screen window through this — never the whole
-	// buffer — so the frame cost is O(rows-on-screen) regardless of buffer size.
-	lineAt( i ) {
-		if ( i < 0 || i >= this._count ) {
-			return undefined;
-		}
-		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
-		return this._ring[ idx ];
-	}
-
 	// The whole buffer materialized newest-first — O(n), for the filter path and
 	// tests only, NOT the per-frame canvas path. Assigning (`node.lines = []` from
 	// handleClear / select) reseeds the ring from the given newest-first array.
@@ -258,6 +235,29 @@ export class RawLogsViewNode extends Node {
 				this._writeRow( value[ i ] );
 			}
 		}
+	}
+
+	// Write one row into the ring at the head and advance, capping at maxLines.
+	_writeRow( row ) {
+		this._ring[ this._head ] = row;
+		this._head = ( this._head + 1 ) % this.maxLines;
+		this._count = Math.min( this._count + 1, this.maxLines );
+	}
+
+	// The i-th row newest-first (i=0 is newest), O(1); undefined out of range.
+	// The canvas reads only its on-screen window through this — never the whole
+	// buffer — so the frame cost is O(rows-on-screen) regardless of buffer size.
+	lineAt( i ) {
+		if ( i < 0 || i >= this._count ) {
+			return undefined;
+		}
+		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
+		return this._ring[ idx ];
+	}
+
+	// Number of live rows in the ring (O(1)).
+	get linesCount() {
+		return this._count;
 	}
 
 	static nodeSchema() {

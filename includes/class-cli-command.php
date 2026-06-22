@@ -475,6 +475,19 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	}
 
 	/**
+	 * Send both completion queries through the Shell so they ride the same
+	 * CommandInterpreter path as any typed command. The replies land
+	 * asynchronously and update the cache for the NEXT Tab — completion is
+	 * thus one keystroke stale, which is acceptable for an interactive REPL.
+	 */
+	public function send_completion_queries(): void {
+		$help = $this->build_completion_query( 'help' );
+		$this->shell->fill( $help );
+		$ls = $this->build_completion_query( 'ls' );
+		$this->shell->fill( $ls );
+	}
+
+	/**
 	 * Build a completion-query Message (`help` for verbs, `ls` for node names),
 	 * routed to the current pivot (cwd) so candidates come from the right graph.
 	 *
@@ -492,19 +505,6 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		$message[ Message::KEY ]    = 'completion';
 		$message[ Message::VALUE ]  = $verb;
 		return $message;
-	}
-
-	/**
-	 * Send both completion queries through the Shell so they ride the same
-	 * CommandInterpreter path as any typed command. The replies land
-	 * asynchronously and update the cache for the NEXT Tab — completion is
-	 * thus one keystroke stale, which is acceptable for an interactive REPL.
-	 */
-	public function send_completion_queries(): void {
-		$help = $this->build_completion_query( 'help' );
-		$this->shell->fill( $help );
-		$ls = $this->build_completion_query( 'ls' );
-		$this->shell->fill( $ls );
 	}
 
 	/**

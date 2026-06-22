@@ -438,6 +438,29 @@ export class ShellNode extends Node {
 		return cwd.replace( /^\/+/, '' ).replace( /\/+$/, '' );
 	}
 
+	/**
+	 * Build a TM_COMMAND via this.command(...) (inherited from Node), stamp the
+	 * Shell session's FROM/LOCAL provenance + the target TO (path), and fill
+	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
+	 * callers issue commands as method calls instead of via parse().
+	 *
+	 * @param {string} path Routing target (TO). Empty = local interpreter.
+	 * @param {string} name Command verb (e.g. 'connect_node').
+	 * @param {string} args Positional argument string.
+	 * @return {void}
+	 */
+	sendCommand( path, name, args = '' ) {
+		const m = this.command( name, args );
+		m[ FROM ] = this.replyFrom( names.OUTPUT );
+		// `path` is RELATIVE to the cwd — prefix() joins them. This matches the
+		// REPL's bare-verb dispatch (which uses prefix() too) and ensures
+		// debug-overlay Inspector clicks honor the live cwd.
+		m[ TO ] = this.prefix( path );
+		m[ LOCAL ] = true;
+		this.stampNoreply( m );
+		this.dispatch( m );
+	}
+
 	// FROM = the bare reply node. When the cwd routes through `_sse:{pid}` that
 	// session node wraps it into the private pivot `_http/_sse:{pid}/<reply-node>`;
 	// otherwise (`_http/…`) it stays bare and replies broadcast.
@@ -499,29 +522,6 @@ export class ShellNode extends Node {
 	// Instance accessor for the quote-aware tokenizer (PHP Shell_Node::tokenize).
 	tokenize( line ) {
 		return tokenize( line );
-	}
-
-	/**
-	 * Build a TM_COMMAND via this.command(...) (inherited from Node), stamp the
-	 * Shell session's FROM/LOCAL provenance + the target TO (path), and fill
-	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
-	 * callers issue commands as method calls instead of via parse().
-	 *
-	 * @param {string} path Routing target (TO). Empty = local interpreter.
-	 * @param {string} name Command verb (e.g. 'connect_node').
-	 * @param {string} args Positional argument string.
-	 * @return {void}
-	 */
-	sendCommand( path, name, args = '' ) {
-		const m = this.command( name, args );
-		m[ FROM ] = this.replyFrom( names.OUTPUT );
-		// `path` is RELATIVE to the cwd — prefix() joins them. This matches the
-		// REPL's bare-verb dispatch (which uses prefix() too) and ensures
-		// debug-overlay Inspector clicks honor the live cwd.
-		m[ TO ] = this.prefix( path );
-		m[ LOCAL ] = true;
-		this.stampNoreply( m );
-		this.dispatch( m );
 	}
 
 	/**

@@ -107,11 +107,6 @@ class Bootstrap {
 		}
 	}
 
-	/** Configured base directory for runtime state (locks/, ipc/). */
-	public static function base_dir(): string {
-		return Config::get_base_directory();
-	}
-
 	/**
 	 * Build the one shared `\Memcached` handle on `Core::$memd` from the
 	 * substrate's own `memcache_servers` config. The substrate owns this — every
@@ -240,6 +235,11 @@ class Bootstrap {
 	public static function supervisor(): Supervisor {
 		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
 		return $factory();
+	}
+
+	/** Configured base directory for runtime state (locks/, ipc/). */
+	public static function base_dir(): string {
+		return Config::get_base_directory();
 	}
 
 	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
