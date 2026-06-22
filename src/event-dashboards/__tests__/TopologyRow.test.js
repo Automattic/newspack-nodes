@@ -250,7 +250,7 @@ describe( 'TopologyRow — folded mode', () => {
 describe( 'TopologyRow', () => {
 	it( 'renders the live TopologySection subtree for an active topology', () => {
 		const { container } = render( <TopologyRow { ...rowProps() } /> );
-		expect( container.querySelector( '.topology-section' ) ).toBeTruthy();
+		expect( container.querySelector( '.tree-branch' ) ).toBeTruthy();
 	} );
 
 	it( 'renders a node row with the model read rate (not a crash, not 0 B/s)', () => {
@@ -271,7 +271,7 @@ describe( 'TopologyRow', () => {
 			},
 		} );
 		const { container, getByText } = render( <TopologyRow { ...props } /> );
-		expect( container.querySelector( '.topology-section' ) ).toBeFalsy();
+		expect( container.querySelector( '.tree-branch' ) ).toBeFalsy();
 		expect( getByText( 'Stopped' ) ).toBeTruthy();
 	} );
 
