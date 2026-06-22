@@ -12,9 +12,9 @@
  *     client-side ring).
  *   - 'follow'  → tail-seek (the default): current + live, for the Topologies tab.
  *
- * The INITIAL connect uses the mode's seek; a visibility-driven RECONNECT always
- * tail-follows (positions=null) so refocusing a 'history' tab resumes live instead
- * of replaying — and re-appending — the whole 24h into the already-populated view.
+ * The INITIAL connect uses the mode's seek; a visibility-driven RECONNECT resumes
+ * from the last seen offset (`link.resumePositions()`) so the chart fills the
+ * hidden gap exactly — no dropped span, and no re-replay of the whole 24h.
  *
  * React reads the model via `useNodeState('topicprobe:view','view')`.
  */
@@ -112,8 +112,10 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 		if ( connectedLinkRef.current === link ) {
 			return;
 		}
+		// A reconnect (already connected once) resumes from the last seen offset so
+		// the chart fills the hidden gap; the first connect uses the mode's seek.
 		const positions = hasConnectedRef.current
-			? null
+			? link.resumePositions()
 			: positionsForMode( modeRef.current );
 		hasConnectedRef.current = true;
 		connectedLinkRef.current = link;

@@ -3,6 +3,8 @@ import { Node } from '../node';
 import { Core } from '../core';
 import {
 	TYPE,
+	FROM,
+	ID,
 	KEY,
 	VALUE,
 	TM_INFO,
@@ -325,17 +327,69 @@ test( 'close() stops the watchdog (no reconnect, no throw long after close)', ()
 	}
 } );
 
-test( 'a forced reconnect tail-follows — it does NOT re-replay the positions seed', () => {
+test( 'a forced reconnect with nothing tracked tail-follows — it does NOT re-replay the original seed', () => {
 	jest.useFakeTimers();
 	try {
 		const s = makeConnector();
 		s.positions = { x: { 0: 'start' } };
 		s.start();
 		expect( FakeEventSource.last.url ).toContain( 'positions=' ); // initial replay
-		// Stream goes silent; the watchdog forces a reconnect past FORCE_AFTER_MS.
+		// Stream goes silent (no frames seen → nothing to resume from); the watchdog
+		// forces a reconnect past FORCE_AFTER_MS.
 		jest.advanceTimersByTime( 13000 );
-		// The reopened stream resumes LIVE (tail), not another 24h replay.
+		// Reopens LIVE (tail), not another full replay of the original 'start' seed.
 		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+test( 'tracks the seg:offset from each subscription frame, exposed via resumePositions()', () => {
+	const s = makeConnector( { subscribe: [ 'completed' ] } );
+	s.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = 'completed.p0/request-builder';
+	m[ ID ] = '4:623851';
+	m[ VALUE ] = 'a line';
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+	expect( s.resumePositions() ).toEqual( {
+		completed: { 0: { seg: 4, off: 623851 } },
+	} );
+} );
+
+test( 'a command-reply ID (not seg:offset) is not tracked as a position', () => {
+	const s = makeConnector( { subscribe: [ 'completed' ] } );
+	s.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = 'completed.p0/x';
+	m[ ID ] = 'byckewr4dozme4rx5j1erloi1tjvmo29';
+	m[ VALUE ] = {};
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+	expect( s.resumePositions() ).toBeNull();
+} );
+
+test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no replay)', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector( { subscribe: [ 'completed' ] } );
+		s.start();
+		const m = newMessage();
+		m[ TYPE ] = TM_BYTESTREAM;
+		m[ FROM ] = 'completed.p1/x';
+		m[ ID ] = '2:500';
+		m[ VALUE ] = 'x';
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+		jest.advanceTimersByTime( 13000 ); // watchdog forces a reconnect
+		const url = FakeEventSource.last.url;
+		expect( url ).toContain( 'positions=' );
+		const positions = JSON.parse(
+			decodeURIComponent( url.split( 'positions=' )[ 1 ] )
+		);
+		expect( positions ).toEqual( {
+			completed: { 1: { seg: 2, off: 500 } },
+		} );
 	} finally {
 		jest.useRealTimers();
 	}
