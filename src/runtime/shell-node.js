@@ -248,6 +248,19 @@ export class ShellNode extends Node {
 			return { kind: 'local', name: 'debug_level', level };
 		}
 
+		// Undocumented skin builtins: emit a local signal (the host resolves the
+		// raw name against THEMES + applies it); never reach `help`'s verb table.
+		if ( 'list_skins' === verb ) {
+			return { kind: 'local', name: 'list_skins' };
+		}
+		if ( 'set_skin' === verb ) {
+			const skin = join( 0 );
+			if ( '' === skin ) {
+				return { kind: 'error', text: 'usage: set_skin <name>' };
+			}
+			return { kind: 'local', name: 'set_skin', skin };
+		}
+
 		// `cd` navigates the path tree locally (no message). `/` = browser-internal
 		// graph; `/_http` = the HTTP boundary (HttpOut → /command → PHP HTTP_In);
 		// `/_http/<worker>` = a worker; `..` walks up. Mirrors the cli's cd.

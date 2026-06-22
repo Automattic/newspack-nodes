@@ -24,9 +24,6 @@ export default function Header( {
 	canDelete,
 	onSettings,
 	settingsActive = false,
-	theme,
-	onThemeChange,
-	themes = [],
 	// When set, the LIVE button is replaced by an X close button (debug overlay).
 	onClose,
 } ) {
@@ -72,24 +69,6 @@ export default function Header( {
 						</select>
 					</>
 				) }
-				{ /* Skin picker — global preference, shown in every mode. */ }
-				<span className="topology-ctl-label">
-					{ __( 'Skin', 'newspack-nodes' ) }
-				</span>
-				<select
-					className="topology-select topology-select--skin"
-					aria-label={ __( 'Skin', 'newspack-nodes' ) }
-					value={ theme }
-					onChange={ ( e ) =>
-						onThemeChange && onThemeChange( e.target.value )
-					}
-				>
-					{ themes.map( ( t ) => (
-						<option key={ t.slug } value={ t.slug }>
-							{ t.label }
-						</option>
-					) ) }
-				</select>
 				<div className="topology-mode">
 					{ mode === 'edit' && (
 						<button

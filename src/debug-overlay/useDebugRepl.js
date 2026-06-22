@@ -12,6 +12,7 @@ import { DumperNode } from '../runtime/dumper-node';
 import { useGraphGeneration } from '../runtime/react';
 import { LOCAL, FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
+import { THEMES, getStoredTheme } from '../topology-console/themes';
 
 const EMPTY_TRANSCRIPT = [];
 
@@ -87,17 +88,22 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
  * passed-in Shell (owned by DebugOverlay) to parse + dispatch typed REPL lines
  * into the local realm.
  *
- * @param {boolean} active When false the Dumper is torn down (no transcript).
- * @param {Object}  shell  Shell instance owned by DebugOverlay; sink wired to the local interpreter.
+ * @param {boolean}  active      When false the Dumper is torn down (no transcript).
+ * @param {Object}   shell       Shell instance owned by DebugOverlay; sink wired to the local interpreter.
+ * @param {Function} [onSetSkin] Apply a skin slug — drives the `set_skin` builtin.
  * @return {{ transcript: Array, sendLine: Function, clear: Function }} Reactive
  *   transcript + a `sendLine( line )` that runs the line through Shell and the
  *   matching subset of TopologyConsole's local-scope dispatch.
  */
-export function useDebugRepl( active = true, shell ) {
+export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.
 	const shellRef = useRef( null );
 	const dumperRef = useRef( null );
 	const debugLevelRef = useRef( 0 );
+	// Held in a ref so the []-dep dispatchStatement always calls the live skin
+	// applier without rebuilding the callback.
+	const onSetSkinRef = useRef( onSetSkin );
+	onSetSkinRef.current = onSetSkin;
 	// Transcript mirror — driven by a `transcript` subscription on the Dumper so
 	// every append/clear re-renders the prompt subscribers. Defaults to empty so
 	// the first render before infra is built shows a stable empty list.
@@ -217,6 +223,9 @@ export function useDebugRepl( active = true, shell ) {
 			append: ( entry ) => dumper.append( entry ),
 			clear: () => dumper.clear(),
 			debugLevelRef,
+			setSkin: onSetSkinRef.current,
+			skins: THEMES,
+			currentSkin: getStoredTheme(),
 		} );
 	}, [] );
 

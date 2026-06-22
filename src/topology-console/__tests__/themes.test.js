@@ -1,4 +1,10 @@
-import { THEMES, DEFAULT_THEME, isValidTheme } from '../themes';
+import {
+	THEMES,
+	DEFAULT_THEME,
+	isValidTheme,
+	getStoredTheme,
+	THEME_STORAGE_KEY,
+} from '../themes';
 
 describe( 'Newspack skins', () => {
 	it( 'defaults to newspack', () => {
@@ -33,5 +39,20 @@ describe( 'Newspack skins', () => {
 		[ 'nonsense', '', undefined, null ].forEach( ( s ) =>
 			expect( isValidTheme( s ) ).toBe( false )
 		);
+	} );
+} );
+
+describe( 'getStoredTheme', () => {
+	afterEach( () => window.localStorage.clear() );
+
+	it( 'returns the persisted slug when valid', () => {
+		window.localStorage.setItem( THEME_STORAGE_KEY, 'crt' );
+		expect( getStoredTheme() ).toBe( 'crt' );
+	} );
+
+	it( 'falls back to the default for an absent or unknown slug', () => {
+		expect( getStoredTheme() ).toBe( DEFAULT_THEME );
+		window.localStorage.setItem( THEME_STORAGE_KEY, 'bogus' );
+		expect( getStoredTheme() ).toBe( DEFAULT_THEME );
 	} );
 } );

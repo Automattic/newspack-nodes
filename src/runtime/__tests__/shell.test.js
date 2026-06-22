@@ -653,3 +653,42 @@ describe( 'Shell node — name guard', () => {
 		expect( () => ( s.name = 'x' ) ).toThrow( /shell.*not.*named/i );
 	} );
 } );
+
+describe( 'Shell node — undocumented skin builtins', () => {
+	it( 'list_skins → a local signal, never a filled message', () => {
+		const { shell, filled } = makeShell();
+		expect( shell.parse( 'list_skins' ) ).toEqual( {
+			kind: 'local',
+			name: 'list_skins',
+		} );
+		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'set_skin <name> → a local signal carrying the joined raw name', () => {
+		const { shell, filled } = makeShell();
+		expect( shell.parse( 'set_skin CRT Phosphor' ) ).toEqual( {
+			kind: 'local',
+			name: 'set_skin',
+			skin: 'CRT Phosphor',
+		} );
+		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'set_skin with a single-word name carries that word', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'set_skin Newspack' ) ).toEqual( {
+			kind: 'local',
+			name: 'set_skin',
+			skin: 'Newspack',
+		} );
+	} );
+
+	it( 'set_skin with no argument is a usage error', () => {
+		const { shell, filled } = makeShell();
+		expect( shell.parse( 'set_skin' ) ).toEqual( {
+			kind: 'error',
+			text: 'usage: set_skin <name>',
+		} );
+		expect( filled ).toHaveLength( 0 );
+	} );
+} );

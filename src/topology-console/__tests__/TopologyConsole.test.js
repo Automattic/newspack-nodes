@@ -3783,16 +3783,17 @@ describe( 'TopologyConsole boot', () => {
 			expect( rootClass( container ) ).not.toContain( 'theme-bogus' );
 		} );
 
-		it( 'passes the current theme + full skin list to the header', () => {
+		it( 'no longer threads skin props to the header (skins moved to the REPL)', () => {
 			render( <TopologyConsole /> );
-			expect( lastHeaderProps.theme ).toBe( 'newspack' );
-			expect( lastHeaderProps.themes.length ).toBe( 15 );
+			expect( lastHeaderProps.onThemeChange ).toBeUndefined();
+			expect( lastHeaderProps.themes ).toBeUndefined();
 		} );
 
-		it( 'changing the skin updates the root class and persists', () => {
+		it( 'set_skin REPL builtin updates the root class and persists', () => {
 			const { container } = render( <TopologyConsole /> );
 			act( () => {
-				lastHeaderProps.onThemeChange( 'crt' );
+				// Spaced label form resolves to the `crt` slug.
+				lastReplProps.onSubmit( 'set_skin CRT Phosphor' );
 			} );
 			expect( rootClass( container ) ).toContain( 'theme-crt' );
 			expect(

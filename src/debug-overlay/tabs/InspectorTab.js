@@ -16,10 +16,7 @@ import { useNodeState } from '../../runtime/react';
 import { useCompletion } from '../../topology-console/hooks/useCompletion';
 import { useGraphSurface } from '../../topology-console/hooks/useGraphSurface';
 import names from '../../runtime/reserved-node-names.json';
-import {
-	THEMES,
-	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
-} from '../../topology-console/themes';
+import { PALETTE_COLLAPSED_STORAGE_KEY_LIVE } from '../../topology-console/themes';
 import { useDebugGraph } from '../useDebugGraph';
 import { useCanvasLayout } from '../../topology-console/hooks/useCanvasLayout';
 import { useDebugRepl } from '../useDebugRepl';
@@ -148,7 +145,7 @@ export default function InspectorTab( {
 		cwd,
 		setPath,
 		ready: replReady,
-	} = useDebugRepl( true, shell );
+	} = useDebugRepl( true, shell, onThemeChange );
 	// Layout storage scoped by cwd. useDebugGraph runs first (it needs only
 	// `onPositionChange`, threaded via a ref to break the hoist cycle); then
 	// useCanvasLayout consumes `graph`/`ready` from it and one-shot autoLayouts
@@ -305,9 +302,6 @@ export default function InspectorTab( {
 						</div>
 					) }
 					headerProps={ {
-						theme,
-						onThemeChange,
-						themes: THEMES,
 						mode: 'view',
 						pathOptions,
 						path: cwd,
