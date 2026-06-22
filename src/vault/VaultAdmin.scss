@@ -1,11 +1,89 @@
-// The shared tab host is transparent and the sibling hub tabs are dark-themed,
-// but the Vault admin is plain WP-admin UI — give it the default WordPress
-// admin content background and let it fill the tab's scroll container.
+// The Vault admin is built from WP-admin-native markup (.wp-list-table,
+// .button); these scoped rules dress it in the Newspack theme so it matches the
+// other hub tabs instead of inheriting the WP admin color scheme (which tints
+// the primary button off-brand). Double-class selectors win over WP core-ui.
 .event-aggregator-servers-admin {
 	box-sizing: border-box;
 	min-height: 100%;
 	padding: 16px;
 	background: var(--np-surface-subtle);
+
+	// Primary action (Add Server + the modal's Add) — Newspack Cobalt.
+	.button.button-primary {
+		background: var(--np-primary);
+		border: 1.5px solid var(--np-primary);
+		color: var(--np-on-primary);
+		border-radius: var(--np-radius-md);
+		box-shadow: none;
+		text-shadow: none;
+
+		&:hover,
+		&:focus {
+			background: var(--np-primary-hover);
+			border-color: var(--np-primary-hover);
+			color: var(--np-on-primary);
+		}
+	}
+
+	// Secondary/utility buttons (Test, modal Cancel) — white + border.
+	.button:not(.button-primary):not(.button-link-delete) {
+		background: var(--np-surface);
+		border: 1.5px solid var(--np-border-strong);
+		color: var(--np-text);
+		border-radius: var(--np-radius-md);
+		box-shadow: none;
+
+		&:hover {
+			background: var(--np-surface-subtle);
+			border-color: var(--np-text-secondary);
+			color: var(--np-text);
+		}
+	}
+
+	// Destructive action (Remove) — a danger outline. Declared after the primary
+	// rule so it wins for the modal's `button-primary button-link-delete` confirm.
+	.button.button-link-delete {
+		background: var(--np-surface);
+		border: 1.5px solid var(--np-error);
+		color: var(--np-error);
+		border-radius: var(--np-radius-md);
+		box-shadow: none;
+		text-shadow: none;
+
+		&:hover,
+		&:focus {
+			background: var(--np-error-subtle);
+			border-color: var(--np-error);
+			color: var(--np-error);
+		}
+	}
+
+	// The server table — a Newspack card with a subtle header band.
+	.wp-list-table {
+		background: var(--np-surface);
+		border: 1px solid var(--np-border);
+		border-radius: var(--np-radius-md);
+		overflow: hidden;
+
+		th {
+			background: var(--np-surface-subtle);
+			color: var(--np-text-secondary);
+			font-weight: 600;
+			text-transform: uppercase;
+			font-size: 11px;
+			letter-spacing: 0.03em;
+			border-bottom: 1px solid var(--np-border);
+		}
+
+		td {
+			color: var(--np-text);
+			border-top: 1px solid var(--np-border);
+		}
+
+		tbody tr:hover {
+			background: var(--np-surface-subtle);
+		}
+	}
 }
 
 // Plain-DOM modal shell (the ConfirmRemoveModal + AddServerModal). WP-admin-native
