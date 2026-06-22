@@ -54,23 +54,6 @@ class CLI {
 		return [ $m[1], (int) $m[2] ];
 	}
 
-
-	/**
-	 * Index of every active Consumer's latest stats record from the shared
-	 * topicprobe log, keyed by `offset_dir` (`{source_basename}.p{N}`) — the
-	 * durable per-reader identity. This is the single live-position source the
-	 * dashboard + `wp nodes ls/status` read (it replaced memcache + the offsetlog
-	 * fallback); TopicProbe appends one record per Consumer every ~15s.
-	 *
-	 * @return array<string,array<mixed>> offset_dir → the latest probe record VALUE.
-	 */
-	public function read_probe_index(): array {
-		return Partition_Node::read_tail_index_by(
-			"{$this->base_dir}/logs/" . Worker_Base::TOPICPROBE_LOG_DIR,
-			Probe_Record::READER
-		);
-	}
-
 	/**
 	 * One row per active Consumer — the lean per-reader STATE from the topicprobe
 	 * snapshot (`read_probe_index()`). Topology attribution (which topology/targets
@@ -100,6 +83,23 @@ class CLI {
 			];
 		}
 		return $rows;
+	}
+
+
+	/**
+	 * Index of every active Consumer's latest stats record from the shared
+	 * topicprobe log, keyed by `offset_dir` (`{source_basename}.p{N}`) — the
+	 * durable per-reader identity. This is the single live-position source the
+	 * dashboard + `wp nodes ls/status` read (it replaced memcache + the offsetlog
+	 * fallback); TopicProbe appends one record per Consumer every ~15s.
+	 *
+	 * @return array<string,array<mixed>> offset_dir → the latest probe record VALUE.
+	 */
+	public function read_probe_index(): array {
+		return Partition_Node::read_tail_index_by(
+			"{$this->base_dir}/logs/" . Worker_Base::TOPICPROBE_LOG_DIR,
+			Probe_Record::READER
+		);
 	}
 
 	/**
