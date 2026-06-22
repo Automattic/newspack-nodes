@@ -120,17 +120,14 @@
 // =============================================================================
 
 .aggregator-server-card {
-	background: base.$dark-bg-secondary;
+	background: var(--np-surface);
+	border: 1px solid var(--np-border);
 	border-radius: base.$border-radius-lg;
 	padding: 16px 20px;
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
-	transition: background 0.15s ease;
-
-	&:hover {
-		background: base.$dark-bg-hover;
-	}
+	box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
 }
 
 // Server Identity
@@ -175,13 +172,46 @@
 }
 
 .aggregator-partition {
-	background: base.$dark-bg-tertiary;
-	border-radius: base.$border-radius-sm;
-	padding: 10px 14px;
+	position: relative;
+	background: var(--np-surface-subtle);
+	border: 1px solid var(--np-border);
+	border-radius: base.$border-radius;
+	padding: 11px 14px 11px 16px;
 	min-width: 250px;
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
+	overflow: hidden;
+	transition:
+		box-shadow 0.15s ease,
+		border-color 0.15s ease;
+
+	// At-a-glance health rail down the left edge: green (ok) / amber (degraded)
+	// / red (down). The whole-card status read without parsing the rows.
+	&::before {
+		content: "";
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 3px;
+		background: var(--np-border-strong);
+	}
+
+	&.is-ok::before {
+		background: var(--np-success);
+	}
+
+	&.is-degraded::before {
+		background: var(--np-warning);
+	}
+
+	&.is-down::before {
+		background: var(--np-error);
+	}
+
+	&:hover {
+		border-color: var(--np-border-strong);
+		box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+	}
 }
 
 .aggregator-partition-header {
@@ -228,16 +258,18 @@
 	gap: 6px;
 }
 
-// Neutral container — it wraps the HTTP-code chip (which is a green `.success`
-// chip on HTTP 200) plus the error message. Only the message TEXT is error-red;
-// the wrapper must stay neutral so a 200 doesn't read green-on-red.
+// A real error line — rendered only when the partition carries an error
+// message (the HTTP code now lives on the Status row). A subtle error notice:
+// error-tinted fill + red text, never shown for a healthy 200.
 .aggregator-partition-error {
 	font-size: 10px;
+	line-height: 1.4;
 	color: base.$error-text;
-	background: var(--np-surface-subtle);
+	background: var(--np-error-subtle);
 	padding: 4px 8px;
 	border-radius: base.$border-radius-sm;
-	margin-top: 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 // Connection Status
@@ -258,8 +290,21 @@
 	}
 
 	&.connected {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
 		background: var(--np-success-soft);
 		color: base.$white;
+
+		// A small breathing dot = a live connection.
+		&::before {
+			content: "";
+			width: 5px;
+			height: 5px;
+			border-radius: 50%;
+			background: currentcolor;
+			animation: pulse 1.6s ease-in-out infinite;
+		}
 	}
 
 	&.connecting {
@@ -392,20 +437,13 @@
 	color: base.$dark-text-muted;
 }
 
+// HTTP code rides the Status line as a quiet mono caption beside the heartbeat
+// badge — informative on an error code, unobtrusive on a 200 (no longer a
+// competing green pill).
 .aggregator-http-code {
+	font-family: base.$mono-font;
 	font-size: 10px;
-	color: base.$dark-text;
-
-	&.small {
-		font-size: 9px;
-	}
-
-	&.success {
-		background: var(--np-success-soft);
-		color: base.$white;
-		padding: 1px 4px;
-		border-radius: base.$border-radius-sm;
-	}
+	color: base.$dark-text-dim;
 }
 
 // Error Display

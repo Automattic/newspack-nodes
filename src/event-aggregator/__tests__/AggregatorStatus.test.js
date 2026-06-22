@@ -182,7 +182,7 @@ describe( 'AggregatorStatus', () => {
 		).toBeNull();
 	} );
 
-	it( 'leaves the per-row partition-error markup unchanged', () => {
+	it( 'keeps a per-row partition error message (never promoted to the connection banner)', () => {
 		registerViewFixture( {
 			servers: SAMPLE_SERVERS,
 			connectedCount: 1,
@@ -190,10 +190,33 @@ describe( 'AggregatorStatus', () => {
 			loading: false,
 		} );
 		const { container } = mount();
-		// The per-row partition error (HTTP 504 / timeout) is NOT a connection
-		// banner — it must stay as aggregator-partition-error.
+		// A per-partition error stays a per-row notice carrying only the MESSAGE;
+		// the HTTP code now rides the Status row as a caption, not the error line.
+		const errLine = container.querySelector(
+			'.aggregator-partition-error'
+		);
+		expect( errLine ).toBeTruthy();
+		expect( errLine.textContent ).toContain( 'timeout' );
+		expect( errLine.textContent ).not.toContain( 'HTTP 504' );
 		expect(
-			container.querySelector( '.aggregator-partition-error' )
+			container.querySelector( '.aggregator-http-code' ).textContent
+		).toContain( 'HTTP 504' );
+	} );
+
+	it( 'rails each partition by rolled-up health (connected+heartbeating → is-ok, down → is-down)', () => {
+		registerViewFixture( {
+			servers: SAMPLE_SERVERS,
+			connectedCount: 1,
+			totalCount: 2,
+			loading: false,
+		} );
+		const { container } = mount();
+		// server1 p0 is connected + heartbeating → ok rail; p1 is down → down rail.
+		expect(
+			container.querySelector( '.aggregator-partition.is-ok' )
+		).toBeTruthy();
+		expect(
+			container.querySelector( '.aggregator-partition.is-down' )
 		).toBeTruthy();
 	} );
 
