@@ -23,6 +23,9 @@ class Topic_Node extends Node {
 	/** @var array<int,Partition_Node> Lazy. */
 	protected array $partitions = [];
 
+	/** Large-write opt-in propagated to every partition: '' none, 'lock' (allow_large_writes), 'void' (void_warranty). */
+	protected string $large_write_mode = '';
+
 	protected static int $rr_counter = 0;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
@@ -88,6 +91,7 @@ class Topic_Node extends Node {
 			// Keep Topic's own sink (specific) and patron-link so dump_metadata hides it from the canvas.
 			$p->sink( $this->sink );
 			$p->patron( $this );
+			$this->apply_large_write_mode( $p );
 			$this->partitions[ $i ] = $p;
 		}
 		if ( $first ) {
@@ -106,6 +110,37 @@ class Topic_Node extends Node {
 			}
 		}
 		return $result;
+	}
+
+	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
+	private function apply_large_write_mode( Partition_Node $p ): void {
+		if ( 'lock' === $this->large_write_mode ) {
+			$p->allow_large_writes();
+		} elseif ( 'void' === $this->large_write_mode ) {
+			$p->void_warranty();
+		}
+	}
+
+	/** Lift the 4KB cap on every partition via a held write lock — propagates to future children too. See Partition_Node::allow_large_writes(). */
+	public function allow_large_writes(): self {
+		return $this->set_large_write_mode( 'lock' );
+	}
+
+	/** Set the mode once and apply to already-materialized partitions; a repeat call in the same mode is a no-op (Partition::allow_large_writes re-locks). */
+	private function set_large_write_mode( string $mode ): self {
+		if ( $mode === $this->large_write_mode ) {
+			return $this;
+		}
+		$this->large_write_mode = $mode;
+		foreach ( $this->partitions as $p ) {
+			$this->apply_large_write_mode( $p );
+		}
+		return $this;
+	}
+
+	/** Lift the 4KB cap on every partition with NO lock — caller asserts single-writer. See Partition_Node::void_warranty(). */
+	public function void_warranty(): self {
+		return $this->set_large_write_mode( 'void' );
 	}
 
 	/** @api Flush every materialized partition's batch (request-scope callers land pending writes). */
