@@ -5,75 +5,76 @@
  */
 
 // =============================================================================
-// Design Tokens
+// Design Tokens — Newspack (all-light chrome)
 // =============================================================================
+// This dashboard was reskinned dark→light Newspack: it is ALL light chrome
+// (status cards + admin controls), with no log/terminal surfaces, so it needs
+// no dark `$term-*` set. Values are mapped onto the canonical --np-* tokens
+// (src/theme/newspack-theme.scss, shipped as the `newspack-nodes-theme` handle
+// and carried on the hub root class). The historical `$dark-*` / `$light-*`
+// variable NAMES are retained (only the VALUES flipped) to bound reskin churn.
 
-// Dark theme - backgrounds
-$dark-bg: #1e1e1e;
-$dark-bg-secondary: #2a2a2a;
-$dark-bg-tertiary: #333;
-$dark-bg-hover: #444;
-$dark-bg-active: #555;
-$dark-bg-row-even: #262626;
-$dark-bg-row-hover: #3a3a3a;
-$dark-bg-deep: #222;
-$dark-bg-deepest: #1a1a1a;
-$dark-header-border: #333;
+// Chrome surfaces (light) — `$dark-bg*` now carry the light Newspack neutrals.
+$dark-bg: var(--np-surface); // #fff
+$dark-bg-secondary: var(--np-surface); // card surface
+$dark-bg-tertiary: var(--np-surface-subtle); // control surface
+$dark-bg-hover: var(--np-surface-muted); // control hover
+$dark-bg-active: var(--np-primary-subtle); // active/selected control
+$dark-bg-row-even: var(--np-surface-subtle);
+$dark-bg-row-hover: var(--np-surface-muted);
+$dark-bg-deep: var(--np-surface-subtle);
+$dark-bg-deepest: var(--np-surface-muted);
+$dark-header-border: var(--np-border);
 
-// Dark theme - text
-$dark-text: #e0e0e0;
-$dark-text-muted: #90a4ae;
-$dark-text-time: #78909c;
-$dark-text-placeholder: #888;
-$dark-text-dim: #666;
+// Chrome text (dark ink on light).
+$dark-text: var(--np-text); // #1e1e1e
+$dark-text-muted: var(--np-text-secondary); // #6c6c6c
+$dark-text-time: var(--np-text-secondary);
+$dark-text-placeholder: var(--np-text-secondary);
+$dark-text-dim: var(--np-text-secondary);
 
-// Dark theme - borders
-$dark-border: #444;
-$dark-border-light: #555;
+// Chrome borders.
+$dark-border: var(--np-border); // #ddd
+$dark-border-light: var(--np-border); // hairline divider
 
-// Dark theme - accent colors
-$dark-accent: #64b5f6;
-$dark-accent-hover: #90caf9;
-$dark-success: #66bb6a;
-$dark-info: #4fc3f7;
+// Accents — Cobalt leads.
+$dark-accent: var(--np-primary); // #003da5
+$dark-accent-hover: var(--np-primary-hover); // #00296e
+$dark-success: var(--np-success);
+$dark-info: var(--np-primary);
 
-// Light theme - text
-$light-text: #1e1e1e;
-$light-text-secondary: #757575;
-$light-text-muted: #666;
+// Light chrome — text + surfaces (already light; aligned to exact Newspack).
+$light-text: var(--np-text);
+$light-text-secondary: var(--np-text-secondary);
+$light-text-muted: var(--np-text-secondary);
+$light-surface: var(--np-surface-subtle);
+$light-surface-alt: var(--np-surface-subtle);
+$light-surface-hover: var(--np-surface-muted);
+$light-border: var(--np-border-strong);
+$light-border-light: var(--np-border);
 
-// Light theme - surfaces
-$light-surface: #f6f7f7;
-$light-surface-alt: #f9f9f9;
-$light-surface-hover: #fafafa;
+// Focus/interactive — Cobalt.
+$focus-color: var(--np-primary);
 
-// Light theme - borders
-$light-border: #c3c4c7;
-$light-border-light: #f0f0f1;
+// Status colors — functional.
+$status-success: var(--np-success);
+$status-warning: var(--np-warning);
+$status-error: var(--np-error);
+$status-inactive: var(--np-text-secondary);
 
-// Focus/interactive
-$focus-color: #007cba;
-
-// Status colors
-$status-success: #4caf50;
-$status-warning: #ff9800;
-$status-error: #f44336;
-$status-inactive: #9e9e9e;
-
-// Semantic colors
-$error-bg: #b71c1c;
-$error-text: #ef5350;
-$success-bg: #2e7d32;
-$success-border: #388e3c;
-$warning-color: #f9a825;
+// Semantic colors.
+$error-bg: var(--np-error);
+$error-text: var(--np-error);
+$success-bg: var(--np-success);
+$success-border: var(--np-success);
+$warning-color: var(--np-warning);
 
 // Pure colors
 $white: #fff;
 
-// Typography
-$system-font: -apple-system, blinkmacsystemfont, "Segoe UI", roboto, oxygen,
-	ubuntu, sans-serif;
-$mono-font: "SF Mono", monaco, inconsolata, "Roboto Mono", monospace;
+// Typography — Inter in product; mono for code-ish chrome.
+$system-font: var(--np-font);
+$mono-font: var(--np-font-mono);
 
 // Sizing
 $control-height: 28px;

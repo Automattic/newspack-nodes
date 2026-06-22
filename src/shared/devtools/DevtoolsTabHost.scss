@@ -32,14 +32,16 @@
 	}
 
 	&:focus-visible {
-		outline: 2px solid #4493f8;
+		outline: 2px solid var(--np-primary, #4493f8);
 		outline-offset: -2px;
 	}
 
 	&.is-active {
 		color: var(--nodes-devtools-fg, #fff);
 		font-weight: 600;
-		border-bottom-color: #3fb950;
+		// Cobalt active underline (Newspack); falls back to the prior green
+		// for any host without the token sheet (e.g. the standalone overlay).
+		border-bottom-color: var(--np-primary, #3fb950);
 	}
 }
 
