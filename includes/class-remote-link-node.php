@@ -128,6 +128,94 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
+	 * Default send: relay the message out through the patron HTTP_Out. Remote_IPC
+	 * overrides this to wrap the reply-FROM pivot + bundle a `connect_worker_input`.
+	 *
+	 * @param array<int, mixed> $message The 7-field positional message array.
+	 */
+	protected function send( array &$message ): void {
+		$this->ensure_patrons();
+		$this->http_out?->fill( $message );
+	}
+
+	/** Whether a tick initiates/keeps the connection. Base always pulls. */
+	protected function should_connect(): bool {
+		return true;
+	}
+
+	/** Per-tick cursor persistence. Base no-op; Remote_Source commits its offsetlog. */
+	protected function persist_cursor(): void {}
+
+	// =========================================================================
+	// Heartbeat — minted as a workers.heartbeat command, routed through HTTP_Out.
+	// =========================================================================
+
+	/**
+	 * Every ~HEARTBEAT_INTERVAL seconds, mint a `workers.heartbeat` TM_COMMAND
+	 * (FROM=<this node>, TO=workers, args `<slot> <ttl> <partition>`) and fill it
+	 * into the patron HTTP_Out. Skips until SSE_In reports a slot.
+	 */
+	private function maybe_send_heartbeat(): void {
+		if ( null === $this->sse_in || null === $this->http_out ) {
+			return;
+		}
+		$slot = $this->sse_in->slot();
+		if ( null === $slot || $slot < 0 ) {
+			return;
+		}
+		$now = (int) Core::$now;
+		if ( $now - $this->last_heartbeat < self::HEARTBEAT_INTERVAL ) {
+			return;
+		}
+		$this->last_heartbeat      = $now;
+		$this->last_heartbeat_sent = $now;
+
+		// ttl must outlive HEARTBEAT_INTERVAL — only the client refreshes the slot.
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = $this->name;
+		$message[ Message::TO ]    = 'workers';
+		$message[ Message::VALUE ] = [
+			'name'      => 'heartbeat',
+			'arguments' => $slot . ' ' . ( self::HEARTBEAT_INTERVAL * 3 ),
+		];
+		++$this->counter;
+		$this->http_out->fill( $message );
+
+		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
+	}
+
+	/**
+	 * Publish the connection-state snapshot from SSE_In::connection(). Ages out the
+	 * heartbeat round-trip so the dashboard's Status badge can't latch 'success' on a
+	 * stale timestamp: the response is "live" only while connected AND seen within the
+	 * node's HEARTBEAT_INTERVAL*4 window (the slot-TTL span); otherwise it's nulled
+	 * (mirrors the old clear-on-disconnect). Live values ride the write_status merge.
+	 */
+	private function publish_status(): void {
+		$conn = null !== $this->sse_in
+			? $this->sse_in->connection()
+			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null ];
+		$data = [
+			'last_connection_attempt' => (int) Core::$now,
+			'connected'               => $conn['connected'],
+			'last_http_code'          => $conn['last_http_code'],
+			'last_error'              => $conn['last_error'],
+			'current_backoff'         => $conn['current_backoff'],
+			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
+		];
+		// Live only while connected AND the response is within the slot-TTL window.
+		$hb_live = $conn['connected']
+			&& $this->last_heartbeat_response > 0
+			&& ( (int) Core::$now - $this->last_heartbeat_response ) <= self::HEARTBEAT_INTERVAL * 4;
+		if ( ! $hb_live ) {
+			$data['last_heartbeat_response'] = null;
+			$data['last_heartbeat_rtt']      = null;
+		}
+		$this->write_status( $data );
+	}
+
+	/**
 	 * Merge $data into the status snapshot under the per-node key.
 	 *
 	 * @param array<string,mixed> $data
@@ -156,14 +244,13 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Default send: relay the message out through the patron HTTP_Out. Remote_IPC
-	 * overrides this to wrap the reply-FROM pivot + bundle a `connect_worker_input`.
+	 * Open the inbound stream (children built lazily). Mirrors JS RemoteLink.connect.
 	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @api Dynamic entrypoint.
 	 */
-	protected function send( array &$message ): void {
-		$this->ensure_patrons();
-		$this->http_out?->fill( $message );
+	public function connect(): void {
+		$sse = $this->ensure_patrons();
+		$sse?->maybe_connect();
 	}
 
 	// =========================================================================
@@ -247,93 +334,6 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	protected function restore_position(): array {
 		return [];
-	}
-
-	/** Whether a tick initiates/keeps the connection. Base always pulls. */
-	protected function should_connect(): bool {
-		return true;
-	}
-
-	/** Per-tick cursor persistence. Base no-op; Remote_Source commits its offsetlog. */
-	protected function persist_cursor(): void {}
-
-	// =========================================================================
-	// Heartbeat — minted as a workers.heartbeat command, routed through HTTP_Out.
-	// =========================================================================
-
-	/**
-	 * Every ~HEARTBEAT_INTERVAL seconds, mint a `workers.heartbeat` TM_COMMAND
-	 * (FROM=<this node>, TO=workers, args `<slot> <ttl> <partition>`) and fill it
-	 * into the patron HTTP_Out. Skips until SSE_In reports a slot.
-	 */
-	private function maybe_send_heartbeat(): void {
-		if ( null === $this->sse_in || null === $this->http_out ) {
-			return;
-		}
-		$slot = $this->sse_in->slot();
-		if ( null === $slot || $slot < 0 ) {
-			return;
-		}
-		$now = (int) Core::$now;
-		if ( $now - $this->last_heartbeat < self::HEARTBEAT_INTERVAL ) {
-			return;
-		}
-		$this->last_heartbeat      = $now;
-		$this->last_heartbeat_sent = $now;
-
-		// ttl must outlive HEARTBEAT_INTERVAL — only the client refreshes the slot.
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = $this->name;
-		$message[ Message::TO ]    = 'workers';
-		$message[ Message::VALUE ] = [
-			'name'      => 'heartbeat',
-			'arguments' => $slot . ' ' . ( self::HEARTBEAT_INTERVAL * 3 ),
-		];
-		++$this->counter;
-		$this->http_out->fill( $message );
-
-		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
-	}
-
-	/**
-	 * Publish the connection-state snapshot from SSE_In::connection(). Ages out the
-	 * heartbeat round-trip so the dashboard's Status badge can't latch 'success' on a
-	 * stale timestamp: the response is "live" only while connected AND seen within the
-	 * node's HEARTBEAT_INTERVAL*4 window (the slot-TTL span); otherwise it's nulled
-	 * (mirrors the old clear-on-disconnect). Live values ride the write_status merge.
-	 */
-	private function publish_status(): void {
-		$conn = null !== $this->sse_in
-			? $this->sse_in->connection()
-			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null ];
-		$data = [
-			'last_connection_attempt' => (int) Core::$now,
-			'connected'               => $conn['connected'],
-			'last_http_code'          => $conn['last_http_code'],
-			'last_error'              => $conn['last_error'],
-			'current_backoff'         => $conn['current_backoff'],
-			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
-		];
-		// Live only while connected AND the response is within the slot-TTL window.
-		$hb_live = $conn['connected']
-			&& $this->last_heartbeat_response > 0
-			&& ( (int) Core::$now - $this->last_heartbeat_response ) <= self::HEARTBEAT_INTERVAL * 4;
-		if ( ! $hb_live ) {
-			$data['last_heartbeat_response'] = null;
-			$data['last_heartbeat_rtt']      = null;
-		}
-		$this->write_status( $data );
-	}
-
-	/**
-	 * Open the inbound stream (children built lazily). Mirrors JS RemoteLink.connect.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function connect(): void {
-		$sse = $this->ensure_patrons();
-		$sse?->maybe_connect();
 	}
 
 	/**

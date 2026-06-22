@@ -108,6 +108,11 @@ class Timer_Node extends Node {
 		Event_Framework::instance()->set_timer( $this );
 	}
 
+	public function remove_node(): void {
+		$this->stop_timer();
+		parent::remove_node();
+	}
+
 	public function stop_timer(): void {
 		$this->_stop_timer();
 		$this->mode        = 'inactive';
@@ -136,11 +141,6 @@ class Timer_Node extends Node {
 			$this->key = (string) $key;
 		}
 		return $this->key;
-	}
-
-	public function remove_node(): void {
-		$this->stop_timer();
-		parent::remove_node();
 	}
 
 	public static function node_schema(): array {

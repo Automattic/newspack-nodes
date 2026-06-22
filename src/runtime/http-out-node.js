@@ -49,6 +49,18 @@ export class HttpOutNode extends Node {
 		this._post( [ message ] );
 	}
 
+	// Release the lock and POST everything buffered during the locked window as
+	// ONE batch. An empty buffer posts nothing.
+	flush() {
+		this.locked = false;
+		if ( 0 === this.buffer.length ) {
+			return;
+		}
+		const batch = this.buffer;
+		this.buffer = [];
+		this._post( batch );
+	}
+
 	// POST the entries; feed every synchronous reply back into the sink — replies
 	// route by TO. JSONL body → zero or more reply Messages (verb response plus any
 	// stderr/log lines); a routed-onward command yields [] (bare 202) — its reply
@@ -73,18 +85,6 @@ export class HttpOutNode extends Node {
 
 	lock() {
 		this.locked = true;
-	}
-
-	// Release the lock and POST everything buffered during the locked window as
-	// ONE batch. An empty buffer posts nothing.
-	flush() {
-		this.locked = false;
-		if ( 0 === this.buffer.length ) {
-			return;
-		}
-		const batch = this.buffer;
-		this.buffer = [];
-		this._post( batch );
 	}
 
 	// Programmatic-deps node: no positional config to round-trip via arguments=.

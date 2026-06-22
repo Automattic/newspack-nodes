@@ -62,19 +62,6 @@ class Workers_CI_Node extends Service_CI_Node {
 	 */
 	public ?object $cli = null;
 
-	/**
-	 * The injected Cli, materialized non-null. Fails loud if the bootstrap
-	 * forgot to assign `$cli` before a worker-control verb dispatches.
-	 *
-	 * @return \Newspack_Nodes\CLI
-	 */
-	public function cli(): object {
-		if ( null === $this->cli ) {
-			throw new \RuntimeException( 'Workers_CI_Node requires an injected cli; bootstrap must assign $cli first' );
-		}
-		return $this->cli;
-	}
-
 	// -------------------------------------------------------------------------
 	// dump_graph helpers — the full operator-grade payload, ported wholesale
 	// from the legacy WorkersController::get_workers + its private helpers.
@@ -250,40 +237,6 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The active topology catalog (`name => cfg`), or `[]` if the substrate
-	 * isn't loaded / the lookup throws. Shared preamble for every per-topology
-	 * collector below so the class_exists/try-catch contract lives in one place.
-	 *
-	 * @return array<string,mixed>
-	 */
-	private static function active_topologies(): array {
-		if ( ! \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
-			return [];
-		}
-		try {
-			return Bootstrap::get_topologies();
-		} catch ( \Throwable $e ) {
-			return [];
-		}
-	}
-
-	/**
-	 * Per-topology structural graph for every active topology: name =>
-	 * `Topology_Registry::graph_for( name )` (`{nodes, edges}`). The dashboard
-	 * renders the .tsl graph alongside the live fleet so operators see node
-	 * wiring next to worker status.
-	 *
-	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}>
-	 */
-	private static function collect_topology_graphs(): array {
-		$graphs = [];
-		foreach ( self::active_topologies() as $name => $_cfg ) {
-			$graphs[ $name ] = Topology_Registry::graph_for( $name );
-		}
-		return $graphs;
-	}
-
-	/**
 	 * Build `logs` catalog entries for every active topology's `Log` file-sink
 	 * (kind 'log' in `graph_for`). Each Log writes a single rotated file, not a
 	 * partitioned segment dir, so its entry is synthesized by stat'ing the live
@@ -326,6 +279,22 @@ class Workers_CI_Node extends Service_CI_Node {
 			}
 		}
 		return $logs;
+	}
+
+	/**
+	 * Per-topology structural graph for every active topology: name =>
+	 * `Topology_Registry::graph_for( name )` (`{nodes, edges}`). The dashboard
+	 * renders the .tsl graph alongside the live fleet so operators see node
+	 * wiring next to worker status.
+	 *
+	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}>
+	 */
+	private static function collect_topology_graphs(): array {
+		$graphs = [];
+		foreach ( self::active_topologies() as $name => $_cfg ) {
+			$graphs[ $name ] = Topology_Registry::graph_for( $name );
+		}
+		return $graphs;
 	}
 
 	/**
@@ -389,6 +358,24 @@ class Workers_CI_Node extends Service_CI_Node {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The active topology catalog (`name => cfg`), or `[]` if the substrate
+	 * isn't loaded / the lookup throws. Shared preamble for every per-topology
+	 * collector below so the class_exists/try-catch contract lives in one place.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function active_topologies(): array {
+		if ( ! \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
+			return [];
+		}
+		try {
+			return Bootstrap::get_topologies();
+		} catch ( \Throwable $e ) {
+			return [];
+		}
 	}
 
 	/**
@@ -549,6 +536,19 @@ class Workers_CI_Node extends Service_CI_Node {
 			return (int) $v;
 		}
 		return 0;
+	}
+
+	/**
+	 * The injected Cli, materialized non-null. Fails loud if the bootstrap
+	 * forgot to assign `$cli` before a worker-control verb dispatches.
+	 *
+	 * @return \Newspack_Nodes\CLI
+	 */
+	public function cli(): object {
+		if ( null === $this->cli ) {
+			throw new \RuntimeException( 'Workers_CI_Node requires an injected cli; bootstrap must assign $cli first' );
+		}
+		return $this->cli;
 	}
 
 	public static function node_schema(): array {

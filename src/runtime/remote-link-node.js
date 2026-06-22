@@ -50,6 +50,32 @@ export class RemoteLinkNode extends Node {
 		this.onClose = null;
 	}
 
+	// Open the inbound stream (children built lazily on first use). An optional
+	// `positions` seed (`{ <sub>: { <partition>: 'start'|'end'|{seg,off} } }`)
+	// seeks the server cursor — the Overview tab passes 'start' for 24h replay;
+	// omitting it tail-seeks (the live-follow default).
+	connect( positions = null ) {
+		this.ensureChildren();
+		this.sseIn.positions = positions;
+		this.sseIn.start();
+	}
+
+	// Re-point the stream at a new subscription (the dashboards' selectLog), with
+	// an optional `positions` seek seed (omitted → tail-seek).
+	setSubscribe( subscribe, positions = null ) {
+		this.ensureChildren();
+		this.sseIn.close();
+		this.sseIn.subscribe = subscribe;
+		this.sseIn.positions = positions;
+		this.sseIn.start();
+	}
+
+	// Send a command out through this link's own HttpOut.
+	send( message ) {
+		this.ensureChildren();
+		this.httpOut.fill( message );
+	}
+
 	/**
 	 * Create + register the three children and wire the connected→slot bridge.
 	 * Idempotent — the first send() or connect() builds them; later calls no-op.
@@ -117,51 +143,6 @@ export class RemoteLinkNode extends Node {
 		} );
 	}
 
-	// Open the inbound stream (children built lazily on first use). An optional
-	// `positions` seed (`{ <sub>: { <partition>: 'start'|'end'|{seg,off} } }`)
-	// seeks the server cursor — the Overview tab passes 'start' for 24h replay;
-	// omitting it tail-seeks (the live-follow default).
-	connect( positions = null ) {
-		this.ensureChildren();
-		this.sseIn.positions = positions;
-		this.sseIn.start();
-	}
-
-	// Close the inbound stream and forget the slot (nothing to keep alive), then
-	// fire the consumer's onClose hook.
-	close() {
-		this.sseIn?.close();
-		this.heartbeat?.clearSlot();
-		this.onClose?.();
-	}
-
-	// Re-point the stream at a new subscription (the dashboards' selectLog), with
-	// an optional `positions` seek seed (omitted → tail-seek).
-	setSubscribe( subscribe, positions = null ) {
-		this.ensureChildren();
-		this.sseIn.close();
-		this.sseIn.subscribe = subscribe;
-		this.sseIn.positions = positions;
-		this.sseIn.start();
-	}
-
-	// Resume seed (last seen `{seg,off}` per sub/partition) so a reconnect picks up
-	// exactly where the stream left off; null (→ tail) when nothing's been seen.
-	resumePositions() {
-		return this.sseIn?.resumePositions() ?? null;
-	}
-
-	// Send a command out through this link's own HttpOut.
-	send( message ) {
-		this.ensureChildren();
-		this.httpOut.fill( message );
-	}
-
-	// Session pid, read from the composed SseIn's `connected` snoop.
-	pid() {
-		return this.sseIn?.pid() ?? null;
-	}
-
 	// Tear down the children (unregister + close) then remove self. close() first
 	// because the children's removeNode (Node/TimerNode) unregisters but does NOT
 	// close the SseIn's live EventSource — teardown must, or the stream leaks.
@@ -175,6 +156,25 @@ export class RemoteLinkNode extends Node {
 		this.httpOut = null;
 		this.heartbeat = null;
 		super.removeNode();
+	}
+
+	// Close the inbound stream and forget the slot (nothing to keep alive), then
+	// fire the consumer's onClose hook.
+	close() {
+		this.sseIn?.close();
+		this.heartbeat?.clearSlot();
+		this.onClose?.();
+	}
+
+	// Resume seed (last seen `{seg,off}` per sub/partition) so a reconnect picks up
+	// exactly where the stream left off; null (→ tail) when nothing's been seen.
+	resumePositions() {
+		return this.sseIn?.resumePositions() ?? null;
+	}
+
+	// Session pid, read from the composed SseIn's `connected` snoop.
+	pid() {
+		return this.sseIn?.pid() ?? null;
 	}
 
 	static nodeSchema() {

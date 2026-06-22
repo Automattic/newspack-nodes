@@ -129,29 +129,6 @@ class Ingest_CLI_Command {
 	}
 
 	/**
-	 * Parse an optional integer flag, defaulting when absent and erroring on a non-numeric value.
-	 *
-	 * @param array<string, mixed> $assoc_args
-	 */
-	private function int_flag( array $assoc_args, string $key, int $default ): int {
-		$raw = $assoc_args[ $key ] ?? null;
-		if ( null === $raw ) {
-			return $default;
-		}
-		if ( ! \is_numeric( $raw ) ) {
-			\WP_CLI::error( "--{$key} must be an integer." );
-		}
-		// is_scalar narrows for the cast; the is_numeric guard above already rejected non-numbers.
-		return (int) ( \is_scalar( $raw ) ? $raw : 0 );
-	}
-
-	/** Global config num_partitions (the operator default), clamped to >= 1. */
-	private static function config_num_partitions(): int {
-		$raw = Config::load_config()['num_partitions'] ?? 1;
-		return \max( 1, (int) ( \is_scalar( $raw ) ? $raw : 1 ) );
-	}
-
-	/**
 	 * Resolve the <topic> argument to [dir_template, num_partitions].
 	 *
 	 * Explicit form (carries a {partition}/<partition> token): trust the operator —
@@ -172,6 +149,29 @@ class Ingest_CLI_Command {
 		$count = \max( 1, $requested ?? self::config_num_partitions() );
 		$logs  = Core::resolve_config_tokens( '<config:logs_dir>' );
 		return [ "{$logs}/{$topic_arg}.p{partition}", $count ];
+	}
+
+	/** Global config num_partitions (the operator default), clamped to >= 1. */
+	private static function config_num_partitions(): int {
+		$raw = Config::load_config()['num_partitions'] ?? 1;
+		return \max( 1, (int) ( \is_scalar( $raw ) ? $raw : 1 ) );
+	}
+
+	/**
+	 * Parse an optional integer flag, defaulting when absent and erroring on a non-numeric value.
+	 *
+	 * @param array<string, mixed> $assoc_args
+	 */
+	private function int_flag( array $assoc_args, string $key, int $default ): int {
+		$raw = $assoc_args[ $key ] ?? null;
+		if ( null === $raw ) {
+			return $default;
+		}
+		if ( ! \is_numeric( $raw ) ) {
+			\WP_CLI::error( "--{$key} must be an integer." );
+		}
+		// is_scalar narrows for the cast; the is_numeric guard above already rejected non-numbers.
+		return (int) ( \is_scalar( $raw ) ? $raw : 0 );
 	}
 
 	/**

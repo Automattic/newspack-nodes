@@ -51,105 +51,6 @@ class Vault_CI_Node extends Service_CI_Node {
 	public static ?\Closure $http_call = null;
 
 	/**
-	 * Project a stored server config into its public dashboard shape. Strips
-	 * credentials and adds computed `has_credentials` + `is_config` flags.
-	 *
-	 * @param string               $id     Server id.
-	 * @param array<string, mixed> $config Stored server config.
-	 * @param Vault                $registry Backing vault.
-	 * @return array<string, mixed> Public server record.
-	 */
-	private static function public_shape( string $id, array $config, Vault $registry ): array {
-		/** @var int|float|string|bool|null $raw_url */
-		$raw_url = $config['url'] ?? '';
-		return [
-			'id'              => $id,
-			'url'             => (string) $raw_url,
-			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
-			'is_config'       => $registry->is_config_server( $id ),
-		];
-	}
-
-	/**
-	 * Pull the single required positional id out of the args string, throwing
-	 * 'id required' when absent. Used by get/delete/test/update.
-	 *
-	 * @param string $args Verb arguments string.
-	 * @return string Server id.
-	 */
-	private static function positional_id( string $args ): string {
-		$id = Command_Args::parse( $args )['positional'][0] ?? '';
-		if ( '' === $id ) {
-			throw new \RuntimeException( 'id required' );
-		}
-		return $id;
-	}
-
-	/**
-	 * Build the canonical full server-config blob from `add`'s parsed options,
-	 * defaulting missing fields to the same shape validate_config expects.
-	 *
-	 * @param array<string,string|true> $opts Parsed `--key=value` options.
-	 * @return array<string, mixed> Server-config blob ready for registry->add().
-	 */
-	private static function extract_server_config( array $opts ): array {
-		return [
-			'url'           => (string) ( $opts['url']           ?? '' ),
-			'auth_username' => (string) ( $opts['auth_username'] ?? '' ),
-			'auth_password' => (string) ( $opts['auth_password'] ?? '' ),
-		];
-	}
-
-	/**
-	 * Build the partial-update blob from `update`'s parsed options: only the
-	 * keys ACTUALLY PRESENT in $opts are included, so an absent --key leaves the
-	 * stored field untouched.
-	 *
-	 * @param array<string,string|true> $opts Parsed `--key=value` options.
-	 * @return array<string, mixed> Partial config for registry->update().
-	 */
-	private static function partial_config( array $opts ): array {
-		$partial = [];
-		foreach ( [ 'url', 'auth_username', 'auth_password' ] as $key ) {
-			if ( isset( $opts[ $key ] ) ) {
-				$partial[ $key ] = (string) $opts[ $key ];
-			}
-		}
-		return $partial;
-	}
-
-	/**
-	 * Announce a Vault mutation so applications can react (settings-sync,
-	 * supervisor restart, etc.) without the substrate knowing those concerns.
-	 *
-	 * @param string $id     Server id.
-	 * @param string $action added|updated|removed.
-	 */
-	private static function fire_changed( string $id, string $action ): void {
-		if ( \function_exists( 'do_action' ) ) {
-			\do_action( 'newspack_nodes/vault/changed', $id, $action );
-		}
-	}
-
-	/**
-	 * Build a packed /command request body for the spoke probe, using substrate
-	 * primitives only (mirror of the JS CommandClient + HTTP_In decode).
-	 *
-	 * @param string $to   Target node path.
-	 * @param string $verb Command verb name.
-	 * @param string $args Argument tail (Command_Args grammar).
-	 * @return string Packed Message JSONL line.
-	 */
-	private static function command_body( string $to, string $verb, string $args = '' ): string {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = Node_Names::HTTP;
-		$message[ Message::TO ]    = $to;
-		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
-		return Message::packed( $message );
-	}
-
-	/**
 	 * HTTP probe of a remote spoke's discovery endpoint with stored Basic Auth.
 	 * Returns the response shape:
 	 *   { id, status: 'connected', response: {registered_hooks, custom_events, lag} }
@@ -253,6 +154,105 @@ class Vault_CI_Node extends Service_CI_Node {
 			'status'   => 'connected',
 			'response' => $safe,
 		];
+	}
+
+	/**
+	 * Build a packed /command request body for the spoke probe, using substrate
+	 * primitives only (mirror of the JS CommandClient + HTTP_In decode).
+	 *
+	 * @param string $to   Target node path.
+	 * @param string $verb Command verb name.
+	 * @param string $args Argument tail (Command_Args grammar).
+	 * @return string Packed Message JSONL line.
+	 */
+	private static function command_body( string $to, string $verb, string $args = '' ): string {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = Node_Names::HTTP;
+		$message[ Message::TO ]    = $to;
+		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
+		return Message::packed( $message );
+	}
+
+	/**
+	 * Project a stored server config into its public dashboard shape. Strips
+	 * credentials and adds computed `has_credentials` + `is_config` flags.
+	 *
+	 * @param string               $id     Server id.
+	 * @param array<string, mixed> $config Stored server config.
+	 * @param Vault                $registry Backing vault.
+	 * @return array<string, mixed> Public server record.
+	 */
+	private static function public_shape( string $id, array $config, Vault $registry ): array {
+		/** @var int|float|string|bool|null $raw_url */
+		$raw_url = $config['url'] ?? '';
+		return [
+			'id'              => $id,
+			'url'             => (string) $raw_url,
+			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
+			'is_config'       => $registry->is_config_server( $id ),
+		];
+	}
+
+	/**
+	 * Pull the single required positional id out of the args string, throwing
+	 * 'id required' when absent. Used by get/delete/test/update.
+	 *
+	 * @param string $args Verb arguments string.
+	 * @return string Server id.
+	 */
+	private static function positional_id( string $args ): string {
+		$id = Command_Args::parse( $args )['positional'][0] ?? '';
+		if ( '' === $id ) {
+			throw new \RuntimeException( 'id required' );
+		}
+		return $id;
+	}
+
+	/**
+	 * Build the canonical full server-config blob from `add`'s parsed options,
+	 * defaulting missing fields to the same shape validate_config expects.
+	 *
+	 * @param array<string,string|true> $opts Parsed `--key=value` options.
+	 * @return array<string, mixed> Server-config blob ready for registry->add().
+	 */
+	private static function extract_server_config( array $opts ): array {
+		return [
+			'url'           => (string) ( $opts['url']           ?? '' ),
+			'auth_username' => (string) ( $opts['auth_username'] ?? '' ),
+			'auth_password' => (string) ( $opts['auth_password'] ?? '' ),
+		];
+	}
+
+	/**
+	 * Build the partial-update blob from `update`'s parsed options: only the
+	 * keys ACTUALLY PRESENT in $opts are included, so an absent --key leaves the
+	 * stored field untouched.
+	 *
+	 * @param array<string,string|true> $opts Parsed `--key=value` options.
+	 * @return array<string, mixed> Partial config for registry->update().
+	 */
+	private static function partial_config( array $opts ): array {
+		$partial = [];
+		foreach ( [ 'url', 'auth_username', 'auth_password' ] as $key ) {
+			if ( isset( $opts[ $key ] ) ) {
+				$partial[ $key ] = (string) $opts[ $key ];
+			}
+		}
+		return $partial;
+	}
+
+	/**
+	 * Announce a Vault mutation so applications can react (settings-sync,
+	 * supervisor restart, etc.) without the substrate knowing those concerns.
+	 *
+	 * @param string $id     Server id.
+	 * @param string $action added|updated|removed.
+	 */
+	private static function fire_changed( string $id, string $action ): void {
+		if ( \function_exists( 'do_action' ) ) {
+			\do_action( 'newspack_nodes/vault/changed', $id, $action );
+		}
 	}
 
 	/** @api Used by the substrate to provide UI etc. */

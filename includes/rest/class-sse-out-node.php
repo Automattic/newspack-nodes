@@ -106,204 +106,6 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Emit a single SSE event. SAFE_EVENTS pass through; anything else is
-	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
-	 *
-	 * @param string $event Event name.
-	 * @param mixed  $data  JSON-serializable payload.
-	 */
-	protected function send_sse_event( string $event, mixed $data ): void {
-		$event = $this->sanitize_event_name( $event );
-		if ( '' === $event ) {
-			throw new \InvalidArgumentException( 'SSE event name is empty after sanitization; refusing to emit a nameless event.' );
-		}
-		$json    = \wp_json_encode( $data );
-		$payload = "event: {$event}\ndata: {$json}\n\n";
-		// SSE wire format must reach the client byte-for-byte; HTML escaping would corrupt the stream.
-		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-		echo $payload;
-		@\flush();
-		$this->needs_flush = true;
-	}
-
-	/**
-	 * Strip everything outside [a-zA-Z0-9_-] from an unsafe event name (SSE
-	 * `event:` line injection defense). SAFE_EVENTS pass through verbatim.
-	 *
-	 * @param string $event Caller-supplied event name.
-	 * @return string Sanitized event name (may be empty).
-	 */
-	protected function sanitize_event_name( string $event ): string {
-		if ( isset( self::SAFE_EVENTS[ $event ] ) ) {
-			return $event;
-		}
-		return (string) \preg_replace( '/[^a-zA-Z0-9_-]/', '', $event );
-	}
-
-	/** @api Support for unit tests. */
-	public function set_base_dir( string $dir ): void {
-		$this->base_dir = $dir;
-	}
-
-	/** @api Support for unit tests. */
-	public function set_num_partitions( int $n ): void {
-		$this->num_partitions = $n;
-	}
-
-	public function register_routes(): void {
-		\register_rest_route(
-			self::REST_NAMESPACE,
-			self::ROUTE,
-			[
-				'methods'             => 'GET',
-				'callback'            => [ $this, 'stream' ],
-				// Capability-only gate (auth resolved upstream by the REST dispatcher).
-				// Don't add a nonce check — it would break the cross-server SSE pull.
-				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
-				'args'                => [
-					'subscribe' => [ 'required' => true, 'type' => 'string' ],
-					'positions' => [ 'required' => false, 'type' => 'string' ],
-				],
-			]
-		);
-	}
-
-	/**
-	 * Split the CSV `subscribe` query parameter into trimmed subscription
-	 * names. Empty/blank entries dropped so stray commas don't produce ghosts.
-	 *
-	 * @return array<int,string>
-	 */
-	public function parse_subscriptions( string $raw ): array {
-		if ( '' === $raw ) {
-			return [];
-		}
-		$parts = \array_map( 'trim', \explode( ',', $raw ) );
-		return \array_values( \array_filter( $parts, static fn ( $s ) => '' !== $s ) );
-	}
-
-	/**
-	 * Resolve a subscription name to one-or-more `Consumer`s.
-	 *
-	 * Two shapes: `{type}.p{N}` (IPC reader, resolved via
-	 * `Cli::attach_to_worker`) and `{a-z0-9_-}` (log feed, one Consumer per
-	 * concrete partition dir `{base}/logs/{name}.p{N}`). Anything else throws
-	 * `InvalidArgumentException` (path-traversal guard for query input).
-	 * `$positions` (keyed by partition) seed each cursor; absent → tail-seek.
-	 *
-	 * @param string                      $sub       Subscription name.
-	 * @param array<array-key,mixed>|null $positions Saved positions, indexed by partition.
-	 *
-	 * @return array<int,Consumer_Node>
-	 *
-	 * @throws \InvalidArgumentException When `$sub` matches no allowed shape.
-	 */
-	public function open_subscription( string $sub, ?array $positions ): array {
-		$base = $this->base_dir ?? Bootstrap::base_dir();
-
-		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
-			/** @var \Closure(string, string): array{input:string,output:string,type:string,partition:int} $attach */
-			$attach = self::$attach_to_worker ?? static function ( string $worker_id, string $base_dir ): array {
-				return ( new CLI( $base_dir ) )->attach_to_worker( $worker_id );
-			};
-			try {
-				$ipc = $attach( $sub, $base );
-				// Empty offsetlog_base_dir disables checkpointing — ephemeral sessions tail-seek.
-				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$ipc['output']} " );
-				$consumer->next_offset( 'end' );
-				$consumer->set_stamp_as( $sub );
-				return [ $consumer ];
-			} catch ( \InvalidArgumentException $e ) {
-				// No live worker (no lock dir). If its IPC output dir still exists, the
-				// worker is down-but-restarting (e.g. mid fleet-restart): tail THAT so
-				// the session re-binds when the worker respawns and appends replies —
-				// the live console recovers without a page reload / topology switch.
-				$ipc_output = "{$base}/ipc/{$sub}/output";
-				if ( \is_dir( $ipc_output ) ) {
-					$consumer = new Consumer_Node();
-					$consumer->arguments( "{$ipc_output} " );
-					$consumer->next_offset( 'end' );
-					$consumer->set_stamp_as( $sub );
-					return [ $consumer ];
-				}
-				// Genuinely no worker IPC — fall through to the log-file path. This is the
-				// aggregator hub's path: `firehose.p0` has no worker but a log dir exists.
-				// PRECEDENCE: a concrete log-partition name (`firehose.p0`) reaches the
-				// log feed ONLY via this fallback — the IPC `{type}.p{N}` branch above
-				// matches it FIRST. This relies on worker types never colliding with a
-				// registered producer basename; a collision would silently tail worker
-				// IPC instead of the log.
-				$log_name  = $m[1];
-				$partition = (int) $m[2];
-				$consumer  = new Consumer_Node();
-				// Flat layout: the concrete partition dir IS `{name}.p{N}`.
-				$consumer->arguments( "{$base}/logs/{$log_name}.p{$partition} " );
-				if ( isset( $positions[ $partition ] ) ) {
-					$consumer->next_offset( self::position_arg( $positions[ $partition ] ) );
-				} else {
-					$consumer->next_offset( 'end' );
-				}
-				$consumer->set_stamp_as( $sub );
-				return [ $consumer ];
-			}
-		}
-
-		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
-			$np_raw     = Config::load_config()['num_partitions'] ?? 1;
-			$partitions = $this->num_partitions ?? ( \is_numeric( $np_raw ) ? (int) $np_raw : 1 );
-			$consumers  = [];
-			for ( $p = 0; $p < $partitions; $p++ ) {
-				$consumer = new Consumer_Node();
-				// Flat layout: fan out across the concrete `{name}.p{N}` dirs.
-				$consumer->arguments( "{$base}/logs/{$sub}.p{$p} " );
-				if ( isset( $positions[ $p ] ) ) {
-					$consumer->next_offset( self::position_arg( $positions[ $p ] ) );
-				} else {
-					$consumer->next_offset( 'end' );
-				}
-				// Stamp `{sub}.p{N}` so the dashboard JS can parse partition from the Message FROM field.
-				$consumer->set_stamp_as( "{$sub}.p{$p}" );
-				$consumers[] = $consumer;
-			}
-			return $consumers;
-		}
-
-		throw new \InvalidArgumentException(
-			\esc_html( "invalid subscription: {$sub}" )
-		);
-	}
-
-	/**
-	 * Narrow a saved-position value to the `string|array<string,mixed>` shape
-	 * `Consumer_Node::next_offset()` accepts; non-array scalars pass as a magic
-	 * string, anything else falls back to 'start' (next_offset's default case).
-	 *
-	 * @param mixed $position Raw per-partition position.
-	 * @return array<array-key,mixed>|string
-	 */
-	private static function position_arg( $position ) {
-		if ( \is_array( $position ) ) {
-			return $position;
-		}
-		return \is_scalar( $position ) ? (string) $position : 'start';
-	}
-
-	/**
-	 * Decode the `positions` query parameter (JSON object keyed by
-	 * subscription name). Null when omitted/empty/malformed → tail-seek all.
-	 *
-	 * @return array<array-key, mixed>|null
-	 */
-	public function parse_positions( string $raw ): ?array {
-		if ( '' === $raw ) {
-			return null;
-		}
-		$decoded = \json_decode( $raw, true );
-		return \is_array( $decoded ) ? $decoded : null;
-	}
-
-	/**
 	 * Stream handler — parses params, sets SSE headers, delegates the drain
 	 * loop to `run_stream_loop()`.
 	 *
@@ -334,6 +136,34 @@ class SSE_Out_Node extends Node {
 		$this->init_sse_headers();
 		$this->run_stream_loop( $subs, $positions, $interval, $slot, $partition );
 		exit;
+	}
+
+	/**
+	 * Split the CSV `subscribe` query parameter into trimmed subscription
+	 * names. Empty/blank entries dropped so stray commas don't produce ghosts.
+	 *
+	 * @return array<int,string>
+	 */
+	public function parse_subscriptions( string $raw ): array {
+		if ( '' === $raw ) {
+			return [];
+		}
+		$parts = \array_map( 'trim', \explode( ',', $raw ) );
+		return \array_values( \array_filter( $parts, static fn ( $s ) => '' !== $s ) );
+	}
+
+	/**
+	 * Decode the `positions` query parameter (JSON object keyed by
+	 * subscription name). Null when omitted/empty/malformed → tail-seek all.
+	 *
+	 * @return array<array-key, mixed>|null
+	 */
+	public function parse_positions( string $raw ): ?array {
+		if ( '' === $raw ) {
+			return null;
+		}
+		$decoded = \json_decode( $raw, true );
+		return \is_array( $decoded ) ? $decoded : null;
 	}
 
 	/**
@@ -489,6 +319,148 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
+	 * Emit a single SSE event. SAFE_EVENTS pass through; anything else is
+	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
+	 *
+	 * @param string $event Event name.
+	 * @param mixed  $data  JSON-serializable payload.
+	 */
+	protected function send_sse_event( string $event, mixed $data ): void {
+		$event = $this->sanitize_event_name( $event );
+		if ( '' === $event ) {
+			throw new \InvalidArgumentException( 'SSE event name is empty after sanitization; refusing to emit a nameless event.' );
+		}
+		$json    = \wp_json_encode( $data );
+		$payload = "event: {$event}\ndata: {$json}\n\n";
+		// SSE wire format must reach the client byte-for-byte; HTML escaping would corrupt the stream.
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo $payload;
+		@\flush();
+		$this->needs_flush = true;
+	}
+
+	/**
+	 * Strip everything outside [a-zA-Z0-9_-] from an unsafe event name (SSE
+	 * `event:` line injection defense). SAFE_EVENTS pass through verbatim.
+	 *
+	 * @param string $event Caller-supplied event name.
+	 * @return string Sanitized event name (may be empty).
+	 */
+	protected function sanitize_event_name( string $event ): string {
+		if ( isset( self::SAFE_EVENTS[ $event ] ) ) {
+			return $event;
+		}
+		return (string) \preg_replace( '/[^a-zA-Z0-9_-]/', '', $event );
+	}
+
+	/**
+	 * Resolve a subscription name to one-or-more `Consumer`s.
+	 *
+	 * Two shapes: `{type}.p{N}` (IPC reader, resolved via
+	 * `Cli::attach_to_worker`) and `{a-z0-9_-}` (log feed, one Consumer per
+	 * concrete partition dir `{base}/logs/{name}.p{N}`). Anything else throws
+	 * `InvalidArgumentException` (path-traversal guard for query input).
+	 * `$positions` (keyed by partition) seed each cursor; absent → tail-seek.
+	 *
+	 * @param string                      $sub       Subscription name.
+	 * @param array<array-key,mixed>|null $positions Saved positions, indexed by partition.
+	 *
+	 * @return array<int,Consumer_Node>
+	 *
+	 * @throws \InvalidArgumentException When `$sub` matches no allowed shape.
+	 */
+	public function open_subscription( string $sub, ?array $positions ): array {
+		$base = $this->base_dir ?? Bootstrap::base_dir();
+
+		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
+			/** @var \Closure(string, string): array{input:string,output:string,type:string,partition:int} $attach */
+			$attach = self::$attach_to_worker ?? static function ( string $worker_id, string $base_dir ): array {
+				return ( new CLI( $base_dir ) )->attach_to_worker( $worker_id );
+			};
+			try {
+				$ipc = $attach( $sub, $base );
+				// Empty offsetlog_base_dir disables checkpointing — ephemeral sessions tail-seek.
+				$consumer = new Consumer_Node();
+				$consumer->arguments( "{$ipc['output']} " );
+				$consumer->next_offset( 'end' );
+				$consumer->set_stamp_as( $sub );
+				return [ $consumer ];
+			} catch ( \InvalidArgumentException $e ) {
+				// No live worker (no lock dir). If its IPC output dir still exists, the
+				// worker is down-but-restarting (e.g. mid fleet-restart): tail THAT so
+				// the session re-binds when the worker respawns and appends replies —
+				// the live console recovers without a page reload / topology switch.
+				$ipc_output = "{$base}/ipc/{$sub}/output";
+				if ( \is_dir( $ipc_output ) ) {
+					$consumer = new Consumer_Node();
+					$consumer->arguments( "{$ipc_output} " );
+					$consumer->next_offset( 'end' );
+					$consumer->set_stamp_as( $sub );
+					return [ $consumer ];
+				}
+				// Genuinely no worker IPC — fall through to the log-file path. This is the
+				// aggregator hub's path: `firehose.p0` has no worker but a log dir exists.
+				// PRECEDENCE: a concrete log-partition name (`firehose.p0`) reaches the
+				// log feed ONLY via this fallback — the IPC `{type}.p{N}` branch above
+				// matches it FIRST. This relies on worker types never colliding with a
+				// registered producer basename; a collision would silently tail worker
+				// IPC instead of the log.
+				$log_name  = $m[1];
+				$partition = (int) $m[2];
+				$consumer  = new Consumer_Node();
+				// Flat layout: the concrete partition dir IS `{name}.p{N}`.
+				$consumer->arguments( "{$base}/logs/{$log_name}.p{$partition} " );
+				if ( isset( $positions[ $partition ] ) ) {
+					$consumer->next_offset( self::position_arg( $positions[ $partition ] ) );
+				} else {
+					$consumer->next_offset( 'end' );
+				}
+				$consumer->set_stamp_as( $sub );
+				return [ $consumer ];
+			}
+		}
+
+		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
+			$np_raw     = Config::load_config()['num_partitions'] ?? 1;
+			$partitions = $this->num_partitions ?? ( \is_numeric( $np_raw ) ? (int) $np_raw : 1 );
+			$consumers  = [];
+			for ( $p = 0; $p < $partitions; $p++ ) {
+				$consumer = new Consumer_Node();
+				// Flat layout: fan out across the concrete `{name}.p{N}` dirs.
+				$consumer->arguments( "{$base}/logs/{$sub}.p{$p} " );
+				if ( isset( $positions[ $p ] ) ) {
+					$consumer->next_offset( self::position_arg( $positions[ $p ] ) );
+				} else {
+					$consumer->next_offset( 'end' );
+				}
+				// Stamp `{sub}.p{N}` so the dashboard JS can parse partition from the Message FROM field.
+				$consumer->set_stamp_as( "{$sub}.p{$p}" );
+				$consumers[] = $consumer;
+			}
+			return $consumers;
+		}
+
+		throw new \InvalidArgumentException(
+			\esc_html( "invalid subscription: {$sub}" )
+		);
+	}
+
+	/**
+	 * Narrow a saved-position value to the `string|array<string,mixed>` shape
+	 * `Consumer_Node::next_offset()` accepts; non-array scalars pass as a magic
+	 * string, anything else falls back to 'start' (next_offset's default case).
+	 *
+	 * @param mixed $position Raw per-partition position.
+	 * @return array<array-key,mixed>|string
+	 */
+	private static function position_arg( $position ) {
+		if ( \is_array( $position ) ) {
+			return $position;
+		}
+		return \is_scalar( $position ) ? (string) $position : 'start';
+	}
+
+	/**
 	 * Build the `connected` Message envelope the SSE client expects first:
 	 * session pid (pivoted-command FROM stamp), slot index, the opened
 	 * subscriptions (echoed back), and the heartbeat/flush interval.
@@ -555,5 +527,33 @@ class SSE_Out_Node extends Node {
 		echo ':' . \str_repeat( '.', self::FLUSH_SIZE - 3 ) . "\n\n";
 		@\flush();
 		$this->needs_flush = false;
+	}
+
+	/** @api Support for unit tests. */
+	public function set_base_dir( string $dir ): void {
+		$this->base_dir = $dir;
+	}
+
+	/** @api Support for unit tests. */
+	public function set_num_partitions( int $n ): void {
+		$this->num_partitions = $n;
+	}
+
+	public function register_routes(): void {
+		\register_rest_route(
+			self::REST_NAMESPACE,
+			self::ROUTE,
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'stream' ],
+				// Capability-only gate (auth resolved upstream by the REST dispatcher).
+				// Don't add a nonce check — it would break the cross-server SSE pull.
+				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
+				'args'                => [
+					'subscribe' => [ 'required' => true, 'type' => 'string' ],
+					'positions' => [ 'required' => false, 'type' => 'string' ],
+				],
+			]
+		);
 	}
 }

@@ -31,6 +31,15 @@ class Layouts_CI_Node extends Service_CI_Node {
 	private const ID_PATTERN      = '/^[a-zA-Z0-9_:.-]+$/';
 	private const MAX_BODY_BYTES  = 1048576;
 
+	private static function layout_path( string $name ): string {
+		return self::layouts_dir() . '/' . $name . '.layout';
+	}
+
+	private static function layouts_dir(): string {
+		$base = Config::get_base_directory();
+		return \rtrim( $base, '/' ) . '/layouts';
+	}
+
 	/**
 	 * Sanitize a positions blob — drop entries with non-string ids,
 	 * ids that don't match ID_PATTERN, non-array positions, fewer
@@ -64,15 +73,6 @@ class Layouts_CI_Node extends Service_CI_Node {
 			$clean[ $id ] = [ $x, $y ];
 		}
 		return $clean;
-	}
-
-	private static function layouts_dir(): string {
-		$base = Config::get_base_directory();
-		return \rtrim( $base, '/' ) . '/layouts';
-	}
-
-	private static function layout_path( string $name ): string {
-		return self::layouts_dir() . '/' . $name . '.layout';
 	}
 
 	public static function node_schema(): array {

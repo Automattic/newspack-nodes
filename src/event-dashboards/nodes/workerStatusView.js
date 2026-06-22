@@ -92,10 +92,6 @@ export class WorkerStatusViewNode extends Node {
 		}
 	}
 
-	_publish() {
-		this.setState( 'view', this.model );
-	}
-
 	_setModel( model ) {
 		this.model = model;
 		this._publish();
@@ -110,6 +106,10 @@ export class WorkerStatusViewNode extends Node {
 				this._publish();
 			}, REMOVING_CLEAR_MS );
 		}
+	}
+
+	_publish() {
+		this.setState( 'view', this.model );
 	}
 
 	// Tear down: cancel the slide-out clear timer so it can't setState post-unmount.

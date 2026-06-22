@@ -139,6 +139,11 @@ export class TimerNode extends Node {
 		this.mode = 'event_framework';
 	}
 
+	removeNode() {
+		this.stopTimer();
+		super.removeNode();
+	}
+
 	// Unregister the active slot. Router mode unregisters immediately — notify()
 	// iterates an Object.keys() snapshot, so a mid-notify self-stop is safe.
 	stopTimer() {
@@ -164,11 +169,6 @@ export class TimerNode extends Node {
 
 	set key( key ) {
 		this._key = key;
-	}
-
-	removeNode() {
-		this.stopTimer();
-		super.removeNode();
 	}
 
 	static nodeSchema() {

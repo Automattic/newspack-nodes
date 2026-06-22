@@ -178,6 +178,76 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
+	 * Construct a registered Node subclass, name it, sink it to this interpreter, and return it.
+	 *
+	 * @param string $type    Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
+	 * @param string $name    Unique name for the new node (registered with Core).
+	 * @param mixed  ...$args Positional constructor arguments.
+	 * @return Node|null Null when no registered namespace yields a matching Node.
+	 */
+	public function make_node( string $type, string $name, ...$args ): ?Node {
+		foreach ( self::registered_namespaces() as $prefix ) {
+			// The base Node carries no `_Node` suffix; `make_node Node` resolves it
+			// directly (its default fill() stamps TO=target and forwards to sink — a
+			// bare routing/fan-in primitive, e.g. the SSE-stream `_default_route`).
+			// `is_a(..., true)` accepts Node itself as well as its subclasses.
+			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
+			if ( ! \class_exists( $fqcn ) || ! \is_a( $fqcn, Node::class, true ) ) {
+				continue;
+			}
+			// Reflection instantiation (vs `new $fqcn`) keeps the variadic ctor-arg
+			// spread working for any Node subclass without PHPStan narrowing the
+			// FQCN to the abstract base Node (which has no constructor).
+			$ref = new \ReflectionClass( $fqcn );
+			// Abstract Node subclasses (e.g. Service_CI_Node) resolve under a prefix
+			// but can't be instantiated — return null gracefully rather than fatal.
+			if ( $ref->isAbstract() ) {
+				continue;
+			}
+			// Tachikoma sequence: the trivial base arguments() stores the raw tokens;
+			// a node opts into parse_schema_args() to assign props.
+			// Object deps are public props set after construction.
+			$node = new $fqcn();
+			$node->name( $name );
+			$scalar_args = \array_filter( $args, '\is_scalar' );
+			if ( \count( $scalar_args ) !== \count( $args ) ) {
+				Core::print_less_often(
+					"make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)"
+				);
+			}
+			$node->arguments( \implode( ' ', $scalar_args ) );
+			$node->sink( $this );
+			if ( $this->debug_state() > 0 ) {
+				$node->debug_state( $this->debug_state() );
+			}
+			return $node;
+		}
+		return null;
+	}
+
+	/**
+	 * Read-only view of the registered namespace prefixes.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function registered_namespaces(): array {
+		return \array_keys( self::$namespaces );
+	}
+
+	/**
+	 * Default `help` for an interpreter with a custom verb table: its verb names, sorted,
+	 * one per line (includes `help` itself). The base interpreter overrides this with the
+	 * richer sectioned help via its own `help` verb in self::$C.
+	 *
+	 * @return string Newline-separated sorted verb names.
+	 */
+	protected function default_help(): string {
+		$names = \array_keys( $this->commands() );
+		\sort( $names );
+		return \implode( "\n", $names );
+	}
+
+	/**
 	 * Per-instance verb-table accessor; falls back to self::$C.
 	 *
 	 * @param array<string,callable>|null $table Replacement verb table.
@@ -300,63 +370,6 @@ class Command_Interpreter_Node extends Node {
 		$name = $parts[1];
 		$node = $self->make_node( $type, $name, ...\array_slice( $parts, 2 ) );
 		return null === $node ? "unknown class: $type" : 'ok';
-	}
-
-	/**
-	 * Construct a registered Node subclass, name it, sink it to this interpreter, and return it.
-	 *
-	 * @param string $type    Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
-	 * @param string $name    Unique name for the new node (registered with Core).
-	 * @param mixed  ...$args Positional constructor arguments.
-	 * @return Node|null Null when no registered namespace yields a matching Node.
-	 */
-	public function make_node( string $type, string $name, ...$args ): ?Node {
-		foreach ( self::registered_namespaces() as $prefix ) {
-			// The base Node carries no `_Node` suffix; `make_node Node` resolves it
-			// directly (its default fill() stamps TO=target and forwards to sink — a
-			// bare routing/fan-in primitive, e.g. the SSE-stream `_default_route`).
-			// `is_a(..., true)` accepts Node itself as well as its subclasses.
-			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
-			if ( ! \class_exists( $fqcn ) || ! \is_a( $fqcn, Node::class, true ) ) {
-				continue;
-			}
-			// Reflection instantiation (vs `new $fqcn`) keeps the variadic ctor-arg
-			// spread working for any Node subclass without PHPStan narrowing the
-			// FQCN to the abstract base Node (which has no constructor).
-			$ref = new \ReflectionClass( $fqcn );
-			// Abstract Node subclasses (e.g. Service_CI_Node) resolve under a prefix
-			// but can't be instantiated — return null gracefully rather than fatal.
-			if ( $ref->isAbstract() ) {
-				continue;
-			}
-			// Tachikoma sequence: the trivial base arguments() stores the raw tokens;
-			// a node opts into parse_schema_args() to assign props.
-			// Object deps are public props set after construction.
-			$node = new $fqcn();
-			$node->name( $name );
-			$scalar_args = \array_filter( $args, '\is_scalar' );
-			if ( \count( $scalar_args ) !== \count( $args ) ) {
-				Core::print_less_often(
-					"make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)"
-				);
-			}
-			$node->arguments( \implode( ' ', $scalar_args ) );
-			$node->sink( $this );
-			if ( $this->debug_state() > 0 ) {
-				$node->debug_state( $this->debug_state() );
-			}
-			return $node;
-		}
-		return null;
-	}
-
-	/**
-	 * Read-only view of the registered namespace prefixes.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function registered_namespaces(): array {
-		return \array_keys( self::$namespaces );
 	}
 
 	/**
@@ -660,59 +673,6 @@ class Command_Interpreter_Node extends Node {
 			return \implode( "\n", $names );
 		}
 		return self::tabulate( $dirs, $header, $rows );
-	}
-
-	/**
-	 * Column-aligned table rendering; the last left-aligned column isn't padded.
-	 *
-	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
-	 * @param array<int,string>|null       $header Optional header row; null skips it.
-	 * @param array<int,array<int,string>> $rows
-	 */
-	private static function tabulate( array $dirs, ?array $header, array $rows ): string {
-		$ncols = \count( $dirs );
-		$max   = \array_fill( 0, $ncols, 0 );
-		if ( null !== $header ) {
-			foreach ( $header as $col => $val ) {
-				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
-			}
-		}
-		foreach ( $rows as $row ) {
-			foreach ( $row as $col => $val ) {
-				if ( $col >= $ncols ) {
-					continue;
-				}
-				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
-			}
-		}
-
-		$format_row = function ( array $row ) use ( $dirs, $max, $ncols ): string {
-			$parts = [];
-			for ( $col = 0; $col < $ncols; ++$col ) {
-				// Cells arrive pre-stringified per @param; guard narrows the bare-array element before str_pad.
-				$cell = $row[ $col ] ?? '';
-				$val  = \is_scalar( $cell ) ? (string) $cell : '';
-				$dir  = $dirs[ $col ] ?? 'left';
-				$last = ( $col === $ncols - 1 );
-				if ( 'right' === $dir ) {
-					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_LEFT );
-				} elseif ( $last ) {
-					$parts[] = $val;
-				} else {
-					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_RIGHT );
-				}
-			}
-			return \implode( ' ', $parts );
-		};
-
-		$out = '';
-		if ( null !== $header ) {
-			$out .= $format_row( $header ) . "\n";
-		}
-		foreach ( $rows as $row ) {
-			$out .= $format_row( $row ) . "\n";
-		}
-		return \rtrim( $out, "\n" );
 	}
 
 	/**
@@ -1062,6 +1022,59 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
+	 * Column-aligned table rendering; the last left-aligned column isn't padded.
+	 *
+	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
+	 * @param array<int,string>|null       $header Optional header row; null skips it.
+	 * @param array<int,array<int,string>> $rows
+	 */
+	private static function tabulate( array $dirs, ?array $header, array $rows ): string {
+		$ncols = \count( $dirs );
+		$max   = \array_fill( 0, $ncols, 0 );
+		if ( null !== $header ) {
+			foreach ( $header as $col => $val ) {
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
+			}
+		}
+		foreach ( $rows as $row ) {
+			foreach ( $row as $col => $val ) {
+				if ( $col >= $ncols ) {
+					continue;
+				}
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
+			}
+		}
+
+		$format_row = function ( array $row ) use ( $dirs, $max, $ncols ): string {
+			$parts = [];
+			for ( $col = 0; $col < $ncols; ++$col ) {
+				// Cells arrive pre-stringified per @param; guard narrows the bare-array element before str_pad.
+				$cell = $row[ $col ] ?? '';
+				$val  = \is_scalar( $cell ) ? (string) $cell : '';
+				$dir  = $dirs[ $col ] ?? 'left';
+				$last = ( $col === $ncols - 1 );
+				if ( 'right' === $dir ) {
+					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_LEFT );
+				} elseif ( $last ) {
+					$parts[] = $val;
+				} else {
+					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_RIGHT );
+				}
+			}
+			return \implode( ' ', $parts );
+		};
+
+		$out = '';
+		if ( null !== $header ) {
+			$out .= $format_row( $header ) . "\n";
+		}
+		foreach ( $rows as $row ) {
+			$out .= $format_row( $row ) . "\n";
+		}
+		return \rtrim( $out, "\n" );
+	}
+
+	/**
 	 * `reply_to <node path> <command>` — run `<command>` in THIS interpreter but
 	 * route its reply to `<node path>` (the inverse of `command_node`, which runs
 	 * it AT the path). Mints the sub-command stamped FROM=<path> — interpret()
@@ -1089,19 +1102,6 @@ class Command_Interpreter_Node extends Node {
 		$m[ Message::LOCAL ] = true;
 		$self->fill( $m );
 		return '';
-	}
-
-	/**
-	 * Default `help` for an interpreter with a custom verb table: its verb names, sorted,
-	 * one per line (includes `help` itself). The base interpreter overrides this with the
-	 * richer sectioned help via its own `help` verb in self::$C.
-	 *
-	 * @return string Newline-separated sorted verb names.
-	 */
-	protected function default_help(): string {
-		$names = \array_keys( $this->commands() );
-		\sort( $names );
-		return \implode( "\n", $names );
 	}
 
 	/**
