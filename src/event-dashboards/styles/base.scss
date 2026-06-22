@@ -137,7 +137,7 @@ $focus-shadow: 0 0 0 2px rgba(0, 61, 165, 0.25);
 @mixin secondary-button {
 	background: var(--np-surface);
 	color: $dark-text;
-	border: 1px solid var(--np-border-strong);
+	border: 1.5px solid var(--np-border-strong);
 	border-radius: var(--np-radius-md);
 	cursor: pointer;
 	transition:
