@@ -386,25 +386,18 @@
 		font-weight: 700;
 	}
 
-	// Drag ghost following the cursor during a palette→canvas pointer drag — a
-	// floating copy of the palette item (connector-aware glyph + name).
-	// pointer-events:none is load-bearing: elementFromPoint on pointer-up must
-	// see the canvas SVG beneath the ghost, not the ghost itself.
+	// Drag ghost following the cursor during a palette→canvas pointer drag — the
+	// actual node card (an SVG styled by the shared .topology-node* classes), so
+	// it previews exactly how the node looks once dropped. pointer-events:none is
+	// load-bearing: elementFromPoint on pointer-up must see the canvas SVG beneath
+	// the ghost, not the ghost itself.
 	&__drag-ghost {
 		position: fixed;
-		// Small offset so the chip trails the cursor rather than sitting under it.
+		// Small offset so the card trails the cursor rather than sitting under it.
 		margin: 8px 0 0 8px;
-		display: flex;
-		align-items: center;
 		pointer-events: none;
 		z-index: 1000;
-		padding: 6px 10px;
-		border: 1px solid var(--ink-2);
-		background: var(--paper-2);
-		font: 500 12px var(--font-mono);
-		color: var(--ink);
-		white-space: nowrap;
-		box-shadow: 0 2px 6px rgb(0 0 0 / 25%);
+		overflow: visible; // the in/out ports sit on the card's edges
 	}
 }
 

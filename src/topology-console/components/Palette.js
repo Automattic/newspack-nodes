@@ -6,6 +6,7 @@
  */
 
 import { useRef, useState } from '@wordpress/element';
+import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
 
 // Categories that stay in the catalog (so the inspector still resolves their
 // command/request buttons via catalog.find) but are NOT draggable in the palette.
@@ -196,20 +197,71 @@ export default function Palette( {
 				classes registered
 			</div>
 			{ ghost && (
-				<div
+				// The ghost is the actual node card as it looks once dropped:
+				// header + class name + LED + the schema-gated in/out ports
+				// (mirrors the SchematicCanvas node render). A standalone SVG;
+				// pointer-events:none so the pointer-up hit-test sees the canvas.
+				<svg
 					className="topology-palette__drag-ghost"
 					style={ { left: ghost.x, top: ghost.y } }
+					width={ NODE_W + 2 * PORT_R }
+					height={ NODE_H + 6 }
+					viewBox={ `${ -PORT_R } 0 ${ NODE_W + 2 * PORT_R } ${
+						NODE_H + 6
+					}` }
 				>
-					<div
-						className={ glyphClass(
-							ghost.acceptsFill,
-							ghost.hasTarget
+					<g className="topology-node">
+						<rect
+							className="topology-node__shadow"
+							x={ 3 }
+							y={ 3 }
+							width={ NODE_W }
+							height={ NODE_H }
+						/>
+						<rect
+							className="topology-node__bg"
+							width={ NODE_W }
+							height={ NODE_H }
+						/>
+						<rect
+							className="topology-node__header"
+							width={ NODE_W }
+							height={ 22 }
+						/>
+						<line
+							className="topology-node__divider"
+							x1={ 0 }
+							y1={ 22 }
+							x2={ NODE_W }
+							y2={ 22 }
+						/>
+						<text className="topology-node__type" x={ 11 } y={ 15 }>
+							{ ghost.shellName }
+						</text>
+						<circle
+							className="topology-node__led"
+							cx={ NODE_W - 12 }
+							cy={ 13 }
+							r={ 3.5 }
+						/>
+						{ ghost.acceptsFill && (
+							<circle
+								className="topology-port topology-port--in"
+								cx={ 0 }
+								cy={ NODE_H / 2 }
+								r={ PORT_R }
+							/>
 						) }
-					/>
-					<div className="topology-palette__name">
-						{ ghost.shellName }
-					</div>
-				</div>
+						{ ghost.hasTarget && (
+							<circle
+								className="topology-port topology-port--out"
+								cx={ NODE_W }
+								cy={ NODE_H / 2 }
+								r={ PORT_R }
+							/>
+						) }
+					</g>
+				</svg>
 			) }
 		</aside>
 	);
