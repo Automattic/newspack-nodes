@@ -48,7 +48,7 @@ class WorkerScaffoldingTest extends TestCase {
 			' ',
 			$log->arguments()
 		);
-		$this->assertSame( (string) ( 5 * 1024 * 1024 ), $segment_size );
+		$this->assertSame( (string) ( 1024 * 1024 ), $segment_size );
 		$this->assertSame( '2', $num_segments );
 		$this->assertSame( '86400', $max_lifespan );
 	}
