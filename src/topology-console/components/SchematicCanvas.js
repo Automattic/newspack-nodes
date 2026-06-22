@@ -217,11 +217,10 @@ export default function SchematicCanvas( {
 	// (parent bumps a changing prop to force a re-render; not read here)
 	viewport,
 	onViewportChange,
-	// Gesture handlers. onDropNode receives SVG-space coords; onConnect fires
-	// on OUT-port → IN-port drag. `interactive` gates the gesture machinery
-	// (true in both live + edit); `editMode` gates only draft-specific
-	// affordances (edge-select hit target, out-port styling).
-	onDropNode,
+	// onConnect fires on OUT-port → IN-port drag. `interactive` gates the gesture
+	// machinery (true in both live + edit); `editMode` gates only draft-specific
+	// affordances (edge-select hit target, out-port styling). The palette→canvas
+	// node-drop gesture is owned by the Palette (pointer events), not here.
 	onConnect,
 	interactive = true,
 	editMode = false,
@@ -411,51 +410,6 @@ export default function SchematicCanvas( {
 			handleWindowWireMove,
 			handleWindowWireUp,
 		]
-	);
-
-	const handleDragOver = useCallback(
-		( e ) => {
-			if ( ! interactive ) {
-				return;
-			}
-			// preventDefault marks the surface as a valid drop target.
-			e.preventDefault();
-			e.dataTransfer.dropEffect = 'copy';
-		},
-		[ interactive ]
-	);
-
-	const handleDrop = useCallback(
-		( e ) => {
-			if ( ! interactive || ! onDropNode || ! svgRef.current ) {
-				return;
-			}
-			const shellName = e.dataTransfer.getData(
-				'application/x-newspack-node'
-			);
-			if ( ! shellName ) {
-				return;
-			}
-			e.preventDefault();
-			// Project (clientX, clientY) → SVG-space via the current CTM.
-			const pt = svgRef.current.createSVGPoint();
-			pt.x = e.clientX;
-			pt.y = e.clientY;
-			const ctm = svgRef.current.getScreenCTM();
-			if ( ! ctm ) {
-				return;
-			}
-			const local = pt.matrixTransform( ctm.inverse() );
-			onDropNode( { shellName, x: local.x, y: local.y } );
-			// Blur the browser-left-active palette item so stale focus
-			// doesn't intercept the next click (via ownerDocument).
-			const doc = svgRef.current && svgRef.current.ownerDocument;
-			const active = doc && doc.activeElement;
-			if ( active && active.blur ) {
-				active.blur();
-			}
-		},
-		[ interactive, onDropNode ]
 	);
 
 	// SVG pixel size — used as the autofit minimum so a small graph in a
@@ -1003,8 +957,6 @@ export default function SchematicCanvas( {
 			onPointerLeave={ () => {
 				canvasHoverRef.current = false;
 			} }
-			onDragOver={ handleDragOver }
-			onDrop={ handleDrop }
 		>
 			<defs>
 				{ /* Half-step grid offset so intersections fall on node centers. */ }

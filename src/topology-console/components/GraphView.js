@@ -181,6 +181,7 @@ export default function GraphView( {
 					loading={ paletteLoading }
 					collapsed={ paletteCollapsed }
 					onToggle={ onPaletteToggle }
+					onDropNode={ onDropNode }
 				/>
 			) }
 			<Frame { ...frameProps }>
@@ -204,7 +205,6 @@ export default function GraphView( {
 					onViewportChange={ onViewportChange }
 					interactive={ interactive }
 					editMode={ editMode }
-					onDropNode={ onDropNode }
 					onConnect={ onConnect }
 					selectedEdge={ selectedEdge }
 					onSelectEdge={ handleSelectEdge }

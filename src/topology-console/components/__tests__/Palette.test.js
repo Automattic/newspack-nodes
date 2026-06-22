@@ -1,11 +1,28 @@
 /**
  * Palette — edit-mode draggable list of node classes grouped by
- * category. Drives onDragStart to inject the substrate's drag MIME
- * type so SchematicCanvas's onDrop knows what to instantiate.
+ * category. Owns the pointer-events drag gesture (Firefox-safe): an
+ * item pointer-down shows a ghost, pointer-up over the canvas SVG
+ * projects the cursor into SVG coords and calls onDropNode.
  */
 
-import { render } from '@testing-library/react';
-import Palette, { DRAG_MIME } from '../Palette';
+import { render, fireEvent } from '@testing-library/react';
+import Palette from '../Palette';
+
+// A fake canvas SVG that elementFromPoint resolves to: closest() returns
+// itself, createSVGPoint/getScreenCTM project (clientX,clientY) → a fixed
+// SVG-space point so the drop coords are deterministic.
+function makeCanvasStub( projected = { x: 42, y: 99 } ) {
+	const svg = {
+		createSVGPoint: () => ( {
+			x: 0,
+			y: 0,
+			matrixTransform: () => projected,
+		} ),
+		getScreenCTM: () => ( { inverse: () => ( {} ) } ),
+	};
+	svg.closest = ( sel ) => ( sel === 'svg.topology-canvas-svg' ? svg : null );
+	return svg;
+}
 
 const sampleClasses = [
 	{ shell_name: 'Echo', category: 'Generic', description: 'Echo node' },
@@ -73,27 +90,107 @@ describe( 'Palette', () => {
 		expect( echo.className ).toContain( 'topology-palette__item--echo' );
 	} );
 
-	it( 'sets shell name on dataTransfer via DRAG_MIME on dragStart', () => {
+	it( 'shows a drag ghost with the shell name on pointer-down', () => {
 		const { container } = render(
 			<Palette classes={ sampleClasses } loading={ false } />
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
-		const setData = jest.fn();
-		const dataTransfer = { setData, effectAllowed: '' };
-		// Invoke onDragStart via the SyntheticEvent (jsdom has no DataTransfer).
-		const reactKey = Object.keys( echo ).find( ( k ) =>
-			k.startsWith( '__reactProps' )
-		);
-		echo[ reactKey ].onDragStart( {
-			dataTransfer,
-			preventDefault: () => {},
+		fireEvent.pointerDown( echo, {
+			pointerId: 1,
+			clientX: 5,
+			clientY: 5,
 		} );
-		expect( setData ).toHaveBeenCalledWith( DRAG_MIME, 'Echo' );
-		expect( dataTransfer.effectAllowed ).toBe( 'copy' );
+		const ghost = container.querySelector(
+			'.topology-palette__drag-ghost'
+		);
+		expect( ghost ).not.toBeNull();
+		expect( ghost.textContent ).toBe( 'Echo' );
 	} );
 
-	it( 'exports DRAG_MIME for the drop target to use the same MIME', () => {
-		expect( DRAG_MIME ).toBe( 'application/x-newspack-node' );
+	it( 'pointer-up over the canvas projects coords and calls onDropNode', () => {
+		const onDropNode = jest.fn();
+		const svg = makeCanvasStub( { x: 42, y: 99 } );
+		// jsdom has no elementFromPoint; install one for this test.
+		document.elementFromPoint = jest.fn().mockReturnValue( svg );
+		const { container } = render(
+			<Palette
+				classes={ sampleClasses }
+				loading={ false }
+				onDropNode={ onDropNode }
+			/>
+		);
+		const echo = container.querySelector( '[data-shell-name="Echo"]' );
+		fireEvent.pointerDown( echo, {
+			pointerId: 1,
+			clientX: 5,
+			clientY: 5,
+		} );
+		fireEvent.pointerUp( echo, {
+			pointerId: 1,
+			clientX: 300,
+			clientY: 200,
+		} );
+		expect( onDropNode ).toHaveBeenCalledWith( {
+			shellName: 'Echo',
+			x: 42,
+			y: 99,
+		} );
+		delete document.elementFromPoint;
+	} );
+
+	it( 'pointer-up NOT over the canvas does not drop and clears the ghost', () => {
+		const onDropNode = jest.fn();
+		document.elementFromPoint = jest.fn().mockReturnValue( null );
+		const { container } = render(
+			<Palette
+				classes={ sampleClasses }
+				loading={ false }
+				onDropNode={ onDropNode }
+			/>
+		);
+		const echo = container.querySelector( '[data-shell-name="Echo"]' );
+		fireEvent.pointerDown( echo, { pointerId: 1, clientX: 5, clientY: 5 } );
+		fireEvent.pointerUp( echo, { pointerId: 1, clientX: 9, clientY: 9 } );
+		expect( onDropNode ).not.toHaveBeenCalled();
+		expect(
+			container.querySelector( '.topology-palette__drag-ghost' )
+		).toBeNull();
+		delete document.elementFromPoint;
+	} );
+
+	it( 'pointer-cancel clears the ghost without calling onDropNode', () => {
+		const onDropNode = jest.fn();
+		const { container } = render(
+			<Palette
+				classes={ sampleClasses }
+				loading={ false }
+				onDropNode={ onDropNode }
+			/>
+		);
+		const echo = container.querySelector( '[data-shell-name="Echo"]' );
+		fireEvent.pointerDown( echo, { pointerId: 1, clientX: 5, clientY: 5 } );
+		expect(
+			container.querySelector( '.topology-palette__drag-ghost' )
+		).not.toBeNull();
+		fireEvent.pointerCancel( echo, { pointerId: 1 } );
+		expect(
+			container.querySelector( '.topology-palette__drag-ghost' )
+		).toBeNull();
+		expect( onDropNode ).not.toHaveBeenCalled();
+	} );
+
+	it( 'does not throw when setPointerCapture is absent (jsdom)', () => {
+		const { container } = render(
+			<Palette classes={ sampleClasses } loading={ false } />
+		);
+		const echo = container.querySelector( '[data-shell-name="Echo"]' );
+		expect( () =>
+			fireEvent.pointerDown( echo, {
+				pointerId: 1,
+				clientX: 5,
+				clientY: 5,
+			} )
+		).not.toThrow();
 	} );
 
 	it( 'renders the footer count even when loading is true and classes already exist', () => {

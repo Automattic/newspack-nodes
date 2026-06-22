@@ -190,6 +190,20 @@ describe( 'GraphView', () => {
 		expect( onRemoveEdge ).not.toHaveBeenCalled();
 	} );
 
+	it( 'forwards onDropNode to the Palette (which owns the pointer-drag drop)', () => {
+		const onDropNode = jest.fn();
+		render(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				showPalette
+				onDropNode={ onDropNode }
+			/>
+		);
+		expect( global.__paletteProps.onDropNode ).toBe( onDropNode );
+	} );
+
 	it( 'forwards paletteLoading to the Palette loading prop (not derived from catalog)', () => {
 		// Non-empty catalog: a `! catalog.length` derivation would yield false,
 		// so a true result proves the explicit prop is wired through.

@@ -1,9 +1,11 @@
 /**
- * Edit-mode palette of node classes. Each item is HTML5-draggable and
- * carries its shell name on the dataTransfer payload for the canvas drop.
+ * Edit-mode palette of node classes. Dragging an item to the canvas uses
+ * pointer events (Firefox-safe; native HTML5 DnD never initiates there): a
+ * pointer-down arms a ghost that follows the cursor, and pointer-up over the
+ * canvas SVG projects the cursor into SVG space and calls onDropNode.
  */
 
-const DRAG_MIME = 'application/x-newspack-node';
+import { useRef, useState } from '@wordpress/element';
 
 // Categories that stay in the catalog (so the inspector still resolves their
 // command/request buttons via catalog.find) but are NOT draggable in the palette.
@@ -29,7 +31,70 @@ export default function Palette( {
 	loading = false,
 	collapsed = false,
 	onToggle,
+	onDropNode,
 } ) {
+	// Drag ghost following the cursor ({ shellName, x, y } | null). dragRef holds
+	// the in-flight shellName so the pointer handlers stay stable across renders.
+	const [ ghost, setGhost ] = useState( null );
+	const dragRef = useRef( null );
+
+	const onItemPointerDown = ( e, shellName ) => {
+		e.preventDefault();
+		try {
+			e.currentTarget.setPointerCapture( e.pointerId );
+		} catch {
+			// jsdom / browsers without pointer capture — drag still works.
+		}
+		dragRef.current = shellName;
+		setGhost( { shellName, x: e.clientX, y: e.clientY } );
+	};
+
+	const onItemPointerMove = ( e ) => {
+		if ( ! dragRef.current ) {
+			return;
+		}
+		setGhost( {
+			shellName: dragRef.current,
+			x: e.clientX,
+			y: e.clientY,
+		} );
+	};
+
+	const onItemPointerUp = ( e ) => {
+		const shellName = dragRef.current;
+		dragRef.current = null;
+		setGhost( null );
+		if ( shellName ) {
+			dropAt( shellName, e.clientX, e.clientY );
+		}
+	};
+
+	const onItemPointerCancel = () => {
+		dragRef.current = null;
+		setGhost( null );
+	};
+
+	// Project the cursor onto the canvas SVG beneath it (the ghost is
+	// pointer-events:none so elementFromPoint sees the SVG, not the ghost).
+	const dropAt = ( shellName, clientX, clientY ) => {
+		const target = document.elementFromPoint( clientX, clientY );
+		const svg =
+			target &&
+			target.closest &&
+			target.closest( 'svg.topology-canvas-svg' );
+		if ( ! svg || ! svg.createSVGPoint || ! onDropNode ) {
+			return;
+		}
+		const pt = svg.createSVGPoint();
+		pt.x = clientX;
+		pt.y = clientY;
+		const ctm = svg.getScreenCTM();
+		if ( ! ctm ) {
+			return;
+		}
+		const local = pt.matrixTransform( ctm.inverse() );
+		onDropNode( { shellName, x: local.x, y: local.y } );
+	};
 	// Collapsed view: a slim vertical rail with just the expand button,
 	// so the user can always bring the palette back without reloading.
 	if ( collapsed ) {
@@ -94,15 +159,13 @@ export default function Palette( {
 							key={ c.shell_name }
 							className={ `topology-palette__item topology-palette__item--${ c.shell_name.toLowerCase() }` }
 							data-shell-name={ c.shell_name }
-							draggable
 							title={ c.description || '' }
-							onDragStart={ ( e ) => {
-								e.dataTransfer.setData(
-									DRAG_MIME,
-									c.shell_name
-								);
-								e.dataTransfer.effectAllowed = 'copy';
-							} }
+							onPointerDown={ ( e ) =>
+								onItemPointerDown( e, c.shell_name )
+							}
+							onPointerMove={ onItemPointerMove }
+							onPointerUp={ onItemPointerUp }
+							onPointerCancel={ onItemPointerCancel }
 						>
 							<div className="topology-palette__glyph" />
 							<div className="topology-palette__name">
@@ -116,8 +179,14 @@ export default function Palette( {
 				<span className="topology-palette__count">{ total }</span>{ ' ' }
 				classes registered
 			</div>
+			{ ghost && (
+				<div
+					className="topology-palette__drag-ghost"
+					style={ { left: ghost.x, top: ghost.y } }
+				>
+					{ ghost.shellName }
+				</div>
+			) }
 		</aside>
 	);
 }
-
-export { DRAG_MIME };
