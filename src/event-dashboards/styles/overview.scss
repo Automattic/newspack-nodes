@@ -117,11 +117,11 @@
 	}
 
 	&--rising &__line {
-		stroke: #d29922;
+		stroke: var(--np-warning);
 	}
 
 	&--falling &__line {
-		stroke: #3fb950;
+		stroke: var(--np-success);
 	}
 }
 
@@ -135,15 +135,17 @@
 
 .nodes-topics {
 	position: relative;
-	background: #1c1f26;
-	border: 1px solid #2b2f3a;
+	// Data-viz surface stays dark (like the console's Newspack REPL), aligned
+	// to the shared $term-* tokens.
+	background: base.$term-bg;
+	border: 1px solid base.$term-border;
 	border-radius: 4px;
 	padding: 8px 10px;
 
 	&__title {
 		font-size: 12px;
 		font-weight: 600;
-		color: #c8cdd6;
+		color: base.$term-text;
 		text-align: center;
 		margin-bottom: 4px;
 	}
@@ -154,12 +156,12 @@
 
 		// d3 axis ink on the dark panel.
 		.tick text {
-			fill: #8a93a3;
+			fill: base.$term-text-dim;
 		}
 
 		.tick line,
 		.domain {
-			stroke: #3a4150;
+			stroke: base.$term-border;
 		}
 	}
 
