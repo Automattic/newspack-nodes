@@ -14,7 +14,7 @@ import { __ } from '@wordpress/i18n';
 import { SegmentBar } from './SegmentBar';
 import { formatByteRate, formatBytes, formatEta } from './formatters';
 
-function NodeRow( { entity, byteRates } ) {
+const NodeRow = memo( function NodeRow( { entity, byteRates } ) {
 	const sorted = [ ...entity.workers ].sort(
 		( a, b ) => a.partition - b.partition
 	);
@@ -73,9 +73,9 @@ function NodeRow( { entity, byteRates } ) {
 			} ) }
 		</span>
 	);
-}
+} );
 
-function LogRows( {
+const LogRows = memo( function LogRows( {
 	entity,
 	writeRates,
 	segmentSize,
@@ -148,10 +148,20 @@ function LogRows( {
 			</div>
 		);
 	} );
-}
+} );
 
 const TreeEntity = memo( function TreeEntity( props ) {
-	const { entity, depth, collapsed, onToggle } = props;
+	const {
+		entity,
+		depth,
+		collapsed,
+		onToggle,
+		byteRates,
+		writeRates,
+		segmentSize,
+		prevSegments,
+		removingSegments,
+	} = props;
 	const isCollapsed = collapsed.has( entity.key );
 	const hasChildren = entity.children.length > 0;
 	return (
@@ -181,14 +191,17 @@ const TreeEntity = memo( function TreeEntity( props ) {
 						</span>
 					) }
 					{ entity.kind === 'node' && (
-						<NodeRow
-							entity={ entity }
-							byteRates={ props.byteRates }
-						/>
+						<NodeRow entity={ entity } byteRates={ byteRates } />
 					) }
 				</div>
 				{ ! isCollapsed && entity.kind === 'log' && (
-					<LogRows entity={ entity } { ...props } />
+					<LogRows
+						entity={ entity }
+						writeRates={ writeRates }
+						segmentSize={ segmentSize }
+						prevSegments={ prevSegments }
+						removingSegments={ removingSegments }
+					/>
 				) }
 			</div>
 			{ ! isCollapsed && hasChildren && (
@@ -196,9 +209,15 @@ const TreeEntity = memo( function TreeEntity( props ) {
 					{ entity.children.map( ( child ) => (
 						<TreeEntity
 							key={ child.key }
-							{ ...props }
 							entity={ child }
 							depth={ depth + 1 }
+							collapsed={ collapsed }
+							onToggle={ onToggle }
+							byteRates={ byteRates }
+							writeRates={ writeRates }
+							segmentSize={ segmentSize }
+							prevSegments={ prevSegments }
+							removingSegments={ removingSegments }
 						/>
 					) ) }
 				</div>

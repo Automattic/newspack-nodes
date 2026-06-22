@@ -1,6 +1,17 @@
 import { render, fireEvent } from '@testing-library/react';
 import TreeEntity from '../TreeEntity';
 
+// Count SegmentBar renders so a test can prove a stable subtree is NOT
+// re-rendered when an unrelated sibling's prop identity changes on a poll. The
+// stub still emits `.worker-segment-h` so the structural tests keep matching.
+let mockSegmentBarRenders = 0;
+jest.mock( '../SegmentBar', () => ( {
+	SegmentBar: () => {
+		mockSegmentBarRenders++;
+		return <div className="worker-segment-h" />;
+	},
+} ) );
+
 // Grouped layout: a log entity is ONE logical log (`requests`) carrying its
 // concrete partitions as sub-rows.
 const logEntity = {
@@ -348,4 +359,35 @@ it( 'folds only the instance whose position key is collapsed, not its twin', () 
 	expect(
 		folded.container.querySelectorAll( '.worker-segment-h' )
 	).toHaveLength( 1 );
+} );
+
+it( 'a stable subtree does not re-render when an unrelated sibling prop identity changes', () => {
+	// The Overview polls every 4s; the parent mints fresh byteRates/writeRates/
+	// prevSegments/removingSegments object identities each poll even when a given
+	// subtree's data is unchanged. TreeEntity must not propagate that churn into
+	// subtrees whose relevant inputs are referentially stable.
+	const stable = {
+		byteRates: {},
+		writeRates: {},
+		segmentSize: 1024,
+		prevSegments: {},
+		removingSegments: {},
+		collapsed: new Set(),
+		onToggle: () => {},
+	};
+	const { rerender } = render(
+		<TreeEntity entity={ logEntity } depth={ 0 } { ...stable } />
+	);
+	const afterFirst = mockSegmentBarRenders;
+	// A poll that changes nothing relevant to this subtree, but mints a fresh
+	// unrelated identity (currentTime) — the subtree must NOT re-render.
+	rerender(
+		<TreeEntity
+			entity={ logEntity }
+			depth={ 0 }
+			{ ...stable }
+			currentTime={ Date.now() }
+		/>
+	);
+	expect( mockSegmentBarRenders ).toBe( afterFirst );
 } );

@@ -28,10 +28,12 @@
  * @param {Function}      opts.poll            `( interpreter ) => void` — fires the dashboard's poll command. Called immediately + on each interval tick.
  * @param {number|string} [opts.refreshMs]     Poll interval in ms (default 4000); the consumer passes its current selection.
  * @param {Object}        [opts.commandClient] CommandClient seam assigned to `_http.client`.
- * @return {{ interpreterRef: Object }} The live interpreter ref consumers fire awaited verbs against.
+ * @return {{ interpreterRef: Object, lastPollRef: Object }} The live interpreter
+ *   ref consumers fire awaited verbs against, plus a ref carrying the wall-clock
+ *   ms of the last poll fire (poll-freshness for staleness detection).
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
@@ -59,9 +61,36 @@ export function useDashboardGraph( opts ) {
 	const interpreterRef = useRef( null );
 	const isPageVisible = usePageVisibility();
 
+	// Wall-clock ms of the most recent poll FIRE (not reply) — it stops advancing
+	// whenever polling pauses (hidden tab, paused drag), so consumers can derive
+	// fire-freshness from it. Reply-success freshness is the consumer's job (it
+	// owns the view nodes the replies land on). Additive, ref-typed so reading it
+	// never forces a re-render. Starts 0 (never polled).
+	const lastPollRef = useRef( 0 );
+
+	// The visibility effect fires an immediate poll whenever it runs while visible,
+	// EXCEPT on the very first effect run (the mount effect's poll already covered
+	// that initial commit). A later become-visible run is a genuine hide→show and
+	// must refresh at once.
+	const visibilityEffectRan = useRef( false );
+
 	// Bumped after build so the consumer re-renders and its useNodeState rebinds
 	// to the freshly-mounted view node(s).
 	const [ , bumpBuild ] = useState( 0 );
+
+	// One poll fire: skip while paused (an in-progress drag) or before the graph
+	// is mounted, else poll and stamp the freshness clock. Read live from optsRef
+	// so toggling pause never re-times the interval.
+	const pollNow = useCallback( () => {
+		if ( optsRef.current.paused ) {
+			return;
+		}
+		const interpreter = interpreterRef.current;
+		if ( interpreter ) {
+			optsRef.current.poll( interpreter );
+			lastPollRef.current = Date.now();
+		}
+	}, [] );
 
 	// Mount the graph once: clip it onto the exospine, then fire one immediate poll.
 	useEffect( () => {
@@ -88,8 +117,10 @@ export function useDashboardGraph( opts ) {
 			// Re-render so useNodeState re-subscribes to the freshly-mounted view.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire one immediate poll (the canonical mount-time poll).
+			// Fire one immediate poll (the canonical mount-time poll) and stamp
+			// the freshness clock.
 			optsRef.current.poll( interpreter );
+			lastPollRef.current = Date.now();
 
 			// Run the consumer's cleanup before the nodes are removed, then drop
 			// the live ref.
@@ -108,24 +139,25 @@ export function useDashboardGraph( opts ) {
 	// Own the poll interval: re-timed on interval change, paused when hidden,
 	// cleared on unmount. Reads the live interpreter ref each tick.
 	useEffect( () => {
+		// The first effect run is the initial-mount commit, whose poll the mount
+		// effect already fired — don't double-poll. Every run after that which is
+		// visible is a genuine become-visible transition: poll immediately so
+		// hide→show shows fresh data without waiting a full interval.
+		const isFirstRun = ! visibilityEffectRan.current;
+		visibilityEffectRan.current = true;
+
 		if ( ! isPageVisible ) {
 			return undefined;
 		}
-		const intervalMs = parseInt( refreshMs, 10 );
-		const id = setInterval( () => {
-			// Skip ticks while the consumer is paused (e.g. an in-progress drag),
-			// so background polling doesn't fight an interaction. Read live from
-			// optsRef so toggling pause never re-times the interval.
-			if ( optsRef.current.paused ) {
-				return;
-			}
-			const interpreter = interpreterRef.current;
-			if ( interpreter ) {
-				optsRef.current.poll( interpreter );
-			}
-		}, intervalMs );
-		return () => clearInterval( id );
-	}, [ refreshMs, isPageVisible ] );
 
-	return { interpreterRef };
+		if ( ! isFirstRun ) {
+			pollNow();
+		}
+
+		const intervalMs = parseInt( refreshMs, 10 );
+		const id = setInterval( pollNow, intervalMs );
+		return () => clearInterval( id );
+	}, [ refreshMs, isPageVisible, pollNow ] );
+
+	return { interpreterRef, lastPollRef };
 }

@@ -66,6 +66,17 @@ describe( 'useDashboardGraph — mount', () => {
 		);
 	} );
 
+	test( 'returns a lastPollRef stamped to the most recent poll fire', () => {
+		const before = Date.now();
+		const { result } = renderHook( () =>
+			useDashboardGraph( { mountNodes: () => {}, poll: () => {} } )
+		);
+		// The mount poll fired, so the freshness clock is stamped (>= mount time).
+		expect( result.current.lastPollRef.current ).toBeGreaterThanOrEqual(
+			before
+		);
+	} );
+
 	test( 'nulls interpreterRef on unmount (cleanup)', () => {
 		const { result, unmount } = renderHook( () =>
 			useDashboardGraph( { mountNodes: () => {}, poll: () => {} } )
@@ -133,6 +144,52 @@ describe( 'useDashboardGraph — poll', () => {
 				jest.advanceTimersByTime( 12000 );
 			} );
 			expect( calls.length ).toBe( baseline );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'fires an immediate poll when the page becomes visible again (no full-interval stale gap)', () => {
+		global.__pageVisible = false;
+		jest.useFakeTimers();
+		try {
+			const calls = [];
+			const { rerender } = renderHook( () =>
+				useDashboardGraph( {
+					mountNodes: () => {},
+					poll: ( i ) => calls.push( i ),
+					refreshMs: 4000,
+				} )
+			);
+			// Hidden: no mount poll fires (mount effect polls, but the visibility
+			// effect is the one under test). Drain any mount poll into the baseline.
+			const hiddenBaseline = calls.length;
+
+			// Becoming visible must refresh immediately, without waiting a tick.
+			global.__pageVisible = true;
+			act( () => {
+				rerender();
+			} );
+			expect( calls.length ).toBe( hiddenBaseline + 1 );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'does not double-poll on initial mount (mount poll + visibility poll)', () => {
+		jest.useFakeTimers();
+		try {
+			const calls = [];
+			renderHook( () =>
+				useDashboardGraph( {
+					mountNodes: () => {},
+					poll: ( i ) => calls.push( i ),
+					refreshMs: 4000,
+				} )
+			);
+			// Exactly ONE poll on mount — the visibility effect must not add a
+			// second immediate poll on the initial (already-visible) render.
+			expect( calls.length ).toBe( 1 );
 		} finally {
 			jest.useRealTimers();
 		}

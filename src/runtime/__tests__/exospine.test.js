@@ -314,3 +314,30 @@ test( 'a second build-mount reuses the backbone without tearing it down (no orph
 	a.teardown();
 	expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
 } );
+
+test( 'a second co-mounted build graph does NOT bump graphGeneration again (no spurious first-graph rebuild)', () => {
+	// The Overview co-mounts two build-delegated graphs (useDashboardGraph +
+	// useTopicProbeStream) on one page. Only the FIRST (owner) mount may bump:
+	// a second bump would full-rebuild the first graph (swapping the shared
+	// backbone out from under its nodes / its SSE link). The reuser's
+	// ownsBackbone=false guard must keep the generation at exactly +1.
+	const before = Core.graphGeneration;
+
+	mountExospine( () => {} ); // owner — the one allowed bump
+	expect( Core.graphGeneration ).toBe( before + 1 );
+
+	mountExospine( () => {} ); // reuser — must NOT bump
+	expect( Core.graphGeneration ).toBe( before + 1 );
+} );
+
+test( 'co-mount does not rebuild the first graph (its build runs once across both mounts)', () => {
+	let firstBuilds = 0;
+	mountExospine( () => {
+		firstBuilds += 1;
+	} ); // owner
+	mountExospine( () => {} ); // reuser co-mounts after
+
+	// The reuser's mount must not have driven a generation bump that re-ran
+	// (and thus tore down + rebuilt) the first graph's build.
+	expect( firstBuilds ).toBe( 1 );
+} );

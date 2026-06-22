@@ -32,7 +32,13 @@
  * `status = byName[row.name] ?? null`.
  */
 
-import { useCallback, useMemo } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import {
 	newMessage,
@@ -49,6 +55,7 @@ import {
 	useDashboardGraph,
 	makeOpId,
 } from '@newspack-nodes/shared/hooks/useDashboardGraph';
+import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '../formatters';
 import '../nodes/register';
@@ -56,6 +63,11 @@ import '../nodes/register';
 // A partition is stalled when its heartbeat age exceeds interval × STALL_PAD;
 // the pad tolerates a couple of missed beats without flicker.
 export const STALL_PAD = 3;
+
+// The connection is "stale" once the last successful poll is older than this many
+// poll intervals — a wedged/paused channel that returns no error still stops the
+// freshness clock, which is what flips `connected` false.
+export const STALE_POLL_INTERVALS = 3;
 
 // A consumer is "behind" only once its catch-up ETA reaches this many seconds —
 // a sub-minute backlog drains on its own and isn't worth flagging.
@@ -182,6 +194,41 @@ export function deriveHealth( section ) {
 }
 
 /**
+ * Derive the connection banner state from BOTH the last poll's error flags AND
+ * poll freshness. A wedged or silently-stalled channel returns no error but stops
+ * advancing the freshness clock, so the error-flag-only check would keep
+ * `connected` true forever; the freshness check catches that. Freshness is only
+ * judged while the page is VISIBLE — a hidden tab pauses polling on purpose, so a
+ * stale clock there is expected, not a disconnect. A never-stamped clock (0) is
+ * treated as not-yet-stale so the banner doesn't flash before the first poll.
+ *
+ * @param {Object}  o               Inputs.
+ * @param {boolean} o.topologyError The topologies model's last error flag.
+ * @param {boolean} o.workerError   The worker-status model's last error flag.
+ * @param {number}  o.lastPollMs    Wall-clock ms of the last poll fire (0 = never).
+ * @param {number}  o.now           Current wall-clock ms.
+ * @param {number}  o.refreshMs     Poll interval in ms.
+ * @param {boolean} o.pageVisible   Whether the page is currently visible.
+ * @return {boolean} Whether the dashboard is considered connected.
+ */
+export function deriveConnected( {
+	topologyError,
+	workerError,
+	lastPollMs,
+	now,
+	refreshMs,
+	pageVisible,
+} ) {
+	if ( topologyError || workerError ) {
+		return false;
+	}
+	if ( ! pageVisible || ! lastPollMs ) {
+		return true;
+	}
+	return now - lastPollMs <= STALE_POLL_INTERVALS * refreshMs;
+}
+
+/**
  * Dispatch an awaited verb through the live interpreter, settling on the named
  * view node's pending-Map. Rejects if the graph or view isn't mounted yet.
  *
@@ -296,7 +343,46 @@ export function useTopologyManager( opts = {} ) {
 
 	const supervisor = workerModel?.supervisor ?? null;
 	const currentTime = workerModel?.currentTime;
-	const connected = ! ( topologyModel?.error || workerModel?.error );
+
+	// Last SUCCESSFUL poll: a reply landing replaces the view model reference, so
+	// a fresh model identity is our success signal. A wedged/silently-stalled
+	// channel returns no error and produces no new model, so this clock stops —
+	// which is exactly what flips `connected` false (the last-error-flag-only
+	// check would stay true forever). Stamped from a ref so an unchanged model
+	// (re-render with no new reply) keeps the prior success time.
+	const lastSuccessRef = useRef( 0 );
+	useEffect( () => {
+		if ( workerModel || topologyModel ) {
+			lastSuccessRef.current = Date.now();
+		}
+	}, [ workerModel, topologyModel ] );
+
+	// Re-evaluate `connected` on a heartbeat even when no reply arrives — a
+	// stalled channel produces no model update, so nothing else would re-render
+	// us. Only while visible: a hidden tab pauses polling on purpose, so its stale
+	// clock is expected. `bumpFreshness` exists solely to force that re-render.
+	const pageVisible = usePageVisibility();
+	const [ , bumpFreshness ] = useState( 0 );
+	useEffect( () => {
+		if ( ! pageVisible ) {
+			return undefined;
+		}
+		const intervalMs = parseInt( refreshMs, 10 );
+		const id = setInterval(
+			() => bumpFreshness( ( n ) => n + 1 ),
+			intervalMs
+		);
+		return () => clearInterval( id );
+	}, [ refreshMs, pageVisible ] );
+
+	const connected = deriveConnected( {
+		topologyError: Boolean( topologyModel?.error ),
+		workerError: Boolean( workerModel?.error ),
+		lastPollMs: lastSuccessRef.current,
+		now: Date.now(),
+		refreshMs: parseInt( refreshMs, 10 ),
+		pageVisible,
+	} );
 	// Fleet-global byte rates (Σ the live per-reader / per-log rate maps) and the
 	// on-disk log-partition count — the SummaryCards' R / W / partitions numbers.
 	const { readRate, writeRate } = globalRates(

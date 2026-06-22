@@ -32,8 +32,76 @@ import { Core } from '../../runtime/core';
 import {
 	useTopologyManager,
 	STALL_PAD,
+	STALE_POLL_INTERVALS,
 	deriveHealth,
+	deriveConnected,
 } from '../hooks/useTopologyManager';
+
+describe( 'deriveConnected — error flag OR poll-freshness', () => {
+	const opts = { refreshMs: 4000, pageVisible: true, now: 100000 };
+
+	it( 'is connected when neither model errored and the last poll is fresh', () => {
+		expect(
+			deriveConnected( {
+				...opts,
+				topologyError: false,
+				workerError: false,
+				lastPollMs: 100000 - 4000, // one interval ago — fresh
+			} )
+		).toBe( true );
+	} );
+
+	it( 'is disconnected when a model reports an error (last poll flag)', () => {
+		expect(
+			deriveConnected( {
+				...opts,
+				topologyError: true,
+				workerError: false,
+				lastPollMs: 100000,
+			} )
+		).toBe( false );
+	} );
+
+	it( 'is disconnected when the last poll is staler than the threshold while visible', () => {
+		// A wedged/paused channel: no error flag, but the poll clock stopped
+		// advancing past STALE_POLL_INTERVALS × refreshMs.
+		const stale = 100000 - ( STALE_POLL_INTERVALS * 4000 + 1 );
+		expect(
+			deriveConnected( {
+				...opts,
+				topologyError: false,
+				workerError: false,
+				lastPollMs: stale,
+			} )
+		).toBe( false );
+	} );
+
+	it( 'does NOT report disconnected merely because the tab is hidden (paused)', () => {
+		const stale = 100000 - ( STALE_POLL_INTERVALS * 4000 + 1 );
+		expect(
+			deriveConnected( {
+				...opts,
+				pageVisible: false,
+				topologyError: false,
+				workerError: false,
+				lastPollMs: stale,
+			} )
+		).toBe( true );
+	} );
+
+	it( 'treats a never-polled clock (0) as not-yet-stale while visible', () => {
+		// Pre-first-poll the clock is 0; don't flash "disconnected" before the
+		// mount poll has had a chance to stamp it.
+		expect(
+			deriveConnected( {
+				...opts,
+				topologyError: false,
+				workerError: false,
+				lastPollMs: 0,
+			} )
+		).toBe( true );
+	} );
+} );
 
 describe( 'deriveHealth — eta-aware behind', () => {
 	const sect = ( workers ) => ( { workers, heartbeatIntervalS: 10 } );
@@ -381,6 +449,56 @@ describe( 'useTopologyManager', () => {
 		);
 		await act( async () => {} );
 		expect( result.current ).toHaveProperty( 'connected' );
+	} );
+
+	it( 'goes disconnected when the channel wedges (no reply past the staleness threshold)', async () => {
+		// Fake timers drive both the poll interval AND Date.now, so advancing time
+		// ages the last-success clock exactly as in production.
+		jest.useFakeTimers();
+		try {
+			// A client that answers the FIRST poll (so we connect), then wedges:
+			// later polls are accepted but never reply, so the view models stop
+			// updating and the last-success clock freezes.
+			const fresh = buildClient();
+			let answered = false;
+			const wedging = {
+				buildMessage: fresh.client.buildMessage,
+				postBatch: ( messages ) => {
+					if ( answered ) {
+						return Promise.resolve( [] );
+					}
+					answered = true;
+					return fresh.client.postBatch( messages );
+				},
+			};
+			const { result } = renderHook( () =>
+				useTopologyManager( {
+					commandClient: wedging,
+					refreshMs: 4000,
+				} )
+			);
+			await act( async () => {} );
+			// First poll succeeded → connected.
+			expect( result.current.connected ).toBe( true );
+
+			// Age time well past STALE_POLL_INTERVALS × refreshMs; the freshness
+			// heartbeat re-derives `connected` against the now-frozen success clock.
+			await act( async () => {
+				jest.advanceTimersByTime( STALE_POLL_INTERVALS * 4000 + 5000 );
+			} );
+			expect( result.current.connected ).toBe( false );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'stays connected while replies keep arriving (fresh polls)', async () => {
+		const { client } = buildClient();
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+		expect( result.current.connected ).toBe( true );
 	} );
 } );
 

@@ -185,6 +185,33 @@ describe( 'TopicProbeViewNode', () => {
 		}
 	} );
 
+	it( 'after a gap, does NOT grant a fresh full TTL to a consumer that was already silent before the outage — it evicts on its real schedule', () => {
+		jest.useFakeTimers();
+		try {
+			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
+			// dead.p0 produces once, then goes silent for good.
+			v.fill( probeMsg( { reader: 'dead.p0', ts: 100 } ) ); // real-time 0
+			// keepalive.p0 advances _lastFill 500ms later (no outage, gap < ttl), so
+			// when the outage hits, dead.p0's last activity is OLDER than _lastFill.
+			jest.advanceTimersByTime( 500 );
+			v.fill( probeMsg( { reader: 'keepalive.p0', ts: 105 } ) ); // real-time 500
+			// Outage: gap 1500 > ttl. A blanket re-baseline would hand dead.p0 a fresh
+			// full lease here; the refine must only shift it by the outage, not reset it.
+			jest.advanceTimersByTime( 1500 );
+			v.fill( probeMsg( { reader: 'live.p0', ts: 110 } ) ); // real-time 2000
+			// One more outage-free fill 600ms later: dead.p0 (silent since real-time 0,
+			// ~2600ms — way past ttl) must now be gone; the still-producing ones stay.
+			jest.advanceTimersByTime( 600 );
+			v.fill( probeMsg( { reader: 'live.p0', ts: 111 } ) ); // real-time 2600
+			const snap = v.snapshot();
+			expect( snap[ 'dead.p0' ] ).toBeUndefined();
+			expect( snap[ 'keepalive.p0' ] ).toBeTruthy();
+			expect( snap[ 'live.p0' ] ).toBeTruthy();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
 	it( 'removeNode clears any pending trailing-publish timer (no setState after teardown)', () => {
 		jest.useFakeTimers();
 		try {

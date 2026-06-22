@@ -628,6 +628,150 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 	} );
 } );
 
+// Two consumer nodes in ONE topology share a source (no reader template, so the
+// match is by source). Their names collide as substrings: `req` is a substring of
+// the reader `prereq.p0`. The disambiguation must bind the probe row to the
+// handler whose IDENTITY equals the reader basename (`prereq`), not the first one
+// whose name is a loose substring of the reader (`req`).
+const SUBSTRING_COLLISION_GRAPH = {
+	t: {
+		nodes: [
+			{
+				name: 'req',
+				kind: 'consumer',
+				reads: 'shared.p<partition>',
+			},
+			{
+				name: 'prereq',
+				kind: 'consumer',
+				reads: 'shared.p<partition>',
+			},
+			{ name: 'req-proc', kind: 'logic' },
+			{ name: 'prereq-proc', kind: 'logic' },
+		],
+		edges: [
+			[ 'req', 'req-proc' ],
+			[ 'prereq', 'prereq-proc' ],
+		],
+	},
+};
+const SUBSTRING_COLLISION_DATA = {
+	graph: SUBSTRING_COLLISION_GRAPH,
+	workers: [ wk( 't' ) ],
+	consumers: [
+		{
+			reader: 'prereq.p0',
+			source: 'shared.p0',
+			partition: 0,
+			cursor_seg: 0,
+			cursor_off: 50,
+			end_seg: 0,
+			end_size: 200,
+			distance: 150,
+			msgs: 7,
+		},
+	],
+	logs: [
+		{
+			name: 'shared.p0',
+			partitions: [
+				{
+					partition: 0,
+					segments: [ { id: 0, size: 200 } ],
+					total_size: 200,
+				},
+			],
+		},
+	],
+	timestamp: 1000,
+};
+
+describe( 'reconstructWorkers — reader/handler identity match (no loose substring)', () => {
+	it( 'binds a probe row to the handler whose name EQUALS the reader basename, not a substring', () => {
+		const { workers } = reconstructWorkers(
+			SUBSTRING_COLLISION_DATA,
+			EMPTY_PRIOR
+		);
+		// reader `prereq.p0` must resolve to `prereq`'s downstream (`prereq-proc`),
+		// NOT `req`'s (`req-proc`) — `req` is merely a substring of `prereq.p0`.
+		const handlers = workers.map( ( w ) => w.handler ).sort();
+		expect( handlers ).toEqual( [ 'prereq-proc' ] );
+	} );
+} );
+
+describe( 'reconstructWorkers — read step computed once per reader (not per topology)', () => {
+	// A probe row whose source matches a consumer in EVERY topology (no reader
+	// template → matched by source). The per-reader read step depends only on the
+	// row + segments + timestamp, never the topology, so it must be computed ONCE
+	// regardless of topology count. A counting getter on the segment `id` (read by
+	// the cursor-byte computation, NOT by liveTotal which reads `size`) reveals the
+	// N×M recompute: more topologies must NOT multiply the read-step work.
+	const buildData = ( topologyCount ) => {
+		const graph = {};
+		for ( let i = 0; i < topologyCount; i++ ) {
+			graph[ `t${ i }` ] = {
+				nodes: [
+					{
+						name: 'c',
+						kind: 'consumer',
+						reads: 'shared.p<partition>',
+					},
+					{ name: 'proc', kind: 'logic' },
+				],
+				edges: [ [ 'c', 'proc' ] ],
+			};
+		}
+		let idReads = 0;
+		const segment = {
+			get id() {
+				idReads++;
+				return 0;
+			},
+			size: 200,
+		};
+		const data = {
+			graph,
+			workers: [],
+			consumers: [
+				{
+					reader: 'shared.p0',
+					source: 'shared.p0',
+					partition: 0,
+					cursor_seg: 0,
+					cursor_off: 50,
+					end_seg: 0,
+					end_size: 200,
+					distance: 150,
+					msgs: 7,
+				},
+			],
+			logs: [
+				{
+					name: 'shared.p0',
+					partitions: [
+						{
+							partition: 0,
+							segments: [ segment ],
+							total_size: 200,
+						},
+					],
+				},
+			],
+			timestamp: 1000,
+		};
+		reconstructWorkers( data, EMPTY_PRIOR );
+		return idReads;
+	};
+
+	it( 'does not scale the per-reader read computation with the number of topologies', () => {
+		const oneTopology = buildData( 1 );
+		const fourTopologies = buildData( 4 );
+		// The cursor-byte read step for a reader is the same regardless of how many
+		// topologies reference it — adding topologies must not recompute it.
+		expect( fourTopologies ).toBe( oneTopology );
+	} );
+} );
+
 describe( 'reconstructWorkers — liveness backfill', () => {
 	it( 'emits a row for a live worker that has no probe row yet', () => {
 		const data = { ...FANOUT_DATA, consumers: [] };

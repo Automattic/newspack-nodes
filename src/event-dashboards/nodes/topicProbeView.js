@@ -71,11 +71,15 @@ export class TopicProbeViewNode extends Node {
 
 		const now = Date.now();
 		// A gap larger than the eviction window means the stream was closed/hidden
-		// (Overview tab backgrounded) — NOT consumers dying. Re-baseline every lease
-		// so the outage doesn't count against anyone, then evict on fresh time.
+		// (Overview tab backgrounded) — NOT consumers dying. SHIFT every lease forward
+		// by the outage so the burst doesn't wipe consumers that resume in it, WITHOUT
+		// granting a fresh full TTL: a consumer already silent before the outage keeps
+		// its real remaining lease and still evicts on schedule. The resumed ones get a
+		// fresh `now` lease as their frames land in _accumulate.
 		if ( this._lastFill && now - this._lastFill > this.ttlMs ) {
+			const outage = now - this._lastFill;
 			for ( const c of Object.values( this.consumers ) ) {
-				c._lastSeen = now;
+				c._lastSeen += outage;
 			}
 		}
 		this._lastFill = now;
