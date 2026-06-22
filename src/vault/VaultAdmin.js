@@ -500,7 +500,7 @@ export default function VaultAdmin() {
 				</h1>
 				<button
 					type="button"
-					className="button nodes-vault__add-trigger"
+					className="page-title-action"
 					onClick={ () => setIsAddOpen( true ) }
 				>
 					{ __( 'Add Server', 'newspack-nodes' ) }

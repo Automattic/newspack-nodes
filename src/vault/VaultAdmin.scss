@@ -16,23 +16,9 @@
 		margin-bottom: 16px;
 	}
 
-	// "Add Server" trails the title as a WP `.page-title-action` — a Cobalt
-	// OUTLINE (not the solid primary; that stays on the modal's submit).
-	.button.nodes-vault__add-trigger {
-		background: var(--np-surface);
-		border: 1.5px solid var(--np-primary);
-		color: var(--np-primary);
-		border-radius: var(--np-radius-md);
-		padding: 4px 12px;
-		box-shadow: none;
-
-		&:hover,
-		&:focus {
-			background: var(--np-primary-subtle);
-			border-color: var(--np-primary);
-			color: var(--np-primary);
-		}
-	}
+	// "Add Server" trails the title using WP's native `.page-title-action`
+	// (the standard "Add Post" button) — intentionally left unstyled so it
+	// matches WP exactly.
 
 	// Primary action (the modal's Add submit) — solid Newspack Cobalt.
 	.button.button-primary {
@@ -51,9 +37,8 @@
 		}
 	}
 
-	// Secondary/utility buttons (Test, modal Cancel) — white + border. (The
-	// add-trigger has its own Cobalt-outline rule above.)
-	.button:not(.button-primary):not(.button-link-delete):not(.nodes-vault__add-trigger) {
+	// Secondary/utility buttons (Test, modal Cancel) — white + border.
+	.button:not(.button-primary):not(.button-link-delete) {
 		background: var(--np-surface);
 		border: 1.5px solid var(--np-border-strong);
 		color: var(--np-text);
