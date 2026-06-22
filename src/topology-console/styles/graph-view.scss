@@ -280,6 +280,18 @@
 		}
 	}
 
+	// Connector visibility from the node schema: a node that doesn't accept a
+	// fill has no in-connector (left dot ::before); one with no target has no
+	// out-connector (right dot ::after). Set by Palette's glyphClass on both the
+	// palette item's glyph and the drag ghost's glyph.
+	&__glyph--no-in::before {
+		display: none;
+	}
+
+	&__glyph--no-out::after {
+		display: none;
+	}
+
 	// Variant glyphs — keyed on the data-type attribute the React
 	// component sets, exposed here through chained BEM class names.
 	// stylelint-disable no-descending-specificity
@@ -374,13 +386,16 @@
 		font-weight: 700;
 	}
 
-	// Drag ghost following the cursor during a palette→canvas pointer drag.
+	// Drag ghost following the cursor during a palette→canvas pointer drag — a
+	// floating copy of the palette item (connector-aware glyph + name).
 	// pointer-events:none is load-bearing: elementFromPoint on pointer-up must
 	// see the canvas SVG beneath the ghost, not the ghost itself.
 	&__drag-ghost {
 		position: fixed;
 		// Small offset so the chip trails the cursor rather than sitting under it.
 		margin: 8px 0 0 8px;
+		display: flex;
+		align-items: center;
 		pointer-events: none;
 		z-index: 1000;
 		padding: 6px 10px;

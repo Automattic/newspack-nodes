@@ -33,31 +33,44 @@ export default function Palette( {
 	onToggle,
 	onDropNode,
 } ) {
-	// Drag ghost following the cursor ({ shellName, x, y } | null). dragRef holds
-	// the in-flight shellName so the pointer handlers stay stable across renders.
+	// Drag ghost following the cursor ({ shellName, acceptsFill, hasTarget, x, y }
+	// | null). dragRef holds the in-flight shellName so the pointer handlers stay
+	// stable across renders.
 	const [ ghost, setGhost ] = useState( null );
 	const dragRef = useRef( null );
 
-	const onItemPointerDown = ( e, shellName ) => {
+	// accepts_fill → left/in connector (the glyph's ::before); has_target →
+	// right/out connector (::after). Both default true (matches the PHP schema),
+	// so the glyph only carries a modifier when a connector is ABSENT — CSS hides
+	// that pseudo-element. Shared by the palette item and the drag ghost.
+	const acceptsFillOf = ( c ) => c.accepts_fill !== false;
+	const hasTargetOf = ( c ) => c.has_target !== false;
+	const glyphClass = ( acceptsFill, hasTarget ) =>
+		`topology-palette__glyph${
+			acceptsFill ? '' : ' topology-palette__glyph--no-in'
+		}${ hasTarget ? '' : ' topology-palette__glyph--no-out' }`;
+
+	const onItemPointerDown = ( e, c ) => {
 		e.preventDefault();
 		try {
 			e.currentTarget.setPointerCapture( e.pointerId );
 		} catch {
 			// jsdom / browsers without pointer capture — drag still works.
 		}
-		dragRef.current = shellName;
-		setGhost( { shellName, x: e.clientX, y: e.clientY } );
-	};
-
-	const onItemPointerMove = ( e ) => {
-		if ( ! dragRef.current ) {
-			return;
-		}
+		dragRef.current = c.shell_name;
 		setGhost( {
-			shellName: dragRef.current,
+			shellName: c.shell_name,
+			acceptsFill: acceptsFillOf( c ),
+			hasTarget: hasTargetOf( c ),
 			x: e.clientX,
 			y: e.clientY,
 		} );
+	};
+
+	const onItemPointerMove = ( e ) => {
+		setGhost( ( prev ) =>
+			prev ? { ...prev, x: e.clientX, y: e.clientY } : prev
+		);
 	};
 
 	const onItemPointerUp = ( e ) => {
@@ -160,14 +173,17 @@ export default function Palette( {
 							className={ `topology-palette__item topology-palette__item--${ c.shell_name.toLowerCase() }` }
 							data-shell-name={ c.shell_name }
 							title={ c.description || '' }
-							onPointerDown={ ( e ) =>
-								onItemPointerDown( e, c.shell_name )
-							}
+							onPointerDown={ ( e ) => onItemPointerDown( e, c ) }
 							onPointerMove={ onItemPointerMove }
 							onPointerUp={ onItemPointerUp }
 							onPointerCancel={ onItemPointerCancel }
 						>
-							<div className="topology-palette__glyph" />
+							<div
+								className={ glyphClass(
+									acceptsFillOf( c ),
+									hasTargetOf( c )
+								) }
+							/>
 							<div className="topology-palette__name">
 								{ c.shell_name }
 							</div>
@@ -184,7 +200,15 @@ export default function Palette( {
 					className="topology-palette__drag-ghost"
 					style={ { left: ghost.x, top: ghost.y } }
 				>
-					{ ghost.shellName }
+					<div
+						className={ glyphClass(
+							ghost.acceptsFill,
+							ghost.hasTarget
+						) }
+					/>
+					<div className="topology-palette__name">
+						{ ghost.shellName }
+					</div>
 				</div>
 			) }
 		</aside>

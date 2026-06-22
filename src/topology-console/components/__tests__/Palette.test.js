@@ -90,6 +90,72 @@ describe( 'Palette', () => {
 		expect( echo.className ).toContain( 'topology-palette__item--echo' );
 	} );
 
+	it( 'glyph connectors reflect accepts_fill (in) and has_target (out)', () => {
+		// accepts_fill → left/in dot (::before); has_target → right/out dot
+		// (::after). The component flags the absent ones so CSS hides them.
+		const classes = [
+			{
+				shell_name: 'Sourcey',
+				category: 'Generic',
+				accepts_fill: false,
+				has_target: true,
+			},
+			{
+				shell_name: 'Sinky',
+				category: 'Generic',
+				accepts_fill: true,
+				has_target: false,
+			},
+			{ shell_name: 'Both', category: 'Generic' }, // undefined → both default true
+		];
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		const glyphOf = ( name ) =>
+			container.querySelector(
+				`[data-shell-name="${ name }"] .topology-palette__glyph`
+			);
+		// Source (no fill): in-connector hidden, out-connector shown.
+		expect( glyphOf( 'Sourcey' ).className ).toContain(
+			'topology-palette__glyph--no-in'
+		);
+		expect( glyphOf( 'Sourcey' ).className ).not.toContain(
+			'topology-palette__glyph--no-out'
+		);
+		// Sink (no target): out-connector hidden, in-connector shown.
+		expect( glyphOf( 'Sinky' ).className ).toContain(
+			'topology-palette__glyph--no-out'
+		);
+		expect( glyphOf( 'Sinky' ).className ).not.toContain(
+			'topology-palette__glyph--no-in'
+		);
+		// Default (both connectors): no modifier.
+		expect( glyphOf( 'Both' ).className ).toBe( 'topology-palette__glyph' );
+	} );
+
+	it( 'the drag ghost shows the connector-aware glyph for the dragged class', () => {
+		const classes = [
+			{
+				shell_name: 'Sourcey',
+				category: 'Generic',
+				accepts_fill: false,
+				has_target: true,
+			},
+		];
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		const item = container.querySelector( '[data-shell-name="Sourcey"]' );
+		fireEvent.pointerDown( item, { pointerId: 1, clientX: 5, clientY: 5 } );
+		const ghostGlyph = container.querySelector(
+			'.topology-palette__drag-ghost .topology-palette__glyph'
+		);
+		expect( ghostGlyph ).not.toBeNull();
+		expect( ghostGlyph.className ).toContain(
+			'topology-palette__glyph--no-in'
+		);
+	} );
+
 	it( 'shows a drag ghost with the shell name on pointer-down', () => {
 		const { container } = render(
 			<Palette classes={ sampleClasses } loading={ false } />
