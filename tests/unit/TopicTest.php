@@ -436,4 +436,65 @@ class TopicTest extends TestCase {
 		// Test passes if no exception was thrown above.
 		$this->assertTrue( true );
 	}
+
+	// -------------------------------------------------------------------------
+	// large-write propagation: void_warranty() / allow_large_writes() flow to children
+	// -------------------------------------------------------------------------
+
+	public function test_void_warranty_lets_oversize_records_through_to_partitions(): void {
+		// Default Partitions cap records at 4 KB (PIPE_BUF). void_warranty() on the
+		// Topic must lift that cap on every partition it materializes.
+		$t = new Topic_Node();
+		$t->name( 'firehose' );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 4 0" );
+		$t->void_warranty();
+
+		$big = str_repeat( 'x', 5000 );
+		$this->produce_into( $t, $big, 'k1' );
+
+		$path    = "{$this->tmp}/firehose.p0/0.log";
+		$decoded = Message::unpacked( rtrim( (string) file_get_contents( $path ), "\n" ) );
+		$this->assertSame( $big, $decoded[ Message::VALUE ] );
+	}
+
+	public function test_topic_without_large_write_flag_drops_oversize_records(): void {
+		// Contrast partner: with no large-write opt-in, the >4 KB record is dropped
+		// by the Partition (this is exactly what `ingest` must warn about in --dry-run).
+		$t = new Topic_Node();
+		$t->name( 'firehose' );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 4 0" );
+
+		$big = str_repeat( 'x', 5000 );
+		$this->produce_into( $t, $big, 'k1' );
+
+		$path = "{$this->tmp}/firehose.p0/0.log";
+		$this->assertSame( '', file_exists( $path ) ? (string) file_get_contents( $path ) : '' );
+	}
+
+	public function test_void_warranty_applies_to_partitions_materialized_after_the_call(): void {
+		// void_warranty() before any fill() must still reach lazily-materialized
+		// partitions — mirrors how sink() propagates to future children.
+		$t = new Topic_Node();
+		$t->name( 'firehose' );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 2 67108864 4 0" );
+		$t->void_warranty();
+
+		// Pin one oversize record to EACH partition via TO so both materialize after the call.
+		$big = str_repeat( 'y', 5000 );
+		foreach ( [ 'p0', 'p1' ] as $pin ) {
+			$message                  = $this->produce( $big );
+			$message[ Message::TO ]   = $pin;
+			$t->fill( $message );
+			$t->flush();
+		}
+
+		$found = 0;
+		for ( $i = 0; $i < 2; ++$i ) {
+			$path = "{$this->tmp}/firehose.p{$i}/0.log";
+			if ( file_exists( $path ) && '' !== rtrim( (string) file_get_contents( $path ), "\n" ) ) {
+				++$found;
+			}
+		}
+		$this->assertSame( 2, $found, 'both lazily-materialized partitions accepted the oversize record' );
+	}
 }

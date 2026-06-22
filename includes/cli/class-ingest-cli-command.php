@@ -1,0 +1,209 @@
+<?php
+/**
+ * Ingest_CLI_Command: `wp nodes ingest` — replay packed partition segment
+ * records back through a Topic onto disk.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes;
+
+\defined( 'ABSPATH' ) || exit;
+
+class Ingest_CLI_Command {
+
+	/**
+	 * Replay packed segment records through a Topic's fill(), re-partitioning onto disk.
+	 *
+	 * Records pinned via their original TO (`pN…`) honor that pin per Topic::fill()
+	 * semantics; everything else (the firehose case) re-partitions by KEY.
+	 *
+	 * @param array<int, string>   $args       Positional: <topic> then one or more files.
+	 * @param array<string, mixed> $assoc_args --num_partitions / --segment_size / --num_segments / --allow_large_writes / --void_warranty / --dry-run.
+	 */
+	public function ingest( array $args, array $assoc_args ): void {
+		Bootstrap::ensure_runtime_wired();
+
+		$topic_arg = $args[0] ?? '';
+		$files     = \array_slice( $args, 1 );
+		$dry_run   = isset( $assoc_args['dry-run'] );
+		$lock      = isset( $assoc_args['allow_large_writes'] );
+		$void      = isset( $assoc_args['void_warranty'] );
+
+		if ( $lock && $void ) {
+			\WP_CLI::error( 'Pass at most one of --allow_large_writes or --void_warranty.' );
+		}
+		if ( '' === $topic_arg ) {
+			\WP_CLI::error( 'Usage: wp nodes ingest <topic> <file>...' );
+		}
+		if ( empty( $files ) ) {
+			\WP_CLI::error( 'At least one segment file is required.' );
+		}
+		foreach ( $files as $file ) {
+			// is_file rejects a partition DIR mistakenly passed as a file (fopen would succeed, then read nothing).
+			if ( ! \is_file( $file ) || ! \is_readable( $file ) ) {
+				\WP_CLI::error( "Cannot read file: {$file}" );
+			}
+		}
+
+		$np_raw = $assoc_args['num_partitions'] ?? null;
+		if ( null !== $np_raw && ! \is_numeric( $np_raw ) ) {
+			\WP_CLI::error( '--num_partitions must be an integer.' );
+		}
+		$requested = \is_numeric( $np_raw ) ? (int) $np_raw : null;
+		[ $tpl, $num_partitions ] = $this->resolve_destination( $topic_arg, $requested );
+
+		// Segment geometry — defaults to the Partition schema defaults; override to
+		// re-segment a log (e.g. shrink topicprobe.p0 to 1 MiB segments). max_lifespan
+		// is omitted: re-ingested segments all carry a fresh mtime, so age-based
+		// retention is meaningless here, and the live writer remounts with its own.
+		$segment_size = $this->int_flag( $assoc_args, 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE );
+		$num_segments = $this->int_flag( $assoc_args, 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS );
+
+		\WP_CLI::log( "Destination: {$tpl} ({$num_partitions} partition(s), {$segment_size}-byte segments)" );
+
+		// >4KB records hit PIPE_BUF; the cap rises to 10MB only when the operator opts in.
+		$cap = ( $lock || $void ) ? Partition_Node::MAX_LARGE_LINE_SIZE : Partition_Node::MAX_LINE_SIZE;
+
+		$topic = null;
+		if ( ! $dry_run ) {
+			$topic = new Topic_Node();
+			$topic->arguments( "{$tpl} {$num_partitions} {$segment_size} {$num_segments}" );
+			if ( $lock ) {
+				$topic->allow_large_writes();
+			} elseif ( $void ) {
+				$topic->void_warranty();
+			}
+		}
+
+		$ingested    = 0;
+		$unparseable = 0;
+		$oversize    = 0;
+		$max_size    = 0;
+		foreach ( $files as $file ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$fh = \fopen( $file, 'r' );
+			if ( false === $fh ) {
+				\WP_CLI::error( "Cannot open file: {$file}" );
+				continue; // WP_CLI::error exits in production; unreachable, but narrows $fh for the rest of the loop.
+			}
+			while ( false !== ( $line = \fgets( $fh ) ) ) {
+				$line = \rtrim( $line, "\n" );
+				if ( '' === $line ) {
+					continue;
+				}
+				try {
+					$message = Message::unpacked( $line );
+				} catch ( \InvalidArgumentException $e ) {
+					++$unparseable;
+					continue;
+				}
+				$size     = \strlen( Message::packed( $message ) ) + 1;
+				$max_size = \max( $max_size, $size );
+				if ( $size > $cap ) {
+					++$oversize;
+					continue;
+				}
+				if ( null !== $topic ) {
+					$topic->fill( $message );
+				}
+				++$ingested;
+			}
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+			\fclose( $fh );
+		}
+		if ( null !== $topic ) {
+			// Flush the batch, then remove_node() to close handles AND release any
+			// held write lock (allow_large_writes) — __destruct alone leaks the lock.
+			$topic->flush();
+			$topic->remove_node();
+		}
+
+		$stats = [
+			'ingested'    => $ingested,
+			'unparseable' => $unparseable,
+			'oversize'    => $oversize,
+			'max_size'    => $max_size,
+		];
+		$this->report( $dry_run, $stats, $lock || $void );
+	}
+
+	/**
+	 * Parse an optional integer flag, defaulting when absent and erroring on a non-numeric value.
+	 *
+	 * @param array<string, mixed> $assoc_args
+	 */
+	private function int_flag( array $assoc_args, string $key, int $default ): int {
+		$raw = $assoc_args[ $key ] ?? null;
+		if ( null === $raw ) {
+			return $default;
+		}
+		if ( ! \is_numeric( $raw ) ) {
+			\WP_CLI::error( "--{$key} must be an integer." );
+		}
+		// is_scalar narrows for the cast; the is_numeric guard above already rejected non-numbers.
+		return (int) ( \is_scalar( $raw ) ? $raw : 0 );
+	}
+
+	/** Global config num_partitions (the operator default), clamped to >= 1. */
+	private static function config_num_partitions(): int {
+		$raw = Config::load_config()['num_partitions'] ?? 1;
+		return \max( 1, (int) ( \is_scalar( $raw ) ? $raw : 1 ) );
+	}
+
+	/**
+	 * Resolve the <topic> argument to [dir_template, num_partitions].
+	 *
+	 * Explicit form (carries a {partition}/<partition> token): trust the operator —
+	 * resolve config tokens, default count to 1. Shortname form: expand to
+	 * <config:logs_dir>/<name>.p{partition} with the count from --num_partitions, or
+	 * the global config num_partitions when not given.
+	 *
+	 * @return array{0:string,1:int}
+	 */
+	private function resolve_destination( string $topic_arg, ?int $requested ): array {
+		$has_token = \str_contains( $topic_arg, '{partition}' ) || \str_contains( $topic_arg, '<partition>' );
+
+		if ( $has_token ) {
+			$tpl = \str_replace( '<partition>', '{partition}', Core::resolve_config_tokens( $topic_arg ) );
+			return [ $tpl, \max( 1, $requested ?? 1 ) ];
+		}
+
+		$count = \max( 1, $requested ?? self::config_num_partitions() );
+		$logs  = Core::resolve_config_tokens( '<config:logs_dir>' );
+		return [ "{$logs}/{$topic_arg}.p{partition}", $count ];
+	}
+
+	/**
+	 * Emit the run summary: dry-run advises on large-write flags; a real run reports what landed and what was skipped.
+	 *
+	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts.
+	 */
+	private function report( bool $dry_run, array $stats, bool $large_enabled ): void {
+		$cap = Partition_Node::MAX_LINE_SIZE;
+		if ( $stats['unparseable'] > 0 ) {
+			\WP_CLI::warning( "Skipped {$stats['unparseable']} unparseable line(s)." );
+		}
+
+		if ( $dry_run ) {
+			\WP_CLI::log( "Dry run: {$stats['ingested']} record(s) would be ingested; largest record {$stats['max_size']} bytes." );
+			if ( $stats['oversize'] > 0 ) {
+				\WP_CLI::warning(
+					"{$stats['oversize']} record(s) exceed {$cap} bytes — re-run with "
+					. '--allow_large_writes (locked) or --void_warranty (no lock) to include them.'
+				);
+			} else {
+				\WP_CLI::log( "All records within the {$cap}-byte PIPE_BUF cap; no large-write flag needed." );
+			}
+			return;
+		}
+
+		if ( $stats['oversize'] > 0 && ! $large_enabled ) {
+			\WP_CLI::warning(
+				"Skipped {$stats['oversize']} oversize record(s) (> {$cap} bytes); "
+				. 're-run with --allow_large_writes or --void_warranty to include them.'
+			);
+		}
+		\WP_CLI::success( "Ingested {$stats['ingested']} record(s)." );
+	}
+}
