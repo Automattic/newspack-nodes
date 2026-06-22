@@ -127,7 +127,7 @@ input.newspack-nodes-raw-logs-search {
 	flex: 1;
 	position: relative;
 	overflow: hidden;
-	border-radius: base.$border-radius;
+	border-radius: var(--np-radius-md);
 	background: base.$term-bg;
 	border: 1px solid base.$term-border;
 }
