@@ -355,7 +355,11 @@
 	&.processed {
 		// Softened green (lighter than solid Cobalt-success) so the wide bars
 		// don't dominate the light dashboard.
-		background: color-mix(in srgb, var(--np-success) 68%, white); // processed
+		background: color-mix(
+			in srgb,
+			var(--np-success) 68%,
+			white
+		); // processed
 	}
 
 	&.pending {
@@ -365,7 +369,11 @@
 	&.beyond {
 		// Soft light-mid gray — reads against the light track without the
 		// heavy near-black weight of the secondary-text grey.
-		background: color-mix(in srgb, var(--np-text-secondary) 45%, white); // live on disk, past the recorded probe end
+		background: color-mix(
+			in srgb,
+			var(--np-text-secondary) 45%,
+			white
+		); // live on disk, past the recorded probe end
 	}
 }
 
@@ -423,24 +431,12 @@
 	font-family: base.$mono-font;
 }
 
-// Per-topology foldable section + node/log tree
-.topology-section {
-	border: 1px solid base.$dark-border;
-	border-radius: var(--np-radius-md);
-	margin-bottom: 14px;
-	overflow: hidden;
-}
-
 // Per-partition process pill (status + uptime + heartbeat) hoisted into the
 // Topology Manager card heading.
 .topology-partition {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
-}
-
-.topology-body {
-	padding: 8px 13px 12px;
 }
 
 .tree-ent {

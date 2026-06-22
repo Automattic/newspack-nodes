@@ -307,9 +307,9 @@ export default function AggregatorStatus() {
 		<div className="aggregator-status-dashboard">
 			{ /* Header */ }
 			<div className="aggregator-status-header">
-				<h2 className="newspack-dashboard-title">
+				<h1 className="newspack-dashboard-title">
 					{ __( 'Aggregator Status', 'newspack-nodes' ) }
-				</h2>
+				</h1>
 				<div className="aggregator-status-meta">
 					<div className="aggregator-status-refresh-indicator">
 						<span className="aggregator-status-refresh-dot" />

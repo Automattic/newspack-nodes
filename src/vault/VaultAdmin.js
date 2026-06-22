@@ -17,7 +17,7 @@ import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '../runtime/react';
 import { useVaultGraph } from './hooks/useVaultGraph';
-import './VaultAdmin.scss';
+import './vault-admin.scss';
 
 // The view model before the first list publishes one — drives the loading gate.
 const EMPTY_MODEL = {
@@ -500,16 +500,13 @@ export default function VaultAdmin() {
 				</h1>
 				<button
 					type="button"
-					className="page-title-action"
+					className="nodes-cards__new nodes-vault__add-trigger"
 					onClick={ () => setIsAddOpen( true ) }
 				>
-					{ __( 'Add Server', 'newspack-nodes' ) }
+					{ __( '+ Add Server', 'newspack-nodes' ) }
 				</button>
 			</div>
-			<table
-				className="wp-list-table widefat fixed striped"
-				style={ { maxWidth: '800px' } }
-			>
+			<table className="wp-list-table widefat fixed striped">
 				<thead>
 					<tr>
 						<th style={ { width: '12%' } }>

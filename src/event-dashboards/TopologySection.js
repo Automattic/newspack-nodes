@@ -12,20 +12,14 @@ import TreeEntity from './TreeEntity';
 const TopologySection = memo( function TopologySection( props ) {
 	const { section } = props;
 
-	return (
-		<div className="topology-section">
-			<div className="topology-body">
-				{ section.tree.map( ( entity ) => (
-					<TreeEntity
-						key={ entity.key }
-						{ ...props }
-						entity={ entity }
-						depth={ 0 }
-					/>
-				) ) }
-			</div>
-		</div>
-	);
+	return section.tree.map( ( entity ) => (
+		<TreeEntity
+			key={ entity.key }
+			{ ...props }
+			entity={ entity }
+			depth={ 0 }
+		/>
+	) );
 } );
 
 export default TopologySection;

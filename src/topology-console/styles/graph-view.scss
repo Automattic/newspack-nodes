@@ -11,7 +11,7 @@
 // Canonical Newspack tokens (the --np-* the .theme-newspack skin maps onto).
 // @use'd so the console + debug-overlay bundles are self-contained: graph-view
 // rides into both, so both get the tokens without a separate enqueued sheet.
-@use '../../theme/newspack-theme';
+@use "../../theme/newspack-theme";
 
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
@@ -1523,7 +1523,7 @@
 .topology-header {
 	grid-area: header;
 	border-bottom: 1px solid var(--ink);
-	background: var(--paper);
+	background: var(--paper-2);
 	display: flex;
 	align-items: stretch;
 	padding: 0 18px;
