@@ -46,6 +46,12 @@ export default function ConsoleShell( {
 					frame={ frame }
 					frameProps={ frameProps }
 					{ ...canvasProps }
+					// The transcript obstruction is only real while the REPL is on
+					// screen; in edit mode (no REPL) its last-reported height is
+					// stale, so the autofit must not reserve a band for it.
+					bottomObstructionPx={
+						showRepl ? canvasProps.bottomObstructionPx : 0
+					}
 				/>
 			) : (
 				<div className={ buildingClassName } />

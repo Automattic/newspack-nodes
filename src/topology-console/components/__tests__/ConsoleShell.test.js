@@ -54,6 +54,31 @@ describe( 'ConsoleShell', () => {
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
 
+	it( 'passes the transcript obstruction to the canvas when the REPL is shown', () => {
+		render(
+			<ConsoleShell
+				{ ...baseProps }
+				showRepl={ true }
+				canvasProps={ { bottomObstructionPx: 120 } }
+			/>
+		);
+		expect( lastGraphProps.bottomObstructionPx ).toBe( 120 );
+	} );
+
+	it( 'zeroes the canvas obstruction when the REPL is hidden (edit mode), ignoring a stale value', () => {
+		// In edit mode the ReplFooter unmounts, so its last-reported overlay
+		// height goes stale; the canvas must not reserve a band for a transcript
+		// that is not on screen.
+		render(
+			<ConsoleShell
+				{ ...baseProps }
+				showRepl={ false }
+				canvasProps={ { bottomObstructionPx: 120 } }
+			/>
+		);
+		expect( lastGraphProps.bottomObstructionPx ).toBe( 0 );
+	} );
+
 	it( 'forwards headerProps to Header', () => {
 		render(
 			<ConsoleShell
