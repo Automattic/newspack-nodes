@@ -9,6 +9,28 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Manage the Newspack Nodes runtime: workers, the node-graph REPL, and logs.
+ *
+ * `wp nodes` groups every runtime subcommand. The substrate (newspack-nodes)
+ * provides worker lifecycle and graph inspection; the event-logger application
+ * (newspack-event-logger-nodes) adds the `reqgrep` firehose tool. Run any
+ * subcommand with `--help` for its own options.
+ *
+ * ## EXAMPLES
+ *
+ *     # List active workers and their heartbeats
+ *     wp nodes ls
+ *
+ *     # Attach a REPL to a live worker
+ *     wp nodes cli firehose-workers-and-jobs.p0
+ *
+ *     # Restart every worker type
+ *     wp nodes restart all
+ *
+ *     # Live-tail the request firehose
+ *     wp nodes reqgrep --follow
+ */
 class CLI_Command {
 
 	/**

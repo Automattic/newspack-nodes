@@ -9,13 +9,13 @@
  * only dresses the row chrome.
  */
 
-@use "styles/base";
+@use "base";
 
 // The embedded live subtree AND the per-partition pills now hoisted into the
 // card heading (`.topology-partition`, `.connector-heartbeat`, the tree rows)
 // are styled by worker-status.scss; pull it in here since the standalone Worker
 // Status dashboard that used to load it was removed.
-@use "styles/worker-status";
+@use "worker-status";
 
 .nodes-tm {
 	padding: 20px 16px 24px;

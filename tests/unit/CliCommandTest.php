@@ -1267,4 +1267,15 @@ class CliCommandTest extends TestCase {
 			\fclose( $stream );
 		}
 	}
+
+	public function test_class_docblock_describes_wp_nodes_parent_command(): void {
+		// WP-CLI builds `wp nodes --help` from the CLI_Command CLASS doc comment
+		// (a file-level docblock separated by namespace/code does not attach to
+		// the class). It must carry a real description for the parent command.
+		$doc = ( new \ReflectionClass( CLI_Command::class ) )->getDocComment();
+
+		$this->assertIsString( $doc, 'CLI_Command needs a class docblock for `wp nodes --help`' );
+		$this->assertStringContainsString( 'wp nodes', $doc );
+		$this->assertStringContainsString( '## EXAMPLES', $doc );
+	}
 }
