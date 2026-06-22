@@ -122,6 +122,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Per-worker interactive command channel: cd onto it and commands ride to the remote worker.',
+			'has_target' => false,
 		] );
 	}
 }
