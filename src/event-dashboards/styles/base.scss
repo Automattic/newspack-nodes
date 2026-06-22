@@ -129,6 +129,27 @@ $focus-shadow: 0 0 0 2px rgba(0, 61, 165, 0.25);
 	font-size: 12px;
 }
 
+// Shared secondary/utility button — ONE look for every chrome button (Fold all,
+// New Topology, the per-row restart/Edit, the supervisor refresh). A white fill
+// + a clear border so it reads as a button on BOTH the subtle page background
+// AND a white card (where the fill alone wouldn't separate). 8px radius to match
+// the cards/panels.
+@mixin secondary-button {
+	background: var(--np-surface);
+	color: $dark-text;
+	border: 1px solid var(--np-border-strong);
+	border-radius: var(--np-radius-md);
+	cursor: pointer;
+	transition:
+		background 0.15s ease,
+		border-color 0.15s ease;
+
+	&:hover {
+		background: var(--np-surface-subtle);
+		border-color: var(--np-text-secondary);
+	}
+}
+
 // Dark theme button
 @mixin dark-button {
 	background: $dark-bg-tertiary;
