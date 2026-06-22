@@ -20,6 +20,8 @@ jest.mock( '../overviewPrefs', () => ( {
 	writeOrder: jest.fn(),
 	readExpanded: jest.fn( () => new Set() ),
 	writeExpanded: jest.fn(),
+	readCollapsed: jest.fn( () => new Set() ),
+	writeCollapsed: jest.fn(),
 } ) );
 // The probe stream is its own suite; here the link is a no-op and the view model
 // is fed directly via useNodeState.

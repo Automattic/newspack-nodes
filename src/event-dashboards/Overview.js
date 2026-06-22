@@ -60,6 +60,8 @@ import {
 	writeOrder,
 	readExpanded,
 	writeExpanded,
+	readCollapsed,
+	writeCollapsed,
 } from './overviewPrefs';
 import './styles/overview.scss';
 
@@ -132,9 +134,10 @@ export default function Overview() {
 	// likewise persisted; write-through effects keep all three sticky on reload.
 	const [ expanded, setExpanded ] = useState( readExpanded );
 	const [ order, setOrder ] = useState( readOrder );
-	const [ collapsed, setCollapsed ] = useState( () => new Set() );
+	const [ collapsed, setCollapsed ] = useState( readCollapsed );
 
 	useEffect( () => writeExpanded( expanded ), [ expanded ] );
+	useEffect( () => writeCollapsed( collapsed ), [ collapsed ] );
 	useEffect( () => writeOrder( order ), [ order ] );
 	// Cancel a pending drag frame if we unmount mid-drag.
 	useEffect(
