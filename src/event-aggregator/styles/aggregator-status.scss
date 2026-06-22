@@ -258,7 +258,7 @@
 	}
 
 	&.connected {
-		background: base.$success-bg;
+		background: var(--np-success-soft);
 		color: base.$white;
 	}
 
@@ -367,7 +367,7 @@
 	}
 
 	&.success {
-		background: base.$success-bg;
+		background: var(--np-success-soft);
 		color: base.$white;
 	}
 
@@ -401,8 +401,8 @@
 	}
 
 	&.success {
-		background: var(--np-success-subtle);
-		color: base.$status-success;
+		background: var(--np-success-soft);
+		color: base.$white;
 		padding: 1px 4px;
 		border-radius: base.$border-radius-sm;
 	}

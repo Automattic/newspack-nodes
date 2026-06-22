@@ -211,16 +211,15 @@
 	font-size: 9px;
 
 	&.running {
-		background: var(--np-success-subtle);
-		color: var(--np-success);
-		border: 1px solid var(--np-success);
+		// Solid success pill, a touch lighter than the heavy success-600.
+		background: var(--np-success-soft);
+		color: base.$white;
 	}
 
 	&.dead {
-		background: var(--np-error-subtle);
-		color: var(--np-error);
-		border: 1px solid var(--np-error);
-		opacity: 0.6;
+		background: base.$dead-bg;
+		color: base.$white;
+		opacity: 0.5;
 	}
 }
 
@@ -252,21 +251,19 @@
 	text-transform: uppercase;
 
 	&.running {
-		background: var(--np-success-subtle);
-		color: var(--np-success);
-		border: 1px solid var(--np-success);
+		// Solid success pill, a touch lighter than the heavy success-600.
+		background: var(--np-success-soft);
+		color: base.$white;
 	}
 
 	&.dead {
-		background: var(--np-error-subtle);
-		color: var(--np-error);
-		border: 1px solid var(--np-error);
+		background: base.$dead-bg;
+		color: base.$white;
 	}
 
 	&.idle {
-		background: var(--np-surface-muted);
-		color: var(--np-text-secondary);
-		border: 1px solid var(--np-border-strong);
+		background: base.$idle-bg;
+		color: base.$white;
 	}
 }
 
