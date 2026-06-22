@@ -14,6 +14,7 @@ class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
 		this.listeners = {};
+		this.readyState = FakeEventSource.CONNECTING;
 		FakeEventSource.last = this;
 	}
 	addEventListener( name, cb ) {
@@ -21,11 +22,20 @@ class FakeEventSource {
 	}
 	close() {
 		this.closed = true;
+		this.readyState = FakeEventSource.CLOSED;
 	}
 	dispatch( name, data ) {
 		( this.listeners[ name ] || [] ).forEach( ( cb ) => cb( { data } ) );
 	}
+	// Drive es.onerror with a given readyState (browser CLOSED = gave up; CONNECTING = retrying).
+	dispatchError( readyState ) {
+		this.readyState = readyState;
+		( this.listeners.error || [] ).forEach( ( cb ) => cb( {} ) );
+	}
 }
+FakeEventSource.CONNECTING = 0;
+FakeEventSource.OPEN = 1;
+FakeEventSource.CLOSED = 2;
 
 beforeEach( () => {
 	Core.reset();
@@ -232,6 +242,119 @@ test( 'start() called twice closes the first EventSource before opening the seco
 	const second = FakeEventSource.last;
 	expect( first ).not.toBe( second );
 	expect( first.closed ).toBe( true );
+} );
+
+// --- Heartbeat watchdog + onerror reconnect (half-open recovery) ----------
+// The browser's EventSource auto-reconnect never fires for a HALF-OPEN socket
+// (worker reaped without a clean FIN): heartbeats stop, lastEventTime freezes,
+// the stream is dead forever. A heartbeat-driven watchdog forces a reconnect
+// after total silence — but only AFTER a grace window so a self-recovering
+// EventSource isn't needlessly torn down.
+
+test( 'watchdog forces close+reopen after total silence past FORCE_AFTER_MS', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector();
+		s.start();
+		const first = FakeEventSource.last;
+		jest.advanceTimersByTime( 13000 ); // > 10s of silence, no frame ever arrived
+		const second = FakeEventSource.last;
+		expect( first.closed ).toBe( true );
+		expect( second ).not.toBe( first );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+test( 'a heartbeat during the grace window resets the clock — NO forced reconnect', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector();
+		s.start();
+		const first = FakeEventSource.last;
+		jest.advanceTimersByTime( 7000 ); // past STALE (6s), inside grace, before FORCE (10s)
+		first.dispatch( 'heartbeat', JSON.stringify( { ts: 1 } ) );
+		jest.advanceTimersByTime( 5000 ); // total 12s, but only 5s since the beat
+		expect( FakeEventSource.last ).toBe( first ); // never reconnected
+		expect( first.closed ).toBeUndefined();
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+test( 'onerror with readyState CLOSED forces a reconnect (browser gave up retrying)', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector();
+		s.start();
+		const first = FakeEventSource.last;
+		first.dispatchError( FakeEventSource.CLOSED );
+		const second = FakeEventSource.last;
+		expect( first.closed ).toBe( true );
+		expect( second ).not.toBe( first );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+test( 'onerror with readyState CONNECTING does NOT reconnect (browser is auto-retrying)', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector();
+		s.start();
+		const first = FakeEventSource.last;
+		first.dispatchError( FakeEventSource.CONNECTING );
+		expect( FakeEventSource.last ).toBe( first );
+		expect( first.closed ).toBeUndefined();
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+test( 'close() stops the watchdog (no reconnect, no throw long after close)', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector();
+		s.start();
+		const first = FakeEventSource.last;
+		s.close();
+		expect( () => jest.advanceTimersByTime( 60000 ) ).not.toThrow();
+		expect( FakeEventSource.last ).toBe( first ); // nothing reopened
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+test( 'a forced reconnect tail-follows — it does NOT re-replay the positions seed', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector();
+		s.positions = { x: { 0: 'start' } };
+		s.start();
+		expect( FakeEventSource.last.url ).toContain( 'positions=' ); // initial replay
+		// Stream goes silent; the watchdog forces a reconnect past FORCE_AFTER_MS.
+		jest.advanceTimersByTime( 13000 );
+		// The reopened stream resumes LIVE (tail), not another 24h replay.
+		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+test( 'removeNode() stops the watchdog and closes the stream (no reconnect after removal)', () => {
+	jest.useFakeTimers();
+	try {
+		const s = makeConnector();
+		s.name = 'sse-test';
+		s.start();
+		const first = FakeEventSource.last;
+		s.removeNode();
+		expect( first.closed ).toBe( true );
+		expect( () => jest.advanceTimersByTime( 20000 ) ).not.toThrow();
+		expect( FakeEventSource.last ).toBe( first ); // nothing reopened post-removal
+	} finally {
+		jest.useRealTimers();
+	}
 } );
 
 describe( 'SseConnector — no-arg ctor + schema-driven arguments', () => {

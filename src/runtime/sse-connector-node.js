@@ -3,6 +3,15 @@ import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
 import { TYPE, TO, KEY, VALUE, TM_INFO, unpack } from './message';
 
+// Heartbeat-timeout watchdog. The server beats every 2s; force a fresh stream
+// only after STALE (3 missed beats) + GRACE (self-recovery observe window) of
+// total silence, long enough not to fight the browser's own EventSource retry.
+const HEARTBEAT_CADENCE_MS = 2000;
+const STALE_AFTER_MS = HEARTBEAT_CADENCE_MS * 3;
+const GRACE_MS = 4000;
+const FORCE_AFTER_MS = STALE_AFTER_MS + GRACE_MS;
+const WATCHDOG_INTERVAL_MS = 2000;
+
 /**
  * Browser-side Node opening an EventSource and filling each `msg` into the
  * local graph. Snoops the `connected` envelope so `pid()` can read it back.
@@ -30,6 +39,13 @@ export class SseConnectorNode extends Node {
 		// liveness — dashboards read this for their "Xs ago" staleness, which must
 		// reset on a heartbeat and only climb on a real drop. null = no live frame.
 		this.lastEventTime = null;
+		// Heartbeat-timeout watchdog: a baseline stamped at each open (so a dead
+		// INITIAL connect that never delivers a first frame still gets forced),
+		// the interval handle, and the last forced-reconnect instant (tight-loop
+		// guard so a persistently-failing reopen can't spin).
+		this._watchdogBase = 0;
+		this._watchdog = null;
+		this._lastForce = 0;
 		this.registrations.connected = {};
 	}
 
@@ -63,9 +79,26 @@ export class SseConnectorNode extends Node {
 		}
 		const es = new EventSource( url, { withCredentials: true } );
 		this._es = es;
+		// Baseline so a connect that never delivers a first frame still trips FORCE_AFTER_MS.
+		this._watchdogBase = Date.now();
+		this._watchdog = setInterval( () => {
+			const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
+			if ( Date.now() - ref > FORCE_AFTER_MS ) {
+				this._forceReconnect();
+			}
+		}, WATCHDOG_INTERVAL_MS );
 		// A frame from a stream we've since close()d (or reopened past) must not
 		// drive the graph — on teardown the sink is gone and fill() throws.
 		const stale = () => this._es !== es;
+		// CLOSED = browser gave up retrying (nonce/401) → reopen; CONNECTING = it's still retrying → leave it.
+		es.addEventListener( 'error', () => {
+			if ( stale() ) {
+				return;
+			}
+			if ( EventSource.CLOSED === es.readyState ) {
+				this._forceReconnect();
+			}
+		} );
 		// Idle keepalive: the server sends an `event: heartbeat` every couple of
 		// seconds even when no data flows. It carries no graph payload — its only
 		// job is to prove the stream is alive — so snoop it for liveness, don't
@@ -114,7 +147,30 @@ export class SseConnectorNode extends Node {
 		} );
 	}
 
+	// Reopen the stream, throttled to one attempt per watchdog interval.
+	_forceReconnect() {
+		const now = Date.now();
+		if ( now - this._lastForce < WATCHDOG_INTERVAL_MS ) {
+			return;
+		}
+		this._lastForce = now;
+		// Resume live, not a replay: a recovery reconnect tail-follows so a
+		// history-seeded link doesn't re-stream its whole window on every drop.
+		this.positions = null;
+		this.start();
+	}
+
+	// A node owns its teardown: drop the stream + watchdog before unregistering.
+	removeNode() {
+		this.close();
+		super.removeNode();
+	}
+
 	close() {
+		if ( this._watchdog ) {
+			clearInterval( this._watchdog );
+			this._watchdog = null;
+		}
 		if ( this._es ) {
 			this._es.close();
 		}

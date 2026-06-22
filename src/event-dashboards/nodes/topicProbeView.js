@@ -52,6 +52,7 @@ export class TopicProbeViewNode extends Node {
 		this.consumers = {};
 		this._lastPublish = 0;
 		this._flushTimer = null;
+		this._lastFill = 0;
 	}
 
 	fill( message ) {
@@ -67,6 +68,17 @@ export class TopicProbeViewNode extends Node {
 		if ( 'string' !== typeof reader || '' === reader ) {
 			return;
 		}
+
+		const now = Date.now();
+		// A gap larger than the eviction window means the stream was closed/hidden
+		// (Overview tab backgrounded) — NOT consumers dying. Re-baseline every lease
+		// so the outage doesn't count against anyone, then evict on fresh time.
+		if ( this._lastFill && now - this._lastFill > this.ttlMs ) {
+			for ( const c of Object.values( this.consumers ) ) {
+				c._lastSeen = now;
+			}
+		}
+		this._lastFill = now;
 
 		this._accumulate( reader, value, Number( message[ TIMESTAMP ] ) || 0 );
 		this._evictStale();

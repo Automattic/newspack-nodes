@@ -153,10 +153,33 @@ describe( 'TopicProbeViewNode', () => {
 			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
 			v.fill( probeMsg( { reader: 'gone.p0', ts: 100 } ) );
 			expect( v.snapshot()[ 'gone.p0' ] ).toBeTruthy();
-			jest.advanceTimersByTime( 2000 ); // past the TTL
-			v.fill( probeMsg( { reader: 'alive.p0', ts: 200 } ) );
+			// LIVE stream: alive.p0 keeps arriving at small gaps while gone.p0 goes
+			// silent. The small inter-fill gaps (< ttlMs) keep the stream "live", so
+			// the outage re-baseline never triggers and gone.p0 evicts on its own TTL.
+			for ( let t = 200; t <= 2000; t += 500 ) {
+				jest.advanceTimersByTime( 500 );
+				v.fill( probeMsg( { reader: 'alive.p0', ts: t } ) );
+			}
 			expect( v.snapshot()[ 'gone.p0' ] ).toBeUndefined();
 			expect( v.snapshot()[ 'alive.p0' ] ).toBeTruthy();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'does NOT evict pre-existing consumers when the first frame arrives after a gap larger than the TTL (stream was hidden/closed, not consumers dying)', () => {
+		jest.useFakeTimers();
+		try {
+			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
+			v.fill( probeMsg( { reader: 'a.p0', ts: 100 } ) );
+			v.fill( probeMsg( { reader: 'b.p0', ts: 100 } ) );
+			// Overview tab hidden > TTL: the stream was closed, no frames arrived,
+			// every consumer's _lastSeen froze. The FIRST frame on reconnect must
+			// NOT wipe the pre-existing consumers — the outage is not their death.
+			jest.advanceTimersByTime( 5000 ); // gap >> ttlMs
+			v.fill( probeMsg( { reader: 'a.p0', ts: 200 } ) );
+			expect( v.snapshot()[ 'a.p0' ] ).toBeTruthy();
+			expect( v.snapshot()[ 'b.p0' ] ).toBeTruthy();
 		} finally {
 			jest.useRealTimers();
 		}
