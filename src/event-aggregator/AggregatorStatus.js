@@ -121,20 +121,26 @@ const getRttClass = ( rtt ) => {
  * @return {import('react').ReactElement} Rendered component.
  */
 function PartitionStatus( { partition, status, now } ) {
-	const connectionStatus = status.connected ? 'connected' : 'disconnected';
+	const connected = !! status.connected;
+	const connectionStatus = connected ? 'connected' : 'disconnected';
 	// Gate on `connected`: last_heartbeat_response is a sticky timestamp (never
 	// cleared once set), so a dead spoke would otherwise latch 'success' forever.
 	// Disconnected → pending, mirroring the old clear-heartbeat-on-disconnect.
 	const heartbeatStatus =
-		status.connected && status.last_heartbeat_response
-			? 'success'
-			: 'pending';
+		connected && status.last_heartbeat_response ? 'success' : 'pending';
+	// Rolled-up health drives the card's left status rail: green when the
+	// connection is live AND heartbeating, amber when connected but not yet
+	// heartbeating (degraded), red when down.
+	let health = 'down';
+	if ( connected ) {
+		health = heartbeatStatus === 'success' ? 'ok' : 'degraded';
+	}
 	const errorMessage = status.last_error;
 	const rtt = status.last_heartbeat_rtt;
 	const rttFormatted = formatRtt( rtt );
 
 	return (
-		<div className="aggregator-partition">
+		<div className={ `aggregator-partition is-${ health }` }>
 			<div className="aggregator-partition-header">
 				<span className="aggregator-partition-label">
 					p{ partition }
@@ -142,13 +148,13 @@ function PartitionStatus( { partition, status, now } ) {
 				<span
 					className={ `aggregator-status-badge small ${ connectionStatus }` }
 				>
-					{ connectionStatus.replace( '_', ' ' ) }
+					{ connectionStatus.replace( /_/g, ' ' ) }
 				</span>
 			</div>
 			<div className="aggregator-partition-stats">
 				<div className="aggregator-partition-row">
 					<span className="aggregator-partition-stat-label">
-						{ connectionStatus === 'connected'
+						{ connected
 							? __( 'Connected', 'newspack-nodes' )
 							: __( 'Attempt', 'newspack-nodes' ) }
 					</span>
@@ -185,28 +191,28 @@ function PartitionStatus( { partition, status, now } ) {
 					<span className="aggregator-partition-stat-label">
 						{ __( 'Status', 'newspack-nodes' ) }
 					</span>
-					<span
-						className={ `aggregator-heartbeat-badge small ${ heartbeatStatus }` }
-					>
-						{ heartbeatStatus.replace( '_', ' ' ) }
+					<span className="aggregator-partition-stat-value">
+						<span
+							className={ `aggregator-heartbeat-badge small ${ heartbeatStatus }` }
+						>
+							{ heartbeatStatus.replace( /_/g, ' ' ) }
+						</span>
+						{ /* HTTP code rides the Status line as a muted caption —
+						     informative on errors, unobtrusive on a 200. */ }
+						{ status.last_http_code && (
+							<span className="aggregator-http-code">
+								HTTP { status.last_http_code }
+							</span>
+						) }
 					</span>
 				</div>
 			</div>
-			{ ( status.last_http_code || errorMessage ) && (
+			{ /* A dedicated error line, only when there's a real message. */ }
+			{ errorMessage && (
 				<div
 					className="aggregator-partition-error"
 					title={ errorMessage }
 				>
-					{ status.last_http_code && (
-						<span
-							className={ `aggregator-http-code${
-								status.last_http_code === 200 ? ' success' : ''
-							}` }
-						>
-							HTTP { status.last_http_code }
-						</span>
-					) }
-					{ status.last_http_code && errorMessage && ' ' }
 					{ errorMessage }
 				</div>
 			) }
