@@ -39,6 +39,8 @@
 	/* Functional status (signal-only — always paired with text/icon) */
 	--np-success: #007017;
 	--np-success-subtle: #edfaef;
+	/* A touch-lighter solid success for filled status pills (white text). */
+	--np-success-soft: color-mix(in srgb, var(--np-success) 85%, white);
 	--np-warning: #bd8600;
 	--np-warning-subtle: #f5e6ab;
 	--np-error: #b32d2e;
