@@ -17,7 +17,7 @@ import TopologyControls from './TopologyControls';
 import { buildTopologySections } from './topologyGraph';
 import { partitionSummaries } from './partitionSummaries';
 import { formatAge, formatEtaSeconds } from './formatters';
-import './TopologyRow.scss';
+import './styles/topology-row.scss';
 
 // Opens the DevTools hub's Console tab (the hub reads `?tab=` to pick it). A
 // `name` scopes it via `?topology=`; `edit` adds `?edit=1` to open that topology
