@@ -52,10 +52,26 @@ class LogCleanerTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/** Write a topology .tsl into the registered stock dir and re-resolve caches. */
+	/** Write a topology .tsl into the stock dir AND activate it (operator overlay) — retention follows the active set. */
 	private function declare_topology( string $name, string $contents ): void {
+		$this->declare_inactive_topology( $name, $contents );
+		$active                                              = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
+		$active[]                                            = $name;
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
+		Config::reset();
+	}
+
+	/** Write a topology .tsl on disk WITHOUT activating it (the operator hasn't enabled it). */
+	private function declare_inactive_topology( string $name, string $contents ): void {
 		\file_put_contents( "{$this->stock}/{$name}.tsl", $contents );
 		Topology_Registry::reset_basename_cache();
+	}
+
+	/** A topology that BOTH writes a log (Partition) and tails one (Consumer offsetlog), under `$basename`. */
+	private function log_and_offset_tsl( string $basename, int $num_partitions = 1 ): string {
+		return "var num_partitions = {$num_partitions}\n"
+			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Consumer {$basename}:consumer <config:logs_dir>/src.p<partition> <config:offsets_dir>/{$basename}.p<partition>\n";
 	}
 
 	/** Seed a flat log partition dir `logs/{name}.p{N}/0.log`; returns the dir path. */
@@ -147,6 +163,26 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $p0 );
 		$this->assertDirectoryExists( $p1 );
 		$this->assertDirectoryDoesNotExist( $p2 );
+	}
+
+	public function test_sweeps_an_inactive_topologys_log_and_offset_alike(): void {
+		// Retention follows the operator's ACTIVE set (the supervisor's source), not
+		// disk presence — applied UNIFORMLY to logs and offsets. A topology whose .tsl
+		// ships on disk but isn't activated has BOTH its log and its offsetlog reclaimed.
+		$this->declare_topology( 'keeper-workers', $this->log_and_offset_tsl( 'keeper' ) );            // active
+		$this->declare_inactive_topology( 'retired-workers', $this->log_and_offset_tsl( 'retired' ) ); // on disk, NOT active
+
+		$keeper_log  = $this->seed_log_partition( 'keeper', 0 );
+		$keeper_off  = $this->seed_offset_dir( 'keeper', 0 );
+		$retired_log = $this->seed_log_partition( 'retired', 0 );
+		$retired_off = $this->seed_offset_dir( 'retired', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $keeper_log, 'active topology log kept' );
+		$this->assertDirectoryExists( $keeper_off, 'active topology offset kept' );
+		$this->assertDirectoryDoesNotExist( $retired_log, 'inactive topology log swept' );
+		$this->assertDirectoryDoesNotExist( $retired_off, 'inactive topology offset swept' );
 	}
 
 	public function test_empty_declared_set_skips_log_sweep(): void {

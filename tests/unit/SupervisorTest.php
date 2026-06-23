@@ -943,8 +943,9 @@ class SupervisorTest extends TestCase {
 		// logs_dir/offsets_dir (else Log_Cleaner fail-closes and sweeps nothing).
 		\Newspack_Nodes\Config::register_token_namespace();
 
-		// A real .tsl declares the kept basename; the GC reads Topology_Registry,
-		// not the supervisor's fleet filter.
+		// A real .tsl declares the kept basename, and the operator ACTIVATES it — the
+		// GC now reads the active fleet (Bootstrap::get_topologies), the same source
+		// the supervisor spawns from, not the on-disk .tsl glob.
 		$stock = "{$this->tmp}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
@@ -953,6 +954,10 @@ class SupervisorTest extends TestCase {
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
+		$active                                              = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
+		$active[]                                            = 'requests-workers';
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
+		\Newspack_Nodes\Config::reset();
 
 		// Declared (kept) + undeclared with a lock dir (still swept — orange is gone).
 		\mkdir( "{$this->tmp}/logs/requests.p0", 0755, true );
