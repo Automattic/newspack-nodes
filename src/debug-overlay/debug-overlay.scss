@@ -46,8 +46,10 @@
 	// hook initializes on first mount sit it in the bottom-right corner.
 	// One below the FAB; both above dashboard modals + flame tooltip.
 	z-index: 999998;
-	background: #f0e7d6;
-	border: 2px solid #18222e;
+	// Theme tokens (DebugPanel wraps the panel in `.topology-app.theme-<x>`), so
+	// the chrome follows whatever skin is active instead of a fixed colour.
+	background: var(--paper);
+	border: 2px solid var(--ink);
 	border-radius: 10px;
 	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
 	overflow: hidden;
@@ -58,6 +60,32 @@
 	// read wrong full-screen.
 	&.is-maximized {
 		border-radius: 0;
+	}
+
+	// The one shared header (panel-owned, above the tab bar). It used to be a
+	// 64px grid row inside .topology-app; as a flex child it would collapse to
+	// content height, so restore the 64px so its chrome breathes like the console.
+	.topology-header {
+		min-height: 64px;
+	}
+
+	// Tint the overlay's tab bar one step off the header/panel, in theme tokens
+	// (scoped to the overlay so the hub's own bar is untouched), with the same
+	// faint-ink divider as the side panels below it.
+	.nodes-devtools__tabbar {
+		background: var(--paper-2);
+		border-bottom: 1px solid var(--ink-4);
+	}
+
+	// Soften the Console's side-panel inner dividers (palette → canvas, inspector
+	// → canvas) to the faint ink so they don't read as hard as the outer frame —
+	// theme-token based, so it tracks every skin.
+	.topology-palette {
+		border-right-color: var(--ink-4);
+	}
+
+	.topology-inspector-dock {
+		border-left-color: var(--ink-4);
 	}
 
 	// The InspectorTab's root wrapper. It now sits between the panel and
@@ -75,22 +103,20 @@
 		flex-direction: column;
 	}
 
-	// Re-shape the shared graph app for the overlay: include the console's
-	// header row (so the themed Header sits INSIDE .topology-app and inherits
-	// the --paper/--ink theme tokens), then palette + canvas + REPL (+
-	// inspector when a node is selected). Reuses the real .topology-app
-	// grid-area names — header / palette / canvas / repl / inspector — so the
-	// shared graph-view.scss rules attach directly. .topology-app is now a flex
-	// child of .nodes-debug__inspector (above), so flex:1 + height:100% bound
-	// the grid against the inspector's resolved height.
+	// Re-shape the shared graph app for the overlay: palette + canvas + REPL (+
+	// inspector when a node is selected). NO header row — the panel owns the one
+	// shared header above the tab bar, outside this grid. Reuses the real
+	// .topology-app grid-area names — palette / canvas / repl / inspector — so the
+	// shared graph-view.scss rules attach directly. .topology-app is a flex child
+	// of .nodes-debug__inspector (above), so flex:1 + height:100% bound the grid
+	// against the inspector's resolved height.
 	.topology-app {
 		flex: 1;
 		height: 100%;
 		min-height: 0;
-		grid-template-rows: 64px 1fr auto;
+		grid-template-rows: 1fr auto;
 		grid-template-columns: 200px 1fr 0;
 		grid-template-areas:
-			"header  header header"
 			"palette canvas inspector"
 			"palette repl   inspector";
 
@@ -104,7 +130,6 @@
 		&.is-inspector-open {
 			grid-template-columns: 200px 1fr var(--inspector-col);
 			grid-template-areas:
-				"header  header header"
 				"palette canvas inspector"
 				"palette repl   inspector";
 		}

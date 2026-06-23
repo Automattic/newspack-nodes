@@ -36,7 +36,15 @@ export function formatByteRate( bytesPerSec ) {
 	}
 	const k = 1024;
 	const sizes = [ 'B/s', 'KB/s', 'MB/s', 'GB/s' ];
-	const i = Math.floor( Math.log( bytesPerSec ) / Math.log( k ) );
+	// Clamp into [0, sizes-1]: a sub-1 B/s rate floors to a negative index and a
+	// >GB/s rate overflows — both would index `sizes` to `undefined` → "NaN".
+	const i = Math.max(
+		0,
+		Math.min(
+			sizes.length - 1,
+			Math.floor( Math.log( bytesPerSec ) / Math.log( k ) )
+		)
+	);
 	return (
 		parseFloat( ( bytesPerSec / Math.pow( k, i ) ).toFixed( 1 ) ) +
 		' ' +
@@ -55,9 +63,14 @@ export function formatMsgRate( perSec ) {
 		return '0/s';
 	}
 	const units = [ '', 'K', 'M', 'B' ];
-	const i = Math.min(
-		units.length - 1,
-		Math.floor( Math.log( perSec ) / Math.log( 1000 ) )
+	// Clamp the low end too: a fractional per-second rate (the overlay's In/Out)
+	// floors to a negative index → units[-1] is undefined → "NaN/s".
+	const i = Math.max(
+		0,
+		Math.min(
+			units.length - 1,
+			Math.floor( Math.log( perSec ) / Math.log( 1000 ) )
+		)
 	);
 	return (
 		parseFloat( ( perSec / Math.pow( 1000, i ) ).toFixed( 1 ) ) +

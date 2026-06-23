@@ -64,14 +64,14 @@ describe( 'InspectorTab registration + render', () => {
 		resetDevtoolsTabs();
 	} );
 
-	it( 'registers itself as the inspector overlay tab', () => {
+	it( 'registers itself as the Console overlay tab', () => {
 		require( '../tabs' );
-		const inspector = getDevtoolsTabs( 'overlay' ).find(
-			( t ) => t.id === 'inspector'
+		const consoleTab = getDevtoolsTabs( 'overlay' ).find(
+			( t ) => t.id === 'console'
 		);
-		expect( inspector ).toBeTruthy();
-		expect( inspector.host ).toBe( 'overlay' );
-		expect( typeof inspector.component ).toBe( 'function' );
+		expect( consoleTab ).toBeTruthy();
+		expect( consoleTab.host ).toBe( 'overlay' );
+		expect( typeof consoleTab.component ).toBe( 'function' );
 	} );
 
 	it( 'renders the panel body when mounted with a host context', () => {

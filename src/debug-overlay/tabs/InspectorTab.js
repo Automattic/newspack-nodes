@@ -70,20 +70,22 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
  * bound — no useEffect creates graph nodes here and there is no open-and-type
  * race to paper over at dispatch time.
  *
+ * The panel owns the one shared header (above the tab bar), so this body is
+ * header-less: it renders ConsoleShell with `showHeader={ false }` and publishes
+ * its cwd PATH selector up to the panel via `publishHeader`.
+ *
  * @param {Object}   props
- * @param {string}   props.storageKey          Layout persistence key (per dashboard).
- * @param {Function} props.onClose             Close the panel (host's setOpen(false)).
- * @param {Object}   props.frame               Frame geometry { w, h } from the host.
- * @param {Function} props.onHeaderPointerDown Header drag-start gesture from the host.
- * @param {Function} props.toggleMaximize      Maximize toggle from the host.
+ * @param {string}   props.storageKey    Layout persistence key (per dashboard).
+ * @param {Object}   props.frame         Frame geometry { w, h } from the host.
+ * @param {Function} props.publishHeader Publish header extras (the PATH selector) to the panel's shared Header.
+ * @param {Function} props.publishTheme  Publish the live theme slug to the panel's token context.
  * @return {import('react').ReactElement} The inspector body.
  */
 export default function InspectorTab( {
 	storageKey,
-	onClose,
 	frame,
-	onHeaderPointerDown,
-	toggleMaximize,
+	publishHeader,
+	publishTheme,
 } ) {
 	// replExpanded / setReplExpanded / replInputRef come from useGraphSurface.
 	// Measure the DevtoolsTabHost tab bar that sits above this body so the
@@ -214,6 +216,32 @@ export default function InspectorTab( {
 		}
 	}
 
+	// Publish the cwd PATH selector up to the panel's one shared Header (the
+	// Console owns it; the Overview publishes nothing). Re-publish when the option
+	// set or cwd changes; clear on unmount so switching to the Overview drops it.
+	// onPathChange is a ref-stable wrapper so a churning `setPath` identity can't
+	// re-fire this setState effect into an infinite render loop.
+	const setPathRef = useRef( setPath );
+	setPathRef.current = setPath;
+	const stableOnPathChange = useCallback(
+		( p ) => setPathRef.current( p ),
+		[]
+	);
+	const pathOptionsKey = pathOptions.join( '\n' );
+	useEffect( () => {
+		publishHeader?.( {
+			mode: 'view',
+			pathOptions,
+			path: cwd,
+			onPathChange: stableOnPathChange,
+		} );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ publishHeader, pathOptionsKey, cwd, stableOnPathChange ] );
+	useEffect( () => () => publishHeader?.( null ), [ publishHeader ] );
+	// Keep the panel's token context on the Console's live theme (a REPL set_skin
+	// re-skins the whole overlay chrome, not just the canvas body).
+	useEffect( () => publishTheme?.( theme ), [ publishTheme, theme ] );
+
 	// Tab-completion: subscribe to _completion's published candidates and expose
 	// requestCompletion/handleShowCandidates via the shared useCompletion hook.
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
@@ -261,6 +289,8 @@ export default function InspectorTab( {
 				<ConsoleShell
 					ready={ ready }
 					graph={ graph }
+					// The panel owns the one shared header above the tabs.
+					showHeader={ false }
 					frame={ CanvasFrame }
 					frameProps={ {
 						topology: 'debug',
@@ -273,41 +303,6 @@ export default function InspectorTab( {
 						onResetGraph: canResetGraph ? resetGraph : null,
 					} }
 					buildingClassName="nodes-debug__canvas-building"
-					// display:contents wrapper so the inner <header> stays a
-					// direct grid child (grid-area: header) while the
-					// pointerdown handler still bubbles up.
-					wrapHeader={ ( header ) => (
-						<div
-							className="nodes-debug__header-drag"
-							onPointerDown={ onHeaderPointerDown }
-							onDoubleClick={ ( e ) => {
-								// Skip dbl-click maximize on a header control
-								// (select, button) — those have their own behavior.
-								const tag = e.target?.tagName;
-								if (
-									tag === 'SELECT' ||
-									tag === 'BUTTON' ||
-									tag === 'INPUT' ||
-									tag === 'OPTION' ||
-									e.target?.closest?.(
-										'select, button, input'
-									)
-								) {
-									return;
-								}
-								toggleMaximize();
-							} }
-						>
-							{ header }
-						</div>
-					) }
-					headerProps={ {
-						mode: 'view',
-						pathOptions,
-						path: cwd,
-						onPathChange: setPath,
-						onClose,
-					} }
 					canvasProps={ {
 						...canvasChromeProps,
 						resetKey: storageKey,
