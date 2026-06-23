@@ -51,7 +51,9 @@ describe( 'DevToolsHub', () => {
 			component: () => <div data-testid="demo" />,
 		} );
 		const { container } = render( <DevToolsHub /> );
-		const page = container.firstChild;
+		// firstChild is the display:contents theme token-provider; the fixed
+		// admin-page container is `.nodes-devtools-hub` inside it.
+		const page = container.querySelector( '.nodes-devtools-hub' );
 		expect( page.style.position ).toBe( 'fixed' );
 		expect( page.style.top ).toBe( '32px' );
 		expect( page.style.right ).toBe( '0px' );

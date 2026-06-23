@@ -12,7 +12,7 @@
  * are local component state.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useEffect, useRef, useState, createPortal } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '../runtime/react';
@@ -474,9 +474,11 @@ function AddServerModal( { onAdd, onClose } ) {
  * Vault server-credential admin app. Reads the view model the graph publishes
  * and renders the server table + add form.
  *
+ * @param {Object}  props                      Props.
+ * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
  * @return {import('react').ReactElement} The rendered admin app.
  */
-export default function VaultAdmin() {
+export default function VaultAdmin( { headerControlsSlot } ) {
 	// Mount the node graph; it owns the list-on-mount, the CRUD transport, and the
 	// re-list-after-mutation.
 	const { addServer, removeServer, testServer } = useVaultGraph();
@@ -487,6 +489,25 @@ export default function VaultAdmin() {
 
 	const [ isAddOpen, setIsAddOpen ] = useState( false );
 
+	// The "+ Add Server" trigger lives on the right of the hub's ONE shared
+	// header — portaled into its slot. A node = the hub slot (portal); `null` =
+	// slot pending (render nothing); `undefined` = standalone (tests) → inline.
+	const controls = (
+		<button
+			type="button"
+			className="nodes-cards__new nodes-vault__add-trigger"
+			onClick={ () => setIsAddOpen( true ) }
+		>
+			{ __( '+ Add Server', 'newspack-nodes' ) }
+		</button>
+	);
+	let renderedControls = null;
+	if ( headerControlsSlot ) {
+		renderedControls = createPortal( controls, headerControlsSlot );
+	} else if ( undefined === headerControlsSlot ) {
+		renderedControls = controls;
+	}
+
 	return (
 		<div className="event-aggregator-servers-admin">
 			{ error && (
@@ -494,18 +515,7 @@ export default function VaultAdmin() {
 					<p>{ error }</p>
 				</div>
 			) }
-			<div className="nodes-vault__header">
-				<h1 className="newspack-dashboard-title">
-					{ __( 'Vault', 'newspack-nodes' ) }
-				</h1>
-				<button
-					type="button"
-					className="nodes-cards__new nodes-vault__add-trigger"
-					onClick={ () => setIsAddOpen( true ) }
-				>
-					{ __( '+ Add Server', 'newspack-nodes' ) }
-				</button>
-			</div>
+			{ renderedControls }
 			<table className="wp-list-table widefat fixed striped">
 				<thead>
 					<tr>

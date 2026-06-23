@@ -8,11 +8,13 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	createPortal,
 } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import CanvasFrame from './components/CanvasFrame';
 import ConsoleShell from './components/ConsoleShell';
+import { HeaderControls } from './components/Header';
 import { ConfirmModal, PromptModal, NewNodeModal } from './components/Modal';
 
 import OpenTopologyModal from './components/OpenTopologyModal';
@@ -251,7 +253,10 @@ function paletteKeyFor( mode ) {
 		: PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
 }
 
-export default function TopologyConsole() {
+export default function TopologyConsole( {
+	publishTheme,
+	headerControlsSlot,
+} ) {
 	const [ topology, setTopology ] = useState( () =>
 		initialTopologyFromUrl( TOPOLOGIES[ 0 ] )
 	);
@@ -313,6 +318,9 @@ export default function TopologyConsole() {
 		paletteKey: paletteKeyFor( mode ),
 		defaultCollapsed: 'edit' !== mode,
 	} );
+	// Keep the hub's token context on the Console's live theme (a set_skin
+	// re-skins the whole hub chrome, not just the canvas body).
+	useEffect( () => publishTheme?.( theme ), [ publishTheme, theme ] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
@@ -1474,6 +1482,41 @@ export default function TopologyConsole() {
 		return () => clearTimeout( t );
 	}, [ toast ] );
 
+	// The Console's own controls (PATH / NEW / EDIT / SAVE / LIVE). In the hub
+	// they belong on the right of the ONE shared header, so they're portaled into
+	// its slot (kept live with this tab's state). `headerControlsSlot` distinguishes
+	// the three cases: a node = the hub slot (portal); `null` = the hub slot not
+	// yet mounted (render nothing, no one-frame flash in the body); `undefined` =
+	// rendered standalone, e.g. in tests (render inline so the controls still exist).
+	const headerControls = (
+		<HeaderControls
+			pathOptions={ pathOptions }
+			path={ cwd }
+			onPathChange={ handlePathChange }
+			canEdit={ null !== longestWorkerPrefix( cwd, pathOptions ) }
+			streamStatus={ status }
+			uptime={ uptime }
+			mode={ mode }
+			onModeChange={ handleModeChange }
+			onSave={ handleSave }
+			onOpen={ handleOpen }
+			onNew={ handleNew }
+			onSettings={ () => setSettingsOpen( ( v ) => ! v ) }
+			settingsActive={ settingsOpen }
+			onDelete={ handleDelete }
+			canDelete={ canDeleteCurrent }
+		/>
+	);
+	let renderedHeaderControls = null;
+	if ( headerControlsSlot ) {
+		renderedHeaderControls = createPortal(
+			headerControls,
+			headerControlsSlot
+		);
+	} else if ( undefined === headerControlsSlot ) {
+		renderedHeaderControls = headerControls;
+	}
+
 	return (
 		<div
 			ref={ appRef }
@@ -1483,6 +1526,10 @@ export default function TopologyConsole() {
 				inspectorCollapsed ? ' is-inspector-collapsed' : ''
 			}` }
 		>
+			{ /* The Console's own controls (PATH / NEW / EDIT / SAVE / LIVE) live
+			     on the right of the hub's ONE shared header — portaled into its
+			     slot, so they stay live with this tab's state. */ }
+			{ renderedHeaderControls }
 			<ConsoleShell
 				ready={ layoutReady }
 				graph={ canvasGraph }
@@ -1510,23 +1557,9 @@ export default function TopologyConsole() {
 				} }
 				buildingClassName="topology-canvas-building"
 				showRepl={ mode !== 'edit' }
-				headerProps={ {
-					pathOptions,
-					path: cwd,
-					onPathChange: handlePathChange,
-					canEdit: null !== longestWorkerPrefix( cwd, pathOptions ),
-					streamStatus: status,
-					uptime,
-					mode,
-					onModeChange: handleModeChange,
-					onSave: handleSave,
-					onOpen: handleOpen,
-					onNew: handleNew,
-					onSettings: () => setSettingsOpen( ( v ) => ! v ),
-					settingsActive: settingsOpen,
-					onDelete: handleDelete,
-					canDelete: canDeleteCurrent,
-				} }
+				// The hub owns the ONE shared brand header above the tabs; the
+				// Console's own controls are portaled into its slot (below).
+				showHeader={ false }
 				canvasProps={ {
 					...canvasChromeProps,
 					resetKey: `${ scope.key }|${ mode }|${ editingName }`,

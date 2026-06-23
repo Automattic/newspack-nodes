@@ -70,11 +70,15 @@ jest.mock( '../components/SchematicCanvas', () => () => (
 jest.mock( '../components/Inspector', () => () => (
 	<div data-testid="inspector" />
 ) );
-jest.mock( '../components/Header', () => ( props ) => (
-	<header data-testid="header" data-mode={ props.mode }>
-		<button onClick={ () => props.onModeChange( 'edit' ) }>edit</button>
-	</header>
-) );
+jest.mock( '../components/Header', () => ( {
+	__esModule: true,
+	default: () => <header data-testid="brand-header" />,
+	HeaderControls: ( props ) => (
+		<header data-testid="header" data-mode={ props.mode }>
+			<button onClick={ () => props.onModeChange( 'edit' ) }>edit</button>
+		</header>
+	),
+} ) );
 jest.mock( '../components/Palette', () => () => (
 	<aside data-testid="palette" />
 ) );

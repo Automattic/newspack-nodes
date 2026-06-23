@@ -50,7 +50,7 @@
 	z-index: 2;
 	height: calc(100vh - 32px); // leave WP admin bar visible.
 	display: grid;
-	grid-template-rows: 64px 1fr 38px;
+	grid-template-rows: 0 1fr 38px;
 	// Palette is always-on (per the interactive-live-canvas spec: a drop in
 	// view mode issues `make_node`, a drop in edit mode adds to the draft).
 	// All four layouts reserve the 232px left palette column; edit mode drops
@@ -80,7 +80,7 @@
 	}
 
 	&.is-edit-mode {
-		grid-template-rows: 64px 1fr;
+		grid-template-rows: 0 1fr;
 		grid-template-columns: 232px 1fr;
 		grid-template-areas:
 			"header  header"
@@ -88,7 +88,7 @@
 	}
 
 	&.is-edit-mode.is-inspector-open {
-		grid-template-rows: 64px 1fr;
+		grid-template-rows: 0 1fr;
 		grid-template-columns: 232px 1fr var(--inspector-col);
 		grid-template-areas:
 			"header  header header"
@@ -195,7 +195,7 @@
 
 .topology-palette {
 	grid-area: palette;
-	border-right: 1px solid var(--ink);
+	border-right: 1px solid var(--ink-4);
 	background: var(--paper-2);
 	padding: 14px 0 0;
 	overflow-y: auto;
@@ -905,7 +905,7 @@
 	flex-direction: column;
 	min-height: 0;
 	background: var(--paper-2);
-	border-left: 1px solid var(--ink);
+	border-left: 1px solid var(--ink-4);
 	overflow: hidden;
 
 	&--collapsed {
@@ -1606,7 +1606,7 @@
 
 .topology-mode {
 	display: inline-flex;
-	border: 2px solid var(--ink);
+	border: 2px solid var(--ink-4);
 	overflow: hidden;
 	margin-left: 4px;
 

@@ -438,28 +438,43 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 		</div>
 	);
 } );
-jest.mock( '../components/Header', () => ( props ) => {
-	lastHeaderProps = props;
-	return (
-		<header data-testid="header" data-mode={ props.mode }>
-			<button onClick={ () => props.onModeChange( 'edit' ) }>edit</button>
-			<button onClick={ () => props.onModeChange( 'view' ) }>view</button>
-			<button onClick={ () => props.onSave && props.onSave() }>
-				save
-			</button>
-			<button onClick={ () => props.onOpen && props.onOpen() }>
-				open
-			</button>
-			<button onClick={ () => props.onNew && props.onNew() }>new</button>
-			<button onClick={ () => props.onSettings && props.onSettings() }>
-				settings
-			</button>
-			<button onClick={ () => props.onDelete && props.onDelete() }>
-				delete
-			</button>
-		</header>
-	);
-} );
+// The Console now portals its controls via the named `HeaderControls` export
+// (the default `Header` is the hub's brand bar, unused here). Capture the
+// control props + render the buttons off HeaderControls.
+jest.mock( '../components/Header', () => ( {
+	__esModule: true,
+	default: () => <header data-testid="brand-header" />,
+	HeaderControls: ( props ) => {
+		lastHeaderProps = props;
+		return (
+			<header data-testid="header" data-mode={ props.mode }>
+				<button onClick={ () => props.onModeChange( 'edit' ) }>
+					edit
+				</button>
+				<button onClick={ () => props.onModeChange( 'view' ) }>
+					view
+				</button>
+				<button onClick={ () => props.onSave && props.onSave() }>
+					save
+				</button>
+				<button onClick={ () => props.onOpen && props.onOpen() }>
+					open
+				</button>
+				<button onClick={ () => props.onNew && props.onNew() }>
+					new
+				</button>
+				<button
+					onClick={ () => props.onSettings && props.onSettings() }
+				>
+					settings
+				</button>
+				<button onClick={ () => props.onDelete && props.onDelete() }>
+					delete
+				</button>
+			</header>
+		);
+	},
+} ) );
 let lastPaletteProps = null;
 jest.mock( '../components/Palette', () => ( props ) => {
 	lastPaletteProps = props;

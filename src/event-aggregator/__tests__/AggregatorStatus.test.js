@@ -117,12 +117,6 @@ describe( 'AggregatorStatus', () => {
 		return r;
 	}
 
-	it( 'renders the Aggregator Status heading', () => {
-		registerViewFixture();
-		const { container } = mount();
-		expect( container.textContent ).toContain( 'Aggregator Status' );
-	} );
-
 	it( 'shows the loading state before the first poll publishes', () => {
 		registerViewFixture( { loading: true } );
 		const { container } = mount();
