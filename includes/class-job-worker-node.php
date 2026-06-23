@@ -49,7 +49,7 @@ class Job_Worker_Node extends Node {
 	use Schema_Reflection;
 
 	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
-	public const MAX_JOB_SIZE         = 10485760;
+	public const MAX_JOB_SIZE         = 33554432;
 
 
 	/** Default cache-flush interval in jobs. */

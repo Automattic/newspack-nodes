@@ -669,7 +669,7 @@ class Admin {
 	}
 
 	public static function remote_segment_size_callback(): void {
-		self::render_number( 'remote_segment_size', 10485760, 1024 * 1024, 256 * 1024 * 1024, \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
+		self::render_number( 'remote_segment_size', 33554432, 1024 * 1024, 256 * 1024 * 1024, \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_max_lifespan_callback(): void {

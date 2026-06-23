@@ -45,8 +45,8 @@ class SSE_In_Node extends Node {
 
 	// ----- Memory / size guards. -----
 
-	public const MAX_BUFFER_SIZE = 10485760; // 10MB
-	public const MAX_EVENT_SIZE  = 10485760; // 10MB
+	public const MAX_BUFFER_SIZE = 33554432; // 32MB
+	public const MAX_EVENT_SIZE  = 33554432; // 32MB
 
 	/**
 	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy

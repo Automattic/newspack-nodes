@@ -16,7 +16,7 @@ class Consumer_Node extends Timer_Node {
 
 	public const OFFSETLOG_SEGMENT_SIZE = 65536;
 	public const OFFSETLOG_NUM_SEGMENTS = 2;
-	public const MAX_LINE_BUFFER_SIZE = 20971520;
+	public const MAX_LINE_BUFFER_SIZE = 33554432;
 
 	/**
 	 * Bytes read per poll — one block, then yield the event loop (Tachikoma's

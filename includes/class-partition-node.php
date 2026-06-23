@@ -19,7 +19,7 @@ class Partition_Node extends Timer_Node {
 	public const DEFAULT_NUM_SEGMENTS = 4;
 	public const DEFAULT_MAX_LIFESPAN = 0;
 	public const MAX_LINE_SIZE        = 4096;
-	public const MAX_LARGE_LINE_SIZE  = 10485760;
+	public const MAX_LARGE_LINE_SIZE  = 33554432;
 	public const SEGMENT_CACHE_TTL    = 0.25;
 	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/';
 
