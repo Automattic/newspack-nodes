@@ -1,4 +1,4 @@
-import { render, fireEvent } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import OverviewTab from '../tabs/OverviewTab';
 import { IoTelemetry, OVERVIEW_STORAGE_KEY } from '../../runtime/io-telemetry';
 
@@ -12,15 +12,7 @@ beforeEach( () => {
 } );
 
 function renderTab( props = {} ) {
-	return render(
-		<OverviewTab
-			frame={ { w: 800, h: 600 } }
-			onClose={ () => {} }
-			onHeaderPointerDown={ () => {} }
-			toggleMaximize={ () => {} }
-			{ ...props }
-		/>
-	);
+	return render( <OverviewTab publishHeader={ () => {} } { ...props } /> );
 }
 
 test( 'renders the six metric cards and both rate-chart panels', () => {
@@ -40,6 +32,8 @@ test( 'renders the six metric cards and both rate-chart panels', () => {
 		...container.querySelectorAll( '.nodes-topics__title' ),
 	].map( ( el ) => el.textContent );
 	expect( titles ).toEqual( [ 'Message Rate', 'Byte Rate' ] );
+	// Cards use the shared `.nodes-card` class (no overlay-specific styles).
+	expect( container.querySelectorAll( '.nodes-card' ) ).toHaveLength( 6 );
 } );
 
 test( 'shows the live cumulative warning/error counts', () => {
@@ -55,16 +49,16 @@ test( 'shows the live cumulative warning/error counts', () => {
 	);
 } );
 
-test( 'the close button invokes onClose', () => {
-	const onClose = jest.fn();
-	const { getByLabelText } = renderTab( { onClose } );
-	fireEvent.click( getByLabelText( /close/i ) );
-	expect( onClose ).toHaveBeenCalledTimes( 1 );
+test( 'renders no header of its own (the panel owns the one shared header)', () => {
+	const { container } = renderTab();
+	expect( container.querySelector( '.topology-header' ) ).toBeNull();
+	expect(
+		container.querySelector( '[data-testid="overlay-header"]' )
+	).toBeNull();
 } );
 
-test( 'pointer-down on the header starts a panel drag', () => {
-	const onHeaderPointerDown = jest.fn();
-	const { getByTestId } = renderTab( { onHeaderPointerDown } );
-	fireEvent.pointerDown( getByTestId( 'overview-header' ) );
-	expect( onHeaderPointerDown ).toHaveBeenCalledTimes( 1 );
+test( 'clears any header extras the Console left on the shared header', () => {
+	const publishHeader = jest.fn();
+	renderTab( { publishHeader } );
+	expect( publishHeader ).toHaveBeenCalledWith( null );
 } );

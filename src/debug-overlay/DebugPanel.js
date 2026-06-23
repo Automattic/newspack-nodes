@@ -1,16 +1,19 @@
-import { useEffect, useCallback, useRef } from '@wordpress/element';
+import { useEffect, useCallback, useRef, useState } from '@wordpress/element';
 import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
+import Header from '../topology-console/components/Header';
+import { getStoredTheme } from '../topology-console/themes';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useDebugFrame } from './useDebugFrame';
 
 /**
- * The overlay's panel — a thin tab host. It owns the floating-window concerns
- * (draggable/resizable frame via useDebugFrame, the wheel eater, the
- * page-scroll lock, the resize handles) and a tab bar driven by
- * getDevtoolsTabs('overlay'). It lazy-mounts ONLY the selected tab; the body
- * itself (the live-graph inspector + REPL) lives in InspectorTab, reached
- * through the registry. The `key={ active.id }` forces unmount/remount on tab
- * switch so each tab's build-before-render runs fresh.
+ * The overlay's panel. It owns the floating-window concerns (draggable/resizable
+ * frame via useDebugFrame, the wheel eater, the page-scroll lock, the resize
+ * handles) AND the ONE shared header: the topology-console Header is rendered
+ * here, once, above the tab bar — so every tab sits under the SAME header (same
+ * height, same place) instead of each tab duplicating its own. The active tab
+ * publishes any header extras it wants (the Console publishes its cwd PATH
+ * selector) up via `publishHeader`; the body itself (Console graph+REPL, or the
+ * I/O Overview) is header-less and lives in its tab component.
  *
  * Mounted by DebugOverlay ONLY while open, so the active tab's graph-building
  * hooks construct their infra BEFORE the subtree's first render; closing the
@@ -33,6 +36,14 @@ export default function DebugPanel( { storageKey, onClose } ) {
 	} = useDebugFrame( 'newspack-nodes:debug:frame', true );
 
 	const panelRef = useRef( null );
+
+	// The active tab publishes the header controls it owns (the Console its PATH
+	// selector; the Overview nothing). Merged into the one shared Header below.
+	const [ headerExtras, setHeaderExtras ] = useState( null );
+	// Theme drives the whole panel's token context (the chrome reads --paper /
+	// --ink, NOT fixed --np-* tokens). Seed from storage, but let the Console
+	// publish its live theme so a `set_skin` re-skins the chrome too.
+	const [ theme, setTheme ] = useState( getStoredTheme );
 
 	// Eat wheel scrolls inside the panel so they don't scroll the page behind the
 	// overlay. preventDefault needs a non-passive listener — attach one directly.
@@ -82,36 +93,70 @@ export default function DebugPanel( { storageKey, onClose } ) {
 	}, [] );
 
 	return (
+		// display:contents themed token-provider wrapping the WHOLE panel: the
+		// panel + header + tab bar become descendants of `.topology-app.theme-<x>`
+		// so every chrome rule resolves the theme's --paper/--ink/etc. (not fixed
+		// --np-* tokens). No box, so the panel's own fixed positioning is intact.
 		<div
-			ref={ setPanelRef }
-			className={ `nodes-debug__panel${
-				maximized ? ' is-maximized' : ''
-			}` }
-			data-testid="debug-panel"
-			style={ frameStyle }
-			// Block the page behind the overlay from scrolling whenever the
-			// pointer is inside the panel (Safari ignores the canvas wheel's
-			// preventDefault, so pin the page physically instead).
-			onPointerEnter={ lockPageScroll }
-			onPointerLeave={ unlockPageScroll }
+			className={ `topology-app newspack-nodes-theme theme-${ theme }` }
+			style={ { display: 'contents' } }
 		>
-			<DevtoolsTabHost
-				host="overlay"
-				tabProps={ {
-					storageKey,
-					onClose,
-					frame,
-					onHeaderPointerDown,
-					toggleMaximize,
-				} }
-			/>
-			{ Object.entries( getResizeHandlers() ).map( ( [ key, h ] ) => (
+			<div
+				ref={ setPanelRef }
+				className={ `nodes-debug__panel${
+					maximized ? ' is-maximized' : ''
+				}` }
+				data-testid="debug-panel"
+				style={ frameStyle }
+				// Block the page behind the overlay from scrolling whenever the
+				// pointer is inside the panel (Safari ignores the canvas wheel's
+				// preventDefault, so pin the page physically instead).
+				onPointerEnter={ lockPageScroll }
+				onPointerLeave={ unlockPageScroll }
+			>
+				{ /* The ONE shared header — `.topology-header` is the panel's
+				     direct flex child, identical for every tab. */ }
 				<div
-					key={ key }
-					className={ `nodes-debug__resize nodes-debug__resize--${ key }` }
-					onPointerDown={ h.onPointerDown }
+					className="nodes-debug__header-drag"
+					data-testid="overlay-header"
+					onPointerDown={ onHeaderPointerDown }
+					onDoubleClick={ ( e ) => {
+						const tag = e.target?.tagName;
+						if (
+							tag === 'SELECT' ||
+							tag === 'BUTTON' ||
+							tag === 'INPUT' ||
+							tag === 'OPTION' ||
+							e.target?.closest?.( 'select, button, input' )
+						) {
+							return;
+						}
+						toggleMaximize();
+					} }
+				>
+					<Header
+						mode="view"
+						onClose={ onClose }
+						{ ...headerExtras }
+					/>
+				</div>
+				<DevtoolsTabHost
+					host="overlay"
+					tabProps={ {
+						storageKey,
+						frame,
+						publishHeader: setHeaderExtras,
+						publishTheme: setTheme,
+					} }
 				/>
-			) ) }
+				{ Object.entries( getResizeHandlers() ).map( ( [ key, h ] ) => (
+					<div
+						key={ key }
+						className={ `nodes-debug__resize nodes-debug__resize--${ key }` }
+						onPointerDown={ h.onPointerDown }
+					/>
+				) ) }
+			</div>
 		</div>
 	);
 }

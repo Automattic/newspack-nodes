@@ -9,27 +9,27 @@ describe( 'debug-overlay tab registration', () => {
 		jest.resetModules();
 	} );
 
-	it( 'registers the inspector as a full-bleed overlay tab so the host gives it is-full-bleed, not the scroll wrapper', () => {
+	it( 'registers the Console tab as full-bleed so the host gives it is-full-bleed, not the scroll wrapper', () => {
 		// Import for its side effect (registerDevtoolsTab at import time).
 		require( '../tabs/index.js' );
 		const overlayTabs = getDevtoolsTabs( 'overlay' );
-		const inspector = overlayTabs.find( ( t ) => t.id === 'inspector' );
-		expect( inspector ).toBeDefined();
-		// The inspector is a self-managed full-height graph canvas — it must opt
+		const console = overlayTabs.find( ( t ) => t.id === 'console' );
+		expect( console ).toBeDefined();
+		// The Console is a self-managed full-height graph canvas — it must opt
 		// out of the host's default scroll container.
-		expect( inspector.fullBleed ).toBe( true );
+		expect( console.fullBleed ).toBe( true );
 	} );
 
-	it( 'registers Overview as the default (first) overlay tab, then Inspector', () => {
+	it( 'registers Overview as the default (first) overlay tab, then Console', () => {
 		require( '../tabs/index.js' );
 		const overlayTabs = getDevtoolsTabs( 'overlay' );
 		expect( overlayTabs.map( ( t ) => t.id ) ).toEqual( [
 			'io-overview',
-			'inspector',
+			'console',
 		] );
 		expect( overlayTabs.map( ( t ) => t.label ) ).toEqual( [
 			'Overview',
-			'Inspector',
+			'Console',
 		] );
 	} );
 

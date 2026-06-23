@@ -18,12 +18,13 @@ registerDevtoolsTab( {
 	component: OverviewTab,
 } );
 
-// The live-graph inspector + REPL. fullBleed: a self-managed full-height graph
-// canvas, so it opts out of the host's default scroll wrapper (mirrors the
-// Console hub tab).
+// The live-graph console + REPL — the same view as the hub's Console tab (the
+// node-detail "inspector" is the rail INSIDE it, not this tab). fullBleed: a
+// self-managed full-height graph canvas, so it opts out of the host's default
+// scroll wrapper. (Component file is still InspectorTab.js for now.)
 registerDevtoolsTab( {
-	id: 'inspector',
-	label: __( 'Inspector', 'newspack-nodes' ),
+	id: 'console',
+	label: __( 'Console', 'newspack-nodes' ),
 	host: 'overlay',
 	order: 1,
 	fullBleed: true,

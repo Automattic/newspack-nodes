@@ -23,6 +23,7 @@ import ReplFooter from './ReplFooter';
  * @param {boolean}  props.showRepl          Render the ReplFooter (default true; console passes mode!=='edit').
  * @param {string}   props.buildingClassName CSS class for the not-ready placeholder.
  * @param {Function} props.wrapHeader        Optional (headerEl) => node; wraps the Header (overlay drag chrome). Identity by default.
+ * @param {boolean}  props.showHeader        Render the Header (default true; the overlay sets false because the panel owns one shared header above the tabs).
  * @return {import('react').ReactElement} The shared canvas surface as a Fragment.
  */
 export default function ConsoleShell( {
@@ -34,12 +35,13 @@ export default function ConsoleShell( {
 	headerProps = {},
 	replProps = {},
 	showRepl = true,
+	showHeader = true,
 	buildingClassName = 'topology-canvas-building',
 	wrapHeader = ( header ) => header,
 } ) {
 	return (
 		<>
-			{ wrapHeader( <Header { ...headerProps } /> ) }
+			{ showHeader && wrapHeader( <Header { ...headerProps } /> ) }
 			{ ready ? (
 				<GraphView
 					graph={ graph }
