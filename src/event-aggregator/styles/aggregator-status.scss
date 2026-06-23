@@ -102,7 +102,7 @@
 	font-size: 14px;
 	background: var(--np-surface);
 	border-radius: var(--np-radius-md);
-	border: 1px dashed base.$dark-border;
+	border: 2px dashed base.$dark-border;
 }
 
 // =============================================================================
@@ -111,7 +111,7 @@
 
 .aggregator-server-card {
 	background: var(--np-surface);
-	border: 1px solid var(--np-border);
+	border: 2px solid var(--np-border);
 	border-radius: var(--np-radius-md);
 	padding: 16px 20px;
 	display: flex;
@@ -164,7 +164,7 @@
 .aggregator-partition {
 	position: relative;
 	background: var(--np-surface-subtle);
-	border: 1px solid var(--np-border);
+	border: 2px solid var(--np-border);
 	border-radius: var(--np-radius-md);
 	padding: 11px 14px 11px 16px;
 	min-width: 250px;

@@ -19,7 +19,7 @@
 	width: 48px;
 	height: 48px;
 	border-radius: 50%;
-	border: 1px solid #0d1117;
+	border: 2px solid #0d1117;
 	background: #18222e;
 	color: #f0e7d6;
 	font-size: 20px;
@@ -47,7 +47,7 @@
 	// One below the FAB; both above dashboard modals + flame tooltip.
 	z-index: 999998;
 	background: #f0e7d6;
-	border: 1px solid #18222e;
+	border: 2px solid #18222e;
 	border-radius: 10px;
 	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
 	overflow: hidden;
@@ -96,6 +96,7 @@
 
 		// Inspector column: 360px panel, or a 28px rail when collapsed.
 		--inspector-col: 360px;
+
 		&.is-inspector-collapsed {
 			--inspector-col: 28px;
 		}
@@ -112,6 +113,7 @@
 		&.is-palette-collapsed {
 			grid-template-columns: 28px 1fr 0;
 		}
+
 		&.is-palette-collapsed.is-inspector-open {
 			grid-template-columns: 28px 1fr var(--inspector-col);
 		}
@@ -157,6 +159,7 @@
 		height: 8px;
 		cursor: ns-resize;
 	}
+
 	&--s {
 		bottom: 0;
 		left: 12px;
@@ -164,6 +167,7 @@
 		height: 8px;
 		cursor: ns-resize;
 	}
+
 	&--w {
 		top: 12px;
 		bottom: 12px;
@@ -171,6 +175,7 @@
 		width: 8px;
 		cursor: ew-resize;
 	}
+
 	&--e {
 		top: 12px;
 		bottom: 12px;
@@ -178,6 +183,7 @@
 		width: 8px;
 		cursor: ew-resize;
 	}
+
 	&--nw {
 		top: 0;
 		left: 0;
@@ -185,6 +191,7 @@
 		height: 14px;
 		cursor: nwse-resize;
 	}
+
 	&--ne {
 		top: 0;
 		right: 0;
@@ -192,6 +199,7 @@
 		height: 14px;
 		cursor: nesw-resize;
 	}
+
 	&--sw {
 		bottom: 0;
 		left: 0;
@@ -199,6 +207,7 @@
 		height: 14px;
 		cursor: nesw-resize;
 	}
+
 	&--se {
 		bottom: 0;
 		right: 0;

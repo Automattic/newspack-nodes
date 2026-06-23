@@ -62,7 +62,7 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		&--error {
 			background: $error-subtle;
 			color: $text;
-			border: 1px solid $error;
+			border: 2px solid $error;
 		}
 	}
 
@@ -71,7 +71,7 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		padding: 32px;
 		text-align: center;
 		background: $surface-subtle;
-		border: 1px solid $border;
+		border: 2px solid $border;
 		border-radius: 16px;
 
 		p {
@@ -79,7 +79,7 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		}
 
 		// Adjacent-sibling spacing beats an !important override of `p { margin: 0 }`.
-		p + p {
+		p+p {
 			margin-top: 8px;
 		}
 
@@ -99,7 +99,7 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 	&__card {
 		padding: 16px;
 		background: $surface;
-		border: 1px solid $border;
+		border: 2px solid $border;
 		border-radius: 8px;
 	}
 
@@ -117,7 +117,7 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		gap: 4px;
 		padding: 16px;
 		background: $surface;
-		border: 1px solid $border;
+		border: 2px solid $border;
 		border-radius: 8px;
 	}
 
@@ -257,7 +257,7 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		font-family: $font;
 		color: #fff;
 		background: $cobalt;
-		border: 1px solid $cobalt;
+		border: 2px solid $cobalt;
 		border-radius: 8px;
 		cursor: pointer;
 		transition: background 0.15s;
@@ -303,7 +303,7 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		margin: 16px 0 0;
 		padding: 0;
 		list-style: none;
-		border: 1px solid $border;
+		border: 2px solid $border;
 		border-radius: 8px;
 
 		li {
