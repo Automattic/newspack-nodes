@@ -55,10 +55,16 @@ class Log_Cleaner {
 
 	/**
 	 * Single-pass declared-set collector. Resolves each config ROOT once and loops
-	 * `Topology_Registry::list()` once, filling both buckets. A `null` bucket is a
-	 * fail-closed sentinel: its root is unresolvable, so the caller MUST skip that
-	 * sweep (the producer union cannot mask it). The log bucket additionally unions
-	 * the PHP-registered producers (firehose/jobintake × clamped config num_partitions).
+	 * the operator's ACTIVE topology set (`Bootstrap::get_topologies()` — the same
+	 * source the supervisor spawns from) once, filling both buckets UNIFORMLY. Driving
+	 * retention off the active set rather than the on-disk `.tsl` glob means a
+	 * superseded-but-shipped topology's logs AND offsetlogs are reclaimed once it's
+	 * deactivated (no live worker's dirs are at risk — anything spawning is, by
+	 * definition, in the active set). A `null` bucket is a fail-closed sentinel: its
+	 * root is unresolvable, so the caller MUST skip that sweep (the producer union
+	 * cannot mask it). The log bucket additionally unions the PHP-registered producers
+	 * (firehose/jobintake × clamped config num_partitions) — substrate logs with no
+	 * consumer-offset of their own, hence log-only.
 	 *
 	 * Each non-null bucket is a `concrete dir name => enumerated partition index`
 	 * map (the partition comes from the resolver's enumeration loop, never parsed
@@ -72,7 +78,7 @@ class Log_Cleaner {
 
 		$logs    = [];
 		$offsets = [];
-		foreach ( Topology_Registry::list() as $name ) {
+		foreach ( \array_keys( Bootstrap::get_topologies() ) as $name ) {
 			$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
 			foreach ( $resolved['logs'] as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;

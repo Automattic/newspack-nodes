@@ -176,6 +176,11 @@ class WorkersCITest extends TestCase {
 		}
 		\file_put_contents( "{$stock}/{$topology}.tsl", $lines );
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		// Retention + dashboard catalog now follow the ACTIVE set, not the disk glob.
+		$active                                              = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
+		$active[]                                            = $topology;
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
+		\Newspack_Nodes\Config::reset();
 	}
 
 	public function test_node_schema_declares_its_verbs(): void {
@@ -480,7 +485,8 @@ class WorkersCITest extends TestCase {
 		\mkdir( "{$logs}/ghost",    0755, true );  // not declared, no `.p{N}` suffix
 		\file_put_contents( "{$logs}/req.0", 'X' ); // a Log segment FILE — GLOB_ONLYDIR skips it
 
-		// A real .tsl declares the token-in-prefix `<partition>-req` layout (2 parts).
+		// A real .tsl declares the token-in-prefix `<partition>-req` layout (2 parts),
+		// and the operator ACTIVATES it (the declared set follows the active fleet).
 		$stock = "{$base}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
@@ -490,6 +496,10 @@ class WorkersCITest extends TestCase {
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
+		$active                                              = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
+		$active[]                                            = 'req-workers';
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
+		\Newspack_Nodes\Config::reset();
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
