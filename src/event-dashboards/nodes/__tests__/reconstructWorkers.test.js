@@ -782,3 +782,98 @@ describe( 'reconstructWorkers — liveness backfill', () => {
 		expect( workers[ 0 ].started_at ).toBe( 1700000000 );
 	} );
 } );
+
+describe( 'reconstructWorkers — hides ghost readers of an undeclared partition', () => {
+	// After num_partitions shrinks 2→1, the probe still carries a stale p1 reader
+	// (its last snapshot before the p1 worker died). The join must drop it: the
+	// source partition is no longer in the declared logs AND no live worker backs
+	// it — cross-checked against logs[] (already in context), not just a timer.
+	const GHOST_DATA = {
+		graph: FANOUT_GRAPH,
+		workers: [
+			{
+				type: 'combined',
+				partition: 0,
+				status: 'running',
+				live: true,
+				stale: false,
+				restart_pending: false,
+				heartbeat_age: 2,
+				started_at: 1700000000,
+			},
+		],
+		consumers: [
+			{
+				reader: 'firehose.p0',
+				source: 'firehose.p0',
+				partition: 0,
+				cursor_seg: 0,
+				cursor_off: 50,
+				end_seg: 0,
+				end_size: 200,
+				distance: 150,
+				msgs: 7,
+			},
+			{
+				// Stale ghost: p1 no longer declared, no p1 worker.
+				reader: 'firehose.p1',
+				source: 'firehose.p1',
+				partition: 1,
+				cursor_seg: 0,
+				cursor_off: 0,
+				end_seg: 0,
+				end_size: 0,
+				distance: 0,
+				msgs: 0,
+			},
+		],
+		logs: [
+			{
+				name: 'firehose.p0',
+				partitions: [
+					{
+						partition: 0,
+						segments: [ { id: 0, size: 200 } ],
+						total_size: 200,
+					},
+				],
+			},
+		],
+		timestamp: 1000,
+	};
+
+	it( 'drops the worker rows for the undeclared, unbacked p1 reader', () => {
+		const { workers } = reconstructWorkers( GHOST_DATA, EMPTY_PRIOR );
+		expect( workers.filter( ( w ) => w.partition === 1 ) ).toHaveLength(
+			0
+		);
+		expect(
+			workers.filter( ( w ) => w.partition === 0 ).length
+		).toBeGreaterThan( 0 );
+	} );
+
+	it( 'keeps a reader whose partition IS still declared even if its worker is momentarily absent', () => {
+		// Guard: only the undeclared + unbacked combination is a ghost. A declared
+		// partition with no live worker (between respawns) stays visible.
+		const data = {
+			...GHOST_DATA,
+			logs: [
+				...GHOST_DATA.logs,
+				{
+					name: 'firehose.p1',
+					partitions: [
+						{
+							partition: 1,
+							segments: [ { id: 0, size: 10 } ],
+							total_size: 10,
+						},
+					],
+				},
+			],
+		};
+		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
+		expect(
+			workers.filter( ( w ) => w.partition === 1 ).length
+		).toBeGreaterThan( 0 );
+	} );
+} );

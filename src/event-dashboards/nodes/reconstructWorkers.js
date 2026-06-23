@@ -295,6 +295,18 @@ export function reconstructWorkers( data, prior ) {
 				liveByName.get( `${ concrete }#${ row.partition }` ) || [];
 			const status = liveByKey.get( `${ topology }#${ row.partition }` );
 
+			// Drop a ghost reader: a stale probe row for a partition that's no
+			// longer declared (config shrank the count away) AND has no live worker
+			// backing it. liveByName is the declared-log set already in context, so
+			// this cross-checks against the real source — not just a stall timer.
+			// A still-declared partition (between worker respawns) stays visible.
+			if (
+				! liveByName.has( `${ concrete }#${ row.partition }` ) &&
+				! ( status && status.live )
+			) {
+				return;
+			}
+
 			// One worker row PER downstream handler so a fanned-out consumer
 			// (firehose → request-builder AND job-router) lands a row on EACH
 			// processor's collapsed-graph vertex, exactly as the old one-row-per-
