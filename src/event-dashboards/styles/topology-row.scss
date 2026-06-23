@@ -28,7 +28,7 @@
 		// A clean white card on the subtle page; the heading is transparent (part
 		// of the card) so a collapsed row reads as one white card, not a band.
 		background: base.$dark-bg-secondary;
-		border: 1px solid base.$dark-border;
+		border: 2px solid base.$dark-border;
 		border-radius: var(--np-radius-md);
 		overflow: hidden;
 
@@ -267,7 +267,7 @@
 		width: 360px;
 		max-width: calc(100vw - 40px);
 		background: base.$dark-bg-secondary;
-		border: 1px solid base.$dark-border;
+		border: 2px solid base.$dark-border;
 		border-radius: 8px;
 		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
 		overflow: hidden;
@@ -298,7 +298,7 @@
 	&__alert-ok {
 		padding: 6px 16px;
 		border-radius: 6px;
-		border: 1px solid base.$dark-border;
+		border: 2px solid base.$dark-border;
 		background: base.$dark-bg-tertiary;
 		color: base.$dark-text;
 		cursor: pointer;

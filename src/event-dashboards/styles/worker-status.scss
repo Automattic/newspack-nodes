@@ -355,21 +355,27 @@
 	&.processed {
 		// Softened green (lighter than solid Cobalt-success) so the wide bars
 		// don't dominate the light dashboard.
-		background: color-mix(in srgb,
-				var(--np-success) 68%,
-				white); // processed
+		background: color-mix(
+			in srgb,
+			var(--np-success) 68%,
+			white
+		); // processed
 	}
 
 	&.pending {
-		background: var(--np-warning-bright); // Yellow/amber - pending in current segment
+		background: var(
+			--np-warning-bright
+		); // Yellow/amber - pending in current segment
 	}
 
 	&.beyond {
 		// Soft light-mid gray — reads against the light track without the
 		// heavy near-black weight of the secondary-text grey.
-		background: color-mix(in srgb,
-				var(--np-text-secondary) 45%,
-				white); // live on disk, past the recorded probe end
+		background: color-mix(
+			in srgb,
+			var(--np-text-secondary) 45%,
+			white
+		); // live on disk, past the recorded probe end
 	}
 }
 
@@ -382,7 +388,7 @@
 // Supervisor Section — a white card + border, matching the topology rows.
 .supervisor-section {
 	background: base.$dark-bg-secondary;
-	border: 1px solid base.$dark-border;
+	border: 2px solid base.$dark-border;
 	border-radius: var(--np-radius-md);
 	padding: 8px 12px;
 	margin-bottom: 12px;
@@ -461,6 +467,6 @@
 	transition: transform 0.1s;
 }
 
-.tree-branch.collapsed>.tree-ent>.row .caret {
+.tree-branch.collapsed > .tree-ent > .row .caret {
 	transform: rotate(-90deg);
 }
