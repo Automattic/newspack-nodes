@@ -66,11 +66,28 @@ jest.mock( '../../topology-console/components/GraphView', () => ( props ) => (
 	</div>
 ) );
 
+import {
+	registerDevtoolsTab,
+	resetDevtoolsTabs,
+} from '@newspack-nodes/shared/devtools/tabRegistry';
+import InspectorTab from '../tabs/InspectorTab';
 import DebugOverlay from '../DebugOverlay';
 
 beforeEach( () => {
 	Core.reset();
 	window.localStorage.clear();
+	// These tests drive the Inspector tab's canvas; register ONLY it so the panel
+	// opens straight to the Inspector (the real registry also has the default
+	// Overview tab, which would otherwise win as tabs[0]).
+	resetDevtoolsTabs();
+	registerDevtoolsTab( {
+		id: 'inspector',
+		label: 'Inspector',
+		host: 'overlay',
+		order: 0,
+		fullBleed: true,
+		component: InspectorTab,
+	} );
 } );
 
 // Mount the exospine with a build that registers one dashboard-managed node, so

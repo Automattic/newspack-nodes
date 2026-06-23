@@ -22,7 +22,16 @@ import {
 	pack,
 	unpack,
 	valueSize,
+	byteLength,
 } from '../message';
+
+test( 'byteLength counts UTF-8 bytes and treats nullish as zero', () => {
+	expect( byteLength( 'abc' ) ).toBe( 3 );
+	expect( byteLength( '€' ) ).toBe( 3 );
+	expect( byteLength( '' ) ).toBe( 0 );
+	expect( byteLength( null ) ).toBe( 0 );
+	expect( byteLength( undefined ) ).toBe( 0 );
+} );
 
 test( 'field index constants match PHP layout', () => {
 	expect( TYPE ).toBe( 0 );

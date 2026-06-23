@@ -1,7 +1,18 @@
 /* global EventSource */
 import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
-import { TYPE, FROM, TO, ID, KEY, VALUE, TM_INFO, unpack } from './message';
+import { IoTelemetry, byteLength } from './io-telemetry';
+import {
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	KEY,
+	VALUE,
+	TM_INFO,
+	TM_ERROR,
+	unpack,
+} from './message';
 
 // A record's ID is the Consumer's `seg:offset` breadcrumb; FROM carries the
 // producer path `<sub>.p<partition>/…`. Parsing both lets the client resume a
@@ -155,6 +166,12 @@ export class SseConnectorNode extends Node {
 				message[ TO ] = this.target;
 			}
 			this._trackPosition( message );
+			// Inbound boundary accounting for the debug overlay: one received
+			// frame, its wire bytes, and an error tally for TM_ERROR frames.
+			IoTelemetry.recordIn( byteLength( e.data ), 1 );
+			if ( message[ TYPE ] & TM_ERROR ) {
+				IoTelemetry.recordError();
+			}
 			super.fill( message );
 		} );
 	}

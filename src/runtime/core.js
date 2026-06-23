@@ -1,5 +1,6 @@
 import { newMessage, TYPE, TIMESTAMP, VALUE, TM_BYTESTREAM } from './message';
 import names from './reserved-node-names.json';
+import { IoTelemetry } from './io-telemetry';
 
 const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
 // Bounded stderr tail for the dmesg verb (Tachikoma caps @RECENT_LOG at 100).
@@ -58,6 +59,14 @@ class CoreImpl {
 		this.recentLog.push( line );
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
+		}
+		// Feed the debug overlay's warning/error tallies off the Tachikoma log
+		// convention (a line that opens WARNING: / ERROR:). WARNING wins so a
+		// "WARNING: …" never also trips the ERROR substring.
+		if ( /\bWARNING:/.test( line ) ) {
+			IoTelemetry.recordWarning();
+		} else if ( /\bERROR:/.test( line ) ) {
+			IoTelemetry.recordError();
 		}
 		console.warn( line.replace( /\n$/, '' ) );
 		// Also surface at the REPL: fan the formatted line to whichever reply sink

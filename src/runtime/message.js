@@ -48,11 +48,20 @@ export function unpack( s ) {
 	return newMessage();
 }
 
+// UTF-8 byte length of a string (Blob, since jsdom lacks TextEncoder) to match
+// PHP strlen(). Nullish/empty → 0. The single source of truth for byte counting
+// across the runtime (valueSize here, and IoTelemetry's wire accounting).
+export function byteLength( str ) {
+	if ( str === null || str === undefined || str === '' ) {
+		return 0;
+	}
+	return new Blob( [ str ] ).size;
+}
+
 export function valueSize( m ) {
 	const v = m[ VALUE ];
 	if ( typeof v === 'string' ) {
-		// UTF-8 byte count (Blob, since jsdom lacks TextEncoder) to match PHP strlen().
-		return new Blob( [ v ] ).size;
+		return byteLength( v );
 	}
 	if ( v === null || v === undefined ) {
 		return 0;

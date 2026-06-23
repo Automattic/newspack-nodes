@@ -19,4 +19,26 @@ describe( 'debug-overlay tab registration', () => {
 		// out of the host's default scroll container.
 		expect( inspector.fullBleed ).toBe( true );
 	} );
+
+	it( 'registers Overview as the default (first) overlay tab, then Inspector', () => {
+		require( '../tabs/index.js' );
+		const overlayTabs = getDevtoolsTabs( 'overlay' );
+		expect( overlayTabs.map( ( t ) => t.id ) ).toEqual( [
+			'overview',
+			'inspector',
+		] );
+		expect( overlayTabs.map( ( t ) => t.label ) ).toEqual( [
+			'Overview',
+			'Inspector',
+		] );
+	} );
+
+	it( 'gives Overview its own full-bleed chrome (fixed header + scrolling body)', () => {
+		require( '../tabs/index.js' );
+		const overview = getDevtoolsTabs( 'overlay' ).find(
+			( t ) => t.id === 'overview'
+		);
+		expect( overview ).toBeDefined();
+		expect( overview.fullBleed ).toBe( true );
+	} );
 } );

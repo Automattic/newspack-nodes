@@ -2,7 +2,8 @@ import { useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { isDebugEnabled } from './isDebugEnabled';
 import DebugPanel from './DebugPanel';
-import './tabs'; // registers the built-in overlay tabs (Inspector)
+import { startOverviewSampler, stopOverviewSampler } from './overviewSampler';
+import './tabs'; // registers the built-in overlay tabs (Inspector, Overview)
 import './debug-overlay.scss';
 
 // (We reuse the topology console's CanvasFrame directly for visual parity —
@@ -50,6 +51,17 @@ export default function DebugOverlay( {
 		};
 		document.addEventListener( 'keydown', onKey );
 		return () => document.removeEventListener( 'keydown', onKey );
+	}, [ enabled ] );
+
+	// Keep the always-on Overview sampler running for the whole time the overlay
+	// is enabled — independent of the panel being open or the Overview tab being
+	// selected — so the rate charts carry continuous history.
+	useEffect( () => {
+		if ( ! enabled ) {
+			return undefined;
+		}
+		startOverviewSampler();
+		return stopOverviewSampler;
 	}, [ enabled ] );
 
 	if ( ! enabled ) {
