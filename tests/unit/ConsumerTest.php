@@ -606,7 +606,7 @@ class ConsumerTest extends TestCase {
 	// ============================================================================
 
 	public function test_MAX_LINE_BUFFER_SIZE_constant_defined(): void {
-		$this->assertSame( 20971520, Consumer_Node::MAX_LINE_BUFFER_SIZE );
+		$this->assertSame( 33554432, Consumer_Node::MAX_LINE_BUFFER_SIZE );
 	}
 
 	public function test_oversized_line_buffer_is_bounded_by_guard(): void {
