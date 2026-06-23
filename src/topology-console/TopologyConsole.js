@@ -158,7 +158,7 @@ export function statusLines( { ssePid, cwd, worker } ) {
 	];
 }
 
-// The longest worker menu item (`_sse/{topology}.p{N}`) that is a path-prefix of
+// The longest worker menu item (`{topology}.p{N}`) that is a path-prefix of
 // `path` — the worker whose subtree contains it. `cd`-ing onto a worker OR into
 // any node beneath it resolves to that worker's mount; non-worker paths (roots,
 // `_http`, …) resolve to null. Returns { topology, partition } | null.
@@ -177,7 +177,7 @@ function longestWorkerPrefix( path, options ) {
 	return best ? parseWorker( best ) : null;
 }
 
-// The `_sse/{topology}.p{N}` path the cwd resolves to — the longest ACTIVE worker
+// The `{topology}.p{N}` path the cwd resolves to — the longest ACTIVE worker
 // menu item that prefixes it — or null when the cwd isn't (under) a live worker.
 // Active-set aware: a worker-SHAPED path for an inactive topology has no menu
 // entry, so it returns null. This is the SINGLE worker-detection both gates share
@@ -190,7 +190,7 @@ export function workerPollPath( cwd, pathOptions ) {
 }
 
 // Whether a send TO requires a live SSE session (pid). ONLY a worker pivot
-// (`_sse/{topology}.pN[/…]`) does: SseInNode wraps its reply FROM with `_sse:{pid}`
+// (`{topology}.pN[/…]`) does: SseInNode wraps its reply FROM with `_sse:{pid}`
 // so the server's HTTP_Filter can demux the worker's ASYNC reply back to this
 // client's stream. A local-root command (empty TO) interprets in-browser; a
 // request-scope command (`_sse`) and the direct `_http/{worker}` boundary form

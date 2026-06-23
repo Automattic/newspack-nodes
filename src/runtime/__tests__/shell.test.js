@@ -134,7 +134,7 @@ describe( 'Shell node — local builtins', () => {
 
 describe( 'Shell node — fill() reply pivot + TO', () => {
 	it( 'fill() of a typed line stamps the bare reply-node FROM and TO=prefix(path)', () => {
-		const { shell, filled } = makeShell( { path: '_sse/demo.p0' } );
+		const { shell, filled } = makeShell( { path: 'demo.p0' } );
 		const signal = shell.fill( 'ls -al' );
 		expect( signal ).toBeNull(); // a posted command returns null
 		expect( filled ).toHaveLength( 1 );
@@ -142,7 +142,7 @@ describe( 'Shell node — fill() reply pivot + TO', () => {
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		// FROM is the bare reply node; the `_sse` session node wraps it downstream.
 		expect( m[ FROM ] ).toBe( '_output' );
-		expect( m[ TO ] ).toBe( '_sse/demo.p0' );
+		expect( m[ TO ] ).toBe( 'demo.p0' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'ls',
 			arguments: '-al',

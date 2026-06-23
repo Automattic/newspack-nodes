@@ -10,7 +10,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import Header from '../Header';
 
 const baseProps = {
-	pathOptions: [ '', '_sse', '_sse/demo.p0', '_sse/demo.p1' ],
+	pathOptions: [ '', '_sse', 'demo.p0', 'demo.p1' ],
 	path: '',
 	onPathChange: () => {},
 	streamStatus: 'connecting',
@@ -36,38 +36,38 @@ describe( 'Header', () => {
 		expect( Array.from( options ).map( ( o ) => o.value ) ).toEqual( [
 			'',
 			'_sse',
-			'_sse/demo.p0',
-			'_sse/demo.p1',
+			'demo.p0',
+			'demo.p1',
 		] );
 		expect( Array.from( options ).map( ( o ) => o.textContent ) ).toEqual( [
 			'/',
 			'/_sse',
-			'/_sse/demo.p0',
-			'/_sse/demo.p1',
+			'/demo.p0',
+			'/demo.p1',
 		] );
 	} );
 
 	it( 'reflects the current path as the selected value', () => {
 		const { container } = render(
-			<Header { ...baseProps } path="_sse/demo.p1" />
+			<Header { ...baseProps } path="demo.p1" />
 		);
 		expect( container.querySelectorAll( 'select' )[ 0 ].value ).toBe(
-			'_sse/demo.p1'
+			'demo.p1'
 		);
 	} );
 
 	it( 'surfaces an off-menu cwd (e.g. a REPL `cd`) as its own option so the select matches', () => {
 		const { container } = render(
-			<Header { ...baseProps } path="_sse/demo.p0/firehose-in" />
+			<Header { ...baseProps } path="demo.p0/firehose-in" />
 		);
 		const select = container.querySelectorAll( 'select' )[ 0 ];
 		// The select reflects the real cwd rather than snapping to the first option.
-		expect( select.value ).toBe( '_sse/demo.p0/firehose-in' );
+		expect( select.value ).toBe( 'demo.p0/firehose-in' );
 		expect(
 			Array.from( select.querySelectorAll( 'option' ) ).map(
 				( o ) => o.value
 			)
-		).toContain( '_sse/demo.p0/firehose-in' );
+		).toContain( 'demo.p0/firehose-in' );
 	} );
 
 	it( 'calls onPathChange with the chosen cwd string', () => {
@@ -76,9 +76,9 @@ describe( 'Header', () => {
 			<Header { ...baseProps } onPathChange={ onPathChange } />
 		);
 		fireEvent.change( container.querySelectorAll( 'select' )[ 0 ], {
-			target: { value: '_sse/demo.p0' },
+			target: { value: 'demo.p0' },
 		} );
-		expect( onPathChange ).toHaveBeenCalledWith( '_sse/demo.p0' );
+		expect( onPathChange ).toHaveBeenCalledWith( 'demo.p0' );
 	} );
 
 	it( 'hides the path select in edit mode (no selects at all)', () => {

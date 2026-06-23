@@ -26,7 +26,7 @@ describe( 'statusLines', () => {
 		expect(
 			statusLines( {
 				ssePid: '1247',
-				cwd: '_sse/firehose-workers-and-jobs.p0',
+				cwd: 'firehose-workers-and-jobs.p0',
 				worker: {
 					topology: 'firehose-workers-and-jobs',
 					partition: 0,
@@ -34,7 +34,7 @@ describe( 'statusLines', () => {
 			} )
 		).toEqual( [
 			'Browser console — SSE session 1247',
-			'  cwd: _sse/firehose-workers-and-jobs.p0',
+			'  cwd: firehose-workers-and-jobs.p0',
 			'  worker pivot: firehose-workers-and-jobs.p0',
 		] );
 	} );

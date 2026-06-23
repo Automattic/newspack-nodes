@@ -44,7 +44,7 @@ describe( 'useCompletion', () => {
 
 	it( 'no-ops when skip() returns true', () => {
 		const { result, fill } = render( {
-			cwd: '_sse/w.p0',
+			cwd: 'w.p0',
 			skip: () => true,
 		} );
 		result.current.requestCompletion( 'foo' );
@@ -53,7 +53,7 @@ describe( 'useCompletion', () => {
 
 	it( 'fills when skip() returns false', () => {
 		const { result, fill } = render( {
-			cwd: '_sse/w.p0',
+			cwd: 'w.p0',
 			skip: () => false,
 		} );
 		result.current.requestCompletion( 'foo' );
@@ -61,7 +61,7 @@ describe( 'useCompletion', () => {
 	} );
 
 	it( 'defaults skip to never-skip when omitted', () => {
-		const { result, fill } = render( { cwd: '_sse/w.p0' } );
+		const { result, fill } = render( { cwd: 'w.p0' } );
 		result.current.requestCompletion( 'foo' );
 		expect( fill ).toHaveBeenCalledTimes( 1 );
 	} );
