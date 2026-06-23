@@ -83,11 +83,11 @@ describe( 'ConsoleShell', () => {
 		render(
 			<ConsoleShell
 				{ ...baseProps }
-				headerProps={ { mode: 'edit', path: '_sse/demo.p0' } }
+				headerProps={ { mode: 'edit', path: 'demo.p0' } }
 			/>
 		);
 		expect( lastHeaderProps.mode ).toBe( 'edit' );
-		expect( lastHeaderProps.path ).toBe( '_sse/demo.p0' );
+		expect( lastHeaderProps.path ).toBe( 'demo.p0' );
 	} );
 
 	it( 'forwards replProps to ReplFooter', () => {

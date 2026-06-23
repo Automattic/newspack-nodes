@@ -369,8 +369,8 @@ describe( 'useGraphHandlers', () => {
 
 	it( 'invoke applies the injected prefix/replyFrom to TO/FROM', () => {
 		const shell = makeShell( {
-			path: '_sse/demo.p0',
-			prefix: ( p ) => `_sse/demo.p0/${ p }`,
+			path: 'demo.p0',
+			prefix: ( p ) => `demo.p0/${ p }`,
 			replyFrom: ( n ) => `${ names.SSE }:1234/${ n }`,
 		} );
 		const { result } = renderHandlers( {
@@ -388,7 +388,7 @@ describe( 'useGraphHandlers', () => {
 			positional: '',
 		} );
 		const m = shell.sink.fills[ 0 ];
-		expect( m[ TO ] ).toBe( '_sse/demo.p0/n1:config' );
+		expect( m[ TO ] ).toBe( 'demo.p0/n1:config' );
 		expect( m[ FROM ] ).toBe( `${ names.SSE }:1234/${ names.OUTPUT }` );
 	} );
 
