@@ -33,7 +33,8 @@ const VIEW = 'topicprobe:view';
 const SUBSCRIBE = 'topicprobe.p0';
 
 function positionsForMode( mode ) {
-	return 'history' === mode ? { [ SUBSCRIBE ]: { 0: 'start' } } : null;
+	// Flat `{ <concrete-dir>: pos }` seed — the subscription IS the dir name.
+	return 'history' === mode ? { [ SUBSCRIBE ]: 'start' } : null;
 }
 
 /**

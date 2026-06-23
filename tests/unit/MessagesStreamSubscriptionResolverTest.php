@@ -77,6 +77,34 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0', 'firehose.p1', 'firehose.p2' ], $stamps );
 	}
 
+	public function test_log_subscription_seeds_position_by_concrete_dir_name(): void {
+		// Positions are keyed by the OPAQUE concrete-partition dir name (matching
+		// the FROM stamp the Consumer emits), not an integer index — so each
+		// directory is its own unique partition and a non-`.p{N}` layout resumes.
+		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$ctrl->set_num_partitions( 3 );
+
+		$consumers = $ctrl->open_subscription(
+			'firehose',
+			[ 'firehose.p1' => [ 'seg' => 2, 'off' => 5 ] ]
+		);
+
+		$stamp = new \ReflectionProperty( Consumer_Node::class, 'stamp_override' );
+		$seg   = new \ReflectionProperty( Consumer_Node::class, 'cursor_seg' );
+		$off   = new \ReflectionProperty( Consumer_Node::class, 'cursor_off' );
+		$seeded = null;
+		foreach ( $consumers as $c ) {
+			if ( 'firehose.p1' === $stamp->getValue( $c ) ) {
+				$seeded = $c;
+			}
+		}
+		$this->assertNotNull( $seeded, 'a consumer is stamped with the concrete dir name' );
+		$this->assertSame( 2, $seg->getValue( $seeded ) );
+		$this->assertSame( 5, $off->getValue( $seeded ) );
+	}
+
 	public function test_ipc_reader_subscription_returns_one_consumer(): void {
 		// IPC pattern `{type}.p{N}` resolves through `Cli::attach_to_worker`,
 		// which requires a worker lock dir to exist (typo guard).
@@ -258,7 +286,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription(
 			'firehose.p0',
-			[ 0 => [ 'seg' => 5, 'off' => 1024 ] ]
+			[ 'firehose.p0' => [ 'seg' => 5, 'off' => 1024 ] ]
 		);
 
 		$this->assertCount( 1, $consumers );

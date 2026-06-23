@@ -135,9 +135,11 @@ class SseInTest extends TestCase {
 		$url = $captured[0][ \CURLOPT_URL ];
 		$this->assertStringContainsString( 'subscribe=' . \rawurlencode( 'firehose.p0' ), $url );
 		\parse_str( (string) \parse_url( $url, PHP_URL_QUERY ), $query );
+		// Flat `{ <concrete-dir>: {seg,off} }` — the subscription IS the dir name
+		// (`open_subscription` seeds `$positions[$dir]`), not a nested topic→index.
 		$positions = \json_decode( $query['positions'], true );
-		$this->assertSame( 5, $positions['firehose']['0']['seg'] );
-		$this->assertSame( 10, $positions['firehose']['0']['off'] );
+		$this->assertSame( 5, $positions['firehose.p0']['seg'] );
+		$this->assertSame( 10, $positions['firehose.p0']['off'] );
 	}
 
 	public function test_require_https_refuses_http_url(): void {

@@ -85,13 +85,13 @@ class SSEOutTest extends TestCase {
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 
 		\ob_start();
-		// Per-subscription positions, keyed first by subscription name then
-		// by partition index (matches `open_subscription`'s `$positions[$p]`
-		// loop). 'start' is a magic value `Consumer::next_offset` accepts
-		// (cursor → seg 0 / off 0). Without this, the Consumer tail-seeks
-		// via 'end' and the two pre-populated lines never reach the SSE
-		// output — the test passes without exercising line forwarding.
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
+		// Positions are a flat map keyed by the OPAQUE concrete-partition dir
+		// name (`open_subscription` seeds `$positions[$dir]`). 'start' is a magic
+		// value `Consumer::next_offset` accepts (cursor → seg 0 / off 0). Without
+		// this, the Consumer tail-seeks via 'end' and the two pre-populated lines
+		// never reach the SSE output — the test passes without exercising line
+		// forwarding.
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 500 );
 		$out = \ob_get_clean();
 
 		$events = $this->split_sse_events( $out );
@@ -173,7 +173,7 @@ class SSEOutTest extends TestCase {
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 500 );
 		$out = \ob_get_clean();
 
 		$this->assertStringContainsString(
@@ -218,7 +218,7 @@ class SSEOutTest extends TestCase {
 		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 500 );
 		$out = \ob_get_clean();
 
 		// reply_to routed the uptime reply to _sse → the client sees it; auth passed.
@@ -264,7 +264,7 @@ class SSEOutTest extends TestCase {
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 50 );
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 1 );
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 1 );
 		$out = \ob_get_clean();
 
 		$events    = $this->split_sse_events( $out );

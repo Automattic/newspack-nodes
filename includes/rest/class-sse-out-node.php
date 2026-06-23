@@ -246,9 +246,12 @@ class SSE_Out_Node extends Node {
 			$default_route->patron( $this );
 
 			foreach ( $subs as $sub ) {
-				$pos_raw = $positions[ $sub ] ?? null;
-				$pos     = \is_array( $pos_raw ) ? $pos_raw : null;
-				$opened  = $this->open_subscription( $sub, $pos );
+				// Positions are a FLAT `{ <concrete-dir>: pos }` map; pass the whole
+				// thing — open_subscription seeds only the dirs it opens (by name).
+				$opened = $this->open_subscription(
+					$sub,
+					\is_array( $positions ) ? $positions : null
+				);
 				// A subscription can resolve to several Consumers (one per partition
 				// of a multi-partition log). Each needs a DISTINCT node name —
 				// Node::name() throws on a duplicate. The partition the dashboard
@@ -405,13 +408,13 @@ class SSE_Out_Node extends Node {
 				// matches it FIRST. This relies on worker types never colliding with a
 				// registered producer basename; a collision would silently tail worker
 				// IPC instead of the log.
-				$log_name  = $m[1];
-				$partition = (int) $m[2];
-				$consumer  = new Consumer_Node();
-				// Flat layout: the concrete partition dir IS `{name}.p{N}`.
-				$consumer->arguments( "{$base}/logs/{$log_name}.p{$partition} " );
-				if ( isset( $positions[ $partition ] ) ) {
-					$consumer->next_offset( self::position_arg( $positions[ $partition ] ) );
+				// `$sub` IS the opaque concrete-partition dir name; tail it directly
+				// and resume from its position keyed by that same name (the FROM
+				// stamp) — no `.p{N}` split, layout-agnostic.
+				$consumer = new Consumer_Node();
+				$consumer->arguments( "{$base}/logs/{$sub} " );
+				if ( isset( $positions[ $sub ] ) ) {
+					$consumer->next_offset( self::position_arg( $positions[ $sub ] ) );
 				} else {
 					$consumer->next_offset( 'end' );
 				}
@@ -425,16 +428,18 @@ class SSE_Out_Node extends Node {
 			$partitions = $this->num_partitions ?? ( \is_numeric( $np_raw ) ? (int) $np_raw : 1 );
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
+				// Request-scope producers (Log_Manager/Job_Intake) write a fixed
+				// `{name}.p{N}` layout; each dir is the unique partition. Stamp AND
+				// resume-key by that concrete dir name (the FROM the dashboard reads).
+				$dir      = "{$sub}.p{$p}";
 				$consumer = new Consumer_Node();
-				// Flat layout: fan out across the concrete `{name}.p{N}` dirs.
-				$consumer->arguments( "{$base}/logs/{$sub}.p{$p} " );
-				if ( isset( $positions[ $p ] ) ) {
-					$consumer->next_offset( self::position_arg( $positions[ $p ] ) );
+				$consumer->arguments( "{$base}/logs/{$dir} " );
+				if ( isset( $positions[ $dir ] ) ) {
+					$consumer->next_offset( self::position_arg( $positions[ $dir ] ) );
 				} else {
 					$consumer->next_offset( 'end' );
 				}
-				// Stamp `{sub}.p{N}` so the dashboard JS can parse partition from the Message FROM field.
-				$consumer->set_stamp_as( "{$sub}.p{$p}" );
+				$consumer->set_stamp_as( $dir );
 				$consumers[] = $consumer;
 			}
 			return $consumers;

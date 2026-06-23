@@ -110,7 +110,7 @@ describe( 'RemoteLinkNode', () => {
 			data: JSON.stringify( m ),
 		} );
 		expect( link.resumePositions() ).toEqual( {
-			errors: { 0: { seg: 3, off: 99 } },
+			'errors.p0': { seg: 3, off: 99 },
 		} );
 	} );
 
@@ -132,27 +132,27 @@ describe( 'RemoteLinkNode', () => {
 
 	it( 'connect(positions) threads the seek seed into the SseIn stream URL', () => {
 		const { link } = makeLink( 'topicprobe.p0' );
-		link.connect( { 'topicprobe.p0': { 0: 'start' } } );
+		link.connect( { 'topicprobe.p0': 'start' } );
 		expect( link.sseIn.positions ).toEqual( {
-			'topicprobe.p0': { 0: 'start' },
+			'topicprobe.p0': 'start',
 		} );
 		expect( FakeEventSource.last.url ).toContain( 'positions=' );
 	} );
 
 	it( 'setSubscribe(subscribe, positions) re-points the stream with a new seek seed', () => {
 		const { link } = makeLink( 'topicprobe.p0' );
-		link.connect( { 'topicprobe.p0': { 0: 'start' } } );
+		link.connect( { 'topicprobe.p0': 'start' } );
 		link.setSubscribe( [ 'topicprobe.p0' ], {
-			'topicprobe.p0': { 0: 'end' },
+			'topicprobe.p0': 'end',
 		} );
 		expect( link.sseIn.positions ).toEqual( {
-			'topicprobe.p0': { 0: 'end' },
+			'topicprobe.p0': 'end',
 		} );
 	} );
 
 	it( 'setSubscribe(subscribe) without positions clears the seed (tail-seek)', () => {
 		const { link } = makeLink( 'topicprobe.p0' );
-		link.connect( { 'topicprobe.p0': { 0: 'start' } } );
+		link.connect( { 'topicprobe.p0': 'start' } );
 		link.setSubscribe( [ 'errors' ] );
 		expect( link.sseIn.positions ).toBeNull();
 	} );

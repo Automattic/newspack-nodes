@@ -121,9 +121,7 @@ describe( 'useTopicProbeStream', () => {
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).toContain( 'positions=' );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent(
-				JSON.stringify( { 'topicprobe.p0': { 0: 'start' } } )
-			)
+			encodeURIComponent( JSON.stringify( { 'topicprobe.p0': 'start' } ) )
 		);
 	} );
 
@@ -189,9 +187,7 @@ describe( 'useTopicProbeStream', () => {
 		expect( Core.node( LINK ) ).not.toBe( firstLink ); // rebuilt
 		expect( FakeEventSource.instances.length ).toBeGreaterThan( before ); // reconnected
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent(
-				JSON.stringify( { 'topicprobe.p0': { 0: 'start' } } )
-			)
+			encodeURIComponent( JSON.stringify( { 'topicprobe.p0': 'start' } ) )
 		); // re-seeks history, not a tail-follow
 	} );
 } );

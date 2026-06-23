@@ -150,7 +150,8 @@ export class RawLogsViewNode extends Node {
 	//   - object VALUE → JSON-stringify; string VALUE passes through.
 	//   - non-empty string KEY → prepend `${KEY}: `.
 	//   - clip to MAX_LINE_LENGTH + '...'.
-	//   - partition extracted from FROM stamp (`{sub}.pN`), default 0.
+	//   - partition column derived from the FROM dir (its `.pN` number, else a
+	//     stable first-seen index — layout-agnostic).
 	_appendEnvelope( message ) {
 		const value = message[ VALUE ];
 		if ( value === '' || value === null || value === undefined ) {
@@ -164,9 +165,22 @@ export class RawLogsViewNode extends Node {
 		if ( line.length > MAX_LINE_LENGTH ) {
 			line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
 		}
-		const from = String( message[ FROM ] || '' );
-		const match = from.match( PARTITION_RE );
-		const partition = match ? parseInt( match[ 1 ], 10 ) : 0;
+		// Each concrete partition dir (FROM's first segment) is its own unique
+		// partition. Prefer a `.pN` number for a tidy column when the layout has
+		// one; otherwise assign a stable first-seen index so distinct opaque dirs
+		// don't all collapse onto column 0.
+		const dir = String( message[ FROM ] || '' ).split( '/' )[ 0 ];
+		const match = dir.match( PARTITION_RE );
+		let partition;
+		if ( match ) {
+			partition = parseInt( match[ 1 ], 10 );
+		} else {
+			const index = ( this._partitionIndex ??= new Map() );
+			if ( ! index.has( dir ) ) {
+				index.set( dir, index.size );
+			}
+			partition = index.get( dir );
+		}
 		this._appendRow( partition, line );
 	}
 
