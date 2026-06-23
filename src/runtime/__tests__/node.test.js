@@ -364,6 +364,19 @@ test( 'removeNode unregisters its OWN name LAST (Core.node sees null, not a half
 	spy.mockRestore();
 } );
 
+test( 'connectNode sets the base node string target', () => {
+	const n = new Node();
+	n.connectNode( 'dest' );
+	expect( n.target ).toBe( 'dest' );
+} );
+
+test( 'connectNode replaces an existing base node target (single, not fan-out)', () => {
+	const n = new Node();
+	n.target = 'old';
+	n.connectNode( 'new' );
+	expect( n.target ).toBe( 'new' );
+} );
+
 test( 'disconnectNode clears the base node target', () => {
 	const n = new Node();
 	n.target = 'somewhere';

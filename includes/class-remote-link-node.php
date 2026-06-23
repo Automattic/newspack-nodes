@@ -350,7 +350,6 @@ class Remote_Link_Node extends Timer_Node {
 		return null !== $this->sse_in && $this->sse_in->connection()['connected'];
 	}
 
-	/** Set target. Tee overrides to append to its fan-out array. */
 	public function connect_node( string $target ): void {
 		$this->target = $target;
 		$this->sse_in?->target( $target );

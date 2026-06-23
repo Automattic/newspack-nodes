@@ -191,6 +191,14 @@ export class Node {
 		return out;
 	}
 
+	// Set the single string target (matches PHP Node::connect_node). The override
+	// point for connection: Tee overrides to append to a fan-out array, RemoteLink
+	// to point its composed SseIn — so `connect_node` can call this uniformly
+	// instead of branching on the node type.
+	connectNode( target ) {
+		this.target = target;
+	}
+
 	// Clear target (matches PHP Node::disconnect_node). Tee overrides to prune
 	// one entry from its fan-out array (hence the parity param the base ignores).
 	disconnectNode( _target = '' ) {

@@ -80,6 +80,24 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
 	} );
 
+	it( 'connectNode points BOTH the link target and its already-built SseIn', () => {
+		const { link } = makeLink();
+		link.connect();
+		expect( link.sseIn ).toBeInstanceOf( SseInNode );
+		link.connectNode( 'new:view' );
+		expect( link.target ).toBe( 'new:view' );
+		expect( link.sseIn.target ).toBe( 'new:view' );
+	} );
+
+	it( 'connectNode before children exist seeds the SseIn via ensureChildren', () => {
+		const { link } = makeLink();
+		link.connectNode( 'new:view' );
+		expect( link.target ).toBe( 'new:view' );
+		expect( link.sseIn ).toBe( null );
+		link.connect();
+		expect( link.sseIn.target ).toBe( 'new:view' );
+	} );
+
 	it( 'resumePositions() exposes the SseIn last-seen offset so a reconnect resumes', () => {
 		const { link } = makeLink( 'errors' );
 		link.connect();
