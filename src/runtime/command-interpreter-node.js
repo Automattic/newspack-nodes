@@ -399,13 +399,10 @@ export class CommandInterpreterNode extends Node {
 				return 'usage: connect_node <node> [<target>]';
 			}
 		}
-		if ( 'function' === typeof src.connectNode ) {
-			src.connectNode( target );
-		} else {
-			// Base node: a single string target (matches PHP Node::connect_node;
-			// only Tee overrides to append to a fan-out array).
-			src.target = target;
-		}
+		// Every node implements connectNode now (base = single string target; Tee
+		// appends to a fan-out array; RemoteLink points its SseIn), so dispatch
+		// uniformly — no branch on node type. Matches PHP Node::connect_node.
+		src.connectNode( target );
 		return 'ok';
 	}
 

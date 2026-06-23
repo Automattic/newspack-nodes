@@ -490,8 +490,8 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 		} );
 		it( 'connects a non-Tee node by setting its string target (no crash)', () => {
-			// Base Node has no connectNode (only Tee does); the verb must fall back
-			// to setting a single string target — matching PHP Node::connect_node.
+			// Base Node::connectNode sets a single string target (Tee overrides to a
+			// fan-out array) — the verb dispatches it uniformly, no type branch.
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'plain';
