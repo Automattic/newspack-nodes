@@ -7,7 +7,9 @@ import {
 	KEY,
 	VALUE,
 	TM_COMMAND,
+	TM_ERROR,
 } from './message';
+import { IoTelemetry, byteLength } from './io-telemetry';
 
 // JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
@@ -28,7 +30,7 @@ export class CommandClient {
 		// The body is JSONL (a verb may emit a stderr/log line AND its response);
 		// the verb response is emitted last, so return the final message. Callers
 		// (dashboards, unwrapCommandResponse) want the single response Message.
-		const msgs = await this.#post( pack( this.buildMessage( params ) ) );
+		const msgs = await this.#post( pack( this.buildMessage( params ) ), 1 );
 		return msgs.length ? msgs[ msgs.length - 1 ] : null;
 	}
 
@@ -65,10 +67,17 @@ export class CommandClient {
 	 *   routed onward by the caller); empty when the command was routed onward (202).
 	 */
 	async postBatch( messages ) {
-		return this.#post( messages.map( ( m ) => pack( m ) ).join( '\n' ) );
+		return this.#post(
+			messages.map( ( m ) => pack( m ) ).join( '\n' ),
+			messages.length
+		);
 	}
 
-	async #post( body ) {
+	async #post( body, outCount ) {
+		// Outbound boundary accounting for the debug overlay: request bytes + the
+		// message count (the caller knows it — one packed Message per JSONL line).
+		IoTelemetry.recordOut( byteLength( body ), outCount );
+
 		const r = await fetch( `${ this.baseUrl }newspack-nodes/v1/command`, {
 			method: 'POST',
 			headers: {
@@ -83,11 +92,20 @@ export class CommandClient {
 		// gets a bare 202 with no body). Split + unpack each — NEVER JSON.parse the
 		// whole body, since a command can emit multiple messages (stderr/log + reply).
 		const text = await r.text();
-		return text
+		const messages = text
 			? text
 					.split( '\n' )
 					.filter( ( line ) => '' !== line.trim() )
 					.map( ( line ) => unpack( line ) )
 			: [];
+		// Inbound boundary accounting: response bytes, the reply count, and an
+		// error tally for any TM_ERROR replies.
+		IoTelemetry.recordIn( byteLength( text ), messages.length );
+		for ( const message of messages ) {
+			if ( message[ TYPE ] & TM_ERROR ) {
+				IoTelemetry.recordError();
+			}
+		}
+		return messages;
 	}
 }

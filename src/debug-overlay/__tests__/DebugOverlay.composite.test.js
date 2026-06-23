@@ -19,6 +19,11 @@ jest.mock( '../useDebugRepl', () => ( {
 	} ),
 } ) );
 
+import {
+	registerDevtoolsTab,
+	resetDevtoolsTabs,
+} from '@newspack-nodes/shared/devtools/tabRegistry';
+import InspectorTab from '../tabs/InspectorTab';
 import DebugOverlay from '../DebugOverlay';
 
 describe( 'DebugOverlay composite readiness', () => {
@@ -26,6 +31,17 @@ describe( 'DebugOverlay composite readiness', () => {
 		Core.reset();
 		window.localStorage.clear();
 		mockReplReady = true;
+		// These tests assert the Inspector canvas state; register ONLY it so the
+		// panel opens to the Inspector, not the default Overview tab.
+		resetDevtoolsTabs();
+		registerDevtoolsTab( {
+			id: 'inspector',
+			label: 'Inspector',
+			host: 'overlay',
+			order: 0,
+			fullBleed: true,
+			component: InspectorTab,
+		} );
 	} );
 
 	it( 'canvas is NOT ready when replReady is false even though the graph has nodes', () => {
