@@ -11,7 +11,7 @@
  * pure display, re-rendering the relative timestamps without re-polling.
  */
 
-import { useState, useEffect } from '@wordpress/element';
+import { useState, useEffect, createPortal } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '@newspack-nodes/runtime';
@@ -275,9 +275,11 @@ function ServerCard( { server, now } ) {
 /**
  * Aggregator Status Dashboard Component.
  *
+ * @param {Object}  props                      Props.
+ * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
  * @return {import('react').ReactElement} Rendered component.
  */
-export default function AggregatorStatus() {
+export default function AggregatorStatus( { headerControlsSlot } ) {
 	// Mount the node graph; it owns the poll, the map→array + connected-count
 	// derivation, and the interval. It returns the thin refresh control + the
 	// current interval.
@@ -303,48 +305,54 @@ export default function AggregatorStatus() {
 		return () => clearInterval( timer );
 	}, [] );
 
+	// The status/refresh strip (Updated… / X/Y connected / interval) lives on the
+	// right of the hub's ONE shared header — portaled into its slot. A node = the
+	// hub slot (portal); `null` = slot pending (render nothing); `undefined` =
+	// standalone (tests) → render inline.
+	const controls = (
+		<div className="aggregator-status-meta">
+			<div className="aggregator-status-refresh-indicator">
+				<span className="aggregator-status-refresh-dot" />
+				<span>
+					{ lastRefresh
+						? sprintf(
+								// translators: %s: formatted time of the last update.
+								__( 'Updated %s', 'newspack-nodes' ),
+								formatTime( lastRefresh / 1000 )
+						  )
+						: __( 'Loading…', 'newspack-nodes' ) }
+				</span>
+			</div>
+			{ servers && (
+				<div className="aggregator-status-server-count">
+					<strong>{ connectedCount }</strong> / { totalCount }{ ' ' }
+					{ __( 'connected', 'newspack-nodes' ) }
+				</div>
+			) }
+			<select
+				className="newspack-nodes-refresh-select"
+				value={ refreshInterval }
+				onChange={ ( e ) => setRefreshInterval( e.target.value ) }
+				title={ __( 'Refresh interval', 'newspack-nodes' ) }
+			>
+				{ REFRESH_OPTIONS.map( ( opt ) => (
+					<option key={ opt.value } value={ opt.value }>
+						{ opt.label }
+					</option>
+				) ) }
+			</select>
+		</div>
+	);
+	let renderedControls = null;
+	if ( headerControlsSlot ) {
+		renderedControls = createPortal( controls, headerControlsSlot );
+	} else if ( undefined === headerControlsSlot ) {
+		renderedControls = controls;
+	}
+
 	return (
 		<div className="aggregator-status-dashboard">
-			{ /* Header */ }
-			<div className="aggregator-status-header">
-				<h1 className="newspack-dashboard-title">
-					{ __( 'Aggregator Status', 'newspack-nodes' ) }
-				</h1>
-				<div className="aggregator-status-meta">
-					<div className="aggregator-status-refresh-indicator">
-						<span className="aggregator-status-refresh-dot" />
-						<span>
-							{ lastRefresh
-								? sprintf(
-										// translators: %s: formatted time of the last update.
-										__( 'Updated %s', 'newspack-nodes' ),
-										formatTime( lastRefresh / 1000 )
-								  )
-								: __( 'Loading…', 'newspack-nodes' ) }
-						</span>
-					</div>
-					{ servers && (
-						<div className="aggregator-status-server-count">
-							<strong>{ connectedCount }</strong> / { totalCount }{ ' ' }
-							{ __( 'connected', 'newspack-nodes' ) }
-						</div>
-					) }
-					<select
-						className="newspack-nodes-refresh-select"
-						value={ refreshInterval }
-						onChange={ ( e ) =>
-							setRefreshInterval( e.target.value )
-						}
-						title={ __( 'Refresh interval', 'newspack-nodes' ) }
-					>
-						{ REFRESH_OPTIONS.map( ( opt ) => (
-							<option key={ opt.value } value={ opt.value }>
-								{ opt.label }
-							</option>
-						) ) }
-					</select>
-				</div>
-			</div>
+			{ renderedControls }
 
 			{ /* Loading State */ }
 			{ loading && (

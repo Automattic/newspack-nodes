@@ -16,7 +16,7 @@
  *   `.lps` — so a busy stream never re-renders React per line.
  */
 
-import { useState, useEffect, useRef } from '@wordpress/element';
+import { useState, useEffect, useRef, createPortal } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
@@ -55,9 +55,11 @@ const EMPTY_VIEW = {
 /**
  * Raw Logs Component.
  *
+ * @param {Object}  props                      Props.
+ * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
  * @return {import('react').ReactElement} Rendered component.
  */
-export default function RawLogs() {
+export default function RawLogs( { headerControlsSlot } ) {
 	// Mount the node graph; it returns the thin control callbacks.
 	const { selectLog, setPaused } = useRawLogsGraph();
 
@@ -400,121 +402,127 @@ export default function RawLogs() {
 		}
 	};
 
+	// The controls strip (log picker / Filter / counter / pause / Clear) lives on
+	// the right of the hub's ONE shared header — portaled into its slot. A node =
+	// the hub slot (portal); `null` = slot pending (render nothing, no flash);
+	// `undefined` = standalone (e.g. tests) → render inline.
+	const controls = (
+		<div className="newspack-nodes-raw-logs-controls">
+			{ availableLogs.length === 0 && (
+				<span className="newspack-nodes-raw-logs-status">
+					{ __( 'No logs available', 'newspack-nodes' ) }
+				</span>
+			) }
+			{ availableLogs.length > 0 && (
+				<select
+					className="newspack-nodes-raw-logs-select"
+					value={ selectedLog }
+					onChange={ ( e ) => handleSelectLog( e.target.value ) }
+				>
+					{ availableLogs.map( ( log ) => (
+						<option key={ log.key } value={ log.key }>
+							{ log.label }
+						</option>
+					) ) }
+				</select>
+			) }
+
+			<input
+				type="text"
+				className="newspack-nodes-raw-logs-search"
+				placeholder={ __( 'Filter…', 'newspack-nodes' ) }
+				value={ filter }
+				onChange={ ( e ) => setFilter( e.target.value ) }
+			/>
+
+			<span className="newspack-nodes-raw-logs-stats">
+				<span className="newspack-nodes-raw-logs-count">
+					{ filter
+						? sprintf(
+								// translators: 1: number of matching lines, 2: total number of lines.
+								_n(
+									'%1$d / %2$d line',
+									'%1$d / %2$d lines',
+									totalCount,
+									'newspack-nodes'
+								),
+								visibleCount,
+								totalCount
+						  )
+						: sprintf(
+								// translators: %d: number of lines.
+								_n(
+									'%d line',
+									'%d lines',
+									visibleCount,
+									'newspack-nodes'
+								),
+								visibleCount
+						  ) }
+				</span>
+				{ linesPerSecond > 0 && (
+					<span className="newspack-nodes-raw-logs-rps">
+						{ sprintf(
+							// translators: %s: lines-per-second rate (one decimal place).
+							__( '%s lines/s', 'newspack-nodes' ),
+							linesPerSecond.toFixed( 1 )
+						) }
+					</span>
+				) }
+				{ staleSec !== null && (
+					<span
+						style={ {
+							color: staleSec > 10 ? '#dba617' : '#757575',
+							fontSize: '11px',
+							marginLeft: '8px',
+						} }
+					>
+						{ sprintf(
+							// translators: %d: number of seconds since the last log line.
+							__( '%ds ago', 'newspack-nodes' ),
+							staleSec
+						) }
+					</span>
+				) }
+			</span>
+
+			<button
+				className={ `newspack-nodes-raw-logs-btn ${
+					isPaused ? 'paused' : ''
+				}` }
+				onClick={ () => setPaused( ! isPaused ) }
+				title={
+					isPaused
+						? __( 'Resume streaming', 'newspack-nodes' )
+						: __( 'Pause streaming', 'newspack-nodes' )
+				}
+			>
+				{ isPaused ? '▶' : '⏸' }
+			</button>
+
+			<button
+				className="newspack-nodes-raw-logs-btn"
+				onClick={ handleClear }
+				title={ __( 'Clear all lines', 'newspack-nodes' ) }
+			>
+				{ __( 'Clear', 'newspack-nodes' ) }
+			</button>
+		</div>
+	);
+	let renderedControls = null;
+	if ( headerControlsSlot ) {
+		renderedControls = createPortal( controls, headerControlsSlot );
+	} else if ( undefined === headerControlsSlot ) {
+		renderedControls = controls;
+	}
+
 	return (
 		<div
 			className="newspack-nodes-raw-logs"
 			role="region"
 			aria-label={ __( 'Raw logs', 'newspack-nodes' ) }
 		>
-			<div className="newspack-nodes-raw-logs-header">
-				<h1 className="newspack-dashboard-title">
-					{ __( 'Raw Logs', 'newspack-nodes' ) }
-				</h1>
-				<div className="newspack-nodes-raw-logs-controls">
-					{ availableLogs.length === 0 && (
-						<span className="newspack-nodes-raw-logs-status">
-							{ __( 'No logs available', 'newspack-nodes' ) }
-						</span>
-					) }
-					{ availableLogs.length > 0 && (
-						<select
-							className="newspack-nodes-raw-logs-select"
-							value={ selectedLog }
-							onChange={ ( e ) =>
-								handleSelectLog( e.target.value )
-							}
-						>
-							{ availableLogs.map( ( log ) => (
-								<option key={ log.key } value={ log.key }>
-									{ log.label }
-								</option>
-							) ) }
-						</select>
-					) }
-
-					<input
-						type="text"
-						className="newspack-nodes-raw-logs-search"
-						placeholder={ __( 'Filter…', 'newspack-nodes' ) }
-						value={ filter }
-						onChange={ ( e ) => setFilter( e.target.value ) }
-					/>
-
-					<span className="newspack-nodes-raw-logs-stats">
-						<span className="newspack-nodes-raw-logs-count">
-							{ filter
-								? sprintf(
-										// translators: 1: number of matching lines, 2: total number of lines.
-										_n(
-											'%1$d / %2$d line',
-											'%1$d / %2$d lines',
-											totalCount,
-											'newspack-nodes'
-										),
-										visibleCount,
-										totalCount
-								  )
-								: sprintf(
-										// translators: %d: number of lines.
-										_n(
-											'%d line',
-											'%d lines',
-											visibleCount,
-											'newspack-nodes'
-										),
-										visibleCount
-								  ) }
-						</span>
-						{ linesPerSecond > 0 && (
-							<span className="newspack-nodes-raw-logs-rps">
-								{ sprintf(
-									// translators: %s: lines-per-second rate (one decimal place).
-									__( '%s lines/s', 'newspack-nodes' ),
-									linesPerSecond.toFixed( 1 )
-								) }
-							</span>
-						) }
-						{ staleSec !== null && (
-							<span
-								style={ {
-									color:
-										staleSec > 10 ? '#dba617' : '#757575',
-									fontSize: '11px',
-									marginLeft: '8px',
-								} }
-							>
-								{ sprintf(
-									// translators: %d: number of seconds since the last log line.
-									__( '%ds ago', 'newspack-nodes' ),
-									staleSec
-								) }
-							</span>
-						) }
-					</span>
-
-					<button
-						className={ `newspack-nodes-raw-logs-btn ${
-							isPaused ? 'paused' : ''
-						}` }
-						onClick={ () => setPaused( ! isPaused ) }
-						title={
-							isPaused
-								? __( 'Resume streaming', 'newspack-nodes' )
-								: __( 'Pause streaming', 'newspack-nodes' )
-						}
-					>
-						{ isPaused ? '▶' : '⏸' }
-					</button>
-
-					<button
-						className="newspack-nodes-raw-logs-btn"
-						onClick={ handleClear }
-						title={ __( 'Clear all lines', 'newspack-nodes' ) }
-					>
-						{ __( 'Clear', 'newspack-nodes' ) }
-					</button>
-				</div>
-			</div>
+			{ renderedControls }
 
 			<ConnectionBanner
 				connectionError={ connectionError }
