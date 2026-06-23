@@ -85,7 +85,8 @@ test( 'start appends positions as an encoded JSON blob when set', () => {
 		baseUrl: '/',
 		nonce: 'n',
 	} );
-	const positions = { 'topicprobe.p0': { 0: 'start' } };
+	// Flat { <concrete-dir>: pos } seed — the dir name is the unique key.
+	const positions = { 'topicprobe.p0': 'start' };
 	s.positions = positions;
 	s.start();
 	expect( FakeEventSource.last.url ).toContain(
@@ -353,8 +354,10 @@ test( 'tracks the seg:offset from each subscription frame, exposed via resumePos
 	m[ ID ] = '4:623851';
 	m[ VALUE ] = 'a line';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+	// Keyed by the OPAQUE concrete-partition dir name (the FROM's first segment),
+	// not a parsed integer — each directory is its own unique partition.
 	expect( s.resumePositions() ).toEqual( {
-		completed: { 0: { seg: 4, off: 623851 } },
+		'completed.p0': { seg: 4, off: 623851 },
 	} );
 } );
 
@@ -388,7 +391,7 @@ test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no repla
 			decodeURIComponent( url.split( 'positions=' )[ 1 ] )
 		);
 		expect( positions ).toEqual( {
-			completed: { 1: { seg: 2, off: 500 } },
+			'completed.p1': { seg: 2, off: 500 },
 		} );
 	} finally {
 		jest.useRealTimers();

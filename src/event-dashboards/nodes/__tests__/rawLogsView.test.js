@@ -89,6 +89,17 @@ test( 'partition defaults to 0 when FROM does not match `{sub}.pN`', () => {
 	expect( v.lines[ 0 ].partition ).toBe( 0 );
 } );
 
+test( 'distinct non-`.pN` FROM dirs get distinct stable partition indices (opaque)', () => {
+	// Layout-agnostic: a partition dir that isn't `{sub}.pN` is still its own
+	// unique partition — assign a stable first-seen display index instead of
+	// collapsing every such dir onto column 0.
+	const v = makeView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { from: 'alpha', value: 'a' } ) );
+	v.fill( envelopeMsg( { from: 'beta', value: 'b' } ) );
+	v.fill( envelopeMsg( { from: 'alpha', value: 'a2' } ) );
+	expect( v.lines.map( ( l ) => l.partition ) ).toEqual( [ 0, 1, 0 ] );
+} );
+
 test( 'an envelope with empty VALUE is dropped (no row appended)', () => {
 	const v = makeView( 'rawlogs:view' );
 	v.fill( envelopeMsg( { value: '' } ) );

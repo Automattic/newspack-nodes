@@ -18,7 +18,6 @@ import {
 // producer path `<sub>.p<partition>/…`. Parsing both lets the client resume a
 // reconnect from exactly where it left off (no gap, no replay).
 const ID_POSITION_RE = /^(\d+):(\d+)$/;
-const FROM_PARTITION_RE = /^(.+)\.p(\d+)(?:\/|$)/;
 
 // Heartbeat-timeout watchdog. The server beats every 2s; force a fresh stream
 // only after STALE (3 missed beats) + GRACE (self-recovery observe window) of
@@ -176,33 +175,36 @@ export class SseConnectorNode extends Node {
 		} );
 	}
 
-	// Remember a record's `{seg,off}` per sub+partition (from ID + FROM); a
-	// non-`seg:offset` ID (a command reply's correlation id) is ignored.
+	// Remember a record's `{seg,off}` keyed by its concrete partition DIRECTORY —
+	// the FROM's first path segment (`completed.p0`, or any layout the producer
+	// stamped). Each directory is its own unique partition; we never parse a
+	// `.p{N}` integer out of the name. A non-`seg:offset` ID (a command reply's
+	// correlation id) is ignored.
 	_trackPosition( message ) {
 		const idMatch = ID_POSITION_RE.exec(
 			'string' === typeof message[ ID ] ? message[ ID ] : ''
 		);
-		const fromMatch = FROM_PARTITION_RE.exec( message[ FROM ] || '' );
-		if ( ! idMatch || ! fromMatch ) {
+		if ( ! idMatch ) {
 			return;
 		}
-		const sub = fromMatch[ 1 ];
-		( this.lastPositions[ sub ] ??= {} )[ Number( fromMatch[ 2 ] ) ] = {
+		const dir = String( message[ FROM ] || '' ).split( '/' )[ 0 ];
+		if ( '' === dir ) {
+			return;
+		}
+		this.lastPositions[ dir ] = {
 			seg: Number( idMatch[ 1 ] ),
 			off: Number( idMatch[ 2 ] ),
 		};
 	}
 
-	// A positions seed resuming each subscribed sub from its last seen offset, or
-	// null when nothing's been tracked yet (→ the caller tail-seeks).
+	// A flat `{ <concrete-dir>: pos }` seed resuming each seen partition from its
+	// last offset, or null when nothing's been tracked yet (→ the caller
+	// tail-seeks). The server seeds only the dirs it opens and ignores the rest,
+	// so no per-subscription filtering is needed.
 	resumePositions() {
-		const seed = {};
-		for ( const sub of this.subscribe ) {
-			if ( this.lastPositions[ sub ] ) {
-				seed[ sub ] = { ...this.lastPositions[ sub ] };
-			}
-		}
-		return Object.keys( seed ).length > 0 ? seed : null;
+		return Object.keys( this.lastPositions ).length > 0
+			? { ...this.lastPositions }
+			: null;
 	}
 
 	// Reopen the stream, throttled to one attempt per watchdog interval.

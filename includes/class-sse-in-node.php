@@ -138,18 +138,15 @@ class SSE_In_Node extends Node {
 			'subscribe' => $this->subscribe,
 		];
 		if ( $this->position['segment_id'] > 0 || $this->position['offset'] > 0 ) {
-			// Substrate's parse_positions expects a JSON-encoded object keyed by
-			// subscription topic → partition index → `{seg, off}`. `$subscribe` is
-			// `<topic>.p<N>`; split it back into the topic + partition the wire
-			// expects (only one entry — one connection per subscription).
-			[ $topic, $partition ] = $this->split_subscribe();
-			$params['positions']   = (string) \wp_json_encode(
+			// Positions are a FLAT `{ <concrete-dir>: {seg, off} }` map keyed by the
+			// partition's directory name. `$subscribe` IS that dir name
+			// (`<topic>.p<N>`, one connection per partition), so key by it directly —
+			// `open_subscription` seeds `$positions[$dir]`.
+			$params['positions'] = (string) \wp_json_encode(
 				[
-					$topic => [
-						$partition => [
-							'seg' => $this->position['segment_id'],
-							'off' => $this->position['offset'],
-						],
+					$this->subscribe => [
+						'seg' => $this->position['segment_id'],
+						'off' => $this->position['offset'],
 					],
 				]
 			);
@@ -230,18 +227,6 @@ class SSE_In_Node extends Node {
 		$this->multi = $multi;
 		Event_Framework::instance()->register_curl_handle( $this, $multi );
 		return $multi;
-	}
-
-	/**
-	 * Split `<topic>.p<N>` into [topic, partition-index].
-	 *
-	 * @return array{0:string,1:int}
-	 */
-	private function split_subscribe(): array {
-		if ( 1 === \preg_match( '/^(.*)\.p(\d+)$/', $this->subscribe, $m ) ) {
-			return [ $m[1], (int) $m[2] ];
-		}
-		return [ $this->subscribe, 0 ];
 	}
 
 	// =========================================================================
