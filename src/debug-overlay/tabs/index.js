@@ -6,9 +6,11 @@ import InspectorTab from './InspectorTab';
 // The overlay's I/O board: byte/message rate + total cards and the two
 // Tachikoma-style rate panels (In vs Out). The default first tab. fullBleed: it
 // owns its own fixed header + scrolling body, so it opts out of the host's
-// default scroll wrapper.
+// default scroll wrapper. The id is `io-overview` (NOT `overview`): the registry
+// is keyed by id and shadows across hosts, and the event-dashboards bundle
+// already owns `overview` for the HUB's Overview tab — both load on the hub page.
 registerDevtoolsTab( {
-	id: 'overview',
+	id: 'io-overview',
 	label: __( 'Overview', 'newspack-nodes' ),
 	host: 'overlay',
 	order: 0,

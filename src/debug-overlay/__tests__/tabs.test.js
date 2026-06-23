@@ -24,7 +24,7 @@ describe( 'debug-overlay tab registration', () => {
 		require( '../tabs/index.js' );
 		const overlayTabs = getDevtoolsTabs( 'overlay' );
 		expect( overlayTabs.map( ( t ) => t.id ) ).toEqual( [
-			'overview',
+			'io-overview',
 			'inspector',
 		] );
 		expect( overlayTabs.map( ( t ) => t.label ) ).toEqual( [
@@ -33,10 +33,26 @@ describe( 'debug-overlay tab registration', () => {
 		] );
 	} );
 
+	it( 'does NOT collide with the hub Overview tab id in the shared registry', () => {
+		// Both bundles load on the hub page; the registry is keyed by id and
+		// shadows across hosts, so the overlay Overview must NOT reuse the hub
+		// Overview's `overview` id (that would clobber one of them).
+		require( '../../event-dashboards/tabs' ); // hub Overview, id 'overview'
+		require( '../tabs/index.js' ); // overlay tabs
+		const hubOverview = getDevtoolsTabs( 'hub' ).find(
+			( t ) => t.id === 'overview'
+		);
+		expect( hubOverview ).toBeDefined();
+		expect( hubOverview.host ).toBe( 'hub' );
+		expect(
+			getDevtoolsTabs( 'overlay' ).find( ( t ) => t.label === 'Overview' )
+		).toBeDefined();
+	} );
+
 	it( 'gives Overview its own full-bleed chrome (fixed header + scrolling body)', () => {
 		require( '../tabs/index.js' );
 		const overview = getDevtoolsTabs( 'overlay' ).find(
-			( t ) => t.id === 'overview'
+			( t ) => t.id === 'io-overview'
 		);
 		expect( overview ).toBeDefined();
 		expect( overview.fullBleed ).toBe( true );
