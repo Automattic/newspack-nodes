@@ -20,6 +20,8 @@
 
 namespace Newspack_Nodes\Config_System;
 
+use Newspack_Nodes\Core;
+
 \defined( 'ABSPATH' ) || exit;
 
 class Field {

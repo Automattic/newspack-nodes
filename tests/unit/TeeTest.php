@@ -128,6 +128,46 @@ class TeeTest extends TestCase {
 		$this->assertCount( 1, $alive->captured );
 	}
 
+	public function test_path_shaped_target_with_live_head_survives_fill(): void {
+		// A path-shaped target like `alive/workers` (only `alive` is registered)
+		// must survive the prune: the HEAD node is live, so the sink can route it.
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$alive = new Capture_Sink_Node();
+		$alive->name( 'alive' );
+
+		$tee = new Tee_Node();
+		$tee->name( 'tee' );
+		$tee->sink( $router );
+		$tee->connect_node( 'alive/workers' );
+
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+		$tee->fill( $message );
+
+		$this->assertSame( [ 'alive/workers' ], \array_values( $tee->target() ) );
+	}
+
+	public function test_path_shaped_target_with_dead_head_is_pruned(): void {
+		// A path-shaped target whose HEAD node is not registered gets pruned.
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$tee = new Tee_Node();
+		$tee->name( 'tee' );
+		$tee->sink( $router );
+		$tee->connect_node( 'gone/workers' );
+
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+		$tee->fill( $message );
+
+		$this->assertSame( [], \array_values( $tee->target() ) );
+	}
+
 	public function test_connect_node_promotes_string_target_to_array(): void {
 		// Defense-in-depth path: if a Node was assigned a single-target string before
 		// being promoted to a Tee (e.g., subclass swap), connect_node must convert

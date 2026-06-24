@@ -204,7 +204,7 @@ class Job_Worker_Node extends Node {
 	 */
 	private function handle_request( array $message ): void {
 		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Job_Worker::fill requires a wired sink' );
+			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
 		/** @var int|float|string|bool|null $raw_value */
 		$raw_value = $message[ Message::VALUE ];

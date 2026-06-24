@@ -17,33 +17,32 @@ class Tee_Node extends Node {
 	}
 
 	public function fill( array &$message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'fill requires a wired sink' );
+		}
 		++$this->counter;
 
-		$raw_type = $message[ Message::TYPE ];
-		$type     = \is_int( $raw_type ) ? $raw_type : 0;
-		$to       = Core::as_string( $message[ Message::TO ] );
+		$to = Core::as_string( $message[ Message::TO ] );
 
 		// Prune dead bare-name targets; pass path-shaped targets (with a slash) through as-is for the sink to route.
 		$targets = \is_array( $this->target ) ? $this->target : [];
 		$alive   = [];
 		foreach ( $targets as $t ) {
-			if ( false !== \strpos( $t, '/' ) || Core::node( $t ) !== null ) {
+			[ $head ] = Message::split_first( $t );
+			if ( Core::node( $head ) !== null ) {
 				$alive[] = $t;
 			}
 		}
 		$this->target = $alive;
 
 		foreach ( $alive as $t ) {
-			if ( null === $this->sink ) {
-				throw new \RuntimeException( 'Tee::fill requires a wired sink' );
-			}
 			try {
 				$copy                = $message;
 				$copy[ Message::TO ] = '' === $to ? $t : ( $t . '/' . $to );
-				$this->sink->fill( $copy );
+				$this->sink?->fill( $copy );
 			} catch ( \Throwable $e ) {
 				// log_midfix prepends the node name; keep only the class label here.
-				$this->print_less_often( "Tee: target $t threw: " . $e->getMessage() );
+				$this->print_less_often( "target $t threw: " . $e->getMessage() );
 			}
 		}
 	}

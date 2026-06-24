@@ -157,4 +157,18 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 'Tee', $node['type'] );
 		$this->assertSame( [], $node['args'] );
 	}
+
+	public function test_graph_for_tee_subclass_resolves_to_tee_kind(): void {
+		// Tap_Node extends Tee_Node — the exact-name match misses `Tap`, so the
+		// kind falls to 'logic', then the lineage check on the resolved FQCN must
+		// promote it to 'tee' (the Tee-family fan-out treatment).
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl( 'tap-flow', "make_node Tap firehose:tap\n" );
+		$g       = \Newspack_Nodes\Topology_Registry::graph_for( 'tap-flow' );
+		$by_name = [];
+		foreach ( $g['nodes'] as $n ) {
+			$by_name[ $n['name'] ] = $n;
+		}
+		$this->assertSame( 'tee', $by_name['firehose:tap']['kind'] );
+	}
 }

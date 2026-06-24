@@ -87,7 +87,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 								continue;
 							}
 							$name_v = $node['name'] ?? '';
-							$name   = \is_scalar( $name_v ) ? (string) $name_v : '';
+							$name   = Core::as_string( $name_v );
 							if ( '' === $name ) {
 								continue;
 							}
@@ -144,7 +144,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 							$url_v   = $cfg['url'] ?? '';
 							$out[]   = [
 								'id'              => $id,
-								'url'             => \is_scalar( $url_v ) ? (string) $url_v : '',
+								'url'             => Core::as_string( $url_v ),
 								'has_credentials' => ! empty( $cfg['auth_username'] ) && ! empty( $cfg['auth_password'] ),
 								'is_config'       => $registry->is_config_server( $id ),
 							];

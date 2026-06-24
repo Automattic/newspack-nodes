@@ -173,7 +173,7 @@ class Worker_CLI_Command {
 	 */
 	private static function entry_string( $entry, string $key ): string {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
-		return \is_scalar( $value ) ? (string) $value : '';
+		return Core::as_string( $value );
 	}
 
 	/**

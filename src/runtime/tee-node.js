@@ -12,14 +12,14 @@ export class TeeNode extends Node {
 		this.counter += 1;
 		const to = message[ TO ];
 		const targets = Array.isArray( this.target ) ? this.target : [];
-		// Prune dead bare-name targets; path-shaped targets route via the sink.
+		// Prune targets whose HEAD node is dead; a live head means the sink can route it.
 		const alive = targets.filter(
-			( t ) => t.includes( '/' ) || null !== Core.node( t )
+			( t ) => null !== Core.node( t.split( '/' )[ 0 ] )
 		);
 		this.target = alive;
 		for ( const t of alive ) {
 			if ( ! this.sink ) {
-				throw new Error( 'Tee.fill requires a wired sink' );
+				throw new Error( 'fill requires a wired sink' );
 			}
 			try {
 				const copy = message.slice();
@@ -27,7 +27,7 @@ export class TeeNode extends Node {
 				this.sink.fill( copy );
 			} catch ( e ) {
 				this.printLessOften(
-					`WARNING: Tee: target ${ t } threw: ${ e.message }`
+					`WARNING: target ${ t } threw: ${ e.message }`
 				);
 			}
 		}

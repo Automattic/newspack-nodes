@@ -108,7 +108,7 @@ class CLI {
 	 * @param mixed $v Raw value.
 	 */
 	private static function scalar_string( $v ): string {
-		return \is_scalar( $v ) ? (string) $v : '';
+		return Core::as_string( $v );
 	}
 
 	/**
@@ -169,7 +169,7 @@ class CLI {
 
 		foreach ( $workers as $w ) {
 			$type_raw = $w['type'] ?? '';
-			$type     = \is_scalar( $type_raw ) ? (string) $type_raw : '';
+			$type     = Core::as_string( $type_raw );
 			$p_raw    = $w['partition'] ?? 0;
 			$p        = \is_numeric( $p_raw ) ? (int) $p_raw : 0;
 			if ( '' === $type ) {

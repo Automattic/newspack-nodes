@@ -148,7 +148,7 @@ class Supervisor_Base {
 	public function worker_needs_spawn( array $worker, float $now ): bool {
 		$raw_type      = $worker['type'];
 		$raw_partition = $worker['partition'];
-		$type          = \is_scalar( $raw_type ) ? (string) $raw_type : '';
+		$type          = Core::as_string( $raw_type );
 		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
 		$stale         = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
 

@@ -48,7 +48,7 @@ class Shell_Node extends Node {
 	 */
 	public function fill( array &$message ): void {
 		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Shell::fill requires a wired sink' );
+			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
 		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;

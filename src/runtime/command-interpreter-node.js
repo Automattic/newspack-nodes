@@ -1,5 +1,6 @@
 import { Node } from './node';
 import { TeeNode } from './tee-node';
+import { TapNode } from './tap-node';
 import { EchoNode } from './echo-node';
 import { TimerNode } from './timer-node';
 import { Core } from './core';
@@ -1037,19 +1038,20 @@ CommandInterpreterNode.defaultAuthorize = null;
 // router, or a predicate/closure node, from the shell.
 CommandInterpreterNode.includeNodes = {
 	Node,
-	Tee: TeeNode,
-	Echo: EchoNode,
-	Timer: TimerNode,
 	CommandInterpreter: CommandInterpreterNode,
-	Dumper: DumperNode,
 	Completion: CompletionNode,
-	Metadata: MetadataNode,
-	Uptime: UptimeNode,
-	SseIn: SseInNode,
-	RemoteLink: RemoteLinkNode,
-	RemoteIpc: RemoteIpcNode,
-	HttpOut: HttpOutNode,
+	Dumper: DumperNode,
+	Echo: EchoNode,
 	Heartbeat: HeartbeatNode,
+	HttpOut: HttpOutNode,
+	Metadata: MetadataNode,
+	RemoteIpc: RemoteIpcNode,
+	RemoteLink: RemoteLinkNode,
+	SseIn: SseInNode,
+	Tap: TapNode,
+	Tee: TeeNode,
+	Timer: TimerNode,
+	Uptime: UptimeNode,
 };
 
 // Plugins/dashboards register their own node classes (the `*View`/`*Transform`

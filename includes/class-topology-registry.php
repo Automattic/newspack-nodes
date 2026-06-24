@@ -367,13 +367,24 @@ class Topology_Registry {
 				'edges' => [],
 			];
 		}
-		$kind_of  = static fn ( string $cls ): string => match ( $cls ) {
-			'Consumer'  => 'consumer',
-			'Partition' => 'partition',
-			'Topic'     => 'topic',
-			'Tee'       => 'tee',
-			'Log'       => 'log',
-			default     => 'logic',
+		$kind_of  = static function ( string $cls ): string {
+			$kind = match ( $cls ) {
+				'Consumer'  => 'consumer',
+				'Partition' => 'partition',
+				'Topic'     => 'topic',
+				'Tee'       => 'tee',
+				'Log'       => 'log',
+				default     => 'logic',
+			};
+			// Exact base names hit the match; an unknown type that resolves to a
+			// Tee subclass (e.g. Tap) gets the same fan-out 'tee' treatment.
+			if ( 'logic' === $kind ) {
+				$fqcn = Command_Interpreter_Node::resolve_class( $cls );
+				if ( null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true ) ) {
+					return 'tee';
+				}
+			}
+			return $kind;
 		};
 		$basename = static function ( string $arg ): string {
 			$slash = \strrpos( $arg, '/' );
@@ -576,7 +587,7 @@ class Topology_Registry {
 			};
 			// App runtime init (autoload, filters) before Topology_Loader::load parses the TSL — only when we actually spawn.
 			\do_action( 'newspack_nodes/before_worker_spawn', $type, $partition );
-			$w_topology = \is_scalar( $w['topology'] ) ? (string) $w['topology'] : '';
+			$w_topology = Core::as_string( $w['topology'] );
 			$w_stale    = \is_scalar( $w['stale_timeout'] ) ? (int) $w['stale_timeout'] : 0;
 			$runner( $w['type'], $w['partition'], $w_topology, $w_stale );
 			break;

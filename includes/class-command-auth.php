@@ -99,8 +99,8 @@ class Command_Auth {
 		$encoded   = \wp_json_encode(
 			[
 				$type,
-				\is_scalar( $name ) ? (string) $name : '',
-				\is_scalar( $arguments ) ? (string) $arguments : '',
+				Core::as_string( $name ),
+				Core::as_string( $arguments ),
 				$ts,
 				$nonce,
 			]
@@ -140,7 +140,7 @@ class Command_Auth {
 		}
 		$ts       = $auth['ts'];
 		$nonce_in = $auth['nonce'];
-		$nonce    = \is_scalar( $nonce_in ) ? (string) $nonce_in : '';
+		$nonce    = Core::as_string( $nonce_in );
 		$now      = $now ?? \time();
 
 		// Freshness: not stale, not implausibly in the future.
@@ -156,7 +156,7 @@ class Command_Auth {
 		}
 		$expected = \hash_hmac( 'sha256', $canon, self::secret() );
 		$sig      = $auth['sig'];
-		if ( ! \hash_equals( $expected, \is_scalar( $sig ) ? (string) $sig : '' ) ) {
+		if ( ! \hash_equals( $expected, Core::as_string( $sig ) ) ) {
 			$interpreter?->drop_message( $message, 'verification failed: signature mismatch' );
 			return false;
 		}

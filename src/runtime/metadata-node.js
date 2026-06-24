@@ -173,6 +173,10 @@ export function parseMetadata( payload ) {
 			has_target:
 				typeof meta.has_target === 'boolean' ? meta.has_target : true,
 			targets,
+			// Raw target as reported: an array for a Tee-family fan-out node, a
+			// string otherwise. The Inspector keys its multi-target editor and
+			// tail/tap button off Array.isArray( target ) — subclass-proof.
+			target: meta.target ?? '',
 		} );
 		// An edge connects to the HEAD of the target path — `_router` peels the
 		// first `/`-segment and delivers there (`_sse/workers` → `_sse`).

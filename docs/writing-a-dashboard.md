@@ -61,9 +61,9 @@ class Scorer_Node extends Node {
 
 	/** The ONE seam a real scorer replaces: item -> notional priority score. */
 	protected function score( array $item ): float {
-		$source = \is_string( $item['source'] ?? null ) ? $item['source'] : '';
+		$source = Core::as_string( $item['source'] ?? null );
 		$score  = self::SOURCE_WEIGHT[ $source ] ?? 1.0;
-		$title  = \is_string( $item['title'] ?? null ) ? $item['title'] : '';
+		$title  = Core::as_string( $item['title'] ?? null );
 		foreach ( self::KEYWORDS as $kw ) {
 			// Word-boundary match — 'GA' must not fire on "Garage".
 			if ( 1 === \preg_match( '/\b' . \preg_quote( $kw, '/' ) . '\b/i', $title ) ) {

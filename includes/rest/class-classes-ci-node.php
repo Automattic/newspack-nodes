@@ -17,10 +17,12 @@
 namespace Newspack_Nodes\Rest;
 
 use Composer\Autoload\ClassLoader;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Formatters;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\Tee_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -45,14 +47,14 @@ class Classes_CI_Node extends Service_CI_Node {
 				continue;
 			}
 			$raw_name = $command['name'] ?? '';
-			$name     = \is_scalar( $raw_name ) ? (string) $raw_name : '';
+			$name     = Core::as_string( $raw_name );
 			if ( '' === $name ) {
 				continue;
 			}
 			$raw_desc        = $command['description'] ?? '';
 			$stripped_command = [
 				'name'        => $name,
-				'description' => \is_scalar( $raw_desc ) ? (string) $raw_desc : '',
+				'description' => Core::as_string( $raw_desc ),
 				'args'        => $command['args'] ?? [],
 			];
 			// Carry the multi-invocation flag so the topology console renders one
@@ -144,6 +146,10 @@ class Classes_CI_Node extends Service_CI_Node {
 									// commands directly (no `<name>:config` sibling), so the
 									// console targets the bare node; otherwise `<name>:config`.
 									'is_interpreter' => \is_subclass_of( $fqcn, Command_Interpreter_Node::class ),
+									// A Tee-family node fans out to many targets — the Inspector
+									// renders the multi-chip editor + tail button off this flag
+									// (not the runtime target shape, which is a string in edit mode).
+									'is_tee'         => \is_a( $fqcn, Tee_Node::class, true ),
 								];
 							}
 						}

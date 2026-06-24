@@ -40,10 +40,14 @@ function Card( { id, label, value } ) {
 function inOut( inbound, outbound ) {
 	return (
 		<>
-			{ '↓ ' }
-			<span className="nodes-card__io">{ inbound }</span>
-			{ ' ↑ ' }
-			<span className="nodes-card__io">{ outbound }</span>
+			<span className="nodes-card__io">
+				{ inbound }
+				{ '↓' }
+			</span>
+			<span className="nodes-card__io">
+				{ outbound }
+				{ '↑' }
+			</span>
 		</>
 	);
 }

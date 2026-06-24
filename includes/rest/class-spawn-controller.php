@@ -13,6 +13,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Supervisor_Base;
 
@@ -41,7 +42,7 @@ class Spawn_Controller {
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
 		$raw_nonce = $req->get_param( 'nonce' );
-		$nonce     = \is_scalar( $raw_nonce ) ? (string) $raw_nonce : '';
+		$nonce     = Core::as_string( $raw_nonce );
 		if ( '' === $nonce ) {
 			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
 		}
@@ -114,7 +115,7 @@ class Spawn_Controller {
 	public function spawn( \WP_REST_Request $req ) {
 		$raw_type      = $req->get_param( 'type' );
 		$raw_partition = $req->get_param( 'partition' );
-		$type          = \is_scalar( $raw_type ) ? (string) $raw_type : '';
+		$type          = Core::as_string( $raw_type );
 		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
 
 		if ( ! $this->validate_partition( $type, $partition ) ) {

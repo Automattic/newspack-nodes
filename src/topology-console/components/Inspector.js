@@ -605,9 +605,28 @@ function nodeHasTarget( node, catalog ) {
 	return node.has_target ?? schema?.has_target ?? true;
 }
 
+// A Tee-family fan-out node, per the catalog `is_tee` flag (both edit + view
+// modes carry the class catalog). Falls back to the runtime target shape when
+// the catalog lacks the class — in edit mode `target` is a string, so the
+// catalog flag is the only reliable signal there.
+function isTeeNode( node, catalog ) {
+	const schema = catalog.find( ( c ) => c.shell_name === node.class );
+	return schema?.is_tee ?? Array.isArray( node.target );
+}
+
 // Tee fans out to many targets; everything else has a single target.
-function TargetsField( { node, nodeNames, targets, onConnect, onRemoveEdge } ) {
-	const isTee = node.class === 'Tee';
+function TargetsField( {
+	node,
+	nodeNames,
+	targets,
+	catalog,
+	onConnect,
+	onRemoveEdge,
+} ) {
+	// A Tee-family fan-out node gets the multi-target editor; everything else a
+	// single target. Keys off the catalog is_tee flag (both modes carry it), so
+	// any Tee subclass gets the multi-target editor regardless of target shape.
+	const isTee = isTeeNode( node, catalog );
 	const datalistId = `topology-targets-${ node.id }`;
 	if ( isTee ) {
 		return (
@@ -849,6 +868,7 @@ function EditForm( {
 					<TargetsField
 						node={ node }
 						nodeNames={ nodeNames }
+						catalog={ catalog }
 						targets={ ( parsed?.edges || [] ).filter(
 							( e ) => e.from === node.id
 						) }
@@ -1237,6 +1257,9 @@ export default function Inspector( {
 		to,
 	} ) );
 	const type = node.class;
+	// The tail/tap button keys off the catalog is_tee flag, so any Tee subclass
+	// gets it regardless of the runtime target shape.
+	const isTee = isTeeNode( node, catalog );
 	// Absent streamStatus = no SSE stream to report (the debug overlay reads
 	// the page's OWN Core synchronously, so the graph is literally always live).
 	const live = ! streamStatus || streamStatus === 'open';
@@ -1279,6 +1302,7 @@ export default function Inspector( {
 						<TargetsField
 							node={ node }
 							nodeNames={ nodeNames }
+							catalog={ catalog }
 							targets={ editorTargets }
 							onConnect={ onConnect }
 							onRemoveEdge={ onRemoveEdge }
@@ -1459,7 +1483,7 @@ export default function Inspector( {
 						? __( 'Stop Trace', 'newspack-nodes' )
 						: __( 'Trace', 'newspack-nodes' ) }
 				</button>
-				{ type === 'Tee' && (
+				{ isTee && (
 					<button
 						type="button"
 						className={ `topology-insp__actions-full${

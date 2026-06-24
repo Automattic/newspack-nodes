@@ -160,12 +160,16 @@ export function useConsoleGraph( {
 		// gating effect first runs; that effect keeps `_cwd.target` in sync on cd.
 		cwdNode.target = reader;
 
+		// Named Tap node for the console Shell to route typed input through.
+		const consoleTap = interpreter.makeNode( 'Tap', names.CONSOLE_TAP );
+		consoleTap.sink = interpreter;
+
 		// Anonymous, React-driven Shell. Default cwd is the session's own worker
 		// `{reader}` — routes straight to that worker's RemoteIpc, which wraps the
 		// reply privately. Static: the pid lives only in the wrapped FROM, not the path.
 		const consoleShell = new ShellNode();
 		consoleShell.path = reader;
-		consoleShell.sink = interpreter;
+		consoleShell.sink = consoleTap;
 
 		setSsePid( null );
 
@@ -241,6 +245,7 @@ export function useConsoleGraph( {
 			metadata.removeNode();
 			uptime.removeNode();
 			completion.removeNode();
+			consoleTap.removeNode();
 			for ( const remote of remotes ) {
 				remote.removeNode();
 			}

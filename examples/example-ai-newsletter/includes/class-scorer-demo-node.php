@@ -8,6 +8,7 @@
 
 namespace Example_AI_Newsletter;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
 
@@ -31,9 +32,9 @@ class Scorer_Demo_Node extends Node {
 	 * @param array<string,mixed> $item
 	 */
 	protected function score( array $item ): float {
-		$source = \is_string( $item['source'] ?? null ) ? $item['source'] : '';
+		$source = Core::as_string( $item['source'] ?? null );
 		$base   = self::SOURCE_WEIGHT[ $source ] ?? 1.0;
-		$title  = \is_string( $item['title'] ?? null ) ? $item['title'] : '';
+		$title  = Core::as_string( $item['title'] ?? null );
 		$bump   = 0.0;
 		foreach ( self::KEYWORDS as $kw ) {
 			// Whole-word, case-insensitive — so 'GA' doesn't match "Garage" nor 'award' "awarded".

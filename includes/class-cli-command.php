@@ -136,9 +136,15 @@ class CLI_Command {
 		$dumper = new Dumper_Node();
 		$dumper->name( Node_Names::OUTPUT );
 
+		// Tap node for introspection of what the shell is sending.
+		$console_tap = new Tap_Node();
+		$console_tap->name( Node_Names::CONSOLE_TAP );
+		$console_tap->sink( $interpreter );
+
 		// Shell stays anonymous (Shell::name would throw); `ls` filters by sink anyway.
 		$shell = new Shell_Node();
-		$shell->sink( $interpreter );
+		$shell->sink( $console_tap );
+
 		// Defined unconditionally (empty in bare mode) so it's in scope for both
 		// pivoted blocks below; the blocks themselves are guarded.
 		$worker_id = ( $pivoted && null !== $ipc ) ? "{$ipc['type']}.p{$ipc['partition']}" : '';
@@ -158,7 +164,6 @@ class CLI_Command {
 			$ipc_out->arguments( "{$ipc['input']} " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
 			$ipc_out->name( $worker_id );
 			$ipc_out->sink( $interpreter );
-			$shell->sink( $interpreter );
 			$shell->path = $worker_id;
 
 			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
@@ -548,8 +553,8 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		}
 		$raw_name    = $value['name'] ?? '';
 		$raw_payload = $value['payload'] ?? '';
-		$name        = \is_scalar( $raw_name ) ? (string) $raw_name : '';
-		$payload     = \is_scalar( $raw_payload ) ? (string) $raw_payload : '';
+		$name        = Core::as_string( $raw_name );
+		$payload     = Core::as_string( $raw_payload );
 		$list    = '' === $payload ? [] : \explode( "\n", $payload );
 
 		if ( 'help' === $name ) {

@@ -393,6 +393,22 @@ describe( 'Metadata node', () => {
 		} );
 	} );
 
+	describe( 'parseMetadata carries the raw target', () => {
+		it( 'carries an array target (Tee-family fan-out signal) onto the graph node', () => {
+			const { nodes } = parseMetadata( {
+				tee: { class: 'Tee', target: [ 'a', 'b' ] },
+			} );
+			expect( nodes[ 0 ].target ).toEqual( [ 'a', 'b' ] );
+		} );
+
+		it( 'carries a string target onto the graph node', () => {
+			const { nodes } = parseMetadata( {
+				echo: { class: 'Echo', target: 'next' },
+			} );
+			expect( nodes[ 0 ].target ).toBe( 'next' );
+		} );
+	} );
+
 	describe( 'parseMetadata hides process scaffolding', () => {
 		it( 'drops the backbone + the per-worker TopicProbe and its log (nodes + edges)', () => {
 			const { nodes, edges } = parseMetadata( {

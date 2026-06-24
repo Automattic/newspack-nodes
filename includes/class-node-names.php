@@ -15,18 +15,19 @@ namespace Newspack_Nodes;
 
 /** @api Used to prevent naming drift */
 final class Node_Names {
-	public const ROUTER              = '_router';
 	public const COMMAND_INTERPRETER = '_command_interpreter';
+	public const CONSOLE_TAP         = '_shell';
+	public const COMPLETION          = '_completion';
+	public const CWD                 = '_cwd';
+	public const HEARTBEAT           = '_heartbeat';
 	public const HTTP                = '_http';
+	public const METADATA            = '_metadata';
 	public const OUTPUT              = '_output';
 	public const REPL                = '_repl';
+	public const ROUTER              = '_router';
+	public const SETTINGS_LOG        = '_settings:log';
 	public const SSE                 = '_sse';
-	public const METADATA            = '_metadata';
-	public const UPTIME              = '_uptime';
-	public const COMPLETION          = '_completion';
-	public const HEARTBEAT           = '_heartbeat';
-	public const CWD                 = '_cwd';
 	public const TOPICPROBE          = '_topicprobe';
 	public const TOPICPROBE_LOG      = '_topicprobe:log';
-	public const SETTINGS_LOG        = '_settings:log';
+	public const UPTIME              = '_uptime';
 }

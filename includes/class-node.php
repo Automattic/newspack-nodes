@@ -75,7 +75,7 @@ class Node {
 	 */
 	public function fill( array &$message ): void {
 		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Shell::fill requires a wired sink' );
+			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
 		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
@@ -270,7 +270,7 @@ class Node {
 		if ( $this->debug_state > 0 ) {
 			$router = Core::node( Node_Names::ROUTER );
 			if ( null !== $router ) {
-				$detail                        = \is_scalar( $payload ) ? $payload : '';
+				$detail                        = Core::as_string( $payload );
 				$this->stderr( 'DEBUG: ' . $event . ( '' !== $detail ? ' ' . $detail : '' ) );
 			}
 		}
