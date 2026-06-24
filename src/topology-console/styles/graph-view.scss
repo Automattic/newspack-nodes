@@ -1614,6 +1614,7 @@
 	&__btn {
 		background: transparent;
 		border: 0;
+		padding: 7px 14px;
 		font: 700 10px var(--font-mono);
 		color: var(--ink-3);
 		letter-spacing: 0.16em;
@@ -1636,6 +1637,7 @@
 		}
 
 		&--close {
+			padding: 0;
 			font-size: 18px;
 			line-height: 1;
 			color: var(--ink);
