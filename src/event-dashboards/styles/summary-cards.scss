@@ -143,12 +143,11 @@ $health-stalled: var(--oxide);
 	}
 
 	&__restart {
-		@include base.secondary-button;
 		flex: 0 0 auto;
 		font-size: 15px;
 		line-height: 1;
 		padding: 4px 9px;
-		color: $health-behind; // amber ↻ icon on the white button
+		color: $health-behind; // amber ↻ cue (theme-aware --brass), kept atop the stock/themed .button box
 	}
 
 	&__edit {

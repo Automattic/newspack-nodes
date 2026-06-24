@@ -49,7 +49,7 @@ export default function TopologyControls( {
 			{ active && (
 				<button
 					type="button"
-					className="nodes-ctl__restart"
+					className="nodes-ctl__restart button button-small"
 					title={ __( 'Restart fleet', 'newspack-nodes' ) }
 					onClick={ fire( onRestart ) }
 				>
