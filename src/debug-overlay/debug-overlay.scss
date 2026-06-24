@@ -296,3 +296,19 @@
 		}
 	}
 }
+
+// Fixed-width the bouncy I/O cards (the overlay's Overview tab only) so changing
+// values don't reflow the row. Byte rate + total bytes carry the widest-swinging
+// units (B↔KB↔MB) → 200px; the message-rate / total-messages numbers are
+// narrower; warnings / errors / debug stay content-sized.
+.nodes-overview {
+	.nodes-card--byte-rate,
+	.nodes-card--total-bytes {
+		flex: 0 0 200px;
+	}
+
+	.nodes-card--message-rate,
+	.nodes-card--total-messages {
+		flex: 0 0 140px;
+	}
+}

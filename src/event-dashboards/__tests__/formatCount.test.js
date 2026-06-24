@@ -19,7 +19,8 @@ it( 'drops a trailing .0', () => {
 it( 'promotes to the next unit when rounding hits 1000 (no "1000K")', () => {
 	expect( formatCount( 999999 ) ).toBe( '1M' );
 	expect( formatCount( 999950 ) ).toBe( '1M' );
-	expect( formatCount( 999500 ) ).toBe( '999.5K' ); // rounds to 999.5, no promote
+	// 999.5K is >= 10 in-unit so the decimal drops → rounds to 1000K → promotes.
+	expect( formatCount( 999500 ) ).toBe( '1M' );
 } );
 
 it( 'guards non-finite / negative input', () => {
