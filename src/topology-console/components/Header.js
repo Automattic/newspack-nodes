@@ -66,86 +66,8 @@ export function HeaderControls( {
 					</select>
 				</>
 			) }
-			<div className="topology-mode">
-				{ mode === 'edit' && (
-					<button
-						type="button"
-						className="topology-mode__btn topology-mode__btn--new"
-						onClick={ () => onNew && onNew() }
-					>
-						{ __( 'NEW', 'newspack-nodes' ) }
-					</button>
-				) }
-				{ mode === 'edit' && (
-					<button
-						type="button"
-						className="topology-mode__btn topology-mode__btn--open"
-						onClick={ () => onOpen && onOpen() }
-					>
-						{ __( 'OPEN', 'newspack-nodes' ) }
-					</button>
-				) }
-				{ mode === 'edit' && (
-					<button
-						type="button"
-						className="topology-mode__btn topology-mode__btn--save"
-						onClick={ () => onSave && onSave() }
-					>
-						{ __( 'SAVE', 'newspack-nodes' ) }
-					</button>
-				) }
-				{ mode === 'edit' && (
-					<button
-						type="button"
-						className={ `topology-mode__btn topology-mode__btn--settings${
-							settingsActive ? ' is-active' : ''
-						}` }
-						onClick={ () => onSettings && onSettings() }
-						title={ __(
-							'Topology settings (partitions and other frontmatter)',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'SETTINGS', 'newspack-nodes' ) }
-					</button>
-				) }
-				{ mode === 'edit' && canDelete && (
-					<button
-						type="button"
-						className="topology-mode__btn topology-mode__btn--delete"
-						onClick={ () => onDelete && onDelete() }
-						title={ __(
-							'Delete this user-saved topology (stock copies are protected)',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'DELETE', 'newspack-nodes' ) }
-					</button>
-				) }
-				{ /* NEW is available from live mode too (start a fresh topology);
-				     the editor's NEW lives in the edit toolbar above. Not in the
-				     debug overlay (onClose), which has no editor to land in. */ }
-				{ mode !== 'edit' && ! onClose && (
-					<button
-						type="button"
-						className="topology-mode__btn topology-mode__btn--new"
-						onClick={ () => onNew && onNew() }
-					>
-						{ __( 'NEW', 'newspack-nodes' ) }
-					</button>
-				) }
-				{ canEdit && (
-					<button
-						type="button"
-						className={ `topology-mode__btn${
-							mode === 'edit' ? ' is-active' : ''
-						}` }
-						onClick={ () => onModeChange && onModeChange( 'edit' ) }
-					>
-						{ __( 'EDIT', 'newspack-nodes' ) }
-					</button>
-				) }
-				{ onClose ? (
+			{ onClose ? (
+				<div className="topology-overlay-mode">
 					<button
 						type="button"
 						className="topology-mode__btn topology-mode__btn--close"
@@ -167,31 +89,117 @@ export function HeaderControls( {
 							<path d="M13 11.8l6.1-6.3-1-1-6.1 6.2-6.1-6.2-1 1 6.1 6.3-6.5 6.7 1 1 6.5-6.6 6.5 6.6 1-1z" />
 						</svg>
 					</button>
-				) : (
-					<button
-						type="button"
-						className={ `topology-mode__btn topology-mode__btn--live${
-							mode === 'view' && streamStatus === 'open'
-								? ' is-active'
-								: ''
-						}` }
-						onClick={ () => onModeChange && onModeChange( 'view' ) }
-					>
-						<span
-							className={ `topology-live-led${
+				</div>
+			) : (
+				<div className="topology-mode">
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--new"
+							onClick={ () => onNew && onNew() }
+						>
+							{ __( 'NEW', 'newspack-nodes' ) }
+						</button>
+					) }
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--open"
+							onClick={ () => onOpen && onOpen() }
+						>
+							{ __( 'OPEN', 'newspack-nodes' ) }
+						</button>
+					) }
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--save"
+							onClick={ () => onSave && onSave() }
+						>
+							{ __( 'SAVE', 'newspack-nodes' ) }
+						</button>
+					) }
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className={ `topology-mode__btn topology-mode__btn--settings${
+								settingsActive ? ' is-active' : ''
+							}` }
+							onClick={ () => onSettings && onSettings() }
+							title={ __(
+								'Topology settings (partitions and other frontmatter)',
+								'newspack-nodes'
+							) }
+						>
+							{ __( 'SETTINGS', 'newspack-nodes' ) }
+						</button>
+					) }
+					{ mode === 'edit' && canDelete && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--delete"
+							onClick={ () => onDelete && onDelete() }
+							title={ __(
+								'Delete this user-saved topology (stock copies are protected)',
+								'newspack-nodes'
+							) }
+						>
+							{ __( 'DELETE', 'newspack-nodes' ) }
+						</button>
+					) }
+					{ /* NEW is available from live mode too (start a fresh topology);
+				     the editor's NEW lives in the edit toolbar above. Not in the
+				     debug overlay (onClose), which has no editor to land in. */ }
+					{ mode !== 'edit' && ! onClose && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--new"
+							onClick={ () => onNew && onNew() }
+						>
+							{ __( 'NEW', 'newspack-nodes' ) }
+						</button>
+					) }
+					{ canEdit && (
+						<button
+							type="button"
+							className={ `topology-mode__btn${
+								mode === 'edit' ? ' is-active' : ''
+							}` }
+							onClick={ () =>
+								onModeChange && onModeChange( 'edit' )
+							}
+						>
+							{ __( 'EDIT', 'newspack-nodes' ) }
+						</button>
+					) }
+					{
+						<button
+							type="button"
+							className={ `topology-mode__btn topology-mode__btn--live${
 								mode === 'view' && streamStatus === 'open'
-									? ' is-pulsing'
+									? ' is-active'
 									: ''
 							}` }
-						/>
-						{ __( 'LIVE', 'newspack-nodes' ) }
-						{ /* Always-rendered slot (em-dash until first uptime) so the button width is stable. */ }
-						<span className="topology-uptime">
-							{ uptime || '—' }
-						</span>
-					</button>
-				) }
-			</div>
+							onClick={ () =>
+								onModeChange && onModeChange( 'view' )
+							}
+						>
+							<span
+								className={ `topology-live-led${
+									mode === 'view' && streamStatus === 'open'
+										? ' is-pulsing'
+										: ''
+								}` }
+							/>
+							{ __( 'LIVE', 'newspack-nodes' ) }
+							{ /* Always-rendered slot (em-dash until first uptime) so the button width is stable. */ }
+							<span className="topology-uptime">
+								{ uptime || '—' }
+							</span>
+						</button>
+					}
+				</div>
+			) }
 		</>
 	);
 }
