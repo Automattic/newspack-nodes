@@ -11,6 +11,13 @@ import {
 	formatCount,
 } from '../../event-dashboards/formatters';
 import { useOverviewStats } from '../useOverviewStats';
+// The Overview tab reuses the hub's card + overview LAYOUT classes
+// (`.nodes-card(s)`, `.nodes-overview(__panels)`), whose styles live in the
+// event-dashboards bundle. The hub page loads that bundle; pages that merely
+// EMBED the overlay don't — so import the styles here to ship them in whatever
+// bundle carries this tab, keeping the overlay self-contained anywhere.
+import '../../event-dashboards/styles/summary-cards.scss';
+import '../../event-dashboards/styles/overview.scss';
 
 // One metric card — the same `.nodes-card` markup the hub SummaryCards uses, so
 // it inherits the existing card styling (no overlay-specific stylesheet).
