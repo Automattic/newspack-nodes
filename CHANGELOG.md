@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Debug overlay's I/O Overview tab now styles correctly when embedded outside the hub.** The tab reuses the hub's `.nodes-card(s)` / `.nodes-overview` layout classes, but their styles live in the event-dashboards bundle — present on the hub page, absent on pages that merely embed the overlay (the ELN performance dashboards), so the cards rendered unstyled there. `OverviewTab` now imports those style partials directly, so the card/overview CSS ships in whatever bundle inlines the overlay (rebuild required in every embedder — the nodes hub + the three ELN performance bundles).
+- **Debug overlay's tab labels are now legible when embedded outside the hub.** The shared tab bar colours its labels from `--nodes-devtools-fg`, which the hub set on its own container but the embedded overlay never did — so it fell back to `#fff` (invisible on the light panel). The overlay panel now binds `--nodes-devtools-fg` to the theme `--ink`, so the tabs read on any page that mounts the overlay.
 
 ## [0.19.0] - 2026-06-23
 
