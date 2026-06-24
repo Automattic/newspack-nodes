@@ -29,5 +29,8 @@
 		"jest-environment-jsdom": "^30.4.1",
 		"rtlcss": "^4.3.0",
 		"sass": "^1.99.0"
+	},
+	"overrides": {
+		"js-yaml": "^4.2.0"
 	}
 }
