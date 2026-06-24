@@ -25,8 +25,10 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame(
 			[
 				'newspack_nodes_num_partitions' => [
-					'to'     => 'settings',
-					'remote' => 'newspack_nodes_num_partitions',
+					[
+						'to'     => 'settings',
+						'remote' => 'newspack_nodes_num_partitions',
+					],
 				],
 			],
 			$registry
@@ -110,6 +112,40 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame( 'spokes:tee/settings', $out[ Message::TO ] );
 		$this->assertSame( 'set', $out[ Message::VALUE ]['name'] );
 		$this->assertSame( 'newspack_nodes_num_segments 8', $out[ Message::VALUE ]['arguments'] );
+	}
+
+	public function test_add_setting_twice_for_same_local_pushes_to_each_remote(): void {
+		// A hub-local `remote_*` setting seeds BOTH the spoke's stripped option
+		// (its actual config) AND the spoke's own `remote_*` copy (so the spoke can
+		// propagate it onward to ITS spokes). Two add_setting lines, same local.
+		\update_option( 'newspack_nodes_remote_num_segments', 5 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_num_segments settings newspack_nodes_num_segments' );
+		$node->add_setting( 'newspack_nodes_remote_num_segments settings newspack_nodes_remote_num_segments' );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_num_segments' ];
+		$node->fill( $msg );
+
+		$this->assertCount( 2, $sink->captured );
+		$args = \array_map(
+			static fn ( $m ) => $m[ Message::VALUE ]['arguments'],
+			$sink->captured
+		);
+		$this->assertContains( 'newspack_nodes_num_segments 5', $args );
+		$this->assertContains( 'newspack_nodes_remote_num_segments 5', $args );
+	}
+
+	public function test_add_setting_dedupes_exact_duplicate_mappings(): void {
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+		$node->add_setting( 'a settings b' );
+		$node->add_setting( 'a settings b' );
+
+		$ref = new \ReflectionProperty( $node, 'registry' );
+		$this->assertCount( 1, $ref->getValue( $node )['a'] );
 	}
 
 	public function test_push_invalidates_options_cache_before_reading(): void {
