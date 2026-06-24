@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hub buttons now actually fall through to stock WP under the Newspack skins.** The shared themed-button rule was gated on `.newspack-nodes-theme:not(.theme-newspack)`, but `.newspack-nodes-theme` is also set on inner hub wrappers (e.g. `.nodes-devtools-hub`) that carry no theme class — so the `:not()` matched under the Newspack skin too, leaving Vault's Test/Remove buttons themed instead of stock. The rule is now gated on `.topology-app:not(.theme-newspack):not(.theme-newspack-brand)` — the single themed root that carries the `theme-<slug>` class — so Newspack skins render stock WP buttons and decorative skins get themed ones.
 - **Worker-restart-on-save targeted dead worker-group labels (`request-workers`/`job-workers`) that never matched a live lock dir, so storage-geometry/memcache saves silently never restarted workers.** Classification is now by consumer node type, resolved to live topologies: `num_segments`/`segment_size`/`max_lifespan` restart any active topology that runs a `Partition`/`Topic`/`Log`, while `base_directory`/`memcache_servers` (process-wide) restart every active topology. `Admin::maybe_request_worker_restart()` resolves the field's node-type classification through `Restart_Planner` against the live topology graphs and touches each matching topology's per-partition lock dir. The unused `newspack_nodes/worker_restart_groups` filter (no consumers in any plugin) is removed.
 
 ### Removed

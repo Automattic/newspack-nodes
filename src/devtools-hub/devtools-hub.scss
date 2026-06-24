@@ -33,9 +33,11 @@
 }
 
 // Hub buttons: stock WP under the Newspack skins; themed under the decorative
-// ones. The two Newspack themes fall through to WP core-ui (no override here);
-// every other theme dresses .button in its own universal tokens.
-.newspack-nodes-theme:not(.theme-newspack):not(.theme-newspack-brand) {
+// ones. Gate on `.topology-app` (the single themed root that carries the
+// `theme-<slug>` class) — NOT `.newspack-nodes-theme`, which is also set on
+// inner wrappers (e.g. `.nodes-devtools-hub`) without a theme class, so a
+// `:not(.theme-newspack)` keyed off it wrongly matches under the Newspack skin.
+.topology-app:not(.theme-newspack):not(.theme-newspack-brand) {
 	.button.button-primary {
 		background: var(--cyan);
 		border: 1.5px solid var(--cyan);
