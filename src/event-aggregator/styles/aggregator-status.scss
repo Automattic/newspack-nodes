@@ -101,7 +101,7 @@
 	padding: 48px 24px;
 	color: base.$dark-text-placeholder;
 	font-size: 14px;
-	background: var(--np-surface);
+	background: var(--paper);
 	border-radius: var(--np-radius-md);
 	border: 2px dashed base.$dark-border;
 }
@@ -111,8 +111,8 @@
 // =============================================================================
 
 .aggregator-server-card {
-	background: var(--np-surface);
-	border: 2px solid var(--np-border);
+	background: var(--paper);
+	border: 2px solid var(--paper-shadow);
 	border-radius: var(--np-radius-md);
 	padding: 16px 20px;
 	display: flex;
@@ -164,8 +164,8 @@
 
 .aggregator-partition {
 	position: relative;
-	background: var(--np-surface-subtle);
-	border: 2px solid var(--np-border);
+	background: var(--paper-2);
+	border: 2px solid var(--paper-shadow);
 	border-radius: var(--np-radius-md);
 	padding: 11px 14px 11px 16px;
 	min-width: 250px;
@@ -184,23 +184,23 @@
 		position: absolute;
 		inset: 0 auto 0 0;
 		width: 3px;
-		background: var(--np-border-strong);
+		background: var(--ink-3);
 	}
 
 	&.is-ok::before {
-		background: var(--np-success);
+		background: var(--sage);
 	}
 
 	&.is-degraded::before {
-		background: var(--np-warning);
+		background: var(--brass);
 	}
 
 	&.is-down::before {
-		background: var(--np-error);
+		background: var(--oxide);
 	}
 
 	&:hover {
-		border-color: var(--np-border-strong);
+		border-color: var(--ink-3);
 		box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
 	}
 }
@@ -256,7 +256,7 @@
 	font-size: 10px;
 	line-height: 1.4;
 	color: base.$error-text;
-	background: var(--np-error-subtle);
+	background: var(--oxide-subtle);
 	padding: 4px 8px;
 	border-radius: base.$border-radius-sm;
 	overflow: hidden;
@@ -284,7 +284,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		background: var(--np-success-soft);
+		background: var(--sage-subtle);
 		color: base.$white;
 
 		// A small breathing dot = a live connection.
@@ -403,7 +403,7 @@
 	}
 
 	&.success {
-		background: var(--np-success-soft);
+		background: var(--sage-subtle);
 		color: base.$white;
 	}
 
@@ -448,7 +448,7 @@
 .aggregator-error-message {
 	font-size: 11px;
 	color: base.$error-text;
-	background: var(--np-error-subtle);
+	background: var(--oxide-subtle);
 	padding: 4px 10px;
 	border-radius: base.$border-radius-sm;
 	max-width: 250px;
