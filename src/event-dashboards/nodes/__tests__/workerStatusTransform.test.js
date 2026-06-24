@@ -21,6 +21,7 @@
 import {
 	VALUE,
 	TO,
+	FROM,
 	TYPE,
 	TM_STRUCT,
 	TM_COMMAND,
@@ -186,6 +187,8 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 				} )
 			)
 		);
+		// The emitted model message identifies its source node via FROM.
+		expect( sink.got[ 0 ][ FROM ] ).toBe( 'workerstatus:transform' );
 		const { model } = sink.got[ 0 ][ VALUE ];
 		expect( model.workers ).toHaveLength( 1 );
 		const wkr = model.workers[ 0 ];

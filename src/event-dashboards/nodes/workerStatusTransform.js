@@ -2,6 +2,7 @@ import { Node } from '../../runtime/node';
 import {
 	VALUE,
 	TO,
+	FROM,
 	TYPE,
 	TM_STRUCT,
 	TM_ERROR,
@@ -233,7 +234,9 @@ export class WorkerStatusTransformNode extends Node {
 		}
 		const out = newMessage();
 		out[ TYPE ] = TM_STRUCT;
-		// Rule #2: stamp TO=target so the exospine router routes it (→ view).
+		// Mint → stamp FROM with our own name; TO=target so the exospine router
+		// routes it (→ view).
+		out[ FROM ] = this.name;
 		out[ TO ] = this.target;
 		out[ VALUE ] = { action: 'model', model };
 		this.sink.fill( out );
