@@ -284,8 +284,8 @@ test( 'LPS tracking aggregates per second, not one entry per line (bounded windo
 	for ( let i = 0; i < 500; i++ ) {
 		v.fill( envelopeMsg( { value: `row ${ i }` } ) );
 	}
-	expect( Array.isArray( v.lpsBuckets ) ).toBe( true );
-	expect( v.lpsBuckets.length ).toBeLessThanOrEqual( 12 );
+	expect( Array.isArray( v.lpsSmoother.buckets ) ).toBe( true );
+	expect( v.lpsSmoother.buckets.length ).toBeLessThanOrEqual( 12 );
 } );
 
 test( 'defaults connectionError to false in the published model', () => {

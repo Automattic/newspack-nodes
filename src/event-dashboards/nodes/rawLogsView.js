@@ -1,10 +1,9 @@
 import { Node } from '../../runtime/node';
 import { FROM, KEY, VALUE } from '../../runtime/message';
 import { PendingReplies } from '../../shared/pendingReplies';
+import { RateSmoother } from '../rate-smoother';
 
 const MAX_LINES = 100000;
-const LPS_WINDOW_SEC = 10;
-const LPS_SMOOTHING = 0.1;
 const MAX_LINE_LENGTH = 1000;
 const PARTITION_RE = /\.p(\d+)$/;
 
@@ -55,11 +54,8 @@ export class RawLogsViewNode extends Node {
 		this._head = 0;
 		this._count = 0;
 		this.lineCounter = 0;
-		// Per-second LPS buckets ({ sec, count }) + their running total — bounded
-		// to the window instead of one entry per line.
-		this.lpsBuckets = [];
-		this.lpsWindowTotal = 0;
-		this.smoothedLPS = 0;
+		// Windowed-average + EMA lines/s (the overlay's I/O counters share it).
+		this.lpsSmoother = new RateSmoother();
 		this.lps = 0;
 		this.logs = [];
 		this.selected = '';
@@ -126,9 +122,7 @@ export class RawLogsViewNode extends Node {
 	_clear() {
 		this.lines = [];
 		this.lineCounter = 0;
-		this.lpsBuckets = [];
-		this.lpsWindowTotal = 0;
-		this.smoothedLPS = 0;
+		this.lpsSmoother.reset();
 		this.lps = 0;
 	}
 
@@ -202,32 +196,9 @@ export class RawLogsViewNode extends Node {
 		this._updateLinesPerSecond( 1 );
 	}
 
-	// Lines per second over a 10s window, smoothed with a 0.1 EMA. Counts are
-	// aggregated into per-second buckets with a running total, so each line is
-	// O(1) (one bucket bump + bounded expiry) — not an O(n) scan of the window.
+	// Lines per second over a 10s window, smoothed with a 0.1 EMA (RateSmoother).
 	_updateLinesPerSecond( newCount ) {
-		if ( newCount <= 0 ) {
-			return;
-		}
-		const sec = Math.floor( Date.now() / 1000 );
-		const last = this.lpsBuckets[ this.lpsBuckets.length - 1 ];
-		if ( last && last.sec === sec ) {
-			last.count += newCount;
-		} else {
-			this.lpsBuckets.push( { sec, count: newCount } );
-		}
-		this.lpsWindowTotal += newCount;
-		const oldest = sec - LPS_WINDOW_SEC;
-		while (
-			this.lpsBuckets.length > 0 &&
-			this.lpsBuckets[ 0 ].sec <= oldest
-		) {
-			this.lpsWindowTotal -= this.lpsBuckets[ 0 ].count;
-			this.lpsBuckets.shift();
-		}
-		const lps = this.lpsWindowTotal / LPS_WINDOW_SEC;
-		this.smoothedLPS += ( lps - this.smoothedLPS ) * LPS_SMOOTHING;
-		this.lps = this.smoothedLPS;
+		this.lps = this.lpsSmoother.add( newCount, Date.now() );
 	}
 
 	// The whole buffer materialized newest-first — O(n), for the filter path and
