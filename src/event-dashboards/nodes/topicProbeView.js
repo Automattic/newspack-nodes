@@ -44,6 +44,8 @@ const CONSUMER_TTL_MS = 300000; // 5 min
  * @param {number} [ttlMs]      Consumer liveness TTL (defaults to CONSUMER_TTL_MS).
  */
 export class TopicProbeViewNode extends Node {
+	// View-model/infra node: never a user-added node (see useGraphReset).
+	static isSystemNode = true;
 	constructor( maxSamples, ttlMs ) {
 		super();
 		this.maxSamples = maxSamples || MAX_SAMPLES;

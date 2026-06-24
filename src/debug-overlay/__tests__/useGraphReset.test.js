@@ -126,6 +126,23 @@ describe( 'useGraphReset', () => {
 		expect( result.current.canResetGraph ).toBe( false );
 	} );
 
+	it( 'a view-model node (class isSystemNode) does not count as a user node', () => {
+		// A dashboard view-model node (e.g. the hub's workerstatus:view) leaks into
+		// the shared Core; it must NOT be mistaken for a user-added node by the
+		// overlay's reset-graph, no matter which builder created it.
+		class SystemViewNode {}
+		SystemViewNode.isSystemNode = true;
+		Core.nodes.set( 'workerstatus:view', new SystemViewNode() );
+		const { result } = renderHook( () =>
+			useGraphReset(
+				opts( makeShell(), {
+					nodes: [ { id: 'workerstatus:view' } ],
+				} )
+			)
+		);
+		expect( result.current.canResetGraph ).toBe( false );
+	} );
+
 	it( 'a user node only counts at the local scope', () => {
 		const { result } = renderHook( () =>
 			useGraphReset(

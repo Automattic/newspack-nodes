@@ -101,13 +101,25 @@ export function useGraphReset( {
 
 	// A user-added node present in the live graph — node presence outlives a shell
 	// rebuild that clears structureDirty (a surviving node after a topology swap).
+	// Excluded as infra: substrate-reserved names, this overlay's own reinit set,
+	// AND any view-model node whose class flags `isSystemNode` — the latter covers
+	// dashboard nodes (e.g. the hub's workerstatus:* / topologymanager:view) that
+	// leak into the shared Core from a DIFFERENT builder than this overlay's, so
+	// they aren't in reinitNames and were being miscounted as user-added.
 	const hasUserNodes =
 		!! isLocalScope &&
-		( nodes ?? [] ).some(
-			( n ) =>
-				! RESERVED_NAMES.has( n.id ) &&
-				! ( Core.reinitNames ?? [] ).includes( n.id )
-		);
+		( nodes ?? [] ).some( ( n ) => {
+			if ( RESERVED_NAMES.has( n.id ) ) {
+				return false;
+			}
+			if ( ( Core.reinitNames ?? [] ).includes( n.id ) ) {
+				return false;
+			}
+			if ( Core.node( n.id )?.constructor?.isSystemNode ) {
+				return false;
+			}
+			return true;
+		} );
 
 	const canResetGraph =
 		!! isLocalScope && !! canRebuild && ( structureDirty || hasUserNodes );
