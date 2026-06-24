@@ -104,11 +104,10 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertSame( 'Takes effect immediately', $rows['remote_num_segments']['restart'] );
 	}
 
-	public function test_unset_direct_read_field_reports_file_default(): void {
-		// overlay=false fields (remote_*) are read via get_option by Settings_Sync_Node;
-		// a blank resolves to the config-file default via the settings_sync/value filter,
-		// so the file default IS the operative value when unset. The Effective cell shows
-		// it (from load_config's file seed), uniform with every other field — no blank cell.
+	public function test_unset_remote_field_reports_file_default(): void {
+		// remote_* are now overlaid like every other setting: when unset, load_config
+		// carries the config-file default, and the Effective cell shows it — uniform
+		// with every other field, no blank cell.
 		$rows = $this->rows_by_key();
 		$this->assertStringContainsString( 'file default', $rows['remote_num_segments']['stored'] );
 		$this->assertSame(
@@ -118,11 +117,9 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertNotSame( '', (string) $rows['remote_num_segments']['effective'] );
 	}
 
-	public function test_stored_direct_read_field_reports_stored_not_file_value(): void {
-		// remote_segment_size: overlay=false, file default 10485760. A stored value
-		// is the OPERATIVE value (Settings_Sync_Node reads it via get_option), so the
-		// Effective cell must show the stored value, NOT the file-seeded load_config
-		// entry (which would still read the file default for a non-overlaid key).
+	public function test_stored_remote_field_reports_stored_value(): void {
+		// remote_segment_size is now overlaid: a stored value is overlaid into
+		// load_config, so the Effective cell shows the stored value via the uniform path.
 		\update_option( 'newspack_nodes_remote_segment_size', 67108864 );
 		Config::reset();
 		$rows = $this->rows_by_key();

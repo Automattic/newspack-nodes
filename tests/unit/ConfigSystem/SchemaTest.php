@@ -211,42 +211,36 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			$this->assertNull( $schema->field_for_short( 'nope' ) );
 		}
 
-		public function test_overlay_false_setting_is_registered_but_not_overlaid(): void {
-			// A `overlay: false` option is a real registered + resettable setting,
-			// but read directly via get_option (never through the per-request
-			// load_config overlay) — so it stays OUT of overlay_keys while still
-			// appearing in setting_option_names. (ELN's remote_* fields.)
+		public function test_overlay_keys_includes_every_non_empty_key_field(): void {
+			// Every settable field now overlays the config file uniformly — there is
+			// no per-field opt-out. overlay_keys() returns every field with a non-empty
+			// key (rendered options AND overlay-only ui=false keys), excluding only the
+			// keyless display-only fields.
 			$schema = new Schema(
 				'pfx_',
 				[
 					new Field(
-						key: 'overlaid',
+						key: 'rendered',
 						type: 'int',
-						label: 'Overlaid',
+						label: 'Rendered',
 						section: 'storage',
 						sanitize: static fn ( $v ) => $v,
 						render: static function (): void {},
 					),
 					new Field(
-						key: 'direct_read',
-						type: 'int',
-						label: 'Direct',
+						key: 'overlay_only',
+						type: 'array_strings',
+						ui: false,
+					),
+					new Field(
+						id: 'display_only',
+						label: 'Display',
 						section: 'storage',
-						overlay: false,
-						sanitize: static fn ( $v ) => $v,
 						render: static function (): void {},
 					),
 				]
 			);
-			// Excluded from the overlay sweep.
-			$this->assertSame( [ 'overlaid' ], $schema->overlay_keys() );
-			// Still a registered, resettable setting.
-			$this->assertSame( [ 'pfx_overlaid', 'pfx_direct_read' ], $schema->setting_option_names() );
-		}
-
-		public function test_overlay_defaults_to_true(): void {
-			// Existing call sites don't pass `overlay`; every keyed field is overlaid.
-			$this->assertContains( 'num_partitions', $this->sample_schema()->overlay_keys() );
+			$this->assertSame( [ 'rendered', 'overlay_only' ], $schema->overlay_keys() );
 		}
 	}
 }

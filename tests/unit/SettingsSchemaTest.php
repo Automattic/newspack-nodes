@@ -26,6 +26,9 @@ class SettingsSchemaTest extends TestCase {
 		'max_lifespan',
 		'base_directory',
 		'memcache_servers',
+		'remote_num_segments',
+		'remote_segment_size',
+		'remote_max_lifespan',
 		'topologies',
 		'allowed_users',
 	];
@@ -105,22 +108,22 @@ class SettingsSchemaTest extends TestCase {
 	}
 
 	/**
-	 * The three remote-spoke settings are registered + resettable options but NOT
-	 * overlay keys (read directly via get_option by the settings-sync node graph).
+	 * The three remote-spoke settings are registered + resettable options and now
+	 * overlay the config file uniformly like every other setting (the per-field
+	 * overlay opt-out is gone).
 	 */
-	public function test_remote_settings_are_options_but_not_overlaid(): void {
+	public function test_remote_settings_are_overlaid_like_every_setting(): void {
 		$schema = Settings_Schema::get();
 
 		foreach ( [ 'remote_num_segments', 'remote_segment_size', 'remote_max_lifespan' ] as $key ) {
 			$field = $schema->field_for_short( $key );
 			$this->assertNotNull( $field, "remote field {$key} must exist" );
-			$this->assertFalse( $field->overlay, "remote field {$key} must not be overlaid" );
 			$this->assertSame( 'newspack_nodes_remote_section', $field->section );
 		}
 
-		$this->assertNotContains( 'remote_num_segments', $schema->overlay_keys() );
-		$this->assertNotContains( 'remote_segment_size', $schema->overlay_keys() );
-		$this->assertNotContains( 'remote_max_lifespan', $schema->overlay_keys() );
+		$this->assertContains( 'remote_num_segments', $schema->overlay_keys() );
+		$this->assertContains( 'remote_segment_size', $schema->overlay_keys() );
+		$this->assertContains( 'remote_max_lifespan', $schema->overlay_keys() );
 	}
 
 	public function test_prefix_is_the_substrate_prefix_and_get_is_memoized(): void {
