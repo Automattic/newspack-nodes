@@ -39,6 +39,22 @@
 	--cyan-dark: #305670;
 	--sage: #7a8f6a;
 	--sage-dark: #5b6e4d;
+	// Soft accent tints — color-mix of each theme's own accent over its paper,
+	// so they re-skin everywhere without per-theme-block edits.
+	--oxide-subtle: color-mix(in srgb, var(--oxide) 12%, var(--paper));
+	--sage-subtle: color-mix(in srgb, var(--sage) 15%, var(--paper));
+	--brass-subtle: color-mix(in srgb, var(--brass) 14%, var(--paper));
+	--cyan-subtle: color-mix(in srgb, var(--cyan) 10%, var(--paper));
+	// Categorical chart series — derived from the per-theme accents (+ dark
+	// shades) so charts re-skin per theme. TopicsChart reads --chart-1..8.
+	--chart-1: var(--cyan);
+	--chart-2: var(--sage);
+	--chart-3: var(--brass);
+	--chart-4: var(--oxide);
+	--chart-5: var(--cyan-dark);
+	--chart-6: var(--sage-dark);
+	--chart-7: var(--brass-dark);
+	--chart-8: var(--oxide-dark);
 	--repl-bg: var(--ink);
 	--repl-fg: var(--paper);
 	--font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -1802,6 +1818,12 @@
 	--cyan-dark: var(--np-primary-hover);
 	--sage: var(--np-success);
 	--sage-dark: #00510f;
+	--chart-1: var(--np-chart-1);
+	--chart-2: var(--np-chart-2);
+	--chart-3: var(--np-chart-3);
+	--chart-4: var(--np-chart-4);
+	--chart-5: var(--np-chart-5);
+	--chart-6: var(--np-chart-6);
 	--repl-bg: #1e1e1e;
 	--repl-fg: #f7f7f7;
 	--font-mono: var(--np-font);
