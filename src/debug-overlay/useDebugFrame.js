@@ -64,8 +64,14 @@ function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
 // (viewport minus admin chrome + scrollbar). If the panel is larger
 // than that area (e.g. user shrunk the window), shrink it to fit;
 // min-size still applies (the panel can't shrink below MIN_W x MIN_H).
-function clampFrame( { x, y, w, h }, opts = {} ) {
-	const b = getAvailableBounds( opts );
+//
+// `bounds` lets a caller pass a pre-read box so we DON'T call getAvailableBounds
+// here — it reads offsetHeight/offsetWidth/clientWidth, which force a synchronous
+// reflow. Doing that on every pointermove of a drag stutters badly on a page
+// whose layout is constantly dirtied (live dashboards); a static page never
+// shows it. Drags snapshot the bounds once at gesture start and pass them in.
+function clampFrame( { x, y, w, h }, opts = {}, bounds = null ) {
+	const b = bounds || getAvailableBounds( opts );
 	const availW = b.right - b.left;
 	const availH = b.bottom - b.top;
 	const cw = Math.max( MIN_W, Math.min( w, availW ) );
@@ -189,20 +195,40 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 
 	// Generic pointer-drag wrapper: a stream of dx/dy deltas to `apply`, with a
 	// `commit` fired once on pointerup (where the per-drag React state update lands).
+	// Pointermove is coalesced to one apply per animation frame — a fast gesture
+	// can otherwise queue more work than a frame can drain.
 	const beginDrag = useCallback( ( e, apply, commit ) => {
 		if ( e.button !== undefined && e.button !== 0 ) {
 			return;
 		}
 		const startX = e.clientX;
 		const startY = e.clientY;
+		let pending = null;
+		let rafId = null;
+		const flush = () => {
+			rafId = null;
+			if ( pending ) {
+				apply( pending.dx, pending.dy );
+			}
+		};
 		const onMove = ( ev ) => {
 			ev.preventDefault();
-			apply( ev.clientX - startX, ev.clientY - startY );
+			pending = { dx: ev.clientX - startX, dy: ev.clientY - startY };
+			if ( null === rafId ) {
+				rafId = window.requestAnimationFrame( flush );
+			}
 		};
 		const onUp = ( ev ) => {
 			ev.preventDefault?.();
 			window.removeEventListener( 'pointermove', onMove );
 			window.removeEventListener( 'pointerup', onUp );
+			if ( null !== rafId ) {
+				window.cancelAnimationFrame( rafId );
+			}
+			// Apply the final delta synchronously so commit reads the latest frame.
+			if ( pending ) {
+				apply( pending.dx, pending.dy );
+			}
 			commit?.();
 		};
 		window.addEventListener( 'pointermove', onMove );
@@ -232,22 +258,26 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 				}
 			}
 			const start = frame;
+			// Snapshot the clamp bounds ONCE (the read forces a reflow; doing it per
+			// pointermove stutters on a live page). They don't change mid-drag.
+			const bounds = getAvailableBounds();
 			beginDrag(
 				e,
 				( dx, dy ) => {
-					const f = clampFrame( {
-						x: start.x + dx,
-						y: start.y + dy,
-						w: start.w,
-						h: start.h,
-					} );
+					const f = clampFrame(
+						{
+							x: start.x + dx,
+							y: start.y + dy,
+							w: start.w,
+							h: start.h,
+						},
+						{},
+						bounds
+					);
 					liveFrameRef.current = f;
 					// Composited translate, no React. The `is-dragging` class lifts
-					// the panel's drop shadow + pins a compositor layer (CSS): a
-					// 40px-blur box-shadow extends past the panel and forces the page
-					// BEHIND it to repaint every frame as it moves — that, not the
-					// overlay itself, is the jank (a static page like Vault never
-					// stutters). Restored on pointerup.
+					// the panel's drop shadow (a 40px-blur shadow forces the page
+					// BEHIND it to repaint as it moves). Restored on pointerup.
 					const el = panelRef && panelRef.current;
 					if ( el ) {
 						el.classList.add( 'is-dragging' );
@@ -278,6 +308,8 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 			out[ key ] = {
 				onPointerDown: ( e ) => {
 					const start = frame;
+					// Snapshot the clamp bounds once — see the move handler.
+					const bounds = getAvailableBounds();
 					beginDrag(
 						e,
 						( dx, dy ) => {
@@ -298,7 +330,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 							if ( dirs.b ) {
 								h = Math.max( MIN_H, h + dy );
 							}
-							const f = clampFrame( { x, y, w, h } );
+							const f = clampFrame( { x, y, w, h }, {}, bounds );
 							liveFrameRef.current = f;
 							// Real box resize (no transform — scaling stretched the
 							// content). The `is-dragging` class lifts the drop shadow,
