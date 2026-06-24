@@ -211,14 +211,16 @@
 	font-size: 9px;
 
 	&.running {
-		// Solid success pill, a touch lighter than the heavy success-600.
+		// Accent-on-its-own-tint: --sage-subtle and --sage both track the theme
+		// (dark-green-on-light under Newspack, bright-green-on-dark under CRT), so
+		// the pill stays a readable green badge in every skin — no hardcoded #fff.
 		background: var(--sage-subtle);
-		color: base.$white;
+		color: var(--sage);
 	}
 
 	&.dead {
-		background: base.$dead-bg;
-		color: base.$white;
+		background: var(--oxide-subtle);
+		color: var(--oxide);
 		opacity: 0.5;
 	}
 }
@@ -251,19 +253,20 @@
 	text-transform: uppercase;
 
 	&.running {
-		// Solid success pill, a touch lighter than the heavy success-600.
+		// Accent-on-its-own-tint (see the compact variant above) — a readable
+		// green badge in every skin, no hardcoded #fff.
 		background: var(--sage-subtle);
-		color: base.$white;
+		color: var(--sage);
 	}
 
 	&.dead {
-		background: base.$dead-bg;
-		color: base.$white;
+		background: var(--oxide-subtle);
+		color: var(--oxide);
 	}
 
 	&.idle {
-		background: base.$idle-bg;
-		color: base.$white;
+		background: var(--paper-3);
+		color: var(--ink-3);
 	}
 }
 

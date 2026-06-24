@@ -41,6 +41,13 @@
 			border-top: 1px solid var(--paper-shadow);
 		}
 
+		// WP core zebra-stripes odd rows with a hardcoded #f6f7f7 that ignores
+		// the theme (jarring light bands on a dark skin); clear it so rows sit on
+		// the themed surface. The hover rule below wins by specificity.
+		tbody tr {
+			background: transparent;
+		}
+
 		tbody tr:hover {
 			background: var(--paper-2);
 		}
