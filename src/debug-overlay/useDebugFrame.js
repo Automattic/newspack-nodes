@@ -189,20 +189,43 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 
 	// Generic pointer-drag wrapper: a stream of dx/dy deltas to `apply`, with a
 	// `commit` fired once on pointerup (where the per-drag React state update lands).
+	// Pointermove is coalesced to ONE apply per animation frame: a fast gesture
+	// fires moves faster than a frame can absorb, so without this the events queue
+	// and then drain in a burst (the visible stutter). We keep only the latest
+	// delta and flush it on the next frame.
 	const beginDrag = useCallback( ( e, apply, commit ) => {
 		if ( e.button !== undefined && e.button !== 0 ) {
 			return;
 		}
 		const startX = e.clientX;
 		const startY = e.clientY;
+		let pending = null;
+		let rafId = null;
+		const flush = () => {
+			rafId = null;
+			if ( pending ) {
+				apply( pending.dx, pending.dy );
+			}
+		};
 		const onMove = ( ev ) => {
 			ev.preventDefault();
-			apply( ev.clientX - startX, ev.clientY - startY );
+			pending = { dx: ev.clientX - startX, dy: ev.clientY - startY };
+			if ( null === rafId ) {
+				rafId = window.requestAnimationFrame( flush );
+			}
 		};
 		const onUp = ( ev ) => {
 			ev.preventDefault?.();
 			window.removeEventListener( 'pointermove', onMove );
 			window.removeEventListener( 'pointerup', onUp );
+			if ( null !== rafId ) {
+				window.cancelAnimationFrame( rafId );
+				rafId = null;
+			}
+			// Apply the final delta synchronously so commit reads the latest frame.
+			if ( pending ) {
+				apply( pending.dx, pending.dy );
+			}
 			commit?.();
 		};
 		window.addEventListener( 'pointermove', onMove );
@@ -242,9 +265,13 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 						h: start.h,
 					} );
 					liveFrameRef.current = f;
-					// GPU-composited translate during the drag — no layout, no React.
+					// GPU-composited translate during the drag — no layout, no
+					// paint, no React. will-change keeps the panel on its own
+					// compositor layer for the gesture (so it isn't repeatedly torn
+					// down + repainted, the cause of the recurring move stutter).
 					const el = panelRef && panelRef.current;
 					if ( el ) {
+						el.style.willChange = 'transform';
 						el.style.transform = `translate(${ f.x - start.x }px, ${
 							f.y - start.y
 						}px)`;
@@ -254,6 +281,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 					const el = panelRef && panelRef.current;
 					if ( el ) {
 						el.style.transform = '';
+						el.style.willChange = '';
 					}
 					if ( liveFrameRef.current ) {
 						setFrame( liveFrameRef.current );
@@ -293,17 +321,30 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 							}
 							const f = clampFrame( { x, y, w, h } );
 							liveFrameRef.current = f;
-							// Resize is inherently layout — write the box directly
-							// (CSS reflows) but skip the React re-render until commit.
+							// Resize via a GPU-composited transform, not width/height:
+							// growing the box would otherwise re-paint the whole
+							// (newly-revealed) panel area every frame — smooth when
+							// shrinking, janky when growing, worse the larger it is.
+							// Scale the existing layer from its top-left + translate the
+							// moved origin; the real dimensions land once, on commit.
 							const el = panelRef && panelRef.current;
 							if ( el ) {
-								el.style.left = `${ f.x }px`;
-								el.style.top = `${ f.y }px`;
-								el.style.width = `${ f.w }px`;
-								el.style.height = `${ f.h }px`;
+								el.style.willChange = 'transform';
+								el.style.transformOrigin = '0 0';
+								el.style.transform = `translate(${
+									f.x - start.x
+								}px, ${ f.y - start.y }px) scale(${
+									f.w / start.w
+								}, ${ f.h / start.h })`;
 							}
 						},
 						() => {
+							const el = panelRef && panelRef.current;
+							if ( el ) {
+								el.style.transform = '';
+								el.style.transformOrigin = '';
+								el.style.willChange = '';
+							}
 							if ( liveFrameRef.current ) {
 								setFrame( liveFrameRef.current );
 							}
