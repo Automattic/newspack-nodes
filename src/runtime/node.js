@@ -70,7 +70,7 @@ export class Node {
 
 	fill( message ) {
 		if ( ! this.sink ) {
-			throw new Error( 'Node.fill requires a wired sink' );
+			throw new Error( 'fill requires a wired sink' );
 		}
 		if (
 			'' === message[ TO ] &&

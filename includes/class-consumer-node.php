@@ -181,10 +181,10 @@ class Consumer_Node extends Timer_Node {
 	/** @param array<int, mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
 		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Consumer::fill requires a wired sink' );
+			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
 		$value_raw = $message[ Message::VALUE ];
-		$value     = \is_scalar( $value_raw ) ? (string) $value_raw : '';
+		$value     = Core::as_string( $value_raw );
 		$verb      = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
 
 		$payload = null;
@@ -593,12 +593,13 @@ class Consumer_Node extends Timer_Node {
 			return [ [ 'name' => $this->target, 'class' => '' ] ];
 		}
 		$class = Command_Interpreter_Node::shell_name_for( $node );
-		if ( 'Tee' !== $class ) {
+		// instanceof, not an exact name match, so a Tee subclass (Tap) expands too.
+		if ( ! $node instanceof Tee_Node ) {
 			return [ [ 'name' => $this->target, 'class' => $class ] ];
 		}
 		$tee_targets = $node->target;
 		if ( ! \is_array( $tee_targets ) ) {
-			return [ [ 'name' => $this->target, 'class' => 'Tee' ] ];
+			return [ [ 'name' => $this->target, 'class' => $class ] ];
 		}
 		$out = [];
 		foreach ( $tee_targets as $t ) {

@@ -1808,6 +1808,67 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 'Tee', $out[0]['class'] );
 	}
 
+	public function test_resolve_downstream_targets_expands_Tee_subclass_Tap_to_its_targets(): void {
+		// Tap_Node is a Tee subclass — its instanceof Tee_Node, so a Consumer
+		// targeting a Tap must expand to the Tap's targets the same way a Tee does.
+		$processor_a = new Capture_Sink_Node();
+		$processor_a->name( 'processor-a' );
+		$processor_b = new Capture_Sink_Node();
+		$processor_b->name( 'processor-b' );
+
+		$tap = new \Newspack_Nodes\Tap_Node();
+		$tap->name( 'firehose:tap' );
+		$tap->connect_node( 'processor-a' );
+		$tap->connect_node( 'processor-b' );
+
+		$source = new Partition_Node();
+
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$this->produce_line( $source, 'data' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'firehose:tap' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->poll();
+		$c->checkpoint();
+
+		$offsetlog_path = "{$this->tmp}/offsets/r/p0/0.log";
+		$content        = (string) \file_get_contents( $offsetlog_path );
+		$message        = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $message[ Message::VALUE ];
+
+		$this->assertCount( 2, $entry['targets'], 'Tap must expand to N targets' );
+		$names = \array_column( $entry['targets'], 'name' );
+		$this->assertContains( 'processor-a', $names );
+		$this->assertContains( 'processor-b', $names );
+	}
+
+	public function test_resolve_downstream_targets_uses_actual_class_for_non_array_Tap_target(): void {
+		// Tee-family node whose target is somehow a non-array (corrupted /
+		// mid-construction) collapses into a single-row entry whose class is the
+		// node's ACTUAL shell-name (Tap), not a hardcoded 'Tee'.
+		$tap = new \Newspack_Nodes\Tap_Node();
+		$tap->name( 'firehose:tap' );
+		$ref = new \ReflectionProperty( $tap, 'target' );
+		$ref->setAccessible( true );
+		$ref->setValue( $tap, 'unexpected-string' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'firehose:tap' );
+		$c_ref = new \ReflectionClass( $c );
+		$rdt   = $c_ref->getMethod( 'resolve_downstream_targets' );
+		$rdt->setAccessible( true );
+		$out = $rdt->invoke( $c );
+
+		$this->assertCount( 1, $out );
+		$this->assertSame( 'firehose:tap', $out[0]['name'] );
+		$this->assertSame( 'Tap', $out[0]['class'] );
+	}
+
 	public function test_resolve_downstream_targets_returns_empty_when_no_target(): void {
 		// Consumer with no target → returns []. Verified via the direct call
 		// since the checkpoint() path always sets `targets` to whatever it

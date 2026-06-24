@@ -16,6 +16,7 @@ use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
 use Newspack_Nodes\Config_System\Reset_Gate;
 use Newspack_Nodes\Config_System\Settings_Renderer;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Settings_Schema;
 
@@ -640,8 +641,8 @@ class Admin {
 		$html     = Settings_Renderer::directory(
 			'base_directory',
 			'newspack_nodes_base_directory',
-			\is_scalar( $value ) ? (string) $value : '',
-			\is_scalar( $base ) ? (string) $base : '',
+			Core::as_string( $value ),
+			Core::as_string( $base ),
 			\__( 'Base directory for logs, locks, and offsets.', 'newspack-nodes' ),
 			self::reset_mark_name( 'base_directory' )
 		);
@@ -683,7 +684,7 @@ class Admin {
 		$html    = Settings_Renderer::number(
 			$field,
 			self::OPTION_PREFIX . $field,
-			\is_scalar( $value ) ? (string) $value : '',
+			Core::as_string( $value ),
 			$default,
 			$min,
 			$max,
@@ -704,11 +705,11 @@ class Admin {
 			$default_servers = [ '127.0.0.1:11211' ];
 		}
 		// Coerce each entry to string exactly as implode/esc_* already would.
-		$default_servers = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $default_servers );
+		$default_servers = \array_map( static fn ( $server ): string => Core::as_string( $server ), $default_servers );
 		// Stored as the typed array shape; the textarea joins entries with newlines.
 		$value = \get_option( 'newspack_nodes_memcache_servers', [] );
 		$value = \is_array( $value ) ? $value : [];
-		$value = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $value );
+		$value = \array_map( static fn ( $server ): string => Core::as_string( $server ), $value );
 		$html  = Settings_Renderer::textarea(
 			'memcache_servers',
 			'newspack_nodes_memcache_servers',

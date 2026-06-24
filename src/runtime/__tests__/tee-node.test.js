@@ -64,15 +64,19 @@ test( 'fill with targets but no sink does not throw', () => {
 } );
 
 test( 'fill with a path target but no sink throws because it cannot route', () => {
+	const router = new Node();
+	router.name = '_router';
 	const t = new TeeNode();
 	t.target = [ '_router/a' ];
 
 	expect( () => t.fill( newMessage() ) ).toThrow(
-		'Tee.fill requires a wired sink'
+		'fill requires a wired sink'
 	);
 } );
 
 test( 'fill logs and continues when a routed target throws', () => {
+	const router = new Node();
+	router.name = '_router';
 	const sink = new Node();
 	sink.fill = () => {
 		throw new Error( 'target exploded' );
@@ -129,6 +133,34 @@ test( 'disconnectNode for a missing target leaves the array untouched', () => {
 	t.connectNode( 'b' );
 	t.disconnectNode( 'missing' );
 	expect( t.target ).toEqual( [ 'a', 'b' ] );
+} );
+
+test( 'fill keeps a path-shaped target whose HEAD node is registered', () => {
+	const head = new Node();
+	head.name = 'alive';
+	const router = new Node();
+	router.name = '_router';
+	router.fill = () => {};
+
+	const t = new TeeNode();
+	t.sink = router;
+	t.target = [ 'alive/workers' ];
+	t.fill( newMessage() );
+
+	expect( t.target ).toEqual( [ 'alive/workers' ] );
+} );
+
+test( 'fill prunes a path-shaped target whose HEAD node is dead', () => {
+	const router = new Node();
+	router.name = '_router';
+	router.fill = () => {};
+
+	const t = new TeeNode();
+	t.sink = router;
+	t.target = [ 'gone/workers' ];
+	t.fill( newMessage() );
+
+	expect( t.target ).toEqual( [] );
 } );
 
 test( 'connectNode normalizes a string target before appending', () => {

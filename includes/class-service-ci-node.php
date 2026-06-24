@@ -74,7 +74,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 				continue;
 			}
 			$verb_name = $verb['name'] ?? '';
-			$name      = \is_scalar( $verb_name ) ? (string) $verb_name : '';
+			$name      = Core::as_string( $verb_name );
 			if ( '' === $name ) {
 				continue;
 			}

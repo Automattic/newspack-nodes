@@ -39,7 +39,7 @@ describe( 'Inspector (view mode)', () => {
 		bytesWritten: 1024 * 1024 * 3,
 	};
 	const parsed = {
-		nodes: [ node, { id: 'tee_a', class: 'Tee' } ],
+		nodes: [ node, { id: 'tee_a', class: 'Tee', target: [] } ],
 		edges: [
 			{ from: 'echo', to: 'tee_a' },
 			{ from: 'echo', to: 'sink' },
@@ -77,7 +77,12 @@ describe( 'Inspector (view mode)', () => {
 		// like `_sse/workers` must disconnect by its full value, not its head.
 		const teeParsed = {
 			nodes: [
-				{ id: 'tee', class: 'Tee', targets: [ 'a', '_sse/workers' ] },
+				{
+					id: 'tee',
+					class: 'Tee',
+					target: [ 'a', '_sse/workers' ],
+					targets: [ 'a', '_sse/workers' ],
+				},
 				{ id: 'a', class: 'Echo' },
 				{ id: 'b', class: 'Echo' },
 			],
@@ -338,7 +343,13 @@ describe( 'Inspector (view mode)', () => {
 		traceView.unmount();
 
 		const tailAction = jest.fn();
-		const teeNode = { id: 'tee_a', class: 'Tee', count: 0, targets: [] };
+		const teeNode = {
+			id: 'tee_a',
+			class: 'Tee',
+			count: 0,
+			target: [],
+			targets: [],
+		};
 		const tailView = render(
 			<Inspector
 				{ ...baseProps }
@@ -378,6 +389,32 @@ describe( 'Inspector (view mode)', () => {
 		);
 	} );
 
+	it( 'shows the tail/tap button for a Tee SUBCLASS driven by the catalog is_tee flag', () => {
+		// The tail button keys off the catalog `is_tee` flag, not the runtime
+		// target shape — so a Tap (class "Tap", is_tee true) gets the button
+		// just like a Tee, even when its target is a bare string.
+		const tapAction = jest.fn();
+		const tapNode = {
+			id: 'tap_a',
+			class: 'Tap',
+			count: 0,
+			target: '',
+			targets: [],
+		};
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tap_a"
+				parsed={ { nodes: [ tapNode ], edges: [] } }
+				nodeIds={ new Set( [ 'tap_a' ] ) }
+				catalog={ [ { shell_name: 'Tap', is_tee: true } ] }
+				onAction={ tapAction }
+			/>
+		);
+		fireEvent.click( getByText( 'Connect' ) );
+		expect( tapAction ).toHaveBeenCalledWith( 'tail', 'tap_a' );
+	} );
+
 	it( 'opens a send modal and fires onAction("send", id, payload) when confirmed', () => {
 		const onAction = jest.fn();
 		const { getByText, getByDisplayValue, container } = renderNode( {
@@ -409,7 +446,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'renders a Connect button on Tee nodes', () => {
-		const teeNode = { id: 'tee_a', class: 'Tee', count: 0 };
+		const teeNode = { id: 'tee_a', class: 'Tee', count: 0, target: [] };
 		const { getByText } = render(
 			<Inspector
 				{ ...baseProps }
@@ -429,6 +466,7 @@ describe( 'Inspector (view mode)', () => {
 			id: 'tee_a',
 			class: 'Tee',
 			count: 0,
+			target: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
 			targets: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
 		};
 		const { getByText } = render(
@@ -454,6 +492,7 @@ describe( 'Inspector (view mode)', () => {
 			id: 'tee_a',
 			class: 'Tee',
 			count: 0,
+			target: [ '_output' ],
 			targets: [ '_output' ],
 		};
 		const { getByText } = render(
@@ -478,6 +517,7 @@ describe( 'Inspector (view mode)', () => {
 			id: 'tee_a',
 			class: 'Tee',
 			count: 0,
+			target: [ '_repl/_output/_sse:777/_output' ],
 			targets: [ '_repl/_output/_sse:777/_output' ],
 		};
 		const { getByText } = render(

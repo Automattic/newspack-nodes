@@ -157,8 +157,8 @@ export function HeaderControls( {
 						     modals use), inlined since @wordpress/icons isn't a
 						     nodes dependency. */ }
 						<svg
-							width="20"
-							height="20"
+							width="24"
+							height="24"
 							viewBox="0 0 24 24"
 							fill="currentColor"
 							aria-hidden="true"

@@ -297,22 +297,15 @@
 	}
 }
 
-// Fixed-width the bouncy I/O cards (the overlay's Overview tab only) so changing
-// values don't reflow the row. Byte rate + total bytes carry the widest-swinging
-// units (B↔KB↔MB) → 200px; the message-rate / total-messages numbers are
-// narrower; warnings / errors / debug stay content-sized.
 .nodes-overview {
 	.nodes-card--byte-rate,
-	.nodes-card--total-bytes {
-		flex: 0 0 220px;
-	}
-
+	.nodes-card--total-bytes,
 	.nodes-card--message-rate,
 	.nodes-card--total-messages {
-		flex: 0 0 160px;
+		flex: 0 0 232px;
 	}
 
-	// "Reset stats" button, right-aligned above the cards.
+	// "Reset stats" button, right-aligned below the charts.
 	&__toolbar {
 		display: flex;
 		justify-content: flex-end;
@@ -324,6 +317,9 @@
 // arrows hold position as the digit count changes instead of bouncing.
 .nodes-card__io {
 	display: inline-block;
-	min-width: 5.5ch;
+	min-width: 99px;
+	max-width: 99px;
+	white-space: nowrap;
+	overflow: hidden;
 	text-align: right;
 }

@@ -78,6 +78,7 @@ describe( 'parseMetadata', () => {
 				accepts_fill: true,
 				has_target: true,
 				targets: [ 'beta' ],
+				target: 'beta',
 			},
 		] );
 		expect( edges ).toEqual( [ { from: 'alpha', to: 'beta' } ] );

@@ -1,16 +1,17 @@
 {
-	"ROUTER": "_router",
 	"COMMAND_INTERPRETER": "_command_interpreter",
+	"COMPLETION": "_completion",
+	"CONSOLE_TAP": "_shell",
+	"CWD": "_cwd",
+	"HEARTBEAT": "_heartbeat",
 	"HTTP": "_http",
+	"METADATA": "_metadata",
 	"OUTPUT": "_output",
 	"REPL": "_repl",
+	"ROUTER": "_router",
+	"SETTINGS_LOG": "_settings:log",
 	"SSE": "_sse",
-	"METADATA": "_metadata",
-	"UPTIME": "_uptime",
-	"COMPLETION": "_completion",
-	"HEARTBEAT": "_heartbeat",
-	"CWD": "_cwd",
 	"TOPICPROBE": "_topicprobe",
 	"TOPICPROBE_LOG": "_topicprobe:log",
-	"SETTINGS_LOG": "_settings:log"
+	"UPTIME": "_uptime"
 }

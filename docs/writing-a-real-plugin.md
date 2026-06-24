@@ -209,7 +209,7 @@ Three APIs, three payload shapes, three auth schemes. Each subclass is small pre
 ```php
 public function fetch( array $config ): array {
 	$repos = \is_array( $config['repos'] ?? null ) ? $config['repos'] : [];
-	$token = \is_string( $config['token'] ?? null ) ? $config['token'] : '';
+	$token = Core::as_string( $config['token'] ?? null );
 	$items = [];
 	foreach ( $repos as $repo ) {
 		if ( ! \is_string( $repo ) || '' === $repo ) {

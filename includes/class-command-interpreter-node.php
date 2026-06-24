@@ -67,7 +67,7 @@ class Command_Interpreter_Node extends Node {
 
 	public function fill( array &$message ): void {
 		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Command_Interpreter::fill requires a wired sink' );
+			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
 		++$this->counter;
 
@@ -98,8 +98,8 @@ class Command_Interpreter_Node extends Node {
 		}
 		$name_raw  = $cmd['name'];
 		$args_raw  = $cmd['arguments'] ?? '';
-		$cmd_name  = \is_scalar( $name_raw ) ? (string) $name_raw : '';
-		$cmd_args  = \is_scalar( $args_raw ) ? (string) $args_raw : '';
+		$cmd_name  = Core::as_string( $name_raw );
+		$cmd_args  = Core::as_string( $args_raw );
 
 		// Authorization gate (every command): client tier requires the LOCAL
 		// provenance taint; verifier processes swap in an HMAC check. Refuse
@@ -130,7 +130,7 @@ class Command_Interpreter_Node extends Node {
 		}
 
 		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Command_Interpreter::fill requires a wired sink' );
+			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
 
 		// TM_NOREPLY (Tachikoma CommandInterpreter::send_response): suppress the
@@ -139,7 +139,7 @@ class Command_Interpreter_Node extends Node {
 		$in_type = $message[ Message::TYPE ];
 		if ( ( \is_int( $in_type ) ? $in_type : 0 ) & Message::TM_NOREPLY ) {
 			if ( ( $resp_type & Message::TM_ERROR ) && '' !== $result ) {
-				$this->stderr( 'error from TM_NOREPLY command: ' . ( \is_scalar( $result ) ? (string) $result : '' ) );
+				$this->stderr( 'error from TM_NOREPLY command: ' . ( Core::as_string( $result ) ) );
 			}
 			return;
 		}
@@ -186,41 +186,61 @@ class Command_Interpreter_Node extends Node {
 	 * @return Node|null Null when no registered namespace yields a matching Node.
 	 */
 	public function make_node( string $type, string $name, ...$args ): ?Node {
+		$fqcn = self::resolve_class( $type );
+		if ( null === $fqcn ) {
+			return null;
+		}
+		// Reflection instantiation (vs `new $fqcn`) keeps the variadic ctor-arg
+		// spread working for any Node subclass without PHPStan narrowing the
+		// FQCN to the abstract base Node (which has no constructor).
+		$ref = new \ReflectionClass( $fqcn );
+		// Abstract Node subclasses (e.g. Service_CI_Node) resolve under a prefix
+		// but can't be instantiated — return null gracefully rather than fatal.
+		if ( $ref->isAbstract() ) {
+			return null;
+		}
+		// Tachikoma sequence: the trivial base arguments() stores the raw tokens;
+		// a node opts into parse_schema_args() to assign props.
+		// Object deps are public props set after construction.
+		$node = new $fqcn();
+		$node->name( $name );
+		$scalar_args = \array_filter( $args, '\is_scalar' );
+		if ( \count( $scalar_args ) !== \count( $args ) ) {
+			Core::print_less_often(
+				"make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)"
+			);
+		}
+		$node->arguments( \implode( ' ', $scalar_args ) );
+		$node->sink( $this );
+		if ( $this->debug_state() > 0 ) {
+			$node->debug_state( $this->debug_state() );
+		}
+		return $node;
+	}
+
+	/**
+	 * Resolve a shell type token to the first registered concrete Node-subclass FQCN.
+	 *
+	 * Walks the registered namespace prefixes and returns the first
+	 * `{$prefix}{$type}_Node` (or the bare `{$prefix}Node` for the base type)
+	 * that exists, is a Node, and is NOT abstract. Abstract matches are skipped so
+	 * a concrete `{$type}_Node` under a later-scanned prefix still resolves —
+	 * otherwise `make_node` would see the abstract first and return null. Null when
+	 * no namespace yields a concrete match.
+	 *
+	 * @param string $type Shell name (e.g. `Tee`, `Tap`, or the bare `Node`).
+	 * @return class-string<Node>|null
+	 */
+	public static function resolve_class( string $type ): ?string {
 		foreach ( self::registered_namespaces() as $prefix ) {
 			// The base Node carries no `_Node` suffix; `make_node Node` resolves it
 			// directly (its default fill() stamps TO=target and forwards to sink — a
 			// bare routing/fan-in primitive, e.g. the SSE-stream `_default_route`).
 			// `is_a(..., true)` accepts Node itself as well as its subclasses.
 			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
-			if ( ! \class_exists( $fqcn ) || ! \is_a( $fqcn, Node::class, true ) ) {
-				continue;
+			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
+				return $fqcn;
 			}
-			// Reflection instantiation (vs `new $fqcn`) keeps the variadic ctor-arg
-			// spread working for any Node subclass without PHPStan narrowing the
-			// FQCN to the abstract base Node (which has no constructor).
-			$ref = new \ReflectionClass( $fqcn );
-			// Abstract Node subclasses (e.g. Service_CI_Node) resolve under a prefix
-			// but can't be instantiated — return null gracefully rather than fatal.
-			if ( $ref->isAbstract() ) {
-				continue;
-			}
-			// Tachikoma sequence: the trivial base arguments() stores the raw tokens;
-			// a node opts into parse_schema_args() to assign props.
-			// Object deps are public props set after construction.
-			$node = new $fqcn();
-			$node->name( $name );
-			$scalar_args = \array_filter( $args, '\is_scalar' );
-			if ( \count( $scalar_args ) !== \count( $args ) ) {
-				Core::print_less_often(
-					"make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)"
-				);
-			}
-			$node->arguments( \implode( ' ', $scalar_args ) );
-			$node->sink( $this );
-			if ( $this->debug_state() > 0 ) {
-				$node->debug_state( $this->debug_state() );
-			}
-			return $node;
 		}
 		return null;
 	}
@@ -380,7 +400,7 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_pwd( string $args, array $envelope ): string {
 		$cwd      = '' === $args ? '/' : $args;
 		$from_raw = $envelope[ Message::FROM ] ?? '';
-		$from     = \is_scalar( $from_raw ) ? (string) $from_raw : '';
+		$from     = Core::as_string( $from_raw );
 		return ' ' . $cwd . ' -> ' . $from;
 	}
 
@@ -414,7 +434,7 @@ class Command_Interpreter_Node extends Node {
 		// No target defaults to the issuing message's FROM — tees the node's flow back to that session.
 		if ( '' === $target ) {
 			$from   = $envelope[ Message::FROM ] ?? '';
-			$target = \is_scalar( $from ) ? (string) $from : '';
+			$target = Core::as_string( $from );
 			if ( '' === $target ) {
 				return 'usage: connect_node <node> [<target>]';
 			}
@@ -437,7 +457,7 @@ class Command_Interpreter_Node extends Node {
 		// For a Tee, no target removes the issuing FROM from the fan-out (undoes a default connect).
 		if ( '' === $target && \is_array( $src->target() ) ) {
 			$from   = $envelope[ Message::FROM ] ?? '';
-			$target = \is_scalar( $from ) ? (string) $from : '';
+			$target = Core::as_string( $from );
 			if ( '' === $target ) {
 				return 'usage: disconnect_node <node> [<target>]';
 			}
@@ -715,7 +735,7 @@ class Command_Interpreter_Node extends Node {
 		// The class heads the dump (first line, before the body); the rest is the
 		// node's state. Pulled out so it isn't also a body key / a filter target.
 		$class_raw = $snapshot['class'] ?? '';
-		$class     = \is_scalar( $class_raw ) ? (string) $class_raw : '';
+		$class     = Core::as_string( $class_raw );
 		unset( $snapshot['class'] );
 		// `class` is always shown in the header, so requesting it as a key is a
 		// no-op rather than a "can't find key" error.
@@ -1050,7 +1070,7 @@ class Command_Interpreter_Node extends Node {
 			for ( $col = 0; $col < $ncols; ++$col ) {
 				// Cells arrive pre-stringified per @param; guard narrows the bare-array element before str_pad.
 				$cell = $row[ $col ] ?? '';
-				$val  = \is_scalar( $cell ) ? (string) $cell : '';
+				$val  = Core::as_string( $cell );
 				$dir  = $dirs[ $col ] ?? 'left';
 				$last = ( $col === $ncols - 1 );
 				if ( 'right' === $dir ) {

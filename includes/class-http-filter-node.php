@@ -30,7 +30,7 @@ class HTTP_Filter_Node extends Node {
 
 	public function fill( array &$message ): void {
 		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'HTTP_Filter::fill requires a wired sink' );
+			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
 		++$this->counter;
 		[ $head, $reply_node ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );

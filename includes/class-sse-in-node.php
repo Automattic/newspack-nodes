@@ -412,8 +412,8 @@ class SSE_In_Node extends Node {
 	private function dispatch_message( array $message ): bool {
 		$id_raw  = $message[ Message::ID ];
 		$key_raw = $message[ Message::KEY ];
-		$id      = \is_scalar( $id_raw ) ? (string) $id_raw : '';
-		$key     = \is_scalar( $key_raw ) ? (string) $key_raw : '';
+		$id      = Core::as_string( $id_raw );
+		$key     = Core::as_string( $key_raw );
 		$value   = $message[ Message::VALUE ];
 
 		// Position from message ID — `{segment_id}:{offset}` shape. Empty ID
@@ -459,7 +459,7 @@ class SSE_In_Node extends Node {
 		}
 
 		if ( $this->target ) {
-			$message[ Message::TO ] = \is_string( $this->target ) ? $this->target : '';
+			$message[ Message::TO ] = Core::as_string( $this->target );
 		}
 		$this->stamp_message( $message, $this->name );
 

@@ -262,6 +262,55 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
+	public function test_list_flags_tee_subclasses_with_is_tee(): void {
+		// The Inspector renders the multi-chip fan-out editor (and the tail/tap
+		// button) iff a node IS a Tee-family node. That signal must come from the
+		// catalog — not the runtime target shape — so it holds in edit mode where
+		// the draft node's target is a string. Tee and Tap report is_tee === true;
+		// a non-Tee node (Echo) reports false.
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+
+		$by_name = [];
+		foreach ( $result['classes'] as $entry ) {
+			$by_name[ $entry['shell_name'] ] = $entry;
+		}
+
+		$this->assertArrayHasKey(
+			'Tee',
+			$by_name,
+			'Tee absent from catalog — class discovery broken (run composer dump-autoload -o)'
+		);
+		$this->assertArrayHasKey(
+			'is_tee',
+			$by_name['Tee'],
+			'each catalog entry must carry an is_tee flag'
+		);
+		$this->assertTrue(
+			$by_name['Tee']['is_tee'],
+			'Tee must report is_tee === true'
+		);
+
+		$this->assertArrayHasKey(
+			'Tap',
+			$by_name,
+			'Tap absent from catalog — class discovery broken (run composer dump-autoload -o)'
+		);
+		$this->assertTrue(
+			$by_name['Tap']['is_tee'],
+			'a Tee subclass (Tap) must report is_tee === true'
+		);
+
+		$this->assertArrayHasKey(
+			'Echo',
+			$by_name,
+			'Echo absent from catalog — class discovery broken (run composer dump-autoload -o)'
+		);
+		$this->assertFalse(
+			$by_name['Echo']['is_tee'],
+			'a non-Tee node must report is_tee === false'
+		);
+	}
+
 	public function test_list_flags_interpreter_classes_with_is_interpreter(): void {
 		// The console routes a node's command verbs to the bare node iff the node
 		// IS a Command_Interpreter_Node (it handles verbs directly); otherwise to

@@ -7,6 +7,7 @@
 
 namespace Example_AI_Newsletter;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
 
@@ -21,7 +22,7 @@ class Summarizer_Demo_Node extends Node {
 	 */
 	protected function summarize( array $item ): string {
 		$title = \is_string( $item['title'] ?? null ) ? $item['title'] : '(untitled)';
-		$body  = \is_string( $item['body'] ?? null ) ? $item['body'] : '';
+		$body  = Core::as_string( $item['body'] ?? null );
 		return $title . ' — ' . \mb_substr( $body, 0, 80 );
 	}
 

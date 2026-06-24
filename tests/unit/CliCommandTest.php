@@ -22,6 +22,7 @@ use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/class-cli-command.php';
+require_once \dirname( __DIR__, 2 ) . '/includes/class-tap-node.php';
 require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
 
 #[CoversClass( CLI_Command::class )]
@@ -253,10 +254,10 @@ class CliCommandTest extends TestCase {
 		$this->assertSame( '/firehose-workers.p0> ', $shell->prompt );
 		$this->assertSame( 'firehose-workers.p0', $shell->path );
 
-		// Shell → CommandInterpreter: pivoted commands are HMAC-signed,
+		// Shell → Tap: pivoted commands are HMAC-signed,
 		// then routed by TO (the Router peels the worker id to the mounted Partition).
 		$this->assertSame(
-			Core::node( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER ),
+			Core::node( \Newspack_Nodes\Node_Names::CONSOLE_TAP ),
 			$shell->sink()
 		);
 

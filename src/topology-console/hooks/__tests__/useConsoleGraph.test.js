@@ -249,7 +249,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 		const { result } = renderGraph();
 		const shell = result.current.shell;
 		expect( shell ).toBeInstanceOf( ShellNode );
-		expect( shell.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+		expect( shell.sink ).toBe( Core.node( names.CONSOLE_TAP ) );
 		expect( Core.node( names.COMMAND_INTERPRETER ).sink ).toBe(
 			Core.node( names.ROUTER )
 		);

@@ -589,7 +589,7 @@ describe( 'Inspector (edit mode)', () => {
 				selectedId="tee_a"
 				parsed={ {
 					nodes: [
-						{ id: 'tee_a', class: 'Tee' },
+						{ id: 'tee_a', class: 'Tee', target: [ 'a' ] },
 						{ id: 'a', class: 'Echo' },
 						{ id: 'b', class: 'Echo' },
 					],
@@ -618,7 +618,7 @@ describe( 'Inspector (edit mode)', () => {
 				selectedId="tee_a"
 				parsed={ {
 					nodes: [
-						{ id: 'tee_a', class: 'Tee' },
+						{ id: 'tee_a', class: 'Tee', target: [ 'a' ] },
 						{ id: 'a', class: 'Echo' },
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
@@ -634,13 +634,49 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'tee_a', 'a' );
 	} );
 
+	it( 'TargetsField: a Tee SUBCLASS renders the multi-chip field driven by the catalog is_tee flag (edit-mode string target)', () => {
+		// In edit mode the draft node's `target` is a STRING (parseTsl shape), so
+		// the multi-chip editor must key off the catalog `is_tee` flag, not the
+		// runtime target shape — a Tap (class "Tap", is_tee true) gets the editor.
+		const onConnect = jest.fn();
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tap_a"
+				parsed={ {
+					nodes: [
+						{ id: 'tap_a', class: 'Tap', target: 'a' },
+						{ id: 'a', class: 'Echo' },
+						{ id: 'b', class: 'Echo' },
+					],
+					edges: [ { from: 'tap_a', to: 'a' } ],
+				} }
+				catalog={ [
+					{
+						shell_name: 'Tap',
+						is_tee: true,
+						arguments: [],
+						commands: [],
+					},
+				] }
+				onConnect={ onConnect }
+			/>
+		);
+		expect(
+			container.querySelectorAll( '.topology-edit-chip' )
+		).toHaveLength( 1 );
+		const select = container.querySelector( '.topology-edit-add-chip' );
+		fireEvent.change( select, { target: { value: 'b' } } );
+		expect( onConnect ).toHaveBeenCalledWith( 'tap_a', 'b' );
+	} );
+
 	it( 'Tee TargetsField: shows an empty hint when there are no available targets', () => {
 		const { container } = render(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
 				parsed={ {
-					nodes: [ { id: 'tee_a', class: 'Tee' } ],
+					nodes: [ { id: 'tee_a', class: 'Tee', target: [] } ],
 					edges: [],
 				} }
 				catalog={ [

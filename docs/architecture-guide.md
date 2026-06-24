@@ -171,7 +171,7 @@ class Node {
 ```php
 public function fill( array &$message ): void {
     if ( null === $this->sink ) {
-        throw new \RuntimeException( 'Shell::fill requires a wired sink' );
+        throw new \RuntimeException( 'fill requires a wired sink' );
     }
     if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
         $message[ Message::TO ] = $this->target;

@@ -117,8 +117,8 @@ class SSE_Out_Node extends Node {
 	public function stream( \WP_REST_Request $request ) {
 		$subscribe     = $request->get_param( 'subscribe' );
 		$positions_raw = $request->get_param( 'positions' ) ?? '';
-		$subs          = $this->parse_subscriptions( \is_scalar( $subscribe ) ? (string) $subscribe : '' );
-		$positions     = $this->parse_positions( \is_scalar( $positions_raw ) ? (string) $positions_raw : '' );
+		$subs          = $this->parse_subscriptions( Core::as_string( $subscribe ) );
+		$positions     = $this->parse_positions( Core::as_string( $positions_raw ) );
 		$interval      = self::HEARTBEAT_MS;
 
 		$partition = $this->subscription_partition( $subs );
