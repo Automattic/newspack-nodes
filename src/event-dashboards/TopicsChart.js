@@ -12,7 +12,7 @@
  * ts), filling gaps with 0.
  */
 
-import { memo, useCallback, useMemo } from '@wordpress/element';
+import { memo, useCallback, useMemo, useRef } from '@wordpress/element';
 import * as d3 from 'd3';
 import {
 	MARGIN,
@@ -23,6 +23,8 @@ import {
 	useTimeChart,
 } from '@newspack-nodes/shared/hooks/useTimeChart';
 import { buildAlignedSeries } from './buildAlignedSeries';
+import { resolveChartPalette } from './resolveChartPalette';
+import { useThemeToken } from './useThemeToken';
 
 const HEIGHT = 200;
 // A panel is ~1800px wide, so a denser axis than this is sub-pixel; capping here
@@ -41,11 +43,24 @@ export const TopicsChart = memo( function TopicsChart( {
 		[ series ]
 	);
 
+	// Anchor in the themed `.topology-app` cascade so the chart's series colors
+	// re-skin with the active hub theme; `theme` changing re-runs the d3 render,
+	// which re-resolves the `--chart-*` tokens (falling back to the shared
+	// PALETTE) off the now-mounted ref.
+	const themeRef = useRef( null );
+	const theme = useThemeToken( themeRef );
+
 	const renderFn = useCallback(
 		( refs ) => {
 			if ( ! refs.containerRef.current ) {
 				return;
 			}
+			const el = themeRef.current;
+			const palette = el
+				? resolveChartPalette( ( name ) =>
+						window.getComputedStyle( el ).getPropertyValue( name )
+				  )
+				: PALETTE;
 			// Empty series (e.g. right after a stats reset) → wipe any prior
 			// render so the old lines clear instead of lingering, then stop.
 			if ( chartState.series.length === 0 ) {
@@ -112,7 +127,7 @@ export const TopicsChart = memo( function TopicsChart( {
 				.curve( d3.curveMonotoneX );
 
 			aligned.forEach( ( s, i ) => {
-				const color = PALETTE[ i % PALETTE.length ];
+				const color = palette[ i % palette.length ];
 				g.append( 'path' )
 					.datum( s.values )
 					.attr( 'fill', color )
@@ -145,19 +160,23 @@ export const TopicsChart = memo( function TopicsChart( {
 			drawLegend(
 				svg,
 				aligned.map( ( s, i ) => ( {
-					color: PALETTE[ i % PALETTE.length ],
+					color: palette[ i % palette.length ],
 					label: s.label,
 				} ) ),
 				width
 			);
 		},
-		[ chartState, formatValue ]
+		// `theme` isn't read in the body but is the re-resolution trigger: a skin
+		// swap must change renderFn's identity so useTimeChart re-runs the d3
+		// render and re-reads the `--chart-*` tokens off themeRef.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[ chartState, formatValue, theme ]
 	);
 
 	const { containerRef, tooltipRef } = useTimeChart( renderFn );
 
 	return (
-		<div className="nodes-topics">
+		<div ref={ themeRef } className="nodes-topics">
 			<div className="nodes-topics__title">{ title }</div>
 			<div ref={ containerRef } className="nodes-topics__chart" />
 			<div ref={ tooltipRef } className="nodes-topics__tooltip" />
