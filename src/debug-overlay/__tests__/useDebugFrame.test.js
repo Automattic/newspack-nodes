@@ -67,21 +67,6 @@ describe( 'useDebugFrame', () => {
 			value: 800,
 			writable: true,
 		} );
-		// The drag/resize coalesces its DOM writes through rAF — run it
-		// synchronously so a pointermove takes effect within the test's act().
-		jest.spyOn( window, 'requestAnimationFrame' ).mockImplementation(
-			( cb ) => {
-				cb();
-				return 1;
-			}
-		);
-		jest.spyOn( window, 'cancelAnimationFrame' ).mockImplementation(
-			() => {}
-		);
-	} );
-
-	afterEach( () => {
-		jest.restoreAllMocks();
 	} );
 
 	it( 'returns a default frame and a style prop with concrete dimensions', () => {

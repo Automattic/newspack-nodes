@@ -195,40 +195,20 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 
 	// Generic pointer-drag wrapper: a stream of dx/dy deltas to `apply`, with a
 	// `commit` fired once on pointerup (where the per-drag React state update lands).
-	// Pointermove is coalesced to one apply per animation frame — a fast gesture
-	// can otherwise queue more work than a frame can drain.
 	const beginDrag = useCallback( ( e, apply, commit ) => {
 		if ( e.button !== undefined && e.button !== 0 ) {
 			return;
 		}
 		const startX = e.clientX;
 		const startY = e.clientY;
-		let pending = null;
-		let rafId = null;
-		const flush = () => {
-			rafId = null;
-			if ( pending ) {
-				apply( pending.dx, pending.dy );
-			}
-		};
 		const onMove = ( ev ) => {
 			ev.preventDefault();
-			pending = { dx: ev.clientX - startX, dy: ev.clientY - startY };
-			if ( null === rafId ) {
-				rafId = window.requestAnimationFrame( flush );
-			}
+			apply( ev.clientX - startX, ev.clientY - startY );
 		};
 		const onUp = ( ev ) => {
 			ev.preventDefault?.();
 			window.removeEventListener( 'pointermove', onMove );
 			window.removeEventListener( 'pointerup', onUp );
-			if ( null !== rafId ) {
-				window.cancelAnimationFrame( rafId );
-			}
-			// Apply the final delta synchronously so commit reads the latest frame.
-			if ( pending ) {
-				apply( pending.dx, pending.dy );
-			}
 			commit?.();
 		};
 		window.addEventListener( 'pointermove', onMove );
