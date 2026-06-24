@@ -1610,6 +1610,7 @@
 	display: inline-flex;
 	overflow: hidden;
 	margin-left: 4px;
+	border: 2px solid var(--ink-3);
 
 	&__btn {
 		background: transparent;
