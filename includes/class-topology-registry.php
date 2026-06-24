@@ -566,10 +566,9 @@ class Topology_Registry {
 	/**
 	 * `newspack_nodes/spawn_worker` handler: spawn the {type, partition} worker iff
 	 * it is in the active set (`Bootstrap::expand_workers()`) — ungated by plugin
-	 * ownership. Fires `newspack_nodes/before_worker_spawn` (app runtime init)
-	 * right before building the worker, then runs the `$spawn_runner` seam (which
-	 * defaults to a real Worker_Base execution). A type with no active descriptor
-	 * is a no-op. Registered once by the substrate (newspack-nodes.php).
+	 * ownership. Runs the `$spawn_runner` seam (which defaults to a real
+	 * Worker_Base execution). A type with no active descriptor is a no-op.
+	 * Registered once by the substrate (newspack-nodes.php).
 	 */
 	public static function spawn_worker( string $type, int $partition ): void {
 		foreach ( \Newspack_Nodes\Bootstrap::expand_workers() as $w ) {
@@ -585,8 +584,6 @@ class Topology_Registry {
 				};
 				$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $supervisor->generate_spawn_token( \time() ) );
 			};
-			// App runtime init (autoload, filters) before Topology_Loader::load parses the TSL — only when we actually spawn.
-			\do_action( 'newspack_nodes/before_worker_spawn', $type, $partition );
 			$w_topology = Core::as_string( $w['topology'] );
 			$w_stale    = \is_scalar( $w['stale_timeout'] ) ? (int) $w['stale_timeout'] : 0;
 			$runner( $w['type'], $w['partition'], $w_topology, $w_stale );
