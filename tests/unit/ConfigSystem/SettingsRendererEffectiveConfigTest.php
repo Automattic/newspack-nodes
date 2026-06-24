@@ -51,6 +51,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		\delete_option( 'newspack_nodes_num_segments' );
 		\delete_option( 'newspack_nodes_num_partitions' );
 		\delete_option( 'newspack_nodes_base_directory' );
+		\delete_option( 'newspack_nodes_remote_segment_size' );
 		Config::reset();
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
@@ -102,14 +103,38 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertSame( 'Takes effect immediately', $rows['remote_num_segments']['restart'] );
 	}
 
-	public function test_unset_direct_read_field_reports_file_default_effective(): void {
-		// overlay=false fields (remote_*) are NOT overlaid, but load_config() seeds
-		// from the config FILE (load_config_defaults), which carries them — so the
-		// effective array still holds the file default and the panel reports it
-		// without needing any plugin-specific Config or a register default.
+	public function test_unset_direct_read_field_reports_blank_effective(): void {
+		// overlay=false fields (remote_*) read their operative value via get_option
+		// (the settings-sync graph), NOT load_config. When unset, the panel can't
+		// claim the file value as operative — the settings-sync resolver supplies the
+		// file default DOWNSTREAM, not the option. The remote_* Fields carry no
+		// register_setting default (intentionally — a register default would dead-code
+		// that resolver branch), so the Effective cell degrades to '' rather than
+		// fabricating a value the panel can't actually attest is operative.
 		$rows = $this->rows_by_key();
 		$this->assertStringContainsString( 'file default', $rows['remote_num_segments']['stored'] );
-		$this->assertSame( '2', (string) $rows['remote_num_segments']['effective'] );
+		$this->assertSame( '', (string) $rows['remote_num_segments']['effective'] );
+	}
+
+	public function test_stored_direct_read_field_reports_stored_not_file_value(): void {
+		// remote_segment_size: overlay=false, file default 10485760. A stored value
+		// is the OPERATIVE value (Settings_Sync_Node reads it via get_option), so the
+		// Effective cell must show the stored value, NOT the file-seeded load_config
+		// entry (which would still read the file default for a non-overlaid key).
+		\update_option( 'newspack_nodes_remote_segment_size', 67108864 );
+		Config::reset();
+		$rows = $this->rows_by_key();
+		$this->assertSame( '67108864', (string) $rows['remote_segment_size']['effective'] );
+	}
+
+	public function test_overlaid_field_still_reports_load_config_value(): void {
+		// Control: overlay=true fields keep reporting the load_config (overlay-resolved)
+		// value — the common-case behavior must not change.
+		\update_option( 'newspack_nodes_num_segments', 11 );
+		Config::reset();
+		$rows = $this->rows_by_key();
+		$this->assertSame( '11', (string) $rows['num_segments']['effective'] );
+		$this->assertSame( (string) ( Config::load_config()['num_segments'] ?? '' ), (string) $rows['num_segments']['effective'] );
 	}
 
 	public function test_render_section_echoes_widefat_table(): void {
