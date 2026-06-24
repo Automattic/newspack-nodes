@@ -228,6 +228,27 @@ test( 'TM_NOREPLY command suppresses the routed reply on success', () => {
 	expect( got ).toHaveLength( 0 );
 } );
 
+test( 'a structurally invalid command warns to stderr (classified, not silent)', () => {
+	const warnSpy = jest
+		.spyOn( console, 'warn' )
+		.mockImplementation( () => {} );
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'test_interpreter';
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ VALUE ] = {}; // no `name` → invalid struct
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( warnSpy ).toHaveBeenCalled();
+	expect( warnSpy.mock.calls.at( -1 )[ 0 ] ).toContain( 'WARNING:' );
+	expect( warnSpy.mock.calls.at( -1 )[ 0 ] ).toContain(
+		'invalid command struct'
+	);
+	warnSpy.mockRestore();
+} );
+
 test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr', () => {
 	const warnSpy = jest
 		.spyOn( console, 'warn' )
@@ -256,6 +277,7 @@ test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr',
 	expect( got ).toHaveLength( 0 );
 	expect( warnSpy ).toHaveBeenCalled();
 	expect( warnSpy.mock.calls.at( -1 )[ 0 ] ).toContain( 'boom' );
+	expect( warnSpy.mock.calls.at( -1 )[ 0 ] ).toContain( 'ERROR:' );
 	warnSpy.mockRestore();
 } );
 

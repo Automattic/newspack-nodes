@@ -144,7 +144,7 @@ export class SseConnectorNode extends Node {
 			// "message not addressed - TYPE_UNKNOWN" drop, so reject it loudly here.
 			if ( ! message[ TYPE ] ) {
 				Core.printLessOften(
-					'SseConnectorNode: dropped a malformed typeless SSE frame'
+					'WARNING: SseConnectorNode: dropped a malformed typeless SSE frame'
 				);
 				return;
 			}

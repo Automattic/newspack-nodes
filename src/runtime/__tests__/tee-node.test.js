@@ -87,7 +87,7 @@ test( 'fill logs and continues when a routed target throws', () => {
 	t.fill( newMessage() );
 
 	expect( spy ).toHaveBeenCalledWith(
-		expect.stringContaining( 'target exploded' )
+		expect.stringMatching( /^WARNING:.*target exploded/ )
 	);
 	spy.mockRestore();
 } );

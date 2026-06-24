@@ -78,7 +78,7 @@ export class HttpOutNode extends Node {
 				// (network drop, 5xx, HMAC mismatch). Rate-limited so a
 				// degraded server doesn't flood the console.
 				this.printLessOften(
-					`HttpOut POST failed: ${ err?.message ?? err }`
+					`ERROR: HttpOut POST failed: ${ err?.message ?? err }`
 				);
 			} );
 	}
