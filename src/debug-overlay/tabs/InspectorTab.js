@@ -53,7 +53,10 @@ export function measureTabBarHeight( rootEl ) {
  * @return {number} Transcript max-height in px.
  */
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
-	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight );
+	// -6 reserves the resize handle: it's 6px, centered on the transcript's top
+	// edge, so 3px overhangs above the pane — without the reserve the handle is
+	// clipped against the panel top when the transcript is maximized.
+	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight - 6 );
 }
 
 /**
