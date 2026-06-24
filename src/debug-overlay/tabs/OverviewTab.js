@@ -34,9 +34,18 @@ function Card( { id, label, value } ) {
 	);
 }
 
-// Compact in/out value for a single card: ↓ inbound · ↑ outbound.
+// Compact in/out value for a single card: ↓ inbound  ↑ outbound. Each number is
+// its own right-aligned, min-width cell so the arrows hold still as the digit
+// count changes instead of bouncing left and right.
 function inOut( inbound, outbound ) {
-	return `↓ ${ inbound }  ↑ ${ outbound }`;
+	return (
+		<>
+			{ '↓ ' }
+			<span className="nodes-card__io">{ inbound }</span>
+			{ ' ↑ ' }
+			<span className="nodes-card__io">{ outbound }</span>
+		</>
+	);
 }
 
 /**
@@ -109,15 +118,6 @@ export default function OverviewTab( { publishHeader } ) {
 				background: 'var(--np-surface-subtle, #fff)',
 			} }
 		>
-			<div className="nodes-overview__toolbar">
-				<button
-					type="button"
-					className="button button-small nodes-overview__reset"
-					onClick={ () => IoTelemetry.clear() }
-				>
-					{ __( 'Reset stats', 'newspack-nodes' ) }
-				</button>
-			</div>
 			<div className="nodes-cards">
 				<Card
 					id="byte-rate"
@@ -178,6 +178,15 @@ export default function OverviewTab( { publishHeader } ) {
 					series={ byteRateSeries }
 					formatValue={ formatByteRate }
 				/>
+			</div>
+			<div className="nodes-overview__toolbar">
+				<button
+					type="button"
+					className="button button-small nodes-overview__reset"
+					onClick={ () => IoTelemetry.clear() }
+				>
+					{ __( 'Reset stats', 'newspack-nodes' ) }
+				</button>
 			</div>
 			{ messageList }
 		</div>

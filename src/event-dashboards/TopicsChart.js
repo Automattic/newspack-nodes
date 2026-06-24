@@ -43,10 +43,15 @@ export const TopicsChart = memo( function TopicsChart( {
 
 	const renderFn = useCallback(
 		( refs ) => {
-			if (
-				! refs.containerRef.current ||
-				chartState.series.length === 0
-			) {
+			if ( ! refs.containerRef.current ) {
+				return;
+			}
+			// Empty series (e.g. right after a stats reset) → wipe any prior
+			// render so the old lines clear instead of lingering, then stop.
+			if ( chartState.series.length === 0 ) {
+				d3.select( refs.containerRef.current )
+					.selectAll( '*' )
+					.remove();
 				return;
 			}
 			const { series: aligned, dates } = chartState;

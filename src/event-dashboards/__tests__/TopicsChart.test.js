@@ -81,6 +81,7 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
 } );
 
 import { render } from '@testing-library/react';
+import * as d3 from 'd3';
 import { TopicsChart } from '../TopicsChart';
 import {
 	drawLegend,
@@ -139,6 +140,16 @@ describe( 'TopicsChart', () => {
 		render(
 			<TopicsChart title="Rate" series={ {} } formatValue={ fmt } />
 		);
+		expect( drawLegend ).not.toHaveBeenCalled();
+	} );
+
+	it( 'wipes the canvas when the series goes empty (so a reset clears old lines)', () => {
+		d3.remove.mockClear();
+		render(
+			<TopicsChart title="Rate" series={ {} } formatValue={ fmt } />
+		);
+		// Empty series still clears any prior render instead of bailing first.
+		expect( d3.remove ).toHaveBeenCalled();
 		expect( drawLegend ).not.toHaveBeenCalled();
 	} );
 } );

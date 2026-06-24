@@ -37,6 +37,23 @@ test( 'renders the seven metric cards and both rate-chart panels', () => {
 	expect( container.querySelectorAll( '.nodes-card' ) ).toHaveLength( 7 );
 } );
 
+test( 'in/out card values render each number in its own right-aligned io cell', () => {
+	const { getByTestId } = renderTab();
+	// The byte-rate card shows ↓ in / ↑ out, each in a min-width right-aligned
+	// cell so the arrows don't bounce as digit counts change.
+	expect(
+		getByTestId( 'overview-card-byte-rate' ).querySelectorAll(
+			'.nodes-card__io'
+		)
+	).toHaveLength( 2 );
+	// Single-value cards (warnings) have none.
+	expect(
+		getByTestId( 'overview-card-warnings' ).querySelectorAll(
+			'.nodes-card__io'
+		)
+	).toHaveLength( 0 );
+} );
+
 test( 'shows the live cumulative warning/error/debug counts', () => {
 	IoTelemetry.recordWarning();
 	IoTelemetry.recordWarning();
