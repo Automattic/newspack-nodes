@@ -49,8 +49,14 @@ class Settings_Renderer {
 				? \__( '— (file default)', 'newspack-nodes' )
 				: self::format_value( $raw_store );
 
-			// Direct-read options (overlay=false, e.g. remote_*) aren't in load_config() — fall back to the stored option, then the field's registered default.
-			$effective_value = $effective[ $key ] ?? $raw_store;
+			// Operative value: overlaid keys come from the overlay-resolved load_config();
+			// non-overlaid keys (remote_*) are read via get_option by the settings-sync
+			// graph, NOT load_config (whose entry is just the file seed), so the stored
+			// option is what's operative. Either way, an absent option degrades to the
+			// field's registered default, then ''.
+			$effective_value = $field->overlay
+				? ( $effective[ $key ] ?? $raw_store )
+				: $raw_store;
 			if ( Options_Overlay::ABSENT === $effective_value ) {
 				$effective_value = $field->register_args['default'] ?? '';
 			}

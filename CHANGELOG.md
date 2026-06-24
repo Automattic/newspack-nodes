@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The "Effective Configuration" panel now lives in the shared `Config_System\Settings_Renderer`** as `effective_config_rows( Schema, prefix, effective )` + `render_effective_config_section( Schema, prefix, effective )` (plus the restart-impact and value-formatting helpers), so both `newspack-nodes` and `newspack-event-logger-nodes` render the panel from one implementation instead of each carrying its own copy. The substrate `Admin::render_effective_config_section()` is now a thin delegate; the per-row data shape is exercised against the shared renderer directly.
+- **The "Effective Configuration" panel now lives in the shared `Config_System\Settings_Renderer`** as `effective_config_rows( Schema, prefix, effective )` + `render_effective_config_section( Schema, prefix, effective )` (plus the restart-impact and value-formatting helpers), so both `newspack-nodes` and `newspack-event-logger-nodes` render the panel from one implementation instead of each carrying its own copy. The substrate `Admin::render_effective_config_section()` is now a thin delegate; the per-row data shape is exercised against the shared renderer directly. The Effective column reports the stored (`get_option`) value for non-overlaid fields (`remote_*`) — that's their operative read path (the settings-sync graph reads `get_option`, not the file-seeded `load_config()` entry).
 
 ### Fixed
 
