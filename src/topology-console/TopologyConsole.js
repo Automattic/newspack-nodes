@@ -202,14 +202,20 @@ export function toNeedsSseSession( to ) {
 }
 
 // REPL transcript ceiling, derived from the MEASURED `.topology-app` height so
-// it can't drift from the chrome above it. The console grid is `64px 1fr 38px`
-// (header / canvas / repl-bar — see graph-view.scss), so the transcript may fill
-// the canvas row only: appHeight − header − bar. Measuring beats a viewport
-// constant now that the console renders inside the DevtoolsTabHost tab bar, whose
-// height the old `window.innerHeight − FIXED_CHROME_PX` math never subtracted.
-// Returns null before layout (height 0) so ReplFooter keeps its own fallback.
-const CONSOLE_HEADER_PX = 64;
+// it can't drift from the chrome above it. The console grid is `0 1fr 38px`
+// (a collapsed header row / canvas / repl-bar — see graph-view.scss): the
+// console's own header moved up to the shared hub header above the tabs, so the
+// canvas frame no longer reserves a header row. The transcript fills the canvas
+// row, so the ceiling is appHeight − repl-bar − a resize-handle reserve.
+// The reserve is 0 here (NOT the overlay's 4): appHeight is measured exactly and
+// the transcript bottom is exactly the repl-bar top, so 0 lands the transcript
+// top precisely at the canvas top — the 6px handle straddles that edge and ~1px
+// peeks below the tab bar (the rest of its hit area extends down, still
+// grabbable). The overlay needs +4 only because it hardcodes its header/bar
+// instead of measuring them. Returns null before layout (height 0) so
+// ReplFooter keeps its own fallback.
 const CONSOLE_REPL_BAR_PX = 38;
+const CONSOLE_RESIZE_HANDLE_PX = 0;
 const REPL_MIN_HEIGHT_PX = 80;
 export function replCeilingFromAppHeight( appHeight ) {
 	if ( ! appHeight || appHeight <= 0 ) {
@@ -217,7 +223,7 @@ export function replCeilingFromAppHeight( appHeight ) {
 	}
 	return Math.max(
 		REPL_MIN_HEIGHT_PX,
-		appHeight - CONSOLE_HEADER_PX - CONSOLE_REPL_BAR_PX
+		appHeight - CONSOLE_REPL_BAR_PX - CONSOLE_RESIZE_HANDLE_PX
 	);
 }
 

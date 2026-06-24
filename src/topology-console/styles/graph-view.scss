@@ -327,6 +327,12 @@
 			0 -8px 0 var(--ink-2);
 	}
 
+	&__item--tap &__glyph::after {
+		box-shadow:
+			0 8px 0 var(--ink-2),
+			0 -8px 0 var(--ink-2);
+	}
+
 	&__item--partition &__glyph {
 		// stylelint-disable-next-line @stylistic/declaration-colon-space-after
 		background-image: linear-gradient(
@@ -2642,7 +2648,11 @@
 		// top-edge resize handle, persisted to localStorage). Default
 		// is 20% of the canvas area; min 80px, max = full canvas. See
 		// ReplFooter.js (`defaultHeight()` + `handleResizeStart`).
-		overflow-y: auto;
+		// `hidden auto`, not `auto`: with only `overflow-y: auto` the spec forces
+		// `overflow-x` to compute to `auto` too, so a few px of spurious overflow
+		// (the sticky actions corridor / sub-pixel slop) gives Chrome a horizontal
+		// scrollbar (Firefox hides it behind overlay scrollbars). Clip X instead.
+		overflow: hidden auto;
 		// Plain block layout on the transcript itself — the actions div
 		// uses `position: sticky + float: right` to anchor top-right,
 		// and float doesn't behave inside flex. The bottom-anchored

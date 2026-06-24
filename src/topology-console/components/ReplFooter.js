@@ -29,11 +29,12 @@ const STATUS_LABELS = {
 const HEIGHT_STORAGE_KEY = 'newspack-nodes:topology-console:repl-height';
 const HEIGHT_MIN_PX = 80;
 const RESIZE_STEP_PX = 20; // Keyboard ArrowUp/ArrowDown nudge for the resize handle.
-// Chrome around the canvas the transcript can't fill: 32 (WP admin bar) + 64
-// (shared hub header) + 40 (hub tab bar) above, + 38 (repl bar) below. The
-// tab bar was missed when the shared header moved above the tabs, leaving
-// maxHeight 40px too tall — the maximized transcript overshot the canvas top
-// and stranded its resize handle under the tab bar.
+// Pre-layout FALLBACK only: both consumers (the console via
+// `replCeilingFromAppHeight`, the debug overlay via `replMaxHeight`) pass an
+// explicit measured `maxHeightPx`; `maxHeight()` is used just until they've
+// measured. The full-page chrome around the canvas is 32 (WP admin bar) + 64
+// (shared hub header) + 40 (hub tab bar) above + 38 (repl bar) below = 174
+// (the tab bar was missed before — the header moved above the tabs).
 const FIXED_CHROME_PX = 174;
 function defaultHeight() {
 	if ( typeof window === 'undefined' ) {

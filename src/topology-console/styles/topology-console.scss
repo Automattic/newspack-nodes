@@ -148,13 +148,19 @@ body:has(.nodes-devtools-hub .topology-app) {
 
 // ── TopologySettingsPanel — frontmatter (`var name = value`) editor ──────────
 .topology-settings-panel {
-	position: absolute;
-	// Sit at the top-right of the canvas. (Was 56px, from when the SAVE/SETTINGS
-	// toolbar lived inside the console; that toolbar moved up to the shared
-	// header above the tabs, so 56px stranded the panel ~140px below its button.)
-	top: 8px;
-	right: 16px;
-	z-index: 20;
+	// `fixed`, not `absolute`: the SETTINGS button moved up to the shared header
+	// (above the tabs), but the panel's canvas-frame offset parent starts BELOW
+	// the tab bar AND clips (overflow:hidden), so an absolute panel can't reach up
+	// under the button. There's no transform ancestor, so `fixed` resolves to the
+	// viewport — letting it drop straight from the toolbar. `top` is viewport px;
+	// the toolbar buttons end at ~77, so 84 tucks it just beneath them.
+	position: fixed;
+	top: 80px;
+	right: 95px;
+	// High z so it floats above the hub chrome it now overlaps as a fixed
+	// dropdown (header, tab bar, canvas controls); still below the plain-DOM
+	// modal backdrop (z 100000).
+	z-index: 1000;
 	width: 440px;
 	max-width: calc(100vw - 32px);
 	padding: 12px 14px;

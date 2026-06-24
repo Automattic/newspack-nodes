@@ -5,7 +5,7 @@
  * to onChange whenever it changes (empty values are filtered, never emitted).
  */
 
-import { useState } from '@wordpress/element';
+import { useState, createPortal } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 export const RECOGNIZED_KEYS = [ 'num_partitions', 'stale_timeout' ];
@@ -38,6 +38,22 @@ function clampInt( raw, min, max ) {
 // value can carry neither newlines nor `;`.
 function sanitizeValue( v ) {
 	return String( v ).replace( /[\r\n;]/g, '' );
+}
+
+// The panel is a fixed-position overlay that must paint over the hub header.
+// The hub is `display:flex`, so its header is a flex item whose `z-index: 3`
+// creates a real stacking context — and rendered in-tree the panel lives inside
+// the canvas frame's own lower (`z:2`) stacking context, so NO panel z-index can
+// climb above that header. Portal it to the hub root instead: that element is
+// themed by inheritance (the universal `--paper`/`--ink` tokens cascade in from
+// the outer `.topology-app.theme-*`) AND is the `z:99` context where the panel's
+// own `z-index` finally wins. Falls back to `document.body` (jsdom in tests,
+// where stacking is irrelevant and screen queries still find the node).
+function getPortalTarget() {
+	if ( typeof document === 'undefined' ) {
+		return null;
+	}
+	return document.querySelector( '.nodes-devtools-hub' ) || document.body;
 }
 
 export default function TopologySettingsPanel( {
@@ -127,7 +143,7 @@ export default function TopologySettingsPanel( {
 		( [ n ] ) => ! RECOGNIZED_KEYS.includes( n )
 	);
 
-	return (
+	const panel = (
 		<div
 			className="topology-settings-panel"
 			role="dialog"
@@ -266,4 +282,7 @@ export default function TopologySettingsPanel( {
 			</div>
 		</div>
 	);
+
+	const target = getPortalTarget();
+	return target ? createPortal( panel, target ) : panel;
 }
