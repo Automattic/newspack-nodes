@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { IoTelemetry } from '../runtime/io-telemetry';
 import { overviewChartSeries } from './overviewChartSeries';
+import { RateSmoother } from '../event-dashboards/rate-smoother';
 
-// Card refresh cadence (20Hz) and the sliding window the live rate is measured
-// over. The window smooths the per-tick rate so it reads steady, not spiky.
+// Card refresh cadence (20Hz). The live rate uses the same RateSmoother as the
+// Raw Logs lines/s — a 10s windowed average, EMA-smoothed — so the counters
+// read steady instead of spiky.
 const TICK_MS = 50;
-const RATE_WINDOW_S = 1;
 
 /**
  * Live read of the overlay's I/O telemetry for the Overview tab. The cards
@@ -19,7 +20,14 @@ const RATE_WINDOW_S = 1;
 export function useOverviewStats() {
 	const [ , force ] = useState( 0 );
 	const ratesRef = useRef( { byteIn: 0, byteOut: 0, msgIn: 0, msgOut: 0 } );
-	const windowRef = useRef( [] );
+	// One RateSmoother per stream + the last counter snapshot to delta against.
+	const smoothersRef = useRef( {
+		byteIn: new RateSmoother(),
+		byteOut: new RateSmoother(),
+		msgIn: new RateSmoother(),
+		msgOut: new RateSmoother(),
+	} );
+	const prevRef = useRef( null );
 
 	// The 5s sampler notify re-renders so the revision-keyed chart memo updates.
 	useEffect(
@@ -27,37 +35,39 @@ export function useOverviewStats() {
 		[]
 	);
 
-	// 20Hz tick: recompute the live In/Out rate over a 1s sliding window of the
-	// raw counters, then re-render so the cards (totals read below + this rate)
-	// stay current. The charts are untouched — they key off the sample revision.
+	// 20Hz tick: feed the per-tick counter delta into each stream's RateSmoother
+	// (10s windowed average + 0.1 EMA), then re-render so the cards (totals read
+	// below + these rates) stay current. The charts are untouched — they key off
+	// the sample revision.
 	useEffect( () => {
 		const tick = () => {
 			const s = IoTelemetry.snapshot();
-			const t = Date.now() / 1000;
-			const buf = windowRef.current;
-			buf.push( {
-				t,
+			const now = Date.now();
+			const prev = prevRef.current;
+			const sm = smoothersRef.current;
+			if ( prev ) {
+				// A cumulative counter going backward = the telemetry was reset
+				// (Reset stats / clear); drop the windows so the rate falls to 0
+				// now instead of decaying out over the window.
+				if ( s.bytesIn < prev.bytesIn || s.msgsIn < prev.msgsIn ) {
+					sm.byteIn.reset();
+					sm.byteOut.reset();
+					sm.msgIn.reset();
+					sm.msgOut.reset();
+				}
+				ratesRef.current = {
+					byteIn: sm.byteIn.add( s.bytesIn - prev.bytesIn, now ),
+					byteOut: sm.byteOut.add( s.bytesOut - prev.bytesOut, now ),
+					msgIn: sm.msgIn.add( s.msgsIn - prev.msgsIn, now ),
+					msgOut: sm.msgOut.add( s.msgsOut - prev.msgsOut, now ),
+				};
+			}
+			prevRef.current = {
 				bytesIn: s.bytesIn,
 				bytesOut: s.bytesOut,
 				msgsIn: s.msgsIn,
 				msgsOut: s.msgsOut,
-			} );
-			// Keep the window to RATE_WINDOW_S, but always keep >= 2 points so a
-			// brand-new window can still measure a delta.
-			while ( buf.length > 2 && t - buf[ 0 ].t > RATE_WINDOW_S ) {
-				buf.shift();
-			}
-			const oldest = buf[ 0 ];
-			const dt = t - oldest.t;
-			if ( dt > 0 ) {
-				const rate = ( a, b ) => Math.max( 0, ( a - b ) / dt );
-				ratesRef.current = {
-					byteIn: rate( s.bytesIn, oldest.bytesIn ),
-					byteOut: rate( s.bytesOut, oldest.bytesOut ),
-					msgIn: rate( s.msgsIn, oldest.msgsIn ),
-					msgOut: rate( s.msgsOut, oldest.msgsOut ),
-				};
-			}
+			};
 			force( ( n ) => n + 1 );
 		};
 		const id = setInterval( tick, TICK_MS );
