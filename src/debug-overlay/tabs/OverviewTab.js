@@ -11,6 +11,7 @@ import {
 	formatCount,
 } from '../../event-dashboards/formatters';
 import { useOverviewStats } from '../useOverviewStats';
+import { IoTelemetry } from '../../runtime/io-telemetry';
 // The Overview tab reuses the hub's card + overview LAYOUT classes
 // (`.nodes-card(s)`, `.nodes-overview(__panels)`), whose styles live in the
 // event-dashboards bundle. The hub page loads that bundle; pages that merely
@@ -108,6 +109,15 @@ export default function OverviewTab( { publishHeader } ) {
 				background: 'var(--np-surface-subtle, #fff)',
 			} }
 		>
+			<div className="nodes-overview__toolbar">
+				<button
+					type="button"
+					className="button button-small nodes-overview__reset"
+					onClick={ () => IoTelemetry.clear() }
+				>
+					{ __( 'Reset stats', 'newspack-nodes' ) }
+				</button>
+			</div>
 			<div className="nodes-cards">
 				<Card
 					id="byte-rate"
