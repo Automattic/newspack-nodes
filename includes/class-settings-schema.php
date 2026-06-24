@@ -110,8 +110,7 @@ class Settings_Schema {
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
 				// Storage geometry pushed to remote spokes. Registered + resettable,
-				// but read directly via get_option (the settings-sync node graph) —
-				// never overlaid into load_config().
+				// overlaid into load_config() like every other setting.
 				new Field(
 					key: 'remote_num_segments',
 					type: 'int',
@@ -120,7 +119,6 @@ class Settings_Schema {
 					restart: [],
 					sanitize: [ Admin::class, 'sanitize_remote_num_segments' ],
 					render: [ Admin::class, 'remote_num_segments_callback' ],
-					overlay: false,
 					register_args: [ 'type' => 'string' ],
 				),
 				new Field(
@@ -131,7 +129,6 @@ class Settings_Schema {
 					restart: [],
 					sanitize: [ Admin::class, 'sanitize_remote_segment_size' ],
 					render: [ Admin::class, 'remote_segment_size_callback' ],
-					overlay: false,
 					register_args: [ 'type' => 'string' ],
 				),
 				new Field(
@@ -142,7 +139,6 @@ class Settings_Schema {
 					restart: [],
 					sanitize: [ Admin::class, 'sanitize_remote_max_lifespan' ],
 					render: [ Admin::class, 'remote_max_lifespan_callback' ],
-					overlay: false,
 					register_args: [ 'type' => 'string' ],
 				),
 				// Overlay-only (ui:false): loaded + autoloaded for the per-request

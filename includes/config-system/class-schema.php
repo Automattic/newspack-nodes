@@ -32,14 +32,14 @@ class Schema {
 	) {}
 
 	/**
-	 * Unprefixed keys of every overlaid option — the Options_Overlay key-list.
-	 * Includes overlay-only (ui=false) keys; excludes display-only fields AND
-	 * direct-read options (overlay=false, e.g. ELN's remote_*).
+	 * Unprefixed keys of every settable option — the Options_Overlay key-list.
+	 * Every field with a non-empty key overlays the config file (incl. overlay-only
+	 * ui=false keys); only the keyless display-only fields are excluded.
 	 *
 	 * @return array<int,string>
 	 */
 	public function overlay_keys(): array {
-		return $this->collect_keys( static fn ( Field $f ): bool => $f->is_overlaid() );
+		return $this->collect_keys( static fn ( Field $f ): bool => '' !== $f->key );
 	}
 
 	/**

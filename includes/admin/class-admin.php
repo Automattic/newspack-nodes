@@ -797,14 +797,8 @@ class Admin {
 		}
 
 		$options = Settings_Schema::get()->setting_option_names();
-		if ( \function_exists( 'apply_filters' ) ) {
-			$filtered = \apply_filters( 'newspack_nodes/reset_options', $options );
-			if ( \is_array( $filtered ) ) {
-				$options = $filtered;
-			}
-		}
 		foreach ( $options as $option ) {
-			if ( \is_string( $option ) && \str_starts_with( $option, self::OPTION_PREFIX ) ) {
+			if ( \str_starts_with( $option, self::OPTION_PREFIX ) ) {
 				\delete_option( $option );
 			}
 		}

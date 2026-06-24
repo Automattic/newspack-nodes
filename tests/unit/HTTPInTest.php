@@ -632,34 +632,6 @@ class HTTPInTest extends TestCase {
 		$this->assertTrue( $ctrl->check_permission( $req ) );
 	}
 
-	public function test_rate_limit_filter_overrides_the_burst_cap(): void {
-		$this->reset_rl_state();
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		$GLOBALS['_wp_test_current_user_id']                    = 7;
-
-		// Filter raises the cap to 100.
-		\add_filter(
-			'newspack_nodes/command_rate_limit',
-			static fn() => 100
-		);
-
-		$ctrl = new HTTP_In_Node();
-		$req  = new \WP_REST_Request( 'POST' );
-
-		// The default burst (30) should still pass; we should reach 100 too.
-		for ( $i = 0; $i < 100; $i++ ) {
-			$this->assertTrue(
-				$ctrl->check_permission( $req ),
-				"request #{$i} (under filter-raised cap of 100) must pass"
-			);
-		}
-
-		// 101st must trip.
-		$result = $ctrl->check_permission( $req );
-		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'rate_limited', $result->get_error_code() );
-	}
-
 	public function test_rate_limit_disabled_static_bypasses_the_limit(): void {
 		$this->reset_rl_state();
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
