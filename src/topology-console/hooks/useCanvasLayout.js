@@ -163,10 +163,15 @@ export function useCanvasLayout( {
 			if ( ! changed ) {
 				return prev;
 			}
+			// Auto-placing a node that appeared is NOT a user modification — the
+			// graph can change from outside this console (the shared Core gains
+			// nodes when another view/tab mounts). Preserve the modified flag so
+			// "Reset Layout" only surfaces when the USER moved/renamed something,
+			// not whenever an external node gets tucked in.
 			const next = {
 				positions,
 				viewport: prev.viewport,
-				modified: true,
+				modified: prev.modified,
 				key: prev.key,
 			};
 			persist( storageKey, next );
