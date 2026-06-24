@@ -12,7 +12,7 @@ jest.mock(
 	{ virtual: true }
 );
 
-import { renderHook } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import {
 	BUCKET_MINUTES,
 	BUCKET_SECONDS,
@@ -27,6 +27,17 @@ import {
 	setupTooltip,
 	useTimeChart,
 } from '../useTimeChart';
+
+// jsdom has no ResizeObserver. Capture the latest observer's callback so a test
+// can fire a synthetic container resize.
+let resizeObserverCb = null;
+global.ResizeObserver = class {
+	constructor( cb ) {
+		resizeObserverCb = cb;
+	}
+	observe() {}
+	disconnect() {}
+};
 
 // Fluent chain mock — every d3 method returns the same object.
 const makeFluent = () => {
@@ -359,6 +370,25 @@ describe( 'useTimeChart hook lifecycle', () => {
 		renderHook( () => useTimeChart( renderFn ) );
 		window.dispatchEvent( new Event( 'resize' ) );
 		expect( renderFn ).toHaveBeenCalledTimes( 2 );
+	} );
+
+	it( 're-renders (debounced) when the container resizes, not just the window', () => {
+		jest.useFakeTimers();
+		resizeObserverCb = null;
+		const container = document.createElement( 'div' );
+		// The hook attaches its observer to whatever containerRef points at.
+		const renderFn = jest.fn( ( refs ) => {
+			refs.containerRef.current = container;
+		} );
+		renderHook( () => useTimeChart( renderFn ) );
+		expect( resizeObserverCb ).toEqual( expect.any( Function ) );
+		renderFn.mockClear();
+		act( () => {
+			resizeObserverCb();
+			jest.advanceTimersByTime( 200 );
+		} );
+		expect( renderFn ).toHaveBeenCalledTimes( 1 );
+		jest.useRealTimers();
 	} );
 
 	it( 'removes the resize listener on unmount', () => {
