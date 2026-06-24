@@ -67,6 +67,21 @@ describe( 'useDebugFrame', () => {
 			value: 800,
 			writable: true,
 		} );
+		// The drag/resize coalesces its DOM writes through rAF — run it
+		// synchronously so a pointermove takes effect within the test's act().
+		jest.spyOn( window, 'requestAnimationFrame' ).mockImplementation(
+			( cb ) => {
+				cb();
+				return 1;
+			}
+		);
+		jest.spyOn( window, 'cancelAnimationFrame' ).mockImplementation(
+			() => {}
+		);
+	} );
+
+	afterEach( () => {
+		jest.restoreAllMocks();
 	} );
 
 	it( 'returns a default frame and a style prop with concrete dimensions', () => {
@@ -263,6 +278,37 @@ describe( 'useDebugFrame', () => {
 		const f = result.current.frame;
 		expect( f.x + f.w ).toBeLessThanOrEqual( window.innerWidth );
 		expect( f.x ).toBeGreaterThanOrEqual( 0 );
+	} );
+
+	it( 'snapshots the clamp bounds at gesture start (a mid-drag viewport shrink does not re-clamp)', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 100, y: 100, w: 400, h: 300 } )
+		);
+		const { result } = renderHook( () => useDebugFrame( KEY ) );
+		// onPointerDown snapshots the bounds at the current 1200-wide viewport.
+		const handlers = captureDrag( result.current.onHeaderPointerDown );
+		act( () => {
+			// Shrink the viewport mid-drag. The cached bounds must win — if the
+			// clamp re-read the (now 600-wide) viewport per move, that's the
+			// per-frame reflow we removed.
+			window.innerWidth = 600;
+			handlers.pointermove( {
+				clientX: 700,
+				clientY: 0,
+				preventDefault: () => {},
+			} );
+		} );
+		act( () => {
+			handlers.pointerup( {
+				clientX: 700,
+				clientY: 0,
+				preventDefault: () => {},
+			} );
+		} );
+		// x = 100 + 700 = 800, clamped to the snapshotted right (1200) − w (400).
+		// A live 600-wide read would instead clamp to 600 − 400 = 200.
+		expect( result.current.frame.x ).toBe( 800 );
 	} );
 
 	it( 'toggleMaximize flips to fullscreen and restores the prior frame', () => {
