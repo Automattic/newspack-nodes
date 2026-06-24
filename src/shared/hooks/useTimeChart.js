@@ -275,6 +275,31 @@ export function useTimeChart( renderFn ) {
 		return () => window.removeEventListener( 'resize', handleResize );
 	}, [ renderChart ] );
 
+	// Also re-fit when the CONTAINER resizes (e.g. the debug overlay panel) — a
+	// `window` resize listener only catches the browser window, not a panel the
+	// chart lives in, so the chart stayed at its old width after a panel resize.
+	// Debounced so it re-renders once the resize settles, not every frame.
+	useEffect( () => {
+		const container = containerRef.current;
+		if ( ! container || typeof window.ResizeObserver === 'undefined' ) {
+			return undefined;
+		}
+		let timer = null;
+		const ro = new window.ResizeObserver( () => {
+			if ( timer ) {
+				clearTimeout( timer );
+			}
+			timer = setTimeout( renderChart, 150 );
+		} );
+		ro.observe( container );
+		return () => {
+			if ( timer ) {
+				clearTimeout( timer );
+			}
+			ro.disconnect();
+		};
+	}, [ renderChart ] );
+
 	// Hide tooltip on scroll.
 	useEffect( () => {
 		const el = containerRef.current;
