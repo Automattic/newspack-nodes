@@ -42,6 +42,8 @@ const emptyModel = () => ( {
  *    in the graph, not in the React view).
  */
 export class WorkerStatusViewNode extends Node {
+	// View-model/infra node: never a user-added node (see useGraphReset).
+	static isSystemNode = true;
 	constructor() {
 		super();
 		this.model = emptyModel();

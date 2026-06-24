@@ -16,6 +16,8 @@ import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
  *    pending-matched TM_ERROR rejects the caller's Promise only.
  */
 export class TopologyManagerViewNode extends Node {
+	// View-model/infra node: never a user-added node (see useGraphReset).
+	static isSystemNode = true;
 	constructor() {
 		super();
 		// loading until the first list reply lands; error null until an

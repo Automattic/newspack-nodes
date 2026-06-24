@@ -46,6 +46,8 @@ const GAP_INTERVALS = 6;
  * own `_prevSegments` is advanced synchronously for the NEXT delta.
  */
 export class WorkerStatusTransformNode extends Node {
+	// View-model/infra node: never a user-added node (see useGraphReset).
+	static isSystemNode = true;
 	constructor() {
 		super();
 		this._prevSegments = {}; // logKey → Set of segment ids

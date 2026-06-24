@@ -43,6 +43,8 @@ const PARTITION_RE = /\.p(\d+)$/;
  * @param {number} [maxLines] Buffer cap (defaults to MAX_LINES; injectable for tests).
  */
 export class RawLogsViewNode extends Node {
+	// View-model/infra node: never a user-added node (see useGraphReset).
+	static isSystemNode = true;
 	constructor( maxLines ) {
 		super();
 		this.maxLines = maxLines || MAX_LINES;
