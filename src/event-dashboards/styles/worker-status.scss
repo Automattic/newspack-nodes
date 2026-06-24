@@ -366,13 +366,10 @@
 	}
 
 	&.beyond {
-		// Soft light-mid gray — reads against the light track without the
-		// heavy near-black weight of the secondary-text grey.
-		background: color-mix(
-			in srgb,
-			var(--sage-subtle) 45%,
-			white
-		); // live on disk, past the recorded probe end
+		// Soft muted gray that reads on the track in every skin — the old
+		// `color-mix(--sage-subtle, white)` washed to near-white on the light
+		// Newspack track. `--ink-4` is the neutral mid-tone for exactly this.
+		background: var(--ink-4); // live on disk, past the recorded probe end
 	}
 }
 
