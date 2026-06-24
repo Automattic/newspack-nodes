@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-06-24
+
 ### Added
 
 - **New `Tap` node: a `Tee` that also passes the message through.** Like a `Tee` it fans a copy out to each live target (pruning a target only when its head node is gone), then forwards the original message on to its sink — so it can sit inline on a pipe to branch/observe traffic without diverting it. As a `Tee` subclass it inherits the family's subclass-aware treatment (catalog `is_tee`, `'tee'` graph kind, the multi-target Inspector editor + tail/tap button).
