@@ -89,6 +89,12 @@
 	// The add form drops its own width clamp inside the dialog.
 	.form-table {
 		max-width: none;
+
+		// WP core hard-sets a dark `color` on .form-table th, which overrides the
+		// modal's inherited --ink (dark-on-dark on a dark skin); re-theme it.
+		th {
+			color: var(--ink);
+		}
 	}
 
 	// WP form inputs default to stark white; theme them so the dialog reads on
