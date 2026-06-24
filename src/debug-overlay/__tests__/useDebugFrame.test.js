@@ -1,7 +1,26 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, render, act } from '@testing-library/react';
+import { useRef } from '@wordpress/element';
 import { useDebugFrame } from '../useDebugFrame';
 
 const KEY = 'newspack-nodes:debug:test-frame';
+
+// Capture the window-registered pointer handlers a single beginDrag installs.
+function captureDrag( onPointerDown, downAt = { x: 0, y: 0 } ) {
+	const handlers = {};
+	const origAdd = window.addEventListener;
+	window.addEventListener = ( name, fn ) => {
+		handlers[ name ] = fn;
+	};
+	onPointerDown( {
+		clientX: downAt.x,
+		clientY: downAt.y,
+		button: 0,
+		target: { tagName: 'HEADER', closest: () => null },
+		preventDefault: () => {},
+	} );
+	window.addEventListener = origAdd;
+	return handlers;
+}
 
 // Build a pointerdown / move / up sequence on the header drag handler.
 // `e.preventDefault` is a no-op so the hook can call it freely.
@@ -87,6 +106,57 @@ describe( 'useDebugFrame', () => {
 		);
 		expect( result.current.frame.x ).toBe( initial.x + 50 );
 		expect( result.current.frame.y ).toBe( initial.y + 30 );
+	} );
+
+	it( 'drags via a direct transform during the move and commits the frame only on pointerup', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 100, y: 100, w: 400, h: 300 } )
+		);
+		let latest;
+		let panelEl;
+		function Harness() {
+			const ref = useRef( null );
+			latest = useDebugFrame( KEY, true, ref );
+			return (
+				<div
+					data-testid="panel"
+					ref={ ( n ) => {
+						ref.current = n;
+						panelEl = n;
+					} }
+					style={ latest.style }
+					onPointerDown={ latest.onHeaderPointerDown }
+				/>
+			);
+		}
+		render( <Harness /> );
+		const initial = latest.frame;
+
+		const handlers = captureDrag( latest.onHeaderPointerDown );
+		// During the move: the element gets a transform, the frame STATE does not
+		// change (no per-frame React re-render of the heavy panel subtree).
+		act( () => {
+			handlers.pointermove( {
+				clientX: 40,
+				clientY: 25,
+				preventDefault: () => {},
+			} );
+		} );
+		expect( latest.frame ).toBe( initial );
+		expect( panelEl.style.transform ).toBe( 'translate(40px, 25px)' );
+
+		// On pointerup: the frame commits once and the transform is cleared.
+		act( () => {
+			handlers.pointerup( {
+				clientX: 40,
+				clientY: 25,
+				preventDefault: () => {},
+			} );
+		} );
+		expect( latest.frame.x ).toBe( initial.x + 40 );
+		expect( latest.frame.y ).toBe( initial.y + 25 );
+		expect( panelEl.style.transform ).toBe( '' );
 	} );
 
 	it( 'persists the dragged frame to localStorage', () => {
