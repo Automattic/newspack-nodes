@@ -21,7 +21,13 @@ export function lockPageScroll() {
 	const html = document.documentElement;
 	const body = document.body;
 	// Width of the scrollbar gutter that disappears when overflow is hidden.
-	const gutter = window.innerWidth - html.clientWidth;
+	// Guard the reading the same way getAvailableBounds does: a real gutter is a
+	// scrollbar (0–40px). If clientWidth comes back 0/tiny (jsdom always; a real
+	// page transiently), `innerWidth - clientWidth` is the whole viewport, and
+	// applying THAT as paddingRight collapses the page to zero width (the blank
+	// dashboard) — so treat anything outside the scrollbar range as no gutter.
+	const rawGutter = window.innerWidth - html.clientWidth;
+	const gutter = rawGutter > 0 && rawGutter <= 40 ? rawGutter : 0;
 	saved = {
 		htmlOverflow: html.style.overflow,
 		htmlPaddingRight: html.style.paddingRight,

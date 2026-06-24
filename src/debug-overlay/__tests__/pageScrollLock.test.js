@@ -38,6 +38,15 @@ describe( 'pageScrollLock', () => {
 		expect( body().style.overflow ).toBe( 'visible' );
 	} );
 
+	it( 'does not set a runaway paddingRight when the gutter reads bogus', () => {
+		// A real scrollbar gutter is ~15px. If `innerWidth - html.clientWidth`
+		// comes back as the whole viewport (clientWidth momentarily 0/tiny — the
+		// case jsdom always hits, and a real page can hit transiently), applying
+		// it as paddingRight collapses the page to zero width (blank). Guard it.
+		lockPageScroll();
+		expect( html().style.paddingRight ).toBe( '' );
+	} );
+
 	it( 'unlock is a no-op when not locked', () => {
 		html().style.overflow = 'visible';
 		unlockPageScroll();
