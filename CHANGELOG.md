@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Worker-restart-on-save targeted dead worker-group labels (`request-workers`/`job-workers`) that never matched a live lock dir, so storage-geometry/memcache saves silently never restarted workers.** Classification is now by consumer node type, resolved to live topologies: `num_segments`/`segment_size`/`max_lifespan` restart any active topology that runs a `Partition`/`Topic`/`Log`, while `base_directory`/`memcache_servers` (process-wide) restart every active topology. `Admin::maybe_request_worker_restart()` resolves the field's node-type classification through `Restart_Planner` against the live topology graphs and touches each matching topology's per-partition lock dir. The unused `newspack_nodes/worker_restart_groups` filter (no consumers in any plugin) is removed.
+
 ## [0.20.1] - 2026-06-24
 
 ### Fixed

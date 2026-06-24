@@ -15,6 +15,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
 use Newspack_Nodes\Config_System\Reset_Gate;
+use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Config_System\Settings_Renderer;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
@@ -826,42 +827,13 @@ class Admin {
 
 		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );
 
-		// Restart class comes from the schema: 'supervisor_only' restarts nothing
-		// (the supervisor refreshes config each loop), an array names the worker
-		// fleets to restart, [] means no-restart (e.g. topologies, supervisor-pull).
-		$restart = Settings_Schema::get()->restart_for( $short );
-		if ( 'supervisor_only' === $restart ) {
-			return;
-		}
-		$worker_groups = \is_array( $restart ) ? $restart : [];
-
-		// Let extensions extend the restart groups for options they own.
-		if ( \function_exists( 'apply_filters' ) ) {
-			$filtered = \apply_filters( 'newspack_nodes/worker_restart_groups', $worker_groups, $short );
-			if ( \is_array( $filtered ) ) {
-				$worker_groups = \array_values( \array_unique( \array_filter( $filtered, 'is_string' ) ) );
-			}
-		}
-
-		if ( empty( $worker_groups ) ) {
-			return;
-		}
-
+		// Wrap the whole resolve+touch: the planner re-enters Config::load_config() via Bootstrap.
 		try {
-			$config         = Config::load_config();
-			$locks_dir      = Config::get_locks_directory();
-			$num_partitions = self::default_int( $config, 'num_partitions', 1 );
+			$locks_dir = Config::get_locks_directory();
+			Restart_Planner::request_restarts( Settings_Schema::get()->restart_for( $short ), $locks_dir );
 		} catch ( \Throwable $e ) {
 			// Best-effort: the next supervisor pass picks up the new config.
 			return;
-		}
-
-		// Touch the restart flag in each affected lock dir; the holder exits next tick.
-		for ( $p = 0; $p < $num_partitions; $p++ ) {
-			foreach ( $worker_groups as $group ) {
-				$lock_dir = "{$locks_dir}/{$group}.p{$p}.lock.d";
-				Lock_Node::request_restart_at( $lock_dir );
-			}
 		}
 	}
 

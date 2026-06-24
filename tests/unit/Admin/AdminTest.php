@@ -272,6 +272,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 
 use Newspack_Nodes\Admin\Admin;
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -325,6 +326,7 @@ class AdminTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		\delete_option( 'newspack_nodes_topologies' );
 		Config::reset();
 		// Clear any registry leakage from tests that registered stock dirs;
 		// the next test starts with an empty registry.
@@ -637,69 +639,80 @@ class AdminTest extends TestCase {
 	}
 
 	public function test_maybe_request_worker_restart_no_op_for_supervisor_only_options(): void {
-		$this->prepare_lock_dir( 'request-workers', 0 );
-		$this->prepare_lock_dir( 'job-workers', 0 );
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_num_partitions' );
-		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
-		$this->assertFalse( \file_exists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' ) );
+		// 'supervisor_only' (num_partitions) restarts NOTHING — even with a live
+		// topology present that the classification would otherwise resolve
+		// against. The supervisor refreshes config each loop; touching a worker
+		// here would be a correctness bug.
+		$this->register_fixture_topologies();
+		$this->prepare_lock_dir( 'combined', 0 );
+
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_num_partitions' );
+
+		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
-	public function test_maybe_request_worker_restart_all_workers_for_base_directory(): void {
-		$this->prepare_lock_dir( 'request-workers', 0 );
-		$this->prepare_lock_dir( 'job-workers', 0 );
+	public function test_maybe_request_worker_restart_memcache_servers_restarts_all_live_topologies(): void {
+		// memcache_servers is 'all' → every active topology restarts (the
+		// Memcached handle lives in every long-lived worker process).
+		$this->register_fixture_topologies();
+		$this->prepare_lock_dir( 'combined', 0 );
+		$this->prepare_lock_dir( 'aggregator', 0 );
 
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
 
-		$this->assertFileExists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' );
-		$this->assertFileExists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' );
-	}
-
-	public function test_maybe_request_worker_restart_request_workers_for_memcache_servers(): void {
-		$this->prepare_lock_dir( 'request-workers', 0 );
-		$this->prepare_lock_dir( 'job-workers', 0 );
-
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
-
-		$this->assertFileExists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' );
-		$this->assertFileDoesNotExist( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' );
+		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( "{$this->base_dir}/locks/aggregator.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
 	public function test_maybe_request_worker_restart_iterates_all_partitions(): void {
-		// Force num_partitions=4 via the substrate WP option.
-		\update_option( 'newspack_nodes_num_partitions', 4 );
-		Config::reset();
-		for ( $p = 0; $p < 4; $p++ ) {
-			$this->prepare_lock_dir( 'request-workers', $p );
+		// The 'multipart' fixture declares num_partitions=3 → every partition
+		// lock dir of a consuming topology is flagged.
+		$this->register_fixture_topologies();
+		for ( $p = 0; $p < 3; $p++ ) {
+			$this->prepare_lock_dir( 'multipart', $p );
 		}
 
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
 
-		for ( $p = 0; $p < 4; $p++ ) {
-			$this->assertFileExists( "{$this->base_dir}/locks/request-workers.p{$p}.lock.d/restart" );
+		for ( $p = 0; $p < 3; $p++ ) {
+			$this->assertFileExists( "{$this->base_dir}/locks/multipart.p{$p}.lock.d/" . Lock_Node::RESTART_FLAG );
 		}
 	}
 
-	public function test_maybe_request_worker_restart_filter_extends_groups(): void {
-		$this->prepare_lock_dir( 'custom-workers', 0 );
+	public function test_saving_num_segments_restarts_live_topologies_not_phantom_groups(): void {
+		// Storage geometry classifies for the Partition node type. The fixture
+		// 'combined' topology has a Partition; the phantom 'request-workers'
+		// worker-group label matches no live topology and must NOT be touched.
+		$this->register_fixture_topologies();
+		$this->prepare_lock_dir( 'combined', 0 );
+		$this->prepare_lock_dir( 'request-workers', 0 );
 
-		\add_filter(
-			'newspack_nodes/worker_restart_groups',
-			function ( $groups, $option_short ) {
-				if ( 'memcache_servers' === $option_short ) {
-					$groups[] = 'custom-workers';
-				}
-				return $groups;
-			}
-		);
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_num_segments' );
 
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
+		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/request-workers.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+	}
 
-		$this->assertFileExists( $this->base_dir . '/locks/custom-workers.p0.lock.d/restart' );
+	public function test_maybe_request_worker_restart_all_restarts_every_live_topology(): void {
+		// base_directory is 'all' → every active topology restarts.
+		$this->register_fixture_topologies();
+		$this->prepare_lock_dir( 'combined', 0 );
+		$this->prepare_lock_dir( 'aggregator', 0 );
+
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+
+		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( "{$this->base_dir}/locks/aggregator.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+	}
+
+	public function test_maybe_request_worker_restart_no_op_when_no_live_topology_consumes(): void {
+		// remote_* fields classify [] → nothing restarts even with a live topology.
+		$this->register_fixture_topologies();
+		$this->prepare_lock_dir( 'combined', 0 );
+
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_remote_num_segments' );
+
+		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
 	// ---- render_settings_page --------------------------------------------
@@ -1437,70 +1450,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertFalse( \get_option( 'newspack_nodes_num_partitions' ) );
 	}
 
-	// ---- maybe_request_worker_restart filter-returns-non-array ------------
-
-	public function test_maybe_request_worker_restart_filter_returning_non_array_keeps_defaults(): void {
-		$this->prepare_lock_dir( 'request-workers', 0 );
-		$this->prepare_lock_dir( 'job-workers', 0 );
-
-		\add_filter(
-			'newspack_nodes/worker_restart_groups',
-			static function () {
-				return 'not-an-array';
-			}
-		);
-
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
-
-		// Non-array filter return discarded; built-in `all_workers_options`
-		// group list still applies.
-		$this->assertFileExists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' );
-		$this->assertFileExists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' );
-	}
-
-	public function test_maybe_request_worker_restart_filter_collapses_duplicates_and_drops_non_strings(): void {
-		$this->prepare_lock_dir( 'request-workers', 0 );
-		$this->prepare_lock_dir( 'custom-workers', 0 );
-
-		\add_filter(
-			'newspack_nodes/worker_restart_groups',
-			static function ( $groups ) {
-				// Inject duplicates and a non-string sentinel. Admin filters
-				// to strings + dedupes via array_unique.
-				return [ ...$groups, 'custom-workers', 'custom-workers', 42, null ];
-			}
-		);
-
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
-
-		$this->assertFileExists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' );
-		$this->assertFileExists( $this->base_dir . '/locks/custom-workers.p0.lock.d/restart' );
-		// No spurious lock dirs created for the non-string sentinels.
-		$this->assertFalse( \is_dir( $this->base_dir . '/locks/42.p0.lock.d' ) );
-	}
-
-	public function test_maybe_request_worker_restart_filter_emptying_groups_is_noop(): void {
-		// If a filter clobbers the groups list to [], Admin's `if ( empty(
-		// $worker_groups ) ) return;` guard prevents any flag-file write.
-		$this->prepare_lock_dir( 'request-workers', 0 );
-		$this->prepare_lock_dir( 'job-workers', 0 );
-
-		\add_filter(
-			'newspack_nodes/worker_restart_groups',
-			static function () {
-				return [];
-			}
-		);
-
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
-
-		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
-		$this->assertFalse( \file_exists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' ) );
-	}
-
 	// ---- register_event_dashboard_pages ----------------------------------
 
 	public function test_register_event_dashboard_pages_registers_no_standalone_submenu(): void {
@@ -1650,6 +1599,22 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$dir = "{$this->base_dir}/locks/{$group}.p{$partition}.lock.d";
 		\mkdir( $dir, 0755, true );
 		return $dir;
+	}
+
+	/**
+	 * Register a small set of active fixture topologies so the resolver has a
+	 * live graph to consult: 'combined' (Partition + Tee), 'aggregator' (Topic),
+	 * 'multipart' (3 partitions, Echo). Mirrors RestartPlannerTest::setUp.
+	 */
+	private function register_fixture_topologies(): void {
+		$tmp = $this->make_temp_dir( 'admin-restart-topologies-' );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+		\file_put_contents( "{$tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\nmake_node Tee fanout\n" );
+		\file_put_contents( "{$tmp}/aggregator.tsl", "make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 1 1 2 0\n" );
+		\file_put_contents( "{$tmp}/multipart.tsl", "var num_partitions = 3\nmake_node Echo relay\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'combined', 'aggregator', 'multipart' ] );
+		Config::reset();
 	}
 }
 
