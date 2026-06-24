@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Read-only "Effective Configuration" panel on the Nodes Runtime settings page.** Below the settings form, a `widefat` table now reports, per substrate setting: the stored option value (or "— (file default)" when unset), the value the next worker will load (overlay-resolved `Config::load_config()`), any active `Options_Overlay` override, and the live restart impact — "Applies on next supervisor tick" for `supervisor_only`, "Takes effect immediately" for no-restart fields, or "Restarts: <topologies>" (resolved through `Restart_Planner::topologies_for()` against the live topology graphs; "Restarts: (no active consumer)" when the classification matches no active topology). A pure `Admin::effective_config_rows()` produces the data; `Admin::render_effective_config_section()` (hooked to `newspack_nodes/settings_after_form`) renders it.
+
 ### Fixed
 
 - **Worker-restart-on-save targeted dead worker-group labels (`request-workers`/`job-workers`) that never matched a live lock dir, so storage-geometry/memcache saves silently never restarted workers.** Classification is now by consumer node type, resolved to live topologies: `num_segments`/`segment_size`/`max_lifespan` restart any active topology that runs a `Partition`/`Topic`/`Log`, while `base_directory`/`memcache_servers` (process-wide) restart every active topology. `Admin::maybe_request_worker_restart()` resolves the field's node-type classification through `Restart_Planner` against the live topology graphs and touches each matching topology's per-partition lock dir. The unused `newspack_nodes/worker_restart_groups` filter (no consumers in any plugin) is removed.

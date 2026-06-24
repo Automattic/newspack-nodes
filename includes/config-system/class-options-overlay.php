@@ -19,6 +19,26 @@ namespace Newspack_Nodes\Config_System;
 
 class Options_Overlay {
 
+	/** Absent-option sentinel: `stored_value()` returns this when no option row exists, so presence is detectable even when register_setting() declares a `default`. */
+	public const ABSENT = "\0__config_system_absent__\0";
+
+	/**
+	 * Read a single prefixed option, returning {@see self::ABSENT} when the row is
+	 * absent. The one place the presence test lives, so the overlay and any UI of
+	 * it (e.g. the Effective Configuration panel) can't drift on the sentinel.
+	 *
+	 * @param string $prefix WP-option name prefix (e.g. 'newspack_nodes_').
+	 * @param string $key    Schema key (without the prefix).
+	 */
+	public static function stored_value( string $prefix, string $key ): mixed {
+		if ( ! \function_exists( 'get_option' ) ) {
+			// @codeCoverageIgnoreStart
+			return self::ABSENT;
+			// @codeCoverageIgnoreEnd
+		}
+		return \get_option( $prefix . $key, self::ABSENT );
+	}
+
 	/**
 	 * Overlay stored WP options onto a copy of the file-config defaults.
 	 *
@@ -28,15 +48,9 @@ class Options_Overlay {
 	 * @return array<string,mixed>
 	 */
 	public static function apply( array $defaults, array $schema_keys, string $prefix ): array {
-		if ( ! \function_exists( 'get_option' ) ) {
-			// @codeCoverageIgnoreStart
-			return $defaults;
-			// @codeCoverageIgnoreEnd
-		}
-		$missing = "\0__config_system_absent__\0";
 		foreach ( $schema_keys as $key ) {
-			$value = \get_option( $prefix . $key, $missing );
-			if ( $missing === $value ) {
+			$value = self::stored_value( $prefix, $key );
+			if ( self::ABSENT === $value ) {
 				continue;
 			}
 			$defaults[ $key ] = $value;
