@@ -146,6 +146,8 @@ describe( 'RemoteIpcNode', () => {
 			arguments: 'aggregator.p0',
 		} );
 		expect( posted[ 0 ][ TO ] ).toBe( 'topologies' );
+		// The mount command is minted by this node → stamps its own name as FROM.
+		expect( posted[ 0 ][ FROM ] ).toBe( 'aggregator.p0' );
 		expect( posted[ 1 ][ VALUE ] ).toEqual( { name: 'ls', arguments: '' } );
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0' );
 	} );

@@ -67,6 +67,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 		const connect = newMessage();
 		connect[ TYPE ] = TM_COMMAND;
+		connect[ FROM ] = reader;
 		connect[ TO ] = 'topologies';
 		connect[ VALUE ] = { name: 'connect_worker_input', arguments: reader };
 
