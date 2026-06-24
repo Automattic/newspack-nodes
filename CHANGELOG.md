@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Read-only "Effective Configuration" panel on the Nodes Runtime settings page.** Below the settings form, a `widefat` table now reports, per substrate setting: the stored option value (or "— (file default)" when unset), the value the next worker will load (overlay-resolved `Config::load_config()`), any active `Options_Overlay` override, and the live restart impact — "Applies on next supervisor tick" for `supervisor_only`, "Takes effect immediately" for no-restart fields, or "Restarts: <topologies>" (resolved through `Restart_Planner::topologies_for()` against the live topology graphs; "Restarts: (no active consumer)" when the classification matches no active topology). A pure `Admin::effective_config_rows()` produces the data; `Admin::render_effective_config_section()` (hooked to `newspack_nodes/settings_after_form`) renders it.
+- **Read-only "Effective Configuration" panel on the Nodes Runtime settings page.** Below the settings form, a `widefat` table now reports, per substrate setting: the stored option value (or "— (file default)" when unset), the value the next worker will load (overlay-resolved `Config::load_config()`), any active `Options_Overlay` override, and the live restart impact — "Applies on next supervisor tick" for `supervisor_only`, "Takes effect immediately" for no-restart fields, or "Restarts: <topologies>" (resolved through `Restart_Planner::topologies_for()` against the live topology graphs; "Restarts: (no active consumer)" when the classification matches no active topology). `Admin::render_effective_config_section()` (hooked to `newspack_nodes/settings_after_form`) renders it.
+
+### Changed
+
+- **The "Effective Configuration" panel now lives in the shared `Config_System\Settings_Renderer`** as `effective_config_rows( Schema, prefix, effective )` + `render_effective_config_section( Schema, prefix, effective )` (plus the restart-impact and value-formatting helpers), so both `newspack-nodes` and `newspack-event-logger-nodes` render the panel from one implementation instead of each carrying its own copy. The substrate `Admin::render_effective_config_section()` is now a thin delegate; the per-row data shape is exercised against the shared renderer directly.
 
 ### Fixed
 

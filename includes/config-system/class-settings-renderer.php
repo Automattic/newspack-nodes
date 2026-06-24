@@ -16,9 +16,130 @@
 
 namespace Newspack_Nodes\Config_System;
 
+use Newspack_Nodes\Core;
+
 \defined( 'ABSPATH' ) || exit;
 
 class Settings_Renderer {
+
+	/**
+	 * Pure data for the "Effective Configuration" panel: one row per rendered
+	 * setting, reporting the stored value, the value the next worker will load,
+	 * any active per-request overlay override, and the live restart impact.
+	 *
+	 * Plugin-agnostic — the caller passes its own Schema, WP-option prefix, and
+	 * already-loaded effective config (each plugin's own `Config::load_config()`,
+	 * which the substrate renderer can't call directly because the consumers each
+	 * have a different `Config`).
+	 *
+	 * @param Schema               $schema    The plugin's settings schema.
+	 * @param string               $prefix    WP-option name prefix (e.g. 'newspack_nodes_').
+	 * @param array<string,mixed>  $effective Already-loaded effective config (the caller's Config::load_config()).
+	 * @return array<int,array{key:string,label:string,stored:string,effective:string,overlay:?string,restart:string}>
+	 */
+	public static function effective_config_rows( Schema $schema, string $prefix, array $effective ): array {
+		$rows = [];
+		foreach ( $schema->fields() as $field ) {
+			if ( ! $field->is_setting() ) {
+				continue;
+			}
+			$key       = $field->key;
+			$raw_store = Options_Overlay::stored_value( $prefix, $key );
+			$stored    = Options_Overlay::ABSENT === $raw_store
+				? \__( '— (file default)', 'newspack-nodes' )
+				: self::format_value( $raw_store );
+
+			// Direct-read options (overlay=false, e.g. remote_*) aren't in load_config() — fall back to the stored option, then the field's registered default.
+			$effective_value = $effective[ $key ] ?? $raw_store;
+			if ( Options_Overlay::ABSENT === $effective_value ) {
+				$effective_value = $field->register_args['default'] ?? '';
+			}
+
+			// Override active only when this overlaid key has a stored row (Options_Overlay's presence rule).
+			$overlay = $field->is_overlaid() && Options_Overlay::ABSENT !== $raw_store
+				? self::format_value( $raw_store )
+				: null;
+
+			$rows[] = [
+				'key'       => $key,
+				'label'     => $field->label(),
+				'stored'    => $stored,
+				'effective' => self::format_value( $effective_value ),
+				'overlay'   => $overlay,
+				'restart'   => self::restart_impact( $field->restart ),
+			];
+		}
+		return $rows;
+	}
+
+	/**
+	 * Render the read-only "Effective Configuration" table below a settings form.
+	 * Each plugin hooks this to its own `settings_after_form` action.
+	 *
+	 * @param Schema               $schema    The plugin's settings schema.
+	 * @param string               $prefix    WP-option name prefix.
+	 * @param array<string,mixed>  $effective Already-loaded effective config.
+	 */
+	public static function render_effective_config_section( Schema $schema, string $prefix, array $effective ): void {
+		$rows = self::effective_config_rows( $schema, $prefix, $effective );
+		?>
+		<h2><?php \esc_html_e( 'Effective Configuration', 'newspack-nodes' ); ?></h2>
+		<p class="description"><?php \esc_html_e( 'What the next worker will load, and which topologies a save restarts.', 'newspack-nodes' ); ?></p>
+		<table class="widefat">
+			<thead>
+				<tr>
+					<th scope="col"><?php \esc_html_e( 'Setting', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Stored', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Effective', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Overlay override', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Restart impact', 'newspack-nodes' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $rows as $row ) : ?>
+					<tr>
+						<td><?php echo \esc_html( $row['label'] ); ?></td>
+						<td><?php echo \esc_html( $row['stored'] ); ?></td>
+						<td><?php echo \esc_html( $row['effective'] ); ?></td>
+						<td><?php echo \esc_html( null === $row['overlay'] ? '—' : $row['overlay'] ); ?></td>
+						<td><?php echo \esc_html( $row['restart'] ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	/**
+	 * Human-readable restart impact for a Field's restart classification.
+	 *
+	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
+	 */
+	private static function restart_impact( array|string $restart ): string {
+		if ( 'supervisor_only' === $restart ) {
+			return \__( 'Applies on next supervisor tick', 'newspack-nodes' );
+		}
+		if ( [] === $restart ) {
+			return \__( 'Takes effect immediately', 'newspack-nodes' );
+		}
+		$topologies = Restart_Planner::topologies_for( $restart );
+		if ( [] === $topologies ) {
+			return \__( 'Restarts: (no active consumer)', 'newspack-nodes' );
+		}
+		return \sprintf(
+			/* translators: %s: comma-separated topology names. */
+			\__( 'Restarts: %s', 'newspack-nodes' ),
+			\implode( ', ', $topologies )
+		);
+	}
+
+	/** Display a config value: arrays joined with ', ', scalars cast, everything else ''. */
+	private static function format_value( mixed $value ): string {
+		if ( \is_array( $value ) ) {
+			return \implode( ', ', \array_map( [ Core::class, 'as_string' ], $value ) );
+		}
+		return Core::as_string( $value );
+	}
 
 	/**
 	 * A number field. Shows blank (placeholder = default) when unset or equal to
