@@ -57,7 +57,7 @@ export default function TopologyControls( {
 				</button>
 			) }
 			<a
-				className="nodes-ctl__edit"
+				className="nodes-ctl__edit button button-small"
 				href={ editHref }
 				title={ __(
 					'Edit this topology in the console',

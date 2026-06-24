@@ -90,7 +90,14 @@ input.newspack-nodes-raw-logs-search {
 }
 
 .newspack-nodes-raw-logs-btn {
-	@include base.dark-button;
+	padding: 0 base.$space-sm;
+	cursor: pointer;
+	font-size: 12px;
+	height: base.$control-height;
+	min-height: base.$control-height;
+	max-height: base.$control-height;
+	box-sizing: border-box;
+	vertical-align: middle;
 
 	&.active {
 		background: base.$success-bg;

@@ -194,9 +194,9 @@ describe( 'VaultAdmin', () => {
 	it( 'renders an Add Server trigger and keeps the form out of the DOM until opened', () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
-		expect(
-			container.querySelector( '.nodes-vault__add-trigger' )
-		).toBeTruthy();
+		const trigger = container.querySelector( '.nodes-vault__add-trigger' );
+		expect( trigger ).toBeTruthy();
+		expect( trigger.classList.contains( 'button' ) ).toBe( true );
 		// The form lives in a modal — its fields are not rendered yet.
 		expect( container.querySelector( '#new-server-id' ) ).toBeNull();
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();

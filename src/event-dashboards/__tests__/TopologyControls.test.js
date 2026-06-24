@@ -27,6 +27,13 @@ it( 'active: toggle is on, restart shown, edit links', () => {
 	).toBe( 'admin.php?edit=1' );
 } );
 
+it( 'edit renders as a stock WP small secondary button', () => {
+	const { container } = setup( { active: true } );
+	const edit = container.querySelector( '.nodes-ctl__edit' );
+	expect( edit.classList.contains( 'button' ) ).toBe( true );
+	expect( edit.classList.contains( 'button-small' ) ).toBe( true );
+} );
+
 it( 'inactive: toggle is off and there is no restart button', () => {
 	const { container } = setup( { active: false } );
 	const toggle = container.querySelector( '.nodes-ctl__toggle' );

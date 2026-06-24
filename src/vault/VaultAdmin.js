@@ -495,7 +495,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 	const controls = (
 		<button
 			type="button"
-			className="nodes-cards__new nodes-vault__add-trigger"
+			className="nodes-cards__new nodes-vault__add-trigger button"
 			onClick={ () => setIsAddOpen( true ) }
 		>
 			{ __( '+ Add Server', 'newspack-nodes' ) }

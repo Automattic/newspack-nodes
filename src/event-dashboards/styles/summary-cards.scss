@@ -90,7 +90,6 @@ $health-stalled: var(--oxide);
 
 // "+ New Topology" — trails the card row, right-aligned.
 .nodes-cards__new {
-	@include base.secondary-button;
 	margin-left: auto;
 	align-self: center;
 	font-size: 13px;
@@ -153,7 +152,6 @@ $health-stalled: var(--oxide);
 	}
 
 	&__edit {
-		@include base.secondary-button;
 		flex: 0 0 auto;
 		font-size: 12px;
 		line-height: 1;
