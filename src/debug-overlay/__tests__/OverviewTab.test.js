@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import OverviewTab from '../tabs/OverviewTab';
 import { IoTelemetry, OVERVIEW_STORAGE_KEY } from '../../runtime/io-telemetry';
 
@@ -71,6 +71,16 @@ test( 'lists the classified messages below the charts (newest first)', () => {
 test( 'omits the message list when there are no messages', () => {
 	const { queryByTestId } = renderTab();
 	expect( queryByTestId( 'overview-messages' ) ).toBeNull();
+} );
+
+test( 'the Reset stats button clears the telemetry', () => {
+	IoTelemetry.recordWarning();
+	IoTelemetry.recordError( 3 );
+	const { getByText } = renderTab();
+	fireEvent.click( getByText( 'Reset stats' ) );
+	const s = IoTelemetry.snapshot();
+	expect( s.warnings ).toBe( 0 );
+	expect( s.errors ).toBe( 0 );
 } );
 
 test( 'renders no header of its own (the panel owns the one shared header)', () => {

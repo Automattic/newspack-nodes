@@ -97,6 +97,29 @@ describe( 'cumulative counters', () => {
 		expect( s.messages ).toEqual( [] );
 	} );
 
+	test( 'clear zeroes data + drops the persisted series but keeps subscribers', () => {
+		IoTelemetry.recordIn( 100 );
+		IoTelemetry.recordWarning( 'WARNING: x' );
+		IoTelemetry.sample( 0 );
+		IoTelemetry.sample( 5 );
+		window.localStorage.setItem( OVERVIEW_STORAGE_KEY, '[[1,2,3,4,5]]' );
+		let notified = 0;
+		IoTelemetry.subscribe( () => ( notified += 1 ) );
+
+		IoTelemetry.clear();
+
+		const s = IoTelemetry.snapshot();
+		expect( s.bytesIn ).toBe( 0 );
+		expect( s.warnings ).toBe( 0 );
+		expect( s.messages ).toEqual( [] );
+		expect( IoTelemetry.getSeries() ).toEqual( [] );
+		expect(
+			window.localStorage.getItem( OVERVIEW_STORAGE_KEY )
+		).toBeNull();
+		// Subscriber kept (not dropped like reset) and notified of the clear.
+		expect( notified ).toBeGreaterThan( 0 );
+	} );
+
 	test( 'the message list is capped at MAX_MESSAGES (oldest dropped)', () => {
 		for ( let i = 0; i < MAX_MESSAGES + 10; i++ ) {
 			IoTelemetry.recordDebug( `m${ i }` );

@@ -73,6 +73,30 @@ class IoTelemetryImpl {
 		this._listeners = new Set();
 	}
 
+	// Operator "reset stats": zero the counters, series, and messages AND drop the
+	// persisted series — but KEEP subscribers (the dashboards stay live and
+	// re-render to the cleared state). Bumps the revision so the chart memo
+	// recomputes against the empty series, and restarts the rate baseline.
+	clear() {
+		this.bytesIn = 0;
+		this.bytesOut = 0;
+		this.msgsIn = 0;
+		this.msgsOut = 0;
+		this.warnings = 0;
+		this.errors = 0;
+		this.debug = 0;
+		this.messages = [];
+		this.series = [];
+		this.revision += 1;
+		this._last = null;
+		try {
+			window.localStorage.removeItem( OVERVIEW_STORAGE_KEY );
+		} catch ( _e ) {
+			// localStorage disabled — the in-memory clear is enough.
+		}
+		this._notify();
+	}
+
 	recordIn( bytes, count = 1 ) {
 		this.bytesIn += bytes;
 		this.msgsIn += count;
