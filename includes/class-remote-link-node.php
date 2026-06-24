@@ -195,9 +195,9 @@ class Remote_Link_Node extends Timer_Node {
 	private function publish_status(): void {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
-			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null ];
+			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null ];
 		$data = [
-			'last_connection_attempt' => (int) Core::$now,
+			'last_connection_attempt' => $conn['last_attempt'],
 			'connected'               => $conn['connected'],
 			'last_http_code'          => $conn['last_http_code'],
 			'last_error'              => $conn['last_error'],

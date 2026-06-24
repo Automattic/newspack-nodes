@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Aggregator dashboard's per-partition "Connected" time no longer sticks at "1s ago".** `Remote_Link_Node::publish_status()` stamped `last_connection_attempt` to `Core::$now` on every tick, so the timestamp tracked the 1-second status-publish cadence instead of the actual connection — a healthy, long-lived link read "connected 1s ago" forever. It now reflects the genuine connect time: `SSE_In_Node::connection()` exposes `last_attempt` (set once per socket open, `null` until the first attempt), and `publish_status()` passes that through verbatim — no `Core::$now` fallback, so an un-attempted link reads `-` rather than a fabricated "now".
+
 ## [0.20.0] - 2026-06-24
 
 ### Added
