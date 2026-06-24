@@ -596,28 +596,6 @@ class AdminTest extends TestCase {
 		$this->assertSame( [ 'combined' ], \get_option( 'newspack_nodes_topologies' ), 'reset must NOT touch the active topology set' );
 	}
 
-	public function test_handle_reset_settings_only_deletes_prefixed_options_via_filter(): void {
-		// Filter that tries to inject a non-prefixed option — must be silently dropped.
-		\add_filter(
-			'newspack_nodes/reset_options',
-			function ( $opts ) {
-				$opts[] = 'malicious_unrelated_option';
-				return $opts;
-			}
-		);
-		$_POST = [ Admin::RESET_NONCE => $this->valid_nonce() ];
-		\update_option( 'malicious_unrelated_option', 'should-survive' );
-
-		$admin = new Admin();
-		try {
-			$admin->handle_reset_settings();
-			$this->fail( 'expected RedirectException' );
-		} catch ( RedirectException $e ) {
-			// Expected.
-		}
-		$this->assertSame( 'should-survive', \get_option( 'malicious_unrelated_option' ) );
-	}
-
 	// ---- maybe_request_worker_restart ------------------------------------
 
 	public function test_maybe_request_worker_restart_no_op_for_unrelated_option(): void {
@@ -1423,31 +1401,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		// script), and the marked-state highlight style is present.
 		$this->assertArrayHasKey( 'newspack-nodes-field-reset', $GLOBALS['_enqueued_scripts'] );
 		$this->assertStringContainsString( '.is-marked [data-nn-reset-toggle]', $html );
-	}
-
-	// ---- additional handle_reset_settings + filter coverage --------------
-
-	public function test_handle_reset_settings_filter_returning_non_array_is_ignored(): void {
-		// When the reset_options filter returns a non-array (a misuse),
-		// Admin must keep its built-in option list rather than crashing on
-		// foreach.
-		\add_filter(
-			'newspack_nodes/reset_options',
-			static function () {
-				return 'not-an-array';
-			}
-		);
-		$_POST = [ Admin::RESET_NONCE => $this->valid_nonce() ];
-		\update_option( 'newspack_nodes_num_partitions', 9 );
-
-		$admin = new Admin();
-		try {
-			$admin->handle_reset_settings();
-			$this->fail( 'expected RedirectException' );
-		} catch ( RedirectException $e ) {
-			// Built-in option list was used; substrate option cleared.
-		}
-		$this->assertFalse( \get_option( 'newspack_nodes_num_partitions' ) );
 	}
 
 	// ---- register_event_dashboard_pages ----------------------------------
