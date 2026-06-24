@@ -319,3 +319,11 @@
 		margin-bottom: 8px;
 	}
 }
+
+// In/out (↓/↑) card numbers: a fixed-width right-aligned cell each, so the
+// arrows hold position as the digit count changes instead of bouncing.
+.nodes-card__io {
+	display: inline-block;
+	min-width: 5.5ch;
+	text-align: right;
+}
