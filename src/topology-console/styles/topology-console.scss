@@ -149,7 +149,10 @@ body:has(.nodes-devtools-hub .topology-app) {
 // ── TopologySettingsPanel — frontmatter (`var name = value`) editor ──────────
 .topology-settings-panel {
 	position: absolute;
-	top: 56px;
+	// Sit at the top-right of the canvas. (Was 56px, from when the SAVE/SETTINGS
+	// toolbar lived inside the console; that toolbar moved up to the shared
+	// header above the tabs, so 56px stranded the panel ~140px below its button.)
+	top: 8px;
 	right: 16px;
 	z-index: 20;
 	width: 440px;
