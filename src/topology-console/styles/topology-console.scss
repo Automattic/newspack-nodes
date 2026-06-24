@@ -195,6 +195,19 @@ body:has(.nodes-devtools-hub .topology-app) {
 			color: var(--ink-3);
 		}
 	}
+
+	// The native number spinner renders as an un-themeable white box (it ignores
+	// the field's own colors), which jars on a dark skin. Hide it — the field
+	// stays a plain themed number input you type into (values are small, ≤16).
+	input[type="number"] {
+		appearance: textfield;
+
+		&::-webkit-inner-spin-button,
+		&::-webkit-outer-spin-button {
+			appearance: none;
+			margin: 0;
+		}
+	}
 }
 
 .topology-settings-field {

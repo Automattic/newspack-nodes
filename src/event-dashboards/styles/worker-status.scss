@@ -358,17 +358,11 @@
 	&.processed {
 		// Softened green (lighter than solid Cobalt-success) so the wide bars
 		// don't dominate the light dashboard.
-		background: color-mix(
-			in srgb,
-			var(--sage) 68%,
-			white
-		); // processed
+		background: color-mix(in srgb, var(--sage) 68%, white); // processed
 	}
 
 	&.pending {
-		background: var(
-			--brass
-		); // Yellow/amber - pending in current segment
+		background: var(--brass); // Yellow/amber - pending in current segment
 	}
 
 	&.beyond {
@@ -376,7 +370,7 @@
 		// heavy near-black weight of the secondary-text grey.
 		background: color-mix(
 			in srgb,
-			var(--ink-3) 45%,
+			var(--sage-subtle) 45%,
 			white
 		); // live on disk, past the recorded probe end
 	}
