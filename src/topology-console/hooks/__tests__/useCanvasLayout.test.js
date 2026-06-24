@@ -90,7 +90,7 @@ describe( 'useCanvasLayout', () => {
 		).toEqual( { x: 500, y: 500 } );
 	} );
 
-	it( 'tucks a newly-appeared node below the left-most-then-bottom-most, canReset=true', () => {
+	it( 'tucks a newly-appeared node below the left-most-then-bottom-most, WITHOUT marking modified', () => {
 		const { result, rerender } = render();
 		// autoLayout: a{60,80}, b{300,80}. left-most col = x60 (just a) → new node at {60,190}.
 		rerender( {
@@ -103,7 +103,10 @@ describe( 'useCanvasLayout', () => {
 			},
 		} );
 		expect( result.current.positions.c ).toEqual( { x: 60, y: 190 } );
-		expect( result.current.canReset ).toBe( true );
+		// Auto-tucking an externally-added node is NOT a user modification — the
+		// graph can change from outside (the shared Core gains nodes when another
+		// view/tab mounts), so Reset Layout must not surface for it.
+		expect( result.current.canReset ).toBe( false );
 	} );
 
 	it( 'keeps a pre-recorded drop position instead of tucking', () => {
