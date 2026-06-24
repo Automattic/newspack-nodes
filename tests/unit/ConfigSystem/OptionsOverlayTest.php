@@ -42,4 +42,19 @@ class OptionsOverlayTest extends TestCase {
 		$result = Options_Overlay::apply( [ 'kept' => 'yes' ], [ 'num_partitions' ], 'tp_' );
 		$this->assertSame( 'yes', $result['kept'] );
 	}
+
+	public function test_stored_value_returns_absent_sentinel_for_missing_option(): void {
+		$this->assertSame( Options_Overlay::ABSENT, Options_Overlay::stored_value( 'tp_', 'num_partitions' ) );
+	}
+
+	public function test_stored_value_returns_value_when_present(): void {
+		\update_option( 'tp_num_partitions', '8' );
+		$this->assertSame( '8', Options_Overlay::stored_value( 'tp_', 'num_partitions' ) );
+	}
+
+	public function test_stored_value_returns_value_for_present_empty_option(): void {
+		// Presence decides, not emptiness: a stored '' is NOT the absent sentinel.
+		\update_option( 'tp_base_directory', '' );
+		$this->assertSame( '', Options_Overlay::stored_value( 'tp_', 'base_directory' ) );
+	}
 }
