@@ -15,59 +15,59 @@
 // variable NAMES are retained (only the VALUES flipped) to bound reskin churn.
 
 // Chrome surfaces (light) — `$dark-bg*` now carry the light Newspack neutrals.
-$dark-bg: var(--np-surface-subtle); // #fff
-$dark-bg-secondary: var(--np-surface); // card surface
-$dark-bg-tertiary: var(--np-surface-subtle); // control surface
-$dark-bg-hover: var(--np-surface-muted); // control hover
-$dark-bg-active: var(--np-primary-subtle); // active/selected control
-$dark-bg-row-even: var(--np-surface-subtle);
-$dark-bg-row-hover: var(--np-surface-muted);
-$dark-bg-deep: var(--np-surface-subtle);
-$dark-bg-deepest: var(--np-surface-muted);
-$dark-header-border: var(--np-border);
+$dark-bg: var(--paper-2); // #fff
+$dark-bg-secondary: var(--paper); // card surface
+$dark-bg-tertiary: var(--paper-2); // control surface
+$dark-bg-hover: var(--paper-3); // control hover
+$dark-bg-active: var(--cyan-subtle); // active/selected control
+$dark-bg-row-even: var(--paper-2);
+$dark-bg-row-hover: var(--paper-3);
+$dark-bg-deep: var(--paper-2);
+$dark-bg-deepest: var(--paper-3);
+$dark-header-border: var(--paper-shadow);
 
 // Chrome text (dark ink on light).
-$dark-text: var(--np-text); // #1e1e1e
-$dark-text-muted: var(--np-text-secondary); // #6c6c6c
-$dark-text-time: var(--np-text-secondary);
-$dark-text-placeholder: var(--np-text-secondary);
-$dark-text-dim: var(--np-text-secondary);
+$dark-text: var(--ink); // #1e1e1e
+$dark-text-muted: var(--ink-3); // #6c6c6c
+$dark-text-time: var(--ink-3);
+$dark-text-placeholder: var(--ink-3);
+$dark-text-dim: var(--ink-3);
 
 // Chrome borders.
-$dark-border: var(--np-border); // #ddd
-$dark-border-light: var(--np-border); // hairline divider
+$dark-border: var(--paper-shadow); // #ddd
+$dark-border-light: var(--paper-shadow); // hairline divider
 
 // Accents — Cobalt leads.
-$dark-accent: var(--np-primary); // #003da5
-$dark-accent-hover: var(--np-primary-hover); // #00296e
-$dark-success: var(--np-success);
-$dark-info: var(--np-primary);
+$dark-accent: var(--cyan); // #003da5
+$dark-accent-hover: var(--cyan-dark); // #00296e
+$dark-success: var(--sage);
+$dark-info: var(--cyan);
 
 // Light chrome — text + surfaces (already light; aligned to exact Newspack).
-$light-text: var(--np-text);
-$light-text-secondary: var(--np-text-secondary);
-$light-text-muted: var(--np-text-secondary);
-$light-surface: var(--np-surface-subtle);
-$light-surface-alt: var(--np-surface-subtle);
-$light-surface-hover: var(--np-surface-muted);
-$light-border: var(--np-border-strong);
-$light-border-light: var(--np-border);
+$light-text: var(--ink);
+$light-text-secondary: var(--ink-3);
+$light-text-muted: var(--ink-3);
+$light-surface: var(--paper-2);
+$light-surface-alt: var(--paper-2);
+$light-surface-hover: var(--paper-3);
+$light-border: var(--ink-3);
+$light-border-light: var(--paper-shadow);
 
 // Focus/interactive — Cobalt.
-$focus-color: var(--np-primary);
+$focus-color: var(--cyan);
 
 // Status colors — functional.
-$status-success: var(--np-success);
-$status-warning: var(--np-warning);
-$status-error: var(--np-error);
-$status-inactive: var(--np-text-secondary);
+$status-success: var(--sage);
+$status-warning: var(--brass);
+$status-error: var(--oxide);
+$status-inactive: var(--ink-3);
 
 // Semantic colors.
-$error-bg: var(--np-error);
-$error-text: var(--np-error);
-$success-bg: var(--np-success);
-$success-border: var(--np-success);
-$warning-color: var(--np-warning);
+$error-bg: var(--oxide);
+$error-text: var(--oxide);
+$success-bg: var(--sage);
+$success-border: var(--sage);
+$warning-color: var(--brass);
 
 // Pure colors
 $white: #fff;
