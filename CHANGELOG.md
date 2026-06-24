@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Runtime log emits now carry a `WARNING:` / `ERROR:` prefix so the overlay classifies them correctly.** Audited the JS runtime's `stderr` / `printLessOften` call sites: a dropped malformed SSE frame, a Tee target that threw, and an invalid command struct are `WARNING:`; a failed `HttpOut` POST and a TM_NOREPLY command error are `ERROR:`. Unprefixed lines stay debug. (The emits that already had a prefix — the stamp-message guards, the forgot-to-unregister notices — are unchanged.)
 - **The debug overlay's close button now uses the standard WP `close` icon** (the X ELN/pyrobase modals use) instead of the thin `×` text glyph — inlined as an SVG since `@wordpress/icons` isn't a nodes dependency.
 - **`settings-sync` `add_setting` is now repeatable per local option.** The registry keys a list of `{to, remote}` mappings per local option (was a single mapping that the next `add_setting` overwrote), so one local option can fan out to several spoke targets — e.g. a `remote_*` setting seeding both the spoke's stripped option AND its own `remote_*` copy, so the value propagates onward to the spoke's spokes. Exact-duplicate mappings are deduped (idempotent topology reload); `push()` emits one `set` per mapping.
 

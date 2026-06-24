@@ -27,7 +27,7 @@ export class TeeNode extends Node {
 				this.sink.fill( copy );
 			} catch ( e ) {
 				this.printLessOften(
-					`Tee: target ${ t } threw: ${ e.message }`
+					`WARNING: Tee: target ${ t } threw: ${ e.message }`
 				);
 			}
 		}

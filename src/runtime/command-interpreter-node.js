@@ -136,7 +136,7 @@ export class CommandInterpreterNode extends Node {
 		// VALUE is the structured command object directly (no parse needed).
 		const cmd = message[ VALUE ];
 		if ( ! cmd || typeof cmd !== 'object' || ! cmd.name ) {
-			this.stderr( 'invalid command struct' );
+			this.stderr( 'WARNING: invalid command struct' );
 			return;
 		}
 
@@ -185,7 +185,7 @@ export class CommandInterpreterNode extends Node {
 		const inType = message[ TYPE ];
 		if ( ( typeof inType === 'number' ? inType : 0 ) & TM_NOREPLY ) {
 			if ( kind & TM_ERROR ) {
-				this.stderr( `error from TM_NOREPLY command: ${ payload }` );
+				this.stderr( `ERROR: from TM_NOREPLY command: ${ payload }` );
 			}
 			return;
 		}

@@ -164,7 +164,7 @@ describe( 'HttpOut', () => {
 	} );
 
 	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {
-		expectConsoleWarn( '_http: HttpOut POST failed:' );
+		expectConsoleWarn( '_http: ERROR: HttpOut POST failed:' );
 		const { Node } = require( '../node' );
 		const { node, postBatch } = makeNode();
 		const got = [];
@@ -307,7 +307,7 @@ describe( 'HttpOut', () => {
 			node.fill( routed( { to: 'demo.p0' } ) );
 			await new Promise( ( r ) => setTimeout( r, 0 ) );
 			expect( spy ).toHaveBeenCalled();
-			expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch( /boom 502/ );
+			expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch( /^ERROR:.*boom 502/ );
 			spy.mockRestore();
 		} );
 	} );

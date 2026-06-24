@@ -153,7 +153,7 @@ test( 'a malformed typeless frame is dropped at ingress and warns (no router noi
 
 	expect( got ).toEqual( [] );
 	expect( warn ).toHaveBeenCalledWith(
-		'SseConnectorNode: dropped a malformed typeless SSE frame'
+		'WARNING: SseConnectorNode: dropped a malformed typeless SSE frame'
 	);
 	warn.mockRestore();
 } );
