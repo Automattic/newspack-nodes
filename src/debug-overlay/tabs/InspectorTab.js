@@ -53,10 +53,13 @@ export function measureTabBarHeight( rootEl ) {
  * @return {number} Transcript max-height in px.
  */
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
-	// -6 reserves the resize handle: it's 6px, centered on the transcript's top
-	// edge, so 3px overhangs above the pane — without the reserve the handle is
-	// clipped against the panel top when the transcript is maximized.
-	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight - 6 );
+	// -4 reserves the resize handle so it isn't clipped at full height. Unlike the
+	// console (which measures its frame exactly and needs 0 — see
+	// replCeilingFromAppHeight), this path HARDCODES the header (64) and bar (38)
+	// instead of measuring them, and those are ~4px off the panel's real chrome;
+	// the 4 absorbs that slop so the transcript top lands at the same spot (handle
+	// edge ~1px below the tab bar, hit area extending down).
+	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight - 4 );
 }
 
 /**
