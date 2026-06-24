@@ -1,4 +1,4 @@
-import { useEffect } from '@wordpress/element';
+import { useEffect, useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 // Reuse the hub's exact d3 rate panel rather than reimplement it. Tradeoff: this
 // pulls d3 (via the shared useTimeChart) into the devtools-hub bundle that hosts
@@ -59,6 +59,41 @@ export default function OverviewTab( { publishHeader } ) {
 
 	// The Overview owns no header controls — clear any the Console left behind.
 	useEffect( () => publishHeader?.( null ), [ publishHeader ] );
+
+	// Memoize the classified-message list: the cards refresh at 20Hz, but the
+	// (up to 200) <li> only need to reconcile when the messages actually change.
+	// Key on length + the newest timestamp, which both move when a line is added.
+	const messages = totals.messages;
+	const messagesKey = `${ messages.length }:${
+		messages[ messages.length - 1 ]?.ts ?? 0
+	}`;
+	const messageList = useMemo( () => {
+		if ( messages.length === 0 ) {
+			return null;
+		}
+		return (
+			<div
+				className="nodes-overview__messages"
+				data-testid="overview-messages"
+			>
+				<h3>{ __( 'Messages', 'newspack-nodes' ) }</h3>
+				<ul>
+					{ messages
+						.map( ( m, i ) => ( { m, i } ) )
+						.reverse()
+						.map( ( { m, i } ) => (
+							<li
+								key={ i }
+								className={ `nodes-overview__msg nodes-overview__msg--${ m.level }` }
+							>
+								{ m.text }
+							</li>
+						) ) }
+				</ul>
+			</div>
+		);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ messagesKey ] );
 
 	return (
 		// Fullbleed scrolling body on the hub's Newspack surface. The flex/overflow
@@ -134,27 +169,7 @@ export default function OverviewTab( { publishHeader } ) {
 					formatValue={ formatByteRate }
 				/>
 			</div>
-			{ totals.messages.length > 0 && (
-				<div
-					className="nodes-overview__messages"
-					data-testid="overview-messages"
-				>
-					<h3>{ __( 'Messages', 'newspack-nodes' ) }</h3>
-					<ul>
-						{ totals.messages
-							.map( ( m, i ) => ( { m, i } ) )
-							.reverse()
-							.map( ( { m, i } ) => (
-								<li
-									key={ i }
-									className={ `nodes-overview__msg nodes-overview__msg--${ m.level }` }
-								>
-									{ m.text }
-								</li>
-							) ) }
-					</ul>
-				</div>
-			) }
+			{ messageList }
 		</div>
 	);
 }

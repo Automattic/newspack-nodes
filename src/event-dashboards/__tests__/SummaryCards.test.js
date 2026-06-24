@@ -88,9 +88,10 @@ it( 'formats the 24h produced messages + bytes from the probe consumers', () => 
 	const { container } = renderCards( {
 		consumers: { r1: { source: 's', series } },
 	} );
-	// 100/s × 15s = 1500 msgs; 1000 B/s × 15s = 15000 B.
+	// 100/s × 15s = 1500 msgs; 1000 B/s × 15s = 15000 B (14.65 KB → "15 KB",
+	// decimal dropped at/above 10).
 	expect( card( container, 'messages' ) ).toContain( '1.5K' );
-	expect( card( container, 'bytes' ) ).toContain( '14.6 KB' );
+	expect( card( container, 'bytes' ) ).toContain( '15 KB' );
 } );
 
 it( 'links + New Topology to the given href', () => {

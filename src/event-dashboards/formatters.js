@@ -5,6 +5,18 @@
 import { __ } from '@wordpress/i18n';
 
 /**
+ * Compact decimals for a unit-scaled value: one decimal place under 10, none
+ * at/above. Keeps the number to at most 3 characters ("4.1", "46" — never
+ * "46.4") so the rate/byte cards don't jitter their width as the value changes.
+ *
+ * @param {number} value Unit-scaled value (e.g. bytes / 1024^i).
+ * @return {number} The value rounded to the compact precision.
+ */
+function compactFixed( value ) {
+	return parseFloat( value.toFixed( value >= 10 ? 0 : 1 ) );
+}
+
+/**
  * Format bytes to human readable string.
  *
  * @param {number} bytes Byte count.
@@ -17,11 +29,7 @@ export function formatBytes( bytes ) {
 	const k = 1024;
 	const sizes = [ 'B', 'KB', 'MB', 'GB' ];
 	const i = Math.floor( Math.log( bytes ) / Math.log( k ) );
-	return (
-		parseFloat( ( bytes / Math.pow( k, i ) ).toFixed( 1 ) ) +
-		' ' +
-		sizes[ i ]
-	);
+	return compactFixed( bytes / Math.pow( k, i ) ) + ' ' + sizes[ i ];
 }
 
 /**
@@ -45,11 +53,7 @@ export function formatByteRate( bytesPerSec ) {
 			Math.floor( Math.log( bytesPerSec ) / Math.log( k ) )
 		)
 	);
-	return (
-		parseFloat( ( bytesPerSec / Math.pow( k, i ) ).toFixed( 1 ) ) +
-		' ' +
-		sizes[ i ]
-	);
+	return compactFixed( bytesPerSec / Math.pow( k, i ) ) + ' ' + sizes[ i ];
 }
 
 /**
@@ -72,11 +76,7 @@ export function formatMsgRate( perSec ) {
 			Math.floor( Math.log( perSec ) / Math.log( 1000 ) )
 		)
 	);
-	return (
-		parseFloat( ( perSec / Math.pow( 1000, i ) ).toFixed( 1 ) ) +
-		units[ i ] +
-		'/s'
-	);
+	return compactFixed( perSec / Math.pow( 1000, i ) ) + units[ i ] + '/s';
 }
 
 /**
@@ -97,12 +97,12 @@ export function formatCount( n ) {
 		units.length - 1,
 		Math.floor( Math.log( n ) / Math.log( 1000 ) )
 	);
-	let value = parseFloat( ( n / Math.pow( 1000, i ) ).toFixed( 1 ) );
+	let value = compactFixed( n / Math.pow( 1000, i ) );
 	// Rounding can push the value to 1000 (e.g. 999999 → "1000.0"); promote to the
 	// next unit so it reads "1M", not "1000K".
 	if ( value >= 1000 && i < units.length - 1 ) {
 		i++;
-		value = parseFloat( ( n / Math.pow( 1000, i ) ).toFixed( 1 ) );
+		value = compactFixed( n / Math.pow( 1000, i ) );
 	}
 	return value + units[ i ];
 }
