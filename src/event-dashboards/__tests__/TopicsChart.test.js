@@ -60,11 +60,14 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
 	const actual = jest.requireActual(
 		'@newspack-nodes/shared/hooks/useTimeChart'
 	);
+	const { useEffect } = jest.requireActual( '@wordpress/element' );
 	return {
 		__esModule: true,
 		...actual,
 		setupTooltip: jest.fn(),
 		drawLegend: jest.fn(),
+		// Mirror the real hook's timing: run renderFn in an effect AFTER commit
+		// so the JSX refs (including TopicsChart's themeRef) are populated.
 		useTimeChart: ( renderFn ) => {
 			const containerRef = {
 				current: {
@@ -74,7 +77,11 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
 			};
 			const tooltipRef = { current: { style: {} } };
 			const lastMouseXRef = { current: null };
-			renderFn( { containerRef, tooltipRef, lastMouseXRef } );
+			useEffect( () => {
+				renderFn( { containerRef, tooltipRef, lastMouseXRef } );
+				// Refs are stable per the real hook; only renderFn drives it.
+				// eslint-disable-next-line react-hooks/exhaustive-deps
+			}, [ renderFn ] );
 			return { containerRef, tooltipRef };
 		},
 	};
@@ -84,6 +91,7 @@ import { render } from '@testing-library/react';
 import * as d3 from 'd3';
 import { TopicsChart } from '../TopicsChart';
 import {
+	PALETTE,
 	drawLegend,
 	setupTooltip,
 } from '@newspack-nodes/shared/hooks/useTimeChart';
@@ -151,5 +159,62 @@ describe( 'TopicsChart', () => {
 		// Empty series still clears any prior render instead of bailing first.
 		expect( d3.remove ).toHaveBeenCalled();
 		expect( drawLegend ).not.toHaveBeenCalled();
+	} );
+
+	it( 'colors series from the active theme --chart-* tokens when present', () => {
+		const tokens = {
+			'--chart-1': '#aa1111',
+			'--chart-2': '#bb2222',
+			'--chart-3': '#cc3333',
+			'--chart-4': '#dd4444',
+			'--chart-5': '#ee5555',
+			'--chart-6': '#ff6666',
+			'--chart-7': '#117777',
+			'--chart-8': '#228888',
+		};
+		const original = window.getComputedStyle;
+		window.getComputedStyle = () => ( {
+			getPropertyValue: ( n ) => tokens[ n ] ?? '',
+		} );
+		try {
+			render(
+				<TopicsChart
+					title="Rate"
+					series={ series }
+					formatValue={ fmt }
+				/>
+			);
+		} finally {
+			window.getComputedStyle = original;
+		}
+		// Legend is ranked busiest-first: high.p0 (idx 0) then low.p0 (idx 1).
+		const items = drawLegend.mock.calls[ 0 ][ 1 ];
+		expect( items.map( ( i ) => i.color ) ).toEqual( [
+			'#aa1111',
+			'#bb2222',
+		] );
+	} );
+
+	it( 'falls back to the shared PALETTE colors when the theme tokens are absent', () => {
+		const original = window.getComputedStyle;
+		window.getComputedStyle = () => ( {
+			getPropertyValue: () => '',
+		} );
+		try {
+			render(
+				<TopicsChart
+					title="Rate"
+					series={ series }
+					formatValue={ fmt }
+				/>
+			);
+		} finally {
+			window.getComputedStyle = original;
+		}
+		const items = drawLegend.mock.calls[ 0 ][ 1 ];
+		expect( items.map( ( i ) => i.color ) ).toEqual( [
+			PALETTE[ 0 ],
+			PALETTE[ 1 ],
+		] );
 	} );
 } );
