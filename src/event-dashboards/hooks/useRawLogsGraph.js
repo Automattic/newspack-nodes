@@ -54,9 +54,11 @@ function makeOpId() {
 }
 
 // Build a TM_STRUCT control message the view's fill() routes on its `action`.
+// FROM=VIEW like its sibling commands — it's the view's own control signal.
 const controlMsg = ( value ) => {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
+	m[ FROM ] = VIEW;
 	m[ VALUE ] = value;
 	return m;
 };
