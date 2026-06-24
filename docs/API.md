@@ -16,7 +16,7 @@ HMAC-validated zombie-process spawn. Used internally by the supervisor and by th
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | yes | Worker type (matches a key in the `newspack_nodes/topologies` filter, e.g. `firehose-workers`, `request-workers`, `aggregator`). |
+| `type` | string | yes | Worker type — matches a registered topology name (see `wp nodes types`), e.g. `combined`, `aggregator`, `job-worker`. Topology names are deployment-specific. |
 | `partition` | int | yes | Partition index, 0-based. Must be `< num_partitions` for this `type`. |
 | `nonce` | string | yes | HMAC-SHA256 token. Computed as `hash_hmac('sha256', "newspack_nodes_spawn:{$window}", NONCE_SALT)` where `$window = floor(time() / 10)`. The endpoint accepts both the current window and the immediately preceding window for race tolerance. |
 
@@ -29,7 +29,7 @@ Body: form-encoded (`application/x-www-form-urlencoded`) or JSON (`application/j
 ```json
 {
   "spawned": true,
-  "type": "firehose-workers",
+  "type": "combined",
   "partition": 3
 }
 ```

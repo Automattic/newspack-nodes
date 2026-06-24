@@ -102,8 +102,8 @@ wp nodes run <type> [--partition=<N>] [--quiet]
 # Force-restart (sends a restart flag-file via Lock). Run `wp nodes types`
 # first to discover what's live: the substrate ships ONE stock topology
 # (`job-worker`, registered via `Topology_Registry::register_stock_dir` from
-# its own `topologies/` dir); the rest come from application plugins (ELN
-# ships `firehose-workers-and-jobs`, `job-workers`, `request-workers`).
+# its own `topologies/` dir); the rest come from application plugins and are
+# deployment-specific. `wp nodes types` / `wp nodes ls` is the source of truth.
 wp nodes restart all --all-partitions          # every type, every partition
 wp nodes restart <type> --partition=<N>         # one type, one partition
 ```
