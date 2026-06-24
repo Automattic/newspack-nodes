@@ -31,3 +31,54 @@
 		min-height: 0;
 	}
 }
+
+// Hub buttons: stock WP under the Newspack skins; themed under the decorative
+// ones. The two Newspack themes fall through to WP core-ui (no override here);
+// every other theme dresses .button in its own universal tokens.
+.newspack-nodes-theme:not(.theme-newspack):not(.theme-newspack-brand) {
+	.button.button-primary {
+		background: var(--cyan);
+		border: 1.5px solid var(--cyan);
+		color: var(--paper);
+		border-radius: var(--np-radius-md);
+		box-shadow: none;
+		text-shadow: none;
+
+		&:hover,
+		&:focus {
+			background: var(--cyan-dark);
+			border-color: var(--cyan-dark);
+			color: var(--paper);
+		}
+	}
+
+	.button:not(.button-primary):not(.button-link-delete) {
+		background: var(--paper);
+		border: 1.5px solid var(--ink-3);
+		color: var(--ink);
+		border-radius: var(--np-radius-md);
+		box-shadow: none;
+
+		&:hover {
+			background: var(--paper-2);
+			border-color: var(--ink);
+			color: var(--ink);
+		}
+	}
+
+	.button.button-link-delete {
+		background: var(--paper);
+		border: 1.5px solid var(--oxide);
+		color: var(--oxide);
+		border-radius: var(--np-radius-md);
+		box-shadow: none;
+		text-shadow: none;
+
+		&:hover,
+		&:focus {
+			background: color-mix(in srgb, var(--oxide) 12%, transparent);
+			border-color: var(--oxide);
+			color: var(--oxide);
+		}
+	}
+}
