@@ -143,6 +143,18 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			$this->assertSame( [], $schema->restart_for( 'autoload_fixed' ) );
 		}
 
+		public function test_restart_for_returns_node_type_list_and_all_verbatim(): void {
+			$schema = new Schema(
+				'p_',
+				[
+					new Field( key: 'geom', restart: [ 'Partition', 'Topic' ] ),
+					new Field( key: 'wide', restart: 'all' ),
+				]
+			);
+			$this->assertSame( [ 'Partition', 'Topic' ], $schema->restart_for( 'geom' ) );
+			$this->assertSame( 'all', $schema->restart_for( 'wide' ) );
+		}
+
 		public function test_register_options_registers_each_setting_with_its_sanitizer(): void {
 			$GLOBALS['_registered_settings'] = [];
 			$this->sample_schema()->register_options( 'pfx_group' );

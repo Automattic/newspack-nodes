@@ -88,8 +88,9 @@ class SettingsSchemaTest extends TestCase {
 		$schema = Settings_Schema::get();
 
 		$this->assertSame( 'supervisor_only', $schema->restart_for( 'num_partitions' ) );
-		$this->assertSame( [ 'request-workers', 'job-workers' ], $schema->restart_for( 'segment_size' ) );
-		$this->assertSame( [ 'request-workers' ], $schema->restart_for( 'memcache_servers' ) );
+		$this->assertSame( [ 'Partition', 'Topic', 'Log' ], $schema->restart_for( 'segment_size' ) );
+		$this->assertSame( 'all', $schema->restart_for( 'memcache_servers' ) );
+		$this->assertSame( 'all', $schema->restart_for( 'base_directory' ) );
 		$this->assertSame( [], $schema->restart_for( 'topologies' ) );
 		$this->assertSame( [], $schema->restart_for( 'missing_option' ) );
 	}

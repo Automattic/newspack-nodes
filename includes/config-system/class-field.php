@@ -49,7 +49,13 @@ class Field {
 	 * @param string                   $section        Section id this field renders under.
 	 * @param string                   $id             add_settings_field id; defaults to $key when empty.
 	 * @param bool                     $delete_on_blank Whether a blank save deletes the row (file default resurfaces).
-	 * @param array<int,string>|string $restart        Worker groups to restart on save, or 'supervisor_only' (no restart), or [].
+	 * @param array<int,string>|string $restart        Restart classification, consumed by Restart_Planner:
+	 *                                                  - list of CONSUMER NODE-TYPE tokens (e.g. ['Partition','Topic'] or ['Flame_Builder']);
+	 *                                                    restarts active topologies whose graph instantiates a matching node (by class ancestry);
+	 *                                                  - 'all' — every active topology (process-wide settings: base dir, memcache);
+	 *                                                  - 'supervisor_only' — no worker touch (supervisor refreshes each loop);
+	 *                                                  - [] — no restart (read per-request in the web process, or not worker-relevant).
+	 *                                                  NEVER a topology name — those drift; node classes are stable. See Restart_Planner.
 	 * @param callable|null            $sanitize       register_setting sanitize_callback; required for option fields.
 	 * @param callable|null            $render         add_settings_field render callback; required for rendered fields.
 	 * @param bool                     $ui             Whether the field appears in the settings page (false = overlay-only key).
