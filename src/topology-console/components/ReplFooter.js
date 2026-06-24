@@ -44,11 +44,18 @@ function defaultHeight() {
 		Math.round( ( window.innerHeight - FIXED_CHROME_PX ) * 0.2 )
 	);
 }
+// The 6px resize handle is centered on the transcript's top edge, so 3px of it
+// overhangs above the pane; reserve that so the handle isn't clipped against
+// the canvas top when the transcript is maximized.
+const RESIZE_HANDLE_OVERHANG_PX = 6;
 function maxHeight() {
 	if ( typeof window === 'undefined' ) {
 		return 800;
 	}
-	return Math.max( HEIGHT_MIN_PX, window.innerHeight - FIXED_CHROME_PX );
+	return Math.max(
+		HEIGHT_MIN_PX,
+		window.innerHeight - FIXED_CHROME_PX - RESIZE_HANDLE_OVERHANG_PX
+	);
 }
 function loadStoredHeight() {
 	try {
