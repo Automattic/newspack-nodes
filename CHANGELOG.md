@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The Aggregator dashboard's per-partition "Connected" time no longer sticks at "1s ago".** `Remote_Link_Node::publish_status()` stamped `last_connection_attempt` to `Core::$now` on every tick, so the timestamp tracked the 1-second status-publish cadence instead of the actual connection — a healthy, long-lived link read "connected 1s ago" forever. It now reflects the genuine connect time: `SSE_In_Node::connection()` exposes `last_attempt` (set once per socket open, `null` until the first attempt), and `publish_status()` passes that through verbatim — no `Core::$now` fallback, so an un-attempted link reads `-` rather than a fabricated "now".
+- **The topology console's header mode buttons (NEW / OPEN / SAVE / SETTINGS / DELETE / EDIT / LIVE) regained their padding.** The debug-overlay close-X tightening dropped `padding: 7px 14px` from the shared `.topology-mode__btn` base rule, which left every hub-header button cramped. The padding is restored on the base and overridden to `0` only on the overlay's `&--close` variant, so the X stays tight without flattening the hub buttons.
 
 ## [0.20.0] - 2026-06-24
 
