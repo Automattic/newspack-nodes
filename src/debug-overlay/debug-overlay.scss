@@ -287,12 +287,12 @@
 		}
 
 		&--warning {
-			border-left-color: var(--np-warning, #dba617);
+			border-left-color: var(--brass, #dba617);
 		}
 
 		&--error {
-			border-left-color: var(--np-error, #d63638);
-			color: var(--np-error, #d63638);
+			border-left-color: var(--oxide, #d63638);
+			color: var(--oxide, #d63638);
 		}
 	}
 }
