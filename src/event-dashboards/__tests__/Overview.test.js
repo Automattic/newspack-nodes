@@ -398,6 +398,12 @@ describe( 'Overview fold/unfold merge', () => {
 			} )
 		);
 		const { getByText, container } = render( <Overview /> );
+		const fold = container.querySelector( '.nodes-overview__foldall' );
+		const unfold = container.querySelector( '.nodes-overview__unfoldall' );
+		expect( fold.classList.contains( 'button' ) ).toBe( true );
+		expect( fold.classList.contains( 'button-small' ) ).toBe( true );
+		expect( unfold.classList.contains( 'button' ) ).toBe( true );
+		expect( unfold.classList.contains( 'button-small' ) ).toBe( true );
 		fireEvent.click( getByText( 'Unfold all' ) );
 		expect( foldedByName( container ) ).toEqual( {
 			alpha: false,

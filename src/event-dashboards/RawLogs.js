@@ -487,7 +487,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 			</span>
 
 			<button
-				className={ `newspack-nodes-raw-logs-btn ${
+				className={ `newspack-nodes-raw-logs-btn button ${
 					isPaused ? 'paused' : ''
 				}` }
 				onClick={ () => setPaused( ! isPaused ) }
@@ -501,7 +501,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 			</button>
 
 			<button
-				className="newspack-nodes-raw-logs-btn"
+				className="newspack-nodes-raw-logs-btn button"
 				onClick={ handleClear }
 				title={ __( 'Clear all lines', 'newspack-nodes' ) }
 			>

@@ -100,3 +100,12 @@ it( 'links + New Topology to the given href', () => {
 		container.querySelector( '.nodes-cards__new' ).getAttribute( 'href' )
 	).toBe( 'admin.php?new=1' );
 } );
+
+it( 'renders + New Topology as a stock WP secondary button', () => {
+	const { container } = renderCards();
+	expect(
+		container
+			.querySelector( '.nodes-cards__new' )
+			.classList.contains( 'button' )
+	).toBe( true );
+} );

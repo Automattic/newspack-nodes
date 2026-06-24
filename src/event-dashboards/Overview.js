@@ -367,14 +367,14 @@ export default function Overview() {
 				<div className="nodes-overview__toolbar">
 					<button
 						type="button"
-						className="nodes-overview__foldall"
+						className="nodes-overview__foldall button button-small"
 						onClick={ foldAll }
 					>
 						{ __( 'Fold all', 'newspack-nodes' ) }
 					</button>
 					<button
 						type="button"
-						className="nodes-overview__unfoldall"
+						className="nodes-overview__unfoldall button button-small"
 						onClick={ unfoldAll }
 					>
 						{ __( 'Unfold all', 'newspack-nodes' ) }

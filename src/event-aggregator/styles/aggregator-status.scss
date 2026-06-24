@@ -280,12 +280,15 @@
 		padding: 2px 6px;
 	}
 
+	// Accent-on-its-own-tint: both tokens track the theme, so the text always
+	// contrasts its fill (dark accent on light tint under Newspack, bright accent
+	// on dark tint under decorative skins) — no hardcoded #fff/#000.
 	&.connected {
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
 		background: var(--sage-subtle);
-		color: base.$white;
+		color: var(--sage);
 
 		// A small breathing dot = a live connection.
 		&::before {
@@ -299,27 +302,27 @@
 	}
 
 	&.connecting {
-		background: base.$dark-info;
-		color: base.$white;
+		background: var(--cyan-subtle);
+		color: var(--cyan);
 		animation: pulse 1s ease-in-out infinite;
 	}
 
 	&.backoff {
-		background: base.$warning-color;
-		color: #000;
+		background: var(--brass-subtle);
+		color: var(--brass);
 	}
 
 	&.disconnected,
 	&.connection_refused {
-		background: base.$status-inactive;
-		color: base.$white;
+		background: var(--paper-3);
+		color: var(--ink-3);
 	}
 
 	&.error,
 	&.ssl_error,
 	&.auth_failed {
-		background: base.$error-bg;
-		color: base.$white;
+		background: var(--oxide-subtle);
+		color: var(--oxide);
 	}
 }
 
@@ -402,19 +405,21 @@
 		padding: 2px 6px;
 	}
 
+	// Accent-on-its-own-tint (see .aggregator-status-badge) — readable in every
+	// skin, no hardcoded #fff/#000.
 	&.success {
 		background: var(--sage-subtle);
-		color: base.$white;
+		color: var(--sage);
 	}
 
 	&.slot_expired {
-		background: base.$warning-color;
-		color: #000;
+		background: var(--brass-subtle);
+		color: var(--brass);
 	}
 
 	&.error {
-		background: base.$error-bg;
-		color: base.$white;
+		background: var(--oxide-subtle);
+		color: var(--oxide);
 	}
 
 	&.pending {

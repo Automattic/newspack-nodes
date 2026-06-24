@@ -131,7 +131,7 @@ function SummaryCards( {
 				label={ __( 'Bytes · 24h', 'newspack-nodes' ) }
 			/>
 			<a
-				className="nodes-cards__new"
+				className="nodes-cards__new button"
 				href={ newTopologyHref }
 				title={ __(
 					'Create a new topology in the console',

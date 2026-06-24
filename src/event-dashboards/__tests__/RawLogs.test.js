@@ -341,6 +341,7 @@ describe( 'RawLogs', () => {
 			container.querySelectorAll( '.newspack-nodes-raw-logs-btn' )
 		).find( ( b ) => b.textContent === 'Clear' );
 		expect( clear ).not.toBeUndefined();
+		expect( clear.classList.contains( 'button' ) ).toBe( true );
 		// Clear empties the node buffer; the next frame reflects 0 lines.
 		fireEvent.click( clear );
 		node.lines = [];
