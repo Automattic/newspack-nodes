@@ -289,6 +289,23 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
 	}
 
+	public function test_connection_attempt_reflects_actual_connect_not_each_tick(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		Core::$now = 1000.0;
+		$node->fire(); // opens the connection at t=1000
+
+		// Later ticks keep firing without a reconnect (the handle persists), so
+		// "Connected" must stay pinned to the real connect time — not creep with the tick clock.
+		Core::$now = 1030.0;
+		$node->fire();
+
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$this->assertSame( 1000, $status['last_connection_attempt'] );
+	}
+
 	public function test_published_status_carries_sse_heartbeat_receipt(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();

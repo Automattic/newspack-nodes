@@ -109,6 +109,25 @@ class SseInTest extends TestCase {
 		$this->assertNull( $node->connection()['last_sse_heartbeat'] );
 	}
 
+	public function test_fresh_node_has_null_last_attempt(): void {
+		[ $node ] = $this->configured_node();
+
+		$this->assertNull( $node->connection()['last_attempt'] );
+	}
+
+	public function test_connection_exposes_actual_attempt_time(): void {
+		[ $node ] = $this->configured_node();
+		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		Core::$now = 1748960000;
+
+		$node->maybe_connect();
+
+		$this->assertSame( 1748960000, $node->connection()['last_attempt'] );
+	}
+
 	public function test_oversized_message_is_forwarded_no_size_gate(): void {
 		// SSE_In no longer enforces the Partition PIPE_BUF cap on forward — the
 		// downstream Partition owns size policy. An oversized frame flows through.

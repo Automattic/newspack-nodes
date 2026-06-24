@@ -623,7 +623,7 @@ class SSE_In_Node extends Node {
 	 * Connection-state snapshot for the patron.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int}
+	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int}
 	 */
 	public function connection(): array {
 		return [
@@ -632,6 +632,7 @@ class SSE_In_Node extends Node {
 			'last_error'         => $this->last_error,
 			'current_backoff'    => $this->current_backoff,
 			'last_sse_heartbeat' => $this->last_sse_heartbeat,
+			'last_attempt'       => $this->last_attempt > 0.0 ? (int) $this->last_attempt : null,
 		];
 	}
 
