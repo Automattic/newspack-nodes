@@ -52,6 +52,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		\delete_option( 'newspack_nodes_num_partitions' );
 		\delete_option( 'newspack_nodes_base_directory' );
 		\delete_option( 'newspack_nodes_remote_segment_size' );
+		\delete_option( 'newspack_nodes_memcache_servers' );
 		Config::reset();
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
@@ -103,17 +104,18 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertSame( 'Takes effect immediately', $rows['remote_num_segments']['restart'] );
 	}
 
-	public function test_unset_direct_read_field_reports_blank_effective(): void {
-		// overlay=false fields (remote_*) read their operative value via get_option
-		// (the settings-sync graph), NOT load_config. When unset, the panel can't
-		// claim the file value as operative — the settings-sync resolver supplies the
-		// file default DOWNSTREAM, not the option. The remote_* Fields carry no
-		// register_setting default (intentionally — a register default would dead-code
-		// that resolver branch), so the Effective cell degrades to '' rather than
-		// fabricating a value the panel can't actually attest is operative.
+	public function test_unset_direct_read_field_reports_file_default(): void {
+		// overlay=false fields (remote_*) are read via get_option by Settings_Sync_Node;
+		// a blank resolves to the config-file default via the settings_sync/value filter,
+		// so the file default IS the operative value when unset. The Effective cell shows
+		// it (from load_config's file seed), uniform with every other field — no blank cell.
 		$rows = $this->rows_by_key();
 		$this->assertStringContainsString( 'file default', $rows['remote_num_segments']['stored'] );
-		$this->assertSame( '', (string) $rows['remote_num_segments']['effective'] );
+		$this->assertSame(
+			(string) ( Config::load_config()['remote_num_segments'] ?? '' ),
+			(string) $rows['remote_num_segments']['effective']
+		);
+		$this->assertNotSame( '', (string) $rows['remote_num_segments']['effective'] );
 	}
 
 	public function test_stored_direct_read_field_reports_stored_not_file_value(): void {
@@ -135,6 +137,35 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$rows = $this->rows_by_key();
 		$this->assertSame( '11', (string) $rows['num_segments']['effective'] );
 		$this->assertSame( (string) ( Config::load_config()['num_segments'] ?? '' ), (string) $rows['num_segments']['effective'] );
+	}
+
+	public function test_small_array_value_renders_in_full(): void {
+		// <=6 entries render fully (memcache_servers is the common small case).
+		\update_option( 'newspack_nodes_memcache_servers', [ '10.0.0.1:11211', '10.0.0.2:11211' ] );
+		Config::reset();
+		$rows = $this->rows_by_key();
+		$this->assertSame( '10.0.0.1:11211, 10.0.0.2:11211', $rows['memcache_servers']['effective'] );
+	}
+
+	public function test_large_array_value_renders_as_count_and_sample(): void {
+		// >6 entries collapse to a count + first-6 sample + remainder, so a 412-hook
+		// list can't dominate the row.
+		$servers = [];
+		for ( $i = 1; $i <= 20; $i++ ) {
+			$servers[] = "10.0.0.{$i}:11211";
+		}
+		\update_option( 'newspack_nodes_memcache_servers', $servers );
+		Config::reset();
+		$rows     = $this->rows_by_key();
+		$expected = '20 values: 10.0.0.1:11211, 10.0.0.2:11211, 10.0.0.3:11211, 10.0.0.4:11211, 10.0.0.5:11211, 10.0.0.6:11211, … (+14 more)';
+		$this->assertSame( $expected, $rows['memcache_servers']['effective'] );
+	}
+
+	public function test_empty_array_value_renders_none(): void {
+		\update_option( 'newspack_nodes_memcache_servers', [] );
+		Config::reset();
+		$rows = $this->rows_by_key();
+		$this->assertSame( '(none)', $rows['memcache_servers']['effective'] );
 	}
 
 	public function test_render_section_echoes_widefat_table(): void {

@@ -49,12 +49,11 @@ class Settings_Renderer {
 				? \__( '— (file default)', 'newspack-nodes' )
 				: self::format_value( $raw_store );
 
-			// Operative value: overlaid keys come from the overlay-resolved load_config();
-			// non-overlaid keys (remote_*) are read via get_option by the settings-sync
-			// graph, NOT load_config (whose entry is just the file seed), so the stored
-			// option is what's operative. Either way, an absent option degrades to the
-			// field's registered default, then ''.
-			$effective_value = $field->overlay
+			// Operative value: overlaid keys come from the overlay-resolved load_config().
+			// Non-overlaid keys (remote_*) are read via get_option by the settings-sync
+			// graph — the stored option when set, else the config-file default (the
+			// settings_sync/value filter resolves a blank to it), which load_config carries.
+			$effective_value = $field->overlay || Options_Overlay::ABSENT === $raw_store
 				? ( $effective[ $key ] ?? $raw_store )
 				: $raw_store;
 			if ( Options_Overlay::ABSENT === $effective_value ) {
@@ -139,10 +138,31 @@ class Settings_Renderer {
 		);
 	}
 
-	/** Display a config value: arrays joined with ', ', scalars cast, everything else ''. */
+	/** Small arrays render in full; larger ones collapse so a 400-entry hook list can't dominate the row. */
+	private const ARRAY_SAMPLE = 6;
+
+	/**
+	 * Display a config value: empty array → "(none)", small array joined with ', ',
+	 * large array summarized as "<n> values: <first 6>, … (+<rest> more)", scalars
+	 * cast, everything else ''.
+	 */
 	private static function format_value( mixed $value ): string {
 		if ( \is_array( $value ) ) {
-			return \implode( ', ', \array_map( [ Core::class, 'as_string' ], $value ) );
+			if ( [] === $value ) {
+				return \__( '(none)', 'newspack-nodes' );
+			}
+			$items = \array_map( [ Core::class, 'as_string' ], \array_values( $value ) );
+			$n     = \count( $items );
+			if ( $n <= self::ARRAY_SAMPLE ) {
+				return \implode( ', ', $items );
+			}
+			return \sprintf(
+				/* translators: 1: total count, 2: comma-separated sample of the first values, 3: count of remaining values. */
+				\__( '%1$d values: %2$s, … (+%3$d more)', 'newspack-nodes' ),
+				$n,
+				\implode( ', ', \array_slice( $items, 0, self::ARRAY_SAMPLE ) ),
+				$n - self::ARRAY_SAMPLE
+			);
 		}
 		return Core::as_string( $value );
 	}
