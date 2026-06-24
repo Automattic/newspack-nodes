@@ -135,7 +135,6 @@
 }
 
 @keyframes topology-pulse {
-
 	0%,
 	100% {
 		opacity: 1;
@@ -314,19 +313,21 @@
 
 	&__item--partition &__glyph {
 		// stylelint-disable-next-line @stylistic/declaration-colon-space-after
-		background-image: linear-gradient(to bottom,
-				transparent 4px,
-				var(--ink-2) 4px,
-				var(--ink-2) 5px,
-				transparent 5px,
-				transparent 9px,
-				var(--ink-2) 9px,
-				var(--ink-2) 10px,
-				transparent 10px,
-				transparent 14px,
-				var(--ink-2) 14px,
-				var(--ink-2) 15px,
-				transparent 15px);
+		background-image: linear-gradient(
+			to bottom,
+			transparent 4px,
+			var(--ink-2) 4px,
+			var(--ink-2) 5px,
+			transparent 5px,
+			transparent 9px,
+			var(--ink-2) 9px,
+			var(--ink-2) 10px,
+			transparent 10px,
+			transparent 14px,
+			var(--ink-2) 14px,
+			var(--ink-2) 15px,
+			transparent 15px
+		);
 	}
 
 	&__item--tail &__glyph::before {
@@ -339,10 +340,14 @@
 
 	&__item--timer &__glyph {
 		background:
-			radial-gradient(circle at center,
-				var(--ink-2) 1px,
-				transparent 1.5px) center / 4px 4px no-repeat,
-			conic-gradient(from -90deg, var(--ink-2) 90deg, transparent 90deg) center / 12px 12px no-repeat;
+			radial-gradient(
+					circle at center,
+					var(--ink-2) 1px,
+					transparent 1.5px
+				)
+				center / 4px 4px no-repeat,
+			conic-gradient(from -90deg, var(--ink-2) 90deg, transparent 90deg)
+				center / 12px 12px no-repeat;
 
 		&::before,
 		&::after {
@@ -1323,7 +1328,7 @@
 }
 
 // Space consecutive invocations of a multiple verb apart.
-.topology-edit-verb-group .topology-edit-verb+.topology-edit-verb {
+.topology-edit-verb-group .topology-edit-verb + .topology-edit-verb {
 	margin-top: 6px;
 }
 
@@ -1919,9 +1924,11 @@
 	// Morganite is backgrounds-only (brand doc): a barely-there rose wash on
 	// the canvas, the only place the expressive tertiary is allowed.
 	.topology-canvas {
-		background: radial-gradient(120% 120% at 100% 0%,
+		background: radial-gradient(
+				120% 120% at 100% 0%,
 				rgba(252, 155, 179, 0.1),
-				transparent 60%),
+				transparent 60%
+			),
 			var(--paper);
 	}
 }
@@ -2050,7 +2057,8 @@
 		// Phosphor bloom on the header glyphs (a single chrome element, so a
 		// per-element drop-shadow is fine here — the per-glyph cost only bit the
 		// many node/edge elements, which now bloom via one group pass below).
-		filter: drop-shadow(0 0 2px var(--ink)) drop-shadow(0 0 8px color-mix(in srgb, var(--ink) 45%, transparent));
+		filter: drop-shadow(0 0 2px var(--ink))
+			drop-shadow(0 0 8px color-mix(in srgb, var(--ink) 45%, transparent));
 	}
 
 	.topology-canvas::after {
@@ -2059,8 +2067,10 @@
 		inset: 0;
 		z-index: 5;
 		pointer-events: none;
-		background: repeating-linear-gradient(rgba(0, 0, 0, 0) 0 2px,
-				rgba(0, 0, 0, 0.26) 2px 3px);
+		background: repeating-linear-gradient(
+			rgba(0, 0, 0, 0) 0 2px,
+			rgba(0, 0, 0, 0.26) 2px 3px
+		);
 	}
 
 	// Phosphor bloom — an over-driven beam bleeds bright glyphs' light into the
@@ -2136,10 +2146,12 @@
 	--font-display-stencil: "Monoton", monospace;
 
 	.topology-canvas {
-		background: radial-gradient(80% 55% at 50% 122%,
+		background: radial-gradient(
+				80% 55% at 50% 122%,
 				#ff7eb6 0%,
 				#ff2d95 16%,
-				transparent 52%),
+				transparent 52%
+			),
 			linear-gradient(180deg, #160826 0%, #2a0a3a 62%, #3a0f52 100%);
 	}
 
@@ -2202,15 +2214,21 @@
 	--font-display-stencil: "Syne", sans-serif;
 
 	.topology-canvas {
-		background: radial-gradient(60% 80% at 18% 8%,
+		background: radial-gradient(
+				60% 80% at 18% 8%,
 				rgba(122, 245, 208, 0.28),
-				transparent 60%),
-			radial-gradient(55% 75% at 92% 95%,
+				transparent 60%
+			),
+			radial-gradient(
+				55% 75% at 92% 95%,
 				rgba(155, 140, 255, 0.34),
-				transparent 60%),
-			radial-gradient(40% 50% at 60% 40%,
+				transparent 60%
+			),
+			radial-gradient(
+				40% 50% at 60% 40%,
 				rgba(94, 180, 255, 0.18),
-				transparent 70%),
+				transparent 70%
+			),
 			#0b1020;
 	}
 
@@ -2364,9 +2382,12 @@
 
 	.topology-header {
 		border-bottom: 3px solid transparent;
-		border-image: repeating-linear-gradient(45deg,
+		border-image: repeating-linear-gradient(
+				45deg,
 				#ffd500 0 9px,
-				#0a0a0c 9px 18px) 3;
+				#0a0a0c 9px 18px
+			)
+			3;
 	}
 
 	.topology-subtitle::after {
@@ -2383,7 +2404,9 @@
 	// each glyph's colour (white HUD, amber data, crimson flow) and blooms the
 	// cards too; strict-viewport membership keeps the filter buffer bounded.
 	.topology-brand {
-		filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ink) 55%, transparent));
+		filter: drop-shadow(
+			0 0 3px color-mix(in srgb, var(--ink) 55%, transparent)
+		);
 	}
 
 	.topology-nodes--bloom,
@@ -2455,9 +2478,12 @@
 	.topology-header {
 		background: linear-gradient(180deg, #2a3036, #1d2227);
 		border-bottom: 3px solid transparent;
-		border-image: repeating-linear-gradient(45deg,
+		border-image: repeating-linear-gradient(
+				45deg,
 				#ff7a18 0 10px,
-				#15191c 10px 20px) 3;
+				#15191c 10px 20px
+			)
+			3;
 	}
 
 	.topology-node__counter {
@@ -2605,8 +2631,10 @@
 		// you're reading command output.
 		background: color-mix(in srgb, var(--repl-bg) 85%, transparent);
 		backdrop-filter: blur(2px);
-		border-top: 1px solid color-mix(in srgb, var(--repl-fg) 18%, transparent);
-		border-bottom: 1px solid color-mix(in srgb, var(--repl-fg) 18%, transparent);
+		border-top: 1px solid
+			color-mix(in srgb, var(--repl-fg) 18%, transparent);
+		border-bottom: 1px solid
+			color-mix(in srgb, var(--repl-fg) 18%, transparent);
 		// Right padding leaves a corridor wide enough for the sticky
 		// [✕ ▼] actions row to sit on top of without ever overlapping
 		// transcript text. Bottom padding gives the last line clearance
