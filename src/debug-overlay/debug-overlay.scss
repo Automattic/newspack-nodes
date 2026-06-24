@@ -246,3 +246,44 @@
 		cursor: nwse-resize;
 	}
 }
+
+// The Overview tab's classified-message list, below the rate charts. Level is a
+// left border tint (+ red text for errors); debug lines are dimmed.
+.nodes-overview__messages {
+	margin: 18px 0 4px;
+
+	h3 {
+		margin: 0 0 8px;
+	}
+
+	ul {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		max-height: 320px;
+		overflow-y: auto;
+		font-family: monospace;
+		font-size: 12px;
+		line-height: 1.5;
+	}
+
+	.nodes-overview__msg {
+		padding: 2px 8px;
+		border-left: 3px solid transparent;
+		white-space: pre-wrap;
+		word-break: break-word;
+
+		&--debug {
+			opacity: 0.7;
+		}
+
+		&--warning {
+			border-left-color: var(--np-warning, #dba617);
+		}
+
+		&--error {
+			border-left-color: var(--np-error, #d63638);
+			color: var(--np-error, #d63638);
+		}
+	}
+}

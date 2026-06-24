@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Debug overlay Overview tab: a Debug card + a classified message list below the rate charts.** `Core.stderr` now classifies every line by the Tachikoma prefix convention — `WARNING:` → warning, `ERROR:` → error, anything else → debug — and `IoTelemetry` keeps a bounded ring of the recent lines (`{ level, text }`, per page-load) alongside the counters. The Overview tab gains a Debug count card next to Warnings/Errors and renders the debug/warning/error messages (newest first, level-tinted) under the graphs.
+
 ### Changed
 
 - **`settings-sync` `add_setting` is now repeatable per local option.** The registry keys a list of `{to, remote}` mappings per local option (was a single mapping that the next `add_setting` overwrote), so one local option can fan out to several spoke targets — e.g. a `remote_*` setting seeding both the spoke's stripped option AND its own `remote_*` copy, so the value propagates onward to the spoke's spokes. Exact-duplicate mappings are deduped (idempotent topology reload); `push()` emits one `set` per mapping.

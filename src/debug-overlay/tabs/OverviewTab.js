@@ -116,6 +116,11 @@ export default function OverviewTab( { publishHeader } ) {
 					label={ __( 'Errors', 'newspack-nodes' ) }
 					value={ formatCount( totals.errors ) }
 				/>
+				<Card
+					id="debug"
+					label={ __( 'Debug', 'newspack-nodes' ) }
+					value={ formatCount( totals.debug ) }
+				/>
 			</div>
 			<div className="nodes-overview__panels">
 				<TopicsChart
@@ -129,6 +134,27 @@ export default function OverviewTab( { publishHeader } ) {
 					formatValue={ formatByteRate }
 				/>
 			</div>
+			{ totals.messages.length > 0 && (
+				<div
+					className="nodes-overview__messages"
+					data-testid="overview-messages"
+				>
+					<h3>{ __( 'Messages', 'newspack-nodes' ) }</h3>
+					<ul>
+						{ totals.messages
+							.map( ( m, i ) => ( { m, i } ) )
+							.reverse()
+							.map( ( { m, i } ) => (
+								<li
+									key={ i }
+									className={ `nodes-overview__msg nodes-overview__msg--${ m.level }` }
+								>
+									{ m.text }
+								</li>
+							) ) }
+					</ul>
+				</div>
+			) }
 		</div>
 	);
 }

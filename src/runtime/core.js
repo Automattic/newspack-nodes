@@ -60,13 +60,17 @@ class CoreImpl {
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
 		}
-		// Feed the debug overlay's warning/error tallies off the Tachikoma log
-		// convention (a line that opens WARNING: / ERROR:). WARNING wins so a
-		// "WARNING: …" never also trips the ERROR substring.
+		// Feed the debug overlay's tallies + message list off the Tachikoma log
+		// convention: a line opening WARNING: / ERROR: is that level, anything
+		// else is debug. WARNING wins so a "WARNING: …" never also trips ERROR.
+		// The trimmed line is the message text shown under the Overview charts.
+		const trimmed = line.replace( /\n$/, '' );
 		if ( /\bWARNING:/.test( line ) ) {
-			IoTelemetry.recordWarning();
+			IoTelemetry.recordWarning( trimmed );
 		} else if ( /\bERROR:/.test( line ) ) {
-			IoTelemetry.recordError();
+			IoTelemetry.recordError( 1, trimmed );
+		} else {
+			IoTelemetry.recordDebug( trimmed );
 		}
 		console.warn( line.replace( /\n$/, '' ) );
 		// Also surface at the REPL: fan the formatted line to whichever reply sink
