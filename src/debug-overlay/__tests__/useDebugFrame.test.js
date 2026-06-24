@@ -67,6 +67,21 @@ describe( 'useDebugFrame', () => {
 			value: 800,
 			writable: true,
 		} );
+		// The drag/resize coalesces its DOM writes through rAF — run it
+		// synchronously so a pointermove takes effect within the test's act().
+		jest.spyOn( window, 'requestAnimationFrame' ).mockImplementation(
+			( cb ) => {
+				cb();
+				return 1;
+			}
+		);
+		jest.spyOn( window, 'cancelAnimationFrame' ).mockImplementation(
+			() => {}
+		);
+	} );
+
+	afterEach( () => {
+		jest.restoreAllMocks();
 	} );
 
 	it( 'returns a default frame and a style prop with concrete dimensions', () => {
@@ -156,6 +171,57 @@ describe( 'useDebugFrame', () => {
 		} );
 		expect( latest.frame.x ).toBe( initial.x + 40 );
 		expect( latest.frame.y ).toBe( initial.y + 25 );
+		expect( panelEl.style.transform ).toBe( '' );
+	} );
+
+	it( 'resizes via a scale transform during the drag and commits dimensions on pointerup', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 100, y: 100, w: 400, h: 300 } )
+		);
+		let latest;
+		let panelEl;
+		function Harness() {
+			const ref = useRef( null );
+			latest = useDebugFrame( KEY, true, ref );
+			return (
+				<div
+					data-testid="panel"
+					ref={ ( n ) => {
+						ref.current = n;
+						panelEl = n;
+					} }
+					style={ latest.style }
+				/>
+			);
+		}
+		render( <Harness /> );
+		const initial = latest.frame;
+
+		const handlers = captureDrag(
+			latest.getResizeHandlers().se.onPointerDown
+		);
+		// During the resize: a GPU-composited scale, NOT a committed box change.
+		act( () => {
+			handlers.pointermove( {
+				clientX: 80,
+				clientY: 60,
+				preventDefault: () => {},
+			} );
+		} );
+		expect( latest.frame ).toBe( initial );
+		expect( panelEl.style.transform ).toMatch( /scale\(/ );
+
+		// On pointerup: the real dimensions commit and the transform clears.
+		act( () => {
+			handlers.pointerup( {
+				clientX: 80,
+				clientY: 60,
+				preventDefault: () => {},
+			} );
+		} );
+		expect( latest.frame.w ).toBe( initial.w + 80 );
+		expect( latest.frame.h ).toBe( initial.h + 60 );
 		expect( panelEl.style.transform ).toBe( '' );
 	} );
 
