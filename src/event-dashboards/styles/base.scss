@@ -18,46 +18,46 @@
 // terminal/log surfaces use the `$term-*` set; chrome uses everything else.
 
 // Chrome surfaces (light) — `$dark-bg*` now carry the light Newspack neutrals.
-$dark-bg: var(--np-surface-subtle);
-$dark-bg-secondary: var(--np-surface); // card surface
-$dark-bg-tertiary: var(--np-surface-subtle); // control surface
-$dark-bg-hover: var(--np-surface-muted); // control hover
-$dark-bg-active: var(--np-primary-subtle); // active/selected control
-$dark-bg-row-even: var(--np-surface-subtle);
-$dark-bg-row-hover: var(--np-surface-muted);
-$dark-bg-deep: var(--np-surface-subtle);
-$dark-bg-deepest: var(--np-surface-muted);
-$dark-header-border: var(--np-border);
+$dark-bg: var(--paper-2);
+$dark-bg-secondary: var(--paper); // card surface
+$dark-bg-tertiary: var(--paper-2); // control surface
+$dark-bg-hover: var(--paper-3); // control hover
+$dark-bg-active: var(--cyan-subtle); // active/selected control
+$dark-bg-row-even: var(--paper-2);
+$dark-bg-row-hover: var(--paper-3);
+$dark-bg-deep: var(--paper-2);
+$dark-bg-deepest: var(--paper-3);
+$dark-header-border: var(--paper-shadow);
 
 // Chrome text (dark ink on light).
-$dark-text: var(--np-text); // #1e1e1e
-$dark-text-muted: var(--np-text-secondary); // #6c6c6c
-$dark-text-time: var(--np-text-secondary);
-$dark-text-placeholder: var(--np-text-secondary);
-$dark-text-dim: var(--np-text-secondary);
+$dark-text: var(--ink); // #1e1e1e
+$dark-text-muted: var(--ink-3); // #6c6c6c
+$dark-text-time: var(--ink-3);
+$dark-text-placeholder: var(--ink-3);
+$dark-text-dim: var(--ink-3);
 
 // Chrome borders.
-$dark-border: var(--np-border); // #ddd
-$dark-border-light: var(--np-border); // hairline divider
+$dark-border: var(--paper-shadow); // #ddd
+$dark-border-light: var(--paper-shadow); // hairline divider
 
 // Accents — Cobalt leads.
-$dark-accent: var(--np-primary); // #003da5
-$dark-accent-hover: var(--np-primary-hover); // #00296e
-$dark-success: var(--np-success);
-$dark-info: var(--np-primary);
+$dark-accent: var(--cyan); // #003da5
+$dark-accent-hover: var(--cyan-dark); // #00296e
+$dark-success: var(--sage);
+$dark-info: var(--cyan);
 
 // Light chrome — text + surfaces (already light; aligned to exact Newspack).
-$light-text: var(--np-text);
-$light-text-secondary: var(--np-text-secondary);
-$light-text-muted: var(--np-text-secondary);
-$light-surface: var(--np-surface-subtle);
-$light-surface-alt: var(--np-surface-subtle);
-$light-surface-hover: var(--np-surface-muted);
-$light-selected: var(--np-primary-subtle);
-$light-border: var(--np-border-strong);
-$light-border-light: var(--np-border);
-$light-border-muted: var(--np-border);
-$light-border-faint: var(--np-surface-muted);
+$light-text: var(--ink);
+$light-text-secondary: var(--ink-3);
+$light-text-muted: var(--ink-3);
+$light-surface: var(--paper-2);
+$light-surface-alt: var(--paper-2);
+$light-surface-hover: var(--paper-3);
+$light-selected: var(--cyan-subtle);
+$light-border: var(--ink-3);
+$light-border-light: var(--paper-shadow);
+$light-border-muted: var(--paper-shadow);
+$light-border-faint: var(--paper-3);
 
 // Terminal / log surfaces (stay dark, like the console REPL).
 $term-bg: #1e1e1e;
@@ -66,31 +66,31 @@ $term-text: #e6e6e6;
 $term-text-dim: #949494;
 $term-border: #3a3a3a;
 // Cobalt lightened to read on the dark log surface (mirrors the console REPL).
-$term-accent: color-mix(in srgb, var(--np-primary) 58%, white);
+$term-accent: color-mix(in srgb, var(--cyan) 58%, white);
 
 // Status colors (HTTP) — functional, lightened where they ride dark log rows.
-$status-2xx: color-mix(in srgb, var(--np-success) 62%, white);
-$status-3xx: var(--np-warning);
-$status-4xx: color-mix(in srgb, var(--np-error) 72%, white);
-$status-5xx: var(--np-error);
+$status-2xx: color-mix(in srgb, var(--sage) 62%, white);
+$status-3xx: var(--brass);
+$status-4xx: color-mix(in srgb, var(--oxide) 72%, white);
+$status-5xx: var(--oxide);
 
 // Semantic colors.
-$error-bg: var(--np-error);
-$error-text: var(--np-error);
-$error-surface: var(--np-error-subtle);
-$success-bg: var(--np-success);
-$success-border: var(--np-success);
-$dead-bg: var(--np-error);
-$idle-bg: var(--np-text-secondary);
-$warning-color: var(--np-warning);
-$recommended-color: var(--np-warning);
-$discovered-bg: var(--np-warning-subtle);
-$discovered-hover: var(--np-warning-subtle);
-$discovered-hooks: var(--np-surface-subtle);
+$error-bg: var(--oxide);
+$error-text: var(--oxide);
+$error-surface: var(--oxide-subtle);
+$success-bg: var(--sage);
+$success-border: var(--sage);
+$dead-bg: var(--oxide);
+$idle-bg: var(--ink-3);
+$warning-color: var(--brass);
+$recommended-color: var(--brass);
+$discovered-bg: var(--brass-subtle);
+$discovered-hover: var(--brass-subtle);
+$discovered-hooks: var(--paper-2);
 
 // Focus/interactive — Cobalt.
-$focus-color: var(--np-primary);
-$wp-link: var(--np-primary);
+$focus-color: var(--cyan);
+$wp-link: var(--cyan);
 
 // Pure colors
 $white: #fff;
@@ -135,9 +135,9 @@ $focus-shadow: 0 0 0 2px rgba(0, 61, 165, 0.25);
 // AND a white card (where the fill alone wouldn't separate). 8px radius to match
 // the cards/panels.
 @mixin secondary-button {
-	background: var(--np-surface);
+	background: var(--paper);
 	color: $dark-text;
-	border: 1.5px solid var(--np-border-strong);
+	border: 1.5px solid var(--ink-3);
 	border-radius: var(--np-radius-md);
 	cursor: pointer;
 	transition:
@@ -145,8 +145,8 @@ $focus-shadow: 0 0 0 2px rgba(0, 61, 165, 0.25);
 		border-color 0.15s ease;
 
 	&:hover {
-		background: var(--np-surface-subtle);
-		border-color: var(--np-text-secondary);
+		background: var(--paper-2);
+		border-color: var(--ink-3);
 	}
 }
 

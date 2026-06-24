@@ -7,9 +7,9 @@
 
 @use "base";
 
-$health-ok: var(--np-success);
-$health-behind: var(--np-warning);
-$health-stalled: var(--np-error);
+$health-ok: var(--sage);
+$health-behind: var(--brass);
+$health-stalled: var(--oxide);
 
 // ── Card row ───────────────────────────────────────────────────────────────
 .nodes-cards {
@@ -76,15 +76,15 @@ $health-stalled: var(--np-error);
 
 	// Distinct chart-palette inks so the three rate cards read apart at a glance.
 	&--read &__value {
-		color: var(--np-chart-1);
+		color: var(--chart-1);
 	}
 
 	&--write &__value {
-		color: var(--np-chart-5);
+		color: var(--chart-5);
 	}
 
 	&--msgrate &__value {
-		color: var(--np-chart-2);
+		color: var(--chart-2);
 	}
 }
 
@@ -118,7 +118,7 @@ $health-stalled: var(--np-error);
 		cursor: pointer;
 		// A clearly-visible neutral off-track (a #ccc track blends into the
 		// white card); the green `is-on` state + knob position read the rest.
-		background: var(--np-text-secondary);
+		background: var(--ink-3);
 		transition: background 0.15s;
 
 		&::after {
