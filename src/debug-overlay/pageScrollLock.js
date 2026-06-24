@@ -14,8 +14,19 @@
 
 let saved = null;
 
+// Only WebKit (Safari) needs the CSS lock: it ignores a wheel `preventDefault()`
+// when the event target is the SVG canvas, so the panel's own wheel-eater can't
+// stop the page scrolling there. Chromium honours that wheel-eater, so the CSS
+// lock is redundant — AND harmful: toggling html/body overflow (+ paddingRight)
+// reflows the page behind the overlay, which drops sections of a live dashboard
+// the moment the pointer enters the panel. Gate it to WebKit-non-Chromium.
+function needsCssScrollLock() {
+	const ua = window.navigator?.userAgent || '';
+	return /AppleWebKit/.test( ua ) && ! /Chrome|Chromium|Edg|OPR/.test( ua );
+}
+
 export function lockPageScroll() {
-	if ( saved ) {
+	if ( saved || ! needsCssScrollLock() ) {
 		return;
 	}
 	const html = document.documentElement;

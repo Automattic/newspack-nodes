@@ -47,6 +47,28 @@ describe( 'pageScrollLock', () => {
 		expect( html().style.paddingRight ).toBe( '' );
 	} );
 
+	it( 'is a no-op on Chromium (the panel wheel-eater already blocks scroll there, and the CSS lock reflows the page behind)', () => {
+		const orig = Object.getOwnPropertyDescriptor(
+			window.navigator,
+			'userAgent'
+		);
+		Object.defineProperty( window.navigator, 'userAgent', {
+			value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+			configurable: true,
+		} );
+		try {
+			html().style.overflow = 'scroll';
+			lockPageScroll();
+			// Untouched: no CSS lock on Chromium.
+			expect( html().style.overflow ).toBe( 'scroll' );
+			expect( body().style.overflow ).toBe( '' );
+		} finally {
+			if ( orig ) {
+				Object.defineProperty( window.navigator, 'userAgent', orig );
+			}
+		}
+	} );
+
 	it( 'unlock is a no-op when not locked', () => {
 		html().style.overflow = 'visible';
 		unlockPageScroll();
