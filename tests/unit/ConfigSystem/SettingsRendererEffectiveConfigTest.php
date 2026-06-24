@@ -165,6 +165,15 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertSame( '(none)', $rows['memcache_servers']['effective'] );
 	}
 
+	public function test_associative_array_value_renders_keys_not_values(): void {
+		// An associative array (e.g. custom_events {event => true}) carries its meaning
+		// in the KEYS; the panel must show those, not the true→'1' values.
+		\update_option( 'newspack_nodes_memcache_servers', [ 'alpha' => true, 'beta' => true ] );
+		Config::reset();
+		$rows = $this->rows_by_key();
+		$this->assertSame( 'alpha, beta', $rows['memcache_servers']['effective'] );
+	}
+
 	public function test_render_section_echoes_widefat_table(): void {
 		\ob_start();
 		Settings_Renderer::render_effective_config_section(

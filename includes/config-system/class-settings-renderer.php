@@ -147,7 +147,9 @@ class Settings_Renderer {
 			if ( [] === $value ) {
 				return \__( '(none)', 'newspack-nodes' );
 			}
-			$items = \array_map( [ Core::class, 'as_string' ], \array_values( $value ) );
+			// An associative array (e.g. custom_events {event => true}) carries its meaning in the keys; a list, in the values.
+			$source = \array_is_list( $value ) ? $value : \array_keys( $value );
+			$items  = \array_map( [ Core::class, 'as_string' ], $source );
 			$n     = \count( $items );
 			if ( $n <= self::ARRAY_SAMPLE ) {
 				return \implode( ', ', $items );
