@@ -182,6 +182,19 @@ body:has(.nodes-devtools-hub .topology-app) {
 			color: var(--oxide);
 		}
 	}
+
+	// WP form inputs default to stark white; theme them so the panel reads on
+	// dark skins (light-on-light under Newspack, dark under decorative skins).
+	input[type="text"],
+	input[type="number"] {
+		background: var(--paper);
+		color: var(--ink);
+		border: 1px solid var(--paper-shadow);
+
+		&::placeholder {
+			color: var(--ink-3);
+		}
+	}
 }
 
 .topology-settings-field {
