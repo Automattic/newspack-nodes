@@ -25,6 +25,10 @@ import { useDebugFrame } from './useDebugFrame';
  * @return {import('react').ReactElement} The panel.
  */
 export default function DebugPanel( { storageKey, onClose } ) {
+	// The panel element ref, created BEFORE the frame hook so the hook can mutate
+	// its style directly during a drag/resize (no per-frame React re-render).
+	const panelRef = useRef( null );
+
 	const {
 		frame,
 		style: frameStyle,
@@ -33,9 +37,7 @@ export default function DebugPanel( { storageKey, onClose } ) {
 		toggleMaximize,
 		maximized,
 		// Global frame key — same overlay dimensions across every dashboard.
-	} = useDebugFrame( 'newspack-nodes:debug:frame', true );
-
-	const panelRef = useRef( null );
+	} = useDebugFrame( 'newspack-nodes:debug:frame', true, panelRef );
 
 	// The active tab publishes the header controls it owns (the Console its PATH
 	// selector; the Overview nothing). Merged into the one shared Header below.

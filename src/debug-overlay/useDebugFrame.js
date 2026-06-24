@@ -90,9 +90,10 @@ function clampFrame( { x, y, w, h }, opts = {} ) {
  *
  * @param {string}  storageKey localStorage key (panel layout is keyed per dashboard).
  * @param {boolean} [visible]  Whether the panel is currently shown. When false while maximized, the page scrollbar is restored.
+ * @param {Object}  [panelRef] Ref to the panel DOM node. When provided, drags/resizes mutate its style directly per pointermove and only commit to React state on pointerup (no per-frame re-render of the panel subtree).
  * @return {{ frame: Object, style: Object, onHeaderPointerDown: Function, getResizeHandlers: Function, toggleMaximize: Function }} Frame state, an inline style for the panel, the header drag handler, a factory returning the 8 edge/corner handlers, and a toggleMaximize() that flips between the saved frame and a fullscreen frame.
  */
-export function useDebugFrame( storageKey, visible = true ) {
+export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 	const [ frame, setFrame ] = useState( () => {
 		try {
 			const raw = window.localStorage.getItem( storageKey );
@@ -180,8 +181,15 @@ export function useDebugFrame( storageKey, visible = true ) {
 		};
 	}, [ frame, storageKey ] );
 
-	// Generic pointer-drag wrapper: a stream of dx/dy deltas to `apply`.
-	const beginDrag = useCallback( ( e, apply ) => {
+	// The latest in-flight frame computed during a drag/resize. We mutate the
+	// panel's DOM style directly per pointermove (cheap) and only push this to
+	// React state ONCE on pointerup — so the heavy panel subtree (graph, tab
+	// content) doesn't re-render every frame while dragging or resizing.
+	const liveFrameRef = useRef( null );
+
+	// Generic pointer-drag wrapper: a stream of dx/dy deltas to `apply`, with a
+	// `commit` fired once on pointerup (where the per-drag React state update lands).
+	const beginDrag = useCallback( ( e, apply, commit ) => {
 		if ( e.button !== undefined && e.button !== 0 ) {
 			return;
 		}
@@ -195,6 +203,7 @@ export function useDebugFrame( storageKey, visible = true ) {
 			ev.preventDefault?.();
 			window.removeEventListener( 'pointermove', onMove );
 			window.removeEventListener( 'pointerup', onUp );
+			commit?.();
 		};
 		window.addEventListener( 'pointermove', onMove );
 		window.addEventListener( 'pointerup', onUp );
@@ -223,18 +232,37 @@ export function useDebugFrame( storageKey, visible = true ) {
 				}
 			}
 			const start = frame;
-			beginDrag( e, ( dx, dy ) => {
-				setFrame(
-					clampFrame( {
+			beginDrag(
+				e,
+				( dx, dy ) => {
+					const f = clampFrame( {
 						x: start.x + dx,
 						y: start.y + dy,
 						w: start.w,
 						h: start.h,
-					} )
-				);
-			} );
+					} );
+					liveFrameRef.current = f;
+					// GPU-composited translate during the drag — no layout, no React.
+					const el = panelRef && panelRef.current;
+					if ( el ) {
+						el.style.transform = `translate(${ f.x - start.x }px, ${
+							f.y - start.y
+						}px)`;
+					}
+				},
+				() => {
+					const el = panelRef && panelRef.current;
+					if ( el ) {
+						el.style.transform = '';
+					}
+					if ( liveFrameRef.current ) {
+						setFrame( liveFrameRef.current );
+					}
+					liveFrameRef.current = null;
+				}
+			);
 		},
-		[ beginDrag, frame ]
+		[ beginDrag, frame, panelRef ]
 	);
 
 	const getResizeHandlers = useCallback( () => {
@@ -243,31 +271,50 @@ export function useDebugFrame( storageKey, visible = true ) {
 			out[ key ] = {
 				onPointerDown: ( e ) => {
 					const start = frame;
-					beginDrag( e, ( dx, dy ) => {
-						let { x, y, w, h } = start;
-						if ( dirs.l ) {
-							const newW = Math.max( MIN_W, w - dx );
-							x = x + ( w - newW );
-							w = newW;
+					beginDrag(
+						e,
+						( dx, dy ) => {
+							let { x, y, w, h } = start;
+							if ( dirs.l ) {
+								const newW = Math.max( MIN_W, w - dx );
+								x = x + ( w - newW );
+								w = newW;
+							}
+							if ( dirs.r ) {
+								w = Math.max( MIN_W, w + dx );
+							}
+							if ( dirs.t ) {
+								const newH = Math.max( MIN_H, h - dy );
+								y = y + ( h - newH );
+								h = newH;
+							}
+							if ( dirs.b ) {
+								h = Math.max( MIN_H, h + dy );
+							}
+							const f = clampFrame( { x, y, w, h } );
+							liveFrameRef.current = f;
+							// Resize is inherently layout — write the box directly
+							// (CSS reflows) but skip the React re-render until commit.
+							const el = panelRef && panelRef.current;
+							if ( el ) {
+								el.style.left = `${ f.x }px`;
+								el.style.top = `${ f.y }px`;
+								el.style.width = `${ f.w }px`;
+								el.style.height = `${ f.h }px`;
+							}
+						},
+						() => {
+							if ( liveFrameRef.current ) {
+								setFrame( liveFrameRef.current );
+							}
+							liveFrameRef.current = null;
 						}
-						if ( dirs.r ) {
-							w = Math.max( MIN_W, w + dx );
-						}
-						if ( dirs.t ) {
-							const newH = Math.max( MIN_H, h - dy );
-							y = y + ( h - newH );
-							h = newH;
-						}
-						if ( dirs.b ) {
-							h = Math.max( MIN_H, h + dy );
-						}
-						setFrame( clampFrame( { x, y, w, h } ) );
-					} );
+					);
 				},
 			};
 		}
 		return out;
-	}, [ beginDrag, frame ] );
+	}, [ beginDrag, frame, panelRef ] );
 
 	const style = {
 		left: `${ frame.x }px`,
