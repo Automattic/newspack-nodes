@@ -58,8 +58,8 @@ cd tests && ../vendor/bin/phpunit --enforce-time-limit
 # first to see what topologies are actually live — the substrate ships only
 # the generic `job-worker` stock topology (registered via
 # `Topology_Registry::register_stock_dir`); the rest come from application
-# plugins (ELN ships `firehose-workers-and-jobs`, `job-workers`,
-# `request-workers`, etc.).
+# plugins and are deployment-specific — `wp nodes types` / `wp nodes ls` is
+# the source of truth.
 wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
 
 # Verify workers came back.
