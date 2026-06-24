@@ -41,6 +41,9 @@ export const OVERVIEW_STORAGE_KEY = 'newspack-nodes:debug:overview';
 export const RING_SECONDS = 3600;
 export const SAMPLE_INTERVAL_MS = 5000;
 export const MAX_SAMPLES = RING_SECONDS / ( SAMPLE_INTERVAL_MS / 1000 );
+// Bounded ring of the most recent classified log lines (debug/warning/error)
+// shown under the Overview charts — per page-load, not persisted.
+export const MAX_MESSAGES = 200;
 
 class IoTelemetryImpl {
 	constructor() {
@@ -57,6 +60,9 @@ class IoTelemetryImpl {
 		this.msgsOut = 0;
 		this.warnings = 0;
 		this.errors = 0;
+		this.debug = 0;
+		// Recent classified log lines `{ level, text, ts }` (bounded ring).
+		this.messages = [];
 		// Compact rows: [ t, msgInRate, msgOutRate, byteInRate, byteOutRate ].
 		this.series = [];
 		// Monotonic emitted-sample counter — a stable, collision-free memo key for
@@ -77,12 +83,32 @@ class IoTelemetryImpl {
 		this.msgsOut += count;
 	}
 
-	recordWarning() {
+	recordWarning( text = '' ) {
 		this.warnings += 1;
+		this._pushMessage( 'warning', text );
 	}
 
-	recordError( n = 1 ) {
+	recordError( n = 1, text = '' ) {
 		this.errors += n;
+		this._pushMessage( 'error', text );
+	}
+
+	recordDebug( text = '' ) {
+		this.debug += 1;
+		this._pushMessage( 'debug', text );
+	}
+
+	// Append a classified line to the bounded ring. A textless record (e.g. a
+	// TM_ERROR frame) bumps the counter but adds no row. No notify: the list
+	// refreshes on the next sampler tick like the count cards, not per line.
+	_pushMessage( level, text ) {
+		if ( '' === text ) {
+			return;
+		}
+		this.messages.push( { level, text, ts: nowSeconds() } );
+		while ( this.messages.length > MAX_MESSAGES ) {
+			this.messages.shift();
+		}
 	}
 
 	snapshot() {
@@ -93,6 +119,8 @@ class IoTelemetryImpl {
 			msgsOut: this.msgsOut,
 			warnings: this.warnings,
 			errors: this.errors,
+			debug: this.debug,
+			messages: this.messages.slice(),
 		};
 	}
 

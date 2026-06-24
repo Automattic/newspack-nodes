@@ -1,7 +1,35 @@
 import { Core } from '../core';
 import { TYPE, VALUE, TM_BYTESTREAM } from '../message';
+import { IoTelemetry } from '../io-telemetry';
 
 beforeEach( () => Core.reset() );
+
+test( 'stderr classifies into IoTelemetry debug/warning/error by prefix, with text', () => {
+	const warn = jest.spyOn( IoTelemetry, 'recordWarning' );
+	const err = jest.spyOn( IoTelemetry, 'recordError' );
+	const dbg = jest.spyOn( IoTelemetry, 'recordDebug' );
+	const con = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	try {
+		Core.stderr( 'WARNING: low disk' );
+		Core.stderr( 'ERROR: boom' );
+		Core.stderr( 'just a trace' );
+		expect( warn ).toHaveBeenCalledWith(
+			expect.stringContaining( 'WARNING: low disk' )
+		);
+		expect( err ).toHaveBeenCalledWith(
+			1,
+			expect.stringContaining( 'ERROR: boom' )
+		);
+		expect( dbg ).toHaveBeenCalledWith(
+			expect.stringContaining( 'just a trace' )
+		);
+	} finally {
+		warn.mockRestore();
+		err.mockRestore();
+		dbg.mockRestore();
+		con.mockRestore();
+	}
+} );
 
 describe( 'cross-bundle singleton', () => {
 	// The hub renders the active tab's component (event-dashboards bundle) but its

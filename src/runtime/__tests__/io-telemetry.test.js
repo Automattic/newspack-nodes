@@ -2,6 +2,7 @@ import {
 	IoTelemetry,
 	byteLength,
 	MAX_SAMPLES,
+	MAX_MESSAGES,
 	RING_SECONDS,
 	OVERVIEW_STORAGE_KEY,
 } from '../io-telemetry';
@@ -65,20 +66,51 @@ describe( 'cumulative counters', () => {
 		expect( s.msgsOut ).toBe( 2 );
 	} );
 
-	test( 'recordWarning and recordError accumulate', () => {
+	test( 'recordWarning, recordError, recordDebug accumulate', () => {
 		IoTelemetry.recordWarning();
 		IoTelemetry.recordWarning();
 		IoTelemetry.recordError();
 		IoTelemetry.recordError( 2 );
+		IoTelemetry.recordDebug();
 		const s = IoTelemetry.snapshot();
 		expect( s.warnings ).toBe( 2 );
 		expect( s.errors ).toBe( 3 );
+		expect( s.debug ).toBe( 1 );
+	} );
+
+	test( 'record* with text appends classified messages in order', () => {
+		IoTelemetry.recordDebug( 'just a trace' );
+		IoTelemetry.recordWarning( 'WARNING: disk filling up' );
+		IoTelemetry.recordError( 1, 'ERROR: boom' );
+		const { messages } = IoTelemetry.snapshot();
+		expect( messages.map( ( m ) => [ m.level, m.text ] ) ).toEqual( [
+			[ 'debug', 'just a trace' ],
+			[ 'warning', 'WARNING: disk filling up' ],
+			[ 'error', 'ERROR: boom' ],
+		] );
+	} );
+
+	test( 'record* without text counts but adds no message row', () => {
+		IoTelemetry.recordError(); // e.g. a TM_ERROR frame carrying no text
+		const s = IoTelemetry.snapshot();
+		expect( s.errors ).toBe( 1 );
+		expect( s.messages ).toEqual( [] );
+	} );
+
+	test( 'the message list is capped at MAX_MESSAGES (oldest dropped)', () => {
+		for ( let i = 0; i < MAX_MESSAGES + 10; i++ ) {
+			IoTelemetry.recordDebug( `m${ i }` );
+		}
+		const { messages } = IoTelemetry.snapshot();
+		expect( messages.length ).toBe( MAX_MESSAGES );
+		expect( messages[ 0 ].text ).toBe( 'm10' );
 	} );
 
 	test( 'reset clears every counter and the series', () => {
 		IoTelemetry.recordIn( 10 );
 		IoTelemetry.recordOut( 10 );
-		IoTelemetry.recordError();
+		IoTelemetry.recordError( 1, 'ERROR: x' );
+		IoTelemetry.recordDebug( 'trace' );
 		IoTelemetry.sample( 0 );
 		IoTelemetry.sample( 5 );
 		IoTelemetry.reset();
@@ -90,6 +122,8 @@ describe( 'cumulative counters', () => {
 			msgsOut: 0,
 			warnings: 0,
 			errors: 0,
+			debug: 0,
+			messages: [],
 		} );
 		expect( IoTelemetry.getSeries() ).toEqual( [] );
 	} );
