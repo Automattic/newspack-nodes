@@ -1,7 +1,6 @@
 // The Vault admin is built from WP-admin-native markup (.wp-list-table,
 // .button); these scoped rules dress it in the Newspack theme so it matches the
-// other hub tabs instead of inheriting the WP admin color scheme (which tints
-// the primary button off-brand). Double-class selectors win over WP core-ui.
+// other hub tabs instead of inheriting the WP admin color scheme.
 .event-aggregator-servers-admin {
 	box-sizing: border-box;
 	min-height: 100%;
@@ -18,56 +17,6 @@
 
 	// The header "Add Server" trigger reuses the shared `.nodes-cards__new`
 	// button (the Overview's "+ New Topology" look), styled there — not here.
-
-	// Primary action (the modal's Add submit) — solid Newspack Cobalt.
-	.button.button-primary {
-		background: var(--np-primary);
-		border: 1.5px solid var(--np-primary);
-		color: var(--np-on-primary);
-		border-radius: var(--np-radius-md);
-		box-shadow: none;
-		text-shadow: none;
-
-		&:hover,
-		&:focus {
-			background: var(--np-primary-hover);
-			border-color: var(--np-primary-hover);
-			color: var(--np-on-primary);
-		}
-	}
-
-	// Secondary/utility buttons (Test, modal Cancel) — white + border.
-	.button:not(.button-primary):not(.button-link-delete) {
-		background: var(--np-surface);
-		border: 1.5px solid var(--np-border-strong);
-		color: var(--np-text);
-		border-radius: var(--np-radius-md);
-		box-shadow: none;
-
-		&:hover {
-			background: var(--np-surface-subtle);
-			border-color: var(--np-text-secondary);
-			color: var(--np-text);
-		}
-	}
-
-	// Destructive action (Remove) — a danger outline. Declared after the primary
-	// rule so it wins for the modal's `button-primary button-link-delete` confirm.
-	.button.button-link-delete {
-		background: var(--np-surface);
-		border: 1.5px solid var(--np-error);
-		color: var(--np-error);
-		border-radius: var(--np-radius-md);
-		box-shadow: none;
-		text-shadow: none;
-
-		&:hover,
-		&:focus {
-			background: var(--np-error-subtle);
-			border-color: var(--np-error);
-			color: var(--np-error);
-		}
-	}
 
 	// The server table — a Newspack card with a subtle header band.
 	.wp-list-table {
