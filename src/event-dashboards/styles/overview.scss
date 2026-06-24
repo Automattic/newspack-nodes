@@ -108,11 +108,11 @@
 	}
 
 	&--rising &__line {
-		stroke: var(--np-warning);
+		stroke: var(--brass);
 	}
 
 	&--falling &__line {
-		stroke: var(--np-success);
+		stroke: var(--sage);
 	}
 }
 
@@ -127,7 +127,7 @@
 .nodes-topics {
 	position: relative;
 	// Light Newspack chart panel — a white card on the subtle hub backdrop.
-	background: var(--np-surface);
+	background: var(--paper);
 	border: 2px solid base.$dark-border;
 	border-radius: var(--np-radius-md);
 	padding: 8px 10px;
@@ -158,7 +158,7 @@
 	&__tooltip {
 		display: none;
 		position: absolute;
-		background: var(--np-surface);
+		background: var(--paper);
 		color: base.$dark-text;
 		border: 2px solid base.$dark-border;
 		box-shadow: 0 2px 8px rgb(0 0 0 / 12%);

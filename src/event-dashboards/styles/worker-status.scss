@@ -212,7 +212,7 @@
 
 	&.running {
 		// Solid success pill, a touch lighter than the heavy success-600.
-		background: var(--np-success-soft);
+		background: var(--sage-subtle);
 		color: base.$white;
 	}
 
@@ -252,7 +252,7 @@
 
 	&.running {
 		// Solid success pill, a touch lighter than the heavy success-600.
-		background: var(--np-success-soft);
+		background: var(--sage-subtle);
 		color: base.$white;
 	}
 
@@ -357,14 +357,14 @@
 		// don't dominate the light dashboard.
 		background: color-mix(
 			in srgb,
-			var(--np-success) 68%,
+			var(--sage) 68%,
 			white
 		); // processed
 	}
 
 	&.pending {
 		background: var(
-			--np-warning-bright
+			--brass
 		); // Yellow/amber - pending in current segment
 	}
 
@@ -373,7 +373,7 @@
 		// heavy near-black weight of the secondary-text grey.
 		background: color-mix(
 			in srgb,
-			var(--np-text-secondary) 45%,
+			var(--ink-3) 45%,
 			white
 		); // live on disk, past the recorded probe end
 	}

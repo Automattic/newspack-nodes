@@ -180,18 +180,18 @@
 		// Light Newspack provenance chips — Cobalt (stock), neutral (user),
 		// amber (user shadows stock).
 		&--stock {
-			background: var(--np-primary-subtle);
-			color: var(--np-primary);
+			background: var(--cyan-subtle);
+			color: var(--cyan);
 		}
 
 		&--user {
-			background: var(--np-surface-muted);
-			color: var(--np-text-secondary);
+			background: var(--paper-3);
+			color: var(--ink-3);
 		}
 
 		&--both {
-			background: var(--np-warning-subtle);
-			color: var(--np-warning);
+			background: var(--brass-subtle);
+			color: var(--brass);
 		}
 	}
 
@@ -217,15 +217,15 @@
 		}
 
 		&--ok {
-			color: var(--np-success);
+			color: var(--sage);
 		}
 
 		&--behind {
-			color: var(--np-warning);
+			color: var(--brass);
 		}
 
 		&--stalled {
-			color: var(--np-error);
+			color: var(--oxide);
 		}
 	}
 
@@ -235,7 +235,7 @@
 		font-size: 15px;
 		line-height: 1;
 		padding: 4px 9px;
-		color: var(--np-warning); // amber ↻ icon on the white button
+		color: var(--brass); // amber ↻ icon on the white button
 	}
 
 	// The expanded detail tree. The divider lives here (not on the heading) so a
