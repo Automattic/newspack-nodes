@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`settings-sync` `add_setting` is now repeatable per local option.** The registry keys a list of `{to, remote}` mappings per local option (was a single mapping that the next `add_setting` overwrote), so one local option can fan out to several spoke targets — e.g. a `remote_*` setting seeding both the spoke's stripped option AND its own `remote_*` copy, so the value propagates onward to the spoke's spokes. Exact-duplicate mappings are deduped (idempotent topology reload); `push()` emits one `set` per mapping.
+
 ### Fixed
 
 - **Debug overlay's I/O Overview tab now styles correctly when embedded outside the hub.** The tab reuses the hub's `.nodes-card(s)` / `.nodes-overview` layout classes, but their styles live in the event-dashboards bundle — present on the hub page, absent on pages that merely embed the overlay (the ELN performance dashboards), so the cards rendered unstyled there. `OverviewTab` now imports those style partials directly, so the card/overview CSS ships in whatever bundle inlines the overlay (rebuild required in every embedder — the nodes hub + the three ELN performance bundles).

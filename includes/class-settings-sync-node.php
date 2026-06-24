@@ -31,7 +31,7 @@ class Settings_Sync_Node extends Timer_Node {
 	 */
 	public static ?\Closure $invalidate_options_cache = null;
 
-	/** @var array<string,array{to:string,remote:string}> local_option => target spoke path + remote option name. */
+	/** @var array<string,array<int,array{to:string,remote:string}>> local_option => LIST of {target spoke path, remote option name}. A local may map to several spoke targets (e.g. a remote_* setting seeds both the spoke's stripped option and its own remote_* copy). */
 	protected array $registry = [];
 
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter from node_schema()['commands']. */
@@ -98,8 +98,8 @@ class Settings_Sync_Node extends Timer_Node {
 	 * @param string $local Local WP-option name.
 	 */
 	protected function push( string $local ): void {
-		$spec = $this->registry[ $local ] ?? null;
-		if ( null === $spec || null === $this->sink ) {
+		$specs = $this->registry[ $local ] ?? [];
+		if ( [] === $specs || null === $this->sink ) {
 			return;
 		}
 		// Long-lived worker: drop the frozen alloptions snapshot so get_option below
@@ -115,16 +115,34 @@ class Settings_Sync_Node extends Timer_Node {
 			$this->print_less_often( "settings-sync: cannot encode value for {$local}; skipping" );
 			return;
 		}
-		$arguments = Command_Args::format( [ $spec['remote'], $scalar ], [] );
+		// One `set` per registered mapping — a local may target more than one spoke
+		// option (e.g. a remote_* setting seeds the spoke's stripped option AND its
+		// own remote_* copy for onward propagation).
+		foreach ( $specs as $spec ) {
+			$this->send_set( $spec['to'], $spec['remote'], $scalar );
+		}
+	}
 
+	/**
+	 * Build + fan out one `set <remote_option> <scalar>` command toward a spoke
+	 * (the configured `target/<to>` path).
+	 *
+	 * @param string $to            Spoke path segment under the target.
+	 * @param string $remote_option Option name to set on the spoke.
+	 * @param string $scalar        Already-scalarized value token.
+	 */
+	private function send_set( string $to, string $remote_option, string $scalar ): void {
+		if ( null === $this->sink ) {
+			return;
+		}
 		$target                = \is_array( $this->target ) ? ( $this->target[0] ?? '' ) : $this->target;
 		$out                   = Message::new_message();
 		$out[ Message::TYPE ]  = Message::TM_COMMAND;
 		$out[ Message::FROM ]  = $this->name;
-		$out[ Message::TO ]    = $target . '/' . $spec['to'];
+		$out[ Message::TO ]    = $target . '/' . $to;
 		$out[ Message::VALUE ] = [
 			'name'      => 'set',
-			'arguments' => $arguments,
+			'arguments' => Command_Args::format( [ $remote_option, $scalar ], [] ),
 		];
 		$this->sink->fill( $out );
 	}
@@ -144,7 +162,10 @@ class Settings_Sync_Node extends Timer_Node {
 
 	/**
 	 * Register a local-option → spoke mapping. Three positional tokens:
-	 * `<local_option> <TO> <remote_option>`.
+	 * `<local_option> <TO> <remote_option>`. Repeatable per local option (a
+	 * `remote_*` setting is added twice — once mapping to the spoke's stripped
+	 * option, once to its own `remote_*` copy); exact duplicates are idempotent
+	 * so re-running the topology doesn't fan out twice.
 	 *
 	 * @param string $args Whitespace-separated `<local_option> <TO> <remote_option>`.
 	 * @return string 'ok', or an `error: …` string on arity mismatch.
@@ -154,18 +175,24 @@ class Settings_Sync_Node extends Timer_Node {
 		if ( 3 !== \count( $parts ) ) {
 			return 'error: add_setting requires <local_option> <TO> <remote_option>';
 		}
-		$this->registry[ $parts[0] ] = [
+		$spec = [
 			'to'     => $parts[1],
 			'remote' => $parts[2],
 		];
+		$this->registry[ $parts[0] ] ??= [];
+		if ( ! \in_array( $spec, $this->registry[ $parts[0] ], true ) ) {
+			$this->registry[ $parts[0] ][] = $spec;
+		}
 		return 'ok';
 	}
 
-	/** Emit the base config plus one round-trippable `cmd {name}:config add_setting …` per registry entry. */
+	/** Emit the base config plus one round-trippable `cmd {name}:config add_setting …` per registry mapping. */
 	public function dump_config(): string {
 		$out = parent::dump_config();
-		foreach ( $this->registry as $local => $setting ) {
-			$out .= "cmd {$this->name}:config add_setting {$local} {$setting['to']} {$setting['remote']}\n";
+		foreach ( $this->registry as $local => $specs ) {
+			foreach ( $specs as $spec ) {
+				$out .= "cmd {$this->name}:config add_setting {$local} {$spec['to']} {$spec['remote']}\n";
+			}
 		}
 		return $out;
 	}
