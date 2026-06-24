@@ -67,6 +67,15 @@
 		border-radius: 0;
 	}
 
+	// While dragging/resizing, drop the shadow. The 40px-blur box-shadow above
+	// extends past the panel, so every frame the panel moves the browser repaints
+	// the (blurred) page BEHIND it — the jank, proportional to how busy that page
+	// is (a static page like Vault never stutters). Lifting it for the gesture is
+	// the fix; useDebugFrame toggles `is-dragging`, restored on pointerup.
+	&.is-dragging {
+		box-shadow: none;
+	}
+
 	// The one shared header (panel-owned, above the tab bar). It used to be a
 	// 64px grid row inside .topology-app; as a flex child it would collapse to
 	// content height, so restore the 64px so its chrome breathes like the console.

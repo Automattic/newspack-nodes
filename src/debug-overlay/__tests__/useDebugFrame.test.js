@@ -67,21 +67,6 @@ describe( 'useDebugFrame', () => {
 			value: 800,
 			writable: true,
 		} );
-		// The drag/resize coalesces its DOM writes through rAF — run it
-		// synchronously so a pointermove takes effect within the test's act().
-		jest.spyOn( window, 'requestAnimationFrame' ).mockImplementation(
-			( cb ) => {
-				cb();
-				return 1;
-			}
-		);
-		jest.spyOn( window, 'cancelAnimationFrame' ).mockImplementation(
-			() => {}
-		);
-	} );
-
-	afterEach( () => {
-		jest.restoreAllMocks();
 	} );
 
 	it( 'returns a default frame and a style prop with concrete dimensions', () => {
@@ -160,6 +145,7 @@ describe( 'useDebugFrame', () => {
 		} );
 		expect( latest.frame ).toBe( initial );
 		expect( panelEl.style.transform ).toBe( 'translate(40px, 25px)' );
+		expect( panelEl.classList.contains( 'is-dragging' ) ).toBe( true );
 
 		// On pointerup: the frame commits once and the transform is cleared.
 		act( () => {
@@ -172,9 +158,10 @@ describe( 'useDebugFrame', () => {
 		expect( latest.frame.x ).toBe( initial.x + 40 );
 		expect( latest.frame.y ).toBe( initial.y + 25 );
 		expect( panelEl.style.transform ).toBe( '' );
+		expect( panelEl.classList.contains( 'is-dragging' ) ).toBe( false );
 	} );
 
-	it( 'resizes via a scale transform during the drag and commits dimensions on pointerup', () => {
+	it( 'resizes the box directly during the drag (drag class on) and commits dimensions on pointerup', () => {
 		window.localStorage.setItem(
 			KEY,
 			JSON.stringify( { x: 100, y: 100, w: 400, h: 300 } )
@@ -201,7 +188,8 @@ describe( 'useDebugFrame', () => {
 		const handlers = captureDrag(
 			latest.getResizeHandlers().se.onPointerDown
 		);
-		// During the resize: a GPU-composited scale, NOT a committed box change.
+		// During the resize: the box is written directly (no committed state
+		// change), and the panel carries the shadow-lifting drag class.
 		act( () => {
 			handlers.pointermove( {
 				clientX: 80,
@@ -210,9 +198,11 @@ describe( 'useDebugFrame', () => {
 			} );
 		} );
 		expect( latest.frame ).toBe( initial );
-		expect( panelEl.style.transform ).toMatch( /scale\(/ );
+		expect( panelEl.style.width ).toBe( '480px' );
+		expect( panelEl.style.height ).toBe( '360px' );
+		expect( panelEl.classList.contains( 'is-dragging' ) ).toBe( true );
 
-		// On pointerup: the real dimensions commit and the transform clears.
+		// On pointerup: the dimensions commit to state, the drag class clears.
 		act( () => {
 			handlers.pointerup( {
 				clientX: 80,
@@ -222,7 +212,7 @@ describe( 'useDebugFrame', () => {
 		} );
 		expect( latest.frame.w ).toBe( initial.w + 80 );
 		expect( latest.frame.h ).toBe( initial.h + 60 );
-		expect( panelEl.style.transform ).toBe( '' );
+		expect( panelEl.classList.contains( 'is-dragging' ) ).toBe( false );
 	} );
 
 	it( 'persists the dragged frame to localStorage', () => {
