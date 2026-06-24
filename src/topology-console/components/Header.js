@@ -153,7 +153,19 @@ export function HeaderControls( {
 						aria-label={ __( 'Close', 'newspack-nodes' ) }
 						title={ __( 'Close', 'newspack-nodes' ) }
 					>
-						{ '×' }
+						{ /* The standard WP `close` icon (the X ELN/pyrobase
+						     modals use), inlined since @wordpress/icons isn't a
+						     nodes dependency. */ }
+						<svg
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							aria-hidden="true"
+							focusable="false"
+						>
+							<path d="M13 11.8l6.1-6.3-1-1-6.1 6.2-6.1-6.2-1 1 6.1 6.3-6.5 6.7 1 1 6.5-6.6 6.5 6.6 1-1z" />
+						</svg>
 					</button>
 				) : (
 					<button
