@@ -714,6 +714,111 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Send' ) ).not.toBeNull();
 		expect( getByText( 'Trace' ) ).not.toBeNull();
 	} );
+
+	// A node is a consumer when its dump_metadata carries frames (an array) AND a
+	// cursor — the read surface the inspector already holds, no class-name list.
+	// Frame ids are OFFSETLOG segment ids (monotonic, far past 0); the source
+	// cursor seg is an UNRELATED small number — the panel must not conflate them.
+	const consumerNode = {
+		id: 'firehose-consumer',
+		class: 'Consumer',
+		count: 0,
+		frames: [
+			{ id: 5342, size: 120 },
+			{ id: 5343, size: 40 },
+			{ id: 5344, size: 80 },
+		],
+		cursor: { seg: 2, off: 12 },
+	};
+
+	it( 'shows the Time Travel section for a node carrying frames + cursor', () => {
+		const { queryByText, container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="firehose-consumer"
+				parsed={ { nodes: [ consumerNode ], edges: [] } }
+				nodeIds={ new Set( [ 'firehose-consumer' ] ) }
+			/>
+		);
+		expect( queryByText( 'Time Travel' ) ).not.toBeNull();
+		// Ruler renders one marker per frame, straight from node.frames.
+		expect(
+			container.querySelectorAll( '.topology-tt__marker' )
+		).toHaveLength( 3 );
+	} );
+
+	it( 'does NOT show the Time Travel section for a node without frames', () => {
+		const { queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="echo"
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'echo' ] ) }
+			/>
+		);
+		expect( queryByText( 'Time Travel' ) ).toBeNull();
+	} );
+
+	it( 'does NOT qualify a node that has frames but no cursor (plumbing)', () => {
+		const { queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="x"
+				parsed={ {
+					nodes: [ { id: 'x', class: 'Foo', frames: [] } ],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'x' ] ) }
+			/>
+		);
+		expect( queryByText( 'Time Travel' ) ).toBeNull();
+	} );
+
+	it( 'routes transport buttons through onAction("invoke") as :config commands', () => {
+		const onAction = jest.fn();
+		const { getByLabelText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="firehose-consumer"
+				parsed={ { nodes: [ consumerNode ], edges: [] } }
+				nodeIds={ new Set( [ 'firehose-consumer' ] ) }
+				onAction={ onAction }
+			/>
+		);
+		fireEvent.click( getByLabelText( /pause/i ) );
+		expect( onAction ).toHaveBeenLastCalledWith(
+			'invoke',
+			'firehose-consumer',
+			{ verb: 'PAUSE', kind: 'command', positional: '', byName: {} }
+		);
+		// Selection defaults to the NEWEST frame (5344) — not cursor.seg. Rewind
+		// seeks the previous frame id (5343), then fast-forward the next (5344).
+		fireEvent.click( getByLabelText( /rewind/i ) );
+		expect( onAction ).toHaveBeenLastCalledWith(
+			'invoke',
+			'firehose-consumer',
+			{
+				verb: 'SEEK_FRAME',
+				kind: 'command',
+				positional: '5343',
+				byName: { segment_id: '5343' },
+			}
+		);
+		fireEvent.click( getByLabelText( /fast.?forward/i ) );
+		expect( onAction ).toHaveBeenLastCalledWith(
+			'invoke',
+			'firehose-consumer',
+			{
+				verb: 'SEEK_FRAME',
+				kind: 'command',
+				positional: '5344',
+				byName: { segment_id: '5344' },
+			}
+		);
+	} );
 } );
 
 // The "Activity" sparkline shows RATE_HISTORY_MAX (60) samples, one per poll.

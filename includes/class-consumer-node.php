@@ -87,6 +87,15 @@ class Consumer_Node extends Timer_Node {
 	private ?bool $saved_line_mode = null;
 
 	/**
+	 * Offsetlog segment id the consumer was last rewound to by seek_frame() while
+	 * paused, or null when it hasn't been rewound. PLAY reads this to truncate the
+	 * offsetlog after the rewind point before re-arming (commit-to-this-branch), so
+	 * the re-written forward timeline stays monotonic; it then clears this back to
+	 * null. A second seek overwrites it with the newer branch point.
+	 */
+	private ?int $rewound_to = null;
+
+	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
 	 * snapshot node usually doesn't exist yet when load_offsetlog() runs, so we
 	 * stash it and restore once set_snapshot_node() names the (now-built) node.
@@ -816,6 +825,9 @@ class Consumer_Node extends Timer_Node {
 			}
 		}
 		$this->next_offset( [ 'seg' => $entry['seg'], 'off' => $entry['off'] ] );
+		// Record the rewind point: PLAY truncates the offsetlog after it before
+		// re-arming, so the re-written forward timeline stays monotonic.
+		$this->rewound_to = $segment_id;
 		return 'ok';
 	}
 
@@ -888,6 +900,13 @@ class Consumer_Node extends Timer_Node {
 	 * and re-arm the fire() loop.
 	 */
 	public function play(): void {
+		// If the consumer was rewound while paused, this is the commit-to-this-branch
+		// moment: drop the now-stale forward keyframes so the re-written timeline stays
+		// monotonic. The OFFSETLOG only — never the source log.
+		if ( null !== $this->rewound_to ) {
+			$this->offsetlog?->truncate_after( $this->rewound_to );
+			$this->rewound_to = null;
+		}
 		if ( null !== $this->saved_line_mode ) {
 			$this->line_mode      = $this->saved_line_mode;
 			$this->saved_line_mode = null;

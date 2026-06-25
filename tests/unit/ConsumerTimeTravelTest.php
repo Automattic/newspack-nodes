@@ -479,6 +479,116 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
+	// PLAY truncate-on-resume: a rewound consumer truncates the offsetlog after the
+	// rewind point on PLAY (the "commit to this branch" moment), so the re-written
+	// forward timeline stays monotonic. Paused seeking stays non-destructive.
+	// ============================================================================
+
+	public function test_seek_frame_records_the_rewind_point(): void {
+		Core::$now = 9000.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+
+		// Two keyframes; seek to the older one.
+		$this->checkpoint_at( $c, 0, 10 );
+		$older = $this->newest_segment_id( $c );
+		$this->checkpoint_at( $c, 0, 20 );
+
+		$this->assertNull( $this->read_private( $c, 'rewound_to' ), 'no rewind recorded before a seek' );
+		$this->assertSame( 'ok', $c->seek_frame( $older ) );
+		$this->assertSame( $older, $this->read_private( $c, 'rewound_to' ), 'a successful seek records the rewind point' );
+	}
+
+	public function test_play_after_seek_truncates_offsetlog_after_rewind_point(): void {
+		Core::$now = 9100.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+
+		// Four keyframes (offsetlog segments 0..3).
+		$this->checkpoint_at( $c, 0, 10 );
+		$rewind = $this->newest_segment_id( $c ); // segment 0.
+		$this->checkpoint_at( $c, 0, 20 );
+		$this->checkpoint_at( $c, 0, 30 );
+		$this->checkpoint_at( $c, 0, 40 );
+		$offsetlog = $this->read_private( $c, 'offsetlog' );
+		$this->assertCount( 4, $offsetlog->get_segments( true ), 'precondition: 4 keyframes' );
+
+		$c->pause();
+		$c->seek_frame( $rewind );
+		$c->play();
+
+		$ids = \array_column( $offsetlog->get_segments( true ), 'id' );
+		$this->assertSame( [ $rewind ], $ids, 'PLAY truncates the offsetlog frames after the rewind point' );
+		$this->assertNull( $this->read_private( $c, 'rewound_to' ), 'PLAY clears the rewind point' );
+		$this->assertTrue( $this->timer_armed( $c ), 'PLAY re-arms the poll timer' );
+	}
+
+	public function test_play_without_prior_seek_does_not_truncate(): void {
+		Core::$now = 9200.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+
+		$this->checkpoint_at( $c, 0, 10 );
+		$this->checkpoint_at( $c, 0, 20 );
+		$this->checkpoint_at( $c, 0, 30 );
+		$offsetlog = $this->read_private( $c, 'offsetlog' );
+		$before    = $offsetlog->get_segments( true );
+		$this->assertCount( 3, $before );
+
+		$c->pause();
+		$c->play();
+
+		$this->assertSame( $before, $offsetlog->get_segments( true ), 'normal pause/play with no seek leaves the offsetlog intact' );
+	}
+
+	public function test_seek_then_play_then_checkpoint_keeps_offsetlog_monotonic(): void {
+		// End-to-end: after seek→play→checkpoint the new frame appends AFTER the
+		// rewind point and the old future frames are gone — a single coherent,
+		// monotonic forward timeline.
+		Core::$now = 9300.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+
+		$this->checkpoint_at( $c, 5, 11 ); // frame 0, source 5:11.
+		$rewind = $this->newest_segment_id( $c );
+		$this->checkpoint_at( $c, 6, 22 ); // frame 1.
+		$this->checkpoint_at( $c, 7, 33 ); // frame 2.
+
+		$c->pause();
+		$c->seek_frame( $rewind );
+		$c->play();
+
+		// A fresh checkpoint after PLAY: cursor advanced from the rewind point.
+		$this->checkpoint_at( $c, 8, 44 );
+
+		$offsetlog = $this->read_private( $c, 'offsetlog' );
+		$ids       = \array_column( $offsetlog->get_segments( true ), 'id' );
+		$this->assertSame( [ $rewind, $rewind + 1 ], $ids, 'new checkpoint appends right after the rewind point; the old future frames are gone' );
+
+		// The newest frame is the post-PLAY checkpoint, not a stale future frame.
+		$record = $this->read_newest_offset_record( $offsetlog );
+		$this->assertSame( 8, $record['seg'], 'newest frame is the post-PLAY checkpoint source seg' );
+		$this->assertSame( 44, $record['off'], 'newest frame is the post-PLAY checkpoint source off' );
+	}
+
+	/** Read the newest offsetlog segment's record VALUE ({seg,off,...}). */
+	private function read_newest_offset_record( Partition_Node $offsetlog ): array {
+		$segments = $offsetlog->get_segments( true );
+		$newest   = \end( $segments );
+		$bytes    = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
+		$lines    = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
+		return Message::unpacked( \end( $lines ) )[ Message::VALUE ];
+	}
+
+	// ============================================================================
 	// Command-verb dispatch through the {name}:config interpreter (production path).
 	// ============================================================================
 
