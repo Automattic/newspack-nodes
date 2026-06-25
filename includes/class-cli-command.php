@@ -135,6 +135,7 @@ class CLI_Command {
 		// `_output`: Shell stamps FROM=_output/$pid, so replies route back here.
 		$dumper = new Dumper_Node();
 		$dumper->name( Node_Names::OUTPUT );
+		$dumper->sink( $interpreter );
 
 		// Tap node for introspection of what the shell is sending.
 		$console_tap = new Tap_Node();
