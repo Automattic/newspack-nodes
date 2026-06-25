@@ -1471,6 +1471,37 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertArrayNotHasKey( 'patron_node:config', $metadata );
 	}
 
+	public function test_dump_metadata_merges_a_nodes_extra_hook(): void {
+		// A node's dump_metadata_extra() contributes fields into its metadata row.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$node = new Extra_Metadata_Node();
+		$node->name( 'extra' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertArrayHasKey( 'extra', $decoded );
+		$this->assertSame( [ 'a', 'b' ], $decoded['extra']['frames'] );
+		$this->assertSame( [ 'seg' => 3, 'off' => 7 ], $decoded['extra']['cursor'] );
+	}
+
+	public function test_dump_metadata_extra_hook_cannot_clobber_fixed_keys(): void {
+		// The hook is merged with +=, so a fixed key (e.g. `class`) the hook also
+		// declares is ignored — the interpreter-computed value wins.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$node = new Clobbering_Metadata_Node();
+		$node->name( 'clobber' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertArrayHasKey( 'clobber', $decoded );
+		$this->assertSame( 'Clobbering_Metadata', $decoded['clobber']['class'], 'fixed key survives the hook merge' );
+		$this->assertSame( 99, $decoded['clobber']['extra_only'], 'a non-conflicting hook key is added' );
+	}
+
 	// ── Argument validation paths on verb handlers ────────────────
 
 	public function test_make_node_with_too_few_args_returns_usage(): void {
@@ -2213,5 +2244,19 @@ class CommandInterpreterTest extends TestCase {
 		$decoded = $interpreter->dispatch( 'dump_metadata' );
 
 		$this->assertArrayNotHasKey( 'registrations', $decoded['plain'] );
+	}
+}
+
+/** Fixture: a node that contributes extra dump_metadata fields via the generic hook. */
+final class Extra_Metadata_Node extends Node {
+	public function dump_metadata_extra(): array {
+		return [ 'frames' => [ 'a', 'b' ], 'cursor' => [ 'seg' => 3, 'off' => 7 ] ];
+	}
+}
+
+/** Fixture: a node whose hook tries (and fails, via +=) to clobber the fixed `class` key. */
+final class Clobbering_Metadata_Node extends Node {
+	public function dump_metadata_extra(): array {
+		return [ 'class' => 'HIJACK', 'extra_only' => 99 ];
 	}
 }

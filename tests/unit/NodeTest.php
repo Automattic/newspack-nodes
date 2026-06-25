@@ -28,6 +28,12 @@ final class Config_Sibling_Node extends Node {
 
 #[CoversClass( Node::class )]
 class NodeTest extends TestCase {
+	public function test_dump_metadata_extra_defaults_to_empty(): void {
+		// Base hook contributes no extra metadata; subclasses override to add fields.
+		$n = new Capture_Sink_Node();
+		$this->assertSame( [], $n->dump_metadata_extra() );
+	}
+
 	public function test_name_set_and_get(): void {
 		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );

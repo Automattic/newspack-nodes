@@ -375,6 +375,17 @@ class Node {
 		return $snapshot;
 	}
 
+	/**
+	 * Hook for a node to contribute extra fields into its dump_metadata row. The
+	 * interpreter merges the return with `+=`, so the fixed dump_metadata keys win
+	 * and the hook can only add. Base returns nothing.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function dump_metadata_extra(): array {
+		return [];
+	}
+
 	/** True if the property name reads as a credential (see SECRET_NAME_PATTERNS). */
 	private static function _is_secret_property( string $name ): bool {
 		$lower = \strtolower( $name );
