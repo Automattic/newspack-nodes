@@ -79,6 +79,86 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertSame( [ 'seg' => 1, 'off' => 5 ], $extra['cursor'], 'cursor is the live source position' );
 	}
 
+	public function test_dump_metadata_reports_at_frame_and_on_frame_across_the_transport_lifecycle(): void {
+		// The cursor's POSITION is a single pair describing where it sits relative to
+		// the offsetlog keyframes — used for BOTH live status and time-travel, and
+		// reported so the panel survives a remount. `at_frame` = rewound_to when
+		// seeked, else the newest offsetlog frame id (the cursor's current
+		// checkpoint); `on_frame` = the cursor is exactly on that frame's committed
+		// position vs advanced past it.
+		Core::$now = 2000.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+
+		$this->checkpoint_at( $c, 0, 10 );
+		$older = $this->newest_segment_id( $c );
+		$this->checkpoint_at( $c, 0, 20 );
+		$newer = $this->newest_segment_id( $c );
+
+		// Live + quiet: checkpoint_at left cursor == checkpoint, so the cursor sits ON
+		// its last checkpoint — at_frame is the NEWEST frame, on_frame is true.
+		$meta = $c->dump_metadata();
+		$this->assertSame( $newer, $meta['at_frame'], 'a live consumer reports the newest offsetlog frame' );
+		$this->assertTrue( $meta['on_frame'], 'a quiet live consumer (cursor == checkpoint) sits ON its last checkpoint' );
+
+		// Live + read-ahead: advance the cursor past the committed checkpoint without
+		// re-checkpointing — the cursor has read forward, so on_frame is false.
+		$c->next_offset( [ 'seg' => 0, 'off' => 99 ] );
+		$meta = $c->dump_metadata();
+		$this->assertSame( $newer, $meta['at_frame'], 'still the newest frame while live' );
+		$this->assertFalse( $meta['on_frame'], 'a live consumer that read past its checkpoint is no longer on the frame' );
+
+		// Rewound to the older frame: at_frame is that segment id, on_frame is true.
+		$c->pause();
+		$c->seek_frame( $older );
+		$meta = $c->dump_metadata();
+		$this->assertSame( $older, $meta['at_frame'], 'a seek puts the cursor at the seeked offsetlog segment id' );
+		$this->assertTrue( $meta['on_frame'], 'a fresh seek sits ON the keyframe' );
+
+		// A STEP past the seeked frame: at_frame unchanged, on_frame flips false.
+		$c->step();
+		$meta = $c->dump_metadata();
+		$this->assertSame( $older, $meta['at_frame'], 'at_frame survives a step' );
+		$this->assertFalse( $meta['on_frame'], 'stepping past the seeked frame is no longer on it' );
+
+		// A second seek (a fresh park) puts on_frame back to true and re-parks.
+		$c->seek_frame( $newer );
+		$meta = $c->dump_metadata();
+		$this->assertSame( $newer, $meta['at_frame'], 'a re-seek puts the cursor at the new segment id' );
+		$this->assertTrue( $meta['on_frame'], 'a re-seek sits ON the new keyframe' );
+
+		// PLAY (go live): at_frame back to the newest, on_frame per the cursor.
+		// seek_frame($newer) put the cursor on the newest keyframe's committed source
+		// position, which equals the last checkpoint — so the live cursor reads as ON.
+		$c->play();
+		$meta = $c->dump_metadata();
+		$this->assertSame( $newer, $meta['at_frame'], 'PLAY reports the newest frame (live)' );
+		$this->assertTrue( $meta['on_frame'], 'cursor sits on the newest checkpoint after seek(newest)+play' );
+
+		// Live read-ahead after PLAY: advance the cursor past the checkpoint; on_frame
+		// flips false, mirroring the live read-ahead case above.
+		$c->next_offset( [ 'seg' => 1, 'off' => 7 ] );
+		$meta = $c->dump_metadata();
+		$this->assertSame( $newer, $meta['at_frame'], 'still the newest frame while live' );
+		$this->assertFalse( $meta['on_frame'], 'a live consumer reading ahead after PLAY is off the frame' );
+	}
+
+	public function test_dump_metadata_at_frame_is_null_when_no_frames(): void {
+		// No checkpoints yet: there is no offsetlog frame to be at, so at_frame is null
+		// and the cursor can't be on a (nonexistent) frame.
+		Core::$now = 2100.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+
+		$meta = $c->dump_metadata();
+		$this->assertNull( $meta['at_frame'], 'no frames yet → at_frame null' );
+		$this->assertFalse( $meta['on_frame'], 'no checkpoint to sit on → on_frame false' );
+	}
+
 	public function test_dump_metadata_empty_frames_when_no_offsetlog(): void {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 " );

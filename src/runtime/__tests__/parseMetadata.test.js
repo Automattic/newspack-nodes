@@ -274,6 +274,51 @@ describe( 'parseMetadata', () => {
 		expect( alpha ).not.toHaveProperty( 'polling' );
 	} );
 
+	it( "threads a consumer's at_frame + on_frame position onto the node when present", () => {
+		const { nodes } = parseMetadata( {
+			'firehose-consumer': {
+				class: 'Consumer',
+				counter: 5,
+				target: '',
+				frames: [ { id: 9, size: 120 } ],
+				cursor: { seg: 1, off: 12 },
+				polling: 'PAUSED',
+				at_frame: 9,
+				on_frame: false,
+			},
+		} );
+		const c = nodes.find( ( n ) => n.id === 'firehose-consumer' );
+		expect( c.at_frame ).toBe( 9 );
+		expect( c.on_frame ).toBe( false );
+	} );
+
+	it( 'threads at_frame=null (no frames yet) through without dropping the key', () => {
+		const { nodes } = parseMetadata( {
+			'firehose-consumer': {
+				class: 'Consumer',
+				counter: 5,
+				target: '',
+				frames: [],
+				cursor: { seg: 0, off: 0 },
+				polling: 'ACTIVE',
+				at_frame: null,
+				on_frame: false,
+			},
+		} );
+		const c = nodes.find( ( n ) => n.id === 'firehose-consumer' );
+		expect( c ).toHaveProperty( 'at_frame', null );
+		expect( c.on_frame ).toBe( false );
+	} );
+
+	it( 'omits at_frame + on_frame for a node whose payload lacks them (no extra keys)', () => {
+		const { nodes } = parseMetadata( {
+			alpha: { class: 'Echo', counter: 1, target: 'beta' },
+		} );
+		const alpha = nodes[ 0 ];
+		expect( alpha ).not.toHaveProperty( 'at_frame' );
+		expect( alpha ).not.toHaveProperty( 'on_frame' );
+	} );
+
 	it( 'defaults new counters to 0 when payload omits them', () => {
 		const { nodes } = parseMetadata( {
 			alpha: {
