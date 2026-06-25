@@ -1454,6 +1454,8 @@ export default function Inspector( {
 						frames={ node.frames }
 						cursor={ node.cursor }
 						paused={ 'PAUSED' === node.polling }
+						atFrameSignal={ node.at_frame ?? null }
+						onFrameSignal={ !! node.on_frame }
 						onTransport={ ( verb, positional = '' ) =>
 							onAction &&
 							onAction( 'invoke', node.id, {

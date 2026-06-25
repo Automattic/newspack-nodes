@@ -96,6 +96,14 @@ class Consumer_Node extends Timer_Node {
 	private ?int $rewound_to = null;
 
 	/**
+	 * True once STEP has advanced the cursor past the frame seek_frame() put it at;
+	 * seek_frame() (a fresh park) and play() (going live) clear it. Feeds the seeked
+	 * case of dump_metadata()'s `on_frame` signal (`! stepped_since_seek`), so the
+	 * debugger panel's "off the keyframe" position survives a remount.
+	 */
+	private bool $stepped_since_seek = false;
+
+	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
 	 * snapshot node usually doesn't exist yet when load_offsetlog() runs, so we
 	 * stash it and restore once set_snapshot_node() names the (now-built) node.
@@ -784,14 +792,30 @@ class Consumer_Node extends Timer_Node {
 	 *     segment id). Empty when the offsetlog is disabled (ephemeral consumers).
 	 *   - `cursor`: the live source read position `{seg,off}`.
 	 *   - `polling`: the current polling state (`INIT`, `ACTIVE`, `PAUSED`).
+	 *   - `at_frame`: the offsetlog keyframe the cursor is at-or-just-past — its
+	 *     current checkpoint. `rewound_to` when seeked, else the newest frame id when
+	 *     live (the cursor reads forward from its last checkpoint), null only when
+	 *     there are no frames yet. Used for BOTH live status and time-travel position.
+	 *   - `on_frame`: the cursor is exactly on `at_frame`'s committed position vs
+	 *     advanced past it. Seeked: `! stepped_since_seek`. Live: cursor == checkpoint
+	 *     (a quiet consumer sits ON its last checkpoint; an actively-reading one is
+	 *     past it). Reported so the panel's position survives a remount.
 	 *
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}}
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}, polling: string, at_frame: int|null, on_frame: bool}
 	 */
 	public function dump_metadata(): array {
+		$frames    = $this->offsetlog?->get_segments() ?? [];
+		$newest_id = empty( $frames ) ? null : \end( $frames )['id'];
+		$at_frame  = $this->rewound_to ?? $newest_id;
+		$on_frame  = null === $this->rewound_to
+			? ( $this->cursor_seg === $this->checkpoint_seg && $this->cursor_off === $this->checkpoint_off )
+			: ! $this->stepped_since_seek;
 		return [
-			'frames' => $this->offsetlog?->get_segments() ?? [],
-			'cursor' => [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ],
-			'polling' => $this->set_state['POLLING'] ?? 'INIT',
+			'frames'   => $frames,
+			'cursor'   => [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ],
+			'polling'  => Core::as_string( $this->set_state['POLLING'] ?? 'INIT' ),
+			'at_frame' => $at_frame,
+			'on_frame' => $on_frame,
 		];
 	}
 
@@ -830,7 +854,8 @@ class Consumer_Node extends Timer_Node {
 		$this->next_offset( [ 'seg' => $entry['seg'], 'off' => $entry['off'] ] );
 		// Record the rewind point: PLAY truncates the offsetlog after it before
 		// re-arming, so the re-written forward timeline stays monotonic.
-		$this->rewound_to = $segment_id;
+		$this->rewound_to         = $segment_id;
+		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
 		return 'ok';
 	}
 
@@ -888,8 +913,9 @@ class Consumer_Node extends Timer_Node {
 		if ( null === $this->saved_line_mode ) {
 			$this->saved_line_mode = $this->line_mode;
 		}
-		$this->line_mode = true;
-		$before          = $this->counter;
+		$this->line_mode          = true;
+		$this->stepped_since_seek = true; // Cursor advances off the seeked frame.
+		$before                   = $this->counter;
 		// poll_init's first tick only loads the buffer (emits nothing in line
 		// mode), so always tick at least once, then keep going until one message
 		// lands or a poll leaves us genuinely at EOF with nothing buffered.
@@ -912,6 +938,7 @@ class Consumer_Node extends Timer_Node {
 			$this->offsetlog?->truncate_after( $this->rewound_to );
 			$this->rewound_to = null;
 		}
+		$this->stepped_since_seek = false; // Going live: no longer off a seeked frame.
 		if ( null !== $this->saved_line_mode ) {
 			$this->line_mode      = $this->saved_line_mode;
 			$this->saved_line_mode = null;

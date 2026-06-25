@@ -3,21 +3,26 @@
  * Reads `frames` ([{id,size}], oldest→newest by id) straight from the inspected
  * node's dump_metadata; no fetch, no request.
  *
- * Position is a CLIENT-SIDE model with three pieces of state:
- *   - `paused`           — PAUSE gates the whole transport. While !paused the only
- *                          live button is ⏸ Pause; the consumer is following the
- *                          head and you can only stop it. The metadata `paused`
- *                          signal is the source of truth; an `optimistic` override
- *                          (null = defer to the signal) gives the click instant
- *                          feedback until the next signal reconciles it.
- *   - `parkedFrameId`    — id | null. null ⇒ live / following the head (the cursor
- *                          sits past the newest keyframe). A concrete id ⇒ the user
- *                          parked here via rewind/fast-forward. A parked id that
- *                          ages out of the retained window clamps back to null.
- *   - `steppedSincePark` — true once STEP has advanced the cursor PAST the parked
- *                          keyframe; the cursor is now between keyframes, so the
- *                          next rewind SNAPS BACK to the keyframe rather than the
- *                          one before it.
+ * Position is a CLIENT-SIDE model, but each piece is SEEDED from and RECONCILED to
+ * a consumer-reported signal (dump_metadata) so the panel reflects the real
+ * consumer and survives a remount — transport clicks drive it optimistically for
+ * instant feedback, and the next poll's signal reconciles. Three pieces of state:
+ *   - `paused`   — PAUSE gates the whole transport. While !paused the only live
+ *                  button is ⏸ Pause; the consumer is following the head and you can
+ *                  only stop it. The metadata `paused` signal is the source of truth;
+ *                  an `optimistic` override (null = defer to the signal) gives the
+ *                  click instant feedback until the next signal reconciles it.
+ *   - `atFrame`  — id | null. The keyframe the cursor is at-or-just-past — its
+ *                  current checkpoint. While live it tracks the newest frame (the
+ *                  cursor reads forward from its last checkpoint); seeked, it's the
+ *                  keyframe scrubbed to. null only when there are no frames yet.
+ *                  Seeded from / reconciled to `atFrameSignal`. An atFrame that ages
+ *                  out of the retained window clamps to the newest frame.
+ *   - `onFrame`  — the cursor sits EXACTLY on atFrame's committed position vs has
+ *                  advanced past it. !onFrame ⇒ between keyframes, so the next rewind
+ *                  SNAPS onto atFrame rather than the one before it. Seeded from /
+ *                  reconciled to `onFrameSignal`. A quiet live consumer is onFrame
+ *                  (reads "on frame N"); an actively-reading one is off it.
  *
  * Selection is NEVER derived from the live source `cursor` — a frame id is its
  * OFFSETLOG segment id (monotonic, climbs forever), an independent number space
@@ -53,7 +58,7 @@ function Cursor( { cursor } ) {
 	);
 }
 
-function Ruler( { frames, selectedFrameId, stepped } ) {
+function Ruler( { frames, selectedFrameId, offFrame } ) {
 	if ( ! frames.length ) {
 		return (
 			<div className="topology-tt__empty">
@@ -69,7 +74,7 @@ function Ruler( { frames, selectedFrameId, stepped } ) {
 				const cls = [
 					'topology-tt__marker',
 					isCurrent && 'topology-tt__marker--current',
-					isCurrent && stepped && 'topology-tt__marker--stepped',
+					isCurrent && offFrame && 'topology-tt__marker--stepped',
 				]
 					.filter( Boolean )
 					.join( ' ' );
@@ -103,42 +108,32 @@ function TransportButton( { label, glyph, disabled, onClick } ) {
 	);
 }
 
-// Where the cursor sits, in words. `selectedFrameId`/`nextId` are the parked
-// keyframe and the one after it; nextId is null when parked on (or past) the
-// newest.
-function positionLabel( { live, stepped, selectedFrameId, newestId, nextId } ) {
-	if ( live ) {
-		return stepped
-			? sprintf(
-					// translators: %d is an offsetlog frame id.
-					__( 'stepped past frame %d', 'newspack-nodes' ),
-					newestId
-			  )
-			: sprintf(
-					// translators: %d is an offsetlog frame id.
-					__( 'live — after frame %d', 'newspack-nodes' ),
-					newestId
-			  );
-	}
-	if ( ! stepped ) {
+// Where the cursor sits, in words. `selectedFrameId` is atFrame (the keyframe the
+// cursor is at-or-just-past); `nextId` is the one after it (null when atFrame is the
+// newest). onFrame ⇒ sitting on it; off-frame ⇒ between atFrame and nextId (paused)
+// or reading ahead of it (live).
+function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
+	if ( onFrame ) {
 		return sprintf(
 			// translators: %d is an offsetlog frame id.
 			__( 'on frame %d', 'newspack-nodes' ),
 			selectedFrameId
 		);
 	}
-	if ( null === nextId ) {
+	// Off the frame: paused gives the scrub a "between X and Y" reading; live reads
+	// "after X" (the cursor is reading ahead of its last checkpoint).
+	if ( paused && null !== nextId ) {
 		return sprintf(
-			// translators: %d is an offsetlog frame id.
-			__( 'after frame %d', 'newspack-nodes' ),
-			selectedFrameId
+			// translators: %1$d and %2$d are adjacent offsetlog frame ids.
+			__( 'between frame %1$d and %2$d', 'newspack-nodes' ),
+			selectedFrameId,
+			nextId
 		);
 	}
 	return sprintf(
-		// translators: %1$d and %2$d are adjacent offsetlog frame ids.
-		__( 'between frame %1$d and %2$d', 'newspack-nodes' ),
-		selectedFrameId,
-		nextId
+		// translators: %d is an offsetlog frame id.
+		__( 'after frame %d', 'newspack-nodes' ),
+		selectedFrameId
 	);
 }
 
@@ -146,6 +141,8 @@ export default function TimeTravelPanel( {
 	frames = [],
 	cursor = null,
 	paused: pausedSignal = false,
+	atFrameSignal = null,
+	onFrameSignal = false,
 	onTransport,
 } ) {
 	// Optimistic override: null defers to the metadata signal; a concrete bool
@@ -154,38 +151,43 @@ export default function TimeTravelPanel( {
 	const [ optimistic, setOptimistic ] = useState( null );
 	useEffect( () => setOptimistic( null ), [ pausedSignal ] );
 	const paused = null !== optimistic ? optimistic : !! pausedSignal;
-	const [ parkedFrameId, setParkedFrameId ] = useState( null );
-	const [ steppedSincePark, setSteppedSincePark ] = useState( false );
+	// Position is SEEDED from the consumer-reported signals (so a fresh mount
+	// reflects where the consumer actually sits, including a quiet live "on frame N"),
+	// then driven optimistically by transport clicks for instant feedback. Each signal
+	// change from the next poll RECONCILES the state back to the consumer's truth —
+	// mirroring the `paused` optimistic/reconcile pattern above.
+	const [ atFrame, setAtFrame ] = useState( atFrameSignal );
+	const [ onFrame, setOnFrame ] = useState( onFrameSignal );
+	useEffect( () => setAtFrame( atFrameSignal ), [ atFrameSignal ] );
+	useEffect( () => setOnFrame( onFrameSignal ), [ onFrameSignal ] );
 
 	const newestId = frames.length ? frames[ frames.length - 1 ].id : null;
-	// A parked id that has aged out of the retained window is treated as live.
-	const live =
-		null === parkedFrameId ||
-		! frames.some( ( f ) => f.id === parkedFrameId );
-	const selectedFrameId = live ? newestId : parkedFrameId;
+	// An atFrame that has aged out of the retained window clamps to the newest frame.
+	const selectedFrameId = frames.some( ( f ) => f.id === atFrame )
+		? atFrame
+		: newestId;
 
 	const currentIdx = frames.findIndex( ( f ) => f.id === selectedFrameId );
 	const nextId =
 		currentIdx >= 0 && currentIdx < frames.length - 1
 			? frames[ currentIdx + 1 ].id
 			: null;
+	const onOldest = currentIdx <= 0;
+	const onNewest = null === nextId;
 
 	// Enable/disable: PAUSE gates everything. While !paused only Pause is live.
 	const canPause = ! paused;
 	const canPlay = paused;
 	const canStep = paused;
-	// Rewind: disabled when live-paused on an empty ruler, or when sitting on the
-	// oldest keyframe with nothing stepped past it (no earlier keyframe to land on).
-	const onOldest = ! live && currentIdx <= 0;
-	const canRewind =
-		paused && frames.length > 0 && ! ( onOldest && ! steppedSincePark );
-	// Fast-forward only walks the retained keyframes ahead of the parked one —
-	// never live (nothing ahead of the head) and never on the newest.
-	const canForward = paused && ! live && null !== nextId;
+	// Rewind: needs an earlier landing point. On-frame on the oldest keyframe has
+	// none; off-frame can always snap back onto atFrame.
+	const canRewind = paused && frames.length > 0 && ! ( onFrame && onOldest );
+	// Fast-forward walks the retained keyframes ahead of atFrame — never on the newest.
+	const canForward = paused && ! onNewest;
 
 	const seekTo = ( id ) => {
-		setParkedFrameId( id );
-		setSteppedSincePark( false );
+		setAtFrame( id );
+		setOnFrame( true );
 		if ( onTransport ) {
 			onTransport( 'SEEK_FRAME', String( id ) );
 		}
@@ -195,10 +197,8 @@ export default function TimeTravelPanel( {
 		if ( ! canRewind ) {
 			return;
 		}
-		if ( live ) {
-			seekTo( newestId ); // first rewind from live lands on the newest
-		} else if ( steppedSincePark ) {
-			seekTo( parkedFrameId ); // snap back to the current keyframe
+		if ( ! onFrame ) {
+			seekTo( selectedFrameId ); // snap onto the current keyframe
 		} else {
 			seekTo( frames[ currentIdx - 1 ].id ); // previous keyframe
 		}
@@ -215,7 +215,7 @@ export default function TimeTravelPanel( {
 		if ( ! canStep ) {
 			return;
 		}
-		setSteppedSincePark( true );
+		setOnFrame( false ); // optimistic: the cursor advances off the frame
 		if ( onTransport ) {
 			onTransport( 'STEP', '' );
 		}
@@ -225,7 +225,7 @@ export default function TimeTravelPanel( {
 		if ( ! canPause ) {
 			return;
 		}
-		setOptimistic( true ); // instant feedback; leave parkedFrameId untouched
+		setOptimistic( true ); // instant feedback; leave the position untouched
 		if ( onTransport ) {
 			onTransport( 'PAUSE', '' );
 		}
@@ -235,9 +235,7 @@ export default function TimeTravelPanel( {
 		if ( ! canPlay ) {
 			return;
 		}
-		setOptimistic( false );
-		setParkedFrameId( null ); // resume following the head
-		setSteppedSincePark( false );
+		setOptimistic( false ); // resume following the head; the next signal reconciles
 		if ( onTransport ) {
 			onTransport( 'PLAY', '' );
 		}
@@ -249,15 +247,14 @@ export default function TimeTravelPanel( {
 			<Ruler
 				frames={ frames }
 				selectedFrameId={ selectedFrameId }
-				stepped={ steppedSincePark }
+				offFrame={ ! onFrame }
 			/>
 			{ frames.length > 0 && (
 				<div className="topology-tt__position">
 					{ positionLabel( {
-						live,
-						stepped: steppedSincePark,
+						onFrame,
+						paused,
 						selectedFrameId,
-						newestId,
 						nextId,
 					} ) }
 				</div>

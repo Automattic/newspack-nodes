@@ -195,6 +195,20 @@ export function parseMetadata( payload ) {
 		if ( typeof meta.polling === 'string' ) {
 			node.polling = meta.polling;
 		}
+		// The Consumer's cursor POSITION relative to the offsetlog keyframes, used for
+		// BOTH live status and time-travel: `at_frame` is the keyframe the cursor is
+		// at-or-just-past (null = no frames yet) and `on_frame` whether it sits exactly
+		// on that frame's committed position. `null` is a meaningful present value, so
+		// test presence with `in`, not a truthiness/type check that would drop it.
+		// Threaded only when present so a non-consumer node carries no extra keys — the
+		// panel reads them to restore its position across a remount.
+		if ( 'at_frame' in meta ) {
+			node.at_frame =
+				typeof meta.at_frame === 'number' ? meta.at_frame : null;
+		}
+		if ( 'on_frame' in meta ) {
+			node.on_frame = !! meta.on_frame;
+		}
 		// An edge connects to the HEAD of the target path — `_router` peels the
 		// first `/`-segment and delivers there (`_sse/workers` → `_sse`).
 		const headOf = ( t ) => {
