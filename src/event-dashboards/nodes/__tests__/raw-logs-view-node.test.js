@@ -8,7 +8,7 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { RawLogsViewNode } from '../rawLogsView';
+import { RawLogsViewNode } from '../raw-logs-view-node';
 
 // setName registers in the per-process Core registry; clear it between tests
 // so re-creating the same-named node doesn't collide (matches node.test.js).

@@ -4,11 +4,11 @@
 // the dashboard hooks and the bundle entry, so registration runs before any
 // graph build.
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
-import { RawLogsViewNode } from './rawLogsView';
-import { TopicProbeViewNode } from './topicProbeView';
-import { TopologyManagerViewNode } from './topologyManagerView';
-import { WorkerStatusTransformNode } from './workerStatusTransform';
-import { WorkerStatusViewNode } from './workerStatusView';
+import { RawLogsViewNode } from './raw-logs-view-node';
+import { TopicProbeViewNode } from './topic-probe-view-node';
+import { TopologyManagerViewNode } from './topology-manager-view-node';
+import { WorkerStatusTransformNode } from './worker-status-transform-node';
+import { WorkerStatusViewNode } from './worker-status-view-node';
 
 CommandInterpreterNode.registerNodeClasses( {
 	RawLogsView: RawLogsViewNode,

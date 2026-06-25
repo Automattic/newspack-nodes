@@ -14,7 +14,7 @@ import {
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { PendingReplies } from '../../../shared/pendingReplies';
-import { TopologyManagerViewNode } from '../topologyManagerView';
+import { TopologyManagerViewNode } from '../topology-manager-view-node';
 
 beforeEach( () => Core.reset() );
 

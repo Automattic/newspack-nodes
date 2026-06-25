@@ -1,4 +1,4 @@
-import { TopicProbeViewNode } from '../topicProbeView';
+import { TopicProbeViewNode } from '../topic-probe-view-node';
 import {
 	newMessage,
 	TYPE,
