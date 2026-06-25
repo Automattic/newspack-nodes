@@ -221,6 +221,36 @@ describe( 'parseMetadata', () => {
 		expect( alpha.bytesWritten ).toBe( 9012 );
 	} );
 
+	it( "threads a consumer's frames + cursor (dump_metadata_extra) onto the node", () => {
+		const { nodes } = parseMetadata( {
+			'firehose-consumer': {
+				class: 'Consumer',
+				counter: 5,
+				target: '',
+				frames: [
+					{ id: 0, size: 120 },
+					{ id: 1, size: 40 },
+				],
+				cursor: { seg: 1, off: 12 },
+			},
+		} );
+		const c = nodes.find( ( n ) => n.id === 'firehose-consumer' );
+		expect( c.frames ).toEqual( [
+			{ id: 0, size: 120 },
+			{ id: 1, size: 40 },
+		] );
+		expect( c.cursor ).toEqual( { seg: 1, off: 12 } );
+	} );
+
+	it( 'omits frames + cursor entirely for a non-consumer node (no extra keys)', () => {
+		const { nodes } = parseMetadata( {
+			alpha: { class: 'Echo', counter: 1, target: 'beta' },
+		} );
+		const alpha = nodes[ 0 ];
+		expect( alpha ).not.toHaveProperty( 'frames' );
+		expect( alpha ).not.toHaveProperty( 'cursor' );
+	} );
+
 	it( 'defaults new counters to 0 when payload omits them', () => {
 		const { nodes } = parseMetadata( {
 			alpha: {

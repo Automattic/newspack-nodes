@@ -426,6 +426,66 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
+	/**
+	 * Truncate the log AFTER a segment: delete every segment with id > $segment_id,
+	 * then reset the write state so the log resumes coherently FROM $segment_id —
+	 * the next rotate lands at $segment_id + 1, monotonic, no gap, no survivor
+	 * overwritten. No-op when $segment_id is the newest, past the newest, or absent.
+	 *
+	 * Backs the Consumer time-travel PLAY truncate-on-resume: after a rewind seek,
+	 * PLAY drops the now-stale forward frames before re-arming so the re-written
+	 * timeline stays monotonic. The OFFSETLOG only — never the source log.
+	 *
+	 * SINGLE-WRITER ONLY: safe solely on a private single-writer log (the consumer's
+	 * offsetlog, lifted via void_warranty() — no lock). An allow_large_writes()-locked
+	 * partition is a multi-writer-guarded SOURCE; truncating it races a peer append, so
+	 * this throws (mirroring allow_large_writes()'s fail-loud contract) rather than
+	 * corrupt the log. The lock — not the lifted cap — distinguishes the two.
+	 *
+	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
+	 * @throws \RuntimeException when the partition holds an exclusivity write_lock.
+	 */
+	public function truncate_after( int $segment_id ): void {
+		if ( null !== $this->write_lock ) {
+			throw new \RuntimeException(
+				\esc_html(
+					"Partition::truncate_after() refused at {$this->write_lock_path()}: this partition "
+					. 'holds an exclusivity write_lock (allow_large_writes), so it is a multi-writer-guarded '
+					. 'source — truncation is single-writer only (the consumer offsetlog).'
+				)
+			);
+		}
+		$segments = $this->get_segments( true );
+		$sizes    = \array_column( $segments, 'size', 'id' );
+		if ( ! isset( $sizes[ $segment_id ] ) ) {
+			return; // Absent or past the newest — nothing to truncate.
+		}
+
+		$survivors = [];
+		foreach ( $segments as $s ) {
+			if ( $s['id'] <= $segment_id ) {
+				$survivors[] = $s;
+				continue;
+			}
+			// Partition's segment directory is base_dir-relative — not WP-managed.
+			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+			@\unlink( $this->get_segment_path( $s['id'] ) );
+			@\unlink( $this->get_index_path( $s['id'] ) );
+			// phpcs:enable
+		}
+
+		$this->close_handle();
+		$this->current_segment_id = $segment_id;
+		$this->current_size       = $sizes[ $segment_id ];
+		$this->current_log_path   = $this->get_segment_path( $segment_id );
+		$this->current_idx_path   = $this->get_index_path( $segment_id );
+
+		// $survivors is built by appending in id order, so it is already a 0-indexed
+		// list matching get_segments()'s shape — no array_values() re-key needed.
+		$this->segments_cache      = $survivors;
+		$this->segments_cache_time = \microtime( true );
+	}
+
 	/** Seam (Log overrides): mkdir-lock dir serializing multi-writer rotation. */
 	protected function rotate_lock_path(): string {
 		return "{$this->segment_dir()}/.rotate.lock.d";

@@ -1187,6 +1187,72 @@
 	}
 }
 
+// Read-only Time Travel panel (SLICE 2a): a keyframe ruler over a time axis,
+// the snapshot state blob, and the live cursor. Reuses the inspector tokens so
+// it themes with the hub; no new color literals.
+// One marker per keyframe, laid out left→right by frame index; the row
+// reserves height for the floating markers.
+.topology-tt__ruler {
+	position: relative;
+	height: 18px;
+	margin: 4px 0 6px;
+	border-bottom: 1px solid var(--paper-shadow);
+}
+
+.topology-tt__marker {
+	position: absolute;
+	top: 2px;
+	width: 7px;
+	height: 12px;
+	margin-left: -3px;
+	padding: 0;
+	background: var(--cyan);
+	border: 1px solid var(--ink-2);
+	border-radius: 0;
+	opacity: 0.8;
+}
+
+// The frame the cursor currently sits on.
+.topology-tt__marker--current {
+	background: var(--oxide);
+	opacity: 1;
+	box-shadow: 0 0 0 1px var(--ink-2);
+}
+
+.topology-tt__empty {
+	font: 400 10px var(--font-mono);
+	color: var(--ink-4);
+	font-style: italic;
+	padding: 4px 0;
+}
+
+// Transport bar: rewind / pause / step / play / fast-forward.
+.topology-tt__transport {
+	display: flex;
+	gap: 4px;
+	margin-top: 4px;
+}
+
+.topology-tt__transport-btn {
+	flex: 1;
+	font: 400 11px var(--font-mono);
+	color: var(--ink-2);
+	background: var(--paper-2);
+	border: 1px solid var(--paper-shadow);
+	padding: 3px 0;
+	cursor: pointer;
+
+	&:hover:not( :disabled ) {
+		background: var(--paper-3);
+		color: var(--ink-1, var(--ink-2));
+	}
+
+	&:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+}
+
 .topology-insp__actions {
 	display: grid;
 	grid-template-columns: 1fr 1fr;

@@ -178,6 +178,17 @@ export function parseMetadata( payload ) {
 			// tail/tap button off Array.isArray( target ) — subclass-proof.
 			target: meta.target ?? '',
 		} );
+		const node = nodes[ nodes.length - 1 ];
+		// A Consumer's read surface (dump_metadata_extra): the offsetlog keyframe
+		// frames + the live cursor. Threaded through only when present so a
+		// non-consumer node carries no extra keys — that's the Inspector's
+		// consumer signal (node.frames + node.cursor), no class-name list.
+		if ( Array.isArray( meta.frames ) ) {
+			node.frames = meta.frames;
+		}
+		if ( meta.cursor && typeof meta.cursor === 'object' ) {
+			node.cursor = meta.cursor;
+		}
 		// An edge connects to the HEAD of the target path — `_router` peels the
 		// first `/`-segment and delivers there (`_sse/workers` → `_sse`).
 		const headOf = ( t ) => {

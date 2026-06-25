@@ -2422,6 +2422,141 @@ class PartitionTest extends TestCase {
 		$this->assertNotNull( $cache, 'rotate-every-write offsetlog must keep its cache warm' );
 		$this->assertSame( $p->get_segments( true ), $cache, 'offsetlog cache must match the alive segments' );
 	}
+
+	// ============================================================================
+	// truncate_after(): the Consumer time-travel PLAY truncate-on-resume primitive.
+	// Deletes every segment id > segment_id and resets the write state so the log
+	// continues coherently FROM segment_id (next checkpoint rotates to id+1).
+	// ============================================================================
+
+	/**
+	 * Build a keyframe-style Partition (segment_size=1, num_segments large) so each
+	 * fill rotates to a fresh segment — exactly the offsetlog's one-record-per-segment
+	 * layout. Returns the Partition with $count segments (ids 0..$count-1).
+	 */
+	private function make_keyframe_partition( int $count ): Partition_Node {
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 1 100 0" );
+		for ( $i = 0; $i < $count; ++$i ) {
+			$this->produce_into( $p, "f-{$i}" );
+		}
+		$this->assertCount( $count, $p->get_segments( true ), 'precondition: one segment per keyframe' );
+		return $p;
+	}
+
+	public function test_truncate_after_deletes_segments_past_the_id(): void {
+		$p = $this->make_keyframe_partition( 6 ); // ids 0..5.
+
+		$p->truncate_after( 2 );
+
+		$ids = \array_column( $p->get_segments( true ), 'id' );
+		$this->assertSame( [ 0, 1, 2 ], $ids, 'segments with id > 2 are deleted; <= 2 survive' );
+		for ( $i = 3; $i <= 5; ++$i ) {
+			$this->assertFileDoesNotExist( "{$this->tmp}/p0/{$i}.log", "segment {$i}.log must be unlinked" );
+		}
+		$this->assertFileExists( "{$this->tmp}/p0/2.log", 'the rewind-point segment survives' );
+	}
+
+	public function test_truncate_after_resets_write_state_to_the_rewind_point(): void {
+		$p = $this->make_keyframe_partition( 5 ); // ids 0..4.
+
+		$p->truncate_after( 1 );
+
+		$this->assertSame( 1, $this->read_private( $p, 'current_segment_id' ), 'current_segment_id resets to the rewind point' );
+		$on_disk = (int) \filesize( "{$this->tmp}/p0/1.log" );
+		$this->assertSame( $on_disk, $this->read_private( $p, 'current_size' ), 'current_size resets to the rewind segment on-disk size' );
+		$this->assertSame( -1, $this->read_private( $p, 'fh_segment_id' ), 'cached file handle is closed (fh_segment_id reset)' );
+		$this->assertNull( $this->read_private( $p, 'fh' ), 'cached file handle is nulled' );
+	}
+
+	public function test_truncate_after_segments_cache_matches_disk(): void {
+		$p = $this->make_keyframe_partition( 5 );
+		$p->get_segments(); // warm the cache.
+
+		$p->truncate_after( 2 );
+
+		$cache = $this->read_segments_cache( $p );
+		$this->assertNotNull( $cache, 'cache stays warm after truncation' );
+		$this->assertSame( $p->get_segments( true ), $cache, 'segments_cache equals the on-disk survivor list' );
+		$this->assertSame( [ 0, 1, 2 ], \array_column( $cache, 'id' ), 'cache holds only survivors' );
+	}
+
+	public function test_truncate_after_next_write_rotates_to_id_plus_one_monotonic(): void {
+		// The whole point: after truncating to the rewind point, the forward timeline
+		// stays monotonic — the next checkpoint appends a fresh segment_id+1 with no
+		// gap and without overwriting a survivor.
+		$p = $this->make_keyframe_partition( 6 ); // ids 0..5.
+
+		$p->truncate_after( 2 );
+		$this->produce_into( $p, 'resumed' ); // segment_size=1 forces a rotation.
+
+		$ids = \array_column( $p->get_segments( true ), 'id' );
+		$this->assertSame( [ 0, 1, 2, 3 ], $ids, 'next write rotates to rewind-point+1 (no gap, no survivor overwrite)' );
+		$this->assertSame( [ 'resumed' ], $this->read_partition_values( $p, 3 ), 'the resumed record lands in the fresh segment 3' );
+		$this->assertSame( [ 'f-2' ], $this->read_partition_values( $p, 2 ), 'survivor segment 2 is untouched' );
+	}
+
+	public function test_truncate_after_is_a_noop_at_or_past_newest(): void {
+		$p     = $this->make_keyframe_partition( 4 ); // ids 0..3.
+		$before = $p->get_segments( true );
+
+		$p->truncate_after( 3 ); // newest id.
+		$this->assertSame( $before, $p->get_segments( true ), 'truncate at the newest id is a no-op' );
+
+		$p->truncate_after( 99 ); // past newest.
+		$this->assertSame( $before, $p->get_segments( true ), 'truncate past the newest id is a no-op' );
+	}
+
+	public function test_truncate_after_is_a_noop_when_id_not_present(): void {
+		// A keyframe partition whose ids are 0..3; truncating to an absent id between
+		// the existing ones can't happen here (contiguous), so use a hole: delete one
+		// file by hand, then truncate to its (now-absent) id — no-op, nothing changes.
+		$p = $this->make_keyframe_partition( 4 ); // ids 0..3.
+		\unlink( "{$this->tmp}/p0/1.log" );
+		$before = $p->get_segments( true ); // ids 0,2,3.
+		$this->assertSame( [ 0, 2, 3 ], \array_column( $before, 'id' ) );
+
+		$p->truncate_after( 1 ); // 1 is absent.
+
+		$this->assertSame( $before, $p->get_segments( true ), 'truncate to an absent id is a no-op' );
+	}
+
+	public function test_truncate_after_throws_on_a_write_lock_held_partition(): void {
+		// truncate_after is safe ONLY on a private single-writer log (the consumer's
+		// offsetlog). An allow_large_writes()-locked partition is, by definition, a
+		// multi-writer-guarded source: truncating it races a peer append. Mirror
+		// allow_large_writes()'s fail-loud contract — refuse rather than corrupt.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 1 100 0" );
+		$p->name( 'src' );
+		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		for ( $i = 0; $i < 4; ++$i ) {
+			$this->produce_into( $p, "f-{$i}" );
+		}
+		$p->allow_large_writes(); // acquires the exclusivity write_lock.
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'single-writer' );
+		$p->truncate_after( 1 );
+	}
+
+	public function test_truncate_after_works_on_a_void_warranty_offsetlog(): void {
+		// The snapshot-offsetlog config: void_warranty() lifts the cap WITHOUT a
+		// lock (write_lock stays null), asserting single-writer. That IS the legit
+		// caller, so truncate_after must go through — the guard keys on the lock,
+		// not on the lifted cap.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 1 100 0" );
+		$p->void_warranty();
+		for ( $i = 0; $i < 5; ++$i ) {
+			$this->produce_into( $p, "f-{$i}" );
+		}
+		$this->assertCount( 5, $p->get_segments( true ), 'precondition: 5 keyframes' );
+
+		$p->truncate_after( 2 );
+
+		$this->assertSame( [ 0, 1, 2 ], \array_column( $p->get_segments( true ), 'id' ), 'void_warranty offsetlog truncates normally' );
+	}
 }
 
 /**

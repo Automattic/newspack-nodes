@@ -5,7 +5,16 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
+import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
+
+// A Consumer (or its Tail subclass) is the node whose dump_metadata carries a
+// `frames` array AND a `cursor` (its dump_metadata_extra() read surface) — the
+// data the inspector already holds, no request verb and no class-name list.
+// Reserved/plumbing nodes without frames+cursor don't qualify.
+function isConsumerNode( node ) {
+	return Array.isArray( node?.frames ) && !! node?.cursor;
+}
 
 // The Inspector hides config-edit affordances (Routing/Constructor/Verbs/
 // rename/Delete/class-catalog verb buttons) for the worker-auto-mounted
@@ -1260,6 +1269,8 @@ export default function Inspector( {
 	// The tail/tap button keys off the catalog is_tee flag, so any Tee subclass
 	// gets it regardless of the runtime target shape.
 	const isTee = isTeeNode( node, catalog );
+	// A consumer carries its read surface (frames + cursor) in dump_metadata.
+	const isConsumer = isConsumerNode( node );
 	// Absent streamStatus = no SSE stream to report (the debug overlay reads
 	// the page's OWN Core synchronously, so the graph is literally always live).
 	const live = ! streamStatus || streamStatus === 'open';
@@ -1436,6 +1447,29 @@ export default function Inspector( {
 					}
 				/>
 			</Section>
+
+			{ isConsumer && (
+				<Section title={ __( 'Time Travel', 'newspack-nodes' ) }>
+					<TimeTravelPanel
+						frames={ node.frames }
+						cursor={ node.cursor }
+						onTransport={ ( verb, positional = '' ) =>
+							onAction &&
+							onAction( 'invoke', node.id, {
+								verb,
+								kind: 'command',
+								positional,
+								// SEEK_FRAME's schema arg is `segment_id`; bare
+								// transport verbs (PAUSE/PLAY/STEP) take none.
+								byName:
+									'SEEK_FRAME' === verb
+										? { segment_id: positional }
+										: {},
+							} )
+						}
+					/>
+				</Section>
+			) }
 
 			<div className="topology-insp__actions">
 				<button
