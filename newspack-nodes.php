@@ -53,11 +53,13 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	$nodes_worker_cli = new \Newspack_Nodes\Worker_CLI_Command();
 	$nodes_ingest_cli = new \Newspack_Nodes\Ingest_CLI_Command();
 	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\CLI_Command' );
-	\WP_CLI::add_command( 'nodes types',   [ $nodes_worker_cli, 'types' ]   );
-	\WP_CLI::add_command( 'nodes run',     [ $nodes_worker_cli, 'run' ]     );
-	\WP_CLI::add_command( 'nodes restart', [ $nodes_worker_cli, 'restart' ] );
-	\WP_CLI::add_command( 'nodes status',  [ $nodes_worker_cli, 'status' ]  );
-	\WP_CLI::add_command( 'nodes ingest',  [ $nodes_ingest_cli, 'ingest' ]  );
+	\WP_CLI::add_command( 'nodes types',      [ $nodes_worker_cli, 'types' ]      );
+	\WP_CLI::add_command( 'nodes run',        [ $nodes_worker_cli, 'run' ]        );
+	\WP_CLI::add_command( 'nodes restart',    [ $nodes_worker_cli, 'restart' ]    );
+	\WP_CLI::add_command( 'nodes status',     [ $nodes_worker_cli, 'status' ]     );
+	\WP_CLI::add_command( 'nodes activate',   [ $nodes_worker_cli, 'activate' ]   );
+	\WP_CLI::add_command( 'nodes deactivate', [ $nodes_worker_cli, 'deactivate' ] );
+	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
 }
 
 // The substrate runtime wiring (node-class namespaces, the `<config:…>` token
