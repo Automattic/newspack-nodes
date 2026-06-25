@@ -419,6 +419,26 @@ class Admin {
 	}
 
 	/**
+	 * Shared registry of admin page slugs (besides the hub) that mount the debug
+	 * overlay.
+	 *
+	 * The `newspack_nodes/devtools_overlay_pages` filter collects the slugs of
+	 * admin pages that embed `<DebugOverlay>`. Overlay-tab-providing bundles (e.g.
+	 * ELN's `current-request`) enqueue their tab on these pages so any plugin's
+	 * overlay gets the full tab set — not just the hub and the tab provider's own
+	 * pages.
+	 *
+	 * @api Consumed by sibling plugins (e.g. ELN's current-request overlay tab).
+	 * @return string[] Deduplicated overlay-page slugs (non-strings filtered out).
+	 */
+	public static function devtools_overlay_pages(): array {
+		return \array_values( \array_unique( \array_filter(
+			(array) \apply_filters( 'newspack_nodes/devtools_overlay_pages', [] ),
+			'\is_string'
+		) ) );
+	}
+
+	/**
 	 * Render the DevTools hub mount element — the top-level "Nodes" landing page
 	 * (Console + Topologies tabs load on it via the devtools_tab_bundles filter).
 	 */
