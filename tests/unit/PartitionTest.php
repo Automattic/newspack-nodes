@@ -2287,6 +2287,141 @@ class PartitionTest extends TestCase {
 			cooperative_stop: true
 		);
 	}
+
+	// ============================================================================
+	// Rotation maintains the segments cache (one scan per rotation).
+	// ============================================================================
+
+	/**
+	 * Reflection helper: read the protected segments_cache property.
+	 *
+	 * @return array<int,array{id:int,size:int}>|null
+	 */
+	private function read_segments_cache( Partition_Node $p ): ?array {
+		$ref  = new \ReflectionProperty( Partition_Node::class, 'segments_cache' );
+		$ref->setAccessible( true );
+		/** @var array<int,array{id:int,size:int}>|null $value */
+		$value = $ref->getValue( $p );
+		return $value;
+	}
+
+	public function test_spawn_rotation_keeps_cache_warm_and_correct(): void {
+		// Force enough writes to fill segment 0 past 32 bytes so the next fill
+		// spawns segment 1 (no room to adopt). The spawn branch of do_rotate must
+		// leave segments_cache non-null and equal to the on-disk truth.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 32 8 86400" );
+		$this->produce_into( $p, \str_repeat( 'a', 30 ) );
+		$this->produce_into( $p, \str_repeat( 'b', 30 ) );
+		$this->produce_into( $p, \str_repeat( 'c', 30 ) );
+
+		$cache = $this->read_segments_cache( $p );
+		$this->assertNotNull( $cache, 'spawn rotation must leave segments_cache warm, not null' );
+		$this->assertSame( $p->get_segments( true ), $cache, 'cache must equal the on-disk truth after a spawn rotation' );
+	}
+
+	public function test_adopt_rotation_keeps_cache_warm_and_correct(): void {
+		// A peer rotates to segment 1 (still empty/has room) underneath us, then
+		// our rotate_segment lands and the adopt branch of do_rotate picks it up.
+		// The line-351 force-scan already populated the cache with the truth
+		// including the adopted segment — it must NOT be nulled.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 64 8 86400" );
+		$this->produce_into( $p, 'seed' );
+
+		// Peer creates an empty segment 1 (room to adopt) directly on disk.
+		\touch( "{$this->tmp}/p0/1.log" );
+
+		$ref       = new \ReflectionMethod( Partition_Node::class, 'do_rotate' );
+		$ref->setAccessible( true );
+		$ref->invoke( $p );
+
+		$cur_seg = new \ReflectionProperty( Partition_Node::class, 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$this->assertSame( 1, $cur_seg->getValue( $p ), 'do_rotate must adopt the empty peer segment 1' );
+
+		$cache = $this->read_segments_cache( $p );
+		$this->assertNotNull( $cache, 'adopt rotation must leave segments_cache warm, not null' );
+		$this->assertSame( $p->get_segments( true ), $cache, 'cache must equal the on-disk truth after an adopt rotation' );
+	}
+
+	public function test_rotation_does_one_directory_scan_not_two(): void {
+		// do_rotate's spawn path used to force-scan twice: once for next_id and
+		// once again inside cleanup_segments. With the cache maintained, the
+		// post-create list is known, so cleanup must NOT force a second scan.
+		$p = new class() extends Partition_Node {
+			public int $forced_scans = 0;
+			public function get_segments( bool $force_refresh = false ): array {
+				if ( $force_refresh ) {
+					++$this->forced_scans;
+				}
+				return parent::get_segments( $force_refresh );
+			}
+		};
+		$p->arguments( "{$this->tmp}/p0 32 8 86400" );
+		$this->produce_into( $p, \str_repeat( 'a', 30 ) );
+
+		// Reset the counter, then trigger exactly one spawn rotation.
+		$p->forced_scans = 0;
+		$rotate = new \ReflectionMethod( Partition_Node::class, 'rotate_segment' );
+		$rotate->setAccessible( true );
+		$rotate->invoke( $p );
+
+		$this->assertSame( 1, $p->forced_scans, 'a single rotation must force exactly one directory scan' );
+	}
+
+	public function test_cleanup_prunes_and_leaves_cache_warm(): void {
+		// num_segments=2, max_lifespan=0 → cleanup deletes the oldest beyond 2.
+		// After pruning, segments_cache must be non-null and match the surviving
+		// on-disk segments (not nulled-after-prune).
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 256 2 0" );
+		for ( $i = 0; $i < 20; ++$i ) {
+			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
+		}
+
+		$p->cleanup_segments();
+
+		$cache = $this->read_segments_cache( $p );
+		$this->assertNotNull( $cache, 'cleanup must leave segments_cache warm, not null' );
+		$truth = $p->get_segments( true );
+		$this->assertSame( $truth, $cache, 'pruned cache must equal the surviving on-disk segments' );
+		$this->assertLessThanOrEqual( 2, \count( $cache ), 'cleanup must prune down to num_segments' );
+	}
+
+	public function test_cleanup_falls_back_to_scan_when_cache_null(): void {
+		// Standalone callers (tests) invoke cleanup_segments() with a cold cache.
+		// It must fall back to a force-scan and still prune correctly.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 256 2 0" );
+		for ( $i = 0; $i < 20; ++$i ) {
+			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
+		}
+
+		// Cold-start the cache so cleanup has nothing maintained to read.
+		$cache_prop = new \ReflectionProperty( Partition_Node::class, 'segments_cache' );
+		$cache_prop->setAccessible( true );
+		$cache_prop->setValue( $p, null );
+
+		$p->cleanup_segments();
+
+		$this->assertLessThanOrEqual( 2, \count( $p->get_segments( true ) ), 'cleanup must prune even from a cold cache' );
+	}
+
+	public function test_offsetlog_segment_size_one_keeps_cache_warm(): void {
+		// The offsetlog runs segment_size=1, so every checkpoint rotates. After
+		// N writes the cache must stay non-null and match the alive segments —
+		// the regression the user observed (segments_cache: null forever).
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}/p0 1 4 0" );
+		for ( $i = 0; $i < 8; ++$i ) {
+			$this->produce_into( $p, "chk-{$i}" );
+		}
+
+		$cache = $this->read_segments_cache( $p );
+		$this->assertNotNull( $cache, 'rotate-every-write offsetlog must keep its cache warm' );
+		$this->assertSame( $p->get_segments( true ), $cache, 'offsetlog cache must match the alive segments' );
+	}
 }
 
 /**
