@@ -806,14 +806,28 @@ describe( 'Inspector (view mode)', () => {
 				onAction={ onAction }
 			/>
 		);
+		// PAUSE gates the transport; it wires through with no positional.
 		fireEvent.click( getByLabelText( /pause/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
 			'firehose-consumer',
 			{ verb: 'PAUSE', kind: 'command', positional: '', byName: {} }
 		);
-		// Selection defaults to the NEWEST frame (5344) — not cursor.seg. Rewind
-		// seeks the previous frame id (5343), then fast-forward the next (5344).
+		// First rewind from live lands on the NEWEST keyframe (5344) — not
+		// cursor.seg, and not the one before. SEEK_FRAME maps its positional to
+		// the `segment_id` byName arg.
+		fireEvent.click( getByLabelText( /rewind/i ) );
+		expect( onAction ).toHaveBeenLastCalledWith(
+			'invoke',
+			'firehose-consumer',
+			{
+				verb: 'SEEK_FRAME',
+				kind: 'command',
+				positional: '5344',
+				byName: { segment_id: '5344' },
+			}
+		);
+		// Rewind again steps to the previous keyframe (5343)…
 		fireEvent.click( getByLabelText( /rewind/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
@@ -825,6 +839,7 @@ describe( 'Inspector (view mode)', () => {
 				byName: { segment_id: '5343' },
 			}
 		);
+		// …and fast-forward walks back to the next keyframe (5344).
 		fireEvent.click( getByLabelText( /fast.?forward/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
