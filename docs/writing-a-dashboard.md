@@ -127,6 +127,17 @@ Three new ideas, all using nodes the substrate ships:
 - **`scorer → scored:partition` writes the durable log;** `scored:consumer → digest` tails it straight back into the digest. The Consumer reads each scored record and `fill()`s it into the digest, exactly as a `connect_node` would.
 - **`cmd scored:consumer:config set_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog. On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](docs/architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
 
+**The durable-snapshot recipe — lift these four lines.** This is the reusable pattern for *any* "make a worker's in-memory state readable from a web request" need; rename `scored` → your log name and `digest` → your state node:
+
+```
+make_node Partition  <log>:partition <config:logs_dir>/<log>.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+cmd <log>:partition:config void_warranty
+make_node Consumer   <log>:consumer  <config:logs_dir>/<log>.p<partition> <config:offsets_dir>/<log>.p<partition>
+cmd <log>:consumer:config set_snapshot_node <state-node>
+```
+
+Then `connect_node <producer> <log>:partition` and `connect_node <log>:consumer <state-node>`. The four lines stay explicit on purpose: they're real nodes, so the topology console renders the durability and you can inspect the log and the read cursor live — a one-line macro would hide the `Partition`/`Consumer` and make the whole mechanism invisible on the canvas.
+
 The digest node implements the snapshot contract — two small methods:
 
 ```php
@@ -604,9 +615,10 @@ The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactl
 ## 8. Run it — drive the pipeline, watch the dashboard
 
 ```bash
-# Build the bundle, then deploy/activate the plugin on a site with the substrate.
+# Build the bundle, then deploy + activate the plugin on a site with the substrate.
 npm run build
-wp nodes ls                       #   example-ai-newsletter.p0   [live]
+wp nodes activate example-ai-newsletter   # add to the active set + spawn the fleet now
+wp nodes ls                               #   example-ai-newsletter.p0   [live]
 ```
 
 The worker is live but its snapshot is empty until the pipeline runs. Drive it from the worker's REPL — the sources emit on a `TICK` runtime request (`request_node`, not an admin command):
