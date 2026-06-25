@@ -1551,8 +1551,9 @@ export default function Inspector( {
 						const schema = catalog.find(
 							( c ) => c.shell_name === type
 						);
-						const commands =
-							schema && schema.commands ? schema.commands : [];
+						const commands = (
+							schema && schema.commands ? schema.commands : []
+						).filter( ( spec ) => ! spec.hidden );
 						const requests =
 							schema && schema.requests ? schema.requests : [];
 						// node_name verb args pick from the live graph

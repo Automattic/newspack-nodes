@@ -1008,6 +1008,9 @@ class Consumer_Node extends Timer_Node {
 				[
 					'name'        => 'SEEK_FRAME',
 					'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment_id> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
+					// Driven by the Inspector's Time Travel transport bar; hide the
+					// redundant standalone verb button.
+					'hidden'      => true,
 					'args'        => [
 						[ 'name' => 'segment_id', 'type' => 'int', 'required' => true ],
 					],
@@ -1020,6 +1023,7 @@ class Consumer_Node extends Timer_Node {
 				[
 					'name'        => 'PAUSE',
 					'description' => 'Time-travel: stop the poll timer; the consumer holds its cursor until STEP / PLAY.',
+					'hidden'      => true,
 					'args'        => [],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
 						/** @var self $patron */
@@ -1031,6 +1035,7 @@ class Consumer_Node extends Timer_Node {
 				[
 					'name'        => 'PLAY',
 					'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
+					'hidden'      => true,
 					'args'        => [],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
 						/** @var self $patron */
@@ -1045,6 +1050,7 @@ class Consumer_Node extends Timer_Node {
 					// handle_request() (the TM_REQUEST path) bypasses interpret()'s auth gate.
 					'name'        => 'STEP',
 					'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
+					'hidden'      => true,
 					'args'        => [],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
 						/** @var self $patron */

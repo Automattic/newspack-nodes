@@ -186,6 +186,40 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
+	public function test_list_carries_the_hidden_flag_on_a_hidden_verb(): void {
+		// A `hidden: true` verb (Consumer's time-travel PAUSE, driven by the
+		// Inspector's transport bar) must carry that flag through the catalog strip
+		// so the inspector can omit its generic verb button. A non-hidden verb
+		// (set_snapshot_node) must NOT carry it (default-omit keeps payloads lean).
+		$result  = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$consumer = null;
+		foreach ( $result['classes'] as $entry ) {
+			if ( 'Consumer' === $entry['shell_name'] ) {
+				$consumer = $entry;
+				break;
+			}
+		}
+		$this->assertNotNull( $consumer, 'Consumer absent from catalog — class discovery broken (run composer dump-autoload -o)' );
+
+		$by_name = [];
+		foreach ( $consumer['commands'] as $verb ) {
+			$by_name[ $verb['name'] ] = $verb;
+		}
+
+		$this->assertArrayHasKey( 'PAUSE', $by_name, 'PAUSE verb must be in the catalog' );
+		$this->assertTrue(
+			$by_name['PAUSE']['hidden'] ?? false,
+			'PAUSE must carry hidden:true through the catalog strip'
+		);
+
+		$this->assertArrayHasKey( 'set_snapshot_node', $by_name, 'set_snapshot_node verb must be in the catalog' );
+		$this->assertArrayNotHasKey(
+			'hidden',
+			$by_name['set_snapshot_node'],
+			'a non-hidden verb must not carry the hidden key (default-omit keeps the payload lean)'
+		);
+	}
+
 	public function test_list_tolerates_a_malformed_verb_entry(): void {
 		// A registered class whose node_schema's verbs[] mixes a non-array entry
 		// (a bare string) with a well-formed verb must NOT fatal the whole `list`

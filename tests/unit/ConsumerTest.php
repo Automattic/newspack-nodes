@@ -2389,6 +2389,29 @@ class ConsumerTest extends TestCase {
 		$this->assertNotSame( $interpreter, Core::node( 'feed:source' )->sink() );
 		$this->assertNotSame( $interpreter, Core::node( 'feed:offsetlog' )->sink() );
 	}
+
+	/**
+	 * The time-travel transport verbs (SEEK_FRAME/PAUSE/PLAY/STEP) are driven by
+	 * the Inspector's Time Travel bar, so they carry hidden:true to keep them out
+	 * of the generic per-command verb-button list. Non-transport config verbs
+	 * (set_snapshot_node, set_line_mode) stay visible.
+	 */
+	public function test_node_schema_marks_time_travel_verbs_hidden(): void {
+		$commands = [];
+		foreach ( Consumer_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
+		}
+
+		foreach ( [ 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP' ] as $verb ) {
+			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
+			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic verb list" );
+		}
+
+		foreach ( [ 'set_snapshot_node', 'set_line_mode' ] as $verb ) {
+			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
+			$this->assertArrayNotHasKey( 'hidden', $commands[ $verb ], "{$verb} must stay visible" );
+		}
+	}
 }
 
 /** A node with the duck-typed save_state/restore_state the Consumer snapshots. */

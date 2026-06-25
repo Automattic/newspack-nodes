@@ -63,6 +63,12 @@ class Classes_CI_Node extends Service_CI_Node {
 			if ( ! empty( $command['multiple'] ) ) {
 				$stripped_command['multiple'] = true;
 			}
+			// Carry the hidden flag so the inspector can drop the standalone verb
+			// button (transport verbs are driven by their own UI). Added only when
+			// set so visible verbs keep their lean shape.
+			if ( ! empty( $command['hidden'] ) ) {
+				$stripped_command['hidden'] = true;
+			}
 			$stripped[] = $stripped_command;
 		}
 		return $stripped;
