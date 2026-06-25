@@ -270,7 +270,7 @@ class Node {
 		if ( $this->debug_state > 0 ) {
 			$router = Core::node( Node_Names::ROUTER );
 			if ( null !== $router ) {
-				$detail                        = Core::as_string( $payload );
+				$detail = Core::as_string( $payload );
 				$this->stderr( 'DEBUG: ' . $event . ( '' !== $detail ? ' ' . $detail : '' ) );
 			}
 		}
@@ -382,7 +382,7 @@ class Node {
 	 *
 	 * @return array<string, mixed>
 	 */
-	public function dump_metadata_extra(): array {
+	public function dump_metadata(): array {
 		return [];
 	}
 

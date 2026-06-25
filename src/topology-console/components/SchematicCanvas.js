@@ -855,6 +855,19 @@ export default function SchematicCanvas( {
 								cy={ 13 }
 								r={ 3.5 }
 							/>
+							{ /* A Consumer holding the cursor (dump_metadata polling
+							     === PAUSED): a ⏸ badge in the header so the pause is
+							     visible on the canvas without selecting the node. */ }
+							{ 'PAUSED' === n.polling && (
+								<text
+									className="topology-node__paused"
+									x={ NODE_W - 24 }
+									y={ 17 }
+									textAnchor="end"
+								>
+									⏸
+								</text>
+							) }
 							<text
 								className="topology-node__id"
 								x={ 11 }

@@ -1472,7 +1472,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_metadata_merges_a_nodes_extra_hook(): void {
-		// A node's dump_metadata_extra() contributes fields into its metadata row.
+		// A node's dump_metadata() contributes fields into its metadata row.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -1486,7 +1486,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [ 'seg' => 3, 'off' => 7 ], $decoded['extra']['cursor'] );
 	}
 
-	public function test_dump_metadata_extra_hook_cannot_clobber_fixed_keys(): void {
+	public function test_dump_metadata_hook_cannot_clobber_fixed_keys(): void {
 		// The hook is merged with +=, so a fixed key (e.g. `class`) the hook also
 		// declares is ignored — the interpreter-computed value wins.
 		$interpreter = new Command_Interpreter_Node();
@@ -2249,14 +2249,14 @@ class CommandInterpreterTest extends TestCase {
 
 /** Fixture: a node that contributes extra dump_metadata fields via the generic hook. */
 final class Extra_Metadata_Node extends Node {
-	public function dump_metadata_extra(): array {
+	public function dump_metadata(): array {
 		return [ 'frames' => [ 'a', 'b' ], 'cursor' => [ 'seg' => 3, 'off' => 7 ] ];
 	}
 }
 
 /** Fixture: a node whose hook tries (and fails, via +=) to clobber the fixed `class` key. */
 final class Clobbering_Metadata_Node extends Node {
-	public function dump_metadata_extra(): array {
+	public function dump_metadata(): array {
 		return [ 'class' => 'HIJACK', 'extra_only' => 99 ];
 	}
 }

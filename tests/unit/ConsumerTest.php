@@ -1971,7 +1971,7 @@ class ConsumerTest extends TestCase {
 		);
 
 		// Request verbs are READ-ONLY. GET_OFFSET / LIST_FRAMES / READ_STATE were
-		// folded into dump_metadata (its dump_metadata_extra hook), leaving just
+		// folded into dump_metadata (its dump_metadata hook), leaving just
 		// GET_LAG. STEP is NOT here — it mutates, so it's an auth-gated command.
 		$this->assertCount( 1, $schema['requests'] );
 		$verbs = \array_column( $schema['requests'], 'name' );

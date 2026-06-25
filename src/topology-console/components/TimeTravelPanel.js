@@ -6,7 +6,10 @@
  * Position is a CLIENT-SIDE model with three pieces of state:
  *   - `paused`           — PAUSE gates the whole transport. While !paused the only
  *                          live button is ⏸ Pause; the consumer is following the
- *                          head and you can only stop it.
+ *                          head and you can only stop it. The metadata `paused`
+ *                          signal is the source of truth; an `optimistic` override
+ *                          (null = defer to the signal) gives the click instant
+ *                          feedback until the next signal reconciles it.
  *   - `parkedFrameId`    — id | null. null ⇒ live / following the head (the cursor
  *                          sits past the newest keyframe). A concrete id ⇒ the user
  *                          parked here via rewind/fast-forward. A parked id that
@@ -29,7 +32,7 @@
  * fast-forward into the unknown).
  */
 
-import { useState } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 function Cursor( { cursor } ) {
@@ -142,9 +145,15 @@ function positionLabel( { live, stepped, selectedFrameId, newestId, nextId } ) {
 export default function TimeTravelPanel( {
 	frames = [],
 	cursor = null,
+	paused: pausedSignal = false,
 	onTransport,
 } ) {
-	const [ paused, setPaused ] = useState( false );
+	// Optimistic override: null defers to the metadata signal; a concrete bool
+	// gives a transport click instant feedback. Cleared whenever the signal
+	// changes, so the metadata reconciles the panel back to the source of truth.
+	const [ optimistic, setOptimistic ] = useState( null );
+	useEffect( () => setOptimistic( null ), [ pausedSignal ] );
+	const paused = null !== optimistic ? optimistic : !! pausedSignal;
 	const [ parkedFrameId, setParkedFrameId ] = useState( null );
 	const [ steppedSincePark, setSteppedSincePark ] = useState( false );
 
@@ -216,7 +225,7 @@ export default function TimeTravelPanel( {
 		if ( ! canPause ) {
 			return;
 		}
-		setPaused( true ); // leave parkedFrameId untouched: live-but-paused
+		setOptimistic( true ); // instant feedback; leave parkedFrameId untouched
 		if ( onTransport ) {
 			onTransport( 'PAUSE', '' );
 		}
@@ -226,7 +235,7 @@ export default function TimeTravelPanel( {
 		if ( ! canPlay ) {
 			return;
 		}
-		setPaused( false );
+		setOptimistic( false );
 		setParkedFrameId( null ); // resume following the head
 		setSteppedSincePark( false );
 		if ( onTransport ) {

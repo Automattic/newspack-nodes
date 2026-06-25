@@ -170,6 +170,7 @@ class Consumer_Node extends Timer_Node {
 		// restores the snapshot, once the whole topology graph exists.
 		$this->poll_cb = $this->poll_init( ... );
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
+		$this->set_state( 'POLLING', 'ACTIVE' );
 
 		return $args;
 	}
@@ -660,8 +661,8 @@ class Consumer_Node extends Timer_Node {
 	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
 	 */
 	public function probe_stats(): array {
-		$lag                            = $this->compute_lag();
-		$record                         = [];
+		$lag                                = $this->compute_lag();
+		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
 		$record[ Probe_Record::READER ]     = '' !== $this->offsetlog_base_dir ? \basename( $this->offsetlog_base_dir ) : '';
 		$record[ Probe_Record::CURSOR_SEG ] = $this->cursor_seg;
@@ -782,19 +783,21 @@ class Consumer_Node extends Timer_Node {
 	 *     segment = one keyframe (the debugger ruler identifies a frame by its
 	 *     segment id). Empty when the offsetlog is disabled (ephemeral consumers).
 	 *   - `cursor`: the live source read position `{seg,off}`.
+	 *   - `polling`: the current polling state (`INIT`, `ACTIVE`, `PAUSED`).
 	 *
 	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}}
 	 */
-	public function dump_metadata_extra(): array {
+	public function dump_metadata(): array {
 		return [
 			'frames' => $this->offsetlog?->get_segments() ?? [],
 			'cursor' => [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ],
+			'polling' => $this->set_state['POLLING'] ?? 'INIT',
 		];
 	}
 
 	// ============================================================================
 	// Time-travel transport (debugger UI): pause / step / play / seek a consumer.
-	// The read surface (frames + cursor) rides dump_metadata_extra(); STEP returns
+	// The read surface (frames + cursor) rides dump_metadata(); STEP returns
 	// the resulting cursor.
 	// ============================================================================
 
@@ -864,6 +867,7 @@ class Consumer_Node extends Timer_Node {
 	/** Hold the cursor and emit nothing until STEP / PLAY. */
 	public function pause(): void {
 		$this->stop_timer();
+		$this->set_state( 'POLLING', 'PAUSED' );
 	}
 
 	/**
@@ -880,6 +884,7 @@ class Consumer_Node extends Timer_Node {
 		// cursor past messages) and an abandoned session would stay in line_mode.
 		// PLAY re-arms. Idempotent — PAUSE-then-STEP makes this a no-op.
 		$this->stop_timer();
+		$this->set_state( 'POLLING', 'PAUSED' );
 		if ( null === $this->saved_line_mode ) {
 			$this->saved_line_mode = $this->line_mode;
 		}
@@ -912,6 +917,7 @@ class Consumer_Node extends Timer_Node {
 			$this->saved_line_mode = null;
 		}
 		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
+		$this->set_state( 'POLLING', 'ACTIVE' );
 	}
 
 	/**

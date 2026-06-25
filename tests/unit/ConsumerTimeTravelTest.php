@@ -16,7 +16,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * These back a debugger UI that pauses a consumer, seeks it to an offsetlog
  * checkpoint (restoring the co-committed snapshot), and single-steps it
  * message-by-message. The READ surface (frame list + cursor) moved off bespoke
- * verbs into Consumer_Node::dump_metadata_extra().
+ * verbs into Consumer_Node::dump_metadata().
  */
 #[CoversClass( Consumer_Node::class )]
 class ConsumerTimeTravelTest extends TestCase {
@@ -56,10 +56,10 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// dump_metadata_extra: the consolidated time-travel READ surface (frames + cursor)
+	// dump_metadata: the consolidated time-travel READ surface (frames + cursor)
 	// ============================================================================
 
-	public function test_dump_metadata_extra_returns_frames_and_cursor(): void {
+	public function test_dump_metadata_returns_frames_and_cursor(): void {
 		// One checkpoint = one offsetlog segment; the keyframe list is the segment
 		// list (id + size) and the cursor is the live source position.
 		Core::$now = 1000.0;
@@ -72,25 +72,25 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->checkpoint_at( $c, 0, 20 );
 		$this->checkpoint_at( $c, 1, 5 );
 
-		$extra = $c->dump_metadata_extra();
+		$extra = $c->dump_metadata();
 
 		$offsetlog = $this->read_private( $c, 'offsetlog' );
 		$this->assertSame( $offsetlog->get_segments(), $extra['frames'], 'frames are the offsetlog segment list (id+size)' );
 		$this->assertSame( [ 'seg' => 1, 'off' => 5 ], $extra['cursor'], 'cursor is the live source position' );
 	}
 
-	public function test_dump_metadata_extra_empty_frames_when_no_offsetlog(): void {
+	public function test_dump_metadata_empty_frames_when_no_offsetlog(): void {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 " );
 		$c->sink( new Capture_Sink_Node() );
 
-		$extra = $c->dump_metadata_extra();
+		$extra = $c->dump_metadata();
 		$this->assertSame( [], $extra['frames'], 'ephemeral consumer (no offsetlog) has no frames' );
 		$this->assertSame( [ 'seg' => 0, 'off' => 0 ], $extra['cursor'] );
 	}
 
-	public function test_dump_metadata_extra_reads_only_the_warm_cache(): void {
-		// Cheap: dump_metadata_extra must read the warm segments_cache, never
+	public function test_dump_metadata_reads_only_the_warm_cache(): void {
+		// Cheap: dump_metadata must read the warm segments_cache, never
 		// rescan the directory. Warm the cache, then add a segment file on disk by
 		// hand — the extra must still report the cached (stale) list, proving it
 		// did NOT scandir on the poll path.
@@ -110,7 +110,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$dir = "{$this->tmp}/offsets/r/p0";
 		\file_put_contents( "{$dir}/99.log", $this->offset_record( 9, 99, 999 ) );
 
-		$extra = $c->dump_metadata_extra();
+		$extra = $c->dump_metadata();
 		$this->assertSame( $warm, $extra['frames'], 'frames come from the warm cache — no scandir on the poll path' );
 	}
 
@@ -338,6 +338,24 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		$c->step();
 		$this->assertFalse( $this->timer_armed( $c ), 'STEP leaves the consumer paused' );
+	}
+
+	public function test_step_sets_the_polling_signal_to_paused(): void {
+		// STEP stops the timer (it IS paused), so its dump_metadata polling signal
+		// must read PAUSED — consistent with pause() — not stay stale at ACTIVE.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'a' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		// arguments() set the signal ACTIVE; STEP must flip it to PAUSED.
+		$this->assertSame( 'ACTIVE', $c->dump_metadata()['polling'], 'precondition: arguments() set ACTIVE' );
+
+		$c->step();
+		$this->assertSame( 'PAUSED', $c->dump_metadata()['polling'], 'STEP leaves the polling signal PAUSED' );
 	}
 
 	public function test_step_command_returns_cursor_and_eof_json(): void {
