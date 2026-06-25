@@ -122,8 +122,8 @@ final class PipelineTest extends TestCase {
 		$consumer->set_snapshot_node( 'digest' );
 		$consumer->checkpoint();
 
-		$model = Insights_CI_Demo_Node::read_insights_model( $offsets );
-		$this->assertSame( 1, $model['accumulated'] );
-		$this->assertSame( 'Roundup Block ships', $model['top'][0]['title'] );
+		$items = Insights_CI_Demo_Node::read_snapshot_items( $offsets );
+		$this->assertCount( 1, $items );
+		$this->assertSame( 'Roundup Block ships', $items[0]['title'] );
 	}
 }
