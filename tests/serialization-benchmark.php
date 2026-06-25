@@ -30,11 +30,11 @@ $delay    = 1;
 // header, but JSON's wrapper plus a real timestamp differ — so measure it rather
 // than guess. A '.' fills VALUE: one unescaped byte, unlike a NUL, which JSON
 // would balloon to a 6-char escape, turning the sweep into an escape-bloat test.
-$overhead = \strlen( Message::packed( base_message() ) );
 
 while ( $buf_size <= 1048576 ) {
-	$fill    = \max( 1, $buf_size - $overhead );
-	$message = base_message();
+	$message  = base_message();
+	$overhead = \strlen( Message::packed( $message ) );
+	$fill     = \max( 1, $buf_size - $overhead );
 
 	$message[ Message::VALUE ] = \str_repeat( '.', $fill );
 
@@ -43,7 +43,7 @@ while ( $buf_size <= 1048576 ) {
 	echo "\nsize: $size\n";
 	check_pack( $message, $size, $total, $delay );
 	check_unpack( $packed, $size, $total, $delay );
-	$buf_size *= 2;
+	$buf_size *= 4;
 }
 
 /** A TM_BYTESTREAM message with an empty VALUE. */
