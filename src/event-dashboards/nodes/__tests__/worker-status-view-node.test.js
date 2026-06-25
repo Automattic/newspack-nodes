@@ -28,7 +28,7 @@ import {
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { PendingReplies } from '../../../shared/pendingReplies';
-import { WorkerStatusViewNode } from '../workerStatusView';
+import { WorkerStatusViewNode } from '../worker-status-view-node';
 
 beforeEach( () => Core.reset() );
 

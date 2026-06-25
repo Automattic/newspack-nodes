@@ -30,7 +30,7 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { WorkerStatusTransformNode } from '../workerStatusTransform';
+import { WorkerStatusTransformNode } from '../worker-status-transform-node';
 
 beforeEach( () => Core.reset() );
 
