@@ -179,7 +179,7 @@ export function parseMetadata( payload ) {
 			target: meta.target ?? '',
 		} );
 		const node = nodes[ nodes.length - 1 ];
-		// A Consumer's read surface (dump_metadata_extra): the offsetlog keyframe
+		// A Consumer's read surface (dump_metadata): the offsetlog keyframe
 		// frames + the live cursor. Threaded through only when present so a
 		// non-consumer node carries no extra keys — that's the Inspector's
 		// consumer signal (node.frames + node.cursor), no class-name list.
@@ -188,6 +188,12 @@ export function parseMetadata( payload ) {
 		}
 		if ( meta.cursor && typeof meta.cursor === 'object' ) {
 			node.cursor = meta.cursor;
+		}
+		// The Consumer's poll state (`INIT` | `ACTIVE` | `PAUSED`). Threaded only
+		// when present so a non-consumer node carries no extra key; `PAUSED` is
+		// the canvas/panel paused signal.
+		if ( typeof meta.polling === 'string' ) {
+			node.polling = meta.polling;
 		}
 		// An edge connects to the HEAD of the target path — `_router` peels the
 		// first `/`-segment and delivers there (`_sse/workers` → `_sse`).

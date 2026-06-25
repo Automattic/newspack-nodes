@@ -89,6 +89,37 @@ describe( 'SchematicCanvas', () => {
 		expect( nodes ).toHaveLength( 2 );
 	} );
 
+	it( 'renders a paused cue on the card of a node polling PAUSED', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'a', polling: 'PAUSED' }, { id: 'b' } ],
+					edges: [ { from: 'a', to: 'b' } ],
+				} }
+			/>
+		);
+		const cards = container.querySelectorAll( '.topology-node' );
+		expect(
+			cards[ 0 ].querySelector( '.topology-node__paused' )
+		).not.toBeNull();
+	} );
+
+	it( 'renders NO paused cue on a node that is not paused (ACTIVE / absent)', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'a', polling: 'ACTIVE' }, { id: 'b' } ],
+					edges: [ { from: 'a', to: 'b' } ],
+				} }
+			/>
+		);
+		expect(
+			container.querySelector( '.topology-node__paused' )
+		).toBeNull();
+	} );
+
 	it( 'composites the bloom additively (screen) so interior name/LED glow is not occluded by the opaque card', () => {
 		const { container } = render( <SchematicCanvas { ...baseProps } /> );
 		for ( const id of [ 'topology-bloom-crt', 'topology-bloom-neo' ] ) {

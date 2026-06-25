@@ -819,7 +819,7 @@ class Command_Interpreter_Node extends Node {
 				$out[ $name ]['registrations'] = $registrations;
 			}
 			// Generic per-node extension: `+=` so the hook can only add, never clobber a fixed key.
-			$extra = $node->dump_metadata_extra();
+			$extra = $node->dump_metadata();
 			if ( [] !== $extra ) {
 				$out[ $name ] += $extra;
 			}

@@ -273,6 +273,63 @@ describe( 'TimeTravelPanel — play resumes following the head', () => {
 	} );
 } );
 
+describe( 'TimeTravelPanel — paused signal sync', () => {
+	it( 'is paused on mount when the paused prop is true (rest enabled)', () => {
+		const view = renderPanel( { paused: true } );
+		// No client click needed: the signal alone gated the transport open.
+		expect( view.getByLabelText( /pause/i ).disabled ).toBe( true );
+		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
+		expect( view.getByLabelText( /^play/i ).disabled ).toBe( false );
+		expect( view.getByLabelText( /rewind/i ).disabled ).toBe( false );
+	} );
+
+	it( 'flips to live when the paused signal goes false', () => {
+		const view = renderPanel( { paused: true } );
+		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
+		// The consumer resumed elsewhere; the signal is the source of truth.
+		view.rerender(
+			<TimeTravelPanel
+				frames={ FRAMES }
+				cursor={ CURSOR }
+				onTransport={ jest.fn() }
+				paused={ false }
+			/>
+		);
+		expect( view.getByLabelText( /pause/i ).disabled ).toBe( false );
+		expect( view.getByLabelText( /step/i ).disabled ).toBe( true );
+	} );
+
+	it( 'an optimistic PAUSE click enables the rest instantly, then a changed signal reconciles', () => {
+		const onTransport = jest.fn();
+		const view = renderPanel( { onTransport, paused: false } );
+		// Click pauses instantly (optimistic), before the signal catches up.
+		pause( view );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'PAUSE', '' );
+		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
+		// The signal arrives true: still paused, override deferred to the signal.
+		view.rerender(
+			<TimeTravelPanel
+				frames={ FRAMES }
+				cursor={ CURSOR }
+				onTransport={ onTransport }
+				paused={ true }
+			/>
+		);
+		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
+		// Then the signal flips false (resumed): the panel reconciles to live.
+		view.rerender(
+			<TimeTravelPanel
+				frames={ FRAMES }
+				cursor={ CURSOR }
+				onTransport={ onTransport }
+				paused={ false }
+			/>
+		);
+		expect( view.getByLabelText( /step/i ).disabled ).toBe( true );
+		expect( view.getByLabelText( /pause/i ).disabled ).toBe( false );
+	} );
+} );
+
 describe( 'TimeTravelPanel — clamp on aged-out park', () => {
 	it( 'falls back to live (newest) when the parked frame ages out', () => {
 		const onTransport = jest.fn();

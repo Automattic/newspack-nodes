@@ -711,6 +711,14 @@
 		stroke-width: 0.6;
 	}
 
+	// ⏸ badge on a Consumer card whose poll loop is held (polling === PAUSED).
+	// Brass reads as "stopped/held" against the sage live LED beside it.
+	&__paused {
+		font: 700 12px var(--font-mono);
+		fill: var(--brass);
+		pointer-events: none;
+	}
+
 	&__id {
 		font: 700 13px var(--font-mono);
 		fill: var(--ink);

@@ -9,7 +9,7 @@ import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 
 // A Consumer (or its Tail subclass) is the node whose dump_metadata carries a
-// `frames` array AND a `cursor` (its dump_metadata_extra() read surface) — the
+// `frames` array AND a `cursor` (its dump_metadata() read surface) — the
 // data the inspector already holds, no request verb and no class-name list.
 // Reserved/plumbing nodes without frames+cursor don't qualify.
 function isConsumerNode( node ) {
@@ -1453,6 +1453,7 @@ export default function Inspector( {
 					<TimeTravelPanel
 						frames={ node.frames }
 						cursor={ node.cursor }
+						paused={ 'PAUSED' === node.polling }
 						onTransport={ ( verb, positional = '' ) =>
 							onAction &&
 							onAction( 'invoke', node.id, {

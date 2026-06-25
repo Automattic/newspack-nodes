@@ -765,6 +765,40 @@ describe( 'Inspector (view mode)', () => {
 		).toHaveLength( 3 );
 	} );
 
+	it( 'passes the polling signal to the panel — paused when polling is PAUSED', () => {
+		const { getByLabelText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="firehose-consumer"
+				parsed={ {
+					nodes: [ { ...consumerNode, polling: 'PAUSED' } ],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'firehose-consumer' ] ) }
+			/>
+		);
+		// The signal alone (no client click) gates the transport open: pause is
+		// disabled (already paused) and step is enabled.
+		expect( getByLabelText( /pause/i ).disabled ).toBe( true );
+		expect( getByLabelText( /step/i ).disabled ).toBe( false );
+	} );
+
+	it( 'panel is live when the consumer is polling ACTIVE', () => {
+		const { getByLabelText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="firehose-consumer"
+				parsed={ {
+					nodes: [ { ...consumerNode, polling: 'ACTIVE' } ],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'firehose-consumer' ] ) }
+			/>
+		);
+		expect( getByLabelText( /pause/i ).disabled ).toBe( false );
+		expect( getByLabelText( /step/i ).disabled ).toBe( true );
+	} );
+
 	it( 'does NOT show the Time Travel section for a node without frames', () => {
 		const { queryByText } = render(
 			<Inspector

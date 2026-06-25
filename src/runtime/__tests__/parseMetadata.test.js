@@ -221,7 +221,7 @@ describe( 'parseMetadata', () => {
 		expect( alpha.bytesWritten ).toBe( 9012 );
 	} );
 
-	it( "threads a consumer's frames + cursor (dump_metadata_extra) onto the node", () => {
+	it( "threads a consumer's frames + cursor (dump_metadata) onto the node", () => {
 		const { nodes } = parseMetadata( {
 			'firehose-consumer': {
 				class: 'Consumer',
@@ -249,6 +249,29 @@ describe( 'parseMetadata', () => {
 		const alpha = nodes[ 0 ];
 		expect( alpha ).not.toHaveProperty( 'frames' );
 		expect( alpha ).not.toHaveProperty( 'cursor' );
+	} );
+
+	it( "threads a consumer's polling signal onto the node when present", () => {
+		const { nodes } = parseMetadata( {
+			'firehose-consumer': {
+				class: 'Consumer',
+				counter: 5,
+				target: '',
+				frames: [ { id: 0, size: 120 } ],
+				cursor: { seg: 1, off: 12 },
+				polling: 'PAUSED',
+			},
+		} );
+		const c = nodes.find( ( n ) => n.id === 'firehose-consumer' );
+		expect( c.polling ).toBe( 'PAUSED' );
+	} );
+
+	it( 'omits polling for a node whose payload lacks it (no extra key)', () => {
+		const { nodes } = parseMetadata( {
+			alpha: { class: 'Echo', counter: 1, target: 'beta' },
+		} );
+		const alpha = nodes[ 0 ];
+		expect( alpha ).not.toHaveProperty( 'polling' );
 	} );
 
 	it( 'defaults new counters to 0 when payload omits them', () => {
