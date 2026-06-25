@@ -2,12 +2,14 @@
  * TimeTravelPanel — read-and-drive view over a Consumer's offsetlog keyframes.
  * Reads `frames` ([{id,size}], oldest→newest by id) straight from the inspected
  * node's dump_metadata; no fetch, no request. Frame selection is a CLIENT-SIDE
- * model: `selectedFrameId` defaults to the newest frame and is the cursor the
- * ruler highlights and that rewind/fast-forward walk. It is NOT derived from the
- * live source `cursor` — a frame id is its OFFSETLOG segment id (monotonic,
- * climbs forever), an independent number space from `cursor.seg` (the SOURCE
- * partition segment), so matching them only coincides near zero. The live
- * `cursor` ({seg,off}) is DISPLAYED as the source read position, nothing more.
+ * model: by default the panel FOLLOWS THE HEAD — the newest frame is current and
+ * tracks live as new keyframes append. Rewind/fast-forward PARK on a specific
+ * frame (`pinnedId`); PLAY (go live) un-parks, as does the parked frame ageing
+ * out of the retained window. Selection is NEVER derived from the live source
+ * `cursor` — a frame id is its OFFSETLOG segment id (monotonic, climbs forever),
+ * an independent number space from `cursor.seg` (the SOURCE partition segment),
+ * so matching them only coincides near zero. The live `cursor` ({seg,off}) is
+ * DISPLAYED as the source read position, nothing more.
  *
  * The transport bar drives the consumer's `:config` verbs through the
  * inspector's invoke path via onTransport( verb, positional ): PAUSE / PLAY /
@@ -16,7 +18,7 @@
  * the retained frames — there is no fast-forward into the unknown).
  */
 
-import { useEffect, useState } from '@wordpress/element';
+import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 function Cursor( { cursor } ) {
@@ -87,17 +89,15 @@ export default function TimeTravelPanel( {
 	onTransport,
 } ) {
 	const newestId = frames.length ? frames[ frames.length - 1 ].id : null;
-	// Client-side selection: default to the newest frame. The live source cursor
-	// does NOT drive this (offsetlog id ≠ source seg — two number spaces).
-	const [ selectedFrameId, setSelectedFrameId ] = useState( newestId );
-
-	// Clamp when node.frames changes (new frames after PLAY, or truncation): if
-	// the selected id is gone, snap back to the newest.
-	useEffect( () => {
-		if ( ! frames.some( ( f ) => f.id === selectedFrameId ) ) {
-			setSelectedFrameId( newestId );
-		}
-	}, [ frames, selectedFrameId, newestId ] );
+	// null ⇒ follow the live head (newest); a concrete id ⇒ the user parked here
+	// via rewind/fast-forward. So an UNTOUCHED panel tracks the head as new
+	// keyframes append, and a parked id that ages out of the window falls back to
+	// the head. Selection is never the source cursor (offsetlog id ≠ source seg).
+	const [ pinnedId, setPinnedId ] = useState( null );
+	const selectedFrameId =
+		null !== pinnedId && frames.some( ( f ) => f.id === pinnedId )
+			? pinnedId
+			: newestId;
 
 	const currentIdx = frames.findIndex( ( f ) => f.id === selectedFrameId );
 	const hasPrev = currentIdx > 0;
@@ -105,12 +105,19 @@ export default function TimeTravelPanel( {
 
 	const seek = ( idx ) => {
 		const id = frames[ idx ].id;
-		setSelectedFrameId( id );
+		setPinnedId( id );
 		if ( onTransport ) {
 			onTransport( 'SEEK_FRAME', String( id ) );
 		}
 	};
-	const fire = ( verb ) => onTransport && onTransport( verb, '' );
+	const fire = ( verb ) => {
+		if ( 'PLAY' === verb ) {
+			setPinnedId( null ); // go live — resume following the head
+		}
+		if ( onTransport ) {
+			onTransport( verb, '' );
+		}
+	};
 
 	return (
 		<div className="topology-tt">

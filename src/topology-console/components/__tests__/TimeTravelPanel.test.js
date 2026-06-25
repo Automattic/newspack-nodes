@@ -51,6 +51,63 @@ describe( 'TimeTravelPanel', () => {
 		expect( current[ 0 ].dataset.frameId ).toBe( '5344' );
 	} );
 
+	it( 'keeps the newest frame current as new frames append (untouched = follow head)', () => {
+		const { container, rerender } = render(
+			<TimeTravelPanel
+				frames={ FRAMES }
+				cursor={ CURSOR }
+				onTransport={ jest.fn() }
+			/>
+		);
+		expect(
+			container.querySelector( '.topology-tt__marker--current' ).dataset
+				.frameId
+		).toBe( '5344' );
+		// A new checkpoint appends a newer frame; with no transport interaction
+		// the current marker must FOLLOW the head, not stick on the
+		// selection-time newest (the reported bug).
+		rerender(
+			<TimeTravelPanel
+				frames={ [ ...FRAMES, { id: 5345, size: 60 } ] }
+				cursor={ CURSOR }
+				onTransport={ jest.fn() }
+			/>
+		);
+		expect(
+			container.querySelector( '.topology-tt__marker--current' ).dataset
+				.frameId
+		).toBe( '5345' );
+	} );
+
+	it( 'PLAY resumes following the head (un-pins a rewound selection)', () => {
+		const onTransport = jest.fn();
+		const { getByLabelText, container, rerender } = render(
+			<TimeTravelPanel
+				frames={ FRAMES }
+				cursor={ CURSOR }
+				onTransport={ onTransport }
+			/>
+		);
+		fireEvent.click( getByLabelText( /rewind/i ) ); // park on 5343
+		expect(
+			container.querySelector( '.topology-tt__marker--current' ).dataset
+				.frameId
+		).toBe( '5343' );
+		fireEvent.click( getByLabelText( /^play/i ) ); // go live → un-pin
+		// A fresh checkpoint appends; current must follow the head, not stay parked.
+		rerender(
+			<TimeTravelPanel
+				frames={ [ ...FRAMES, { id: 5345, size: 60 } ] }
+				cursor={ CURSOR }
+				onTransport={ onTransport }
+			/>
+		);
+		expect(
+			container.querySelector( '.topology-tt__marker--current' ).dataset
+				.frameId
+		).toBe( '5345' );
+	} );
+
 	it( 'renders the empty state when there are zero frames', () => {
 		const { container } = render(
 			<TimeTravelPanel
