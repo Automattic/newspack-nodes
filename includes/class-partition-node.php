@@ -357,7 +357,7 @@ class Partition_Node extends Timer_Node {
 				$this->current_size       = $newest['size'];
 				$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
 				$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
-				$this->segments_cache     = null;
+				// Cache already holds the truth (incl. the adopted newest); keep it warm.
 				return;
 			}
 		}
@@ -368,7 +368,6 @@ class Partition_Node extends Timer_Node {
 		$this->current_size       = 0;
 		$this->current_log_path   = $this->get_segment_path( $next_id );
 		$this->current_idx_path   = $this->get_index_path( $next_id );
-		$this->segments_cache     = null;
 
 		// Materialize the empty file so get_handle()'s missing-file guard doesn't reset to segment 0.
 		if ( ! \is_dir( $this->segment_dir() ) ) {
@@ -380,6 +379,12 @@ class Partition_Node extends Timer_Node {
 			$this->print_less_often( "WARNING: touch() failed for {$this->current_log_path}" );
 		}
 
+		// Maintain the cache: the post-create list is the line-351 scan plus the
+		// empty segment we just created. cleanup_segments() then prunes it in place
+		// without a second scan.
+		$this->segments_cache[]    = [ 'id' => $next_id, 'size' => 0 ];
+		$this->segments_cache_time = \microtime( true );
+
 		$this->cleanup_segments();
 
 		$this->set_state( 'SEGMENT', (string) $this->current_segment_id );
@@ -390,7 +395,8 @@ class Partition_Node extends Timer_Node {
 	 * AND (now - mtime) >= max_lifespan.
 	 */
 	public function cleanup_segments(): void {
-		$segments       = $this->get_segments( true );
+		// Operate on the maintained cache when warm; standalone callers (cold cache) force-scan.
+		$segments       = null === $this->segments_cache ? $this->get_segments( true ) : $this->segments_cache;
 		$count          = \count( $segments );
 		$initial_count  = $count;
 		$now            = \time();
@@ -410,7 +416,9 @@ class Partition_Node extends Timer_Node {
 			\array_shift( $segments );
 			--$count;
 		}
-		$this->segments_cache = null;
+		// Keep the pruned list as the warm cache instead of discarding it.
+		$this->segments_cache      = \array_values( $segments );
+		$this->segments_cache_time = \microtime( true );
 
 		$deleted = $initial_count - $count;
 		if ( $deleted > 0 ) {
