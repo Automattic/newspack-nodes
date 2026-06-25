@@ -1418,7 +1418,7 @@ class ConsumerTest extends TestCase {
 	public function test_fill_routes_TM_REQUEST_to_handle_request(): void {
 		// fill() must detect TM_REQUEST (without TM_RESPONSE) and dispatch to
 		// handle_request() — NOT forward to sink. This is the introspection
-		// path that powers GET_LAG / GET_OFFSET verbs.
+		// path that powers the GET_LAG verb.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'one' );
@@ -1435,7 +1435,7 @@ class ConsumerTest extends TestCase {
 		$req[ Message::FROM ]      = 'asker';
 		$req[ Message::ID ]        = 'req-1';
 		$req[ Message::KEY ]       = 'k';
-		$req[ Message::VALUE ]     = 'GET_OFFSET';
+		$req[ Message::VALUE ]     = 'GET_LAG';
 		$c->fill( $req );
 
 		$this->assertCount( 1, $cap->captured, 'request must produce exactly one reply' );
@@ -1450,44 +1450,8 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 'req-1', $reply[ Message::ID ], 'reply ID echoes request ID' );
 		$this->assertSame( 'k', $reply[ Message::KEY ], 'reply KEY echoes request KEY' );
 		$this->assertIsArray( $reply[ Message::VALUE ] );
-		$this->assertSame( 'GET_OFFSET', $reply[ Message::VALUE ]['verb'] );
+		$this->assertSame( 'GET_LAG', $reply[ Message::VALUE ]['verb'] );
 		$this->assertIsArray( $reply[ Message::VALUE ]['data'] );
-	}
-
-	public function test_handle_request_GET_OFFSET_returns_cursor_and_checkpoint(): void {
-		// Spec: GET_OFFSET reply payload is
-		// { cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . " 4 86400" );
-		$this->produce_line( $source, 'hello' );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-		$this->pump_consumer( $c );
-		$c->checkpoint();
-		// poll() forwarded the produced bytestream line to the sink; clear so
-		// captured[0] below is the TM_REQUEST reply we're asserting on.
-		$cap->captured = [];
-
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_OFFSET';
-		$c->fill( $req );
-
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertArrayHasKey( 'cursor_seg', $data );
-		$this->assertArrayHasKey( 'cursor_off', $data );
-		$this->assertArrayHasKey( 'checkpoint_seg', $data );
-		$this->assertArrayHasKey( 'checkpoint_off', $data );
-		$this->assertArrayHasKey( 'last_checkpoint_ts', $data );
-		$this->assertSame( 0, $data['cursor_seg'] );
-		$this->assertGreaterThan( 0, $data['cursor_off'] );
-		// checkpoint_seg/off match cursor after checkpoint() committed.
-		$this->assertSame( $data['cursor_seg'], $data['checkpoint_seg'] );
-		$this->assertSame( $data['cursor_off'], $data['checkpoint_off'] );
 	}
 
 	public function test_handle_request_GET_LAG_returns_caught_up_when_empty(): void {
@@ -1630,7 +1594,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_handle_request_verb_is_case_insensitive_and_strips_args(): void {
 		// Spec: verb extraction is strtoupper(explode(' ', trim($value), 2)[0]).
-		// "get_offset extra args" → GET_OFFSET.
+		// "get_lag extra args" → GET_LAG.
 		$c   = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
 		$cap = new Capture_Sink_Node();
@@ -1639,15 +1603,15 @@ class ConsumerTest extends TestCase {
 		$req                   = Message::new_message();
 		$req[ Message::TYPE ]  = Message::TM_REQUEST;
 		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = '  get_offset trailing args ignored  ';
+		$req[ Message::VALUE ] = '  get_lag trailing args ignored  ';
 		$c->fill( $req );
 
 		$reply = $cap->captured[0];
-		$this->assertSame( 'GET_OFFSET', $reply[ Message::VALUE ]['verb'] );
+		$this->assertSame( 'GET_LAG', $reply[ Message::VALUE ]['verb'] );
 		$data = $reply[ Message::VALUE ]['data'];
-		// GET_OFFSET shape (not the error shape) — verifies the verb was
+		// GET_LAG shape (not the error shape) — verifies the verb was
 		// recognized after trim+upper+arg-strip.
-		$this->assertArrayHasKey( 'cursor_seg', $data );
+		$this->assertArrayHasKey( 'bytes_behind', $data );
 	}
 
 	public function test_handle_request_reply_uses_stamp_override_in_FROM(): void {
@@ -1666,7 +1630,7 @@ class ConsumerTest extends TestCase {
 		$req                   = Message::new_message();
 		$req[ Message::TYPE ]  = Message::TM_REQUEST;
 		$req[ Message::FROM ]  = 'cli';
-		$req[ Message::VALUE ] = 'GET_OFFSET';
+		$req[ Message::VALUE ] = 'GET_LAG';
 		$c->fill( $req );
 
 		$this->assertSame( '_repl', $cap->captured[0][ Message::FROM ], 'reply FROM uses stamp_override' );
@@ -1982,9 +1946,10 @@ class ConsumerTest extends TestCase {
 
 	public function test_node_schema_declares_io_category_and_request_verbs(): void {
 		// Topology console reads node_schema() to render the palette entry.
-		// Consumer is in the I/O category and declares two request verbs
-		// (GET_LAG, GET_OFFSET) — both surfaceable in the topology editor
-		// as introspection requests an operator can fire from the canvas.
+		// Consumer is in the I/O category and declares one request verb (GET_LAG)
+		// — surfaceable in the topology editor as an introspection request an
+		// operator can fire from the canvas. The other read verbs were folded into
+		// dump_metadata.
 		$schema = Consumer_Node::node_schema();
 		$this->assertIsArray( $schema );
 		$this->assertSame( 'I/O', $schema['category'] );
@@ -2005,14 +1970,15 @@ class ConsumerTest extends TestCase {
 			$names
 		);
 
-		// Request verbs are READ-ONLY: GET_LAG + GET_OFFSET + the time-travel read
-		// verbs. STEP is NOT here — it mutates, so it's an auth-gated command.
-		$this->assertCount( 4, $schema['requests'] );
+		// Request verbs are READ-ONLY. GET_OFFSET / LIST_FRAMES / READ_STATE were
+		// folded into dump_metadata (its dump_metadata_extra hook), leaving just
+		// GET_LAG. STEP is NOT here — it mutates, so it's an auth-gated command.
+		$this->assertCount( 1, $schema['requests'] );
 		$verbs = \array_column( $schema['requests'], 'name' );
 		$this->assertContains( 'GET_LAG', $verbs );
-		$this->assertContains( 'GET_OFFSET', $verbs );
-		$this->assertContains( 'LIST_FRAMES', $verbs );
-		$this->assertContains( 'READ_STATE', $verbs );
+		$this->assertNotContains( 'GET_OFFSET', $verbs, 'GET_OFFSET folded into dump_metadata' );
+		$this->assertNotContains( 'LIST_FRAMES', $verbs, 'LIST_FRAMES folded into dump_metadata' );
+		$this->assertNotContains( 'READ_STATE', $verbs, 'READ_STATE folded into dump_metadata' );
 		$this->assertNotContains( 'STEP', $verbs, 'STEP mutates — it must not be an un-gated request verb' );
 		foreach ( $schema['requests'] as $req ) {
 			$this->assertNotSame( '', $req['description'] );

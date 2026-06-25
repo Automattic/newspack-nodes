@@ -818,6 +818,11 @@ class Command_Interpreter_Node extends Node {
 			if ( [] !== $registrations ) {
 				$out[ $name ]['registrations'] = $registrations;
 			}
+			// Generic per-node extension: `+=` so the hook can only add, never clobber a fixed key.
+			$extra = $node->dump_metadata_extra();
+			if ( [] !== $extra ) {
+				$out[ $name ] += $extra;
+			}
 		}
 		// Reserved header on a FULL snapshot: this session's reply pivot (the
 		// reverse_cwd) so the GUI can match it against a Tee target to toggle

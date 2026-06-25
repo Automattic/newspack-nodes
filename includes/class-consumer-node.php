@@ -86,11 +86,6 @@ class Consumer_Node extends Timer_Node {
 	 */
 	private ?bool $saved_line_mode = null;
 
-	// Defensive newest-biased cap on the frames LIST_FRAMES returns. One checkpoint =
-	// one segment = one frame, so retained frames track OFFSETLOG_NUM_SEGMENTS (10) and
-	// this cap effectively never fires; it only matters if num_segments is set unusually high.
-	public const MAX_LISTED_FRAMES = 500;
-
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
 	 * snapshot node usually doesn't exist yet when load_offsetlog() runs, so we
@@ -208,17 +203,8 @@ class Consumer_Node extends Timer_Node {
 		$verb      = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
 
 		$payload = match ( $verb ) {
-			'GET_LAG'     => $this->compute_lag(),
-			'GET_OFFSET'  => [
-				'cursor_seg'         => $this->cursor_seg,
-				'cursor_off'         => $this->cursor_off,
-				'checkpoint_seg'     => $this->checkpoint_seg,
-				'checkpoint_off'     => $this->checkpoint_off,
-				'last_checkpoint_ts' => (int) $this->last_checkpoint,
-			],
-			'LIST_FRAMES' => $this->list_frames(),
-			'READ_STATE'  => [ 'state' => $this->read_state() ],
-			default       => [ 'error' => "unknown request verb: {$verb}" ],
+			'GET_LAG' => $this->compute_lag(),
+			default   => [ 'error' => "unknown request verb: {$verb}" ],
 		};
 
 		$reply                   = Message::new_message();
@@ -779,67 +765,88 @@ class Consumer_Node extends Timer_Node {
 		$this->line_mode = $flag;
 	}
 
-	// ============================================================================
-	// Time-travel transport (debugger UI): pause / step / play / seek a consumer.
-	// LIST_FRAMES + READ_STATE are read-only; STEP returns the resulting cursor.
-	// ============================================================================
-
 	/**
-	 * Lightweight checkpoint list for the debugger ruler: scan EVERY retained
-	 * offsetlog segment (unlike load_offsetlog, which reads only the newest),
-	 * parse each record's {seg, off, ts}, and return them oldest→newest. The
-	 * cache blob is deliberately omitted — caches can be up to 32MB and the ruler
-	 * only needs positions/timestamps. Unparseable records are skipped. Capped at
-	 * MAX_LISTED_FRAMES, newest-biased, with `truncated` set when the cap clipped.
+	 * Generic dump_metadata hook: fold the consumer's time-travel READ surface into
+	 * the canvas-poll payload the inspector already round-trips. CHEAP — the warm
+	 * segments cache only (no record reads, no scandir on the poll path):
+	 *   - `frames`: the offsetlog segment list `[{id,size}]` — one checkpoint = one
+	 *     segment = one keyframe (the debugger ruler identifies a frame by its
+	 *     segment id). Empty when the offsetlog is disabled (ephemeral consumers).
+	 *   - `cursor`: the live source read position `{seg,off}`.
 	 *
-	 * @api Consumed over the wire by the debugger UI (LIST_FRAMES request).
-	 * @return array{frames: array<int, array{seg:int, off:int, ts:int}>, truncated: bool}
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}}
 	 */
-	public function list_frames(): array {
-		if ( null === $this->offsetlog ) {
-			return [ 'frames' => [], 'truncated' => false ];
-		}
-		$frames = [];
-		foreach ( $this->scan_offsetlog_entries() as $entry ) {
-			$frames[] = [
-				'seg' => \is_numeric( $entry['seg'] ) ? (int) $entry['seg'] : 0,
-				'off' => \is_numeric( $entry['off'] ) ? (int) $entry['off'] : 0,
-				'ts'  => \is_numeric( $entry['ts'] ?? null ) ? (int) $entry['ts'] : 0,
-			];
-		}
-		$truncated = \count( $frames ) > self::MAX_LISTED_FRAMES;
-		if ( $truncated ) {
-			$frames = \array_slice( $frames, -self::MAX_LISTED_FRAMES );
-		}
-		return [ 'frames' => $frames, 'truncated' => $truncated ];
+	public function dump_metadata_extra(): array {
+		return [
+			'frames' => $this->offsetlog?->get_segments() ?? [],
+			'cursor' => [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ],
+		];
 	}
 
+	// ============================================================================
+	// Time-travel transport (debugger UI): pause / step / play / seek a consumer.
+	// The read surface (frames + cursor) rides dump_metadata_extra(); STEP returns
+	// the resulting cursor.
+	// ============================================================================
+
 	/**
-	 * Jump to a known (cursor, state) keyframe: re-read the offsetlog record at
-	 * {seg, off} to recover its co-committed cache, restore_state() it into the
-	 * snapshot node (when one is set), then reposition the read cursor there. Does
-	 * NOT resume the timer — a paused consumer stays paused after seeking.
+	 * Jump to a known (cursor, state) keyframe identified by its OFFSETLOG SEGMENT
+	 * ID (from dump_metadata's frames[].id): read that one offsetlog segment, take
+	 * its (single) record to recover the co-committed cache, restore_state() it
+	 * into the snapshot node (when one is set), then reposition the read cursor to
+	 * the record's SOURCE {seg,off}. Does NOT resume the timer — a paused consumer
+	 * stays paused after seeking.
 	 *
 	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
-	 * @return string 'ok', or an error string when the offsetlog/frame is absent.
+	 * @return string 'ok', or an error string when the offsetlog/segment is absent.
 	 */
-	public function seek_frame( int $seg, int $off ): string {
+	public function seek_frame( int $segment_id ): string {
 		if ( null === $this->offsetlog ) {
 			return 'error: no offsetlog to seek';
 		}
-		$frame = $this->find_frame( $seg, $off );
-		if ( null === $frame ) {
-			return "error: no frame at {$seg}:{$off}";
+		$entry = $this->read_frame_record( $segment_id );
+		if ( null === $entry ) {
+			return "error: no frame at segment {$segment_id}";
 		}
 		if ( '' !== $this->snapshot_node ) {
-			$node = Core::node( $this->snapshot_node );
-			$cache = \is_array( $frame['cache'] ?? null ) ? $frame['cache'] : null;
+			$node  = Core::node( $this->snapshot_node );
+			$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
 			if ( null !== $cache && null !== $node && \method_exists( $node, 'restore_state' ) ) {
 				$node->restore_state( $cache );
 			}
 		}
-		$this->next_offset( [ 'seg' => $seg, 'off' => $off ] );
+		$this->next_offset( [ 'seg' => $entry['seg'], 'off' => $entry['off'] ] );
 		return 'ok';
+	}
+
+	/**
+	 * Read ONE offsetlog segment and return its keyframe record VALUE (`{seg, off,
+	 * ...cache}`), or null when the segment is absent / empty / unparseable. There's
+	 * exactly one record per offsetlog segment (segment_size=1), but be defensive
+	 * and take the last parseable line.
+	 *
+	 * @return array<array-key, mixed>|null
+	 */
+	private function read_frame_record( int $segment_id ): ?array {
+		if ( null === $this->offsetlog ) {
+			return null;
+		}
+		$sizes = \array_column( $this->offsetlog->get_segments( true ), 'size', 'id' );
+		if ( ! isset( $sizes[ $segment_id ] ) ) {
+			return null;
+		}
+		$bytes = $this->offsetlog->read_at( $segment_id, 0, $sizes[ $segment_id ] );
+		$entry = null;
+		foreach ( \explode( "\n", $bytes ) as $line ) {
+			if ( '' === $line ) {
+				continue;
+			}
+			$parsed = $this->parse_offsetlog_entry( $line );
+			if ( null !== $parsed ) {
+				$entry = $parsed; // Keep the last parseable record.
+			}
+		}
+		return $entry;
 	}
 
 	/** Hold the cursor and emit nothing until STEP / PLAY. */
@@ -889,24 +896,6 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * The snapshot node's current save_state(), for the debugger state panel.
-	 * null when no snapshot node is set or the named node is missing.
-	 *
-	 * @api Consumed over the wire by the debugger UI (READ_STATE request).
-	 * @return mixed
-	 */
-	public function read_state(): mixed {
-		if ( '' === $this->snapshot_node ) {
-			return null;
-		}
-		$node = Core::node( $this->snapshot_node );
-		if ( null === $node || ! \method_exists( $node, 'save_state' ) ) {
-			return null;
-		}
-		return $node->save_state();
-	}
-
-	/**
 	 * Parse one packed offsetlog line into its {seg, off, ...} VALUE, or null when
 	 * the line is unparseable or its VALUE isn't the expected struct.
 	 *
@@ -923,57 +912,6 @@ class Consumer_Node extends Timer_Node {
 			return null;
 		}
 		return $entry;
-	}
-
-	/**
-	 * Scan the offsetlog for the record at {seg, off} (matching the committed
-	 * cursor it carries) and return its full VALUE — the variant that retains the
-	 * cache, used by seek_frame. null when no record matches.
-	 *
-	 * @return array<array-key, mixed>|null
-	 */
-	private function find_frame( int $seg, int $off ): ?array {
-		foreach ( $this->scan_offsetlog_entries() as $entry ) {
-			$entry_seg = \is_numeric( $entry['seg'] ) ? (int) $entry['seg'] : 0;
-			$entry_off = \is_numeric( $entry['off'] ) ? (int) $entry['off'] : 0;
-			if ( $entry_seg === $seg && $entry_off === $off ) {
-				return $entry;
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Lazily yield every parsable offsetlog record (its {seg, off, ...} VALUE)
-	 * across ALL retained segments, oldest→newest, skipping blank/unparseable
-	 * lines. The shared scan skeleton for list_frames() (consumes all) and
-	 * find_frame() (stops on first match). Empty when the offsetlog is disabled.
-	 *
-	 * Cost: reads each segment whole (read_at 0..size). A snapshot consumer's
-	 * records carry the co-committed cache, so a segment — and thus a single
-	 * record here — can run to MAX_LARGE_LINE_SIZE (32MB); list_frames parses
-	 * that whole record just to keep {seg,off,ts}. Fine for an on-demand debug
-	 * verb, not free. A cheap-enumeration path would need checkpoint() to split
-	 * the cursor metadata and the cache into separate records.
-	 *
-	 * @return \Generator<int, array<array-key, mixed>>
-	 */
-	private function scan_offsetlog_entries(): \Generator {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		foreach ( $this->offsetlog->get_segments( true ) as $segment ) {
-			$bytes = $this->offsetlog->read_at( $segment['id'], 0, $segment['size'] );
-			foreach ( \explode( "\n", $bytes ) as $line ) {
-				if ( '' === $line ) {
-					continue;
-				}
-				$entry = $this->parse_offsetlog_entry( $line );
-				if ( null !== $entry ) {
-					yield $entry;
-				}
-			}
-		}
 	}
 
 	protected function check_name_availability( string $name ): void {
@@ -1050,16 +988,14 @@ class Consumer_Node extends Timer_Node {
 				],
 				[
 					'name'        => 'SEEK_FRAME',
-					'description' => 'Time-travel: jump to the offsetlog checkpoint at <seg> <off>, restoring its co-committed snapshot state. Stays paused.',
+					'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment_id> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
 					'args'        => [
-						[ 'name' => 'seg', 'type' => 'int', 'required' => true ],
-						[ 'name' => 'off', 'type' => 'int', 'required' => true ],
+						[ 'name' => 'segment_id', 'type' => 'int', 'required' => true ],
 					],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
 						/** @var self $patron */
-						$patron        = $interpreter->patron();
-						[ $seg, $off ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
-						return $patron->seek_frame( (int) $seg, (int) $off );
+						$patron = $interpreter->patron();
+						return $patron->seek_frame( (int) \trim( $args ) );
 					},
 				],
 				[
@@ -1103,21 +1039,6 @@ class Consumer_Node extends Timer_Node {
 					'name'        => 'GET_LAG',
 					'description' => 'Bytes/messages behind the source partition tail.',
 					'reply_shape' => '{ bytes_behind, segments_behind, caught_up }',
-				],
-				[
-					'name'        => 'GET_OFFSET',
-					'description' => 'Current cursor + last checkpoint.',
-					'reply_shape' => '{ cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }',
-				],
-				[
-					'name'        => 'LIST_FRAMES',
-					'description' => 'Time-travel: lightweight list of offsetlog checkpoint frames (no cache blob), oldest→newest.',
-					'reply_shape' => '{ frames: [ { seg, off, ts } ], truncated }',
-				],
-				[
-					'name'        => 'READ_STATE',
-					'description' => 'Time-travel: the snapshot node\'s current save_state() for the state panel.',
-					'reply_shape' => '{ state }',
 				],
 			],
 			'accepts_fill' => false,

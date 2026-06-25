@@ -892,6 +892,10 @@ class Partition_Node extends Timer_Node {
 	 * reads the last non-empty line of the newest segment, unpacks the packed Message,
 	 * and returns its VALUE (a decoded JSON object), or null if empty/unreadable.
 	 *
+	 * @api Public substrate primitive for dashboard/external consumers that read an
+	 *      offsetlog snapshot (e.g. a Service_CI serving dashboard state). No
+	 *      in-substrate caller, so this is marked API to keep the deadcode gate honest.
+	 *
 	 * @param string $offset_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
 	 * @return array<string,mixed>|null The newest record's VALUE, or null.
 	 */

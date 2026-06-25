@@ -12,10 +12,11 @@ use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Time-travel transport verbs on Consumer_Node: LIST_FRAMES, SEEK_FRAME, PAUSE,
- * STEP, PLAY, READ_STATE. These back a debugger UI that pauses a consumer, seeks
- * it to an offsetlog checkpoint (restoring the co-committed snapshot), and
- * single-steps it message-by-message.
+ * Time-travel transport verbs on Consumer_Node: SEEK_FRAME, PAUSE, STEP, PLAY.
+ * These back a debugger UI that pauses a consumer, seeks it to an offsetlog
+ * checkpoint (restoring the co-committed snapshot), and single-steps it
+ * message-by-message. The READ surface (frame list + cursor) moved off bespoke
+ * verbs into Consumer_Node::dump_metadata_extra().
  */
 #[CoversClass( Consumer_Node::class )]
 class ConsumerTimeTravelTest extends TestCase {
@@ -55,76 +56,62 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// LIST_FRAMES
+	// dump_metadata_extra: the consolidated time-travel READ surface (frames + cursor)
 	// ============================================================================
 
-	public function test_list_frames_returns_lightweight_checkpoint_list_oldest_to_newest(): void {
+	public function test_dump_metadata_extra_returns_frames_and_cursor(): void {
+		// One checkpoint = one offsetlog segment; the keyframe list is the segment
+		// list (id + size) and the cursor is the live source position.
 		Core::$now = 1000.0;
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
+		$c->sink( new Capture_Sink_Node() );
 
 		$this->checkpoint_at( $c, 0, 10 );
 		$this->checkpoint_at( $c, 0, 20 );
 		$this->checkpoint_at( $c, 1, 5 );
 
-		$data   = $this->request( $c, $cap, 'LIST_FRAMES' );
-		$frames = $data['frames'];
+		$extra = $c->dump_metadata_extra();
 
-		$this->assertCount( 3, $frames );
-		$this->assertSame( [ 'seg' => 0, 'off' => 10 ], [ 'seg' => $frames[0]['seg'], 'off' => $frames[0]['off'] ] );
-		$this->assertSame( [ 'seg' => 0, 'off' => 20 ], [ 'seg' => $frames[1]['seg'], 'off' => $frames[1]['off'] ] );
-		$this->assertSame( [ 'seg' => 1, 'off' => 5 ],  [ 'seg' => $frames[2]['seg'], 'off' => $frames[2]['off'] ] );
-		// ts present, monotonic.
-		$this->assertGreaterThan( 0, $frames[0]['ts'] );
-		$this->assertLessThanOrEqual( $frames[2]['ts'], $frames[0]['ts'] );
-		$this->assertFalse( $data['truncated'] );
+		$offsetlog = $this->read_private( $c, 'offsetlog' );
+		$this->assertSame( $offsetlog->get_segments(), $extra['frames'], 'frames are the offsetlog segment list (id+size)' );
+		$this->assertSame( [ 'seg' => 1, 'off' => 5 ], $extra['cursor'], 'cursor is the live source position' );
 	}
 
-	public function test_list_frames_omits_the_cache_blob(): void {
-		// The ruler only needs positions/timestamps; caches can be up to 32MB so
-		// the lightweight frame list must NOT carry them.
-		Core::$now = 2000.0;
-		$node      = new TimeTravel_Snapshot_Probe();
-		$node->name( 'request-builder' );
-		$node->state = [ 'pad' => \str_repeat( 'x', 6000 ) ];
+	public function test_dump_metadata_extra_empty_frames_when_no_offsetlog(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 " );
+		$c->sink( new Capture_Sink_Node() );
 
+		$extra = $c->dump_metadata_extra();
+		$this->assertSame( [], $extra['frames'], 'ephemeral consumer (no offsetlog) has no frames' );
+		$this->assertSame( [ 'seg' => 0, 'off' => 0 ], $extra['cursor'] );
+	}
+
+	public function test_dump_metadata_extra_reads_only_the_warm_cache(): void {
+		// Cheap: dump_metadata_extra must read the warm segments_cache, never
+		// rescan the directory. Warm the cache, then add a segment file on disk by
+		// hand — the extra must still report the cached (stale) list, proving it
+		// did NOT scandir on the poll path.
+		Core::$now = 1500.0;
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-		$c->set_snapshot_node( 'request-builder' );
+		$c->sink( new Capture_Sink_Node() );
 
-		$this->checkpoint_at( $c, 0, 42 );
+		$this->checkpoint_at( $c, 0, 10 );
 
-		$data  = $this->request( $c, $cap, 'LIST_FRAMES' );
-		$frame = $data['frames'][0];
-		$this->assertArrayNotHasKey( 'cache', $frame, 'frame list must not carry the snapshot cache' );
-		$this->assertSame( [ 'seg', 'off', 'ts' ], \array_keys( $frame ) );
-	}
+		$offsetlog = $this->read_private( $c, 'offsetlog' );
+		$warm      = $offsetlog->get_segments(); // warm the cache.
+		$this->assertCount( 1, $warm );
 
-	public function test_list_frames_scans_all_retained_segments(): void {
-		// load_offsetlog reads only the newest segment; LIST_FRAMES must scan
-		// every retained segment. Write two segment files by hand.
+		// A new segment lands on disk; only a rescan (scandir) would see it.
 		$dir = "{$this->tmp}/offsets/r/p0";
-		\mkdir( $dir, 0755, true );
-		\file_put_contents( "{$dir}/0.log", $this->offset_record( 0, 1, 100 ) . $this->offset_record( 0, 2, 200 ) );
-		\file_put_contents( "{$dir}/1.log", $this->offset_record( 1, 3, 300 ) );
+		\file_put_contents( "{$dir}/99.log", $this->offset_record( 9, 99, 999 ) );
 
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$data   = $this->request( $c, $cap, 'LIST_FRAMES' );
-		$frames = $data['frames'];
-		$this->assertCount( 3, $frames );
-		$offs = \array_column( $frames, 'off' );
-		$this->assertSame( [ 1, 2, 3 ], $offs, 'frames span both segments, oldest→newest' );
+		$extra = $c->dump_metadata_extra();
+		$this->assertSame( $warm, $extra['frames'], 'frames come from the warm cache — no scandir on the poll path' );
 	}
 
 	public function test_offsetlog_is_one_segment_per_checkpoint_keyframe(): void {
@@ -152,14 +139,13 @@ class ConsumerTimeTravelTest extends TestCase {
 
 	public function test_offsetlog_retains_only_the_last_num_segments_keyframes(): void {
 		// num_segments keyframes are kept; older ones are pruned (max_lifespan=0,
-		// so the AND-gated retention's age clause never blocks). list_frames()
-		// returns the surviving frames oldest→newest.
+		// so the AND-gated retention's age clause never blocks). One keyframe = one
+		// offsetlog segment, so the retained segment count IS the keyframe count.
 		Core::$now = 8000.0;
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
+		$c->sink( new Capture_Sink_Node() );
 
 		$keep  = Consumer_Node::OFFSETLOG_NUM_SEGMENTS;
 		$total = $keep + 3;
@@ -168,18 +154,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		}
 
 		$offsetlog = $this->read_private( $c, 'offsetlog' );
-		$this->assertLessThanOrEqual( $keep, \count( $offsetlog->get_segments( true ) ), 'retention prunes to num_segments' );
-
-		$data   = $this->request( $c, $cap, 'LIST_FRAMES' );
-		$frames = $data['frames'];
-		$this->assertCount( $keep, $frames, 'exactly num_segments keyframes retained' );
-		// The surviving frames are the newest $keep, oldest→newest.
-		$expected = [];
-		for ( $i = $total - $keep + 1; $i <= $total; $i++ ) {
-			$expected[] = $i * 10;
-		}
-		$this->assertSame( $expected, \array_column( $frames, 'off' ) );
-		$this->assertFalse( $data['truncated'], 'num_segments is well under MAX_LISTED_FRAMES' );
+		$this->assertCount( $keep, $offsetlog->get_segments( true ), 'retention prunes to exactly num_segments keyframes' );
 	}
 
 	public function test_load_offsetlog_resumes_from_newest_keyframe_after_pruning(): void {
@@ -210,66 +185,14 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertSame( $total * 100, $this->read_private( $c2, 'cursor_off' ), 'resumes from the newest retained keyframe' );
 	}
 
-	public function test_list_frames_skips_unparseable_records(): void {
-		$dir = "{$this->tmp}/offsets/r/p0";
-		\mkdir( $dir, 0755, true );
-		// One garbage line, one good record.
-		\file_put_contents( "{$dir}/0.log", "not-a-packed-message\n" . $this->offset_record( 0, 7, 700 ) );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$data = $this->request( $c, $cap, 'LIST_FRAMES' );
-		$this->assertCount( 1, $data['frames'], 'unparseable records are skipped' );
-		$this->assertSame( 7, $data['frames'][0]['off'] );
-	}
-
-	public function test_list_frames_empty_when_no_offsetlog(): void {
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 " );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$data = $this->request( $c, $cap, 'LIST_FRAMES' );
-		$this->assertSame( [], $data['frames'] );
-		$this->assertFalse( $data['truncated'] );
-	}
-
-	public function test_list_frames_caps_count_newest_biased_and_flags_truncated(): void {
-		$dir = "{$this->tmp}/offsets/r/p0";
-		\mkdir( $dir, 0755, true );
-		$blob = '';
-		// 600 records; the cap is 500, newest-biased.
-		for ( $i = 1; $i <= 600; $i++ ) {
-			$blob .= $this->offset_record( 0, $i, $i * 10 );
-		}
-		\file_put_contents( "{$dir}/0.log", $blob );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$data   = $this->request( $c, $cap, 'LIST_FRAMES' );
-		$frames = $data['frames'];
-		$this->assertCount( 500, $frames );
-		$this->assertTrue( $data['truncated'] );
-		// Newest-biased: the last 500 (offsets 101..600), still oldest→newest.
-		$this->assertSame( 101, $frames[0]['off'] );
-		$this->assertSame( 600, $frames[499]['off'] );
-	}
-
 	// ============================================================================
-	// SEEK_FRAME
+	// SEEK_FRAME (now keyed by offsetlog segment id, from dump_metadata frames[].id)
 	// ============================================================================
 
 	public function test_seek_frame_restores_state_and_moves_cursor(): void {
-		// Commit a frame carrying a snapshot cache, advance the cursor + mutate
-		// the node, then SEEK_FRAME back to that frame: restore_state must get the
-		// frame's cache and the cursor must move to the frame's {seg,off}.
+		// Commit a frame carrying a snapshot cache, advance the cursor + mutate the
+		// node, then SEEK_FRAME to that offsetlog segment id: restore_state must get
+		// the frame's cache and the cursor must move to the record's source {seg,off}.
 		Core::$now = 3000.0;
 		$node      = new TimeTravel_Snapshot_Probe();
 		$node->name( 'request-builder' );
@@ -278,25 +201,24 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
+		$c->sink( new Capture_Sink_Node() );
 		$c->set_snapshot_node( 'request-builder' );
 
 		$this->checkpoint_at( $c, 2, 64 );
 		$frame_cache = $node->state;
+		// The committed keyframe is the newest offsetlog segment.
+		$segment_id  = $this->newest_segment_id( $c );
 
 		// Drift the node + cursor away from the committed frame.
 		$node->state = [ 'in_flight' => [ 'r9' => 9 ] ];
 		$c->next_offset( [ 'seg' => 5, 'off' => 999 ] );
 
-		$result = $c->seek_frame( 2, 64 );
+		$result = $c->seek_frame( $segment_id );
 		$this->assertSame( 'ok', $result );
 		$this->assertSame( $frame_cache, $node->restored, 'restore_state got the frame cache' );
 
-		$seg = $this->read_private( $c, 'cursor_seg' );
-		$off = $this->read_private( $c, 'cursor_off' );
-		$this->assertSame( 2, $seg );
-		$this->assertSame( 64, $off );
+		$this->assertSame( 2, $this->read_private( $c, 'cursor_seg' ), 'cursor moved to the record source seg' );
+		$this->assertSame( 64, $this->read_private( $c, 'cursor_off' ), 'cursor moved to the record source off' );
 	}
 
 	public function test_seek_frame_does_not_rearm_timer(): void {
@@ -305,17 +227,17 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
+		$c->sink( new Capture_Sink_Node() );
 		$this->checkpoint_at( $c, 0, 30 );
+		$segment_id = $this->newest_segment_id( $c );
 
 		$c->pause();
-		$c->seek_frame( 0, 30 );
+		$c->seek_frame( $segment_id );
 
 		$this->assertFalse( $this->timer_armed( $c ), 'seek must not re-arm the poll timer' );
 	}
 
-	public function test_seek_frame_returns_error_when_frame_absent(): void {
+	public function test_seek_frame_returns_error_when_segment_absent(): void {
 		Core::$now = 3200.0;
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
@@ -323,7 +245,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->sink( new Capture_Sink_Node() );
 		$this->checkpoint_at( $c, 0, 10 );
 
-		$result = $c->seek_frame( 9, 9999 );
+		$result = $c->seek_frame( 9999 );
 		$this->assertStringContainsString( 'no frame', $result );
 	}
 
@@ -331,7 +253,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 " );
 		$c->sink( new Capture_Sink_Node() );
-		$result = $c->seek_frame( 0, 0 );
+		$result = $c->seek_frame( 0 );
 		$this->assertStringContainsString( 'offsetlog', $result );
 	}
 
@@ -557,50 +479,6 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// READ_STATE
-	// ============================================================================
-
-	public function test_read_state_returns_snapshot_node_save_state(): void {
-		$node        = new TimeTravel_Snapshot_Probe();
-		$node->name( 'request-builder' );
-		$node->state = [ 'in_flight' => [ 'r1' => [ 'x' => 1 ] ] ];
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-		$c->set_snapshot_node( 'request-builder' );
-
-		$data = $this->request( $c, $cap, 'READ_STATE' );
-		$this->assertSame( $node->state, $data['state'] );
-	}
-
-	public function test_read_state_null_when_no_snapshot_node(): void {
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$data = $this->request( $c, $cap, 'READ_STATE' );
-		$this->assertNull( $data['state'] );
-	}
-
-	public function test_read_state_null_when_snapshot_node_missing(): void {
-		// Named snapshot node that was never registered.
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
-		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-		$c->set_snapshot_node( 'ghost' );
-
-		$data = $this->request( $c, $cap, 'READ_STATE' );
-		$this->assertNull( $data['state'] );
-	}
-
-	// ============================================================================
 	// Command-verb dispatch through the {name}:config interpreter (production path).
 	// ============================================================================
 
@@ -611,15 +489,16 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->checkpoint_at( $c, 3, 77 );
+		$segment_id = $this->newest_segment_id( $c );
 
 		// PAUSE via the config interpreter.
 		$this->assertSame( 'ok', $this->dispatch_command( $c, 'PAUSE' ) );
 		$this->assertFalse( $this->timer_armed( $c ) );
 
-		// SEEK_FRAME 3 77 — arg parsing splits seg/off and casts to int.
-		$this->assertSame( 'ok', $this->dispatch_command( $c, 'SEEK_FRAME', '3 77' ) );
-		$this->assertSame( 3, $this->read_private( $c, 'cursor_seg' ) );
-		$this->assertSame( 77, $this->read_private( $c, 'cursor_off' ) );
+		// SEEK_FRAME <segment-id> — arg parsing casts the one int.
+		$this->assertSame( 'ok', $this->dispatch_command( $c, 'SEEK_FRAME', (string) $segment_id ) );
+		$this->assertSame( 3, $this->read_private( $c, 'cursor_seg' ), 'cursor restored to the record source seg' );
+		$this->assertSame( 77, $this->read_private( $c, 'cursor_off' ), 'cursor restored to the record source off' );
 
 		// PLAY re-arms.
 		$this->assertSame( 'ok', $this->dispatch_command( $c, 'PLAY' ) );
@@ -644,19 +523,43 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Regression: the existing verb table still works.
+	// Regression: GET_LAG survives; the consolidated read verbs are gone.
 	// ============================================================================
 
-	public function test_existing_get_offset_still_works(): void {
+	public function test_existing_get_lag_still_works(): void {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
-		$data = $this->request( $c, $cap, 'GET_OFFSET' );
-		$this->assertArrayHasKey( 'cursor_seg', $data );
-		$this->assertArrayHasKey( 'checkpoint_off', $data );
+		$data = $this->request( $c, $cap, 'GET_LAG' );
+		$this->assertArrayHasKey( 'bytes_behind', $data );
+		$this->assertArrayHasKey( 'caught_up', $data );
+	}
+
+	/**
+	 * The three read verbs folded into dump_metadata are gone from the request
+	 * schema AND from handle_request dispatch (unknown-verb error).
+	 */
+	public function test_consolidated_read_verbs_are_removed(): void {
+		$schema = Consumer_Node::node_schema();
+		$verbs  = \array_column( $schema['requests'], 'name' );
+		$this->assertNotContains( 'LIST_FRAMES', $verbs );
+		$this->assertNotContains( 'READ_STATE', $verbs );
+		$this->assertNotContains( 'GET_OFFSET', $verbs );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+
+		foreach ( [ 'LIST_FRAMES', 'READ_STATE', 'GET_OFFSET' ] as $gone ) {
+			$data = $this->request( $c, $cap, $gone );
+			$this->assertArrayHasKey( 'error', $data, "{$gone} must be an unknown verb now" );
+			$this->assertStringContainsString( 'unknown request verb', $data['error'] );
+		}
 	}
 
 	// ============================================================================
@@ -666,6 +569,12 @@ class ConsumerTimeTravelTest extends TestCase {
 	/** True when the Consumer has a live timer in either scheduling mode. */
 	private function timer_armed( Consumer_Node $c ): bool {
 		return 'inactive' !== $this->read_private( $c, 'mode' );
+	}
+
+	/** Newest offsetlog segment id (the keyframe SEEK_FRAME addresses). */
+	private function newest_segment_id( Consumer_Node $c ): int {
+		$segments = $this->read_private( $c, 'offsetlog' )->get_segments( true );
+		return \end( $segments )['id'];
 	}
 
 	/** Build one packed offsetlog record (the {seg,off,ts,...} VALUE) + trailing \n. */
