@@ -10,7 +10,7 @@ Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guid
 
 > **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted server CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
 
-> **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `Fetcher`, `read_latest_value_at`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** Where a step is one call today, this guide says what it replaced, so you can see the seam. And where a step is *still* hand-wired (§4's batching), the guide says so honestly rather than pretending it's already a primitive.
+> **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `Fetcher`, `read_latest_value_at`, `useBatchedPoll`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** §4's poll/batch wiring was the last seam this guide still showed hand-wired; it became `useBatchedPoll` + `addSliceFetcher` the moment a third caller copied it. Where a step is one call today, this guide says what it replaced, so you can see the seam.
 
 ---
 
@@ -481,107 +481,49 @@ CommandInterpreterNode.registerNodeClasses( {
 
 ---
 
-## 4. Mount the graph and poll it — directly on `mountExospine`
+## 4. Mount the graph and poll it — the batched-poll toolkit
 
-The hook builds the real graph and owns the poll loop. **It is built directly on `mountExospine()`** — and crucially it does **not** use `useDashboardGraph`. That shortcut (mount one view node + fire one `poll` command) *is* the god pattern; it's the convenience that produced every god-object dashboard. We're composing a graph, so we take the graph-building callback.
+The hook builds the real graph and owns the poll loop. It does **not** use `useDashboardGraph` — that shortcut (mount one view node + fire one `poll` command) *is* the god pattern, the convenience that produced every god-object dashboard. We're composing a graph, so we reach for the substrate's batched-poll toolkit instead: **`useBatchedPoll`** owns all the mount/batch boilerplate, and **`addSliceFetcher`** wires one slice in one call. The whole hook is then just its slices.
 
 `src/dashboard/hooks/usePublisherInsightsGraph.js`:
 
 ```js
-import { useEffect, useRef, useState } from '@wordpress/element';
-import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
-import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
+import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
 
-const HTTP   = '_http';
-const SHELL  = '_shell';
 const SERVER = 'insights-demo';   // the server-side CI mount (real product owns unsuffixed `insights`)
+const TARGET = `_shell/_http/${ SERVER }`;
 
-// [ fetcher node, receiver Tee, verb, view node, view class ]
+// { fetcher node, receiver Tee, verb, view node, view class } — one per slice.
 const SLICES = [
-	[ 'fetch-counts', 'countsIn', 'counts',      'source-counts:view', 'SourceCountsView' ],
-	[ 'fetch-top',    'topIn',    'top',         'top-table:view',     'TopTableView' ],
-	[ 'fetch-acc',    'accIn',    'accumulated', 'accumulated:view',   'AccumulatedView' ],
+	{ fetcher: 'fetch-counts', receiver: 'countsIn', command: 'counts',      view: 'source-counts:view', viewClass: 'SourceCountsView' },
+	{ fetcher: 'fetch-top',    receiver: 'topIn',    command: 'top',         view: 'top-table:view',     viewClass: 'TopTableView' },
+	{ fetcher: 'fetch-acc',    receiver: 'accIn',    command: 'accumulated', view: 'accumulated:view',   viewClass: 'AccumulatedView' },
 ];
 
 export function usePublisherInsightsGraph( opts = {} ) {
-	const optsRef = useRef( opts );        // read opts live in build without re-running the mount effect
-	optsRef.current = opts;
-	const [ , bumpBuild ] = useState( 0 ); // bump so widgets' useNodeState re-subscribe to the fresh view nodes
-	const timerRef = useRef( null );       // capture the Timer so the visibility effect can stop/start it
-	const isPageVisible = usePageVisibility();
-
-	useEffect( () => {
-		const build = ( { interpreter, router } ) => {
-			const data = ( 'undefined' !== typeof window && window.NewspackNodesData ) || {};
-
-			// I/O boundary — HttpOut. The command boundary is injectable so tests never touch the network.
-			const http = interpreter.makeNode( 'HttpOut', HTTP );
-			http.client = optsRef.current.commandClient ||
-				new CommandClient( { baseUrl: data.restUrl || '/wp-json/', nonce: data.nonce || '' } );
-
-			// `_shell` — observe-only Tap in front of `_http`, so `connect _shell` watches every send.
-			interpreter.makeNode( 'Tap', SHELL );
-
-			// Timer ─> Tee ─> N Fetchers, plus a receiver Tee + view node per slice.
-			const tee       = interpreter.makeNode( 'Tee', 'insights:tee' );
-			const fetchPath = `${ SHELL }/${ HTTP }/${ SERVER }`;
-			for ( const [ fetcher, receiver, verb, view, viewClass ] of SLICES ) {
-				const f = interpreter.makeNode( 'Fetcher', fetcher, `${ receiver } ${ verb }` );
-				f.connectNode( fetchPath );           // each Fetcher → _shell/_http/insights-demo
-				tee.connectNode( fetcher );            // the Tee fans the tick to it
-
-				const recv = interpreter.makeNode( 'Tee', receiver );
-				recv.connectNode( view );              // the receiver Tee fans the reply to its view
-				interpreter.makeNode( viewClass, view );
-			}
-
-			// Timer hitchhikes the _router TIMER and fans each tick to the Tee.
-			const timer = interpreter.makeNode( 'Timer', 'insights:timer' );
-			timer.connectNode( 'insights:tee' );
-			timer.setTimer();
-			timerRef.current = timer;
-
-			// BATCH: lock _http before the tick's notify, flush after — so the tick's three
-			// fetcher commands ride ONE POST. Fan-out is free: more fetchers, the same one request.
-			router.beforeTimerNotify = () => http.lock();
-			router.afterTimerNotify  = () => http.flush();
-
-			bumpBuild( ( n ) => n + 1 );
-
-			return () => {           // undo the non-node hooks before teardown/rebuild
-				router.beforeTimerNotify = null;
-				router.afterTimerNotify  = null;
-				timerRef.current = null;
-			};
-		};
-
-		const { teardown } = mountExospine( build );
-		return teardown;
-	}, [] );
-
-	// Pause polling while the tab is hidden: HIDDEN unregisters the Timer from the router
-	// TIMER (no fan-out → no POST); VISIBLE re-registers it. Idempotent.
-	useEffect( () => {
-		const timer = timerRef.current;
-		if ( ! timer ) {
-			return;
-		}
-		if ( isPageVisible ) {
-			timer.setTimer();
-		} else {
-			timer.stopTimer();
-		}
-	}, [ isPageVisible ] );
+	useBatchedPoll( {
+		// build only adds THIS dashboard's nodes onto the owned fan-out Tee.
+		build: ( { interpreter, tee } ) =>
+			SLICES.forEach( ( slice ) =>
+				addSliceFetcher( interpreter, { ...slice, tee, target: TARGET } )
+			),
+		timerName: 'insights:timer',
+		teeName:   'insights:tee',
+		commandClient: opts.commandClient,   // test seam assigned to `_http.client`
+	} );
 }
 ```
 
-Two ideas carry the whole hook:
+`useBatchedPoll` owns everything that used to be hand-wired here — the `_shell` Tap, the `_http` HttpOut (with the injectable command client), the fan-out `Tee`, the router-hitchhike `Timer`, the lock/flush bracket, and the page-visibility gate. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, and its view node. (When a slice needs a per-slice merge/dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
 
-- **The tick hitchhike + the batch lock.** `insights:timer` is a `Timer` in router-hitchhike mode (`setTimer()` with no args) — it fires on every `_router` TIMER tick. The hook brackets that tick with `router.beforeTimerNotify = () => http.lock()` and `router.afterTimerNotify = () => http.flush()`. So when the tick fans out through the Tee to all three Fetchers, each Fetcher's command buffers behind the `_http` lock, and the single `flush()` after the tick ships them as **one `postBatch`**. **Fan-out is free: three Fetchers, one HTTP round-trip** — add a fourth slice and it's still one POST per tick. (This is the same batching principle the worker side gets from the drain loop — more traffic per tick, the same fixed cost.)
-- **Page-visibility gating.** While the tab is hidden, `timer.stopTimer()` unregisters the Timer from the router TIMER, so a tick fans out to nothing and no POST goes out; becoming visible re-arms it. No wasted polls behind a backgrounded tab.
+Two ideas still carry the whole hook — they're just owned by the toolkit now instead of copied into it:
 
-> **← the next boilerplate to lift.** Be honest about the seam: the `_shell`-Tap + the `_http` `lock`/`flush` batching wiring is **hand-wired here** — and identically in the topology console's poll dashboards. It is *not* a substrate primitive yet. The same five lines (make `_shell`, make `_http`, set `beforeTimerNotify`/`afterTimerNotify` to `lock`/`flush`) will move into the substrate as a `mountBatchedPoll(build)` / `withHttpBatching(...)` helper the moment a third caller copies them — exactly the dogfooding rule this guide runs on. Until then, this guide shows the wiring rather than pretending the helper exists. (Contrast §6/§7, where the boilerplate *has* already moved — those steps are one call because a third caller already forced the lift.)
+- **The tick hitchhike + the batch lock.** `insights:timer` is a `Timer` in router-hitchhike mode (`setTimer()` with no args) — it fires on every `_router` TIMER tick. `useBatchedPoll` brackets that tick with `router.beforeTimerNotify = () => http.lock()` and `router.afterTimerNotify = () => http.flush()`. So when the tick fans out through the Tee to all three Fetchers, each Fetcher's command buffers behind the `_http` lock, and the single `flush()` after the tick ships them as **one `postBatch`**. **Fan-out is free: three Fetchers, one HTTP round-trip** — add a fourth slice and it's still one POST per tick. (This is the same batching principle the worker side gets from the drain loop — more traffic per tick, the same fixed cost.)
+- **Page-visibility gating.** While the tab is hidden, the toolkit calls `timer.stopTimer()` to unregister the Timer from the router TIMER, so a tick fans out to nothing and no POST goes out; becoming visible re-arms it. No wasted polls behind a backgrounded tab.
+
+> **← a substrate refinement.** The `_shell`-Tap + the `_http` `lock`/`flush` batching wiring — and the Timer/Tee/page-visibility plumbing around it — used to be **hand-wired here**, ~50 lines of `useEffect` + `mountExospine` copy-pasted across this example, the topology console's poll dashboards, and the performance hook. The batching *is* a primitive now: it became **`useBatchedPoll(build)`** (the mount + `_shell`/`_http` + Timer/Tee + lock/flush bracket + page-visibility gate) and **`addSliceFetcher()`** (the per-slice Fetcher → receiver-Tee → view block, with an optional transform slot). The hook collapsed to its slices (175 lines → 76, the plumbing gone). That's the dogfooding rule this guide runs on, fulfilled: the moment a third caller copied the wiring, it moved into the substrate — so §4 is now one call, exactly like §6/§7.
 
 The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=countsIn`. The server CI's `counts` verb replies `TO=FROM=countsIn`, the router delivers it to the `countsIn` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side — the only browser-specific nodes are `_http` (the egress) and `_shell` (the observe Tap in front of it).
 
@@ -851,20 +793,22 @@ You drove a server-side worker and a browser React app with the same protocol �
 
 ## 9. Recap — what you wrote vs. what the substrate gave you
 
-**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each just an `emptySlice()`), a `mountExospine` hook that wires Timer → Tee → three Fetchers, **three thin widgets** each reading its own node, the client-side draft helpers, and ~15 lines of build/jest/enqueue glue.
+**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each just an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the client-side draft helpers, and ~15 lines of build/jest/enqueue glue.
 
 **The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http`/`_shell` boundary, the JS node runtime and `mountExospine`, `useNodeState`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each used to be boilerplate in this very example:
 
 | You call | It replaced |
 |---|---|
 | `Fetcher` (trigger → one configured command, FROM=receiver) | a bespoke command-firing view node per dashboard (a Shell, verboten) |
+| `useBatchedPoll(build)` | the ~50-line `mountExospine` + `_shell`/`_http` + Timer/Tee + lock/flush + page-visibility mount, copy-pasted per dashboard |
+| `addSliceFetcher()` | the 6-line per-slice Fetcher → receiver-Tee → view block (the `SLICES.forEach` body) |
 | `Partition_Node::read_latest_value_at()` | a 20-line offsetlog walk, duplicated in the CLI |
 | `Service_CI_Node` + `node_schema()` verbs | a hand-built interpreter + REST controller |
 | `@newspack-nodes/shared/pendingReplies` (`errorMessage`) | a per-view error-coercion helper, copy-pasted |
 | `buildDashboards()` / `createJestConfig()` | a 250-line esbuild config + a footgun-prone jest config |
 | `Admin::enqueue_react_page()` | a 40-line page-gate + manifest + localize |
 
-And the one seam **still** hand-wired — the `_shell`-Tap + `_http` `lock`/`flush` batching in §4 — is the next row that table will gain, the moment a third caller copies it. That honesty is the method: every line that felt like boilerplate became a substrate primitive the moment writing this walkthrough exposed it.
+The `useBatchedPoll`/`addSliceFetcher` rows are the newest entries — the §4 poll/batch wiring was the last seam this guide still showed hand-wired, and it moved into the substrate the moment a third caller copied it. That honesty is the method: every line that felt like boilerplate became a substrate primitive the moment writing this walkthrough exposed it.
 
 That table *is* the lesson, and it's the same one the first guide ends on, lifted to the client with one addition: **dashboards are composed node graphs, not a god view-node + god command.** You add a dashboard by composing primitives — a Timer, a Tee, Fetchers, thin view nodes, small verbs — not by building a dashboard framework and not by funneling everything through one node and one command. Uphold the `fill()` contract, decompose both sides, lean on the shared pieces, and the next dashboard is the handful of files you actually care about: the slice verbs, the view nodes, the widgets, and the hook that wires them.
 
