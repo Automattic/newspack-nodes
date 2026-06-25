@@ -42,7 +42,6 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
-use Newspack_Nodes\Config;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Shell_Node;
@@ -67,16 +66,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 			return 'both';
 		}
 		return $has_user ? 'user' : 'stock';
-	}
-
-	/**
-	 * Drop the per-process option snapshot then the config snapshot so the next
-	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
-	 * set. Same pair, same order, as Supervisor::check_config().
-	 */
-	private static function invalidate_config_cache(): void {
-		Config::invalidate_options_cache();
-		Config::reset();
 	}
 
 	public static function node_schema(): array {
@@ -273,7 +262,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 							$pruned = \in_array( $name, $active, true );
 							if ( $pruned ) {
 								\update_option( 'newspack_nodes_topologies', \array_values( \array_diff( $active, [ $name ] ) ) );
-								self::invalidate_config_cache();
+								Topology_Registry::invalidate_config_cache();
 							}
 						}
 
@@ -304,35 +293,11 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						$name = self::require_valid_name( \trim( $args ) );
-						if ( null === Topology_Registry::resolve( $name ) ) {
-							throw new \RuntimeException(
-								\esc_html( "unknown topology '$name'" )
-							);
-						}
-
-						// Materialize the effective active set + the name, then refuse a
-						// write-conflict (two topologies writing the same log/offsetlog)
-						// BEFORE persisting or spawning — so a conflicting set never gets
-						// written and immediately spawned. Mirrors check_config's refusal.
-						$next      = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
-						$conflicts = Topology_Registry::find_conflicts( $next );
-						if ( ! empty( $conflicts ) ) {
-							throw new \RuntimeException(
-								\esc_html( "activating '$name' conflicts: " . Topology_Registry::describe_conflicts( $conflicts ) )
-							);
-						}
-
-						\update_option( 'newspack_nodes_topologies', $next );
-						self::invalidate_config_cache();
-
-						$spawned = Bootstrap::supervisor()->spawn_fleet( $name );
-
-						return [
-							'name'    => $name,
-							'active'  => true,
-							'spawned' => $spawned,
-						];
+						// Name-validate here (CI-protocol concern); the unknown-name and
+						// write-conflict refusal, option-write, cache-invalidate and immediate
+						// spawn are the shared Topology_Registry::activate primitive the
+						// `wp nodes activate` CLI verb calls too.
+						return Topology_Registry::activate( self::require_valid_name( \trim( $args ) ) );
 					},
 				],
 				[
@@ -340,17 +305,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						$name   = self::require_valid_name( \trim( $args ) );
-						$active = \array_values( \array_diff( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) );
-						\update_option( 'newspack_nodes_topologies', $active );
-						self::invalidate_config_cache();
-
-						Bootstrap::supervisor()->kill_readers( [ $name ] );
-
-						return [
-							'name'   => $name,
-							'active' => false,
-						];
+						return Topology_Registry::deactivate( self::require_valid_name( \trim( $args ) ) );
 					},
 				],
 				[
