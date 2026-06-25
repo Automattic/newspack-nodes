@@ -1219,6 +1219,20 @@
 	box-shadow: 0 0 0 1px var(--ink-2);
 }
 
+// Cursor has STEPPED past this keyframe (it sits between this marker and the
+// next): hollow it out so "on the keyframe" reads differently from "moved on".
+.topology-tt__marker--stepped {
+	background: var(--paper-2);
+	box-shadow: inset 0 0 0 2px var(--oxide), 0 0 0 1px var(--ink-2);
+}
+
+// Where the cursor sits, in words (live / parked / between keyframes).
+.topology-tt__position {
+	font: 400 10px var(--font-mono);
+	color: var(--ink-3, var(--ink-4));
+	margin: 0 0 4px;
+}
+
 .topology-tt__empty {
 	font: 400 10px var(--font-mono);
 	color: var(--ink-4);

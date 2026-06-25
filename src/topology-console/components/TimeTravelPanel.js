@@ -1,25 +1,36 @@
 /**
  * TimeTravelPanel — read-and-drive view over a Consumer's offsetlog keyframes.
  * Reads `frames` ([{id,size}], oldest→newest by id) straight from the inspected
- * node's dump_metadata; no fetch, no request. Frame selection is a CLIENT-SIDE
- * model: by default the panel FOLLOWS THE HEAD — the newest frame is current and
- * tracks live as new keyframes append. Rewind/fast-forward PARK on a specific
- * frame (`pinnedId`); PLAY (go live) un-parks, as does the parked frame ageing
- * out of the retained window. Selection is NEVER derived from the live source
- * `cursor` — a frame id is its OFFSETLOG segment id (monotonic, climbs forever),
- * an independent number space from `cursor.seg` (the SOURCE partition segment),
- * so matching them only coincides near zero. The live `cursor` ({seg,off}) is
- * DISPLAYED as the source read position, nothing more.
+ * node's dump_metadata; no fetch, no request.
  *
- * The transport bar drives the consumer's `:config` verbs through the
- * inspector's invoke path via onTransport( verb, positional ): PAUSE / PLAY /
- * STEP send the bare verb; rewind / fast-forward send SEEK_FRAME <segment_id>
- * for the frame adjacent to the current selection (a paused keyframe scrub among
- * the retained frames — there is no fast-forward into the unknown).
+ * Position is a CLIENT-SIDE model with three pieces of state:
+ *   - `paused`           — PAUSE gates the whole transport. While !paused the only
+ *                          live button is ⏸ Pause; the consumer is following the
+ *                          head and you can only stop it.
+ *   - `parkedFrameId`    — id | null. null ⇒ live / following the head (the cursor
+ *                          sits past the newest keyframe). A concrete id ⇒ the user
+ *                          parked here via rewind/fast-forward. A parked id that
+ *                          ages out of the retained window clamps back to null.
+ *   - `steppedSincePark` — true once STEP has advanced the cursor PAST the parked
+ *                          keyframe; the cursor is now between keyframes, so the
+ *                          next rewind SNAPS BACK to the keyframe rather than the
+ *                          one before it.
+ *
+ * Selection is NEVER derived from the live source `cursor` — a frame id is its
+ * OFFSETLOG segment id (monotonic, climbs forever), an independent number space
+ * from `cursor.seg` (the SOURCE partition segment), so matching them only
+ * coincides near zero. The live `cursor` ({seg,off}) is DISPLAYED as the source
+ * read position, nothing more.
+ *
+ * The transport bar drives the consumer's `:config` verbs through the inspector's
+ * invoke path via onTransport( verb, positional ): PAUSE / PLAY / STEP send the
+ * bare verb; rewind / fast-forward send SEEK_FRAME <segment_id> for the snapped
+ * keyframe (a paused keyframe scrub among the retained frames — there is no
+ * fast-forward into the unknown).
  */
 
 import { useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 function Cursor( { cursor } ) {
 	if ( ! cursor ) {
@@ -39,7 +50,7 @@ function Cursor( { cursor } ) {
 	);
 }
 
-function Ruler( { frames, selectedFrameId } ) {
+function Ruler( { frames, selectedFrameId, stepped } ) {
 	if ( ! frames.length ) {
 		return (
 			<div className="topology-tt__empty">
@@ -50,19 +61,25 @@ function Ruler( { frames, selectedFrameId } ) {
 	const step = frames.length > 1 ? 100 / ( frames.length - 1 ) : 0;
 	return (
 		<div className="topology-tt__ruler">
-			{ frames.map( ( f, i ) => (
-				<span
-					key={ f.id }
-					data-frame-id={ f.id }
-					className={ `topology-tt__marker${
-						f.id === selectedFrameId
-							? ' topology-tt__marker--current'
-							: ''
-					}` }
-					style={ { left: `${ i * step }%` } }
-					title={ `frame seg ${ f.id } · ${ f.size } B` }
-				/>
-			) ) }
+			{ frames.map( ( f, i ) => {
+				const isCurrent = f.id === selectedFrameId;
+				const cls = [
+					'topology-tt__marker',
+					isCurrent && 'topology-tt__marker--current',
+					isCurrent && stepped && 'topology-tt__marker--stepped',
+				]
+					.filter( Boolean )
+					.join( ' ' );
+				return (
+					<span
+						key={ f.id }
+						data-frame-id={ f.id }
+						className={ cls }
+						style={ { left: `${ i * step }%` } }
+						title={ `frame seg ${ f.id } · ${ f.size } B` }
+					/>
+				);
+			} ) }
 		</div>
 	);
 }
@@ -83,67 +100,183 @@ function TransportButton( { label, glyph, disabled, onClick } ) {
 	);
 }
 
+// Where the cursor sits, in words. `selectedFrameId`/`nextId` are the parked
+// keyframe and the one after it; nextId is null when parked on (or past) the
+// newest.
+function positionLabel( { live, stepped, selectedFrameId, newestId, nextId } ) {
+	if ( live ) {
+		return stepped
+			? sprintf(
+					// translators: %d is an offsetlog frame id.
+					__( 'stepped past frame %d', 'newspack-nodes' ),
+					newestId
+			  )
+			: sprintf(
+					// translators: %d is an offsetlog frame id.
+					__( 'live — after frame %d', 'newspack-nodes' ),
+					newestId
+			  );
+	}
+	if ( ! stepped ) {
+		return sprintf(
+			// translators: %d is an offsetlog frame id.
+			__( 'on frame %d', 'newspack-nodes' ),
+			selectedFrameId
+		);
+	}
+	if ( null === nextId ) {
+		return sprintf(
+			// translators: %d is an offsetlog frame id.
+			__( 'after frame %d', 'newspack-nodes' ),
+			selectedFrameId
+		);
+	}
+	return sprintf(
+		// translators: %1$d and %2$d are adjacent offsetlog frame ids.
+		__( 'between frame %1$d and %2$d', 'newspack-nodes' ),
+		selectedFrameId,
+		nextId
+	);
+}
+
 export default function TimeTravelPanel( {
 	frames = [],
 	cursor = null,
 	onTransport,
 } ) {
+	const [ paused, setPaused ] = useState( false );
+	const [ parkedFrameId, setParkedFrameId ] = useState( null );
+	const [ steppedSincePark, setSteppedSincePark ] = useState( false );
+
 	const newestId = frames.length ? frames[ frames.length - 1 ].id : null;
-	// null ⇒ follow the live head (newest); a concrete id ⇒ the user parked here
-	// via rewind/fast-forward. So an UNTOUCHED panel tracks the head as new
-	// keyframes append, and a parked id that ages out of the window falls back to
-	// the head. Selection is never the source cursor (offsetlog id ≠ source seg).
-	const [ pinnedId, setPinnedId ] = useState( null );
-	const selectedFrameId =
-		null !== pinnedId && frames.some( ( f ) => f.id === pinnedId )
-			? pinnedId
-			: newestId;
+	// A parked id that has aged out of the retained window is treated as live.
+	const live =
+		null === parkedFrameId ||
+		! frames.some( ( f ) => f.id === parkedFrameId );
+	const selectedFrameId = live ? newestId : parkedFrameId;
 
 	const currentIdx = frames.findIndex( ( f ) => f.id === selectedFrameId );
-	const hasPrev = currentIdx > 0;
-	const hasNext = currentIdx >= 0 && currentIdx < frames.length - 1;
+	const nextId =
+		currentIdx >= 0 && currentIdx < frames.length - 1
+			? frames[ currentIdx + 1 ].id
+			: null;
 
-	const seek = ( idx ) => {
-		const id = frames[ idx ].id;
-		setPinnedId( id );
+	// Enable/disable: PAUSE gates everything. While !paused only Pause is live.
+	const canPause = ! paused;
+	const canPlay = paused;
+	const canStep = paused;
+	// Rewind: disabled when live-paused on an empty ruler, or when sitting on the
+	// oldest keyframe with nothing stepped past it (no earlier keyframe to land on).
+	const onOldest = ! live && currentIdx <= 0;
+	const canRewind =
+		paused && frames.length > 0 && ! ( onOldest && ! steppedSincePark );
+	// Fast-forward only walks the retained keyframes ahead of the parked one —
+	// never live (nothing ahead of the head) and never on the newest.
+	const canForward = paused && ! live && null !== nextId;
+
+	const seekTo = ( id ) => {
+		setParkedFrameId( id );
+		setSteppedSincePark( false );
 		if ( onTransport ) {
 			onTransport( 'SEEK_FRAME', String( id ) );
 		}
 	};
-	const fire = ( verb ) => {
-		if ( 'PLAY' === verb ) {
-			setPinnedId( null ); // go live — resume following the head
+
+	const rewind = () => {
+		if ( ! canRewind ) {
+			return;
 		}
+		if ( live ) {
+			seekTo( newestId ); // first rewind from live lands on the newest
+		} else if ( steppedSincePark ) {
+			seekTo( parkedFrameId ); // snap back to the current keyframe
+		} else {
+			seekTo( frames[ currentIdx - 1 ].id ); // previous keyframe
+		}
+	};
+
+	const forward = () => {
+		if ( ! canForward ) {
+			return;
+		}
+		seekTo( nextId );
+	};
+
+	const step = () => {
+		if ( ! canStep ) {
+			return;
+		}
+		setSteppedSincePark( true );
 		if ( onTransport ) {
-			onTransport( verb, '' );
+			onTransport( 'STEP', '' );
+		}
+	};
+
+	const pause = () => {
+		if ( ! canPause ) {
+			return;
+		}
+		setPaused( true ); // leave parkedFrameId untouched: live-but-paused
+		if ( onTransport ) {
+			onTransport( 'PAUSE', '' );
+		}
+	};
+
+	const play = () => {
+		if ( ! canPlay ) {
+			return;
+		}
+		setPaused( false );
+		setParkedFrameId( null ); // resume following the head
+		setSteppedSincePark( false );
+		if ( onTransport ) {
+			onTransport( 'PLAY', '' );
 		}
 	};
 
 	return (
 		<div className="topology-tt">
 			<Cursor cursor={ cursor } />
-			<Ruler frames={ frames } selectedFrameId={ selectedFrameId } />
+			<Ruler
+				frames={ frames }
+				selectedFrameId={ selectedFrameId }
+				stepped={ steppedSincePark }
+			/>
+			{ frames.length > 0 && (
+				<div className="topology-tt__position">
+					{ positionLabel( {
+						live,
+						stepped: steppedSincePark,
+						selectedFrameId,
+						newestId,
+						nextId,
+					} ) }
+				</div>
+			) }
 			<div className="topology-tt__transport">
 				<TransportButton
 					label={ __( 'Rewind to previous frame', 'newspack-nodes' ) }
 					glyph="⏮"
-					disabled={ ! hasPrev }
-					onClick={ () => seek( currentIdx - 1 ) }
+					disabled={ ! canRewind }
+					onClick={ rewind }
 				/>
 				<TransportButton
 					label={ __( 'Pause', 'newspack-nodes' ) }
 					glyph="⏸"
-					onClick={ () => fire( 'PAUSE' ) }
+					disabled={ ! canPause }
+					onClick={ pause }
 				/>
 				<TransportButton
 					label={ __( 'Step one message', 'newspack-nodes' ) }
 					glyph="▌▶"
-					onClick={ () => fire( 'STEP' ) }
+					disabled={ ! canStep }
+					onClick={ step }
 				/>
 				<TransportButton
 					label={ __( 'Play', 'newspack-nodes' ) }
 					glyph="▶"
-					onClick={ () => fire( 'PLAY' ) }
+					disabled={ ! canPlay }
+					onClick={ play }
 				/>
 				<TransportButton
 					label={ __(
@@ -151,8 +284,8 @@ export default function TimeTravelPanel( {
 						'newspack-nodes'
 					) }
 					glyph="⏭"
-					disabled={ ! hasNext }
-					onClick={ () => seek( currentIdx + 1 ) }
+					disabled={ ! canForward }
+					onClick={ forward }
 				/>
 			</div>
 		</div>
