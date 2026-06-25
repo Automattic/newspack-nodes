@@ -4,37 +4,53 @@
 
 The finished code is in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/) — the same plugin the first guide built, now with a `src/dashboard/` tree and a scored, durable topology. Read along, or build it yourself and diff.
 
-> **The one thing to hold onto:** a dashboard is *not* a new mechanism. It is the **same `fill(message)` contract**, expressed in JavaScript, talking to the same node graph over one HTTP boundary. You already know how to write a node. A dashboard is a few nodes that happen to run in the browser, plus a thin React view that reads one of them.
+> **The one thing to hold onto:** a dashboard is *not* a new mechanism, and it is *not* one big React component fed by one big command. It is a **real node graph** — the same `fill(message)` contract you already know, expressed in JavaScript — with **message traffic at every edge**. Every edge is something you can drop a `Tee` into, watch in the debug overlay, and reuse on the next dashboard. You build a dashboard by *composing nodes*, exactly like a worker pipeline.
 
 Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guide assumes the digest pipeline (sources → summarizer → digest) and the `fill`/`sink`/`target`/`node_schema` vocabulary.
 
 > **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted server CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
 
-> **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `PendingReplies`, `useDashboardGraph`, `read_latest_value_at`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** Where a step is one call today, this guide says what it replaced, so you can see the seam.
+> **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `Fetcher`, `read_latest_value_at`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** Where a step is one call today, this guide says what it replaced, so you can see the seam. And where a step is *still* hand-wired (§4's batching), the guide says so honestly rather than pretending it's already a primitive.
 
 ---
 
 ## 0. What we're building
 
+A dashboard's data flow is a node graph, so here is the whole graph — server side and browser side — laid out as nodes with traffic on every edge:
+
 ```
-                                    browser (React admin page)
-                                    ────────────────────────────
-   wp-admin page  ─mount─>  _http ──> insights:view ──> useNodeState ──> <PublisherInsights/>
-                            (HttpOut)   (view-model node)
-                               │
-                               │  POST /newspack-nodes/v1/command   {verb: "insights"}
-                               ▼
-   ════════════════════════════ server ════════════════════════════
-   Insights_CI  ──reads──>  offsets/example-scored.p0   (the durable snapshot the worker wrote)
+   browser (React admin page)
+   ──────────────────────────────────────────────────────────────────────────
+   insights:timer (Timer) ─> insights:tee (Tee) ─> fetch-counts (Fetcher) ─┐
+                                                 ├> fetch-top    (Fetcher) ─┤  target = _shell/_http/insights-demo
+                                                 └> fetch-acc    (Fetcher) ─┘
+                                                                            │
+                              _shell (Tap — watch every send) ─> _http (HttpOut)
+                                              POST one batch    │ ▲  three replies batch back
+                                                                ▼ │
+   ════════════════════════════════════ server ═══════════════════════════════
+                                  insights-demo (Insights_CI)
+                          reads offsets/example-scored.p0 ONCE per request, then:
+                          counts ─> {sources}   top ─> {top}   accumulated ─> {accumulated}
+                                                                ▲ │
+                                  each reply pivots TO = the fetcher's receiver Tee
+                                                                │ ▼
+       countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>
+       topIn    (Tee) ─> top-table:view     ─> <TopTable/>
+       accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
 ```
 
-The dashboard graph is **two nodes** clipped onto the substrate's REPL backbone: `_http` (the HTTP egress boundary) and `insights:view` (a view-model node that holds the data React reads). A page-visibility-gated poll fires an `insights` command; it travels over `_http` to a server-side **service interpreter** (`Insights_CI`), which reads the worker's durable snapshot and replies with the model. `insights:view` publishes the model; React re-renders. No SSE — the repeated poll *is* the live data.
+Read that top to bottom. **One `Timer`** ticks; **one `Tee`** fans the tick to **three `Fetcher`s**; each Fetcher emits *its own* configured command through `_shell/_http/insights-demo`; the server CI answers each with a *small slice*; each reply pivots back to *its own* receiver `Tee`, which fans to *its own* thin view node, which feeds *its own* React widget. **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card.
+
+That decomposition is the entire point, and it's the anti-pattern we're deliberately **not** building:
+
+> **The god object — what we're avoiding.** A "view node" that receives a finished `{sources, top, accumulated}` model from one server `insights` command and hands it to one React component is a **god node**, fed by a **god command**. It sits at **counter 0 / 0 B** in the topology console — zero traffic, nothing to `Tee`, nothing for the overlay to show, nothing reusable. That's a React app with a dead node stapled on, not a Nodes dashboard. **God commands are as bad as god nodes** — so we decompose *both* sides: three Fetchers, three slice verbs, three receiver Tees, three view nodes, three widgets.
 
 So there are three pieces of new work, and we'll build them in dependency order:
 
-1. **Make the pipeline produce durable, scored state** the dashboard can read (a `Scorer` node + a durable log + a snapshotting `Consumer`).
-2. **Serve that state** over the command protocol (the `Insights_CI` service verb).
-3. **Render it** (the JS node graph, the React view, the build, the enqueue).
+1. **Make the pipeline produce durable, scored state** the dashboard can read (a `Scorer` node + a durable log + a snapshotting `Consumer`). *Unchanged from a god-object dashboard — the data side is the same.*
+2. **Serve that state** over the command protocol — as **three small slice verbs** (`counts`, `top`, `accumulated`), not one god verb, sharing one offsetlog read.
+3. **Render it** — the real JS node graph (Timer → Tee → 3 Fetchers → 3 view nodes), three thin widgets, the build, the enqueue.
 
 ---
 
@@ -125,7 +141,7 @@ Three new ideas, all using nodes the substrate ships:
 
 - **`<config:...>` and `<partition>` tokens.** The `Partition`/`Consumer` arguments interpolate runtime config (the substrate's `logs_dir`, `segment_size`, …) and the worker's partition index, so the same `.tsl` works for any partition count. They're substrate-registered token namespaces — you just use them.
 - **`scorer → scored:partition` writes the durable log;** `scored:consumer → digest` tails it straight back into the digest. The Consumer reads each scored record and `fill()`s it into the digest, exactly as a `connect_node` would.
-- **`cmd scored:consumer:config set_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog. On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](docs/architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
+- **`cmd scored:consumer:config set_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog **under the record's `cache` key** — so a web request reads it straight back as `$value['cache']` (that's the `cache['items']` §2's reader pulls; your `save_state()` shape *is* the dashboard's read contract). On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](docs/architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
 
 **The durable-snapshot recipe — lift these four lines.** This is the reusable pattern for *any* "make a worker's in-memory state readable from a web request" need; rename `scored` → your log name and `digest` → your state node:
 
@@ -165,9 +181,17 @@ That's the whole durability story: the worker writes a snapshot the web request 
 
 ---
 
-## 2. Serve the data — a service verb that reads the snapshot
+## 2. Serve the data — three small slice verbs, not one god command
 
-The browser can't read a file off the worker's disk either. It speaks the **command protocol**: a `POST` of a `TM_COMMAND` to `/newspack-nodes/v1/command`, which the substrate routes to a node by name. So we mount a **service interpreter** into every web request and give it one verb, `insights`.
+The browser can't read a file off the worker's disk. It speaks the **command protocol**: a `POST` of a `TM_COMMAND` to `/newspack-nodes/v1/command`, which the substrate routes to a node by name. So we mount a **service interpreter** into every web request and give it verbs.
+
+Here is the decomposition decision, and it's the same one we make on the client: a single `insights` verb returning `{sources, top, accumulated}` would be a **god command** — one verb that computes everything, that no one can reuse a slice of, that the dashboard can only fetch all-or-nothing. **God commands are as bad as god nodes.** So `Insights_CI` exposes **three small verbs**, one slice each:
+
+- `counts` → `{ "sources": { "releases": 2, "community": 3 } }`
+- `top` → `{ "top": [ { "source", "title", "score" }, … ] }`
+- `accumulated` → `{ "accumulated": 5 }`
+
+Each is independently fetchable (one `Fetcher` per verb, §3) — and because all three run inside one POST (§4's batching), they should share **one** offsetlog read, not glob + unpack the snapshot three times. That's the **memoized read** (`items()` + the `$read_items` closure seam): the first verb to run reads the snapshot once and caches the flattened items; the other two reuse the cache.
 
 A service interpreter is a `Service_CI_Node` — a `Command_Interpreter_Node` whose verb table comes from its `node_schema()`, the same double-duty schema you already write for nodes. `includes/class-insights-ci.php`:
 
@@ -176,42 +200,76 @@ class Insights_CI_Node extends Service_CI_Node {
 
 	private const TOP_N = 10;
 
+	/**
+	 * Offsetlog-read seam. Lazily-defaulted to read_snapshot_items(); tests reassign it
+	 * to count reads without short-circuiting the real glob/merge path. The memoized
+	 * items() resolves and invokes it at most once per request.
+	 *
+	 * Signature: `function ( string $offsets_dir ): array<int,array<array-key,mixed>>`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $read_items = null;
+
+	/** Per-request memo of the flattened snapshot items; null until items() reads once. */
+	private ?array $items_cache = null;
+
 	/** A score is whatever the Scorer wrote; coerce defensively for sorting/display. */
 	private static function to_float( mixed $value ): float {
 		return \is_numeric( $value ) ? (float) $value : 0.0;
 	}
 
-	public function build_insights_json(): string {
-		$offsets_dir = \Newspack_Nodes\Config::get_offsets_directory();
-		return (string) \wp_json_encode( self::read_insights_model( $offsets_dir ) );
+	/**
+	 * Read the offsetlog snapshot ONCE per request and memoize the flattened items, so the
+	 * three batched slice verbs share a single read instead of globbing + unpacking thrice.
+	 */
+	private function items(): array {
+		if ( null !== $this->items_cache ) {
+			return $this->items_cache;
+		}
+		$read  = self::$read_items ?? static fn ( string $dir ): array => self::read_snapshot_items( $dir );
+		$raw   = $read( Config::get_offsets_directory() );
+		$items = [];
+		foreach ( \is_array( $raw ) ? $raw : [] as $item ) {
+			if ( \is_array( $item ) ) {
+				$items[] = $item;
+			}
+		}
+		$this->items_cache = $items;
+		return $this->items_cache;
 	}
 
-	/** Shape the dashboard model from the scored offsetlog snapshot(s). */
-	public static function read_insights_model( string $offsets_dir ): array {
-		$empty = [ 'sources' => [], 'top' => [], 'accumulated' => 0 ];
-		$dirs  = \glob( \rtrim( $offsets_dir, '/' ) . '/example-scored.p*', \GLOB_ONLYDIR );
+	/** Read every `example-scored.p*` offset dir's latest snapshot, flatten the digest caches. */
+	public static function read_snapshot_items( string $offsets_dir ): array {
+		$dirs = \glob( \rtrim( $offsets_dir, '/' ) . '/example-scored.p*', \GLOB_ONLYDIR );
 		if ( false === $dirs || [] === $dirs ) {
-			return $empty;
+			return [];
 		}
-
 		$items = [];
 		foreach ( $dirs as $dir ) {
 			foreach ( self::read_cache_items( $dir ) as $item ) {
 				$items[] = $item;
 			}
 		}
-		if ( [] === $items ) {
-			return $empty;
-		}
+		return $items;
+	}
 
+	/** Count items per source → { source: count }. */
+	private static function shape_sources( array $items ): array {
 		$sources = [];
 		foreach ( $items as $item ) {
 			$source             = \is_string( $item['source'] ?? null ) ? $item['source'] : '?';
 			$sources[ $source ] = ( $sources[ $source ] ?? 0 ) + 1;
 		}
-		\usort( $items, static fn ( array $a, array $b ): int =>
-			self::to_float( $b['score'] ?? null ) <=> self::to_float( $a['score'] ?? null ) );
+		return $sources;
+	}
 
+	/** Top-N by score, descending, shaped to { source, title, score }. */
+	private static function shape_top( array $items ): array {
+		\usort(
+			$items,
+			static fn ( array $a, array $b ): int => self::to_float( $b['score'] ?? null ) <=> self::to_float( $a['score'] ?? null )
+		);
 		$top = [];
 		foreach ( \array_slice( $items, 0, self::TOP_N ) as $item ) {
 			$top[] = [
@@ -220,7 +278,7 @@ class Insights_CI_Node extends Service_CI_Node {
 				'score'  => self::to_float( $item['score'] ?? null ),
 			];
 		}
-		return [ 'sources' => $sources, 'top' => $top, 'accumulated' => \count( $items ) ];
+		return $top;
 	}
 
 	/** Read one offset dir's newest snapshot, return its cache['items']. */
@@ -244,27 +302,46 @@ class Insights_CI_Node extends Service_CI_Node {
 
 > **← a substrate refinement.** `read_cache_items` used to be a 20-line walk: `new Partition_Node`, `arguments`, `get_segments(true)`, find the newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE` — guarded and try/caught. The substrate's `CLI::read_offsetlog_entry()` had a byte-identical copy. Reading "the newest committed record's VALUE from an offsetlog" is a substrate concern, so it became **`Partition_Node::read_latest_value_at( $offset_dir )`**, and both callers collapsed to one line. You don't walk segments; you ask the Partition for its latest value.
 
-Declare the verb in `node_schema()` (same double-duty schema as a node — `array_merge( parent::node_schema(), … )`) and mount the CI on every request:
+Now the three verbs. Each is a one-line `handler` that shapes one slice off the **memoized** `items()` and JSON-encodes it. Because a `Service_CI` verb runs *on the CI itself*, the interpreter handed to each handler **is** this node — so `$ci->items()` shares the per-request memo across all three:
 
 ```php
 public static function node_schema(): array {
+	// A Service_CI verb runs ON the CI — the interpreter IS this node, so $ci->items()
+	// is the shared per-request memo. Service_CI_Node wraps every handler with
+	// require_manage_options(), so the admin gate is centralized — no per-slice gate.
+	$slice = static fn ( callable $shape ): \Closure => static function ( Command_Interpreter_Node $interpreter, string $args ) use ( $shape ): string {
+		/** @var self $ci */
+		$ci = $interpreter;
+		return (string) \wp_json_encode( $shape( $ci ) );
+	};
 	return \array_merge( parent::node_schema(), [
 		'category'    => 'Service',
-		'description' => 'Serves the Publisher Insights model from the scored offsetlog.',
-		'commands'    => [ [
-			'name'        => 'insights',
-			'description' => 'Return the current Publisher Insights model.',
-			'args'        => [],
-			'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-				self::require_manage_options();      // the verb is admin-only
-				/** @var self $ci */
-				$ci = $interpreter;                   // a Service_CI verb runs ON the CI
-				return $ci->build_insights_json();    // FULLY-SHAPED model as a JSON string
-			},
-		] ],
+		'description' => 'Reads the scored-pipeline offsetlog snapshot; serves the dashboard insights slices.',
+		'commands'    => [
+			[
+				'name'        => 'counts',
+				'description' => 'Return per-source item counts: { sources: { source: count } }.',
+				'args'        => [],
+				'handler'     => $slice( static fn ( self $ci ): array => [ 'sources' => self::shape_sources( $ci->items() ) ] ),
+			],
+			[
+				'name'        => 'top',
+				'description' => 'Return the top-10 items by score: { top: [ { source, title, score } ] }.',
+				'args'        => [],
+				'handler'     => $slice( static fn ( self $ci ): array => [ 'top' => self::shape_top( $ci->items() ) ] ),
+			],
+			[
+				'name'        => 'accumulated',
+				'description' => 'Return the total accumulated item count: { accumulated: N }.',
+				'args'        => [],
+				'handler'     => $slice( static fn ( self $ci ): array => [ 'accumulated' => \count( $ci->items() ) ] ),
+			],
+		],
 	] );
 }
 ```
+
+Mount the CI on every request, exactly as a god-command dashboard would — the decomposition is in the *verbs*, not the mount:
 
 ```php
 // In the plugin file: mount the CI into every request graph (idempotent).
@@ -278,204 +355,329 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base ): vo
 add_action( 'newspack_nodes/request_graph_ready', __NAMESPACE__ . '\\mount_insights_ci' );
 ```
 
-The verb returns the **fully-shaped model as a JSON string** — there is no transform node, no second round-trip. The browser's poll gets the finished `{ sources, top, accumulated }` in the POST response body. That choice is what makes the client a pure poll with no SSE.
+Each verb returns its **slice as a JSON string** — `counts` gives `{sources}`, `top` gives `{top}`, `accumulated` gives `{accumulated}`. No transform node, no second round-trip; the browser's three fetches each get a finished slice in the POST response body. That choice — small slices, synchronous reads — is what makes the client three pure polls with no SSE.
 
 You can verify this half **with no browser at all** — it's just PHP:
 
 ```bash
-wp eval '$m = \Example_AI_Newsletter\Insights_CI_Demo_Node::read_insights_model(
-  \Newspack_Nodes\Config::get_offsets_directory() ); echo json_encode( $m );'
-# {"sources":{"releases":2,"community":3},"top":[{"source":"releases","title":"Roundup Block ships","score":6}, …],"accumulated":5}
+wp eval '$ci = \Example_AI_Newsletter\Insights_CI_Demo_Node::read_snapshot_items(
+  \Newspack_Nodes\Config::get_offsets_directory() ); echo json_encode( $ci );'
+# [{"source":"releases","title":"Roundup Block ships","score":6}, …]
 ```
 
 Server-side done. Now the browser.
 
 ---
 
-## 3. The JS graph — the same `fill()` contract, in JavaScript
+## 3. The JS graph — Timer → Tee → three Fetchers, the same `fill()` contract
 
-Here is the part that surprises people: **the browser runs the same node runtime.** `@newspack-nodes/runtime` is the JS port — `Node`, `Message`, a `CommandInterpreterNode`, `mountExospine` (which clips your nodes onto the standard `_command_interpreter → _router` backbone). A "dashboard view model" is a `Node` whose `fill()` stores the latest reply and publishes it for React to read.
+Here is the part that surprises people: **the browser runs the same node runtime.** `@newspack-nodes/runtime` is the JS port — `Node`, `Message`, a `CommandInterpreterNode`, `mountExospine` (which clips your nodes onto the standard `_command_interpreter → _router` backbone). So the client graph is *real*: a `Timer`, a `Tee`, three `Fetcher`s, three receiver `Tee`s, three view nodes. Message traffic at every edge.
 
-`src/dashboard/nodes/insightsView.js` — the view-model node:
+### a. The `Fetcher` — the composition primitive
+
+The piece that makes fan-out work is the generic **`Fetcher`** (in the runtime — `@newspack-nodes/runtime`):
 
 ```js
-import { Node, ID, TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
-import { PendingReplies, errorMessage } from '@newspack-nodes/shared/pendingReplies';
+// src/runtime/fetcher-node.js (already in the substrate — shown so you know the contract)
+export class FetcherNode extends Node {
+	// args = `<receiver> <command> [<command_args>...]`
+	//   receiver — the local node the server's reply routes back TO (stamped as FROM)
+	//   command  — the verb to send (CONFIGURED on the node, never read from the message)
 
-export const emptyModel = () => ( { sources: {}, top: [], accumulated: 0 } );
+	fill( _message ) {
+		const m = newMessage();
+		m[ TYPE ]  = TM_COMMAND;
+		m[ FROM ]  = this.receiver;                                    // reply pivots back here
+		m[ VALUE ] = { name: this.command, arguments: this.command_args };
+		super.fill( m );   // TO stamped from target, forwarded to sink
+	}
+}
+```
 
-export class InsightsViewNode extends Node {
+Read `fill()` carefully — it **ignores its trigger message entirely**. Any message that arrives is just the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`fetch-counts`'s command is `counts`, fixed), **never read from the triggering message**.
+
+> **A node that sends the command its message carries is a `Shell`, and that's verboten.** A Shell *sends* arbitrary commands; a command *interpreter* is what *interprets* them. A named, always-firing node that relays whatever verb its incoming message names is a Shell wired into the graph — exactly the thing the substrate forbids. The Fetcher is the safe inverse: the command is fixed on the node, the message is only a trigger. When you need "on a tick, send verb X to node Y", reach for a `Fetcher`, never a Shell.
+
+### b. Wiring the fan-out
+
+`Timer ─> Tee ─> 3 Fetchers`, each Fetcher `connectNode`'d to **`_shell/_http/insights-demo`**:
+
+- **`_http`** is the substrate's `HttpOut` egress — the boundary that POSTs the command batch to `/command`.
+- **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. (`TO = _shell/_http/insights-demo` means: the router peels `_shell` → the Tap forwards to `_http` → `HttpOut` peels itself and POSTs to `insights-demo`.)
+
+### c. The receiver pivot — why a `counts` reply only touches the counts view
+
+Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=countsIn`). The server CI replies **`TO = FROM`** — the universal reply pivot — so the `counts` reply routes back to `countsIn`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `topIn → top-table:view`; the `accumulated` reply on `accIn → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
+
+### d. The thin view node
+
+Each view node is a `SliceViewNode` subclass that parses *its own* slice reply and publishes it. The base is small, `src/dashboard/nodes/slice-view-node.js`:
+
+```js
+import { Node, TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
+import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
+
+export class SliceViewNode extends Node {
 	constructor() {
 		super();
-		this.registrations.view = {};   // React subscribes to the 'view' state
-		this.model = emptyModel();
-		this.replies = new PendingReplies();   // ← see below
+		this.registrations.view = {};        // React subscribes to the 'view' state
+		this.model = this.emptySlice();
+		this.setState( 'view', this.model );  // a render before the first reply is valid
 	}
+
+	emptySlice() { return {}; }   // subclass supplies the shaped-but-empty slice
 
 	fill( message ) {
 		const value = message[ VALUE ];
-		if ( ! value || 'object' !== typeof value ) {
-			return;
-		}
-		// Awaited verbs (if any) settle here; the poll reply has no pending entry.
-		if ( this.replies.settle( message ) ) {
-			return;
-		}
+		// TM_ERROR first: surface a transport error (string OR { payload }) so the widget never stays stale.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
-			this.model = { ...emptyModel(), error: errorMessage( value.payload ) };
+			const payload = value && 'object' === typeof value ? value.payload : value;
+			this.model = { ...this.emptySlice(), error: errorMessage( payload ) };
 			this.setState( 'view', this.model );
 			return;
 		}
-		// The poll reply: VALUE.payload is the JSON-string model from the CI.
-		const model = this._parse( value.payload );
-		if ( null !== model ) {
-			this.model = model;
-			this.setState( 'view', this.model );   // publish → React re-renders
+		if ( ! value || 'object' !== typeof value ) {
+			return;   // transient garbage keeps the prior slice
+		}
+		const slice = this._parse( value.payload );   // VALUE.payload is the slice's JSON string
+		if ( null !== slice ) {
+			this.model = slice;
+			this.setState( 'view', this.model );        // publish → React re-renders
 		}
 	}
 	// _parse(): JSON.parse with a try/catch, returns null on garbage.
 }
 ```
 
-Two things to notice:
+Each subclass supplies **only** its empty slice — that is the whole subclass, `src/dashboard/nodes/source-counts-view-node.js`:
 
-- **`setState('view', model)`** is how a node hands data to React. A companion hook (`useNodeState('insights:view', 'view')`, §5) subscribes to that key and re-renders on every publish. The node owns the data; the component just reads it.
-- **`this.replies = new PendingReplies()`** — for any verb you *await* (a button that fires a command and wants the reply), you stash `{resolve, reject}` under the outgoing `message[ID]`, and the matching reply settles the Promise. The poll doesn't await; its reply just updates the model. `settle(message)` returns `true` if it matched a pending entry, so `fill()` knows whether to fall through to the model path.
+```js
+import { SliceViewNode } from './slice-view-node';
 
-> **← a substrate refinement.** Every dashboard view node had this same block: a `Map` keyed by `message[ID]`, settled on the pivoted reply, plus an `errorMessage()` that coerces a `TM_ERROR` payload (string / `{message}` / anything) to a readable string. It was copy-pasted across WorkerStatus, RawLogs, the ELN performance views, and this one. It became **`@newspack-nodes/shared/pendingReplies`** — `errorMessage` (the pure coercion) and a `PendingReplies` class (`add` / `has` / `settle → bool` / `rejectAll`). Your view node composes it instead of re-implementing the correlation.
+// `source-counts:view` — owns the per-source counts slice ({ sources:{name:count} }).
+export class SourceCountsViewNode extends SliceViewNode {
+	emptySlice() { return { sources: {} }; }
+}
+```
 
-Register the class so `makeNode` can find it (the JS analogue of the PHP classmap), `src/dashboard/nodes/register.js`:
+`top-table-view-node.js` returns `{ top: [] }`; `accumulated-view-node.js` returns `{ accumulated: 0 }`. That's it — each owns one slice and nothing else.
+
+> The `errorMessage` import is itself a substrate refinement: coercing a `TM_ERROR` payload (string / `{message}` / anything) to a readable string was copy-pasted across every dashboard view node, so it lives in **`@newspack-nodes/shared/pendingReplies`** now. (The companion `PendingReplies` Map is for views that *await* a verb — a button that fires a command and wants the reply. These three views only poll, so they don't need it.)
+
+Register the three slice classes so `makeNode` can find them (the JS analogue of the PHP classmap) — `Timer`/`Tee`/`Fetcher`/`Tap`/`HttpOut` are runtime nodes and already registered. `src/dashboard/nodes/register.js`:
 
 ```js
 import { CommandInterpreterNode } from '@newspack-nodes/runtime';
-import { InsightsViewNode } from './insightsView';
+import { SourceCountsViewNode } from './source-counts-view-node';
+import { TopTableViewNode } from './top-table-view-node';
+import { AccumulatedViewNode } from './accumulated-view-node';
 
-CommandInterpreterNode.registerNodeClasses( { InsightsView: InsightsViewNode } );
+CommandInterpreterNode.registerNodeClasses( {
+	SourceCountsView: SourceCountsViewNode,
+	TopTableView: TopTableViewNode,
+	AccumulatedView: AccumulatedViewNode,
+} );
 ```
 
 ---
 
-## 4. Mount the graph and poll it — one hook call
+## 4. Mount the graph and poll it — directly on `mountExospine`
 
-The hook wires the graph (mount `_http` + your view node) and owns the poll loop. Almost all of that is identical for every poll-based dashboard, so it's one substrate call. `src/dashboard/hooks/useInsightsGraph.js`, in full:
+The hook builds the real graph and owns the poll loop. **It is built directly on `mountExospine()`** — and crucially it does **not** use `useDashboardGraph`. That shortcut (mount one view node + fire one `poll` command) *is* the god pattern; it's the convenience that produced every god-object dashboard. We're composing a graph, so we take the graph-building callback.
+
+`src/dashboard/hooks/usePublisherInsightsGraph.js`:
 
 ```js
-import {
-	newMessage, TYPE, FROM, TO, ID, VALUE, TM_COMMAND,
-} from '@newspack-nodes/runtime';
-import { useDashboardGraph, makeOpId } from '@newspack-nodes/shared/hooks/useDashboardGraph';
+import { useEffect, useRef, useState } from '@wordpress/element';
+import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
+import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import '../nodes/register';
 
-const HTTP = '_http';
-const VIEW = 'insights:view';
+const HTTP   = '_http';
+const SHELL  = '_shell';
+const SERVER = 'insights-demo';   // the server-side CI mount (real product owns unsuffixed `insights`)
 
-/** Build the `insights` TM_COMMAND: TO=`_http/insights-demo`, FROM=view (the reply pivot). */
-function buildInsightsCommand( id ) {
-	const m = newMessage();
-	m[ TYPE ]  = TM_COMMAND;
-	m[ FROM ]  = VIEW;
-	m[ TO ]    = `${ HTTP }/insights-demo`;
-	m[ ID ]    = id;
-	m[ VALUE ] = { name: 'insights', arguments: '' };
-	return m;
-}
+// [ fetcher node, receiver Tee, verb, view node, view class ]
+const SLICES = [
+	[ 'fetch-counts', 'countsIn', 'counts',      'source-counts:view', 'SourceCountsView' ],
+	[ 'fetch-top',    'topIn',    'top',         'top-table:view',     'TopTableView' ],
+	[ 'fetch-acc',    'accIn',    'accumulated', 'accumulated:view',   'AccumulatedView' ],
+];
 
-export function useInsightsGraph( { commandClient, refreshMs = 4000 } = {} ) {
-	useDashboardGraph( {
-		mountNodes: ( interpreter ) => interpreter.makeNode( 'InsightsView', VIEW ),
-		poll:       ( interpreter ) => interpreter.fill( buildInsightsCommand( makeOpId( 'insights-op' ) ) ),
-		refreshMs,
-		commandClient,
-	} );
+export function usePublisherInsightsGraph( opts = {} ) {
+	const optsRef = useRef( opts );        // read opts live in build without re-running the mount effect
+	optsRef.current = opts;
+	const [ , bumpBuild ] = useState( 0 ); // bump so widgets' useNodeState re-subscribe to the fresh view nodes
+	const timerRef = useRef( null );       // capture the Timer so the visibility effect can stop/start it
+	const isPageVisible = usePageVisibility();
+
+	useEffect( () => {
+		const build = ( { interpreter, router } ) => {
+			const data = ( 'undefined' !== typeof window && window.NewspackNodesData ) || {};
+
+			// I/O boundary — HttpOut. The command boundary is injectable so tests never touch the network.
+			const http = interpreter.makeNode( 'HttpOut', HTTP );
+			http.client = optsRef.current.commandClient ||
+				new CommandClient( { baseUrl: data.restUrl || '/wp-json/', nonce: data.nonce || '' } );
+
+			// `_shell` — observe-only Tap in front of `_http`, so `connect _shell` watches every send.
+			interpreter.makeNode( 'Tap', SHELL );
+
+			// Timer ─> Tee ─> N Fetchers, plus a receiver Tee + view node per slice.
+			const tee       = interpreter.makeNode( 'Tee', 'insights:tee' );
+			const fetchPath = `${ SHELL }/${ HTTP }/${ SERVER }`;
+			for ( const [ fetcher, receiver, verb, view, viewClass ] of SLICES ) {
+				const f = interpreter.makeNode( 'Fetcher', fetcher, `${ receiver } ${ verb }` );
+				f.connectNode( fetchPath );           // each Fetcher → _shell/_http/insights-demo
+				tee.connectNode( fetcher );            // the Tee fans the tick to it
+
+				const recv = interpreter.makeNode( 'Tee', receiver );
+				recv.connectNode( view );              // the receiver Tee fans the reply to its view
+				interpreter.makeNode( viewClass, view );
+			}
+
+			// Timer hitchhikes the _router TIMER and fans each tick to the Tee.
+			const timer = interpreter.makeNode( 'Timer', 'insights:timer' );
+			timer.connectNode( 'insights:tee' );
+			timer.setTimer();
+			timerRef.current = timer;
+
+			// BATCH: lock _http before the tick's notify, flush after — so the tick's three
+			// fetcher commands ride ONE POST. Fan-out is free: more fetchers, the same one request.
+			router.beforeTimerNotify = () => http.lock();
+			router.afterTimerNotify  = () => http.flush();
+
+			bumpBuild( ( n ) => n + 1 );
+
+			return () => {           // undo the non-node hooks before teardown/rebuild
+				router.beforeTimerNotify = null;
+				router.afterTimerNotify  = null;
+				timerRef.current = null;
+			};
+		};
+
+		const { teardown } = mountExospine( build );
+		return teardown;
+	}, [] );
+
+	// Pause polling while the tab is hidden: HIDDEN unregisters the Timer from the router
+	// TIMER (no fan-out → no POST); VISIBLE re-registers it. Idempotent.
+	useEffect( () => {
+		const timer = timerRef.current;
+		if ( ! timer ) {
+			return;
+		}
+		if ( isPageVisible ) {
+			timer.setTimer();
+		} else {
+			timer.stopTimer();
+		}
+	}, [ isPageVisible ] );
 }
 ```
 
-That's the whole hook. You supply two closures — **`mountNodes`** (mount your view node) and **`poll`** (fire your command) — and `useDashboardGraph` owns the rest.
+Two ideas carry the whole hook:
 
-The command itself is worth reading once, because it's the routing in miniature: `TO=_http/insights-demo` means the router peels `_http` (delivering the bare command to the `HttpOut` egress, which POSTs it), and `FROM=insights:view` is the reply pivot — the server CI replies `TO=FROM`, so the reply lands back at the view. Same TO/FROM mechanics as the PHP side; the only new node is `_http`, the boundary between the browser graph and the server.
+- **The tick hitchhike + the batch lock.** `insights:timer` is a `Timer` in router-hitchhike mode (`setTimer()` with no args) — it fires on every `_router` TIMER tick. The hook brackets that tick with `router.beforeTimerNotify = () => http.lock()` and `router.afterTimerNotify = () => http.flush()`. So when the tick fans out through the Tee to all three Fetchers, each Fetcher's command buffers behind the `_http` lock, and the single `flush()` after the tick ships them as **one `postBatch`**. **Fan-out is free: three Fetchers, one HTTP round-trip** — add a fourth slice and it's still one POST per tick. (This is the same batching principle the worker side gets from the drain loop — more traffic per tick, the same fixed cost.)
+- **Page-visibility gating.** While the tab is hidden, `timer.stopTimer()` unregisters the Timer from the router TIMER, so a tick fans out to nothing and no POST goes out; becoming visible re-arms it. No wasted polls behind a backgrounded tab.
 
-> **← a substrate refinement.** `useInsightsGraph` was ~120 lines: a `useEffect` that called `mountExospine`, mounted an `HttpOut` and built a `CommandClient` from `window.NewspackNodesData`, bumped a re-render so `useNodeState` rebinds, fired an immediate poll, then a second `useEffect` running a page-visibility-gated `setInterval` — plus its own `makeOpId`. Every poll dashboard repeated it. It became **`useDashboardGraph({ mountNodes, poll, refreshMs, commandClient })`** (it returns `{ interpreterRef }` for dashboards that also fire awaited verbs, like WorkerStatus's restart). The `commandClient` parameter is the test seam — pass a fake and the hook never touches the network. **Not every dashboard fits it:** the SSE dashboards (a live request stream) keep their own `_sse`/`_heartbeat` mount, because they aren't a poll. Adopting it there would be a false fit — the substrate gives you the shape that's genuinely shared, not one stretched over cases that differ.
+> **← the next boilerplate to lift.** Be honest about the seam: the `_shell`-Tap + the `_http` `lock`/`flush` batching wiring is **hand-wired here** — and identically in the topology console's poll dashboards. It is *not* a substrate primitive yet. The same five lines (make `_shell`, make `_http`, set `beforeTimerNotify`/`afterTimerNotify` to `lock`/`flush`) will move into the substrate as a `mountBatchedPoll(build)` / `withHttpBatching(...)` helper the moment a third caller copies them — exactly the dogfooding rule this guide runs on. Until then, this guide shows the wiring rather than pretending the helper exists. (Contrast §6/§7, where the boilerplate *has* already moved — those steps are one call because a third caller already forced the lift.)
+
+The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=countsIn`. The server CI's `counts` verb replies `TO=FROM=countsIn`, the router delivers it to the `countsIn` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side — the only browser-specific nodes are `_http` (the egress) and `_shell` (the observe Tap in front of it).
 
 ---
 
-## 5. The view — read the model, render, draft
+## 5. The view — three thin widgets, each reading its own node
 
-The React component is thin by design: it reads the model the node publishes and renders it. `src/dashboard/PublisherInsights.js` (condensed):
+There is no "the React component" here — there are **three** thin widgets, one per slice, each subscribing to *its own* view node via `useNodeState`. That's the composition made visible in the UI: each widget owns its data, its empty state, and its error state. No widget reads a god model; none can blank another.
+
+The page just lays the three out, `src/dashboard/PublisherInsightsPage.js`:
 
 ```js
-import { useState } from '@wordpress/element';
-import { useNodeState } from '@newspack-nodes/runtime';
-import { useInsightsGraph } from './hooks/useInsightsGraph';
-import { emptyModel } from './nodes/insightsView';
-import { draftNewsletter } from './draftNewsletter';
+import { __ } from '@wordpress/i18n';
+import { usePublisherInsightsGraph } from './hooks/usePublisherInsightsGraph';
+import { SourceCounts } from './widgets/SourceCounts';
+import { TopTable } from './widgets/TopTable';
+import { AccumulatedCard } from './widgets/AccumulatedCard';
 import './styles/insights.scss';
 
-export default function PublisherInsights( { refreshMs = 4000, commandClient } ) {
-	useInsightsGraph( { refreshMs, commandClient } );   // mount + poll the graph
-	const model = useNodeState( 'insights:view', 'view' ) || emptyModel();
-	const [ draft, setDraft ] = useState( null );
+export default function PublisherInsightsPage( { commandClient } = {} ) {
+	usePublisherInsightsGraph( { commandClient } );   // mount the graph + start polling
 
 	return (
-		<div className="nan-insights">
-			<h1>Publisher Insights</h1>
-			<p>Accumulated items: { model.accumulated }</p>
-
-			<h2>By source</h2>
-			<ul>{ Object.entries( model.sources ).map( ( [ name, count ] ) =>
-				<li key={ name }>{ name }: { count }</li> ) }</ul>
-
-			<h2>Top items</h2>
-			<table>{ /* a row per model.top item: source, title, score */ }</table>
-
-			<button onClick={ () => setDraft( draftNewsletter( model.top ) ) }>
-				Draft newsletter
-			</button>
-			{ null !== draft && <textarea value={ draft } onChange={ … } /> }
+		<div className="eai-insights">
+			<header className="eai-insights__header">
+				<h1>{ __( 'Publisher Insights', 'example-ai-newsletter' ) }</h1>
+				<p className="eai-insights__sub">
+					{ __( 'Each card is its own node graph slice — counts, top items, and the accumulated total.', 'example-ai-newsletter' ) }
+				</p>
+			</header>
+			<div className="eai-insights__grid">
+				<div className="eai-insights__stats"><AccumulatedCard /></div>
+				<SourceCounts />
+				<TopTable />
+			</div>
 		</div>
 	);
 }
 ```
 
-`useNodeState('insights:view', 'view')` is the bridge: it subscribes to the `view` key the node `setState`s, so every poll publish re-renders the table. The `|| emptyModel()` fallback means the first render (before the first reply lands) is still valid — the node guarantees its data fields on every publish.
-
-The real component picks one of three branches off that model — an **error notice** (`model.error`, set when a poll reply is `TM_ERROR`), an **empty state** (nothing scored yet), or the **data grid** — rather than rendering an empty table into the void. Surfacing the error and the "drive the pipeline" hint is most of the difference between a demo and something an operator can actually read:
+Each widget reads exactly one node. `AccumulatedCard` is the simplest — it subscribes to `accumulated:view`, owns its own error branch, and renders one number. `src/dashboard/widgets/AccumulatedCard.js`:
 
 ```js
-let content;
-if ( model.error ) {
-	content = <div className="nan-insights__notice nan-insights__notice--error" role="alert">{ model.error }</div>;
-} else if ( 0 === model.accumulated && 0 === model.top.length ) {
-	content = <div className="nan-insights__empty">No scored items yet — drive the pipeline.</div>;
-} else {
-	content = /* the By-source list + score-ranked table + Draft button */;
+import { __ } from '@wordpress/i18n';
+import { useNodeState } from '@newspack-nodes/runtime';
+
+export function AccumulatedCard() {
+	const slice = useNodeState( 'accumulated:view', 'view' ) || { accumulated: 0 };
+
+	if ( slice.error ) {
+		return <div className="eai-insights__notice eai-insights__notice--error" role="alert">{ slice.error }</div>;
+	}
+	return (
+		<div className="eai-insights__stat">
+			<span className="eai-insights__stat-num">{ slice.accumulated ?? 0 }</span>
+			<span className="eai-insights__stat-label">{ __( 'Total items', 'example-ai-newsletter' ) }</span>
+		</div>
+	);
 }
 ```
 
-The **Draft newsletter** button is pure client-side — `draftNewsletter(model.top)` turns the already-ranked items into markdown with no server call:
+`SourceCounts` reads `source-counts:view` and renders one proportion bar per source — with its **own** error notice and its **own** "No sources yet" empty hint. `TopTable` reads `top-table:view` and renders the score-ranked table, with its own error/empty branches — that per-widget ownership of empty and error state *is* the composition: each card degrades independently. The `|| { … }` fallback in each (`useNodeState` returns undefined before the first reply) means the first render is valid — the view node guarantees its shaped-but-empty slice on construction.
+
+`TopTable` also owns the client-side newsletter actions (the **Draft newsletter** button, copy-markdown, create-draft-post) because they operate on *its* `top` items — no server call to draft. The three actions share one tiny normalizer so the on-screen preview, the markdown draft, and the draft-post HTML all agree on a row's display strings, `src/dashboard/itemLabel.js`:
 
 ```js
+import { __ } from '@wordpress/i18n';
+
+/** Normalize a ranked item to display strings — shared empty-field fallbacks, applied once. */
+export function itemLabel( item = {} ) {
+	return {
+		title:  item.title  || __( '(untitled)', 'example-ai-newsletter' ),
+		source: item.source || '?',
+	};
+}
+```
+
+`draftNewsletter` then turns the already-ranked `top` into markdown, `src/dashboard/draftNewsletter.js`:
+
+```js
+import { __ } from '@wordpress/i18n';
+import { itemLabel } from './itemLabel';
+
 export function draftNewsletter( items = [] ) {
-	const lines = [ `# Publisher Newsletter`, '' ];
+	const lines = [ `# ${ __( 'Publisher Newsletter', 'example-ai-newsletter' ) }`, '' ];
 	for ( const item of items ) {
-		lines.push( `- **${ item.title || '(untitled)' }** — ${ item.source || '?' }` );
+		const { title, source } = itemLabel( item );
+		lines.push( `- **${ title }** — ${ source }` );
 	}
 	return lines.join( '\n' );
 }
 ```
 
-`PublisherInsights` reads `import './styles/insights.scss'` — create that file. Style it to the **Newspack in-product design system** ([`docs/DESIGN.product.md`](DESIGN.product.md)): Cobalt (`#003DA5`) for the primary action, neutral surfaces (`#fff` / `#f7f7f7`) and borders (`#ddd`), `#1e1e1e` / `#6c6c6c` text, Inter, the 4/8/16/24 spacing scale, and functional colors (error `#B32D2E` on subtle `#FCF0F1`) only for status. The example's `insights.scss` is the reference. **Lay it out in flow** — a normal block in the admin content column — *not* `position: fixed` / full-bleed: that overlay pattern belongs to the Topology Console and the DevTools hub (which deliberately take over the viewport), and on a standalone admin page it just hides the WP admin bar and menu.
+`PublisherInsightsPage` reads `import './styles/insights.scss'` — create that file. Style it to the **Newspack in-product design system** ([`docs/DESIGN.product.md`](DESIGN.product.md)): Cobalt (`#003DA5`) for the primary action, neutral surfaces (`#fff` / `#f7f7f7`) and borders (`#ddd`), `#1e1e1e` / `#6c6c6c` text, Inter, the 4/8/16/24 spacing scale, and functional colors (error `#B32D2E` on subtle `#FCF0F1`) only for status. The example's `insights.scss` is the reference. **Lay it out in flow** — a normal block in the admin content column — *not* `position: fixed` / full-bleed: that overlay pattern belongs to the Topology Console and the DevTools hub (which deliberately take over the viewport), and on a standalone admin page it just hides the WP admin bar and menu.
 
-Wrap the component in a page so the bundle entry has a single default export to mount, `src/dashboard/PublisherInsightsPage.js`:
-
-```js
-import PublisherInsights from './PublisherInsights';
-
-export default function PublisherInsightsPage() {
-	return <PublisherInsights refreshMs={ 4000 } />;
-}
-```
-
-The bundle entry mounts that page into the div the PHP enqueue will render, `src/dashboard/index.js`:
+The bundle entry mounts the page into the div the PHP enqueue will render, `src/dashboard/index.js`:
 
 ```js
 import { createRoot } from '@wordpress/element';
@@ -489,7 +691,7 @@ document.addEventListener( 'DOMContentLoaded', () => {
 } );
 ```
 
-That is the entire view layer: one component reading one node's state, one client-side draft function, one mount.
+That is the entire view layer: three thin widgets reading three nodes, the client-side draft helpers, one mount.
 
 ---
 
@@ -519,7 +721,7 @@ buildDashboards( {
 } ).catch( ( err ) => { console.error( err ); process.exit( 1 ); } );
 ```
 
-`buildDashboards` rewrites every `@wordpress/*` import to the matching `window.wp.*` global (and records the dependency in `index.asset.php` so WordPress enqueues the right handles), compiles your SCSS, content-hashes the bundle for cache-busting, and emits the RTL companion. The `alias` map points the `@newspack-nodes/*` imports at the substrate's source — in this in-repo example, two levels up at `../../src`; a standalone plugin points them at its sibling `newspack-nodes` checkout (with `NEWSPACK_NODES_*` env overrides for CI).
+`buildDashboards` rewrites every `@wordpress/*` import to the matching `window.wp.*` global (and records the dependency in `index.asset.php` so WordPress enqueues the right handles), compiles your SCSS, content-hashes the bundle for cache-busting, and emits the RTL companion. The `alias` map points the `@newspack-nodes/*` imports at the substrate's source — in this in-repo example, two levels up at `../../src` from `ROOT`. (The `buildDashboards` import at the top of the file is `../../../src`, one `..` deeper, because *that* path resolves relative to `scripts/build.mjs` itself, while the aliases resolve from `ROOT` — match your own layout.) A standalone plugin points the aliases at its sibling `newspack-nodes` checkout instead, overridable per-environment via `NEWSPACK_NODES_*` env vars (CI sets them; copy the example's `scripts/build.mjs` for the exact env-override form).
 
 The jest config is one call too, `jest.config.js`:
 
@@ -608,11 +810,11 @@ A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) 
 
 > **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS `CommandClient` reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
 
-The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactly what the JS `CommandClient` reads to authenticate the `POST /command` — so `enqueue_react_page` (PHP) and `useDashboardGraph`'s lazily-built `CommandClient` (JS) are the two ends of one wire.
+The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactly what the JS `CommandClient` reads to authenticate the `POST /command` — so `enqueue_react_page` (PHP) and the hook's lazily-built `CommandClient` (JS) are the two ends of one wire.
 
 ---
 
-## 8. Run it — drive the pipeline, watch the dashboard
+## 8. Run it — drive the pipeline, watch the dashboard, then inspect the graph
 
 ```bash
 # Build the bundle, then deploy + activate the plugin on a site with the substrate.
@@ -631,28 +833,40 @@ wp nodes cli example-ai-newsletter.p0
 > request_node community TICK
 ```
 
-Each `TICK` flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Publisher Insights** (its own top-level item) in wp-admin. The page mounts, the poll fires, and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights), and **Draft newsletter** producing the markdown. It refreshes every 4 s while the tab is visible. `TICK` the sources again and watch the counts climb on the next poll.
+Each `TICK` flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Publisher Insights** (its own top-level item) in wp-admin. The page mounts, the three Fetchers fire on the first tick (one POST), and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights) with its **Draft newsletter** button, and the **Total items** card. It refreshes every tick while the tab is visible. `TICK` the sources again and watch the counts climb on the next poll.
 
-You drove a server-side worker and a browser React app with the same protocol — a `TICK` runtime request to the sources, then a poll of `insights` — because both ends speak it.
+**Now the payoff the god node forfeits — inspect the live graph.** Because every edge carries real traffic, you can introspect any of it without redeploying:
+
+```bash
+wp nodes cli example-ai-newsletter.p0       # (or open the topology console on the page)
+> connect _shell                             # watch EVERY command the Fetchers send, live
+> ls                                         # insights:timer, insights:tee, fetch-* — all at non-zero counters
+```
+
+Drop a `Tee` onto any edge to fork a copy of the traffic; `connect _shell` to watch the three commands stream out each tick; open the **debug overlay** on the page and watch the three counters (`fetch-counts`, `fetch-top`, `fetch-acc`) move independently. A god view-node at counter 0 gives you none of that — there's nothing flowing to observe. *That* is why you built the dashboard on Nodes instead of stapling a fetch loop to a React component.
+
+You drove a server-side worker and a browser React app with the same protocol — a `TICK` runtime request to the sources, then a batched poll of three slice verbs — because both ends speak it.
 
 ---
 
 ## 9. Recap — what you wrote vs. what the substrate gave you
 
-**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, an `Insights_CI` with one verb, a JS view node (one `fill`), a 12-line hook, a thin React component, a client-side draft function, and ~15 lines of build/jest/enqueue glue.
+**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each just an `emptySlice()`), a `mountExospine` hook that wires Timer → Tee → three Fetchers, **three thin widgets** each reading its own node, the client-side draft helpers, and ~15 lines of build/jest/enqueue glue.
 
-**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http` boundary, the JS node runtime and `mountExospine`, `useNodeState`, and — the through-line of this guide — six primitives that each used to be boilerplate in this very example:
+**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http`/`_shell` boundary, the JS node runtime and `mountExospine`, `useNodeState`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each used to be boilerplate in this very example:
 
 | You call | It replaced |
 |---|---|
+| `Fetcher` (trigger → one configured command, FROM=receiver) | a bespoke command-firing view node per dashboard (a Shell, verboten) |
 | `Partition_Node::read_latest_value_at()` | a 20-line offsetlog walk, duplicated in the CLI |
-| `Service_CI_Node` + `node_schema()` verb | a hand-built interpreter + REST controller |
-| `@newspack-nodes/shared/pendingReplies` | a per-view reply-correlation `Map` + error coercion |
-| `useDashboardGraph({ mountNodes, poll })` | a 120-line mount + poll + visibility hook |
+| `Service_CI_Node` + `node_schema()` verbs | a hand-built interpreter + REST controller |
+| `@newspack-nodes/shared/pendingReplies` (`errorMessage`) | a per-view error-coercion helper, copy-pasted |
 | `buildDashboards()` / `createJestConfig()` | a 250-line esbuild config + a footgun-prone jest config |
 | `Admin::enqueue_react_page()` | a 40-line page-gate + manifest + localize |
 
-That table *is* the lesson, and it's the same one the first guide ends on, lifted to the client: **you add a dashboard by composing primitives, not by building a dashboard framework.** Every line above that felt like boilerplate became a substrate primitive the moment writing this walkthrough exposed it — which is exactly where the boilerplate belongs. Uphold the `fill()` contract, lean on the shared pieces, and the next dashboard is the four files you actually care about: a view node, a hook, a component, and a service verb.
+And the one seam **still** hand-wired — the `_shell`-Tap + `_http` `lock`/`flush` batching in §4 — is the next row that table will gain, the moment a third caller copies it. That honesty is the method: every line that felt like boilerplate became a substrate primitive the moment writing this walkthrough exposed it.
+
+That table *is* the lesson, and it's the same one the first guide ends on, lifted to the client with one addition: **dashboards are composed node graphs, not a god view-node + god command.** You add a dashboard by composing primitives — a Timer, a Tee, Fetchers, thin view nodes, small verbs — not by building a dashboard framework and not by funneling everything through one node and one command. Uphold the `fill()` contract, decompose both sides, lean on the shared pieces, and the next dashboard is the handful of files you actually care about: the slice verbs, the view nodes, the widgets, and the hook that wires them.
 
 ---
 
@@ -660,5 +874,7 @@ That table *is* the lesson, and it's the same one the first guide ends on, lifte
 
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the headless pipeline this dashboard reads from.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, the REPL, and the JS runtime.
-- **[`examples/example-ai-newsletter/`](examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node and hook tested with a fake `CommandClient`, no browser).
-- **`newspack-event-logger-nodes`** — the production application: six real dashboards (performance, gyroscope, request stream, aggregator) built on these same primitives, including the SSE ones this guide's poll shape deliberately doesn't cover.
+- **[`examples/example-ai-newsletter/`](examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node, hook, and widget tested with a fake `CommandClient`, no browser).
+- **`newspack-event-logger-nodes`** — the production application: real dashboards (performance, gyroscope, request stream, aggregator) built on these same primitives, including the SSE ones this guide's poll shape deliberately doesn't cover.
+</content>
+</invoke>
