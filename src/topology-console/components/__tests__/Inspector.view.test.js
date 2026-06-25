@@ -715,6 +715,24 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Trace' ) ).not.toBeNull();
 	} );
 
+	it( 'hides verb buttons flagged hidden:true while keeping normal verbs', () => {
+		// A `hidden: true` command (e.g. Consumer's time-travel PAUSE, driven by
+		// the Time Travel transport bar) renders NO generic verb button; a normal
+		// command still does.
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{ name: 'PAUSE', hidden: true },
+					{ name: 'set_line_mode' },
+				],
+			},
+		];
+		const { queryByText } = renderNode( { catalog } );
+		expect( queryByText( 'PAUSE' ) ).toBeNull();
+		expect( queryByText( 'set_line_mode' ) ).not.toBeNull();
+	} );
+
 	// A node is a consumer when its dump_metadata carries frames (an array) AND a
 	// cursor — the read surface the inspector already holds, no class-name list.
 	// Frame ids are OFFSETLOG segment ids (monotonic, far past 0); the source
