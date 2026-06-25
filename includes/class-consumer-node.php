@@ -14,8 +14,16 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Consumer_Node extends Timer_Node {
 	use Schema_Reflection;
 
-	public const OFFSETLOG_SEGMENT_SIZE = 65536;
-	public const OFFSETLOG_NUM_SEGMENTS = 2;
+	// Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces
+	// one checkpoint = one segment = one frame, uniformly for stateless consumers
+	// (small offset records) and stateful/snapshot ones (offset + cache). Partition's
+	// do_rotate() adopts the still-empty newest segment on the first commit, then
+	// rotates to a fresh segment on every later commit (current_size ≥ 1 > the
+	// 1-byte threshold) — so segment_size=1 produces no empty-segment spam.
+	public const OFFSETLOG_SEGMENT_SIZE = 1;
+	// Retain the last 10 keyframes (time-travel history depth); load_offsetlog()
+	// crash-resume reads the newest segment, now exactly one record.
+	public const OFFSETLOG_NUM_SEGMENTS = 10;
 	public const MAX_LINE_BUFFER_SIZE = 33554432;
 
 	/**
@@ -70,6 +78,18 @@ class Consumer_Node extends Timer_Node {
 	private string $snapshot_node = '';
 
 	private bool $line_mode = false;
+
+	/**
+	 * Time-travel STEP captures the production line_mode here on the first step of
+	 * a session; PLAY restores it (line_mode is a legitimate production setting —
+	 * some topologies run it on) and clears this back to null.
+	 */
+	private ?bool $saved_line_mode = null;
+
+	// Defensive newest-biased cap on the frames LIST_FRAMES returns. One checkpoint =
+	// one segment = one frame, so retained frames track OFFSETLOG_NUM_SEGMENTS (10) and
+	// this cap effectively never fires; it only matters if num_segments is set unusually high.
+	public const MAX_LISTED_FRAMES = 500;
 
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
@@ -187,20 +207,19 @@ class Consumer_Node extends Timer_Node {
 		$value     = Core::as_string( $value_raw );
 		$verb      = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
 
-		$payload = null;
-		if ( 'GET_LAG' === $verb ) {
-			$payload = $this->compute_lag();
-		} elseif ( 'GET_OFFSET' === $verb ) {
-			$payload = [
+		$payload = match ( $verb ) {
+			'GET_LAG'     => $this->compute_lag(),
+			'GET_OFFSET'  => [
 				'cursor_seg'         => $this->cursor_seg,
 				'cursor_off'         => $this->cursor_off,
 				'checkpoint_seg'     => $this->checkpoint_seg,
 				'checkpoint_off'     => $this->checkpoint_off,
 				'last_checkpoint_ts' => (int) $this->last_checkpoint,
-			];
-		} else {
-			$payload = [ 'error' => "unknown request verb: {$verb}" ];
-		}
+			],
+			'LIST_FRAMES' => $this->list_frames(),
+			'READ_STATE'  => [ 'state' => $this->read_state() ],
+			default       => [ 'error' => "unknown request verb: {$verb}" ],
+		};
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
@@ -760,6 +779,203 @@ class Consumer_Node extends Timer_Node {
 		$this->line_mode = $flag;
 	}
 
+	// ============================================================================
+	// Time-travel transport (debugger UI): pause / step / play / seek a consumer.
+	// LIST_FRAMES + READ_STATE are read-only; STEP returns the resulting cursor.
+	// ============================================================================
+
+	/**
+	 * Lightweight checkpoint list for the debugger ruler: scan EVERY retained
+	 * offsetlog segment (unlike load_offsetlog, which reads only the newest),
+	 * parse each record's {seg, off, ts}, and return them oldest→newest. The
+	 * cache blob is deliberately omitted — caches can be up to 32MB and the ruler
+	 * only needs positions/timestamps. Unparseable records are skipped. Capped at
+	 * MAX_LISTED_FRAMES, newest-biased, with `truncated` set when the cap clipped.
+	 *
+	 * @api Consumed over the wire by the debugger UI (LIST_FRAMES request).
+	 * @return array{frames: array<int, array{seg:int, off:int, ts:int}>, truncated: bool}
+	 */
+	public function list_frames(): array {
+		if ( null === $this->offsetlog ) {
+			return [ 'frames' => [], 'truncated' => false ];
+		}
+		$frames = [];
+		foreach ( $this->scan_offsetlog_entries() as $entry ) {
+			$frames[] = [
+				'seg' => \is_numeric( $entry['seg'] ) ? (int) $entry['seg'] : 0,
+				'off' => \is_numeric( $entry['off'] ) ? (int) $entry['off'] : 0,
+				'ts'  => \is_numeric( $entry['ts'] ?? null ) ? (int) $entry['ts'] : 0,
+			];
+		}
+		$truncated = \count( $frames ) > self::MAX_LISTED_FRAMES;
+		if ( $truncated ) {
+			$frames = \array_slice( $frames, -self::MAX_LISTED_FRAMES );
+		}
+		return [ 'frames' => $frames, 'truncated' => $truncated ];
+	}
+
+	/**
+	 * Jump to a known (cursor, state) keyframe: re-read the offsetlog record at
+	 * {seg, off} to recover its co-committed cache, restore_state() it into the
+	 * snapshot node (when one is set), then reposition the read cursor there. Does
+	 * NOT resume the timer — a paused consumer stays paused after seeking.
+	 *
+	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
+	 * @return string 'ok', or an error string when the offsetlog/frame is absent.
+	 */
+	public function seek_frame( int $seg, int $off ): string {
+		if ( null === $this->offsetlog ) {
+			return 'error: no offsetlog to seek';
+		}
+		$frame = $this->find_frame( $seg, $off );
+		if ( null === $frame ) {
+			return "error: no frame at {$seg}:{$off}";
+		}
+		if ( '' !== $this->snapshot_node ) {
+			$node = Core::node( $this->snapshot_node );
+			$cache = \is_array( $frame['cache'] ?? null ) ? $frame['cache'] : null;
+			if ( null !== $cache && null !== $node && \method_exists( $node, 'restore_state' ) ) {
+				$node->restore_state( $cache );
+			}
+		}
+		$this->next_offset( [ 'seg' => $seg, 'off' => $off ] );
+		return 'ok';
+	}
+
+	/** Hold the cursor and emit nothing until STEP / PLAY. */
+	public function pause(): void {
+		$this->stop_timer();
+	}
+
+	/**
+	 * Single-step one message. Forces one-message granularity (capturing the
+	 * production line_mode on the first step of a session so PLAY can restore it),
+	 * then drives ticks until exactly one message is emitted or EOF is reached.
+	 *
+	 * @api Consumed over the wire by the debugger UI (auth-gated STEP command).
+	 * @return array{seg:int, off:int, at_eof:bool} The resulting cursor + EOF flag.
+	 */
+	public function step(): array {
+		// Stepping always leaves the consumer paused: an un-paused self-rearming
+		// fire() loop would interleave full-batch polls between steps (leaping the
+		// cursor past messages) and an abandoned session would stay in line_mode.
+		// PLAY re-arms. Idempotent — PAUSE-then-STEP makes this a no-op.
+		$this->stop_timer();
+		if ( null === $this->saved_line_mode ) {
+			$this->saved_line_mode = $this->line_mode;
+		}
+		$this->line_mode = true;
+		$before          = $this->counter;
+		// poll_init's first tick only loads the buffer (emits nothing in line
+		// mode), so always tick at least once, then keep going until one message
+		// lands or a poll leaves us genuinely at EOF with nothing buffered.
+		do {
+			$this->poll();
+		} while ( $this->counter === $before && ! $this->at_eof );
+		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => $this->at_eof ];
+	}
+
+	/**
+	 * Resume normal polling: restore the line_mode STEP captured (NOT hardcoded
+	 * false — line_mode is a legitimate production setting), clear the saved field,
+	 * and re-arm the fire() loop.
+	 */
+	public function play(): void {
+		if ( null !== $this->saved_line_mode ) {
+			$this->line_mode      = $this->saved_line_mode;
+			$this->saved_line_mode = null;
+		}
+		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
+	}
+
+	/**
+	 * The snapshot node's current save_state(), for the debugger state panel.
+	 * null when no snapshot node is set or the named node is missing.
+	 *
+	 * @api Consumed over the wire by the debugger UI (READ_STATE request).
+	 * @return mixed
+	 */
+	public function read_state(): mixed {
+		if ( '' === $this->snapshot_node ) {
+			return null;
+		}
+		$node = Core::node( $this->snapshot_node );
+		if ( null === $node || ! \method_exists( $node, 'save_state' ) ) {
+			return null;
+		}
+		return $node->save_state();
+	}
+
+	/**
+	 * Parse one packed offsetlog line into its {seg, off, ...} VALUE, or null when
+	 * the line is unparseable or its VALUE isn't the expected struct.
+	 *
+	 * @return array<array-key, mixed>|null
+	 */
+	private function parse_offsetlog_entry( string $line ): ?array {
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			return null;
+		}
+		$entry = $message[ Message::VALUE ];
+		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
+			return null;
+		}
+		return $entry;
+	}
+
+	/**
+	 * Scan the offsetlog for the record at {seg, off} (matching the committed
+	 * cursor it carries) and return its full VALUE — the variant that retains the
+	 * cache, used by seek_frame. null when no record matches.
+	 *
+	 * @return array<array-key, mixed>|null
+	 */
+	private function find_frame( int $seg, int $off ): ?array {
+		foreach ( $this->scan_offsetlog_entries() as $entry ) {
+			$entry_seg = \is_numeric( $entry['seg'] ) ? (int) $entry['seg'] : 0;
+			$entry_off = \is_numeric( $entry['off'] ) ? (int) $entry['off'] : 0;
+			if ( $entry_seg === $seg && $entry_off === $off ) {
+				return $entry;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Lazily yield every parsable offsetlog record (its {seg, off, ...} VALUE)
+	 * across ALL retained segments, oldest→newest, skipping blank/unparseable
+	 * lines. The shared scan skeleton for list_frames() (consumes all) and
+	 * find_frame() (stops on first match). Empty when the offsetlog is disabled.
+	 *
+	 * Cost: reads each segment whole (read_at 0..size). A snapshot consumer's
+	 * records carry the co-committed cache, so a segment — and thus a single
+	 * record here — can run to MAX_LARGE_LINE_SIZE (32MB); list_frames parses
+	 * that whole record just to keep {seg,off,ts}. Fine for an on-demand debug
+	 * verb, not free. A cheap-enumeration path would need checkpoint() to split
+	 * the cursor metadata and the cache into separate records.
+	 *
+	 * @return \Generator<int, array<array-key, mixed>>
+	 */
+	private function scan_offsetlog_entries(): \Generator {
+		if ( null === $this->offsetlog ) {
+			return;
+		}
+		foreach ( $this->offsetlog->get_segments( true ) as $segment ) {
+			$bytes = $this->offsetlog->read_at( $segment['id'], 0, $segment['size'] );
+			foreach ( \explode( "\n", $bytes ) as $line ) {
+				if ( '' === $line ) {
+					continue;
+				}
+				$entry = $this->parse_offsetlog_entry( $line );
+				if ( null !== $entry ) {
+					yield $entry;
+				}
+			}
+		}
+	}
+
 	protected function check_name_availability( string $name ): void {
 		parent::check_name_availability( $name );
 		if ( null !== $this->source && null !== Core::node( "{$name}:source" ) ) {
@@ -832,6 +1048,55 @@ class Consumer_Node extends Timer_Node {
 						return 'ok';
 					},
 				],
+				[
+					'name'        => 'SEEK_FRAME',
+					'description' => 'Time-travel: jump to the offsetlog checkpoint at <seg> <off>, restoring its co-committed snapshot state. Stays paused.',
+					'args'        => [
+						[ 'name' => 'seg', 'type' => 'int', 'required' => true ],
+						[ 'name' => 'off', 'type' => 'int', 'required' => true ],
+					],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron        = $interpreter->patron();
+						[ $seg, $off ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
+						return $patron->seek_frame( (int) $seg, (int) $off );
+					},
+				],
+				[
+					'name'        => 'PAUSE',
+					'description' => 'Time-travel: stop the poll timer; the consumer holds its cursor until STEP / PLAY.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						$patron->pause();
+						return 'ok';
+					},
+				],
+				[
+					'name'        => 'PLAY',
+					'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						$patron->play();
+						return 'ok';
+					},
+				],
+				[
+					// A COMMAND, not a request: STEP mutates (emits a message + advances the
+					// durable cursor), so it must ride the auth-gated interpreter path —
+					// handle_request() (the TM_REQUEST path) bypasses interpret()'s auth gate.
+					'name'        => 'STEP',
+					'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						return (string) \wp_json_encode( $patron->step() );
+					},
+				],
 			],
 			'requests'    => [
 				[
@@ -843,6 +1108,16 @@ class Consumer_Node extends Timer_Node {
 					'name'        => 'GET_OFFSET',
 					'description' => 'Current cursor + last checkpoint.',
 					'reply_shape' => '{ cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }',
+				],
+				[
+					'name'        => 'LIST_FRAMES',
+					'description' => 'Time-travel: lightweight list of offsetlog checkpoint frames (no cache blob), oldest→newest.',
+					'reply_shape' => '{ frames: [ { seg, off, ts } ], truncated }',
+				],
+				[
+					'name'        => 'READ_STATE',
+					'description' => 'Time-travel: the snapshot node\'s current save_state() for the state panel.',
+					'reply_shape' => '{ state }',
 				],
 			],
 			'accepts_fill' => false,

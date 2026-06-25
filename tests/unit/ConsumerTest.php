@@ -408,10 +408,9 @@ class ConsumerTest extends TestCase {
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
-		$offsetlog = "{$this->tmp}/offsets/r/p0/0.log";
-		$entries   = static fn (): int => \is_file( $offsetlog )
-			? \count( \array_filter( \explode( "\n", (string) \file_get_contents( $offsetlog ) ) ) )
-			: 0;
+		// One checkpoint = one segment (segment_size=1 keyframe timeline), so count
+		// records across ALL segment files, not just 0.log.
+		$entries = fn (): int => $this->count_offsetlog_records( "{$this->tmp}/offsets/r/p0" );
 
 		Core::$now = 1000.0;
 		$c->probe_fire(); // first fire → checkpoint
@@ -1180,6 +1179,9 @@ class ConsumerTest extends TestCase {
 
 	public function test_checkpoint_appends_when_cursor_has_advanced(): void {
 		// Inverse of the skip test: when cursor advances, a new entry MUST land.
+		// The offsetlog is a keyframe timeline (segment_size=1 → one commit per
+		// segment), so count total records across ALL segments rather than the
+		// growth of a single 0.log file.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
@@ -1190,16 +1192,23 @@ class ConsumerTest extends TestCase {
 		$c->poll();
 		$c->checkpoint();
 
-		$path  = "{$this->tmp}/offsets/r/p0/0.log";
-		$size1 = filesize( $path );
+		$count1 = $this->count_offsetlog_records( "{$this->tmp}/offsets/r/p0" );
 
 		$this->produce_line( $source, 'second' );
 		$c->poll();
 		$c->checkpoint();
-		clearstatcache( true, $path );
-		$size2 = filesize( $path );
+		$count2 = $this->count_offsetlog_records( "{$this->tmp}/offsets/r/p0" );
 
-		$this->assertGreaterThan( $size1, $size2, 'cursor advancement must add a new offsetlog entry' );
+		$this->assertGreaterThan( $count1, $count2, 'cursor advancement must add a new offsetlog entry' );
+	}
+
+	/** Total non-blank offsetlog records across every segment file under $dir. */
+	private function count_offsetlog_records( string $dir ): int {
+		$total = 0;
+		foreach ( \glob( "{$dir}/*.log" ) as $path ) {
+			$total += \count( \array_filter( \explode( "\n", (string) \file_get_contents( $path ) ) ) );
+		}
+		return $total;
 	}
 
 	// ============================================================================
@@ -1983,9 +1992,9 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
 		$this->assertSame(
-			[ 'set_snapshot_node', 'set_line_mode' ],
+			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP' ],
 			\array_column( $schema['commands'], 'name' ),
-			'Consumer exposes the snapshot-cache + line-mode config verbs'
+			'Consumer exposes the snapshot-cache + line-mode config verbs plus the time-travel transport (STEP is a mutating command, not a request)'
 		);
 
 		// Two ctor params: source_dir (required), offsetlog_base_dir (default '').
@@ -1996,11 +2005,15 @@ class ConsumerTest extends TestCase {
 			$names
 		);
 
-		// Two request verbs: GET_LAG + GET_OFFSET with documented reply shapes.
-		$this->assertCount( 2, $schema['requests'] );
+		// Request verbs are READ-ONLY: GET_LAG + GET_OFFSET + the time-travel read
+		// verbs. STEP is NOT here — it mutates, so it's an auth-gated command.
+		$this->assertCount( 4, $schema['requests'] );
 		$verbs = \array_column( $schema['requests'], 'name' );
 		$this->assertContains( 'GET_LAG', $verbs );
 		$this->assertContains( 'GET_OFFSET', $verbs );
+		$this->assertContains( 'LIST_FRAMES', $verbs );
+		$this->assertContains( 'READ_STATE', $verbs );
+		$this->assertNotContains( 'STEP', $verbs, 'STEP mutates — it must not be an un-gated request verb' );
 		foreach ( $schema['requests'] as $req ) {
 			$this->assertNotSame( '', $req['description'] );
 			$this->assertNotSame( '', $req['reply_shape'] );
