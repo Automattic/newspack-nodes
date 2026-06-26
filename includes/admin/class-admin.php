@@ -202,7 +202,12 @@ class Admin {
 			// var(--np-*) references resolve (the `.newspack-nodes-theme` root
 			// class carries the tokens; this loads their definitions).
 			$style_deps = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-theme' ];
-			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $version );
+			// Cache-bust the stylesheet on its OWN content hash, not $version (the JS
+			// bundle hash): a SCSS-only rebuild leaves the JS hash unchanged, so reusing
+			// it would serve the stylesheet from cache behind a stale ?ver= (a CSS-only
+			// change would need a hard-refresh to land).
+			$style_version = \md5_file( "{$dir}/index.css" ) ?: $version;
+			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
 			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
 				\wp_style_add_data( $handle, 'rtl', 'replace' );
 			}

@@ -202,6 +202,20 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertSame( [], $GLOBALS['_enqueued_styles']['test-handle']['deps'] );
 		}
 
+		public function test_css_version_tracks_css_content_not_js_manifest_version(): void {
+			$this->seed_tree( manifest: true, css: true );
+			$_GET = [ 'page' => 'my-page' ];
+			Admin::enqueue_react_page( $this->args() );
+
+			// The CSS cache-bust must ride the CSS file's own content hash, NOT the JS
+			// manifest version ('deadbeef'): the manifest version is the JS bundle hash,
+			// so a SCSS-only rebuild (JS unchanged) would leave the stylesheet cached
+			// behind a stale ?ver= and force a hard-refresh to pick up style changes.
+			$css_ver = $GLOBALS['_enqueued_styles']['test-handle']['version'];
+			$this->assertNotSame( 'deadbeef', $css_ver, 'CSS must not reuse the JS manifest version' );
+			$this->assertSame( \md5_file( "{$this->tree_dir}/index.css" ), $css_ver );
+		}
+
 		public function test_activates_rtl_when_rtl_css_present(): void {
 			$this->seed_tree( css: true, rtl: true );
 			$_GET = [ 'page' => 'my-page' ];
