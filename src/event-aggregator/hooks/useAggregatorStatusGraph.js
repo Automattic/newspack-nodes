@@ -1,55 +1,43 @@
 /* global localStorage */
 /**
- * useAggregatorStatusGraph — mounts the Aggregator Status dashboard node graph
- * onto the canonical rule-#2 backbone (`_command_interpreter → _router`) using
- * the substrate's HTTP I/O boundary node — the minimal mount surface a
- * poll-only dashboard needs:
+ * useAggregatorStatusGraph — the de-god Aggregator Status data graph as a GENUINE
+ * node graph on the substrate batched-poll toolkit (useBatchedPoll +
+ * addSliceFetcher). The single `status` god poll feeding one `aggregator:view`
+ * god view is gone; in its place two independent per-concern slice paths:
  *
- *   _http       (HttpOutNode — POST /command boundary; .client = CommandClient)
+ *   <tee> → fetch-summary (Fetcher, FROM=summaryIn) → _shell/_http/aggregator
+ *           summaryIn (Tee) → summary:view (AggregatorSummaryView)
+ *   <tee> → fetch-servers (Fetcher, FROM=serversIn) → _shell/_http/aggregator
+ *           serversIn (Tee) → servers:view (AggregatorServersView)
  *
- * Plus the application's render-model node:
+ * useBatchedPoll owns the Timer/Tee/_shell/_http + the lock-flush batching (so
+ * both slices ride ONE HttpOut POST per tick) + the page-visibility gate; the
+ * `_shell` Tap in front of `_http` makes every command going out inspectable.
+ * The server CI replies TO=FROM=<receiver>, so each slice's reply lands ONLY on
+ * its own receiver Tee → view — an independent reply path, nothing crosses. That
+ * decomposition is the whole point of the de-god.
  *
- *   aggregator:view (the view-model node the React view reads)
- *
- * Dashboards aren't REPLs: no transcript window, no tab-completion input, no
- * uptime display, no `cd` navigation. So `_output` / `_completion` / `_uptime` /
- * `_cwd` are NOT mounted here — they'd be dead weight and would collide with
- * the debug-overlay's REPL when it opens on this page.
- *
- * The graph build is handed to `mountExospine( build )`, which snapshots Core so
- * the soft nodes can be torn down + rebuilt on `reinit()` ("Reset Graph"). The
- * hook owns the poll setInterval — on every tick it builds a TM_COMMAND
- * (FROM=`aggregator:view`, TO=`_http/aggregator`, verb=`status`) and fills it
- * into the interpreter. The router peels `_http`, HttpOutNode POSTs the command, the server
- * pivots the reply TO=FROM, the router peels `aggregator:view`, and the view
- * unwraps the payload into its render model. No bespoke `aggregator:poll` node.
- *
- * NOT gated on page visibility — the old AggregatorStatus polled
- * unconditionally, so the migration preserves that exactly. The 1s "ago" tick
- * that refreshes relative timestamps stays in the thin view — pure display.
+ * Each slice verb (`summary`, `servers_status`) is read-only and cheap; both poll
+ * unconditionally on the user-chosen interval (the old AggregatorStatus polled
+ * unconditionally, and useBatchedPoll's page-visibility gate only pauses a HIDDEN
+ * tab — the same effect the old code never opted out of).
  *
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
- * to `_http.client`) so the hook never touches the network. Production lazily
- * defaults to the shared CommandClient singleton.
+ * to `_http.client`); production lazily defaults to the shared CommandClient.
+ *
+ * Returns ONLY the refresh control (`setRefreshInterval` / `refreshInterval`);
+ * React reads each slice via its own useNodeState('<slice>:view','view').
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
-import {
-	mountExospine,
-	CommandClient,
-	newMessage,
-	TYPE,
-	TO,
-	FROM,
-	VALUE,
-	TM_COMMAND,
-} from '@newspack-nodes/runtime';
+import { useEffect, useState } from '@wordpress/element';
+import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
 
-// The I/O boundary node mounted from the substrate runtime.
-const HTTP = '_http';
-// The application's render-model node.
-const VIEW = 'aggregator:view';
+// The server CI mount + the egress path the Fetchers target (useBatchedPoll owns
+// `_shell`/`_http`; the caller names the server CI mount).
+const SERVER = 'aggregator';
+const TARGET = `_shell/_http/${ SERVER }`;
 
 // Refresh-interval options offered to the user (the select in the dashboard).
 export const REFRESH_OPTIONS = [
@@ -77,109 +65,65 @@ function initialRefresh() {
 	return DEFAULT_REFRESH_MS;
 }
 
-/**
- * Build the poll TM_COMMAND: FROM=`aggregator:view` so the server's reply pivot
- * lands on the view; TO=`_http/aggregator` so the router peels `_http` and
- * HttpOutNode POSTs the bare `aggregator.status` command (no worker indirection).
- *
- * @return {Array} A 7-field positional Message.
- */
-function buildPollMessage() {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = VIEW;
-	m[ TO ] = `${ HTTP }/aggregator`;
-	m[ VALUE ] = { name: 'status', arguments: '' };
-	return m;
-}
+// The two per-concern slices: the header summary (counts + clock) and the
+// server-cards data. Each is one Fetcher → receiver Tee → view; addSliceFetcher
+// wires the inspectable reply path per slice.
+const SLICES = [
+	{
+		fetcher: 'fetch-summary',
+		receiver: 'summaryIn',
+		command: 'summary',
+		view: 'summary:view',
+		viewClass: 'AggregatorSummaryView',
+	},
+	{
+		fetcher: 'fetch-servers',
+		receiver: 'serversIn',
+		command: 'servers_status',
+		view: 'servers:view',
+		viewClass: 'AggregatorServersView',
+	},
+];
 
 /**
  * @param {Object} [opts]               Options (testing seams).
  * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`;
- *                                      defaults to a freshly-constructed CommandClient.
+ *                                      defaults (inside useBatchedPoll) to a freshly-constructed CommandClient.
  * @return {{ setRefreshInterval: Function, refreshInterval: string }} Control
- *   callbacks for the thin React view (the model is read via useNodeState). Reset
- *   Graph is driven by the overlay via `Core.reinit`, stashed by mountExospine.
+ *   callbacks for the thin React view (each slice is read via useNodeState).
  */
 export function useAggregatorStatusGraph( opts = {} ) {
-	const optsRef = useRef( opts );
-	optsRef.current = opts;
-
 	// The persisted refresh interval (string ms); seeds from localStorage.
 	const [ refreshInterval, setRefreshIntervalState ] =
 		useState( initialRefresh );
 
-	// Live interpreter handle for the poll-interval effect.
-	const interpreterRef = useRef( null );
-
-	// Bumped on every (re)build so a consumer's useNodeState re-subscribes to the
-	// freshly-registered view node. A monotonic counter, not a boolean latch —
-	// reinit()'s second build must still force a render.
-	const [ , bumpBuild ] = useState( 0 );
-
-	// Mount the graph once: clip it onto the exospine, then fire one immediate poll.
-	useEffect( () => {
-		// The soft view-nodes the backbone clips onto. mountExospine snapshots
-		// Core around this so reinit() removes exactly these and rebuilds them.
-		const build = ( { interpreter } ) => {
-			const data =
-				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
-				{};
-
-			// I/O boundary node — HttpOutNode is the only one this poll-only dashboard
-			// needs.
-			const http = interpreter.makeNode( 'HttpOut', HTTP );
-			http.client =
-				optsRef.current.commandClient ||
-				new CommandClient( {
-					baseUrl: data.restUrl || '/wp-json/',
-					nonce: data.nonce || '',
-				} );
-
-			// The application view-model node — the receiver of the poll reply via the
-			// server's TO=FROM pivot.
-			interpreter.makeNode( 'AggregatorView', VIEW );
-
-			interpreterRef.current = interpreter;
-
-			// Re-render so useNodeState re-subscribes to the freshly-mounted view node.
-			bumpBuild( ( n ) => n + 1 );
-
-			// Fire one immediate poll: the canonical "everything sinks into the interpreter"
-			// path — interpreter forwards (non-command, non-empty-TO) to router → router peels
-			// `_http` → HttpOutNode.fill POSTs the command.
-			interpreter.fill( buildPollMessage() );
-
-			// Non-node side effects undone before the nodes are removed.
-			return () => {
-				interpreterRef.current = null;
-			};
-		};
-
-		const { teardown } = mountExospine( build );
-		return teardown;
-	}, [] );
+	// The de-god poll graph: each slice as an independent Fetcher → receiver Tee →
+	// view path on the shared batched-poll backbone. useBatchedPoll owns the
+	// Timer/Tee/_shell/_http + lock-flush; both slices ride one POST per tick.
+	useBatchedPoll( {
+		build: ( { interpreter, tee } ) => {
+			SLICES.forEach( ( slice ) =>
+				addSliceFetcher( interpreter, {
+					...slice,
+					tee,
+					target: TARGET,
+				} )
+			);
+		},
+		timerName: 'aggregator:timer',
+		teeName: 'aggregator:tee',
+		commandClient: opts.commandClient,
+		// The refresh selector's value (ms string) becomes the poll cadence: > 1s
+		// hitchhikes the router TIMER and throttles to it; changing it re-arms.
+		intervalMs: parseInt( refreshInterval, 10 ) || 0,
+	} );
 
 	// Persist the refresh choice (matches the old save-to-localStorage effect).
 	useEffect( () => {
 		localStorage.setItem( REFRESH_KEY, refreshInterval );
 	}, [ refreshInterval ] );
 
-	// Own the poll interval: re-timed on interval change, cleared on unmount. NOT
-	// gated on visibility — the old AggregatorStatus polled unconditionally. Reads
-	// the live interpreter ref each tick, so it keeps polling the stable backbone
-	// across a reinit (the fresh view receives the reply via TO=FROM by name).
-	useEffect( () => {
-		const intervalMs = parseInt( refreshInterval, 10 );
-		const id = setInterval( () => {
-			if ( interpreterRef.current ) {
-				interpreterRef.current.fill( buildPollMessage() );
-			}
-		}, intervalMs );
-		return () => clearInterval( id );
-	}, [ refreshInterval ] );
-
-	// Change + persist the refresh interval; the interval effect re-times.
+	// Change + persist the refresh interval; useBatchedPoll's interval effect re-paces.
 	const setRefreshInterval = ( value ) => {
 		setRefreshIntervalState( value );
 	};

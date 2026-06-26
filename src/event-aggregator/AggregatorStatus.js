@@ -1,11 +1,15 @@
 /**
  * Aggregator Status Component
  *
- * THIN view over the `aggregator:*` node graph (mounted by
- * useAggregatorStatusGraph). The graph owns all data: `aggregator:poll` runs the
- * status command on the hook's interval and `aggregator:view` turns the raw
- * snapshot into the render model (map→array, connected count, serverNow). This
- * component only reads that model (via useNodeState) and renders — the pure
+ * THIN view over the DE-GOD `aggregator:*` node graph (mounted by
+ * useAggregatorStatusGraph). The single god `status` poll feeding one
+ * `aggregator:view` is gone; the graph now owns TWO independent per-concern
+ * slices, each on its own slice verb with its own inspectable reply path:
+ *
+ *   summary:view → the header strip (connected/total counts + snapshot clock)
+ *   servers:view → the server cards (per-server partition grids)
+ *
+ * This component reads each slice via its own useNodeState and renders — the pure
  * presentation helpers below (formatTime / formatRtt / getRttClass /
  * PartitionStatus / ServerCard) are unchanged. The 1s "ago" tick stays here: it's
  * pure display, re-rendering the relative timestamps without re-polling.
@@ -22,15 +26,20 @@ import {
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import './styles/aggregator-status.scss';
 
-// The view model before the first poll publishes one — drives the loading gate.
-const EMPTY_MODEL = {
-	servers: null,
+// The slice models before each slice's first poll publishes — drive the loading
+// gates. summary owns the header counts + clock; servers owns the card data.
+const EMPTY_SUMMARY = {
+	connected: 0,
+	total: 0,
 	serverNow: null,
-	connectedCount: 0,
-	totalCount: 0,
 	error: null,
 	loading: true,
 	lastRefresh: null,
+};
+const EMPTY_SERVERS = {
+	servers: null,
+	error: null,
+	loading: true,
 };
 
 /**
@@ -280,22 +289,18 @@ function ServerCard( { server, now } ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
-	// Mount the node graph; it owns the poll, the map→array + connected-count
-	// derivation, and the interval. It returns the thin refresh control + the
-	// current interval.
+	// Mount the node graph; it owns the two per-concern poll slices + the interval.
+	// It returns the thin refresh control + the current interval.
 	const { setRefreshInterval, refreshInterval } = useAggregatorStatusGraph();
 
-	// The single read surface: the render model the graph publishes.
-	const model = useNodeState( 'aggregator:view', 'view' ) ?? EMPTY_MODEL;
-	const {
-		servers,
-		serverNow,
-		connectedCount,
-		totalCount,
-		error,
-		loading,
-		lastRefresh,
-	} = model;
+	// Two independent read surfaces — one per slice the graph publishes.
+	const summary = useNodeState( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
+	const serversSlice =
+		useNodeState( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
+	// Header strip reads the summary slice (counts + clock + refresh marker).
+	const { connected, total, serverNow, lastRefresh } = summary;
+	// Server cards read the servers slice (data + its own loading/error gate).
+	const { servers, error, loading } = serversSlice;
 
 	const [ , setTick ] = useState( 0 );
 
@@ -325,7 +330,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 			</div>
 			{ servers && (
 				<div className="aggregator-status-server-count">
-					<strong>{ connectedCount }</strong> / { totalCount }{ ' ' }
+					<strong>{ connected }</strong> / { total }{ ' ' }
 					{ __( 'connected', 'newspack-nodes' ) }
 				</div>
 			) }
