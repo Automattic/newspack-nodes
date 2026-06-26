@@ -323,6 +323,58 @@ describe( 'useBatchedPoll — paused gate', () => {
 	} );
 } );
 
+describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => {
+	test( 'arms the owned Timer at the given intervalMs (hitchhike + throttle)', async () => {
+		renderHook( () =>
+			useBatchedPoll( {
+				build: buildSlices,
+				timerName: 'insights:timer',
+				teeName: 'insights:tee',
+				commandClient: makeFakeClient(),
+				intervalMs: 5000,
+			} )
+		);
+		await act( async () => {} );
+
+		const timer = Core.node( 'insights:timer' );
+		// > 1000 ms → hitchhike the router TIMER and throttle in fireCb().
+		expect( timer.mode ).toBe( 'router' );
+		expect( timer.interval_ms ).toBe( 5000 );
+		expect( Core.node( ROUTER ).registrations.TIMER ).toHaveProperty(
+			'insights:timer'
+		);
+	} );
+
+	test( 'changing intervalMs re-arms the Timer to the new cadence', async () => {
+		const { rerender } = renderHook(
+			( { intervalMs } ) =>
+				useBatchedPoll( {
+					build: buildSlices,
+					timerName: 'insights:timer',
+					teeName: 'insights:tee',
+					commandClient: makeFakeClient(),
+					intervalMs,
+				} ),
+			{ initialProps: { intervalMs: 5000 } }
+		);
+		await act( async () => {} );
+		expect( Core.node( 'insights:timer' ).interval_ms ).toBe( 5000 );
+
+		await act( async () => {
+			rerender( { intervalMs: 30000 } );
+		} );
+		expect( Core.node( 'insights:timer' ).interval_ms ).toBe( 30000 );
+		expect( Core.node( 'insights:timer' ).mode ).toBe( 'router' );
+	} );
+
+	test( 'no intervalMs keeps the every-tick hitchhike (interval_ms 0)', async () => {
+		renderPoll( { commandClient: makeFakeClient() } );
+		await act( async () => {} );
+		expect( Core.node( 'insights:timer' ).interval_ms ).toBe( 0 );
+		expect( Core.node( 'insights:timer' ).mode ).toBe( 'router' );
+	} );
+} );
+
 describe( 'useBatchedPoll — teardown', () => {
 	test( 'on unmount it clears the router lock/flush hooks and removes the owned nodes', async () => {
 		const { unmount } = renderPoll( { commandClient: makeFakeClient() } );

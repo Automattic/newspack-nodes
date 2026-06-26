@@ -1211,6 +1211,11 @@ class PartitionTest extends TestCase {
 		$flag->setAccessible( true );
 		$flag->setValue( $ef, true );
 
+		// A real worker drain always has a _router (Worker_Base mounts it before the
+		// drain); the 20s heartbeat timer now hitchhikes it (interval > 1000 ms).
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+
 		try {
 			$p = new Partition_Node();
 			$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );

@@ -294,6 +294,10 @@ class SettingsSyncNodeTest extends TestCase {
 	}
 
 	public function test_arguments_arms_recurring_timer(): void {
+		// A 300s cadence (interval_ms > 1000) now hitchhikes the Router TIMER and
+		// throttles in fire_cb() — a real worker drain always has a _router.
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
@@ -302,12 +306,13 @@ class SettingsSyncNodeTest extends TestCase {
 		$ref = new \ReflectionObject( $node );
 		$this->assertSame( 300000, $node->interval_ms );
 		$this->assertFalse( $node->oneshot );
-		$this->assertGreaterThan( 0.0, $node->next_fire );
 		$mode = $ref->getProperty( 'mode' );
-		$this->assertSame( 'event_framework', $mode->getValue( $node ) );
+		$this->assertSame( 'router', $mode->getValue( $node ) );
 	}
 
 	public function test_arguments_blank_arms_default_cadence(): void {
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 

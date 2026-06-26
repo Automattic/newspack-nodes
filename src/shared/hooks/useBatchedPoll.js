@@ -37,6 +37,7 @@
  * @param {string}   opts.teeName         Name for the owned fan-out Tee.
  * @param {Object}   [opts.commandClient] CommandClient seam assigned to `_http.client`.
  * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
+ * @param {number}   [opts.intervalMs]    Poll cadence in ms: > 1000 hitchhikes + throttles to it; omitted/0 fires every router tick. Changing it re-arms the Timer.
  * @return {{ interpreterRef: Object }} A ref to the live interpreter.
  */
 
@@ -48,6 +49,17 @@ import usePageVisibility from './usePageVisibility';
 // observe-only Tap in front of it.
 const HTTP = '_http';
 const SHELL = '_shell';
+
+// Arm the owned Timer's router-TIMER hitchhike at the optional intervalMs: > 1000
+// hitchhikes + throttles in fireCb(); omitted/0 fires every router tick. Either
+// way the Timer rides the shared TIMER so the tick's commands batch into ONE POST.
+function armTimer( timer, intervalMs ) {
+	if ( intervalMs > 1000 ) {
+		timer.setTimer( intervalMs );
+	} else {
+		timer.setTimer();
+	}
+}
 
 export function useBatchedPoll( opts ) {
 	// Read opts live inside build without re-running the once-only mount effect.
@@ -97,7 +109,9 @@ export function useBatchedPoll( opts ) {
 
 			const timer = interpreter.makeNode( 'Timer', timerName );
 			timer.connectNode( teeName );
-			timer.setTimer();
+			// intervalMs > 1000 hitchhikes the router TIMER and throttles in fireCb()
+			// (the batch still rides one tick's POST); omitted/0 fires every tick.
+			armTimer( timer, optsRef.current.intervalMs );
 			timerRef.current = timer;
 
 			interpreterRef.current = interpreter;
@@ -144,20 +158,22 @@ export function useBatchedPoll( opts ) {
 	}, [] );
 
 	// Toggle the Timer's router-TIMER hitchhike with tab visibility AND the
-	// caller's `paused` flag (e.g. an Overview drag in flight). Poll only when
-	// visible and not paused; either gate stops the Timer → no fan-out → no POST.
-	// Runs after the mount effect (so the timer exists); a null ref no-ops.
+	// caller's `paused` flag (e.g. an Overview drag in flight), and re-arm at the
+	// current `intervalMs` (so changing the refresh selector re-paces the poll).
+	// Poll only when visible and not paused; either gate stops the Timer → no
+	// fan-out → no POST. Runs after the mount effect (so the timer exists); a null
+	// ref no-ops.
 	useEffect( () => {
 		const timer = timerRef.current;
 		if ( ! timer ) {
 			return;
 		}
 		if ( isPageVisible && ! opts.paused ) {
-			timer.setTimer();
+			armTimer( timer, opts.intervalMs );
 		} else {
 			timer.stopTimer();
 		}
-	}, [ isPageVisible, opts.paused ] );
+	}, [ isPageVisible, opts.paused, opts.intervalMs ] );
 
 	return { interpreterRef };
 }

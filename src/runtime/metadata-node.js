@@ -276,8 +276,12 @@ export class MetadataNode extends TimerNode {
 		super();
 		this.registrations.metadata = {};
 		// Self-throttle state: lastFired in Core.now() seconds; lastPath is the
-		// pivot we last polled (a cd re-polls immediately). interval_ms is set
-		// from the graph size on each response (computePollIntervalMs).
+		// pivot we last polled (a cd re-polls immediately). pollIntervalMs is set
+		// from the graph size on each response (computePollIntervalMs). It is a
+		// DEDICATED field, NOT the base interval_ms: a cd must re-poll the SAME tick
+		// even mid-interval, which the base fireCb() throttle can't express — so the
+		// base stays at interval_ms 0 (fire every tick) and fire() gates itself.
+		this.pollIntervalMs = 1000;
 		this.lastFired = 0;
 		this.lastPath = null;
 	}
@@ -305,7 +309,7 @@ export class MetadataNode extends TimerNode {
 		this.rawMap = incoming;
 		const parsed = parseMetadata( incoming );
 		// Scale the self-managed poll cadence to the graph we just received.
-		this.interval_ms = computePollIntervalMs( parsed.nodes.length );
+		this.pollIntervalMs = computePollIntervalMs( parsed.nodes.length );
 		this.setState( 'metadata', parsed );
 	}
 
@@ -322,7 +326,7 @@ export class MetadataNode extends TimerNode {
 		// pivot path, swapped by a cd without remounting us.
 		const cwd = Core.node( this.target );
 		const path = cwd && typeof cwd.target === 'string' ? cwd.target : '';
-		const intervalMs = this.interval_ms || 1000;
+		const intervalMs = this.pollIntervalMs || 1000;
 		if (
 			( now - this.lastFired ) * 1000 >= intervalMs ||
 			path !== this.lastPath

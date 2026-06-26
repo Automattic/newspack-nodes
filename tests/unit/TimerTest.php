@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
@@ -190,6 +191,81 @@ class TimerTest extends TestCase {
 
 		$timer->set_timer();
 		$this->assertSame( 'router', $this->mode_of( $timer ) );
+	}
+
+	// ── hitchhike + throttle (set_timer($ms) with $ms > 1000) ─────────────────
+
+	public function test_set_timer_over_1000_hitchhikes_the_router(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$router->interval_ms = 1000;
+		$timer = new Timer_Node();
+		$timer->name( 'slow' );
+
+		$timer->set_timer( 5000 );
+
+		$this->assertSame( 'router', $this->mode_of( $timer ) );
+		$this->assertSame( 5000, $timer->interval_ms );
+		// No own-slot was scheduled in the Event_Framework.
+		$ef   = ( new \ReflectionObject( Event_Framework::instance() ) )->getProperty( 'timers' );
+		$ef->setAccessible( true );
+		$this->assertCount( 0, $ef->getValue( Event_Framework::instance() ) );
+		$timer->stop_timer();
+	}
+
+	public function test_fire_cb_throttles_to_interval_ms_across_router_ticks(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$router->interval_ms = 1000;
+		$timer = new Timer_Node();
+		$timer->name( 'slow-throttle' );
+		$capture = new Capture_Sink_Node();
+		$timer->sink( $capture );
+		$timer->set_timer( 5000 );
+
+		// Five 1s router ticks; only the tick at-or-past 5s emits.
+		for ( $i = 1; $i <= 5; $i++ ) {
+			Core::$now = (float) $i;
+			$timer->fire_cb();
+		}
+		$this->assertCount( 1, $capture->captured );
+
+		// Five more ticks → one more emit at the 10s boundary.
+		for ( $i = 6; $i <= 10; $i++ ) {
+			Core::$now = (float) $i;
+			$timer->fire_cb();
+		}
+		$this->assertCount( 2, $capture->captured );
+		$timer->stop_timer();
+	}
+
+	public function test_set_timer_at_or_below_1000_uses_own_slot(): void {
+		$timer = new Timer_Node();
+		$timer->name( 'fast' );
+		$timer->set_timer( 1000 );
+		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
+		$timer->stop_timer();
+	}
+
+	public function test_no_ms_hitchhike_fires_every_tick_without_throttle(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$router->interval_ms = 1000;
+		$timer = new Timer_Node();
+		$timer->name( 'every-tick' );
+		$capture = new Capture_Sink_Node();
+		$timer->sink( $capture );
+		$timer->set_timer();
+
+		Core::$now = 1.0;
+		$timer->fire_cb();
+		Core::$now = 1.1;
+		$timer->fire_cb();
+		Core::$now = 1.2;
+		$timer->fire_cb();
+
+		$this->assertCount( 3, $capture->captured );
+		$timer->stop_timer();
 	}
 
 	public function test_oneshot_goes_inactive_after_one_fire(): void {

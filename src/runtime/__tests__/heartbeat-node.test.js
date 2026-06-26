@@ -67,27 +67,31 @@ describe( 'Heartbeat node', () => {
 			expect( sent ).toHaveLength( 0 );
 		} );
 
-		it( 'throttles: two fire() calls <5s apart emit once', () => {
+		it( 'throttles: two fireCb() ticks <5s apart emit once', () => {
+			// The 5s cadence is now the base Timer throttle (interval_ms = 5000) in
+			// fireCb(); fire() itself is the unthrottled per-due emit.
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
+			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
-			node.fire();
+			node.fireCb();
 			nowSpy.mockReturnValue( 103 );
-			node.fire();
+			node.fireCb();
 			expect( sent ).toHaveLength( 1 );
 		} );
 
-		it( 'emits twice when calls are >=5s apart', () => {
+		it( 'emits twice when ticks are >=5s apart', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
+			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
-			node.fire();
+			node.fireCb();
 			nowSpy.mockReturnValue( 105 );
-			node.fire();
+			node.fireCb();
 			expect( sent ).toHaveLength( 2 );
 		} );
 
