@@ -39,9 +39,10 @@ const SAMPLE_SERVERS = [
 	},
 ];
 
-// A minimal stand-in for the vault:view node: the model lives in
-// setStateCache.view (what useNodeState subscribes to). setState here notifies
-// subscribers exactly like the real Node.setState.
+// A minimal stand-in for the vault:list view node (post de-god split): the model
+// lives in setStateCache.view (what useNodeState subscribes to). setState here
+// notifies subscribers exactly like the real Node.setState. The TEST-result
+// concern (vault:test) is a separate node; VaultAdmin's table reads vault:list.
 function registerViewFixture( overrides = {} ) {
 	const model = {
 		servers: null,
@@ -69,7 +70,7 @@ function registerViewFixture( overrides = {} ) {
 		},
 	};
 	node.setState( 'view', model );
-	Core.nodes.set( 'vault:view', node );
+	Core.nodes.set( 'vault:list', node );
 	return node;
 }
 
@@ -141,6 +142,22 @@ describe( 'VaultAdmin', () => {
 		registerViewFixture();
 		mount();
 		expect( useVaultGraph ).toHaveBeenCalled();
+	} );
+
+	it( 'reads the table from the vault:list view (de-god split), not the old vault:view god node', () => {
+		// Register the model under the OLD name; the table must NOT pick it up.
+		const stale = registerViewFixture( {
+			servers: SAMPLE_SERVERS,
+			loading: false,
+		} );
+		Core.nodes.delete( 'vault:list' );
+		Core.nodes.set( 'vault:view', stale );
+		const { container } = mount();
+		expect(
+			container.querySelector( 'tr[data-server-id="spoke-01"]' )
+		).toBeNull();
+		// Now register under the new name — the table renders from vault:list.
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 	} );
 
 	it( 'renders the server table with the wp-list-table class', () => {
