@@ -12,16 +12,21 @@ A dashboard's data flow is a **real node graph with message traffic at every edg
 ## The pattern — compose the data flow
 
 ```
-Timer ─> Tee ─> Fetcher(recv=countsIn, cmd=counts) ─┐
-              └> Fetcher(recv=topIn,    cmd=top)    ─┤   target = _shell/_http/<ci>
-                                                     ▼
-                    _shell (Tap — watch every send) ─> _http (HttpOut)
-                                       POST one batch │ ▲ responses batch back
-                                                     ▼ │
-                          ═══ server graph: small verbs / nodes, NO god command ═══
-                                                     │
-        countsIn (Tee) ─> Counter ─> counts-view-node ─> <CountsWidget/>
-        topIn    (Tee) ─> Ranker  ─> top-view-node    ─> <TopTableWidget/>
+Timer ─> Tee ─> Fetcher(recv=countsIn, cmd=counts) ──┐
+             └> Fetcher(recv=topIn,    cmd=top) ─────┤ (target = _shell/_http/<ci>)
+       ┌─────────────────────────────────────────────┘                               
+       ▼
+       _shell (Tap — watch every send) ─> _http (HttpOut) ──────────┐
+                                          │ ▲ responses batch back  │
+                                          │ │                       │
+                           POST one batch ▼ │                       │
+                                ═══ server graph ===                │
+                              (small verbs / nodes, NO god command) │
+                                                                    │
+       ┌────────────────────────────────────────────────────────────┘
+       ▼
+       countsIn (Tee) ─> Counter ─> counts-view-node ─> <CountsWidget/>
+       topIn    (Tee) ─> Ranker  ─> top-view-node    ─> <TopTableWidget/>
 ```
 
 - **`Timer`** ticks the poll and **hitchhikes** the router tick, so every command emitted on a tick — and every response — **batches into ONE HTTP round-trip** (`HttpOut` locks on the tick, buffers, `flush()`es one `postBatch`). **Fan-out is free: ten fetchers, one request.**
