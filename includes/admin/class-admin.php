@@ -201,12 +201,8 @@ class Admin {
 			// Default every dashboard onto the Newspack token sheet so its
 			// var(--np-*) references resolve (the `.newspack-nodes-theme` root
 			// class carries the tokens; this loads their definitions).
-			$style_deps = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-theme' ];
-			// Cache-bust the stylesheet on its OWN content hash, not $version (the JS
-			// bundle hash): a SCSS-only rebuild leaves the JS hash unchanged, so reusing
-			// it would serve the stylesheet from cache behind a stale ?ver= (a CSS-only
-			// change would need a hard-refresh to land).
-			$style_version = \md5_file( "{$dir}/index.css" ) ?: $version;
+			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-theme' ];
+			$style_version = self::css_cache_version( "{$dir}/index.css", $version );
 			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
 			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
 				\wp_style_add_data( $handle, 'rtl', 'replace' );
@@ -225,6 +221,25 @@ class Admin {
 		\wp_localize_script( $handle, 'NewspackNodesData', $localized );
 
 		return $handle;
+	}
+
+	/**
+	 * Cache-bust a stylesheet on its OWN content hash, not the JS bundle hash or
+	 * plugin version: a SCSS-only rebuild leaves the JS hash / version unchanged,
+	 * so reusing those would serve the stylesheet from cache behind a stale ?ver=
+	 * (a CSS-only change would need a hard-refresh to land). Returns the fallback
+	 * (the prior version value) when the file isn't readable — gated so we never
+	 * call md5_file on a non-readable path and emit a warning.
+	 *
+	 * @param string $css_path Filesystem path to the stylesheet.
+	 * @param string $fallback Version to use when the file isn't readable.
+	 * @return string Content hash, or the fallback.
+	 */
+	public static function css_cache_version( string $css_path, string $fallback ): string {
+		if ( ! \is_readable( $css_path ) ) {
+			return $fallback;
+		}
+		return \md5_file( $css_path ) ?: $fallback;
 	}
 
 	/**
