@@ -791,7 +791,29 @@ You drove a server-side worker and a browser React app with the same protocol �
 
 ---
 
-## 9. Recap — what you wrote vs. what the substrate gave you
+## 9. Make it inspectable: mount the debug overlay
+
+§8 ended on the payoff — *inspect the live graph*. From the worker's REPL that's `wp nodes cli`; **on the page itself** it's the **debug overlay**, and wiring it in is two lines. The overlay reads the page's *own* live `mountExospine` graph — the very `Core.nodes` your hook built — and renders it in the shared GraphView: every node, every edge, every counter, plus a REPL to poke it (`connect`/`remove`/`invoke`). That's the whole reason you built the dashboard as a genuine node graph instead of a fetch loop stapled to a component — the graph is *there* to be inspected, so put the inspector on the page.
+
+Add the import and render it inside the page, alongside the widgets:
+
+```js
+import DebugOverlay from '@newspack-nodes/debug-overlay';
+// …
+<DebugOverlay storageKey="newspack-nodes:debug:example-insights" />
+```
+
+That's the entire wiring — `PublisherInsightsPage` already does exactly this (the worked case): one import, one element rendered after the `eai-insights__grid`. Three things make it free to leave in production:
+
+- **It's self-gated by `isDebugEnabled`.** The overlay renders `null` unless debug is on — `?nodes-debug=1` in the URL turns it on and sticks it in `localStorage` (so it survives navigation), `?nodes-debug=0` turns it off. Absent the param, the sticky flag decides. So a shipped dashboard carries the overlay dormant: invisible to normal visitors, one query param away for you. (It's a pure dev affordance — no capability/PHP gate — so the FAB only ever appears for someone who deliberately flipped the flag.)
+- **`storageKey` is per-dashboard.** It persists *this* overlay's panel layout independently of every other dashboard's, so name it `newspack-nodes:debug:<dashboard>` — `newspack-nodes:debug:example-insights` here, `newspack-nodes:debug:gyroscope` on the gyroscope page. Reusing one key across pages would make them fight over the same saved layout.
+- **It reads the live graph, not a snapshot.** Because the overlay subscribes to the same `Core.nodes` your `useBatchedPoll` hook built, opening it (`Ctrl+\`` toggles the panel) shows the real thing live: `insights:timer`, `insights:tee`, the three `fetch-*` Fetchers, the receiver Tees, the view nodes — each at its real counter, climbing on every tick. Drop a `Tee` onto an edge or `invoke` a verb right from the panel. A god view-node at counter 0 would give the overlay nothing to draw; *this* graph is the payoff, and the overlay is how you see it.
+
+One mount, and every dashboard you build the right way becomes self-documenting — the node graph you composed is visible, live, on its own page.
+
+---
+
+## 10. Recap — what you wrote vs. what the substrate gave you
 
 **You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each just an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the client-side draft helpers, and ~15 lines of build/jest/enqueue glue.
 

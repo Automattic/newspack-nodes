@@ -1,4 +1,5 @@
 import { __ } from '@wordpress/i18n';
+import DebugOverlay from '@newspack-nodes/debug-overlay';
 import { usePublisherInsightsGraph } from './hooks/usePublisherInsightsGraph';
 import { SourceCounts } from './widgets/SourceCounts';
 import { TopTable } from './widgets/TopTable';
@@ -37,6 +38,7 @@ export default function PublisherInsightsPage( { commandClient } = {} ) {
 				<SourceCounts />
 				<TopTable />
 			</div>
+			<DebugOverlay storageKey="newspack-nodes:debug:example-insights" />
 		</div>
 	);
 }
