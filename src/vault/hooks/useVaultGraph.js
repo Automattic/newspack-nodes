@@ -1,35 +1,35 @@
 /**
  * useVaultGraph — mounts the Vault server-credential admin node graph onto the
  * canonical rule-#2 backbone (`_command_interpreter → _router`) using the
- * substrate's HTTP I/O boundary node — the minimal mount surface a
- * CRUD-on-demand dashboard needs:
+ * substrate's HTTP I/O boundary node. The de-god decomposition: instead of ONE
+ * `vault:view` god view holding the whole model, the graph wires TWO focused
+ * per-concern views, each behind its OWN receiver Tee — so the debug overlay
+ * shows reply traffic PER CONCERN rather than one opaque node:
  *
- *   _http       (HttpOutNode — POST /command boundary; .client = CommandClient)
- *
- * Plus the application's render-model node:
- *
- *   vault:view  (the view-model node React reads + the hook's pending-Promise registry)
+ *   _http        (HttpOutNode — POST /command boundary; .client = CommandClient)
+ *   vault:listIn (Tee) → vault:list (VaultListViewNode) — list/add/update/delete
+ *   vault:testIn (Tee) → vault:test (VaultTestViewNode) — connection-probe results
  *
  * Dashboards aren't REPLs: no transcript window, no tab-completion input, no
  * uptime display, no `cd` navigation. So `_output` / `_completion` / `_uptime` /
- * `_cwd` are NOT mounted here — they'd be dead weight and would collide with
- * the debug-overlay's REPL when it opens on this page.
+ * `_cwd` are NOT mounted here.
  *
  * The graph build is handed to `mountExospine( build )`, which snapshots Core so
  * the soft nodes can be torn down + rebuilt on `reinit()` ("Reset Graph"). The
  * hook owns the CRUD dispatch — on each call it builds a TM_COMMAND
- * (FROM=`vault:view`, TO=`_http/vault`, verb in VALUE.name) with a unique
- * `message[ID]`, stashes a `{ resolve, reject }` resolver in `vault:view`'s
- * `replies` map under that ID, and fills the message into the interpreter. The router
- * peels `_http`, HttpOutNode POSTs, the server pivots the reply TO=FROM, the router
- * peels `vault:view`, and the view's `fill()` matches `message[ID]` against
- * `replies`, resolving or rejecting the Promise (and updating the render model
- * for `list` replies + surfacing TM_ERROR into the view's `error`).
+ * (FROM = the concern's receiver Tee, TO = `_http/vault`, verb in VALUE.name)
+ * with a correlator in `message[ID]`, stashes a `{ resolve, reject }` resolver in
+ * the matching view's `replies` map under that ID, and fills the message into the
+ * interpreter. The router peels `_http`, HttpOutNode POSTs, the server pivots the
+ * reply TO=FROM, the router peels the receiver Tee, the Tee fans to its view, and
+ * the view settles the Promise (and updates its own render model).
  *
- * Mutations (add/update/delete) re-list on success to refresh the table.
- * test() is read-only and does NOT re-list. Mutation rejections also surface
- * into the view model (via the view's TM_ERROR path) so the table shows them,
- * AND re-throw to the caller.
+ * list / add / update / delete are the LIST concern (FROM=vault:listIn). test is
+ * the probe concern (FROM=vault:testIn, correlated by server id). Mutations
+ * (add/update/delete) re-list to refresh the table. test() is read-only and does
+ * NOT re-list. Each concern's failures reject to the caller; the list view never
+ * paints a banner for a pending-matched error, and the test view records each
+ * probe per-row.
  *
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
  * to `_http.client`) so the hook never touches the network. Production lazily
@@ -53,10 +53,15 @@ import { formatCommandArgs } from '../../runtime/command-args';
 import '../nodes/register';
 
 const HTTP = '_http';
-const VIEW = 'vault:view';
+const LIST_RECV = 'vault:listIn';
+const LIST_VIEW = 'vault:list';
+const TEST_RECV = 'vault:testIn';
+const TEST_VIEW = 'vault:test';
 
-// Monotonic per-hook-instance ID counter — message[ID] is what the view uses
-// to match a reply back to a pending Promise resolver.
+// Monotonic per-hook-instance ID counter for LIST-concern ops — message[ID] is
+// what the list view uses to match a reply back to a pending Promise resolver.
+// (The test concern correlates by server id instead, so a probe's result files
+// under the row it belongs to.)
 let nextOpId = 0;
 function makeOpId() {
 	nextOpId += 1;
@@ -64,20 +69,21 @@ function makeOpId() {
 }
 
 /**
- * Build a TM_COMMAND addressed at the `vault` CI: FROM=`vault:view` so the
- * server's reply pivot lands on the view; TO=`_http/vault` so the router peels
- * `_http` and HttpOutNode POSTs the bare command. `id` is the correlator the view
- * uses to resolve the hook's Promise.
+ * Build a TM_COMMAND addressed at the `vault` CI. FROM = the concern's receiver
+ * Tee so the server's reply pivot lands on that concern; TO=`_http/vault` so the
+ * router peels `_http` and HttpOutNode POSTs the bare command. `id` is the
+ * correlator the receiving view uses to settle the hook's Promise.
  *
+ * @param {string} from Receiver Tee name (vault:listIn / vault:testIn).
  * @param {string} verb Verb name (list / add / update / delete / test).
  * @param {string} args Tachikoma-style argument string (built via formatCommandArgs).
  * @param {string} id   Correlator stamped into message[ID].
  * @return {Array} A 7-field positional Message.
  */
-function buildCommand( verb, args, id ) {
+function buildCommand( from, verb, args, id ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = VIEW;
+	m[ FROM ] = from;
 	m[ TO ] = `${ HTTP }/vault`;
 	m[ ID ] = id;
 	m[ VALUE ] = { name: verb, arguments: args };
@@ -89,9 +95,9 @@ function buildCommand( verb, args, id ) {
  * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`;
  *                                      defaults to a freshly-constructed CommandClient.
  * @return {{ addServer: Function, updateServer: Function, removeServer: Function,
- *   testServer: Function }} CRUD callbacks for the thin React view (the model is
- *   read via useNodeState). Reset Graph is driven by the overlay via `Core.reinit`,
- *   stashed by mountExospine.
+ *   testServer: Function }} CRUD callbacks for the thin React view (each view's
+ *   model is read via useNodeState). Reset Graph is driven by the overlay via
+ *   `Core.reinit`, stashed by mountExospine.
  */
 export function useVaultGraph( opts = {} ) {
 	const optsRef = useRef( opts );
@@ -101,14 +107,12 @@ export function useVaultGraph( opts = {} ) {
 	const interpreterRef = useRef( null );
 
 	// Bumped on every (re)build so a consumer's useNodeState re-subscribes to the
-	// freshly-registered view node. A monotonic counter, not a boolean latch —
+	// freshly-registered view nodes. A monotonic counter, not a boolean latch —
 	// reinit()'s second build must still force a render.
 	const [ , bumpBuild ] = useState( 0 );
 
 	// Mount the graph once: clip it onto the exospine, then fire one immediate list.
 	useEffect( () => {
-		// The soft view-nodes the backbone clips onto. mountExospine snapshots
-		// Core around this so reinit() removes exactly these and rebuilds them.
 		const build = ( { interpreter } ) => {
 			const data =
 				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
@@ -124,18 +128,29 @@ export function useVaultGraph( opts = {} ) {
 					nonce: data.nonce || '',
 				} );
 
-			// The application view-model node — receiver of every reply via TO=FROM pivot.
-			interpreter.makeNode( 'VaultView', VIEW );
+			// Per-concern reply edges: a receiver Tee in front of each view so the
+			// debug overlay shows traffic per concern, and a slice's reply never
+			// touches its sibling. The LIST concern (list/add/update/delete) feeds
+			// vault:list; the probe concern (test) feeds vault:test.
+			const listIn = interpreter.makeNode( 'Tee', LIST_RECV );
+			interpreter.makeNode( 'VaultListView', LIST_VIEW );
+			listIn.connectNode( LIST_VIEW );
+
+			const testIn = interpreter.makeNode( 'Tee', TEST_RECV );
+			interpreter.makeNode( 'VaultTestView', TEST_VIEW );
+			testIn.connectNode( TEST_VIEW );
 
 			interpreterRef.current = interpreter;
 
-			// Re-render so useNodeState re-subscribes to the freshly-mounted view node.
+			// Re-render so useNodeState re-subscribes to the freshly-mounted views.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire one immediate list (the canonical "everything sinks into the interpreter"
-			// path — interpreter forwards to router → router peels `_http` → HttpOutNode POSTs).
-			// Fire-and-forget: the view updates render state on the reply.
-			interpreter.fill( buildCommand( 'list', '', makeOpId() ) );
+			// Fire one immediate list (the canonical "everything sinks into the
+			// interpreter" path). Fire-and-forget: the list view updates render
+			// state on the reply.
+			interpreter.fill(
+				buildCommand( LIST_RECV, 'list', '', makeOpId() )
+			);
 
 			// Non-node side effects undone before the nodes are removed.
 			return () => {
@@ -147,34 +162,38 @@ export function useVaultGraph( opts = {} ) {
 		return teardown;
 	}, [] );
 
-	// Dispatch a verb (with a pre-built args string) and return a Promise that
-	// resolves with the unwrapped payload (or rejects with a TM_ERROR). The view
-	// matches `message[ID]` against its `replies` map to settle the Promise.
-	const dispatch = useCallback( ( verb, args = '' ) => {
-		const interpreter = interpreterRef.current;
-		if ( ! interpreter ) {
-			return Promise.reject( new Error( 'graph not mounted' ) );
-		}
-		const view = Core.node( VIEW );
-		if ( ! view ) {
-			return Promise.reject( new Error( 'view not mounted' ) );
-		}
-		const id = makeOpId();
-		const promise = new Promise( ( resolve, reject ) => {
-			view.replies.add( id, resolve, reject );
-		} );
-		interpreter.fill( buildCommand( verb, args, id ) );
-		return promise;
-	}, [] );
+	// Dispatch a verb on a concern (FROM its receiver Tee) and return a Promise
+	// the concern's view settles by matching `message[ID]` against its `replies`
+	// map. `id` defaults to a monotonic op-id; the test concern passes the server
+	// id so the probe result files under the right row.
+	const dispatch = useCallback(
+		( recv, view, verb, args = '', id = null ) => {
+			const interpreter = interpreterRef.current;
+			if ( ! interpreter ) {
+				return Promise.reject( new Error( 'graph not mounted' ) );
+			}
+			const node = Core.node( view );
+			if ( ! node ) {
+				return Promise.reject( new Error( 'view not mounted' ) );
+			}
+			const opId = id || makeOpId();
+			const promise = new Promise( ( resolve, reject ) => {
+				node.replies.add( opId, resolve, reject );
+			} );
+			interpreter.fill( buildCommand( recv, verb, args, opId ) );
+			return promise;
+		},
+		[]
+	);
 
-	// Run a registry-mutating verb, then re-list to refresh the table. A failure
-	// rejects to the caller; the view already surfaced the error into its model
-	// via the TM_ERROR reply path (no extra control fill needed).
+	// Run a registry-mutating verb on the LIST concern, then re-list to refresh
+	// the table. A failure rejects to the caller; the list view leaves its banner
+	// clean for a pending-matched error (no extra control fill needed).
 	const runMutation = useCallback(
 		async ( verb, args ) => {
-			const result = await dispatch( verb, args );
+			const result = await dispatch( LIST_RECV, LIST_VIEW, verb, args );
 			// Fire-and-forget re-list (replaces window.location.reload()).
-			dispatch( 'list', '' ).catch( () => {} );
+			dispatch( LIST_RECV, LIST_VIEW, 'list', '' ).catch( () => {} );
 			return result;
 		},
 		[ dispatch ]
@@ -208,10 +227,18 @@ export function useVaultGraph( opts = {} ) {
 		[ runMutation ]
 	);
 
-	// test() is read-only — return its probe result to the caller for per-row
-	// status; no re-list (a probe doesn't change the registry).
+	// test() is the probe concern — read-only, FROM the test receiver, correlated
+	// by server id so vault:test files the result under the right row. Returns the
+	// probe result to the caller for per-row status; no re-list.
 	const testServer = useCallback(
-		( id ) => dispatch( 'test', formatCommandArgs( [ id ] ) ),
+		( id ) =>
+			dispatch(
+				TEST_RECV,
+				TEST_VIEW,
+				'test',
+				formatCommandArgs( [ id ] ),
+				id
+			),
 		[ dispatch ]
 	);
 

@@ -1,11 +1,13 @@
 /**
  * <VaultAdmin> — the thin React view over the Vault server-credential node graph.
  *
- * The graph (useVaultGraph) owns all data + the CRUD transport; this component
- * reads the published view model via `useNodeState('vault:view','view')` and
- * renders a server-credential table + add form. The markup reuses WordPress's
- * core admin class names (`wp-list-table`, `form-table`, …) so it inherits the
- * admin styling unchanged.
+ * The graph (useVaultGraph) owns all data + the CRUD transport across two
+ * per-concern views; this component reads the credential-LIST view model via
+ * `useNodeState('vault:list','view')` and renders a server-credential table +
+ * add form. (The TEST-result concern publishes into the sibling `vault:test`
+ * view; each row's Test status is surfaced locally from the test() callback.)
+ * The markup reuses WordPress's core admin class names (`wp-list-table`,
+ * `form-table`, …) so it inherits the admin styling unchanged.
  *
  * A successful add / remove re-`list()`s and the table re-renders from the
  * fresh model (no page reload). Test status + the add-form validation messages
@@ -483,8 +485,10 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 	// re-list-after-mutation.
 	const { addServer, removeServer, testServer } = useVaultGraph();
 
-	// The single read surface: the render model the graph publishes.
-	const model = useNodeState( 'vault:view', 'view' ) ?? EMPTY_MODEL;
+	// The table reads the credential-LIST view's own model (de-god split); the
+	// per-server probe results live in the sibling vault:test view, surfaced
+	// per-row inside <ServerRow> via its local Test handler.
+	const model = useNodeState( 'vault:list', 'view' ) ?? EMPTY_MODEL;
 	const { servers, error } = model;
 
 	const [ isAddOpen, setIsAddOpen ] = useState( false );
