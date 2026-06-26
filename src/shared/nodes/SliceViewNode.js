@@ -1,20 +1,26 @@
 import { Node, TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
-import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
+import { errorMessage } from '../pendingReplies';
 
 /**
- * SliceViewNode — the thin per-widget view node shared by the three Publisher
- * Insights slices (source-counts, top-table, accumulated). Each subclass owns ONE
- * slice of the model and nothing else: its `fill()` parses its own command reply
- * (VALUE.payload is a JSON STRING the slice verb returned) into the slice and
- * publishes it via `setState('view', …)` for a small React widget (`useNodeState`).
+ * SliceViewNode — the thin per-widget view-node base every dashboard rebuild's
+ * slice views extend. Each subclass owns ONE slice of a model and nothing else:
+ * its `fill()` parses its own command reply (VALUE.payload is a JSON STRING the
+ * slice verb returned) into the slice and publishes it via `setState('view', …)`
+ * for a small React widget (`useNodeState`).
  *
- * A `counts` reply lands on the counts view; it never touches the top or
- * accumulated views — that decomposition is the whole point of the rebuild. A
- * TM_ERROR reply surfaces as `{ ...empty, error }`; an unparseable payload keeps
- * the prior slice (a transient garbage reply mustn't blank the widget).
+ * A slice reply lands on its own view and never touches a sibling slice — that
+ * decomposition is the whole point. A TM_ERROR reply surfaces as
+ * `{ ...empty, error }`; an unparseable payload keeps the prior slice (a
+ * transient garbage reply mustn't blank the widget).
  *
  * Subclasses supply only `emptySlice()` — the shaped-but-empty model so a render
  * before the first reply is valid, and the fallback the error path reuses.
+ *
+ * Optional verb-await: a subclass that also awaits a verb (a topology mutate, a
+ * hook-catalog modal) assigns `this.replies = new PendingReplies()` and stashes
+ * `{ resolve, reject }` under each outbound `message[ID]`. `fill()` then settles
+ * a matching reply first and returns; with no match — or no `replies` at all —
+ * it behaves exactly as the slice path below.
  */
 export class SliceViewNode extends Node {
 	constructor() {
@@ -30,6 +36,10 @@ export class SliceViewNode extends Node {
 	}
 
 	fill( message ) {
+		// Optional verb-await: a settled reply is fully consumed here.
+		if ( this.replies && this.replies.settle( message ) ) {
+			return;
+		}
 		const value = message[ VALUE ];
 		// TM_ERROR FIRST: a transport error (e.g. the Router's NOT_AVAILABLE)
 		// arrives with a bare STRING VALUE, not a { name, payload } object —
@@ -71,8 +81,7 @@ export class SliceViewNode extends Node {
 	static nodeSchema() {
 		return {
 			category: 'Hidden',
-			description:
-				'Owns one Publisher Insights slice for its React widget.',
+			description: 'Owns one dashboard slice for its React widget.',
 			arguments: [],
 			commands: [],
 			has_target: false,
