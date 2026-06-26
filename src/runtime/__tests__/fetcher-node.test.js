@@ -83,6 +83,52 @@ test( 'fill on an empty trigger still emits the configured command', () => {
 	expect( sent[ 0 ][ VALUE ] ).toEqual( { name: 'counts', arguments: '' } );
 } );
 
+test( 'command_args may be a FUNCTION, called at fire time to get current args', () => {
+	const f = new FetcherNode();
+	f.arguments = 'urlsIn urls';
+	f.target = '_http/perf';
+	let live = '--sort count';
+	f.command_args = () => live;
+	const sent = [];
+	f.sink = { fill: ( m ) => sent.push( m ) };
+
+	f.fill( newMessage() );
+	expect( sent[ 0 ][ VALUE ] ).toEqual( {
+		name: 'urls',
+		arguments: '--sort count',
+	} );
+
+	// A later tick reflects the CURRENT value the getter returns.
+	live = '--sort avg_ms --order asc';
+	f.fill( newMessage() );
+	expect( sent[ 1 ][ VALUE ] ).toEqual( {
+		name: 'urls',
+		arguments: '--sort avg_ms --order asc',
+	} );
+} );
+
+test( 'a function command_args returning a non-string coerces to empty args', () => {
+	const f = new FetcherNode();
+	f.arguments = 'urlsIn urls';
+	f.command_args = () => null;
+	const sent = [];
+	f.sink = { fill: ( m ) => sent.push( m ) };
+	f.fill( newMessage() );
+	expect( sent[ 0 ][ VALUE ] ).toEqual( { name: 'urls', arguments: '' } );
+} );
+
+test( 'static string command_args still works byte-identically (no getter)', () => {
+	const f = new FetcherNode();
+	f.arguments = 'topIn rank --limit 10';
+	const sent = [];
+	f.sink = { fill: ( m ) => sent.push( m ) };
+	f.fill( newMessage() );
+	expect( sent[ 0 ][ VALUE ] ).toEqual( {
+		name: 'rank',
+		arguments: '--limit 10',
+	} );
+} );
+
 test( 'counter bumps per trigger', () => {
 	const f = new FetcherNode();
 	f.arguments = 'countsIn counts';
