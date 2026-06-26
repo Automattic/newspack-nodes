@@ -277,11 +277,12 @@ select.newspack-nodes-refresh-select {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: $dark-accent;
+	// The request-id link sits on the dark log surface, so lighten the accent to read on it, and FLOOR on Cobalt — standalone dashboard pages don't load the topology-console theme that defines --cyan, so a bare var(--cyan) would go invalid and the link would inherit the dark background (invisible).
+	color: color-mix(in srgb, var(--cyan, #003da5) 58%, white);
 	text-decoration: none;
 
 	&:hover {
-		color: $dark-accent-hover;
+		color: color-mix(in srgb, var(--cyan, #003da5) 78%, white);
 		text-decoration: underline;
 	}
 }
