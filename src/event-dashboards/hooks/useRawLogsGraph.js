@@ -42,8 +42,9 @@ import {
 } from '../../runtime/message';
 import '../nodes/register';
 
-// The single RemoteLink node and the dashboard view-model node.
+// The single RemoteLink node, the inspectable stream Tee, and the view-model node.
 const LINK = 'rawlogs:link';
+const TEE = 'rawlogs:stream';
 const VIEW = 'rawlogs:view';
 
 // Monotonic per-hook-instance ID counter for the list_logs correlator.
@@ -123,10 +124,16 @@ export function useRawLogsGraph( opts = {} ) {
 				LINK,
 				`raw-logs ${ baseUrl } ${ nonce }`
 			);
-			link.target = VIEW;
+			// A pure pass-through Tee on the stream edge: the link re-homes received
+			// frames to it, it copies each to the view. `connect rawlogs:stream` in
+			// the debug overlay appends a second target to inspect the live stream.
+			link.target = TEE;
 			link.client =
 				optsRef.current.commandClient ||
 				new CommandClient( { baseUrl, nonce } );
+
+			const tee = interpreter.makeNode( 'Tee', TEE );
+			tee.connectNode( VIEW );
 
 			// View-model node — envelope→row shaping is inlined into its fill().
 			const view = interpreter.makeNode( 'RawLogsView', VIEW );
