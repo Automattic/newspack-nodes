@@ -136,6 +136,26 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	}
 
 	/**
+	 * Build a slice-verb handler from a shape callable, so a CI's read-only slice verbs are
+	 * 2–3 lines that share one memoized read instead of each repeating the json-encode dance.
+	 *
+	 * The returned handler matches the verb-handler signature ( Command_Interpreter_Node, string,
+	 * array ) — for a Service_CI verb the interpreter IS this node — passes that node to $shape,
+	 * and JSON-encodes whatever $shape returns. The shape closure reads the CI's memoized
+	 * snapshot (e.g. `$ci->items()`) and returns the one slice it owns. Authorization stays
+	 * central: commands_from_schema() wraps every handler with require_manage_options(), so the
+	 * slice handler never self-gates.
+	 *
+	 * @param callable $shape A `function ( Command_Interpreter_Node $ci ): mixed` returning the slice payload.
+	 * @return \Closure The verb handler closure.
+	 */
+	protected static function slice_verb( callable $shape ): \Closure {
+		return static function ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ) use ( $shape ): string {
+			return (string) \wp_json_encode( $shape( $self ) );
+		};
+	}
+
+	/**
 	 * Validate a name token (the first positional argument) against $pattern.
 	 * Defaults to `[a-zA-Z0-9_-]+` — the shape Layouts_CI and Topologies_CI
 	 * both require. Callers needing a wider charset pass a custom pattern.

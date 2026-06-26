@@ -1,0 +1,325 @@
+/**
+ * Shared dashboard component styles — the CSS-emitting classes every dashboard
+ * `base.scss` re-declared verbatim: the loading/skeleton states, the empty
+ * state, the stats grid, the admin wrapper + error banner, the shared refresh
+ * select, the section header, and the `.entry-*` log-row cells.
+ *
+ * Pure dedup: rules + values are the event-dashboards originals, byte-for-byte,
+ * emitted in the same source order so the compiled CSS is unchanged.
+ */
+
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// Scoped border-box baseline — applies only inside each dashboard's React
+// mount root, never leaking into the rest of wp-admin.
+#newspack-nodes-rawlogs *,
+#newspack-nodes-rawlogs *::before,
+#newspack-nodes-rawlogs *::after {
+	box-sizing: border-box;
+}
+
+// Loading container
+.newspack-nodes-performance-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	min-height: 200px;
+	gap: 16px;
+}
+
+// Skeleton loading animation
+@keyframes skeleton-pulse {
+	0% {
+		background-position: -200% 0;
+	}
+
+	100% {
+		background-position: 200% 0;
+	}
+}
+
+.newspack-nodes-skeleton {
+	background: linear-gradient(
+		90deg,
+		$light-surface 25%,
+		$light-border-light 50%,
+		$light-surface 75%
+	);
+	background-size: 200% 100%;
+	animation: skeleton-pulse 1.5s ease-in-out infinite;
+	border-radius: $border-radius-sm;
+}
+
+.newspack-nodes-skeleton--text {
+	height: 16px;
+	width: 100%;
+	max-width: 200px;
+}
+
+.newspack-nodes-skeleton--card {
+	height: 100px;
+	width: 100%;
+}
+
+.newspack-nodes-skeleton--circle {
+	width: 40px;
+	height: 40px;
+	border-radius: 50%;
+}
+
+// Empty states
+.newspack-nodes-empty-state,
+.newspack-nodes-no-selection {
+	color: $light-text-secondary;
+	text-align: center;
+	padding: $space-xl $space-lg;
+	background: $light-surface;
+	border-radius: $border-radius-lg;
+	border: 2px dashed $light-border;
+
+	&::before {
+		content: "";
+		display: block;
+		width: 48px;
+		height: 48px;
+		margin: 0 auto $space-lg;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23757575' stroke-width='1.5'%3E%3Cpath d='M20 13V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7m16 0v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-5m16 0h-2.586a1 1 0 0 0-.707.293l-2.414 2.414a1 1 0 0 1-.707.293h-3.172a1 1 0 0 1-.707-.293l-2.414-2.414A1 1 0 0 0 6.586 13H4'/%3E%3C/svg%3E");
+		background-size: contain;
+		background-repeat: no-repeat;
+		opacity: 0.6;
+	}
+}
+
+// Stats grid
+.newspack-nodes-stats-grid {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: $space-lg;
+}
+
+.newspack-nodes-stat {
+	.newspack-nodes-stat-value {
+		font-size: 28px;
+		font-weight: 600;
+		color: $light-text;
+	}
+
+	.newspack-nodes-stat-label {
+		color: $light-text-secondary;
+		font-size: 14px;
+	}
+}
+
+// Interactive card link
+.newspack-nodes-card-link {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 10px 14px;
+	background: $light-surface;
+	border-radius: $border-radius-sm;
+	border-left: 3px solid transparent;
+	text-decoration: none;
+	color: inherit;
+	transition:
+		background 0.2s ease,
+		transform 0.2s ease,
+		box-shadow 0.2s ease,
+		border-color 0.2s ease;
+
+	&:hover {
+		background: $light-surface-hover;
+		text-decoration: none;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+		border-left-color: $focus-color;
+	}
+
+	&:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	&:focus {
+		outline: 2px solid $focus-color;
+		outline-offset: 2px;
+	}
+
+	.newspack-nodes-card-link-name {
+		font-weight: 500;
+		color: $light-text;
+	}
+
+	.newspack-nodes-card-link-count {
+		color: $light-text-secondary;
+		font-size: 12px;
+		margin-left: $space-sm;
+	}
+}
+
+// Admin wrapper
+.newspack-nodes-admin-wrap {
+	max-width: 95vw;
+}
+
+.newspack-nodes-admin-app {
+	margin-top: 16px;
+}
+
+// Shared error banner style (dark theme)
+.newspack-nodes-error-banner {
+	@include dark-error-banner;
+}
+
+// Shared refresh select (used on Gyroscope, Worker Status, Request Log)
+select.newspack-nodes-refresh-select {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+	background: $dark-bg-tertiary !important;
+	border: 2px solid $dark-border !important;
+	color: $dark-text !important;
+	padding: 0 8px !important;
+	border-radius: 4px !important;
+	font-size: 12px !important;
+	cursor: pointer;
+	min-width: 50px;
+	height: $control-height !important;
+	max-height: $control-height !important;
+	min-height: $control-height !important;
+	box-sizing: border-box !important;
+	line-height: normal !important;
+	vertical-align: middle;
+
+	&:hover {
+		background: $dark-bg-hover !important;
+	}
+
+	&:focus {
+		outline: none;
+		border-color: $dark-accent !important;
+		background: $dark-bg-tertiary !important;
+		color: $dark-text !important;
+	}
+}
+
+// Shared dashboard section header.
+.newspack-nodes-inflight-header,
+.newspack-nodes-request-stream-header,
+.worker-status-full .worker-status-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	min-height: 40px;
+	margin-bottom: 12px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid $dark-header-border;
+
+	h2,
+	h3 {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: $dark-text;
+	}
+}
+
+// Shared entry cell styles (used by Request Log and Gyroscope)
+.entry-time {
+	color: $dark-text-time;
+	font-size: 11px;
+}
+
+.entry-duration {
+	font-weight: 600;
+	text-align: right;
+}
+
+.entry-method {
+	color: $dark-accent;
+	font-weight: 500;
+	text-transform: uppercase;
+	font-size: 11px;
+}
+
+.entry-status {
+	text-align: center;
+	font-size: 11px;
+
+	&[data-status^="2"] {
+		color: $status-2xx;
+	}
+
+	&[data-status^="3"] {
+		color: $status-3xx;
+	}
+
+	&[data-status^="4"] {
+		color: $status-4xx;
+	}
+
+	&[data-status^="5"] {
+		color: $status-5xx;
+	}
+}
+
+.entry-url {
+	color: $dark-text;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11px;
+}
+
+.entry-rid {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: $dark-accent;
+	text-decoration: none;
+
+	&:hover {
+		color: $dark-accent-hover;
+		text-decoration: underline;
+	}
+}
+
+.entry-url-link {
+	color: $dark-text;
+	text-decoration: none;
+
+	&:hover {
+		color: $dark-accent;
+		text-decoration: underline;
+	}
+}
+
+.entry-ip {
+	color: $dark-text-muted;
+	font-size: 11px;
+}
+
+.entry-ua {
+	color: $dark-text-time;
+	font-size: 10px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.entry-partition {
+	color: $dark-text-dim;
+	font-size: 10px;
+	text-align: center;
+}
+
+.entry-default {
+	color: $dark-text-dim;
+}
+
+// Shared search input (dark theme)
+input.newspack-nodes-search-input {
+	@include dark-search-input;
+}

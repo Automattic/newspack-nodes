@@ -116,16 +116,46 @@ function wpExternalsPlugin( usedHandles ) {
 }
 
 /**
- * esbuild plugin: compile .scss via the injected Sass package, hand the CSS
- * to esbuild.
+ * Build a Sass importer that resolves the `@newspack-nodes/*` aliases inside
+ * `@use` / `@forward` — Sass does its own load resolution and never sees
+ * esbuild's `alias` map, so a bare `@use '@newspack-nodes/shared/styles/x'`
+ * would fail. We rewrite the alias prefix to its mapped absolute path and hand
+ * the rest back to Sass's normal partial resolution (`_x.scss`). Longest alias
+ * key wins so `@newspack-nodes/shared/styles` can't be shadowed by a shorter
+ * `@newspack-nodes/shared` prefix.
  */
-function scssPlugin( sass ) {
+function aliasImporter( alias ) {
+	const keys = Object.keys( alias ).sort( ( a, b ) => b.length - a.length );
+	return {
+		findFileUrl( url ) {
+			for ( const key of keys ) {
+				if ( url === key || url.startsWith( `${ key }/` ) ) {
+					const rest = url.slice( key.length );
+					return new URL(
+						`file://${ path.resolve( alias[ key ] + rest ) }`
+					);
+				}
+			}
+			return null;
+		},
+	};
+}
+
+/**
+ * esbuild plugin: compile .scss via the injected Sass package, hand the CSS
+ * to esbuild. The consumer alias map is threaded into a Sass importer so SCSS
+ * `@use`/`@forward` can pull shared partials through the `@newspack-nodes/*`
+ * surface, exactly like the JS imports do.
+ */
+function scssPlugin( sass, alias ) {
+	const importers = [ aliasImporter( alias ) ];
 	return {
 		name: 'scss',
 		setup( build ) {
 			build.onLoad( { filter: /\.scss$/ }, async ( args ) => {
 				const result = await sass.compileAsync( args.path, {
 					loadPaths: [ path.dirname( args.path ) ],
+					importers,
 				} );
 				return {
 					contents: result.css,
@@ -247,7 +277,7 @@ export async function buildDashboards( {
 			alias,
 			plugins: [
 				wpExternalsPlugin( usedHandles ),
-				scssPlugin( sass ),
+				scssPlugin( sass, alias ),
 				postBuildPlugin(
 					entry,
 					outDir,

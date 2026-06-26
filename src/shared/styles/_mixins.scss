@@ -1,0 +1,261 @@
+/**
+ * Shared dashboard mixins — the ~20 `@mixin`s every dashboard `base.scss`
+ * re-declared verbatim (chrome buttons, the dark control surfaces, the table
+ * grid, the themed-widefat re-skin).
+ *
+ * Pure dedup: bodies are the event-dashboards originals, byte-for-byte. Mixin
+ * definitions emit no CSS until `@include`d, so carrying the full canonical set
+ * here (including ones a given dashboard doesn't use) adds zero output.
+ */
+
+@use 'tokens' as *;
+
+// Dark theme error banner
+@mixin dark-error-banner {
+	background: $error-bg;
+	color: $white;
+	padding: $space-sm $space-md;
+	border-radius: $border-radius-sm;
+	margin-bottom: $space-md;
+	font-size: 12px;
+}
+
+// Shared secondary/utility button — ONE look for every chrome button (Fold all,
+// New Topology, the per-row restart/Edit, the supervisor refresh). A white fill
+// + a clear border so it reads as a button on BOTH the subtle page background
+// AND a white card (where the fill alone wouldn't separate). 8px radius to match
+// the cards/panels.
+@mixin secondary-button {
+	background: var(--paper);
+	color: $dark-text;
+	border: 1.5px solid var(--ink-3);
+	border-radius: var(--np-radius-md);
+	cursor: pointer;
+	transition:
+		background 0.15s ease,
+		border-color 0.15s ease;
+
+	&:hover {
+		background: var(--paper-2);
+		border-color: var(--ink-3);
+	}
+}
+
+// Dark theme button
+@mixin dark-button {
+	background: $dark-bg-tertiary;
+	border: 2px solid $dark-border;
+	color: $dark-text;
+	padding: 0 $space-sm;
+	border-radius: $border-radius;
+	cursor: pointer;
+	font-size: 12px;
+	height: $control-height;
+	min-height: $control-height;
+	max-height: $control-height;
+	box-sizing: border-box;
+	vertical-align: middle;
+	transition: all 0.2s;
+
+	&:hover {
+		background: $dark-bg-hover;
+		color: $dark-text;
+	}
+
+	&.active {
+		background: $dark-bg-active;
+		color: $dark-accent;
+		border-color: $dark-accent;
+	}
+}
+
+// Dark theme column picker
+@mixin dark-column-picker {
+	background: $dark-bg-secondary;
+	border: 2px solid $dark-border;
+	border-radius: $border-radius;
+	padding: $space-sm $space-md;
+	margin-bottom: $space-md;
+	display: flex;
+	flex-wrap: wrap;
+	gap: $space-sm;
+	font-size: 12px;
+	color: $dark-text;
+
+	label {
+		display: flex;
+		align-items: center;
+		gap: $space-xs;
+		color: $dark-text-muted;
+		cursor: pointer;
+
+		&:hover {
+			color: $dark-text;
+		}
+	}
+
+	input[type="checkbox"] {
+		margin: 0;
+	}
+}
+
+// Dark theme stats display (count + RPS)
+@mixin dark-stats {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	white-space: nowrap;
+}
+
+@mixin dark-stats-count {
+	font-family: $mono-font;
+	font-size: 12px;
+	color: $dark-text-muted;
+}
+
+@mixin dark-stats-rps {
+	font-family: $mono-font;
+	font-size: 12px;
+	color: $dark-success;
+	font-weight: 700;
+}
+
+// Dark theme search input
+@mixin dark-search-input {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+	background: $dark-bg-secondary !important;
+	border: 2px solid $dark-border !important;
+	color: $dark-text !important;
+	padding: 0 $space-md !important;
+	border-radius: $border-radius !important;
+	font-size: 13px !important;
+	height: $control-height !important;
+	min-height: $control-height !important;
+	max-height: $control-height !important;
+	box-sizing: border-box !important;
+	line-height: normal !important;
+	transition:
+		border-color 0.2s,
+		box-shadow 0.2s;
+
+	&:focus {
+		outline: none;
+		border-color: $dark-accent !important;
+		background: $dark-bg-secondary !important;
+		color: $dark-text !important;
+		box-shadow: $focus-shadow;
+	}
+
+	&::placeholder {
+		color: $dark-text-placeholder !important;
+	}
+}
+
+// =============================================================================
+// Shared Table Mixins
+// =============================================================================
+
+@mixin table-header {
+	display: grid;
+	gap: 8px;
+	padding: 8px 12px;
+	background: $light-surface;
+	border: 2px solid $light-border;
+	border-bottom: none;
+	font-weight: 600;
+	font-size: 13px;
+}
+
+@mixin table-list {
+	border: 2px solid $light-border;
+}
+
+@mixin table-row {
+	display: grid;
+	gap: 8px;
+	padding: 0 12px;
+	align-items: center;
+	box-sizing: border-box;
+	border-bottom: 1px solid $light-border-light;
+	cursor: pointer;
+
+	&:hover {
+		background: $light-surface;
+	}
+
+	&.selected {
+		background: $light-selected;
+	}
+}
+
+@mixin table-cell {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+
+	code {
+		display: block;
+		font-size: 12px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+}
+
+@mixin table-cell-numeric {
+	text-align: right;
+}
+
+@mixin table-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: $light-text-muted;
+	font-style: italic;
+}
+
+@mixin sortable-header-button {
+	background: none;
+	border: none;
+	padding: 0;
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+	user-select: none;
+	text-align: left;
+
+	&:hover {
+		color: $wp-link;
+	}
+}
+
+/**
+ * Re-skin the color properties of a WP-core `.widefat .striped` table so it
+ * follows the hub's decorative themes. WP-core hardcodes a light surface that
+ * ignores the universal --paper/--ink tokens; each fallback is the exact
+ * WP-core light value it shadows so the STANDALONE dashboard (tokens undefined)
+ * stays byte-identical — body `td` text is #50575e, header `th` text #2c3338.
+ */
+@mixin widefat-themed {
+	.widefat {
+		background: var(--paper, #fff);
+		border-color: var(--paper-shadow, #c3c4c7);
+	}
+
+	.widefat td {
+		color: var(--ink, #50575e);
+		border-color: var(--paper-shadow, #c3c4c7);
+	}
+
+	.widefat th {
+		color: var(--ink, #2c3338);
+		border-color: var(--paper-shadow, #c3c4c7);
+	}
+
+	.striped > tbody > tr:nth-child(odd) {
+		background-color: var(--paper-2, #f6f7f7);
+	}
+}

@@ -1,4 +1,4 @@
-import { SliceViewNode } from './slice-view-node';
+import { SliceViewNode } from '@newspack-nodes/shared/nodes/SliceViewNode';
 
 // `source-counts:view` — owns the per-source counts slice ({ sources:{name:count} }).
 // React reads it via useNodeState('source-counts:view','view') in <SourceCounts/>.

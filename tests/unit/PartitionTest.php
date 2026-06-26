@@ -2189,6 +2189,66 @@ class PartitionTest extends TestCase {
 		$this->assertNull( Partition_Node::read_latest_value_at( $this->tmp ) );
 	}
 
+	/** Write one snapshot record (`{ cache: { items: [...] } }`) into $offsets/$name. */
+	private function write_snapshot_cache( string $name, array $items ): void {
+		$this->write_value_record( "{$this->tmp}/$name", [ 'seg' => 0, 'off' => 0, 'cache' => [ 'items' => $items ] ] );
+	}
+
+	public function test_read_latest_snapshot_cache_returns_empty_for_no_matching_dirs(): void {
+		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' ) );
+	}
+
+	public function test_read_latest_snapshot_cache_flattens_items_across_dirs(): void {
+		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ], [ 'title' => 'b' ] ] );
+		$this->write_snapshot_cache( 'scored.p1', [ [ 'title' => 'c' ] ] );
+
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' );
+
+		$this->assertEqualsCanonicalizing(
+			[ [ 'title' => 'a' ], [ 'title' => 'b' ], [ 'title' => 'c' ] ],
+			$items
+		);
+	}
+
+	public function test_read_latest_snapshot_cache_ignores_non_matching_glob(): void {
+		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ] ] );
+		$this->write_snapshot_cache( 'other.p0', [ [ 'title' => 'z' ] ] );
+
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' );
+
+		$this->assertSame( [ [ 'title' => 'a' ] ], $items );
+	}
+
+	public function test_read_latest_snapshot_cache_drops_non_array_items(): void {
+		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ], 'not-an-array', [ 'title' => 'b' ] ] );
+
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' );
+
+		$this->assertSame( [ [ 'title' => 'a' ], [ 'title' => 'b' ] ], $items );
+	}
+
+	public function test_read_latest_snapshot_cache_returns_empty_when_cache_items_absent(): void {
+		$this->write_value_record( "{$this->tmp}/scored.p0", [ 'seg' => 0, 'off' => 0 ] );
+
+		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' ) );
+	}
+
+	public function test_read_latest_snapshot_cache_honors_custom_cache_and_items_keys(): void {
+		$this->write_value_record( "{$this->tmp}/scored.p0", [ 'state' => [ 'rows' => [ [ 'n' => 1 ] ] ] ] );
+
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'state', 'rows' );
+
+		$this->assertSame( [ [ 'n' => 1 ] ], $items );
+	}
+
+	public function test_read_latest_snapshot_cache_tolerates_trailing_slash_on_dir(): void {
+		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ] ] );
+
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp . '/', 'scored.p*' );
+
+		$this->assertSame( [ [ 'title' => 'a' ] ], $items );
+	}
+
 	public function test_seam_methods_return_partition_defaults(): void {
 		// Partition's seams describe a DIRECTORY layout writing the packed envelope.
 		// Log overrides these six; pinning the defaults here keeps Partition's own

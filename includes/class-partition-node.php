@@ -987,6 +987,52 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
+	/**
+	 * Glob a family of snapshot-offsetlog dirs and flatten their latest cached item lists.
+	 *
+	 * For every dir matching `$offsets_dir/$glob`, read the newest committed record's VALUE
+	 * (via read_latest_value_at), descend `VALUE[$cache_key][$items_key]`, and concatenate the
+	 * array-shaped items into one list. The per-dir read is fault-tolerant: a missing cache,
+	 * a non-array items list, or a non-array item is silently skipped. Callers memoize per
+	 * request — this re-globs and re-reads every call.
+	 *
+	 * @api Public substrate primitive: a Service_CI that fans a digest snapshot across
+	 *      partitions (e.g. the example AI-newsletter insights demo) reads its accumulated
+	 *      items through this instead of re-implementing the glob + cache descent.
+	 *
+	 * @param string $offsets_dir Absolute path to the offsets base dir holding the snapshot dirs.
+	 * @param string $glob        A glob (relative to $offsets_dir) selecting the snapshot dirs, e.g. `scored.p*`.
+	 * @param string $cache_key   VALUE key holding the cache object. Default `cache`.
+	 * @param string $items_key   Cache key holding the items list. Default `items`.
+	 * @return array<int,array<array-key,mixed>> The flattened, array-shaped items across all matched dirs.
+	 */
+	public static function read_latest_snapshot_cache(
+		string $offsets_dir,
+		string $glob,
+		string $cache_key = 'cache',
+		string $items_key = 'items'
+	): array {
+		$dirs = \glob( \rtrim( $offsets_dir, '/' ) . '/' . $glob, \GLOB_ONLYDIR );
+		if ( false === $dirs || [] === $dirs ) {
+			return [];
+		}
+		$items = [];
+		foreach ( $dirs as $dir ) {
+			$value = self::read_latest_value_at( $dir );
+			$cache = \is_array( $value ) && \is_array( $value[ $cache_key ] ?? null ) ? $value[ $cache_key ] : [];
+			$list  = $cache[ $items_key ] ?? null;
+			if ( ! \is_array( $list ) ) {
+				continue;
+			}
+			foreach ( $list as $item ) {
+				if ( \is_array( $item ) ) {
+					$items[] = $item;
+				}
+			}
+		}
+		return $items;
+	}
+
 	/** Topology console manifest: palette entry + ctor form + verb forms. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
