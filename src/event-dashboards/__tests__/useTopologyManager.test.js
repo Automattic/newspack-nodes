@@ -442,6 +442,67 @@ describe( 'useTopologyManager', () => {
 		expect( sent.some( ( s ) => 'list' === s.verb ) ).toBe( true );
 	} );
 
+	it( 'is a genuine node graph: toolkit boundary + a Fetcher per slice fanned from the owned Tee', async () => {
+		const { client } = buildClient();
+		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		await act( async () => {} );
+
+		// useBatchedPoll owns the I/O boundary, the fan-out Tee, and the hitchhike Timer.
+		for ( const name of [
+			'_http',
+			'_shell',
+			'topologymanager:timer',
+			'topologymanager:tee',
+		] ) {
+			expect( Core.node( name ) ).toBeTruthy();
+		}
+		// One Fetcher per slice, each fanned from the owned Tee.
+		for ( const fetcher of [ 'fetch-workers', 'fetch-topologies' ] ) {
+			expect( Core.node( fetcher ) ).toBeTruthy();
+		}
+		expect( Core.node( 'topologymanager:tee' ).target ).toEqual(
+			expect.arrayContaining( [ 'fetch-workers', 'fetch-topologies' ] )
+		);
+	} );
+
+	it( 'puts WorkerStatusTransform on a graph edge: the receiver Tee fans to the transform, the transform targets the worker view', async () => {
+		const { client } = buildClient();
+		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		await act( async () => {} );
+
+		// The transform rides the addSliceFetcher transform slot — on the
+		// receiver-Tee → view edge, NOT inside the view.
+		const transform = Core.node( 'workerstatus:transform' );
+		expect( transform ).toBeTruthy();
+		expect( transform.target ).toBe( 'workerstatus:view' );
+		// The worker-status receiver Tee fans its reply into the transform.
+		expect( Core.node( 'wsIn' ).target ).toEqual(
+			expect.arrayContaining( [ 'workerstatus:transform' ] )
+		);
+	} );
+
+	it( 'one poll tick batches both slice commands into ONE HttpOut POST', async () => {
+		const recording = [];
+		const client = {
+			buildMessage: buildClient().client.buildMessage,
+			postBatch( messages ) {
+				recording.push( messages );
+				return buildClient().client.postBatch( messages );
+			},
+		};
+		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		await act( async () => {} );
+		recording.length = 0;
+
+		await act( async () => {
+			Core.node( '_router' ).fireCb();
+		} );
+
+		expect( recording.length ).toBe( 1 );
+		const verbs = recording[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
+		expect( verbs ).toEqual( [ 'dump_graph', 'list' ] );
+	} );
+
 	it( 'exposes connected state', async () => {
 		const { client } = buildClient();
 		const { result } = renderHook( () =>

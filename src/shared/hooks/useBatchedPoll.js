@@ -24,6 +24,7 @@
  *     timerName: 'insights:timer',
  *     teeName:   'insights:tee',
  *     commandClient,   // test seam assigned to `_http.client`
+ *     paused,          // suspend the poll without unmounting (e.g. a drag in flight)
  *   } );
  *
  * Returns `{ interpreterRef }` — the live interpreter consumers fire awaited
@@ -35,6 +36,7 @@
  * @param {string}   opts.timerName       Name for the owned router-hitchhike Timer.
  * @param {string}   opts.teeName         Name for the owned fan-out Tee.
  * @param {Object}   [opts.commandClient] CommandClient seam assigned to `_http.client`.
+ * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
  * @return {{ interpreterRef: Object }} A ref to the live interpreter.
  */
 
@@ -105,6 +107,22 @@ export function useBatchedPoll( opts ) {
 			router.beforeTimerNotify = () => http.lock();
 			router.afterTimerNotify = () => http.flush();
 
+			// Immediate first paint: fire ONE batched tick on mount (the old
+			// useDashboardGraph polled on mount; without this the dashboard would
+			// wait a whole interval for its first data). Same lock/flush bracket as
+			// the router tick so it's ONE POST. Gated on visible AND not paused —
+			// a hidden/paused mount waits for the visibility/paused effect to arm.
+			// Match usePageVisibility's check (not document.hidden) so the gate is
+			// consistent with the effect that re-arms the Timer.
+			if (
+				'visible' === document.visibilityState &&
+				! optsRef.current.paused
+			) {
+				http.lock();
+				timer.fire();
+				http.flush();
+			}
+
 			// Re-render so each widget's useNodeState re-subscribes to its freshly-
 			// mounted view node (child effects ran before this build).
 			bumpBuild( ( n ) => n + 1 );
@@ -125,19 +143,21 @@ export function useBatchedPoll( opts ) {
 		return teardown;
 	}, [] );
 
-	// Toggle the Timer's router-TIMER hitchhike with tab visibility. Runs after
-	// the mount effect (so the timer exists); a null ref no-ops.
+	// Toggle the Timer's router-TIMER hitchhike with tab visibility AND the
+	// caller's `paused` flag (e.g. an Overview drag in flight). Poll only when
+	// visible and not paused; either gate stops the Timer → no fan-out → no POST.
+	// Runs after the mount effect (so the timer exists); a null ref no-ops.
 	useEffect( () => {
 		const timer = timerRef.current;
 		if ( ! timer ) {
 			return;
 		}
-		if ( isPageVisible ) {
+		if ( isPageVisible && ! opts.paused ) {
 			timer.setTimer();
 		} else {
 			timer.stopTimer();
 		}
-	}, [ isPageVisible ] );
+	}, [ isPageVisible, opts.paused ] );
 
 	return { interpreterRef };
 }

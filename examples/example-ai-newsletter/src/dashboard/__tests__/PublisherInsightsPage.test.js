@@ -75,10 +75,16 @@ function sourceBarNames( container ) {
 }
 
 describe( 'PublisherInsightsPage', () => {
-	it( 'renders the Publisher Insights heading', () => {
-		render(
-			<PublisherInsightsPage commandClient={ makeClient( populated ) } />
-		);
+	it( 'renders the Publisher Insights heading', async () => {
+		// useBatchedPoll fires one batched poll on mount (immediate first paint),
+		// so the mount settles async view-node updates — flush them under act().
+		await act( async () => {
+			render(
+				<PublisherInsightsPage
+					commandClient={ makeClient( populated ) }
+				/>
+			);
+		} );
 		expect(
 			screen.getByRole( 'heading', { name: 'Publisher Insights' } )
 		).toBeInTheDocument();

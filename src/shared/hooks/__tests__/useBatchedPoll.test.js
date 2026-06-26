@@ -185,6 +185,43 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 	} );
 } );
 
+describe( 'useBatchedPoll — initial poll on mount', () => {
+	test( 'fires one batched POST on mount (immediate first paint, not a one-interval wait)', async () => {
+		const client = makeFakeClient();
+		renderPoll( { commandClient: client } );
+		await act( async () => {} );
+
+		expect( client.batches.length ).toBe( 1 );
+		expect( client.batches[ 0 ].length ).toBe( 3 );
+	} );
+
+	test( 'does NOT fire the initial poll while the tab is hidden', async () => {
+		Object.defineProperty( document, 'visibilityState', {
+			configurable: true,
+			get: () => 'hidden',
+		} );
+		const client = makeFakeClient();
+		renderPoll( { commandClient: client } );
+		await act( async () => {} );
+		expect( client.batches.length ).toBe( 0 );
+	} );
+
+	test( 'does NOT fire the initial poll while paused', async () => {
+		const client = makeFakeClient();
+		renderHook( () =>
+			useBatchedPoll( {
+				build: buildSlices,
+				timerName: 'insights:timer',
+				teeName: 'insights:tee',
+				commandClient: client,
+				paused: true,
+			} )
+		);
+		await act( async () => {} );
+		expect( client.batches.length ).toBe( 0 );
+	} );
+} );
+
 describe( 'useBatchedPoll — the batching bracket', () => {
 	test( 'one router TIMER tick batches every slice command into ONE HttpOut POST', async () => {
 		const client = makeFakeClient();
@@ -239,6 +276,44 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 
 		await act( async () => {
 			setVisibility( 'visible' );
+		} );
+		await act( async () => {
+			Core.node( ROUTER ).fireCb();
+		} );
+		expect( client.batches.length ).toBe( 1 );
+		expect( client.batches[ 0 ].length ).toBe( 3 );
+	} );
+} );
+
+describe( 'useBatchedPoll — paused gate', () => {
+	test( 'while paused no router tick posts; unpausing resumes polling', async () => {
+		const client = makeFakeClient();
+		const { rerender } = renderHook(
+			( { paused } ) =>
+				useBatchedPoll( {
+					build: buildSlices,
+					timerName: 'insights:timer',
+					teeName: 'insights:tee',
+					commandClient: client,
+					paused,
+				} ),
+			{ initialProps: { paused: false } }
+		);
+		await act( async () => {} );
+		client.batches.length = 0;
+
+		// Pause (e.g. an Overview drag in flight): the tick fans out nothing.
+		await act( async () => {
+			rerender( { paused: true } );
+		} );
+		await act( async () => {
+			Core.node( ROUTER ).fireCb();
+		} );
+		expect( client.batches.length ).toBe( 0 );
+
+		// Resume: the tick posts one batched POST again.
+		await act( async () => {
+			rerender( { paused: false } );
 		} );
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
