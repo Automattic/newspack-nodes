@@ -127,4 +127,21 @@ describe( 'PublisherInsightsPage', () => {
 		);
 		expect( screen.queryByRole( 'table' ) ).not.toBeInTheDocument();
 	} );
+
+	it( 'mounts the debug overlay so the live graph is inspectable in the console', async () => {
+		// The overlay is self-gated by isDebugEnabled — enable it via the sticky
+		// localStorage flag so it mounts, then assert its FAB renders on the page.
+		window.localStorage.setItem( 'newspack-nodes:debug', '1' );
+		await act( async () => {
+			render(
+				<PublisherInsightsPage
+					commandClient={ makeClient( populated ) }
+				/>
+			);
+		} );
+		expect(
+			screen.getByRole( 'button', { name: 'Toggle node debugger' } )
+		).toBeInTheDocument();
+		window.localStorage.removeItem( 'newspack-nodes:debug' );
+	} );
 } );
