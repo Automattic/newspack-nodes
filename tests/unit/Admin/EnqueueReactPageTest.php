@@ -266,5 +266,33 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$data = $GLOBALS['_localized_scripts']['test-handle']['data'];
 			$this->assertSame( '/custom/rest/', $data['restUrl'] );
 		}
+
+		// ---- css_cache_version helper ----------------------------------------
+
+		public function test_css_cache_version_returns_md5_of_readable_file(): void {
+			$css = "{$this->tree_dir}/sheet.css";
+			\file_put_contents( $css, '.x{color:red}' );
+			$this->assertSame( \md5_file( $css ), Admin::css_cache_version( $css, 'fallback-ver' ) );
+		}
+
+		public function test_css_cache_version_returns_fallback_when_file_missing(): void {
+			$missing = "{$this->tree_dir}/does-not-exist.css";
+			$this->assertSame( 'fallback-ver', Admin::css_cache_version( $missing, 'fallback-ver' ) );
+		}
+
+		public function test_css_cache_version_does_not_warn_on_missing_file(): void {
+			$missing = "{$this->tree_dir}/does-not-exist.css";
+			\set_error_handler(
+				static function ( int $errno, string $errstr ): bool {
+					throw new \RuntimeException( "unexpected warning: {$errstr}" );
+				},
+				\E_WARNING
+			);
+			try {
+				$this->assertSame( 'fallback-ver', Admin::css_cache_version( $missing, 'fallback-ver' ) );
+			} finally {
+				\restore_error_handler();
+			}
+		}
 	}
 }
