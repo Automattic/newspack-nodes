@@ -26,6 +26,7 @@ import { CommandClient } from '../../runtime/command-client';
 import '../nodes/register';
 
 const LINK = 'topicprobe:link';
+const TEE = 'topicprobe:stream';
 const VIEW = 'topicprobe:view';
 // Explicit `.p0` so the server's `{type}.p{N}` branch routes through its
 // no-worker → log-feed fallback to `logs/topicprobe.p0` (the probe is always
@@ -74,10 +75,16 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 				LINK,
 				`${ SUBSCRIBE } ${ baseUrl } ${ nonce }`
 			);
-			link.target = VIEW;
+			// A pure pass-through Tee on the stream edge: the link re-homes received
+			// frames to it, it copies each to the view. `connect topicprobe:stream` in
+			// the debug overlay appends a second target to inspect the live stream.
+			link.target = TEE;
 			link.client =
 				optsRef.current.commandClient ||
 				new CommandClient( { baseUrl, nonce } );
+
+			const tee = interpreter.makeNode( 'Tee', TEE );
+			tee.connectNode( VIEW );
 
 			interpreter.makeNode( 'TopicProbeView', VIEW );
 			linkRef.current = link;

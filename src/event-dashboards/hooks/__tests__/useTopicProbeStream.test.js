@@ -7,6 +7,7 @@
 
 import { renderHook, act } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
+import { Node } from '../../../runtime/node';
 import {
 	newMessage,
 	TYPE,
@@ -58,6 +59,7 @@ beforeEach( () => {
 import { useTopicProbeStream } from '../useTopicProbeStream';
 
 const LINK = 'topicprobe:link';
+const TEE = 'topicprobe:stream';
 const VIEW = 'topicprobe:view';
 
 const fakeClient = () => ( { postBatch: () => Promise.resolve( [] ) } );
@@ -134,6 +136,50 @@ describe( 'useTopicProbeStream', () => {
 		);
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+	} );
+
+	it( 'inserts an inspectable Tee on the stream edge: link → tee → view', async () => {
+		renderHook( () =>
+			useTopicProbeStream( {
+				mode: 'follow',
+				commandClient: fakeClient(),
+			} )
+		);
+		await act( async () => {} );
+		const interpreter = Core.node( '_command_interpreter' );
+		const tee = Core.node( TEE );
+		expect( tee ).toBeTruthy();
+		expect( tee.constructor.name ).toBe( 'TeeNode' );
+		expect( tee.sink ).toBe( interpreter );
+		// The link re-homes received frames to the Tee, which fans to the view.
+		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
+		expect( tee.target ).toEqual( [ VIEW ] );
+	} );
+
+	it( 'fans the live probe stream to a debug-overlay watcher without disturbing the view', async () => {
+		renderHook( () =>
+			useTopicProbeStream( {
+				mode: 'follow',
+				commandClient: fakeClient(),
+			} )
+		);
+		await act( async () => {} );
+		const watcher = new Node();
+		watcher.name = 'watcher';
+		const seen = [];
+		watcher.fill = ( m ) => seen.push( m[ VALUE ][ SOURCE ] );
+		Core.node( TEE ).connectNode( 'watcher' );
+		await act( async () => {
+			FakeEventSource.last.dispatch(
+				'msg',
+				JSON.stringify(
+					probeFrame( { msgs: 1000, distance: 50, ts: 100 } )
+				)
+			);
+		} );
+		// The watcher saw the raw probe AND the view accumulated the series.
+		expect( seen ).toContain( 'firehose.p0' );
+		expect( Core.node( VIEW ).snapshot()[ 'firehose.p0' ] ).toBeTruthy();
 	} );
 
 	it( 'routes a probe frame through the link into the view as a rate/backlog series', async () => {

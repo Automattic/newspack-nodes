@@ -33,6 +33,7 @@ import {
 	TM_BYTESTREAM,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
+import { Node } from '../../../runtime/node';
 import { useNodeState } from '../../../runtime/react';
 import names from '../../../runtime/reserved-node-names.json';
 
@@ -74,6 +75,7 @@ const LINK = 'rawlogs:link';
 const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
 const VIEW = 'rawlogs:view';
+const TEE = 'rawlogs:stream';
 
 // CommandClient double mirroring HttpOut's seam: postBatch returns reply
 // Messages addressed back along FROM. Used for `list_logs` (initial dropdown)
@@ -151,10 +153,12 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		expect( link.heartbeat ).toBe( Core.node( HEARTBEAT ) );
 	} );
 
-	test( 'steers flow with targets: composed (unnamed) sse-in → view; shared heartbeat → _http/workers', async () => {
+	test( 'steers flow with targets: composed (unnamed) sse-in → stream Tee → view; shared heartbeat → _http/workers', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		expect( Core.node( LINK ).sseIn.target ).toBe( VIEW );
+		// The link re-homes received frames to the inspectable Tee, which fans to the view.
+		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
+		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
 	} );
 
@@ -163,6 +167,59 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		await act( async () => {} );
 		expect( Core.node( 'rawlogs:route' ) ).toBeNull();
 		expect( Core.node( 'rawlogs:transform' ) ).toBeNull();
+	} );
+
+	test( 'inserts an inspectable Tee on the stream edge: link → tee → view', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		const interpreter = Core.node( INTERPRETER );
+		const tee = Core.node( TEE );
+		// A named Tee sits on the stream path, sinking into the backbone.
+		expect( tee ).toBeTruthy();
+		expect( tee.constructor.name ).toBe( 'TeeNode' );
+		expect( tee.sink ).toBe( interpreter );
+		// The link re-homes received frames to the Tee, not straight to the view.
+		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
+		// The Tee forwards to the view (pure pass-through, single target).
+		expect( tee.target ).toEqual( [ VIEW ] );
+	} );
+
+	test( 'a delivered log envelope still reaches the view through the Tee', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		FakeEventSource.last.dispatch( 'msg', pack( connectedEnvelope() ) );
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = 'p0';
+		env[ FROM ] = 'firehose.p0';
+		env[ VALUE ] = 'through the tee';
+		FakeEventSource.last.dispatch( 'msg', pack( env ) );
+		const view = Core.node( VIEW );
+		expect( view.lines ).toHaveLength( 1 );
+		expect( view.lines[ 0 ].content ).toBe( 'p0: through the tee' );
+	} );
+
+	test( 'connecting a second target to the Tee fans the live stream out without disturbing the view', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		// A debug-overlay `connect <tee> <watcher>` appends a second target.
+		const watcher = new Node();
+		watcher.name = 'watcher';
+		const seen = [];
+		watcher.fill = ( m ) => seen.push( m[ VALUE ] );
+		Core.node( TEE ).connectNode( 'watcher' );
+
+		FakeEventSource.last.dispatch( 'msg', pack( connectedEnvelope() ) );
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = 'p0';
+		env[ FROM ] = 'firehose.p0';
+		env[ VALUE ] = 'watched line';
+		FakeEventSource.last.dispatch( 'msg', pack( env ) );
+
+		// The watcher saw the raw stream AND the view still rendered the line.
+		expect( seen ).toContain( 'watched line' );
+		expect( Core.node( VIEW ).lines ).toHaveLength( 1 );
 	} );
 
 	test( 'the composed HttpOut has the injected CommandClient as its client', async () => {
