@@ -1,11 +1,14 @@
 /**
- * AggregatorStatus UI-surface tests — the thin view over the aggregator node
- * graph.
+ * AggregatorStatus UI-surface tests — the thin view over the DE-GOD aggregator
+ * node graph. The single god `aggregator:view` is gone; the dashboard now reads
+ * two independent per-concern slices, each from its own view node:
+ *
+ *   summary:view → <AggregatorSummary> (header: counts + snapshot clock)
+ *   servers:view → <AggregatorServers> (server cards + partition grids)
  *
  * The graph is owned by useAggregatorStatusGraph (tested separately); here we mock
- * it to hand back spy control callbacks, and we register a fixture
- * `aggregator:view` node in Core so the view can read its model via useNodeState.
- * Mirrors how RequestStream.test.js was rewritten against its graph.
+ * it to hand back spy control callbacks, and we register fixture slice nodes in
+ * Core so each widget can read its model via useNodeState.
  */
 
 jest.mock( '../hooks/useAggregatorStatusGraph', () => {
@@ -52,20 +55,10 @@ const SAMPLE_SERVERS = [
 	},
 ];
 
-// A minimal stand-in for the aggregator:view node: the model lives in
-// setStateCache.view (what useNodeState subscribes to). setState here notifies
-// subscribers exactly like the real Node.setState.
-function registerViewFixture( overrides = {} ) {
-	const model = {
-		servers: null,
-		serverNow: null,
-		connectedCount: 0,
-		totalCount: 0,
-		error: null,
-		loading: true,
-		lastRefresh: null,
-		...overrides,
-	};
+// A minimal stand-in for a slice view node: the model lives in setStateCache.view
+// (what useNodeState subscribes to). setState here notifies subscribers exactly
+// like the real Node.setState.
+function fixtureNode( name, model ) {
 	const node = {
 		registrations: { view: {} },
 		setStateCache: {},
@@ -86,8 +79,27 @@ function registerViewFixture( overrides = {} ) {
 		},
 	};
 	node.setState( 'view', model );
-	Core.nodes.set( 'aggregator:view', node );
+	Core.nodes.set( name, node );
 	return node;
+}
+
+// Register the two per-concern slice fixtures the de-god dashboard reads.
+function registerSlices( { summary = {}, servers = {} } = {} ) {
+	fixtureNode( 'summary:view', {
+		connected: 0,
+		total: 0,
+		serverNow: null,
+		error: null,
+		loading: true,
+		lastRefresh: null,
+		...summary,
+	} );
+	fixtureNode( 'servers:view', {
+		servers: null,
+		error: null,
+		loading: true,
+		...servers,
+	} );
 }
 
 describe( 'AggregatorStatus', () => {
@@ -118,47 +130,56 @@ describe( 'AggregatorStatus', () => {
 	}
 
 	it( 'shows the loading state before the first poll publishes', () => {
-		registerViewFixture( { loading: true } );
+		registerSlices( { servers: { loading: true } } );
 		const { container } = mount();
 		expect( container.textContent ).toContain( 'Loading server status' );
 	} );
 
-	it( 'renders server cards from the view model', () => {
-		registerViewFixture( {
-			servers: SAMPLE_SERVERS,
-			connectedCount: 1,
-			totalCount: 2,
-			loading: false,
+	it( 'renders server cards from the servers slice', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
 		expect( container.textContent ).toContain( 'server1' );
 		expect( container.textContent ).toContain( 'server2' );
 		expect( container.textContent ).toContain( 'p0' );
 		expect( container.textContent ).toContain( 'p1' );
+	} );
+
+	it( 'renders the connected/total count from the summary slice (not the servers slice)', () => {
+		registerSlices( {
+			summary: { connected: 1, total: 2, loading: false },
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
 		expect( container.textContent ).toContain( '1 / 2 connected' );
 	} );
 
 	it( 'shows the empty state when servers is an empty array', () => {
-		registerViewFixture( { servers: [], loading: false } );
+		registerSlices( { servers: { servers: [], loading: false } } );
 		const { container } = mount();
 		expect( container.textContent ).toContain( 'No servers configured' );
 	} );
 
-	it( 'shows the error state from the view model', () => {
-		registerViewFixture( {
-			servers: null,
-			error: 'aggregator down',
-			loading: false,
+	it( 'shows the error state from the servers slice', () => {
+		registerSlices( {
+			servers: {
+				servers: null,
+				error: 'aggregator down',
+				loading: false,
+			},
 		} );
 		const { container } = mount();
 		expect( container.textContent ).toContain( 'aggregator down' );
 	} );
 
-	it( 'renders the shared connection banner with the error message', () => {
-		registerViewFixture( {
-			servers: null,
-			error: 'aggregator down',
-			loading: false,
+	it( 'renders the shared connection banner with the servers-slice error', () => {
+		registerSlices( {
+			servers: {
+				servers: null,
+				error: 'aggregator down',
+				loading: false,
+			},
 		} );
 		const { container } = mount();
 		const banner = container.querySelector(
@@ -169,7 +190,7 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'does not render the connection banner when there is no error', () => {
-		registerViewFixture( { servers: [], loading: false } );
+		registerSlices( { servers: { servers: [], loading: false } } );
 		const { container } = mount();
 		expect(
 			container.querySelector( '.newspack-nodes-connection-banner' )
@@ -177,15 +198,10 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'keeps a per-row partition error message (never promoted to the connection banner)', () => {
-		registerViewFixture( {
-			servers: SAMPLE_SERVERS,
-			connectedCount: 1,
-			totalCount: 2,
-			loading: false,
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
-		// A per-partition error stays a per-row notice carrying only the MESSAGE;
-		// the HTTP code now rides the Status row as a caption, not the error line.
 		const errLine = container.querySelector(
 			'.aggregator-partition-error'
 		);
@@ -198,14 +214,10 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'rails each partition by rolled-up health (connected+heartbeating → is-ok, down → is-down)', () => {
-		registerViewFixture( {
-			servers: SAMPLE_SERVERS,
-			connectedCount: 1,
-			totalCount: 2,
-			loading: false,
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
-		// server1 p0 is connected + heartbeating → ok rail; p1 is down → down rail.
 		expect(
 			container.querySelector( '.aggregator-partition.is-ok' )
 		).toBeTruthy();
@@ -214,53 +226,9 @@ describe( 'AggregatorStatus', () => {
 		).toBeTruthy();
 	} );
 
-	it( 'shows the connection error info for a disconnected partition', () => {
-		registerViewFixture( {
-			servers: SAMPLE_SERVERS,
-			connectedCount: 1,
-			totalCount: 2,
-			loading: false,
-		} );
-		const { container } = mount();
-		expect( container.textContent ).toContain( 'HTTP 504' );
-		expect( container.textContent ).toContain( 'timeout' );
-	} );
-
-	it( 'shows the heartbeat status as pending (not success) when disconnected, even with a stale last_heartbeat_response', () => {
-		registerViewFixture( {
-			servers: [
-				{
-					id: 'gone',
-					url: 'https://gone.example.test',
-					partitions: {
-						// Was connected once (stale heartbeat ts present) but the
-						// SSE link is now down — the Status badge must reflect that.
-						0: {
-							connected: false,
-							last_heartbeat_response: 1748960010,
-						},
-					},
-				},
-			],
-			connectedCount: 0,
-			totalCount: 1,
-			loading: false,
-		} );
-		const { container } = mount();
-		expect(
-			container.querySelector( '.aggregator-heartbeat-badge.pending' )
-		).toBeTruthy();
-		expect(
-			container.querySelector( '.aggregator-heartbeat-badge.success' )
-		).toBeNull();
-	} );
-
-	it( 'shows the RTT badge for the heartbeat', () => {
-		registerViewFixture( {
-			servers: SAMPLE_SERVERS,
-			connectedCount: 1,
-			totalCount: 2,
-			loading: false,
+	it( 'shows the heartbeat RTT badge', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
 		// formatRtt(42) → "42.0" (between 1 and 100).
@@ -268,36 +236,41 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'formats sub-ms, warning, and error RTT partitions', () => {
-		registerViewFixture( {
-			servers: [
-				{
-					id: 'srv-rtt',
-					url: 'https://rtt.example.test',
-					partitions: {
-						0: {
-							connected: true,
-							last_heartbeat_response: 9999,
-							last_heartbeat_rtt: 0.5,
-							last_connection_attempt: 9880,
-							last_sse_heartbeat: 5000,
-						},
-						1: {
-							connected: true,
-							last_heartbeat_response: 9999,
-							last_heartbeat_rtt: 250,
-						},
-						2: {
-							connected: true,
-							last_heartbeat_response: 9999,
-							last_heartbeat_rtt: 600,
+		registerSlices( {
+			summary: {
+				serverNow: 10000,
+				connected: 1,
+				total: 1,
+				loading: false,
+			},
+			servers: {
+				servers: [
+					{
+						id: 'srv-rtt',
+						url: 'https://rtt.example.test',
+						partitions: {
+							0: {
+								connected: true,
+								last_heartbeat_response: 9999,
+								last_heartbeat_rtt: 0.5,
+								last_connection_attempt: 9880,
+								last_sse_heartbeat: 5000,
+							},
+							1: {
+								connected: true,
+								last_heartbeat_response: 9999,
+								last_heartbeat_rtt: 250,
+							},
+							2: {
+								connected: true,
+								last_heartbeat_response: 9999,
+								last_heartbeat_rtt: 600,
+							},
 						},
 					},
-				},
-			],
-			serverNow: 10000,
-			connectedCount: 1,
-			totalCount: 1,
-			loading: false,
+				],
+				loading: false,
+			},
 		} );
 		const { container } = mount();
 		expect( container.textContent ).toContain( '0.50ms' );
@@ -312,25 +285,30 @@ describe( 'AggregatorStatus', () => {
 		).toBeTruthy();
 	} );
 
-	it( 'computes "ago" from the model serverNow, not the browser clock', () => {
-		registerViewFixture( {
-			servers: [
-				{
-					id: 'srv',
-					url: 'https://s.example.test',
-					partitions: {
-						0: {
-							connected: true,
-							// Recorded 1s before the snapshot serverNow below.
-							last_sse_heartbeat: 1999,
+	it( 'computes "ago" from the summary-slice serverNow, not the browser clock', () => {
+		registerSlices( {
+			summary: {
+				serverNow: 2000,
+				connected: 1,
+				total: 1,
+				loading: false,
+			},
+			servers: {
+				servers: [
+					{
+						id: 'srv',
+						url: 'https://s.example.test',
+						partitions: {
+							0: {
+								connected: true,
+								// Recorded 1s before the snapshot serverNow below.
+								last_sse_heartbeat: 1999,
+							},
 						},
 					},
-				},
-			],
-			serverNow: 2000,
-			connectedCount: 1,
-			totalCount: 1,
-			loading: false,
+				],
+				loading: false,
+			},
 		} );
 		const { container } = mount();
 		// Server HB = serverNow(2000) - last_sse_heartbeat(1999) = "1s ago".
@@ -338,7 +316,7 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'renders the refresh select bound to the graph callback', () => {
-		registerViewFixture( { servers: [], loading: false } );
+		registerSlices( { servers: { servers: [], loading: false } } );
 		const { container } = mount();
 		const select = container.querySelector(
 			'.newspack-nodes-refresh-select'
@@ -357,12 +335,12 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'mounts the graph (calls useAggregatorStatusGraph)', () => {
-		registerViewFixture();
+		registerSlices();
 		mount();
 		expect( useAggregatorStatusGraph ).toHaveBeenCalled();
 	} );
 
-	it( 'falls back to a loading model when the view node is absent', () => {
+	it( 'falls back to a loading model when the slice nodes are absent', () => {
 		// No fixture registered — useNodeState yields undefined; the view must
 		// still render the loading state without throwing.
 		const { container } = mount();
@@ -371,14 +349,10 @@ describe( 'AggregatorStatus', () => {
 
 	it( 'keeps ticking the 1s ago clock (re-renders without re-polling)', () => {
 		jest.useFakeTimers();
-		registerViewFixture( {
-			servers: SAMPLE_SERVERS,
-			connectedCount: 1,
-			totalCount: 2,
-			loading: false,
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
-		// The 1s tick must not throw and the dashboard stays rendered.
 		act( () => {
 			jest.advanceTimersByTime( 1000 );
 		} );

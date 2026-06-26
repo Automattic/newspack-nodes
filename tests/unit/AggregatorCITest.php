@@ -183,6 +183,160 @@ class AggregatorCITest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
+	// summary verb (de-god slice: cheap header derivation, server-computed)
+	//
+	// The de-god split replaced the single `status` god-view with two slice
+	// views, each fed by its own slice verb. `summary` is the header slice:
+	// connected/total counts + the snapshot clock — computed server-side from
+	// the SAME per-node partition snapshot `status` builds, so the dashboard
+	// header reads a tiny JSON blob instead of recomputing the count from the
+	// full partition payload. slice_verb returns a JSON STRING (the substrate
+	// SliceViewNode contract), so VerbHarness gets the encoded string back.
+	// ---------------------------------------------------------------------
+
+	public function test_summary_verb_returns_zero_counts_when_no_remote_sources_wired(): void {
+		$this->seed_aggregator_topology( [] );
+
+		$interpreter = new Aggregator_CI_Node();
+		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
+
+		$this->assertIsString( $result );
+		$decoded = \json_decode( $result, true );
+		$this->assertSame( 0, $decoded['connected'] );
+		$this->assertSame( 0, $decoded['total'] );
+		$this->assertIsInt( $decoded['server_now'] );
+	}
+
+	public function test_summary_verb_counts_servers_with_at_least_one_connected_partition(): void {
+		// spoke-a has one connected partition (p0) → counts as 1 connected;
+		// spoke-b has no connected partitions → counts toward total only.
+		$this->seed_aggregator_topology(
+			[
+				[ 'spoke-a', 'austin', 'firehose.p<partition>' ],
+				[ 'spoke-b', 'denver', 'firehose.p<partition>' ],
+			],
+			2
+		);
+		Core::$memd->set( 'np:remote:spoke-a:firehose.p0', [ 'connected' => true ], 60 );
+		Core::$memd->set( 'np:remote:spoke-a:firehose.p1', [ 'connected' => false ], 60 );
+
+		$interpreter = new Aggregator_CI_Node();
+		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
+
+		$this->assertSame( 1, $decoded['connected'] );
+		$this->assertSame( 2, $decoded['total'] );
+	}
+
+	public function test_summary_verb_stamps_a_wall_clock_server_now(): void {
+		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
+
+		$before  = \time();
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ),
+			true
+		);
+		$after   = \time();
+
+		$this->assertGreaterThanOrEqual( $before, $decoded['server_now'] );
+		$this->assertLessThanOrEqual( $after, $decoded['server_now'] );
+	}
+
+	public function test_summary_verb_rejects_unauthorized(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		$result                               = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'permission denied', $result );
+	}
+
+	// ---------------------------------------------------------------------
+	// servers_status verb (de-god slice: the heavy per-server partition data)
+	//
+	// The servers slice carries the full per-server partition snapshot the
+	// server cards render. Same discovery + memcache read as `status`, but
+	// returned as a SEQUENTIAL ARRAY (the React server-card list maps over it)
+	// and encoded as a JSON STRING (SliceViewNode contract).
+	// ---------------------------------------------------------------------
+
+	public function test_servers_status_verb_returns_empty_array_when_no_remote_sources_wired(): void {
+		$this->seed_aggregator_topology( [] );
+
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
+
+		$this->assertSame( [], $decoded );
+	}
+
+	public function test_servers_status_verb_returns_sequential_array_of_server_snapshots(): void {
+		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
+		$this->seed_vault( 'austin', [ 'url' => 'https://spoke.example/' ] );
+		Core::$memd->set(
+			'np:remote:spoke-a:firehose.p0',
+			[ 'connected' => true, 'last_http_code' => 200 ],
+			60
+		);
+
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
+
+		// Sequential array (NOT keyed by node-name) — the card list maps over it.
+		$this->assertArrayHasKey( 0, $decoded );
+		$this->assertCount( 1, $decoded );
+		$this->assertSame( 'spoke-a', $decoded[0]['id'] );
+		$this->assertSame( 'austin', $decoded[0]['vault_id'] );
+		$this->assertStringStartsWith( 'https://spoke.example', $decoded[0]['url'] );
+		$this->assertTrue( $decoded[0]['partitions'][0]['connected'] );
+		$this->assertSame( 200, $decoded[0]['partitions'][0]['last_http_code'] );
+	}
+
+	public function test_servers_status_verb_rejects_unauthorized(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		$result                               = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'permission denied', $result );
+	}
+
+	public function test_status_verb_and_slice_verbs_agree_on_the_same_snapshot(): void {
+		// The de-god slices MUST derive from the same snapshot `status` produces,
+		// so the legacy `status` shim and the new dashboard never disagree.
+		$this->seed_aggregator_topology(
+			[
+				[ 'spoke-a', 'austin', 'firehose.p<partition>' ],
+				[ 'spoke-b', 'denver', 'firehose.p<partition>' ],
+			]
+		);
+		// Each VerbHarness::fire builds a fresh request-scope graph and Core::reset
+		// (which clears Core::$memd) clears its node registry between fires. Re-seed
+		// the memcache snapshot + auth before each fire so all three verbs read the
+		// same snapshot; the seeded topology lives in Topology_Registry and survives.
+		$reseed = function (): void {
+			Core::$memd = new InMemoryMemcached();
+			Core::$memd->set( 'np:remote:spoke-a:firehose.p0', [ 'connected' => true ], 60 );
+			$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		};
+
+		$reseed();
+		$status = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'status' );
+		VerbHarness::reset();
+		$reseed();
+		$servers_slice = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ), true );
+		VerbHarness::reset();
+		$reseed();
+		$summary = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
+
+		// servers_status is exactly status's values, re-indexed sequentially.
+		$this->assertEquals( \array_values( $status ), $servers_slice );
+		// summary's total matches the server count; connected matches the rollup.
+		$this->assertSame( \count( $status ), $summary['total'] );
+		$this->assertSame( 1, $summary['connected'] );
+	}
+
+	// ---------------------------------------------------------------------
 	// health verb
 	// ---------------------------------------------------------------------
 
@@ -310,21 +464,21 @@ class AggregatorCITest extends TestCase {
 			$verbs[ $verb['name'] ] = $verb;
 		}
 
-		foreach ( [ 'status', 'health', 'servers' ] as $name ) {
+		foreach ( [ 'status', 'health', 'servers', 'summary', 'servers_status' ] as $name ) {
 			$this->assertArrayHasKey( $name, $verbs, "node_schema must list the '{$name}' verb" );
 			$this->assertIsCallable( $verbs[ $name ]['handler'] );
 		}
 	}
 
 	public function test_all_verbs_declare_no_args(): void {
-		// status/health/servers read no $payload/$args — none of their handlers
-		// even declare a $payload param, so each verb stays args => [].
+		// status/health/servers/summary/servers_status read no $payload/$args —
+		// none of their handlers even declare a $payload param, so each stays args => [].
 		$verbs = [];
 		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $verb ) {
 			$verbs[ $verb['name'] ] = $verb;
 		}
 
-		foreach ( [ 'status', 'health', 'servers' ] as $name ) {
+		foreach ( [ 'status', 'health', 'servers', 'summary', 'servers_status' ] as $name ) {
 			$this->assertSame( [], $verbs[ $name ]['args'], "'{$name}' must declare no args" );
 		}
 	}
