@@ -1,34 +1,41 @@
 /**
- * useTopologyManager — the data hook for the Topology Manager dashboard tab. It
- * surfaces EVERY topology (active AND inactive) with provenance + active flag,
- * merges the live worker-status section onto the active ones, and exposes
- * `activate` / `deactivate` / `restart` mutations.
+ * useTopologyManager — the data hook for the Topology Manager / Overview fleet
+ * board, rebuilt as a GENUINE node graph on the substrate's batched-poll toolkit
+ * (helpers H3/H4). It surfaces EVERY topology (active AND inactive) with
+ * provenance + active flag, merges the live worker-status section onto the active
+ * ones, and exposes `activate` / `deactivate` / `restart` mutations.
  *
- * DESIGN — option (B): build directly on the shared `useDashboardGraph` ONCE.
- * The two-hook composition of (A) — a dedicated worker-status hook for
- * status+restart plus a second mount for the topologies poll — fights the shared single-mount
- * skeleton: each `useDashboardGraph` owns one `mountExospine` (one Core graph,
- * one poll/interval), and `Core` is a per-process singleton, so a second mount
- * would collide. Building on `useDashboardGraph` once gives one mount, one
- * interval, and lets the single `poll` fire BOTH `dump_graph` (→ worker-status
- * transform → view) and `topologies list` (→ topology view). We reuse the
- * worker-status transform + view node classes verbatim for the live status
- * model, so we don't fork their rate/segment math.
+ * Graph (clipped onto the rule-#2 backbone the toolkit owns):
  *
- * Graph (clipped onto the rule-#2 backbone via the substrate's `_http`):
- *   _http                     (HttpOut — POST /command boundary; .client = CommandClient)
- *   workerstatus:transform    (dump_graph snapshot → enriched render model)
- *   workerstatus:view         (worker-status model React reads; restart pending-Map)
- *   topologymanager:view      (topologies list model React reads; activate/deactivate pending-Map)
+ *   topologymanager:timer (Timer) ─> topologymanager:tee (Tee) ─> fetch-workers ─┐ target = _shell/_http/workers
+ *                                                              └> fetch-topologies ┤ target = _shell/_http/topologies
+ *   wsIn   (Tee) ─> workerstatus:transform ─> workerstatus:view   ─> React
+ *   topoIn (Tee) ─> topologymanager:view                          ─> React
  *
- * The poll fires `dump_graph` (FROM=transform) + `topologies list`
- * (FROM=topologymanager:view). `restart(name, partition)` dispatches the
- * `workers` `restart` verb (FROM=workerstatus:view); `activate`/`deactivate`
- * dispatch the `topologies` verbs (FROM=topologymanager:view), each settling a
- * Promise via the canonical pending-Map.
+ * `useBatchedPoll` owns ALL the poll boilerplate (the `_shell`-Tap + `_http`
+ * HttpOut, the fan-out Tee + the router-hitchhike Timer, the lock/flush batch
+ * bracket so a tick's two fetcher commands ride ONE POST, and the page-visibility
+ * + `paused` gates). This hook supplies only its two slices via `addSliceFetcher`:
+ *  - the worker slice fires `dump_graph` and rides the H4 `transform` slot, so the
+ *    `WorkerStatusTransform` enrich-join lands on a graph EDGE (the wsIn → view
+ *    edge), not inside the view;
+ *  - the topology slice fires `topologies list` straight into its view.
  *
- * The merge: index the worker-status model's per-topology sections by name
- * (its `graph` keys are topology names); for each `topologies.list` row attach
+ * SERVER APPROACH: `dump_graph` stays ONE verb (the four sections workers /
+ * consumers / logs / graph must be joined from one coherent atomic snapshot — see
+ * reconstructWorkers — so it can't be split into independently-timed slice verbs),
+ * fanned to one transform→view on the client. `topologies list` is genuinely
+ * independent → its own slice. Neither needs a server change; both are existing
+ * verbs.
+ *
+ * Mutations are on-demand Fetchers (graph-visible through `_shell`), not
+ * hook-callback → interpreter.fill: `dispatchAwaited` mounts a one-shot Fetcher
+ * targeting `_shell/_http/<ci>` with FROM=<view>, fans a single trigger through it,
+ * and settles the matching reply via the view's PendingReplies — so the debug
+ * overlay's `connect _shell` sees the command flow.
+ *
+ * The merge: index the worker-status model's per-topology sections by name (its
+ * `graph` keys are topology names); for each `topologies.list` row attach
  * `status = byName[row.name] ?? null`.
  */
 
@@ -51,10 +58,9 @@ import {
 } from '../../runtime/message';
 import { useNodeState } from '../../runtime/react';
 import { formatCommandArgs } from '../../runtime/command-args';
-import {
-	useDashboardGraph,
-	makeOpId,
-} from '@newspack-nodes/shared/hooks/useDashboardGraph';
+import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
+import { makeOpId } from '@newspack-nodes/shared/hooks/useDashboardGraph';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '../formatters';
@@ -73,31 +79,38 @@ export const STALE_POLL_INTERVALS = 3;
 // a sub-minute backlog drains on its own and isn't worth flagging.
 const BEHIND_ETA_S = 60;
 
-const HTTP = '_http';
-const TRANSFORM = 'workerstatus:transform';
 const WORKER_VIEW = 'workerstatus:view';
 const TOPOLOGY_VIEW = 'topologymanager:view';
 
-/**
- * Build a TM_COMMAND addressed at a server CI: TO=`_http/<ci>` so the router
- * peels `_http` and HttpOut POSTs the bare command. `from` is the reply pivot.
- *
- * @param {string} ci   Server CI target (`workers` | `topologies`).
- * @param {string} verb Verb name.
- * @param {string} args Argument tail the verb parses (empty for nullary verbs).
- * @param {string} from Reply-pivot FROM (which node the reply lands at).
- * @param {string} id   Correlator stamped into message[ID].
- * @return {Array} A 7-field positional Message.
- */
-function buildCommand( ci, verb, args, from, id ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = from;
-	m[ TO ] = `${ HTTP }/${ ci }`;
-	m[ ID ] = id;
-	m[ VALUE ] = { name: verb, arguments: args };
-	return m;
-}
+// The server-side CIs the slices target through the substrate's `_shell/_http`.
+const WORKERS_CI = 'workers';
+const TOPOLOGIES_CI = 'topologies';
+
+// The two polled slices: the worker-status slice rides the H4 `transform` slot
+// (the WorkerStatusTransform enrich-join on the wsIn → view edge), and the
+// topology-list slice fires straight into its view.
+const SLICES = [
+	{
+		fetcher: 'fetch-workers',
+		receiver: 'wsIn',
+		command: 'dump_graph',
+		view: WORKER_VIEW,
+		viewClass: 'WorkerStatusView',
+		target: `_shell/_http/${ WORKERS_CI }`,
+		transform: {
+			name: 'workerstatus:transform',
+			nodeClass: 'WorkerStatusTransform',
+		},
+	},
+	{
+		fetcher: 'fetch-topologies',
+		receiver: 'topoIn',
+		command: 'list',
+		view: TOPOLOGY_VIEW,
+		viewClass: 'TopologyManagerView',
+		target: `_shell/_http/${ TOPOLOGIES_CI }`,
+	},
+];
 
 /**
  * Index the worker-status model's per-topology sections by name. The model's
@@ -229,12 +242,41 @@ export function deriveConnected( {
 }
 
 /**
- * Dispatch an awaited verb through the live interpreter, settling on the named
- * view node's pending-Map. Rejects if the graph or view isn't mounted yet.
+ * Build an ID-correlated TM_COMMAND addressed at a server CI THROUGH `_shell`:
+ * TO=`_shell/_http/<ci>` so the router peels `_shell` (the observe-only Tap the
+ * toolkit owns) — making the command visible to the debug overlay's
+ * `connect _shell` — then `_http` POSTs the bare command. FROM=<view> is the
+ * reply pivot; ID is the correlator the view's PendingReplies settles on.
  *
- * @param {Object} interpreterRef The shared hook's live interpreter ref.
+ * @param {string} ci   Server CI target (`workers` | `topologies`).
+ * @param {string} verb Verb name.
+ * @param {string} args Argument tail the verb parses (empty for nullary verbs).
+ * @param {string} from Reply-pivot FROM (which view the reply lands at).
+ * @param {string} id   Correlator stamped into message[ID].
+ * @return {Array} A 7-field positional Message.
+ */
+function buildMutation( ci, verb, args, from, id ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = from;
+	m[ TO ] = `_shell/_http/${ ci }`;
+	m[ ID ] = id;
+	m[ VALUE ] = { name: verb, arguments: args };
+	return m;
+}
+
+/**
+ * Dispatch an awaited mutation on-demand and graph-visible: an ID-correlated
+ * TM_COMMAND routed through `_shell/_http/<ci>` so the debug overlay's
+ * `connect _shell` sees it (unlike the old hidden `_http`-only fill). FROM=<view>
+ * pivots the reply back to that view, where the matching ID settles the Promise on
+ * its PendingReplies. Rejects if the graph or view isn't mounted yet. `_http` is
+ * flushed immediately — this is an event-driven mutation, not part of the batched
+ * poll tick.
+ *
+ * @param {Object} interpreterRef The toolkit's live interpreter ref.
  * @param {string} viewName       The view node whose `replies` settles the Promise.
- * @param {string} ci             Server CI target.
+ * @param {string} ci             Server CI target (`workers` | `topologies`).
  * @param {string} verb           Verb name.
  * @param {string} args           Argument tail.
  * @return {Promise} Settled by the matching reply.
@@ -252,14 +294,16 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
 	const promise = new Promise( ( resolve, reject ) => {
 		view.replies.add( id, resolve, reject );
 	} );
-	interpreter.fill( buildCommand( ci, verb, args, viewName, id ) );
+	interpreter.fill( buildMutation( ci, verb, args, viewName, id ) );
+	// Event-driven, not the batched tick: flush the just-buffered command now.
+	Core.node( '_http' )?.flush();
 	return promise;
 }
 
 /**
- * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`.
- * @param {number} [opts.refreshMs]     Poll interval in ms (default 4000).
+ * @param {Object}  [opts]               Options (testing seams).
+ * @param {Object}  [opts.commandClient] CommandClient seam assigned to `_http.client`.
+ * @param {boolean} [opts.paused]        Suspend polling (e.g. an Overview drag in flight).
  * @return {{ topologies: Array, supervisor: ?Object, currentTime: ?number,
  *   readRate: number, writeRate: number, logPartitions: number,
  *   activate: Function, deactivate: Function, restart: Function,
@@ -269,43 +313,19 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
  *   count for the summary cards, the mutation verbs, and connected.
  */
 export function useTopologyManager( opts = {} ) {
-	const { commandClient, refreshMs = 4000, paused = false } = opts;
+	const { commandClient, paused = false } = opts;
+	const refreshMs = opts.refreshMs ?? 4000;
 
-	const { interpreterRef } = useDashboardGraph( {
-		mountNodes: ( interpreter ) => {
-			const transform = interpreter.makeNode(
-				'WorkerStatusTransform',
-				TRANSFORM
+	const { interpreterRef } = useBatchedPoll( {
+		build: ( { interpreter, tee } ) => {
+			SLICES.forEach( ( slice ) =>
+				addSliceFetcher( interpreter, { ...slice, tee } )
 			);
-			const workerView = interpreter.makeNode(
-				'WorkerStatusView',
-				WORKER_VIEW
-			);
-			interpreter.makeNode( 'TopologyManagerView', TOPOLOGY_VIEW );
-			transform.target = WORKER_VIEW;
-			return () => workerView.close();
+			const workerView = Core.node( WORKER_VIEW );
+			return () => workerView?.close();
 		},
-		poll: ( interpreter ) => {
-			interpreter.fill(
-				buildCommand(
-					'workers',
-					'dump_graph',
-					'',
-					TRANSFORM,
-					makeOpId( 'topologymanager-op' )
-				)
-			);
-			interpreter.fill(
-				buildCommand(
-					'topologies',
-					'list',
-					'',
-					TOPOLOGY_VIEW,
-					makeOpId( 'topologymanager-op' )
-				)
-			);
-		},
-		refreshMs,
+		timerName: 'topologymanager:timer',
+		teeName: 'topologymanager:tee',
 		commandClient,
 		paused,
 	} );
@@ -398,7 +418,7 @@ export function useTopologyManager( opts = {} ) {
 			dispatchAwaited(
 				interpreterRef,
 				WORKER_VIEW,
-				'workers',
+				WORKERS_CI,
 				'restart',
 				partition >= 0
 					? formatCommandArgs( [ name, String( partition ) ] )
@@ -412,7 +432,7 @@ export function useTopologyManager( opts = {} ) {
 			dispatchAwaited(
 				interpreterRef,
 				TOPOLOGY_VIEW,
-				'topologies',
+				TOPOLOGIES_CI,
 				'activate',
 				formatCommandArgs( [ name ] )
 			),
@@ -424,7 +444,7 @@ export function useTopologyManager( opts = {} ) {
 			dispatchAwaited(
 				interpreterRef,
 				TOPOLOGY_VIEW,
-				'topologies',
+				TOPOLOGIES_CI,
 				'deactivate',
 				formatCommandArgs( [ name ] )
 			),
