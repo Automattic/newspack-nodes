@@ -112,6 +112,36 @@ describe( 'addSliceFetcher — wiring', () => {
 	} );
 } );
 
+describe( 'addSliceFetcher — optional argsFn (fire-time getter)', () => {
+	test( 'sets the Fetcher command_args to the supplied getter', () => {
+		const argsFn = () => '--sort count';
+		addSliceFetcher( interpreter, {
+			fetcher: 'fetch-urls',
+			receiver: 'urlsIn',
+			command: 'urls',
+			view: 'urls:view',
+			viewClass: 'FakeView',
+			tee,
+			target: TARGET,
+			argsFn,
+		} );
+		expect( Core.node( 'fetch-urls' ).command_args ).toBe( argsFn );
+	} );
+
+	test( 'without argsFn, command_args stays the static (empty) string', () => {
+		addSliceFetcher( interpreter, {
+			fetcher: 'fetch-counts',
+			receiver: 'countsIn',
+			command: 'counts',
+			view: 'counts:view',
+			viewClass: 'FakeView',
+			tee,
+			target: TARGET,
+		} );
+		expect( Core.node( 'fetch-counts' ).command_args ).toBe( '' );
+	} );
+} );
+
 describe( 'addSliceFetcher — optional transform', () => {
 	test( 'with no transform, the receiver Tee connects directly to the view', () => {
 		addSliceFetcher( interpreter, {

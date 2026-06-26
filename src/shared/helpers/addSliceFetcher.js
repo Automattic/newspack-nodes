@@ -15,21 +15,32 @@
  * Pair it with `useBatchedPoll`, whose `build` calls this once per slice and
  * which owns the `_shell`/`_http`/Timer/lock-flush boilerplate.
  *
- * @param {Object} interpreter       The mounted CommandInterpreter node.
- * @param {Object} slice
- * @param {string} slice.fetcher     Fetcher node name (e.g. `fetch-counts`).
- * @param {string} slice.receiver    Receiver Tee name; the reply pivots back here (Fetcher FROM).
- * @param {string} slice.command     The verb the Fetcher sends.
- * @param {string} slice.view        View node name.
- * @param {string} slice.viewClass   Registered class name for the view node.
- * @param {Object} slice.tee         The fan-out Tee node the tick fans through.
- * @param {string} slice.target      Egress path the Fetcher targets (`_shell/_http/<ci>`).
- * @param {Object} [slice.transform] Optional `{ name, nodeClass, args }` node inserted on the receiver-Tee → view edge.
+ * @param {Object}   interpreter       The mounted CommandInterpreter node.
+ * @param {Object}   slice
+ * @param {string}   slice.fetcher     Fetcher node name (e.g. `fetch-counts`).
+ * @param {string}   slice.receiver    Receiver Tee name; the reply pivots back here (Fetcher FROM).
+ * @param {string}   slice.command     The verb the Fetcher sends.
+ * @param {string}   slice.view        View node name.
+ * @param {string}   slice.viewClass   Registered class name for the view node.
+ * @param {Object}   slice.tee         The fan-out Tee node the tick fans through.
+ * @param {string}   slice.target      Egress path the Fetcher targets (`_shell/_http/<ci>`).
+ * @param {Object}   [slice.transform] Optional `{ name, nodeClass, args }` node inserted on the receiver-Tee → view edge.
+ * @param {Function} [slice.argsFn]    Optional fire-time getter `() => argsString`; assigned to the Fetcher's `command_args` so each tick emits live, UI-state-driven command args (filter / sort / page) without re-wiring.
  * @return {string} The receiver Tee name.
  */
 export function addSliceFetcher(
 	interpreter,
-	{ fetcher, receiver, command, view, viewClass, tee, target, transform }
+	{
+		fetcher,
+		receiver,
+		command,
+		view,
+		viewClass,
+		tee,
+		target,
+		transform,
+		argsFn,
+	}
 ) {
 	// Fetcher: turns the tick into ONE configured command (FROM=receiver), aimed
 	// at the egress; the fan-out Tee fans the tick to it.
@@ -38,6 +49,11 @@ export function addSliceFetcher(
 		fetcher,
 		`${ receiver } ${ command }`
 	);
+	// A getter makes the Fetcher emit live args each tick (the slice carries
+	// per-tick UI state); without one it keeps the static (empty) args.
+	if ( argsFn ) {
+		f.command_args = argsFn;
+	}
 	f.connectNode( target );
 	tee.connectNode( fetcher );
 

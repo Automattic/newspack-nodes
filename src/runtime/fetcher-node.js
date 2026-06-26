@@ -11,6 +11,13 @@ import { newMessage, TYPE, FROM, VALUE, TM_COMMAND } from './message';
  *  - command  — the verb to send.
  *  - command_args — the joined remainder, passed through as the command arguments.
  *
+ * `command_args` may also be assigned a FUNCTION (a fire-time getter): when it is,
+ * `fill()` CALLS it each tick to get the current args string. This lets a poll
+ * dashboard emit live arguments that track React UI state (filter / sort / page)
+ * without re-wiring the graph — the getter reads the current state at fire time.
+ * A non-string return coerces to ''. A static string stays byte-identical to the
+ * pre-getter behavior (only callers that opt in pass a getter).
+ *
  * `fill()` IGNORES the trigger payload — every message is just a trigger. The
  * command is configured on the node, never read from the message (a node that
  * sends the command carried in its message is a Shell, which is verboten). It
@@ -43,10 +50,20 @@ export class FetcherNode extends Node {
 	}
 
 	fill( _message ) {
+		// command_args may be a fire-time getter (live UI-state args) or a static
+		// string. Resolve it here so each tick carries the CURRENT args; a getter
+		// returning a non-string coerces to ''.
+		const args =
+			'function' === typeof this.command_args
+				? this.command_args()
+				: this.command_args;
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.receiver;
-		m[ VALUE ] = { name: this.command, arguments: this.command_args };
+		m[ VALUE ] = {
+			name: this.command,
+			arguments: 'string' === typeof args ? args : '',
+		};
 		super.fill( m );
 	}
 
