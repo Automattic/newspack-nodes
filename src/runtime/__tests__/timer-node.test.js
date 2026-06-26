@@ -188,3 +188,72 @@ describe( 'Router-hitchhike mode (rides the _router TIMER via notify_timer)', ()
 		expect( () => t.setTimer() ).toThrow();
 	} );
 } );
+
+describe( 'hitchhike + throttle (setTimer(ms) with ms > 1000)', () => {
+	test( 'setTimer(ms > 1000) hitchhikes the _router instead of an own slot', () => {
+		makeRouter();
+		const t = new TimerNode();
+		t.name = 'slow';
+		t.sink = { fill: () => {} };
+		t.target = '_output';
+		t.setTimer( 5000 );
+		expect( t.mode ).toBe( 'router' );
+		expect( t.interval_ms ).toBe( 5000 );
+		// No own-slot interval was scheduled.
+		jest.advanceTimersByTime( 10000 );
+		expect( t.counter ).toBe( 0 );
+		t.stopTimer();
+	} );
+
+	test( 'fire_cb throttles fire() to interval_ms across router ticks', () => {
+		jest.setSystemTime( 0 );
+		const r = makeRouter();
+		const t = new TimerNode();
+		t.name = 'slow-throttle';
+		const sent = [];
+		t.sink = { fill: ( m ) => sent.push( m ) };
+		t.target = '_output';
+		t.setTimer( 5000 );
+		// Five 1s router ticks; only the tick at-or-past 5s should emit.
+		for ( let i = 1; i <= 5; i++ ) {
+			jest.setSystemTime( i * 1000 );
+			r.notifyTimer();
+		}
+		expect( sent ).toHaveLength( 1 );
+		expect( t.fire_count ).toBe( 5 );
+		// Five more ticks → one more emit at the 10s boundary.
+		for ( let i = 6; i <= 10; i++ ) {
+			jest.setSystemTime( i * 1000 );
+			r.notifyTimer();
+		}
+		expect( sent ).toHaveLength( 2 );
+		t.stopTimer();
+	} );
+
+	test( 'setTimer(ms <= 1000) still uses an own setInterval slot', () => {
+		const t = new TimerNode();
+		t.name = 'fast';
+		const sent = [];
+		t.sink = { fill: ( m ) => sent.push( m ) };
+		t.setTimer( 1000 );
+		expect( t.mode ).toBe( 'event_framework' );
+		jest.advanceTimersByTime( 3000 );
+		expect( sent ).toHaveLength( 3 );
+		t.stopTimer();
+	} );
+
+	test( 'no-ms hitchhike still fires every tick (interval_ms = 0, no throttle)', () => {
+		const r = makeRouter();
+		const t = new TimerNode();
+		t.name = 'every-tick';
+		const sent = [];
+		t.sink = { fill: ( m ) => sent.push( m ) };
+		t.target = '_output';
+		t.setTimer();
+		r.notifyTimer();
+		r.notifyTimer();
+		r.notifyTimer();
+		expect( sent ).toHaveLength( 3 );
+		t.stopTimer();
+	} );
+} );

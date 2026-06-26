@@ -20,8 +20,14 @@ class TopicProbe_Node extends Timer_Node {
 
 	private const DEFAULT_INTERVAL_S = 15;
 
-	private int $interval_s      = self::DEFAULT_INTERVAL_S;
-	private float $last_fire_time = 0.0;
+	// The N-second sweep cadence is the base Timer's interval_ms (> 1000), so it
+	// hitchhikes the Router TIMER and Timer_Node::fire_cb() throttles to it — no
+	// bespoke last_fire_time gate. Default to the 15s cadence so a probe that's
+	// never given arguments still sweeps every 15s.
+	public function __construct() {
+		parent::__construct();
+		$this->interval_ms = self::DEFAULT_INTERVAL_S * 1000;
+	}
 
 	public function arguments( ?string $args = null ): string {
 		if ( null === $args ) {
@@ -32,29 +38,22 @@ class TopicProbe_Node extends Timer_Node {
 		if ( '' !== $trimmed && ! \preg_match( '/^[0-9]+$/', $trimmed ) ) {
 			throw new \InvalidArgumentException( 'Bad arguments for TopicProbe' );
 		}
-		$this->interval_s = '' === $trimmed ? self::DEFAULT_INTERVAL_S : \max( 1, (int) $trimmed );
-		// Hitchhike the Router TIMER (no dedicated event-framework slot); fire()
-		// self-gates the cadence against last_fire_time, like Consumer's publish.
-		// NOTE: can't delegate to Timer_Node::arguments — its numeric path means
-		// "fire an own slot every N MILLISECONDS"; our N is the GATE interval in
-		// SECONDS, so we always hitchhike and gate ourselves.
-		$this->set_timer();
+		$interval_s = '' === $trimmed ? self::DEFAULT_INTERVAL_S : \max( 1, (int) $trimmed );
+		// Hitchhike + throttle via the base (interval > 1000 ms): set_timer registers
+		// the TIMER hitchhike and fire_cb() gates to interval_ms. A 1s interval lands
+		// on an own slot (the router tick is too coarse to pace a 1s cadence).
+		$this->set_timer( $interval_s * 1000 );
 		return $this->arguments;
 	}
 
-	// Fires on every Router tick (hitchhike); gated to interval_s against
-	// last_fire_time. When due, emit ONE small TM_STRUCT record PER Consumer in
-	// this process — the lean positional Probe_Record snapshot. One record per
-	// consumer (not a batch) keeps every write under PIPE_BUF so the shared
-	// topicprobe log stays multi-writer atomic — no lock, no oversize drop. The
-	// Message TIMESTAMP is the snapshot time (not duplicated into VALUE). No
-	// consumers → nothing. A bad/uninitialized consumer is skipped, never failing
-	// the whole snapshot.
+	// Called by the base fire_cb() once interval_ms has elapsed (the throttle).
+	// Emit ONE small TM_STRUCT record PER Consumer in this process — the lean
+	// positional Probe_Record snapshot. One record per consumer (not a batch) keeps
+	// every write under PIPE_BUF so the shared topicprobe log stays multi-writer
+	// atomic — no lock, no oversize drop. The Message TIMESTAMP is the snapshot time
+	// (not duplicated into VALUE). No consumers → nothing. A bad/uninitialized
+	// consumer is skipped, never failing the whole snapshot.
 	protected function fire(): void {
-		if ( Core::$now - $this->last_fire_time < $this->interval_s ) {
-			return;
-		}
-		$this->last_fire_time = Core::$now;
 		$this->notify( 'FIRE', Core::$now );
 		$sink = $this->sink;
 		if ( null === $sink ) {

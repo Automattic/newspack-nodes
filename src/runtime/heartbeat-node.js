@@ -11,7 +11,6 @@
  */
 
 import { TimerNode } from './timer-node';
-import { Core } from './core';
 import {
 	newMessage,
 	TYPE,
@@ -25,7 +24,7 @@ import {
 // Slot TTL (s) requested in each poke, and the throttle (half the TTL) so a
 // single missed tick still leaves the slot alive.
 const SLOT_TTL_S = 10;
-const POKE_INTERVAL_S = 5;
+const POKE_INTERVAL_MS = 5000;
 
 export class HeartbeatNode extends TimerNode {
 	constructor() {
@@ -34,8 +33,12 @@ export class HeartbeatNode extends TimerNode {
 		// the SSE stream connects (and cleared when it closes).
 		this.slot = null;
 		this.partition = -1;
-		// Last emit time (s) — poke at most every POKE_INTERVAL_S.
-		this.lastFired = 0;
+	}
+
+	// Hitchhike the Router TIMER and let the base fireCb() throttle to POKE_INTERVAL_MS
+	// (half the slot TTL, so a single missed tick still leaves the slot alive).
+	setTimer() {
+		super.setTimer( POKE_INTERVAL_MS );
 	}
 
 	// Consume the heartbeat reply; it carries no canvas state, so swallow it.
@@ -44,18 +47,13 @@ export class HeartbeatNode extends TimerNode {
 		void message;
 	}
 
-	// Router TIMER subscriber (the _router calls fireCb -> fire): poke the slot at
-	// most every POKE_INTERVAL_S, only while a worker stream slot is held (the poke
+	// Router TIMER subscriber: the base fireCb() throttles to POKE_INTERVAL_MS, so
+	// fire() just pokes the slot — only while a worker stream slot is held (the poke
 	// is meaningless without one).
 	fire() {
 		if ( null === this.slot || ! this.sink ) {
 			return;
 		}
-		const now = Core.now();
-		if ( now - this.lastFired < POKE_INTERVAL_S ) {
-			return;
-		}
-		this.lastFired = now;
 		this.counter += 1;
 		this.sink.fill( this._pollMessage() );
 	}

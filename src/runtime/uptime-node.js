@@ -4,7 +4,6 @@
  */
 
 import { TimerNode } from './timer-node';
-import { Core } from './core';
 import {
 	newMessage,
 	TYPE,
@@ -15,12 +14,18 @@ import {
 	TM_COMMAND,
 } from './message';
 
+// Poll cadence (ms) — the base Timer throttle paces it (interval_ms > 1000).
+const POLL_INTERVAL_MS = 5000;
+
 export class UptimeNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.uptime = {};
-		// Last emit time (seconds) — uptime polls at most every 5s.
-		this.lastFired = 0;
+	}
+
+	// Hitchhike the Router TIMER and let the base fireCb() throttle to 5s.
+	setTimer() {
+		super.setTimer( POLL_INTERVAL_MS );
 	}
 
 	fill( message ) {
@@ -43,19 +48,13 @@ export class UptimeNode extends TimerNode {
 		}
 	}
 
-	// Router TIMER subscriber (the _router calls fireCb -> fire): emit an uptime
-	// poll at most every 5s. The timer only runs while the graph is mounted and
-	// `_cwd` handles every scope, so there's no per-scope gate — emit whenever a
-	// sink exists.
+	// Router TIMER subscriber: the base fireCb() throttles to 5s, so fire() just
+	// emits an uptime poll. `_cwd` handles every scope, so there's no per-scope
+	// gate — emit whenever a sink exists.
 	fire() {
 		if ( ! this.sink ) {
 			return;
 		}
-		const now = Core.now();
-		if ( now - this.lastFired < 5 ) {
-			return;
-		}
-		this.lastFired = now;
 		this.counter += 1;
 		this.sink.fill( this._pollMessage( 'uptime' ) );
 	}

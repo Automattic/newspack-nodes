@@ -261,11 +261,11 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 				);
 			} );
 			client.batches.length = 0; // ignore the initial list_logs batch
-			// 1s Router TIMER × 5 = past the 5s throttle in HeartbeatNode.fire.
+			// 1s Router TIMER × 5 = past the 5s base-Timer throttle (lastFireTime).
 			act( () => {
 				jest.advanceTimersByTime( 5000 );
 			} );
-			expect( Core.node( HEARTBEAT ).lastFired ).toBeGreaterThan( 0 );
+			expect( Core.node( HEARTBEAT ).lastFireTime ).toBeGreaterThan( 0 );
 			const poke = client.batches
 				.flat()
 				.find(

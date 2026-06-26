@@ -17,6 +17,9 @@ class Timer_Node extends Node {
 	public bool $oneshot    = false;
 	public float $next_fire = 0.0;
 
+	/** Throttle clock (Core::$now seconds) for hitchhike timers with interval_ms > 1000: fire_cb() only fires once interval_ms has elapsed since this. */
+	protected float $last_fire_time = 0.0;
+
 	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
 	protected string $mode = 'inactive';
 
@@ -54,6 +57,16 @@ class Timer_Node extends Node {
 		if ( null === $this->sink ) {
 			return;
 		}
+		// A hitchhike timer with interval_ms > 1000 rides the per-second router tick
+		// but only fires once interval_ms has elapsed (Core::$now is in seconds, so
+		// convert). interval_ms <= 1000 (own slot already paces it) and interval_ms
+		// === 0 (no-ms hitchhike fires every tick) skip the throttle.
+		if ( $this->interval_ms > 1000 ) {
+			if ( Core::$now - $this->last_fire_time < $this->interval_ms / 1000.0 ) {
+				return;
+			}
+			$this->last_fire_time = Core::$now;
+		}
 		$this->fire();
 	}
 
@@ -81,8 +94,12 @@ class Timer_Node extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
+	// No ms (or $ms > 1000) => Router-hitchhike: fire_cb() throttles a >1000
+	// interval against last_fire_time so the per-second router tick is enough. A
+	// $ms <= 1000 timer needs its own event-framework slot (the router tick is ~1s,
+	// too coarse to pace a sub-second timer).
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
-		if ( null === $ms ) {
+		if ( null === $ms || $ms > 1000 ) {
 			if ( '' === $this->name ) {
 				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
 			}
@@ -94,9 +111,10 @@ class Timer_Node extends Node {
 				$this->_stop_timer();
 			}
 			$router->register( 'TIMER', $this->name );
-			$this->mode        = 'router';
-			$this->interval_ms = $router->interval_ms;
-			$this->oneshot     = false;
+			$this->mode           = 'router';
+			$this->interval_ms    = null === $ms ? $router->interval_ms : $ms;
+			$this->last_fire_time = 0.0;
+			$this->oneshot        = false;
 			return;
 		}
 		if ( 'router' === $this->mode ) {

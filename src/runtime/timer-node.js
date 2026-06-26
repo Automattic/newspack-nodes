@@ -35,6 +35,9 @@ export class TimerNode extends Node {
 		this.fire_count = 0;
 		this.active = false;
 		this.oneshot = false;
+		// Throttle clock (Core.now() seconds) for hitchhike timers with interval_ms
+		// > 1000: fireCb() only fires once interval_ms has elapsed since this.
+		this.lastFireTime = 0;
 		// Stamped onto each emitted message's KEY (Tachikoma's STREAM). '' = unset.
 		this.key = '';
 		// 'FIRE' is the per-tick subscriber slot.
@@ -75,6 +78,17 @@ export class TimerNode extends Node {
 		if ( ! this.sink ) {
 			return;
 		}
+		// A hitchhike timer with interval_ms > 1000 rides the per-second router tick
+		// but only fires once interval_ms has elapsed (Core.now() is in seconds, so
+		// convert). interval_ms <= 1000 (own-slot setInterval already paces it) and
+		// interval_ms === 0 (no-ms hitchhike fires every tick) skip the throttle.
+		if ( this.interval_ms > 1000 ) {
+			const now = Core.now();
+			if ( now - this.lastFireTime < this.interval_ms / 1000 ) {
+				return;
+			}
+			this.lastFireTime = now;
+		}
 		this.fire();
 	}
 
@@ -104,11 +118,14 @@ export class TimerNode extends Node {
 		this.notify( 'FIRE', Core.now() );
 	}
 
-	// No ms => Router-hitchhike (register 'TIMER' on _router); ms => own slot.
+	// No ms (or ms > 1000) => Router-hitchhike (register 'TIMER' on _router);
+	// fireCb() throttles a >1000 interval against lastFireTime so the per-second
+	// router tick is enough. ms <= 1000 => own setInterval slot (the router tick is
+	// ~1s, too coarse to pace a sub-second timer).
 	setTimer( ms = null, oneshot = false ) {
 		this.oneshot = oneshot;
 		this.active = true;
-		if ( null === ms ) {
+		if ( null === ms || ms > 1000 ) {
 			if ( '' === this.name ) {
 				throw new Error(
 					'Router-hitchhike requires Timer to have a name'
@@ -124,7 +141,8 @@ export class TimerNode extends Node {
 				this.stopTimer();
 			}
 			router.register( 'TIMER', this.name );
-			this.interval_ms = ms;
+			this.interval_ms = null === ms ? 0 : ms;
+			this.lastFireTime = 0;
 			this.mode = 'router';
 			return;
 		}

@@ -117,19 +117,19 @@ describe( 'Metadata node', () => {
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
-			node.interval_ms = 5000;
+			node.pollIntervalMs = 5000;
 			node.fire(); // first tick: lastFired=0 -> fires
 			node.fire(); // same instant, < 5s elapsed, same path -> throttled
 			expect( sent ).toHaveLength( 1 );
 		} );
 
-		it( 're-polls once interval_ms has elapsed', () => {
+		it( 're-polls once pollIntervalMs has elapsed', () => {
 			const node = new MetadataNode();
 			node.name = '_metadata';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
-			node.interval_ms = 2000;
+			node.pollIntervalMs = 2000;
 			node.fire(); // fires, lastFired = now
 			node.fire(); // throttled (< 2s) — proves the gate is closed
 			node.lastFired = Core.now() - 3; // pretend 3s passed (> 2s gate)
@@ -137,7 +137,7 @@ describe( 'Metadata node', () => {
 			expect( sent ).toHaveLength( 2 );
 		} );
 
-		it( 're-polls immediately when the pivot path changes (within interval_ms)', () => {
+		it( 're-polls immediately when the pivot path changes (within pollIntervalMs)', () => {
 			const cwd = new Node();
 			cwd.name = '_cwd';
 			cwd.target = '_sse/a';
@@ -146,7 +146,7 @@ describe( 'Metadata node', () => {
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
-			node.interval_ms = 60000; // long gate so only a path change can re-fire
+			node.pollIntervalMs = 60000; // long gate so only a path change can re-fire
 			node.fire(); // path '_sse/a' -> fires, lastPath = '_sse/a'
 			node.fire(); // same path, < 60s -> throttled (proves the gate)
 			cwd.target = '_sse/b'; // user cd'd to another worker
@@ -180,7 +180,7 @@ describe( 'Metadata node', () => {
 	} );
 
 	describe( 'fill() scales the poll interval to graph size', () => {
-		it( 'sets interval_ms from the parsed node count on each response', () => {
+		it( 'sets pollIntervalMs from the parsed node count on each response', () => {
 			const node = new MetadataNode();
 			const payload = {};
 			for ( let i = 0; i < 600; i++ ) {
@@ -188,7 +188,7 @@ describe( 'Metadata node', () => {
 			}
 			node.fill( msg( TM_STRUCT, payload ) );
 			// 600 nodes -> 6000ms -> 6s -> nearest 5s -> 5000.
-			expect( node.interval_ms ).toBe( 5000 );
+			expect( node.pollIntervalMs ).toBe( 5000 );
 		} );
 	} );
 
@@ -213,6 +213,38 @@ describe( 'Metadata node', () => {
 			expect( sent ).toHaveLength( 1 );
 			expect( sent[ 0 ][ VALUE ].name ).toBe( 'dump_metadata' );
 			node.stopTimer();
+		} );
+
+		it( 're-polls on a cd through the REAL router fireCb even with a large pollIntervalMs (the base interval_ms stays 0 so it never double-throttles)', () => {
+			const nowSpy = jest.spyOn( Core, 'now' );
+			const router = new RouterNode();
+			router.name = names.ROUTER;
+			router.stopTimer();
+			const cwd = new Node();
+			cwd.name = names.CWD;
+			cwd.target = '_sse/a';
+			const node = new MetadataNode();
+			node.name = names.METADATA;
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.target = names.CWD;
+			node.setTimer();
+			node.pollIntervalMs = 30000; // a fill() scaled the self-throttle large
+
+			nowSpy.mockReturnValue( 100 );
+			router.notifyTimer(); // fires, lastPath = '_sse/a'
+			expect( sent ).toHaveLength( 1 );
+
+			nowSpy.mockReturnValue( 101 );
+			router.notifyTimer(); // same path, < 30s → throttled
+			expect( sent ).toHaveLength( 1 );
+
+			cwd.target = '_sse/b'; // user cd'd
+			nowSpy.mockReturnValue( 102 );
+			router.notifyTimer(); // path changed → must re-poll the same tick
+			expect( sent ).toHaveLength( 2 );
+			node.stopTimer();
+			nowSpy.mockRestore();
 		} );
 
 		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
@@ -360,9 +392,9 @@ describe( 'Metadata node', () => {
 		it( 'does not rescale the poll interval', () => {
 			const node = new MetadataNode();
 			seed( node, { a: { class: 'Echo', target: '' } } );
-			node.interval_ms = 30000;
+			node.pollIntervalMs = 30000;
 			node.optimisticPatch( 'a', { target: 'b' } );
-			expect( node.interval_ms ).toBe( 30000 );
+			expect( node.pollIntervalMs ).toBe( 30000 );
 		} );
 
 		it( 'ignores an empty name', () => {
