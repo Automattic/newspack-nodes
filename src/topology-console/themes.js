@@ -1,13 +1,18 @@
 /**
- * Topology Console skins. `newspack` is the default skin; every skin maps to a
- * `.topology-app.theme-<slug>` override block in styles/graph-view.scss, except
- * `current` (the identity skin), which renders from the base token values.
+ * Topology Console skins. The skin catalog and storage helpers now live in the
+ * shared module (`src/shared/theme.js`) so sibling dashboards can import the
+ * same contract via `@newspack-nodes/shared/theme`; this file re-exports them
+ * so every existing console importer keeps working unchanged, and adds the
+ * console-only palette/inspector collapse-state keys.
  */
-import { __ } from '@wordpress/i18n';
+export {
+	THEME_STORAGE_KEY,
+	DEFAULT_THEME,
+	THEMES,
+	isValidTheme,
+	getStoredTheme,
+} from '../shared/theme';
 
-// Global storage keys shared by topology-console + debug-overlay so a
-// preference picked in either surface applies in both.
-export const THEME_STORAGE_KEY = 'newspack-nodes:theme';
 // Palette collapse state is stored per-mode (live vs edit) because the
 // two surfaces want different defaults: live defaults to collapsed
 // (the palette isn't needed when watching), edit defaults to open (you
@@ -23,64 +28,3 @@ export const PALETTE_COLLAPSED_STORAGE_KEY_EDIT =
 // mode switches and mounts.
 export const INSPECTOR_COLLAPSED_STORAGE_KEY =
 	'newspack-nodes:inspector-collapsed';
-
-export const DEFAULT_THEME = 'newspack';
-
-export const THEMES = [
-	{ slug: 'newspack', label: __( 'Newspack', 'newspack-nodes' ) },
-	{ slug: 'newspack-brand', label: __( 'Newspack Brand', 'newspack-nodes' ) },
-	{ slug: 'current', label: __( 'Drafting Plotter', 'newspack-nodes' ) },
-	{
-		slug: 'blueprint',
-		label: __( 'Cyanotype Blueprint', 'newspack-nodes' ),
-	},
-	{ slug: 'crt', label: __( 'CRT Phosphor Terminal', 'newspack-nodes' ) },
-	{ slug: 'swiss', label: __( 'Swiss Brutalist', 'newspack-nodes' ) },
-	{ slug: 'synthwave', label: __( 'Synthwave Outrun', 'newspack-nodes' ) },
-	{ slug: 'nord', label: __( 'Nord Frost', 'newspack-nodes' ) },
-	{ slug: 'aurora', label: __( 'Aurora Glass', 'newspack-nodes' ) },
-	{
-		slug: 'solarized',
-		label: __( 'Solarized Workshop', 'newspack-nodes' ),
-	},
-	{
-		slug: 'botanical',
-		label: __( 'Botanical Naturalist', 'newspack-nodes' ),
-	},
-	{
-		slug: 'bauhaus',
-		label: __( 'Bauhaus Constructivist', 'newspack-nodes' ),
-	},
-	{ slug: 'neotokyo', label: __( 'Neo-Tokyo HUD', 'newspack-nodes' ) },
-	{ slug: 'pastel', label: __( 'Pastel Toy', 'newspack-nodes' ) },
-	{ slug: 'scada', label: __( 'Control-Room SCADA', 'newspack-nodes' ) },
-];
-
-const SLUGS = THEMES.map( ( t ) => t.slug );
-
-/**
- * True when `slug` is a known skin.
- *
- * @param {string} slug Candidate skin slug.
- * @return {boolean} Whether the slug matches a registered skin.
- */
-export function isValidTheme( slug ) {
-	return typeof slug === 'string' && SLUGS.includes( slug );
-}
-
-/**
- * Read the persisted skin slug. The single source of truth for "which skin is
- * live" — unknown/absent/disabled storage falls back to the default. Reading it
- * fresh at call time (rather than threading the reactive `theme`) lets the
- * `list_skins` builtin mark the current skin without closure staleness.
- *
- * @return {string} The persisted skin slug, or DEFAULT_THEME.
- */
-export function getStoredTheme() {
-	try {
-		const slug = window.localStorage.getItem( THEME_STORAGE_KEY );
-		return isValidTheme( slug ) ? slug : DEFAULT_THEME;
-	} catch ( _err ) {
-		return DEFAULT_THEME;
-	}
-}
