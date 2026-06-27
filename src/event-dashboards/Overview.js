@@ -324,6 +324,10 @@ export default function Overview() {
 		() => topicChartSeries( consumers, 'backlog' ),
 		[ consumers ]
 	);
+	const cacheSizeSeries = useMemo(
+		() => topicChartSeries( consumers, 'cacheSize' ),
+		[ consumers ]
+	);
 
 	return (
 		<div className="nodes-overview">
@@ -353,6 +357,11 @@ export default function Overview() {
 				<TopicsChart
 					title={ __( 'Topics Backlog', 'newspack-nodes' ) }
 					series={ backlogSeries }
+					formatValue={ formatBytes }
+				/>
+				<TopicsChart
+					title={ __( 'Topics Cache Size', 'newspack-nodes' ) }
+					series={ cacheSizeSeries }
 					formatValue={ formatBytes }
 				/>
 			</div>
