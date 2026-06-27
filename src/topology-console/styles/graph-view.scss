@@ -1093,6 +1093,38 @@
 	opacity: 0.65;
 }
 
+// Read-only Constructor rows in the inspector — a declared arg name + the
+// node's actual value. Mirrors .topology-field-row but keeps its own class so
+// the value column (long paths / `<config:…>` tokens) is unambiguous and wraps.
+.topology-insp__arg {
+	display: grid;
+	grid-template-columns: 96px 1fr;
+	padding: 5px 0;
+	border-bottom: 1px dotted var(--ink-4);
+	gap: 10px;
+	align-items: baseline;
+
+	&:last-child {
+		border-bottom: 0;
+	}
+
+	&-name {
+		font: 400 10px var(--font-mono);
+		color: var(--ink-3);
+	}
+
+	&-val {
+		font: 500 11px var(--font-mono);
+		color: var(--ink);
+		word-break: break-all;
+
+		// An omitted optional arg, shown as its dimmed schema default.
+		&--default {
+			color: var(--ink-3);
+		}
+	}
+}
+
 .topology-field-row {
 	display: grid;
 	grid-template-columns: 88px 1fr;

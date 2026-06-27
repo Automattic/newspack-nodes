@@ -1183,6 +1183,25 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 0,  $decoded['alice']['bytes_written'] );
 	}
 
+	public function test_dump_metadata_exposes_the_node_arguments_string(): void {
+		// The Inspector's read-only Constructor view pairs the class's declared
+		// positional args with the node's actual `arguments` string, so the
+		// metadata row must carry it.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$alice = new Capture_Sink_Node();
+		$alice->name( 'alice' );
+		$alice->arguments( '/tmp/logs/errors.p0 4096 8' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertSame(
+			'/tmp/logs/errors.p0 4096 8',
+			$decoded['alice']['arguments']
+		);
+	}
+
 	public function test_dump_metadata_header_carries_the_request_reply_pivot(): void {
 		// The full snapshot stamps a `_header.pwd` with the requesting session's
 		// reply pivot (the inbound FROM == reverse_cwd) so the GUI can match it

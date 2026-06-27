@@ -888,6 +888,116 @@ describe( 'Inspector (view mode)', () => {
 			}
 		);
 	} );
+
+	it( 'shows the constructor arguments read-only, paired with the schema arg names', () => {
+		const part = {
+			id: 'errors',
+			class: 'Partition',
+			arguments: '/tmp/logs/errors.p0 4096 8',
+		};
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="errors"
+				parsed={ { nodes: [ part ], edges: [] } }
+				catalog={ [
+					{
+						shell_name: 'Partition',
+						arguments: [
+							{ name: 'dir', required: true },
+							{ name: 'segment_size' },
+							{ name: 'num_segments' },
+						],
+					},
+				] }
+			/>
+		);
+		expect( container.textContent ).toMatch( /Constructor/ );
+		// Schema arg names paired with the node's positional values.
+		expect( container.textContent ).toContain( 'dir' );
+		expect( container.textContent ).toContain( '/tmp/logs/errors.p0' );
+		expect( container.textContent ).toContain( 'segment_size' );
+		expect( container.textContent ).toContain( '4096' );
+		expect( container.textContent ).toContain( 'num_segments' );
+		expect( container.textContent ).toContain( '8' );
+		// Read-only: the section has no editable inputs.
+		expect(
+			container.querySelectorAll( '.topology-insp__arg input' ).length
+		).toBe( 0 );
+	} );
+
+	it( 'folds a free-form trailing argument into the final positional slot', () => {
+		const fetcher = {
+			id: 'f',
+			class: 'Fetcher',
+			arguments: 'overviewIn overview a b c',
+		};
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="f"
+				parsed={ { nodes: [ fetcher ], edges: [] } }
+				catalog={ [
+					{
+						shell_name: 'Fetcher',
+						arguments: [
+							{ name: 'receiver' },
+							{ name: 'command' },
+							{ name: 'arguments' },
+						],
+					},
+				] }
+			/>
+		);
+		const vals = [
+			...container.querySelectorAll( '.topology-insp__arg-val' ),
+		].map( ( el ) => el.textContent );
+		expect( vals ).toEqual( [ 'overviewIn', 'overview', 'a b c' ] );
+	} );
+
+	it( 'falls back to the schema default (dimmed) for an omitted optional argument', () => {
+		const part = { id: 'p', class: 'Partition', arguments: '/tmp/x' };
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="p"
+				parsed={ { nodes: [ part ], edges: [] } }
+				catalog={ [
+					{
+						shell_name: 'Partition',
+						arguments: [
+							{ name: 'dir', required: true },
+							{ name: 'segment_size', default: 4096 },
+						],
+					},
+				] }
+			/>
+		);
+		const vals = [
+			...container.querySelectorAll( '.topology-insp__arg-val' ),
+		];
+		// dir was passed — normal style.
+		expect( vals[ 0 ].textContent ).toBe( '/tmp/x' );
+		expect( vals[ 0 ].className ).not.toMatch( /--default/ );
+		// segment_size omitted — shows the schema default, dimmed.
+		expect( vals[ 1 ].textContent ).toBe( '4096' );
+		expect( vals[ 1 ].className ).toMatch( /--default/ );
+	} );
+
+	it( 'omits the Constructor section when the class declares no arguments', () => {
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="e"
+				parsed={ {
+					nodes: [ { id: 'e', class: 'Echo', arguments: '' } ],
+					edges: [],
+				} }
+				catalog={ [ { shell_name: 'Echo', arguments: [] } ] }
+			/>
+		);
+		expect( container.textContent ).not.toMatch( /Constructor/ );
+	} );
 } );
 
 // The "Activity" sparkline shows RATE_HISTORY_MAX (60) samples, one per poll.
