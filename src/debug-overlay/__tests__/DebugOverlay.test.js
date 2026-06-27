@@ -499,6 +499,30 @@ describe( 'DebugOverlay', () => {
 		expect( optionValues ).not.toContain( '_router' );
 	} );
 
+	it( 'excludes the _shell console Tap from the path menu (routing plumbing, not a cd target)', () => {
+		// `_shell` (names.CONSOLE_TAP) is the observe-only Tap useBatchedPoll mounts
+		// in front of `_http` on every dashboard — it's routing, not a navigable
+		// scope. `_http` (the I/O egress) stays a legitimate `cd` target.
+		mountExospine();
+		const tap = new Node();
+		tap.name = '_shell';
+		const svc = new Node();
+		svc.name = '_my_service'; // a real navigable node so the menu expands
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const selects = container.querySelectorAll( '.topology-select' );
+		const pathSelect = [ ...selects ].find(
+			( s ) => ! s.classList.contains( 'topology-select--skin' )
+		);
+		const optionValues = [ ...pathSelect.querySelectorAll( 'option' ) ].map(
+			( o ) => o.value
+		);
+		expect( optionValues ).not.toContain( '_shell' );
+		expect( optionValues ).toContain( '_my_service' );
+	} );
+
 	it( 'keeps the local navigable scopes in the path menu at a remote cwd', () => {
 		// Navigating into `/_http` makes the polled `_metadata` graph reflect the
 		// REMOTE scope (none of the local `_` nodes). The path menu must still
