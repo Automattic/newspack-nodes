@@ -34,6 +34,27 @@ use Newspack_Nodes\Service_CI_Node;
 class Status_CI_Node extends Service_CI_Node {
 
 	/** @api Used by the substrate to provide UI etc. */
+	/**
+	 * `get` verb handler — a single-shot health/version snapshot for the admin panel.
+	 *
+	 * @return array<string,mixed> Health snapshot.
+	 */
+	public static function cmd_get(): array {
+		$config          = RuntimeConfig::load_config();
+		$cache_available = null !== Core::$memd;
+		/** @var int|float|string|bool|null $num_partitions */
+		$num_partitions = $config['num_partitions'] ?? 1;
+
+		return [
+			'status'          => 'ok',
+			'runtime_version' => \defined( 'NEWSPACK_NODES_VERSION' ) ? \NEWSPACK_NODES_VERSION : 'unknown',
+			'num_partitions'  => (int) $num_partitions,
+			'topologies'      => \array_keys( Bootstrap::get_topologies() ),
+			'cache_available' => $cache_available,
+			'timestamp'       => \time(),
+		];
+	}
+
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
@@ -44,21 +65,7 @@ class Status_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'description' => 'Return a single-shot health snapshot for the admin "is this thing alive?" panel.',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						$config          = RuntimeConfig::load_config();
-						$cache_available = null !== Core::$memd;
-						/** @var int|float|string|bool|null $num_partitions */
-						$num_partitions = $config['num_partitions'] ?? 1;
-
-						return [
-							'status'          => 'ok',
-							'runtime_version' => \defined( 'NEWSPACK_NODES_VERSION' ) ? \NEWSPACK_NODES_VERSION : 'unknown',
-							'num_partitions'  => (int) $num_partitions,
-							'topologies'      => \array_keys( Bootstrap::get_topologies() ),
-							'cache_available' => $cache_available,
-							'timestamp'       => \time(),
-						];
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_get(),
 				],
 			],
 		] );
