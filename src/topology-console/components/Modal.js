@@ -3,8 +3,9 @@
  * ESC and backdrop-click dismiss; the primary action focuses on mount.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
+import { getStoredTheme } from '../themes';
 
 export function ModalShell( { title, onDismiss, children } ) {
 	const ref = useRef( null );
@@ -20,27 +21,41 @@ export function ModalShell( { title, onDismiss, children } ) {
 		return () => document.removeEventListener( 'keydown', onKey );
 	}, [ onDismiss ] );
 
-	return (
+	// Portal to <body> inside a display:contents theme wrapper. The backdrop is
+	// position:fixed/z-index:1e6, but a fixed element's z only competes WITHIN its
+	// own stacking context — rendered in place (e.g. inside the inspector dock's
+	// z-index:2 console) it paints below the portaled panel header. At <body> it
+	// escapes every nested context; the display:contents wrapper carries the skin
+	// tokens (no box of its own) so --paper / --ink resolve.
+	return createPortal(
 		<div
-			className="topology-modal-backdrop"
-			role="presentation"
-			onMouseDown={ ( e ) => {
-				if ( e.target === e.currentTarget ) {
-					onDismiss();
-				}
-			} }
+			className={ `topology-app newspack-nodes-theme theme-${ getStoredTheme() }` }
+			style={ { display: 'contents' } }
 		>
 			<div
-				className="topology-modal"
-				ref={ ref }
-				role="dialog"
-				aria-modal="true"
-				aria-label={ title }
+				className="topology-modal-backdrop"
+				role="presentation"
+				onMouseDown={ ( e ) => {
+					if ( e.target === e.currentTarget ) {
+						onDismiss();
+					}
+				} }
 			>
-				<header className="topology-modal__header">{ title }</header>
-				{ children }
+				<div
+					className="topology-modal"
+					ref={ ref }
+					role="dialog"
+					aria-modal="true"
+					aria-label={ title }
+				>
+					<header className="topology-modal__header">
+						{ title }
+					</header>
+					{ children }
+				</div>
 			</div>
-		</div>
+		</div>,
+		document.body
 	);
 }
 

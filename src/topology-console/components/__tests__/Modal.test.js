@@ -31,17 +31,42 @@ describe( 'ModalShell', () => {
 
 	it( 'invokes onDismiss on backdrop click but not on inner dialog click', () => {
 		const onDismiss = jest.fn();
-		const { container } = render(
+		const { baseElement } = render(
 			<ModalShell title="" onDismiss={ onDismiss }>
 				<div />
 			</ModalShell>
 		);
-		const backdrop = container.querySelector( '.topology-modal-backdrop' );
-		const dialog = container.querySelector( '.topology-modal' );
+		const backdrop = baseElement.querySelector(
+			'.topology-modal-backdrop'
+		);
+		const dialog = baseElement.querySelector( '.topology-modal' );
 		fireEvent.mouseDown( dialog );
 		expect( onDismiss ).not.toHaveBeenCalled();
 		fireEvent.mouseDown( backdrop );
 		expect( onDismiss ).toHaveBeenCalled();
+	} );
+
+	it( 'portals the backdrop to <body> under a theme wrapper so it escapes nested stacking contexts', () => {
+		// A fixed-position backdrop rendered inside a stacking-context ancestor (the
+		// inspector dock's z-index:2 console) paints BELOW the portaled panel header.
+		// Portaling to <body> escapes every nested context; the theme wrapper keeps
+		// --paper / --ink in scope.
+		render(
+			<div className="dock">
+				<ModalShell title="x" onDismiss={ () => {} }>
+					<div />
+				</ModalShell>
+			</div>
+		);
+		const dock = document.body.querySelector( '.dock' );
+		const backdrop = document.body.querySelector(
+			'.topology-modal-backdrop'
+		);
+		expect( backdrop ).not.toBeNull();
+		expect( dock.contains( backdrop ) ).toBe( false );
+		expect(
+			backdrop.closest( '.topology-app.newspack-nodes-theme' )
+		).not.toBeNull();
 	} );
 } );
 
@@ -91,7 +116,7 @@ describe( 'ConfirmModal', () => {
 
 	it( 'invokes onCancel on backdrop click but not on inner dialog click', () => {
 		const onCancel = jest.fn();
-		const { container } = render(
+		const { baseElement } = render(
 			<ConfirmModal
 				title=""
 				body=""
@@ -99,8 +124,10 @@ describe( 'ConfirmModal', () => {
 				onCancel={ onCancel }
 			/>
 		);
-		const backdrop = container.querySelector( '.topology-modal-backdrop' );
-		const dialog = container.querySelector( '.topology-modal' );
+		const backdrop = baseElement.querySelector(
+			'.topology-modal-backdrop'
+		);
+		const dialog = baseElement.querySelector( '.topology-modal' );
 		// Click on the inner dialog (target !== currentTarget) — no dismiss.
 		fireEvent.mouseDown( dialog );
 		expect( onCancel ).not.toHaveBeenCalled();
@@ -141,7 +168,7 @@ describe( 'ConfirmModal', () => {
 describe( 'PromptModal', () => {
 	it( 'submits the trimmed input value on Enter', () => {
 		const onConfirm = jest.fn();
-		const { container } = render(
+		const { baseElement } = render(
 			<PromptModal
 				title="Rename"
 				body=""
@@ -150,14 +177,14 @@ describe( 'PromptModal', () => {
 				onCancel={ () => {} }
 			/>
 		);
-		const input = container.querySelector( 'input' );
+		const input = baseElement.querySelector( 'input' );
 		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onConfirm ).toHaveBeenCalledWith( 'alpha' );
 	} );
 
 	it( 'submits when Save is clicked', () => {
 		const onConfirm = jest.fn();
-		const { getByText, container } = render(
+		const { getByText, baseElement } = render(
 			<PromptModal
 				title=""
 				body=""
@@ -166,7 +193,7 @@ describe( 'PromptModal', () => {
 				onCancel={ () => {} }
 			/>
 		);
-		const input = container.querySelector( 'input' );
+		const input = baseElement.querySelector( 'input' );
 		fireEvent.change( input, { target: { value: 'beta' } } );
 		fireEvent.click( getByText( 'Save' ) );
 		expect( onConfirm ).toHaveBeenCalledWith( 'beta' );
@@ -186,7 +213,7 @@ describe( 'PromptModal', () => {
 	} );
 
 	it( 'disables Save when value fails pattern and shows hint', () => {
-		const { getByText, container } = render(
+		const { getByText, baseElement } = render(
 			<PromptModal
 				title=""
 				body=""
@@ -197,13 +224,13 @@ describe( 'PromptModal', () => {
 			/>
 		);
 		expect( getByText( 'Save' ).disabled ).toBe( true );
-		const hint = container.querySelector( '.topology-modal__hint' );
+		const hint = baseElement.querySelector( '.topology-modal__hint' );
 		expect( hint.textContent ).toMatch( /Invalid/ );
 	} );
 
 	it( 'no-ops on Enter when value is empty', () => {
 		const onConfirm = jest.fn();
-		const { container } = render(
+		const { baseElement } = render(
 			<PromptModal
 				title=""
 				body=""
@@ -212,7 +239,7 @@ describe( 'PromptModal', () => {
 				onCancel={ () => {} }
 			/>
 		);
-		fireEvent.keyDown( container.querySelector( 'input' ), {
+		fireEvent.keyDown( baseElement.querySelector( 'input' ), {
 			key: 'Enter',
 		} );
 		expect( onConfirm ).not.toHaveBeenCalled();
@@ -262,27 +289,28 @@ describe( 'NewNodeModal', () => {
 	};
 
 	it( 'renders a name input pre-filled with the default and an args input', () => {
-		const { container } = render( <NewNodeModal { ...baseProps } /> );
-		const inputs = container.querySelectorAll( 'input' );
+		const { baseElement } = render( <NewNodeModal { ...baseProps } /> );
+		const inputs = baseElement.querySelectorAll( 'input' );
 		expect( inputs ).toHaveLength( 2 );
 		expect( inputs[ 0 ].value ).toBe( 'partition1' );
 		expect( inputs[ 1 ].value ).toBe( '' );
 	} );
 
 	it( 'shows the argSchema template as a placeholder/hint on the args input', () => {
-		const { container } = render( <NewNodeModal { ...baseProps } /> );
+		const { baseElement } = render( <NewNodeModal { ...baseProps } /> );
 		// Template should expose required asterisk + default-marker syntax so
 		// the user knows what the field expects.
-		expect( container.textContent ).toMatch( /topic\*/ );
-		expect( container.textContent ).toMatch( /segment_size=4096/ );
+		expect( baseElement.textContent ).toMatch( /topic\*/ );
+		expect( baseElement.textContent ).toMatch( /segment_size=4096/ );
 	} );
 
 	it( 'submits { name, args } on Save click', () => {
 		const onConfirm = jest.fn();
-		const { container, getByText } = render(
+		const { baseElement, getByText } = render(
 			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
 		);
-		const [ nameInput, argsInput ] = container.querySelectorAll( 'input' );
+		const [ nameInput, argsInput ] =
+			baseElement.querySelectorAll( 'input' );
 		fireEvent.change( nameInput, { target: { value: 'mypart' } } );
 		fireEvent.change( argsInput, {
 			target: { value: 'mytopic 8192' },
@@ -296,10 +324,11 @@ describe( 'NewNodeModal', () => {
 
 	it( 'submits on Enter inside either input', () => {
 		const onConfirm = jest.fn();
-		const { container } = render(
+		const { baseElement } = render(
 			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
 		);
-		const [ nameInput, argsInput ] = container.querySelectorAll( 'input' );
+		const [ nameInput, argsInput ] =
+			baseElement.querySelectorAll( 'input' );
 		fireEvent.change( argsInput, { target: { value: 'x' } } );
 		fireEvent.keyDown( nameInput, { key: 'Enter' } );
 		expect( onConfirm ).toHaveBeenCalledTimes( 1 );
@@ -308,10 +337,10 @@ describe( 'NewNodeModal', () => {
 	} );
 
 	it( 'disables Add when name is empty (args can be empty)', () => {
-		const { getByText, container } = render(
+		const { getByText, baseElement } = render(
 			<NewNodeModal { ...baseProps } />
 		);
-		const [ nameInput ] = container.querySelectorAll( 'input' );
+		const [ nameInput ] = baseElement.querySelectorAll( 'input' );
 		fireEvent.change( nameInput, { target: { value: '' } } );
 		expect( getByText( 'Add' ).disabled ).toBe( true );
 	} );
@@ -326,8 +355,8 @@ describe( 'NewNodeModal', () => {
 	} );
 
 	it( 'focuses the name input on mount (user can rename immediately)', () => {
-		const { container } = render( <NewNodeModal { ...baseProps } /> );
-		const [ nameInput ] = container.querySelectorAll( 'input' );
+		const { baseElement } = render( <NewNodeModal { ...baseProps } /> );
+		const [ nameInput ] = baseElement.querySelectorAll( 'input' );
 		expect( document.activeElement ).toBe( nameInput );
 	} );
 } );
