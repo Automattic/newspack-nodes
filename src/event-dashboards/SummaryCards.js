@@ -13,6 +13,7 @@ import { __, sprintf, _n } from '@wordpress/i18n';
 import { fleetSummary } from './fleetSummary';
 import { probe24hTotals } from './probe24hTotals';
 import { globalMsgRate } from './globalMsgRate';
+import { cacheSizeTotals } from './cacheSizeTotals';
 import {
 	formatBytes,
 	formatByteRate,
@@ -51,6 +52,7 @@ function SummaryCards( {
 } ) {
 	const fleet = fleetSummary( topologies );
 	const totals = probe24hTotals( consumers );
+	const cache = cacheSizeTotals( consumers );
 
 	let healthLabel = __( 'all systems ok', 'newspack-nodes' );
 	if ( fleet.stalledCount > 0 ) {
@@ -129,6 +131,16 @@ function SummaryCards( {
 				mod="bytes"
 				value={ formatBytes( totals.bytes ) }
 				label={ __( 'Bytes · 24h', 'newspack-nodes' ) }
+			/>
+			<Card
+				mod="cache-avg"
+				value={ formatBytes( cache.avg ) }
+				label={ __( 'Avg Cache', 'newspack-nodes' ) }
+			/>
+			<Card
+				mod="cache-total"
+				value={ formatBytes( cache.total ) }
+				label={ __( 'Total Cache', 'newspack-nodes' ) }
 			/>
 			<a
 				className="nodes-cards__new button"
