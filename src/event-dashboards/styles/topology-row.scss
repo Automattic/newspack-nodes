@@ -229,15 +229,6 @@
 		}
 	}
 
-	&__restart {
-		@include base.secondary-button;
-		flex: 0 0 auto;
-		font-size: 15px;
-		line-height: 1;
-		padding: 4px 9px;
-		color: var(--brass); // amber ↻ icon on the white button
-	}
-
 	// The expanded detail tree. The divider lives here (not on the heading) so a
 	// COLLAPSED row stays a clean borderless white card — the rule only appears
 	// when there's a body to separate.
