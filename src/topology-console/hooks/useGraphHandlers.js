@@ -119,6 +119,12 @@ export function useGraphHandlers( {
 			onInspectorAction: ( action, nodeId, payload ) => {
 				if ( 'dump' === action ) {
 					dispatch( `dump_node ${ nodeId }`, 'dump_node', nodeId );
+				} else if ( 'dump_config' === action ) {
+					dispatch(
+						`dump_config ${ nodeId }`,
+						'dump_config',
+						nodeId
+					);
 				} else if ( 'tail' === action ) {
 					// connect_node with NO target appends the issuing FROM — this
 					// session's reply pivot, reported authoritatively as the _header

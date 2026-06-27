@@ -197,6 +197,16 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
+	it( 'onInspectorAction dump_config dispatches dump_config', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'dump_config', 'a', null );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'dump_config a',
+			'dump_config',
+			'a'
+		);
+	} );
+
 	it( 'onInspectorAction tail dispatches connect_node with no target', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'tail', 'a', null );
