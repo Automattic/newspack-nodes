@@ -1554,6 +1554,18 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					onClick={ () =>
+						onAction && onAction( 'dump_config', node.id )
+					}
+					title={ __(
+						"Send `dump_config <name>` — the node's make_node config line",
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'Config', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
 					onClick={ () => setSendOpen( true ) }
 					title={ __(
 						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
