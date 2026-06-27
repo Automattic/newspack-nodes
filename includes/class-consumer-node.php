@@ -1020,23 +1020,13 @@ class Consumer_Node extends Timer_Node {
 					'args'        => [
 						[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
 					],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						$patron->set_snapshot_node( \trim( $args ) );
-						return 'ok';
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_snapshot_node( $interpreter, $args ),
 				],
 				[
 					'name'        => 'set_line_mode',
 					'description' => 'Fine-grained drain mode: emits one line per event cycle',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						$patron->set_line_mode( true );
-						return 'ok';
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_line_mode( $interpreter ),
 				],
 				[
 					'name'        => 'SEEK_FRAME',
@@ -1047,35 +1037,21 @@ class Consumer_Node extends Timer_Node {
 					'args'        => [
 						[ 'name' => 'segment_id', 'type' => 'int', 'required' => true ],
 					],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						return $patron->seek_frame( (int) \trim( $args ) );
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_seek_frame( $interpreter, $args ),
 				],
 				[
 					'name'        => 'PAUSE',
 					'description' => 'Time-travel: stop the poll timer; the consumer holds its cursor until STEP / PLAY.',
 					'hidden'      => true,
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						$patron->pause();
-						return 'ok';
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_pause( $interpreter ),
 				],
 				[
 					'name'        => 'PLAY',
 					'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
 					'hidden'      => true,
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						$patron->play();
-						return 'ok';
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_play( $interpreter ),
 				],
 				[
 					// A COMMAND, not a request: STEP mutates (emits a message + advances the
@@ -1085,11 +1061,7 @@ class Consumer_Node extends Timer_Node {
 					'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
 					'hidden'      => true,
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						return (string) \wp_json_encode( $patron->step() );
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_step( $interpreter ),
 				],
 			],
 			'requests'    => [
@@ -1102,4 +1074,88 @@ class Consumer_Node extends Timer_Node {
 			'accepts_fill' => false,
 		] );
 	}
+	/**
+	 * `set_snapshot_node` verb handler — set the patron's snapshot-target node.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param string $args Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_set_snapshot_node( Command_Interpreter_Node $interpreter, string $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->set_snapshot_node( \trim( $args ) );
+		return 'ok';
+	}
+
+	/**
+	 * `set_line_mode` verb handler — toggle the patron's line-mode framing.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_set_line_mode( Command_Interpreter_Node $interpreter ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->set_line_mode( true );
+		return 'ok';
+	}
+
+	/**
+	 * `SEEK_FRAME` verb handler — seek the patron consumer to a frame.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param string $args Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, string $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		return $patron->seek_frame( (int) \trim( $args ) );
+	}
+
+	/**
+	 * `PAUSE` verb handler — pause the patron consumer.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_pause( Command_Interpreter_Node $interpreter ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->pause();
+		return 'ok';
+	}
+
+	/**
+	 * `PLAY` verb handler — resume the patron consumer.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_play( Command_Interpreter_Node $interpreter ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->play();
+		return 'ok';
+	}
+
+	/**
+	 * `STEP` verb handler — single-step the patron consumer.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_step( Command_Interpreter_Node $interpreter ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		return (string) \wp_json_encode( $patron->step() );
+	}
+
 }
