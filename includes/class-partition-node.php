@@ -72,6 +72,19 @@ class Partition_Node extends Timer_Node {
 	/** @var list<array{record:string,size:int,data:mixed}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 
+	/**
+	 * get_segments() directory-scan seam. Lazily-defaulted at the call site to a
+	 * closure wrapping the real scandir; tests reassign this in-place (then reset
+	 * to null in a finally) to count or stub the directory scan WITHOUT
+	 * short-circuiting the rest of get_segments()'s pattern-match + filesize +
+	 * sort path, so that production logic stays under real coverage.
+	 *
+	 * Signature: `function ( string $dir ): array|false`.
+	 *
+	 * @var (\Closure(string): (list<string>|false))|null
+	 */
+	public static ?\Closure $scandir = null;
+
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
@@ -347,8 +360,10 @@ class Partition_Node extends Timer_Node {
 	 * Detects "a peer already advanced": adopt the newest segment if it still has room.
 	 */
 	protected function do_rotate(): void {
-		// Force-refresh — the cache may pre-date a peer's rotation.
-		$segments = $this->get_segments( true );
+		// Multi-writer partitions force-refresh to detect a peer that already
+		// rotated the dir behind us; a warranty-voided (single-writer) log has no
+		// peer, so a warm-cache read suffices — saving a scandir per ~30s checkpoint.
+		$segments = $this->get_segments( ! $this->warranty_voided );
 
 		if ( ! empty( $segments ) ) {
 			$newest = \end( $segments );
@@ -783,12 +798,16 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
 	 *
+	 * A warranty-voided (single-writer) log skips the TTL: with no peer able to
+	 * change the dir behind it, its cache never goes stale, so it serves warm.
+	 *
 	 * @param bool $force_refresh Skip the cache and rescan.
 	 * @return array<int,array{id:int,size:int}>
 	 */
 	public function get_segments( bool $force_refresh = false ): array {
 		$now = \microtime( true );
-		if ( ! $force_refresh && null !== $this->segments_cache && ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL ) {
+		$cache_fresh = $this->warranty_voided || ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL;
+		if ( ! $force_refresh && null !== $this->segments_cache && $cache_fresh ) {
 			return $this->segments_cache;
 		}
 		$segments = [];
@@ -799,7 +818,8 @@ class Partition_Node extends Timer_Node {
 			return [];
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
-		$files = @\scandir( $dir );
+		$scan  = self::$scandir ?? static fn ( string $d ) => @\scandir( $d );
+		$files = $scan( $dir );
 		if ( ! $files ) {
 			$this->segments_cache      = [];
 			$this->segments_cache_time = $now;
