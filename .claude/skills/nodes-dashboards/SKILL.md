@@ -50,8 +50,10 @@ Traffic at every edge is the whole point: you can **`connect <node>` / drop a `T
 - A server command that returns `{everythingTheDashboardNeeds}` → split into small verbs; one Fetcher per slice.
 - A dashboard node sitting at **counter 0** in the console → nothing flows through it; it's dead, not composed.
 - "I'll just `useDashboardGraph` + one view + one `poll` command" → that IS the god pattern; it's the shortcut that produced every current god-object dashboard.
-- A node that sends whatever command its incoming message carries → that's a `Shell` (Shells *send* commands; interpreters interpret them), and a named always-firing one is verboten. Configure the command on the node (the `Fetcher` pattern); the message is only a trigger. Route through `_shell` (a `Tap`) to watch sends.
 - Nothing on the canvas you could drop a `Tee` into, or that the overlay would show moving → there is no graph.
+
+## Security Risks
+- A node that sends whatever command its incoming message carries → that's a `Shell` (Shells *send* commands; interpreters interpret them), and a named shell is dangerous (a maliciously routed message could execute arbitrary commands). Configure the command on the node (the `Fetcher` pattern); the message is only a trigger. Route through `_shell` (a `Tap`) to watch sends.
 
 ## Required background
 
