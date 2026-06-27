@@ -77,56 +77,73 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'name'        => 'list_logs',
 					'description' => 'List the on-disk log keys.',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						$result = [];
-						foreach ( Log_Discovery::on_disk() as $key ) {
-							$result[] = [
-								'key'   => $key,
-								'label' => $key,
-							];
-						}
-						return $result;
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list_logs(),
 				],
 				[
 					'name'        => 'log_status',
 					'description' => 'Segment counts and sizes for a single concrete partition dir (defaults to the firehose-ish/first-discovered dir).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						$log_key  = self::resolve_log_key( \trim( $args ) );
-						$base_dir = RuntimeConfig::get_base_directory();
-						$log_base = $base_dir . '/logs';
-
-						// Sibling plumbing: name + patron + sink the transient probe, read, then remove.
-						$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
-						$partition = new Partition_Node();
-						$partition->name( "{$self->name()}:status" );
-						$partition->patron( $self );
-						if ( null === $partition->sink() && null !== $ci ) {
-							$partition->sink( $ci );
-						}
-						// Flat layout: the concrete dir IS one partition — stat it directly.
-						$partition->arguments( "{$log_base}/{$log_key}" );
-						// finally so a throwing probe/read can't leave the named node registered (it would collide on the next call in a long-lived worker).
-						try {
-							if ( null !== self::$on_probe ) {
-								( self::$on_probe )( $partition );
-							}
-							$segments = $partition->get_segments( true );
-							$size     = \array_sum( \array_column( $segments, 'size' ) );
-						} finally {
-							$partition->remove_node();
-						}
-
-						return [
-							'log_id'        => $log_key,
-							'segments'      => $segments,
-							'segment_count' => \count( $segments ),
-							'total_size'    => $size,
-						];
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_log_status( $self, $args ),
 				],
 			],
 		] );
 	}
+	/**
+	 * `list_logs` verb handler — every on-disk log directory as {key,label}.
+	 *
+	 * @return array<int, mixed>
+	 */
+	public static function cmd_list_logs(): array {
+		$result = [];
+		foreach ( Log_Discovery::on_disk() as $key ) {
+			$result[] = [
+				'key'   => $key,
+				'label' => $key,
+			];
+		}
+		return $result;
+	}
+
+	/**
+	 * `log_status` verb handler — segment counts and sizes for a single concrete partition dir.
+	 *
+	 * @param Command_Interpreter_Node $self Verb argument.
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_log_status( Command_Interpreter_Node $self, string $args ): array {
+		$log_key  = self::resolve_log_key( \trim( $args ) );
+		$base_dir = RuntimeConfig::get_base_directory();
+		$log_base = $base_dir . '/logs';
+
+		// Sibling plumbing: name + patron + sink the transient probe, read, then remove.
+		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
+		$partition = new Partition_Node();
+		$partition->name( "{$self->name()}:status" );
+		$partition->patron( $self );
+		if ( null === $partition->sink() && null !== $ci ) {
+			$partition->sink( $ci );
+		}
+		// Flat layout: the concrete dir IS one partition — stat it directly.
+		$partition->arguments( "{$log_base}/{$log_key}" );
+		// finally so a throwing probe/read can't leave the named node registered (it would collide on the next call in a long-lived worker).
+		try {
+			if ( null !== self::$on_probe ) {
+				( self::$on_probe )( $partition );
+			}
+			$segments = $partition->get_segments( true );
+			$size     = \array_sum( \array_column( $segments, 'size' ) );
+		} finally {
+			$partition->remove_node();
+		}
+
+		return [
+			'log_id'        => $log_key,
+			'segments'      => $segments,
+			'segment_count' => \count( $segments ),
+			'total_size'    => $size,
+		];
+	}
+
 }
