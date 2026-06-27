@@ -680,7 +680,25 @@ class Consumer_Node extends Timer_Node {
 		$record[ Probe_Record::DISTANCE ]   = $lag['bytes_behind'];
 		$record[ Probe_Record::MSGS ]       = $this->counter;
 		$record[ Probe_Record::END_BYTES ]  = $lag['end_bytes'];
+		$record[ Probe_Record::CACHE_SIZE ] = $this->offsetlog_cache_size();
 		return $record;
+	}
+
+	/**
+	 * Byte size of the consumer's newest offsetlog segment — the position-cache
+	 * footprint the overview graphs. 0 for an ephemeral reader (no offsetlog) or
+	 * before the first checkpoint writes a segment.
+	 */
+	private function offsetlog_cache_size(): int {
+		if ( null === $this->offsetlog ) {
+			return 0;
+		}
+		$segments = $this->offsetlog->get_segments( true );
+		if ( [] === $segments ) {
+			return 0;
+		}
+		$last = \end( $segments );
+		return $last['size'];
 	}
 
 	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int, end_bytes: int} */

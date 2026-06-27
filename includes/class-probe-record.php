@@ -45,4 +45,7 @@ class Probe_Record {
 	/** Absolute partition byte position (Σ live segment sizes); readers derive the byte rate from its delta. */
 	public const END_BYTES = 8;
 
+	/** Offsetlog cache size: byte size of the consumer's newest offsetlog segment (0 for ephemeral readers). */
+	public const CACHE_SIZE = 9;
+
 }

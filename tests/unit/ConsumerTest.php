@@ -147,7 +147,7 @@ class ConsumerTest extends TestCase {
 		$this->pump_consumer( $c );
 
 		$stats = $c->probe_stats();
-		$this->assertCount( 9, $stats, 'lean positional record' );
+		$this->assertCount( 10, $stats, 'lean positional record' );
 		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
 		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
 		$this->assertSame( 'p0', $stats[ Probe_Record::SOURCE ] );
@@ -160,6 +160,43 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 2, $stats[ Probe_Record::MSGS ] );
 		// END_BYTES = the partition's total bytes; caught up → equals what we consumed.
 		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $stats[ Probe_Record::END_BYTES ] );
+	}
+
+	public function test_probe_stats_reports_offsetlog_cache_size_after_checkpoint(): void {
+		// CACHE_SIZE = byte size of the newest offsetlog segment. After a checkpoint
+		// the offsetlog is non-empty, so the probe reports its real on-disk size.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->fill( $this->produce( 'first' ) );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->name( 'firehose' );
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/firehose.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$c->checkpoint();
+
+		$this->assertGreaterThan(
+			0,
+			$c->probe_stats()[ Probe_Record::CACHE_SIZE ]
+		);
+	}
+
+	public function test_probe_stats_cache_size_is_zero_without_an_offsetlog(): void {
+		// An ephemeral reader (empty offsetlog token) keeps no durable cursor, so
+		// there is no offsetlog segment to size → CACHE_SIZE is 0.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->fill( $this->produce( 'first' ) );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 " );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::CACHE_SIZE ] );
 	}
 
 	public function test_probe_stats_round_trips_through_cli_consumer_rows(): void {
