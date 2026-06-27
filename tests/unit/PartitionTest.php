@@ -2622,6 +2622,80 @@ class PartitionTest extends TestCase {
 
 		$this->assertSame( [ 0, 1, 2 ], \array_column( $p->get_segments( true ), 'id' ), 'void_warranty offsetlog truncates normally' );
 	}
+
+	// ============================================================================
+	// Single-writer rotation reads the warm cache instead of scandir'ing.
+	// ============================================================================
+
+	public function test_single_writer_rotation_serves_segments_from_warm_cache(): void {
+		$scans                   = 0;
+		Partition_Node::$scandir = function ( string $d ) use ( &$scans ) {
+			++$scans;
+			return \scandir( $d );
+		};
+		try {
+			$p = new Partition_Node();
+			$p->arguments( "{$this->tmp}/voided 65536 10 0" );
+			$p->void_warranty();
+			$this->produce_into( $p, 'first' );
+
+			// Warm the cache so do_rotate has something to read.
+			$p->get_segments();
+
+			// Age the cache past SEGMENT_CACHE_TTL: only the single-writer no-TTL
+			// path can still serve it from memory.
+			$ref  = new \ReflectionClass( $p );
+			$time = $ref->getProperty( 'segments_cache_time' );
+			$time->setAccessible( true );
+			$time->setValue( $p, \microtime( true ) - 10 );
+
+			$before    = $scans;
+			$do_rotate = $ref->getMethod( 'do_rotate' );
+			$do_rotate->setAccessible( true );
+			$do_rotate->invoke( $p );
+
+			$this->assertSame(
+				$before,
+				$scans,
+				'single-writer (warranty-voided) rotation must read segments from the warm cache, not scandir'
+			);
+		} finally {
+			Partition_Node::$scandir = null;
+		}
+	}
+
+	public function test_multi_writer_rotation_force_scans_for_peer_detection(): void {
+		$scans                   = 0;
+		Partition_Node::$scandir = function ( string $d ) use ( &$scans ) {
+			++$scans;
+			return \scandir( $d );
+		};
+		try {
+			$p = new Partition_Node();
+			$p->arguments( "{$this->tmp}/multi 65536 10 0" );
+			$this->produce_into( $p, 'first' );
+
+			$p->get_segments();
+
+			$ref  = new \ReflectionClass( $p );
+			$time = $ref->getProperty( 'segments_cache_time' );
+			$time->setAccessible( true );
+			$time->setValue( $p, \microtime( true ) - 10 );
+
+			$before    = $scans;
+			$do_rotate = $ref->getMethod( 'do_rotate' );
+			$do_rotate->setAccessible( true );
+			$do_rotate->invoke( $p );
+
+			$this->assertGreaterThan(
+				$before,
+				$scans,
+				'multi-writer rotation must force-scan to detect a peer that already rotated'
+			);
+		} finally {
+			Partition_Node::$scandir = null;
+		}
+	}
 }
 
 /**
