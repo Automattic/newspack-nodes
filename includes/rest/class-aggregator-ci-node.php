@@ -82,10 +82,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'name'        => 'status',
 					'description' => 'Per-node partition snapshot for each wired Remote_Source in the active aggregator topology.',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
-						return self::build_snapshot();
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_status(),
 				],
 				[
 					'name'        => 'summary',
@@ -119,37 +116,13 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'name'        => 'health',
 					'description' => 'Cache reachability + wall-clock timestamp.',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
-						return [
-							'healthy'   => true,
-							'cache'     => null !== Core::$memd,
-							'timestamp' => \time(),
-						];
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_health(),
 				],
 				[
 					'name'        => 'servers',
 					'description' => 'Registered servers as a sequential array (legacy aggregator-tree contract).',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
-						$registry = Vault::get_instance();
-						$registry->reset_cache();
-						$out = [];
-						foreach ( $registry->get_all() as $id => $cfg ) {
-							$url_v   = $cfg['url'] ?? '';
-							$out[]   = [
-								'id'              => $id,
-								'url'             => Core::as_string( $url_v ),
-								'has_credentials' => ! empty( $cfg['auth_username'] ) && ! empty( $cfg['auth_password'] ),
-								'is_config'       => $registry->is_config_server( $id ),
-							];
-						}
-						// Sequential array, NOT a map keyed by id — legacy contract the
-						// React aggregator tree relies on.
-						return $out;
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_servers(),
 				],
 			],
 		] );
@@ -211,4 +184,52 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 		return $result;
 	}
+	/**
+	 * `status` verb handler — per-node partition snapshot for each wired Remote_Source.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_status(): array {
+		self::require_manage_options();
+		return self::build_snapshot();
+	}
+
+	/**
+	 * `health` verb handler — cache reachability + wall-clock timestamp.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_health(): array {
+		self::require_manage_options();
+		return [
+			'healthy'   => true,
+			'cache'     => null !== Core::$memd,
+			'timestamp' => \time(),
+		];
+	}
+
+	/**
+	 * `servers` verb handler — registered servers as a sequential array (legacy contract).
+	 *
+	 * @return array<int, mixed>
+	 */
+	public static function cmd_servers(): array {
+		self::require_manage_options();
+		$registry = Vault::get_instance();
+		$registry->reset_cache();
+		$out = [];
+		foreach ( $registry->get_all() as $id => $cfg ) {
+			$url_v   = $cfg['url'] ?? '';
+			$out[]   = [
+				'id'              => $id,
+				'url'             => Core::as_string( $url_v ),
+				'has_credentials' => ! empty( $cfg['auth_username'] ) && ! empty( $cfg['auth_password'] ),
+				'is_config'       => $registry->is_config_server( $id ),
+			];
+		}
+		// Sequential array, NOT a map keyed by id — legacy contract the
+		// React aggregator tree relies on.
+		return $out;
+	}
+
 }
