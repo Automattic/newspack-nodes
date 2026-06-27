@@ -26,14 +26,18 @@ import './debug-overlay.scss';
  * (each dashboard's mountExospine + this overlay's useDebugRepl) tears down and
  * rebuilds its nodes fresh.
  *
- * @param {Object} props
- * @param {string} [props.search]     Injectable location.search (tests).
- * @param {string} [props.storageKey] Layout persistence key (per dashboard).
+ * @param {Object}  props
+ * @param {string}  [props.search]     Injectable location.search (tests).
+ * @param {string}  [props.storageKey] Layout persistence key (per dashboard).
+ * @param {boolean} [props.buildRepl]  When false (hub Console tab), the Inspector body runs Overview-only.
  * @return {import('react').ReactElement|null} The overlay, or null when debug is disabled.
  */
 export default function DebugOverlay( {
 	search,
 	storageKey = 'newspack-nodes:debug',
+	// false on the hub Console tab — the overlay's own graph+REPL would collide
+	// with the Console's shared infra, so the Inspector body runs Overview-only.
+	buildRepl = true,
 } ) {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
@@ -86,6 +90,7 @@ export default function DebugOverlay( {
 			{ open && (
 				<DebugPanel
 					storageKey={ storageKey }
+					buildRepl={ buildRepl }
 					onClose={ () => setOpen( false ) }
 				/>
 			) }

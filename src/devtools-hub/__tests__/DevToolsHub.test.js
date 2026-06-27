@@ -108,23 +108,24 @@ describe( 'DevToolsHub', () => {
 			} );
 		};
 
-		it( 'hides the debug overlay FAB while the Console tab is active', () => {
+		it( 'shows the debug overlay FAB on the Console tab too (Overview-only there)', () => {
 			enableDebug();
 			registerConsoleAndManager();
-			const { queryByRole } = render( <DevToolsHub /> );
-			// Console (order 0) is selected first → overlay must NOT mount.
+			const { getByRole } = render( <DevToolsHub /> );
+			// Console (order 0) is selected first → the overlay now rides it too
+			// (its Overview shows browser I/O; its REPL body is Overview-only).
 			expect(
-				queryByRole( 'button', { name: /node debugger/i } )
-			).toBeNull();
+				getByRole( 'button', { name: /node debugger/i } )
+			).not.toBeNull();
 		} );
 
-		it( 'shows the debug overlay FAB after switching to a non-console tab', () => {
+		it( 'keeps the debug overlay FAB mounted across tabs', () => {
 			enableDebug();
 			registerConsoleAndManager();
-			const { getByRole, queryByRole } = render( <DevToolsHub /> );
+			const { getByRole } = render( <DevToolsHub /> );
 			expect(
-				queryByRole( 'button', { name: /node debugger/i } )
-			).toBeNull();
+				getByRole( 'button', { name: /node debugger/i } )
+			).not.toBeNull();
 			fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );
 			expect(
 				getByRole( 'button', { name: /node debugger/i } )

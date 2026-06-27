@@ -5,6 +5,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import CanvasFrame from '../../topology-console/components/CanvasFrame';
 import ConsoleShell from '../../topology-console/components/ConsoleShell';
@@ -85,6 +86,7 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
  * @param {Object}   props.frame         Frame geometry { w, h } from the host.
  * @param {Function} props.publishHeader Publish header extras (the PATH selector) to the panel's shared Header.
  * @param {Function} props.publishTheme  Publish the live theme slug to the panel's token context.
+ * @param {boolean}  [props.buildRepl]   When false (Console tab), build no infra — Overview-only.
  * @return {import('react').ReactElement} The inspector body.
  */
 export default function InspectorTab( {
@@ -92,6 +94,11 @@ export default function InspectorTab( {
 	frame,
 	publishHeader,
 	publishTheme,
+	// false on the hub Console tab: the overlay rides it ONLY for the Overview tab
+	// (browser I/O). Its own graph+REPL would duplicate the Console's AND collide
+	// on the shared `_output` infra, so the inspector body builds nothing there
+	// (active=false) and points at the Console's own REPL instead.
+	buildRepl = true,
 } ) {
 	// replExpanded / setReplExpanded / replInputRef come from useGraphSurface.
 	// Measure the DevtoolsTabHost tab bar that sits above this body so the
@@ -153,7 +160,7 @@ export default function InspectorTab( {
 		cwd,
 		setPath,
 		ready: replReady,
-	} = useDebugRepl( true, shell, onThemeChange );
+	} = useDebugRepl( buildRepl, shell, onThemeChange );
 	// Layout storage scoped by cwd. useDebugGraph runs first (it needs only
 	// `onPositionChange`, threaded via a ref to break the hoist cycle); then
 	// useCanvasLayout consumes `graph`/`ready` from it and one-shot autoLayouts
@@ -172,7 +179,7 @@ export default function InspectorTab( {
 		pendingDrop,
 		commitDrop,
 		cancelDrop,
-	} = useDebugGraph( true, shell, catalog.classes || [], ( id, p ) =>
+	} = useDebugGraph( buildRepl, shell, catalog.classes || [], ( id, p ) =>
 		onPositionChangeRef.current?.( id, p )
 	);
 	// Composite readiness: gate layout + the canvas render on BOTH the overlay's
@@ -281,6 +288,27 @@ export default function InspectorTab( {
 	// the measured tab bar above this body (the ReplFooter is transcript +
 	// always-visible prompt stacked).
 	const replMaxHeightPx = replMaxHeight( frame.h, tabBarHeight );
+
+	// On the hub Console tab the overlay rides along ONLY for its Overview tab;
+	// the graph + REPL are the Console's own job (and would collide on `_output`).
+	// Every hook above ran with active=false, so no infra was built — point the
+	// user at the Console + the Overview tab instead of a second, empty canvas.
+	if ( ! buildRepl ) {
+		return (
+			<div
+				ref={ rootRef }
+				className="nodes-debug__inspector nodes-debug__inspector--repl-off"
+				data-testid="inspector-tab"
+			>
+				<p className="nodes-debug__repl-off">
+					{ __(
+						"The graph and REPL live in the Console tab itself here. Switch to the Overview tab to watch this browser's own I/O.",
+						'newspack-nodes'
+					) }
+				</p>
+			</div>
+		);
+	}
 
 	return (
 		<div

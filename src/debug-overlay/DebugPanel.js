@@ -20,11 +20,16 @@ import { useDebugFrame } from './useDebugFrame';
  * panel unmounts this component and tears that infra down.
  *
  * @param {Object}   props
- * @param {string}   props.storageKey Layout persistence key (per dashboard).
- * @param {Function} props.onClose    Close the panel (parent's setOpen(false)).
+ * @param {string}   props.storageKey  Layout persistence key (per dashboard).
+ * @param {Function} props.onClose     Close the panel (parent's setOpen(false)).
+ * @param {boolean}  [props.buildRepl] When false (Console tab), the Inspector tab runs Overview-only.
  * @return {import('react').ReactElement} The panel.
  */
-export default function DebugPanel( { storageKey, onClose } ) {
+export default function DebugPanel( {
+	storageKey,
+	onClose,
+	buildRepl = true,
+} ) {
 	// The panel element ref, created BEFORE the frame hook so the hook can mutate
 	// its style directly during a drag/resize (no per-frame React re-render).
 	const panelRef = useRef( null );
@@ -149,6 +154,7 @@ export default function DebugPanel( { storageKey, onClose } ) {
 						frame,
 						publishHeader: setHeaderExtras,
 						publishTheme: setTheme,
+						buildRepl,
 					} }
 				/>
 				{ Object.entries( getResizeHandlers() ).map( ( [ key, h ] ) => (
