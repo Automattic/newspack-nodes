@@ -8,8 +8,8 @@
  * emitted in the same source order so the compiled CSS is unchanged.
  */
 
-@use 'tokens' as *;
-@use 'mixins' as *;
+@use "tokens" as *;
+@use "mixins" as *;
 
 // Scoped border-box baseline — applies only inside each dashboard's React
 // mount root, never leaking into the rest of wp-admin.

@@ -8,7 +8,7 @@
  * here (including ones a given dashboard doesn't use) adds zero output.
  */
 
-@use 'tokens' as *;
+@use "tokens" as *;
 
 // Dark theme error banner
 @mixin dark-error-banner {
