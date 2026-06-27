@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`node_schema()` command handlers are being moved from inline closures to named `cmd_*` methods** so each node's schema stays declarative (it links a named handler instead of embedding the body), matching the main Command_Interpreter pattern. Behavior-preserving — verb tests verify each. (roadmap [94], rolling)
+- **`node_schema()` command handlers are now named `cmd_*` methods, not inline closures.** Every node's schema stays declarative — it links a named handler via a thin arrow-fn (`'handler' => static fn ( … ) => self::cmd_x( … )`) instead of embedding the body — matching the JS `CommandInterpreter` verb-table pattern. Covers all 12 PHP nodes that carried inline handlers (the service CIs, `Partition`, `Consumer`, `Settings_Sync`); the JS runtime already used named methods. Behavior-preserving — verb tests verify each. (roadmap [94])
 
 - **Patron-managed sidecars no longer create their own `{name}:config` interpreter.** A sidecar (a Partition/Consumer that has a patron — e.g. a Consumer's `:source` / `:offsetlog`) is configured directly by its patron and is already excluded from `dump_config`, so the ctor-auto-wired `:config` interpreter was an unused node. `Node::patron()` now drops it when a patron is set; standalone Partitions keep their `:config`. (roadmap [83])
 
