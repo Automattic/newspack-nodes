@@ -31,7 +31,9 @@ export class RouterNode extends TimerNode {
 		this.beforeTimerNotify = null;
 		this.afterTimerNotify = null;
 		// Router self-starts its own 1s slot (Tachikoma fidelity: the Router IS
-		// timer-driven). Tests that don't want it running can stopTimer().
+		// timer-driven). Tests that don't want it running can stopTimer(). isRouter
+		// exempts it from the >=1000 hitchhike — it can't ride its own TIMER.
+		this.isRouter = true;
 		this.setTimer( 1000 );
 	}
 

@@ -193,19 +193,20 @@ class TimerTest extends TestCase {
 		$this->assertSame( 'router', $this->mode_of( $timer ) );
 	}
 
-	// ── hitchhike + throttle (set_timer($ms) with $ms > 1000) ─────────────────
+	// ── hitchhike + throttle (set_timer($ms) with $ms >= 1000) ────────────────
 
-	public function test_set_timer_over_1000_hitchhikes_the_router(): void {
+	public function test_set_timer_at_or_over_1000_hitchhikes_the_router(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$router->interval_ms = 1000;
 		$timer = new Timer_Node();
 		$timer->name( 'slow' );
 
-		$timer->set_timer( 5000 );
+		// 1000 is the boundary: at-or-over the router tick, hitchhike it.
+		$timer->set_timer( 1000 );
 
 		$this->assertSame( 'router', $this->mode_of( $timer ) );
-		$this->assertSame( 5000, $timer->interval_ms );
+		$this->assertSame( 1000, $timer->interval_ms );
 		// No own-slot was scheduled in the Event_Framework.
 		$ef   = ( new \ReflectionObject( Event_Framework::instance() ) )->getProperty( 'timers' );
 		$ef->setAccessible( true );
@@ -239,12 +240,23 @@ class TimerTest extends TestCase {
 		$timer->stop_timer();
 	}
 
-	public function test_set_timer_at_or_below_1000_uses_own_slot(): void {
+	public function test_set_timer_below_1000_uses_own_slot(): void {
 		$timer = new Timer_Node();
 		$timer->name( 'fast' );
-		$timer->set_timer( 1000 );
+		$timer->set_timer( 999 );
 		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
 		$timer->stop_timer();
+	}
+
+	public function test_router_self_arm_uses_own_slot_not_hitchhike(): void {
+		// The router can't hitchhike its own TIMER — at the >=1000 boundary it must
+		// still own an event-framework slot so the drain loop ticks it (everything
+		// else hitchhikes that tick).
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
+		$this->assertSame( 'event_framework', $this->mode_of( $router ) );
+		$router->stop_timer();
 	}
 
 	public function test_no_ms_hitchhike_fires_every_tick_without_throttle(): void {

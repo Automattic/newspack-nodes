@@ -189,20 +189,29 @@ describe( 'Router-hitchhike mode (rides the _router TIMER via notify_timer)', ()
 	} );
 } );
 
-describe( 'hitchhike + throttle (setTimer(ms) with ms > 1000)', () => {
-	test( 'setTimer(ms > 1000) hitchhikes the _router instead of an own slot', () => {
+describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
+	test( 'setTimer(ms >= 1000) hitchhikes the _router instead of an own slot', () => {
 		makeRouter();
 		const t = new TimerNode();
 		t.name = 'slow';
 		t.sink = { fill: () => {} };
 		t.target = '_output';
-		t.setTimer( 5000 );
+		t.setTimer( 1000 );
 		expect( t.mode ).toBe( 'router' );
-		expect( t.interval_ms ).toBe( 5000 );
+		expect( t.interval_ms ).toBe( 1000 );
 		// No own-slot interval was scheduled.
 		jest.advanceTimersByTime( 10000 );
 		expect( t.counter ).toBe( 0 );
 		t.stopTimer();
+	} );
+
+	test( 'the _router itself owns a slot at 1000ms (cannot hitchhike its own TIMER)', () => {
+		// The router can't subscribe to its own TIMER — at the >=1000 boundary it
+		// must still own an event-framework slot so the drain loop ticks it.
+		const r = makeRouter();
+		r.setTimer( 1000 );
+		expect( r.mode ).toBe( 'event_framework' );
+		r.stopTimer();
 	} );
 
 	test( 'fire_cb throttles fire() to interval_ms across router ticks', () => {
@@ -230,14 +239,14 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms > 1000)', () => {
 		t.stopTimer();
 	} );
 
-	test( 'setTimer(ms <= 1000) still uses an own setInterval slot', () => {
+	test( 'setTimer(ms < 1000) still uses an own setInterval slot', () => {
 		const t = new TimerNode();
 		t.name = 'fast';
 		const sent = [];
 		t.sink = { fill: ( m ) => sent.push( m ) };
-		t.setTimer( 1000 );
+		t.setTimer( 999 );
 		expect( t.mode ).toBe( 'event_framework' );
-		jest.advanceTimersByTime( 3000 );
+		jest.advanceTimersByTime( 2997 );
 		expect( sent ).toHaveLength( 3 );
 		t.stopTimer();
 	} );

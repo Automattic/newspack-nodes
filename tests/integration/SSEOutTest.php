@@ -102,7 +102,9 @@ class SSEOutTest extends TestCase {
 		$this->assertSame( 'msg', $events[0]['event'] );
 		$first = \json_decode( $events[0]['data'], true );
 		$this->assertSame( 'connected', $first[ Message::KEY ] );
-		$this->assertArrayHasKey( 'pid', $first[ Message::VALUE ] );
+		// The connected envelope is a flat `KEY VALUE` string (TM_INFO values are
+		// strings), not an array — it carries the PID token.
+		$this->assertStringContainsString( 'PID ', $first[ Message::VALUE ] );
 
 		// Subsequent events carry the line-one / line-two VALUEs. Each
 		// TM_BYTESTREAM message the Consumer emits gets JSON-encoded into

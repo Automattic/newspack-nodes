@@ -152,8 +152,9 @@ class Remote_Link_Node extends Timer_Node {
 
 	/**
 	 * Every ~HEARTBEAT_INTERVAL seconds, mint a `workers.heartbeat` TM_COMMAND
-	 * (FROM=<this node>, TO=workers, args `<slot> <ttl> <partition>`) and fill it
-	 * into the patron HTTP_Out. Skips until SSE_In reports a slot.
+	 * (FROM=<this node>, TO=workers, args `<slot> <ttl>`) and fill it into the
+	 * patron HTTP_Out. Skips until SSE_In reports a slot. The slot pool keys on
+	 * (user, ip, slot) — no partition.
 	 */
 	private function maybe_send_heartbeat(): void {
 		if ( null === $this->sse_in || null === $this->http_out ) {

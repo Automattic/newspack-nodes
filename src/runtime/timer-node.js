@@ -35,6 +35,9 @@ export class TimerNode extends Node {
 		this.fire_count = 0;
 		this.active = false;
 		this.oneshot = false;
+		// The router can't hitchhike its own TIMER; RouterNode flips this so its
+		// >=1000 self-arm owns a slot instead. Plain timers leave it false.
+		this.isRouter = false;
 		// Throttle clock (Core.now() seconds) for hitchhike timers with interval_ms
 		// > 1000: fireCb() only fires once interval_ms has elapsed since this.
 		this.lastFireTime = 0;
@@ -125,7 +128,12 @@ export class TimerNode extends Node {
 	setTimer( ms = null, oneshot = false ) {
 		this.oneshot = oneshot;
 		this.active = true;
-		if ( null === ms || ms > 1000 ) {
+		// A >=1000ms timer hitchhikes the per-tick router notify — EXCEPT the router
+		// itself (isRouter), which can't subscribe to its own TIMER; it owns a
+		// setInterval slot so the drain ticks it (everything else rides that tick).
+		// Mirrors PHP Timer_Node::set_timer (PHP guards via `$router !== $this`; the
+		// JS router self-arms in its ctor before naming, so it flags isRouter).
+		if ( ( null === ms || ms >= 1000 ) && ! this.isRouter ) {
 			if ( '' === this.name ) {
 				throw new Error(
 					'Router-hitchhike requires Timer to have a name'
@@ -151,6 +159,11 @@ export class TimerNode extends Node {
 		// PHP's node-deduped Event_Framework, would otherwise leak it).
 		if ( 'router' === this.mode || null !== this._handle ) {
 			this.stopTimer();
+		}
+		if ( null === ms ) {
+			// Own-slot needs a concrete interval. Only isRouter reaches here with a
+			// null ms (it can't hitchhike itself) — fail loud like PHP set_timer.
+			throw new Error( 'Own-slot timer requires an interval (ms)' );
 		}
 		this._handle = setInterval( () => this.fireCb(), ms );
 		this.interval_ms = ms;

@@ -480,12 +480,16 @@ class SSE_Out_Node extends Node {
 		$message[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
 		$message[ Message::FROM ]      = '_stream';
 		$message[ Message::KEY ]       = 'connected';
-		$message[ Message::VALUE ]     = [
-			'pid'           => \getmypid(),
-			'slot'          => $slot,
-			'subscriptions' => $subs,
-			'interval'      => $interval,
-		];
+		// TM_INFO values are STRINGS — encode as a flat `KEY VALUE` envelope the
+		// client splits back (array_chunk/array_column). Every token must be a
+		// single whitespace-free string: cast the ints, comma-join the sub list
+		// (one token; an empty list yields an empty token that keeps the pairing).
+		$message[ Message::VALUE ]     = \implode( ' ', [
+			'PID',           (string) \getmypid(),
+			'SLOT',          (string) $slot,
+			'SUBSCRIPTIONS', \implode( ',', $subs ),
+			'INTERVAL',      (string) $interval,
+		] );
 		return $message;
 	}
 

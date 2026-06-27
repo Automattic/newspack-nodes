@@ -6,6 +6,7 @@ use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Remote_Source_Node;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\SSE_In_Node;
 use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -23,6 +24,9 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->base_dir = $this->make_temp_dir();
 		$this->use_base_dir( $this->base_dir );
 		Core::$memd = new InMemoryMemcached();
+		// Remote_Source arms a 1000ms TICK timer that router-hitchhikes (>=1000),
+		// which needs _router present — as it always is in a live graph.
+		( new Router_Node() )->name( '_router' );
 	}
 
 	protected function tearDown(): void {
@@ -336,7 +340,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::ID ]    = '';
 		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = [ 'slot' => $slot ];
+		$m[ Message::VALUE ] = "PID 1 SLOT {$slot}";
 		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 }

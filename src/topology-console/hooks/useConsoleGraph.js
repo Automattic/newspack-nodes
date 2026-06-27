@@ -133,13 +133,10 @@ export function useConsoleGraph( {
 			);
 			remote.target = names.OUTPUT;
 			remote.client = getCommandClient();
-			// The active worker's connected payload drives the session pid display.
-			remote.onConnected = ( payload ) =>
-				setSsePid(
-					payload && 'number' === typeof payload.pid
-						? payload.pid
-						: null
-				);
+			// The active worker's connect handshake drives the session pid display.
+			// The envelope is a string now (TM_INFO), parsed into the SseIn's
+			// sessionPid — read it via the link rather than the raw payload.
+			remote.onConnected = () => setSsePid( remote.pid() );
 			// A steal closes the old active link before the new one handshakes;
 			// reset the displayed pid so a B-bound send doesn't wrap A's stale pid
 			// into the reply FROM. The new worker's onConnected repopulates it.

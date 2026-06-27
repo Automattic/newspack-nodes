@@ -1,6 +1,6 @@
 import { Core } from '../core';
 import { IoTelemetry, byteLength } from '../io-telemetry';
-import { SseConnectorNode } from '../sse-connector-node';
+import { SseInNode } from '../sse-in-node';
 import { CommandClient } from '../command-client';
 import {
 	TYPE,
@@ -39,13 +39,13 @@ beforeEach( () => {
 } );
 
 function makeConnector() {
-	const s = new SseConnectorNode();
+	const s = new SseInNode();
 	s.arguments = 'x / n';
 	s.sink = { fill: () => {} };
 	return s;
 }
 
-describe( 'SseConnector feeds IoTelemetry "in"', () => {
+describe( 'SseIn feeds IoTelemetry "in"', () => {
 	test( 'a routed frame records its byte length as one inbound message', () => {
 		const s = makeConnector();
 		s.start();
@@ -58,6 +58,7 @@ describe( 'SseConnector feeds IoTelemetry "in"', () => {
 	} );
 
 	test( 'a TM_ERROR frame also bumps the error count', () => {
+		expectConsoleWarn( 'ERROR: SseInNode: stream error frame' );
 		const s = makeConnector();
 		s.start();
 		const frame = pack( [ TM_ERROR, 1, 'p.p0', '', '0:1', '', 'boom' ] );
@@ -73,7 +74,7 @@ describe( 'SseConnector feeds IoTelemetry "in"', () => {
 		const env = newMessage();
 		env[ TYPE ] = TM_INFO;
 		env[ KEY ] = 'connected';
-		env[ VALUE ] = { pid: 7 };
+		env[ VALUE ] = 'PID 7 SLOT 0 SUBSCRIPTIONS x INTERVAL 2000';
 		FakeEventSource.last.dispatch( 'msg', pack( env ) );
 		expect( IoTelemetry.snapshot().msgsIn ).toBe( 0 );
 	} );

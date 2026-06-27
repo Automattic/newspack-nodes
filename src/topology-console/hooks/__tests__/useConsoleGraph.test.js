@@ -35,10 +35,10 @@ jest.mock( '../../utils/commandClient', () => ( {
 
 let lastConnector = null;
 
-// Minimal FakeEventSource — same shape as the substrate's `sse_connector.test.js`
+// Minimal FakeEventSource — same shape as the substrate's `sse-in-node.test.js`
 // and `useRawLogsGraph.test.js`. Lets the reply-routing tests drive a real `msg`
 // frame the way production delivers it (through the EventSource), so it lands on
-// the REAL SseConnectorNode `msg` listener → `Node.fill` (route-by-TO), NOT the
+// the REAL SseInNode `msg` listener → `Node.fill` (route-by-TO), NOT the
 // `SseInNode.fill` empty-name stamp path that a direct `connector.fill()` hits.
 class FakeEventSource {
 	constructor( url ) {
@@ -96,7 +96,12 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			super.close();
 		}
 		emitConnected( pid ) {
-			this.setState( 'connected', { pid, slot: 1 } );
+			// The connected envelope is now the flat string the server sends;
+			// _applyConnected parses pid + slot into plain fields and fires the
+			// CONNECTED bridge.
+			this._applyConnected(
+				`PID ${ pid } SLOT 1 SUBSCRIPTIONS x INTERVAL 2000`
+			);
 		}
 	}
 	return { SseInNode: FakeSseIn };
@@ -420,7 +425,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 	it( 'an SSE reply with TO=_output lands in the Dumper transcript', () => {
 		renderGraph();
 		// Deliver the reply the way production does — a packed `msg` frame through
-		// the live EventSource — so it lands on the REAL SseConnector `msg` listener
+		// the live EventSource — so it lands on the REAL SseIn `msg` listener
 		// → Node.fill (route-by-TO), not the SseInNode.fill empty-name stamp path.
 		const {
 			newMessage,

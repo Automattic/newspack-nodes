@@ -29,10 +29,10 @@ const POKE_INTERVAL_MS = 5000;
 export class HeartbeatNode extends TimerNode {
 	constructor() {
 		super();
-		// The SSE slot to refresh + the partition it was acquired at; null until
-		// the SSE stream connects (and cleared when it closes).
+		// The SSE slot to refresh; null until the SSE stream connects (and cleared
+		// when it closes). The slot pool keeps alive on (user, ip, slot) — no
+		// partition, so the heartbeat doesn't track one.
 		this.slot = null;
-		this.partition = -1;
 	}
 
 	// Hitchhike the Router TIMER and let the base fireCb() throttle to POKE_INTERVAL_MS
@@ -70,17 +70,16 @@ export class HeartbeatNode extends TimerNode {
 		m[ TO ] = this.target;
 		m[ VALUE ] = {
 			name: 'heartbeat',
-			arguments: `${ this.slot } ${ SLOT_TTL_S } ${ this.partition }`,
+			arguments: `${ this.slot } ${ SLOT_TTL_S }`,
 		};
 		m[ LOCAL ] = true;
 		return m;
 	}
 
 	// Record the slot acquired by the live SSE stream (from its `connected`
-	// payload). `partition` is where the subscription resolved.
-	setSlot( slot, partition ) {
+	// payload). The slot pool keys on (user, ip, slot) only.
+	setSlot( slot ) {
 		this.slot = slot;
-		this.partition = partition;
 	}
 
 	// Forget the slot — the SSE stream closed, so there's nothing to refresh.

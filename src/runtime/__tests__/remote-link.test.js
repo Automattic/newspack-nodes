@@ -23,8 +23,10 @@ import {
 	FROM,
 	TO,
 	ID,
+	KEY,
 	VALUE,
 	TM_COMMAND,
+	TM_INFO,
 	TM_BYTESTREAM,
 } from '../message';
 import names from '../reserved-node-names.json';
@@ -64,6 +66,19 @@ function makeLink( subscribe = 'raw-logs' ) {
 	};
 	link.arguments = `${ subscribe } /wp-json/ NONCE`;
 	return { link, posted };
+}
+
+// The `connected` envelope is now the flat string the server sends (TM_INFO
+// values are strings); SseIn splits it into sessionPid / sessionSlot. The slot
+// bridge keys on (user, ip, slot) — no partition.
+const connectedRaw = ( { pid = 4242, slot = 3 } = {} ) =>
+	`PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS raw-logs INTERVAL 2000`;
+function dispatchConnected( link, opts ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ KEY ] = 'connected';
+	m[ VALUE ] = connectedRaw( opts );
+	FakeEventSource.last.listeners.msg[ 0 ]( { data: JSON.stringify( m ) } );
 }
 
 describe( 'RemoteLinkNode', () => {
@@ -168,15 +183,14 @@ describe( 'RemoteLinkNode', () => {
 	it( 'bridges the SseIn connected slot into the shared Heartbeat', () => {
 		const { link } = makeLink();
 		link.connect();
-		link.sseIn.setState( 'connected', { pid: 7, slot: 3, partition: 1 } );
+		dispatchConnected( link, { pid: 7, slot: 3 } );
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
-		expect( Core.node( names.HEARTBEAT ).partition ).toBe( 1 );
 	} );
 
 	it( 'delegates pid() to its composed SseIn', () => {
 		const { link } = makeLink();
 		link.connect();
-		link.sseIn.setState( 'connected', { pid: 4242, slot: 0 } );
+		dispatchConnected( link, { pid: 4242, slot: 0 } );
 		expect( link.pid() ).toBe( 4242 );
 	} );
 
@@ -207,7 +221,7 @@ describe( 'RemoteLinkNode', () => {
 		const { link } = makeLink();
 		link.connect();
 		const hb = Core.node( names.HEARTBEAT );
-		hb.setSlot( 5, 0 );
+		hb.setSlot( 5 );
 		link.close();
 		expect( hb.slot ).toBe( null );
 		expect( FakeEventSource.last.closed ).toBe( true );
@@ -259,11 +273,9 @@ describe( 'RemoteLinkNode', () => {
 		const seen = [];
 		link.onConnected = ( payload ) => seen.push( payload );
 		link.connect();
-		link.sseIn.setState( 'connected', {
-			pid: 4242,
-			slot: 3,
-			partition: 1,
-		} );
-		expect( seen ).toEqual( [ { pid: 4242, slot: 3, partition: 1 } ] );
+		dispatchConnected( link, { pid: 4242, slot: 3 } );
+		// The bridge fires the hook with the CONNECTED set_state payload (the raw
+		// envelope string the substrate now sends).
+		expect( seen ).toEqual( [ connectedRaw( { pid: 4242, slot: 3 } ) ] );
 	} );
 } );

@@ -21,7 +21,16 @@ import { HeartbeatNode } from '../heartbeat-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { mountExospine } from '../exospine';
 import { Core } from '../core';
-import { newMessage, TYPE, FROM, TO, VALUE, TM_COMMAND } from '../message';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	KEY,
+	VALUE,
+	TM_COMMAND,
+	TM_INFO,
+} from '../message';
 import names from '../reserved-node-names.json';
 
 class FakeEventSource {
@@ -66,6 +75,17 @@ function makeRemoteIpc( reader, interpreter ) {
 	};
 	node.arguments = `${ reader } /wp-json/ NONCE`;
 	return node;
+}
+
+// Drive a `connected` handshake frame through a node's own composed SseIn. The
+// envelope is now the flat string the server sends (TM_INFO values are strings);
+// SseIn splits it into sessionPid / sessionSlot and fires the CONNECTED bridge.
+function dispatchConnected( node, { pid, slot } ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ KEY ] = 'connected';
+	m[ VALUE ] = `PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS x INTERVAL 2000`;
+	node.sseIn._es.dispatch( 'msg', JSON.stringify( m ) );
 }
 
 function command( { from = '', to = '' } = {} ) {
@@ -156,16 +176,15 @@ describe( 'RemoteIpcNode', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
-		node.sseIn.setState( 'connected', { pid: 7, slot: 3, partition: 1 } );
+		dispatchConnected( node, { pid: 7, slot: 3 } );
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
-		expect( Core.node( names.HEARTBEAT ).partition ).toBe( 1 );
 	} );
 
 	it( 'wraps a reply-node FROM into the private _sse:{pid} pivot (pid from its SseIn)', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
-		node.sseIn.setState( 'connected', { pid: 4242, slot: 1 } );
+		dispatchConnected( node, { pid: 4242, slot: 1 } );
 		posted.length = 0;
 		node.fill( command( { from: names.OUTPUT } ) );
 		expect( posted[ 1 ][ FROM ] ).toBe(
@@ -177,7 +196,7 @@ describe( 'RemoteIpcNode', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
-		node.sseIn.setState( 'connected', { pid: 99, slot: 0 } );
+		dispatchConnected( node, { pid: 99, slot: 0 } );
 		expect( node.pid() ).toBe( 99 );
 	} );
 
@@ -192,7 +211,7 @@ describe( 'RemoteIpcNode', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
-		node.sseIn.setState( 'connected', { pid: 4242, slot: 1 } );
+		dispatchConnected( node, { pid: 4242, slot: 1 } );
 		posted.length = 0;
 		node.fill( command( { from: '_command_interpreter' } ) );
 		expect( posted[ 1 ][ FROM ] ).toBe(
@@ -237,7 +256,7 @@ describe( 'RemoteIpcNode', () => {
 		const b = makeRemoteIpc( 'combined.p0', interpreter );
 		a.fill( command() );
 		b.fill( command() ); // b steals active
-		b.sseIn.setState( 'connected', { pid: 1, slot: 5, partition: 0 } );
+		dispatchConnected( b, { pid: 1, slot: 5 } );
 		// Removing the NON-active `a` must not clear b's live slot.
 		a.removeNode();
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 5 );
