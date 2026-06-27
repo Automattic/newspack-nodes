@@ -174,9 +174,10 @@
 	z-index: 1000000;
 }
 
-// display:contents so the wrapper is invisible to CSS Grid — the inner
-// .topology-header stays a direct grid child of .topology-app (preserving
-// grid-area: header) while the pointerdown handler still bubbles up.
+// display:contents so the drag wrapper is invisible to layout — the inner
+// .topology-header lays out directly in the overlay panel (the console header
+// moved to the shared hub/panel header, so it is no longer a `.topology-app`
+// grid child) while the pointerdown handler still bubbles up.
 .nodes-debug__header-drag {
 	display: contents;
 	cursor: move;

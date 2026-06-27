@@ -77,6 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The console grid's dead 0-height `header` row is removed.** The brand header moved to the shared hub/panel header above the tabs, but the `.topology-app` CSS grid still reserved a collapsed `0`-height `header` track + `header` grid-area (in all four layout variants) plus a now-inert `grid-area: header` on `.topology-header`. The `0` track contributed no height, so the visible layout is byte-identical — pure tidy. A `replCeiling.test.js` guard asserts the dead row/area stays gone, and the stale debug-overlay comment that justified its drag-wrapper `display:contents` by the (now-removed) grid-area is corrected.
+
 - **The unused `newspack_nodes/before_worker_spawn` action is removed** from `Topology_Registry::spawn_worker()`. Its only consumer (the event-logger StreamMerger rewrite + RemoteManager worker-runtime init) was migrated off the hook long ago, leaving the `do_action` firing on every spawn with no listeners in any plugin. (`newspack_nodes/before_supervisor_run` / `after_supervisor_run` are unaffected — they remain in use by `newspack-event-logger-nodes` to wrap the supervisor tick in a `Log_Manager` job context.)
 
 ## [0.20.1] - 2026-06-24
