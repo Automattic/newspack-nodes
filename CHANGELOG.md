@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A 1000 ms `Timer_Node` now router-hitchhikes instead of claiming its own event-framework slot.** `set_timer()`'s threshold moved from `$ms > 1000` to `$ms >= 1000`: an exactly-1000 ms interval is now paced by the ~1 s router tick (the boundary case where the per-second tick is enough) rather than registering a dedicated sub-second slot. Only `$ms < 1000` still claims its own slot.
+
 - **Renamed the shared `SliceViewNode` file to kebab-case** for node-file naming consistency: `@newspack-nodes/shared/nodes/SliceViewNode` → `@newspack-nodes/shared/nodes/slice-view-node`. The exported class `SliceViewNode` is unchanged; every other node-class file in the tree is already kebab (`*-view-node.js`), so the shared base now matches. Adopters importing the base must update the path: `import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node'`.
 
 ## [0.21.0] - 2026-06-27
