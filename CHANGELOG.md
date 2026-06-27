@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed the shared `SliceViewNode` file to kebab-case** for node-file naming consistency: `@newspack-nodes/shared/nodes/SliceViewNode` → `@newspack-nodes/shared/nodes/slice-view-node`. The exported class `SliceViewNode` is unchanged; every other node-class file in the tree is already kebab (`*-view-node.js`), so the shared base now matches. Adopters importing the base must update the path: `import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node'`.
+
 ## [0.21.0] - 2026-06-27
 
 ### Added

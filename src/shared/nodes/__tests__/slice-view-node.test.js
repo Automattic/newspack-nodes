@@ -22,7 +22,7 @@ import {
 	Core,
 } from '@newspack-nodes/runtime';
 import { PendingReplies } from '@newspack-nodes/shared/pendingReplies';
-import { SliceViewNode } from '../SliceViewNode';
+import { SliceViewNode } from '../slice-view-node';
 
 beforeEach( () => Core.reset() );
 
