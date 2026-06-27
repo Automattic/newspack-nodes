@@ -39,6 +39,15 @@ class Command_Interpreter_Node extends Node {
 	protected static array $namespaces = [];
 
 	/**
+	 * Memoized `resolve_class()` SUCCESSES: shell type → resolved FQCN. Misses are
+	 * never stored (so a type resolvable only after a later register_namespace()
+	 * still resolves), so the value is never null.
+	 *
+	 * @var array<string,class-string<Node>>
+	 */
+	private static array $resolve_cache = [];
+
+	/**
 	 * Per-instance verb table; defaults to self::$C, siblings install their own via commands().
 	 *
 	 * @var array<string,callable>|null
@@ -232,6 +241,13 @@ class Command_Interpreter_Node extends Node {
 	 * @return class-string<Node>|null
 	 */
 	public static function resolve_class( string $type ): ?string {
+		// Cache SUCCESSES only — no invalidation needed: registration is append-only
+		// and resolution is first-match, so a found FQCN can never change. A miss is
+		// deliberately NOT cached, so a type that only becomes resolvable after a
+		// later register_namespace() still resolves (no stale null).
+		if ( isset( self::$resolve_cache[ $type ] ) ) {
+			return self::$resolve_cache[ $type ];
+		}
 		foreach ( self::registered_namespaces() as $prefix ) {
 			// The base Node carries no `_Node` suffix; `make_node Node` resolves it
 			// directly (its default fill() stamps TO=target and forwards to sink — a
@@ -239,7 +255,7 @@ class Command_Interpreter_Node extends Node {
 			// `is_a(..., true)` accepts Node itself as well as its subclasses.
 			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
 			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
-				return $fqcn;
+				return self::$resolve_cache[ $type ] = $fqcn;
 			}
 		}
 		return null;

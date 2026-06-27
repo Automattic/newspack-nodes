@@ -97,6 +97,35 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		}
 	}
 
+	public function test_resolve_class_does_not_cache_a_miss(): void {
+		// Load-order invariant: a type that is NOT resolvable yet (its namespace
+		// unregistered) must NOT be cached as null — once its prefix registers it
+		// has to resolve. A naive memo that caches misses would return a stale null.
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-late-probe-node.php';
+
+		// Snapshot + restore BOTH the namespace set and the memo, so registering
+		// LateProbe (and caching 'Late') can't leak into sibling tests.
+		$ns_ref    = new \ReflectionProperty( Command_Interpreter_Node::class, 'namespaces' );
+		$cache_ref = new \ReflectionProperty( Command_Interpreter_Node::class, 'resolve_cache' );
+		$ns_ref->setAccessible( true );
+		$cache_ref->setAccessible( true );
+		$ns_snapshot    = $ns_ref->getValue();
+		$cache_snapshot = $cache_ref->getValue();
+		try {
+			$this->assertNull( Command_Interpreter_Node::resolve_class( 'Late' ) );
+
+			Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\LateProbe\\' );
+
+			$this->assertSame(
+				\Newspack_Nodes\Tests\Fixtures\LateProbe\Late_Node::class,
+				Command_Interpreter_Node::resolve_class( 'Late' )
+			);
+		} finally {
+			$ns_ref->setValue( null, $ns_snapshot );
+			$cache_ref->setValue( null, $cache_snapshot );
+		}
+	}
+
 	public function test_shell_name_for_strips_node_suffix(): void {
 		$echo = new Echo_Node();
 		$this->assertSame( 'Echo', Command_Interpreter_Node::shell_name_for( $echo ) );
