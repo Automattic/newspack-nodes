@@ -10,7 +10,6 @@ export { TimerNode } from './timer-node';
 export { HeartbeatNode } from './heartbeat-node';
 export { CommandInterpreterNode } from './command-interpreter-node';
 export { mountExospine } from './exospine';
-export { SseConnectorNode } from './sse-connector-node';
 export { SseInNode } from './sse-in-node';
 export { RemoteLinkNode } from './remote-link-node';
 export { RemoteIpcNode } from './remote-ipc-node';

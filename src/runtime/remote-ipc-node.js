@@ -115,7 +115,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * a cd'd-away link can't drop the live worker's keepalive).
 	 */
 	removeNode() {
-		this.sseIn?.unregister( 'connected', this.name );
+		this.sseIn?.unregister( 'CONNECTED', this.name );
 		this.sseIn?.close();
 		if ( RemoteIpcNode.active === this ) {
 			this.heartbeat?.clearSlot();

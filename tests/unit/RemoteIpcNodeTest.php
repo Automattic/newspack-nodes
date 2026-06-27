@@ -6,6 +6,7 @@ use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Remote_IPC_Node;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\SSE_In_Node;
 use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -20,6 +21,9 @@ class RemoteIpcNodeTest extends TestCase {
 		parent::setUp();
 		$this->use_base_dir( $this->make_temp_dir() );
 		Core::$memd = new InMemoryMemcached();
+		// RemoteIpc arms a 1000ms TICK timer that router-hitchhikes (>=1000),
+		// which needs _router present — as it always is in a live graph.
+		( new Router_Node() )->name( '_router' );
 	}
 
 	protected function tearDown(): void {
@@ -60,7 +64,7 @@ class RemoteIpcNodeTest extends TestCase {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = [ 'slot' => $slot, 'pid' => $pid ];
+		$m[ Message::VALUE ] = "PID {$pid} SLOT {$slot}";
 		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 

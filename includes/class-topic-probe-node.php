@@ -39,9 +39,9 @@ class TopicProbe_Node extends Timer_Node {
 			throw new \InvalidArgumentException( 'Bad arguments for TopicProbe' );
 		}
 		$interval_s = '' === $trimmed ? self::DEFAULT_INTERVAL_S : \max( 1, (int) $trimmed );
-		// Hitchhike + throttle via the base (interval > 1000 ms): set_timer registers
-		// the TIMER hitchhike and fire_cb() gates to interval_ms. A 1s interval lands
-		// on an own slot (the router tick is too coarse to pace a 1s cadence).
+		// Hitchhike + throttle via the base (interval >= 1000 ms): set_timer registers
+		// the TIMER hitchhike and fire_cb() gates to interval_ms. A 1s interval rides
+		// the router tick directly (interval_ms == the ~1s tick, so it fires each tick).
 		$this->set_timer( $interval_s * 1000 );
 		return $this->arguments;
 	}

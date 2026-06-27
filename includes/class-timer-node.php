@@ -97,13 +97,15 @@ class Timer_Node extends Node {
 	// No ms (or $ms >= 1000) => Router-hitchhike: fire_cb() throttles a >=1000
 	// interval against last_fire_time so the per-second router tick is enough. A
 	// $ms < 1000 timer needs its own event-framework slot (the router tick is ~1s,
-	// too coarse to pace a sub-second timer).
+	// too coarse to pace a sub-second timer). The router itself is the exception —
+	// it can't hitchhike its own TIMER, so it always owns a slot (the drain loop
+	// ticks it; everything else then rides that tick).
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
-		if ( null === $ms || $ms >= 1000 ) {
+		$router = Core::node( Node_Names::ROUTER );
+		if ( ( null === $ms || $ms >= 1000 ) && $router !== $this ) {
 			if ( '' === $this->name ) {
 				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
 			}
-			$router = Core::node( Node_Names::ROUTER );
 			if ( ! $router instanceof self ) {
 				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
 			}
@@ -119,6 +121,11 @@ class Timer_Node extends Node {
 		}
 		if ( 'router' === $this->mode ) {
 			$this->_stop_timer();
+		}
+		if ( null === $ms ) {
+			// Own-slot needs a concrete interval. Only the router reaches here with a
+			// null $ms (it can't hitchhike itself) — it must pass a real tick.
+			throw new \RuntimeException( 'Own-slot timer requires an interval (ms)' );
 		}
 		$this->mode        = 'event_framework';
 		$this->interval_ms = $ms;

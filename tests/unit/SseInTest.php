@@ -64,11 +64,21 @@ class SseInTest extends TestCase {
 	public function test_connected_handshake_consumed_and_captures_slot(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->msg_frame( '', 'connected', [ 'slot' => 7 ] ) );
+		$node->process_sse_chunk( $this->msg_frame( '', 'connected', 'PID 9 SLOT 7' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertSame( 7, $node->slot() );
 		$this->assertTrue( $node->connection()['connected'] );
+	}
+
+	public function test_connected_handshake_without_pid_is_error_not_connected(): void {
+		[ $node, $sink ] = $this->configured_node();
+
+		$node->process_sse_chunk( $this->msg_frame( '', 'connected', 'SLOT 7' ) );
+
+		$this->assertCount( 0, $sink->captured );
+		$this->assertNull( $node->pid() );
+		$this->assertFalse( $node->connection()['connected'] );
 	}
 
 	public function test_heartbeat_frame_recorded_not_forwarded(): void {
@@ -210,7 +220,7 @@ class SseInTest extends TestCase {
 		[ $node ] = $this->configured_node();
 		$this->assertNull( $node->pid() );
 
-		$node->process_sse_chunk( $this->msg_frame( '', 'connected', [ 'slot' => 7, 'pid' => 4242 ] ) );
+		$node->process_sse_chunk( $this->msg_frame( '', 'connected', 'PID 4242 SLOT 7' ) );
 
 		$this->assertSame( 4242, $node->pid() );
 	}

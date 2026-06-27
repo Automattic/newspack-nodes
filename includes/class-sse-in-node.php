@@ -126,8 +126,9 @@ class SSE_In_Node extends Node {
 
 		if ( $this->require_https && \stripos( $this->url, 'https://' ) !== 0 ) {
 			$this->last_error = 'refusing non-HTTPS URL';
-			$this->print_less_often( "non-HTTPS URL refused: {$this->url}" );
+			$this->print_less_often( "ERROR: disconnected - non-HTTPS URL refused: {$this->url}" );
 			$this->increase_backoff();
+			$this->set_state( 'DISCONNECTED', $this->last_error );
 			return false;
 		}
 
@@ -197,20 +198,24 @@ class SSE_In_Node extends Node {
 		if ( ! $ch instanceof \CurlHandle ) {
 			$this->last_error = 'curl_init / multi_add failed';
 			$this->increase_backoff();
+			$this->set_state( 'DISCONNECTED', $this->last_error );
 			return false;
 		}
 
 		// Reset per-connection state.
-		$this->buffer          = '';
-		$this->current_event   = [ 'event' => '', 'data' => '' ];
-		$this->last_event_time = $now;
+		$this->buffer             = '';
+		$this->current_event      = [ 'event' => '', 'data' => '' ];
+		$this->last_event_time    = $now;
 		$this->connected          = true;
 		$this->last_error         = null;
 		$this->last_http_code     = null;
 		$this->last_sse_heartbeat = null;
 		$this->handle             = $ch;
-		$this->last_attempt    = $now;
-		$this->slot            = null;
+		$this->last_attempt       = $now;
+		$this->slot               = null;
+		// Stream opened; awaiting the `connected` handshake. CONNECTED replaces
+		// this when it arrives, DISCONNECTED / RECONNECTING / ERROR on trouble.
+		$this->set_state( 'CONNECTING', $this->subscribe );
 		return true;
 	}
 
@@ -286,14 +291,14 @@ class SSE_In_Node extends Node {
 
 		if ( \CURLE_OK !== $result ) {
 			$this->last_error = "cURL error {$result}: {$err}";
-			$this->print_less_often( "disconnected: {$this->last_error}" );
 		} elseif ( 200 !== $http_code && 0 !== $http_code ) {
 			$this->last_error = "HTTP {$http_code}";
-			$this->print_less_often( "HTTP {$http_code}" );
 		} else {
 			$this->last_error = 'Connection closed by server';
 		}
 
+		$this->print_less_often( 'ERROR: disconnected - ' . $this->last_error );
+		$this->set_state( 'DISCONNECTED', $this->last_error );
 		$this->detach_handle();
 		$this->increase_backoff();
 	}
@@ -315,6 +320,8 @@ class SSE_In_Node extends Node {
 			$this->last_error = 'Buffer overflow (no newline in ' . self::MAX_BUFFER_SIZE . ' bytes)';
 			$this->buffer     = '';
 			$this->connected  = false;
+			$this->set_state( 'ERROR', $this->last_error );
+			$this->print_less_often( 'ERROR: ' . $this->last_error );
 			return false;
 		}
 
@@ -359,6 +366,8 @@ class SSE_In_Node extends Node {
 					$this->last_error    = 'Event data overflow (' . self::MAX_EVENT_SIZE . ' bytes)';
 					$this->current_event = [ 'event' => '', 'data' => '' ];
 					$this->connected     = false;
+					$this->set_state( 'ERROR', $this->last_error );
+					$this->print_less_often( 'ERROR: ' . $this->last_error );
 					return false;
 				}
 				break;
@@ -435,12 +444,31 @@ class SSE_In_Node extends Node {
 
 		// `connected` message is the substrate's bookkeeping handshake — capture
 		// slot, mark connected, do NOT forward.
-		if ( 'connected' === $key && \is_array( $value ) && isset( $value['slot'] ) ) {
-			$slot_raw        = $value['slot'];
-			$this->slot      = \is_scalar( $slot_raw ) ? (int) $slot_raw : 0;
-			$pid_raw         = $value['pid'] ?? null;
+		if ( 'connected' === $key && \is_string( $value ) ) {
+			$pairs             = \array_chunk( \explode( ' ', $value ), 2 );
+			$info              = \array_column( $pairs, 1, 0 );
+			$slot_raw          = $info['SLOT'] ?? null;
+			$this->slot        = \is_scalar( $slot_raw ) ? (int) $slot_raw : null;
+			$pid_raw           = $info['PID'] ?? null;
 			$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
-			$this->connected = true;
+			// A handshake with no PID is malformed — report it and DON'T mark
+			// connected (mirrors the JS SseIn; the pivot reply-FROM needs the pid).
+			if ( null === $this->session_pid ) {
+				$this->last_error = 'connected envelope missing PID';
+				$this->set_state( 'ERROR', $this->last_error );
+				$this->print_less_often( 'ERROR: ' . $this->last_error );
+				return true;
+			}
+			$this->connected   = true;
+			$this->set_state( 'CONNECTED', $value );
+			return true;
+		}
+		if ( 'connected' === $key ) {
+			// Malformed handshake: `connected` key but a non-string VALUE (TM_INFO
+			// values are strings). Don't forward it; report for visibility.
+			$this->last_error = 'malformed connected envelope (non-string value)';
+			$this->set_state( 'ERROR', $this->last_error );
+			$this->print_less_often( 'ERROR: ' . $this->last_error );
 			return true;
 		}
 
@@ -487,7 +515,8 @@ class SSE_In_Node extends Node {
 		}
 		$stale_seconds    = (int) $elapsed;
 		$this->last_error = "Stale connection (no events for {$stale_seconds}s)";
-		$this->print_less_often( "stale ({$stale_seconds}s) — reconnecting" );
+		$this->print_less_often( "ERROR: reconnecting - stale ({$stale_seconds}s)" );
+		$this->set_state( 'RECONNECTING', $this->last_error );
 
 		$this->detach_handle();
 		$this->increase_backoff();
@@ -541,8 +570,9 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Programmatic configuration entry point for the patron. Sets every field
-	 * directly. `$subscribe` is the full `<remote_topic>.p<partition>` string;
-	 * `$source` is the Vault server id stamped into forwarded VALUEs as `_source`.
+	 * directly. `$subscribe` is the full `<remote_topic>.p<partition>` string.
+	 * `$source` is currently unused — reserved (the _source provenance stamping it
+	 * once fed was dropped in the SSE rework); kept positional for call-site stability.
 	 *
 	 * @param string             $url           Base URL (no trailing slash).
 	 * @param string             $auth_username Application-Password user (Basic auth).
@@ -550,7 +580,7 @@ class SSE_In_Node extends Node {
 	 * @param string             $auth_token    Optional Bearer token fallback.
 	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
 	 * @param array{segment_id?:int,offset?:int} $positions Initial cursor.
-	 * @param string             $source        Vault server id stamped as `_source`.
+	 * @param string             $source        Unused/reserved (formerly the _source server id).
 	 * @param bool               $verify_ssl    Verify the remote SSL cert.
 	 * @param bool               $require_https Refuse non-HTTPS remote URLs.
 	 */

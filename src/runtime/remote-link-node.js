@@ -135,18 +135,13 @@ export class RemoteLinkNode extends Node {
 		this.heartbeat = hb;
 
 		// Slot bridge: the SseIn's `connected` handshake carries the slot the
-		// Heartbeat must keep alive (mirrors the per-dashboard registration it replaces).
-		sse.register( 'connected', this.name, ( payload ) => {
-			const slot =
-				payload && Number.isInteger( payload.slot )
-					? payload.slot
-					: null;
-			const partition =
-				payload && Number.isInteger( payload.partition )
-					? payload.partition
-					: -1;
-			if ( null !== slot && slot >= 0 ) {
-				hb.setSlot( slot, partition );
+		// Heartbeat must keep alive (mirrors the per-dashboard registration it
+		// replaces). The envelope is a string (TM_INFO), parsed into sse.sessionSlot;
+		// the slot-pool keep-alive keys on (user, ip, slot) — no partition.
+		sse.register( 'CONNECTED', this.name, ( payload ) => {
+			const slot = sse.slot();
+			if ( Number.isInteger( slot ) && slot >= 0 ) {
+				hb.setSlot( slot );
 			} else {
 				hb.clearSlot();
 			}
@@ -160,7 +155,7 @@ export class RemoteLinkNode extends Node {
 	// close the SseIn's live EventSource — teardown must, or the stream leaks.
 	removeNode() {
 		this.close();
-		this.sseIn?.unregister( 'connected', this.name );
+		this.sseIn?.unregister( 'CONNECTED', this.name );
 		this.heartbeat?.removeNode();
 		this.httpOut?.removeNode();
 		this.sseIn?.removeNode();

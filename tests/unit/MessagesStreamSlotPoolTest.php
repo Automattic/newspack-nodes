@@ -140,8 +140,8 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 4, -1 );
 		$raw = \ob_get_clean();
 
-		// First data: line carries the connected envelope.
-		$this->assertStringContainsString( '"slot":4', $raw );
+		// First data: line carries the connected envelope (flat `KEY VALUE` string).
+		$this->assertStringContainsString( 'SLOT 4', $raw );
 	}
 
 	public function test_run_stream_loop_routes_messages_with_non_empty_TO_through_router(): void {

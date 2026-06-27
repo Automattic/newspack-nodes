@@ -17,7 +17,7 @@ import { RouterNode } from '../router-node';
 import { Core } from '../core';
 import names from '../reserved-node-names.json';
 import { DumperNode } from '../dumper-node';
-import { SseConnectorNode } from '../sse-connector-node';
+import { SseInNode } from '../sse-in-node';
 import { EchoNode } from '../echo-node';
 import {
 	newMessage,
@@ -275,12 +275,12 @@ describe( 'Metadata node', () => {
 			expect( meta.accepts_fill ).toBe( true );
 		} );
 
-		it( 'emits accepts_fill:false for a node whose schema declares it (SseConnector)', () => {
-			const node = new SseConnectorNode();
+		it( 'emits accepts_fill:false for a node whose schema declares it (SseIn)', () => {
+			const node = new SseInNode();
 			node.name = '_sse';
 			const meta = dumpMetadataPayload()._sse;
 			expect( meta.accepts_fill ).toBe( false );
-			// SseConnector omits has_target, so it defaults true.
+			// SseIn declares has_target:true.
 			expect( meta.has_target ).toBe( true );
 		} );
 

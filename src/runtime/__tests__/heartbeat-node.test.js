@@ -47,13 +47,13 @@ describe( 'Heartbeat node', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 3, 0 );
+			node.setSlot( 3 );
 			node.fire();
 			expect( sent ).toHaveLength( 1 );
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
 			expect( m[ VALUE ].name ).toBe( 'heartbeat' );
-			expect( m[ VALUE ].arguments ).toBe( '3 10 0' );
+			expect( m[ VALUE ].arguments ).toBe( '3 10' );
 			expect( m[ TO ] ).toBe( '_sse/workers' );
 			expect( m[ FROM ] ).toBe( '_heartbeat' );
 			expect( m[ LOCAL ] ).toBe( true );
@@ -73,7 +73,7 @@ describe( 'Heartbeat node', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 1, 0 );
+			node.setSlot( 1 );
 			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
@@ -86,7 +86,7 @@ describe( 'Heartbeat node', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 1, 0 );
+			node.setSlot( 1 );
 			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
@@ -99,7 +99,7 @@ describe( 'Heartbeat node', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 1, 0 );
+			node.setSlot( 1 );
 			node.clearSlot();
 			node.fire();
 			expect( sent ).toHaveLength( 0 );
@@ -108,7 +108,7 @@ describe( 'Heartbeat node', () => {
 		it( 'does not throw when there is no sink', () => {
 			const node = new HeartbeatNode();
 			node.target = '_sse/workers';
-			node.setSlot( 1, 0 );
+			node.setSlot( 1 );
 			expect( () => node.fire() ).not.toThrow();
 		} );
 	} );
@@ -125,7 +125,7 @@ describe( 'Heartbeat node', () => {
 			router.stopTimer();
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 7, 0 );
+			node.setSlot( 7 );
 			node.setTimer();
 			router.notifyTimer();
 			expect( sent ).toHaveLength( 1 );

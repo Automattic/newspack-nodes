@@ -149,9 +149,14 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 					},
 				};
 				// Boot its stream + force a connected pid so the FROM-wrap resolves to
-				// the stable 1234 the assertions expect.
+				// the stable 1234 the assertions expect. The connected envelope is
+				// now the flat string the server sends; _applyConnected parses pid +
+				// slot into the SseIn's plain fields (the no-op FakeEventSource here
+				// can't deliver a real `msg` frame).
 				remote.connect();
-				remote.sseIn.setState( 'connected', { pid: 1234, slot: 1 } );
+				remote.sseIn._applyConnected(
+					'PID 1234 SLOT 1 SUBSCRIPTIONS demo.p0 INTERVAL 2000'
+				);
 				const shell = new ShellNode();
 				shell.path = reader;
 				shell.sink = interpreter;

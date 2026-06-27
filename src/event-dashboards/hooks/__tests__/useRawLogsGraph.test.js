@@ -11,7 +11,7 @@
  * view itself.
  *
  * EventSource is faked via `global.EventSource`; SseInNode's connection logic
- * (already covered by the substrate's `sse_connector.test.js`) is unmocked
+ * (already covered by the substrate's `sse-in-node.test.js`) is unmocked
  * here — we drive a `msg` event through the fake EventSource and assert it
  * actually routes the composed (unnamed) sse-in → view.
  */
@@ -37,7 +37,7 @@ import { Node } from '../../../runtime/node';
 import { useNodeState } from '../../../runtime/react';
 import names from '../../../runtime/reserved-node-names.json';
 
-// Minimal FakeEventSource — same shape as the substrate's `sse_connector.test.js`.
+// Minimal FakeEventSource — same shape as the substrate's `sse-in-node.test.js`.
 class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
@@ -113,12 +113,14 @@ function makeFakeClient( payloadByVerb = {} ) {
 	return client;
 }
 
-// Build a `connected` envelope as SseConnector recognizes it.
-function connectedEnvelope( { pid = 4242, slot = 3, partition = 0 } = {} ) {
+// Build a `connected` envelope as SseIn recognizes it: the flat string the
+// server now sends (TM_INFO values are strings), no partition.
+function connectedEnvelope( { pid = 4242, slot = 3 } = {} ) {
+	const value = `PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS firehose.p0 INTERVAL 2000`;
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
-	m[ VALUE ] = { pid, slot, partition };
+	m[ VALUE ] = value;
 	return m;
 }
 
@@ -282,15 +284,14 @@ describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
 } );
 
 describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
-	test( 'a `connected` envelope populates heartbeat.slot and heartbeat.partition', async () => {
+	test( 'a `connected` envelope populates heartbeat.slot', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		FakeEventSource.last.dispatch(
 			'msg',
-			pack( connectedEnvelope( { pid: 7, slot: 5, partition: 2 } ) )
+			pack( connectedEnvelope( { pid: 7, slot: 5 } ) )
 		);
 		expect( Core.node( HEARTBEAT ).slot ).toBe( 5 );
-		expect( Core.node( HEARTBEAT ).partition ).toBe( 2 );
 	} );
 
 	test( 'a `connected` envelope with no slot leaves heartbeat slot null', async () => {
@@ -298,7 +299,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 		await act( async () => {} );
 		FakeEventSource.last.dispatch(
 			'msg',
-			pack( connectedEnvelope( { pid: 7, slot: -1, partition: 0 } ) )
+			pack( connectedEnvelope( { pid: 7, slot: -1 } ) )
 		);
 		expect( Core.node( HEARTBEAT ).slot ).toBeNull();
 	} );
@@ -312,9 +313,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 			act( () => {
 				FakeEventSource.last.dispatch(
 					'msg',
-					pack(
-						connectedEnvelope( { pid: 7, slot: 5, partition: 2 } )
-					)
+					pack( connectedEnvelope( { pid: 7, slot: 5 } ) )
 				);
 			} );
 			client.batches.length = 0; // ignore the initial list_logs batch
@@ -329,7 +328,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
 				);
 			expect( poke ).toBeTruthy();
-			expect( poke[ VALUE ].arguments ).toBe( '5 10 2' );
+			expect( poke[ VALUE ].arguments ).toBe( '5 10' );
 		} finally {
 			jest.useRealTimers();
 		}
