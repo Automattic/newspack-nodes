@@ -743,6 +743,12 @@ export class CommandInterpreterNode extends Node {
 			if ( '_command_interpreter' === name || '_router' === name ) {
 				continue;
 			}
+			// Omit patron-managed sidecars (a Consumer's :source / :offsetlog): the
+			// patron's own config line recreates them, so dumping them separately
+			// would duplicate them on replay.
+			if ( node.patron ) {
+				continue;
+			}
 			if ( 'function' === typeof node.dumpConfig ) {
 				out += node.dumpConfig();
 			}

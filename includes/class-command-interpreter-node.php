@@ -791,6 +791,12 @@ class Command_Interpreter_Node extends Node {
 			// $name comes from array_keys( Core::$nodes_by_name ), so the lookup is always present.
 			/** @var \Newspack_Nodes\Node $node Node from the registry. */
 			$node = Core::node( $name );
+			// Omit patron-managed sidecars (a Consumer's :source / :offsetlog): the
+			// patron's own config line recreates them, so dumping them separately
+			// would duplicate them on replay.
+			if ( null !== $node->patron() ) {
+				continue;
+			}
 			$out .= $node->dump_config();
 		}
 		return $out;
