@@ -129,7 +129,9 @@ class IoTelemetryImpl {
 	// SSE stream lifecycle (drives the Overview's SSE Uptime card). Connect stamps
 	// the wall-clock; disconnect clears it so the card reads "—" while down.
 	markSseConnected( at = nowSeconds() ) {
-		this.sseConnectedAt = at;
+		// Whole seconds: nowSeconds() is a float (Date.now()/1000), and the Uptime
+		// card's formatAge would otherwise render a fractional age ("51.684…s").
+		this.sseConnectedAt = Math.floor( at );
 	}
 
 	markSseDisconnected() {
