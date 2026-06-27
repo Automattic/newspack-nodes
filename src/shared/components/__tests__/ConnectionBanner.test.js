@@ -7,6 +7,8 @@
  * (`\\.(css|scss)$` to jest.style-mock.js), like every other styled component.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { render } from '@testing-library/react';
 import ConnectionBanner from '../ConnectionBanner';
 
@@ -48,5 +50,18 @@ describe( 'ConnectionBanner', () => {
 		expect( banner.textContent ).not.toBe(
 			'Connection lost. Reconnecting…'
 		);
+	} );
+
+	it( 'fully reskins off universal tokens (--oxide fill + --paper text), no fixed --np-*', () => {
+		// Both the error fill AND the text must reskin: a fixed light text is
+		// unreadable on bright-oxide skins (CRT lime, blueprint orange). --paper is
+		// the surface colour, so it contrasts with --oxide on every skin.
+		const scss = fs.readFileSync(
+			path.join( __dirname, '..', 'ConnectionBanner.scss' ),
+			'utf8'
+		);
+		expect( scss ).not.toMatch( /var\(\s*--np-/ );
+		expect( scss ).toMatch( /var\(\s*--oxide/ );
+		expect( scss ).toMatch( /var\(\s*--paper/ );
 	} );
 } );

@@ -1,6 +1,8 @@
 import { render, fireEvent } from '@testing-library/react';
 import DevtoolsTabHost from '../DevtoolsTabHost';
 import { registerDevtoolsTab, resetDevtoolsTabs } from '../tabRegistry';
+import fs from 'fs';
+import path from 'path';
 
 describe( 'DevtoolsTabHost', () => {
 	beforeEach( resetDevtoolsTabs );
@@ -320,5 +322,19 @@ describe( 'DevtoolsTabHost', () => {
 				pushSpy.mockRestore();
 			} );
 		} );
+	} );
+} );
+
+describe( 'DevtoolsTabHost styles', () => {
+	it( 'reskin off the universal --cyan accent, not fixed --np-*', () => {
+		// The tab focus ring + active underline must follow the console-selected
+		// skin, so the SCSS reads the universal --cyan accent (which maps to
+		// --np-primary under Newspack), never the Newspack-fixed --np-* directly.
+		const scss = fs.readFileSync(
+			path.join( __dirname, '..', 'DevtoolsTabHost.scss' ),
+			'utf8'
+		);
+		expect( scss ).not.toMatch( /var\(\s*--np-/ );
+		expect( scss ).toMatch( /var\(\s*--cyan/ );
 	} );
 } );
