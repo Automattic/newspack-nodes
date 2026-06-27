@@ -417,12 +417,12 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'opens a send modal and fires onAction("send", id, payload) when confirmed', () => {
 		const onAction = jest.fn();
-		const { getByText, getByDisplayValue, container } = renderNode( {
+		const { getByText, getByDisplayValue } = renderNode( {
 			onAction,
 		} );
 		fireEvent.click( getByText( 'Send' ) );
-		// A prompt modal appears with a text input.
-		const input = container.querySelector( '.topology-modal__input' );
+		// A prompt modal appears with a text input (portaled to <body>).
+		const input = document.body.querySelector( '.topology-modal__input' );
 		expect( input ).not.toBeNull();
 		fireEvent.change( input, { target: { value: 'hello' } } );
 		fireEvent.click(
@@ -432,17 +432,19 @@ describe( 'Inspector (view mode)', () => {
 		);
 		expect( onAction ).toHaveBeenCalledWith( 'send', 'echo', 'hello' );
 		// Modal closes after confirm.
-		expect( container.querySelector( '.topology-modal' ) ).toBeNull();
+		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 	} );
 
 	it( 'does not fire onAction when the send modal is cancelled', () => {
 		const onAction = jest.fn();
-		const { getByText, container } = renderNode( { onAction } );
+		const { getByText } = renderNode( { onAction } );
 		fireEvent.click( getByText( 'Send' ) );
-		expect( container.querySelector( '.topology-modal' ) ).not.toBeNull();
+		expect(
+			document.body.querySelector( '.topology-modal' )
+		).not.toBeNull();
 		fireEvent.click( getByText( 'Cancel' ) );
 		expect( onAction ).not.toHaveBeenCalled();
-		expect( container.querySelector( '.topology-modal' ) ).toBeNull();
+		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 	} );
 
 	it( 'renders a Connect button on Tee nodes', () => {
@@ -553,9 +555,9 @@ describe( 'Inspector (view mode)', () => {
 				],
 			},
 		];
-		const { getByText, container } = renderNode( { catalog } );
+		const { getByText } = renderNode( { catalog } );
 		fireEvent.click( getByText( 'set_target' ) ); // opens the arg modal
-		const select = container.querySelector( '.topology-modal select' );
+		const select = document.body.querySelector( '.topology-modal select' );
 		const opts = [ ...select.options ].map( ( o ) => o.value );
 		expect( opts ).toContain( 'tee_a' ); // a live node from parsed.nodes
 		expect( opts ).not.toContain( 'echo' ); // self excluded
