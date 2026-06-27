@@ -1069,23 +1069,13 @@ class Partition_Node extends Timer_Node {
 					'name'        => 'allow_large_writes',
 					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						$patron->allow_large_writes();
-						return 'ok';
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter ),
 				],
 				[
 					'name'        => 'void_warranty',
 					'description' => 'Lift the 4KB PIPE_BUF cap with NO write lock — caller asserts single-writer (corrupts under concurrent writers; use allow_large_writes otherwise).',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						$patron->void_warranty();
-						return 'ok';
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_void_warranty( $interpreter ),
 				],
 				[
 					'name'        => 'with_index',
@@ -1093,24 +1083,62 @@ class Partition_Node extends Timer_Node {
 					'args'        => [
 						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
 					],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						$args = \trim( $args );
-						if ( '' === $args ) {
-							return 'usage: with_index <formatter_name>';
-						}
-						$callable = Formatters::resolve( $args );
-						if ( null === $callable ) {
-							return "unknown formatter: $args";
-						}
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						$patron->with_index( $callable );
-						$patron->index_formatter_name = $args;
-						return 'ok';
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_with_index( $interpreter, $args ),
 				],
 			],
 			'has_target'  => false,
 		] );
 	}
+	/**
+	 * `allow_large_writes` verb handler — lift the 4KB cap on the patron + acquire its write lock.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->allow_large_writes();
+		return 'ok';
+	}
+
+	/**
+	 * `void_warranty` verb handler — lift the 4KB cap with NO lock (caller asserts single-writer).
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_void_warranty( Command_Interpreter_Node $interpreter ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->void_warranty();
+		return 'ok';
+	}
+
+	/**
+	 * `with_index` verb handler — set the patron's companion-index line-formatter by name.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param string $args Verb argument.
+	 *
+	 * @return string
+	 */
+	public static function cmd_with_index( Command_Interpreter_Node $interpreter, string $args ): string {
+		$args = \trim( $args );
+		if ( '' === $args ) {
+			return 'usage: with_index <formatter_name>';
+		}
+		$callable = Formatters::resolve( $args );
+		if ( null === $callable ) {
+			return "unknown formatter: $args";
+		}
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->with_index( $callable );
+		$patron->index_formatter_name = $args;
+		return 'ok';
+	}
+
 }
