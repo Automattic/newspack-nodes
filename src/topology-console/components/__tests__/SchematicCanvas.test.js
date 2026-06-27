@@ -1182,6 +1182,36 @@ describe( 'SchematicCanvas', () => {
 		expect( rateText.textContent ).toBe( '1235 /s' );
 	} );
 
+	it( 'marks sub-threshold-rate nodes as idle (dimmed)', () => {
+		const rateRef = {
+			current: new Map( [
+				[ 'a', { count: 0, rate: 0.01, history: [] } ],
+				[ 'b', { count: 0, rate: 0, history: [] } ],
+			] ),
+		};
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		);
+		const all = container.querySelectorAll( '.topology-node' );
+		const idle = container.querySelectorAll( '.topology-node.is-idle' );
+		expect( idle.length ).toBe( all.length );
+	} );
+
+	it( 'does not mark active (real-rate) nodes as idle', () => {
+		const rateRef = {
+			current: new Map( [
+				[ 'a', { count: 0, rate: 50, history: [] } ],
+				[ 'b', { count: 0, rate: 50, history: [] } ],
+			] ),
+		};
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		);
+		expect(
+			container.querySelectorAll( '.topology-node.is-idle' ).length
+		).toBe( 0 );
+	} );
+
 	// === Hover state ===
 
 	it( 'hovering a node calls onHover with its id', () => {
