@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Patron-managed sidecars no longer create their own `{name}:config` interpreter.** A sidecar (a Partition/Consumer that has a patron — e.g. a Consumer's `:source` / `:offsetlog`) is configured directly by its patron and is already excluded from `dump_config`, so the ctor-auto-wired `:config` interpreter was an unused node. `Node::patron()` now drops it when a patron is set; standalone Partitions keep their `:config`. (roadmap [83])
+
 - **The browser SSE receive node and the PHP `SSE_In` now share one shape and aligned reporting.** `sse-connector-node.js` folded into `sse-in-node.js` (one `SseInNode extends Node`); the substrate's `connected` handshake travels as a flat `PID … SLOT … SUBSCRIPTIONS … INTERVAL …` string (TM_INFO values are strings, never arrays), parsed into plain `sessionPid`/`sessionSlot` exposed via `pid()`/`slot()` on both sides; the vestigial `partition` field is gone end-to-end (the slot pool keys on user/ip/slot). Every error path on both sides now logs an `ERROR:`-prefixed line (`ERROR: disconnected - …` / `ERROR: reconnecting - …`) alongside a semantic `set_state`, and PHP's transient `INIT` folded into `CONNECTING` for 5-state parity. A `connected` handshake missing its PID is reported (ERROR) and not marked connected on both runtimes.
 
 - **A 1000 ms `Timer_Node` now router-hitchhikes instead of claiming its own event-framework slot.** `set_timer()`'s threshold moved from `$ms > 1000` to `$ms >= 1000`: an exactly-1000 ms interval is now paced by the ~1 s router tick (the boundary case where the per-second tick is enough) rather than registering a dedicated sub-second slot. Only `$ms < 1000` still claims its own slot.
