@@ -210,6 +210,7 @@ export default function InspectorTab( {
 				names.HEARTBEAT,
 				names.OUTPUT,
 				names.SSE,
+				names.CONSOLE_TAP,
 			] ),
 		[]
 	);

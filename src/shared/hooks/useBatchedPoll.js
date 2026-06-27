@@ -45,8 +45,9 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
-// Substrate I/O-boundary node names: `_http` the HttpOut egress, `_shell` the
-// observe-only Tap in front of it.
+// Substrate send-path node names: `_http` the HttpOut egress (an I/O node) and,
+// in front of it, `_shell` the observe-only Tap (a ROUTING node) that watches
+// every command going out.
 const HTTP = '_http';
 const SHELL = '_shell';
 
