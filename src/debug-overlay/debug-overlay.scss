@@ -117,6 +117,22 @@
 		flex-direction: column;
 	}
 
+	// Overview-only notice (the hub Console tab — see InspectorTab buildRepl):
+	// the overlay's graph+REPL would duplicate the Console's, so the Inspector
+	// body points back at it instead.
+	.nodes-debug__inspector--repl-off {
+		align-items: center;
+		justify-content: center;
+
+		.nodes-debug__repl-off {
+			max-width: 28em;
+			padding: 1.5em;
+			text-align: center;
+			color: var(--ink);
+			opacity: 0.7;
+		}
+	}
+
 	// Re-shape the shared graph app for the overlay: palette + canvas + REPL (+
 	// inspector when a node is selected). NO header row — the panel owns the one
 	// shared header above the tab bar, outside this grid. Reuses the real

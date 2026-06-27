@@ -21,10 +21,11 @@ import { getStoredTheme } from '../topology-console/themes';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './devtools-hub.scss';
 
-// The Console tab IS a live-graph view; mounting the floating overlay there
-// nests a console-in-a-console (and binds to no interpreter). Gate the overlay
-// to every OTHER hub tab — the manager mounts the canonical
-// `_command_interpreter` exospine, giving the overlay's REPL a real backbone.
+// The overlay rides EVERY hub tab — its Overview tab shows the browser's own I/O
+// while the Console shows a worker. On the Console tab it runs Overview-only
+// (`buildRepl={false}`): the Console already IS a live graph+REPL, and a second
+// overlay REPL would collide on the shared `_output` infra. The Inspector body
+// builds no infra there and points back at the Console (see InspectorTab).
 const CONSOLE_TAB_ID = 'topology-console';
 
 export default function DevToolsHub() {
@@ -87,9 +88,10 @@ export default function DevToolsHub() {
 						</p>
 					}
 				/>
-				{ activeTabId && CONSOLE_TAB_ID !== activeTabId && (
+				{ activeTabId && (
 					<DebugOverlay
 						storageKey={ `newspack-nodes:debug:hub:${ activeTabId }` }
+						buildRepl={ CONSOLE_TAB_ID !== activeTabId }
 					/>
 				) }
 			</div>

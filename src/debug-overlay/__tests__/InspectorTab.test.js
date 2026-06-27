@@ -90,4 +90,22 @@ describe( 'InspectorTab registration + render', () => {
 		);
 		expect( getByTestId( 'inspector-tab' ) ).not.toBeNull();
 	} );
+
+	it( 'is Overview-only when buildRepl is false (no infra; points at the Console)', () => {
+		mountExospine();
+		const InspectorTab = require( '../tabs/InspectorTab' ).default;
+		const { getByText } = render(
+			<InspectorTab
+				host="overlay"
+				storageKey="newspack-nodes:debug"
+				onClose={ () => {} }
+				frame={ { h: 600, w: 800 } }
+				buildRepl={ false }
+			/>
+		);
+		// Built no overlay infra — the hub Console tab owns `_output` itself, so a
+		// second one here would collide. The body points the user back at it.
+		expect( Core.node( '_output' ) ).toBeNull();
+		expect( getByText( /Console tab itself/i ) ).not.toBeNull();
+	} );
 } );
