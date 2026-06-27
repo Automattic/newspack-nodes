@@ -21,12 +21,23 @@ export function ModalShell( { title, onDismiss, children } ) {
 		return () => document.removeEventListener( 'keydown', onKey );
 	}, [ onDismiss ] );
 
-	// Portal to <body> inside a display:contents theme wrapper. The backdrop is
-	// position:fixed/z-index:1e6, but a fixed element's z only competes WITHIN its
-	// own stacking context — rendered in place (e.g. inside the inspector dock's
-	// z-index:2 console) it paints below the portaled panel header. At <body> it
-	// escapes every nested context; the display:contents wrapper carries the skin
-	// tokens (no box of its own) so --paper / --ink resolve.
+	if ( typeof document === 'undefined' ) {
+		return null;
+	}
+	// The backdrop dims the WHOLE page (fixed, portaled to <body>), but the dialog is
+	// centered over the OVERLAY PANEL, not the viewport — measure the panel and place
+	// the dialog at its centre. No panel (standalone console) → viewport-centered.
+	const panelRect = document
+		.querySelector( '.nodes-debug__panel' )
+		?.getBoundingClientRect();
+	const modalStyle = panelRect
+		? {
+				position: 'absolute',
+				left: panelRect.left + panelRect.width / 2,
+				top: panelRect.top + panelRect.height / 2,
+				transform: 'translate(-50%, -50%)',
+		  }
+		: undefined;
 	return createPortal(
 		<div
 			className={ `topology-app newspack-nodes-theme theme-${ getStoredTheme() }` }
@@ -47,6 +58,7 @@ export function ModalShell( { title, onDismiss, children } ) {
 					role="dialog"
 					aria-modal="true"
 					aria-label={ title }
+					style={ modalStyle }
 				>
 					<header className="topology-modal__header">
 						{ title }

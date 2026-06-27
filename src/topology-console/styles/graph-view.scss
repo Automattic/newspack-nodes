@@ -96,15 +96,13 @@
 	&.is-edit-mode {
 		grid-template-rows: 1fr;
 		grid-template-columns: 232px 1fr;
-		grid-template-areas:
-			"palette canvas";
+		grid-template-areas: "palette canvas";
 	}
 
 	&.is-edit-mode.is-inspector-open {
 		grid-template-rows: 1fr;
 		grid-template-columns: 232px 1fr var(--inspector-col);
-		grid-template-areas:
-			"palette canvas inspector";
+		grid-template-areas: "palette canvas inspector";
 	}
 
 	// `.is-palette-collapsed` shrinks the palette column to a 28px rail (just
@@ -448,8 +446,8 @@
 
 	&__meta {
 		position: absolute;
-		top: 14px;
-		left: 18px;
+		top: 16px;
+		left: 56px;
 		font: 700 9px/1.5 var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.22em;
@@ -481,7 +479,7 @@
 	// alone occupies the same slot.
 	&__layout-actions {
 		position: absolute;
-		top: 14px;
+		top: 16px;
 		right: 16px;
 		z-index: 5;
 		display: flex;
@@ -491,7 +489,7 @@
 	}
 
 	&__layout-chip {
-		background: transparent;
+		background: var(--paper-3);
 		border: 2px solid var(--ink-3);
 		color: var(--ink-3);
 		font: 500 10px/1 var(--font-mono);
@@ -562,14 +560,14 @@
 	}
 
 	&--tl {
-		top: 70px;
+		top: 16px;
 		left: 16px;
 		border-right: 0;
 		border-bottom: 0;
 	}
 
 	&--tr {
-		top: 70px;
+		top: 16px;
 		right: 16px;
 		border-left: 0;
 		border-bottom: 0;
@@ -1227,7 +1225,9 @@
 // next): hollow it out so "on the keyframe" reads differently from "moved on".
 .topology-tt__marker--stepped {
 	background: var(--paper-2);
-	box-shadow: inset 0 0 0 2px var(--oxide), 0 0 0 1px var(--ink-2);
+	box-shadow:
+		inset 0 0 0 2px var(--oxide),
+		0 0 0 1px var(--ink-2);
 }
 
 // Where the cursor sits, in words (live / parked / between keyframes).
@@ -1260,7 +1260,7 @@
 	padding: 3px 0;
 	cursor: pointer;
 
-	&:hover:not( :disabled ) {
+	&:hover:not(:disabled) {
 		background: var(--paper-3);
 		color: var(--ink-1, var(--ink-2));
 	}
@@ -2875,7 +2875,9 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	z-index: 9000;
+	// Above the overlay panel (z-index:999998): ModalShell portals to <body>, so the
+	// fixed full-viewport backdrop dims the whole page and sits over the panel.
+	z-index: 1000000;
 }
 
 .topology-modal {
