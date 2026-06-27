@@ -165,15 +165,6 @@
 	}
 }
 
-// The overlay's own NewNodeModal (palette-drop prompt) renders as a sibling of
-// the panel, so its console-default backdrop z-index (9000) sits BELOW the
-// panel (999998) and is invisible. Lift it above the FAB + panel so the
-// drop-prompt actually surfaces. (Inspector modals render inside the panel's
-// own stacking context, so this just repositions the sibling drop-prompt.)
-.nodes-debug .topology-modal-backdrop {
-	z-index: 1000000;
-}
-
 // display:contents so the drag wrapper is invisible to layout — the inner
 // .topology-header lays out directly in the overlay panel (the console header
 // moved to the shared hub/panel header, so it is no longer a `.topology-app`

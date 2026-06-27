@@ -46,11 +46,11 @@ describe( 'ModalShell', () => {
 		expect( onDismiss ).toHaveBeenCalled();
 	} );
 
-	it( 'portals the backdrop to <body> under a theme wrapper so it escapes nested stacking contexts', () => {
-		// A fixed-position backdrop rendered inside a stacking-context ancestor (the
-		// inspector dock's z-index:2 console) paints BELOW the portaled panel header.
-		// Portaling to <body> escapes every nested context; the theme wrapper keeps
-		// --paper / --ink in scope.
+	it( 'portals the backdrop to <body> under a theme wrapper (escapes nested stacking; fixed full-viewport dim)', () => {
+		// A fixed backdrop's z-index only competes within its own stacking context, so
+		// rendered in place (inside the inspector dock's z-index:2 console) it paints
+		// below the panel header. At <body> it escapes that and dims the whole page;
+		// the theme wrapper keeps --paper / --ink in scope.
 		render(
 			<div className="dock">
 				<ModalShell title="x" onDismiss={ () => {} }>
@@ -67,6 +67,22 @@ describe( 'ModalShell', () => {
 		expect(
 			backdrop.closest( '.topology-app.newspack-nodes-theme' )
 		).not.toBeNull();
+	} );
+
+	it( 'centers the dialog over the overlay panel (not the viewport) when one is present', () => {
+		// Whole-page dim, but the dialog itself is positioned at the panel's centre.
+		const panel = document.createElement( 'div' );
+		panel.className = 'nodes-debug__panel';
+		document.body.appendChild( panel );
+		render(
+			<ModalShell title="x" onDismiss={ () => {} }>
+				<div />
+			</ModalShell>
+		);
+		const dialog = document.body.querySelector( '.topology-modal' );
+		expect( dialog.style.position ).toBe( 'absolute' );
+		expect( dialog.style.transform ).toContain( 'translate' );
+		panel.remove();
 	} );
 } );
 
