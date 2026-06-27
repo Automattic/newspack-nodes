@@ -15,3 +15,4 @@ export const END_SIZE = 5; // partition end: last segment size
 export const DISTANCE = 6; // bytes behind (the backlog)
 export const MSGS = 7; // messages the consumer has sent
 export const END_BYTES = 8; // absolute partition byte position (Σ live segment sizes); byte rate = Δ/Δt
+export const CACHE_SIZE = 9; // offsetlog cache size: byte size of the newest offsetlog segment
