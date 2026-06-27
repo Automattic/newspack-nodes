@@ -645,6 +645,12 @@
 	user-select: none;
 	-webkit-user-select: none;
 
+	// Idle (no message activity): a gentle dim, like a quiet connection. Listed
+	// before .is-faded so a hover-fade (0.4) still wins when a node is both.
+	&.is-idle {
+		opacity: 0.55;
+	}
+
 	&.is-faded {
 		opacity: 0.4;
 	}

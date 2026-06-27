@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Idle nodes are dimmed in the graph.** A node whose message rate is below the display floor (no meaningful activity) renders at reduced opacity — like a quiet connection — so active nodes stand out. Live mode only; edit mode (no rate data) never dims, and a hover-fade still takes precedence. (roadmap [85])
+
 - **The overlay Overview shows Client Uptime and SSE Uptime cards.** Client uptime is time since the page loaded (`performance.timeOrigin`); SSE uptime is time since the live stream connected — `SseInNode` stamps the connect time into `IoTelemetry` on CONNECTED and clears it on DISCONNECTED/RECONNECTING, so the card reads `-` while down. Both format as an age and tick with the cards' existing refresh (no new timer). (roadmap [89])
 
 - **The topicprobe record now carries the offsetlog cache size** — `Probe_Record::CACHE_SIZE` (index 9) is the byte size of the consumer's newest offsetlog segment, set from `Consumer::probe_stats()` (0 for ephemeral readers). Mirrored in `probe-record.js` with the PHP↔JS parity test extended. The hub overview graphs it as a **Topics Cache Size** panel (alongside Message Rate / Byte Rate / Backlog), and the SummaryCards row shows **Avg Cache** + **Total Cache** cards. (roadmap [89])

@@ -191,6 +191,12 @@ function sparklinePath( history ) {
 		.join( ' ' );
 }
 
+// A node is "idle" when its message rate is below the formatNodeRate display
+// floor — no meaningful activity — so the graph dims it like a quiet edge.
+export function isIdleRate( rate ) {
+	return ! rate || rate < 0.05;
+}
+
 // Per-node rate label; null below threshold so dead nodes don't show "0 /s".
 function formatNodeRate( rate ) {
 	if ( ! rate || rate < 0.05 ) {
@@ -778,6 +784,9 @@ export default function SchematicCanvas( {
 		const isSelected = n.id === selectedId;
 		const isHovered = n.id === hoveredId;
 		const isFaded = hoveredId && ! isHovered;
+		// Dim quiet nodes (live mode only): no rate ref = edit mode, never dim.
+		const isIdle =
+			!! rateRef && isIdleRate( rateRef.current?.get( n.id )?.rate );
 		const isDragging = drag && drag.nodeId === n.id;
 		return (
 			<g
@@ -788,7 +797,7 @@ export default function SchematicCanvas( {
 					isFaded ? ' is-faded' : ''
 				}${ isDragging ? ' is-dragging' : '' }${
 					showDetail ? '' : ' is-static'
-				}` }
+				}${ isIdle ? ' is-idle' : '' }` }
 				transform={ `translate(${ n.position.x },${ n.position.y })` }
 				onClick={ ( ev ) => {
 					ev.stopPropagation();
