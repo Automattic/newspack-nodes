@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The inspector now shows a read-only Constructor section for the selected live node.** It mirrors edit mode's constructor form but read-only: it pairs the class's declared positional argument names (from the catalog schema) with the values the node was given — its `arguments` string, already carried in every node's `dump_metadata` row. An omitted optional argument falls back to its schema default (shown dimmed). To change a node's arguments, delete and recreate it (there is no live re-arg). A free-form trailing argument folds into its declared slot instead of spilling across rows, and a class with no constructor arguments (or a reserved node) shows no section.
+
 ### Fixed
 
 - **The `>= 1000` router-hitchhike no longer kills the router's own tick, and the JS timer now matches it.** The `>= 1000` threshold (previous release, PHP only) made the `_router` hitchhike its OWN per-tick TIMER — registering on itself, never entering the event framework, so it never ticked and every hitchhiking timer (probes, heartbeats, supervisor cadence, log pruning) silently died; tests that drive `fire_cb()` directly masked it. `set_timer()` now exempts the router so it always owns a slot — PHP guards by identity (`$router !== $this`), the JS `TimerNode` by an `isRouter` flag (the JS router self-arms in its constructor before it's named). The same `>= 1000` threshold + guard now applies to the JS `TimerNode`/`RouterNode`, so both runtimes match.

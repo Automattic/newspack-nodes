@@ -137,6 +137,31 @@ function formatByteRate( rate ) {
 	return `${ ( rate / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G/s`;
 }
 
+/**
+ * Split a node's raw `arguments` string into `count` positional values for the
+ * read-only Constructor view. The LAST declared arg captures any remainder, so a
+ * free-form trailing argument (e.g. a forwarded command's own args) reads as one
+ * value instead of spilling across rows.
+ *
+ * @param {string} raw   The node's space-separated arguments string.
+ * @param {number} count Number of positional args the class declares.
+ * @return {string[]} Positional values, length <= count.
+ */
+function positionalArgs( raw, count ) {
+	const trimmed = ( raw || '' ).trim();
+	if ( ! trimmed || count <= 0 ) {
+		return [];
+	}
+	const tokens = trimmed.split( /\s+/ );
+	if ( tokens.length <= count ) {
+		return tokens;
+	}
+	return [
+		...tokens.slice( 0, count - 1 ),
+		tokens.slice( count - 1 ).join( ' ' ),
+	];
+}
+
 // Inspector sparkline (wider/taller variant of the node-card one).
 const INSP_SPARK_HISTORY_MAX = 60;
 
@@ -1287,6 +1312,13 @@ export default function Inspector( {
 	// full target list is the only place the per-session pivot survives.
 	const tailOn =
 		!! parsed.pwd && ( node.targets || [] ).includes( parsed.pwd );
+	// Read-only Constructor view: the class's declared positional args paired
+	// with the values the node was GIVEN. An omitted optional arg falls back to
+	// the schema default (shown dimmed). To change them, delete + recreate the
+	// node — there is no live re-arg.
+	const argSpecs =
+		catalog.find( ( c ) => c.shell_name === node.class )?.arguments || [];
+	const argValues = positionalArgs( node.arguments, argSpecs.length );
 
 	return (
 		<aside className="topology-inspector">
@@ -1351,6 +1383,41 @@ export default function Inspector( {
 						</>
 					) }
 					{ /* sink + from dropped — substrate plumbing, no edit-mode equivalent. */ }
+				</Section>
+			) }
+
+			{ ! isReserved( node ) && argSpecs.length > 0 && (
+				<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
+					{ argSpecs.map( ( spec, i ) => {
+						const passed = argValues[ i ];
+						const hasPassed = undefined !== passed && '' !== passed;
+						let shown = '—';
+						if ( hasPassed ) {
+							shown = passed;
+						} else if ( undefined !== spec.default ) {
+							shown = String( spec.default );
+						}
+						return (
+							<div
+								className="topology-insp__arg"
+								key={ spec.name }
+							>
+								<span className="topology-insp__arg-name">
+									{ spec.name }
+									{ spec.required ? ' *' : '' }
+								</span>
+								<span
+									className={ `topology-insp__arg-val${
+										hasPassed
+											? ''
+											: ' topology-insp__arg-val--default'
+									}` }
+								>
+									{ shown }
+								</span>
+							</div>
+						);
+					} ) }
 				</Section>
 			) }
 
