@@ -66,7 +66,7 @@
 	z-index: 2;
 	height: calc(100vh - 32px); // leave WP admin bar visible.
 	display: grid;
-	grid-template-rows: 0 1fr 38px;
+	grid-template-rows: 1fr 38px;
 	// Palette is always-on (per the interactive-live-canvas spec: a drop in
 	// view mode issues `make_node`, a drop in edit mode adds to the draft).
 	// All four layouts reserve the 232px left palette column; edit mode drops
@@ -74,7 +74,6 @@
 	// the 380px right column.
 	grid-template-columns: 232px 1fr;
 	grid-template-areas:
-		"header  header"
 		"palette canvas"
 		"palette repl";
 
@@ -90,24 +89,21 @@
 	&.is-inspector-open {
 		grid-template-columns: 232px 1fr var(--inspector-col);
 		grid-template-areas:
-			"header  header header"
 			"palette canvas inspector"
 			"palette repl   inspector";
 	}
 
 	&.is-edit-mode {
-		grid-template-rows: 0 1fr;
+		grid-template-rows: 1fr;
 		grid-template-columns: 232px 1fr;
 		grid-template-areas:
-			"header  header"
 			"palette canvas";
 	}
 
 	&.is-edit-mode.is-inspector-open {
-		grid-template-rows: 0 1fr;
+		grid-template-rows: 1fr;
 		grid-template-columns: 232px 1fr var(--inspector-col);
 		grid-template-areas:
-			"header  header header"
 			"palette canvas inspector";
 	}
 
@@ -1637,7 +1633,6 @@
 // =====================================================================
 
 .topology-header {
-	grid-area: header;
 	border-bottom: 1px solid var(--ink);
 	background: var(--paper-2);
 	display: flex;
