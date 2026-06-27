@@ -53,6 +53,14 @@ describe( 'SSE connection uptime', () => {
 		expect( IoTelemetry.snapshot().sseConnectedAt ).toBe( 1000 );
 	} );
 
+	test( 'the default connect timestamp is whole seconds (no fractional uptime)', () => {
+		// Date.now()/1000 is a float; storing it raw renders "51.684…s" not "51s".
+		IoTelemetry.markSseConnected();
+		expect(
+			Number.isInteger( IoTelemetry.snapshot().sseConnectedAt )
+		).toBe( true );
+	} );
+
 	test( 'markSseDisconnected clears the connect timestamp', () => {
 		IoTelemetry.markSseConnected( 1000 );
 		IoTelemetry.markSseDisconnected();
