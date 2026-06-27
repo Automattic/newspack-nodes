@@ -13,6 +13,7 @@
  */
 
 import { SseInNode } from '../sse-in-node';
+import { IoTelemetry } from '../io-telemetry';
 import { Core } from '../core';
 import {
 	newMessage,
@@ -126,6 +127,27 @@ test( 'start() reports CONNECTING with the subscription csv', () => {
 	const { sse } = makeSseIn( { subscribe: [ 'a', 'b' ] } );
 	sse.start();
 	expect( sse.setStateCache.CONNECTING ).toBe( 'a,b' );
+} );
+
+test( 'a connected handshake records the SSE connect time in IoTelemetry', () => {
+	IoTelemetry.markSseDisconnected();
+	const { sse } = makeSseIn();
+	sse.start();
+	FakeEventSource.last.dispatch( 'msg', connectedFrame() );
+	expect( IoTelemetry.snapshot().sseConnectedAt ).not.toBeNull();
+} );
+
+test( 'an EventSource-closed disconnect clears the SSE connect time', () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const { sse } = makeSseIn();
+	sse.start();
+	FakeEventSource.last.dispatch( 'msg', connectedFrame() );
+	expect( IoTelemetry.snapshot().sseConnectedAt ).not.toBeNull();
+	FakeEventSource.last.dispatchError( FakeEventSource.CLOSED );
+	expect( IoTelemetry.snapshot().sseConnectedAt ).toBeNull();
+	warn.mockRestore();
 } );
 
 test( 'a connected envelope parses pid + slot into plain fields', () => {

@@ -61,6 +61,10 @@ class IoTelemetryImpl {
 		this.warnings = 0;
 		this.errors = 0;
 		this.debug = 0;
+		// Wall-clock (seconds) the browser's SSE stream last connected, or null when
+		// not connected. Set by SseInNode on CONNECTED, cleared on DISCONNECTED.
+		// Survives clear() (a stats reset doesn't drop a live connection).
+		this.sseConnectedAt = null;
 		// Recent classified log lines `{ level, text, ts }` (bounded ring).
 		this.messages = [];
 		// Compact rows: [ t, msgInRate, msgOutRate, byteInRate, byteOutRate ].
@@ -122,6 +126,16 @@ class IoTelemetryImpl {
 		this._pushMessage( 'debug', text );
 	}
 
+	// SSE stream lifecycle (drives the Overview's SSE Uptime card). Connect stamps
+	// the wall-clock; disconnect clears it so the card reads "—" while down.
+	markSseConnected( at = nowSeconds() ) {
+		this.sseConnectedAt = at;
+	}
+
+	markSseDisconnected() {
+		this.sseConnectedAt = null;
+	}
+
 	// Append a classified line to the bounded ring. A textless record (e.g. a
 	// TM_ERROR frame) bumps the counter but adds no row. No notify: the list
 	// refreshes on the next sampler tick like the count cards, not per line.
@@ -144,6 +158,7 @@ class IoTelemetryImpl {
 			warnings: this.warnings,
 			errors: this.errors,
 			debug: this.debug,
+			sseConnectedAt: this.sseConnectedAt,
 			messages: this.messages.slice(),
 		};
 	}

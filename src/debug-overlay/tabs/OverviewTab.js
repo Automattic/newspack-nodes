@@ -75,12 +75,15 @@ export default function OverviewTab( { publishHeader } ) {
 	// The Overview owns no header controls — clear any the Console left behind.
 	useEffect( () => publishHeader?.( null ), [ publishHeader ] );
 
-	// Client uptime: page-load (performance.timeOrigin) to now, as an age. Read at
-	// render so it ticks with the cards' existing ~20Hz refresh — no new timer.
+	// Uptimes read at render so they tick with the cards' existing ~20Hz refresh —
+	// no new timer. Client: page-load (performance.timeOrigin) to now. SSE: the
+	// live stream's connect time (SseInNode marks it; "-" while disconnected).
+	const nowSec = Math.floor( Date.now() / 1000 );
 	const clientUptime = formatAge(
 		Math.floor( performance.timeOrigin / 1000 ),
-		Math.floor( Date.now() / 1000 )
+		nowSec
 	);
+	const sseUptime = formatAge( totals.sseConnectedAt, nowSec );
 
 	// Memoize the classified-message list: the cards refresh at 20Hz, but the
 	// (up to 200) <li> only need to reconcile when the messages actually change.
@@ -182,6 +185,11 @@ export default function OverviewTab( { publishHeader } ) {
 					id="client-uptime"
 					label={ __( 'Client Uptime', 'newspack-nodes' ) }
 					value={ clientUptime }
+				/>
+				<Card
+					id="sse-uptime"
+					label={ __( 'SSE Uptime', 'newspack-nodes' ) }
+					value={ sseUptime }
 				/>
 			</div>
 			<div className="nodes-overview__panels">
