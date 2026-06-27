@@ -47,6 +47,25 @@ class ConsumerTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'offsetlog' )->getValue( $c ) );
 	}
 
+	public function test_sidecar_partitions_have_no_config_interpreter(): void {
+		// Roadmap [83]: a patron-managed sidecar (the Consumer's source/offsetlog)
+		// shouldn't carry its own `{name}:config` — the patron configures it
+		// directly, and dump_config already skips patron-owned nodes.
+		$c = new Consumer_Node();
+		$c->name( 'reader' );
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+
+		$this->assertNotNull( Core::node( 'reader:source' ) );
+		$this->assertNull( Core::node( 'reader:source:config' ) );
+		$this->assertNull( Core::node( 'reader:offsetlog:config' ) );
+
+		// Control: a standalone Partition (no patron) keeps its :config.
+		$p = new Partition_Node();
+		$p->name( 'standalone' );
+		$p->arguments( "{$this->tmp}/data/s0" );
+		$this->assertNotNull( Core::node( 'standalone:config' ) );
+	}
+
 	public function test_seam_methods_return_consumer_defaults(): void {
 		$probe = new class() extends \Newspack_Nodes\Consumer_Node {
 			public function probe_make_source(): \Newspack_Nodes\Partition_Node { return $this->make_source(); }

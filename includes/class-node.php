@@ -88,6 +88,16 @@ class Node {
 	public function patron( ?Node $node = null ): ?Node {
 		if ( null !== $node ) {
 			$this->patron = $node;
+			// A sidecar (patron-managed) doesn't need its own `{name}:config`: the
+			// patron configures it directly, and dump_config skips patron-owned
+			// nodes. Drop the ctor-auto-wired interpreter so we don't register a
+			// config node nobody routes to.
+			if ( null !== $this->interpreter ) {
+				if ( '' !== $this->interpreter->name() ) {
+					$this->interpreter->remove_node();
+				}
+				$this->interpreter = null;
+			}
 		}
 		return $this->patron;
 	}
