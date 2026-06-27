@@ -13,17 +13,107 @@ describe( 'useGraphRates', () => {
 		expect( entry.rate ).toBe( 0 );
 	} );
 
-	it( 'computes a positive rate on the next tick with a later timestamp', () => {
+	it( 'treats the first real reading as a baseline, then computes a rate on the next tick', () => {
 		let now = 1000;
 		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
 		const { result, rerender } = renderHook(
 			( { graph } ) => useGraphRates( graph, 'k1' ),
 			{ initialProps: { graph: g( [ { id: 'a', count: 0 } ] ) } }
 		);
+		// The first non-zero reading (the dump_metadata backfill) only seeds the
+		// baseline — the cumulative counter spans the worker's uptime, not one
+		// poll interval, so it must not become a rate.
 		now = 1001;
 		rerender( { graph: g( [ { id: 'a', count: 10 } ] ) } );
+		expect( result.current.rateRef.current.get( 'a' ).rate ).toBe( 0 );
+		// The NEXT delta is a true per-interval rate.
+		now = 1002;
+		rerender( { graph: g( [ { id: 'a', count: 20 } ] ) } );
+		expect( result.current.rateRef.current.get( 'a' ).rate ).toBe( 10 );
+		Date.now.mockRestore();
+	} );
+
+	it( 'does not turn the first dump_metadata cumulative backfill into a rate spike', () => {
+		let now = 1000;
+		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
+		// A worker that has already run for minutes: the node enters the graph at
+		// 0 (structural placeholder), then the first dump_metadata backfills the
+		// full cumulative counter at once.
+		const { result, rerender } = renderHook(
+			( { graph } ) => useGraphRates( graph, 'k1' ),
+			{ initialProps: { graph: g( [ { id: 'a', count: 0 } ] ) } }
+		);
+		now = 1001;
+		rerender( { graph: g( [ { id: 'a', count: 12075 } ] ) } );
 		const entry = result.current.rateRef.current.get( 'a' );
-		expect( entry.rate ).toBe( 10 );
+		expect( entry.rate ).toBe( 0 );
+		// The peak the sparkline reads must not be poisoned by the backfill.
+		expect( Math.max( 0, ...entry.history ) ).toBe( 0 );
+		// A genuine +5 over the next interval still reads correctly.
+		now = 1002;
+		rerender( { graph: g( [ { id: 'a', count: 12080 } ] ) } );
+		expect( result.current.rateRef.current.get( 'a' ).rate ).toBe( 5 );
+		Date.now.mockRestore();
+	} );
+
+	it( 'baselines byte counters on the first reading too (no byte-rate spike)', () => {
+		let now = 1000;
+		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
+		const { result, rerender } = renderHook(
+			( { graph } ) => useGraphRates( graph, 'k1' ),
+			{
+				initialProps: {
+					graph: g( [ { id: 'a', count: 0, bytesRead: 0 } ] ),
+				},
+			}
+		);
+		now = 1001;
+		rerender( {
+			graph: g( [ { id: 'a', count: 12075, bytesRead: 2300000 } ] ),
+		} );
+		const entry = result.current.rateRef.current.get( 'a' );
+		expect( entry.readRate ).toBe( 0 );
+		expect( Math.max( 0, ...entry.readHistory ) ).toBe( 0 );
+		Date.now.mockRestore();
+	} );
+
+	it( 'seeds a node first seen WITH data as warm so the next tick is a real delta', () => {
+		let now = 1000;
+		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
+		// dump_metadata arrived before the first rate sample: the node is seen
+		// already carrying its cumulative counter, so it seeds warm and the next
+		// reading is a genuine per-interval delta — not skipped, not a spike.
+		const { result, rerender } = renderHook(
+			( { graph } ) => useGraphRates( graph, 'k1' ),
+			{ initialProps: { graph: g( [ { id: 'a', count: 5000 } ] ) } }
+		);
+		now = 1001;
+		rerender( { graph: g( [ { id: 'a', count: 5007 } ] ) } );
+		expect( result.current.rateRef.current.get( 'a' ).rate ).toBe( 7 );
+		Date.now.mockRestore();
+	} );
+
+	it( 'does not re-spike after a counter reset (worker respawn)', () => {
+		let now = 1000;
+		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
+		const { result, rerender } = renderHook(
+			( { graph } ) => useGraphRates( graph, 'k1' ),
+			{ initialProps: { graph: g( [ { id: 'a', count: 0 } ] ) } }
+		);
+		// Warm up: baseline 8000, then a real +10 delta.
+		now = 1001;
+		rerender( { graph: g( [ { id: 'a', count: 8000 } ] ) } );
+		now = 1002;
+		rerender( { graph: g( [ { id: 'a', count: 8010 } ] ) } );
+		expect( result.current.rateRef.current.get( 'a' ).rate ).toBe( 10 );
+		// Respawn resets the counter — the negative delta clamps to 0, no spike.
+		now = 1003;
+		rerender( { graph: g( [ { id: 'a', count: 0 } ] ) } );
+		expect( result.current.rateRef.current.get( 'a' ).rate ).toBe( 0 );
+		// Post-respawn climb reads as a clean positive delta.
+		now = 1004;
+		rerender( { graph: g( [ { id: 'a', count: 4 } ] ) } );
+		expect( result.current.rateRef.current.get( 'a' ).rate ).toBe( 4 );
 		Date.now.mockRestore();
 	} );
 
