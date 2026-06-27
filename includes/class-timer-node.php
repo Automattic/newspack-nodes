@@ -94,12 +94,12 @@ class Timer_Node extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
-	// No ms (or $ms > 1000) => Router-hitchhike: fire_cb() throttles a >1000
+	// No ms (or $ms >= 1000) => Router-hitchhike: fire_cb() throttles a >=1000
 	// interval against last_fire_time so the per-second router tick is enough. A
-	// $ms <= 1000 timer needs its own event-framework slot (the router tick is ~1s,
+	// $ms < 1000 timer needs its own event-framework slot (the router tick is ~1s,
 	// too coarse to pace a sub-second timer).
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
-		if ( null === $ms || $ms > 1000 ) {
+		if ( null === $ms || $ms >= 1000 ) {
 			if ( '' === $this->name ) {
 				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
 			}
