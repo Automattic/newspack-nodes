@@ -283,7 +283,7 @@ describe( 'Overview fleet board', () => {
 		expect( ctl.editHref ).toContain( 'edit=1' );
 	} );
 
-	it( 'renders the three Topics panels (message rate, byte rate, backlog)', () => {
+	it( 'renders the four Topics panels (message rate, byte rate, backlog, cache size)', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
@@ -297,6 +297,7 @@ describe( 'Overview fleet board', () => {
 			'Topics Message Rate',
 			'Topics Byte Rate',
 			'Topics Backlog',
+			'Topics Cache Size',
 		] );
 	} );
 
