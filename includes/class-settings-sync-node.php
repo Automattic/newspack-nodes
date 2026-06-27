@@ -197,6 +197,21 @@ class Settings_Sync_Node extends Timer_Node {
 		return $out;
 	}
 
+	/**
+	 * `add_setting` verb handler — registers a local→spoke mapping on the patron.
+	 * Named so node_schema() stays declarative (the schema links this, not an
+	 * inline closure).
+	 *
+	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
+	 * @param string                   $args        `<local_option> <TO> <remote_option>`.
+	 * @return string Result line.
+	 */
+	public static function cmd_add_setting( Command_Interpreter_Node $interpreter, string $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		return $patron->add_setting( $args );
+	}
+
 	/** Topology console manifest: palette entry + verb forms. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
@@ -214,11 +229,7 @@ class Settings_Sync_Node extends Timer_Node {
 						[ 'name' => 'to',            'type' => 'string', 'required' => true ],
 						[ 'name' => 'remote_option', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						return $patron->add_setting( $args );
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_add_setting( $interpreter, $args ),
 					'multiple' => true,
 				],
 			],
