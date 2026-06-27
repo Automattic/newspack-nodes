@@ -1324,6 +1324,16 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 		} );
 
+		it( 'omits nodes with a patron set (the patron recreates them)', () => {
+			const interpreter = makeInterpreter();
+			dispatch( interpreter, 'make_node', 'Tee owner' );
+			dispatch( interpreter, 'make_node', 'Tee sidecar' );
+			Core.node( 'sidecar' ).patron = Core.node( 'owner' );
+			const out = dispatch( interpreter, 'dump_config' );
+			expect( out ).toContain( 'make_node Tee owner' );
+			expect( out ).not.toContain( 'sidecar' );
+		} );
+
 		it( 'emits set_sink only when the sink is not the interpreter', () => {
 			const interpreter = makeInterpreter();
 			dispatch( interpreter, 'make_node', 'Tee a' );

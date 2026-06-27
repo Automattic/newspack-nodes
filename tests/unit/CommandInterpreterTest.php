@@ -1431,6 +1431,25 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( $dump1, $dump2, 'dump_config round-trip must be byte-identical' );
 	}
 
+	public function test_dump_config_omits_nodes_with_a_patron(): void {
+		// A patron-managed sidecar (a Consumer's :source / :offsetlog) is recreated
+		// by its patron's own config line, so dumping it separately would duplicate
+		// it on replay. dump_config omits any node whose patron is set.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$interpreter->dispatch( 'make_node', 'Capture_Sink owner' );
+		$interpreter->dispatch( 'make_node', 'Capture_Sink sidecar' );
+		Core::node( 'sidecar' )->patron( Core::node( 'owner' ) );
+
+		$dump = $interpreter->dispatch( 'dump_config' );
+		$this->assertStringContainsString(
+			'make_node Capture_Sink owner',
+			$dump
+		);
+		$this->assertStringNotContainsString( 'sidecar', $dump );
+	}
+
 	// ── A1: instance verb table + patron pointer ─────────────────
 
 	public function test_patron_accessor_round_trips(): void {
