@@ -6,6 +6,7 @@ import {
 	DISTANCE,
 	MSGS,
 	END_BYTES,
+	CACHE_SIZE,
 } from '../../runtime/probe-record';
 
 // 24h of probe records at the 15s sweep cadence ≈ 5760 samples per consumer.
@@ -110,6 +111,7 @@ export class TopicProbeViewNode extends Node {
 		const msgs = Number( value[ MSGS ] ) || 0;
 		const endBytes = Number( value[ END_BYTES ] ) || 0;
 		const backlog = Number( value[ DISTANCE ] ) || 0;
+		const cacheSize = Number( value[ CACHE_SIZE ] ) || 0;
 		// msgRate (messages/sec) + byteRate (bytes/sec) derived from consecutive
 		// probe records (Δ / Δ ts) — each replayed record IS a distinct 15s sweep,
 		// so the gap is the real probe interval. First sample, or a counter reset
@@ -127,7 +129,7 @@ export class TopicProbeViewNode extends Node {
 		c._lastEndBytes = endBytes;
 		c._lastTs = ts;
 
-		c.series.push( { ts, msgRate, byteRate, backlog } );
+		c.series.push( { ts, msgRate, byteRate, backlog, cacheSize } );
 		if ( c.series.length > this.maxSamples ) {
 			c.series.shift();
 		}
@@ -189,6 +191,7 @@ export class TopicProbeViewNode extends Node {
 				msgRate: 0,
 				byteRate: 0,
 				backlog: 0,
+				cacheSize: 0,
 			};
 			out[ reader ] = {
 				source: c.source,
