@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The overlay Overview shows a Client Uptime card** — time since the page loaded (`performance.timeOrigin`), formatted as an age, ticking with the cards' existing refresh (no new timer). (roadmap [89], rolling)
+
 - **The debug overlay is back on the hub Console tab** — it now rides every hub tab, so you can watch a worker (the Console) and this browser's own nodes/I/O (the overlay's Overview) at once. On the Console tab the overlay runs **Overview-only**: its graph+REPL would duplicate the Console's and collide on the shared `_output` infra, so the Inspector body builds no infra there (`buildRepl=false`) and points back at the Console. A `key`-free re-render with the existing cleanup-before-effect ordering keeps the tab-switch collision-free (guarded by `DevToolsHub.outputCollision.test`).
 
 - **`dump_config` now accepts an optional regex glob** that filters the dump to nodes whose name matches it — Tachikoma parity (`dump_config [<regex glob>]`). No argument dumps the whole graph as before. The node inspector also gains a **Config** button (beside Dump) that runs `dump_config <node>` for the selected node.

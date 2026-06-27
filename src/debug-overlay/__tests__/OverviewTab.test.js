@@ -15,10 +15,10 @@ function renderTab( props = {} ) {
 	return render( <OverviewTab publishHeader={ () => {} } { ...props } /> );
 }
 
-test( 'renders the seven metric cards and both rate-chart panels', () => {
+test( 'renders the metric cards and both rate-chart panels', () => {
 	const { getByTestId, container } = renderTab();
 	expect( getByTestId( 'overview-tab' ) ).toBeTruthy();
-	for ( const id of [
+	const ids = [
 		'byte-rate',
 		'message-rate',
 		'total-messages',
@@ -26,7 +26,9 @@ test( 'renders the seven metric cards and both rate-chart panels', () => {
 		'warnings',
 		'errors',
 		'debug',
-	] ) {
+		'client-uptime',
+	];
+	for ( const id of ids ) {
 		expect( getByTestId( `overview-card-${ id }` ) ).toBeTruthy();
 	}
 	const titles = [
@@ -34,7 +36,18 @@ test( 'renders the seven metric cards and both rate-chart panels', () => {
 	].map( ( el ) => el.textContent );
 	expect( titles ).toEqual( [ 'Message Rate', 'Byte Rate' ] );
 	// Cards use the shared `.nodes-card` class (no overlay-specific styles).
-	expect( container.querySelectorAll( '.nodes-card' ) ).toHaveLength( 7 );
+	expect( container.querySelectorAll( '.nodes-card' ) ).toHaveLength(
+		ids.length
+	);
+} );
+
+test( 'shows a client uptime card (time since the page loaded)', () => {
+	const { getByTestId } = renderTab();
+	const card = getByTestId( 'overview-card-client-uptime' );
+	expect( card ).toBeTruthy();
+	// Just-loaded in jsdom → a small "Ns" age, never the "-" empty sentinel.
+	expect( card.textContent ).toMatch( /\d/ );
+	expect( card.textContent ).toContain( 'Client Uptime' );
 } );
 
 test( 'in/out card values render each number in its own right-aligned io cell', () => {
