@@ -647,7 +647,14 @@
 
 	// Idle (no message activity): a gentle dim, like a quiet connection. Listed
 	// before .is-faded so a hover-fade (0.4) still wins when a node is both.
+	// `animation: none` cancels the one-shot entrance fade: its `both` fill locks
+	// opacity at the 100% keyframe (1) and CSS animations beat normal declarations,
+	// so a node idle FROM MOUNT (no class-change transition to win, unlike the
+	// hover .is-faded) would otherwise stay full-opacity. Killing the animation
+	// lets this opacity apply directly; the opacity transition still eases
+	// active→idle changes.
 	&.is-idle {
+		animation: none;
 		opacity: 0.55;
 	}
 
