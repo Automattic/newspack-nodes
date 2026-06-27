@@ -1,5 +1,5 @@
 import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
-import { SliceViewNode } from '../../shared/nodes/SliceViewNode';
+import { SliceViewNode } from '../../shared/nodes/slice-view-node';
 import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
 
 /**

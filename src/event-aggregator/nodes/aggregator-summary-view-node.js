@@ -1,5 +1,5 @@
 import { TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
-import { SliceViewNode } from '@newspack-nodes/shared/nodes/SliceViewNode';
+import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
 import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
 
 /**
