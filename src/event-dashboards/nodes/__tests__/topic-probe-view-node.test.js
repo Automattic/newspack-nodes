@@ -16,6 +16,7 @@ import {
 	DISTANCE,
 	MSGS,
 	END_BYTES,
+	CACHE_SIZE,
 } from '../../../runtime/probe-record';
 
 // Build a probe record TM_STRUCT message: a lean POSITIONAL Probe_Record VALUE,
@@ -27,6 +28,7 @@ function probeMsg( {
 	distance = 0,
 	msgs = 0,
 	endBytes = 0,
+	cacheSize = 0,
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -41,6 +43,7 @@ function probeMsg( {
 	v[ DISTANCE ] = distance;
 	v[ MSGS ] = msgs;
 	v[ END_BYTES ] = endBytes;
+	v[ CACHE_SIZE ] = cacheSize;
 	m[ VALUE ] = v;
 	return m;
 }
@@ -77,6 +80,13 @@ describe( 'TopicProbeViewNode', () => {
 		v.fill( probeMsg( { endBytes: 9000, ts: 100 } ) );
 		v.fill( probeMsg( { endBytes: 200, ts: 115 } ) ); // GC dropped old segments
 		expect( v.snapshot()[ 'firehose.p0' ].latest.byteRate ).toBe( 0 );
+	} );
+
+	it( 'reports the latest offsetlog cache size', () => {
+		const v = new TopicProbeViewNode();
+		v.fill( probeMsg( { cacheSize: 4096, ts: 100 } ) );
+		v.fill( probeMsg( { cacheSize: 8192, ts: 115 } ) );
+		expect( v.snapshot()[ 'firehose.p0' ].latest.cacheSize ).toBe( 8192 );
 	} );
 
 	it( 'reports the latest distance as the backlog', () => {
