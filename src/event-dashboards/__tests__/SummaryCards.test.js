@@ -80,6 +80,17 @@ it( 'shows the global produced message rate from the probe consumers', () => {
 	expect( card( container, 'msgrate' ) ).toContain( '10/s' );
 } );
 
+it( 'shows average and total offsetlog cache size from the probe consumers', () => {
+	const { container } = renderCards( {
+		consumers: {
+			'a.p0': { source: 'a.p0', latest: { cacheSize: 1000 } },
+			'b.p0': { source: 'b.p0', latest: { cacheSize: 3000 } },
+		},
+	} );
+	expect( card( container, 'cache-total' ) ).toContain( 'Total Cache' );
+	expect( card( container, 'cache-avg' ) ).toContain( 'Avg Cache' );
+} );
+
 it( 'formats the 24h produced messages + bytes from the probe consumers', () => {
 	const series = [
 		{ ts: 0, msgRate: 0, byteRate: 0 },
