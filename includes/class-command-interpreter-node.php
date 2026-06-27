@@ -333,7 +333,7 @@ class Command_Interpreter_Node extends Node {
 				. "          all nodes sinking into the specified node are displayed.\n"
 				. "    alias: ls\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
-			'dump_config' => "dump_config\n",
+			'dump_config' => "dump_config [ <regex glob> ]\n",
 			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
 			'debug_state' => "debug_state [ <node name> [ <level> ] ]\n"
 				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
@@ -381,7 +381,7 @@ class Command_Interpreter_Node extends Node {
 			'dmesg'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dmesg(),
 			'dump_node'       => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
 			'dump'            => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
-			'dump_config'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dump_config(),
+			'dump_config'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dump_config( $args ),
 			'dump_metadata'   => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( \trim( $args ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
 			'stats'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_stats( $self, $args ),
 			'uptime'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_uptime(),
@@ -774,11 +774,19 @@ class Command_Interpreter_Node extends Node {
 		return $class . ' ' . (string) \wp_json_encode( $snapshot, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
 	}
 
-	private static function cmd_dump_config(): string {
+	private static function cmd_dump_config( string $glob = '' ): string {
+		$glob = \trim( $glob );
+		// Tachikoma: the arg is a regex glob on node names (`$name !~ m{$glob}`).
+		// A malformed pattern simply matches nothing (empty dump) — acceptable for
+		// a debug REPL verb, and we can't cleanly pre-validate without a silenced
+		// warning (phpcs forbids @ / set_error_handler).
 		$out = '';
 		foreach ( \array_keys( Core::$nodes_by_name ) as $name ) {
 			if ( Node_Names::COMMAND_INTERPRETER === $name || Node_Names::ROUTER === $name || Node_Names::OUTPUT === $name ) {
 				continue; // Skip baseline scaffolding.
+			}
+			if ( '' !== $glob && 1 !== \preg_match( '{' . $glob . '}', $name ) ) {
+				continue; // regex-glob filter — skip names not matching.
 			}
 			// $name comes from array_keys( Core::$nodes_by_name ), so the lookup is always present.
 			/** @var \Newspack_Nodes\Node $node Node from the registry. */

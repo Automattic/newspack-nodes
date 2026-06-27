@@ -1378,6 +1378,20 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringNotContainsString( 'set_sink alice', $dump );
 	}
 
+	public function test_dump_config_glob_filters_by_node_name(): void {
+		// Tachikoma: `dump_config [<regex glob>]` dumps only nodes whose name
+		// matches the glob (regex). No glob dumps everything.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+
+		$dump = $interpreter->dispatch( 'dump_config', 'ali' );
+		$this->assertStringContainsString( 'make_node Capture_Sink alice', $dump );
+		$this->assertStringNotContainsString( 'bob', $dump );
+	}
+
 	public function test_dump_config_round_trips_idempotently_through_make_node(): void {
 		// Tachikoma round-trip contract: dump_config -> parse + dispatch ->
 		// dump_config' must be byte-identical. The schema-driven arguments()
