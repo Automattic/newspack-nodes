@@ -564,51 +564,19 @@ class Workers_CI_Node extends Service_CI_Node {
 					// $self is the dispatching interpreter instance — always a Workers_CI_Node here
 					// (dispatch() passes $this), so it reads the ctor-injected cli off it.
 					// Liveness only; cursor positions live in dump_graph / `wp nodes status`.
-					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						return $self->cli()->ls_workers();
-					},
+					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_list( $self ),
 				],
 				[
 					'name'        => 'dump_graph',
 					'description' => 'Full operator-grade fleet/supervisor/log metadata + per-topology .tsl graph.',
 					'args'        => [],
-					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						$payload          = self::collect_dump_metadata();
-						$payload['graph'] = self::collect_topology_graphs();
-						$payload['logs']  = self::append_log_sinks( (array) $payload['logs'] );
-						return $payload;
-					},
+					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_dump_graph(),
 				],
 				[
 					'name'        => 'cleanup_status',
 					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
 					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						// Diagnostic: surface what Log_Cleaner reads when deciding which
-						// flat log dirs to delete, so operators can debug orphan-log sweeps.
-						$base_dir = RuntimeConfig::get_base_directory();
-						$logs_dir = $base_dir . '/logs';
-						$on_disk  = [];
-						// Mirror Log_Cleaner::sweep(): glob first-level dirs (GLOB_ONLYDIR,
-						// layout-agnostic — no `.p{N}` regex) so the diagnostic matches
-						// exactly what the GC would delete.
-						foreach ( @\glob( $logs_dir . '/*', \GLOB_ONLYDIR ) ?: [] as $dir ) {
-							$on_disk[] = \basename( $dir );
-						}
-						\sort( $on_disk );
-						// Same code path Log_Cleaner's sweep uses so the diagnostic
-						// matches the actual declared set (topology declarations +
-						// the registered_log_producers filter).
-						$expected = Log_Cleaner::declared_log_dirs();
-						\sort( $expected );
-						$orphans = \array_values( \array_diff( $on_disk, $expected ) );
-						return [
-							'logs_dir'           => $logs_dir,
-							'on_disk_basenames'  => $on_disk,
-							'expected_basenames' => $expected,
-							'orphans'            => $orphans,
-						];
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_cleanup_status(),
 				],
 				[
 					'name'        => 'restart',
@@ -617,28 +585,7 @@ class Workers_CI_Node extends Service_CI_Node {
 						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
 					],
-					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						$parsed    = Command_Args::parse( $args );
-						$types     = $parsed['positional'];
-						$partition = isset( $parsed['options']['partition'] ) ? (int) $parsed['options']['partition'] : -1;
-						$filter    = [];
-						foreach ( $types as $t ) {
-							$filter[ $t ] = true;
-						}
-						$restarted = 0;
-						// Supervisor lives at `supervisor.lock.d` (no partition
-						// suffix); `restart_workers` only knows the `{type}.p{N}`
-						// shape, so route the supervisor through its own path.
-						$cli = $self->cli();
-						if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
-							++$restarted;
-							unset( $filter['supervisor'] );
-						}
-						if ( ! empty( $filter ) || empty( $types ) ) {
-							$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
-						}
-						return [ 'restarted' => $restarted ];
-					},
+					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_restart( $self, $args ),
 				],
 				[
 					'name'        => 'heartbeat',
@@ -647,21 +594,116 @@ class Workers_CI_Node extends Service_CI_Node {
 						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
 						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
 					],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						if ( null === Core::$memd ) {
-							throw new \RuntimeException( 'cache not configured' );
-						}
-						$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
-						$slot  = isset( $parts[0] ) ? (int) $parts[0] : -1;
-						if ( $slot < 0 ) {
-							throw new \RuntimeException( 'slot required' );
-						}
-						$ttl     = isset( $parts[1] ) ? (int) $parts[1] : 10;
-						$success = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl );
-						return [ 'success' => $success, 'slot' => $slot ];
-					},
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_heartbeat( $args ),
 				],
 			],
 		] );
 	}
+	/**
+	 * `list` verb handler — the active-worker list via the CLI helper.
+	 *
+	 * @param Workers_CI_Node $self Verb argument.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_list( Workers_CI_Node $self ): array {
+		return $self->cli()->ls_workers();
+	}
+
+	/**
+	 * `dump_graph` verb handler — the worker-graph payload.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_dump_graph(): array {
+		$payload          = self::collect_dump_metadata();
+		$payload['graph'] = self::collect_topology_graphs();
+		$payload['logs']  = self::append_log_sinks( (array) $payload['logs'] );
+		return $payload;
+	}
+
+	/**
+	 * `cleanup_status` verb handler — orphan-lock cleanup status snapshot.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_cleanup_status(): array {
+		// Diagnostic: surface what Log_Cleaner reads when deciding which
+		// flat log dirs to delete, so operators can debug orphan-log sweeps.
+		$base_dir = RuntimeConfig::get_base_directory();
+		$logs_dir = $base_dir . '/logs';
+		$on_disk  = [];
+		// Mirror Log_Cleaner::sweep(): glob first-level dirs (GLOB_ONLYDIR,
+		// layout-agnostic — no `.p{N}` regex) so the diagnostic matches
+		// exactly what the GC would delete.
+		foreach ( @\glob( $logs_dir . '/*', \GLOB_ONLYDIR ) ?: [] as $dir ) {
+			$on_disk[] = \basename( $dir );
+		}
+		\sort( $on_disk );
+		// Same code path Log_Cleaner's sweep uses so the diagnostic
+		// matches the actual declared set (topology declarations +
+		// the registered_log_producers filter).
+		$expected = Log_Cleaner::declared_log_dirs();
+		\sort( $expected );
+		$orphans = \array_values( \array_diff( $on_disk, $expected ) );
+		return [
+			'logs_dir'           => $logs_dir,
+			'on_disk_basenames'  => $on_disk,
+			'expected_basenames' => $expected,
+			'orphans'            => $orphans,
+		];
+	}
+
+	/**
+	 * `restart` verb handler — request a graceful restart of matching worker(s).
+	 *
+	 * @param Workers_CI_Node $self Verb argument.
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_restart( Workers_CI_Node $self, string $args ): array {
+		$parsed    = Command_Args::parse( $args );
+		$types     = $parsed['positional'];
+		$partition = isset( $parsed['options']['partition'] ) ? (int) $parsed['options']['partition'] : -1;
+		$filter    = [];
+		foreach ( $types as $t ) {
+			$filter[ $t ] = true;
+		}
+		$restarted = 0;
+		// Supervisor lives at `supervisor.lock.d` (no partition
+		// suffix); `restart_workers` only knows the `{type}.p{N}`
+		// shape, so route the supervisor through its own path.
+		$cli = $self->cli();
+		if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
+			++$restarted;
+			unset( $filter['supervisor'] );
+		}
+		if ( ! empty( $filter ) || empty( $types ) ) {
+			$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
+		}
+		return [ 'restarted' => $restarted ];
+	}
+
+	/**
+	 * `heartbeat` verb handler — record a worker slot heartbeat.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_heartbeat( string $args ): array {
+		if ( null === Core::$memd ) {
+			throw new \RuntimeException( 'cache not configured' );
+		}
+		$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
+		$slot  = isset( $parts[0] ) ? (int) $parts[0] : -1;
+		if ( $slot < 0 ) {
+			throw new \RuntimeException( 'slot required' );
+		}
+		$ttl     = isset( $parts[1] ) ? (int) $parts[1] : 10;
+		$success = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl );
+		return [ 'success' => $success, 'slot' => $slot ];
+	}
+
 }
