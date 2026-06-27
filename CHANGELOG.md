@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`dump_config` now accepts an optional regex glob** that filters the dump to nodes whose name matches it — Tachikoma parity (`dump_config [<regex glob>]`). No argument dumps the whole graph as before.
+
 - **The inspector now shows a read-only Constructor section for the selected live node.** It mirrors edit mode's constructor form but read-only: it pairs the class's declared positional argument names (from the catalog schema) with the values the node was given — its `arguments` string, already carried in every node's `dump_metadata` row. An omitted optional argument falls back to its schema default (shown dimmed). To change a node's arguments, delete and recreate it (there is no live re-arg). A free-form trailing argument folds into its declared slot instead of spilling across rows, and a class with no constructor arguments (or a reserved node) shows no section.
 
 ### Fixed
