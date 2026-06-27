@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-06-27
+
 ### Added
 
 - **Theme-storage helpers moved to `@newspack-nodes/shared/theme` so sibling plugins can read the console-selected skin.** `getStoredTheme`, `THEME_STORAGE_KEY`, `DEFAULT_THEME`, `THEMES`, and `isValidTheme` move from `src/topology-console/themes.js` to a new `src/shared/theme.js`; `themes.js` re-exports them (every console importer unchanged) and keeps only its console-only palette/inspector collapse keys. Lets a standalone consumer page (e.g. an ELN dashboard) read the persisted skin and apply the theme token-context without reaching into topology-console internals.
