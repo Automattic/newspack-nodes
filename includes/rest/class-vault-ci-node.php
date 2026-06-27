@@ -266,16 +266,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'name'        => 'list',
 					'description' => 'All registered servers as a map keyed by id.',
 					'args'        => [],
-					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
-						$registry = Vault::get_instance();
-						$registry->reset_cache();
-						$out = [];
-						/** @var array<string, mixed> $config */
-						foreach ( $registry->get_all() as $id => $config ) {
-							$out[ $id ] = self::public_shape( (string) $id, $config, $registry );
-						}
-						return $out;
-					},
+					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
 				],
 				[
 					'name'        => 'get',
@@ -283,16 +274,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
-						$registry = Vault::get_instance();
-						$id       = self::positional_id( $args );
-						$registry->reset_cache();
-						$server = $registry->get( $id );
-						if ( null === $server ) {
-							throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-						}
-						return self::public_shape( $id, $server, $registry );
-					},
+					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_get( $args ),
 				],
 				[
 					'name'        => 'add',
@@ -303,27 +285,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'auth_username', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_password', 'type' => 'string', 'required' => false ],
 					],
-					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
-						$parsed = Command_Args::parse( $args );
-						$opts   = $parsed['options'];
-						$id     = $parsed['positional'][0] ?? '';
-						if ( ! Vault::is_valid_id( $id ) ) {
-							throw new \RuntimeException( 'invalid server id' );
-						}
-						$registry = Vault::get_instance();
-						$registry->reset_cache();
-						if ( null !== $registry->get( $id ) ) {
-							throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
-						}
-						$config = self::extract_server_config( $opts );
-						if ( ! $registry->add( $id, $config ) ) {
-							// Registry rejected on validate_config (non-HTTPS URL,
-							// missing url, etc.) or hit MAX_SERVERS.
-							throw new \RuntimeException( 'add failed: check URL format (must be HTTPS) and registry capacity' );
-						}
-						self::fire_changed( $id, 'added' );
-						return [ 'id' => $id ];
-					},
+					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_add( $args ),
 				],
 				[
 					'name'        => 'update',
@@ -334,28 +296,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'auth_username', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_password', 'type' => 'string', 'required' => false ],
 					],
-					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
-						$parsed = Command_Args::parse( $args );
-						$id     = $parsed['positional'][0] ?? '';
-						if ( '' === $id ) {
-							throw new \RuntimeException( 'id required' );
-						}
-						$registry = Vault::get_instance();
-						$registry->reset_cache();
-						$existing = $registry->get( $id );
-						if ( null === $existing ) {
-							throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-						}
-						// Partial update: only options actually present in the args
-						// string are applied; an absent --key leaves the stored field
-						// untouched.
-						$partial = self::partial_config( $parsed['options'] );
-						if ( ! $registry->update( $id, $partial ) ) {
-							throw new \RuntimeException( 'update failed' );
-						}
-						self::fire_changed( $id, 'updated' );
-						return [ 'id' => $id ];
-					},
+					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_update( $args ),
 				],
 				[
 					'name'        => 'delete',
@@ -363,20 +304,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
-						$registry = Vault::get_instance();
-						$id       = self::positional_id( $args );
-						$registry->reset_cache();
-						if ( null === $registry->get( $id ) ) {
-							throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-						}
-						if ( ! $registry->remove( $id ) ) {
-							// Config-file servers reach here.
-							throw new \RuntimeException( 'delete failed' );
-						}
-						self::fire_changed( $id, 'removed' );
-						return [ 'id' => $id ];
-					},
+					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_delete( $args ),
 				],
 				[
 					'name'        => 'test',
@@ -384,18 +312,142 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
-						$registry = Vault::get_instance();
-						$id       = self::positional_id( $args );
-						$registry->reset_cache();
-						$server = $registry->get( $id );
-						if ( null === $server ) {
-							throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-						}
-						return self::probe_remote( $id, $server );
-					},
+					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_test( $args ),
 				],
 			],
 		] );
 	}
+	/**
+	 * `list` verb handler — registered servers (public shape).
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_list(): array {
+		$registry = Vault::get_instance();
+		$registry->reset_cache();
+		$out = [];
+		/** @var array<string, mixed> $config */
+		foreach ( $registry->get_all() as $id => $config ) {
+			$out[ $id ] = self::public_shape( (string) $id, $config, $registry );
+		}
+		return $out;
+	}
+
+	/**
+	 * `get` verb handler — one server's public shape by id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_get( string $args ): array {
+		$registry = Vault::get_instance();
+		$id       = self::positional_id( $args );
+		$registry->reset_cache();
+		$server = $registry->get( $id );
+		if ( null === $server ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		return self::public_shape( $id, $server, $registry );
+	}
+
+	/**
+	 * `add` verb handler — register a server; returns its id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_add( string $args ): array {
+		$parsed = Command_Args::parse( $args );
+		$opts   = $parsed['options'];
+		$id     = $parsed['positional'][0] ?? '';
+		if ( ! Vault::is_valid_id( $id ) ) {
+			throw new \RuntimeException( 'invalid server id' );
+		}
+		$registry = Vault::get_instance();
+		$registry->reset_cache();
+		if ( null !== $registry->get( $id ) ) {
+			throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
+		}
+		$config = self::extract_server_config( $opts );
+		if ( ! $registry->add( $id, $config ) ) {
+			// Registry rejected on validate_config (non-HTTPS URL,
+			// missing url, etc.) or hit MAX_SERVERS.
+			throw new \RuntimeException( 'add failed: check URL format (must be HTTPS) and registry capacity' );
+		}
+		self::fire_changed( $id, 'added' );
+		return [ 'id' => $id ];
+	}
+
+	/**
+	 * `update` verb handler — update a server; returns its id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_update( string $args ): array {
+		$parsed = Command_Args::parse( $args );
+		$id     = $parsed['positional'][0] ?? '';
+		if ( '' === $id ) {
+			throw new \RuntimeException( 'id required' );
+		}
+		$registry = Vault::get_instance();
+		$registry->reset_cache();
+		$existing = $registry->get( $id );
+		if ( null === $existing ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		// Partial update: only options actually present in the args
+		// string are applied; an absent --key leaves the stored field
+		// untouched.
+		$partial = self::partial_config( $parsed['options'] );
+		if ( ! $registry->update( $id, $partial ) ) {
+			throw new \RuntimeException( 'update failed' );
+		}
+		self::fire_changed( $id, 'updated' );
+		return [ 'id' => $id ];
+	}
+
+	/**
+	 * `delete` verb handler — remove a server; returns its id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_delete( string $args ): array {
+		$registry = Vault::get_instance();
+		$id       = self::positional_id( $args );
+		$registry->reset_cache();
+		if ( null === $registry->get( $id ) ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		if ( ! $registry->remove( $id ) ) {
+			// Config-file servers reach here.
+			throw new \RuntimeException( 'delete failed' );
+		}
+		self::fire_changed( $id, 'removed' );
+		return [ 'id' => $id ];
+	}
+
+	/**
+	 * `test` verb handler — probe a remote server's reachability.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_test( string $args ): array {
+		$registry = Vault::get_instance();
+		$id       = self::positional_id( $args );
+		$registry->reset_cache();
+		$server = $registry->get( $id );
+		if ( null === $server ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		return self::probe_remote( $id, $server );
+	}
+
 }
