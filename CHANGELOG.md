@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **The overlay Overview shows a Client Uptime card** — time since the page loaded (`performance.timeOrigin`), formatted as an age, ticking with the cards' existing refresh (no new timer). (roadmap [89], rolling)
+- **The overlay Overview shows Client Uptime and SSE Uptime cards.** Client uptime is time since the page loaded (`performance.timeOrigin`); SSE uptime is time since the live stream connected — `SseInNode` stamps the connect time into `IoTelemetry` on CONNECTED and clears it on DISCONNECTED/RECONNECTING, so the card reads `-` while down. Both format as an age and tick with the cards' existing refresh (no new timer). (roadmap [89], rolling)
 
 - **The debug overlay is back on the hub Console tab** — it now rides every hub tab, so you can watch a worker (the Console) and this browser's own nodes/I/O (the overlay's Overview) at once. On the Console tab the overlay runs **Overview-only**: its graph+REPL would duplicate the Console's and collide on the shared `_output` infra, so the Inspector body builds no infra there (`buildRepl=false`) and points back at the Console. A `key`-free re-render with the existing cleanup-before-effect ordering keeps the tab-switch collision-free (guarded by `DevToolsHub.outputCollision.test`).
 

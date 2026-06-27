@@ -139,6 +139,7 @@ export class SseInNode extends Node {
 			}
 			if ( EventSource.CLOSED === es.readyState ) {
 				this.setState( 'DISCONNECTED', 'EventSource closed' );
+				IoTelemetry.markSseDisconnected();
 				Core.printLessOften(
 					'ERROR: SseInNode: disconnected - EventSource closed by browser'
 				);
@@ -244,6 +245,8 @@ export class SseInNode extends Node {
 			return;
 		}
 		this.setState( 'CONNECTED', raw );
+		// Stamp the live-stream connect time for the Overview's SSE Uptime card.
+		IoTelemetry.markSseConnected();
 	}
 
 	// Remember a record's `{seg,off}` keyed by its concrete partition DIRECTORY —
@@ -285,6 +288,7 @@ export class SseInNode extends Node {
 			return;
 		}
 		this.setState( 'RECONNECTING', 'watchdog' );
+		IoTelemetry.markSseDisconnected();
 		Core.printLessOften(
 			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
 		);

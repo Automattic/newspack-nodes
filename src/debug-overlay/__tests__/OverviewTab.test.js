@@ -27,6 +27,7 @@ test( 'renders the metric cards and both rate-chart panels', () => {
 		'errors',
 		'debug',
 		'client-uptime',
+		'sse-uptime',
 	];
 	for ( const id of ids ) {
 		expect( getByTestId( `overview-card-${ id }` ) ).toBeTruthy();
@@ -48,6 +49,22 @@ test( 'shows a client uptime card (time since the page loaded)', () => {
 	// Just-loaded in jsdom → a small "Ns" age, never the "-" empty sentinel.
 	expect( card.textContent ).toMatch( /\d/ );
 	expect( card.textContent ).toContain( 'Client Uptime' );
+} );
+
+test( 'shows an SSE uptime card reading "-" when no stream is connected', () => {
+	IoTelemetry.markSseDisconnected();
+	const { getByTestId } = renderTab();
+	const card = getByTestId( 'overview-card-sse-uptime' );
+	expect( card.textContent ).toContain( 'SSE Uptime' );
+	expect( card.textContent ).toContain( '-' );
+} );
+
+test( 'the SSE uptime card shows an age once the stream is connected', () => {
+	IoTelemetry.markSseConnected( Math.floor( Date.now() / 1000 ) - 5 );
+	const { getByTestId } = renderTab();
+	expect( getByTestId( 'overview-card-sse-uptime' ).textContent ).toMatch(
+		/\d/
+	);
 } );
 
 test( 'in/out card values render each number in its own right-aligned io cell', () => {

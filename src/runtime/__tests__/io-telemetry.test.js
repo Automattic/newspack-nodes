@@ -43,6 +43,29 @@ describe( 'byteLength', () => {
 	} );
 } );
 
+describe( 'SSE connection uptime', () => {
+	test( 'a fresh instance has no SSE connect timestamp', () => {
+		expect( IoTelemetry.snapshot().sseConnectedAt ).toBeNull();
+	} );
+
+	test( 'markSseConnected records the connect timestamp in the snapshot', () => {
+		IoTelemetry.markSseConnected( 1000 );
+		expect( IoTelemetry.snapshot().sseConnectedAt ).toBe( 1000 );
+	} );
+
+	test( 'markSseDisconnected clears the connect timestamp', () => {
+		IoTelemetry.markSseConnected( 1000 );
+		IoTelemetry.markSseDisconnected();
+		expect( IoTelemetry.snapshot().sseConnectedAt ).toBeNull();
+	} );
+
+	test( 'a stats reset (clear) keeps the connect timestamp — the stream is still up', () => {
+		IoTelemetry.markSseConnected( 1000 );
+		IoTelemetry.clear();
+		expect( IoTelemetry.snapshot().sseConnectedAt ).toBe( 1000 );
+	} );
+} );
+
 describe( 'cumulative counters', () => {
 	test( 'recordIn accumulates bytes and a default message count of 1', () => {
 		IoTelemetry.recordIn( 100 );
@@ -146,6 +169,7 @@ describe( 'cumulative counters', () => {
 			warnings: 0,
 			errors: 0,
 			debug: 0,
+			sseConnectedAt: null,
 			messages: [],
 		} );
 		expect( IoTelemetry.getSeries() ).toEqual( [] );
