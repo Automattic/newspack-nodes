@@ -1,7 +1,7 @@
 import { Node } from '../../runtime/node';
 import { FROM, KEY, VALUE } from '../../runtime/message';
 import { PendingReplies } from '../../shared/pendingReplies';
-import { RateSmoother } from '../rate-smoother';
+import { RateSmoother } from '../rateSmoother';
 
 const MAX_LINES = 100000;
 const MAX_LINE_LENGTH = 1000;

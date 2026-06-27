@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { IoTelemetry } from '../runtime/io-telemetry';
 import { overviewChartSeries } from './overviewChartSeries';
-import { RateSmoother } from '../event-dashboards/rate-smoother';
+import { RateSmoother } from '../event-dashboards/rateSmoother';
 
 // Card refresh cadence (20Hz). The live rate uses the same RateSmoother as the
 // Raw Logs lines/s — a 10s windowed average, EMA-smoothed — so the counters

@@ -1,4 +1,4 @@
-import { RateSmoother } from '../rate-smoother';
+import { RateSmoother } from '../rateSmoother';
 
 describe( 'RateSmoother', () => {
 	it( 'averages over the window then EMA-smooths (10s window, 0.1 alpha)', () => {
