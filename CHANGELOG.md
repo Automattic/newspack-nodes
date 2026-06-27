@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`node_schema()` command handlers are being moved from inline closures to named `cmd_*` methods** so each node's schema stays declarative (it links a named handler instead of embedding the body), matching the main Command_Interpreter pattern. Behavior-preserving — verb tests verify each. (roadmap [94], rolling)
+
 - **Patron-managed sidecars no longer create their own `{name}:config` interpreter.** A sidecar (a Partition/Consumer that has a patron — e.g. a Consumer's `:source` / `:offsetlog`) is configured directly by its patron and is already excluded from `dump_config`, so the ctor-auto-wired `:config` interpreter was an unused node. `Node::patron()` now drops it when a patron is set; standalone Partitions keep their `:config`. (roadmap [83])
 
 - **The browser SSE receive node and the PHP `SSE_In` now share one shape and aligned reporting.** `sse-connector-node.js` folded into `sse-in-node.js` (one `SseInNode extends Node`); the substrate's `connected` handshake travels as a flat `PID … SLOT … SUBSCRIPTIONS … INTERVAL …` string (TM_INFO values are strings, never arrays), parsed into plain `sessionPid`/`sessionSlot` exposed via `pid()`/`slot()` on both sides; the vestigial `partition` field is gone end-to-end (the slot pool keys on user/ip/slot). Every error path on both sides now logs an `ERROR:`-prefixed line (`ERROR: disconnected - …` / `ERROR: reconnecting - …`) alongside a semantic `set_state`, and PHP's transient `INIT` folded into `CONNECTING` for 5-state parity. A `connected` handshake missing its PID is reported (ERROR) and not marked connected on both runtimes.
