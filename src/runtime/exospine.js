@@ -101,8 +101,8 @@ export function mountExospine( build ) {
 		// `_http` (egress POST boundary) + `_heartbeat` (SSE slot keepalive) —
 		// shared singletons every RemoteLink/dashboard reuses. Backbone-owned (like
 		// `_shell`) so they survive a Reset Graph rebuild and are always laid out;
-		// callers set `_http.client` / configure `_heartbeat` on use. Dormant until
-		// a stream opens.
+		// callers set `_http.client`, RemoteLink arms the heartbeat's timer + slot on
+		// connect. Dormant until a stream opens (fire() no-ops without a slot).
 		const http = new HttpOutNode();
 		http.name = names.HTTP;
 		http.sink = interpreter;
@@ -110,6 +110,10 @@ export function mountExospine( build ) {
 		const heartbeat = new HeartbeatNode();
 		heartbeat.name = names.HEARTBEAT;
 		heartbeat.sink = interpreter;
+		// The poke target is fixed wiring (`_http/workers`) — set it here, not on
+		// connect, so the `_heartbeat → _http/workers` edge is permanent and survives
+		// a Reset Graph rebuild even at `/` where no RemoteLink connects.
+		heartbeat.target = `${ names.HTTP }/workers`;
 
 		spine.interpreter = interpreter;
 		spine.router = router;

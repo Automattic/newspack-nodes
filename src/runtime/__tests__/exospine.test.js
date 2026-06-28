@@ -45,6 +45,17 @@ test( 'teardown removes the _shell Tap', () => {
 	expect( Core.node( names.CONSOLE_TAP ) ).toBeNull();
 } );
 
+test( 'the backbone heartbeat targets _http/workers (permanent edge, even with no connect)', () => {
+	// The poke target is fixed backbone wiring, not set on RemoteLink connect — so
+	// the `_heartbeat → _http/workers` edge survives a Reset Graph rebuild at `/`
+	// where the console never connects a worker stream.
+	const { teardown } = mountExospine();
+	expect( Core.node( names.HEARTBEAT ).target ).toBe(
+		`${ names.HTTP }/workers`
+	);
+	teardown();
+} );
+
 test( 'teardown unregisters both backbone nodes from Core', () => {
 	const { teardown } = mountExospine();
 

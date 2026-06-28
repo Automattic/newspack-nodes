@@ -59,7 +59,10 @@ describe( 'useDebugGraph', () => {
 		expect(
 			result.current.graph.nodes.map( ( n ) => n.id ).sort()
 		).toEqual( [ '_heartbeat', '_http', '_shell' ] );
-		expect( result.current.graph.edges ).toEqual( [] );
+		// The backbone heartbeat's permanent poke edge (`_heartbeat → _http/workers`).
+		expect( result.current.graph.edges ).toEqual( [
+			{ from: '_heartbeat', to: '_http' },
+		] );
 		expect( result.current.graph.pwd ).toBe( '_output' );
 		teardown();
 	} );

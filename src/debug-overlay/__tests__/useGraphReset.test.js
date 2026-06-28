@@ -143,6 +143,19 @@ describe( 'useGraphReset', () => {
 		expect( result.current.canResetGraph ).toBe( false );
 	} );
 
+	it( 'a node registered in Core.reinitNames (build/console infra) does not count as a user node', () => {
+		// Build-delegated dashboards snapshot their nodes into reinitNames; the bare
+		// console mount registers its RemoteIpc channels there by hand. Either way an
+		// infra node in reinitNames must NOT keep the Reset Graph chip stuck.
+		Core.reinitNames = [ 'combined.p0' ];
+		const { result } = renderHook( () =>
+			useGraphReset(
+				opts( makeShell(), { nodes: [ { id: 'combined.p0' } ] } )
+			)
+		);
+		expect( result.current.canResetGraph ).toBe( false );
+	} );
+
 	it( 'a user node only counts at the local scope', () => {
 		const { result } = renderHook( () =>
 			useGraphReset(
