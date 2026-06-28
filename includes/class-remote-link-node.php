@@ -48,6 +48,25 @@ class Remote_Link_Node extends Timer_Node {
 	private int $last_heartbeat_sent     = 0;
 	private int $last_heartbeat_response = 0;
 
+	// Composite-node stat delegation (like Topic→Partition): this link does no
+	// wire I/O itself — its SSE_In child reads the stream and its HTTP_Out child
+	// POSTs — so report THEIR counters/byte tallies, not the link's own zeros.
+	public function counter(): int {
+		return null !== $this->sse_in ? $this->sse_in->counter() : parent::counter();
+	}
+
+	public function bytes_read(): int {
+		return $this->sse_in?->bytes_read() ?? 0;
+	}
+
+	public function bytes_written(): int {
+		return $this->http_out?->bytes_written() ?? 0;
+	}
+
+	public function largest_msg_sent(): int {
+		return $this->sse_in?->largest_msg_sent() ?? 0;
+	}
+
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
 		parent::__construct();

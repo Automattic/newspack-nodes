@@ -48,6 +48,30 @@ class SseInTest extends TestCase {
 		return "event: msg\ndata: " . Message::packed( $m ) . "\n\n";
 	}
 
+	public function test_bytes_read_accumulates_received_wire_bytes(): void {
+		[ $node ] = $this->configured_node();
+		$chunk1   = "event: heartbeat\ndata: {}\n\n";
+		$chunk2   = $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] );
+		$node->process_sse_chunk( $chunk1 );
+		$node->process_sse_chunk( $chunk2 );
+		$this->assertSame(
+			\strlen( $chunk1 ) + \strlen( $chunk2 ),
+			$node->bytes_read()
+		);
+	}
+
+	public function test_largest_msg_sent_tracks_the_biggest_forwarded_msg(): void {
+		[ $node ] = $this->configured_node();
+		$node->process_sse_chunk( $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );
+		$small = $node->largest_msg_sent();
+		$this->assertGreaterThan( 0, $small );
+		$node->process_sse_chunk(
+			$this->msg_frame( '2:0', 'k', [ 'blob' => \str_repeat( 'x', 1000 ) ] )
+		);
+		$this->assertGreaterThan( $small, $node->largest_msg_sent() );
+		$this->assertGreaterThanOrEqual( 1000, $node->largest_msg_sent() );
+	}
+
 	public function test_msg_frame_forwarded_to_target_with_position_update(): void {
 		[ $node, $sink ] = $this->configured_node( 'austin' );
 

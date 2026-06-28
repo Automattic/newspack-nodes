@@ -314,7 +314,9 @@ class SSE_In_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function process_sse_chunk( string $bytes ): bool {
-		$this->buffer .= $bytes;
+		// Read boundary: every wire byte consumed off the stream (framing + data).
+		$this->bytes_read += \strlen( $bytes );
+		$this->buffer     .= $bytes;
 
 		if ( \strlen( $this->buffer ) > self::MAX_BUFFER_SIZE ) {
 			$this->last_error = 'Buffer overflow (no newline in ' . self::MAX_BUFFER_SIZE . ' bytes)';
@@ -402,6 +404,10 @@ class SSE_In_Node extends Node {
 		// `/messages/stream` data lines are `msg` events carrying a 7-field
 		// Message; any other event type is silently ignored.
 		if ( 'msg' === $type && \is_array( $message ) && \count( $message ) === 7 ) {
+			$this->largest_msg_sent = \max(
+				$this->largest_msg_sent,
+				\strlen( $raw_data )
+			);
 			return $this->dispatch_message( \array_values( $message ) );
 		}
 
