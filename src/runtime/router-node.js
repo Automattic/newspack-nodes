@@ -22,9 +22,6 @@ import {
 export class RouterNode extends TimerNode {
 	constructor() {
 		super();
-		// TIMER hitchhike slot + the NOT_AVAILABLE state observers can watch.
-		this.registrations.TIMER = {};
-		this.registrations.NOT_AVAILABLE = {};
 		// Optional hooks injected by the console to bracket each tick's notify (e.g.
 		// HttpOut lock/flush so one tick's emissions batch into ONE POST). Kept here
 		// so the substrate Router stays decoupled from any console node.
@@ -35,6 +32,13 @@ export class RouterNode extends TimerNode {
 		// exempts it from the >=1000 hitchhike — it can't ride its own TIMER.
 		this.isRouter = true;
 		this.setTimer( 1000 );
+	}
+
+	// FIRE (inherited Timer tick) + TIMER (the hitchhike event peers register for)
+	// + NOT_AVAILABLE (routing-failure state observers watch). The base ctor seeds
+	// all three from here; this list is standalone (no super spread).
+	static nodeSchema() {
+		return { registrations: [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ] };
 	}
 
 	fill( message ) {

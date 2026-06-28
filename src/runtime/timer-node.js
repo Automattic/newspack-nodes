@@ -43,8 +43,6 @@ export class TimerNode extends Node {
 		this.lastFireTime = 0;
 		// Stamped onto each emitted message's KEY (Tachikoma's STREAM). '' = unset.
 		this.key = '';
-		// 'FIRE' is the per-tick subscriber slot.
-		this.registrations.FIRE = {};
 	}
 
 	get arguments() {
@@ -216,6 +214,8 @@ export class TimerNode extends Node {
 				},
 			],
 			commands: [],
+			// 'FIRE' is the per-tick subscriber slot; the base ctor seeds it.
+			registrations: [ 'FIRE' ],
 		};
 	}
 }

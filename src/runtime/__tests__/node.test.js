@@ -167,6 +167,18 @@ test( 'register requires the event to have been pre-declared', () => {
 	);
 } );
 
+test( 'base constructor seeds registrations from the subclass nodeSchema', () => {
+	class Seeded extends Node {
+		static nodeSchema() {
+			return { registrations: [ 'PULSE' ] };
+		}
+	}
+	const n = new Seeded();
+	// Seeded by the base ctor from nodeSchema — no manual this.registrations.
+	expect( () => n.register( 'PULSE', 'l1' ) ).not.toThrow();
+	expect( () => n.register( 'NOPE', 'l1' ) ).toThrow( /no such event/ );
+} );
+
 test( 'declared event with closure listener fires on notify', () => {
 	const n = new Node();
 	n.registrations.HELLO = {};
