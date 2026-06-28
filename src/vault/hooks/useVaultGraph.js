@@ -105,6 +105,9 @@ export function useVaultGraph( opts = {} ) {
 
 	// Live interpreter handle for the CRUD callbacks.
 	const interpreterRef = useRef( null );
+	// The backbone `_shell` command Tap — CRUD dispatches enter HERE (not straight
+	// at the interpreter) so every Vault command is observable via `connect _shell`.
+	const shellRef = useRef( null );
 
 	// Bumped on every (re)build so a consumer's useNodeState re-subscribes to the
 	// freshly-registered view nodes. A monotonic counter, not a boolean latch —
@@ -113,7 +116,7 @@ export function useVaultGraph( opts = {} ) {
 
 	// Mount the graph once: clip it onto the exospine, then fire one immediate list.
 	useEffect( () => {
-		const build = ( { interpreter } ) => {
+		const build = ( { interpreter, shell } ) => {
 			const data =
 				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
 				{};
@@ -141,16 +144,15 @@ export function useVaultGraph( opts = {} ) {
 			testIn.connectNode( TEST_VIEW );
 
 			interpreterRef.current = interpreter;
+			shellRef.current = shell;
 
 			// Re-render so useNodeState re-subscribes to the freshly-mounted views.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire one immediate list (the canonical "everything sinks into the
-			// interpreter" path). Fire-and-forget: the list view updates render
-			// state on the reply.
-			interpreter.fill(
-				buildCommand( LIST_RECV, 'list', '', makeOpId() )
-			);
+			// Fire one immediate list through `_shell` → interpreter (so the command
+			// is observable at `_shell`). Fire-and-forget: the list view updates
+			// render state on the reply.
+			shell.fill( buildCommand( LIST_RECV, 'list', '', makeOpId() ) );
 
 			// Non-node side effects undone before the nodes are removed.
 			return () => {
@@ -168,8 +170,8 @@ export function useVaultGraph( opts = {} ) {
 	// id so the probe result files under the right row.
 	const dispatch = useCallback(
 		( recv, view, verb, args = '', id = null ) => {
-			const interpreter = interpreterRef.current;
-			if ( ! interpreter ) {
+			const shell = shellRef.current;
+			if ( ! shell ) {
 				return Promise.reject( new Error( 'graph not mounted' ) );
 			}
 			const node = Core.node( view );
@@ -180,7 +182,9 @@ export function useVaultGraph( opts = {} ) {
 			const promise = new Promise( ( resolve, reject ) => {
 				node.replies.add( opId, resolve, reject );
 			} );
-			interpreter.fill( buildCommand( recv, verb, args, opId ) );
+			// Enter at `_shell` (forwards to the interpreter) so the command is
+			// observable via `connect _shell`.
+			shell.fill( buildCommand( recv, verb, args, opId ) );
 			return promise;
 		},
 		[]

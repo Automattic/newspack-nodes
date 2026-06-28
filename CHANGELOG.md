@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Vault commands are now observable via `connect _shell`.** The Vault's CRUD/Test dispatches entered straight at the interpreter, bypassing the `_shell` command Tap — so there was no way to see what the Test buttons sent or when. They now route through `_shell` (→ interpreter → the named `_http`/HttpOut egress), like every other command path.
+
 - **No-node inspector command buttons now pass their arguments.** The generic `command` action split off the verb but dispatched with empty args, so `Trace` (`debug_state *`) arrived as a bare `debug_state` — toggling only the interpreter (`_command_interpreter debug_state: 1`) instead of every node. It now forwards the args after the verb (`*`).
 
 - **Console deep links (`?topology=<name>`) now open the requested topology instead of the first one.** The initial topology pick validated the URL param against a render-time re-read of `window.NewspackNodesData.topologyWorkers` — but each hub bundle (event-dashboards, devtools-hub, console, …) localizes its OWN `NewspackNodesData` global, and the last to execute clobbered `topologyWorkers`, so the live read saw `{}` and EVERY deep link fell back to the first topology. It now validates against the module-load snapshot (`SEED_PARTITIONS`, the same source as the dropdown), falling back to the live read only when the snapshot was empty at import.
