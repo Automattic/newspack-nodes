@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Console Save pre-fills the *edited* topology's name, not the live console's.** Entering the editor from a live worker (e.g. `aggregator.p0`) then using Open to load a different topology (`hub-control`) left the Save dialog offering `aggregator` — it pre-filled from the live console `topology` instead of `editingName` (which Open correctly updates). Save now offers the topology you're actually editing.
+- **The edit-mode inspector no longer shows the live no-node command palette.** In edit mode with nothing selected, the inspector rendered the live `_command_interpreter` header + server-command buttons (trace/dmesg/ping/…), which are meaningless for an offline draft. It now shows a "select a node / drop one from the palette" hint; selecting a node still shows the edit form.
+
 - **Co-mounted dashboards rebuild against the FRESH backbone after Reset Graph.** A reusing mount captured its spine at mount; the owner's full rebuild (generation bump) replaces the backbone, so the reuser's next build was handed the removed `_http` / interpreter and set its client on a dead node. `runBuild` now re-syncs the spine from Core before each build.
 
 ### Changed

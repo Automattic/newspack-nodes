@@ -1672,8 +1672,10 @@ export default function TopologyConsole( {
 						'newspack-nodes'
 					) }
 					placeholder={ __( 'my-topology', 'newspack-nodes' ) }
-					// Pre-fill the current name; save-over-same-name is the common case.
-					initialValue={ topology || '' }
+					// Pre-fill the EDITED topology's name (set on edit-entry / Open), not
+					// the live console's `topology` — save-over-same-name is the common
+					// case, and Open changes what's edited without touching `topology`.
+					initialValue={ editingName }
 					pattern={ /^[a-zA-Z0-9_-]+$/ }
 					confirmLabel={ __( 'Save', 'newspack-nodes' ) }
 					onConfirm={ handleSaveConfirm }

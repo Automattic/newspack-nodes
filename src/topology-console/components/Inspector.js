@@ -1349,6 +1349,21 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 
 	if ( ! selectedId ) {
+		// Edit mode has no live interpreter — the `_command_interpreter` header +
+		// server-command palette below are meaningless for an offline draft. Show a
+		// hint until a node is selected (selected nodes render the edit form).
+		if ( editMode ) {
+			return (
+				<aside className="topology-inspector">
+					<div className="topology-insp__empty">
+						{ __(
+							'Select a node to edit it, or drop one from the palette.',
+							'newspack-nodes'
+						) }
+					</div>
+				</aside>
+			);
+		}
 		const node = parsed.nodes[ 0 ];
 		const traceOn = node ? node.debugState > 0 : false;
 		const live = ! streamStatus || streamStatus === 'open';

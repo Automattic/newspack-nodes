@@ -937,6 +937,35 @@ describe( 'TopologyConsole boot', () => {
 		expect( lastHeaderProps.canDelete ).toBe( true );
 	} );
 
+	it( 'save pre-fills the OPENED topology name, not the live console topology', async () => {
+		// Repro: live on `demo`, edit, Open a different topology, then Save — the
+		// name field must offer the OPENED name (editingName), not `demo` (the live
+		// console topology the editor was entered from).
+		globalThis.__hooks.fetchTopology.mockImplementation( ( name ) =>
+			Promise.resolve( {
+				name,
+				source: 'user',
+				tsl: 'make_node Echo e\n',
+			} )
+		);
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) ); // edit `demo`
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'open' ) ); // show the Open picker
+		} );
+		await act( async () => {
+			// onPick('picked') → handleOpenPick → fetch echoes the name → editingName='picked'.
+			fireEvent.click( getByText( 'pick' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) ); // open the Save modal
+		} );
+		expect( globalThis.__lastPromptModal.initialValue ).toBe( 'picked' );
+	} );
+
 	it( 'edit hides the delete button when the loaded topology is stock-only', async () => {
 		globalThis.__hooks.topologies = [];
 		globalThis.__hooks.fetchTopology.mockResolvedValue( {
