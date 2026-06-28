@@ -1285,14 +1285,23 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 						) ) }
 					</select>
 				</label>
-				<button
-					type="button"
-					className="topology-modal__btn--primary"
-					disabled={ ! event || ! target }
-					onClick={ () => onConfirm( target, event ) }
-				>
-					{ __( 'Register', 'newspack-nodes' ) }
-				</button>
+				<div className="topology-modal__actions">
+					<button
+						type="button"
+						className="topology-modal__btn"
+						onClick={ onCancel }
+					>
+						{ __( 'Cancel', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="topology-modal__btn topology-modal__btn--primary"
+						disabled={ ! event || ! target }
+						onClick={ () => onConfirm( target, event ) }
+					>
+						{ __( 'Register', 'newspack-nodes' ) }
+					</button>
+				</div>
 			</div>
 		</ModalShell>
 	);
@@ -1372,14 +1381,23 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 						/>
 					</label>
 				) }
-				<button
-					type="button"
-					className="topology-modal__btn--primary"
-					disabled={ ! to }
-					onClick={ () => onConfirm( action, to, value ) }
-				>
-					{ __( 'Send', 'newspack-nodes' ) }
-				</button>
+				<div className="topology-modal__actions">
+					<button
+						type="button"
+						className="topology-modal__btn"
+						onClick={ onCancel }
+					>
+						{ __( 'Cancel', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="topology-modal__btn topology-modal__btn--primary"
+						disabled={ ! to }
+						onClick={ () => onConfirm( action, to, value ) }
+					>
+						{ __( 'Send', 'newspack-nodes' ) }
+					</button>
+				</div>
 			</div>
 		</ModalShell>
 	);
