@@ -83,6 +83,24 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $node, 'batch' ) );        // cleared
 	}
 
+	public function test_fire_tallies_bytes_written_and_largest_msg_sent(): void {
+		// PHP/JS parity: HTTP_Out tallies the per-message packed size on POST so
+		// Remote_Link::bytes_written() (which delegates to it) isn't stuck at 0.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node  = $this->make_node( 'austin' );
+		$small = $this->command_message( 'settings', 'set', 'a b' );
+		$large = $this->command_message( 'performance', 'set', 'a much longer argument string here' );
+		$node->fill( $small );
+		$node->fill( $large );
+		$node->fire();
+		$lines = array_values( array_filter( explode( "\n", $captured[0][ \CURLOPT_POSTFIELDS ] ) ) );
+		$sizes = array_map( 'strlen', $lines );
+		$this->assertSame( array_sum( $sizes ), $node->bytes_written() );
+		$this->assertSame( max( $sizes ), $node->largest_msg_sent() );
+	}
+
 	public function test_fire_empty_batch_does_not_post(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];

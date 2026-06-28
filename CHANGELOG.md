@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Co-mounted dashboards rebuild against the FRESH backbone after Reset Graph.** A reusing mount captured its spine at mount; the owner's full rebuild (generation bump) replaces the backbone, so the reuser's next build was handed the removed `_http` / interpreter and set its client on a dead node. `runBuild` now re-syncs the spine from Core before each build.
+
+### Changed
+
+- **`HttpOut` packs each outbound message once instead of twice** — it already packed each message to size its write, then the client re-packed for the POST body. `postBatch` now accepts the pre-packed JSONL lines and reuses them.
+- **PHP `HTTP_Out` tallies `bytes_written` / `largest_msg_sent` on POST** (JS/PHP parity): `Remote_Link::bytes_written()` reported a constant `0` because its composed `HTTP_Out` never counted the bytes it sent.
+- Documented the inherent JS↔PHP `bytes_read` gap (browser `EventSource` hides SSE framing + non-`msg` events, so JS counts strictly less than PHP's full-wire tally — each is correct for what it can see; not a parity bug to "fix").
+
 ## [0.22.1] - 2026-06-28
 
 ### Changed

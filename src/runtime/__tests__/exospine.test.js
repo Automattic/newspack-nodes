@@ -384,6 +384,26 @@ test( 'a second co-mounted build graph does NOT bump graphGeneration again (no s
 	expect( Core.graphGeneration ).toBe( before + 1 );
 } );
 
+test( 'a reusing co-mount rebuilds against the FRESH backbone after the owner full-rebuilds', () => {
+	// The owner's full rebuild (generation bump) replaces the backbone instances.
+	// A co-mounted reuser captured its spine at mount; its reinit must re-sync so
+	// its build sees the NEW _http — else it sets .client on the removed node while
+	// the live _http has none.
+	mountExospine( () => {} ); // owner — owns the backbone, subscribes fullRebuild
+	const seen = {};
+	mountExospine( ( spine ) => {
+		seen.http = spine.http; // record the _http this build was handed
+	} );
+	const firstHttp = Core.node( names.HTTP );
+	expect( seen.http ).toBe( firstHttp );
+
+	Core.bumpGraphGeneration();
+
+	const freshHttp = Core.node( names.HTTP );
+	expect( freshHttp ).not.toBe( firstHttp ); // owner replaced the backbone
+	expect( seen.http ).toBe( freshHttp ); // the reuser's rebuild saw the fresh one
+} );
+
 test( 'co-mount does not rebuild the first graph (its build runs once across both mounts)', () => {
 	let firstBuilds = 0;
 	mountExospine( () => {

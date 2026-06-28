@@ -196,6 +196,11 @@ export class SseInNode extends Node {
 			// received frame + its wire bytes. The error tally for a TM_ERROR frame
 			// rides the `ERROR:` log below — Core.stderr records it off the keyword,
 			// so an explicit recordError() here would double-count.
+			// NOTE: this counts only the `msg` event DATA. EventSource hides the SSE
+			// framing and never surfaces non-`msg` events (heartbeat/connected), so
+			// JS bytesRead is necessarily LESS than PHP SSE_In's (which sees every
+			// raw wire byte). The gap is inherent to the transport — don't "fix" it
+			// to match PHP; the two are independently correct for what each can see.
 			const size = byteLength( e.data );
 			this.bytesRead += size;
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );

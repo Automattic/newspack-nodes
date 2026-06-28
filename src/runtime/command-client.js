@@ -62,15 +62,16 @@ export class CommandClient {
 	/**
 	 * POST a batch as JSONL (one packed Message per line, routed in order).
 	 *
-	 * @param {Array<Array>} messages Positional Messages, in dispatch order.
+	 * @param {Array<Array>}  messages Positional Messages, in dispatch order.
+	 * @param {Array<string>} [packed] Pre-packed lines for `messages` (same order)
+	 *                                 — HttpOut already packs each to size its write, so it passes them to avoid a
+	 *                                 second serialization. Omitted callers fall back to packing here.
 	 * @return {Promise<Array<Array>>} Every reply Message in the JSONL body (each
 	 *   routed onward by the caller); empty when the command was routed onward (202).
 	 */
-	async postBatch( messages ) {
-		return this.#post(
-			messages.map( ( m ) => pack( m ) ).join( '\n' ),
-			messages.length
-		);
+	async postBatch( messages, packed ) {
+		const lines = packed ?? messages.map( ( m ) => pack( m ) );
+		return this.#post( lines.join( '\n' ), messages.length );
 	}
 
 	async #post( body, outCount ) {

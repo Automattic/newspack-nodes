@@ -314,7 +314,10 @@ class SSE_In_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function process_sse_chunk( string $bytes ): bool {
-		// Read boundary: every wire byte consumed off the stream (framing + data).
+		// Read boundary: every wire byte consumed off the stream (framing + data +
+		// heartbeat/connected events). The JS SSE_In can only count `msg` event DATA
+		// (EventSource hides framing + non-msg events), so its bytes_read is smaller —
+		// an inherent transport gap, not a parity bug.
 		$this->bytes_read += \strlen( $bytes );
 		$this->buffer     .= $bytes;
 
