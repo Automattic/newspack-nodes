@@ -86,7 +86,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click( getByText( 'dmesg' ) );
 		expect( calls ).toContainEqual( [ 'command', null, 'dmesg' ] );
-		fireEvent.click( getByText( 'Trace' ) );
+		fireEvent.click( getByText( 'trace' ) );
 		expect( calls ).toContainEqual( [ 'command', null, 'debug_state *' ] );
 	} );
 
@@ -102,7 +102,7 @@ describe( 'Inspector (view mode)', () => {
 				} }
 			/>
 		);
-		fireEvent.click( getByText( 'Compose…' ) );
+		fireEvent.click( getByText( 'Compose' ) );
 		// selects[0] = To (echo default), selects[1] = Type — pick Info (index 1).
 		const selects = document.body.querySelectorAll(
 			'.topology-modal__body select'
@@ -132,7 +132,7 @@ describe( 'Inspector (view mode)', () => {
 				} }
 			/>
 		);
-		fireEvent.click( getByText( 'Compose…' ) );
+		fireEvent.click( getByText( 'Compose' ) );
 		expect(
 			document.body.querySelector( '.topology-modal__body' )
 		).not.toBeNull();
