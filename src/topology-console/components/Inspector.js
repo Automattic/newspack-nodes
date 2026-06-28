@@ -1214,6 +1214,20 @@ function VerbButton( { nodeId, spec, kind, formatters, nodeNames, onAction } ) {
 	);
 }
 
+// No-node inspector quick-commands: server-wide verbs that don't operate on a
+// selected node (roadmap [48]). Each dispatches its raw command via onAction's
+// generic `command` action; args-taking verbs (log/ping) show their usage in the
+// transcript, same as typing them bare in the REPL.
+const NO_NODE_COMMANDS = [
+	[ 'Trace', 'debug_state *' ],
+	[ 'dmesg', 'dmesg' ],
+	[ 'dump_config', 'dump_config' ],
+	[ 'dump_metadata', 'dump_metadata' ],
+	[ 'log', 'log' ],
+	[ 'ping', 'ping' ],
+	[ 'stats', 'stats' ],
+];
+
 export default function Inspector( {
 	selectedId,
 	parsed,
@@ -1241,6 +1255,22 @@ export default function Inspector( {
 			<aside className="topology-inspector">
 				<div className="topology-insp__empty">
 					{ __( 'Select a node to inspect', 'newspack-nodes' ) }
+				</div>
+				<div
+					className="topology-insp__commands"
+					data-testid="inspector-commands"
+				>
+					{ NO_NODE_COMMANDS.map( ( [ label, cmd ] ) => (
+						<button
+							key={ cmd }
+							type="button"
+							onClick={ () =>
+								onAction && onAction( 'command', null, cmd )
+							}
+						>
+							{ label }
+						</button>
+					) ) }
 				</div>
 			</aside>
 		);

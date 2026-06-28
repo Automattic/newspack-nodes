@@ -23,6 +23,20 @@ describe( 'Inspector (view mode)', () => {
 		expect( container.textContent ).toMatch( /Select a node/ );
 	} );
 
+	it( 'shows no-node server-command buttons that dispatch via onAction', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		fireEvent.click( getByText( 'dmesg' ) );
+		expect( calls ).toContainEqual( [ 'command', null, 'dmesg' ] );
+		fireEvent.click( getByText( 'Trace' ) );
+		expect( calls ).toContainEqual( [ 'command', null, 'debug_state *' ] );
+	} );
+
 	it( 'renders the missing-node state when selectedId is absent from parsed', () => {
 		const { container } = render(
 			<Inspector { ...baseProps } selectedId="ghost" />
