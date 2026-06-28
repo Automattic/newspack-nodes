@@ -886,13 +886,17 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( $sorted, $lines );
 	}
 
-	public function test_help_without_completion_key_is_unchanged(): void {
+	public function test_help_without_completion_key_lists_all_commands_in_one_section(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
 		$out = $interpreter->dispatch( 'help' );
-		$this->assertStringContainsString( '### SERVER COMMANDS ###', $out );
-		$this->assertStringContainsString( '### SHELL BUILTINS ###', $out );
+		// One unified section; the former separate SHELL BUILTINS list is folded in.
+		$this->assertStringContainsString( '### COMMANDS ###', $out );
+		$this->assertStringNotContainsString( '### SHELL BUILTINS ###', $out );
+		// Shell builtins now appear in the single command table.
+		$this->assertStringContainsString( 'send_struct', $out );
+		$this->assertStringContainsString( 'debug_level', $out );
 	}
 
 	public function test_custom_command_table_gets_default_help_listing_its_verbs(): void {
