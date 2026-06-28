@@ -50,6 +50,20 @@ export class Node {
 		this.patron = null;
 		this.interpreter = null;
 		this._arguments = '';
+		this.seedRegistrations();
+	}
+
+	/**
+	 * Seed the runtime registration allow-list from the subclass nodeSchema()'s
+	 * `registrations` — the single source of valid events (mirrors PHP
+	 * seed_registrations()). A node just declares its events; register() then
+	 * rejects anything not seeded here.
+	 */
+	seedRegistrations() {
+		const events = this.constructor.nodeSchema?.().registrations ?? [];
+		for ( const event of events ) {
+			this.registrations[ event ] = {};
+		}
 	}
 
 	/**
