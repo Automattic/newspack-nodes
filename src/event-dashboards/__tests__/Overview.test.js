@@ -333,12 +333,13 @@ describe( 'Overview fleet board', () => {
 		).toEqual( [ 0, 0 ] );
 	} );
 
-	it( 'offers a New Topology deep-link via SummaryCards', () => {
+	it( 'offers a New Topology deep-link in the header controls', () => {
 		useTopologyManager.mockReturnValue( hookValue() );
-		render( <Overview /> );
-		expect( globalThis.__summaryCards[ 0 ].newTopologyHref ).toContain(
-			'new=1'
-		);
+		// No headerControlsSlot (standalone) → the control renders inline.
+		const { getByText } = render( <Overview /> );
+		expect(
+			getByText( '+ New Topology' ).getAttribute( 'href' )
+		).toContain( 'new=1' );
 	} );
 } );
 

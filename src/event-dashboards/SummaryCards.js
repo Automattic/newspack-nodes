@@ -34,12 +34,11 @@ function Card( { mod, value, label, extraClass = '' } ) {
 
 /**
  * @param {Object}  props
- * @param {Array}   props.topologies      Topology rows from useTopologyManager.
- * @param {number}  props.readRate        Fleet-global read bytes/sec.
- * @param {number}  props.writeRate       Fleet-global write bytes/sec.
- * @param {number}  props.logPartitions   On-disk log-partition count.
- * @param {?Object} props.consumers       topicprobe:view consumers (24h totals).
- * @param {string}  props.newTopologyHref Console deep-link for "+ New Topology".
+ * @param {Array}   props.topologies    Topology rows from useTopologyManager.
+ * @param {number}  props.readRate      Fleet-global read bytes/sec.
+ * @param {number}  props.writeRate     Fleet-global write bytes/sec.
+ * @param {number}  props.logPartitions On-disk log-partition count.
+ * @param {?Object} props.consumers     topicprobe:view consumers (24h totals).
  * @return {import('react').ReactElement} The card row.
  */
 function SummaryCards( {
@@ -48,7 +47,6 @@ function SummaryCards( {
 	writeRate,
 	logPartitions,
 	consumers,
-	newTopologyHref,
 } ) {
 	const fleet = fleetSummary( topologies );
 	const totals = probe24hTotals( consumers );
@@ -142,16 +140,6 @@ function SummaryCards( {
 				value={ formatBytes( cache.total ) }
 				label={ __( 'Total Cache', 'newspack-nodes' ) }
 			/>
-			<a
-				className="nodes-cards__new button"
-				href={ newTopologyHref }
-				title={ __(
-					'Create a new topology in the console',
-					'newspack-nodes'
-				) }
-			>
-				{ __( '+ New Topology', 'newspack-nodes' ) }
-			</a>
 		</div>
 	);
 }
