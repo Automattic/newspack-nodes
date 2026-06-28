@@ -35,7 +35,7 @@ describe( 'useTopologyCatalog', () => {
 		window.NewspackNodesData = {
 			restUrl: '/wp-json/',
 			nonce: 'NONCE',
-			topologyPartitions: { demo: 2 },
+			topologyWorkers: { demo: 2 },
 			activeTopologies: [ 'demo' ],
 			configNumPartitions: 1,
 		};

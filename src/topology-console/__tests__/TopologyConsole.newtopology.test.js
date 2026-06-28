@@ -14,7 +14,7 @@ import { render, act } from '@testing-library/react';
 window.NewspackNodesData = {
 	restUrl: '/wp-json/',
 	nonce: 'NONCE',
-	topologyPartitions: { alpha: 1, beta: 1 },
+	topologyWorkers: { alpha: 1, beta: 1 },
 	activeTopologies: [],
 	version: 'test',
 	userLogin: 'tester',

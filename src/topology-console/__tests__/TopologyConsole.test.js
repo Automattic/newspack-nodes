@@ -34,7 +34,7 @@ import names from '../../runtime/reserved-node-names.json';
 window.NewspackNodesData = {
 	restUrl: '/wp-json/',
 	nonce: 'NONCE',
-	topologyPartitions: { demo: 2 },
+	topologyWorkers: { demo: 2 },
 	activeTopologies: [ 'demo' ],
 	version: 'test',
 	userLogin: 'tester',
@@ -238,7 +238,7 @@ jest.mock( '../hooks/useTopologyCatalog', () => ( {
 		return {
 			partitions: override
 				? override.partitions
-				: data.topologyPartitions || {},
+				: data.topologyWorkers || {},
 			active: override ? override.active : data.activeTopologies || [],
 			reload: globalThis.__hooks.reloadCatalog,
 		};
@@ -1477,7 +1477,7 @@ describe( 'TopologyConsole boot', () => {
 		const prev = window.NewspackNodesData;
 		window.NewspackNodesData = {
 			...prev,
-			topologyPartitions: { demo: 2, idle: 1 },
+			topologyWorkers: { demo: 2, idle: 1 },
 			activeTopologies: [ 'demo' ],
 		};
 		try {
@@ -2241,7 +2241,7 @@ describe( 'TopologyConsole boot', () => {
 	}, 5000 );
 
 	it( 'topology with multiple partitions: switching partition clamps when invalid', async () => {
-		window.NewspackNodesData.topologyPartitions = { demo: 1 };
+		window.NewspackNodesData.topologyWorkers = { demo: 1 };
 		window.history.replaceState( {}, '', '/?topology=demo&partition=3' );
 		const { getByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
@@ -2720,7 +2720,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'switching partition to higher than available clamps to 0', async () => {
-		window.NewspackNodesData.topologyPartitions = { demo: 2 };
+		window.NewspackNodesData.topologyWorkers = { demo: 2 };
 		window.history.replaceState( {}, '', '/?topology=demo&partition=5' );
 		const { getByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
@@ -3253,7 +3253,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'switching worker via onPathChange resets selection + transcript + parsed', async () => {
-		window.NewspackNodesData.topologyPartitions = { demo: 2 };
+		window.NewspackNodesData.topologyWorkers = { demo: 2 };
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { container } = render( <TopologyConsole /> );
 		await fireMsg( { type: TM_BYTESTREAM, value: 'pre-switch' } );
@@ -3830,18 +3830,18 @@ describe( 'initialTopologyFromUrl (deep-link validation)', () => {
 
 	it( 'honors a deep link from the module-load SEED even when a sibling hub bundle later clobbers window.NewspackNodesData', () => {
 		jest.isolateModules( () => {
-			// Seed the snapshot BEFORE the module imports so SEED_PARTITIONS
+			// Seed the snapshot BEFORE the module imports so SEED_WORKERS
 			// captures it (mirrors production: the console bundle's localize is
 			// current when its own script executes).
 			window.NewspackNodesData = {
-				topologyPartitions: { alpha: 1, demo: 2 },
+				topologyWorkers: { alpha: 1, demo: 2 },
 				activeTopologies: [],
 			};
 			// eslint-disable-next-line global-require
 			const mod = require( '../TopologyConsole' );
 			window.history.replaceState( {}, '', '/?topology=demo' );
 			// A sibling hub bundle re-localized NewspackNodesData WITHOUT
-			// topologyPartitions — the real clobber. The SEED must still resolve
+			// topologyWorkers — the real clobber. The SEED must still resolve
 			// the deep link rather than fall back to the first topology.
 			window.NewspackNodesData = { tree: 'event-dashboards' };
 			expect( mod.initialTopologyFromUrl( 'alpha' ) ).toBe( 'demo' );

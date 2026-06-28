@@ -105,12 +105,11 @@ function buildPathOptions( partitions, active ) {
 
 // The page-load snapshot — ONLY the seed for the initial topology pick; the live
 // menu data comes from useTopologyCatalog (which seeds from this same snapshot).
-const SEED_PARTITIONS =
-	( window.NewspackNodesData &&
-		window.NewspackNodesData.topologyPartitions ) ||
+const SEED_WORKERS =
+	( window.NewspackNodesData && window.NewspackNodesData.topologyWorkers ) ||
 	{};
 const TOPOLOGIES = sortTopologies(
-	SEED_PARTITIONS,
+	SEED_WORKERS,
 	( window.NewspackNodesData && window.NewspackNodesData.activeTopologies ) ||
 		[]
 );
@@ -243,15 +242,15 @@ export function initialTopologyFromUrl( fallback ) {
 	// the topology. The SEED is the reliable source in PRODUCTION: each hub bundle
 	// (event-dashboards, devtools-hub, console, …) localizes its OWN
 	// `NewspackNodesData` global, and the last one to execute clobbers
-	// topologyPartitions — so a render-time live read sees {} and every deep link
+	// topologyWorkers — so a render-time live read sees {} and every deep link
 	// fell back to the first topology. The live read is kept as the fallback for
 	// the case the SEED was empty at module import (e.g. a late-landing snapshot).
 	const live =
 		( window.NewspackNodesData &&
-			window.NewspackNodesData.topologyPartitions ) ||
+			window.NewspackNodesData.topologyWorkers ) ||
 		{};
 	const known =
-		Object.prototype.hasOwnProperty.call( SEED_PARTITIONS, t ) ||
+		Object.prototype.hasOwnProperty.call( SEED_WORKERS, t ) ||
 		Object.prototype.hasOwnProperty.call( live, t );
 	return known ? t : fallback;
 }
@@ -400,7 +399,7 @@ export default function TopologyConsole( {
 	// started/stopped elsewhere — this is what keeps the Path menu reacting
 	// without a full reload.
 	const {
-		partitions: topologyPartitions,
+		partitions: topologyWorkers,
 		active: activeTopologies,
 		reload: reloadCatalog,
 	} = useTopologyCatalog();
@@ -409,8 +408,8 @@ export default function TopologyConsole( {
 	// the SSE stream gate can resolve the cwd against it; recomputes whenever the
 	// live catalog changes. An off-menu cwd is surfaced by the Header.
 	const pathOptions = useMemo(
-		() => buildPathOptions( topologyPartitions, activeTopologies ),
-		[ topologyPartitions, activeTopologies ]
+		() => buildPathOptions( topologyWorkers, activeTopologies ),
+		[ topologyWorkers, activeTopologies ]
 	);
 
 	// SSE off in edit mode so offline authoring doesn't poke the live worker; the
@@ -704,8 +703,8 @@ export default function TopologyConsole( {
 		}
 	}, [ effectiveTopologyName, positionOverrides, saveLayout, layoutGraph ] );
 	const partitions = useMemo(
-		() => partitionIndices( topologyPartitions, topology ),
-		[ topologyPartitions, topology ]
+		() => partitionIndices( topologyWorkers, topology ),
+		[ topologyWorkers, topology ]
 	);
 
 	const configDefaultPartitions =
@@ -1387,7 +1386,7 @@ export default function TopologyConsole( {
 			// holds, BEFORE the save reloads it: a name not previously known is a
 			// freshly-created topology and earns the post-save "Activate now?" prompt.
 			const isNewTopology = ! Object.prototype.hasOwnProperty.call(
-				topologyPartitions,
+				topologyWorkers,
 				name
 			);
 			try {
@@ -1452,7 +1451,7 @@ export default function TopologyConsole( {
 			topologyList,
 			schemasByShellName,
 			reloadCatalog,
-			topologyPartitions,
+			topologyWorkers,
 		]
 	);
 
