@@ -9,6 +9,8 @@ import { CtorField } from './CtorField';
 import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { processStats } from '../utils/processStats';
+import { Sparkline } from '../../event-dashboards/Sparkline';
+import { useOverviewStats } from '../../debug-overlay/useOverviewStats';
 
 // A Consumer (or its Tail subclass) is the node whose dump_metadata carries a
 // `frames` array AND a `cursor` (its dump_metadata() read surface) — the
@@ -264,6 +266,77 @@ function formatBytes( n ) {
 		return `${ ( n / ( 1024 * 1024 ) ).toFixed( 1 ) } M`;
 	}
 	return `${ ( n / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G`;
+}
+
+// Process-stats header for the no-node inspector (roadmap [95]). Messages-in/out
+// + bytes roll up from the live graph (processStats); the error/warning/debug
+// counts and the In/Out rate sparklines reuse the overlay Overview's IoTelemetry
+// (`useOverviewStats`), so the console leads with the same fleet vitals.
+function ProcessStatsHeader( { nodes } ) {
+	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
+		processStats( nodes );
+	const { totals, msgRateSeries } = useOverviewStats();
+	const inSpark = ( msgRateSeries?.In?.points || [] ).map( ( p ) => p.value );
+	const outSpark = ( msgRateSeries?.Out?.points || [] ).map(
+		( p ) => p.value
+	);
+	const cell = ( label, value, spark ) => (
+		<div className="topology-insp__stat">
+			<span className="topology-insp__stat-label">{ label }</span>
+			<span className="topology-insp__stat-val">{ value }</span>
+			{ spark }
+		</div>
+	);
+	return (
+		<div
+			className="topology-insp__stats"
+			data-testid="inspector-process-stats"
+		>
+			<div className="topology-insp__stat-grid">
+				{ cell(
+					__( 'Msgs in', 'newspack-nodes' ),
+					messagesIn.toLocaleString(),
+					<Sparkline values={ inSpark } width={ 84 } height={ 16 } />
+				) }
+				{ cell(
+					__( 'Msgs out', 'newspack-nodes' ),
+					messagesOut.toLocaleString(),
+					<Sparkline values={ outSpark } width={ 84 } height={ 16 } />
+				) }
+				{ cell(
+					__( 'Bytes read', 'newspack-nodes' ),
+					formatBytes( bytesRead )
+				) }
+				{ cell(
+					__( 'Bytes written', 'newspack-nodes' ),
+					formatBytes( bytesWritten )
+				) }
+			</div>
+			<div className="topology-insp__levels">
+				<span className="topology-insp__level topology-insp__level--error">
+					{ sprintf(
+						// translators: %d: error line count.
+						__( '%d err', 'newspack-nodes' ),
+						totals.errors
+					) }
+				</span>
+				<span className="topology-insp__level topology-insp__level--warn">
+					{ sprintf(
+						// translators: %d: warning line count.
+						__( '%d warn', 'newspack-nodes' ),
+						totals.warnings
+					) }
+				</span>
+				<span className="topology-insp__level topology-insp__level--debug">
+					{ sprintf(
+						// translators: %d: debug line count.
+						__( '%d dbg', 'newspack-nodes' ),
+						totals.debug
+					) }
+				</span>
+			</div>
+		</div>
+	);
 }
 
 function formatLastSeen( ts, live ) {
@@ -1262,38 +1335,9 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 
 	if ( ! selectedId ) {
-		// Process-stats header (roadmap [95]): fleet totals rolled up from the live
-		// graph. (dmesg error/warn/debug counts + rate sparklines to follow.)
-		const stats = processStats( parsed.nodes );
-		const stat = ( label, value ) => (
-			<div className="topology-insp__stat">
-				<span className="topology-insp__stat-label">{ label }</span>
-				<span className="topology-insp__stat-val">{ value }</span>
-			</div>
-		);
 		return (
 			<aside className="topology-inspector">
-				<div
-					className="topology-insp__stats"
-					data-testid="inspector-process-stats"
-				>
-					{ stat(
-						__( 'Msgs in', 'newspack-nodes' ),
-						stats.messagesIn.toLocaleString()
-					) }
-					{ stat(
-						__( 'Msgs out', 'newspack-nodes' ),
-						stats.messagesOut.toLocaleString()
-					) }
-					{ stat(
-						__( 'Bytes read', 'newspack-nodes' ),
-						formatBytes( stats.bytesRead )
-					) }
-					{ stat(
-						__( 'Bytes written', 'newspack-nodes' ),
-						formatBytes( stats.bytesWritten )
-					) }
-				</div>
+				<ProcessStatsHeader nodes={ parsed.nodes } />
 				<div
 					className="topology-insp__commands"
 					data-testid="inspector-commands"

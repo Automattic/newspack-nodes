@@ -4,6 +4,7 @@
 
 import { render, fireEvent } from '@testing-library/react';
 import Inspector, { formatActivityWindow } from '../Inspector';
+import { IoTelemetry } from '../../../runtime/io-telemetry';
 
 const baseProps = {
 	selectedId: null,
@@ -51,6 +52,22 @@ describe( 'Inspector (view mode)', () => {
 		const stats = getByTestId( 'inspector-process-stats' ).textContent;
 		expect( stats ).toContain( '10' );
 		expect( stats ).toContain( '7' );
+	} );
+
+	it( 'shows dmesg error/warning/debug counts + rate sparklines in the header', () => {
+		IoTelemetry.reset();
+		IoTelemetry.recordError( 2, 'boom' );
+		IoTelemetry.recordWarning( 'careful' );
+		const { getByTestId } = render( <Inspector { ...baseProps } /> );
+		const header = getByTestId( 'inspector-process-stats' );
+		// Error/warning/debug counts (reused from the overview's IoTelemetry).
+		const levels = header.querySelector( '.topology-insp__levels' );
+		expect( levels.textContent ).toMatch( /2/ ); // errors
+		expect( levels.textContent ).toMatch( /1/ ); // warnings
+		// Rate sparklines (reused Sparkline) — in + out.
+		expect(
+			header.querySelectorAll( '.nodes-spark' ).length
+		).toBeGreaterThanOrEqual( 2 );
 	} );
 
 	it( 'shows no-node server-command buttons that dispatch via onAction', () => {
