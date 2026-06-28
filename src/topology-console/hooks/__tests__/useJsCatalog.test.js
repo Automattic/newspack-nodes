@@ -35,6 +35,37 @@ describe( 'useJsCatalog', () => {
 		CommandInterpreterNode.includeNodes = before;
 	} );
 
+	it( 'propagates arguments[] from nodeSchema so the ADD modal renders ctor fields (PHP parity)', () => {
+		const before = { ...CommandInterpreterNode.includeNodes };
+		// A node that declares a ctor arg — the browser ADD modal must render it,
+		// matching the PHP catalog (classes-ci-node inlines schema.arguments).
+		CommandInterpreterNode.includeNodes.FakeArged = class {
+			static nodeSchema() {
+				return {
+					category: 'Control',
+					arguments: [
+						{ name: 'interval_ms', type: 'int', required: false },
+					],
+				};
+			}
+		};
+		// A node with no declared arguments defaults to [] (not undefined).
+		CommandInterpreterNode.includeNodes.FakeNoArgs = class {
+			static nodeSchema() {
+				return { category: 'Control' };
+			}
+		};
+		const { result } = renderHook( () => useJsCatalog() );
+		const byName = Object.fromEntries(
+			result.current.classes.map( ( c ) => [ c.shell_name, c ] )
+		);
+		expect( byName.FakeArged.arguments ).toEqual( [
+			{ name: 'interval_ms', type: 'int', required: false },
+		] );
+		expect( byName.FakeNoArgs.arguments ).toEqual( [] );
+		CommandInterpreterNode.includeNodes = before;
+	} );
+
 	it( "propagates accepts_fill / has_target from each node's nodeSchema()", () => {
 		const before = { ...CommandInterpreterNode.includeNodes };
 		// A source: declares accepts_fill:false (PHP Tail/Consumer pattern).
