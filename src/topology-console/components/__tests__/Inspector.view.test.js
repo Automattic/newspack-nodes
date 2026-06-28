@@ -506,6 +506,67 @@ describe( 'Inspector (view mode)', () => {
 		);
 	} );
 
+	it( 'Register opens a modal that dispatches register <source> <target> <event>', () => {
+		const onAction = jest.fn();
+		const { getByText } = renderNode( {
+			onAction,
+			catalog: [ { shell_name: 'Echo', registrations: [ 'FIRE' ] } ],
+		} );
+		fireEvent.click( getByText( 'Register' ) );
+		// event defaults to FIRE, target defaults to the only other node (tee_a).
+		const selects = document.body.querySelectorAll(
+			'.topology-register select'
+		);
+		expect( selects ).toHaveLength( 2 );
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-register .topology-modal__btn--primary'
+			)
+		);
+		expect( onAction ).toHaveBeenCalledWith(
+			'register',
+			'echo',
+			'tee_a FIRE'
+		);
+	} );
+
+	it( 'hides Register when the class declares no registration events', () => {
+		const { queryByText } = renderNode( {
+			catalog: [ { shell_name: 'Echo' } ],
+		} );
+		expect( queryByText( 'Register' ) ).toBeNull();
+	} );
+
+	it( 'lists current registrations with an × that dispatches unregister', () => {
+		const onAction = jest.fn();
+		const { getByRole } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="src"
+				onAction={ onAction }
+				parsed={ {
+					nodes: [
+						{
+							id: 'src',
+							class: 'Timer',
+							registrations: { FIRE: [ 'lst' ] },
+						},
+					],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'src' ] ) }
+			/>
+		);
+		fireEvent.click(
+			getByRole( 'button', { name: /Unregister lst from FIRE/i } )
+		);
+		expect( onAction ).toHaveBeenCalledWith(
+			'unregister',
+			'src',
+			'lst FIRE'
+		);
+	} );
+
 	it( 'renders a Connect button on Tee nodes', () => {
 		const teeNode = { id: 'tee_a', class: 'Tee', count: 0, target: [] };
 		const { getByText } = render(

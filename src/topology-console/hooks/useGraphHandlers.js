@@ -196,6 +196,14 @@ export function useGraphHandlers( {
 						'send_struct',
 						`${ nodeId } ${ payload }`
 					);
+				} else if ( 'register' === action || 'unregister' === action ) {
+					// payload is `<target> <event>`; the verb is
+					// `register <source> <target> <event>` (source = nodeId).
+					dispatch(
+						`${ action } ${ nodeId } ${ payload }`,
+						action,
+						`${ nodeId } ${ payload }`
+					);
 				} else if ( 'trace' === action ) {
 					const level = 'number' === typeof payload ? payload : 1;
 					dispatch(

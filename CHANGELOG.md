@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The selected-node inspector can register/unregister listeners** (roadmap [48], part C). A **Register** button (shown when the node's class declares registration events) opens a modal to wire a listener node to one of the node's valid events — dispatching `register <source> <target> <event>`. Current registrations render as an `event → listener` list, each with an × that dispatches `unregister`.
+
 - **The selected-node inspector gains Request, EOF, Tell, and Struct action buttons** — `request_node` / `send_eof` (direct), and `tell_node` / `send_struct` via a shared value-prompt modal (one `PromptModal` keyed by verb). (roadmap [48], part 2)
 
 - **The no-node inspector is a server-command palette** — Trace (`debug_state *`), `dmesg`, `dump_config`, `dump_metadata`, `stats` — each dispatching its command via the inspector's generic `command` action (a one-click alternative to typing them at the REPL prompt). (roadmap [48], part 1)

@@ -1234,6 +1234,69 @@ const NO_NODE_COMMANDS = [
 	[ 'stats', 'stats' ],
 ];
 
+// Register modal (roadmap [48]-C): wire a listener node to one of the source
+// node's valid registration events. Confirm dispatches `register <source>
+// <target> <event>` via onAction('register', source, `${target} ${event}`).
+function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
+	const [ event, setEvent ] = useState( events[ 0 ] || '' );
+	const [ target, setTarget ] = useState( nodeNames[ 0 ] || '' );
+	return (
+		<ModalShell
+			title={ sprintf(
+				// translators: %s: the source node id.
+				__( 'Register a listener on %s', 'newspack-nodes' ),
+				source
+			) }
+			onDismiss={ onCancel }
+		>
+			<div className="topology-register">
+				<label
+					className="topology-register__field"
+					htmlFor="nodes-register-event"
+				>
+					{ __( 'Event', 'newspack-nodes' ) }
+					<select
+						id="nodes-register-event"
+						value={ event }
+						onChange={ ( e ) => setEvent( e.target.value ) }
+					>
+						{ events.map( ( ev ) => (
+							<option key={ ev } value={ ev }>
+								{ ev }
+							</option>
+						) ) }
+					</select>
+				</label>
+				<label
+					className="topology-register__field"
+					htmlFor="nodes-register-target"
+				>
+					{ __( 'Listener node', 'newspack-nodes' ) }
+					<select
+						id="nodes-register-target"
+						value={ target }
+						onChange={ ( e ) => setTarget( e.target.value ) }
+					>
+						{ nodeNames.map( ( n ) => (
+							<option key={ n } value={ n }>
+								{ n }
+							</option>
+						) ) }
+					</select>
+				</label>
+				<button
+					type="button"
+					className="topology-modal__btn--primary"
+					disabled={ ! event || ! target }
+					onClick={ () => onConfirm( target, event ) }
+				>
+					{ __( 'Register', 'newspack-nodes' ) }
+				</button>
+			</div>
+		</ModalShell>
+	);
+}
+
 export default function Inspector( {
 	selectedId,
 	parsed,
@@ -1257,6 +1320,8 @@ export default function Inspector( {
 	// Which value-taking verb's prompt modal is open (send/tell/send_struct), or
 	// null. One shared PromptModal keyed by PROMPT_VERBS.
 	const [ promptVerb, setPromptVerb ] = useState( null );
+	// Whether the "Register a listener" modal is open.
+	const [ registerOpen, setRegisterOpen ] = useState( false );
 
 	if ( ! selectedId ) {
 		return (
@@ -1318,6 +1383,10 @@ export default function Inspector( {
 	const nodeNames = parsed.nodes
 		.map( ( n ) => n.id )
 		.filter( ( id ) => id !== selectedId );
+	// The selected node's valid registration events (from the class catalog) —
+	// drives the Register button + modal (roadmap [48]-C).
+	const catalogEntry = catalog.find( ( c ) => c.shell_name === node.class );
+	const regEvents = catalogEntry?.registrations ?? [];
 	// The live editor uses the node's FULL uncollapsed target list — NOT
 	// parsed.edges, which are headOf-collapsed (so `_sse/workers` → `_sse`, and a
 	// disconnect would miss) and include registration edges that must get no ×.
@@ -1651,6 +1720,18 @@ export default function Inspector( {
 				>
 					{ __( 'Struct', 'newspack-nodes' ) }
 				</button>
+				{ regEvents.length > 0 && (
+					<button
+						type="button"
+						onClick={ () => setRegisterOpen( true ) }
+						title={ __(
+							'Register a listener for one of this node’s events — `register <source> <target> <event>`',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Register', 'newspack-nodes' ) }
+					</button>
+				) }
 				<button
 					type="button"
 					className={ `topology-insp__actions-full${
@@ -1747,6 +1828,50 @@ export default function Inspector( {
 						];
 					} )() }
 			</div>
+			{ node.registrations &&
+				Object.keys( node.registrations ).length > 0 && (
+					<div className="topology-insp__listeners">
+						<div className="topology-field-row__key">
+							{ __( 'Listeners', 'newspack-nodes' ) }
+						</div>
+						{ Object.entries( node.registrations ).flatMap(
+							( [ event, listeners ] ) =>
+								( listeners || [] ).map( ( listener ) => (
+									<div
+										key={ `${ event }/${ listener }` }
+										className="topology-insp__listener"
+									>
+										<span>
+											{ event } → { listener }
+										</span>
+										<button
+											type="button"
+											className="topology-insp__listener-x"
+											aria-label={ sprintf(
+												// translators: %1$s: listener node; %2$s: event.
+												__(
+													'Unregister %1$s from %2$s',
+													'newspack-nodes'
+												),
+												listener,
+												event
+											) }
+											onClick={ () =>
+												onAction &&
+												onAction(
+													'unregister',
+													node.id,
+													`${ listener } ${ event }`
+												)
+											}
+										>
+											×
+										</button>
+									</div>
+								) )
+						) }
+					</div>
+				) }
 			{ promptVerb && (
 				<PromptModal
 					title={ sprintf(
@@ -1769,6 +1894,24 @@ export default function Inspector( {
 						}
 					} }
 					onCancel={ () => setPromptVerb( null ) }
+				/>
+			) }
+			{ registerOpen && (
+				<RegisterModal
+					source={ node.id }
+					events={ regEvents }
+					nodeNames={ nodeNames }
+					onConfirm={ ( target, event ) => {
+						setRegisterOpen( false );
+						if ( onAction ) {
+							onAction(
+								'register',
+								node.id,
+								`${ target } ${ event }`
+							);
+						}
+					} }
+					onCancel={ () => setRegisterOpen( false ) }
 				/>
 			) }
 		</aside>

@@ -257,6 +257,26 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
+	it( 'onInspectorAction register dispatches register <source> <target> <event>', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'register', 'src', 'tgt EVT' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'register src tgt EVT',
+			'register',
+			'src tgt EVT'
+		);
+	} );
+
+	it( 'onInspectorAction unregister dispatches unregister <source> <target> <event>', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'unregister', 'src', 'tgt EVT' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'unregister src tgt EVT',
+			'unregister',
+			'src tgt EVT'
+		);
+	} );
+
 	it( 'onInspectorAction tail dispatches connect_node with no target', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'tail', 'a', null );

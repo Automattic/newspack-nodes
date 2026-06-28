@@ -1367,6 +1367,63 @@
 	grid-column: span 2;
 }
 
+// Register-a-listener modal body (event + target selects). Reuses the modal
+// chrome + the --primary confirm button; this only lays out the two fields.
+.topology-register {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 4px 0;
+
+	&__field {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		font: 700 10px var(--font-mono);
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--ink-3);
+
+		select {
+			padding: 6px 8px;
+			background: var(--paper);
+			border: 2px solid var(--ink-2);
+			color: var(--ink);
+			font: 400 12px var(--font-mono);
+			letter-spacing: 0;
+			text-transform: none;
+		}
+	}
+}
+
+// Current registrations list (event → listener, with × to unregister).
+.topology-insp__listeners {
+	margin-top: 14px;
+}
+
+.topology-insp__listener {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 2px 0;
+	font: 400 11px var(--font-mono);
+	color: var(--ink);
+}
+
+.topology-insp__listener-x {
+	border: none;
+	background: transparent;
+	color: var(--ink-3);
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+
+	&:hover {
+		color: var(--oxide);
+	}
+}
+
 .topology-insp__actions-danger {
 	color: var(--oxide) !important;
 	border-color: var(--oxide) !important;
