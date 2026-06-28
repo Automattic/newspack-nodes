@@ -345,6 +345,23 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
+	public function test_list_carries_registration_events(): void {
+		// The register/unregister UI reads a node's valid registration events from
+		// the catalog. Timer declares FIRE in node_schema()['registrations'].
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+
+		$by_name = [];
+		foreach ( $result['classes'] as $entry ) {
+			$by_name[ $entry['shell_name'] ] = $entry;
+		}
+		$this->assertArrayHasKey( 'Timer', $by_name, 'Timer absent from catalog' );
+		$this->assertSame(
+			[ 'FIRE' ],
+			$by_name['Timer']['registrations'],
+			'catalog must expose a node\'s registration events for the register UI'
+		);
+	}
+
 	public function test_list_flags_interpreter_classes_with_is_interpreter(): void {
 		// The console routes a node's command verbs to the bare node iff the node
 		// IS a Command_Interpreter_Node (it handles verbs directly); otherwise to
