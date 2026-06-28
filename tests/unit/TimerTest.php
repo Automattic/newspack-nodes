@@ -349,4 +349,26 @@ class TimerTest extends TestCase {
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 1, $timer->counter() );
 	}
+
+	public function test_node_schema_declares_FIRE_as_a_registration_event(): void {
+		$this->assertSame(
+			[ 'FIRE' ],
+			Timer_Node::node_schema()['registrations']
+		);
+	}
+
+	public function test_register_seeds_valid_events_from_schema_and_rejects_unknown(): void {
+		$timer = new Timer_Node();
+		// FIRE comes from node_schema (seeded in the ctor) — register accepts it.
+		$timer->register( 'FIRE', 'lst' );
+		$this->assertArrayHasKey( 'FIRE', $timer->registered_listeners() );
+		// An undeclared event is rejected (Tachikoma "no such event").
+		$threw = false;
+		try {
+			$timer->register( 'NOPE', 'x' );
+		} catch ( \RuntimeException $e ) {
+			$threw = true;
+		}
+		$this->assertTrue( $threw, 'an undeclared event is rejected' );
+	}
 }

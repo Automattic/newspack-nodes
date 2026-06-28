@@ -27,7 +27,6 @@ class Timer_Node extends Node {
 	protected string $key = '';
 
 	public function __construct() {
-		$this->registrations = [ 'FIRE' => [] ];
 		parent::__construct();
 	}
 
@@ -170,11 +169,12 @@ class Timer_Node extends Node {
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'Control',
-			'description' => 'Periodic firing — emits a heartbeat message every N ms.',
-			'arguments'   => [
+			'category'      => 'Control',
+			'description'   => 'Periodic firing — emits a heartbeat message every N ms.',
+			'arguments'     => [
 				[ 'name' => 'interval_ms', 'type' => 'int', 'required' => false ],
 			],
+			'registrations' => [ 'FIRE' ],
 		] );
 	}
 }

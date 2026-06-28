@@ -30,7 +30,6 @@ class Topic_Node extends Node {
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
-		$this->registrations = [ 'READY' => [] ];
 		parent::__construct();
 	}
 
@@ -187,6 +186,7 @@ class Topic_Node extends Node {
 				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_LIFESPAN ],
 			],
 			'commands'       => [],
+			'registrations'  => [ 'READY' ],
 			'has_target'  => false,
 		];
 	}
