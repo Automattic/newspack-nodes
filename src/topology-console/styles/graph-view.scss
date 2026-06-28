@@ -1395,7 +1395,8 @@
 		text-transform: uppercase;
 		color: var(--ink-3);
 
-		select {
+		select,
+		textarea {
 			padding: 6px 8px;
 			background: var(--paper);
 			border: 2px solid var(--ink-2);
@@ -1404,6 +1405,12 @@
 			letter-spacing: 0;
 			text-transform: none;
 		}
+	}
+
+	// Compose modal payload box (roadmap [46]).
+	.topology-compose__value {
+		min-height: 72px;
+		resize: vertical;
 	}
 }
 

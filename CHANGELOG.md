@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Message-composer playground** (roadmap [46]). The no-node inspector gains a **Compose…** button opening a modal to build a message from scratch — pick a target node, a message TYPE (`TM_BYTESTREAM`/`TM_INFO`/`TM_STRUCT`/`TM_REQUEST`/`TM_EOF`), and a value — dispatched via the matching CLI verb (`send_node` / `tell_node` / `send_struct` / `request_node` / `send_eof`), so it's fully equivalent to typing the command at the REPL.
+
 - **Topology drift diff** (roadmap [49]). The console marks runtime **drift** — live nodes in the running graph but NOT in the topology's registered `.tsl` (added at runtime via the console / `make_node`) — with a distinct brass dashed outline, so temporary/unregistered nodes stand apart from the canonical graph. Reserved `_` console infra and patron sidecars (already hidden) are excluded; live mode only.
 
 - **The selected-node inspector can register/unregister listeners** (roadmap [48], part C). A **Register** button (shown when the node's class declares registration events) opens a modal to wire a listener node to one of the node's valid events — dispatching `register <source> <target> <event>`. Current registrations render as an `event → listener` list, each with an × that dispatches `unregister`.
