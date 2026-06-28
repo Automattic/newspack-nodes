@@ -14,6 +14,8 @@
  */
 
 import { Node } from './node';
+import { pack } from './message';
+import { byteLength } from './io-telemetry';
 
 export class HttpOutNode extends Node {
 	/**
@@ -66,6 +68,13 @@ export class HttpOutNode extends Node {
 	// stderr/log lines); a routed-onward command yields [] (bare 202) — its reply
 	// arrives over the SSE stream.
 	_post( entries ) {
+		// Write boundary: tally the packed wire size of what we POST (mirrors PHP's
+		// file-writer bytes_written + Partition largest_msg_sent).
+		for ( const m of entries ) {
+			const size = byteLength( pack( m ) );
+			this.bytesWritten += size;
+			this.largestMsgSent = Math.max( this.largestMsgSent, size );
+		}
 		Promise.resolve( this.client.postBatch( entries ) )
 			.then( ( messages ) => {
 				for ( const message of messages ) {

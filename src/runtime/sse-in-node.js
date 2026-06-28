@@ -191,11 +191,15 @@ export class SseInNode extends Node {
 				message[ TO ] = this.target;
 			}
 			this._trackPosition( message );
-			// Inbound boundary accounting for the debug overlay: one received frame
-			// + its wire bytes. The error tally for a TM_ERROR frame rides the
-			// `ERROR:` log below — Core.stderr records it off the keyword, so an
-			// explicit recordError() here would double-count.
-			IoTelemetry.recordIn( byteLength( e.data ), 1 );
+			// Inbound boundary accounting: per-node bytesRead / largestMsgSent (read
+			// surface, mirrors PHP SSE_In) AND the debug overlay's IoTelemetry — one
+			// received frame + its wire bytes. The error tally for a TM_ERROR frame
+			// rides the `ERROR:` log below — Core.stderr records it off the keyword,
+			// so an explicit recordError() here would double-count.
+			const size = byteLength( e.data );
+			this.bytesRead += size;
+			this.largestMsgSent = Math.max( this.largestMsgSent, size );
+			IoTelemetry.recordIn( size, 1 );
 			if ( message[ TYPE ] & TM_ERROR ) {
 				// Surface the stream error for dashboards (snoop; still forwarded so
 				// the consumer's own error handling runs). setState for the visible

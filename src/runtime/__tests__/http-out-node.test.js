@@ -9,8 +9,10 @@
 
 import { HttpOutNode } from '../http-out-node';
 import { CommandClient } from '../command-client';
+import { byteLength } from '../io-telemetry';
 import {
 	newMessage,
+	pack,
 	TYPE,
 	FROM,
 	TO,
@@ -58,6 +60,18 @@ describe( 'HttpOut', () => {
 	afterEach( () => {
 		const { Core } = require( '../core' );
 		Core.reset();
+	} );
+
+	it( 'records bytesWritten + largestMsgSent for the packed POST body', () => {
+		const { node } = makeNode();
+		const m = routed( {
+			to: 'echo',
+			value: { name: 'tell', arguments: 'hi' },
+		} );
+		const size = byteLength( pack( m ) );
+		node.fill( m );
+		expect( node.bytesWritten ).toBe( size );
+		expect( node.largestMsgSent ).toBe( size );
 	} );
 
 	it( 'POSTs the routed Message verbatim (no connect_worker_input prepend)', () => {
