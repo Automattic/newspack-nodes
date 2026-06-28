@@ -174,6 +174,17 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( 'other.p1' ) ).toBeInstanceOf( RemoteIpcNode );
 	} );
 
+	it( 'registers its RemoteIpc channels in Core.reinitNames (console infra, not user nodes for the Reset chip)', () => {
+		renderGraph( {
+			topology: 'demo',
+			partition: 0,
+			workers: [ 'demo.p0', 'other.p1' ],
+		} );
+		expect( Core.reinitNames ).toEqual(
+			expect.arrayContaining( [ 'demo.p0', 'other.p1' ] )
+		);
+	} );
+
 	it( 'bumping the graph generation tears down + rebuilds the graph (fresh Router)', () => {
 		renderGraph();
 		const first = Core.node( names.ROUTER );

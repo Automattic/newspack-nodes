@@ -148,6 +148,17 @@ export function useConsoleGraph( {
 			remotes.push( remote );
 		}
 
+		// The RemoteIpc channels are console infra, not user-added nodes. This is a
+		// bare mount (no build snapshot), so register them in reinitNames by hand —
+		// the same exclusion the dashboards get from runBuild — so useGraphReset
+		// doesn't count them and leave the Reset Graph chip stuck on the browser
+		// graph. Teardown nulls reinitNames (the bare mount owns the backbone), so
+		// this self-cleans on rebuild.
+		Core.reinitNames = [
+			...( Core.reinitNames || [] ),
+			...remotes.map( ( r ) => r.name ),
+		];
+
 		// `_cwd` is a plain Node whose `target` IS the current working directory.
 		// The poll nodes address `_cwd`; Router peels it, the base Node.fill
 		// re-stamps the live cwd into TO (or leaves TO empty for the local root),

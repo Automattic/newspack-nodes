@@ -109,9 +109,10 @@ export class RemoteLinkNode extends Node {
 		this.sseIn = sse;
 
 		// `_http` (egress POST) + `_heartbeat` (slot keepalive) are backbone
-		// singletons (mountExospine owns them); reuse + configure. `_http` carries
-		// this link's command client; the heartbeat pokes the request-scope `workers`
-		// CI through `_http` on the router TIMER (dormant until a slot is bridged in).
+		// singletons (mountExospine owns them, incl. the heartbeat's fixed
+		// `_http/workers` target); reuse + configure. `_http` carries this link's
+		// command client; arm the heartbeat's TIMER hitchhike so it pokes once a slot
+		// is bridged in (fire() no-ops until then).
 		const http = Core.node( names.HTTP );
 		http.client =
 			this.client ||
@@ -119,7 +120,6 @@ export class RemoteLinkNode extends Node {
 		this.httpOut = http;
 
 		const hb = Core.node( names.HEARTBEAT );
-		hb.target = `${ names.HTTP }/workers`;
 		hb.setTimer();
 		this.heartbeat = hb;
 
