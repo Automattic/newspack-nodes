@@ -29,6 +29,22 @@ test( 'the router stays bare — no sink, no target (rule #2)', () => {
 	expect( router.target ).toBe( '' );
 } );
 
+test( 'mounts a permanent _shell Tap that sinks into the interpreter', () => {
+	const { interpreter } = mountExospine();
+
+	const shell = Core.node( names.CONSOLE_TAP );
+	expect( shell ).not.toBeNull();
+	expect( shell.sink ).toBe( interpreter );
+} );
+
+test( 'teardown removes the _shell Tap', () => {
+	const { teardown } = mountExospine();
+
+	teardown();
+
+	expect( Core.node( names.CONSOLE_TAP ) ).toBeNull();
+} );
+
 test( 'teardown unregisters both backbone nodes from Core', () => {
 	const { teardown } = mountExospine();
 

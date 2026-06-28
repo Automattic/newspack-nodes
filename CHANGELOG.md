@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`_shell` is now a permanent fixture of the exospine backbone.** `mountExospine` always mounts the `_shell` command Tap in front of `_command_interpreter`; every constructed Shell and the dashboards' periodic poll commands route through it, so `connect _shell` observes ALL outbound commands consistently (with or without a REPL). Removed the per-consumer `_shell` creation (console, `useBatchedPoll`, debug overlay), which now bind to the shared one. Like the rest of the rule-#2 backbone, it's scaffolding-hidden from the canvas.
+
 - **Renamed the per-topology worker-count snapshot `topologyPartitions` → `topologyWorkers`** (the `NewspackNodesData` localize key + its PHP/JS identifiers). Each entry is a topology's worker count, so "partition" overloaded the term (it already means log partitions / `Partition_Node`). The partition *index* of a worker (`p0`/`p1`, `partitionIndices`) keeps the partition term — that's a worker's actual partition number.
 
 - **The debug overlay's "Messages" heading is themed** — small uppercase muted label matching the stat-card labels, instead of the browser-default serif `h3` that read as unstyled.

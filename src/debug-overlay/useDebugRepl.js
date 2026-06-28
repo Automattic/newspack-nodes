@@ -27,7 +27,7 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 	// on the reserved _output name.
 	const existing = Core.node( names.OUTPUT );
 	if ( existing ) {
-		shell.sink = interpreter;
+		shell.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
 		return {
 			dumper: existing,
 			teardown: () => {
@@ -68,9 +68,11 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 		cwdNode = interpreter.makeNode( 'Node', names.CWD );
 		cwdNode.target = shell.path;
 	}
-	// Bind shell.sink to the always-present interpreter as part of the build, so
-	// a fast open-and-type can't find it null — dispatch never null-resolves.
-	shell.sink = interpreter;
+	// Bind shell.sink to the always-present `_shell` Tap (an exospine-backbone
+	// fixture) as part of the build, so a fast open-and-type can't find it null —
+	// dispatch never null-resolves. `_shell` forwards to the interpreter; routing
+	// through it keeps every typed command observable via `connect _shell`.
+	shell.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
 	const teardown = () => {
 		dumper.unregister( 'transcript', listenerId );
 		// metadata.removeNode() -> stop_timer -> unregister from the _router's

@@ -500,12 +500,10 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'excludes the _shell console Tap from the path menu (routing plumbing, not a cd target)', () => {
-		// `_shell` (names.CONSOLE_TAP) is the observe-only Tap useBatchedPoll mounts
-		// in front of `_http` on every dashboard — it's routing, not a navigable
-		// scope. `_http` (the I/O egress) stays a legitimate `cd` target.
+		// `_shell` (names.CONSOLE_TAP) is the observe-only command Tap the exospine
+		// backbone always mounts in front of the interpreter — it's routing, not a
+		// navigable scope. `_http` (the I/O egress) stays a legitimate `cd` target.
 		mountExospine();
-		const tap = new Node();
-		tap.name = '_shell';
 		const svc = new Node();
 		svc.name = '_my_service'; // a real navigable node so the menu expands
 		const { getByRole, container } = render(

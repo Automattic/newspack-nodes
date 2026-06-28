@@ -45,11 +45,10 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
-// Substrate send-path node names: `_http` the HttpOut egress (an I/O node) and,
-// in front of it, `_shell` the observe-only Tap (a ROUTING node) that watches
-// every command going out.
+// Substrate send-path node name: `_http`, the HttpOut egress (an I/O node). The
+// `_shell` observe-only Tap that watches outbound commands is now a permanent
+// fixture of the exospine backbone (mountExospine), not mounted per-dashboard.
 const HTTP = '_http';
-const SHELL = '_shell';
 
 // Arm the owned Timer's router-TIMER hitchhike at the optional intervalMs: > 1000
 // hitchhikes + throttles in fireCb(); omitted/0 fires every router tick. Either
@@ -97,9 +96,9 @@ export function useBatchedPoll( opts ) {
 					nonce: data.nonce || '',
 				} );
 
-			// `_shell` — observe-only Tap in front of `_http`, so `connect _shell`
-			// watches every command going out. No targets: it forwards its sink.
-			interpreter.makeNode( 'Tap', SHELL );
+			// `_shell` (observe-only Tap; `connect _shell` watches every command
+			// going out) is now a permanent fixture of the exospine backbone — no
+			// need to mount it here.
 
 			// The fan-out Tee + the router-hitchhike Timer that fans each tick to it.
 			const { teeName, timerName } = optsRef.current;
