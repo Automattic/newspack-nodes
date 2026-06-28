@@ -21,8 +21,6 @@
 import { Core } from './core';
 import { Node } from './node';
 import { SseInNode } from './sse-in-node';
-import { HttpOutNode } from './http-out-node';
-import { HeartbeatNode } from './heartbeat-node';
 import { CommandClient } from './command-client';
 import names from './reserved-node-names.json';
 
@@ -110,30 +108,19 @@ export class RemoteLinkNode extends Node {
 		sse.homeToTarget = this.rehomeReceived;
 		this.sseIn = sse;
 
-		let http;
-		if ( Core.node( names.HTTP ) ) {
-			http = Core.node( names.HTTP );
-		} else {
-			http = new HttpOutNode();
-			http.name = names.HTTP;
-			http.sink = this.sink;
-		}
+		// `_http` (egress POST) + `_heartbeat` (slot keepalive) are backbone
+		// singletons (mountExospine owns them); reuse + configure. `_http` carries
+		// this link's command client; the heartbeat pokes the request-scope `workers`
+		// CI through `_http` on the router TIMER (dormant until a slot is bridged in).
+		const http = Core.node( names.HTTP );
 		http.client =
 			this.client ||
 			new CommandClient( { baseUrl: sse.baseUrl, nonce: sse.nonce } );
 		this.httpOut = http;
 
-		let hb;
-		if ( Core.node( names.HEARTBEAT ) ) {
-			hb = Core.node( names.HEARTBEAT );
-		} else {
-			hb = new HeartbeatNode();
-			hb.name = names.HEARTBEAT;
-			hb.sink = this.sink;
-			// Poke routes through THIS link's own HttpOut to the request-scope `workers` CI.
-			hb.target = `${ names.HTTP }/workers`;
-			hb.setTimer();
-		}
+		const hb = Core.node( names.HEARTBEAT );
+		hb.target = `${ names.HTTP }/workers`;
+		hb.setTimer();
 		this.heartbeat = hb;
 
 		// Slot bridge: the SseIn's `connected` handshake carries the slot the
@@ -152,14 +139,13 @@ export class RemoteLinkNode extends Node {
 		} );
 	}
 
-	// Tear down the children (unregister + close) then remove self. close() first
-	// because the children's removeNode (Node/TimerNode) unregisters but does NOT
-	// close the SseIn's live EventSource — teardown must, or the stream leaks.
+	// Tear down OUR own (unnamed) SseIn — close() first, because its removeNode
+	// unregisters but does NOT close the live EventSource (the stream would leak).
+	// `_http`/`_heartbeat` are backbone singletons (mountExospine owns them); leave
+	// them for the graph to tear down, or a co-mounted link's reinit finds them gone.
 	removeNode() {
 		this.close();
 		this.sseIn?.unregister( 'CONNECTED', this.name );
-		this.heartbeat?.removeNode();
-		this.httpOut?.removeNode();
 		this.sseIn?.removeNode();
 		this.sseIn = null;
 		this.httpOut = null;

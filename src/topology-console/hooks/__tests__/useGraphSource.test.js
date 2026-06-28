@@ -12,20 +12,20 @@ describe( 'useGraphSource', () => {
 	} );
 	afterEach( () => jest.useRealTimers() );
 
-	it( 'empty (besides the visible _shell Tap) when no metadata and no soft nodes', () => {
+	it( 'empty (besides the visible backbone fixtures) when no metadata and no soft nodes', () => {
 		// Bare exospine: _router/_command_interpreter are SCAFFOLDING-hidden; the
-		// `_shell` command Tap is VISIBLE but always present, so hasNodes excludes
-		// it — an otherwise-empty graph still reads empty.
+		// visible backbone fixtures (_shell/_http/_heartbeat) are always present, so
+		// hasNodes excludes them — an otherwise-empty graph still reads empty.
 		const { teardown } = mountExospine();
 		const { result } = renderHook( () =>
 			useGraphSource( { active: true } )
 		);
 		expect( result.current.hasNodes ).toBe( false );
-		// `_shell` is the lone visible node; coreToGraph stamps the local reply
-		// pivot into pwd (the in-browser tail target is always the bare `_output`).
-		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toEqual( [
-			'_shell',
-		] );
+		// The lone visible nodes are the backbone fixtures; coreToGraph stamps the
+		// local reply pivot into pwd (the in-browser tail target is `_output`).
+		expect(
+			result.current.graph.nodes.map( ( n ) => n.id ).sort()
+		).toEqual( [ '_heartbeat', '_http', '_shell' ] );
 		expect( result.current.graph.edges ).toEqual( [] );
 		expect( result.current.graph.pwd ).toBe( '_output' );
 		teardown();

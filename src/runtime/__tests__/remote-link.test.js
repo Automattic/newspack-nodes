@@ -252,13 +252,15 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.sseIn ).toBe( sse );
 	} );
 
-	it( 'removeNode tears down the SseIn + the shared singletons (single-link owner)', () => {
+	it( 'removeNode tears down the SseIn but leaves the backbone _http/_heartbeat', () => {
 		const { link } = makeLink();
 		link.connect();
 		link.removeNode();
 		expect( link.sseIn ).toBe( null );
-		expect( Core.node( names.HTTP ) ).toBe( null );
-		expect( Core.node( names.HEARTBEAT ) ).toBe( null );
+		// _http/_heartbeat are backbone singletons (mountExospine owns them); the
+		// link leaves them for the graph teardown.
+		expect( Core.node( names.HTTP ) ).not.toBe( null );
+		expect( Core.node( names.HEARTBEAT ) ).not.toBe( null );
 	} );
 
 	it( 'removeNode closes the live EventSource (teardown is self-sufficient)', () => {

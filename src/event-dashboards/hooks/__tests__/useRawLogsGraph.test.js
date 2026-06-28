@@ -399,9 +399,10 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 			Core.reinit();
 		} );
 
-		// Soft nodes are fresh instances under the same names; backbone survives.
+		// Soft (build) nodes are fresh instances under the same names; the backbone
+		// survives — including the shared `_http` singleton it now owns.
 		expect( Core.node( VIEW ) ).not.toBe( firstView );
-		expect( Core.node( HTTP ) ).not.toBe( firstHttp );
+		expect( Core.node( HTTP ) ).toBe( firstHttp );
 		expect( Core.node( VIEW ).sink ).toBe( Core.node( INTERPRETER ) );
 		expect( Core.node( INTERPRETER ) ).toBe( backbone );
 	} );
