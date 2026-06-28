@@ -1316,7 +1316,8 @@
 	}
 }
 
-.topology-insp__actions {
+.topology-insp__actions,
+.topology-insp__commands {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
 	gap: 6px;

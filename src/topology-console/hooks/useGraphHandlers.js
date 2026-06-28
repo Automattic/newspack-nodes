@@ -125,6 +125,11 @@ export function useGraphHandlers( {
 						'dump_config',
 						nodeId
 					);
+				} else if ( 'command' === action ) {
+					// Raw server command (no node) — the no-node inspector buttons.
+					// payload is the full command line; the verb is its first token.
+					const verb = String( payload ).split( /\s+/ )[ 0 ];
+					dispatch( payload, verb, '' );
 				} else if ( 'tail' === action ) {
 					// connect_node with NO target appends the issuing FROM — this
 					// session's reply pivot, reported authoritatively as the _header

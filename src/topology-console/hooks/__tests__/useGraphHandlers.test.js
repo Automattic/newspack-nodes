@@ -207,6 +207,16 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
+	it( 'onInspectorAction command dispatches a raw server command (no node)', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'command', null, 'debug_state *' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'debug_state *',
+			'debug_state',
+			''
+		);
+	} );
+
 	it( 'onInspectorAction tail dispatches connect_node with no target', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'tail', 'a', null );

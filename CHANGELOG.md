@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The console inspector shows server-command buttons when no node is selected** — Trace (`debug_state *`), `dmesg`, `dump_config`, `dump_metadata`, `log`, `ping`, `stats` — each dispatching its command via the inspector's generic `command` action (a one-click alternative to typing them at the REPL prompt). (roadmap [48], part 1)
+
 - **Idle nodes are dimmed in the graph.** A node whose message rate is below the display floor (no meaningful activity) renders at reduced opacity — like a quiet connection — so active nodes stand out. Live mode only; edit mode (no rate data) never dims, and a hover-fade still takes precedence. (roadmap [85])
 
 - **The overlay Overview shows Client Uptime and SSE Uptime cards.** Client uptime is time since the page loaded (`performance.timeOrigin`); SSE uptime is time since the live stream connected — `SseInNode` stamps the connect time into `IoTelemetry` on CONNECTED and clears it on DISCONNECTED/RECONNECTING, so the card reads `-` while down. Both format as an age and tick with the cards' existing refresh (no new timer). (roadmap [89])
