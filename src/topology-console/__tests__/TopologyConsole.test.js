@@ -652,7 +652,7 @@ jest.mock( '../utils/commandClient', () => ( {
 	} ),
 } ) );
 
-import TopologyConsole from '../TopologyConsole';
+import TopologyConsole, { initialTopologyFromUrl } from '../TopologyConsole';
 import { Core } from '../../runtime/core';
 
 // Build a positional Message; default TO routes to the Dumper transcript.
@@ -3820,5 +3820,38 @@ describe( 'TopologyConsole boot', () => {
 				window.localStorage.getItem( 'newspack-nodes:theme' )
 			).toBe( 'crt' );
 		} );
+	} );
+} );
+
+describe( 'initialTopologyFromUrl (deep-link validation)', () => {
+	afterEach( () => {
+		window.history.replaceState( {}, '', '/' );
+	} );
+
+	it( 'honors a deep link from the module-load SEED even when a sibling hub bundle later clobbers window.NewspackNodesData', () => {
+		jest.isolateModules( () => {
+			// Seed the snapshot BEFORE the module imports so SEED_PARTITIONS
+			// captures it (mirrors production: the console bundle's localize is
+			// current when its own script executes).
+			window.NewspackNodesData = {
+				topologyPartitions: { alpha: 1, demo: 2 },
+				activeTopologies: [],
+			};
+			// eslint-disable-next-line global-require
+			const mod = require( '../TopologyConsole' );
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			// A sibling hub bundle re-localized NewspackNodesData WITHOUT
+			// topologyPartitions — the real clobber. The SEED must still resolve
+			// the deep link rather than fall back to the first topology.
+			window.NewspackNodesData = { tree: 'event-dashboards' };
+			expect( mod.initialTopologyFromUrl( 'alpha' ) ).toBe( 'demo' );
+		} );
+	} );
+
+	it( 'falls back when ?topology= is not a known topology', () => {
+		window.history.replaceState( {}, '', '/?topology=ghost' );
+		expect( initialTopologyFromUrl( 'fallback-topology' ) ).toBe(
+			'fallback-topology'
+		);
 	} );
 } );
