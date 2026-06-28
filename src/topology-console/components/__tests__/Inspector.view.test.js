@@ -28,6 +28,19 @@ describe( 'Inspector (view mode)', () => {
 		).not.toBeNull();
 	} );
 
+	it( 'no-node panel in EDIT mode shows an edit hint, not the live command palette', () => {
+		// The live `_command_interpreter` + server-command palette is meaningless for
+		// an offline draft — edit mode with nothing selected gets a hint instead.
+		const { container, queryByText } = render(
+			<Inspector { ...baseProps } editMode={ true } />
+		);
+		expect(
+			container.querySelector( '.topology-insp__commands' )
+		).toBeNull();
+		expect( queryByText( '_command_interpreter' ) ).toBeNull();
+		expect( queryByText( /select a node/i ) ).not.toBeNull();
+	} );
+
 	it( 'shows process stats (msgs in/out) at the top of the no-node inspector', () => {
 		const { getByTestId } = render(
 			<Inspector
