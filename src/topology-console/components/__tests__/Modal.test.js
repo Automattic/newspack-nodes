@@ -318,33 +318,43 @@ describe( 'NewNodeModal', () => {
 		onCancel: () => {},
 	};
 
-	it( 'renders a name input pre-filled with the default and an args input', () => {
+	it( 'renders a name input + one node_schema field per argSchema entry', () => {
 		const { baseElement } = render( <NewNodeModal { ...baseProps } /> );
-		const inputs = baseElement.querySelectorAll( 'input' );
-		expect( inputs ).toHaveLength( 2 );
-		expect( inputs[ 0 ].value ).toBe( 'partition1' );
-		expect( inputs[ 1 ].value ).toBe( '' );
+		const labels = [
+			...baseElement.querySelectorAll( '.topology-edit-row__label' ),
+		].map( ( l ) => l.textContent );
+		expect( labels ).toEqual( [ 'topic *', 'segment_size' ] );
+		// name input + the two constructor fields.
+		expect( baseElement.querySelectorAll( 'input' ) ).toHaveLength( 3 );
+		expect(
+			baseElement.querySelector( '#newspack-nodes-newnode-name' ).value
+		).toBe( 'partition1' );
 	} );
 
-	it( 'shows the argSchema template as a placeholder/hint on the args input', () => {
+	it( 'shows each arg schema default as its field placeholder', () => {
 		const { baseElement } = render( <NewNodeModal { ...baseProps } /> );
-		// Template should expose required asterisk + default-marker syntax so
-		// the user knows what the field expects.
-		expect( baseElement.textContent ).toMatch( /topic\*/ );
-		expect( baseElement.textContent ).toMatch( /segment_size=4096/ );
+		expect(
+			baseElement.querySelector( '#topology-ctor-segment_size' )
+				.placeholder
+		).toBe( '4096' );
 	} );
 
-	it( 'submits { name, args } on Save click', () => {
+	it( 'submits { name, args } serialized from the per-field values', () => {
 		const onConfirm = jest.fn();
 		const { baseElement, getByText } = render(
 			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
 		);
-		const [ nameInput, argsInput ] =
-			baseElement.querySelectorAll( 'input' );
-		fireEvent.change( nameInput, { target: { value: 'mypart' } } );
-		fireEvent.change( argsInput, {
-			target: { value: 'mytopic 8192' },
+		fireEvent.change(
+			baseElement.querySelector( '#newspack-nodes-newnode-name' ),
+			{ target: { value: 'mypart' } }
+		);
+		fireEvent.change( baseElement.querySelector( '#topology-ctor-topic' ), {
+			target: { value: 'mytopic' },
 		} );
+		fireEvent.change(
+			baseElement.querySelector( '#topology-ctor-segment_size' ),
+			{ target: { value: '8192' } }
+		);
 		fireEvent.click( getByText( 'Add' ) );
 		expect( onConfirm ).toHaveBeenCalledWith( {
 			name: 'mypart',
@@ -352,26 +362,47 @@ describe( 'NewNodeModal', () => {
 		} );
 	} );
 
-	it( 'submits on Enter inside either input', () => {
+	it( 'fills a blank field from its schema default on submit', () => {
+		const onConfirm = jest.fn();
+		const { baseElement, getByText } = render(
+			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
+		);
+		fireEvent.change(
+			baseElement.querySelector( '#newspack-nodes-newnode-name' ),
+			{ target: { value: 'p' } }
+		);
+		fireEvent.change( baseElement.querySelector( '#topology-ctor-topic' ), {
+			target: { value: 'mytopic' },
+		} );
+		// segment_size left blank → its 4096 default fills the slot.
+		fireEvent.click( getByText( 'Add' ) );
+		expect( onConfirm ).toHaveBeenCalledWith( {
+			name: 'p',
+			args: 'mytopic 4096',
+		} );
+	} );
+
+	it( 'submits on Enter inside the name input', () => {
 		const onConfirm = jest.fn();
 		const { baseElement } = render(
 			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
 		);
-		const [ nameInput, argsInput ] =
-			baseElement.querySelectorAll( 'input' );
-		fireEvent.change( argsInput, { target: { value: 'x' } } );
+		const nameInput = baseElement.querySelector(
+			'#newspack-nodes-newnode-name'
+		);
+		fireEvent.change( nameInput, { target: { value: 'p' } } );
 		fireEvent.keyDown( nameInput, { key: 'Enter' } );
 		expect( onConfirm ).toHaveBeenCalledTimes( 1 );
-		fireEvent.keyDown( argsInput, { key: 'Enter' } );
-		expect( onConfirm ).toHaveBeenCalledTimes( 2 );
 	} );
 
-	it( 'disables Add when name is empty (args can be empty)', () => {
+	it( 'disables Add when name is empty', () => {
 		const { getByText, baseElement } = render(
-			<NewNodeModal { ...baseProps } />
+			<NewNodeModal { ...baseProps } defaultName="" />
 		);
-		const [ nameInput ] = baseElement.querySelectorAll( 'input' );
-		fireEvent.change( nameInput, { target: { value: '' } } );
+		fireEvent.change(
+			baseElement.querySelector( '#newspack-nodes-newnode-name' ),
+			{ target: { value: '' } }
+		);
 		expect( getByText( 'Add' ).disabled ).toBe( true );
 	} );
 
@@ -386,7 +417,8 @@ describe( 'NewNodeModal', () => {
 
 	it( 'focuses the name input on mount (user can rename immediately)', () => {
 		const { baseElement } = render( <NewNodeModal { ...baseProps } /> );
-		const [ nameInput ] = baseElement.querySelectorAll( 'input' );
-		expect( document.activeElement ).toBe( nameInput );
+		expect( document.activeElement ).toBe(
+			baseElement.querySelector( '#newspack-nodes-newnode-name' )
+		);
 	} );
 } );

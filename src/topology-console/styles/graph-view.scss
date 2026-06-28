@@ -3142,6 +3142,12 @@
 	color: var(--oxide-dark);
 }
 
+// NewNodeModal's node_schema-enriched Constructor fields (the shared CtorField
+// widgets), set off from the name input above.
+.topology-modal__ctor {
+	margin-top: 12px;
+}
+
 .topology-modal__actions {
 	display: flex;
 	justify-content: flex-end;

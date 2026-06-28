@@ -6,6 +6,8 @@
 import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { getStoredTheme } from '../themes';
+import { CtorField } from './CtorField';
+import { serializeCtorArgs } from '../utils/serializeTsl';
 
 export function ModalShell( { title, onDismiss, children } ) {
 	const ref = useRef( null );
@@ -197,16 +199,20 @@ export function PromptModal( {
 
 /**
  * NewNodeModal — prompted on a palette drop in live mode (topology console
- * and debug overlay). Two inputs stacked: name (pre-filled with the auto-
- * generated `${shell}1` etc.) above args (placeholder = the declared schema
- * template, e.g. `topic* segment_size=4096`). Enter in either input submits;
- * confirm fires with `{ name, args }` so the caller can format the make_node
- * line.
+ * and debug overlay). A name input (pre-filled with the auto-generated
+ * `${shell}1` etc.) above the class's node_schema-enriched Constructor fields —
+ * the SAME `CtorField` widgets edit mode renders (typed text, formatter/node
+ * pickers, per-field defaults), instead of one freeform args string. On confirm
+ * the per-field values serialize to the positional args string (defaults filled,
+ * trailing empties dropped — matching edit-mode `serializeTsl`), and `onConfirm`
+ * fires with `{ name, args }` so the caller formats the make_node line.
  *
  * @param {Object}   props
  * @param {string}   props.shellName   Class shell name (e.g. "Partition").
  * @param {string}   props.defaultName Auto-generated id (pre-fills name).
- * @param {Array}    props.argSchema   [{ name, required?, default? }, ...]
+ * @param {Array}    props.argSchema   [{ name, type?, required?, default? }, ...]
+ * @param {Array}    props.nodeNames   Other node ids (for node_name arg pickers).
+ * @param {Array}    props.formatters  Registered formatter names (formatter_name args).
  * @param {Function} props.onConfirm   ({ name, args }) => void
  * @param {Function} props.onCancel    () => void
  */
@@ -214,11 +220,13 @@ export function NewNodeModal( {
 	shellName,
 	defaultName,
 	argSchema = [],
+	nodeNames = [],
+	formatters = [],
 	onConfirm,
 	onCancel,
 } ) {
 	const [ name, setName ] = useState( defaultName || '' );
-	const [ args, setArgs ] = useState( '' );
+	const [ values, setValues ] = useState( () => argSchema.map( () => '' ) );
 	const nameRef = useRef( null );
 
 	useEffect( () => {
@@ -226,21 +234,15 @@ export function NewNodeModal( {
 		nameRef.current?.select();
 	}, [] );
 
-	const argPlaceholder = argSchema
-		.map(
-			( a ) =>
-				`${ a.name }${ a.required ? '*' : '' }${
-					a.default !== undefined ? `=${ a.default }` : ''
-				}`
-		)
-		.join( ' ' );
-
 	const valid = '' !== name.trim();
 	const submit = () => {
 		if ( ! valid ) {
 			return;
 		}
-		onConfirm( { name: name.trim(), args } );
+		onConfirm( {
+			name: name.trim(),
+			args: serializeCtorArgs( values, argSchema ),
+		} );
 	};
 
 	const onKey = ( e ) => {
@@ -274,24 +276,23 @@ export function NewNodeModal( {
 					onChange={ ( e ) => setName( e.target.value ) }
 					onKeyDown={ onKey }
 				/>
-				<label
-					className="topology-modal__label"
-					htmlFor="newspack-nodes-newnode-args"
-				>
-					{ __( 'arguments', 'newspack-nodes' ) }
-				</label>
-				<input
-					id="newspack-nodes-newnode-args"
-					type="text"
-					className="topology-modal__input"
-					value={ args }
-					placeholder={ argPlaceholder }
-					onChange={ ( e ) => setArgs( e.target.value ) }
-					onKeyDown={ onKey }
-				/>
-				{ argPlaceholder && (
-					<div className="topology-modal__hint">
-						{ argPlaceholder }
+				{ argSchema.length > 0 && (
+					// eslint-disable-next-line jsx-a11y/no-static-element-interactions
+					<div className="topology-modal__ctor" onKeyDown={ onKey }>
+						{ argSchema.map( ( spec, i ) => (
+							<CtorField
+								key={ spec.name }
+								spec={ spec }
+								value={ values[ i ] }
+								nodeNames={ nodeNames }
+								formatters={ formatters }
+								onChange={ ( v ) => {
+									const next = values.slice();
+									next[ i ] = v;
+									setValues( next );
+								} }
+							/>
+						) ) }
 					</div>
 				) }
 			</div>
