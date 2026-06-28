@@ -470,6 +470,40 @@ describe( 'Inspector (view mode)', () => {
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 	} );
 
+	it( 'opens a Tell modal and fires onAction("tell", id, info) when confirmed', () => {
+		const onAction = jest.fn();
+		const { getByText, getByDisplayValue } = renderNode( { onAction } );
+		fireEvent.click( getByText( 'Tell' ) );
+		const input = document.body.querySelector( '.topology-modal__input' );
+		expect( input ).not.toBeNull();
+		fireEvent.change( input, { target: { value: 'heads up' } } );
+		fireEvent.click(
+			getByDisplayValue( 'heads up' )
+				.closest( '.topology-modal' )
+				.querySelector( '.topology-modal__btn--primary' )
+		);
+		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'heads up' );
+	} );
+
+	it( 'opens a Struct modal and fires onAction("send_struct", id, json) when confirmed', () => {
+		const onAction = jest.fn();
+		const { getByText, getByDisplayValue } = renderNode( { onAction } );
+		fireEvent.click( getByText( 'Struct' ) );
+		const input = document.body.querySelector( '.topology-modal__input' );
+		expect( input ).not.toBeNull();
+		fireEvent.change( input, { target: { value: '{"k":1}' } } );
+		fireEvent.click(
+			getByDisplayValue( '{"k":1}' )
+				.closest( '.topology-modal' )
+				.querySelector( '.topology-modal__btn--primary' )
+		);
+		expect( onAction ).toHaveBeenCalledWith(
+			'send_struct',
+			'echo',
+			'{"k":1}'
+		);
+	} );
+
 	it( 'renders a Connect button on Tee nodes', () => {
 		const teeNode = { id: 'tee_a', class: 'Tee', count: 0, target: [] };
 		const { getByText } = render(

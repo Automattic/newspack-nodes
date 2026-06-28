@@ -1218,6 +1218,14 @@ function VerbButton( { nodeId, spec, kind, formatters, nodeNames, onAction } ) {
 // selected node (roadmap [48]). Each dispatches its raw command via onAction's
 // generic `command` action; args-taking verbs (log/ping) show their usage in the
 // transcript, same as typing them bare in the REPL.
+// Value-taking selected-node verbs (roadmap [48]): each button opens ONE shared
+// prompt modal keyed by verb; onConfirm dispatches onAction(verb, node.id, value).
+const PROMPT_VERBS = {
+	send: { label: 'Send', noun: 'bytes' },
+	tell: { label: 'Tell', noun: 'info' },
+	send_struct: { label: 'Struct', noun: 'JSON' },
+};
+
 const NO_NODE_COMMANDS = [
 	[ 'Trace', 'debug_state *' ],
 	[ 'dmesg', 'dmesg' ],
@@ -1248,7 +1256,9 @@ export default function Inspector( {
 	onConnect,
 } ) {
 	// Pending `send_node` payload prompt (replaces window.prompt).
-	const [ sendOpen, setSendOpen ] = useState( false );
+	// Which value-taking verb's prompt modal is open (send/tell/send_struct), or
+	// null. One shared PromptModal keyed by PROMPT_VERBS.
+	const [ promptVerb, setPromptVerb ] = useState( null );
 
 	if ( ! selectedId ) {
 		return (
@@ -1596,7 +1606,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
-					onClick={ () => setSendOpen( true ) }
+					onClick={ () => setPromptVerb( 'send' ) }
 					title={ __(
 						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
 						'newspack-nodes'
@@ -1625,6 +1635,26 @@ export default function Inspector( {
 					) }
 				>
 					{ __( 'EOF', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
+					onClick={ () => setPromptVerb( 'tell' ) }
+					title={ __(
+						'Send a TM_INFO payload — `tell_node <name> <info>`',
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'Tell', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
+					onClick={ () => setPromptVerb( 'send_struct' ) }
+					title={ __(
+						'Send a TM_STRUCT JSON payload — `send_struct <name> <json>`',
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'Struct', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
@@ -1722,22 +1752,28 @@ export default function Inspector( {
 						];
 					} )() }
 			</div>
-			{ sendOpen && (
+			{ promptVerb && (
 				<PromptModal
-					title={ __( 'Send bytes', 'newspack-nodes' ) }
+					title={ sprintf(
+						// translators: %s: payload noun (bytes / info / JSON).
+						__( 'Send %s', 'newspack-nodes' ),
+						PROMPT_VERBS[ promptVerb ].noun
+					) }
 					body={ sprintf(
-						// translators: %s: the node id to send bytes to.
-						__( 'Send bytes to %s:', 'newspack-nodes' ),
+						// translators: %1$s: payload noun; %2$s: the node id.
+						__( 'Send %1$s to %2$s:', 'newspack-nodes' ),
+						PROMPT_VERBS[ promptVerb ].noun,
 						node.id
 					) }
-					confirmLabel={ __( 'Send', 'newspack-nodes' ) }
+					confirmLabel={ PROMPT_VERBS[ promptVerb ].label }
 					onConfirm={ ( payload ) => {
-						setSendOpen( false );
+						const verb = promptVerb;
+						setPromptVerb( null );
 						if ( onAction ) {
-							onAction( 'send', node.id, payload );
+							onAction( verb, node.id, payload );
 						}
 					} }
-					onCancel={ () => setSendOpen( false ) }
+					onCancel={ () => setPromptVerb( null ) }
 				/>
 			) }
 		</aside>
