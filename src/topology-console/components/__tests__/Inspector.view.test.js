@@ -70,6 +70,15 @@ describe( 'Inspector (view mode)', () => {
 			/>
 		);
 
+	it( 'selected-node Request and EOF buttons dispatch their verbs', () => {
+		const onAction = jest.fn();
+		const { getByText } = renderNode( { onAction } );
+		fireEvent.click( getByText( 'Request' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'request', 'echo' );
+		fireEvent.click( getByText( 'EOF' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'send_eof', 'echo' );
+	} );
+
 	it( 'renders the node title + type with LIVE LED', () => {
 		const { container } = renderNode();
 		expect(

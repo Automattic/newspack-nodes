@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The selected-node inspector gains Request + EOF action buttons** (`request_node` / `send_eof`), alongside the new node-scoped `tell` / `send_struct` dispatch actions (their value-prompt buttons follow). (roadmap [48], part 2)
+
 - **The console inspector shows server-command buttons when no node is selected** — Trace (`debug_state *`), `dmesg`, `dump_config`, `dump_metadata`, `log`, `ping`, `stats` — each dispatching its command via the inspector's generic `command` action (a one-click alternative to typing them at the REPL prompt). (roadmap [48], part 1)
 
 - **Idle nodes are dimmed in the graph.** A node whose message rate is below the display floor (no meaningful activity) renders at reduced opacity — like a quiet connection — so active nodes stand out. Live mode only; edit mode (no rate data) never dims, and a hover-fade still takes precedence. (roadmap [85])

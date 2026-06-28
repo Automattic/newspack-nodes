@@ -217,6 +217,46 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
+	it( 'onInspectorAction request dispatches request_node', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'request', 'a', '' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'request_node a',
+			'request_node',
+			'a'
+		);
+	} );
+
+	it( 'onInspectorAction send_eof dispatches send_eof', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'send_eof', 'a', '' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'send_eof a',
+			'send_eof',
+			'a'
+		);
+	} );
+
+	it( 'onInspectorAction tell dispatches tell_node with the payload', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'tell', 'a', 'hi there' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'tell_node a hi there',
+			'tell_node',
+			'a hi there'
+		);
+	} );
+
+	it( 'onInspectorAction send_struct dispatches send_struct with the JSON payload', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'send_struct', 'a', '{"k":1}' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'send_struct a {"k":1}',
+			'send_struct',
+			'a {"k":1}'
+		);
+	} );
+
 	it( 'onInspectorAction tail dispatches connect_node with no target', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'tail', 'a', null );

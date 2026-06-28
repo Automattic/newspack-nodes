@@ -176,6 +176,26 @@ export function useGraphHandlers( {
 						'send_node',
 						`${ nodeId } ${ payload }`
 					);
+				} else if ( 'request' === action ) {
+					dispatch(
+						`request_node ${ nodeId }`,
+						'request_node',
+						nodeId
+					);
+				} else if ( 'send_eof' === action ) {
+					dispatch( `send_eof ${ nodeId }`, 'send_eof', nodeId );
+				} else if ( 'tell' === action ) {
+					dispatch(
+						`tell_node ${ nodeId } ${ payload }`,
+						'tell_node',
+						`${ nodeId } ${ payload }`
+					);
+				} else if ( 'send_struct' === action ) {
+					dispatch(
+						`send_struct ${ nodeId } ${ payload }`,
+						'send_struct',
+						`${ nodeId } ${ payload }`
+					);
 				} else if ( 'trace' === action ) {
 					const level = 'number' === typeof payload ? payload : 1;
 					dispatch(
