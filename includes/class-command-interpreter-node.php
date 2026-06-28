@@ -981,15 +981,18 @@ class Command_Interpreter_Node extends Node {
 			if ( '' === $second ) {
 				$new = $self->debug_state() > 0 ? 0 : 1;
 			} else {
-				$new = (int) $second;
+				$new = \max( 0, (int) $second );
 			}
 			$all_names = \array_keys( Core::$nodes_by_name );
+			\sort( $all_names );
+			$out = "Setting all nodes to debug_state: $new\n";
 			foreach ( $all_names as $name ) {
 				/** @var \Newspack_Nodes\Node $node Node from the registry. */
 				$node = Core::node( $name );
 				$node->debug_state( $new );
+				$out .= "$name debug_state: $new\n";
 			}
-			return "* debug_state: $new";
+			return $out;
 		}
 
 		if ( \ctype_digit( $first ) && '' === $second ) {

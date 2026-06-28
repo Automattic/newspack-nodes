@@ -830,11 +830,6 @@ export class CommandInterpreterNode extends Node {
 		}
 
 		const second = parts.slice( 1 ).join( ' ' );
-		if ( /^\d+$/.test( first ) && '' === second ) {
-			this.debugState = parseInt( first, 10 );
-			return `_command_interpreter debug_state: ${ this.debugState }`;
-		}
-
 		if ( '*' === first ) {
 			let next;
 			if ( '' === second ) {
@@ -843,13 +838,20 @@ export class CommandInterpreterNode extends Node {
 				// Match PHP (int) coercion + max(0,…): non-numeric → 0, never negative.
 				next = Math.max( 0, parseInt( second, 10 ) || 0 );
 			}
+			let output = `Setting all nodes to debug_state: ${ next }\n`;
 			const allNames = [ ...Core.nodes.keys() ].sort();
 			for ( const name of allNames ) {
 				const node = Core.node( name );
 				node.debugState = next;
+				output += `${ name } debug_state: ${ next }\n`;
 			}
-			return `* debug_state: ${ next }`;
+			return output;
 		}
+		if ( /^\d+$/.test( first ) && '' === second ) {
+			this.debugState = parseInt( first, 10 );
+			return `_command_interpreter debug_state: ${ this.debugState }`;
+		}
+
 		const node = Core.node( first );
 		if ( null === node ) {
 			return `unknown node: ${ first }`;
@@ -908,6 +910,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// Build a serializable state snapshot of a node (class header + scalar state).
+	// XXX: Delete this and implement Node::dumpNode()
 	static _nodeSnapshot( node ) {
 		const snapshot = { class: node.constructor?.name ?? 'Node' };
 		for ( const key of Object.keys( node ) ) {
@@ -935,8 +938,12 @@ export class CommandInterpreterNode extends Node {
 				'registrations' === key ||
 				'setStateCache' === key ||
 				'_commands' === key ||
-				'authorize' === key
+				'authorize' === key ||
+				'heartbeat' === key ||
+				'httpOut' === key ||
+				'sseIn' === key
 			) {
+				snapshot[ key ] = '{...}';
 				continue;
 			}
 			if ( 'function' === typeof val ) {
