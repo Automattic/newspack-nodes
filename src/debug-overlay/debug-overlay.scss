@@ -269,8 +269,15 @@
 .nodes-overview__messages {
 	margin: 18px 0 4px;
 
+	// Match the stat-card labels: small uppercase muted mono-ish heading rather
+	// than the browser-default serif h3 (which read as unthemed in the overlay).
 	h3 {
 		margin: 0 0 8px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--ink-3);
 	}
 
 	ul {
