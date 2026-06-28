@@ -185,7 +185,8 @@ class CoreTest extends TestCase {
 
 	public function test_stderr_default_handler_routes_to_output_when_no_repl(): void {
 		// No _repl (worker) registered, but a REPL Dumper (_output) is — the line
-		// must surface there as a TM_BYTESTREAM, not fall to error_log.
+		// must surface there as a TM_BYTESTREAM (it also persists to error_log; see
+		// test_stderr_default_handler_also_persists_to_error_log).
 		Core::reset();
 		$out = new Capture_Sink_Node();
 		Core::register_node( Node_Names::OUTPUT, $out );
@@ -211,7 +212,7 @@ class CoreTest extends TestCase {
 	public function test_stderr_default_handler_falls_back_to_output(): void {
 		// Ephemeral POST /command process: only the _output response writer exists.
 		// stderr is a broadcast, so the line rides back through _output (the JSONL
-		// body), not error_log.
+		// body) — and also persists to error_log.
 		Core::reset();
 		$out = new Capture_Sink_Node();
 		Core::register_node( Node_Names::OUTPUT, $out );
@@ -232,6 +233,32 @@ class CoreTest extends TestCase {
 		Core::stderr( 'to sse' );
 		$this->assertCount( 1, $sse->captured, 'stderr rides the _sse egress' );
 		$this->assertCount( 0, $out->captured, 'never the _output filter' );
+	}
+
+	public function test_stderr_default_handler_also_persists_to_error_log(): void {
+		// The REPL/SSE/OUTPUT broadcast is ephemeral — once the session ends the
+		// line is gone. stderr must ALSO write error_log so worker-stop + dead-letter
+		// alerts survive in debug.log (locally) / php-errors (Atomic), even when a
+		// sink is wired.
+		Core::reset();
+		$out = new Capture_Sink_Node();
+		Core::register_node( Node_Names::OUTPUT, $out );
+
+		$tmp = \tempnam( \sys_get_temp_dir(), 'nodes-stderr-dur-' );
+		$old = \ini_set( 'error_log', $tmp );
+		try {
+			Core::stderr( 'durable line' );
+		} finally {
+			\ini_set( 'error_log', false === $old ? '' : $old );
+		}
+
+		$this->assertCount( 1, $out->captured, 'still broadcasts to the wired sink' );
+		$this->assertStringContainsString(
+			'durable line',
+			(string) \file_get_contents( $tmp ),
+			'and also persists to error_log'
+		);
+		@\unlink( $tmp );
 	}
 
 	// ── cleanup_all_nodes ────────────────────────────────────────────────

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Workers log *why* they cooperatively stop.** `Worker_Base::should_continue()` now emits a `{type}.p{N}: stopping — <reason>` line (via `Core::stderr`) at every stop branch, with metrics: `lock lost` / `lock dir gone` / `restart requested` / `max_runtime exceeded (Ns / Ns)` / `memory watermark (NMB / NMB, N%)` / `db check failed N times`. Previously a `Worker_Should_Stop` exit was opaque (only a generic "stopped mid-job (pump)" at the catch). Logged once per stop (the predicate returns true until the first false ends the loop), so no volume cost.
 
+### Changed
+
+- **`Core::stderr` now always persists to `error_log` too, not only as a no-sink fallback.** The broadcast to the wired `_repl`/`_sse`/`_output` sink is ephemeral — it vanishes when the session ends. The default handler now also `error_log()`s every line, so worker-stop reasons (and future dead-letter alerts) survive in `debug.log` (locally) / php-errors (Atomic) even while a REPL/SSE is attached. Rate-limited callers (`Core::print_less_often`) inherit this for free.
+
 ### Fixed
 
 - **Console Save pre-fills the *edited* topology's name, not the live console's.** Entering the editor from a live worker (e.g. `aggregator.p0`) then using Open to load a different topology (`hub-control`) left the Save dialog offering `aggregator` — it pre-filled from the live console `topology` instead of `editingName` (which Open correctly updates). Save now offers the topology you're actually editing.

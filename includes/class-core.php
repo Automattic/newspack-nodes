@@ -196,12 +196,14 @@ class Core {
 		// THIS process wired — the worker's `_repl` output partition, a REPL
 		// `_output` Dumper, the SSE-stream `_sse` egress, or the `_output` response
 		// writer (POST /command, where it rides back in the JSONL body) — so the
-		// line surfaces at the session. Each process registers exactly one, so a
-		// line never doubles. Else error_log.
+		// line surfaces at the session. Each process registers exactly one, so the
+		// broadcast never doubles. Then ALWAYS error_log too: the sink broadcast is
+		// ephemeral, so the line must also land in debug.log (locally) / php-errors
+		// (Atomic) to survive the session — worker-stop + dead-letter alerts must be
+		// inspectable after the fact, not only on a live REPL/SSE.
 		self::set_stderr_handler( static function ( string $message ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
-				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
 				?? null;
 			if ( null !== $sink ) {
 				$m                       = Message::new_message();
@@ -209,7 +211,6 @@ class Core {
 				$m[ Message::TIMESTAMP ] = self::$now;
 				$m[ Message::VALUE ]     = $message;
 				$sink->fill( $m );
-				return;
 			}
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( \rtrim( $message ) );
