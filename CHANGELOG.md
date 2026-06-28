@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-06-28
+
 ### Changed
 
 - **The no-node inspector gains a command palette + a `_command_interpreter` header.** When nothing is selected, the inspector now shows the interpreter identity (name + LED + live/stream status) above the process-stats header, and the quick-command buttons are relabeled lowercase with `debug` (`debug_level`), `verbose` (`debug_level 2`), and `ping` added; `trace` reflects its active state. The overlay's no-node command buttons now dispatch through the Shell's typed-line path, so shell-special verbs (`ping` → TM_PING) and local builtins (`debug_level`) work there too, not just interpreter verbs.
