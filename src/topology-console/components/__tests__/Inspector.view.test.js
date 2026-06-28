@@ -18,9 +18,11 @@ const baseProps = {
 };
 
 describe( 'Inspector (view mode)', () => {
-	it( 'renders the empty-state when no node is selected', () => {
+	it( 'renders the no-node command palette when nothing is selected', () => {
 		const { container } = render( <Inspector { ...baseProps } /> );
-		expect( container.textContent ).toMatch( /Select a node/ );
+		expect(
+			container.querySelector( '.topology-insp__commands' )
+		).not.toBeNull();
 	} );
 
 	it( 'shows no-node server-command buttons that dispatch via onAction', () => {
