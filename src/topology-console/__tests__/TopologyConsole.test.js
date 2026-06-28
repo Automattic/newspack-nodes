@@ -2286,6 +2286,36 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
+	it( 'selecting a node does not yank focus to the REPL input (keeps Delete usable)', async () => {
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		// Expand the REPL + wire a spy-able input to its ref — the state the old
+		// refocus-on-select path keyed off. If selecting refocuses the REPL, the
+		// document-level Delete handler bails (focus is in an input), which is the
+		// bug: you'd have to minimize the transcript to delete a node.
+		await act( async () => {
+			lastReplProps.onExpandedChange( true );
+		} );
+		const replInput = document.createElement( 'input' );
+		lastReplProps.inputRef.current = replInput;
+		const focusSpy = jest.spyOn( replInput, 'focus' );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		// Flush the rAF the refocus path deferred through.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 30 ) );
+		} );
+		expect( focusSpy ).not.toHaveBeenCalled();
+	} );
+
 	it( 'edit mode: keyboard handler ignored when focus is in an input', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'make_node Echo n1\n',

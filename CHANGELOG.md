@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Selecting a node no longer steals keyboard focus into the REPL transcript.** With the transcript open, clicking a node refocused the REPL input — and the document-level Delete/Backspace handler skips form fields — so you couldn't delete a node without first minimizing the transcript. Selection now leaves focus alone.
+
 - **Every modal now has an X close button, and the Register/Compose modals gained a Cancel button.** `ModalShell` renders a close (×) affordance in the header corner, so all dialogs (Confirm/Prompt/NewNode/Register/Compose) can be dismissed without ESC or a backdrop click. The inspector's Register and Compose modals — which previously had only a primary action (on a button that was even missing its base style class) — now match the others with a Cancel button.
 
 - **Vault commands are now observable via `connect _shell`.** The Vault's CRUD/Test dispatches entered straight at the interpreter, bypassing the `_shell` command Tap — so there was no way to see what the Test buttons sent or when. They now route through `_shell` (→ interpreter → the named `_http`/HttpOut egress), like every other command path.

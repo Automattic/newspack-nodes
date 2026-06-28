@@ -328,7 +328,6 @@ export default function TopologyConsole( {
 		openInspectorOnSelect,
 		canvasChromeProps,
 		replChromeProps,
-		replExpanded,
 		setReplExpanded,
 		replInputRef,
 	} = useGraphSurface( {
@@ -348,13 +347,6 @@ export default function TopologyConsole( {
 	// this realm). The choice is made below once `scope` is known.
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const jsCatalog = useJsCatalog();
-	// replExpanded / setReplExpanded / replInputRef come from useGraphSurface.
-	const refocusReplIfExpanded = useCallback( () => {
-		if ( replExpanded ) {
-			window.requestAnimationFrame( () => replInputRef.current?.focus() );
-		}
-	}, [ replExpanded, replInputRef ] );
-
 	// Measure the `.topology-app` grid so the REPL transcript ceiling tracks the
 	// real available height (the console lives inside the DevtoolsTabHost tab bar,
 	// which the window-based fallback can't see). A ResizeObserver keeps it correct
@@ -1616,8 +1608,11 @@ export default function TopologyConsole( {
 					onSelectionChange: ( id ) => {
 						setSelectedId( id );
 						// Selecting a node auto-opens the inspector (rail → panel).
+						// Deliberately does NOT refocus the REPL: stealing focus into
+						// the transcript input makes the document-level Delete handler
+						// bail (it skips form fields), so you couldn't delete a node
+						// without first minimizing the transcript.
 						openInspectorOnSelect( id );
-						refocusReplIfExpanded();
 					},
 					selection: selectedId,
 				} }
