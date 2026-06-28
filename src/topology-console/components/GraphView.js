@@ -3,6 +3,7 @@ import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
+import { useAggregateRateSeries } from '../hooks/useAggregateRateSeries';
 import '../styles/graph-view.scss';
 
 /**
@@ -99,6 +100,10 @@ export default function GraphView( {
 	}, [ selection ] );
 
 	const { rateRef, rateVersion } = useGraphRates( graph, resetKey );
+	// Aggregate In/Out rate sparkline series for the inspector's process-stats
+	// header. Accumulated HERE (always mounted) — not in the header — so it
+	// survives the header un/remounting on node-select or inspector collapse.
+	const rateSeries = useAggregateRateSeries( graph.nodes );
 
 	// Node + edge selection are mutually exclusive (unambiguous Delete).
 	const handleSelectNode = useCallback(
@@ -251,6 +256,7 @@ export default function GraphView( {
 							rateInfo={
 								rateRef.current.get( selectedId ) || null
 							}
+							rateSeries={ rateSeries }
 							onAction={ onInspectorAction }
 							onSelect={ handleSelectNode }
 							onHover={ setHoveredId }

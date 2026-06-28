@@ -261,4 +261,41 @@ describe( 'GraphView', () => {
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 		expect( getByLabelText( 'Expand inspector' ) ).not.toBeNull();
 	} );
+
+	it( 'accumulates the process-stats rate series in GraphView so it survives inspector collapse/expand', () => {
+		const src = ( count ) => ( {
+			id: 'src',
+			count,
+			has_target: true,
+			accepts_fill: false,
+		} );
+		const g0 = { nodes: [ src( 0 ) ], edges: [] };
+		const g1 = { nodes: [ src( 10 ) ], edges: [] };
+		const { rerender } = render(
+			<GraphView graph={ g0 } frame={ Frame } resetKey="k" />
+		);
+		// A second poll (new graph identity) accumulates one In-rate sample.
+		rerender( <GraphView graph={ g1 } frame={ Frame } resetKey="k" /> );
+		const len = global.__inspectorProps.rateSeries.in.length;
+		expect( len ).toBeGreaterThan( 0 );
+		// Collapse (Inspector unmounts) then expand (same graph → no new sample).
+		// The series lives in GraphView, so it must survive the remount intact.
+		rerender(
+			<GraphView
+				graph={ g1 }
+				frame={ Frame }
+				resetKey="k"
+				inspectorCollapsed
+			/>
+		);
+		rerender(
+			<GraphView
+				graph={ g1 }
+				frame={ Frame }
+				resetKey="k"
+				inspectorCollapsed={ false }
+			/>
+		);
+		expect( global.__inspectorProps.rateSeries.in.length ).toBe( len );
+	} );
 } );

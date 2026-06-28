@@ -1378,42 +1378,6 @@
 	grid-column: span 2;
 }
 
-// Register-a-listener modal body (event + target selects). Reuses the modal
-// chrome + the --primary confirm button; this only lays out the two fields.
-.topology-register {
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-	padding: 4px 0;
-
-	&__field {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		font: 700 10px var(--font-mono);
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		color: var(--ink-3);
-
-		select,
-		textarea {
-			padding: 6px 8px;
-			background: var(--paper);
-			border: 2px solid var(--ink-2);
-			color: var(--ink);
-			font: 400 12px var(--font-mono);
-			letter-spacing: 0;
-			text-transform: none;
-		}
-	}
-
-	// Compose modal payload box (roadmap [46]).
-	.topology-compose__value {
-		min-height: 72px;
-		resize: vertical;
-	}
-}
-
 // Current registrations list (event → listener, with × to unregister).
 .topology-insp__listeners {
 	margin-top: 14px;
@@ -3173,10 +3137,10 @@
 	width: 100%;
 	margin-top: 10px;
 	padding: 6px 8px;
-	background: var(--paper-2);
 	border: 2px solid var(--ink-3);
 	font-family: var(--font-mono);
 	font-size: 13px;
+	background: var(--paper-2);
 	color: var(--ink);
 }
 
@@ -3184,6 +3148,7 @@
 	outline: none;
 	border-color: var(--ink);
 	background: var(--paper);
+	color: var(--ink);
 	// Kill WordPress admin's blue focus glow; the themed ring is on :focus-visible.
 	box-shadow: none;
 }
@@ -3192,6 +3157,12 @@
 .topology-app .topology-modal__input:focus-visible {
 	outline: 2px solid var(--oxide);
 	outline-offset: -1px;
+}
+
+.topology-app .topology-modal__input:hover {
+	border-color: var(--ink);
+	background: var(--paper);
+	color: var(--ink);
 }
 
 .topology-modal__hint {
