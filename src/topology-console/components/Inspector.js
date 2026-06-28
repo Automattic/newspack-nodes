@@ -7,6 +7,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
 import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
+import { processStats } from '../utils/processStats';
 
 // A Consumer (or its Tail subclass) is the node whose dump_metadata carries a
 // `frames` array AND a `cursor` (its dump_metadata() read surface) — the
@@ -1413,8 +1414,38 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 
 	if ( ! selectedId ) {
+		// Process-stats header (roadmap [95]): fleet totals rolled up from the live
+		// graph. (dmesg error/warn/debug counts + rate sparklines to follow.)
+		const stats = processStats( parsed.nodes );
+		const stat = ( label, value ) => (
+			<div className="topology-insp__stat">
+				<span className="topology-insp__stat-label">{ label }</span>
+				<span className="topology-insp__stat-val">{ value }</span>
+			</div>
+		);
 		return (
 			<aside className="topology-inspector">
+				<div
+					className="topology-insp__stats"
+					data-testid="inspector-process-stats"
+				>
+					{ stat(
+						__( 'Msgs in', 'newspack-nodes' ),
+						stats.messagesIn.toLocaleString()
+					) }
+					{ stat(
+						__( 'Msgs out', 'newspack-nodes' ),
+						stats.messagesOut.toLocaleString()
+					) }
+					{ stat(
+						__( 'Bytes read', 'newspack-nodes' ),
+						formatBytes( stats.bytesRead )
+					) }
+					{ stat(
+						__( 'Bytes written', 'newspack-nodes' ),
+						formatBytes( stats.bytesWritten )
+					) }
+				</div>
 				<div
 					className="topology-insp__commands"
 					data-testid="inspector-commands"
