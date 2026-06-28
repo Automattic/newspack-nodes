@@ -48,7 +48,9 @@ class Node {
 	 * This empty ctor exists so subclasses can `parent::__construct()` regardless of
 	 * what intermediate classes do; node-specific setup lives in the subclass ctor.
 	 */
-	public function __construct() {}
+	public function __construct() {
+		$this->seed_registrations();
+	}
 
 	/**
 	 * Get/set the node's raw argument string — the trivial Tachikoma getter/setter
@@ -561,12 +563,30 @@ class Node {
 	 */
 	public static function node_schema(): array {
 		return [
-			'category'     => '',
-			'description'  => '',
-			'arguments'    => [],
-			'commands'     => [],
-			'accepts_fill' => true,
-			'has_target'   => true,
+			'category'      => '',
+			'description'   => '',
+			'arguments'     => [],
+			'commands'      => [],
+			'registrations' => [],
+			'accepts_fill'  => true,
+			'has_target'    => true,
 		];
+	}
+
+	/**
+	 * Seed the runtime registration allow-list from node_schema()['registrations']
+	 * — the single source of valid events. A registration-capable node calls this
+	 * in its constructor instead of hand-assigning $this->registrations.
+	 */
+	protected function seed_registrations(): void {
+		$events = static::node_schema()['registrations'] ?? [];
+		if ( ! \is_array( $events ) ) {
+			return;
+		}
+		foreach ( $events as $event ) {
+			if ( \is_string( $event ) ) {
+				$this->registrations[ $event ] = [];
+			}
+		}
 	}
 }

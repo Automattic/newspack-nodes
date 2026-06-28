@@ -88,9 +88,6 @@ class Partition_Node extends Timer_Node {
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
-		// Build the {name}:config interpreter from node_schema()['commands']
-		// (handlers read $interpreter->patron() lazily, so running before
-		// arguments() populates the props below is fine).
 		$this->auto_wire_interpreter();
 	}
 

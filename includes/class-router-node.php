@@ -21,7 +21,6 @@ class Router_Node extends Timer_Node {
 
 	public function __construct() {
 		parent::__construct();
-		$this->registrations['TIMER'] = [];
 	}
 
 	public function fill( array &$message ): void {
@@ -136,10 +135,14 @@ class Router_Node extends Timer_Node {
 
 	public static function node_schema(): array {
 		return [
-			'category'    => 'Hidden',
-			'description' => 'Path-based message routing — placed automatically as `_router`.',
-			'arguments'   => [],
-			'commands'    => [],
+			'category'      => 'Hidden',
+			'description'   => 'Path-based message routing — placed automatically as `_router`.',
+			'arguments'     => [],
+			'commands'      => [],
+			// FIRE (inherited Timer tick) + TIMER (hitchhike event peers register for)
+			// + NOT_AVAILABLE (routing-failure state set_state publishes for observers,
+			// matching the JS Router). Fresh array (no parent merge), so list all three.
+			'registrations' => [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ],
 		];
 	}
 }
