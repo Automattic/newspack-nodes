@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Console deep links (`?topology=<name>`) now open the requested topology instead of the first one.** The initial topology pick validated the URL param against a render-time re-read of `window.NewspackNodesData.topologyPartitions` — but each hub bundle (event-dashboards, devtools-hub, console, …) localizes its OWN `NewspackNodesData` global, and the last to execute clobbered `topologyPartitions`, so the live read saw `{}` and EVERY deep link fell back to the first topology. It now validates against the module-load snapshot (`SEED_PARTITIONS`, the same source as the dropdown), falling back to the live read only when the snapshot was empty at import.
+- **Console deep links (`?topology=<name>`) now open the requested topology instead of the first one.** The initial topology pick validated the URL param against a render-time re-read of `window.NewspackNodesData.topologyWorkers` — but each hub bundle (event-dashboards, devtools-hub, console, …) localizes its OWN `NewspackNodesData` global, and the last to execute clobbered `topologyWorkers`, so the live read saw `{}` and EVERY deep link fell back to the first topology. It now validates against the module-load snapshot (`SEED_PARTITIONS`, the same source as the dropdown), falling back to the live read only when the snapshot was empty at import.
 
 - **The `>= 1000` router-hitchhike no longer kills the router's own tick, and the JS timer now matches it.** The `>= 1000` threshold (previous release, PHP only) made the `_router` hitchhike its OWN per-tick TIMER — registering on itself, never entering the event framework, so it never ticked and every hitchhiking timer (probes, heartbeats, supervisor cadence, log pruning) silently died; tests that drive `fire_cb()` directly masked it. `set_timer()` now exempts the router so it always owns a slot — PHP guards by identity (`$router !== $this`), the JS `TimerNode` by an `isRouter` flag (the JS router self-arms in its constructor before it's named). The same `>= 1000` threshold + guard now applies to the JS `TimerNode`/`RouterNode`, so both runtimes match.
 
@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The `_shell` console Tap no longer shows in the overlay console's PATH menu.** The debug overlay listed every `_`-prefixed node not in its non-navigable set as a `cd` target, so `_shell` — the observe-only **routing** Tap `useBatchedPoll` mounts in front of `_http` on every dashboard (commands route `_shell/_http/<ci>`) — appeared alongside `/` and `/_http`. It's send-path plumbing, not a navigable scope, so it's excluded now (`names.CONSOLE_TAP` added to the menu's non-navigable set); `_http`, the I/O egress, stays a `cd` target. Also corrected a `useBatchedPoll` comment that filed `_shell` under "I/O-boundary node names" — it's a routing Tap, not an I/O node.
 
 ### Changed
+
+- **Renamed the per-topology worker-count snapshot `topologyPartitions` → `topologyWorkers`** (the `NewspackNodesData` localize key + its PHP/JS identifiers). Each entry is a topology's worker count, so "partition" overloaded the term (it already means log partitions / `Partition_Node`). The partition *index* of a worker (`p0`/`p1`, `partitionIndices`) keeps the partition term — that's a worker's actual partition number.
 
 - **The debug overlay's "Messages" heading is themed** — small uppercase muted label matching the stat-card labels, instead of the browser-default serif `h3` that read as unstyled.
 

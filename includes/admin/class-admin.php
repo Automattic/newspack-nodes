@@ -405,14 +405,14 @@ class Admin {
 	 */
 	public function register_topology_console_tab_bundle( array $bundles ): array {
 		// Per-topology partition counts for the React dropdown.
-		$topology_partitions = [];
+		$topology_workers = [];
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
 			if ( '' === $name ) {
 				continue;
 			}
-			$topology_partitions[ $name ] = Bootstrap::num_partitions_for( $name );
+			$topology_workers[ $name ] = Bootstrap::num_partitions_for( $name );
 		}
-		\ksort( $topology_partitions );
+		\ksort( $topology_workers );
 
 		// Active topologies (catalog + operator overlay) the supervisor would spawn.
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
@@ -430,7 +430,7 @@ class Admin {
 			'localize' => [
 				'tree'                => 'topology-console',
 				'version'             => \NEWSPACK_NODES_VERSION,
-				'topologyPartitions'  => $topology_partitions,
+				'topologyWorkers'  => $topology_workers,
 				'activeTopologies'    => $active_topologies,
 				'configNumPartitions' => $default_np,
 			],

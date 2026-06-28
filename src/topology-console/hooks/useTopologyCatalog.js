@@ -23,7 +23,7 @@ function seedFromGlobal() {
 	const data =
 		( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
 	return {
-		partitions: data.topologyPartitions || {},
+		partitions: data.topologyWorkers || {},
 		active: data.activeTopologies || [],
 	};
 }

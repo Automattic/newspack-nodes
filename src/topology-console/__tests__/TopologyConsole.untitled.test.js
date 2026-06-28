@@ -1,7 +1,7 @@
 /* global globalThis */
 /**
  * F2 regression: a brand-new install with NO topologies (empty
- * topologyPartitions, so the module-level TOPOLOGIES list is empty and the
+ * topologyWorkers, so the module-level TOPOLOGIES list is empty and the
  * initial `topology` is empty). Entering edit mode builds a blank/untitled
  * draft whose effectiveTopologyName is '' — the server-layout fetch
  * short-circuits, so the canvas must still render (layoutReady must NOT wait
@@ -16,7 +16,7 @@ import { render, fireEvent, act } from '@testing-library/react';
 window.NewspackNodesData = {
 	restUrl: '/wp-json/',
 	nonce: 'NONCE',
-	topologyPartitions: {},
+	topologyWorkers: {},
 	activeTopologies: [],
 	version: 'test',
 	userLogin: 'tester',

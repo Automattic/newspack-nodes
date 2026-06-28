@@ -1356,7 +1356,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$localize = $match['localize'];
 		$this->assertSame( 'topology-console', $localize['tree'] );
 		$this->assertSame( \NEWSPACK_NODES_VERSION, $localize['version'] );
-		$this->assertSame( 3, $localize['topologyPartitions']['synthetic'] );
+		$this->assertSame( 3, $localize['topologyWorkers']['synthetic'] );
 		$this->assertContains( 'synthetic', $localize['activeTopologies'] );
 		$this->assertArrayHasKey( 'configNumPartitions', $localize );
 
