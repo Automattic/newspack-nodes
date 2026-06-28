@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The no-node inspector gains a command palette + a `_command_interpreter` header.** When nothing is selected, the inspector now shows the interpreter identity (name + LED + live/stream status) above the process-stats header, and the quick-command buttons are relabeled lowercase with `debug` (`debug_level`), `verbose` (`debug_level 2`), and `ping` added; `trace` reflects its active state. The overlay's no-node command buttons now dispatch through the Shell's typed-line path, so shell-special verbs (`ping` → TM_PING) and local builtins (`debug_level`) work there too, not just interpreter verbs.
+
 ### Fixed
 
 - **The hub console's "Reset Graph" chip no longer sticks on the browser graph.** The reinitNames-accumulate fix cleared it for build-delegated dashboards (the overlay), but the console is a *bare* `mountExospine()` — its per-worker RemoteIpc channels (`combined.p0`, …) never went through `runBuild`, so they weren't in `reinitNames` and `useGraphReset` counted them as user-added. `useConsoleGraph` now registers its RemoteIpc names in `reinitNames` by hand (the same exclusion the dashboards get from `runBuild`); teardown nulls `reinitNames`, so it self-cleans on rebuild.

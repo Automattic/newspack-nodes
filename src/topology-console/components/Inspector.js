@@ -1136,11 +1136,14 @@ const PROMPT_VERBS = {
 };
 
 const NO_NODE_COMMANDS = [
-	[ 'Trace', 'debug_state *' ],
+	[ 'trace', 'debug_state *' ],
+	[ 'debug', 'debug_level' ],
+	[ 'verbose', 'debug_level 2' ],
 	[ 'dmesg', 'dmesg' ],
-	[ 'dump_config', 'dump_config' ],
-	[ 'dump_metadata', 'dump_metadata' ],
+	[ 'config', 'dump_config' ],
+	[ 'metadata', 'dump_metadata' ],
 	[ 'stats', 'stats' ],
+	[ 'ping', 'ping' ],
 ];
 
 // Register modal (roadmap [48]-C): wire a listener node to one of the source
@@ -1346,8 +1349,23 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 
 	if ( ! selectedId ) {
+		const node = parsed.nodes[ 0 ];
+		const traceOn = node ? node.debugState > 0 : false;
+		const live = ! streamStatus || streamStatus === 'open';
 		return (
 			<aside className="topology-inspector">
+				<h2 className="topology-insp__title">_command_interpreter</h2>
+				<div className="topology-insp__type">
+					<span
+						className={ `topology-insp__led${
+							live ? ' is-pulsing' : ''
+						}` }
+					/>
+					Command_Interpreter ·{ ' ' }
+					{ live
+						? __( 'LIVE', 'newspack-nodes' )
+						: streamStatus.toUpperCase() }
+				</div>
 				<ProcessStatsHeader
 					nodes={ parsed.nodes }
 					rateSeries={ rateSeries }
@@ -1360,6 +1378,9 @@ export default function Inspector( {
 						<button
 							key={ cmd }
 							type="button"
+							className={
+								label === 'trace' && traceOn ? ' is-active' : ''
+							}
 							onClick={ () =>
 								onAction && onAction( 'command', null, cmd )
 							}
@@ -1369,14 +1390,13 @@ export default function Inspector( {
 					) ) }
 					<button
 						type="button"
-						className="topology-insp__actions-full"
 						onClick={ () => setComposeOpen( true ) }
 						title={ __(
 							'Compose a message — pick a target, type, and value (full CLI equivalence)',
 							'newspack-nodes'
 						) }
 					>
-						{ __( 'Compose…', 'newspack-nodes' ) }
+						{ __( 'Compose', 'newspack-nodes' ) }
 					</button>
 				</div>
 				{ composeOpen && (
@@ -1783,9 +1803,7 @@ export default function Inspector( {
 				) }
 				<button
 					type="button"
-					className={ `topology-insp__actions-full${
-						traceOn ? ' is-active' : ''
-					}` }
+					className={ traceOn ? ' is-active' : '' }
 					onClick={ () =>
 						onAction &&
 						onAction( 'trace', node.id, traceOn ? 0 : 1 )

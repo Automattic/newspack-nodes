@@ -361,6 +361,15 @@ export default function InspectorTab( {
 							// inspector action — matches the console's UX (the
 							// reply lands in _output and the user should see it).
 							setReplExpanded( true );
+							// No-node command buttons carry a raw REPL line; dispatch
+							// it through the Shell's typed-line path so shell-special
+							// (ping → TM_PING) AND local builtins (debug_level, …) work,
+							// not just interpreter verbs. Structured GUI verbs
+							// (dump/tail/trace/tell/…) stay on the handler.
+							if ( 'command' === action ) {
+								sendLine( payload );
+								return;
+							}
 							handlers.onInspectorAction(
 								action,
 								nodeId,
