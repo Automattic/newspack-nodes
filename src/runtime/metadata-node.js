@@ -88,12 +88,14 @@ export function canonicalReplyPivot( rawPwd ) {
 }
 
 // Process plumbing hidden from the canvas: the rule-#2 backbone every node sinks
-// through, plus the per-worker TopicProbe + its shared log (auto-mounted by
-// Worker_Base, present in every worker's dump_metadata but not part of any
-// topology the operator authored).
+// through (`_command_interpreter` → `_router`, plus the `_shell` command Tap that
+// sits in front of the interpreter — observe it with `connect _shell`), plus the
+// per-worker TopicProbe + its shared log (auto-mounted by Worker_Base, present in
+// every worker's dump_metadata but not part of any topology the operator authored).
 const SCAFFOLDING = new Set( [
 	reservedNames.COMMAND_INTERPRETER,
 	reservedNames.ROUTER,
+	reservedNames.CONSOLE_TAP,
 	reservedNames.TOPICPROBE,
 	reservedNames.TOPICPROBE_LOG,
 ] );

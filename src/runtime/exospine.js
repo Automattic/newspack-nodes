@@ -48,6 +48,7 @@
 import { Core } from './core';
 import { RouterNode } from './router-node';
 import { CommandInterpreterNode } from './command-interpreter-node';
+import { TapNode } from './tap-node';
 import names from './reserved-node-names.json';
 
 export function mountExospine( build ) {
@@ -72,6 +73,7 @@ export function mountExospine( build ) {
 			router = Core.node( names.ROUTER );
 			spine.interpreter = interpreter;
 			spine.router = router;
+			spine.shell = Core.node( names.CONSOLE_TAP );
 			return;
 		}
 		ownsBackbone = true;
@@ -83,8 +85,18 @@ export function mountExospine( build ) {
 		interpreter.name = names.COMMAND_INTERPRETER;
 		interpreter.sink = router;
 
+		// `_shell` — a permanent observe-only Tap every command path routes
+		// through: a constructed Shell sinks into it, and the dashboards' periodic
+		// poll commands do too. Always present so `connect _shell` watches all
+		// outbound commands, with or without a REPL. It forwards its sink → the
+		// interpreter.
+		const shell = new TapNode();
+		shell.name = names.CONSOLE_TAP;
+		shell.sink = interpreter;
+
 		spine.interpreter = interpreter;
 		spine.router = router;
+		spine.shell = shell;
 	};
 
 	// Snapshot Core around build so a rebuild/teardown removes only what build
@@ -116,8 +128,10 @@ export function mountExospine( build ) {
 	};
 	const teardownBackbone = () => {
 		router.stopTimer();
-		// Clears interpreter.sink + any caller TIMER listeners, then unregisters
-		// both names — the backbone leaves nothing dangling.
+		// Remove `_shell` first (it sinks into the interpreter), then clear the
+		// interpreter (sink + caller TIMER listeners) and router — the backbone
+		// leaves nothing dangling.
+		Core.node( names.CONSOLE_TAP )?.removeNode();
 		interpreter.removeNode();
 		router.removeNode();
 	};

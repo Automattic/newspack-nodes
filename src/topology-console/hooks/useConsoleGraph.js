@@ -91,6 +91,7 @@ export function useConsoleGraph( {
 		const {
 			interpreter,
 			router,
+			shell: shellTap,
 			teardown: teardownSpine,
 		} = mountExospine();
 		// The interpreter ships the full PHP verb set as built-ins (make_node, dump_node,
@@ -157,16 +158,14 @@ export function useConsoleGraph( {
 		// gating effect first runs; that effect keeps `_cwd.target` in sync on cd.
 		cwdNode.target = reader;
 
-		// Named Tap node for the console Shell to route typed input through.
-		const consoleTap = interpreter.makeNode( 'Tap', names.CONSOLE_TAP );
-		consoleTap.sink = interpreter;
-
 		// Anonymous, React-driven Shell. Default cwd is the session's own worker
 		// `{reader}` — routes straight to that worker's RemoteIpc, which wraps the
 		// reply privately. Static: the pid lives only in the wrapped FROM, not the path.
+		// Sinks into the backbone `_shell` Tap (mountExospine owns it), which forwards
+		// to the interpreter — so typed input is observable at `_shell`.
 		const consoleShell = new ShellNode();
 		consoleShell.path = reader;
-		consoleShell.sink = consoleTap;
+		consoleShell.sink = shellTap;
 
 		setSsePid( null );
 
@@ -242,7 +241,6 @@ export function useConsoleGraph( {
 			metadata.removeNode();
 			uptime.removeNode();
 			completion.removeNode();
-			consoleTap.removeNode();
 			for ( const remote of remotes ) {
 				remote.removeNode();
 			}

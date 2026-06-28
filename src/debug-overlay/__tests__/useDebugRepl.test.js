@@ -70,12 +70,13 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'binds shell.sink to the interpreter at build time, before render — so dispatch never null-resolves', () => {
+	it( 'binds shell.sink to the _shell Tap at build time, before render — so dispatch never null-resolves', () => {
 		// Build-before-render: the hook constructs its infra in a useState
 		// initializer (render-phase, before the canvas paints) and binds
-		// shell.sink to the always-present interpreter as part of that build. A
-		// fast open-and-type can't hit a null shell.sink, so there is no
-		// dispatch-time resolve. shell.sink is bound on the very first render.
+		// shell.sink to the always-present `_shell` Tap (an exospine-backbone
+		// fixture that forwards to the interpreter) as part of that build. A fast
+		// open-and-type can't hit a null shell.sink, so there is no dispatch-time
+		// resolve. shell.sink is bound on the very first render.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.path = '';
@@ -84,8 +85,9 @@ describe( 'useDebugRepl', () => {
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		// Bound during the build (render-phase), not in a post-render effect.
-		expect( shell.sink ).toBe( interpreter );
+		expect( shell.sink ).toBe( Core.node( names.CONSOLE_TAP ) );
 		act( () => result.current.sendLine( 'ls' ) );
+		// The _shell Tap forwards to the interpreter, so its fill still runs.
 		expect( fillSpy ).toHaveBeenCalled();
 		teardown();
 	} );
@@ -235,8 +237,8 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'sendLine of a wire command surfaces a stderr warning naming the dropped verb when there is NO command interpreter', () => {
-		// The build binds shell.sink to the interpreter — but when the page
-		// genuinely has no _command_interpreter there is nothing to bind, so
+		// The build binds shell.sink to the `_shell` Tap (else the interpreter) —
+		// but when the page genuinely has neither there is nothing to bind, so
 		// shell.sink stays null and the command can't be routed. Surface the drop
 		// via Core.stderr (the canary) instead of silently no-op'ing. This is the
 		// genuine-absence case the build-before-render guarantee can't cover.
@@ -245,8 +247,9 @@ describe( 'useDebugRepl', () => {
 		shell.path = '';
 		shell.sink = null;
 		const stderrSpy = jest.spyOn( Core, 'stderr' ).mockImplementation();
-		// Remove the interpreter (keep _router for the metadata timer) so the
+		// Remove both bind targets (keep _router for the metadata timer) so the
 		// build has nothing to bind shell.sink to.
+		Core.nodes.delete( names.CONSOLE_TAP );
 		Core.nodes.delete( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'ls' ) );
