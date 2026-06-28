@@ -231,6 +231,13 @@ jest.mock( '../hooks/useTopologyList', () => ( {
 	} ),
 	useTopology: () => globalThis.__hooks.fetchTopology,
 } ) );
+// Drift diff (roadmap [49]) has its own suite; here it's a no-op so the hook's
+// `topologies get` fetch doesn't perturb these boot tests' send sequences.
+jest.mock( '../hooks/useCanonicalNodes', () => ( {
+	useCanonicalNodes: () => new Set(),
+	driftNodeIds: () => null,
+} ) );
+
 jest.mock( '../hooks/useTopologyCatalog', () => ( {
 	useTopologyCatalog: () => {
 		const override = globalThis.__hooks.catalog;

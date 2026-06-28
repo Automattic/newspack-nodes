@@ -12,38 +12,39 @@ import '../styles/graph-view.scss';
  * Owns selection + Delete-key + rates; data, command handlers, layout props,
  * the canvas `frame`, and display flags are injected.
  *
- * @param {Object}   props
- * @param {Object}   props.graph               { nodes, edges } to render.
- * @param {Function} props.frame               Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
- * @param {Object}   props.frameProps          Props forwarded to `frame`.
- * @param {string}   props.resetKey            Identity key; bumps clears rate history.
- * @param {boolean}  props.interactive         Gesture machinery on (default true).
- * @param {boolean}  props.editMode            Draft-only canvas affordances.
- * @param {boolean}  props.showPalette         Render the class palette.
- * @param {boolean}  props.paletteLoading      Catalog fetch-in-flight flag for the palette (default false).
- * @param {Object}   props.classCatalog        shell_name → schema (ports).
- * @param {Array}    props.catalog             Class list (Inspector verbs).
- * @param {Array}    props.formatters          Formatter list (Inspector).
- * @param {string}   props.streamStatus        For Inspector display.
- * @param {Object}   props.positionOverrides   Layout positions (consumer-owned).
- * @param {Function} props.onPositionChange    (id, pos)
- * @param {Object}   props.viewport
- * @param {Function} props.onViewportChange    (viewport)
- * @param {Function} props.onConnect           (from, to)
- * @param {Function} props.onRemoveNode        (id)
- * @param {Function} props.onRemoveEdge        (from, to)
- * @param {Function} props.onDropNode          (shellName, pos)
- * @param {Function} props.onInspectorAction   (action, nodeId, payload)
- * @param {Function} props.onRenameNode        (id, next)
- * @param {Function} props.onUpdateArgs        (id, args)
- * @param {Function} props.onUpdateVerbs       (id, verbs)
- * @param {boolean}  props.paletteCollapsed    When true, the palette renders as a slim expand-handle rail (consumer-owned state so the choice can persist across mounts).
- * @param {Function} props.onPaletteToggle     () — fires when the user clicks the collapse/expand chevron; consumer toggles its `paletteCollapsed` state.
- * @param {Function} props.onSelectionChange   (selectedId) — optional side-effect.
- * @param {string}   props.selection           Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
- * @param {number}   props.bottomObstructionPx Canvas px obstructed at the bottom (expanded transcript overlay); the autofit reserves that band. Default 0.
- * @param {boolean}  props.inspectorCollapsed  When true, the inspector collapses to a slim expand-rail (consumer-owned state, mirrors the palette). Default false.
- * @param {Function} props.onInspectorToggle   () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
+ * @param {Object}           props
+ * @param {Object}           props.graph               { nodes, edges } to render.
+ * @param {Function}         props.frame               Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
+ * @param {Object}           props.frameProps          Props forwarded to `frame`.
+ * @param {string}           props.resetKey            Identity key; bumps clears rate history.
+ * @param {boolean}          props.interactive         Gesture machinery on (default true).
+ * @param {boolean}          props.editMode            Draft-only canvas affordances.
+ * @param {boolean}          props.showPalette         Render the class palette.
+ * @param {boolean}          props.paletteLoading      Catalog fetch-in-flight flag for the palette (default false).
+ * @param {Object}           props.classCatalog        shell_name → schema (ports).
+ * @param {Array}            props.catalog             Class list (Inspector verbs).
+ * @param {Array}            props.formatters          Formatter list (Inspector).
+ * @param {string}           props.streamStatus        For Inspector display.
+ * @param {Object}           props.positionOverrides   Layout positions (consumer-owned).
+ * @param {Function}         props.onPositionChange    (id, pos)
+ * @param {Object}           props.viewport
+ * @param {Function}         props.onViewportChange    (viewport)
+ * @param {Function}         props.onConnect           (from, to)
+ * @param {Function}         props.onRemoveNode        (id)
+ * @param {Function}         props.onRemoveEdge        (from, to)
+ * @param {Function}         props.onDropNode          (shellName, pos)
+ * @param {Function}         props.onInspectorAction   (action, nodeId, payload)
+ * @param {Function}         props.onRenameNode        (id, next)
+ * @param {Function}         props.onUpdateArgs        (id, args)
+ * @param {Function}         props.onUpdateVerbs       (id, verbs)
+ * @param {boolean}          props.paletteCollapsed    When true, the palette renders as a slim expand-handle rail (consumer-owned state so the choice can persist across mounts).
+ * @param {Function}         props.onPaletteToggle     () — fires when the user clicks the collapse/expand chevron; consumer toggles its `paletteCollapsed` state.
+ * @param {Function}         props.onSelectionChange   (selectedId) — optional side-effect.
+ * @param {string}           props.selection           Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
+ * @param {number}           props.bottomObstructionPx Canvas px obstructed at the bottom (expanded transcript overlay); the autofit reserves that band. Default 0.
+ * @param {boolean}          props.inspectorCollapsed  When true, the inspector collapses to a slim expand-rail (consumer-owned state, mirrors the palette). Default false.
+ * @param {Function}         props.onInspectorToggle   () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
+ * @param {Set<string>|null} props.driftIds            Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
  * @return {Element} the graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -78,6 +79,7 @@ export default function GraphView( {
 	bottomObstructionPx = 0,
 	inspectorCollapsed = false,
 	onInspectorToggle,
+	driftIds = null,
 } ) {
 	const [ selectedId, setSelectedId ] = useState( null );
 	const [ selectedEdge, setSelectedEdge ] = useState( null );
@@ -187,6 +189,7 @@ export default function GraphView( {
 			<Frame { ...frameProps }>
 				<SchematicCanvas
 					parsed={ graph }
+					driftIds={ driftIds }
 					selectedId={ selectedId }
 					onSelect={ handleSelectNode }
 					positionOverrides={ positionOverrides }

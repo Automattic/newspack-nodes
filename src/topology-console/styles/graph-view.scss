@@ -658,6 +658,17 @@
 		opacity: 0.55;
 	}
 
+	// Roadmap [49]: runtime DRIFT — a live node NOT in the registered .tsl
+	// (added via the console / make_node). A brass dashed outline marks the
+	// temporary/unregistered node apart from the canonical graph.
+	&.is-drift {
+		.topology-node__bg {
+			stroke: var(--brass, #dba617);
+			stroke-width: 2;
+			stroke-dasharray: 5 3;
+		}
+	}
+
 	&.is-faded {
 		opacity: 0.4;
 	}

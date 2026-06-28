@@ -199,6 +199,20 @@ describe( 'SchematicCanvas', () => {
 		);
 	} );
 
+	it( 'adds is-drift to nodes in driftIds (runtime drift vs the canonical .tsl)', () => {
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } driftIds={ new Set( [ 'b' ] ) } />
+		);
+		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
+		const byId = ( id ) =>
+			nodes.find(
+				( n ) =>
+					n.querySelector( '.topology-node__id' )?.textContent === id
+			);
+		expect( byId( 'b' ).classList.contains( 'is-drift' ) ).toBe( true );
+		expect( byId( 'a' ).classList.contains( 'is-drift' ) ).toBe( false );
+	} );
+
 	// Arrow-pan only fires while the canvas is hovered (so the debug overlay
 	// doesn't hijack the host page's arrows) — hover the SVG before pressing.
 	const hoverCanvas = ( container ) =>
