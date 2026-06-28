@@ -23,23 +23,6 @@ class Options_Overlay {
 	public const ABSENT = "\0__config_system_absent__\0";
 
 	/**
-	 * Read a single prefixed option, returning {@see self::ABSENT} when the row is
-	 * absent. The one place the presence test lives, so the overlay and any UI of
-	 * it (e.g. the Effective Configuration panel) can't drift on the sentinel.
-	 *
-	 * @param string $prefix WP-option name prefix (e.g. 'newspack_nodes_').
-	 * @param string $key    Schema key (without the prefix).
-	 */
-	public static function stored_value( string $prefix, string $key ): mixed {
-		if ( ! \function_exists( 'get_option' ) ) {
-			// @codeCoverageIgnoreStart
-			return self::ABSENT;
-			// @codeCoverageIgnoreEnd
-		}
-		return \get_option( $prefix . $key, self::ABSENT );
-	}
-
-	/**
 	 * Overlay stored WP options onto a copy of the file-config defaults.
 	 *
 	 * @param array<string,mixed> $defaults    File-config defaults.
@@ -56,5 +39,22 @@ class Options_Overlay {
 			$defaults[ $key ] = $value;
 		}
 		return $defaults;
+	}
+
+	/**
+	 * Read a single prefixed option, returning {@see self::ABSENT} when the row is
+	 * absent. The one place the presence test lives, so the overlay and any UI of
+	 * it (e.g. the Effective Configuration panel) can't drift on the sentinel.
+	 *
+	 * @param string $prefix WP-option name prefix (e.g. 'newspack_nodes_').
+	 * @param string $key    Schema key (without the prefix).
+	 */
+	public static function stored_value( string $prefix, string $key ): mixed {
+		if ( ! \function_exists( 'get_option' ) ) {
+			// @codeCoverageIgnoreStart
+			return self::ABSENT;
+			// @codeCoverageIgnoreEnd
+		}
+		return \get_option( $prefix . $key, self::ABSENT );
 	}
 }

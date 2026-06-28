@@ -77,6 +77,26 @@ class IoTelemetryImpl {
 		this._listeners = new Set();
 	}
 
+	// Restore the persisted series, dropping rows older than the 1h window.
+	// Malformed storage is ignored (series stays empty).
+	load( now = nowSeconds() ) {
+		let stored;
+		try {
+			stored = JSON.parse(
+				window.localStorage.getItem( OVERVIEW_STORAGE_KEY ) || '[]'
+			);
+		} catch ( _e ) {
+			return;
+		}
+		if ( ! Array.isArray( stored ) ) {
+			return;
+		}
+		const cutoff = now - RING_SECONDS;
+		this.series = stored.filter(
+			( row ) => Array.isArray( row ) && row[ 0 ] >= cutoff
+		);
+	}
+
 	// Operator "reset stats": zero the counters, series, and messages AND drop the
 	// persisted series — but KEEP subscribers (the dashboards stay live and
 	// re-render to the cleared state). Bumps the revision so the chart memo
@@ -101,41 +121,15 @@ class IoTelemetryImpl {
 		this._notify();
 	}
 
-	recordIn( bytes, count = 1 ) {
-		this.bytesIn += bytes;
-		this.msgsIn += count;
-	}
-
-	recordOut( bytes, count = 1 ) {
-		this.bytesOut += bytes;
-		this.msgsOut += count;
+	_notify() {
+		for ( const fn of this._listeners ) {
+			fn();
+		}
 	}
 
 	recordWarning( text = '' ) {
 		this.warnings += 1;
 		this._pushMessage( 'warning', text );
-	}
-
-	recordError( n = 1, text = '' ) {
-		this.errors += n;
-		this._pushMessage( 'error', text );
-	}
-
-	recordDebug( text = '' ) {
-		this.debug += 1;
-		this._pushMessage( 'debug', text );
-	}
-
-	// SSE stream lifecycle (drives the Overview's SSE Uptime card). Connect stamps
-	// the wall-clock; disconnect clears it so the card reads "—" while down.
-	markSseConnected( at = nowSeconds() ) {
-		// Whole seconds: nowSeconds() is a float (Date.now()/1000), and the Uptime
-		// card's formatAge would otherwise render a fractional age ("51.684…s").
-		this.sseConnectedAt = Math.floor( at );
-	}
-
-	markSseDisconnected() {
-		this.sseConnectedAt = null;
 	}
 
 	// Append a classified line to the bounded ring. A textless record (e.g. a
@@ -151,27 +145,14 @@ class IoTelemetryImpl {
 		}
 	}
 
-	snapshot() {
-		return {
-			bytesIn: this.bytesIn,
-			bytesOut: this.bytesOut,
-			msgsIn: this.msgsIn,
-			msgsOut: this.msgsOut,
-			warnings: this.warnings,
-			errors: this.errors,
-			debug: this.debug,
-			sseConnectedAt: this.sseConnectedAt,
-			messages: this.messages.slice(),
-		};
+	recordError( n = 1, text = '' ) {
+		this.errors += n;
+		this._pushMessage( 'error', text );
 	}
 
-	getSeries() {
-		return this.series;
-	}
-
-	subscribe( fn ) {
-		this._listeners.add( fn );
-		return () => this._listeners.delete( fn );
+	recordDebug( text = '' ) {
+		this.debug += 1;
+		this._pushMessage( 'debug', text );
 	}
 
 	/**
@@ -220,12 +201,6 @@ class IoTelemetryImpl {
 		}
 	}
 
-	_notify() {
-		for ( const fn of this._listeners ) {
-			fn();
-		}
-	}
-
 	_persist() {
 		try {
 			window.localStorage.setItem(
@@ -237,24 +212,49 @@ class IoTelemetryImpl {
 		}
 	}
 
-	// Restore the persisted series, dropping rows older than the 1h window.
-	// Malformed storage is ignored (series stays empty).
-	load( now = nowSeconds() ) {
-		let stored;
-		try {
-			stored = JSON.parse(
-				window.localStorage.getItem( OVERVIEW_STORAGE_KEY ) || '[]'
-			);
-		} catch ( _e ) {
-			return;
-		}
-		if ( ! Array.isArray( stored ) ) {
-			return;
-		}
-		const cutoff = now - RING_SECONDS;
-		this.series = stored.filter(
-			( row ) => Array.isArray( row ) && row[ 0 ] >= cutoff
-		);
+	recordIn( bytes, count = 1 ) {
+		this.bytesIn += bytes;
+		this.msgsIn += count;
+	}
+
+	recordOut( bytes, count = 1 ) {
+		this.bytesOut += bytes;
+		this.msgsOut += count;
+	}
+
+	// SSE stream lifecycle (drives the Overview's SSE Uptime card). Connect stamps
+	// the wall-clock; disconnect clears it so the card reads "—" while down.
+	markSseConnected( at = nowSeconds() ) {
+		// Whole seconds: nowSeconds() is a float (Date.now()/1000), and the Uptime
+		// card's formatAge would otherwise render a fractional age ("51.684…s").
+		this.sseConnectedAt = Math.floor( at );
+	}
+
+	markSseDisconnected() {
+		this.sseConnectedAt = null;
+	}
+
+	snapshot() {
+		return {
+			bytesIn: this.bytesIn,
+			bytesOut: this.bytesOut,
+			msgsIn: this.msgsIn,
+			msgsOut: this.msgsOut,
+			warnings: this.warnings,
+			errors: this.errors,
+			debug: this.debug,
+			sseConnectedAt: this.sseConnectedAt,
+			messages: this.messages.slice(),
+		};
+	}
+
+	getSeries() {
+		return this.series;
+	}
+
+	subscribe( fn ) {
+		this._listeners.add( fn );
+		return () => this._listeners.delete( fn );
 	}
 }
 

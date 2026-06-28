@@ -52,76 +52,6 @@ use Newspack_Nodes\Topology_Registry;
 class Topologies_CI_Node extends Service_CI_Node {
 
 	private const MAX_BODY_BYTES = 1048576;
-
-	/**
-	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
-	 * label (shared by list+get so the source flag stays consistent).
-	 *
-	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
-	 */
-	private static function source_of( array $sources ): string {
-		$has_user  = null !== ( $sources['user'] ?? null );
-		$has_stock = ! empty( $sources['stock'] );
-		if ( $has_user && $has_stock ) {
-			return 'both';
-		}
-		return $has_user ? 'user' : 'stock';
-	}
-
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'Service',
-			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition.',
-			'arguments'   => [],
-			'commands'    => [
-				[
-					'name'        => 'list',
-					'description' => 'List topologies with source (user/stock/both) and active state.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
-				],
-				[
-					'name'        => 'get',
-					'description' => 'Read a topology .tsl by name.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_get( $args ),
-				],
-				[
-					'name'        => 'save',
-					'description' => 'Write a user topology: `save <name> <tsl…>` (validated; restarts the active fleet). 1 MiB cap.',
-					'args'        => [
-						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
-				],
-				[
-					'name'        => 'delete',
-					'description' => 'Delete a user topology (stock copies are protected).',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_delete( $args ),
-				],
-				[
-					'name'        => 'activate',
-					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_activate( $args ),
-				],
-				[
-					'name'        => 'deactivate',
-					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_deactivate( $args ),
-				],
-				[
-					'name'        => 'connect_worker_input',
-					'description' => "Mount the named worker's input partition into this request's graph.",
-					'args'        => [ [ 'name' => 'reader', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_connect_worker_input( $args ),
-				],
-			],
-		] );
-	}
 	/**
 	 * `list` verb handler — registered topologies + active state.
 	 *
@@ -189,6 +119,21 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'source' => self::source_of( $sources ),
 			'tsl'    => $tsl,
 		];
+	}
+
+	/**
+	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
+	 * label (shared by list+get so the source flag stays consistent).
+	 *
+	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
+	 */
+	private static function source_of( array $sources ): string {
+		$has_user  = null !== ( $sources['user'] ?? null );
+		$has_stock = ! empty( $sources['stock'] );
+		if ( $has_user && $has_stock ) {
+			return 'both';
+		}
+		return $has_user ? 'user' : 'stock';
 	}
 
 	/**
@@ -382,6 +327,61 @@ class Topologies_CI_Node extends Service_CI_Node {
 		// pivoted command in the same batch can route TO={reader}.pN. Returns '' (no reply).
 		Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
 		return '';
+	}
+
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Service',
+			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition.',
+			'arguments'   => [],
+			'commands'    => [
+				[
+					'name'        => 'list',
+					'description' => 'List topologies with source (user/stock/both) and active state.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
+				],
+				[
+					'name'        => 'get',
+					'description' => 'Read a topology .tsl by name.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_get( $args ),
+				],
+				[
+					'name'        => 'save',
+					'description' => 'Write a user topology: `save <name> <tsl…>` (validated; restarts the active fleet). 1 MiB cap.',
+					'args'        => [
+						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
+				],
+				[
+					'name'        => 'delete',
+					'description' => 'Delete a user topology (stock copies are protected).',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_delete( $args ),
+				],
+				[
+					'name'        => 'activate',
+					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_activate( $args ),
+				],
+				[
+					'name'        => 'deactivate',
+					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_deactivate( $args ),
+				],
+				[
+					'name'        => 'connect_worker_input',
+					'description' => "Mount the named worker's input partition into this request's graph.",
+					'args'        => [ [ 'name' => 'reader', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_connect_worker_input( $args ),
+				],
+			],
+		] );
 	}
 
 }

@@ -35,12 +35,6 @@ export class HeartbeatNode extends TimerNode {
 		this.slot = null;
 	}
 
-	// Hitchhike the Router TIMER and let the base fireCb() throttle to POKE_INTERVAL_MS
-	// (half the slot TTL, so a single missed tick still leaves the slot alive).
-	setTimer() {
-		super.setTimer( POKE_INTERVAL_MS );
-	}
-
 	// Consume the heartbeat reply; it carries no canvas state, so swallow it.
 	fill( message ) {
 		this.counter += 1;
@@ -74,6 +68,12 @@ export class HeartbeatNode extends TimerNode {
 		};
 		m[ LOCAL ] = true;
 		return m;
+	}
+
+	// Hitchhike the Router TIMER and let the base fireCb() throttle to POKE_INTERVAL_MS
+	// (half the slot TTL, so a single missed tick still leaves the slot alive).
+	setTimer() {
+		super.setTimer( POKE_INTERVAL_MS );
 	}
 
 	// Record the slot acquired by the live SSE stream (from its `connected`

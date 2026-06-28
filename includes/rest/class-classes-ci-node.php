@@ -27,68 +27,6 @@ use Newspack_Nodes\Tee_Node;
 \defined( 'ABSPATH' ) || exit;
 
 class Classes_CI_Node extends Service_CI_Node {
-
-	/**
-	 * Strip a node_schema's commands[] to the serializable palette shape
-	 * `{name, description, args}`, dropping the non-serializable `handler`.
-	 *
-	 * Fail-soft: a malformed command (non-array entry, or one with no/empty name)
-	 * is skipped rather than throwing — a single bad class must not fatal the
-	 * whole catalog `list`, which scans every registered class. Returns a
-	 * sequential list (JSON array) so the editor palette consumes it as-is.
-	 *
-	 * @param array<int|string,mixed> $commands Raw commands[] from a node_schema.
-	 * @return array<int,array{name:string,description:string,args:mixed}>
-	 */
-	private static function strip_commands( array $commands ): array {
-		$stripped = [];
-		foreach ( $commands as $command ) {
-			if ( ! \is_array( $command ) ) {
-				continue;
-			}
-			$raw_name = $command['name'] ?? '';
-			$name     = Core::as_string( $raw_name );
-			if ( '' === $name ) {
-				continue;
-			}
-			$raw_desc        = $command['description'] ?? '';
-			$stripped_command = [
-				'name'        => $name,
-				'description' => Core::as_string( $raw_desc ),
-				'args'        => $command['args'] ?? [],
-			];
-			// Carry the multi-invocation flag so the topology console renders one
-			// row per invocation (N add_setting mappings), not just the first. Added
-			// only when set so single-verb catalog entries keep their lean shape.
-			if ( ! empty( $command['multiple'] ) ) {
-				$stripped_command['multiple'] = true;
-			}
-			// Carry the hidden flag so the inspector can drop the standalone verb
-			// button (transport verbs are driven by their own UI). Added only when
-			// set so visible verbs keep their lean shape.
-			if ( ! empty( $command['hidden'] ) ) {
-				$stripped_command['hidden'] = true;
-			}
-			$stripped[] = $stripped_command;
-		}
-		return $stripped;
-	}
-
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'Service',
-			'description' => 'Class catalog: enumerate every registered node class with its inlined node_schema, plus the formatter registry.',
-			'arguments'   => [],
-			'commands'    => [
-				[
-					'name'        => 'list',
-					'description' => 'List registered classes (with schemas) and formatters.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
-				],
-			],
-		] );
-	}
 	/**
 	 * `list` verb handler — the editor palette catalog: every registered concrete Node class with its serializable schema fields, plus formatters.
 	 *
@@ -184,6 +122,68 @@ class Classes_CI_Node extends Service_CI_Node {
 			'classes'    => $classes,
 			'formatters' => $formatters,
 		];
+	}
+
+	/**
+	 * Strip a node_schema's commands[] to the serializable palette shape
+	 * `{name, description, args}`, dropping the non-serializable `handler`.
+	 *
+	 * Fail-soft: a malformed command (non-array entry, or one with no/empty name)
+	 * is skipped rather than throwing — a single bad class must not fatal the
+	 * whole catalog `list`, which scans every registered class. Returns a
+	 * sequential list (JSON array) so the editor palette consumes it as-is.
+	 *
+	 * @param array<int|string,mixed> $commands Raw commands[] from a node_schema.
+	 * @return array<int,array{name:string,description:string,args:mixed}>
+	 */
+	private static function strip_commands( array $commands ): array {
+		$stripped = [];
+		foreach ( $commands as $command ) {
+			if ( ! \is_array( $command ) ) {
+				continue;
+			}
+			$raw_name = $command['name'] ?? '';
+			$name     = Core::as_string( $raw_name );
+			if ( '' === $name ) {
+				continue;
+			}
+			$raw_desc        = $command['description'] ?? '';
+			$stripped_command = [
+				'name'        => $name,
+				'description' => Core::as_string( $raw_desc ),
+				'args'        => $command['args'] ?? [],
+			];
+			// Carry the multi-invocation flag so the topology console renders one
+			// row per invocation (N add_setting mappings), not just the first. Added
+			// only when set so single-verb catalog entries keep their lean shape.
+			if ( ! empty( $command['multiple'] ) ) {
+				$stripped_command['multiple'] = true;
+			}
+			// Carry the hidden flag so the inspector can drop the standalone verb
+			// button (transport verbs are driven by their own UI). Added only when
+			// set so visible verbs keep their lean shape.
+			if ( ! empty( $command['hidden'] ) ) {
+				$stripped_command['hidden'] = true;
+			}
+			$stripped[] = $stripped_command;
+		}
+		return $stripped;
+	}
+
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Service',
+			'description' => 'Class catalog: enumerate every registered node class with its inlined node_schema, plus the formatter registry.',
+			'arguments'   => [],
+			'commands'    => [
+				[
+					'name'        => 'list',
+					'description' => 'List registered classes (with schemas) and formatters.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
+				],
+			],
+		] );
 	}
 
 }

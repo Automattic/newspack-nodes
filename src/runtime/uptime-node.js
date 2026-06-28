@@ -23,11 +23,6 @@ export class UptimeNode extends TimerNode {
 		this.registrations.uptime = {};
 	}
 
-	// Hitchhike the Router TIMER and let the base fireCb() throttle to 5s.
-	setTimer() {
-		super.setTimer( POLL_INTERVAL_MS );
-	}
-
 	fill( message ) {
 		this.counter += 1;
 		const value = message[ VALUE ];
@@ -70,6 +65,11 @@ export class UptimeNode extends TimerNode {
 		m[ VALUE ] = { name: verb, arguments: '' };
 		m[ LOCAL ] = true;
 		return m;
+	}
+
+	// Hitchhike the Router TIMER and let the base fireCb() throttle to 5s.
+	setTimer() {
+		super.setTimer( POLL_INTERVAL_MS );
 	}
 
 	static nodeSchema() {

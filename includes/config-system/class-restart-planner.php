@@ -26,6 +26,25 @@ use Newspack_Nodes\Topology_Registry;
 class Restart_Planner {
 
 	/**
+	 * Touch the restart flag in every partition lock dir of each topology a save
+	 * of $restart must restart; return the topology names touched.
+	 *
+	 * @param array<int,string>|string $restart   Restart classification (see topologies_for()).
+	 * @param string                   $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @return array<int,string>
+	 */
+	public static function request_restarts( array|string $restart, string $locks_dir ): array {
+		$topologies = self::topologies_for( $restart );
+		foreach ( $topologies as $name ) {
+			$count = Bootstrap::num_partitions_for( $name );
+			for ( $p = 0; $p < $count; $p++ ) {
+				Lock_Node::request_restart_at( "{$locks_dir}/{$name}.p{$p}.lock.d" );
+			}
+		}
+		return $topologies;
+	}
+
+	/**
 	 * Active topology names a save of a field with this classification restarts.
 	 *
 	 * @param array<int,string>|string $restart 'supervisor_only' | [] | 'all' | node-type tokens.
@@ -49,25 +68,6 @@ class Restart_Planner {
 		return \array_values(
 			\array_filter( $active, static fn( string $name ): bool => self::topology_has_consumer( $name, $want ) )
 		);
-	}
-
-	/**
-	 * Touch the restart flag in every partition lock dir of each topology a save
-	 * of $restart must restart; return the topology names touched.
-	 *
-	 * @param array<int,string>|string $restart   Restart classification (see topologies_for()).
-	 * @param string                   $locks_dir Locks directory holding the per-partition lock dirs.
-	 * @return array<int,string>
-	 */
-	public static function request_restarts( array|string $restart, string $locks_dir ): array {
-		$topologies = self::topologies_for( $restart );
-		foreach ( $topologies as $name ) {
-			$count = Bootstrap::num_partitions_for( $name );
-			for ( $p = 0; $p < $count; $p++ ) {
-				Lock_Node::request_restart_at( "{$locks_dir}/{$name}.p{$p}.lock.d" );
-			}
-		}
-		return $topologies;
 	}
 
 	/**

@@ -27,11 +27,6 @@ export class VaultListViewNode extends SliceViewNode {
 		this.replies = new PendingReplies();
 	}
 
-	// Shaped-but-empty list slice: a loading table before the first list lands.
-	emptySlice() {
-		return { servers: null, loading: true, error: null };
-	}
-
 	// A `list` reply refreshes the table even when the settle path already
 	// consumed it (a mutation's awaited re-list resolves AND repaints). Every
 	// other successful verb reply is owned by the caller's Promise — no model
@@ -70,6 +65,11 @@ export class VaultListViewNode extends SliceViewNode {
 			error: errorMessage( payload ),
 			loading: false,
 		};
+	}
+
+	// Shaped-but-empty list slice: a loading table before the first list lands.
+	emptySlice() {
+		return { servers: null, loading: true, error: null };
 	}
 
 	// Reject every in-flight pending promise before the node is removed so a
