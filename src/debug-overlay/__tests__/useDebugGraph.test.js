@@ -53,13 +53,14 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const { result } = renderHook( () => useDebugGraph() );
 		expect( result.current.ready ).toBe( false );
-		// coreToGraph stamps the local reply pivot into pwd (the in-browser tail
-		// target is always the bare `_output`), even with no visible nodes.
-		expect( result.current.graph ).toEqual( {
-			nodes: [],
-			edges: [],
-			pwd: '_output',
-		} );
+		// `_shell` (the visible, always-present command Tap) is the lone node and is
+		// excluded from readiness. coreToGraph stamps the local reply pivot into pwd
+		// (the in-browser tail target is always the bare `_output`).
+		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toEqual( [
+			'_shell',
+		] );
+		expect( result.current.graph.edges ).toEqual( [] );
+		expect( result.current.graph.pwd ).toBe( '_output' );
 		teardown();
 	} );
 
