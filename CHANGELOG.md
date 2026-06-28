@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **The selected-node inspector gains Request + EOF action buttons** (`request_node` / `send_eof`), alongside the new node-scoped `tell` / `send_struct` dispatch actions (their value-prompt buttons follow). (roadmap [48], part 2)
+- **The selected-node inspector gains Request, EOF, Tell, and Struct action buttons** — `request_node` / `send_eof` (direct), and `tell_node` / `send_struct` via a shared value-prompt modal (one `PromptModal` keyed by verb). (roadmap [48], part 2)
 
 - **The console inspector shows server-command buttons when no node is selected** — Trace (`debug_state *`), `dmesg`, `dump_config`, `dump_metadata`, `log`, `ping`, `stats` — each dispatching its command via the inspector's generic `command` action (a one-click alternative to typing them at the REPL prompt). (roadmap [48], part 1)
 
