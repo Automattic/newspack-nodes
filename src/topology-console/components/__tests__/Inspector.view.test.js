@@ -25,6 +25,34 @@ describe( 'Inspector (view mode)', () => {
 		).not.toBeNull();
 	} );
 
+	it( 'shows process stats (msgs in/out) at the top of the no-node inspector', () => {
+		const { getByTestId } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{
+							id: 'src',
+							count: 10,
+							has_target: true,
+							accepts_fill: false,
+						},
+						{
+							id: 'snk',
+							count: 7,
+							has_target: false,
+							accepts_fill: true,
+						},
+					],
+					edges: [],
+				} }
+			/>
+		);
+		const stats = getByTestId( 'inspector-process-stats' ).textContent;
+		expect( stats ).toContain( '10' );
+		expect( stats ).toContain( '7' );
+	} );
+
 	it( 'shows no-node server-command buttons that dispatch via onAction', () => {
 		const calls = [];
 		const { getByText } = render(
