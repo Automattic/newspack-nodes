@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every modal now has an X close button, and the Register/Compose modals gained a Cancel button.** `ModalShell` renders a close (×) affordance in the header corner, so all dialogs (Confirm/Prompt/NewNode/Register/Compose) can be dismissed without ESC or a backdrop click. The inspector's Register and Compose modals — which previously had only a primary action (on a button that was even missing its base style class) — now match the others with a Cancel button.
+
 - **Vault commands are now observable via `connect _shell`.** The Vault's CRUD/Test dispatches entered straight at the interpreter, bypassing the `_shell` command Tap — so there was no way to see what the Test buttons sent or when. They now route through `_shell` (→ interpreter → the named `_http`/HttpOut egress), like every other command path.
 
 - **No-node inspector command buttons now pass their arguments.** The generic `command` action split off the verb but dispatched with empty args, so `Trace` (`debug_state *`) arrived as a bare `debug_state` — toggling only the interpreter (`_command_interpreter debug_state: 1`) instead of every node. It now forwards the args after the verb (`*`).

@@ -18,6 +18,20 @@ describe( 'ModalShell', () => {
 		expect( getByText( 'inner content' ) ).not.toBeNull();
 	} );
 
+	it( 'renders an X close button in the corner that invokes onDismiss', () => {
+		const onDismiss = jest.fn();
+		const { baseElement } = render(
+			<ModalShell title="x" onDismiss={ onDismiss }>
+				<div />
+			</ModalShell>
+		);
+		const close = baseElement.querySelector( '.topology-modal__close' );
+		expect( close ).not.toBeNull();
+		expect( close.getAttribute( 'aria-label' ) ).toBe( 'Close' );
+		fireEvent.click( close );
+		expect( onDismiss ).toHaveBeenCalled();
+	} );
+
 	it( 'invokes onDismiss on ESC keydown', () => {
 		const onDismiss = jest.fn();
 		render(

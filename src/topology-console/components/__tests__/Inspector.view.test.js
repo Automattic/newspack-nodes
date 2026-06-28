@@ -97,6 +97,33 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi' );
 	} );
 
+	it( 'no-node Compose Cancel button closes the composer without dispatching', () => {
+		const onAction = jest.fn();
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ onAction }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose…' ) );
+		expect(
+			document.body.querySelector( '.topology-register' )
+		).not.toBeNull();
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-register .topology-modal__btn:not(.topology-modal__btn--primary)'
+			)
+		);
+		expect(
+			document.body.querySelector( '.topology-register' )
+		).toBeNull();
+		expect( onAction ).not.toHaveBeenCalled();
+	} );
+
 	it( 'renders the missing-node state when selectedId is absent from parsed', () => {
 		const { container } = render(
 			<Inspector { ...baseProps } selectedId="ghost" />
@@ -586,6 +613,27 @@ describe( 'Inspector (view mode)', () => {
 			'echo',
 			'tee_a FIRE'
 		);
+	} );
+
+	it( 'Register modal Cancel button closes it without dispatching', () => {
+		const onAction = jest.fn();
+		const { getByText } = renderNode( {
+			onAction,
+			catalog: [ { shell_name: 'Echo', registrations: [ 'FIRE' ] } ],
+		} );
+		fireEvent.click( getByText( 'Register' ) );
+		expect(
+			document.body.querySelector( '.topology-register' )
+		).not.toBeNull();
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-register .topology-modal__btn:not(.topology-modal__btn--primary)'
+			)
+		);
+		expect(
+			document.body.querySelector( '.topology-register' )
+		).toBeNull();
+		expect( onAction ).not.toHaveBeenCalled();
 	} );
 
 	it( 'hides Register when the class declares no registration events', () => {

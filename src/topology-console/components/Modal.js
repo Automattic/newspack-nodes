@@ -61,7 +61,15 @@ export function ModalShell( { title, onDismiss, children } ) {
 					style={ modalStyle }
 				>
 					<header className="topology-modal__header">
-						{ title }
+						<span className="topology-modal__title">{ title }</span>
+						<button
+							type="button"
+							className="topology-modal__close"
+							aria-label={ __( 'Close', 'newspack-nodes' ) }
+							onClick={ onDismiss }
+						>
+							{ '×' }
+						</button>
 					</header>
 					{ children }
 				</div>
