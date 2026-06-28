@@ -34,6 +34,10 @@ export function useJsCatalog() {
 						description: schema.description ?? '',
 						accepts_fill: schema.accepts_fill ?? true,
 						has_target: schema.has_target ?? true,
+						// Ctor arg schema — drives the ADD modal's per-field inputs.
+						// Mirrors PHP Classes_CI (`schema['arguments'] ?? []`); without
+						// it the browser ADD modal showed only `name`, no interval_ms.
+						arguments: schema.arguments ?? [],
 					};
 				} )
 				// PHP Classes_CI skips a class whose schema category is 'Hidden'
