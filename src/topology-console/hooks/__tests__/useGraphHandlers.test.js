@@ -207,14 +207,22 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
-	it( 'onInspectorAction command dispatches a raw server command (no node)', () => {
+	it( 'onInspectorAction command dispatches a raw server command with its args (no node)', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'command', null, 'debug_state *' );
+		// The args after the verb (here `*`) must carry through — else
+		// `debug_state *` arrives arg-less and toggles only the interpreter.
 		expect( dispatch ).toHaveBeenCalledWith(
 			'debug_state *',
 			'debug_state',
-			''
+			'*'
 		);
+	} );
+
+	it( 'onInspectorAction command handles a verb with no args', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'command', null, 'dmesg' );
+		expect( dispatch ).toHaveBeenCalledWith( 'dmesg', 'dmesg', '' );
 	} );
 
 	it( 'onInspectorAction request dispatches request_node', () => {
