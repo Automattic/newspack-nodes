@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **"+ New Topology" moved to the hub header** (upper-right), matching the Vault tab's "+ Add Server". The Overview portals it into the shared header-controls slot (`createPortal`) instead of trailing the SummaryCards row; standalone (no hub slot) it renders inline.
+
 - **`help` lists one unified `### COMMANDS ###` section** instead of separate SHELL BUILTINS / SERVER COMMANDS sections — the shell builtins (`cd`, `debug_level`, `tell`, `send`, `send_struct`, `send_eof`, `request`, `ping`, `status`, `show_parse`) are folded into the single per-command help table (PHP `$H` + JS `HELP`), so `help` and tab-completion cover them uniformly.
 
 - **The supervisor restart button matches the topology restart buttons.** The hub-overview supervisor row's restart button now uses the same `nodes-ctl__restart button button-small` classes as the topology rows (WP small-button box + amber ↻) instead of a one-off `nodes-tm__restart` style, so the two share one look. The orphaned `.nodes-tm__restart` rule is removed. (roadmap [90])

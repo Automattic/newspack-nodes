@@ -22,7 +22,6 @@ function renderCards( props = {} ) {
 		writeRate: 1.6 * 1024 * 1024,
 		logPartitions: 11,
 		consumers: {},
-		newTopologyHref: 'admin.php?new=1',
 	};
 	return render( <SummaryCards { ...base } { ...props } /> );
 }
@@ -103,20 +102,4 @@ it( 'formats the 24h produced messages + bytes from the probe consumers', () => 
 	// decimal dropped at/above 10).
 	expect( card( container, 'messages' ) ).toContain( '1.5K' );
 	expect( card( container, 'bytes' ) ).toContain( '15 KB' );
-} );
-
-it( 'links + New Topology to the given href', () => {
-	const { container } = renderCards();
-	expect(
-		container.querySelector( '.nodes-cards__new' ).getAttribute( 'href' )
-	).toBe( 'admin.php?new=1' );
-} );
-
-it( 'renders + New Topology as a stock WP secondary button', () => {
-	const { container } = renderCards();
-	expect(
-		container
-			.querySelector( '.nodes-cards__new' )
-			.classList.contains( 'button' )
-	).toBe( true );
 } );

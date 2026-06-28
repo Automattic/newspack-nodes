@@ -35,6 +35,7 @@ import {
 	useMemo,
 	useCallback,
 	useDeferredValue,
+	createPortal,
 } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
@@ -86,9 +87,11 @@ function activeRowRects() {
 /**
  * Overview hub tab.
  *
+ * @param {Object}  props                      Component props.
+ * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the "+ New Topology" control into (undefined → inline, for tests).
  * @return {import('react').ReactElement} Rendered component.
  */
-export default function Overview() {
+export default function Overview( { headerControlsSlot } ) {
 	// Pointer-drag reorder state, declared FIRST so it can pause everything else
 	// while a drag is in flight. `dragName` = the row being dragged. The drag is a
 	// FLOAT: the dragged row follows the cursor via a compositor transform set
@@ -329,8 +332,31 @@ export default function Overview() {
 		[ consumers ]
 	);
 
+	// "+ New Topology" lives on the right of the hub's ONE shared header —
+	// portaled into its slot, matching Vault's "+ Add Server". A node = the hub
+	// slot (portal); `null` = slot pending (render nothing); `undefined` =
+	// standalone (tests) → inline.
+	const newTopologyControl = (
+		<a
+			className="nodes-cards__new button"
+			href={ consoleHref( '', { isNew: true } ) }
+		>
+			{ __( '+ New Topology', 'newspack-nodes' ) }
+		</a>
+	);
+	let renderedNewTopology = null;
+	if ( headerControlsSlot ) {
+		renderedNewTopology = createPortal(
+			newTopologyControl,
+			headerControlsSlot
+		);
+	} else if ( undefined === headerControlsSlot ) {
+		renderedNewTopology = newTopologyControl;
+	}
+
 	return (
 		<div className="nodes-overview">
+			{ renderedNewTopology }
 			<ConnectionBanner
 				connectionError={ ! connected }
 				message={ __( 'Disconnected — retrying…', 'newspack-nodes' ) }
@@ -341,7 +367,6 @@ export default function Overview() {
 				writeRate={ writeRate }
 				logPartitions={ logPartitions }
 				consumers={ consumers }
-				newTopologyHref={ consoleHref( '', { isNew: true } ) }
 			/>
 			<div className="nodes-overview__panels">
 				<TopicsChart
