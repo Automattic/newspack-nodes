@@ -234,15 +234,26 @@ function readUrlParam( key ) {
 		return null;
 	}
 }
-function initialTopologyFromUrl( fallback ) {
+export function initialTopologyFromUrl( fallback ) {
 	const t = readUrlParam( 'topology' );
-	// Live read at render time (NOT the module-load seed): the localized
-	// snapshot may land after this module is imported.
+	if ( ! t ) {
+		return fallback;
+	}
+	// Honor the deep link if EITHER the module-load SEED or the live read knows
+	// the topology. The SEED is the reliable source in PRODUCTION: each hub bundle
+	// (event-dashboards, devtools-hub, console, …) localizes its OWN
+	// `NewspackNodesData` global, and the last one to execute clobbers
+	// topologyPartitions — so a render-time live read sees {} and every deep link
+	// fell back to the first topology. The live read is kept as the fallback for
+	// the case the SEED was empty at module import (e.g. a late-landing snapshot).
 	const live =
 		( window.NewspackNodesData &&
 			window.NewspackNodesData.topologyPartitions ) ||
 		{};
-	return t && Object.prototype.hasOwnProperty.call( live, t ) ? t : fallback;
+	const known =
+		Object.prototype.hasOwnProperty.call( SEED_PARTITIONS, t ) ||
+		Object.prototype.hasOwnProperty.call( live, t );
+	return known ? t : fallback;
 }
 function initialPartitionFromUrl() {
 	const p = parseInt( readUrlParam( 'partition' ) || '0', 10 );
