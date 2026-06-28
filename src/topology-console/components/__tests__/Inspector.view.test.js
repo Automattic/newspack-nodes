@@ -39,6 +39,36 @@ describe( 'Inspector (view mode)', () => {
 		expect( calls ).toContainEqual( [ 'command', null, 'debug_state *' ] );
 	} );
 
+	it( 'no-node Compose opens a composer that dispatches the chosen verb', () => {
+		const onAction = jest.fn();
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ onAction }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose…' ) );
+		// selects[0] = To (echo default), selects[1] = Type — pick Info (index 1).
+		const selects = document.body.querySelectorAll(
+			'.topology-register select'
+		);
+		fireEvent.change( selects[ 1 ], { target: { value: '1' } } );
+		fireEvent.change(
+			document.body.querySelector( '.topology-compose__value' ),
+			{ target: { value: 'hi' } }
+		);
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-register .topology-modal__btn--primary'
+			)
+		);
+		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi' );
+	} );
+
 	it( 'renders the missing-node state when selectedId is absent from parsed', () => {
 		const { container } = render(
 			<Inspector { ...baseProps } selectedId="ghost" />

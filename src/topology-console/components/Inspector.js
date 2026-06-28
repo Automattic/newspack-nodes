@@ -1297,6 +1297,93 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 	);
 }
 
+// Message-composer types (roadmap [46]): each maps to a CLI verb so Compose has
+// full CLI equivalence. [ label, onAction-action, takesValue ].
+const COMPOSE_TYPES = [
+	[ 'TM_BYTESTREAM (send_node)', 'send', true ],
+	[ 'TM_INFO (tell_node)', 'tell', true ],
+	[ 'TM_STRUCT (send_struct)', 'send_struct', true ],
+	[ 'TM_REQUEST (request_node)', 'request', false ],
+	[ 'TM_EOF (send_eof)', 'send_eof', false ],
+];
+
+// Compose modal (roadmap [46]): a message-composer playground — pick a target +
+// message TYPE + value, dispatched via the matching CLI verb (full equivalence
+// with the REPL). Confirm calls onConfirm(action, to, value).
+function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
+	const [ to, setTo ] = useState( nodeNames[ 0 ] || '' );
+	const [ typeIdx, setTypeIdx ] = useState( 0 );
+	const [ value, setValue ] = useState( '' );
+	const [ , action, takesValue ] = COMPOSE_TYPES[ typeIdx ];
+	return (
+		<ModalShell
+			title={ __( 'Compose a message', 'newspack-nodes' ) }
+			onDismiss={ onCancel }
+		>
+			<div className="topology-register">
+				<label
+					className="topology-register__field"
+					htmlFor="nodes-compose-to"
+				>
+					{ __( 'To (node)', 'newspack-nodes' ) }
+					<select
+						id="nodes-compose-to"
+						value={ to }
+						onChange={ ( e ) => setTo( e.target.value ) }
+					>
+						{ nodeNames.map( ( n ) => (
+							<option key={ n } value={ n }>
+								{ n }
+							</option>
+						) ) }
+					</select>
+				</label>
+				<label
+					className="topology-register__field"
+					htmlFor="nodes-compose-type"
+				>
+					{ __( 'Type', 'newspack-nodes' ) }
+					<select
+						id="nodes-compose-type"
+						value={ typeIdx }
+						onChange={ ( e ) =>
+							setTypeIdx( Number( e.target.value ) )
+						}
+					>
+						{ COMPOSE_TYPES.map( ( [ label ], i ) => (
+							<option key={ label } value={ i }>
+								{ label }
+							</option>
+						) ) }
+					</select>
+				</label>
+				{ takesValue && (
+					<label
+						className="topology-register__field"
+						htmlFor="nodes-compose-value"
+					>
+						{ __( 'Value', 'newspack-nodes' ) }
+						<textarea
+							id="nodes-compose-value"
+							className="topology-compose__value"
+							value={ value }
+							onChange={ ( e ) => setValue( e.target.value ) }
+						/>
+					</label>
+				) }
+				<button
+					type="button"
+					className="topology-modal__btn--primary"
+					disabled={ ! to }
+					onClick={ () => onConfirm( action, to, value ) }
+				>
+					{ __( 'Send', 'newspack-nodes' ) }
+				</button>
+			</div>
+		</ModalShell>
+	);
+}
+
 export default function Inspector( {
 	selectedId,
 	parsed,
@@ -1322,6 +1409,8 @@ export default function Inspector( {
 	const [ promptVerb, setPromptVerb ] = useState( null );
 	// Whether the "Register a listener" modal is open.
 	const [ registerOpen, setRegisterOpen ] = useState( false );
+	// Whether the no-node message-composer (roadmap [46]) is open.
+	const [ composeOpen, setComposeOpen ] = useState( false );
 
 	if ( ! selectedId ) {
 		return (
@@ -1341,7 +1430,30 @@ export default function Inspector( {
 							{ label }
 						</button>
 					) ) }
+					<button
+						type="button"
+						className="topology-insp__actions-full"
+						onClick={ () => setComposeOpen( true ) }
+						title={ __(
+							'Compose a message — pick a target, type, and value (full CLI equivalence)',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Compose…', 'newspack-nodes' ) }
+					</button>
 				</div>
+				{ composeOpen && (
+					<ComposeModal
+						nodeNames={ parsed.nodes.map( ( n ) => n.id ) }
+						onConfirm={ ( action, to, value ) => {
+							setComposeOpen( false );
+							if ( onAction ) {
+								onAction( action, to, value );
+							}
+						} }
+						onCancel={ () => setComposeOpen( false ) }
+					/>
+				) }
 			</aside>
 		);
 	}
