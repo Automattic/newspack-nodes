@@ -113,6 +113,9 @@ export function useConsoleGraph( {
 		// name + sink=interpreter + arguments in one call.
 		const metadata = interpreter.makeNode( 'Metadata', names.METADATA );
 		const uptime = interpreter.makeNode( 'Uptime', names.UPTIME );
+		// `_dmesg` polls the viewed process's dmesg + publishes error/warn/debug
+		// line counts for the inspector's process-stats header (roadmap [95]).
+		const dmesg = interpreter.makeNode( 'Dmesg', names.DMESG );
 		const completion = interpreter.makeNode(
 			'Completion',
 			names.COMPLETION
@@ -177,8 +180,10 @@ export function useConsoleGraph( {
 		// re-stamps the live cwd, routing every scope through one indirection).
 		metadata.sink = interpreter;
 		uptime.sink = interpreter;
+		dmesg.sink = interpreter;
 		metadata.target = names.CWD;
 		uptime.target = names.CWD;
+		dmesg.target = names.CWD;
 		// Capture the node locked in `before` and flush THAT SAME node in `after`:
 		// a tick that steals `active` to a new worker mid-notify must not strand the
 		// old link's HttpOut locked (lock OLD, flush NEW would).
@@ -195,6 +200,7 @@ export function useConsoleGraph( {
 		// the router's notify_timer calls their fireCb -> fire directly each tick.
 		metadata.setTimer();
 		uptime.setTimer();
+		dmesg.setTimer();
 
 		// Paint the topology's declared structure immediately: the same direct
 		// `topologies get` edit mode uses (independent of the SSE stream), parsed
@@ -240,6 +246,7 @@ export function useConsoleGraph( {
 			dumper.removeNode();
 			metadata.removeNode();
 			uptime.removeNode();
+			dmesg.removeNode();
 			completion.removeNode();
 			for ( const remote of remotes ) {
 				remote.removeNode();

@@ -4,7 +4,9 @@
 
 import { render, fireEvent } from '@testing-library/react';
 import Inspector, { formatActivityWindow } from '../Inspector';
-import { IoTelemetry } from '../../../runtime/io-telemetry';
+import { Core } from '../../../runtime/core';
+import { Node } from '../../../runtime/node';
+import names from '../../../runtime/reserved-node-names.json';
 
 const baseProps = {
 	selectedId: null,
@@ -55,19 +57,23 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'shows dmesg error/warning/debug counts + rate sparklines in the header', () => {
-		IoTelemetry.reset();
-		IoTelemetry.recordError( 2, 'boom' );
-		IoTelemetry.recordWarning( 'careful' );
+		Core.reset();
+		// The console mounts a `_dmesg` poll node publishing the viewed process's
+		// classified stderr-tail counts; the header reads it via useNodeState.
+		const dmesg = new Node();
+		dmesg.name = names.DMESG;
+		dmesg.setStateCache = { dmesg: { errors: 2, warnings: 1, debug: 3 } };
 		const { getByTestId } = render( <Inspector { ...baseProps } /> );
 		const header = getByTestId( 'inspector-process-stats' );
-		// Error/warning/debug counts (reused from the overview's IoTelemetry).
 		const levels = header.querySelector( '.topology-insp__levels' );
-		expect( levels.textContent ).toMatch( /2/ ); // errors
-		expect( levels.textContent ).toMatch( /1/ ); // warnings
-		// Rate sparklines (reused Sparkline) — in + out.
+		expect( levels.textContent ).toMatch( /2 err/ );
+		expect( levels.textContent ).toMatch( /1 warn/ );
+		expect( levels.textContent ).toMatch( /3 dbg/ );
+		// In + Out rate sparklines (a flat baseline svg renders even pre-data).
 		expect(
 			header.querySelectorAll( '.nodes-spark' ).length
 		).toBeGreaterThanOrEqual( 2 );
+		Core.reset();
 	} );
 
 	it( 'shows no-node server-command buttons that dispatch via onAction', () => {
