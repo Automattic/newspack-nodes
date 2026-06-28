@@ -33,7 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The inspector now shows a read-only Constructor section for the selected live node.** It mirrors edit mode's constructor form but read-only: it pairs the class's declared positional argument names (from the catalog schema) with the values the node was given — its `arguments` string, already carried in every node's `dump_metadata` row. An omitted optional argument falls back to its schema default (shown dimmed). To change a node's arguments, delete and recreate it (there is no live re-arg). A free-form trailing argument folds into its declared slot instead of spilling across rows, and a class with no constructor arguments (or a reserved node) shows no section.
 
+### Changed
+
+- **Dropping a node in live mode now shows the class's node_schema Constructor fields** instead of one freeform "arguments" string — the same per-field `CtorField` widgets edit mode uses (typed text, formatter/node-name pickers, per-field defaults shown as placeholders). On confirm the per-field values serialize to the `make_node` args exactly as edit-mode `serializeTsl` does (defaults filled, trailing empties dropped). `CtorField` / `coerceValue` / `inputForType` were extracted to a shared `components/CtorField.js` module consumed by both the Inspector and the modal.
+
 ### Fixed
+
+- **The edit inspector hides node_schema verbs flagged `hidden`.** Tail's time-travel verbs (`set_snapshot_node`, `seek_frame`, `pause`, `play`, `step`, …) are schema plumbing, not operator-facing config — they no longer clutter the editor's Verbs list, matching the runtime action-button filter.
 
 - **Selecting a node no longer steals keyboard focus into the REPL transcript.** With the transcript open, clicking a node refocused the REPL input — and the document-level Delete/Backspace handler skips form fields — so you couldn't delete a node without first minimizing the transcript. Selection now leaves focus alone.
 

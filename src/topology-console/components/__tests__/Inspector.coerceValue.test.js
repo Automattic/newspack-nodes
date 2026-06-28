@@ -1,4 +1,4 @@
-import { coerceValue } from '../Inspector';
+import { coerceValue } from '../CtorField';
 
 describe( 'coerceValue', () => {
 	it( 'empty string stays empty for all types', () => {

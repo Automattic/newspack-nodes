@@ -1725,6 +1725,8 @@ export default function TopologyConsole( {
 					shellName={ pendingDrop.shellName }
 					defaultName={ pendingDrop.defaultName }
 					argSchema={ pendingDrop.argSchema }
+					nodeNames={ parsed.nodes.map( ( n ) => n.name || n.id ) }
+					formatters={ catalog.formatters }
 					onConfirm={ commitPendingDrop }
 					onCancel={ cancelPendingDrop }
 				/>

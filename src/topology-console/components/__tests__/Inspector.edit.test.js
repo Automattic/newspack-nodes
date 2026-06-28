@@ -49,6 +49,26 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'echo' );
 	} );
 
+	it( 'hides verbs flagged hidden in node_schema from the edit Verbs list', () => {
+		const { getByText, queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				catalog={ [
+					{
+						shell_name: 'Echo',
+						arguments: [],
+						commands: [
+							{ name: 'visible_verb', args: [] },
+							{ name: 'seek_frame', args: [], hidden: true },
+						],
+					},
+				] }
+			/>
+		);
+		expect( getByText( 'visible_verb' ) ).not.toBeNull();
+		expect( queryByText( 'seek_frame' ) ).toBeNull();
+	} );
+
 	it( 'NameField: commits rename on blur with a valid new name', () => {
 		const onRenameNode = jest.fn().mockReturnValue( true );
 		const { container } = render(

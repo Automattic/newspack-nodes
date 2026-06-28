@@ -78,6 +78,20 @@ function commandArgSpecFor( schemas, className, commandName ) {
 	return v && Array.isArray( v.args ) ? v.args : [];
 }
 
+/**
+ * Serialize positional ctor-arg values into the `make_node` args string
+ * (defaults filled, trailing empties dropped, whitespace single-quoted). Shared
+ * by the live-drop modal so its make_node matches edit-mode serialization.
+ *
+ * @param {Array} ctorArgs Positional arg values.
+ * @param {Array} spec     Schema arg list (each entry may carry `default`).
+ * @return {string} Space-joined args (empty string if none remain).
+ */
+export function serializeCtorArgs( ctorArgs, spec ) {
+	const filled = applyDefaults( ctorArgs || [], spec );
+	return trimTrailingEmpties( filled ).map( serializeArg ).join( ' ' );
+}
+
 function emitMakeNode( node, schemas ) {
 	const spec = argumentsSpecFor( schemas, node.class );
 	const filled = applyDefaults( node.ctorArgs || [], spec );
