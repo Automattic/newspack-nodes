@@ -309,6 +309,33 @@ describe( 'mountExospine — Core.reinit stash', () => {
 
 		expect( Core.reinitNames ).toBeNull();
 	} );
+
+	test( 'accumulates names across co-mounted builds; a teardown drops only its own', () => {
+		// Two build-delegated mounts share the page (e.g. the hub overview's several
+		// dashboards). reinitNames must recognize BOTH builds' infra, not just the
+		// last — else the Reset Graph chip counts the others as user-added.
+		const a = mountExospine( ( { interpreter } ) => {
+			const n = new Node();
+			n.name = 'a:view';
+			n.sink = interpreter;
+		} );
+		const b = mountExospine( ( { interpreter } ) => {
+			const n = new Node();
+			n.name = 'b:view';
+			n.sink = interpreter;
+		} );
+
+		expect( [ ...Core.reinitNames ].sort() ).toEqual( [
+			'a:view',
+			'b:view',
+		] );
+
+		// Tearing down the reusing mount drops only its names; the owner's survive.
+		b.teardown();
+		expect( Core.reinitNames ).toEqual( [ 'a:view' ] );
+
+		a.teardown();
+	} );
 } );
 
 test( 'a second build-mount reuses the backbone without tearing it down (no orphaned interpreter)', () => {

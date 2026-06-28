@@ -130,8 +130,13 @@ export function mountExospine( build ) {
 			( name ) => ! before.has( name )
 		);
 		// Publish the build-registered set so the debug overlay knows which names
-		// belong to this dashboard (vs user-added nodes / its own infra).
-		Core.reinitNames = builtNames;
+		// belong to a dashboard (vs user-added nodes). UNION across mounts — several
+		// build-delegated dashboards co-mount on one page (the hub overview), so the
+		// Reset Graph chip must recognize EVERY build's infra, not just the last
+		// mount's (teardownBuilt drops a mount's names again).
+		Core.reinitNames = [
+			...new Set( [ ...( Core.reinitNames || [] ), ...builtNames ] ),
+		];
 	};
 	const teardownBuilt = () => {
 		if ( 'function' === typeof cleanup ) {
@@ -143,6 +148,12 @@ export function mountExospine( build ) {
 		for ( const name of builtNames ) {
 			Core.node( name )?.removeNode();
 		}
+		// Drop only THIS mount's names from the shared set — co-mounted dashboards
+		// keep theirs (the inverse of runBuild's union).
+		const gone = new Set( builtNames );
+		Core.reinitNames = ( Core.reinitNames || [] ).filter(
+			( name ) => ! gone.has( name )
+		);
 		builtNames = [];
 	};
 	const teardownBackbone = () => {
