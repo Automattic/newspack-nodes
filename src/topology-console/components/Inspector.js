@@ -10,7 +10,6 @@ import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { processStats } from '../utils/processStats';
 import { Sparkline } from '../../event-dashboards/Sparkline';
-import { useAggregateRateSeries } from '../hooks/useAggregateRateSeries';
 import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
 
@@ -273,13 +272,14 @@ function formatBytes( n ) {
 // Process-stats header for the no-node inspector (roadmap [95]). Everything is
 // scoped to the process being viewed (whatever `_cwd` points at): messages-in/out
 // + bytes roll up from the live dump_metadata graph (processStats); the In/Out
-// rate sparklines derive from successive metadata polls (useAggregateRateSeries);
-// the error/warning/debug counts come from a `dmesg` of that process (the
-// `_dmesg` poll node classifies the stderr tail).
-function ProcessStatsHeader( { nodes } ) {
+// rate `rateSeries` is accumulated by the always-mounted GraphView (so it
+// survives this header un/remounting on node-select or panel-collapse) and the
+// error/warning/debug counts come from a `dmesg` of that process (the `_dmesg`
+// poll node classifies the stderr tail).
+function ProcessStatsHeader( { nodes, rateSeries } ) {
 	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 		processStats( nodes );
-	const { in: inSpark, out: outSpark } = useAggregateRateSeries( nodes );
+	const { in: inSpark = [], out: outSpark = [] } = rateSeries || {};
 	const levels = useNodeState( reservedNames.DMESG, 'dmesg' ) || {
 		errors: 0,
 		warnings: 0,
@@ -1158,14 +1158,15 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 			) }
 			onDismiss={ onCancel }
 		>
-			<div className="topology-register">
+			<div className="topology-modal__body">
 				<label
-					className="topology-register__field"
+					className="topology-modal__label"
 					htmlFor="nodes-register-event"
 				>
 					{ __( 'Event', 'newspack-nodes' ) }
 					<select
 						id="nodes-register-event"
+						className="topology-modal__input"
 						value={ event }
 						onChange={ ( e ) => setEvent( e.target.value ) }
 					>
@@ -1177,12 +1178,13 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 					</select>
 				</label>
 				<label
-					className="topology-register__field"
+					className="topology-modal__label"
 					htmlFor="nodes-register-target"
 				>
 					{ __( 'Listener node', 'newspack-nodes' ) }
 					<select
 						id="nodes-register-target"
+						className="topology-modal__input"
 						value={ target }
 						onChange={ ( e ) => setTarget( e.target.value ) }
 					>
@@ -1193,23 +1195,23 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 						) ) }
 					</select>
 				</label>
-				<div className="topology-modal__actions">
-					<button
-						type="button"
-						className="topology-modal__btn"
-						onClick={ onCancel }
-					>
-						{ __( 'Cancel', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="topology-modal__btn topology-modal__btn--primary"
-						disabled={ ! event || ! target }
-						onClick={ () => onConfirm( target, event ) }
-					>
-						{ __( 'Register', 'newspack-nodes' ) }
-					</button>
-				</div>
+			</div>
+			<div className="topology-modal__actions">
+				<button
+					type="button"
+					className="topology-modal__btn"
+					onClick={ onCancel }
+				>
+					{ __( 'Cancel', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
+					className="topology-modal__btn topology-modal__btn--primary"
+					disabled={ ! event || ! target }
+					onClick={ () => onConfirm( target, event ) }
+				>
+					{ __( 'Register', 'newspack-nodes' ) }
+				</button>
 			</div>
 		</ModalShell>
 	);
@@ -1221,7 +1223,7 @@ const COMPOSE_TYPES = [
 	[ 'TM_BYTESTREAM (send_node)', 'send', true ],
 	[ 'TM_INFO (tell_node)', 'tell', true ],
 	[ 'TM_STRUCT (send_struct)', 'send_struct', true ],
-	[ 'TM_REQUEST (request_node)', 'request', false ],
+	[ 'TM_REQUEST (request_node)', 'request', true ],
 	[ 'TM_EOF (send_eof)', 'send_eof', false ],
 ];
 
@@ -1238,14 +1240,15 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 			title={ __( 'Compose a message', 'newspack-nodes' ) }
 			onDismiss={ onCancel }
 		>
-			<div className="topology-register">
+			<div className="topology-modal__body">
 				<label
-					className="topology-register__field"
+					className="topology-modal__label"
 					htmlFor="nodes-compose-to"
 				>
 					{ __( 'To (node)', 'newspack-nodes' ) }
 					<select
 						id="nodes-compose-to"
+						className="topology-modal__input"
 						value={ to }
 						onChange={ ( e ) => setTo( e.target.value ) }
 					>
@@ -1257,12 +1260,13 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 					</select>
 				</label>
 				<label
-					className="topology-register__field"
+					className="topology-modal__label"
 					htmlFor="nodes-compose-type"
 				>
 					{ __( 'Type', 'newspack-nodes' ) }
 					<select
 						id="nodes-compose-type"
+						className="topology-modal__input"
 						value={ typeIdx }
 						onChange={ ( e ) =>
 							setTypeIdx( Number( e.target.value ) )
@@ -1277,35 +1281,36 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 				</label>
 				{ takesValue && (
 					<label
-						className="topology-register__field"
+						className="topology-modal__label"
 						htmlFor="nodes-compose-value"
 					>
 						{ __( 'Value', 'newspack-nodes' ) }
 						<textarea
 							id="nodes-compose-value"
-							className="topology-compose__value"
+							className="topology-modal__input"
 							value={ value }
 							onChange={ ( e ) => setValue( e.target.value ) }
+							rows={ 8 }
 						/>
 					</label>
 				) }
-				<div className="topology-modal__actions">
-					<button
-						type="button"
-						className="topology-modal__btn"
-						onClick={ onCancel }
-					>
-						{ __( 'Cancel', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="topology-modal__btn topology-modal__btn--primary"
-						disabled={ ! to }
-						onClick={ () => onConfirm( action, to, value ) }
-					>
-						{ __( 'Send', 'newspack-nodes' ) }
-					</button>
-				</div>
+			</div>
+			<div className="topology-modal__actions">
+				<button
+					type="button"
+					className="topology-modal__btn"
+					onClick={ onCancel }
+				>
+					{ __( 'Cancel', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
+					className="topology-modal__btn topology-modal__btn--primary"
+					disabled={ ! to }
+					onClick={ () => onConfirm( action, to, value ) }
+				>
+					{ __( 'Send', 'newspack-nodes' ) }
+				</button>
 			</div>
 		</ModalShell>
 	);
@@ -1316,6 +1321,7 @@ export default function Inspector( {
 	parsed,
 	streamStatus,
 	rateInfo,
+	rateSeries,
 	onAction,
 	onSelect,
 	onHover,
@@ -1342,7 +1348,10 @@ export default function Inspector( {
 	if ( ! selectedId ) {
 		return (
 			<aside className="topology-inspector">
-				<ProcessStatsHeader nodes={ parsed.nodes } />
+				<ProcessStatsHeader
+					nodes={ parsed.nodes }
+					rateSeries={ rateSeries }
+				/>
 				<div
 					className="topology-insp__commands"
 					data-testid="inspector-commands"
@@ -1730,18 +1739,6 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
-					onClick={ () =>
-						onAction && onAction( 'send_eof', node.id )
-					}
-					title={ __(
-						'Send end-of-stream — `send_eof <name>` (TM_EOF)',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'EOF', 'newspack-nodes' ) }
-				</button>
-				<button
-					type="button"
 					onClick={ () => setPromptVerb( 'tell' ) }
 					title={ __(
 						'Send a TM_INFO payload — `tell_node <name> <info>`',
@@ -1759,6 +1756,18 @@ export default function Inspector( {
 					) }
 				>
 					{ __( 'Struct', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
+					onClick={ () =>
+						onAction && onAction( 'send_eof', node.id )
+					}
+					title={ __(
+						'Send end-of-stream — `send_eof <name>` (TM_EOF)',
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'EOF', 'newspack-nodes' ) }
 				</button>
 				{ regEvents.length > 0 && (
 					<button

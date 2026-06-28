@@ -105,16 +105,16 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click( getByText( 'Compose…' ) );
 		// selects[0] = To (echo default), selects[1] = Type — pick Info (index 1).
 		const selects = document.body.querySelectorAll(
-			'.topology-register select'
+			'.topology-modal__body select'
 		);
 		fireEvent.change( selects[ 1 ], { target: { value: '1' } } );
 		fireEvent.change(
-			document.body.querySelector( '.topology-compose__value' ),
+			document.body.querySelector( '#nodes-compose-value' ),
 			{ target: { value: 'hi' } }
 		);
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-register .topology-modal__btn--primary'
+				'.topology-modal__actions .topology-modal__btn--primary'
 			)
 		);
 		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi' );
@@ -134,15 +134,15 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click( getByText( 'Compose…' ) );
 		expect(
-			document.body.querySelector( '.topology-register' )
+			document.body.querySelector( '.topology-modal__body' )
 		).not.toBeNull();
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-register .topology-modal__btn:not(.topology-modal__btn--primary)'
+				'.topology-modal__actions .topology-modal__btn:not(.topology-modal__btn--primary)'
 			)
 		);
 		expect(
-			document.body.querySelector( '.topology-register' )
+			document.body.querySelector( '.topology-modal__body' )
 		).toBeNull();
 		expect( onAction ).not.toHaveBeenCalled();
 	} );
@@ -623,12 +623,12 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click( getByText( 'Register' ) );
 		// event defaults to FIRE, target defaults to the only other node (tee_a).
 		const selects = document.body.querySelectorAll(
-			'.topology-register select'
+			'.topology-modal__body select'
 		);
 		expect( selects ).toHaveLength( 2 );
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-register .topology-modal__btn--primary'
+				'.topology-modal__actions .topology-modal__btn--primary'
 			)
 		);
 		expect( onAction ).toHaveBeenCalledWith(
@@ -646,15 +646,15 @@ describe( 'Inspector (view mode)', () => {
 		} );
 		fireEvent.click( getByText( 'Register' ) );
 		expect(
-			document.body.querySelector( '.topology-register' )
+			document.body.querySelector( '.topology-modal__body' )
 		).not.toBeNull();
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-register .topology-modal__btn:not(.topology-modal__btn--primary)'
+				'.topology-modal__actions .topology-modal__btn:not(.topology-modal__btn--primary)'
 			)
 		);
 		expect(
-			document.body.querySelector( '.topology-register' )
+			document.body.querySelector( '.topology-modal__body' )
 		).toBeNull();
 		expect( onAction ).not.toHaveBeenCalled();
 	} );

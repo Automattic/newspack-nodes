@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The console process-stats header's In/Out rate sparklines no longer reset when you select a node or collapse the inspector.** The rate series accumulated inside the no-node header component, which unmounts on either action — wiping the history. It now accumulates in the always-mounted `GraphView` (`useAggregateRateSeries`) and is passed to the header as a prop, so it persists and keeps ticking while the header is hidden.
+
+### Changed
+
+- **The inspector's Compose and Register modals use the standard `topology-modal__*` field classes** (`__body` / `__label` / `__input` / `__actions`), matching the other modals so the shared modal theming applies uniformly.
+
 ## [0.22.0] - 2026-06-27
 
 ### Added
