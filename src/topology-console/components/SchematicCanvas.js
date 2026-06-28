@@ -238,6 +238,9 @@ export default function SchematicCanvas( {
 	bottomObstructionPx = 0,
 	// shell_name → schema; drives port visibility (accepts_fill/has_target).
 	classCatalog = {},
+	// Node ids that exist live but NOT in the registered .tsl (runtime drift) —
+	// painted distinctly via `is-drift` (roadmap [49]). null = no drift info.
+	driftIds = null,
 } ) {
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
 	// positionOverrides is the COMPLETE position map (owned by useCanvasLayout).
@@ -797,7 +800,9 @@ export default function SchematicCanvas( {
 					isFaded ? ' is-faded' : ''
 				}${ isDragging ? ' is-dragging' : '' }${
 					showDetail ? '' : ' is-static'
-				}${ isIdle ? ' is-idle' : '' }` }
+				}${ isIdle ? ' is-idle' : '' }${
+					driftIds?.has( n.id ) ? ' is-drift' : ''
+				}` }
 				transform={ `translate(${ n.position.x },${ n.position.y })` }
 				onClick={ ( ev ) => {
 					ev.stopPropagation();

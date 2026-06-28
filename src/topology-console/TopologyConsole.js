@@ -28,6 +28,7 @@ import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useTopologyCatalog } from './hooks/useTopologyCatalog';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
+import { useCanonicalNodes, driftNodeIds } from './hooks/useCanonicalNodes';
 import { useGraphSource } from './hooks/useGraphSource';
 import { useCompletion } from './hooks/useCompletion';
 import { useGraphHandlers } from './hooks/useGraphHandlers';
@@ -1019,6 +1020,18 @@ export default function TopologyConsole( {
 		return augmentWithVirtualEdges( baseCanvasGraph, catalog.classes );
 	}, [ baseCanvasGraph, mode, catalog.classes ] );
 
+	// Runtime drift (roadmap [49]): live nodes not in the registered .tsl (and not
+	// reserved `_` infra), painted distinctly. Live mode only — in edit mode the
+	// draft IS the source, so "drift" is meaningless.
+	const canonicalNodes = useCanonicalNodes( topology );
+	const driftIds = useMemo(
+		() =>
+			mode === 'edit'
+				? null
+				: driftNodeIds( canvasGraph?.nodes, canonicalNodes ),
+		[ mode, canvasGraph, canonicalNodes ]
+	);
+
 	// snapToGrid is imported from utils/autoLayout — same constants the renderer
 	// uses for the existing nodes.
 
@@ -1585,6 +1598,7 @@ export default function TopologyConsole( {
 					paletteLoading: catalog.loading,
 					classCatalog: schemasByShellName,
 					catalog: catalog.classes,
+					driftIds,
 					formatters: catalog.formatters,
 					streamStatus: status,
 					positionOverrides,
