@@ -44,7 +44,12 @@ export class Node {
 		this.sink = null;
 		this.target = '';
 		this.counter = 0;
-		this.largestMsgSent = 0;
+		// Byte/size tallies behind get/set accessors so composite nodes (Remote_Link)
+		// can OVERRIDE the getters to aggregate from children — an instance data
+		// field would shadow a subclass prototype getter and break delegation.
+		this._bytesRead = 0;
+		this._bytesWritten = 0;
+		this._largestMsgSent = 0;
 		this.registrations = {};
 		this.setStateCache = {};
 		this.patron = null;
@@ -80,6 +85,28 @@ export class Node {
 
 	set arguments( value ) {
 		this._arguments = String( value ?? '' );
+	}
+
+	// Byte/size stats (mirror PHP Node's bytes_read()/bytes_written()/
+	// largest_msg_sent()). Leaf I/O nodes (SseIn read, HttpOut write) bump these;
+	// composite nodes override the getters to aggregate from their children.
+	get bytesRead() {
+		return this._bytesRead;
+	}
+	set bytesRead( v ) {
+		this._bytesRead = v;
+	}
+	get bytesWritten() {
+		return this._bytesWritten;
+	}
+	set bytesWritten( v ) {
+		this._bytesWritten = v;
+	}
+	get largestMsgSent() {
+		return this._largestMsgSent;
+	}
+	set largestMsgSent( v ) {
+		this._largestMsgSent = v;
 	}
 
 	fill( message ) {

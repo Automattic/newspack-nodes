@@ -50,6 +50,20 @@ export class RemoteLinkNode extends Node {
 		this.onClose = null;
 	}
 
+	// Composite stat delegation (mirrors PHP Remote_Link): this link does no wire
+	// I/O itself — its SseIn child reads the stream and its HttpOut child POSTs — so
+	// surface THEIR byte tallies, not the link's own zeros. (counter stays the
+	// link's own field; the JS readers don't aggregate it.)
+	get bytesRead() {
+		return this.sseIn ? this.sseIn.bytesRead : super.bytesRead;
+	}
+	get bytesWritten() {
+		return this.httpOut ? this.httpOut.bytesWritten : super.bytesWritten;
+	}
+	get largestMsgSent() {
+		return this.sseIn ? this.sseIn.largestMsgSent : super.largestMsgSent;
+	}
+
 	// Open the inbound stream (children built lazily on first use). An optional
 	// `positions` seed (`{ <sub>: { <partition>: 'start'|'end'|{seg,off} } }`)
 	// seeks the server cursor — the Overview tab passes 'start' for 24h replay;

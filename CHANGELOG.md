@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Browser-side nodes track byte stats too (JS parity).** The JS `Node` now exposes `bytesRead` / `bytesWritten` / `largestMsgSent` (getter/setter-backed so composites can override them); `SseIn` tallies `bytesRead` + `largestMsgSent` on each received frame, `HttpOut` tallies `bytesWritten` (packed POST size), and `RemoteLink` / `RemoteIpc` delegate those to their `SseIn` / `HttpOut` children — so `stats` and the process-stats header report real browser I/O bytes instead of `0`.
+
 - **The aggregator's `Remote_Source` now reports real read throughput instead of 0 bytes.** `SSE_In` never tracked byte stats (only its counter), and `Remote_Link` never surfaced its children's, so a hub pulling spoke firehoses showed `0` bytes read. `SSE_In` now tracks `bytes_read` (wire bytes consumed) + `largest_msg_sent` (biggest forwarded frame), and `Remote_Link` (so `Remote_Source` / `Remote_Ipc`) delegates `counter()` / `bytes_read()` / `largest_msg_sent()` to its `SSE_In` child and `bytes_written()` to its `HTTP_Out` child — the same composite-aggregation pattern `Topic` uses over its `Partition`s.
 
 - **The console process-stats header's In/Out rate sparklines no longer reset when you select a node or collapse the inspector.** The rate series accumulated inside the no-node header component, which unmounts on either action — wiping the history. It now accumulates in the always-mounted `GraphView` (`useAggregateRateSeries`) and is passed to the header as a prop, so it persists and keeps ticking while the header is hidden.

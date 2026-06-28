@@ -95,6 +95,18 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
 	} );
 
+	it( 'delegates byte stats to its SseIn (read) and HttpOut (write) children', () => {
+		const { link } = makeLink();
+		link.connect();
+		// The link does no wire I/O itself; it surfaces its children's tallies.
+		link.sseIn.bytesRead = 500;
+		link.sseIn.largestMsgSent = 120;
+		link.httpOut.bytesWritten = 80;
+		expect( link.bytesRead ).toBe( 500 );
+		expect( link.largestMsgSent ).toBe( 120 );
+		expect( link.bytesWritten ).toBe( 80 );
+	} );
+
 	it( 'connectNode points BOTH the link target and its already-built SseIn', () => {
 		const { link } = makeLink();
 		link.connect();

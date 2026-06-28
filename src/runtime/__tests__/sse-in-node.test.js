@@ -13,7 +13,7 @@
  */
 
 import { SseInNode } from '../sse-in-node';
-import { IoTelemetry } from '../io-telemetry';
+import { IoTelemetry, byteLength } from '../io-telemetry';
 import { Core } from '../core';
 import {
 	newMessage,
@@ -91,6 +91,19 @@ test( 'start opens an EventSource with the right URL', () => {
 	expect( FakeEventSource.last.url ).toBe(
 		'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE'
 	);
+} );
+
+test( 'records bytesRead + largestMsgSent for each received frame', () => {
+	const { sse } = makeSseIn();
+	sse.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ KEY ] = 'k';
+	m[ VALUE ] = 'hello';
+	const data = JSON.stringify( m );
+	FakeEventSource.last.dispatch( 'msg', data );
+	expect( sse.bytesRead ).toBe( byteLength( data ) );
+	expect( sse.largestMsgSent ).toBe( byteLength( data ) );
 } );
 
 test( 'start omits the positions param when none is set (default tail-seek)', () => {
