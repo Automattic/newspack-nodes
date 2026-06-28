@@ -15,12 +15,9 @@ class CoreTest extends TestCase {
 		Core::reset();
 	}
 
-	// $config_resolvers is process-lifetime (Core::reset leaves it), so a test that
-	// registers a stub namespace must clear it or it leaks into the next test class.
-	protected function tearDown(): void {
-		Core::$config_resolvers = [];
-		parent::tearDown();
-	}
+	// $config_resolvers (process-lifetime; Core::reset leaves it) is snapshotted in
+	// the base setUp and restored in the base tearDown — a test that registers or
+	// wipes a namespace here can't leak it into the next test class.
 
 	public function test_register_and_lookup_node_by_name(): void {
 		$obj = new \Newspack_Nodes\Node();
