@@ -1231,8 +1231,6 @@ const NO_NODE_COMMANDS = [
 	[ 'dmesg', 'dmesg' ],
 	[ 'dump_config', 'dump_config' ],
 	[ 'dump_metadata', 'dump_metadata' ],
-	[ 'log', 'log' ],
-	[ 'ping', 'ping' ],
 	[ 'stats', 'stats' ],
 ];
 
@@ -1263,9 +1261,6 @@ export default function Inspector( {
 	if ( ! selectedId ) {
 		return (
 			<aside className="topology-inspector">
-				<div className="topology-insp__empty">
-					{ __( 'Select a node to inspect', 'newspack-nodes' ) }
-				</div>
 				<div
 					className="topology-insp__commands"
 					data-testid="inspector-commands"
