@@ -4,6 +4,14 @@ import names from '../../runtime/reserved-node-names.json';
 
 const EMPTY_GRAPH = { nodes: [], edges: [], pwd: '' };
 
+// Always-present, visible backbone fixtures — they don't count toward "has the
+// graph any real content" (the empty-state / ready gate).
+const BACKBONE_FIXTURES = new Set( [
+	names.CONSOLE_TAP,
+	names.HTTP,
+	names.HEARTBEAT,
+] );
+
 /**
  * Shared graph source for the debug overlay and topology console: prefer the
  * `_metadata`-published `metadata` state once it carries ≥1 node. Readiness
@@ -39,8 +47,11 @@ export function useGraphSource( {
 	} else {
 		graph = coreFallback ? coreToGraph() ?? EMPTY_GRAPH : EMPTY_GRAPH;
 	}
-	// `_shell` (the command Tap) is a visible but always-present backbone fixture,
-	// so it must not, on its own, make an otherwise-empty graph read as non-empty.
-	const hasNodes = graph.nodes.some( ( n ) => n.id !== names.CONSOLE_TAP );
+	// The visible but always-present backbone fixtures (`_shell` command Tap,
+	// `_http` egress, `_heartbeat` keepalive) must not, on their own, make an
+	// otherwise-empty graph read as non-empty.
+	const hasNodes = graph.nodes.some(
+		( n ) => ! BACKBONE_FIXTURES.has( n.id )
+	);
 	return { graph, hasNodes };
 }

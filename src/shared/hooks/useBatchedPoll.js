@@ -45,10 +45,9 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
-// Substrate send-path node name: `_http`, the HttpOut egress (an I/O node). The
-// `_shell` observe-only Tap that watches outbound commands is now a permanent
-// fixture of the exospine backbone (mountExospine), not mounted per-dashboard.
-const HTTP = '_http';
+// `_http` (HttpOut egress) and `_shell` (observe-only command Tap) are permanent
+// fixtures of the exospine backbone (mountExospine); the build reuses `spine.http`
+// rather than mounting its own.
 
 // Arm the owned Timer's router-TIMER hitchhike at the optional intervalMs: > 1000
 // hitchhikes + throttles in fireCb(); omitted/0 fires every router tick. Either
@@ -81,14 +80,14 @@ export function useBatchedPoll( opts ) {
 	const isPageVisible = usePageVisibility();
 
 	useEffect( () => {
-		const build = ( { interpreter, router } ) => {
+		const build = ( { interpreter, router, http } ) => {
 			const data =
 				( 'undefined' !== typeof window && window.NewspackNodesData ) ||
 				{};
 
-			// I/O boundary — the substrate's HttpOut. The command boundary is
+			// I/O boundary — the substrate's HttpOut, now a backbone singleton
+			// (mountExospine owns `_http`); just assign the command boundary. It's
 			// injectable so tests never touch the network.
-			const http = interpreter.makeNode( 'HttpOut', HTTP );
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {

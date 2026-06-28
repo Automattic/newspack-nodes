@@ -428,7 +428,9 @@ describe( 'useVaultGraph — Core.reinit (Reset Graph)', () => {
 
 		expect( Core.node( LIST_VIEW ) ).not.toBe( firstList );
 		expect( Core.node( TEST_VIEW ) ).not.toBe( firstTest );
-		expect( Core.node( HTTP ) ).not.toBe( firstHttp );
+		// `_http` is a backbone singleton now — preserved across the fine-grained
+		// reinit (not rebuilt), and the rebuilt graph re-assigns its client.
+		expect( Core.node( HTTP ) ).toBe( firstHttp );
 		expect( Core.node( HTTP ).client ).toBe( client );
 		expect( Core.node( LIST_VIEW ).sink ).toBe( Core.node( INTERPRETER ) );
 		expect( Core.node( INTERPRETER ) ).toBe( backbone );

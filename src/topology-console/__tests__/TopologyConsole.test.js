@@ -69,6 +69,8 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { UptimeNode } = require( '../../runtime/uptime-node' );
 	const { CompletionNode } = require( '../../runtime/completion-node' );
 	const { RemoteIpcNode } = require( '../../runtime/remote-ipc-node' );
+	const { HttpOutNode } = require( '../../runtime/http-out-node' );
+	const { HeartbeatNode } = require( '../../runtime/heartbeat-node' );
 	const { ShellNode } = require( '../../runtime/shell-node' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
 	const NAMES = [
@@ -79,6 +81,8 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.UPTIME,
 		reserved.COMPLETION,
 		reserved.CWD,
+		reserved.HTTP,
+		reserved.HEARTBEAT,
 	];
 	const teardown = () => {
 		Core.node( reserved.ROUTER )?.stopTimer();
@@ -131,6 +135,14 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const uptime = new UptimeNode();
 				uptime.name = reserved.UPTIME;
 				new CompletionNode().name = reserved.COMPLETION;
+				// Backbone-owned shared singletons (the real mountBackbone creates
+				// these); RemoteIpc.ensureChildren reuses them on connect.
+				const http = new HttpOutNode();
+				http.name = reserved.HTTP;
+				http.sink = interpreter;
+				const heartbeat = new HeartbeatNode();
+				heartbeat.name = reserved.HEARTBEAT;
+				heartbeat.sink = interpreter;
 				// One RemoteIpc for the session's worker, named `{reader}`. It
 				// composes a SseIn (receive) + an HttpOut (POST) + a Heartbeat; its
 				// composed HttpOut's client captures the routed batch instead of

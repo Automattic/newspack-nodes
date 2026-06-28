@@ -37,8 +37,6 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
-const HTTP = '_http';
-
 // Monotonic per-module ID counter — message[ID] is what a view uses to match a
 // reply back to a pending Promise (awaited verbs). Duplicated in every dashboard
 // hook before this; shared here.
@@ -94,14 +92,14 @@ export function useDashboardGraph( opts ) {
 
 	// Mount the graph once: clip it onto the exospine, then fire one immediate poll.
 	useEffect( () => {
-		const build = ( { interpreter } ) => {
+		const build = ( { interpreter, http } ) => {
 			const data =
 				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
 				{};
 
-			// I/O boundary — the substrate's HttpOut. The command boundary is
-			// injectable so tests never touch the network.
-			const http = interpreter.makeNode( 'HttpOut', HTTP );
+			// I/O boundary — the backbone's shared `_http` singleton (mountExospine
+			// owns it); just assign the command boundary. Injectable so tests never
+			// touch the network.
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {

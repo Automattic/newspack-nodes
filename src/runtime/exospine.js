@@ -49,6 +49,8 @@ import { Core } from './core';
 import { RouterNode } from './router-node';
 import { CommandInterpreterNode } from './command-interpreter-node';
 import { TapNode } from './tap-node';
+import { HttpOutNode } from './http-out-node';
+import { HeartbeatNode } from './heartbeat-node';
 import names from './reserved-node-names.json';
 
 export function mountExospine( build ) {
@@ -74,6 +76,8 @@ export function mountExospine( build ) {
 			spine.interpreter = interpreter;
 			spine.router = router;
 			spine.shell = Core.node( names.CONSOLE_TAP );
+			spine.http = Core.node( names.HTTP );
+			spine.heartbeat = Core.node( names.HEARTBEAT );
 			return;
 		}
 		ownsBackbone = true;
@@ -94,9 +98,24 @@ export function mountExospine( build ) {
 		shell.name = names.CONSOLE_TAP;
 		shell.sink = interpreter;
 
+		// `_http` (egress POST boundary) + `_heartbeat` (SSE slot keepalive) —
+		// shared singletons every RemoteLink/dashboard reuses. Backbone-owned (like
+		// `_shell`) so they survive a Reset Graph rebuild and are always laid out;
+		// callers set `_http.client` / configure `_heartbeat` on use. Dormant until
+		// a stream opens.
+		const http = new HttpOutNode();
+		http.name = names.HTTP;
+		http.sink = interpreter;
+
+		const heartbeat = new HeartbeatNode();
+		heartbeat.name = names.HEARTBEAT;
+		heartbeat.sink = interpreter;
+
 		spine.interpreter = interpreter;
 		spine.router = router;
 		spine.shell = shell;
+		spine.http = http;
+		spine.heartbeat = heartbeat;
 	};
 
 	// Snapshot Core around build so a rebuild/teardown removes only what build
@@ -128,10 +147,12 @@ export function mountExospine( build ) {
 	};
 	const teardownBackbone = () => {
 		router.stopTimer();
-		// Remove `_shell` first (it sinks into the interpreter), then clear the
-		// interpreter (sink + caller TIMER listeners) and router — the backbone
+		// Remove the leaf singletons (they sink into the interpreter), then clear
+		// the interpreter (sink + caller TIMER listeners) and router — the backbone
 		// leaves nothing dangling.
 		Core.node( names.CONSOLE_TAP )?.removeNode();
+		Core.node( names.HTTP )?.removeNode();
+		Core.node( names.HEARTBEAT )?.removeNode();
 		interpreter.removeNode();
 		router.removeNode();
 	};

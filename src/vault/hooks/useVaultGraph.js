@@ -116,14 +116,13 @@ export function useVaultGraph( opts = {} ) {
 
 	// Mount the graph once: clip it onto the exospine, then fire one immediate list.
 	useEffect( () => {
-		const build = ( { interpreter, shell } ) => {
+		const build = ( { interpreter, shell, http } ) => {
 			const data =
 				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
 				{};
 
-			// I/O boundary node — HttpOutNode is the only one this CRUD-on-demand
-			// dashboard needs.
-			const http = interpreter.makeNode( 'HttpOut', HTTP );
+			// I/O boundary node — the backbone's shared `_http` singleton (mountExospine
+			// owns it); just assign this dashboard's command boundary.
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {
