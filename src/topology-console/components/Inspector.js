@@ -10,7 +10,9 @@ import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { processStats } from '../utils/processStats';
 import { Sparkline } from '../../event-dashboards/Sparkline';
-import { useOverviewStats } from '../../debug-overlay/useOverviewStats';
+import { useAggregateRateSeries } from '../hooks/useAggregateRateSeries';
+import { useNodeState } from '../../runtime/react';
+import reservedNames from '../../runtime/reserved-node-names.json';
 
 // A Consumer (or its Tail subclass) is the node whose dump_metadata carries a
 // `frames` array AND a `cursor` (its dump_metadata() read surface) — the
@@ -268,18 +270,21 @@ function formatBytes( n ) {
 	return `${ ( n / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G`;
 }
 
-// Process-stats header for the no-node inspector (roadmap [95]). Messages-in/out
-// + bytes roll up from the live graph (processStats); the error/warning/debug
-// counts and the In/Out rate sparklines reuse the overlay Overview's IoTelemetry
-// (`useOverviewStats`), so the console leads with the same fleet vitals.
+// Process-stats header for the no-node inspector (roadmap [95]). Everything is
+// scoped to the process being viewed (whatever `_cwd` points at): messages-in/out
+// + bytes roll up from the live dump_metadata graph (processStats); the In/Out
+// rate sparklines derive from successive metadata polls (useAggregateRateSeries);
+// the error/warning/debug counts come from a `dmesg` of that process (the
+// `_dmesg` poll node classifies the stderr tail).
 function ProcessStatsHeader( { nodes } ) {
 	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 		processStats( nodes );
-	const { totals, msgRateSeries } = useOverviewStats();
-	const inSpark = ( msgRateSeries?.In?.points || [] ).map( ( p ) => p.value );
-	const outSpark = ( msgRateSeries?.Out?.points || [] ).map(
-		( p ) => p.value
-	);
+	const { in: inSpark, out: outSpark } = useAggregateRateSeries( nodes );
+	const levels = useNodeState( reservedNames.DMESG, 'dmesg' ) || {
+		errors: 0,
+		warnings: 0,
+		debug: 0,
+	};
 	const cell = ( label, value, spark ) => (
 		<div className="topology-insp__stat">
 			<span className="topology-insp__stat-label">{ label }</span>
@@ -317,21 +322,21 @@ function ProcessStatsHeader( { nodes } ) {
 					{ sprintf(
 						// translators: %d: error line count.
 						__( '%d err', 'newspack-nodes' ),
-						totals.errors
+						levels.errors
 					) }
 				</span>
 				<span className="topology-insp__level topology-insp__level--warn">
 					{ sprintf(
 						// translators: %d: warning line count.
 						__( '%d warn', 'newspack-nodes' ),
-						totals.warnings
+						levels.warnings
 					) }
 				</span>
 				<span className="topology-insp__level topology-insp__level--debug">
 					{ sprintf(
 						// translators: %d: debug line count.
 						__( '%d dbg', 'newspack-nodes' ),
-						totals.debug
+						levels.debug
 					) }
 				</span>
 			</div>

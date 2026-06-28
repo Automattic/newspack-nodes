@@ -9,6 +9,7 @@ import { dumpMetadataPayload, MetadataNode } from './metadata-node';
 import { DumperNode } from './dumper-node';
 import { CompletionNode } from './completion-node';
 import { UptimeNode } from './uptime-node';
+import { DmesgNode } from './dmesg-node';
 import { SseInNode } from './sse-in-node';
 import { RemoteLinkNode } from './remote-link-node';
 import { RemoteIpcNode } from './remote-ipc-node';
@@ -1052,6 +1053,7 @@ CommandInterpreterNode.includeNodes = {
 	Node,
 	CommandInterpreter: CommandInterpreterNode,
 	Completion: CompletionNode,
+	Dmesg: DmesgNode,
 	Dumper: DumperNode,
 	Echo: EchoNode,
 	Fetcher: FetcherNode,

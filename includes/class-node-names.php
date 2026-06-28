@@ -19,6 +19,7 @@ final class Node_Names {
 	public const CONSOLE_TAP         = '_shell';
 	public const COMPLETION          = '_completion';
 	public const CWD                 = '_cwd';
+	public const DMESG               = '_dmesg';
 	public const HEARTBEAT           = '_heartbeat';
 	public const HTTP                = '_http';
 	public const METADATA            = '_metadata';

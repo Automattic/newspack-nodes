@@ -3,6 +3,7 @@
 	"COMPLETION": "_completion",
 	"CONSOLE_TAP": "_shell",
 	"CWD": "_cwd",
+	"DMESG": "_dmesg",
 	"HEARTBEAT": "_heartbeat",
 	"HTTP": "_http",
 	"METADATA": "_metadata",
