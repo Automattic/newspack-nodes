@@ -1606,6 +1606,28 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					onClick={ () => onAction && onAction( 'request', node.id ) }
+					title={ __(
+						'Request a reply — `request_node <name>` (TM_REQUEST)',
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'Request', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
+					onClick={ () =>
+						onAction && onAction( 'send_eof', node.id )
+					}
+					title={ __(
+						'Send end-of-stream — `send_eof <name>` (TM_EOF)',
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'EOF', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
 					className={ `topology-insp__actions-full${
 						traceOn ? ' is-active' : ''
 					}` }
