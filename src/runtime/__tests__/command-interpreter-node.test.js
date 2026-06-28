@@ -1029,13 +1029,13 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'n debug_state: 0'
 			);
 		} );
-		it( '* applies a debug level to every registered node', () => {
+		it( '* applies a debug level to every registered node and reports each', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'n';
-			expect( dispatch( interpreter, 'debug_state', '* 2' ) ).toBe(
-				'* debug_state: 2'
-			);
+			const out = dispatch( interpreter, 'debug_state', '* 2' );
+			expect( out ).toContain( 'Setting all nodes to debug_state: 2' );
+			expect( out ).toContain( 'n debug_state: 2' );
 			expect( interpreter.debugState ).toBe( 2 );
 			expect( n.debugState ).toBe( 2 );
 		} );

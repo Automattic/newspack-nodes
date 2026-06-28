@@ -330,6 +330,17 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 0, $alice->debug_state() );
 	}
 
+	public function test_debug_state_star_applies_to_all_nodes_and_reports_each(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+
+		$out = $interpreter->dispatch( 'debug_state', '* 2' );
+		$this->assertStringContainsString( 'Setting all nodes to debug_state: 2', $out );
+		$this->assertStringContainsString( 'alice debug_state: 2', $out );
+		$this->assertSame( 2, Core::node( 'alice' )->debug_state() );
+	}
+
 	public function test_debug_state_with_node_name_and_level_sets_explicitly(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
