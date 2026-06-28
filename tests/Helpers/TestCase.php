@@ -11,10 +11,23 @@ abstract class TestCase extends PHPUnitTestCase {
 	/** @var array<int,string> Temp dirs created via make_temp_dir(), auto-removed in tearDown. */
 	private array $temp_dirs = [];
 
+	/**
+	 * Snapshot of Core::$config_resolvers at setUp. Core::reset() deliberately
+	 * leaves this process-lifetime registry (the bootstrap-registered `<config:>`
+	 * token namespace lives here), so a test that wipes it to `[]` (instead of
+	 * restoring) destroys `<config:...>` resolution for every later test. tearDown
+	 * restores this snapshot so no test can leak the registry.
+	 */
+	private array $saved_config_resolvers = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
 			Core::reset();
+			// Snapshot the config-namespace registry (survives Core::reset) so
+			// tearDown can restore it — a test that wipes it would otherwise break
+			// `<config:...>` resolution for every later test.
+			$this->saved_config_resolvers = Core::$config_resolvers;
 			// Core's default stderr handler routes through PHP error_log(),
 			// which the bootstrap redirects to /dev/null — no further swallow
 			// needed here. Tests that need to assert on emitted text set their
@@ -59,6 +72,23 @@ abstract class TestCase extends PHPUnitTestCase {
 			$this->rmdir_recursive( $dir );
 		}
 		$this->temp_dirs = [];
+		// Restore the config-namespace registry so a test that wiped it (e.g. to
+		// exercise a missing-resolver path) can't strip the bootstrap `<config:>`
+		// token namespace from every later test.
+		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
+			Core::$config_resolvers = $this->saved_config_resolvers;
+		}
+		// Restore the per-test config env that use_base_dir() may have repointed at a
+		// (now-deleted) temp config, and drop Config's memoized base/dirs. Otherwise a
+		// test that called use_base_dir() leaks its base_directory into a later test
+		// that doesn't — surfacing as wrong/empty partition + lock-dir resolution
+		// (order-dependent CLI failures). The bootstrap sets this same default.
+		\putenv(
+			'LOCAL_NEWSPACK_NODES_CONF=' . \dirname( __DIR__ ) . '/newspack-nodes-test-config.php'
+		);
+		if ( \class_exists( '\Newspack_Nodes\Config' ) ) {
+			\Newspack_Nodes\Config::reset();
+		}
 		parent::tearDown();
 	}
 
