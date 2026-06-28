@@ -156,6 +156,9 @@ class Classes_CI_Node extends Service_CI_Node {
 					// the whole list (which scans every registered class) on a TypeError.
 					'commands'        => self::strip_commands( \is_array( $schema_commands ) ? $schema_commands : [] ),
 					'requests'     => $schema['requests'] ?? [],
+					// Valid registration events (Tachikoma `register`) — the register/
+					// unregister inspector UI lists these for the selected node.
+					'registrations' => $schema['registrations'] ?? [],
 					'accepts_fill' => (bool) ( $schema['accepts_fill'] ?? true ),
 					'has_target'   => (bool) ( $schema['has_target']   ?? true ),
 					// A node that IS a Command_Interpreter_Node handles its
