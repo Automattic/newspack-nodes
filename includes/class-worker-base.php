@@ -283,23 +283,34 @@ class Worker_Base {
 		$now = \microtime( true );
 
 		if ( null === $this->lock || ! $this->lock->is_held() ) {
-			return false;
+			return $this->stop( 'lock lost' );
 		}
 		if ( ! \is_dir( $this->lock_path() ) ) {
-			return false;
+			return $this->stop( 'lock dir gone' );
 		}
 
 		// External request_restart() drops a flag into our lock dir; exit so the supervisor respawns.
 		if ( $this->lock->should_restart() ) {
-			return false;
+			return $this->stop( 'restart requested' );
 		}
 
 		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {
-			return false;
+			return $this->stop(
+				\sprintf( 'max_runtime exceeded (%ds / %ds)', (int) ( $now - $this->start_time ), $this->max_runtime )
+			);
 		}
 
 		if ( $this->memory_over_watermark() ) {
-			return false;
+			$used  = \memory_get_usage( true );
+			$limit = $this->memory_limit_bytes();
+			return $this->stop(
+				\sprintf(
+					'memory watermark (%dMB / %dMB, %d%%)',
+					(int) ( $used / 1048576 ),
+					(int) ( $limit / 1048576 ),
+					$limit > 0 ? (int) ( $used / $limit * 100 ) : 0
+				)
+			);
 		}
 
 		if ( ( $now - $this->last_heartbeat ) >= self::HEARTBEAT_INTERVAL_S ) {
@@ -312,7 +323,7 @@ class Worker_Base {
 			if ( ! $this->db_check_passes() ) {
 				++$this->db_failures;
 				if ( $this->db_failures >= self::DB_CHECK_MAX_FAILURES ) {
-					return false;
+					return $this->stop( \sprintf( 'db check failed %d times', $this->db_failures ) );
 				}
 			} else {
 				$this->db_failures = 0;
@@ -320,6 +331,19 @@ class Worker_Base {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Log WHY the worker is stopping (the should_continue() branch that tripped),
+	 * prefixed with the worker id, then return false. One line per cooperative
+	 * stop (should_continue returns true until the first false ends the loop).
+	 *
+	 * @param string $reason Human-readable stop reason + metrics.
+	 * @return false Always — callers `return $this->stop( ... )`.
+	 */
+	private function stop( string $reason ): bool {
+		Core::stderr( "{$this->worker_type}.p{$this->partition}: stopping — {$reason}" );
+		return false;
 	}
 
 	protected function memory_over_watermark(): bool {

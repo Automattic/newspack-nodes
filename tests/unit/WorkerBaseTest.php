@@ -46,6 +46,36 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( $w->should_continue() );
 	}
 
+	public function test_should_continue_logs_the_stop_reason(): void {
+		// A cooperative stop should say WHY it stopped (which should_continue branch),
+		// prefixed with the worker id — so operators can see lifetime vs watermark etc.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
+		$w->acquire();
+		$w->set_start_time_for_test( \microtime( true ) - 2.0 );
+		$buf = '';
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( $m ) use ( &$buf ) {
+				$buf .= $m;
+			}
+		);
+		$this->assertFalse( $w->should_continue() );
+		$this->assertStringContainsString( 'test-worker.p0', $buf );
+		$this->assertStringContainsString( 'max_runtime', $buf );
+	}
+
+	public function test_should_continue_logs_memory_watermark_reason(): void {
+		$w = new WatermarkWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		$buf = '';
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( $m ) use ( &$buf ) {
+				$buf .= $m;
+			}
+		);
+		$this->assertFalse( $w->should_continue() );
+		$this->assertStringContainsString( 'memory watermark', $buf );
+	}
+
 	public function test_should_continue_returns_false_when_lock_lost(): void {
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
@@ -297,6 +327,12 @@ class TestableWorker extends Worker_Base {
 class UnlimitedMemoryWorker extends Worker_Base {
 	protected function memory_limit_bytes(): int {
 		return -1;
+	}
+}
+
+class WatermarkWorker extends Worker_Base {
+	protected function memory_over_watermark(): bool {
+		return true;
 	}
 }
 
