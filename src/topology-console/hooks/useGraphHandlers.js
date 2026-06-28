@@ -127,9 +127,14 @@ export function useGraphHandlers( {
 					);
 				} else if ( 'command' === action ) {
 					// Raw server command (no node) — the no-node inspector buttons.
-					// payload is the full command line; the verb is its first token.
-					const verb = String( payload ).split( /\s+/ )[ 0 ];
-					dispatch( payload, verb, '' );
+					// payload is the full command line; split into the verb (first
+					// token) and its args (the rest) so e.g. `debug_state *` keeps
+					// its `*` instead of arriving arg-less.
+					const line = String( payload ).trim();
+					const sp = line.indexOf( ' ' );
+					const verb = -1 === sp ? line : line.slice( 0, sp );
+					const args = -1 === sp ? '' : line.slice( sp + 1 ).trim();
+					dispatch( line, verb, args );
 				} else if ( 'tail' === action ) {
 					// connect_node with NO target appends the issuing FROM — this
 					// session's reply pivot, reported authoritatively as the _header
