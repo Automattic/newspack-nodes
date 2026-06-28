@@ -5,7 +5,7 @@ import { Node } from '../../runtime/node';
 import { DumperNode } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
-import { TO } from '../../runtime/message';
+import { TYPE, TO, VALUE, TM_PING, TM_BYTESTREAM } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
 
 // Mount the `_output` Dumper so transcript echoes are observable, mirroring the
@@ -180,6 +180,24 @@ describe( 'useDebugGraph', () => {
 			result.current.handlers.onInspectorAction( 'trace', 'a', 0 )
 		);
 		expect( Core.node( 'a' ).debugState ).toBe( 0 );
+		teardown();
+	} );
+
+	it( 'onInspectorAction command "ping" parses to a TM_PING (not a no-such-verb command)', () => {
+		const { teardown } = mountExospine();
+		// Capture what the shell dispatches: the no-node `ping` button must produce a
+		// TM_PING (shell-parsed, bounces for RTT) — NOT a TM_COMMAND name=ping, which
+		// the interpreter rejects as "no such verb". (Parity with the hub console +
+		// typed input, which both route through shell.parse.)
+		const captured = [];
+		const shell = new ShellNode();
+		shell.sink = { fill: ( m ) => captured.push( m ) };
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () =>
+			result.current.handlers.onInspectorAction( 'command', null, 'ping' )
+		);
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TYPE ] & TM_PING ).toBeTruthy();
 		teardown();
 	} );
 
@@ -384,18 +402,22 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'onInspectorAction `send` dispatches send_node with id + payload', () => {
+	it( 'onInspectorAction `send` dispatches a TM_BYTESTREAM payload to the node (send_node)', () => {
 		const { teardown } = mountExospine();
-		const a = new Node();
-		a.name = 'a';
+		// send_node is shell-special — it parses to a TM_BYTESTREAM addressed to the
+		// node, NOT a TM_COMMAND. Capture the dispatched message off the shell sink.
+		const captured = [];
 		const shell = new ShellNode();
-		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		shell.sink = { fill: ( m ) => captured.push( m ) };
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'send', 'a', 'hello' )
 		);
-		expect( spy ).toHaveBeenCalledWith( '', 'send_node', 'a hello' );
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TYPE ] & TM_BYTESTREAM ).toBeTruthy();
+		expect( captured[ 0 ][ TO ] ).toBe( 'a' );
+		// send_node is line-oriented — the bytestream value carries a trailing \n.
+		expect( captured[ 0 ][ VALUE ] ).toBe( 'hello\n' );
 		teardown();
 	} );
 
@@ -599,6 +621,9 @@ describe( 'useDebugGraph', () => {
 		const dumper = mountOutput();
 		const a = new Node();
 		a.name = 'a';
+		// `send` parses to a TM_BYTESTREAM routed to `a`; give it a sink so the
+		// dispatch doesn't throw (we only assert the echoed commandline here).
+		a.sink = { fill: () => {} };
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );

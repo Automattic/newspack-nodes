@@ -3,6 +3,7 @@ import { Core } from '../runtime/core';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
 import { useGraphSource } from '../topology-console/hooks/useGraphSource';
 import { useGraphHandlers } from '../topology-console/hooks/useGraphHandlers';
+import { TYPE, FROM, LOCAL, TM_COMMAND } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
 /**
@@ -57,16 +58,29 @@ export function useDebugGraph(
 				text: echoText,
 				prompt: `/${ shell.path }`,
 			} );
-			// shell.sink is bound at build time (useDebugRepl's build-before-render);
-			// no dispatch-time resolve — just route through the already-bound sink.
-			shell.sendCommand( path, name, args );
+			// Shell-special verbs (ping → TM_PING, tell/send → TM_INFO/TM_BYTESTREAM,
+			// send_eof/request) parse to a NON-command Message; dispatch that so they
+			// actually work — a bare sendCommand would emit e.g. `ping` as a TM_COMMAND
+			// the interpreter rejects ("no such verb"). Plain interpreter verbs keep
+			// sendCommand (cwd-relative TO). shell.dispatch so useGraphReset's tap sees it.
+			const parsed = shell.parse( echoText );
+			if ( Array.isArray( parsed ) && parsed[ TYPE ] !== TM_COMMAND ) {
+				if ( ! parsed[ FROM ] ) {
+					parsed[ FROM ] = names.OUTPUT;
+				}
+				if ( undefined === parsed[ LOCAL ] ) {
+					parsed[ LOCAL ] = true;
+				}
+				shell.dispatch( parsed );
+			} else {
+				shell.sendCommand( path, name, args );
+			}
 		},
 		[ shell ]
 	);
 
-	// Every non-invoke verb echoes + routes through shell.sendCommand (so the
-	// useGraphReset dispatch tap sees a mutating verb). Bound to path '' — the
-	// overlay is local-only.
+	// Every non-invoke verb echoes + routes through sendVerb (so the useGraphReset
+	// dispatch tap sees a mutating verb). Bound to path '' — the overlay is local-only.
 	const dispatch = useCallback(
 		( echoLine, name, args ) => sendVerb( echoLine, '', name, args ),
 		[ sendVerb ]
