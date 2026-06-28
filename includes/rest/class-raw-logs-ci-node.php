@@ -45,66 +45,6 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	public static ?\Closure $on_probe = null;
 
 	/**
-	 * Map an inbound log argument to a known concrete catalog key. Falls through
-	 * to a firehose-ish concrete key when present (prefix preference), else the
-	 * first-discovered concrete dir.
-	 */
-	private static function resolve_log_key( string $log ): string {
-		$keys = Log_Discovery::on_disk();
-		if ( empty( $keys ) ) {
-			return self::PREFERRED_LOG_PREFIX;
-		}
-		$default = $keys[0];
-		foreach ( $keys as $key ) {
-			if ( \str_starts_with( $key, self::PREFERRED_LOG_PREFIX ) ) {
-				$default = $key;
-				break;
-			}
-		}
-		if ( '' === $log ) {
-			return $default;
-		}
-		return \in_array( $log, $keys, true ) ? $log : $default;
-	}
-
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'Service',
-			'description' => 'Log inspection: catalog on-disk logs and report a log\'s partition/segment status.',
-			'arguments'   => [],
-			'commands'    => [
-				[
-					'name'        => 'list_logs',
-					'description' => 'List the on-disk log keys.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list_logs(),
-				],
-				[
-					'name'        => 'log_status',
-					'description' => 'Segment counts and sizes for a single concrete partition dir (defaults to the firehose-ish/first-discovered dir).',
-					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_log_status( $self, $args ),
-				],
-			],
-		] );
-	}
-	/**
-	 * `list_logs` verb handler — every on-disk log directory as {key,label}.
-	 *
-	 * @return array<int, mixed>
-	 */
-	public static function cmd_list_logs(): array {
-		$result = [];
-		foreach ( Log_Discovery::on_disk() as $key ) {
-			$result[] = [
-				'key'   => $key,
-				'label' => $key,
-			];
-		}
-		return $result;
-	}
-
-	/**
 	 * `log_status` verb handler — segment counts and sizes for a single concrete partition dir.
 	 *
 	 * @param Command_Interpreter_Node $self Verb argument.
@@ -144,6 +84,66 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			'segment_count' => \count( $segments ),
 			'total_size'    => $size,
 		];
+	}
+
+	/**
+	 * Map an inbound log argument to a known concrete catalog key. Falls through
+	 * to a firehose-ish concrete key when present (prefix preference), else the
+	 * first-discovered concrete dir.
+	 */
+	private static function resolve_log_key( string $log ): string {
+		$keys = Log_Discovery::on_disk();
+		if ( empty( $keys ) ) {
+			return self::PREFERRED_LOG_PREFIX;
+		}
+		$default = $keys[0];
+		foreach ( $keys as $key ) {
+			if ( \str_starts_with( $key, self::PREFERRED_LOG_PREFIX ) ) {
+				$default = $key;
+				break;
+			}
+		}
+		if ( '' === $log ) {
+			return $default;
+		}
+		return \in_array( $log, $keys, true ) ? $log : $default;
+	}
+	/**
+	 * `list_logs` verb handler — every on-disk log directory as {key,label}.
+	 *
+	 * @return array<int, mixed>
+	 */
+	public static function cmd_list_logs(): array {
+		$result = [];
+		foreach ( Log_Discovery::on_disk() as $key ) {
+			$result[] = [
+				'key'   => $key,
+				'label' => $key,
+			];
+		}
+		return $result;
+	}
+
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Service',
+			'description' => 'Log inspection: catalog on-disk logs and report a log\'s partition/segment status.',
+			'arguments'   => [],
+			'commands'    => [
+				[
+					'name'        => 'list_logs',
+					'description' => 'List the on-disk log keys.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list_logs(),
+				],
+				[
+					'name'        => 'log_status',
+					'description' => 'Segment counts and sizes for a single concrete partition dir (defaults to the firehose-ish/first-discovered dir).',
+					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_log_status( $self, $args ),
+				],
+			],
+		] );
 	}
 
 }

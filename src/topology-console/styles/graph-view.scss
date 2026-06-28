@@ -3129,7 +3129,10 @@
 	font-size: 18px;
 	line-height: 1;
 	cursor: pointer;
-	transition: color 0.1s, border-color 0.1s, background 0.1s;
+	transition:
+		color 0.1s,
+		border-color 0.1s,
+		background 0.1s;
 }
 
 .topology-app .topology-modal__close:hover {

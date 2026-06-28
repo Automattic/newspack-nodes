@@ -34,13 +34,6 @@ export class RouterNode extends TimerNode {
 		this.setTimer( 1000 );
 	}
 
-	// FIRE (inherited Timer tick) + TIMER (the hitchhike event peers register for)
-	// + NOT_AVAILABLE (routing-failure state observers watch). The base ctor seeds
-	// all three from here; this list is standalone (no super spread).
-	static nodeSchema() {
-		return { registrations: [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ] };
-	}
-
 	fill( message ) {
 		// One inbound miss increments counter by 2 via the bounce (matches PHP).
 		this.counter += 1;
@@ -138,5 +131,12 @@ export class RouterNode extends TimerNode {
 				'Router must not have a sink; it routes by TO and drops what it cannot peel.'
 			);
 		}
+	}
+
+	// FIRE (inherited Timer tick) + TIMER (the hitchhike event peers register for)
+	// + NOT_AVAILABLE (routing-failure state observers watch). The base ctor seeds
+	// all three from here; this list is standalone (no super spread).
+	static nodeSchema() {
+		return { registrations: [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ] };
 	}
 }

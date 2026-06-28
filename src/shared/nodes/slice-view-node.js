@@ -30,11 +30,6 @@ export class SliceViewNode extends Node {
 		this.setState( 'view', this.model );
 	}
 
-	// The shaped-but-empty slice; subclass override.
-	emptySlice() {
-		return {};
-	}
-
 	fill( message ) {
 		// Optional verb-await: a settled reply is fully consumed here.
 		if ( this.replies && this.replies.settle( message ) ) {
@@ -64,6 +59,11 @@ export class SliceViewNode extends Node {
 			this.model = slice;
 			this.setState( 'view', this.model );
 		}
+	}
+
+	// The shaped-but-empty slice; subclass override.
+	emptySlice() {
+		return {};
 	}
 
 	_parse( payload ) {

@@ -30,75 +30,6 @@ class Layouts_CI_Node extends Service_CI_Node {
 
 	private const ID_PATTERN      = '/^[a-zA-Z0-9_:.-]+$/';
 	private const MAX_BODY_BYTES  = 1048576;
-
-	private static function layout_path( string $name ): string {
-		return self::layouts_dir() . '/' . $name . '.layout';
-	}
-
-	private static function layouts_dir(): string {
-		$base = Config::get_base_directory();
-		return \rtrim( $base, '/' ) . '/layouts';
-	}
-
-	/**
-	 * Sanitize a positions blob — drop entries with non-string ids,
-	 * ids that don't match ID_PATTERN, non-array positions, fewer
-	 * than 2 coordinates, or non-finite x/y.
-	 *
-	 * @param array<mixed,mixed> $positions Raw positions blob from the args.
-	 * @return array<string,array{0:float,1:float}>
-	 */
-	private static function sanitize_positions( array $positions ): array {
-		$clean = [];
-		foreach ( $positions as $id => $pos ) {
-			if ( ! \is_string( $id ) || ! \is_array( $pos ) || \count( $pos ) < 2 ) {
-				continue;
-			}
-			if ( ! \preg_match( self::ID_PATTERN, $id ) ) {
-				continue;
-			}
-			$raw_x = $pos[0];
-			$raw_y = $pos[1];
-			if ( ! \is_scalar( $raw_x ) && null !== $raw_x ) {
-				continue;
-			}
-			if ( ! \is_scalar( $raw_y ) && null !== $raw_y ) {
-				continue;
-			}
-			$x = (float) $raw_x;
-			$y = (float) $raw_y;
-			if ( ! \is_finite( $x ) || ! \is_finite( $y ) ) {
-				continue;
-			}
-			$clean[ $id ] = [ $x, $y ];
-		}
-		return $clean;
-	}
-
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'Service',
-			'description' => 'Per-topology canvas layout: get / save node positions.',
-			'arguments'   => [],
-			'commands'    => [
-				[
-					'name'        => 'get',
-					'description' => 'Read saved node positions for a layout name.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_get( $args ),
-				],
-				[
-					'name'        => 'save',
-					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`. 1 MiB cap.',
-					'args'        => [
-						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
-				],
-			],
-		] );
-	}
 	/**
 	 * `get` verb handler — read a saved layout's node positions by name.
 	 *
@@ -178,6 +109,75 @@ class Layouts_CI_Node extends Service_CI_Node {
 			'path'      => $path,
 			'positions' => $clean,
 		];
+	}
+
+	private static function layout_path( string $name ): string {
+		return self::layouts_dir() . '/' . $name . '.layout';
+	}
+
+	private static function layouts_dir(): string {
+		$base = Config::get_base_directory();
+		return \rtrim( $base, '/' ) . '/layouts';
+	}
+
+	/**
+	 * Sanitize a positions blob — drop entries with non-string ids,
+	 * ids that don't match ID_PATTERN, non-array positions, fewer
+	 * than 2 coordinates, or non-finite x/y.
+	 *
+	 * @param array<mixed,mixed> $positions Raw positions blob from the args.
+	 * @return array<string,array{0:float,1:float}>
+	 */
+	private static function sanitize_positions( array $positions ): array {
+		$clean = [];
+		foreach ( $positions as $id => $pos ) {
+			if ( ! \is_string( $id ) || ! \is_array( $pos ) || \count( $pos ) < 2 ) {
+				continue;
+			}
+			if ( ! \preg_match( self::ID_PATTERN, $id ) ) {
+				continue;
+			}
+			$raw_x = $pos[0];
+			$raw_y = $pos[1];
+			if ( ! \is_scalar( $raw_x ) && null !== $raw_x ) {
+				continue;
+			}
+			if ( ! \is_scalar( $raw_y ) && null !== $raw_y ) {
+				continue;
+			}
+			$x = (float) $raw_x;
+			$y = (float) $raw_y;
+			if ( ! \is_finite( $x ) || ! \is_finite( $y ) ) {
+				continue;
+			}
+			$clean[ $id ] = [ $x, $y ];
+		}
+		return $clean;
+	}
+
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Service',
+			'description' => 'Per-topology canvas layout: get / save node positions.',
+			'arguments'   => [],
+			'commands'    => [
+				[
+					'name'        => 'get',
+					'description' => 'Read saved node positions for a layout name.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_get( $args ),
+				],
+				[
+					'name'        => 'save',
+					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`. 1 MiB cap.',
+					'args'        => [
+						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
+				],
+			],
+		] );
 	}
 
 }

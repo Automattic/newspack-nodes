@@ -16,6 +16,23 @@ import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
  * SliceViewNode keeps the prior slice on transient garbage.
  */
 export class AggregatorSummaryViewNode extends SliceViewNode {
+	fill( message ) {
+		// Override the TM_ERROR path: surface the error + clear loading. The base
+		// resets to emptySlice() (loading:true), which would leave the header stuck.
+		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
+			const value = message[ VALUE ];
+			const payload =
+				value && 'object' === typeof value ? value.payload : value;
+			this.model = {
+				...this.model,
+				error: errorMessage( payload ),
+				loading: false,
+			};
+			this.setState( 'view', this.model );
+			return;
+		}
+		super.fill( message );
+	}
 	emptySlice() {
 		return {
 			connected: 0,
@@ -43,23 +60,5 @@ export class AggregatorSummaryViewNode extends SliceViewNode {
 			loading: false,
 			lastRefresh: Date.now(),
 		};
-	}
-
-	fill( message ) {
-		// Override the TM_ERROR path: surface the error + clear loading. The base
-		// resets to emptySlice() (loading:true), which would leave the header stuck.
-		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
-			const value = message[ VALUE ];
-			const payload =
-				value && 'object' === typeof value ? value.payload : value;
-			this.model = {
-				...this.model,
-				error: errorMessage( payload ),
-				loading: false,
-			};
-			this.setState( 'view', this.model );
-			return;
-		}
-		super.fill( message );
 	}
 }

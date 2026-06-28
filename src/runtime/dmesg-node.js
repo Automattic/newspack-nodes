@@ -53,11 +53,6 @@ export class DmesgNode extends TimerNode {
 		this.registrations.dmesg = {};
 	}
 
-	// Hitchhike the Router TIMER and let the base fireCb() throttle to 10s.
-	setTimer() {
-		super.setTimer( POLL_INTERVAL_MS );
-	}
-
 	fill( message ) {
 		this.counter += 1;
 		const value = message[ VALUE ];
@@ -95,6 +90,11 @@ export class DmesgNode extends TimerNode {
 		m[ VALUE ] = { name: verb, arguments: '' };
 		m[ LOCAL ] = true;
 		return m;
+	}
+
+	// Hitchhike the Router TIMER and let the base fireCb() throttle to 10s.
+	setTimer() {
+		super.setTimer( POLL_INTERVAL_MS );
 	}
 
 	static nodeSchema() {

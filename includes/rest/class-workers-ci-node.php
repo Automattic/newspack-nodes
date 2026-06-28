@@ -62,6 +62,18 @@ class Workers_CI_Node extends Service_CI_Node {
 	 */
 	public ?object $cli = null;
 
+	/**
+	 * `dump_graph` verb handler — the worker-graph payload.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_dump_graph(): array {
+		$payload          = self::collect_dump_metadata();
+		$payload['graph'] = self::collect_topology_graphs();
+		$payload['logs']  = self::append_log_sinks( (array) $payload['logs'] );
+		return $payload;
+	}
+
 	// -------------------------------------------------------------------------
 	// dump_graph helpers — the full operator-grade payload, ported wholesale
 	// from the legacy WorkersController::get_workers + its private helpers.
@@ -550,55 +562,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		}
 		return $this->cli;
 	}
-
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'Service',
-			'description' => 'Worker fleet control: list workers, dump operator metadata, audit/cleanup orphans, restart, and refresh SSE slot heartbeats.',
-			'arguments'   => [],
-			'commands'    => [
-				[
-					'name'        => 'list',
-					'description' => 'List workers with heartbeat liveness.',
-					'args'        => [],
-					// $self is the dispatching interpreter instance — always a Workers_CI_Node here
-					// (dispatch() passes $this), so it reads the ctor-injected cli off it.
-					// Liveness only; cursor positions live in dump_graph / `wp nodes status`.
-					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_list( $self ),
-				],
-				[
-					'name'        => 'dump_graph',
-					'description' => 'Full operator-grade fleet/supervisor/log metadata + per-topology .tsl graph.',
-					'args'        => [],
-					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_dump_graph(),
-				],
-				[
-					'name'        => 'cleanup_status',
-					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_cleanup_status(),
-				],
-				[
-					'name'        => 'restart',
-					'description' => 'Restart matching workers (and/or the supervisor): `restart <type>… [--partition=<n>]`.',
-					'args'        => [
-						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
-					],
-					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_restart( $self, $args ),
-				],
-				[
-					'name'        => 'heartbeat',
-					'description' => "Refresh this session's SSE slot TTL.",
-					'args'        => [
-						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
-						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_heartbeat( $args ),
-				],
-			],
-		] );
-	}
 	/**
 	 * `list` verb handler — the active-worker list via the CLI helper.
 	 *
@@ -608,18 +571,6 @@ class Workers_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_list( Workers_CI_Node $self ): array {
 		return $self->cli()->ls_workers();
-	}
-
-	/**
-	 * `dump_graph` verb handler — the worker-graph payload.
-	 *
-	 * @return array<int|string, mixed>
-	 */
-	public static function cmd_dump_graph(): array {
-		$payload          = self::collect_dump_metadata();
-		$payload['graph'] = self::collect_topology_graphs();
-		$payload['logs']  = self::append_log_sinks( (array) $payload['logs'] );
-		return $payload;
 	}
 
 	/**
@@ -704,6 +655,55 @@ class Workers_CI_Node extends Service_CI_Node {
 		$ttl     = isset( $parts[1] ) ? (int) $parts[1] : 10;
 		$success = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl );
 		return [ 'success' => $success, 'slot' => $slot ];
+	}
+
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Service',
+			'description' => 'Worker fleet control: list workers, dump operator metadata, audit/cleanup orphans, restart, and refresh SSE slot heartbeats.',
+			'arguments'   => [],
+			'commands'    => [
+				[
+					'name'        => 'list',
+					'description' => 'List workers with heartbeat liveness.',
+					'args'        => [],
+					// $self is the dispatching interpreter instance — always a Workers_CI_Node here
+					// (dispatch() passes $this), so it reads the ctor-injected cli off it.
+					// Liveness only; cursor positions live in dump_graph / `wp nodes status`.
+					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_list( $self ),
+				],
+				[
+					'name'        => 'dump_graph',
+					'description' => 'Full operator-grade fleet/supervisor/log metadata + per-topology .tsl graph.',
+					'args'        => [],
+					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_dump_graph(),
+				],
+				[
+					'name'        => 'cleanup_status',
+					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_cleanup_status(),
+				],
+				[
+					'name'        => 'restart',
+					'description' => 'Restart matching workers (and/or the supervisor): `restart <type>… [--partition=<n>]`.',
+					'args'        => [
+						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
+					],
+					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_restart( $self, $args ),
+				],
+				[
+					'name'        => 'heartbeat',
+					'description' => "Refresh this session's SSE slot TTL.",
+					'args'        => [
+						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
+						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_heartbeat( $args ),
+				],
+			],
+		] );
 	}
 
 }

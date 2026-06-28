@@ -49,6 +49,204 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @var \Closure(string, array<string, mixed>): (array<string, mixed>|\WP_Error)|null
 	 */
 	public static ?\Closure $http_call = null;
+	/**
+	 * `list` verb handler — registered servers (public shape).
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_list(): array {
+		$registry = Vault::get_instance();
+		$registry->reset_cache();
+		$out = [];
+		/** @var array<string, mixed> $config */
+		foreach ( $registry->get_all() as $id => $config ) {
+			$out[ $id ] = self::public_shape( (string) $id, $config, $registry );
+		}
+		return $out;
+	}
+
+	/**
+	 * `get` verb handler — one server's public shape by id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_get( string $args ): array {
+		$registry = Vault::get_instance();
+		$id       = self::positional_id( $args );
+		$registry->reset_cache();
+		$server = $registry->get( $id );
+		if ( null === $server ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		return self::public_shape( $id, $server, $registry );
+	}
+
+	/**
+	 * Project a stored server config into its public dashboard shape. Strips
+	 * credentials and adds computed `has_credentials` + `is_config` flags.
+	 *
+	 * @param string               $id     Server id.
+	 * @param array<string, mixed> $config Stored server config.
+	 * @param Vault                $registry Backing vault.
+	 * @return array<string, mixed> Public server record.
+	 */
+	private static function public_shape( string $id, array $config, Vault $registry ): array {
+		/** @var int|float|string|bool|null $raw_url */
+		$raw_url = $config['url'] ?? '';
+		return [
+			'id'              => $id,
+			'url'             => (string) $raw_url,
+			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
+			'is_config'       => $registry->is_config_server( $id ),
+		];
+	}
+
+	/**
+	 * `add` verb handler — register a server; returns its id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_add( string $args ): array {
+		$parsed = Command_Args::parse( $args );
+		$opts   = $parsed['options'];
+		$id     = $parsed['positional'][0] ?? '';
+		if ( ! Vault::is_valid_id( $id ) ) {
+			throw new \RuntimeException( 'invalid server id' );
+		}
+		$registry = Vault::get_instance();
+		$registry->reset_cache();
+		if ( null !== $registry->get( $id ) ) {
+			throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
+		}
+		$config = self::extract_server_config( $opts );
+		if ( ! $registry->add( $id, $config ) ) {
+			// Registry rejected on validate_config (non-HTTPS URL,
+			// missing url, etc.) or hit MAX_SERVERS.
+			throw new \RuntimeException( 'add failed: check URL format (must be HTTPS) and registry capacity' );
+		}
+		self::fire_changed( $id, 'added' );
+		return [ 'id' => $id ];
+	}
+
+	/**
+	 * Build the canonical full server-config blob from `add`'s parsed options,
+	 * defaulting missing fields to the same shape validate_config expects.
+	 *
+	 * @param array<string,string|true> $opts Parsed `--key=value` options.
+	 * @return array<string, mixed> Server-config blob ready for registry->add().
+	 */
+	private static function extract_server_config( array $opts ): array {
+		return [
+			'url'           => (string) ( $opts['url']           ?? '' ),
+			'auth_username' => (string) ( $opts['auth_username'] ?? '' ),
+			'auth_password' => (string) ( $opts['auth_password'] ?? '' ),
+		];
+	}
+
+	/**
+	 * `update` verb handler — update a server; returns its id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_update( string $args ): array {
+		$parsed = Command_Args::parse( $args );
+		$id     = $parsed['positional'][0] ?? '';
+		if ( '' === $id ) {
+			throw new \RuntimeException( 'id required' );
+		}
+		$registry = Vault::get_instance();
+		$registry->reset_cache();
+		$existing = $registry->get( $id );
+		if ( null === $existing ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		// Partial update: only options actually present in the args
+		// string are applied; an absent --key leaves the stored field
+		// untouched.
+		$partial = self::partial_config( $parsed['options'] );
+		if ( ! $registry->update( $id, $partial ) ) {
+			throw new \RuntimeException( 'update failed' );
+		}
+		self::fire_changed( $id, 'updated' );
+		return [ 'id' => $id ];
+	}
+
+	/**
+	 * Build the partial-update blob from `update`'s parsed options: only the
+	 * keys ACTUALLY PRESENT in $opts are included, so an absent --key leaves the
+	 * stored field untouched.
+	 *
+	 * @param array<string,string|true> $opts Parsed `--key=value` options.
+	 * @return array<string, mixed> Partial config for registry->update().
+	 */
+	private static function partial_config( array $opts ): array {
+		$partial = [];
+		foreach ( [ 'url', 'auth_username', 'auth_password' ] as $key ) {
+			if ( isset( $opts[ $key ] ) ) {
+				$partial[ $key ] = (string) $opts[ $key ];
+			}
+		}
+		return $partial;
+	}
+
+	/**
+	 * `delete` verb handler — remove a server; returns its id.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_delete( string $args ): array {
+		$registry = Vault::get_instance();
+		$id       = self::positional_id( $args );
+		$registry->reset_cache();
+		if ( null === $registry->get( $id ) ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		if ( ! $registry->remove( $id ) ) {
+			// Config-file servers reach here.
+			throw new \RuntimeException( 'delete failed' );
+		}
+		self::fire_changed( $id, 'removed' );
+		return [ 'id' => $id ];
+	}
+
+	/**
+	 * Announce a Vault mutation so applications can react (settings-sync,
+	 * supervisor restart, etc.) without the substrate knowing those concerns.
+	 *
+	 * @param string $id     Server id.
+	 * @param string $action added|updated|removed.
+	 */
+	private static function fire_changed( string $id, string $action ): void {
+		if ( \function_exists( 'do_action' ) ) {
+			\do_action( 'newspack_nodes/vault/changed', $id, $action );
+		}
+	}
+
+	/**
+	 * `test` verb handler — probe a remote server's reachability.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_test( string $args ): array {
+		$registry = Vault::get_instance();
+		$id       = self::positional_id( $args );
+		$registry->reset_cache();
+		$server = $registry->get( $id );
+		if ( null === $server ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		return self::probe_remote( $id, $server );
+	}
 
 	/**
 	 * HTTP probe of a remote spoke's discovery endpoint with stored Basic Auth.
@@ -175,26 +373,6 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Project a stored server config into its public dashboard shape. Strips
-	 * credentials and adds computed `has_credentials` + `is_config` flags.
-	 *
-	 * @param string               $id     Server id.
-	 * @param array<string, mixed> $config Stored server config.
-	 * @param Vault                $registry Backing vault.
-	 * @return array<string, mixed> Public server record.
-	 */
-	private static function public_shape( string $id, array $config, Vault $registry ): array {
-		/** @var int|float|string|bool|null $raw_url */
-		$raw_url = $config['url'] ?? '';
-		return [
-			'id'              => $id,
-			'url'             => (string) $raw_url,
-			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
-			'is_config'       => $registry->is_config_server( $id ),
-		];
-	}
-
-	/**
 	 * Pull the single required positional id out of the args string, throwing
 	 * 'id required' when absent. Used by get/delete/test/update.
 	 *
@@ -207,52 +385,6 @@ class Vault_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( 'id required' );
 		}
 		return $id;
-	}
-
-	/**
-	 * Build the canonical full server-config blob from `add`'s parsed options,
-	 * defaulting missing fields to the same shape validate_config expects.
-	 *
-	 * @param array<string,string|true> $opts Parsed `--key=value` options.
-	 * @return array<string, mixed> Server-config blob ready for registry->add().
-	 */
-	private static function extract_server_config( array $opts ): array {
-		return [
-			'url'           => (string) ( $opts['url']           ?? '' ),
-			'auth_username' => (string) ( $opts['auth_username'] ?? '' ),
-			'auth_password' => (string) ( $opts['auth_password'] ?? '' ),
-		];
-	}
-
-	/**
-	 * Build the partial-update blob from `update`'s parsed options: only the
-	 * keys ACTUALLY PRESENT in $opts are included, so an absent --key leaves the
-	 * stored field untouched.
-	 *
-	 * @param array<string,string|true> $opts Parsed `--key=value` options.
-	 * @return array<string, mixed> Partial config for registry->update().
-	 */
-	private static function partial_config( array $opts ): array {
-		$partial = [];
-		foreach ( [ 'url', 'auth_username', 'auth_password' ] as $key ) {
-			if ( isset( $opts[ $key ] ) ) {
-				$partial[ $key ] = (string) $opts[ $key ];
-			}
-		}
-		return $partial;
-	}
-
-	/**
-	 * Announce a Vault mutation so applications can react (settings-sync,
-	 * supervisor restart, etc.) without the substrate knowing those concerns.
-	 *
-	 * @param string $id     Server id.
-	 * @param string $action added|updated|removed.
-	 */
-	private static function fire_changed( string $id, string $action ): void {
-		if ( \function_exists( 'do_action' ) ) {
-			\do_action( 'newspack_nodes/vault/changed', $id, $action );
-		}
 	}
 
 	/** @api Used by the substrate to provide UI etc. */
@@ -316,138 +448,6 @@ class Vault_CI_Node extends Service_CI_Node {
 				],
 			],
 		] );
-	}
-	/**
-	 * `list` verb handler — registered servers (public shape).
-	 *
-	 * @return array<int|string, mixed>
-	 */
-	public static function cmd_list(): array {
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
-		$out = [];
-		/** @var array<string, mixed> $config */
-		foreach ( $registry->get_all() as $id => $config ) {
-			$out[ $id ] = self::public_shape( (string) $id, $config, $registry );
-		}
-		return $out;
-	}
-
-	/**
-	 * `get` verb handler — one server's public shape by id.
-	 *
-	 * @param string $args Verb argument.
-	 *
-	 * @return array<int|string, mixed>
-	 */
-	public static function cmd_get( string $args ): array {
-		$registry = Vault::get_instance();
-		$id       = self::positional_id( $args );
-		$registry->reset_cache();
-		$server = $registry->get( $id );
-		if ( null === $server ) {
-			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-		}
-		return self::public_shape( $id, $server, $registry );
-	}
-
-	/**
-	 * `add` verb handler — register a server; returns its id.
-	 *
-	 * @param string $args Verb argument.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_add( string $args ): array {
-		$parsed = Command_Args::parse( $args );
-		$opts   = $parsed['options'];
-		$id     = $parsed['positional'][0] ?? '';
-		if ( ! Vault::is_valid_id( $id ) ) {
-			throw new \RuntimeException( 'invalid server id' );
-		}
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
-		if ( null !== $registry->get( $id ) ) {
-			throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
-		}
-		$config = self::extract_server_config( $opts );
-		if ( ! $registry->add( $id, $config ) ) {
-			// Registry rejected on validate_config (non-HTTPS URL,
-			// missing url, etc.) or hit MAX_SERVERS.
-			throw new \RuntimeException( 'add failed: check URL format (must be HTTPS) and registry capacity' );
-		}
-		self::fire_changed( $id, 'added' );
-		return [ 'id' => $id ];
-	}
-
-	/**
-	 * `update` verb handler — update a server; returns its id.
-	 *
-	 * @param string $args Verb argument.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_update( string $args ): array {
-		$parsed = Command_Args::parse( $args );
-		$id     = $parsed['positional'][0] ?? '';
-		if ( '' === $id ) {
-			throw new \RuntimeException( 'id required' );
-		}
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
-		$existing = $registry->get( $id );
-		if ( null === $existing ) {
-			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-		}
-		// Partial update: only options actually present in the args
-		// string are applied; an absent --key leaves the stored field
-		// untouched.
-		$partial = self::partial_config( $parsed['options'] );
-		if ( ! $registry->update( $id, $partial ) ) {
-			throw new \RuntimeException( 'update failed' );
-		}
-		self::fire_changed( $id, 'updated' );
-		return [ 'id' => $id ];
-	}
-
-	/**
-	 * `delete` verb handler — remove a server; returns its id.
-	 *
-	 * @param string $args Verb argument.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_delete( string $args ): array {
-		$registry = Vault::get_instance();
-		$id       = self::positional_id( $args );
-		$registry->reset_cache();
-		if ( null === $registry->get( $id ) ) {
-			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-		}
-		if ( ! $registry->remove( $id ) ) {
-			// Config-file servers reach here.
-			throw new \RuntimeException( 'delete failed' );
-		}
-		self::fire_changed( $id, 'removed' );
-		return [ 'id' => $id ];
-	}
-
-	/**
-	 * `test` verb handler — probe a remote server's reachability.
-	 *
-	 * @param string $args Verb argument.
-	 *
-	 * @return array<int|string, mixed>
-	 */
-	public static function cmd_test( string $args ): array {
-		$registry = Vault::get_instance();
-		$id       = self::positional_id( $args );
-		$registry->reset_cache();
-		$server = $registry->get( $id );
-		if ( null === $server ) {
-			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
-		}
-		return self::probe_remote( $id, $server );
 	}
 
 }

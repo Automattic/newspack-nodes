@@ -15,24 +15,6 @@ import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
  * base SliceViewNode's reset-to-empty error path is overridden here.
  */
 export class AggregatorServersViewNode extends SliceViewNode {
-	emptySlice() {
-		return { servers: null, error: null, loading: true };
-	}
-
-	// Wrap the parsed sequential array into the render model. Returning null keeps
-	// the prior slice (transient garbage); the base treats a non-string payload so.
-	_parse( payload ) {
-		const servers = super._parse( payload );
-		if ( null === servers ) {
-			return null;
-		}
-		return {
-			servers: Array.isArray( servers ) ? servers : [],
-			error: null,
-			loading: false,
-		};
-	}
-
 	fill( message ) {
 		// Override only the TM_ERROR path: surface the error + clear loading but KEEP
 		// the prior servers (the base resets to emptySlice, which would blank them).
@@ -49,5 +31,22 @@ export class AggregatorServersViewNode extends SliceViewNode {
 			return;
 		}
 		super.fill( message );
+	}
+	emptySlice() {
+		return { servers: null, error: null, loading: true };
+	}
+
+	// Wrap the parsed sequential array into the render model. Returning null keeps
+	// the prior slice (transient garbage); the base treats a non-string payload so.
+	_parse( payload ) {
+		const servers = super._parse( payload );
+		if ( null === servers ) {
+			return null;
+		}
+		return {
+			servers: Array.isArray( servers ) ? servers : [],
+			error: null,
+			loading: false,
+		};
 	}
 }

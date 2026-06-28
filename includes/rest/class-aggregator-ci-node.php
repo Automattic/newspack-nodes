@@ -70,62 +70,14 @@ use Newspack_Nodes\Vault;
 \defined( 'ABSPATH' ) || exit;
 
 class Aggregator_CI_Node extends Service_CI_Node {
-
-	/** @api Used by the substrate to provide UI etc. */
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'Service',
-			'description' => 'Hub-side aggregator dashboards: per-server status, cache health, registered servers.',
-			'arguments'   => [],
-			'commands'    => [
-				[
-					'name'        => 'status',
-					'description' => 'Per-node partition snapshot for each wired Remote_Source in the active aggregator topology.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_status(),
-				],
-				[
-					'name'        => 'summary',
-					'description' => 'De-god header slice: connected/total counts + snapshot clock (computed from the status snapshot).',
-					'args'        => [],
-					'handler'     => self::slice_verb( static function (): array {
-						$snapshot  = self::build_snapshot();
-						$connected = 0;
-						foreach ( $snapshot as $server ) {
-							foreach ( $server['partitions'] as $partition ) {
-								if ( true === ( $partition['connected'] ?? false ) ) {
-									++$connected;
-									break;
-								}
-							}
-						}
-						return [
-							'connected'  => $connected,
-							'total'      => \count( $snapshot ),
-							'server_now' => \time(),
-						];
-					} ),
-				],
-				[
-					'name'        => 'servers_status',
-					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
-					'args'        => [],
-					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot() ) ),
-				],
-				[
-					'name'        => 'health',
-					'description' => 'Cache reachability + wall-clock timestamp.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_health(),
-				],
-				[
-					'name'        => 'servers',
-					'description' => 'Registered servers as a sequential array (legacy aggregator-tree contract).',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_servers(),
-				],
-			],
-		] );
+	/**
+	 * `status` verb handler — per-node partition snapshot for each wired Remote_Source.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_status(): array {
+		self::require_manage_options();
+		return self::build_snapshot();
 	}
 
 	/**
@@ -184,15 +136,6 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 		return $result;
 	}
-	/**
-	 * `status` verb handler — per-node partition snapshot for each wired Remote_Source.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_status(): array {
-		self::require_manage_options();
-		return self::build_snapshot();
-	}
 
 	/**
 	 * `health` verb handler — cache reachability + wall-clock timestamp.
@@ -230,6 +173,63 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		// Sequential array, NOT a map keyed by id — legacy contract the
 		// React aggregator tree relies on.
 		return $out;
+	}
+
+	/** @api Used by the substrate to provide UI etc. */
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Service',
+			'description' => 'Hub-side aggregator dashboards: per-server status, cache health, registered servers.',
+			'arguments'   => [],
+			'commands'    => [
+				[
+					'name'        => 'status',
+					'description' => 'Per-node partition snapshot for each wired Remote_Source in the active aggregator topology.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_status(),
+				],
+				[
+					'name'        => 'summary',
+					'description' => 'De-god header slice: connected/total counts + snapshot clock (computed from the status snapshot).',
+					'args'        => [],
+					'handler'     => self::slice_verb( static function (): array {
+						$snapshot  = self::build_snapshot();
+						$connected = 0;
+						foreach ( $snapshot as $server ) {
+							foreach ( $server['partitions'] as $partition ) {
+								if ( true === ( $partition['connected'] ?? false ) ) {
+									++$connected;
+									break;
+								}
+							}
+						}
+						return [
+							'connected'  => $connected,
+							'total'      => \count( $snapshot ),
+							'server_now' => \time(),
+						];
+					} ),
+				],
+				[
+					'name'        => 'servers_status',
+					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
+					'args'        => [],
+					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot() ) ),
+				],
+				[
+					'name'        => 'health',
+					'description' => 'Cache reachability + wall-clock timestamp.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_health(),
+				],
+				[
+					'name'        => 'servers',
+					'description' => 'Registered servers as a sequential array (legacy aggregator-tree contract).',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_servers(),
+				],
+			],
+		] );
 	}
 
 }

@@ -849,6 +849,94 @@ class Partition_Node extends Timer_Node {
 		return $this->partition_dir;
 	}
 
+	/**
+	 * Glob a family of snapshot-offsetlog dirs and flatten their latest cached item lists.
+	 *
+	 * For every dir matching `$offsets_dir/$glob`, read the newest committed record's VALUE
+	 * (via read_latest_value_at), descend `VALUE[$cache_key][$items_key]`, and concatenate the
+	 * array-shaped items into one list. The per-dir read is fault-tolerant: a missing cache,
+	 * a non-array items list, or a non-array item is silently skipped. Callers memoize per
+	 * request — this re-globs and re-reads every call.
+	 *
+	 * @api Public substrate primitive: a Service_CI that fans a digest snapshot across
+	 *      partitions (e.g. the example AI-newsletter insights demo) reads its accumulated
+	 *      items through this instead of re-implementing the glob + cache descent.
+	 *
+	 * @param string $offsets_dir Absolute path to the offsets base dir holding the snapshot dirs.
+	 * @param string $glob        A glob (relative to $offsets_dir) selecting the snapshot dirs, e.g. `scored.p*`.
+	 * @param string $cache_key   VALUE key holding the cache object. Default `cache`.
+	 * @param string $items_key   Cache key holding the items list. Default `items`.
+	 * @return array<int,array<array-key,mixed>> The flattened, array-shaped items across all matched dirs.
+	 */
+	public static function read_latest_snapshot_cache(
+		string $offsets_dir,
+		string $glob,
+		string $cache_key = 'cache',
+		string $items_key = 'items'
+	): array {
+		$dirs = \glob( \rtrim( $offsets_dir, '/' ) . '/' . $glob, \GLOB_ONLYDIR );
+		if ( false === $dirs || [] === $dirs ) {
+			return [];
+		}
+		$items = [];
+		foreach ( $dirs as $dir ) {
+			$value = self::read_latest_value_at( $dir );
+			$cache = \is_array( $value ) && \is_array( $value[ $cache_key ] ?? null ) ? $value[ $cache_key ] : [];
+			$list  = $cache[ $items_key ] ?? null;
+			if ( ! \is_array( $list ) ) {
+				continue;
+			}
+			foreach ( $list as $item ) {
+				if ( \is_array( $item ) ) {
+					$items[] = $item;
+				}
+			}
+		}
+		return $items;
+	}
+
+	/**
+	 * Read the latest committed record's VALUE from an offsetlog directory.
+	 *
+	 * The offsetlog is a flat segmented-log dir; this opens it at $offset_dir,
+	 * reads the last non-empty line of the newest segment, unpacks the packed Message,
+	 * and returns its VALUE (a decoded JSON object), or null if empty/unreadable.
+	 *
+	 * @api Public substrate primitive for dashboard/external consumers that read an
+	 *      offsetlog snapshot (e.g. a Service_CI serving dashboard state). No
+	 *      in-substrate caller, so this is marked API to keep the deadcode gate honest.
+	 *
+	 * @param string $offset_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
+	 * @return array<string,mixed>|null The newest record's VALUE, or null.
+	 */
+	public static function read_latest_value_at( string $offset_dir ): ?array {
+		try {
+			$offsetlog = new self();
+			$offsetlog->arguments( $offset_dir );
+			$segments = $offsetlog->get_segments( true );
+			if ( empty( $segments ) ) {
+				return null;
+			}
+			$newest = \end( $segments );
+			$bytes  = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
+			if ( '' === $bytes ) {
+				return null;
+			}
+			$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
+			if ( empty( $lines ) ) {
+				return null;
+			}
+			$value = Message::unpacked( \end( $lines ) )[ Message::VALUE ] ?? null;
+			if ( ! \is_array( $value ) ) {
+				return null;
+			}
+			/** @var array<string,mixed> $value The offsetlog VALUE is a decoded JSON object (string keys). */
+			return $value;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+	}
+
 	public static function hash_to_partition( string $key, int $num_partitions ): int {
 		[ $stripped ] = \explode( '?', $key, 2 );
 		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
@@ -961,131 +1049,6 @@ class Partition_Node extends Timer_Node {
 			return [];
 		}
 	}
-
-	/**
-	 * Read the latest committed record's VALUE from an offsetlog directory.
-	 *
-	 * The offsetlog is a flat segmented-log dir; this opens it at $offset_dir,
-	 * reads the last non-empty line of the newest segment, unpacks the packed Message,
-	 * and returns its VALUE (a decoded JSON object), or null if empty/unreadable.
-	 *
-	 * @api Public substrate primitive for dashboard/external consumers that read an
-	 *      offsetlog snapshot (e.g. a Service_CI serving dashboard state). No
-	 *      in-substrate caller, so this is marked API to keep the deadcode gate honest.
-	 *
-	 * @param string $offset_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
-	 * @return array<string,mixed>|null The newest record's VALUE, or null.
-	 */
-	public static function read_latest_value_at( string $offset_dir ): ?array {
-		try {
-			$offsetlog = new self();
-			$offsetlog->arguments( $offset_dir );
-			$segments = $offsetlog->get_segments( true );
-			if ( empty( $segments ) ) {
-				return null;
-			}
-			$newest = \end( $segments );
-			$bytes  = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
-			if ( '' === $bytes ) {
-				return null;
-			}
-			$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-			if ( empty( $lines ) ) {
-				return null;
-			}
-			$value = Message::unpacked( \end( $lines ) )[ Message::VALUE ] ?? null;
-			if ( ! \is_array( $value ) ) {
-				return null;
-			}
-			/** @var array<string,mixed> $value The offsetlog VALUE is a decoded JSON object (string keys). */
-			return $value;
-		} catch ( \Throwable $e ) {
-			return null;
-		}
-	}
-
-	/**
-	 * Glob a family of snapshot-offsetlog dirs and flatten their latest cached item lists.
-	 *
-	 * For every dir matching `$offsets_dir/$glob`, read the newest committed record's VALUE
-	 * (via read_latest_value_at), descend `VALUE[$cache_key][$items_key]`, and concatenate the
-	 * array-shaped items into one list. The per-dir read is fault-tolerant: a missing cache,
-	 * a non-array items list, or a non-array item is silently skipped. Callers memoize per
-	 * request — this re-globs and re-reads every call.
-	 *
-	 * @api Public substrate primitive: a Service_CI that fans a digest snapshot across
-	 *      partitions (e.g. the example AI-newsletter insights demo) reads its accumulated
-	 *      items through this instead of re-implementing the glob + cache descent.
-	 *
-	 * @param string $offsets_dir Absolute path to the offsets base dir holding the snapshot dirs.
-	 * @param string $glob        A glob (relative to $offsets_dir) selecting the snapshot dirs, e.g. `scored.p*`.
-	 * @param string $cache_key   VALUE key holding the cache object. Default `cache`.
-	 * @param string $items_key   Cache key holding the items list. Default `items`.
-	 * @return array<int,array<array-key,mixed>> The flattened, array-shaped items across all matched dirs.
-	 */
-	public static function read_latest_snapshot_cache(
-		string $offsets_dir,
-		string $glob,
-		string $cache_key = 'cache',
-		string $items_key = 'items'
-	): array {
-		$dirs = \glob( \rtrim( $offsets_dir, '/' ) . '/' . $glob, \GLOB_ONLYDIR );
-		if ( false === $dirs || [] === $dirs ) {
-			return [];
-		}
-		$items = [];
-		foreach ( $dirs as $dir ) {
-			$value = self::read_latest_value_at( $dir );
-			$cache = \is_array( $value ) && \is_array( $value[ $cache_key ] ?? null ) ? $value[ $cache_key ] : [];
-			$list  = $cache[ $items_key ] ?? null;
-			if ( ! \is_array( $list ) ) {
-				continue;
-			}
-			foreach ( $list as $item ) {
-				if ( \is_array( $item ) ) {
-					$items[] = $item;
-				}
-			}
-		}
-		return $items;
-	}
-
-	/** Topology console manifest: palette entry + ctor form + verb forms. */
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'I/O',
-			'description' => 'Append-only segmented log; data file + offset index per partition.',
-			'arguments'   => [
-				[ 'name' => 'dir',          'type' => 'string', 'required' => true ],
-				[ 'name' => 'segment_size', 'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE ],
-				[ 'name' => 'num_segments', 'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS ],
-				[ 'name' => 'max_lifespan', 'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN ],
-			],
-			'commands'    => [
-				[
-					'name'        => 'allow_large_writes',
-					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter ),
-				],
-				[
-					'name'        => 'void_warranty',
-					'description' => 'Lift the 4KB PIPE_BUF cap with NO write lock — caller asserts single-writer (corrupts under concurrent writers; use allow_large_writes otherwise).',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_void_warranty( $interpreter ),
-				],
-				[
-					'name'        => 'with_index',
-					'description' => 'Use a named line-formatter for the companion index file.',
-					'args'        => [
-						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_with_index( $interpreter, $args ),
-				],
-			],
-			'has_target'  => false,
-		] );
-	}
 	/**
 	 * `allow_large_writes` verb handler — lift the 4KB cap on the patron + acquire its write lock.
 	 *
@@ -1136,6 +1099,43 @@ class Partition_Node extends Timer_Node {
 		$patron->with_index( $callable );
 		$patron->index_formatter_name = $args;
 		return 'ok';
+	}
+
+	/** Topology console manifest: palette entry + ctor form + verb forms. */
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'I/O',
+			'description' => 'Append-only segmented log; data file + offset index per partition.',
+			'arguments'   => [
+				[ 'name' => 'dir',          'type' => 'string', 'required' => true ],
+				[ 'name' => 'segment_size', 'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE ],
+				[ 'name' => 'num_segments', 'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS ],
+				[ 'name' => 'max_lifespan', 'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN ],
+			],
+			'commands'    => [
+				[
+					'name'        => 'allow_large_writes',
+					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter ),
+				],
+				[
+					'name'        => 'void_warranty',
+					'description' => 'Lift the 4KB PIPE_BUF cap with NO write lock — caller asserts single-writer (corrupts under concurrent writers; use allow_large_writes otherwise).',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_void_warranty( $interpreter ),
+				],
+				[
+					'name'        => 'with_index',
+					'description' => 'Use a named line-formatter for the companion index file.',
+					'args'        => [
+						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_with_index( $interpreter, $args ),
+				],
+			],
+			'has_target'  => false,
+		] );
 	}
 
 }

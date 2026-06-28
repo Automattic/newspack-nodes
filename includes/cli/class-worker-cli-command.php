@@ -68,102 +68,6 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Activate a topology: add it to the active set and spawn its fleet now.
-	 *
-	 * The headless counterpart to the Settings → Topologies UI toggle. Validates
-	 * the name against the catalog (`Topology_Registry::describe()`), then delegates
-	 * the option-write + cache-invalidate + immediate spawn to the shared
-	 * `Topology_Registry::activate()` (the same primitive the REST/UI verb calls).
-	 * Idempotent — an already-active topology re-spawns without a duplicate entry.
-	 *
-	 * ## OPTIONS
-	 *
-	 * <topology>
-	 * : Topology name to activate (a catalog name from `wp nodes types`).
-	 *
-	 * ## EXAMPLES
-	 *
-	 *     wp nodes activate request-builder
-	 *
-	 * @when after_wp_load
-	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
-	 */
-	public function activate( array $args, array $assoc_args ): void {
-		$name = $this->require_catalog_topology( $args, 'activate' );
-
-		try {
-			$result = Topology_Registry::activate( $name );
-		} catch ( \RuntimeException $e ) {
-			\WP_CLI::error( $e->getMessage() );
-			return;
-		}
-
-		\WP_CLI::success( \sprintf( "Activated '%s' and spawned %d worker(s).", $result['name'], $result['spawned'] ) );
-	}
-
-	/**
-	 * Validate the positional `<topology>` arg against the catalog
-	 * (`Topology_Registry::describe()`) — shared by `activate` and `deactivate`.
-	 * `WP_CLI::error`s (which exits) on a missing or unknown-to-catalog name,
-	 * listing the available catalog names so the operator can pick a real one.
-	 *
-	 * @param array<int, string> $args Positional arguments.
-	 * @param string             $verb Verb name, for the usage message.
-	 * @return string The validated topology name.
-	 */
-	private function require_catalog_topology( array $args, string $verb ): string {
-		$name = $args[0] ?? '';
-		if ( '' === $name ) {
-			\WP_CLI::error( "Topology required. Use: wp nodes {$verb} <topology>" );
-		}
-
-		$catalog = \array_keys( Topology_Registry::describe() );
-		if ( ! \in_array( $name, $catalog, true ) ) {
-			\WP_CLI::error(
-				\sprintf(
-					'Unknown topology: %s. Available: %s',
-					$name,
-					empty( $catalog ) ? '(none in catalog)' : \implode( ', ', $catalog )
-				)
-			);
-		}
-
-		return $name;
-	}
-
-	/**
-	 * Deactivate a topology: remove it from the active set and drain its fleet now.
-	 *
-	 * Symmetric with `activate`. Delegates to the shared
-	 * `Topology_Registry::deactivate()` (the same primitive the REST/UI verb calls):
-	 * remove the name, persist, invalidate the config cache, then drop a restart
-	 * flag on every live worker lock dir so the fleet drains immediately.
-	 *
-	 * ## OPTIONS
-	 *
-	 * <topology>
-	 * : Topology name to deactivate.
-	 *
-	 * ## EXAMPLES
-	 *
-	 *     wp nodes deactivate request-builder
-	 *
-	 * @when after_wp_load
-	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
-	 */
-	public function deactivate( array $args, array $assoc_args ): void {
-		$name = $this->require_catalog_topology( $args, 'deactivate' );
-
-		Topology_Registry::deactivate( $name );
-
-		\WP_CLI::success( \sprintf( "Deactivated '%s' and drained its fleet.", $name ) );
-	}
-
-	/**
 	 * Expand topologies registered via the `newspack_nodes/topologies` filter
 	 * into a flat list of `{type, partition, stale_timeout}` rows.
 	 *
@@ -270,6 +174,102 @@ class Worker_CLI_Command {
 	private static function entry_string( $entry, string $key ): string {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
 		return Core::as_string( $value );
+	}
+
+	/**
+	 * Activate a topology: add it to the active set and spawn its fleet now.
+	 *
+	 * The headless counterpart to the Settings → Topologies UI toggle. Validates
+	 * the name against the catalog (`Topology_Registry::describe()`), then delegates
+	 * the option-write + cache-invalidate + immediate spawn to the shared
+	 * `Topology_Registry::activate()` (the same primitive the REST/UI verb calls).
+	 * Idempotent — an already-active topology re-spawns without a duplicate entry.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <topology>
+	 * : Topology name to activate (a catalog name from `wp nodes types`).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes activate request-builder
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 */
+	public function activate( array $args, array $assoc_args ): void {
+		$name = $this->require_catalog_topology( $args, 'activate' );
+
+		try {
+			$result = Topology_Registry::activate( $name );
+		} catch ( \RuntimeException $e ) {
+			\WP_CLI::error( $e->getMessage() );
+			return;
+		}
+
+		\WP_CLI::success( \sprintf( "Activated '%s' and spawned %d worker(s).", $result['name'], $result['spawned'] ) );
+	}
+
+	/**
+	 * Validate the positional `<topology>` arg against the catalog
+	 * (`Topology_Registry::describe()`) — shared by `activate` and `deactivate`.
+	 * `WP_CLI::error`s (which exits) on a missing or unknown-to-catalog name,
+	 * listing the available catalog names so the operator can pick a real one.
+	 *
+	 * @param array<int, string> $args Positional arguments.
+	 * @param string             $verb Verb name, for the usage message.
+	 * @return string The validated topology name.
+	 */
+	private function require_catalog_topology( array $args, string $verb ): string {
+		$name = $args[0] ?? '';
+		if ( '' === $name ) {
+			\WP_CLI::error( "Topology required. Use: wp nodes {$verb} <topology>" );
+		}
+
+		$catalog = \array_keys( Topology_Registry::describe() );
+		if ( ! \in_array( $name, $catalog, true ) ) {
+			\WP_CLI::error(
+				\sprintf(
+					'Unknown topology: %s. Available: %s',
+					$name,
+					empty( $catalog ) ? '(none in catalog)' : \implode( ', ', $catalog )
+				)
+			);
+		}
+
+		return $name;
+	}
+
+	/**
+	 * Deactivate a topology: remove it from the active set and drain its fleet now.
+	 *
+	 * Symmetric with `activate`. Delegates to the shared
+	 * `Topology_Registry::deactivate()` (the same primitive the REST/UI verb calls):
+	 * remove the name, persist, invalidate the config cache, then drop a restart
+	 * flag on every live worker lock dir so the fleet drains immediately.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <topology>
+	 * : Topology name to deactivate.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes deactivate request-builder
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 */
+	public function deactivate( array $args, array $assoc_args ): void {
+		$name = $this->require_catalog_topology( $args, 'deactivate' );
+
+		Topology_Registry::deactivate( $name );
+
+		\WP_CLI::success( \sprintf( "Deactivated '%s' and drained its fleet.", $name ) );
 	}
 
 	/**

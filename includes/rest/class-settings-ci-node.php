@@ -59,6 +59,45 @@ class Settings_CI_Node extends Service_CI_Node {
 		'segment_size'   => 1,
 		'max_lifespan'   => 0,
 	];
+	/**
+	 * `get` verb handler — the current substrate-settings snapshot.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_get(): array {
+		return self::snapshot();
+	}
+
+	/**
+	 * `set` verb handler — set one substrate integer setting by full option name, return the post-set snapshot.
+	 *
+	 * @param string $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_set( string $args ): array {
+		self::require_manage_options();
+		// Normalized positional receiver: `set <option> <value>`, one setting
+		// per command — the grammar Settings_Sync_Node emits to fan a synced
+		// setting out to spokes. `<option>` is the FULL `newspack_nodes_*` key.
+		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
+
+		$short = \is_string( $option ) && \str_starts_with( $option, 'newspack_nodes_' )
+			? \substr( $option, \strlen( 'newspack_nodes_' ) )
+			: $option;
+		if ( ! \is_string( $short ) || ! isset( self::ALLOWED_KEYS[ $short ] ) ) {
+			throw new \RuntimeException( \esc_html( 'unknown setting: ' . (string) $option ) );
+		}
+		$sanitized = self::sanitize_int( $value, self::ALLOWED_KEYS[ $short ], self::MAX_INT_VALUE );
+		if ( null === $sanitized ) {
+			throw new \RuntimeException( \esc_html( "invalid value for setting: {$short}" ) );
+		}
+
+		\update_option( "newspack_nodes_{$short}", $sanitized, true );
+		RuntimeConfig::reset();
+
+		return self::snapshot();
+	}
 
 	/**
 	 * Build the canonical four-key snapshot from the substrate Config.
@@ -134,45 +173,6 @@ class Settings_CI_Node extends Service_CI_Node {
 				],
 			],
 		] );
-	}
-	/**
-	 * `get` verb handler — the current substrate-settings snapshot.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_get(): array {
-		return self::snapshot();
-	}
-
-	/**
-	 * `set` verb handler — set one substrate integer setting by full option name, return the post-set snapshot.
-	 *
-	 * @param string $args Verb argument.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_set( string $args ): array {
-		self::require_manage_options();
-		// Normalized positional receiver: `set <option> <value>`, one setting
-		// per command — the grammar Settings_Sync_Node emits to fan a synced
-		// setting out to spokes. `<option>` is the FULL `newspack_nodes_*` key.
-		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
-
-		$short = \is_string( $option ) && \str_starts_with( $option, 'newspack_nodes_' )
-			? \substr( $option, \strlen( 'newspack_nodes_' ) )
-			: $option;
-		if ( ! \is_string( $short ) || ! isset( self::ALLOWED_KEYS[ $short ] ) ) {
-			throw new \RuntimeException( \esc_html( 'unknown setting: ' . (string) $option ) );
-		}
-		$sanitized = self::sanitize_int( $value, self::ALLOWED_KEYS[ $short ], self::MAX_INT_VALUE );
-		if ( null === $sanitized ) {
-			throw new \RuntimeException( \esc_html( "invalid value for setting: {$short}" ) );
-		}
-
-		\update_option( "newspack_nodes_{$short}", $sanitized, true );
-		RuntimeConfig::reset();
-
-		return self::snapshot();
 	}
 
 }

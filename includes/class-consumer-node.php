@@ -235,6 +235,301 @@ class Consumer_Node extends Timer_Node {
 		$this->sink->fill( $reply );
 	}
 
+	public function checkpoint(): void {
+		if ( null === $this->offsetlog ) {
+			return;
+		}
+		// Always write the first checkpoint (even at 0:0) so an idle Consumer is still attributed.
+		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
+		if (
+			! $first_checkpoint
+			&& $this->cursor_seg === $this->checkpoint_seg
+			&& $this->cursor_off === $this->checkpoint_off
+		) {
+			return;
+		}
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::FROM ]      = $this->name;
+		$value = [
+			'seg'         => $this->cursor_seg,
+			'off'         => $this->cursor_off,
+			'ts'          => Core::$now,
+			'name'        => $this->name,
+			'target'      => \is_string( $this->target ) ? $this->target : '',
+			'targets'     => $this->resolve_downstream_targets(),
+			'worker_type' => self::worker_type_env(),
+			// Real source log basename. Two readers can tail the same log under
+			// distinct offset-dir names (firehose vs firehose.job-router); the
+			// dashboard labels by this, not the disambiguated offset dir.
+			'source_log'  => \basename( $this->source_dir ),
+		];
+		// Co-commit the snapshot node's state with the offset, as ONE record, so a
+		// respawn restores the cache and resumes the cursor in lockstep.
+		if ( '' !== $this->snapshot_node ) {
+			$node = Core::node( $this->snapshot_node );
+			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
+				$value['cache'] = $node->save_state();
+			}
+		}
+		$message[ Message::VALUE ]     = $value;
+		$this->offsetlog->fill( $message );
+		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
+		$this->offsetlog->flush();
+		$this->checkpoint_seg = $this->cursor_seg;
+		$this->checkpoint_off = $this->cursor_off;
+
+		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off ] ) );
+	}
+
+	/**
+	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
+	 *
+	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
+	 *
+	 * @return array<int,array{name:string,class:string}>
+	 */
+	private function resolve_downstream_targets(): array {
+		if ( ! \is_string( $this->target ) || '' === $this->target ) {
+			return [];
+		}
+		$node = Core::node( $this->target );
+		if ( null === $node ) {
+			// Not yet registered or removed; surface the name without a class.
+			return [ [ 'name' => $this->target, 'class' => '' ] ];
+		}
+		$class = Command_Interpreter_Node::shell_name_for( $node );
+		// instanceof, not an exact name match, so a Tee subclass (Tap) expands too.
+		if ( ! $node instanceof Tee_Node ) {
+			return [ [ 'name' => $this->target, 'class' => $class ] ];
+		}
+		$tee_targets = $node->target;
+		if ( ! \is_array( $tee_targets ) ) {
+			return [ [ 'name' => $this->target, 'class' => $class ] ];
+		}
+		$out = [];
+		foreach ( $tee_targets as $t ) {
+			if ( '' === $t ) {
+				continue;
+			}
+			$tn = Core::node( $t );
+			$tc = null === $tn ? '' : Command_Interpreter_Node::shell_name_for( $tn );
+			$out[] = [ 'name' => $t, 'class' => $tc ];
+		}
+		return $out;
+	}
+
+	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
+	private static function worker_type_env(): string {
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
+	}
+
+	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
+	protected function make_source(): Partition_Node {
+		return new Partition_Node();
+	}
+
+	/**
+	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
+	 * Consumer's schema args are source_dir + offsetlog_base_dir.
+	 *
+	 * @return array{0:string,1:string}
+	 */
+	protected function resolve_args(): array {
+		return [ $this->source_dir, $this->offsetlog_base_dir ];
+	}
+
+	/**
+	 * Probe seam: the raw snapshot `TopicProbe` reads from outside this Consumer,
+	 * as the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). Just
+	 * the state at this instant — `SOURCE` (partition tailed) + `READER` (offsetlog
+	 * dir basename, the durable per-reader id) + the consumer cursor + the partition
+	 * END (newest segment + size, so the topologies tab trims its live list back to
+	 * here) + `DISTANCE` (bytes behind, for the overview graph) + `MSGS`. Rates and
+	 * totals are NOT logged — readers derive them from consecutive records.
+	 *
+	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
+	 */
+	public function probe_stats(): array {
+		$lag                                = $this->compute_lag();
+		$record                             = [];
+		$record[ Probe_Record::SOURCE ]     = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
+		$record[ Probe_Record::READER ]     = '' !== $this->offsetlog_base_dir ? \basename( $this->offsetlog_base_dir ) : '';
+		$record[ Probe_Record::CURSOR_SEG ] = $this->cursor_seg;
+		$record[ Probe_Record::CURSOR_OFF ] = $this->cursor_off;
+		$record[ Probe_Record::END_SEG ]    = $lag['end_seg'];
+		$record[ Probe_Record::END_SIZE ]   = $lag['end_size'];
+		$record[ Probe_Record::DISTANCE ]   = $lag['bytes_behind'];
+		$record[ Probe_Record::MSGS ]       = $this->counter;
+		$record[ Probe_Record::END_BYTES ]  = $lag['end_bytes'];
+		$record[ Probe_Record::CACHE_SIZE ] = $this->offsetlog_cache_size();
+		return $record;
+	}
+
+	/**
+	 * Byte size of the consumer's newest offsetlog segment — the position-cache
+	 * footprint the overview graphs. 0 for an ephemeral reader (no offsetlog) or
+	 * before the first checkpoint writes a segment.
+	 */
+	private function offsetlog_cache_size(): int {
+		if ( null === $this->offsetlog ) {
+			return 0;
+		}
+		$segments = $this->offsetlog->get_segments( true );
+		if ( [] === $segments ) {
+			return 0;
+		}
+		$last = \end( $segments );
+		return $last['size'];
+	}
+
+	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int, end_bytes: int} */
+	private function compute_lag(): array {
+		\clearstatcache( true, $this->source()->partition_dir() );
+		$segments = $this->source()->get_segments( true );
+		if ( empty( $segments ) ) {
+			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
+		}
+		// Recover a deleted/recreated cursor segment first so lag reflects the
+		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
+		$this->normalize_cursor( $segments );
+		$bytes_behind     = 0;
+		$segments_behind  = 0;
+		$end_bytes        = 0;
+		foreach ( $segments as $s ) {
+			$id   = $s['id'];
+			$size = $s['size'];
+			// Absolute partition byte position (Σ all live segment sizes) — the
+			// browser derives the byte THROUGHPUT from its delta (Δ end_bytes/Δt),
+			// the only way it can: the lean record carries no per-segment sizes.
+			$end_bytes += $size;
+			if ( $id < $this->cursor_seg ) {
+				continue;
+			}
+			if ( $id === $this->cursor_seg ) {
+				$bytes_behind += \max( 0, $size - $this->cursor_off );
+			} else {
+				$bytes_behind += $size;
+				++$segments_behind;
+			}
+		}
+		// Count buffered (already-read) bytes as consumed so lag reflects bytes-still-to-emit.
+		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
+		// Partition END (newest segment + its size) captured in the SAME read as
+		// the cursor — the topologies tab trims its live segment list back to here.
+		$last = \end( $segments );
+		return [
+			'bytes_behind'    => $bytes_behind,
+			'segments_behind' => $segments_behind,
+			'caught_up'       => 0 === $bytes_behind,
+			'end_seg'         => $last['id'],
+			'end_size'        => $last['size'],
+			'end_bytes'       => $end_bytes,
+		];
+	}
+
+	// ============================================================================
+	// Time-travel transport (debugger UI): pause / step / play / seek a consumer.
+	// The read surface (frames + cursor) rides dump_metadata(); STEP returns
+	// the resulting cursor.
+	// ============================================================================
+
+	/**
+	 * Jump to a known (cursor, state) keyframe identified by its OFFSETLOG SEGMENT
+	 * ID (from dump_metadata's frames[].id): read that one offsetlog segment, take
+	 * its (single) record to recover the co-committed cache, restore_state() it
+	 * into the snapshot node (when one is set), then reposition the read cursor to
+	 * the record's SOURCE {seg,off}. Does NOT resume the timer — a paused consumer
+	 * stays paused after seeking.
+	 *
+	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
+	 * @return string 'ok', or an error string when the offsetlog/segment is absent.
+	 */
+	public function seek_frame( int $segment_id ): string {
+		if ( null === $this->offsetlog ) {
+			return 'error: no offsetlog to seek';
+		}
+		$entry = $this->read_frame_record( $segment_id );
+		if ( null === $entry ) {
+			return "error: no frame at segment {$segment_id}";
+		}
+		if ( '' !== $this->snapshot_node ) {
+			$node  = Core::node( $this->snapshot_node );
+			$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
+			if ( null !== $cache && null !== $node && \method_exists( $node, 'restore_state' ) ) {
+				$node->restore_state( $cache );
+			}
+		}
+		$this->next_offset( [ 'seg' => $entry['seg'], 'off' => $entry['off'] ] );
+		// Record the rewind point: PLAY truncates the offsetlog after it before
+		// re-arming, so the re-written forward timeline stays monotonic.
+		$this->rewound_to         = $segment_id;
+		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
+		return 'ok';
+	}
+
+	/**
+	 * Read ONE offsetlog segment and return its keyframe record VALUE (`{seg, off,
+	 * ...cache}`), or null when the segment is absent / empty / unparseable. There's
+	 * exactly one record per offsetlog segment (segment_size=1), but be defensive
+	 * and take the last parseable line.
+	 *
+	 * @return array<array-key, mixed>|null
+	 */
+	private function read_frame_record( int $segment_id ): ?array {
+		if ( null === $this->offsetlog ) {
+			return null;
+		}
+		$sizes = \array_column( $this->offsetlog->get_segments( true ), 'size', 'id' );
+		if ( ! isset( $sizes[ $segment_id ] ) ) {
+			return null;
+		}
+		$bytes = $this->offsetlog->read_at( $segment_id, 0, $sizes[ $segment_id ] );
+		$entry = null;
+		foreach ( \explode( "\n", $bytes ) as $line ) {
+			if ( '' === $line ) {
+				continue;
+			}
+			$parsed = $this->parse_offsetlog_entry( $line );
+			if ( null !== $parsed ) {
+				$entry = $parsed; // Keep the last parseable record.
+			}
+		}
+		return $entry;
+	}
+
+	/**
+	 * Single-step one message. Forces one-message granularity (capturing the
+	 * production line_mode on the first step of a session so PLAY can restore it),
+	 * then drives ticks until exactly one message is emitted or EOF is reached.
+	 *
+	 * @api Consumed over the wire by the debugger UI (auth-gated STEP command).
+	 * @return array{seg:int, off:int, at_eof:bool} The resulting cursor + EOF flag.
+	 */
+	public function step(): array {
+		// Stepping always leaves the consumer paused: an un-paused self-rearming
+		// fire() loop would interleave full-batch polls between steps (leaping the
+		// cursor past messages) and an abandoned session would stay in line_mode.
+		// PLAY re-arms. Idempotent — PAUSE-then-STEP makes this a no-op.
+		$this->stop_timer();
+		$this->set_state( 'POLLING', 'PAUSED' );
+		if ( null === $this->saved_line_mode ) {
+			$this->saved_line_mode = $this->line_mode;
+		}
+		$this->line_mode          = true;
+		$this->stepped_since_seek = true; // Cursor advances off the seeked frame.
+		$before                   = $this->counter;
+		// poll_init's first tick only loads the buffer (emits nothing in line
+		// mode), so always tick at least once, then keep going until one message
+		// lands or a poll leaves us genuinely at EOF with nothing buffered.
+		do {
+			$this->poll();
+		} while ( $this->counter === $before && ! $this->at_eof );
+		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => $this->at_eof ];
+	}
+
 	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */
 	public function poll(): void {
 		( $this->poll_cb ?? ( $this->poll_cb = $this->poll_init( ... ) ) )();
@@ -551,201 +846,6 @@ class Consumer_Node extends Timer_Node {
 		return false !== \strpos( $this->buffer, "\n" );
 	}
 
-	public function checkpoint(): void {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		// Always write the first checkpoint (even at 0:0) so an idle Consumer is still attributed.
-		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
-		if (
-			! $first_checkpoint
-			&& $this->cursor_seg === $this->checkpoint_seg
-			&& $this->cursor_off === $this->checkpoint_off
-		) {
-			return;
-		}
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = $this->name;
-		$value = [
-			'seg'         => $this->cursor_seg,
-			'off'         => $this->cursor_off,
-			'ts'          => Core::$now,
-			'name'        => $this->name,
-			'target'      => \is_string( $this->target ) ? $this->target : '',
-			'targets'     => $this->resolve_downstream_targets(),
-			'worker_type' => self::worker_type_env(),
-			// Real source log basename. Two readers can tail the same log under
-			// distinct offset-dir names (firehose vs firehose.job-router); the
-			// dashboard labels by this, not the disambiguated offset dir.
-			'source_log'  => \basename( $this->source_dir ),
-		];
-		// Co-commit the snapshot node's state with the offset, as ONE record, so a
-		// respawn restores the cache and resumes the cursor in lockstep.
-		if ( '' !== $this->snapshot_node ) {
-			$node = Core::node( $this->snapshot_node );
-			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
-				$value['cache'] = $node->save_state();
-			}
-		}
-		$message[ Message::VALUE ]     = $value;
-		$this->offsetlog->fill( $message );
-		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
-		$this->offsetlog->flush();
-		$this->checkpoint_seg = $this->cursor_seg;
-		$this->checkpoint_off = $this->cursor_off;
-
-		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off ] ) );
-	}
-
-	/**
-	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
-	 *
-	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
-	 *
-	 * @return array<int,array{name:string,class:string}>
-	 */
-	private function resolve_downstream_targets(): array {
-		if ( ! \is_string( $this->target ) || '' === $this->target ) {
-			return [];
-		}
-		$node = Core::node( $this->target );
-		if ( null === $node ) {
-			// Not yet registered or removed; surface the name without a class.
-			return [ [ 'name' => $this->target, 'class' => '' ] ];
-		}
-		$class = Command_Interpreter_Node::shell_name_for( $node );
-		// instanceof, not an exact name match, so a Tee subclass (Tap) expands too.
-		if ( ! $node instanceof Tee_Node ) {
-			return [ [ 'name' => $this->target, 'class' => $class ] ];
-		}
-		$tee_targets = $node->target;
-		if ( ! \is_array( $tee_targets ) ) {
-			return [ [ 'name' => $this->target, 'class' => $class ] ];
-		}
-		$out = [];
-		foreach ( $tee_targets as $t ) {
-			if ( '' === $t ) {
-				continue;
-			}
-			$tn = Core::node( $t );
-			$tc = null === $tn ? '' : Command_Interpreter_Node::shell_name_for( $tn );
-			$out[] = [ 'name' => $t, 'class' => $tc ];
-		}
-		return $out;
-	}
-
-	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
-	private static function worker_type_env(): string {
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
-	}
-
-	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
-	protected function make_source(): Partition_Node {
-		return new Partition_Node();
-	}
-
-	/**
-	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
-	 * Consumer's schema args are source_dir + offsetlog_base_dir.
-	 *
-	 * @return array{0:string,1:string}
-	 */
-	protected function resolve_args(): array {
-		return [ $this->source_dir, $this->offsetlog_base_dir ];
-	}
-
-	/**
-	 * Probe seam: the raw snapshot `TopicProbe` reads from outside this Consumer,
-	 * as the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). Just
-	 * the state at this instant — `SOURCE` (partition tailed) + `READER` (offsetlog
-	 * dir basename, the durable per-reader id) + the consumer cursor + the partition
-	 * END (newest segment + size, so the topologies tab trims its live list back to
-	 * here) + `DISTANCE` (bytes behind, for the overview graph) + `MSGS`. Rates and
-	 * totals are NOT logged — readers derive them from consecutive records.
-	 *
-	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
-	 */
-	public function probe_stats(): array {
-		$lag                                = $this->compute_lag();
-		$record                             = [];
-		$record[ Probe_Record::SOURCE ]     = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
-		$record[ Probe_Record::READER ]     = '' !== $this->offsetlog_base_dir ? \basename( $this->offsetlog_base_dir ) : '';
-		$record[ Probe_Record::CURSOR_SEG ] = $this->cursor_seg;
-		$record[ Probe_Record::CURSOR_OFF ] = $this->cursor_off;
-		$record[ Probe_Record::END_SEG ]    = $lag['end_seg'];
-		$record[ Probe_Record::END_SIZE ]   = $lag['end_size'];
-		$record[ Probe_Record::DISTANCE ]   = $lag['bytes_behind'];
-		$record[ Probe_Record::MSGS ]       = $this->counter;
-		$record[ Probe_Record::END_BYTES ]  = $lag['end_bytes'];
-		$record[ Probe_Record::CACHE_SIZE ] = $this->offsetlog_cache_size();
-		return $record;
-	}
-
-	/**
-	 * Byte size of the consumer's newest offsetlog segment — the position-cache
-	 * footprint the overview graphs. 0 for an ephemeral reader (no offsetlog) or
-	 * before the first checkpoint writes a segment.
-	 */
-	private function offsetlog_cache_size(): int {
-		if ( null === $this->offsetlog ) {
-			return 0;
-		}
-		$segments = $this->offsetlog->get_segments( true );
-		if ( [] === $segments ) {
-			return 0;
-		}
-		$last = \end( $segments );
-		return $last['size'];
-	}
-
-	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int, end_bytes: int} */
-	private function compute_lag(): array {
-		\clearstatcache( true, $this->source()->partition_dir() );
-		$segments = $this->source()->get_segments( true );
-		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
-		}
-		// Recover a deleted/recreated cursor segment first so lag reflects the
-		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
-		$this->normalize_cursor( $segments );
-		$bytes_behind     = 0;
-		$segments_behind  = 0;
-		$end_bytes        = 0;
-		foreach ( $segments as $s ) {
-			$id   = $s['id'];
-			$size = $s['size'];
-			// Absolute partition byte position (Σ all live segment sizes) — the
-			// browser derives the byte THROUGHPUT from its delta (Δ end_bytes/Δt),
-			// the only way it can: the lean record carries no per-segment sizes.
-			$end_bytes += $size;
-			if ( $id < $this->cursor_seg ) {
-				continue;
-			}
-			if ( $id === $this->cursor_seg ) {
-				$bytes_behind += \max( 0, $size - $this->cursor_off );
-			} else {
-				$bytes_behind += $size;
-				++$segments_behind;
-			}
-		}
-		// Count buffered (already-read) bytes as consumed so lag reflects bytes-still-to-emit.
-		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
-		// Partition END (newest segment + its size) captured in the SAME read as
-		// the cursor — the topologies tab trims its live segment list back to here.
-		$last = \end( $segments );
-		return [
-			'bytes_behind'    => $bytes_behind,
-			'segments_behind' => $segments_behind,
-			'caught_up'       => 0 === $bytes_behind,
-			'end_seg'         => $last['id'],
-			'end_size'        => $last['size'],
-			'end_bytes'       => $end_bytes,
-		];
-	}
-
 	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
 	private function source(): Partition_Node {
 		if ( null === $this->source ) {
@@ -775,6 +875,25 @@ class Consumer_Node extends Timer_Node {
 			$this->cursor_off = 0;
 			$this->buffer     = '';
 		}
+	}
+
+	/**
+	 * Parse one packed offsetlog line into its {seg, off, ...} VALUE, or null when
+	 * the line is unparseable or its VALUE isn't the expected struct.
+	 *
+	 * @return array<array-key, mixed>|null
+	 */
+	private function parse_offsetlog_entry( string $line ): ?array {
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			return null;
+		}
+		$entry = $message[ Message::VALUE ];
+		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
+			return null;
+		}
+		return $entry;
 	}
 
 	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
@@ -837,110 +956,10 @@ class Consumer_Node extends Timer_Node {
 		];
 	}
 
-	// ============================================================================
-	// Time-travel transport (debugger UI): pause / step / play / seek a consumer.
-	// The read surface (frames + cursor) rides dump_metadata(); STEP returns
-	// the resulting cursor.
-	// ============================================================================
-
-	/**
-	 * Jump to a known (cursor, state) keyframe identified by its OFFSETLOG SEGMENT
-	 * ID (from dump_metadata's frames[].id): read that one offsetlog segment, take
-	 * its (single) record to recover the co-committed cache, restore_state() it
-	 * into the snapshot node (when one is set), then reposition the read cursor to
-	 * the record's SOURCE {seg,off}. Does NOT resume the timer — a paused consumer
-	 * stays paused after seeking.
-	 *
-	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
-	 * @return string 'ok', or an error string when the offsetlog/segment is absent.
-	 */
-	public function seek_frame( int $segment_id ): string {
-		if ( null === $this->offsetlog ) {
-			return 'error: no offsetlog to seek';
-		}
-		$entry = $this->read_frame_record( $segment_id );
-		if ( null === $entry ) {
-			return "error: no frame at segment {$segment_id}";
-		}
-		if ( '' !== $this->snapshot_node ) {
-			$node  = Core::node( $this->snapshot_node );
-			$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
-			if ( null !== $cache && null !== $node && \method_exists( $node, 'restore_state' ) ) {
-				$node->restore_state( $cache );
-			}
-		}
-		$this->next_offset( [ 'seg' => $entry['seg'], 'off' => $entry['off'] ] );
-		// Record the rewind point: PLAY truncates the offsetlog after it before
-		// re-arming, so the re-written forward timeline stays monotonic.
-		$this->rewound_to         = $segment_id;
-		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
-		return 'ok';
-	}
-
-	/**
-	 * Read ONE offsetlog segment and return its keyframe record VALUE (`{seg, off,
-	 * ...cache}`), or null when the segment is absent / empty / unparseable. There's
-	 * exactly one record per offsetlog segment (segment_size=1), but be defensive
-	 * and take the last parseable line.
-	 *
-	 * @return array<array-key, mixed>|null
-	 */
-	private function read_frame_record( int $segment_id ): ?array {
-		if ( null === $this->offsetlog ) {
-			return null;
-		}
-		$sizes = \array_column( $this->offsetlog->get_segments( true ), 'size', 'id' );
-		if ( ! isset( $sizes[ $segment_id ] ) ) {
-			return null;
-		}
-		$bytes = $this->offsetlog->read_at( $segment_id, 0, $sizes[ $segment_id ] );
-		$entry = null;
-		foreach ( \explode( "\n", $bytes ) as $line ) {
-			if ( '' === $line ) {
-				continue;
-			}
-			$parsed = $this->parse_offsetlog_entry( $line );
-			if ( null !== $parsed ) {
-				$entry = $parsed; // Keep the last parseable record.
-			}
-		}
-		return $entry;
-	}
-
 	/** Hold the cursor and emit nothing until STEP / PLAY. */
 	public function pause(): void {
 		$this->stop_timer();
 		$this->set_state( 'POLLING', 'PAUSED' );
-	}
-
-	/**
-	 * Single-step one message. Forces one-message granularity (capturing the
-	 * production line_mode on the first step of a session so PLAY can restore it),
-	 * then drives ticks until exactly one message is emitted or EOF is reached.
-	 *
-	 * @api Consumed over the wire by the debugger UI (auth-gated STEP command).
-	 * @return array{seg:int, off:int, at_eof:bool} The resulting cursor + EOF flag.
-	 */
-	public function step(): array {
-		// Stepping always leaves the consumer paused: an un-paused self-rearming
-		// fire() loop would interleave full-batch polls between steps (leaping the
-		// cursor past messages) and an abandoned session would stay in line_mode.
-		// PLAY re-arms. Idempotent — PAUSE-then-STEP makes this a no-op.
-		$this->stop_timer();
-		$this->set_state( 'POLLING', 'PAUSED' );
-		if ( null === $this->saved_line_mode ) {
-			$this->saved_line_mode = $this->line_mode;
-		}
-		$this->line_mode          = true;
-		$this->stepped_since_seek = true; // Cursor advances off the seeked frame.
-		$before                   = $this->counter;
-		// poll_init's first tick only loads the buffer (emits nothing in line
-		// mode), so always tick at least once, then keep going until one message
-		// lands or a poll leaves us genuinely at EOF with nothing buffered.
-		do {
-			$this->poll();
-		} while ( $this->counter === $before && ! $this->at_eof );
-		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => $this->at_eof ];
 	}
 
 	/**
@@ -963,25 +982,6 @@ class Consumer_Node extends Timer_Node {
 		}
 		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
 		$this->set_state( 'POLLING', 'ACTIVE' );
-	}
-
-	/**
-	 * Parse one packed offsetlog line into its {seg, off, ...} VALUE, or null when
-	 * the line is unparseable or its VALUE isn't the expected struct.
-	 *
-	 * @return array<array-key, mixed>|null
-	 */
-	private function parse_offsetlog_entry( string $line ): ?array {
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			return null;
-		}
-		$entry = $message[ Message::VALUE ];
-		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
-			return null;
-		}
-		return $entry;
 	}
 
 	protected function check_name_availability( string $name ): void {
@@ -1021,76 +1021,6 @@ class Consumer_Node extends Timer_Node {
 			$this->offsetlog->remove_node();
 		}
 		parent::remove_node();
-	}
-
-	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'category'    => 'I/O',
-			'description' => 'Tails a Partition; emits each appended message to its sink.',
-			'arguments'        => [
-				[ 'name' => 'source_dir',         'type' => 'string', 'required' => true ],
-				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
-			],
-			'commands'    => [
-				[
-					'name'        => 'set_snapshot_node',
-					'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor, so it resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
-					'args'        => [
-						[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_snapshot_node( $interpreter, $args ),
-				],
-				[
-					'name'        => 'set_line_mode',
-					'description' => 'Fine-grained drain mode: emits one line per event cycle',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_line_mode( $interpreter ),
-				],
-				[
-					'name'        => 'SEEK_FRAME',
-					'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment_id> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
-					// Driven by the Inspector's Time Travel transport bar; hide the
-					// redundant standalone verb button.
-					'hidden'      => true,
-					'args'        => [
-						[ 'name' => 'segment_id', 'type' => 'int', 'required' => true ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_seek_frame( $interpreter, $args ),
-				],
-				[
-					'name'        => 'PAUSE',
-					'description' => 'Time-travel: stop the poll timer; the consumer holds its cursor until STEP / PLAY.',
-					'hidden'      => true,
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_pause( $interpreter ),
-				],
-				[
-					'name'        => 'PLAY',
-					'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
-					'hidden'      => true,
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_play( $interpreter ),
-				],
-				[
-					// A COMMAND, not a request: STEP mutates (emits a message + advances the
-					// durable cursor), so it must ride the auth-gated interpreter path —
-					// handle_request() (the TM_REQUEST path) bypasses interpret()'s auth gate.
-					'name'        => 'STEP',
-					'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
-					'hidden'      => true,
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_step( $interpreter ),
-				],
-			],
-			'requests'    => [
-				[
-					'name'        => 'GET_LAG',
-					'description' => 'Bytes/messages behind the source partition tail.',
-					'reply_shape' => '{ bytes_behind, segments_behind, caught_up }',
-				],
-			],
-			'accepts_fill' => false,
-		] );
 	}
 	/**
 	 * `set_snapshot_node` verb handler — set the patron's snapshot-target node.
@@ -1174,6 +1104,76 @@ class Consumer_Node extends Timer_Node {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		return (string) \wp_json_encode( $patron->step() );
+	}
+
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'I/O',
+			'description' => 'Tails a Partition; emits each appended message to its sink.',
+			'arguments'        => [
+				[ 'name' => 'source_dir',         'type' => 'string', 'required' => true ],
+				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
+			],
+			'commands'    => [
+				[
+					'name'        => 'set_snapshot_node',
+					'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor, so it resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
+					'args'        => [
+						[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_snapshot_node( $interpreter, $args ),
+				],
+				[
+					'name'        => 'set_line_mode',
+					'description' => 'Fine-grained drain mode: emits one line per event cycle',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_line_mode( $interpreter ),
+				],
+				[
+					'name'        => 'SEEK_FRAME',
+					'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment_id> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
+					// Driven by the Inspector's Time Travel transport bar; hide the
+					// redundant standalone verb button.
+					'hidden'      => true,
+					'args'        => [
+						[ 'name' => 'segment_id', 'type' => 'int', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_seek_frame( $interpreter, $args ),
+				],
+				[
+					'name'        => 'PAUSE',
+					'description' => 'Time-travel: stop the poll timer; the consumer holds its cursor until STEP / PLAY.',
+					'hidden'      => true,
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_pause( $interpreter ),
+				],
+				[
+					'name'        => 'PLAY',
+					'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
+					'hidden'      => true,
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_play( $interpreter ),
+				],
+				[
+					// A COMMAND, not a request: STEP mutates (emits a message + advances the
+					// durable cursor), so it must ride the auth-gated interpreter path —
+					// handle_request() (the TM_REQUEST path) bypasses interpret()'s auth gate.
+					'name'        => 'STEP',
+					'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
+					'hidden'      => true,
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_step( $interpreter ),
+				],
+			],
+			'requests'    => [
+				[
+					'name'        => 'GET_LAG',
+					'description' => 'Bytes/messages behind the source partition tail.',
+					'reply_shape' => '{ bytes_behind, segments_behind, caught_up }',
+				],
+			],
+			'accepts_fill' => false,
+		] );
 	}
 
 }

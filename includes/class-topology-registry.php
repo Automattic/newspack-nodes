@@ -171,6 +171,53 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Add a topology to the persisted active set and spawn its fleet now.
+	 *
+	 * The shared activation primitive both the `topologies activate` CI verb and
+	 * the `wp nodes activate` CLI verb call — the option-write + cache-invalidate
+	 * + immediate spawn. Materializes the effective active set
+	 * (Bootstrap::get_topologies(), NOT get_option default — so the config-file
+	 * defaults aren't silently dropped), refuses a write-conflict BEFORE writing
+	 * (so a conflicting set never gets persisted and spawned), then writes and
+	 * spawns. Idempotent: an already-active name re-spawns without duplicating.
+	 *
+	 * Callers are responsible for name validation + capability gating; this throws
+	 * RuntimeException on an unknown name or a write-conflict so both surfaces
+	 * report a uniform error.
+	 *
+	 * @param string $name Topology name (already validated by the caller).
+	 * @return array{name: string, active: true, spawned: int}
+	 * @throws \RuntimeException When the name is unknown or activating it would
+	 *                           put two fleets on one log/offsetlog.
+	 */
+	public static function activate( string $name ): array {
+		if ( null === self::resolve( $name ) ) {
+			throw new \RuntimeException(
+				\esc_html( "unknown topology '$name'" )
+			);
+		}
+
+		$next      = \array_values( \array_unique( \array_merge( \array_keys( \Newspack_Nodes\Bootstrap::get_topologies() ), [ $name ] ) ) );
+		$conflicts = self::find_conflicts( $next );
+		if ( ! empty( $conflicts ) ) {
+			throw new \RuntimeException(
+				\esc_html( "activating '$name' conflicts: " . self::describe_conflicts( $conflicts ) )
+			);
+		}
+
+		\update_option( 'newspack_nodes_topologies', $next );
+		self::invalidate_config_cache();
+
+		$spawned = \Newspack_Nodes\Bootstrap::supervisor()->spawn_fleet( $name );
+
+		return [
+			'name'    => $name,
+			'active'  => true,
+			'spawned' => $spawned,
+		];
+	}
+
+	/**
 	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
 	 * processes that would write the same file (data log or cursor) and corrupt
 	 * it. Empty array = the set is safe to run together.
@@ -246,6 +293,35 @@ class Topology_Registry {
 		$out = \array_keys( $seen );
 		\sort( $out );
 		return self::$write_set_cache[ $name ] = $out;
+	}
+
+	/**
+	 * One-line human summary of find_conflicts() output, shared by the admin
+	 * sanitizer's settings error and the supervisor's refusal log so the two
+	 * gates phrase a conflict identically. Empty input → empty string.
+	 *
+	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
+	 */
+	public static function describe_conflicts( array $conflicts ): string {
+		return \implode(
+			', ',
+			\array_map(
+				static fn( array $c ): string => "{$c['a']} ↔ {$c['b']} ({$c['shared'][0]})",
+				$conflicts
+			)
+		);
+	}
+
+	/**
+	 * Drop the per-process option snapshot then the config snapshot so the next
+	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
+	 * set. Same pair, same order, as Supervisor::check_config(). Public so the
+	 * Topologies_CI delete verb (which mutates the active set on its own path)
+	 * shares this one definition instead of carrying a parallel copy.
+	 */
+	public static function invalidate_config_cache(): void {
+		\Newspack_Nodes\Config::invalidate_options_cache();
+		\Newspack_Nodes\Config::reset();
 	}
 
 	/**
@@ -492,6 +568,31 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Remove a topology from the persisted active set and drain its fleet now.
+	 *
+	 * Symmetric with activate(): the shared deactivation primitive both the
+	 * `topologies deactivate` CI verb and the `wp nodes deactivate` CLI verb call.
+	 * Removes the name from the effective active set, writes, invalidates the
+	 * config cache, then drops a restart flag on every live worker lock dir via
+	 * Supervisor::kill_readers(). Callers validate the name + gate the capability.
+	 *
+	 * @param string $name Topology name (already validated by the caller).
+	 * @return array{name: string, active: false}
+	 */
+	public static function deactivate( string $name ): array {
+		$active = \array_values( \array_diff( \array_keys( \Newspack_Nodes\Bootstrap::get_topologies() ), [ $name ] ) );
+		\update_option( 'newspack_nodes_topologies', $active );
+		self::invalidate_config_cache();
+
+		\Newspack_Nodes\Bootstrap::supervisor()->kill_readers( [ $name ] );
+
+		return [
+			'name'   => $name,
+			'active' => false,
+		];
+	}
+
+	/**
 	 * Register the substrate's own bundled dir as the lowest-priority fallback:
 	 * appended to the END so every consumer-registered stock dir resolves first
 	 * regardless of load-time ordering. Consumers override a builtin topology
@@ -544,107 +645,6 @@ class Topology_Registry {
 			}
 		}
 		return $out;
-	}
-
-	/**
-	 * One-line human summary of find_conflicts() output, shared by the admin
-	 * sanitizer's settings error and the supervisor's refusal log so the two
-	 * gates phrase a conflict identically. Empty input → empty string.
-	 *
-	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
-	 */
-	public static function describe_conflicts( array $conflicts ): string {
-		return \implode(
-			', ',
-			\array_map(
-				static fn( array $c ): string => "{$c['a']} ↔ {$c['b']} ({$c['shared'][0]})",
-				$conflicts
-			)
-		);
-	}
-
-	/**
-	 * Add a topology to the persisted active set and spawn its fleet now.
-	 *
-	 * The shared activation primitive both the `topologies activate` CI verb and
-	 * the `wp nodes activate` CLI verb call — the option-write + cache-invalidate
-	 * + immediate spawn. Materializes the effective active set
-	 * (Bootstrap::get_topologies(), NOT get_option default — so the config-file
-	 * defaults aren't silently dropped), refuses a write-conflict BEFORE writing
-	 * (so a conflicting set never gets persisted and spawned), then writes and
-	 * spawns. Idempotent: an already-active name re-spawns without duplicating.
-	 *
-	 * Callers are responsible for name validation + capability gating; this throws
-	 * RuntimeException on an unknown name or a write-conflict so both surfaces
-	 * report a uniform error.
-	 *
-	 * @param string $name Topology name (already validated by the caller).
-	 * @return array{name: string, active: true, spawned: int}
-	 * @throws \RuntimeException When the name is unknown or activating it would
-	 *                           put two fleets on one log/offsetlog.
-	 */
-	public static function activate( string $name ): array {
-		if ( null === self::resolve( $name ) ) {
-			throw new \RuntimeException(
-				\esc_html( "unknown topology '$name'" )
-			);
-		}
-
-		$next      = \array_values( \array_unique( \array_merge( \array_keys( \Newspack_Nodes\Bootstrap::get_topologies() ), [ $name ] ) ) );
-		$conflicts = self::find_conflicts( $next );
-		if ( ! empty( $conflicts ) ) {
-			throw new \RuntimeException(
-				\esc_html( "activating '$name' conflicts: " . self::describe_conflicts( $conflicts ) )
-			);
-		}
-
-		\update_option( 'newspack_nodes_topologies', $next );
-		self::invalidate_config_cache();
-
-		$spawned = \Newspack_Nodes\Bootstrap::supervisor()->spawn_fleet( $name );
-
-		return [
-			'name'    => $name,
-			'active'  => true,
-			'spawned' => $spawned,
-		];
-	}
-
-	/**
-	 * Remove a topology from the persisted active set and drain its fleet now.
-	 *
-	 * Symmetric with activate(): the shared deactivation primitive both the
-	 * `topologies deactivate` CI verb and the `wp nodes deactivate` CLI verb call.
-	 * Removes the name from the effective active set, writes, invalidates the
-	 * config cache, then drops a restart flag on every live worker lock dir via
-	 * Supervisor::kill_readers(). Callers validate the name + gate the capability.
-	 *
-	 * @param string $name Topology name (already validated by the caller).
-	 * @return array{name: string, active: false}
-	 */
-	public static function deactivate( string $name ): array {
-		$active = \array_values( \array_diff( \array_keys( \Newspack_Nodes\Bootstrap::get_topologies() ), [ $name ] ) );
-		\update_option( 'newspack_nodes_topologies', $active );
-		self::invalidate_config_cache();
-
-		\Newspack_Nodes\Bootstrap::supervisor()->kill_readers( [ $name ] );
-
-		return [
-			'name'   => $name,
-			'active' => false,
-		];
-	}
-
-	/**
-	 * Drop the per-process option snapshot then the config snapshot so the next
-	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
-	 * set. Same pair, same order, as Supervisor::check_config(). Public so the
-	 * Topologies_CI delete verb (which mutates the active set on its own path)
-	 * shares this one definition instead of carrying a parallel copy.
-	 */
-	public static function invalidate_config_cache(): void {
-		\Newspack_Nodes\Config::invalidate_options_cache();
-		\Newspack_Nodes\Config::reset();
 	}
 
 	/**

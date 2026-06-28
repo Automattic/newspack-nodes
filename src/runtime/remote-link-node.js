@@ -70,18 +70,6 @@ export class RemoteLinkNode extends Node {
 		this.sseIn.start();
 	}
 
-	// `connect_node` points BOTH this node's target AND its composed SseIn, so
-	// records received after the connection re-home to the new target (the SseIn
-	// re-homes each frame to its own `target`). Before the children exist,
-	// ensureChildren() seeds the SseIn's target from `this.target`, so the base
-	// set is enough; once built, the live SseIn must be updated directly.
-	connectNode( target ) {
-		super.connectNode( target );
-		if ( this.sseIn ) {
-			this.sseIn.target = target;
-		}
-	}
-
 	// Send a command out through this link's own HttpOut.
 	send( message ) {
 		this.ensureChildren();
@@ -171,6 +159,18 @@ export class RemoteLinkNode extends Node {
 		this.sseIn?.close();
 		this.heartbeat?.clearSlot();
 		this.onClose?.();
+	}
+
+	// `connect_node` points BOTH this node's target AND its composed SseIn, so
+	// records received after the connection re-home to the new target (the SseIn
+	// re-homes each frame to its own `target`). Before the children exist,
+	// ensureChildren() seeds the SseIn's target from `this.target`, so the base
+	// set is enough; once built, the live SseIn must be updated directly.
+	connectNode( target ) {
+		super.connectNode( target );
+		if ( this.sseIn ) {
+			this.sseIn.target = target;
+		}
 	}
 
 	// Resume seed (last seen `{seg,off}` per sub/partition) so a reconnect picks up
