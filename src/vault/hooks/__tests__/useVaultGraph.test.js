@@ -39,6 +39,7 @@ import { useVaultGraph } from '../useVaultGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
+const CONSOLE_TAP = '_shell';
 const LIST_RECV = 'vault:listIn';
 const LIST_VIEW = 'vault:list';
 const TEST_RECV = 'vault:testIn';
@@ -90,6 +91,14 @@ beforeEach( () => {
 } );
 
 describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
+	test( 'routes Vault commands through the _shell Tap so they are observable via `connect _shell`', () => {
+		const client = makeFakeClient();
+		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		// The mount-time list dispatches through `_shell` → interpreter (not
+		// straight at the interpreter), so the Tap's counter records it.
+		expect( Core.node( CONSOLE_TAP ).counter ).toBeGreaterThan( 0 );
+	} );
+
 	test( 'mounts the backbone + _http + both receiver Tees + both views, each sinking into the interpreter', () => {
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
