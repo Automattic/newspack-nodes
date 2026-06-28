@@ -167,7 +167,8 @@ class ConsumerTest extends TestCase {
 		// the offsetlog is non-empty, so the probe reports its real on-disk size.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
-		$source->fill( $this->produce( 'first' ) );
+		$msg = $this->produce( 'first' );
+		$source->fill( $msg );
 		$source->flush();
 
 		$c = new Consumer_Node();
@@ -188,7 +189,8 @@ class ConsumerTest extends TestCase {
 		// there is no offsetlog segment to size → CACHE_SIZE is 0.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
-		$source->fill( $this->produce( 'first' ) );
+		$msg = $this->produce( 'first' );
+		$source->fill( $msg );
 		$source->flush();
 
 		$c = new Consumer_Node();
