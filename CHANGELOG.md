@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Process-stats header in the console inspector** (roadmap [95]). The no-node inspector now leads with fleet totals rolled up from the live graph: **messages in** (sum of source-node counters — `has_target`, `!accepts_fill`), **messages out** (sum of sink-node counters — `!has_target`, `accepts_fill`), **bytes read**, and **bytes written**. (Error/warning/debug counts via `dmesg` + rate sparklines to follow.)
+- **Process-stats header in the console inspector** (roadmap [95]). The no-node inspector now leads with fleet vitals: **messages in** (sum of source-node counters — `has_target`, `!accepts_fill`), **messages out** (sum of sink-node counters — `!has_target`, `accepts_fill`), **bytes read**, and **bytes written** (rolled up from the live graph); **In/Out rate sparklines** and **error / warning / debug counts** reuse the overlay Overview's `IoTelemetry` (the same tally that backs `dmesg`), so the console leads with the same process vitals as the overlay.
 
 - **Message-composer playground** (roadmap [46]). The no-node inspector gains a **Compose…** button opening a modal to build a message from scratch — pick a target node, a message TYPE (`TM_BYTESTREAM`/`TM_INFO`/`TM_STRUCT`/`TM_REQUEST`/`TM_EOF`), and a value — dispatched via the matching CLI verb (`send_node` / `tell_node` / `send_struct` / `request_node` / `send_eof`), so it's fully equivalent to typing the command at the REPL.
 

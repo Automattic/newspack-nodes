@@ -1421,12 +1421,18 @@
 
 // Process-stats header at the top of the no-node inspector (roadmap [95]).
 .topology-insp__stats {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 8px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
 	margin-bottom: 16px;
 	padding-bottom: 14px;
 	border-bottom: 1px solid var(--ink-4);
+}
+
+.topology-insp__stat-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px 12px;
 }
 
 .topology-insp__stat {
@@ -1445,6 +1451,55 @@
 .topology-insp__stat-val {
 	font: 400 13px var(--font-mono);
 	color: var(--ink);
+}
+
+.topology-insp__stat .nodes-spark {
+	margin-top: 3px;
+}
+
+// dmesg error/warning/debug tallies (reused IoTelemetry counts).
+.topology-insp__levels {
+	display: flex;
+	gap: 12px;
+	font: 700 10px var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.topology-insp__level--error {
+	color: var(--oxide);
+}
+
+.topology-insp__level--warn {
+	color: var(--oxide-dark);
+}
+
+.topology-insp__level--debug {
+	color: var(--ink-3);
+}
+
+// Sparkline (reused event-dashboards component) styled with console tokens —
+// the console bundle doesn't @use the overview stylesheet.
+.topology-app .nodes-spark {
+	display: block;
+	vertical-align: middle;
+}
+
+.topology-app .nodes-spark__baseline {
+	stroke: var(--ink-4);
+	stroke-width: 1;
+}
+
+.topology-app .nodes-spark__line {
+	stroke: var(--oxide);
+	stroke-width: 1.5;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+	vector-effect: non-scaling-stroke;
+}
+
+.topology-app .nodes-spark--falling .nodes-spark__line {
+	stroke: var(--ink-3);
 }
 
 .topology-insp__listener {
