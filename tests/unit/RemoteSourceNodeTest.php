@@ -99,6 +99,27 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'aspen', $this->read_private( $http, 'server_id' ) );
 	}
 
+	public function test_delegates_counter_bytes_read_largest_msg_to_its_sse_in(): void {
+		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-aspen' );
+		$node->fire();
+		$sse = Core::node( 'remote-aspen:sse-in' );
+
+		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::KEY ]   = 'k';
+		$m[ Message::VALUE ] = [ 'a' => 1 ];
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+
+		// The aggregator's Remote_Source reports the stream stats of its SSE_In
+		// child, not its own (which never reads the wire).
+		$this->assertGreaterThan( 0, $sse->bytes_read() );
+		$this->assertSame( $sse->bytes_read(), $node->bytes_read() );
+		$this->assertSame( $sse->counter(), $node->counter() );
+		$this->assertSame( $sse->largest_msg_sent(), $node->largest_msg_sent() );
+	}
+
 	public function test_missing_vault_entry_stays_disconnected_no_patrons(): void {
 		[ $node ] = $this->make_remote( 'remote-ghost', 'ghost firehose.p0' );
 
