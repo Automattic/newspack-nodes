@@ -54,10 +54,6 @@ class Core {
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
-	// Single substitution rule for a partition-token template: both `<partition>`
-	// angle and `{partition}` curly → $p, then `<ns:key>` config tokens. Shared by
-	// the topology loader's resolved_resource_dirs and Aggregator_CI status keys so
-	// the GC dirs and the dashboard read the identical concrete paths.
 	public static function resolve_partition_template( string $template, int $p ): string {
 		return self::resolve_config_tokens(
 			\str_replace( [ '<partition>', '{partition}' ], (string) $p, $template )
@@ -190,20 +186,11 @@ class Core {
 		self::$recent_log_timers = [];
 		self::$in_stderr         = false;
 		self::$var               = [];
-		// $config_resolvers is process-lifetime (like namespace registrations) — not cleared.
 		self::$memd              = null;
-		// Default handler: stderr is a BROADCAST. Route it to whichever reply sink
-		// THIS process wired — the worker's `_repl` output partition, a REPL
-		// `_output` Dumper, the SSE-stream `_sse` egress, or the `_output` response
-		// writer (POST /command, where it rides back in the JSONL body) — so the
-		// line surfaces at the session. Each process registers exactly one, so the
-		// broadcast never doubles. Then ALWAYS error_log too: the sink broadcast is
-		// ephemeral, so the line must also land in debug.log (locally) / php-errors
-		// (Atomic) to survive the session — worker-stop + dead-letter alerts must be
-		// inspectable after the fact, not only on a live REPL/SSE.
 		self::set_stderr_handler( static function ( string $message ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
+				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
 				?? null;
 			if ( null !== $sink ) {
 				$m                       = Message::new_message();
