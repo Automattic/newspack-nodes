@@ -318,9 +318,7 @@ class Command_Interpreter_Node extends Node {
 			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: for a Tee, <target> defaults to the issuing message's FROM — undoes a default `connect_node <tee>` for this session.\n",
 			'register' => "register <source name> <target name> <event>\n",
 			'unregister' => "unregister <source name> <target name> <event>\n",
-			'remove_node' => "remove_node <node name> [<more names>...]\n"
-				. "remove_node -a <anchored regex glob>\n"
-				. "    aliases: remove, rm\n",
+			'remove_node' => "remove_node <node name> [<more names>...]\nremove_node -a <anchored regex glob>\n    aliases: remove, rm\n",
 			'list_nodes' => "list_nodes [ -clst ] [ <node name> ]\n"
 				. "list_nodes -a [ -clst ] [ <regex glob> ]\n"
 				. "    -c show message counters\n"
@@ -346,20 +344,24 @@ class Command_Interpreter_Node extends Node {
 			'pwd' => "pwd\n",
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
+			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
+			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
+			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
 
 			// Shell-level builtins — Shell intercepts these; listed here so `help` is complete.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
+			'debug_level' => "debug_level [0|1|2]\n    note: sets the local Dumper verbosity level.\n",
 			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
 			'send_node' => "send_node <path> <bytes>\n    alias: send\n    note: emits TM_BYTESTREAM at prefix(<path>).\n",
+			'send_struct' => "send_struct <path> <json>\n    note: emits TM_STRUCT at prefix(<path>).\n",
 			'send_eof' => "send_eof <path>\n    note: emits TM_EOF at prefix(<path>).\n",
 			'command_node' => "command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n    note: dispatches a TM_COMMAND at prefix(<path>) without changing cwd.\n",
 			'request_node' => "request_node <path> [<value>]\n    alias: request\n    note: emits TM_REQUEST at prefix(<path>); receiver replies via TO=FROM.\n",
 			'reply_to' => "reply_to <node path> <command>\n    note: runs <command> HERE but routes its reply to <node path> (inverse of command_node). Lets a worker drive a remote interpreter's output to one session.\n",
 			'ping' => "ping <path>\n    note: round-trips a TM_PING; receiver bounces TO=FROM. Output shows RTT.\n",
-			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
-			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
-			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
+			'show_parse' => "show_parse\n   note: toggles parsed command dump for every command.\n",
+			'status' => "status\n    note: local cli mode summary (no command sent).\n",
 		];
 		self::$C = [
 			'make_node'       => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_make_node( $self, $args ),
@@ -1040,16 +1042,7 @@ class Command_Interpreter_Node extends Node {
 				$rows[] = $row;
 			}
 			return implode( "\n", [
-				'### SHELL BUILTINS ###',
-				'  debug_level [0|1|2]            — local Dumper verbosity',
-				'  ping [<path>]                  — TM_PING (RTT measured locally)',
-				'  tell <path> <bytes>            — TM_INFO',
-				'  send <path> <bytes>            — TM_BYTESTREAM',
-				'  send_eof <path>                — TM_EOF',
-				'  request <path> <args>          — TM_REQUEST',
-				'  cmd <path> <verb> [<args>]     — TM_COMMAND at <path>',
-				'  status                         — local cli mode summary (no command sent)',
-				"### SERVER COMMANDS ###",
+				"### COMMANDS ###",
 				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows )
 			] );
 		}

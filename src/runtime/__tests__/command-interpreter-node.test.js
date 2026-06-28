@@ -1048,10 +1048,10 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	} );
 
 	describe( 'help', () => {
-		it( 'no topic lists the server commands section', () => {
+		it( 'no topic lists the unified commands section', () => {
 			const interpreter = makeInterpreter();
 			const out = dispatch( interpreter, 'help', '' );
-			expect( out ).toContain( 'SERVER COMMANDS' );
+			expect( out ).toContain( '### COMMANDS ###' );
 			expect( out ).toContain( 'make_node' );
 		} );
 		it( 'a topic returns that command help (alias resolves)', () => {
@@ -1094,11 +1094,15 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( [ ...lines ].sort() ).toEqual( lines );
 		} );
 
-		it( 'help WITHOUT the completion key is unchanged (full tabulated help)', () => {
+		it( 'help WITHOUT the completion key returns the full tabulated help, one section', () => {
 			const interpreter = makeInterpreter();
 			const out = dispatch( interpreter, 'help', '' );
-			expect( out ).toContain( '### SERVER COMMANDS ###' );
-			expect( out ).toContain( '### SHELL BUILTINS ###' );
+			// One unified section; the former separate SHELL BUILTINS list is folded in.
+			expect( out ).toContain( '### COMMANDS ###' );
+			expect( out ).not.toContain( '### SHELL BUILTINS ###' );
+			// Shell builtins now appear in the single command table.
+			expect( out ).toContain( 'send_struct' );
+			expect( out ).toContain( 'debug_level' );
 		} );
 
 		it( 'ls with KEY=completion returns all bare node names (like -a), no columns', () => {

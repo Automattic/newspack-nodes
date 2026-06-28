@@ -74,10 +74,17 @@ const HELP = {
 	pwd: 'pwd\n',
 	log: 'log <message>\n    note: prints <message> to stderr (server-side debug log).\n',
 	dmesg: 'dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n',
+	include: 'include <file>\n',
+	uptime: 'uptime\n',
+	stats: 'stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n',
 	help: 'help [ <topic> ]\n',
+
+	// Shell-level builtins — Shell intercepts these; listed here so `help` is complete.
 	cd: 'cd [ <path> ]\n    alias: chdir\n',
+	debug_level: 'debug_level [0|1|2]\n',
 	tell_node: 'tell_node <path> <info>\n    alias: tell\n',
 	send_node: 'send_node <path> <bytes>\n    alias: send\n',
+	send_struct: 'send_struct <path> <json>\n',
 	send_eof: 'send_eof <path>\n',
 	command_node:
 		'command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n',
@@ -85,9 +92,9 @@ const HELP = {
 	reply_to:
 		'reply_to <node path> <command>\n    note: runs <command> here but routes its reply to <node path> (inverse of command_node).\n',
 	ping: 'ping <path>\n',
-	include: 'include <file>\n',
-	uptime: 'uptime\n',
-	stats: 'stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n',
+	show_parse:
+		'show_parse\n   note: toggles parsed command dump for every command.\n',
+	status: 'status\n    note: local cli mode summary (no command sent).\n',
 };
 
 // Split on runs of whitespace, dropping empties (PHP preg_split('/\s+/', trim())).
@@ -885,16 +892,7 @@ export class CommandInterpreterNode extends Node {
 				rows.push( row );
 			}
 			return [
-				'### SHELL BUILTINS ###',
-				'  debug_level [0|1|2]            — local Dumper verbosity',
-				'  ping [<path>]                  — TM_PING (RTT measured locally)',
-				'  tell <path> <bytes>            — TM_INFO',
-				'  send <path> <bytes>            — TM_BYTESTREAM',
-				'  send_eof <path>                — TM_EOF',
-				'  request <path> <args>          — TM_REQUEST',
-				'  cmd <path> <verb> [<args>]     — TM_COMMAND at <path>',
-				'  status                         — local cli mode summary (no command sent)',
-				'### SERVER COMMANDS ###',
+				'### COMMANDS ###',
 				CommandInterpreterNode._tabulate(
 					[ 'left', 'left', 'left', 'left' ],
 					null,
