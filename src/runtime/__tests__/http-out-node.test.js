@@ -74,6 +74,14 @@ describe( 'HttpOut', () => {
 		expect( node.largestMsgSent ).toBe( size );
 	} );
 
+	it( 'packs each message once and hands the packed lines to postBatch (no double-serialize)', () => {
+		const { node, postBatch } = makeNode();
+		const m = routed( { to: 'demo.p0' } );
+		node.fill( m );
+		// Second arg is the pre-packed JSONL lines — postBatch must reuse them.
+		expect( postBatch.mock.calls[ 0 ][ 1 ] ).toEqual( [ pack( m ) ] );
+	} );
+
 	it( 'POSTs the routed Message verbatim (no connect_worker_input prepend)', () => {
 		const { node, postBatch } = makeNode();
 		node.fill( routed( { to: 'demo.p0' } ) );

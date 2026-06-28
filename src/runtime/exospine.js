@@ -57,6 +57,17 @@ export function mountExospine( build ) {
 	const spine = {};
 	let router;
 	let interpreter;
+
+	// Point the spine's backbone refs at the live Core nodes. Re-run before each
+	// build so a co-mounted (reusing) mount — whose spine was captured at mount —
+	// rebuilds against the FRESH backbone after the owner's full rebuild replaced it.
+	const syncSpineFromCore = () => {
+		spine.interpreter = Core.node( names.COMMAND_INTERPRETER );
+		spine.router = Core.node( names.ROUTER );
+		spine.shell = Core.node( names.CONSOLE_TAP );
+		spine.http = Core.node( names.HTTP );
+		spine.heartbeat = Core.node( names.HEARTBEAT );
+	};
 	// Whether THIS mount created the backbone. A second build-mount on the same
 	// page (e.g. the Overview runs useTopologyManager AND useTopicProbeStream)
 	// REUSES the existing backbone — it must not own it: no generation bump (which
@@ -73,11 +84,7 @@ export function mountExospine( build ) {
 		if ( existing ) {
 			interpreter = existing;
 			router = Core.node( names.ROUTER );
-			spine.interpreter = interpreter;
-			spine.router = router;
-			spine.shell = Core.node( names.CONSOLE_TAP );
-			spine.http = Core.node( names.HTTP );
-			spine.heartbeat = Core.node( names.HEARTBEAT );
+			syncSpineFromCore();
 			return;
 		}
 		ownsBackbone = true;
@@ -128,6 +135,9 @@ export function mountExospine( build ) {
 	let builtNames = [];
 	let cleanup;
 	const runBuild = () => {
+		// A reusing mount captured its spine at mount; the owner's full rebuild may
+		// have since replaced the backbone — re-point at the live nodes before build.
+		syncSpineFromCore();
 		const before = new Set( Core.nodes.keys() );
 		cleanup = 'function' === typeof build ? build( spine ) : undefined;
 		builtNames = [ ...Core.nodes.keys() ].filter(

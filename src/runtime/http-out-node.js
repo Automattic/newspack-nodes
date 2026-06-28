@@ -68,14 +68,17 @@ export class HttpOutNode extends Node {
 	// stderr/log lines); a routed-onward command yields [] (bare 202) — its reply
 	// arrives over the SSE stream.
 	_post( entries ) {
+		// Pack ONCE: the wire size for the byte tally AND the body the client POSTs.
+		// Hand the packed lines to postBatch so it doesn't re-serialize them.
+		const packed = entries.map( ( m ) => pack( m ) );
 		// Write boundary: tally the packed wire size of what we POST (mirrors PHP's
 		// file-writer bytes_written + Partition largest_msg_sent).
-		for ( const m of entries ) {
-			const size = byteLength( pack( m ) );
+		for ( const line of packed ) {
+			const size = byteLength( line );
 			this.bytesWritten += size;
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );
 		}
-		Promise.resolve( this.client.postBatch( entries ) )
+		Promise.resolve( this.client.postBatch( entries, packed ) )
 			.then( ( messages ) => {
 				for ( const message of messages ) {
 					this.counter += 1;

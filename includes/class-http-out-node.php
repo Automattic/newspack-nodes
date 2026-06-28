@@ -147,7 +147,11 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$body = '';
 		foreach ( $batch as $envelope ) {
-			$body .= Message::packed( $envelope ) . "\n";
+			$packed                  = Message::packed( $envelope );
+			$size                    = \strlen( $packed );
+			$this->bytes_written    += $size;
+			$this->largest_msg_sent  = \max( $this->largest_msg_sent, $size );
+			$body                   .= $packed . "\n";
 		}
 
 		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
