@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The debug overlay's "Messages" heading is themed** — small uppercase muted label matching the stat-card labels, instead of the browser-default serif `h3` that read as unstyled.
+
 - **Valid registration events are now declared in `node_schema()`** (Tachikoma-style, single source), in **both PHP and JS**. `Timer` declares `FIRE`, `Topic` `READY`, `Router` `FIRE`+`TIMER`+`NOT_AVAILABLE` in `node_schema()['registrations']` / `nodeSchema().registrations`; the base node constructor's `seed_registrations()` / `seedRegistrations()` turns that into the runtime allow-list, and `register()` still rejects undeclared events ("no such event"). Replaces the per-node hand-seeding of `registrations`, and makes the events introspectable for the upcoming register/unregister UI. (roadmap [48], part C)
 
 - **"+ New Topology" moved to the hub header** (upper-right), matching the Vault tab's "+ Add Server". The Overview portals it into the shared header-controls slot (`createPortal`) instead of trailing the SummaryCards row; standalone (no hub slot) it renders inline.
