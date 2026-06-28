@@ -39,5 +39,8 @@ export function useGraphSource( {
 	} else {
 		graph = coreFallback ? coreToGraph() ?? EMPTY_GRAPH : EMPTY_GRAPH;
 	}
-	return { graph, hasNodes: graph.nodes.length > 0 };
+	// `_shell` (the command Tap) is a visible but always-present backbone fixture,
+	// so it must not, on its own, make an otherwise-empty graph read as non-empty.
+	const hasNodes = graph.nodes.some( ( n ) => n.id !== names.CONSOLE_TAP );
+	return { graph, hasNodes };
 }
