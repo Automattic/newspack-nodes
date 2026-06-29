@@ -151,7 +151,7 @@ Sent as a packed positional Message (the same wire shape as the request). Exampl
 
 ### Service CIs
 
-The substrate plugin mounts 5 service CIs via `newspack_nodes/request_graph_ready`. Each is a `Service_CI_Node` (except `Classes_CI_Node`, which extends `Command_Interpreter_Node` directly) declaring its own `node_schema()`:
+The substrate plugin mounts 9 service CIs via `newspack_nodes/request_graph_ready`. Each is a `Service_CI_Node` declaring its own `node_schema()`:
 
 | CI shell-name | Class | Verbs |
 |---------------|-------|-------|
@@ -160,6 +160,10 @@ The substrate plugin mounts 5 service CIs via `newspack_nodes/request_graph_read
 | `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete`, `activate`, `deactivate`, `connect_worker_input` |
 | `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `log_status` |
 | `workers` | `Workers_CI_Node` | `list`, `dump_graph`, `cleanup_status`, `restart`, `heartbeat` |
+| `vault` | `Vault_CI_Node` | `list`, `get`, `add`, `update`, `delete`, `test` |
+| `aggregator` | `Aggregator_CI_Node` | `status`, `summary`, `servers_status`, `health`, `servers` |
+| `settings` | `Settings_CI_Node` | `get`, `set` |
+| `status` | `Status_CI_Node` | `get` |
 
 Every CI also answers a default `help` (sorted list of its own verbs) — injected by `Command_Interpreter_Node::commands()` when a subclass installs a custom verb table without its own `help`.
 
@@ -177,7 +181,7 @@ Verb handlers receive three positional arguments — `( Command_Interpreter_Node
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [architecture-guide.md → Completion-query mode](architecture-guide.md#repl-wp-nodes-cli).
 
-Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above), and per-verb application-side caps are an application concern.
+Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above), and per-verb application-side caps are an application concern.
 
 ### Test mode
 

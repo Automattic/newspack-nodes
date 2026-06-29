@@ -128,7 +128,7 @@ Application-side log dirs (created by whatever Partition/Log a topology construc
 - `logs/firehose.log/p{N}/{seg}.log` — packed Message envelopes from ELN's LogManager
 - `logs/jobintake.log/p{N}/{seg}.log` — large jobs that bypass the firehose
 
-`base_directory` is `/tmp/newspack-nodes` by default; override via `Newspack_Nodes\Config`. (Don't confuse with the legacy event-logger path under `/volumes/pyrobase/tmp/event-logger` — different runtime.)
+`base_directory` is `/tmp/newspack-nodes` by default; override via `Newspack_Nodes\Config` (the dndocker per-env path is `/volumes/pyrobase/tmp/newspack-nodes`).
 
 Listing a partition dir, you'll also see `{seg}.idx` sidecars next to each `{seg}.log`. Partition only writes these when a `with_index()` formatter is set (default mode writes none) — the `.idx` holds a JSONL index for offset lookups. An empty/absent `.idx` for a `.log` is normal, not a sign of corruption.
 

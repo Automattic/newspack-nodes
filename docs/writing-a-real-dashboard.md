@@ -164,10 +164,10 @@ maxHeightPx = null,
 const ceiling = maxHeightPx ?? maxHeight();
 ```
 
-That fallback `maxHeight()` is the trap. It's `window.innerHeight − FIXED_CHROME_PX`, where `FIXED_CHROME_PX = 134` is a sum of magic constants (`ReplFooter.js:32`):
+That fallback `maxHeight()` is the trap. It's `window.innerHeight − FIXED_CHROME_PX`, where `FIXED_CHROME_PX = 174` is a sum of magic constants (`ReplFooter.js:39`):
 
 ```js
-const FIXED_CHROME_PX = 134; // 32 (WP admin bar) + 64 (header) + 38 (bar)
+const FIXED_CHROME_PX = 174; // 32 (WP admin bar) + 64 (header) + 40 (hub tab bar) + 38 (repl bar)
 ```
 
 It's correct *only* on a full-page console with exactly that chrome above it. The two hosts that actually mount a REPL each compute their own ceiling and pass it in.
