@@ -83,7 +83,7 @@ class LogCleanerTest extends TestCase {
 	}
 
 	/** Seed a flat offset dir `offsets/{name}.p{N}/`; returns the dir path. */
-	private function seed_offset_dir( string $name, int $partition ): string {
+	private function seed_offsetlog_dir( string $name, int $partition ): string {
 		$dir = "{$this->tmp}/offsets/{$name}.p{$partition}";
 		\mkdir( $dir, 0755, true );
 		\file_put_contents( "{$dir}/0.log", 'offset' );
@@ -173,9 +173,9 @@ class LogCleanerTest extends TestCase {
 		$this->declare_inactive_topology( 'retired-workers', $this->log_and_offset_tsl( 'retired' ) ); // on disk, NOT active
 
 		$keeper_log  = $this->seed_log_partition( 'keeper', 0 );
-		$keeper_off  = $this->seed_offset_dir( 'keeper', 0 );
+		$keeper_off  = $this->seed_offsetlog_dir( 'keeper', 0 );
 		$retired_log = $this->seed_log_partition( 'retired', 0 );
-		$retired_off = $this->seed_offset_dir( 'retired', 0 );
+		$retired_off = $this->seed_offsetlog_dir( 'retired', 0 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
@@ -223,7 +223,7 @@ class LogCleanerTest extends TestCase {
 			'digest',
 			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
 		);
-		$cursor = $this->seed_offset_dir( 'scored', 0 );
+		$cursor = $this->seed_offsetlog_dir( 'scored', 0 );
 
 		Core::$config_resolvers = [];
 
@@ -301,14 +301,14 @@ class LogCleanerTest extends TestCase {
 
 	// ── offset-dir sweep ───────────────────────────────────────────────────
 
-	public function test_deletes_undeclared_offset_dir(): void {
+	public function test_deletes_undeclared_offsetlog_dir(): void {
 		$this->declare_topology(
 			'digest',
 			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
 		);
 
-		$kept   = $this->seed_offset_dir( 'scored', 0 );
-		$orphan = $this->seed_offset_dir( 'summarized', 0 );
+		$kept   = $this->seed_offsetlog_dir( 'scored', 0 );
+		$orphan = $this->seed_offsetlog_dir( 'summarized', 0 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
@@ -316,13 +316,13 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( $orphan );
 	}
 
-	public function test_keeps_declared_offset_dir(): void {
+	public function test_keeps_declared_offsetlog_dir(): void {
 		$this->declare_topology(
 			'digest',
 			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
 		);
 
-		$kept = $this->seed_offset_dir( 'scored', 0 );
+		$kept = $this->seed_offsetlog_dir( 'scored', 0 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
@@ -334,14 +334,14 @@ class LogCleanerTest extends TestCase {
 		// Consumer offsetlog → offset declared set empty → fail-closed skip.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 
-		$orphan = $this->seed_offset_dir( 'anything', 0 );
+		$orphan = $this->seed_offsetlog_dir( 'anything', 0 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
 		$this->assertDirectoryExists( $orphan );
 	}
 
-	public function test_sweeps_undeclared_non_partition_offset_dir(): void {
+	public function test_sweeps_undeclared_non_partition_offsetlog_dir(): void {
 		// Layout-agnostic: an undeclared offset dir is an orphan and IS swept.
 		$this->declare_topology(
 			'digest',
@@ -469,9 +469,9 @@ class LogCleanerTest extends TestCase {
 		$log_p1 = $this->seed_log_partition( 'widget', 1 );
 		$log_p2 = $this->seed_log_partition( 'widget', 2 );
 
-		$off_p0 = $this->seed_offset_dir( 'widget-consumer', 0 );
-		$off_p1 = $this->seed_offset_dir( 'widget-consumer', 1 );
-		$off_p2 = $this->seed_offset_dir( 'widget-consumer', 2 );
+		$off_p0 = $this->seed_offsetlog_dir( 'widget-consumer', 0 );
+		$off_p1 = $this->seed_offsetlog_dir( 'widget-consumer', 1 );
+		$off_p2 = $this->seed_offsetlog_dir( 'widget-consumer', 2 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 

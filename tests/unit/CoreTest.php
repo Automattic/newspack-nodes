@@ -345,7 +345,6 @@ class CoreTest extends TestCase {
 			Core::stderr( "line {$i}" );
 		}
 		$ref = new \ReflectionProperty( Core::class, 'recent_log' );
-		$ref->setAccessible( true );
 		$this->assertCount( 100, $ref->getValue() );
 	}
 

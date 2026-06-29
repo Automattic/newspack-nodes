@@ -18,7 +18,6 @@ class RouterTimerTest extends TestCase {
 
 	private function mode_of( Timer_Node $timer ): string {
 		$prop = ( new \ReflectionObject( $timer ) )->getProperty( 'mode' );
-		$prop->setAccessible( true );
 		return (string) $prop->getValue( $timer );
 	}
 
@@ -45,7 +44,6 @@ class RouterTimerTest extends TestCase {
 		$router->fire_cb();
 
 		$prop = ( new \ReflectionObject( $router ) )->getProperty( 'registrations' );
-		$prop->setAccessible( true );
 		$regs = $prop->getValue( $router );
 		$this->assertArrayNotHasKey( 'ghost', $regs['TIMER'] );
 	}

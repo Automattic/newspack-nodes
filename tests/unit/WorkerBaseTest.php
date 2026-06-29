@@ -200,7 +200,6 @@ class WorkerBaseTest extends TestCase {
 		// integer matching what ini_get reports.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$ref = new \ReflectionMethod( Worker_Base::class, 'memory_limit_bytes' );
-		$ref->setAccessible( true );
 
 		$result = $ref->invoke( $w );
 		// In test environment ini_get('memory_limit') is typically '128M' or '-1'.
@@ -221,7 +220,6 @@ class WorkerBaseTest extends TestCase {
 		$w = new UnlimitedMemoryWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
 		$ref = new \ReflectionMethod( Worker_Base::class, 'memory_over_watermark' );
-		$ref->setAccessible( true );
 		$this->assertFalse( $ref->invoke( $w ) );
 	}
 
@@ -230,7 +228,6 @@ class WorkerBaseTest extends TestCase {
 		// real liveness checks.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$ref = new \ReflectionMethod( Worker_Base::class, 'db_check_passes' );
-		$ref->setAccessible( true );
 		$this->assertTrue( $ref->invoke( $w ) );
 	}
 

@@ -314,7 +314,7 @@ $t->flush();             // flush every materialized partition's batch
 
 ### Offsetlog
 
-Just another Partition under `offsets/{reader}/p0/`. Each checkpoint is a `TM_STRUCT` Message whose VALUE is `{seg, off, ts, name, target, targets, worker_type}`, routed through `Partition::fill` (so it lands as the canonical packed wire format, not raw JSONL) and `flush`ed immediately. On restart `load_offsetlog()` reads the newest segment's last line, `Message::unpacked`s it, and decodes VALUE to seed the cursor. An empty `$offsetlog_base_dir` disables the offsetlog entirely (ephemeral readers like the cli's `reply-in`). No special class.
+Just another Partition under `offsets/{reader}/`. Each checkpoint is a `TM_STRUCT` Message whose VALUE is `{seg, off, ts, name, target, targets, worker_type}`, routed through `Partition::fill` (so it lands as the canonical packed wire format, not raw JSONL) and `flush`ed immediately. On restart `load_offsetlog()` reads the newest segment's last line, `Message::unpacked`s it, and decodes VALUE to seed the cursor. An empty `$offsetlog_dir` disables the offsetlog entirely (ephemeral readers like the cli's `reply-in`). No special class.
 
 ## Consumer + Tail
 
@@ -570,8 +570,8 @@ worker output  ->  reply-in Consumer (on-disk)  ->  local _router  ->  _output (
 IPC layout (always single-partition):
 
 ```
-{base_dir}/ipc/{reader}/input/p0/{seg}.log     # shell -> worker
-{base_dir}/ipc/{reader}/output/p0/{seg}.log    # worker -> shell
+{base_dir}/ipc/{reader}/input/{seg}.log     # shell -> worker
+{base_dir}/ipc/{reader}/output/{seg}.log    # worker -> shell
 ```
 
 Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it a single path segment — `firehose-workers/3` would route as "find node `firehose-workers`, pass remaining path `3`," which is wrong.

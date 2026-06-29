@@ -97,7 +97,6 @@ class RouterTest extends TestCase {
 		$router->fill( $message );
 
 		$ref = new \ReflectionProperty( $router, 'set_state' );
-		$ref->setAccessible( true );
 		$state = $ref->getValue( $router );
 		// The NOT_AVAILABLE payload is now a flat string; the unreachable node name leads it.
 		$this->assertIsString( $state['NOT_AVAILABLE'] );

@@ -27,7 +27,6 @@ class TimerTest extends TestCase {
 
 	private function mode_of( Timer_Node $timer ): string {
 		$prop = ( new \ReflectionObject( $timer ) )->getProperty( 'mode' );
-		$prop->setAccessible( true );
 		return (string) $prop->getValue( $timer );
 	}
 
@@ -81,7 +80,6 @@ class TimerTest extends TestCase {
 		$timer->name( 't' );
 		$timer->target( 'somewhere' );
 		$fire = new \ReflectionMethod( Timer_Node::class, 'fire' );
-		$fire->setAccessible( true );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Timer::fire requires a wired sink' );
 		$fire->invoke( $timer );
@@ -209,7 +207,6 @@ class TimerTest extends TestCase {
 		$this->assertSame( 1000, $timer->interval_ms );
 		// No own-slot was scheduled in the Event_Framework.
 		$ef   = ( new \ReflectionObject( Event_Framework::instance() ) )->getProperty( 'timers' );
-		$ef->setAccessible( true );
 		$this->assertCount( 0, $ef->getValue( Event_Framework::instance() ) );
 		$timer->stop_timer();
 	}

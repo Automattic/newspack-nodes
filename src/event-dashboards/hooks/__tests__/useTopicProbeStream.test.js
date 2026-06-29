@@ -2,7 +2,7 @@
  * useTopicProbeStream tests — one RemoteLink tailing topicprobe.p0 into a
  * TopicProbeView, on the canonical backbone. EventSource is faked; we drive a
  * `msg` probe frame through it and assert it routes link → view (accumulated as
- * a per-offset_dir rate/backlog series), and that the mode selects the seek.
+ * a per-offsetlog_dir rate/backlog series), and that the mode selects the seek.
  */
 
 import { renderHook, act } from '@testing-library/react';

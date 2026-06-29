@@ -541,7 +541,6 @@ class JobWorkerTest extends TestCase {
 		try {
 			$jw  = new Job_Worker_Node();
 			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
-			$ref->setAccessible( true );
 			$this->assertSame( 2 * 1024 * 1024 * 1024, $ref->invoke( $jw ) );
 		} finally {
 			if ( false !== $prev ) {
@@ -555,7 +554,6 @@ class JobWorkerTest extends TestCase {
 		try {
 			$jw  = new Job_Worker_Node();
 			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
-			$ref->setAccessible( true );
 			$this->assertSame( 512 * 1024 * 1024, $ref->invoke( $jw ) );
 		} finally {
 			if ( false !== $prev ) {
@@ -569,7 +567,6 @@ class JobWorkerTest extends TestCase {
 		try {
 			$jw  = new Job_Worker_Node();
 			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
-			$ref->setAccessible( true );
 			$this->assertSame( 1048576 * 1024, $ref->invoke( $jw ) );
 		} finally {
 			if ( false !== $prev ) {
@@ -583,7 +580,6 @@ class JobWorkerTest extends TestCase {
 		try {
 			$jw  = new Job_Worker_Node();
 			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
-			$ref->setAccessible( true );
 			$this->assertSame( -1, $ref->invoke( $jw ) );
 		} finally {
 			if ( false !== $prev ) {
@@ -634,7 +630,6 @@ class JobWorkerTest extends TestCase {
 		$this->register_job_handler( $jw, 'noop', fn () => null );
 
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'registrations' );
-		$ref->setAccessible( true );
 		$registrations             = $ref->getValue( $jw );
 		$flush_observed            = [];
 		$registrations['CACHE_FLUSH'] = [ 'listener_id' => function ( $payload ) use ( &$flush_observed ) {

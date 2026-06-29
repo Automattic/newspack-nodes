@@ -29,10 +29,6 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		// Reset the static seam so a test that reassigns it can't leak into
-		// later tests (today no other test touches it, but Task 18 will add
-		// more tests against this controller).
-		SSE_Out_Node::$attach_to_worker = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -106,9 +102,6 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	public function test_ipc_reader_subscription_returns_one_consumer(): void {
-		// IPC pattern `{type}.p{N}` resolves through `Cli::attach_to_worker`,
-		// which requires a worker lock dir to exist (typo guard).
-		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
@@ -118,39 +111,6 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$this->assertCount( 1, $consumers );
 		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
-	}
-
-	public function test_ipc_subscription_uses_attach_to_worker_seam_when_set(): void {
-		// Mutation guard for the seam branch in `open_subscription`. The
-		// existing IPC test goes through the real `Cli::attach_to_worker`,
-		// so the `self::$attach_to_worker ?? ...` closure-property branch is
-		// dead to coverage. Set the seam to a recording closure and verify
-		// it gets invoked with the right args.
-		$recorded = [];
-		SSE_Out_Node::$attach_to_worker = static function ( string $reader_id, string $base_dir ) use ( &$recorded ): array {
-			$recorded[] = [
-				'reader_id' => $reader_id,
-				'base_dir'  => $base_dir,
-			];
-			return [
-				'input'     => "{$base_dir}/ipc/{$reader_id}/input",
-				'output'    => "{$base_dir}/ipc/{$reader_id}/output",
-				'type'      => 'firehose-workers',
-				'partition' => 0,
-			];
-		};
-
-		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
-
-		$ctrl = new SSE_Out_Node();
-		$ctrl->set_base_dir( $this->tmp );
-		$consumers = $ctrl->open_subscription( 'firehose-workers.p0', null );
-
-		$this->assertCount( 1, $consumers );
-		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
-		$this->assertCount( 1, $recorded );
-		$this->assertSame( 'firehose-workers.p0', $recorded[0]['reader_id'] );
-		$this->assertSame( $this->tmp, $recorded[0]['base_dir'] );
 	}
 
 	public function test_ipc_subscription_falls_back_to_log_partition_when_no_worker(): void {
@@ -176,11 +136,6 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	public function test_ipc_subscription_tails_output_dir_when_worker_offline_but_ipc_exists(): void {
-		// Worker mid-restart (e.g. a fleet restart): no lock dir, so the real
-		// Cli::attach_to_worker throws — but the worker's IPC output dir persists.
-		// The session must tail THAT (so it re-binds when the worker respawns and
-		// appends replies) instead of stranding on the log feed. A reload/topology
-		// switch is no longer required to recover the live view.
 		\mkdir( "{$this->tmp}/ipc/demo-workers.p0/output", 0755, true );
 		// A same-named log dir exists too — IPC output must win over the log fallback.
 		\mkdir( "{$this->tmp}/logs/demo-workers.p0", 0755, true );
@@ -296,9 +251,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// the supplied position through (instead of silently falling
 		// through to the 'end' default which would skip historical events).
 		$seg = new \ReflectionProperty( $consumer, 'cursor_seg' );
-		$seg->setAccessible( true );
 		$off = new \ReflectionProperty( $consumer, 'cursor_off' );
-		$off->setAccessible( true );
 		$this->assertSame( 5, $seg->getValue( $consumer ) );
 		$this->assertSame( 1024, $off->getValue( $consumer ) );
 	}

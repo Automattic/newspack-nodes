@@ -71,7 +71,6 @@ class SettingsEventWriterTest extends TestCase {
 		// init() is idempotent and the suite bootstrap already ran it, so reset
 		// the guard to exercise the real hook-wiring here.
 		$initialized = new \ReflectionProperty( Settings_Event_Writer::class, 'initialized' );
-		$initialized->setAccessible( true );
 		$initialized->setValue( null, false );
 		Settings_Event_Writer::init();
 

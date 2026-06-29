@@ -4,7 +4,7 @@
  * log, feeding a `topicprobe:view` view-model node:
  *
  *   topicprobe:link   (RemoteLink — composes SseIn/HttpOut/Heartbeat + slot bridge)
- *   topicprobe:view   (TopicProbeView — per-offset_dir rate+backlog series)
+ *   topicprobe:view   (TopicProbeView — per-offsetlog_dir rate+backlog series)
  *
  * `mode` selects the seek:
  *   - 'history' → positions=start: the server replays the full 24h retention so

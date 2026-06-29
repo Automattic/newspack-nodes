@@ -509,7 +509,6 @@ class NodeTest extends TestCase {
 		// accessor reads back through.
 		$n   = new Capture_Sink_Node();
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'bytes_read' );
-		$ref->setAccessible( true );
 		$ref->setValue( $n, 12345 );
 		$this->assertSame( 12345, $n->bytes_read() );
 	}
@@ -522,7 +521,6 @@ class NodeTest extends TestCase {
 	public function test_bytes_written_reflects_protected_property(): void {
 		$n   = new Capture_Sink_Node();
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'bytes_written' );
-		$ref->setAccessible( true );
 		$ref->setValue( $n, 98765 );
 		$this->assertSame( 98765, $n->bytes_written() );
 	}
@@ -861,7 +859,6 @@ class NodeTest extends TestCase {
 		// The dead registration is now removed — verify by reflecting on
 		// the registrations array.
 		$ref = new \ReflectionProperty( $producer, 'registrations' );
-		$ref->setAccessible( true );
 		$regs = $ref->getValue( $producer );
 		$this->assertArrayNotHasKey( 'listener', $regs['EVT'], 'dead listener pruned on notify' );
 	}

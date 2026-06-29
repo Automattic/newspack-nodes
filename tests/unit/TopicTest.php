@@ -192,7 +192,6 @@ class TopicTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( "{$this->tmp}/firehose.p{partition}", 'the {partition} token must be substituted, not used literally' );
 		$ref  = new \ReflectionClass( Topic_Node::class );
 		$prop = $ref->getProperty( 'partitions' );
-		$prop->setAccessible( true );
 		foreach ( $prop->getValue( $t ) as $i => $child ) {
 			$this->assertSame( "{$this->tmp}/firehose.p{$i}", $child->partition_dir() );
 		}
@@ -348,7 +347,6 @@ class TopicTest extends TestCase {
 		// reflection on Topic to peek at its partitions array we can verify directly.
 		$ref      = new \ReflectionClass( Topic_Node::class );
 		$prop     = $ref->getProperty( 'partitions' );
-		$prop->setAccessible( true );
 		$partitions = $prop->getValue( $t );
 
 		$this->assertSame( $new_sink, $partitions[ $partition_idx ]->sink() );
@@ -369,7 +367,6 @@ class TopicTest extends TestCase {
 
 		$ref  = new \ReflectionClass( Topic_Node::class );
 		$prop = $ref->getProperty( 'partitions' );
-		$prop->setAccessible( true );
 		$partitions = $prop->getValue( $t );
 
 		$this->assertSame( "firehose:p{$idx}", $partitions[ $idx ]->name() );
@@ -392,7 +389,6 @@ class TopicTest extends TestCase {
 
 		$ref  = new \ReflectionClass( Topic_Node::class );
 		$prop = $ref->getProperty( 'partitions' );
-		$prop->setAccessible( true );
 		$partitions = $prop->getValue( $t );
 
 		$this->assertSame( $sink, $partitions[ $idx ]->sink() );
@@ -411,7 +407,6 @@ class TopicTest extends TestCase {
 
 		$ref  = new \ReflectionClass( Topic_Node::class );
 		$prop = $ref->getProperty( 'partitions' );
-		$prop->setAccessible( true );
 		$partitions = $prop->getValue( $t );
 
 		$this->assertSame( '', $partitions[ $idx ]->name() );

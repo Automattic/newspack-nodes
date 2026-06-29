@@ -298,7 +298,6 @@ class BootstrapTest extends TestCase {
 		$override = "{$conf_dir}/np-override.php";
 		\file_put_contents( $override, "<?php return [ 'topologies' => [ 'widget' ] ];\n" );
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-		$ref->setAccessible( true );
 		$orig_allowed = $ref->getValue();
 		$ref->setValue( null, \array_merge( $orig_allowed, [ $conf_dir ] ) );
 
@@ -330,7 +329,6 @@ class BootstrapTest extends TestCase {
 		$override = "{$conf_dir}/np-override.php";
 		\file_put_contents( $override, "<?php return [ 'topologies' => [ 'widget' ] ];\n" );
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-		$ref->setAccessible( true );
 		$orig_allowed = $ref->getValue();
 		$ref->setValue( null, \array_merge( $orig_allowed, [ $conf_dir ] ) );
 
@@ -995,7 +993,6 @@ class BootstrapTest extends TestCase {
 			$conf = "{$tmp}/empty-base.php";
 			\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
 			$ref  = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-			$ref->setAccessible( true );
 			$dirs   = $ref->getValue();
 			$dirs[] = $tmp;
 			$ref->setValue( null, $dirs );
@@ -1174,10 +1171,8 @@ class BootstrapTest extends TestCase {
 
 	public function test_ensure_runtime_wired_registers_substrate_namespaces(): void {
 		$ns_ref = new \ReflectionProperty( \Newspack_Nodes\Command_Interpreter_Node::class, 'namespaces' );
-		$ns_ref->setAccessible( true );
 		$saved_ns    = $ns_ref->getValue();
 		$wired_ref   = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
-		$wired_ref->setAccessible( true );
 		$saved_wired = $wired_ref->getValue();
 
 		try {
@@ -1199,7 +1194,6 @@ class BootstrapTest extends TestCase {
 		$saved_memd    = Core::$memd;
 		$saved_factory = Bootstrap::$memcached_factory;
 		$wired_ref     = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
-		$wired_ref->setAccessible( true );
 		$saved_wired = $wired_ref->getValue();
 
 		Bootstrap::$memcached_factory = static fn (): \Memcached => new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
@@ -1223,7 +1217,6 @@ class BootstrapTest extends TestCase {
 		// Core::$memd — the guard short-circuits so multiple entry-point hooks
 		// firing in one request don't repeat the config load + memcache connect.
 		$wired_ref = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
-		$wired_ref->setAccessible( true );
 		$saved_wired = $wired_ref->getValue();
 		$saved_memd  = Core::$memd;
 

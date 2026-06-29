@@ -451,9 +451,7 @@ class PartitionTest extends TestCase {
 		// rely on reflection to inspect the protected handle.
 		$reflection = new \ReflectionClass( $p );
 		$fh_prop = $reflection->getProperty( 'fh' );
-		$fh_prop->setAccessible( true );
 		$idx_prop = $reflection->getProperty( 'idx_fh' );
-		$idx_prop->setAccessible( true );
 
 		$this->assertTrue( is_resource( $fh_prop->getValue( $p ) ), 'log handle should be open after write' );
 		$this->assertTrue( is_resource( $idx_prop->getValue( $p ) ), 'idx handle should be open after write' );
@@ -475,7 +473,6 @@ class PartitionTest extends TestCase {
 		// Test the property: write_lock should be null after remove_node.
 		$reflection = new \ReflectionClass( $p );
 		$lock_prop  = $reflection->getProperty( 'write_lock' );
-		$lock_prop->setAccessible( true );
 
 		$this->assertNotNull( $lock_prop->getValue( $p ), 'lock should exist after allow_large_writes' );
 
@@ -640,14 +637,12 @@ class PartitionTest extends TestCase {
 		// Reach into the partition to push last_segment_check back so the next fill triggers rescan.
 		$ref = new \ReflectionClass( $p );
 		$last_check = $ref->getProperty( 'last_segment_check' );
-		$last_check->setAccessible( true );
 		$last_check->setValue( $p, microtime( true ) - 5.0 );
 
 		$this->produce_into( $p, 'after-drift' );
 
 		// Our writer should now be appending to segment 1, not creating segment 2.
 		$current_seg = $ref->getProperty( 'current_segment_id' );
-		$current_seg->setAccessible( true );
 		$this->assertSame( 1, $current_seg->getValue( $p ), 'drift recovery must adopt peer segment 1' );
 	}
 
@@ -829,7 +824,6 @@ class PartitionTest extends TestCase {
 		// Verb installs the formatter as the patron's index callback.
 		$ref     = new \ReflectionClass( $p );
 		$cb_prop = $ref->getProperty( 'index_callback' );
-		$cb_prop->setAccessible( true );
 		$installed = $cb_prop->getValue( $p );
 		$this->assertNotNull( $installed );
 		$installed( 'check', [] );
@@ -884,7 +878,6 @@ class PartitionTest extends TestCase {
 
 		$ref  = new \ReflectionClass( $p );
 		$fire = $ref->getMethod( 'fire' );
-		$fire->setAccessible( true );
 		$fire->invoke( $p );
 
 		$this->assertSame( [ 'pending' ], $this->read_partition_values( $p ) );
@@ -897,7 +890,6 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$ref = new \ReflectionClass( $p );
 		$fire = $ref->getMethod( 'fire' );
-		$fire->setAccessible( true );
 		$fire->invoke( $p );
 
 		$this->assertFalse( \is_dir( "{$this->tmp}/p0" ), 'empty fire must not eager-create the partition dir' );
@@ -986,13 +978,11 @@ class PartitionTest extends TestCase {
 
 		$ref        = new \ReflectionClass( $p );
 		$last_check = $ref->getProperty( 'last_segment_check' );
-		$last_check->setAccessible( true );
 		$last_check->setValue( $p, \microtime( true ) - 5.0 ); // force re-scan.
 
 		$this->rmdir_recursive( "{$this->tmp}/p0" );
 
 		$rescan = $ref->getMethod( 'maybe_rescan_segments' );
-		$rescan->setAccessible( true );
 		$rescan->invoke( $p ); // must not throw.
 
 		$this->assertTrue( true );
@@ -1010,11 +1000,9 @@ class PartitionTest extends TestCase {
 		$ref = new \ReflectionClass( $p );
 
 		$cache_prop = $ref->getProperty( 'segments_cache' );
-		$cache_prop->setAccessible( true );
 		$this->assertNull( $cache_prop->getValue( $p ) );
 
 		$touch = $ref->getMethod( 'touch_segments_cache' );
-		$touch->setAccessible( true );
 		$touch->invoke( $p );
 
 		$this->assertNull( $cache_prop->getValue( $p ), 'cache must stay null when not yet populated' );
@@ -1032,11 +1020,9 @@ class PartitionTest extends TestCase {
 
 		$ref        = new \ReflectionClass( $p );
 		$cache_prop = $ref->getProperty( 'segments_cache' );
-		$cache_prop->setAccessible( true );
 		$cache = $cache_prop->getValue( $p );
 		$this->assertCount( 1, $cache );
 		$cur_size = $ref->getProperty( 'current_size' );
-		$cur_size->setAccessible( true );
 		$this->assertSame( $cur_size->getValue( $p ), $cache[0]['size'], 'touch_segments_cache mirrors current_size' );
 	}
 
@@ -1051,15 +1037,12 @@ class PartitionTest extends TestCase {
 
 		$ref      = new \ReflectionClass( $p );
 		$cur_seg  = $ref->getProperty( 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$cur_seg->setValue( $p, 7 ); // pretend we're on a never-cached segment.
 
 		$touch = $ref->getMethod( 'touch_segments_cache' );
-		$touch->setAccessible( true );
 		$touch->invoke( $p );
 
 		$cache_prop = $ref->getProperty( 'segments_cache' );
-		$cache_prop->setAccessible( true );
 		$ids = \array_column( $cache_prop->getValue( $p ), 'id' );
 		$this->assertContains( 7, $ids, 'unfamiliar current_segment_id must be appended to the cache' );
 	}
@@ -1119,13 +1102,10 @@ class PartitionTest extends TestCase {
 		// Reset segment state so next fill re-discovers via init_current_segment.
 		$ref     = new \ReflectionClass( $p );
 		$cur_seg = $ref->getProperty( 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$cur_seg->setValue( $p, null );
 		$cur_size = $ref->getProperty( 'current_size' );
-		$cur_size->setAccessible( true );
 		$cur_size->setValue( $p, 0 );
 		$cache = $ref->getProperty( 'segments_cache' );
-		$cache->setAccessible( true );
 		$cache->setValue( $p, null );
 
 		$this->produce_into( $p, 'after-wipe' );
@@ -1173,20 +1153,16 @@ class PartitionTest extends TestCase {
 		\mkdir( "{$this->tmp}/p0/0.log", 0755, true );
 
 		$cur_seg = $ref->getProperty( 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$cur_seg->setValue( $p, 0 );
 
 		$cur_log = $ref->getProperty( 'current_log_path' );
-		$cur_log->setAccessible( true );
 		$cur_log->setValue( $p, "{$this->tmp}/p0/0.log" );
 
 		$cur_idx = $ref->getProperty( 'current_idx_path' );
-		$cur_idx->setAccessible( true );
 		$cur_idx->setValue( $p, "{$this->tmp}/p0/0.idx" );
 
 		try {
 			$get_handle = $ref->getMethod( 'get_handle' );
-			$get_handle->setAccessible( true );
 			$result = $get_handle->invoke( $p );
 
 			$this->assertNull( $result, 'get_handle must return null when fopen("a") fails on a directory target' );
@@ -1208,7 +1184,6 @@ class PartitionTest extends TestCase {
 		$ef   = \Newspack_Nodes\Event_Framework::instance();
 		$ref  = new \ReflectionClass( $ef );
 		$flag = $ref->getProperty( 'draining' );
-		$flag->setAccessible( true );
 		$flag->setValue( $ef, true );
 
 		// A real worker drain always has a _router (Worker_Base mounts it before the
@@ -1225,13 +1200,11 @@ class PartitionTest extends TestCase {
 			$pref = new \ReflectionClass( $p );
 
 			$lock_prop = $pref->getProperty( 'write_lock' );
-			$lock_prop->setAccessible( true );
 			$lock = $lock_prop->getValue( $p );
 			$this->assertSame( 'evp:lock', $lock->name(), 'lock must adopt :lock sibling name inside EF' );
 			$this->assertSame( $p, $lock->patron(), 'lock must mark partition as its patron' );
 
 			$hb_prop = $pref->getProperty( 'heartbeat_timer' );
-			$hb_prop->setAccessible( true );
 			$hb = $hb_prop->getValue( $p );
 			$this->assertNotNull( $hb, 'heartbeat timer must be created inside an event loop' );
 			$this->assertSame( 'evp:heartbeat', $hb->name() );
@@ -1261,7 +1234,6 @@ class PartitionTest extends TestCase {
 		// well past lock_stale_timeout / 3.
 		$ref           = new \ReflectionClass( $p );
 		$last_hb       = $ref->getProperty( 'last_lock_heartbeat' );
-		$last_hb->setAccessible( true );
 		$last_hb->setValue( $p, \microtime( true ) - 1000.0 );
 
 		// Yank the lock dir out from under us — Lock::heartbeat will fail
@@ -1284,7 +1256,6 @@ class PartitionTest extends TestCase {
 
 		$ref     = new \ReflectionClass( $p );
 		$last_hb = $ref->getProperty( 'last_lock_heartbeat' );
-		$last_hb->setAccessible( true );
 		$last_hb->setValue( $p, \microtime( true ) - 1000.0 );
 		$before = $last_hb->getValue( $p );
 
@@ -1470,7 +1441,6 @@ class PartitionTest extends TestCase {
 		// Now invoke do_rotate via reflection — it must re-create the dir.
 		$ref       = new \ReflectionClass( $p );
 		$do_rotate = $ref->getMethod( 'do_rotate' );
-		$do_rotate->setAccessible( true );
 		$do_rotate->invoke( $p );
 
 		$this->assertTrue( \is_dir( "{$this->tmp}/p0" ), 'do_rotate must materialize partition_dir when missing' );
@@ -1553,17 +1523,12 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$ref = new \ReflectionClass( $p );
 		$init = $ref->getMethod( 'init_current_segment' );
-		$init->setAccessible( true );
 		$init->invoke( $p );
 
 		$cur_seg = $ref->getProperty( 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$cur_size = $ref->getProperty( 'current_size' );
-		$cur_size->setAccessible( true );
 		$cur_log = $ref->getProperty( 'current_log_path' );
-		$cur_log->setAccessible( true );
 		$cur_idx = $ref->getProperty( 'current_idx_path' );
-		$cur_idx->setAccessible( true );
 
 		$this->assertSame( 3, $cur_seg->getValue( $p ), 'newest segment id should be adopted' );
 		$this->assertSame( 25, $cur_size->getValue( $p ), 'current_size mirrors newest filesize' );
@@ -1587,7 +1552,6 @@ class PartitionTest extends TestCase {
 
 		// Sanity: current_segment_id is still null pre-flush.
 		$cur_seg = $ref->getProperty( 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$this->assertNull( $cur_seg->getValue( $p ) );
 
 		// Build a real packed message and inject it as the resident batch.
@@ -1595,11 +1559,9 @@ class PartitionTest extends TestCase {
 		$packed = \Newspack_Nodes\Message::packed( $message ) . "\n";
 
 		$batch = $ref->getProperty( 'batch' );
-		$batch->setAccessible( true );
 		$batch->setValue( $p, $packed );
 
 		$bargs = $ref->getProperty( 'batch_index_args' );
-		$bargs->setAccessible( true );
 		$bargs->setValue( $p, [ [
 			'packed' => $packed,
 			'size'   => \strlen( $packed ),
@@ -1630,7 +1592,6 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$ref = new \ReflectionClass( $p );
 		$wa  = $ref->getMethod( 'write_all' );
-		$wa->setAccessible( true );
 
 		$warned = '';
 		\Newspack_Nodes\Core::set_stderr_handler( static function ( $message ) use ( &$warned ) {
@@ -1659,7 +1620,6 @@ class PartitionTest extends TestCase {
 			$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 			$ref = new \ReflectionClass( $p );
 			$wa  = $ref->getMethod( 'write_all' );
-			$wa->setAccessible( true );
 
 			\Newspack_Nodes\Core::set_stderr_handler( static function () {} );
 
@@ -1723,11 +1683,9 @@ class PartitionTest extends TestCase {
 		try {
 			$ref = new \ReflectionClass( $p );
 			$rs  = $ref->getMethod( 'rotate_segment' );
-			$rs->setAccessible( true );
 			$rs->invoke( $p );
 
 			$cur_seg = $ref->getProperty( 'current_segment_id' );
-			$cur_seg->setAccessible( true );
 			$this->assertSame(
 				1,
 				$cur_seg->getValue( $p ),
@@ -1778,11 +1736,9 @@ class PartitionTest extends TestCase {
 		try {
 			$ref = new \ReflectionClass( $p );
 			$rs  = $ref->getMethod( 'rotate_segment' );
-			$rs->setAccessible( true );
 			$rs->invoke( $p ); // must not throw.
 
 			$cur_seg = $ref->getProperty( 'current_segment_id' );
-			$cur_seg->setAccessible( true );
 			$this->assertIsInt( $cur_seg->getValue( $p ), 'disappeared-lock-dir path must re-init without crash' );
 		} finally {
 			@\unlink( $lock_dir );
@@ -1809,7 +1765,6 @@ class PartitionTest extends TestCase {
 
 		$ref = new \ReflectionClass( $p );
 		$rs  = $ref->getMethod( 'rotate_segment' );
-		$rs->setAccessible( true );
 		$rs->invoke( $p );
 
 		// Lock dir must be cleared after rotate completes (the `finally`
@@ -1860,7 +1815,6 @@ class PartitionTest extends TestCase {
 		try {
 			$ref       = new \ReflectionClass( $p );
 			$do_rotate = $ref->getMethod( 'do_rotate' );
-			$do_rotate->setAccessible( true );
 			$do_rotate->invoke( $p );
 
 			// touch() failure produces a "touch() failed" print_less_often emission.
@@ -1999,26 +1953,20 @@ class PartitionTest extends TestCase {
 		// fopen in get_handle fails. (No prior open — fresh partition.)
 		$ref     = new \ReflectionClass( $p );
 		$cur_seg = $ref->getProperty( 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$cur_seg->setValue( $p, 0 );
 		$cur_log = $ref->getProperty( 'current_log_path' );
-		$cur_log->setAccessible( true );
 		$cur_log->setValue( $p, "{$this->tmp}/p0/blocker" );
 		$cur_idx = $ref->getProperty( 'current_idx_path' );
-		$cur_idx->setAccessible( true );
 		$cur_idx->setValue( $p, "{$this->tmp}/p0/blocker.idx" );
 		$cur_size = $ref->getProperty( 'current_size' );
-		$cur_size->setAccessible( true );
 		$cur_size->setValue( $p, 0 );
 
 		// Inject a real packed message as the resident batch.
 		$message    = $this->produce( 'unreachable' );
 		$packed = \Newspack_Nodes\Message::packed( $message ) . "\n";
 		$batch  = $ref->getProperty( 'batch' );
-		$batch->setAccessible( true );
 		$batch->setValue( $p, $packed );
 		$bargs = $ref->getProperty( 'batch_index_args' );
-		$bargs->setAccessible( true );
 		$bargs->setValue( $p, [ [
 			'packed' => $packed,
 			'size'   => \strlen( $packed ),
@@ -2054,13 +2002,10 @@ class PartitionTest extends TestCase {
 		\mkdir( "{$this->tmp}/p0/blocker", 0755, true );
 		$ref     = new \ReflectionClass( $p );
 		$cur_seg = $ref->getProperty( 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$cur_seg->setValue( $p, 0 );
 		$cur_log = $ref->getProperty( 'current_log_path' );
-		$cur_log->setAccessible( true );
 		$cur_log->setValue( $p, "{$this->tmp}/p0/blocker" ); // existing directory.
 		$cur_idx = $ref->getProperty( 'current_idx_path' );
-		$cur_idx->setAccessible( true );
 		$cur_idx->setValue( $p, "{$this->tmp}/p0/blocker.idx" );
 
 		$big_msg = $this->produce( \str_repeat( 'L', 5000 ) );
@@ -2104,7 +2049,6 @@ class PartitionTest extends TestCase {
 	private function read_node_prop( object $node, string $prop ) {
 		$ref = new \ReflectionClass( $node );
 		$p   = $ref->getProperty( $prop );
-		$p->setAccessible( true );
 		return $p->getValue( $node );
 	}
 
@@ -2153,9 +2097,9 @@ class PartitionTest extends TestCase {
 	}
 
 	/** Write one record whose VALUE is the given array into the flat offset dir. */
-	private function write_value_record( string $offset_dir, array $value ): void {
+	private function write_value_record( string $offsetlog_dir, array $value ): void {
 		$p   = new Partition_Node();
-		$p->arguments( $offset_dir );
+		$p->arguments( $offsetlog_dir );
 		$message                  = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $value;
@@ -2298,10 +2242,10 @@ class PartitionTest extends TestCase {
 		$log->arguments( "{$dir} " . ( 64 * 1024 ) . ' 2 0' );
 		foreach (
 			[
-				[ 'offset_dir' => 'a.p0', 'cursor_off' => 1 ],
-				[ 'offset_dir' => 'b.p0', 'cursor_off' => 2 ],
-				[ 'offset_dir' => '', 'cursor_off' => 7 ],     // empty key → skipped
-				[ 'offset_dir' => 'a.p0', 'cursor_off' => 9 ], // newer a → wins
+				[ 'offsetlog_dir' => 'a.p0', 'cursor_off' => 1 ],
+				[ 'offsetlog_dir' => 'b.p0', 'cursor_off' => 2 ],
+				[ 'offsetlog_dir' => '', 'cursor_off' => 7 ],     // empty key → skipped
+				[ 'offsetlog_dir' => 'a.p0', 'cursor_off' => 9 ], // newer a → wins
 			] as $value
 		) {
 			$message                   = Message::new_message();
@@ -2311,7 +2255,7 @@ class PartitionTest extends TestCase {
 		}
 		$log->flush();
 
-		$index = Partition_Node::read_tail_index_by( $dir, 'offset_dir' );
+		$index = Partition_Node::read_tail_index_by( $dir, 'offsetlog_dir' );
 		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
 		$this->assertSame( 9, $index['a.p0']['cursor_off'], 'latest record per key wins' );
 		$this->assertSame( 2, $index['b.p0']['cursor_off'] );
@@ -2364,7 +2308,6 @@ class PartitionTest extends TestCase {
 	 */
 	private function read_segments_cache( Partition_Node $p ): ?array {
 		$ref  = new \ReflectionProperty( Partition_Node::class, 'segments_cache' );
-		$ref->setAccessible( true );
 		/** @var array<int,array{id:int,size:int}>|null $value */
 		$value = $ref->getValue( $p );
 		return $value;
@@ -2398,11 +2341,9 @@ class PartitionTest extends TestCase {
 		\touch( "{$this->tmp}/p0/1.log" );
 
 		$ref       = new \ReflectionMethod( Partition_Node::class, 'do_rotate' );
-		$ref->setAccessible( true );
 		$ref->invoke( $p );
 
 		$cur_seg = new \ReflectionProperty( Partition_Node::class, 'current_segment_id' );
-		$cur_seg->setAccessible( true );
 		$this->assertSame( 1, $cur_seg->getValue( $p ), 'do_rotate must adopt the empty peer segment 1' );
 
 		$cache = $this->read_segments_cache( $p );
@@ -2429,7 +2370,6 @@ class PartitionTest extends TestCase {
 		// Reset the counter, then trigger exactly one spawn rotation.
 		$p->forced_scans = 0;
 		$rotate = new \ReflectionMethod( Partition_Node::class, 'rotate_segment' );
-		$rotate->setAccessible( true );
 		$rotate->invoke( $p );
 
 		$this->assertSame( 1, $p->forced_scans, 'a single rotation must force exactly one directory scan' );
@@ -2465,7 +2405,6 @@ class PartitionTest extends TestCase {
 
 		// Cold-start the cache so cleanup has nothing maintained to read.
 		$cache_prop = new \ReflectionProperty( Partition_Node::class, 'segments_cache' );
-		$cache_prop->setAccessible( true );
 		$cache_prop->setValue( $p, null );
 
 		$p->cleanup_segments();
@@ -2646,12 +2585,10 @@ class PartitionTest extends TestCase {
 			// path can still serve it from memory.
 			$ref  = new \ReflectionClass( $p );
 			$time = $ref->getProperty( 'segments_cache_time' );
-			$time->setAccessible( true );
 			$time->setValue( $p, \microtime( true ) - 10 );
 
 			$before    = $scans;
 			$do_rotate = $ref->getMethod( 'do_rotate' );
-			$do_rotate->setAccessible( true );
 			$do_rotate->invoke( $p );
 
 			$this->assertSame(
@@ -2679,12 +2616,10 @@ class PartitionTest extends TestCase {
 
 			$ref  = new \ReflectionClass( $p );
 			$time = $ref->getProperty( 'segments_cache_time' );
-			$time->setAccessible( true );
 			$time->setValue( $p, \microtime( true ) - 10 );
 
 			$before    = $scans;
 			$do_rotate = $ref->getMethod( 'do_rotate' );
-			$do_rotate->setAccessible( true );
 			$do_rotate->invoke( $p );
 
 			$this->assertGreaterThan(

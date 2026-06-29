@@ -77,14 +77,12 @@ class SupervisorTest extends TestCase {
 			as $prop_name => $value
 		) {
 			$prop = new \ReflectionProperty( Supervisor::class, $prop_name );
-			$prop->setAccessible( true );
 			$prop->setValue( $s, $value );
 		}
 	}
 
 	private function invoke_tick_loop( Supervisor $s ): void {
 		$method = new \ReflectionMethod( Supervisor::class, 'tick_loop' );
-		$method->setAccessible( true );
 		$method->invoke( $s );
 	}
 
@@ -1053,7 +1051,6 @@ class SupervisorTest extends TestCase {
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
-		$method->setAccessible( true );
 		$method->invoke( $s );
 
 		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
@@ -1075,7 +1072,6 @@ class SupervisorTest extends TestCase {
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
-		$method->setAccessible( true );
 		$method->invoke( $s );
 
 		$args = $GLOBALS['_test_outbound_posts'][0]['args'];
@@ -1096,7 +1092,6 @@ class SupervisorTest extends TestCase {
 	public function test_post_spawn_body_contains_type_partition_nonce(): void {
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$method = new \ReflectionMethod( Supervisor::class, 'post_spawn' );
-		$method->setAccessible( true );
 		$now   = microtime( true );
 		$token = $s->generate_spawn_token( (int) $now );
 
@@ -1126,7 +1121,6 @@ class SupervisorTest extends TestCase {
 
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$method = new \ReflectionMethod( Supervisor::class, 'post_spawn' );
-		$method->setAccessible( true );
 		$now   = microtime( true );
 
 		// No exception → success.
@@ -1153,7 +1147,6 @@ class SupervisorTest extends TestCase {
 
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
-		$method->setAccessible( true );
 
 		// No throw.
 		$method->invoke( $s );
@@ -1329,7 +1322,6 @@ class SupervisorTest extends TestCase {
 			// Mirror run()'s finally block.
 			$s->release_lock_for_test();
 			$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
-			$method->setAccessible( true );
 			$method->invoke( $s );
 		}
 
@@ -1471,7 +1463,6 @@ class SupervisorTest extends TestCase {
 		$this->seed_loop_state( $s, $now );
 		// Backdate last_heartbeat far into the past so the (>=10s) branch fires.
 		$hb_prop = new \ReflectionProperty( Supervisor::class, 'last_heartbeat' );
-		$hb_prop->setAccessible( true );
 		$hb_prop->setValue( $s, $now - 100.0 );
 
 		// Drop restart flag so tick_loop exits after the first iteration's
@@ -1544,7 +1535,6 @@ class SupervisorTest extends TestCase {
 		// Inject a spawn_after deferral in the past so the elapsed-window
 		// path runs (rather than the not-yet-elapsed continue).
 		$prop = new \ReflectionProperty( Supervisor::class, 'spawn_after' );
-		$prop->setAccessible( true );
 		$prop->setValue( $s, [ 'firehose-workers' => microtime( true ) - 1.0 ] );
 
 		$now = microtime( true );
@@ -1570,7 +1560,6 @@ class SupervisorTest extends TestCase {
 
 	private function invoke_cleanup_orphan_ipc( Supervisor $s ): void {
 		$method = new \ReflectionMethod( Supervisor::class, 'cleanup_orphan_ipc' );
-		$method->setAccessible( true );
 		$method->invoke( $s );
 	}
 

@@ -60,7 +60,6 @@ class ClassesCITest extends TestCase {
 		$loader  = \reset( $loaders );
 		$this->assertNotFalse( $loader, 'a composer ClassLoader must be registered for fixture injection' );
 		$ref = new \ReflectionProperty( ClassLoader::class, 'classMap' );
-		$ref->setAccessible( true );
 		$this->classmap_snapshot = $ref->getValue( $loader );
 		$loader->addClassMap( [ $fqcn => $file ] );
 	}
@@ -74,7 +73,6 @@ class ClassesCITest extends TestCase {
 		$loader  = \reset( $loaders );
 		if ( false !== $loader ) {
 			$ref = new \ReflectionProperty( ClassLoader::class, 'classMap' );
-			$ref->setAccessible( true );
 			$ref->setValue( $loader, $this->classmap_snapshot );
 		}
 		$this->classmap_snapshot = null;

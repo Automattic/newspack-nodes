@@ -667,7 +667,6 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->dispatch( 'help' );
 
 		$c_prop = $ref->getProperty( 'C' );
-		$c_prop->setAccessible( true );
 		$verbs = \array_keys( $c_prop->getValue() );
 
 		foreach ( $verbs as $verb ) {

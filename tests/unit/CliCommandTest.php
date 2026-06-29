@@ -142,7 +142,6 @@ class CliCommandTest extends TestCase {
 	public function test_prepare_repl_bare_mode_sets_local_status_lines(): void {
 		CLI_Command::$uid_provider = static fn (): int => 1000;
 		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
-		$ref->setAccessible( true );
 
 		[ $shell, $dumper ] = $ref->invoke( new CLI_Command(), [] );
 
@@ -159,7 +158,6 @@ class CliCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/ipc/jobs.p2/input", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/jobs.p2/output", 0755, true );
 		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
-		$ref->setAccessible( true );
 
 		[ $shell ] = $ref->invoke( new CLI_Command(), [ 'jobs.p2' ] );
 
@@ -178,7 +176,6 @@ class CliCommandTest extends TestCase {
 	public function test_prepare_repl_reports_unknown_pivot_worker(): void {
 		CLI_Command::$uid_provider = static fn (): int => 1000;
 		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
-		$ref->setAccessible( true );
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'missing.p0' );
@@ -209,7 +206,6 @@ class CliCommandTest extends TestCase {
 		// We invoke the private method via reflection to verify the graph shape
 		// without entering the run_repl event loop.
 		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
-		$ref->setAccessible( true );
 
 		[ $shell, $dumper ] = $ref->invoke( new CLI_Command(), false, null );
 
@@ -242,7 +238,6 @@ class CliCommandTest extends TestCase {
 		\mkdir( $ipc['output'], 0755, true );
 
 		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
-		$ref->setAccessible( true );
 
 		[ $shell, $dumper ] = $ref->invoke( new CLI_Command(), true, $ipc );
 
@@ -279,13 +274,11 @@ class CliCommandTest extends TestCase {
 		\mkdir( $ipc['output'], 0755, true );
 
 		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
-		$ref->setAccessible( true );
 
 		[ , $dumper ] = $ref->invoke( new CLI_Command(), true, $ipc );
 
 		// Reflect on the private field to confirm the filter is the current pid.
 		$pid_prop = new \ReflectionProperty( $dumper, 'to_filter' );
-		$pid_prop->setAccessible( true );
 		$this->assertSame( (string) \getmypid(), $pid_prop->getValue( $dumper ) );
 
 		Core::cleanup_all_nodes();
@@ -381,7 +374,6 @@ class CliCommandTest extends TestCase {
 		new \Newspack_Nodes\CLI_Stdin_Reader_Node( $shell, $dumper, false, $stream );
 
 		$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
-		$prop->setAccessible( true );
 		$this->assertTrue( $prop->getValue( $dumper ) );
 
 		// Prompt content reached the dumper's stdout stream.
@@ -414,7 +406,6 @@ class CliCommandTest extends TestCase {
 		// Constructor must NOT have set the dumper's prompt-displayed flag
 		// (no prompt was rendered).
 		$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
-		$prop->setAccessible( true );
 		$this->assertFalse( $prop->getValue( $dumper ) );
 
 		// drain_fh processes the line and must not redraw a prompt either.
@@ -560,7 +551,6 @@ class CliCommandTest extends TestCase {
 			// know the default closure ran (no exception, prompt_displayed
 			// flipped via mark_prompt_displayed at the tail of install_handler).
 			$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
-			$prop->setAccessible( true );
 			$this->assertTrue( $prop->getValue( $dumper ) );
 			$this->assertFalse( $reader->exit );
 		} finally {
@@ -632,7 +622,6 @@ class CliCommandTest extends TestCase {
 			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $shell, $dumper, true, $stream );
 
 			$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
-			$prop->setAccessible( true );
 			$this->assertTrue( $prop->getValue( $dumper ) );
 			$this->assertFalse( $reader->exit );
 		} finally {
@@ -662,7 +651,6 @@ class CliCommandTest extends TestCase {
 		// off when fgets returns a line, then back on after show_prompt_
 		// fallback runs at the end of drain_fh.
 		$prop = new \ReflectionProperty( $reader, 'prompt_displayed' );
-		$prop->setAccessible( true );
 
 		// Initial state from constructor: prompt is showing.
 		$this->assertTrue( $prop->getValue( $reader ) );
@@ -686,7 +674,6 @@ class CliCommandTest extends TestCase {
 		$reader->handle_readline_line( null );
 
 		$prop = new \ReflectionProperty( $reader, 'readline_eof' );
-		$prop->setAccessible( true );
 		$this->assertTrue( $prop->getValue( $reader ) );
 	}
 
@@ -703,11 +690,9 @@ class CliCommandTest extends TestCase {
 		$reader->handle_readline_line( 'ls -al' );
 
 		$queue = new \ReflectionProperty( $reader, 'queue' );
-		$queue->setAccessible( true );
 		$this->assertSame( [ 'ls -al' ], $queue->getValue( $reader ) );
 
 		$displayed = new \ReflectionProperty( $dumper, 'prompt_displayed' );
-		$displayed->setAccessible( true );
 		$this->assertFalse( $displayed->getValue( $dumper ) );
 	}
 
@@ -724,7 +709,6 @@ class CliCommandTest extends TestCase {
 		$reader->handle_readline_line( '' );
 
 		$queue = new \ReflectionProperty( $reader, 'queue' );
-		$queue->setAccessible( true );
 		$this->assertSame( [ '' ], $queue->getValue( $reader ) );
 	}
 
@@ -774,7 +758,6 @@ class CliCommandTest extends TestCase {
 		$ef       = \Newspack_Nodes\Event_Framework::instance();
 		$ef_ref   = new \ReflectionClass( $ef );
 		$timers_p = $ef_ref->getProperty( 'timers' );
-		$timers_p->setAccessible( true );
 		$timers   = $timers_p->getValue( $ef );
 		$id       = \spl_object_id( $reader );
 		$this->assertArrayHasKey( $id, $timers, 'reader must register a timer' );
@@ -809,7 +792,6 @@ class CliCommandTest extends TestCase {
 		$ef       = \Newspack_Nodes\Event_Framework::instance();
 		$ef_ref   = new \ReflectionClass( $ef );
 		$timers_p = $ef_ref->getProperty( 'timers' );
-		$timers_p->setAccessible( true );
 		$timers   = $timers_p->getValue( $ef );
 		$id       = \spl_object_id( $reader );
 
@@ -848,7 +830,6 @@ class CliCommandTest extends TestCase {
 		$ef       = \Newspack_Nodes\Event_Framework::instance();
 		$ef_ref   = new \ReflectionClass( $ef );
 		$timers_p = $ef_ref->getProperty( 'timers' );
-		$timers_p->setAccessible( true );
 		$timers   = $timers_p->getValue( $ef );
 		$id       = \spl_object_id( $reader );
 		$this->assertArrayNotHasKey(
@@ -892,7 +873,6 @@ class CliCommandTest extends TestCase {
 
 			// Inject a queued line and fire — fire() will dispatch it, then re-install.
 			$queue_prop = new \ReflectionProperty( $reader, 'queue' );
-			$queue_prop->setAccessible( true );
 			$queue_prop->setValue( $reader, [ 'ls' ] );
 
 			$reader->fire();
@@ -1260,7 +1240,6 @@ class CliCommandTest extends TestCase {
 			);
 			// eof_sent should now be true.
 			$prop = new \ReflectionProperty( $reader, 'eof_sent' );
-			$prop->setAccessible( true );
 			$this->assertTrue( $prop->getValue( $reader ) );
 		} finally {
 			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = $saved_install;
