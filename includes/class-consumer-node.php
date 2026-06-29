@@ -62,10 +62,9 @@ class Consumer_Node extends Timer_Node {
 	 * Raw token assigned by parse_schema_args() — the override normalizes it
 	 * (rtrim '/') into the derived $offsetlog_dir below.
 	 */
-	protected string $offsetlog_base_dir = '';
 	protected string $offsetlog_dir      = '';
 	protected ?Partition_Node $source    = null;
-	/** Null when constructed with empty $offsetlog_base_dir (ephemeral readers skip durable cursors). */
+	/** Null when constructed with empty $offsetlog_dir (ephemeral readers skip durable cursors). */
 	protected ?Partition_Node $offsetlog = null;
 
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
@@ -136,10 +135,9 @@ class Consumer_Node extends Timer_Node {
 
 	/**
 	 * Store the raw string, parse positional tokens via parse_schema_args()
-	 * (source_dir / offsetlog_base_dir), then normalize, derive offsetlog_dir,
-	 * materialize the source / offsetlog Partitions (the offsetlog is a flat
-	 * segmented-log dir) and seed the in-memory cursor from any existing
-	 * offsetlog entries.
+	 * (source_dir / offsetlog_dir), then normalize, materialize the source / offsetlog
+	 * Partitions (the offsetlog is a flat segmented-log dir) and seed the in-memory
+	 * cursor from any existing offsetlog entries.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -150,9 +148,8 @@ class Consumer_Node extends Timer_Node {
 		}
 		$this->parse_schema_args( $args );
 		[ $source_path, $offsetlog_path ] = $this->resolve_args();
-		$this->source_dir         = \rtrim( $source_path, '/' );
-		$this->offsetlog_base_dir = $offsetlog_path;
-		$this->offsetlog_dir      = \rtrim( $offsetlog_path, '/' );
+		$this->source_dir    = \rtrim( $source_path, '/' );
+		$this->offsetlog_dir = \rtrim( $offsetlog_path, '/' );
 
 		$this->source = $this->make_source();
 		if ( '' !== $this->name ) {
@@ -333,12 +330,12 @@ class Consumer_Node extends Timer_Node {
 
 	/**
 	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
-	 * Consumer's schema args are source_dir + offsetlog_base_dir.
+	 * Consumer's schema args are source_dir + offsetlog_dir.
 	 *
 	 * @return array{0:string,1:string}
 	 */
 	protected function resolve_args(): array {
-		return [ $this->source_dir, $this->offsetlog_base_dir ];
+		return [ $this->source_dir, $this->offsetlog_dir ];
 	}
 
 	/**
@@ -356,7 +353,7 @@ class Consumer_Node extends Timer_Node {
 		$lag                                = $this->compute_lag();
 		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
-		$record[ Probe_Record::READER ]     = '' !== $this->offsetlog_base_dir ? \basename( $this->offsetlog_base_dir ) : '';
+		$record[ Probe_Record::READER ]     = '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '';
 		$record[ Probe_Record::CURSOR_SEG ] = $this->cursor_seg;
 		$record[ Probe_Record::CURSOR_OFF ] = $this->cursor_off;
 		$record[ Probe_Record::END_SEG ]    = $lag['end_seg'];
@@ -1111,8 +1108,8 @@ class Consumer_Node extends Timer_Node {
 			'category'    => 'I/O',
 			'description' => 'Tails a Partition; emits each appended message to its sink.',
 			'arguments'        => [
-				[ 'name' => 'source_dir',         'type' => 'string', 'required' => true ],
-				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
+				[ 'name' => 'source_dir',    'type' => 'string', 'required' => true ],
+				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'default' => '' ],
 			],
 			'commands'    => [
 				[

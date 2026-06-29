@@ -167,7 +167,7 @@ class CLI_Command {
 			$ipc_out->sink( $interpreter );
 			$shell->path = $worker_id;
 
-			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
+			// reply-in: ephemeral, so empty offsetlog_dir (no durable cursor).
 			$reply_in = new Node();
 			$reply_in->sink( $router );
 			$reply_in->target( Node_Names::OUTPUT );
