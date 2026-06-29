@@ -821,6 +821,30 @@ class ConsumerTest extends TestCase {
 		$this->addToAssertionCount( 1 );
 	}
 
+	public function test_unparseable_source_line_is_quarantined_not_dropped(): void {
+		// A line that won't unpack as a Message will NEVER parse — quarantine it
+		// immediately (no retry) for inspection, rather than silently dropping it.
+		// The raw bytes are preserved in the DLQ entry's VALUE so an operator can see
+		// what arrived.
+		\mkdir( "{$this->tmp}/data.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/data.p0/0.log", "this is not a packed message\n" );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+		$this->pump_consumer( $c );
+
+		$this->assertCount( 0, $cap->captured, 'an unparseable line must not be forwarded downstream' );
+		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'it must be quarantined, not dropped' );
+
+		$paths = \glob( "{$this->tmp}/deadletter.p0/*.log" );
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
+		$entry = Message::unpacked( (string) \end( $lines ) );
+		$this->assertSame( 'this is not a packed message', $entry[ Message::VALUE ], 'the raw bytes are preserved for inspection' );
+	}
+
 	public function test_fire_checkpoints_at_most_once_per_30s(): void {
 		// The offsetlog is crash-resume only (not a position source — TopicProbe is),
 		// so fire() checkpoints at most every CHECKPOINT_INTERVAL_S (30s), not every

@@ -862,7 +862,12 @@ class Consumer_Node extends Timer_Node {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->print_less_often( "WARNING: skipping unparseable line: {$e->getMessage()}" );
+			// Won't unpack → never will: quarantine the raw bytes (no retry) for inspection; the cursor still advances.
+			$poison                   = Message::new_message();
+			$poison[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$poison[ Message::ID ]    = "{$this->cursor_seg}:{$abs_offset}";
+			$poison[ Message::VALUE ] = $line;
+			$this->dead_letter( $poison, 'unparseable', $e );
 			return;
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
