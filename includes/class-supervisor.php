@@ -412,20 +412,10 @@ class Supervisor extends Supervisor_Base {
 	}
 
 	/**
-	 * libcurl-call seam. Tests reassign in bootstrap to capture POST bodies without
-	 * short-circuiting the setopt + error-classification path.
-	 *
-	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
-	 *
-	 * @var \Closure(\CurlHandle, array<string, mixed>): mixed|null
-	 */
-	public static ?\Closure $curl_exec = null;
-
-	/**
 	 * Fire-and-forget spawn POST. Errors logged, not retried (tick + rate-limit + cron guarantee spawn).
 	 */
 	private function post_spawn( string $spawn_url, string $type, int $partition, string $token ): void {
-		$err = self::fire_and_forget_post( $spawn_url, [
+		$err = Core::fire_and_forget_post( $spawn_url, [
 			'type'      => $type,
 			'partition' => $partition,
 			'nonce'     => $token,
@@ -439,7 +429,7 @@ class Supervisor extends Supervisor_Base {
 	 * Spawn the next supervisor via the spawn endpoint (fire-and-forget; WP-Cron backstops).
 	 */
 	private function spawn_next_supervisor(): void {
-		$err = self::fire_and_forget_post( \rest_url( 'newspack-nodes/v1/workers/spawn' ), [
+		$err = Core::fire_and_forget_post( \rest_url( 'newspack-nodes/v1/workers/spawn' ), [
 			'type'      => 'supervisor',
 			'partition' => 0,
 			'nonce'     => $this->generate_spawn_token( \time() ),
@@ -447,46 +437,6 @@ class Supervisor extends Supervisor_Base {
 		if ( null !== $err ) {
 			Core::stderr( 'Newspack_Nodes\\Supervisor: spawn_next_supervisor failed: ' . $err );
 		}
-	}
-
-	/**
-	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
-	 * CURLOPT_NOSIGNAL + TIMEOUT_MS=10 means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
-	 *
-	 * @param array<string, mixed> $body POST body.
-	 */
-	private static function fire_and_forget_post( string $url, array $body ): ?string {
-		if ( '' === $url ) {
-			return 'empty url';
-		}
-		if ( ! \function_exists( 'curl_init' ) ) {
-			return 'curl extension not available';
-		}
-		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error,WordPress.WP.AlternativeFunctions.curl_curl_close -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:427 does `max( (int) $timeout, 1 )` and clamps any sub-second timeout up to 1 full second — defeating this helper's CURLOPT_TIMEOUT_MS=10 fire-and-forget contract. Raw curl is the only path that honors the 10ms timeout.
-		$ch = \curl_init();
-		if ( false === $ch ) {
-			return 'curl_init failed';
-		}
-		\curl_setopt_array( $ch, [
-			\CURLOPT_URL               => $url,
-			\CURLOPT_POST              => true,
-			\CURLOPT_POSTFIELDS        => \http_build_query( $body ),
-			\CURLOPT_NOSIGNAL          => true,
-			\CURLOPT_TIMEOUT_MS        => 10,
-			\CURLOPT_CONNECTTIMEOUT_MS => 10,
-			\CURLOPT_RETURNTRANSFER    => false,
-			\CURLOPT_HEADER            => false,
-			\CURLOPT_SSL_VERIFYHOST    => 0,
-			\CURLOPT_SSL_VERIFYPEER    => false,
-		] );
-		// Default ignores $body (already in POSTFIELDS); the arg only matters to test mocks.
-		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
-		$exec( $ch, $body );
-		$errno = \curl_errno( $ch );
-		$err   = ( 0 === $errno || \CURLE_OPERATION_TIMEDOUT === $errno ) ? null : \curl_error( $ch );
-		\curl_close( $ch );
-		// phpcs:enable WordPress.WP.AlternativeFunctions
-		return $err;
 	}
 
 	/**

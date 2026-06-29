@@ -10,9 +10,18 @@ use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Core::class )]
 class CoreTest extends TestCase {
+	/** @var \Closure|null Bootstrap-installed curl seam, restored in tearDown so a test reassignment can't leak. */
+	private $saved_curl_exec;
+
 	protected function setUp(): void {
 		parent::setUp();
 		Core::reset();
+		$this->saved_curl_exec = Core::$curl_exec;
+	}
+
+	protected function tearDown(): void {
+		Core::$curl_exec = $this->saved_curl_exec;
+		parent::tearDown();
 	}
 
 	// $config_resolvers (process-lifetime; Core::reset leaves it) is snapshotted in
@@ -456,6 +465,40 @@ class CoreTest extends TestCase {
 		$node->print_less_often( 'same text' );
 		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
 		$this->assertStringContainsString( 'alice: same text', $buf );
+	}
+
+	// ── fire_and_forget_post (shared raw-curl spawn POST helper) ───────────────
+
+	public function test_fire_and_forget_post_rejects_empty_url(): void {
+		$this->assertSame( 'empty url', Core::fire_and_forget_post( '', [ 'type' => 'x' ] ) );
+	}
+
+	public function test_fire_and_forget_post_invokes_curl_exec_seam_with_url_and_body(): void {
+		$seen = [];
+		Core::$curl_exec = static function ( \CurlHandle $ch, array $body ) use ( &$seen ) {
+			$seen[] = [
+				'url'  => (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL ),
+				'body' => $body,
+			];
+			return false; // fire-and-forget: no response expected.
+		};
+
+		$err = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'firehose', 'partition' => 2 ] );
+
+		// errno is 0 (the seam never raised one) → treated as success.
+		$this->assertNull( $err );
+		$this->assertCount( 1, $seen );
+		$this->assertSame( 'http://example.test/spawn', $seen[0]['url'] );
+		$this->assertSame( [ 'type' => 'firehose', 'partition' => 2 ], $seen[0]['body'] );
+	}
+
+	public function test_fire_and_forget_post_returns_error_string_on_curl_failure(): void {
+		// Use the real libcurl call (null seam) against an unsupported protocol so
+		// a deterministic, non-timeout errno exercises the error-classification branch.
+		Core::$curl_exec = null;
+		$err = Core::fire_and_forget_post( 'gopher-bogus://nowhere', [ 'type' => 'x' ] );
+		$this->assertNotNull( $err );
+		$this->assertNotSame( '', $err );
 	}
 }
 

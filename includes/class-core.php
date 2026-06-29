@@ -1,6 +1,6 @@
 <?php
 /**
- * Core: global registries + clock + stderr.
+ * Core: global registries + clock + stderr + fire-and-forget POST.
  *
  * @package Newspack_Nodes
  */
@@ -239,6 +239,61 @@ class Core {
 
 	public static function node( string $name ): ?Node {
 		return self::$nodes_by_name[ $name ] ?? null;
+	}
+
+	/**
+	 * libcurl-call seam. Lazily-defaulted at the call site to a closure wrapping
+	 * the real libcurl call. Tests reassign in bootstrap to capture POST bodies
+	 * without short-circuiting the curl_init / curl_setopt_array / errno-
+	 * classification path — that lets the suite cover the real setopt + error-
+	 * classification logic. Shared by Supervisor (spawn fan-out) and Worker_Base
+	 * (self-respawn): one helper, one seam, single source of truth.
+	 *
+	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
+	 *
+	 * @var \Closure(\CurlHandle, array<string, mixed>): mixed|null
+	 */
+	public static ?\Closure $curl_exec = null;
+
+	/**
+	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
+	 * CURLOPT_NOSIGNAL + TIMEOUT_MS=10 means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
+	 *
+	 * @param array<string, mixed> $body POST body.
+	 * @return string|null Error string on failure, null on success.
+	 */
+	public static function fire_and_forget_post( string $url, array $body ): ?string {
+		if ( '' === $url ) {
+			return 'empty url';
+		}
+		if ( ! \function_exists( 'curl_init' ) ) {
+			return 'curl extension not available';
+		}
+		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error,WordPress.WP.AlternativeFunctions.curl_curl_close -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:427 does `max( (int) $timeout, 1 )` and clamps any sub-second timeout up to 1 full second — defeating this helper's CURLOPT_TIMEOUT_MS=10 fire-and-forget contract. Raw curl is the only path that honors the 10ms timeout.
+		$ch = \curl_init();
+		if ( false === $ch ) {
+			return 'curl_init failed';
+		}
+		\curl_setopt_array( $ch, [
+			\CURLOPT_URL               => $url,
+			\CURLOPT_POST              => true,
+			\CURLOPT_POSTFIELDS        => \http_build_query( $body ),
+			\CURLOPT_NOSIGNAL          => true,
+			\CURLOPT_TIMEOUT_MS        => 10,
+			\CURLOPT_CONNECTTIMEOUT_MS => 10,
+			\CURLOPT_RETURNTRANSFER    => false,
+			\CURLOPT_HEADER            => false,
+			\CURLOPT_SSL_VERIFYHOST    => 0,
+			\CURLOPT_SSL_VERIFYPEER    => false,
+		] );
+		// Default ignores $body (already in POSTFIELDS); the arg only matters to test mocks.
+		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
+		$exec( $ch, $body );
+		$errno = \curl_errno( $ch );
+		$err   = ( 0 === $errno || \CURLE_OPERATION_TIMEDOUT === $errno ) ? null : \curl_error( $ch );
+		\curl_close( $ch );
+		// phpcs:enable WordPress.WP.AlternativeFunctions
+		return $err;
 	}
 
 	/** Evict rate-limiter entries older than the timeout so stale messages re-emit (per Router tick). */

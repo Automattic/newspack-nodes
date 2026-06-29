@@ -266,24 +266,24 @@ class Worker_Base {
 	/**
 	 * Fire-and-forget spawn POST so another process takes over after we exit.
 	 *
+	 * Routes through Core::fire_and_forget_post — the same raw-curl path the
+	 * Supervisor uses (wp_remote_post's Requests transport floors the timeout at
+	 * 1s, defeating the 10ms fire-and-forget contract; the helper guards on the
+	 * curl extension itself). Body stays byte-compatible with the spawn endpoint's
+	 * {type, partition, nonce} contract so HMAC/nonce validation still passes.
+	 *
 	 * @param string $spawn_url Fully-qualified spawn URL (rest_url + path).
 	 * @param string $token     Current HMAC spawn token.
 	 */
 	public function self_respawn( string $spawn_url, string $token ): void {
-		if ( ! \function_exists( 'wp_remote_post' ) ) {
-			return;
+		$err = Core::fire_and_forget_post( $spawn_url, [
+			'type'      => $this->worker_type,
+			'partition' => $this->partition,
+			'nonce'     => $token,
+		] );
+		if ( null !== $err ) {
+			Core::stderr( "{$this->worker_type}.p{$this->partition}: self_respawn failed: {$err}" );
 		}
-		$args = [
-			'method'   => 'POST',
-			'timeout'  => 1, // fire-and-forget
-			'blocking' => false,
-			'body'     => [
-				'type'      => $this->worker_type,
-				'partition' => $this->partition,
-				'nonce'     => $token,
-			],
-		];
-		@\wp_remote_post( $spawn_url, $args );
 	}
 
 	/**

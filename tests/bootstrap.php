@@ -503,15 +503,15 @@ require_once __DIR__ . '/Helpers/VerbHarness.php';
 require_once __DIR__ . '/Helpers/FakeMemcached.php';
 require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
 
-// Capture Supervisor fire-and-forget POSTs without actually hitting
-// libcurl. `$curl_exec` is a narrow seam — the rest of
-// `fire_and_forget_post` (curl_init, curl_setopt_array, errno
-// classification) still runs so the tests exercise it. URL comes off
-// the handle via curl_getinfo; body comes in as the 2nd arg because PHP
-// curl doesn't expose POSTFIELDS through getinfo. Honors the same
-// `$_wp_test_remote_post_response` override the wp_remote_post mock
-// above honors so test side-effects (e.g. "drop a restart flag when
-// this spawn fires") fire in both transports.
+// Capture the shared fire-and-forget POSTs (Supervisor spawn fan-out AND
+// Worker_Base self-respawn) without actually hitting libcurl. `Core::$curl_exec`
+// is a narrow seam — the rest of `Core::fire_and_forget_post` (curl_init,
+// curl_setopt_array, errno classification) still runs so the tests exercise it.
+// URL comes off the handle via curl_getinfo; body comes in as the 2nd arg
+// because PHP curl doesn't expose POSTFIELDS through getinfo. Honors the same
+// `$_wp_test_remote_post_response` override the wp_remote_post mock above
+// honors so test side-effects (e.g. "drop a restart flag when this spawn
+// fires") fire in both transports.
 // Block real libreadline from firing during tests — even when phpunit is
 // invoked interactively (stdin/stdout ARE a tty, so `posix_isatty`-style
 // gating is useless). The real call would write the prompt to fd 1 and
@@ -524,7 +524,7 @@ require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
 // real TTY); no-op it for the test process.
 \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register = static function ( callable $cb ): void {};
 
-\Newspack_Nodes\Supervisor::$curl_exec = static function ( $ch, array $body ) {
+\Newspack_Nodes\Core::$curl_exec = static function ( $ch, array $body ) {
 	$url  = (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL );
 	$args = [
 		'method'    => 'POST',

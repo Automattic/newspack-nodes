@@ -8,7 +8,7 @@
  * `activate()` materializes the effective active set (Bootstrap::get_topologies()),
  * refuses a write-conflict, adds the name, writes the option, invalidates the
  * config cache, then spawns the fleet via Supervisor::spawn_fleet() — captured
- * via the bootstrap-installed Supervisor::$curl_exec seam into
+ * via the bootstrap-installed Core::$curl_exec seam into
  * $GLOBALS['_test_outbound_posts']. `deactivate()` is the symmetric drain:
  * remove the name, write, invalidate, then kill the fleet via
  * Supervisor::kill_readers() (asserted via the restart flags on each lock dir).
