@@ -33,6 +33,48 @@ test( 'fill prunes a path-shaped target whose HEAD node is dead', () => {
 	expect( t.target ).toEqual( [] );
 } );
 
+test( 'fill throws when an alive target has no wired sink', () => {
+	const head = new Node();
+	head.name = 'alive';
+
+	const t = new TapNode();
+	t.target = [ 'alive/workers' ];
+
+	expect( () => t.fill( newMessage() ) ).toThrow(
+		'fill requires a wired sink'
+	);
+} );
+
+test( 'fill suppresses a target that throws and still passes the original through', () => {
+	const head = new Node();
+	head.name = 'alive';
+
+	const seen = [];
+	const sink = new Node();
+	sink.fill = ( m ) => {
+		if ( 'alive/workers' === m[ TO ] ) {
+			throw new Error( 'boom' );
+		}
+		seen.push( [ ...m ] );
+	};
+
+	const t = new TapNode();
+	t.sink = sink;
+	t.target = [ 'alive/workers' ];
+	const warnings = [];
+	t.printLessOften = ( msg ) => warnings.push( msg );
+
+	const m = newMessage();
+	m[ TO ] = 'caller';
+	t.fill( m );
+
+	expect( warnings ).toEqual( [
+		'WARNING: target alive/workers threw: boom',
+	] );
+	expect( seen ).toHaveLength( 1 );
+	expect( seen[ 0 ][ TO ] ).toBe( 'caller' );
+} );
+
 test( 'fill passes the original message through to the sink', () => {
 	const seen = [];
 	const sink = new Node();

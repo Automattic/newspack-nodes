@@ -40,6 +40,9 @@ class TopologiesCITest extends TestCase {
 	private string $stock;
 	private string $user;
 
+	/** Read-only scratch dirs a test chmods 0500; tearDown restores 0700 and removes them (make_temp_dir does NOT auto-clean). */
+	private array $readonly_dirs = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->base_dir = $this->make_temp_dir( 'topologies-ci-' );
@@ -65,9 +68,17 @@ class TopologiesCITest extends TestCase {
 	protected function tearDown(): void {
 		VerbHarness::reset();
 		Topology_Registry::reset();
+		// Restore perms before removing — a 0500 dir can't have its contents unlinked.
+		foreach ( $this->readonly_dirs as $dir ) {
+			\chmod( $dir, 0700 );
+			$this->rmdir_recursive( $dir );
+		}
+		$this->readonly_dirs = [];
 		$this->rmdir_recursive( $this->stock );
 		$this->rmdir_recursive( $this->user );
 		$this->rmdir_recursive( $this->base_dir );
+		// Reset here too so an assertion failure mid-test can't leak it.
+		unset( $GLOBALS['_test_outbound_posts'] );
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$GLOBALS['_wp_actions']                = [];
 		// Restore env var to the bootstrap baseline so the next test's
@@ -719,6 +730,126 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( 'to-remove', $result['name'] );
 		$this->assertStringEndsWith( 'to-remove.tsl', $result['deleted'] );
+	}
+
+	public function test_get_reports_read_failure_when_resolved_file_is_unreadable(): void {
+		// resolve() succeeds (the file exists), but file_get_contents fails — the
+		// verb surfaces a read-failure error rather than returning an empty body.
+		$path = "{$this->stock}/unreadable.tsl";
+		\file_put_contents( $path, "make_node Echo e\n" );
+		\chmod( $path, 0000 );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'unreadable' );
+
+		\chmod( $path, 0644 );
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'failed to read topology file', $result );
+	}
+
+	public function test_save_rejects_when_no_writable_user_dir(): void {
+		Topology_Registry::register_user_dir( '' );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			'orphan ' . "make_node Echo e\n"
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'no writable user dir', $result );
+	}
+
+	public function test_save_reports_mkdir_failure_when_user_dir_path_is_blocked(): void {
+		// A regular file sits where a path segment of the user dir must be a
+		// directory, so the recursive mkdir can't create it.
+		$blocker = "{$this->base_dir}/blocker";
+		\file_put_contents( $blocker, 'x' );
+		Topology_Registry::register_user_dir( "{$blocker}/sub" );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			'fresh ' . "make_node Echo e\n"
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'failed to create user dir', $result );
+	}
+
+	public function test_save_reports_write_failure_into_readonly_user_dir(): void {
+		$readonly              = $this->make_temp_dir( 'topologies-ci-readonly-' );
+		$this->readonly_dirs[] = $readonly; // tearDown restores 0700 + removes it.
+		Topology_Registry::register_user_dir( $readonly );
+		\chmod( $readonly, 0500 );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			'fresh ' . "make_node Echo e\n"
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'failed to write topology file', $result );
+	}
+
+	public function test_delete_rejects_when_no_user_dir_configured(): void {
+		Topology_Registry::register_user_dir( '' );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'delete', 'whatever' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'no user dir configured', $result );
+	}
+
+	public function test_delete_reports_unlink_failure_when_user_dir_is_readonly(): void {
+		// The file exists (is_file passes through the dir's r-x bits), but the
+		// directory is read-only so the unlink can't remove it.
+		$readonly = $this->make_temp_dir( 'topologies-ci-locked-' );
+		\file_put_contents( "{$readonly}/stuck.tsl", "make_node Echo e\n" );
+		$this->readonly_dirs[] = $readonly; // tearDown restores 0700 + removes it.
+		Topology_Registry::register_user_dir( $readonly );
+		\chmod( $readonly, 0500 );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'delete', 'stuck' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'failed to unlink topology file', $result );
+	}
+
+	// ── activate / deactivate verbs ────────────────────────────────────────────
+
+	public function test_activate_adds_to_active_set_and_returns_spawn_count(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\nmake_node Echo e\n" );
+		$GLOBALS['_test_outbound_posts'] = [];
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
+
+		$this->assertSame( 'alpha', $result['name'] );
+		$this->assertTrue( $result['active'] );
+		$this->assertSame( 2, $result['spawned'] );
+		$this->assertContains( 'alpha', (array) \get_option( 'newspack_nodes_topologies', [] ) );
+	}
+
+	public function test_activate_rejects_unknown_topology(): void {
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'ghost' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'unknown topology', $result );
+	}
+
+	public function test_deactivate_removes_from_active_set(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo e\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
+		Config::reset();
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'deactivate', 'alpha' );
+
+		$this->assertSame( 'alpha', $result['name'] );
+		$this->assertFalse( $result['active'] );
+		$this->assertNotContains( 'alpha', (array) \get_option( 'newspack_nodes_topologies', [] ) );
 	}
 
 	public function test_delete_requires_manage_options(): void {

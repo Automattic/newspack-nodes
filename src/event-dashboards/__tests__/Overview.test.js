@@ -449,6 +449,219 @@ describe( 'Overview fold/unfold merge', () => {
 	} );
 } );
 
+describe( 'Overview — remaining interactions', () => {
+	it( 'lists stopped topologies alphabetically', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					{ name: 'zeta', source: 'stock', active: false },
+					{ name: 'alpha', source: 'stock', active: false },
+				],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		const names = [
+			...container.querySelectorAll(
+				'.nodes-overview__stopped .nodes-overview__name'
+			),
+		].map( ( n ) => n.textContent );
+		expect( names ).toEqual( [ 'alpha', 'zeta' ] );
+	} );
+
+	it( 'toggles a node-fold key on and off via onToggleFold', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		render( <Overview /> );
+		act( () => rowProps( 'alpha' ).onToggleFold( 'node-x' ) );
+		expect( rowProps( 'alpha' ).collapsed.has( 'node-x' ) ).toBe( true );
+		act( () => rowProps( 'alpha' ).onToggleFold( 'node-x' ) );
+		expect( rowProps( 'alpha' ).collapsed.has( 'node-x' ) ).toBe( false );
+	} );
+
+	it( 'portals the New Topology control into the header slot when one is provided', () => {
+		useTopologyManager.mockReturnValue( hookValue() );
+		const slot = document.createElement( 'div' );
+		document.body.appendChild( slot );
+		try {
+			render( <Overview headerControlsSlot={ slot } /> );
+			expect( slot.textContent ).toContain( '+ New Topology' );
+		} finally {
+			document.body.removeChild( slot );
+		}
+	} );
+
+	it( 'renders nothing into the header when the slot is still pending (null)', () => {
+		useTopologyManager.mockReturnValue( hookValue() );
+		const { queryByText } = render(
+			<Overview headerControlsSlot={ null } />
+		);
+		// A null slot means "pending" — the control is not rendered at all.
+		expect( queryByText( '+ New Topology' ) ).toBeNull();
+	} );
+
+	it( 'restarts the supervisor when its restart control is clicked', () => {
+		const restart = jest.fn();
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				supervisor: {
+					status: 'running',
+					started_at: 1000,
+					heartbeat_age: 2,
+					restart_pending: false,
+				},
+				restart,
+			} )
+		);
+		const { getByRole } = render( <Overview /> );
+		fireEvent.click( getByRole( 'button', { name: '↻' } ) );
+		expect( restart ).toHaveBeenCalledWith( 'supervisor' );
+	} );
+
+	it( 'dismisses the alert modal when its OK button is clicked', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		// A rejected mutation raises the alert via the row's onError handler.
+		act( () =>
+			rowProps( 'alpha' ).onError( { name: 'alpha', message: 'boom' } )
+		);
+		expect( container.querySelector( '.nodes-tm__alert' ) ).not.toBeNull();
+		fireEvent.click( container.querySelector( '.nodes-tm__alert-ok' ) );
+		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeNull();
+	} );
+
+	it( 'ignores a pointer move when no drag is in progress', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		const rafSpy = jest.spyOn( window, 'requestAnimationFrame' );
+		render( <Overview /> );
+		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 10 } ) );
+		// No drag → no animation frame scheduled.
+		expect( rafSpy ).not.toHaveBeenCalled();
+		rafSpy.mockRestore();
+	} );
+
+	it( 'ignores a pointer-up when no drag is in progress', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		render( <Overview /> );
+		overviewPrefs.writeOrder.mockClear();
+		act( () => rowProps( 'alpha' ).onGripPointerUp() );
+		// Early return → no reorder committed/persisted.
+		expect( overviewPrefs.writeOrder ).not.toHaveBeenCalled();
+	} );
+
+	it( 'coalesces rapid pointer moves into a single animation frame', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		// Schedule but never run the frame, so dragRafRef stays pending.
+		const rafSpy = jest
+			.spyOn( window, 'requestAnimationFrame' )
+			.mockImplementation( () => 7 );
+		render( <Overview /> );
+		act( () =>
+			rowProps( 'alpha' ).onGripPointerDown( 'alpha', {
+				preventDefault: jest.fn(),
+				pointerId: 1,
+				clientY: 50,
+				currentTarget: { setPointerCapture: jest.fn() },
+			} )
+		);
+		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 60 } ) );
+		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 70 } ) );
+		// The second move returns early because a frame is already pending.
+		expect( rafSpy ).toHaveBeenCalledTimes( 1 );
+		rafSpy.mockRestore();
+	} );
+
+	it( 'skips the drag frame when the dragged row is no longer present', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const rafSpy = jest
+			.spyOn( window, 'requestAnimationFrame' )
+			.mockImplementation( ( cb ) => {
+				cb();
+				return 1;
+			} );
+		const { container } = render( <Overview /> );
+		// Grab a name that matches no rendered row → from index is -1.
+		act( () =>
+			rowProps( 'alpha' ).onGripPointerDown( 'ghost', {
+				preventDefault: jest.fn(),
+				pointerId: 1,
+				clientY: 50,
+				currentTarget: { setPointerCapture: jest.fn() },
+			} )
+		);
+		expect( () =>
+			act( () =>
+				rowProps( 'alpha' ).onGripPointerMove( { clientY: 60 } )
+			)
+		).not.toThrow();
+		// The frame returned before applying any transform.
+		expect(
+			container.querySelector( '[data-topology-row="alpha"]' ).style
+				.transform
+		).toBe( '' );
+		rafSpy.mockRestore();
+	} );
+
+	it( 'cancels a pending drag frame when unmounting mid-drag', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		const rafSpy = jest
+			.spyOn( window, 'requestAnimationFrame' )
+			.mockImplementation( () => 7 );
+		const cancelSpy = jest
+			.spyOn( window, 'cancelAnimationFrame' )
+			.mockImplementation( () => {} );
+		const { unmount } = render( <Overview /> );
+		act( () =>
+			rowProps( 'alpha' ).onGripPointerDown( 'alpha', {
+				preventDefault: jest.fn(),
+				pointerId: 1,
+				clientY: 50,
+				currentTarget: { setPointerCapture: jest.fn() },
+			} )
+		);
+		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 60 } ) );
+		unmount();
+		expect( cancelSpy ).toHaveBeenCalledWith( 7 );
+		rafSpy.mockRestore();
+		cancelSpy.mockRestore();
+	} );
+} );
+
 describe( 'Overview persistence + drag-to-reorder', () => {
 	it( 'initializes the unfolded set from readExpanded()', () => {
 		overviewPrefs.readExpanded.mockReturnValue( new Set( [ 'alpha' ] ) );

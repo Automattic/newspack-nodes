@@ -43,6 +43,9 @@ class VaultCINodeTest extends TestCase {
 		\delete_option( Vault::OPTION_KEY );
 		Vault::get_instance()->reset_cache();
 		Vault_CI_Node::$http_call = null;
+		// Reset here too: a throw before the in-body unset would otherwise leave this
+		// stub overriding wp_remote_post for every later test.
+		unset( $GLOBALS['_wp_test_remote_post_response'] );
 		parent::tearDown();
 	}
 
@@ -218,6 +221,207 @@ class VaultCINodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 	// schema
 	// ---------------------------------------------------------------------
+
+	// ---------------------------------------------------------------------
+	// not-found / bad-argument throw paths across the verbs.
+	// ---------------------------------------------------------------------
+
+	public function test_get_throws_on_unknown_server(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'ghost' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'server not found: ghost', $out );
+	}
+
+	public function test_get_throws_when_id_missing(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'id required', $out );
+	}
+
+	public function test_add_throws_on_invalid_id(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'bad!id --url=https://e.com' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'invalid server id', $out );
+	}
+
+	public function test_add_throws_when_server_already_exists(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'server already exists: spoke1', $out );
+	}
+
+	public function test_add_throws_when_registry_rejects_config(): void {
+		// Valid id, no collision, but a non-HTTPS URL trips validate_config.
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=http://insecure.example' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'add failed', $out );
+	}
+
+	public function test_update_throws_when_id_missing(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', '--url=https://e.com' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'id required', $out );
+	}
+
+	public function test_update_throws_on_unknown_server(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'ghost --url=https://e.com' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'server not found: ghost', $out );
+	}
+
+	public function test_update_throws_when_registry_rejects(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		// Downgrading to a non-HTTPS URL fails validate_config → registry returns false.
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --url=http://insecure.example' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'update failed', $out );
+	}
+
+	public function test_delete_throws_on_unknown_server(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'ghost' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'server not found: ghost', $out );
+	}
+
+	public function test_delete_throws_for_config_file_server(): void {
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
+		$ref->setValue( null, [ 'vault' => [ 'cfg' => [ 'url' => 'https://pinned.example' ] ] ] );
+		Vault::get_instance()->reset_cache();
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'cfg' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'delete failed', $out );
+		\Newspack_Nodes\Config::reset();
+	}
+
+	public function test_test_verb_throws_on_unknown_server(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'ghost' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'server not found: ghost', $out );
+	}
+
+	// ---------------------------------------------------------------------
+	// probe_remote — default wp_remote_post closure + response classification.
+	// ---------------------------------------------------------------------
+
+	public function test_test_verb_uses_default_wp_remote_post_when_no_seam(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		// Leave $http_call null so probe_remote falls through to its lazily
+		// defaulted wp_remote_post wrapper; the stub returns a real envelope.
+		$reply = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => [ 'lag' => 7 ] ];
+		$GLOBALS['_wp_test_remote_post_response'] = [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		unset( $GLOBALS['_wp_test_remote_post_response'] );
+		$this->assertIsArray( $out );
+		$this->assertSame( 'connected', $out['status'] );
+		$this->assertSame( 7, $out['response']['lag'] );
+	}
+
+	public function test_test_verb_errors_when_transport_returns_wp_error(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		Vault_CI_Node::$http_call = static fn ( string $url, array $args ): \WP_Error =>
+			new \WP_Error( 'http_request_failed', 'down' );
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'could not connect', $out );
+	}
+
+	public function test_test_verb_errors_on_malformed_envelope(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		Vault_CI_Node::$http_call = static fn ( string $url, array $args ): array =>
+			[ 'response' => [ 'code' => 200 ], 'body' => '"just-a-string"' ];
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'malformed command envelope', $out );
+	}
+
+	public function test_test_verb_errors_when_server_returns_tm_error(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+			$reply = Message::new_message();
+			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+			$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => 'boom' ];
+			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+		};
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'TM_ERROR', $out );
+	}
+
+	public function test_test_verb_errors_on_malformed_command_response(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+			$reply = Message::new_message();
+			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+			$reply[ Message::VALUE ] = [ 'name' => 'get' ]; // no `payload` key.
+			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+		};
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'malformed command response', $out );
+	}
+
+	public function test_test_verb_errors_on_non_array_payload(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+			$reply = Message::new_message();
+			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+			$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => 'not-an-array' ];
+			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+		};
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'non-JSON discovery payload', $out );
+	}
+
+	public function test_test_verb_whitelists_hooks_events_and_lag(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+			$reply = Message::new_message();
+			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+			$reply[ Message::VALUE ] = [
+				'name'    => 'get',
+				'payload' => [
+					'registered_hooks' => [ 'hook_a', 42, 'hook_b' ], // non-strings filtered out.
+					'custom_events'    => [ 'evt_a' ],
+					'lag'              => '12',                        // coerced to int.
+					'secret'           => 'should-not-surface',       // not whitelisted.
+				],
+			];
+			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+		};
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		$this->assertIsArray( $out );
+		$this->assertSame( [ 'hook_a', 'hook_b' ], $out['response']['registered_hooks'] );
+		$this->assertSame( [ 'evt_a' ], $out['response']['custom_events'] );
+		$this->assertSame( 12, $out['response']['lag'] );
+		$this->assertArrayNotHasKey( 'secret', $out['response'] );
+	}
 
 	public function test_node_schema_lists_verbs_without_logs_arg(): void {
 		$verbs = [];

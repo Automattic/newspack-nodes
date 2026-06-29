@@ -77,6 +77,26 @@ describe( 'SliceViewNode', () => {
 		expect( v.setStateCache.view.error ).toMatch( /NOT_AVAILABLE/ );
 	} );
 
+	test( 'the base emptySlice is an empty object', () => {
+		// Exercised through the base directly (no subclass override of
+		// emptySlice), which the constructor publishes as the initial view.
+		expect( new SliceViewNode().setStateCache.view ).toEqual( {} );
+	} );
+
+	test( 'an object reply whose payload is not a string keeps the prior slice', () => {
+		const v = makeView();
+		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
+		v.fill( reply( 12345 ) );
+		expect( v.setStateCache.view ).toEqual( { sources: { a: 1 } } );
+	} );
+
+	test( 'an object reply whose payload is invalid JSON keeps the prior slice', () => {
+		const v = makeView();
+		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
+		v.fill( reply( '{not valid json' ) );
+		expect( v.setStateCache.view ).toEqual( { sources: { a: 1 } } );
+	} );
+
 	test( 'a non-error unparseable string reply keeps the prior slice', () => {
 		const v = makeView();
 		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
