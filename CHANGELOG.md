@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-06-29
+
 ### Fixed
 
 - **The topology console ("hub console") now persists its REPL transcript** the same way the debug overlay does, so switching workers, Reset Graph, or a page reload no longer wipes it. The transcript lived only in the in-memory `_output` Dumper, which `useConsoleGraph`'s build effect tears down (`removeNode`) on any worker switch / topology start-stop / generation bump. It now restores from and saves to `localStorage` under its OWN key (`newspack-nodes:console:hub-transcript`), kept separate from the overlay's so the worker-realm and local-realm transcripts never clobber each other.
