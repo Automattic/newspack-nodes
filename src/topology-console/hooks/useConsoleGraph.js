@@ -27,8 +27,14 @@ import { getCommandClient } from '../utils/commandClient';
 import { useTopology } from './useTopologyList';
 import { parseTsl } from '../utils/parseTsl';
 import { scopeFromCwd } from '../utils/scope';
+import {
+	loadHubTranscript,
+	saveHubTranscript,
+} from '../core/consolePersistence';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
+
+const EMPTY_TRANSCRIPT = [];
 
 /**
  * @param {Object}   params
@@ -109,6 +115,13 @@ export function useConsoleGraph( {
 		dumper.debugLevelRef = debugLevelRefRef.current;
 		dumper.name = names.OUTPUT;
 		dumper.sink = interpreter;
+		// Persist+restore the transcript [87] (overlay pattern) or the teardown removeNode below drops it on every worker switch / Reset Graph / reload.
+		const transcriptListenerId = 'useConsoleGraph/transcript';
+		dumper.register( 'transcript', transcriptListenerId, ( next ) => {
+			saveHubTranscript( next || EMPTY_TRANSCRIPT );
+			return true;
+		} );
+		dumper.restore( loadHubTranscript() );
 		// Substrate soft-nodes (registered in includeNodes) via make_node:
 		// name + sink=interpreter + arguments in one call.
 		const metadata = interpreter.makeNode( 'Metadata', names.METADATA );
@@ -254,6 +267,8 @@ export function useConsoleGraph( {
 			// TIMER set — so a closure can't outlive the node. The RemoteIpcs close
 			// their streams + tear down their children (and clear the active claim).
 			// Before teardownSpine so the router still exists when those nodes unregister.
+			// Unregister before removeNode so teardown can't persist an empty transcript over the good one.
+			dumper.unregister( 'transcript', transcriptListenerId );
 			dumper.removeNode();
 			metadata.removeNode();
 			uptime.removeNode();

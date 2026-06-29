@@ -13,6 +13,8 @@ import { TRANSCRIPT_MAX } from '../../runtime/dumper-node';
 
 const NS = 'newspack-nodes:console:';
 const TRANSCRIPT_KEY = `${ NS }transcript`;
+// Separate key from the overlay's so the hub's worker-realm transcript and the overlay's local one never clobber each other.
+const HUB_TRANSCRIPT_KEY = `${ NS }hub-transcript`;
 const HISTORY_KEY = `${ NS }history`;
 const DEBUG_LEVEL_KEY = `${ NS }debug-level`;
 const DEBUG_STATE_KEY = `${ NS }debug-state`;
@@ -61,15 +63,27 @@ function readInt( key ) {
 	return Number.isFinite( n ) ? n : 0;
 }
 
+function saveTranscriptTo( key, entries ) {
+	write(
+		key,
+		JSON.stringify( ( entries || [] ).slice( -MAX_PERSISTED_TRANSCRIPT ) )
+	);
+}
+
 export function loadTranscript() {
 	return readArray( TRANSCRIPT_KEY );
 }
 
 export function saveTranscript( entries ) {
-	write(
-		TRANSCRIPT_KEY,
-		JSON.stringify( ( entries || [] ).slice( -MAX_PERSISTED_TRANSCRIPT ) )
-	);
+	saveTranscriptTo( TRANSCRIPT_KEY, entries );
+}
+
+export function loadHubTranscript() {
+	return readArray( HUB_TRANSCRIPT_KEY );
+}
+
+export function saveHubTranscript( entries ) {
+	saveTranscriptTo( HUB_TRANSCRIPT_KEY, entries );
 }
 
 export function loadHistory() {
