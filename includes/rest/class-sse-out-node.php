@@ -66,15 +66,6 @@ class SSE_Out_Node extends Node {
 	private ?int $num_partitions = null;
 
 	/**
-	 * `Cli::attach_to_worker` seam. Lazily defaulted; tests reassign in setUp.
-	 *
-	 * Signature: `function ( string $worker_id, string $base_dir ): array`.
-	 *
-	 * @var \Closure(string, string): array{input:string,output:string,type:string,partition:int}|null
-	 */
-	public static ?\Closure $attach_to_worker = null;
-
-	/**
 	 * SSE slot-pool seams. The application wires these in to gate concurrent
 	 * SSE connections; unset → acquire returns slot 1, release/check are no-ops.
 	 *
@@ -375,52 +366,25 @@ class SSE_Out_Node extends Node {
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
+		# XXX: This violates "Partition token is layout-agnostic" (feedback_partition_token_layout_agnostic.md)
 		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
-			/** @var \Closure(string, string): array{input:string,output:string,type:string,partition:int} $attach */
-			$attach = self::$attach_to_worker ?? static function ( string $worker_id, string $base_dir ): array {
-				return ( new CLI( $base_dir ) )->attach_to_worker( $worker_id );
-			};
-			try {
-				$ipc = $attach( $sub, $base );
-				// Empty offsetlog_base_dir disables checkpointing — ephemeral sessions tail-seek.
+			$ipc_output = "{$base}/ipc/{$sub}/output";
+			if ( \is_dir( $ipc_output ) ) {
 				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$ipc['output']} " );
+				$consumer->arguments( "{$ipc_output} " );
 				$consumer->next_offset( 'end' );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
-			} catch ( \InvalidArgumentException $e ) {
-				// No live worker (no lock dir). If its IPC output dir still exists, the
-				// worker is down-but-restarting (e.g. mid fleet-restart): tail THAT so
-				// the session re-binds when the worker respawns and appends replies —
-				// the live console recovers without a page reload / topology switch.
-				$ipc_output = "{$base}/ipc/{$sub}/output";
-				if ( \is_dir( $ipc_output ) ) {
-					$consumer = new Consumer_Node();
-					$consumer->arguments( "{$ipc_output} " );
-					$consumer->next_offset( 'end' );
-					$consumer->set_stamp_as( $sub );
-					return [ $consumer ];
-				}
-				// Genuinely no worker IPC — fall through to the log-file path. This is the
-				// aggregator hub's path: `firehose.p0` has no worker but a log dir exists.
-				// PRECEDENCE: a concrete log-partition name (`firehose.p0`) reaches the
-				// log feed ONLY via this fallback — the IPC `{type}.p{N}` branch above
-				// matches it FIRST. This relies on worker types never colliding with a
-				// registered producer basename; a collision would silently tail worker
-				// IPC instead of the log.
-				// `$sub` IS the opaque concrete-partition dir name; tail it directly
-				// and resume from its position keyed by that same name (the FROM
-				// stamp) — no `.p{N}` split, layout-agnostic.
-				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$base}/logs/{$sub} " );
-				if ( isset( $positions[ $sub ] ) ) {
-					$consumer->next_offset( self::position_arg( $positions[ $sub ] ) );
-				} else {
-					$consumer->next_offset( 'end' );
-				}
-				$consumer->set_stamp_as( $sub );
-				return [ $consumer ];
 			}
+			$consumer = new Consumer_Node();
+			$consumer->arguments( "{$base}/logs/{$sub} " );
+			if ( isset( $positions[ $sub ] ) ) {
+				$consumer->next_offset( self::position_arg( $positions[ $sub ] ) );
+			} else {
+				$consumer->next_offset( 'end' );
+			}
+			$consumer->set_stamp_as( $sub );
+			return [ $consumer ];
 		}
 
 		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
