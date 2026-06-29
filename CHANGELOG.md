@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-06-29
+
 ### Added
 
 - **Offsetlog checkpoint frames carry a per-cursor attempt counter (dead-letter [42], foundation).** Each frame now records `attempts` (1 = healthy baseline, 0 = graceful-shutdown handoff at an un-attempted cursor), plus `reason` and `first_crash_ts`. `Consumer_Node::load_offsetlog()` resumes at `attempts + 1`, so a cursor a worker keeps crashing on climbs each respawn while a clean recycle stays at the baseline. The boot bump is written **statelessly before** `restore_state()` (so a restore crash still advances the counter) and the snapshot cache is **re-committed after** a successful restore. A crash streak older than `STATE_WIPE_AFTER_S` (900s) discards the resumable snapshot cache (corrupt state, not a poison message). No thresholds act on the counter yet — that lands with the later slices.
