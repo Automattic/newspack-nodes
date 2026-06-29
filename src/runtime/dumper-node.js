@@ -205,6 +205,18 @@ export class DumperNode extends Node {
 		this.setState( 'transcript', this._transcript );
 	}
 
+	// Seed the transcript from a persisted snapshot [87] — caps to the most-recent
+	// TRANSCRIPT_MAX and notifies subscribers, so a reopened console shows recent
+	// history and later appends build on it.
+	restore( entries ) {
+		const list = Array.isArray( entries ) ? entries : [];
+		this._transcript =
+			list.length > TRANSCRIPT_MAX
+				? list.slice( list.length - TRANSCRIPT_MAX )
+				: list;
+		this.setState( 'transcript', this._transcript );
+	}
+
 	// Empty the transcript (the `clear` builtin); emits a fresh empty array.
 	clear() {
 		this._transcript = [];

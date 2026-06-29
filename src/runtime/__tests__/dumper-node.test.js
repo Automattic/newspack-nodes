@@ -327,6 +327,39 @@ describe( 'Dumper node — append / clear', () => {
 		dumper.clear();
 		expect( dumper.setStateCache.transcript ).toEqual( [] );
 	} );
+
+	it( 'restore() seeds a persisted transcript, notifies, and appends build on it [87]', () => {
+		const { dumper } = makeDumper();
+		dumper.restore( [
+			{ kind: 'sent', text: 'a' },
+			{ kind: 'recv', text: 'b' },
+		] );
+		expect( dumper.setStateCache.transcript ).toHaveLength( 2 );
+		expect( dumper.setStateCache.transcript[ 1 ].text ).toBe( 'b' );
+		// A later append builds on the restored transcript, not a fresh one.
+		dumper.append( { kind: 'sent', text: 'c' } );
+		expect(
+			dumper.setStateCache.transcript.map( ( e ) => e.text )
+		).toEqual( [ 'a', 'b', 'c' ] );
+	} );
+
+	it( 'restore() caps a too-long persisted transcript to TRANSCRIPT_MAX [87]', () => {
+		const { dumper } = makeDumper();
+		const huge = Array.from(
+			{ length: TRANSCRIPT_MAX + 25 },
+			( _, i ) => ( {
+				kind: 'recv',
+				text: `n${ i }`,
+			} )
+		);
+		dumper.restore( huge );
+		expect( dumper.setStateCache.transcript ).toHaveLength(
+			TRANSCRIPT_MAX
+		);
+		expect(
+			dumper.setStateCache.transcript[ TRANSCRIPT_MAX - 1 ].text
+		).toBe( `n${ TRANSCRIPT_MAX + 24 }` );
+	} );
 } );
 
 describe( 'Dumper — no-arg ctor + public-property dep', () => {

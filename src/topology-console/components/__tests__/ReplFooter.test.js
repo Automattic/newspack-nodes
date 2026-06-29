@@ -24,6 +24,27 @@ describe( 'ReplFooter', () => {
 		window.localStorage.clear();
 	} );
 
+	it( 'persists command history to localStorage and recalls it on remount [87]', () => {
+		const { container, unmount } = render(
+			<ReplFooter { ...baseProps } />
+		);
+		const input = findInput( container );
+		fireEvent.change( input, { target: { value: 'tail firehose' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect(
+			JSON.parse(
+				window.localStorage.getItem( 'newspack-nodes:console:history' )
+			)
+		).toContain( 'tail firehose' );
+		unmount();
+
+		// A fresh mount loads the persisted history → ArrowUp recalls the last command.
+		const { container: c2 } = render( <ReplFooter { ...baseProps } /> );
+		const input2 = findInput( c2 );
+		fireEvent.keyDown( input2, { key: 'ArrowUp' } );
+		expect( input2.value ).toBe( 'tail firehose' );
+	} );
+
 	it( 'renders the cwd prompt it is given', () => {
 		const { container } = render( <ReplFooter { ...baseProps } /> );
 		const prompt = container.querySelector( '.topology-repl__prompt' );

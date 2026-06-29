@@ -13,6 +13,14 @@ import { useGraphGeneration } from '../runtime/react';
 import { LOCAL, FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import { THEMES, getStoredTheme } from '../topology-console/themes';
+import {
+	loadTranscript,
+	saveTranscript,
+	loadDebugLevel,
+	saveDebugLevel,
+	loadDebugState,
+	saveDebugState,
+} from '../topology-console/core/consolePersistence';
 
 const EMPTY_TRANSCRIPT = [];
 
@@ -47,8 +55,15 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 	const listenerId = 'useDebugRepl/transcript';
 	dumper.register( 'transcript', listenerId, ( next ) => {
 		onTranscript( next || EMPTY_TRANSCRIPT );
+		saveTranscript( next || EMPTY_TRANSCRIPT ); // persist recent transcript [87].
 		return true;
 	} );
+	// Seed the recent transcript + the browser interpreter's debug_state from the
+	// last session [87], so reopening the console restores where you left off.
+	dumper.restore( loadTranscript() );
+	if ( interpreter ) {
+		interpreter.debugState = loadDebugState();
+	}
 	let completion;
 	let metadata;
 	let cwdNode;
@@ -101,7 +116,11 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.
 	const shellRef = useRef( null );
 	const dumperRef = useRef( null );
-	const debugLevelRef = useRef( 0 );
+	// Seeded from localStorage so verbosity survives a reload [87].
+	const debugLevelRef = useRef( loadDebugLevel() );
+	// The browser interpreter's last-persisted debug_state, so sendLine only writes
+	// storage when a REPL command actually changed it [87].
+	const lastDebugStateRef = useRef( loadDebugState() );
 	// Held in a ref so the []-dep dispatchStatement always calls the live skin
 	// applier without rebuilding the callback.
 	const onSetSkinRef = useRef( onSetSkin );
@@ -109,6 +128,10 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Transcript mirror — driven by a `transcript` subscription on the Dumper so
 	// every append/clear re-renders the prompt subscribers. Defaults to empty so
 	// the first render before infra is built shows a stable empty list.
+	// Single source: the Dumper holds the transcript and drives this mirror via its
+	// `transcript` subscription. buildInfra restores the persisted transcript into
+	// the Dumper, which notifies this setter — so we start empty here, not from
+	// storage, to avoid seeding the same data twice [87].
 	const [ transcript, setTranscript ] = useState( EMPTY_TRANSCRIPT );
 	// cwd reflects the live Shell.path; re-rendered after every dispatch so the
 	// Header path selector + _cwd.target both follow REPL `cd` commands.
@@ -225,6 +248,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			append: ( entry ) => dumper.append( entry ),
 			clear: () => dumper.clear(),
 			debugLevelRef,
+			onDebugLevel: saveDebugLevel, // persist verbosity across reloads [87].
 			setSkin: onSetSkinRef.current,
 			skins: THEMES,
 			currentSkin: getStoredTheme(),
@@ -245,6 +269,14 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 					cwdNode.target = s.path;
 				}
 				setCwd( s.path );
+			}
+			// A `debug_state` verb mutates the browser interpreter directly; persist
+			// the new value when it changed so it survives a reload [87].
+			const ci = Core.node( names.COMMAND_INTERPRETER );
+			const ds = ci ? ci.debugState ?? 0 : 0;
+			if ( ds !== lastDebugStateRef.current ) {
+				lastDebugStateRef.current = ds;
+				saveDebugState( ds );
 			}
 		},
 		[ dispatchStatement, cwd ]
