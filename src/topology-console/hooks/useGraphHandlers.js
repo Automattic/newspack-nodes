@@ -11,6 +11,7 @@ import {
 	TM_REQUEST,
 } from '../../runtime/message';
 import { generateNodeName } from '../utils/draftGraph';
+import { quoteToken } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
 import { canonicalReplyPivot } from '../../runtime/metadata-node';
@@ -196,10 +197,27 @@ export function useGraphHandlers( {
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( 'send_struct' === action ) {
+					// Quote the JSON so the console's quote-aware tokenizer (which strips
+					// quotes and has no escape) delivers it to send_struct intact, instead
+					// of shredding the unquoted JSON into a JSON.parse error [#32].
+					const json = quoteToken( payload );
+					if ( null === json ) {
+						// Value carries ', ` AND " — unrepresentable through the tokenizer.
+						// Say so honestly instead of dispatching a doomed line that would
+						// blame the (valid) JSON with a parse error.
+						append( {
+							kind: 'error',
+							text: __(
+								"send_struct: value contains every quote char (', `, \") and can't be encoded for the shell — paste it at the prompt instead.",
+								'newspack-nodes'
+							),
+						} );
+						return;
+					}
 					dispatch(
-						`send_struct ${ nodeId } ${ payload }`,
+						`send_struct ${ nodeId } ${ json }`,
 						'send_struct',
-						`${ nodeId } ${ payload }`
+						`${ nodeId } ${ json }`
 					);
 				} else if ( 'register' === action || 'unregister' === action ) {
 					// payload is `<target> <event>`; the verb is

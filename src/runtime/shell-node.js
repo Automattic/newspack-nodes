@@ -75,6 +75,29 @@ export function tokenize( line ) {
 }
 
 /**
+ * Inverse of tokenize() for a SINGLE token: wrap a value in a quote char it does
+ * not contain, so tokenize() delivers it back as one intact token (the tokenizer
+ * strips quotes and has no escape, so the wrapper must simply be absent from the
+ * value). Used by the message composer to send JSON to `send_struct` without the
+ * caller hand-escaping it [#32]: JSON always carries `"`, so prefer `'`, then a
+ * backtick. A value containing ALL three quote chars can't be represented by a
+ * tokenizer with no escape, so it returns null — the caller surfaces that honestly
+ * rather than emitting a token that silently re-tokenizes wrong.
+ *
+ * @param {string} value The token to quote (e.g. a JSON string).
+ * @return {string|null} The value wrapped in a safe quote char, or null if none exists.
+ */
+export function quoteToken( value ) {
+	const s = String( value );
+	for ( const q of [ "'", '`', '"' ] ) {
+		if ( ! s.includes( q ) ) {
+			return `${ q }${ s }${ q }`;
+		}
+	}
+	return null;
+}
+
+/**
  * Split a typed line on unquoted `;` into statements (quotes shield interior
  * `;`). Mirrors PHP Shell_Node::split_statements for a single line.
  *

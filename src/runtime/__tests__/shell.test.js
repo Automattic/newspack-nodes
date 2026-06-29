@@ -5,7 +5,12 @@
  * the verb vocabulary of the substrate PHP Shell + the old utils/shell.js.
  */
 
-import { ShellNode, splitStatements } from '../shell-node';
+import {
+	ShellNode,
+	splitStatements,
+	tokenize,
+	quoteToken,
+} from '../shell-node';
 import { Node } from '../node';
 import {
 	TYPE,
@@ -33,6 +38,34 @@ function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
 	shell.sink = sink;
 	return { shell, filled };
 }
+
+describe( 'quoteToken — tokenizer inverse for one intact token [#32]', () => {
+	it( 'wraps a JSON value so tokenize() returns it as a single token', () => {
+		const json = '{ "foo": "bar", "n": 3 }';
+		// Bare JSON shreds: the tokenizer strips the " quotes and splits on spaces.
+		expect( tokenize( json ).length ).toBeGreaterThan( 1 );
+		// Quoted, it survives as one token (quote char stripped → original JSON).
+		expect( tokenize( quoteToken( json ) ) ).toEqual( [ json ] );
+	} );
+
+	it( 'uses a backtick when the value itself contains a single quote', () => {
+		const v = '{ "msg": "it\'s here" }';
+		expect( quoteToken( v ) ).toBe( '`' + v + '`' );
+		expect( tokenize( quoteToken( v ) ) ).toEqual( [ v ] );
+	} );
+
+	it( 'prefers a single quote for ordinary double-quoted JSON', () => {
+		const json = '{"a":1}';
+		expect( quoteToken( json ) ).toBe( "'" + json + "'" );
+	} );
+
+	it( 'returns null when the value contains every quote char (not representable)', () => {
+		// The tokenizer has no escape, so a value carrying ', `, AND " can't be wrapped
+		// in any single quote char — quoteToken reports that honestly rather than
+		// best-efforting into a token that re-tokenizes wrong.
+		expect( quoteToken( 'a\'b`c"d' ) ).toBeNull();
+	} );
+} );
 
 describe( 'Shell node — cd navigation', () => {
 	it( 'cd / drops to the browser-internal graph root (empty path)', () => {

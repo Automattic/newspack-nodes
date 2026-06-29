@@ -235,6 +235,31 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
+	it( 'onInspectorAction send_struct shell-quotes JSON containing spaces so the tokenizer keeps it intact [#32]', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		const json = '{ "foo": "bar" }';
+		result.current.onInspectorAction( 'send_struct', '_output', json );
+		// The composed line wraps the spaced JSON in one quoted token (the
+		// quoteToken↔tokenize round-trip itself is covered in shell.test.js).
+		expect( dispatch.mock.calls[ 0 ][ 0 ] ).toBe(
+			`send_struct _output '${ json }'`
+		);
+	} );
+
+	it( 'onInspectorAction send_struct surfaces an honest error for unquotable JSON, not a misleading parse failure [#32]', () => {
+		const { result, dispatch, append } = renderHandlers( {} );
+		// Contains ', ` AND " — no safe shell wrapper exists.
+		result.current.onInspectorAction(
+			'send_struct',
+			'_output',
+			'{"x":"a\'b`c"}'
+		);
+		expect( dispatch ).not.toHaveBeenCalled();
+		expect( append ).toHaveBeenCalledWith(
+			expect.objectContaining( { kind: 'error' } )
+		);
+	} );
+
 	it( 'onInspectorAction send_eof dispatches send_eof', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'send_eof', 'a', '' );
@@ -255,13 +280,14 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
-	it( 'onInspectorAction send_struct dispatches send_struct with the JSON payload', () => {
+	it( 'onInspectorAction send_struct dispatches send_struct with the (quoted) JSON payload', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'send_struct', 'a', '{"k":1}' );
+		// The JSON is single-quoted so the tokenizer keeps it as one token [#32].
 		expect( dispatch ).toHaveBeenCalledWith(
-			'send_struct a {"k":1}',
+			`send_struct a '{"k":1}'`,
 			'send_struct',
-			'a {"k":1}'
+			`a '{"k":1}'`
 		);
 	} );
 
