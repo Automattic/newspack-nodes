@@ -51,6 +51,9 @@ class Config {
 				if ( 'offsets_dir' === $key ) {
 					return \rtrim( self::get_base_directory(), '/' ) . '/offsets';
 				}
+				if ( 'deadletter_dir' === $key ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/deadletter';
+				}
 				$cfg = self::load_config();
 				return $cfg[ $key ] ?? null;
 			}

@@ -73,6 +73,12 @@ class ConfigTokenResolverTest extends TestCase {
 		$this->assertStringEndsWith( '/offsets', Core::resolve_config_token( 'config', 'offsets_dir' ) );
 	}
 
+	public function test_substrate_config_namespace_resolves_deadletter_dir(): void {
+		// Topologies wire poison quarantine via <config:deadletter_dir>/... (dead-letter [42]).
+		Config::register_token_namespace();
+		$this->assertStringEndsWith( '/deadletter', Core::resolve_config_token( 'config', 'deadletter_dir' ) );
+	}
+
 	public function test_substrate_config_namespace_resolves_config_value_as_string(): void {
 		Config::register_token_namespace();
 		// num_partitions is 1 in the test config; tokens always resolve to strings.

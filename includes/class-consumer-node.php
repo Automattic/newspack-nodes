@@ -101,6 +101,19 @@ class Consumer_Node extends Timer_Node {
 	/** Null when constructed with empty $offsetlog_dir (ephemeral readers skip durable cursors). */
 	protected ?Partition_Node $offsetlog = null;
 
+	/**
+	 * Quarantine dir for poison messages (dead-letter [42]); '' = no DLQ (log + drop).
+	 * The Consumer is the sole writer of its DLQ sibling, so it lifts the PIPE_BUF cap
+	 * (a poison message can exceed it).
+	 */
+	protected string $deadletter_dir = '';
+	/** Null when $deadletter_dir is empty — poison is logged and dropped instead of quarantined. */
+	protected ?Partition_Node $deadletter = null;
+
+	/** DLQ sibling retention: 1 MiB segments × 16, rotate by count (no time-based aging). */
+	public const DEADLETTER_SEGMENT_SIZE = 1048576;
+	public const DEADLETTER_NUM_SEGMENTS = 16;
+
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
 
@@ -203,6 +216,21 @@ class Consumer_Node extends Timer_Node {
 			$this->offsetlog->patron( $this );
 		} else {
 			$this->offsetlog = null;
+		}
+
+		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
+		if ( '' !== $this->deadletter_dir ) {
+			$this->deadletter = new Partition_Node();
+			if ( '' !== $this->name ) {
+				$this->deadletter->name( "{$this->name}:deadletter" );
+			}
+			$this->deadletter->arguments( implode( ' ', [ "{$this->deadletter_dir}", self::DEADLETTER_SEGMENT_SIZE, self::DEADLETTER_NUM_SEGMENTS ] ) );
+			$this->deadletter->sink( $this->sink );
+			$this->deadletter->patron( $this );
+			// Sole writer (this Consumer), so quarantine poison larger than PIPE_BUF.
+			$this->deadletter->void_warranty();
+		} else {
+			$this->deadletter = null;
 		}
 
 		// No I/O at construction: the first poll loads the durable cursor and
@@ -847,7 +875,45 @@ class Consumer_Node extends Timer_Node {
 			$message[ Message::TO ] = $this->target;
 		}
 		++$this->counter;
-		$this->sink?->fill( $message );
+		try {
+			$this->sink?->fill( $message );
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e; // Cooperative stop is control flow, not a poison message — must escape.
+		} catch ( \Throwable $e ) {
+			$this->dead_letter( $message, 'throw', $e );
+		}
+	}
+
+	/**
+	 * Quarantine a poison message: write the (replayable) original to the :deadletter
+	 * sibling when one is configured, else log + drop. Always emits a rate-limited
+	 * alert carrying the why (reason, source breadcrumb, error) — durable via
+	 * Core::stderr's error_log, so the give-up is never silent. The caller advances
+	 * the cursor past the line regardless, so poison can't wedge the partition.
+	 *
+	 * Replay is `wp nodes ingest <topic> <deadletter-segment>`, which re-`fill()`s each
+	 * stored message verbatim — so the entry is the original message, not a wrapper.
+	 *
+	 * @param array<int, mixed> $message The poison Message (positional).
+	 */
+	protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
+		$where   = Core::as_string( $message[ Message::ID ] ?? '' );
+		$why     = null === $error ? '' : ': ' . $error->getMessage();
+		$outcome = 'dropped (no deadletter_dir)';
+		if ( null !== $this->deadletter ) {
+			try {
+				$this->deadletter->fill( $message );
+				$this->deadletter->flush();
+				$outcome = 'quarantined';
+			} catch ( Worker_Should_Stop $e ) {
+				throw $e; // A stop during the DLQ write still escapes; poison re-quarantines on respawn.
+			} catch ( \Throwable $e ) {
+				// Quarantine itself failed (disk full / I/O). Drop the poison and let the
+				// cursor advance — re-wedging here would loop the partition forever.
+				$outcome = 'DROP — deadletter write failed: ' . $e->getMessage();
+			}
+		}
+		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at {$where} — {$outcome}{$why}" );
 	}
 
 	/** DoS guard for a partial line that never terminates: discard once it can't fit a real line. */
@@ -1082,11 +1148,15 @@ class Consumer_Node extends Timer_Node {
 		if ( null !== $this->offsetlog && null !== Core::node( "{$name}:offsetlog" ) ) {
 			throw new \RuntimeException( \esc_html( "node name collision: {$name}:offsetlog already registered" ) );
 		}
+		if ( null !== $this->deadletter && null !== Core::node( "{$name}:deadletter" ) ) {
+			throw new \RuntimeException( \esc_html( "node name collision: {$name}:deadletter already registered" ) );
+		}
 	}
 
 	protected function set_sibling_names( ?string $name = null ): void {
 		$this->source?->name( "{$name}:source" );
 		$this->offsetlog?->name( "{$name}:offsetlog" );
+		$this->deadletter?->name( "{$name}:deadletter" );
 		parent::set_sibling_names( $name );
 	}
 
@@ -1097,6 +1167,9 @@ class Consumer_Node extends Timer_Node {
 			}
 			if ( null !== $this->offsetlog ) {
 				$this->offsetlog->sink( $node );
+			}
+			if ( null !== $this->deadletter ) {
+				$this->deadletter->sink( $node );
 			}
 			return parent::sink( $node );
 		}
@@ -1109,6 +1182,9 @@ class Consumer_Node extends Timer_Node {
 		}
 		if ( null !== $this->offsetlog ) {
 			$this->offsetlog->remove_node();
+		}
+		if ( null !== $this->deadletter ) {
+			$this->deadletter->remove_node();
 		}
 		parent::remove_node();
 	}
@@ -1201,8 +1277,9 @@ class Consumer_Node extends Timer_Node {
 			'category'    => 'I/O',
 			'description' => 'Tails a Partition; emits each appended message to its sink.',
 			'arguments'        => [
-				[ 'name' => 'source_dir',    'type' => 'string', 'required' => true ],
-				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'default' => '' ],
+				[ 'name' => 'source_dir',     'type' => 'string', 'required' => true ],
+				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '' ],
+				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '' ],
 			],
 			'commands'    => [
 				[

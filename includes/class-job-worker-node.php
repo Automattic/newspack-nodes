@@ -153,24 +153,30 @@ class Job_Worker_Node extends Node {
 		}
 		$parameters = $entry['parameters'] ?? [];
 
-		// Per-job discipline. Applications hook request-scoped context (suspend a
-		// parent logger, rewrite $_SERVER, etc.) onto these actions. before_job
-		// fires INSIDE the try so a misbehaving listener can neither skip the
-		// after_job cleanup (which would leave a suspended app logger un-resumed)
-		// nor escape fill() into the un-caught Consumer drain (which would crash
-		// the whole batch). The after_job action always fires — gc/cache cleanup
-		// must run MOST when a job misbehaves, since that's when leaks accumulate
-		// fastest.
+		// Apps hook request-scoped context (suspend a logger, rewrite $_SERVER) onto
+		// before_job/after_job. The swallow-vs-propagate asymmetry below is deliberate.
+		$before_ok = false;
 		try {
-			\do_action( 'newspack_nodes/job_worker/before_job', $handler );
-			( $handlers[ $handler ] )( $parameters );
-		} catch ( Worker_Should_Stop $e ) {
-			// pump()'s stop must escape the Throwable swallow below; after_job still runs.
-			throw $e;
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( "job {$handler} threw: " . $e->getMessage() );
+			try {
+				\do_action( 'newspack_nodes/job_worker/before_job', $handler );
+				$before_ok = true;
+			} catch ( Worker_Should_Stop $e ) {
+				throw $e;
+			} catch ( \Throwable $e ) {
+				// An app before_job listener crashing must not down the drain batch — swallow + skip the handler.
+				$this->print_less_often( 'before_job listener threw: ' . $e->getMessage() );
+			}
+			if ( $before_ok ) {
+				// A handler throw is poison: let it propagate so the Consumer quarantines it (Worker_Should_Stop too).
+				( $handlers[ $handler ] )( $parameters );
+			}
 		} finally {
-			\do_action( 'newspack_nodes/job_worker/after_job', $handler );
+			// after_job always fires; swallow a listener throw so cleanup can't mask the handler exception or false-poison a good job.
+			try {
+				\do_action( 'newspack_nodes/job_worker/after_job', $handler );
+			} catch ( \Throwable $e ) {
+				$this->print_less_often( 'after_job listener threw: ' . $e->getMessage() );
+			}
 		}
 		++$this->jobs_executed;
 		++$this->jobs_since_cache_flush;

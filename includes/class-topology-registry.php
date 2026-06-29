@@ -253,12 +253,12 @@ class Topology_Registry {
 	/**
 	 * Resources `$name` WRITES: its data-partition paths (`make_node Partition`
 	 * and `make_node Topic`, which both append to the log at their path arg) and
-	 * its Consumer offsetlog paths (`make_node Consumer`'s 2nd arg after the node
-	 * name, in the flat layout). Paths are kept in raw token form
-	 * (`<config:…>/<basename>.p<partition>`) — identical iff they resolve to the
-	 * same file — and namespaced `partition:` / `offsetlog:` so the two kinds can't
-	 * false-match. A Consumer's SOURCE (1st arg after the node name) is a read, not
-	 * a write, so it's excluded.
+	 * its Consumer offsetlog + deadletter paths (`make_node Consumer`'s 2nd and
+	 * optional 3rd arg after the node name, in the flat layout). Paths are kept in
+	 * raw token form (`<config:…>/<basename>.p<partition>`) — identical iff they
+	 * resolve to the same file — and namespaced `partition:` / `offsetlog:` /
+	 * `deadletter:` so the kinds can't false-match. A Consumer's SOURCE (1st arg
+	 * after the node name) is a read, not a write, so it's excluded.
 	 *
 	 * @return array<string>
 	 */
@@ -285,9 +285,14 @@ class Topology_Registry {
 				$seen[ 'partition:' . $m[1] ] = true;
 				continue;
 			}
-			// make_node Consumer <node> <source> <offsetlog> — offsetlog is the 2nd token after the node name in the flat layout.
-			if ( \preg_match( '/^make_node\s+Consumer\s+\S+\s+\S+\s+(\S+)/', $line, $m ) ) {
+			// make_node Consumer <node> <source> <offsetlog> [<deadletter>] — both the
+			// offsetlog (3rd token) and the optional deadletter sibling (4th) are
+			// sole-writer logs the Consumer corrupts if two topologies share one.
+			if ( \preg_match( '/^make_node\s+Consumer\s+\S+\s+\S+\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
 				$seen[ 'offsetlog:' . $m[1] ] = true;
+				if ( isset( $m[2] ) ) { // 4th token present → deadletter dir (\S+, never empty).
+					$seen[ 'deadletter:' . $m[2] ] = true;
+				}
 			}
 		}
 		$out = \array_keys( $seen );
