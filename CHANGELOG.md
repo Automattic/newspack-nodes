@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-06-28
+
 ### Added
 
 - **Workers log *why* they cooperatively stop.** `Worker_Base::should_continue()` now emits a `{type}.p{N}: stopping — <reason>` line (via `Core::stderr`) at every stop branch, with metrics: `lock lost` / `lock dir gone` / `restart requested` / `max_runtime exceeded (Ns / Ns)` / `memory watermark (NMB / NMB, N%)` / `db check failed N times`. Previously a `Worker_Should_Stop` exit was opaque (only a generic "stopped mid-job (pump)" at the catch). Logged once per stop (the predicate returns true until the first false ends the loop), so no volume cost.
