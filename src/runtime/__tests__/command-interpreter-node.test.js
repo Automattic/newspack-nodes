@@ -891,6 +891,18 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'can\'t find node "nope"'
 			);
 		} );
+		it( 'masks the interpreter verb table and auth closure (non-node internals)', () => {
+			// instanceof-Node filtering covers node refs; the interpreter's own machinery
+			// (_commands map, authorize closure) isn't a node, so the class overrides
+			// dumpNode to mask it — the general "a node filters its own internals" hook [96].
+			const interpreter = makeInterpreter();
+			interpreter.name = 'ci';
+			const out = dispatch( interpreter, 'dump_node', 'ci' );
+			const body = JSON.parse( out.slice( out.indexOf( '{' ) ) );
+			expect( body._commands ).toBe( '{...}' );
+			expect( body.authorize ).toBe( '{...}' );
+		} );
+
 		it( 'key filter narrows the body, unknown key errors', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();

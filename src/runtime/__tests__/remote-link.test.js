@@ -292,4 +292,19 @@ describe( 'RemoteLinkNode', () => {
 		// envelope string the substrate now sends).
 		expect( seen ).toEqual( [ connectedRaw( { pid: 4242, slot: 3 } ) ] );
 	} );
+
+	it( 'dumpNode filters out its internal sub-node refs (sseIn/httpOut/heartbeat)', () => {
+		// [96]: a RemoteLink composes three internal nodes; dumpNode must not serialize
+		// them (live refs / circular). The base instanceof-Node filter handles it — no
+		// per-class allow-list — so the snapshot is safe to JSON-encode.
+		const { link } = makeLink();
+		link.connect(); // wires sseIn + the shared _http/_heartbeat singletons.
+
+		const snap = link.dumpNode();
+
+		expect( snap.sseIn ).toBe( '{...}' );
+		expect( snap.httpOut ).toBe( '{...}' );
+		expect( snap.heartbeat ).toBe( '{...}' );
+		expect( () => JSON.stringify( snap ) ).not.toThrow();
+	} );
 } );

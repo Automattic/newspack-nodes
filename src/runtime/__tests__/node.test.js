@@ -402,3 +402,45 @@ test( 'disconnectNode with an explicit target still clears the base node target'
 	n.disconnectNode( 'somewhere' );
 	expect( n.target ).toBe( '' );
 } );
+
+test( 'dumpNode snapshots scalar state, renders the sink as a name, and masks internals', () => {
+	const n = new Node();
+	n.name = 'd';
+	n.arguments = 'a b';
+	n.counter = 5;
+	const down = new Node();
+	down.name = 'downstream';
+	n.sink = down;
+
+	const snap = n.dumpNode();
+
+	expect( snap.class ).toBe( 'Node' );
+	expect( snap.name ).toBe( 'd' );
+	expect( snap.arguments ).toBe( 'a b' );
+	expect( snap.counter ).toBe( 5 );
+	expect( snap.sink ).toBe( 'downstream' ); // live ref rendered as the sink's name
+	expect( snap.registrations ).toBe( '{...}' ); // internal structure masked
+	expect( snap.setStateCache ).toBe( '{...}' );
+	// Private backing fields don't leak — the public surface is name/arguments.
+	expect( snap._name ).toBeUndefined();
+	expect( snap._arguments ).toBeUndefined();
+} );
+
+test( 'dumpNode filters out ANY reference to another node, generically', () => {
+	// The mechanism is general (not a per-class allow-list): any field holding a node
+	// instance is excluded as '{...}', so a composite node never leaks/circular-JSONs
+	// its internal sub-nodes — [96]. patron is the built-in case; an arbitrary field too.
+	const n = new Node();
+	n.name = 'composite';
+	const inner = new Node();
+	inner.name = 'inner';
+	n.patron = inner; // built-in node ref
+	n.someInternalNode = inner; // an arbitrary subclass-style node ref
+
+	const snap = n.dumpNode();
+
+	expect( snap.patron ).toBe( '{...}' );
+	expect( snap.someInternalNode ).toBe( '{...}' );
+	// And the snapshot is JSON-serializable (no circular live node leaked).
+	expect( () => JSON.stringify( snap ) ).not.toThrow();
+} );

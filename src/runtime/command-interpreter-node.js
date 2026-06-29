@@ -119,6 +119,15 @@ export class CommandInterpreterNode extends Node {
 		this._commands = CommandInterpreterNode._defaultCommands();
 	}
 
+	// The verb table and the auth closure are internal machinery, not display state and
+	// not nodes (so the base instanceof filter wouldn't catch them) — mask them. [96]
+	dumpNode() {
+		const snapshot = super.dumpNode();
+		snapshot._commands = '{...}';
+		snapshot.authorize = '{...}';
+		return snapshot;
+	}
+
 	fill( message ) {
 		this.counter += 1;
 		const type = message[ TYPE ];
@@ -711,7 +720,7 @@ export class CommandInterpreterNode extends Node {
 			return `can't find node "${ name }"`;
 		}
 		let wanted = parts.slice( 1 );
-		const snapshot = CommandInterpreterNode._nodeSnapshot( node );
+		const snapshot = node.dumpNode();
 
 		// The class heads the dump (first line); pull it out so it isn't a body key.
 		const klass = snapshot.class ?? '';
@@ -908,51 +917,6 @@ export class CommandInterpreterNode extends Node {
 			return HELP[ key ];
 		}
 		return `no such topic: "${ topic }"`;
-	}
-
-	// Build a serializable state snapshot of a node (class header + scalar state).
-	// XXX: Delete this and implement Node::dumpNode()
-	static _nodeSnapshot( node ) {
-		const snapshot = { class: node.constructor?.name ?? 'Node' };
-		for ( const key of Object.keys( node ) ) {
-			const val = node[ key ];
-			// Match PHP: the sink renders as the sink node's name (not skipped).
-			if ( 'sink' === key ) {
-				snapshot.sink = val && val.name ? val.name : '';
-				continue;
-			}
-			// `name`/`arguments` are prototype accessors backed by own fields
-			// `_name`/`_arguments`; rename so the snapshot keeps the public
-			// surface instead of leaking the private backing names.
-			if ( '_name' === key ) {
-				snapshot.name = val;
-				continue;
-			}
-			if ( '_arguments' === key ) {
-				snapshot.arguments = val;
-				continue;
-			}
-			// Skip live node references and internal structures — display-only scalars.
-			if (
-				'patron' === key ||
-				'interpreter' === key ||
-				'registrations' === key ||
-				'setStateCache' === key ||
-				'_commands' === key ||
-				'authorize' === key ||
-				'heartbeat' === key ||
-				'httpOut' === key ||
-				'sseIn' === key
-			) {
-				snapshot[ key ] = '{...}';
-				continue;
-			}
-			if ( 'function' === typeof val ) {
-				continue;
-			}
-			snapshot[ key ] = val;
-		}
-		return snapshot;
 	}
 
 	/**
