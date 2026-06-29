@@ -61,6 +61,8 @@ class WorkerScaffoldingTest extends TestCase {
 		\mkdir( "{$ipc_dir}/input", 0755, true );
 		$seed = new Consumer_Node();
 		$seed->arguments( "{$ipc_dir}/input {$ipc_dir}/input.offsets" );
+		$seed->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$seed->poll(); // a real prior worker polls (seeding the cursor) before it checkpoints.
 		$seed->checkpoint();
 		unset( $seed );
 
@@ -138,6 +140,98 @@ class WorkerScaffoldingTest extends TestCase {
 		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
 		$entry = \Newspack_Nodes\Message::unpacked( (string) \end( $lines ) )[ \Newspack_Nodes\Message::VALUE ];
 		$this->assertSame( 0, $entry['attempts'], 'a clean shutdown hands off work consumers at attempts=0' );
+	}
+
+	public function test_cooperative_stop_routes_durable_consumer_to_a_fair_shot_strike(): void {
+		// When the worker stops cooperatively (timeout/memory), the shutdown must route
+		// its durable work consumers through the fair-shot rule — stamping the reason —
+		// NOT the blanket graceful handoff used for a clean recycle (dead-letter [42]).
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$msg                                   = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$msg[ \Newspack_Nodes\Message::VALUE ] = 'poison';
+		$source->fill( $msg );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' ); // registers in Core::$nodes_by_name.
+		$c->sink( new class() extends \Newspack_Nodes\Node {
+			public function fill( array &$message ): void {
+				throw new \Newspack_Nodes\Worker_Should_Stop();
+			}
+		} );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$w = new Worker_Base( $this->tmp, 'firehose', 0 );
+		( new \ReflectionProperty( Worker_Base::class, 'stop_reason' ) )->setValue( $w, 'timeout' );
+		$w->checkpoint_durable_consumers();
+
+		$paths = \glob( "{$this->tmp}/offsets.p0/*.log" );
+		\usort( $paths, static fn ( $x, $y ): int => (int) \basename( $x, '.log' ) <=> (int) \basename( $y, '.log' ) );
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
+		$entry = \Newspack_Nodes\Message::unpacked( (string) \end( $lines ) )[ \Newspack_Nodes\Message::VALUE ];
+		$this->assertSame( 'timeout', $entry['reason'], 'a cooperative stop routes durable consumers to the fair-shot rule' );
+	}
+
+	public function test_fatal_shutdown_skips_graceful_handoff_so_attempts_climb(): void {
+		// A catchable fatal (OOM) runs the shutdown handler but is NOT a clean recycle: the
+		// handler must NOT graceful-checkpoint (which resets attempts to 0), or a deterministic
+		// fatal-poison would reset its crash counter every lifetime and never reach the crawl.
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$this->pump_consumer( $c ); // load_offsetlog resumes at attempts=3 and writes that boot frame.
+
+		$w = new FatalProbeWorker( $this->tmp, 'firehose', 0 );
+		$w->err = [ 'type' => \E_ERROR, 'message' => 'oom', 'file' => 'f', 'line' => 1 ];
+		$w->shutdown_handoff();
+
+		$entry = $this->newest_offsetlog_entry_for( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 3, $entry['attempts'], 'a fatal must not reset the climbing crash counter to a graceful 0' );
+	}
+
+	public function test_clean_shutdown_handoff_graceful_checkpoints_when_not_fatal(): void {
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$w = new FatalProbeWorker( $this->tmp, 'firehose', 0 );
+		$w->err = null; // clean exit.
+		$w->shutdown_handoff();
+
+		$entry = $this->newest_offsetlog_entry_for( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'a clean (non-fatal) shutdown hands off gracefully at attempts=0' );
+	}
+
+	/** Newest offsetlog keyframe VALUE from a directory of {id}.log segments. */
+	private function newest_offsetlog_entry_for( string $dir ): array {
+		$paths = \glob( "{$dir}/*.log" );
+		\usort( $paths, static fn ( $x, $y ): int => (int) \basename( $x, '.log' ) <=> (int) \basename( $y, '.log' ) );
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
+		return \Newspack_Nodes\Message::unpacked( (string) \end( $lines ) )[ \Newspack_Nodes\Message::VALUE ];
+	}
+
+	/** Write one offsetlog keyframe to seed a respawning worker's boot state (crash-simulation). */
+	private function seed_offsetlog_frame( string $dir, int $seg, int $off, int $attempts, string $reason = '' ): void {
+		\mkdir( $dir, 0755, true );
+		$m                   = \Newspack_Nodes\Message::new_message();
+		$m[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_STRUCT;
+		$m[ \Newspack_Nodes\Message::FROM ]  = 'seed';
+		$m[ \Newspack_Nodes\Message::VALUE ] = [ 'seg' => $seg, 'off' => $off, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
+		\file_put_contents( "{$dir}/0.log", \Newspack_Nodes\Message::packed( $m ) . "\n" );
 	}
 
 	public function test_checkpoint_ipc_input_persists_consumed_offset(): void {
@@ -229,5 +323,13 @@ class WorkerScaffoldingTest extends TestCase {
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$interpreter = $w->build_scaffolding();
 		$this->assertSame( Core::node( '_router' ), $interpreter->sink() );
+	}
+}
+
+/** Worker with a settable error_get_last() so the fatal-shutdown branch is testable without a real fatal. */
+class FatalProbeWorker extends Worker_Base {
+	public ?array $err = null;
+	protected function last_error(): ?array {
+		return $this->err;
 	}
 }

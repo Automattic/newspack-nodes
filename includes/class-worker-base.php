@@ -17,6 +17,10 @@ class Worker_Base {
 
 	public const DEFAULT_MAX_RUNTIME    = 595;
 	public const MEMORY_WATERMARK_PCT   = 0.80;
+	// A fresh post-reset baseline already at/above this fraction of the memory limit is
+	// "near the watermark" — a leak / undersized limit, not a single poison message. A
+	// memory stop on such a baseline alerts instead of striking the message ([42]).
+	public const BASELINE_WATERMARK_PCT = 0.50;
 	public const HEARTBEAT_INTERVAL_S   = 10;
 	public const DB_CHECK_INTERVAL_S    = 30;
 	public const DB_CHECK_MAX_FAILURES  = 3;
@@ -47,6 +51,16 @@ class Worker_Base {
 	protected bool $shutdown_handled = false;
 	/** This worker's IPC-input Consumer — checkpointed at shutdown so a clean recycle doesn't replay consumed commands. */
 	protected ?Consumer_Node $ipc_input_consumer = null;
+
+	/**
+	 * Why the worker stopped, categorized for the shutdown handoff ([42]): 'timeout'
+	 * or 'memory' is a cooperative stop that triggers the fair-shot rule on durable
+	 * consumers; '' is operational (lock loss / restart / db) — a clean graceful handoff.
+	 */
+	protected string $stop_reason = '';
+
+	/** Fresh post-reset memory baseline, captured before the drain — the memory-guard reference point. */
+	protected int $baseline_memory = 0;
 
 	public function __construct(
 		string $base_dir,
@@ -80,9 +94,9 @@ class Worker_Base {
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
-				// Graceful handoff of every durable cursor before teardown: a clean recycle
-				// doesn't replay consumed commands AND doesn't count as a crash (attempts=0).
-				$this->checkpoint_durable_consumers();
+				// Handoff every durable cursor before teardown — graceful on a clean exit, but
+				// SKIPPED on a fatal so the crash counter climbs (see shutdown_handoff).
+				$this->shutdown_handoff();
 				// Tear down nodes first so Partitions release their locks before the next spawn.
 				Core::cleanup_all_nodes();
 				$this->release();
@@ -97,6 +111,10 @@ class Worker_Base {
 			$interpreter = $this->build_scaffolding();
 			$this->run_topology( $topology, $interpreter );
 
+			// Capture the fresh baseline (Core::initialize reset already ran this execution)
+			// before any message processing — the memory-guard reference for the fair-shot rule.
+			$this->baseline_memory = \memory_get_usage( true );
+
 			$ef = Event_Framework::instance();
 			$ef->install_signal_handlers();
 			$ef->drain( fn() => $this->should_continue(), cooperative_stop: true );
@@ -106,7 +124,7 @@ class Worker_Base {
 		} finally {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
-				$this->checkpoint_durable_consumers();
+				$this->shutdown_handoff();
 				Core::cleanup_all_nodes();
 				$this->release();
 				$this->self_respawn( $spawn_url, $token );
@@ -145,13 +163,86 @@ class Worker_Base {
 	 * a crash (dead-letter [42]). Only a hard crash skips this path, so only crashes
 	 * climb the attempt counter.
 	 */
+	/**
+	 * Shutdown cursor handoff. On a clean stop (cooperative or operational) every durable
+	 * consumer is graceful/fair-shot checkpointed. On a FATAL (OOM / uncaught error that
+	 * aborted the run before the finally), the handoff is SKIPPED: leaving the boot frame's
+	 * climbing attempt count intact is what lets a deterministic fatal-poison reach the
+	 * crash-crawl threshold ([42]) instead of resetting to the baseline every lifetime.
+	 */
+	public function shutdown_handoff(): void {
+		if ( $this->is_fatal_shutdown() ) {
+			return;
+		}
+		$this->checkpoint_durable_consumers();
+	}
+
+	/** A catchable PHP fatal (OOM, uncaught error) is shutting us down — not a clean stop. */
+	protected function is_fatal_shutdown(): bool {
+		$error = $this->last_error();
+		return null !== $error
+			&& \in_array( $error['type'], [ \E_ERROR, \E_PARSE, \E_CORE_ERROR, \E_COMPILE_ERROR, \E_USER_ERROR ], true );
+	}
+
+	/**
+	 * Seam (tests override): the last PHP error, used to classify a fatal shutdown.
+	 *
+	 * @return array{type: int, message: string, file: string, line: int}|null
+	 */
+	protected function last_error(): ?array {
+		return \error_get_last();
+	}
+
 	public function checkpoint_durable_consumers(): void {
 		foreach ( Core::$nodes_by_name as $node ) {
 			if ( $node instanceof Consumer_Node ) {
-				$node->checkpoint( true );
+				$this->handoff_consumer( $node );
 			}
 		}
 		$this->checkpoint_ipc_input();
+	}
+
+	/**
+	 * Shutdown handoff for one durable consumer. A cooperative stop (timeout/memory)
+	 * routes through the fair-shot rule — which strikes/quarantines an in-flight poison
+	 * message and clears an innocent one; an operational stop is a clean graceful
+	 * checkpoint (attempts=0). For memory, pass whether the fresh baseline was already
+	 * near the watermark so a leak isn't blamed on the in-flight message ([42]).
+	 */
+	private function handoff_consumer( Consumer_Node $node ): void {
+		$is_memory = 'memory' === $this->stop_reason;
+		if ( 'timeout' === $this->stop_reason || $is_memory ) {
+			$node->cooperative_stop( $this->stop_reason, $is_memory && $this->baseline_near_watermark() );
+			return;
+		}
+		$node->checkpoint( true );
+	}
+
+	/**
+	 * Memory baseline guard ([42]): was the fresh post-reset baseline already near the
+	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
+	 * poison message — the fair-shot rule alerts instead of striking the in-flight message.
+	 */
+	protected function baseline_near_watermark(): bool {
+		$limit = $this->memory_limit_bytes();
+		if ( $limit <= 0 ) {
+			return false;
+		}
+		return $this->baseline_memory >= (int) ( $limit * self::BASELINE_WATERMARK_PCT );
+	}
+
+	protected function memory_limit_bytes(): int {
+		$ini = \ini_get( 'memory_limit' );
+		if ( '-1' === $ini ) {
+			return -1;
+		}
+		$num = (int) $ini;
+		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
+			case 'g': $num *= 1024 * 1024 * 1024; break;
+			case 'm': $num *= 1024 * 1024;        break;
+			case 'k': $num *= 1024;               break;
+		}
+		return $num;
 	}
 
 	/**
@@ -160,7 +251,9 @@ class Worker_Base {
 	 * only checkpoints on a periodic cadence; the final <1s would re-deliver).
 	 */
 	public function checkpoint_ipc_input(): void {
-		$this->ipc_input_consumer?->checkpoint( true );
+		if ( null !== $this->ipc_input_consumer ) {
+			$this->handoff_consumer( $this->ipc_input_consumer );
+		}
 	}
 
 	public function release(): void {
@@ -314,7 +407,8 @@ class Worker_Base {
 
 		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {
 			return $this->stop(
-				\sprintf( 'max_runtime exceeded (%ds / %ds)', (int) ( $now - $this->start_time ), $this->max_runtime )
+				\sprintf( 'max_runtime exceeded (%ds / %ds)', (int) ( $now - $this->start_time ), $this->max_runtime ),
+				'timeout'
 			);
 		}
 
@@ -327,7 +421,8 @@ class Worker_Base {
 					(int) ( $used / 1048576 ),
 					(int) ( $limit / 1048576 ),
 					$limit > 0 ? (int) ( $used / $limit * 100 ) : 0
-				)
+				),
+				'memory'
 			);
 		}
 
@@ -356,10 +451,13 @@ class Worker_Base {
 	 * prefixed with the worker id, then return false. One line per cooperative
 	 * stop (should_continue returns true until the first false ends the loop).
 	 *
-	 * @param string $reason Human-readable stop reason + metrics.
+	 * @param string $reason   Human-readable stop reason + metrics.
+	 * @param string $category Cooperative-stop category for the shutdown handoff:
+	 *                         'timeout' | 'memory' trigger the fair-shot rule; '' is operational.
 	 * @return false Always — callers `return $this->stop( ... )`.
 	 */
-	private function stop( string $reason ): bool {
+	private function stop( string $reason, string $category = '' ): bool {
+		$this->stop_reason = $category;
 		Core::stderr( "{$this->worker_type}.p{$this->partition}: stopping — {$reason}" );
 		return false;
 	}
@@ -370,20 +468,6 @@ class Worker_Base {
 			return false;
 		}
 		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
-	}
-
-	protected function memory_limit_bytes(): int {
-		$ini = \ini_get( 'memory_limit' );
-		if ( '-1' === $ini ) {
-			return -1;
-		}
-		$num = (int) $ini;
-		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
-			case 'g': $num *= 1024 * 1024 * 1024; break;
-			case 'm': $num *= 1024 * 1024;        break;
-			case 'k': $num *= 1024;               break;
-		}
-		return $num;
 	}
 
 	/** Cheap DB liveness probe; default always passes. N consecutive failures trigger shutdown. */

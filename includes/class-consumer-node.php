@@ -99,6 +99,14 @@ class Consumer_Node extends Timer_Node {
 	public const CRASH_MAX_ATTEMPTS = 5;
 
 	/**
+	 * Cooperative-stop threshold ([42]): after this many fair-shot strikes (full
+	 * worker lifetimes spent on the boot-cursor message under a timeout/memory stop),
+	 * the message is dead-lettered and the cursor advances. Lower than the hard-crash
+	 * budget — a cooperative stop is a clean signal, so fewer mulligans are needed.
+	 */
+	public const COOP_MAX_ATTEMPTS = 2;
+
+	/**
 	 * Hard-crash crawl ([42]): per-message checkpointing to pin the exact in-flight
 	 * offset across an uncatchable crash. $crawl is the mode; $crawl_skip_head is the
 	 * one-shot "DLQ the boot-cursor head" the worker booted into (the crash suspect).
@@ -188,6 +196,21 @@ class Consumer_Node extends Timer_Node {
 
 	/** True once next_offset() was called explicitly — suppresses the default_offset() seek. */
 	protected bool $offset_set = false;
+
+	/**
+	 * True once poll_init has seeded the durable cursor. A shutdown handoff before this
+	 * (worker stopped on its first should_continue, before the first poll) must NOT write
+	 * the 0:0 construction-default cursor — it would clobber the real durable position.
+	 */
+	protected bool $poll_initialized = false;
+
+	/**
+	 * True once a downstream fill() raised Worker_Should_Stop through forward_line — the
+	 * worker was actively DISPATCHING a message when the cooperative stop hit. The
+	 * fair-shot strike requires this: a merely-buffered (never-dispatched) head is a
+	 * message that just arrived, not one that consumed a lifetime ([42]).
+	 */
+	protected bool $stopped_in_fill = false;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
@@ -309,136 +332,6 @@ class Consumer_Node extends Timer_Node {
 		$reply[ Message::KEY ]   = $message[ Message::KEY ];
 		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
 		$this->sink->fill( $reply );
-	}
-
-	/**
-	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
-	 *                       (the cursor sits at an un-attempted message), so a respawn
-	 *                       resumes at a virgin first attempt rather than counting a strike.
-	 */
-	public function checkpoint( bool $graceful = false ): void {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		// Advance-guard: skip a redundant same-cursor write (graceful is exempt — its
-		// attempts=0 is new content; boot frames bypass via write_checkpoint_frame).
-		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
-		if (
-			! $graceful
-			&& ! $first_checkpoint
-			&& $this->cursor_seg === $this->checkpoint_seg
-			&& $this->cursor_off === $this->checkpoint_off
-		) {
-			return;
-		}
-		// Forward progress past the boot cursor ends the crash streak: clear the strikes.
-		// Not in crawl — attempts stays pinned at the threshold until we exit crawl.
-		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
-			$this->attempts       = 1;
-			$this->first_crash_ts = null;
-			$this->poison_reason  = '';
-		}
-		$this->write_checkpoint_frame( $graceful, true );
-	}
-
-	/** True once the read cursor has moved past the cursor this process booted on. */
-	private function cursor_advanced_since_boot(): bool {
-		return $this->cursor_seg > $this->boot_cursor_seg
-			|| ( $this->cursor_seg === $this->boot_cursor_seg && $this->cursor_off > $this->boot_cursor_off );
-	}
-
-	/**
-	 * Commit one offsetlog frame at the current cursor — UNCONDITIONALLY (no
-	 * advance-guard; the boot sequence re-commits the same cursor on purpose).
-	 *
-	 * @param bool $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
-	 * @param bool $with_state Co-commit the snapshot node's save_state(). False for the
-	 *                         stateless boot frame written BEFORE restore — reading the
-	 *                         un-restored node there would clobber the good cache.
-	 */
-	private function write_checkpoint_frame( bool $graceful, bool $with_state ): void {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = $this->name;
-		$value = [
-			'seg'            => $this->cursor_seg,
-			'off'            => $this->cursor_off,
-			'attempts'       => $graceful ? 0 : $this->attempts,
-			'reason'         => $graceful ? '' : $this->poison_reason,
-			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
-			'ts'             => Core::$now,
-			'name'           => $this->name,
-			'target'         => \is_string( $this->target ) ? $this->target : '',
-			'targets'        => $this->resolve_downstream_targets(),
-			'worker_type'    => self::worker_type_env(),
-			// Real source log basename. Two readers can tail the same log under
-			// distinct offset-dir names (firehose vs firehose.job-router); the
-			// dashboard labels by this, not the disambiguated offset dir.
-			'source_log'     => \basename( $this->source_dir ),
-		];
-		// Co-commit the snapshot node's state with the offset, as ONE record, so a
-		// respawn restores the cache and resumes the cursor in lockstep.
-		if ( $with_state && '' !== $this->snapshot_node ) {
-			$node = Core::node( $this->snapshot_node );
-			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
-				$value['cache'] = $node->save_state();
-			}
-		}
-		$message[ Message::VALUE ]     = $value;
-		$this->offsetlog->fill( $message );
-		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
-		$this->offsetlog->flush();
-		$this->checkpoint_seg = $this->cursor_seg;
-		$this->checkpoint_off = $this->cursor_off;
-
-		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off ] ) );
-	}
-
-	/**
-	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
-	 *
-	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
-	 *
-	 * @return array<int,array{name:string,class:string}>
-	 */
-	private function resolve_downstream_targets(): array {
-		if ( ! \is_string( $this->target ) || '' === $this->target ) {
-			return [];
-		}
-		$node = Core::node( $this->target );
-		if ( null === $node ) {
-			// Not yet registered or removed; surface the name without a class.
-			return [ [ 'name' => $this->target, 'class' => '' ] ];
-		}
-		$class = Command_Interpreter_Node::shell_name_for( $node );
-		// instanceof, not an exact name match, so a Tee subclass (Tap) expands too.
-		if ( ! $node instanceof Tee_Node ) {
-			return [ [ 'name' => $this->target, 'class' => $class ] ];
-		}
-		$tee_targets = $node->target;
-		if ( ! \is_array( $tee_targets ) ) {
-			return [ [ 'name' => $this->target, 'class' => $class ] ];
-		}
-		$out = [];
-		foreach ( $tee_targets as $t ) {
-			if ( '' === $t ) {
-				continue;
-			}
-			$tn = Core::node( $t );
-			$tc = null === $tn ? '' : Command_Interpreter_Node::shell_name_for( $tn );
-			$out[] = [ 'name' => $t, 'class' => $tc ];
-		}
-		return $out;
-	}
-
-	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
-	private static function worker_type_env(): string {
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
 	}
 
 	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
@@ -678,6 +571,10 @@ class Consumer_Node extends Timer_Node {
 				$this->next_offset( $default );
 			}
 		}
+		// Freeze the boot cursor at the real start (resume or first-spawn seek) so cursor_advanced_since_boot() is honest.
+		$this->boot_cursor_seg  = $this->cursor_seg;
+		$this->boot_cursor_off  = $this->cursor_off;
+		$this->poll_initialized = true;
 		$this->poll_cb = $this->poll_active( ... );
 		( $this->poll_cb )();
 	}
@@ -874,27 +771,31 @@ class Consumer_Node extends Timer_Node {
 		$max     = ( $this->line_mode || $this->crawl ) ? 1 : \PHP_INT_MAX;
 		$emitted = 0;
 		$pos     = 0;
-		while ( $emitted < $max ) {
-			$nl = \strpos( $this->buffer, "\n", $pos );
-			if ( false === $nl ) {
-				break;
+		// finally: a propagated Worker_Should_Stop still advances past the already-forwarded lines (single chop preserved).
+		try {
+			while ( $emitted < $max ) {
+				$nl = \strpos( $this->buffer, "\n", $pos );
+				if ( false === $nl ) {
+					break;
+				}
+				$line = \substr( $this->buffer, $pos, $nl - $pos );
+				if ( $this->crawl_skip_head ) {
+					// Crawl entry: sacrifice the boot-cursor head (the crash suspect) — one-shot.
+					// Lives here, not forward_line, so the Tail subclass (which overrides
+					// forward_line) inherits it.
+					$this->crawl_skip_head = false;
+					$this->dead_letter( $this->poison_from_line( $line, $this->cursor_off + $pos ), 'crash' );
+				} else {
+					$this->forward_line( $line, $this->cursor_off + $pos );
+				}
+				$pos = $nl + 1; // past the consumed \n.
+				++$emitted;
 			}
-			$line = \substr( $this->buffer, $pos, $nl - $pos );
-			if ( $this->crawl_skip_head ) {
-				// Crawl entry: sacrifice the boot-cursor head (the crash suspect) — one-shot.
-				// Lives here, not forward_line, so the Tail subclass (which overrides
-				// forward_line) inherits it.
-				$this->crawl_skip_head = false;
-				$this->dead_letter( $this->poison_from_line( $line, $this->cursor_off + $pos ), 'crash' );
-			} else {
-				$this->forward_line( $line, $this->cursor_off + $pos );
+		} finally {
+			if ( $pos > 0 ) {
+				$this->buffer      = \substr( $this->buffer, $pos );
+				$this->cursor_off += $pos;
 			}
-			$pos = $nl + 1; // past the consumed \n.
-			++$emitted;
-		}
-		if ( $pos > 0 ) {
-			$this->buffer      = \substr( $this->buffer, $pos );
-			$this->cursor_off += $pos;
 		}
 		// Ran the buffer dry of complete lines (not just hit the cap) — the remainder is a
 		// trailing partial; guard it against unbounded growth.
@@ -934,14 +835,199 @@ class Consumer_Node extends Timer_Node {
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
-		++$this->counter;
 		try {
 			$this->sink?->fill( $message );
+			++$this->counter; // Count only a successful forward — not a re-delivered stop or a quarantined throw.
 		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // Cooperative stop is control flow, not a poison message — must escape.
+			// Control flow, not poison: record the mid-dispatch stop for the fair-shot rule, then escape.
+			$this->stopped_in_fill = true;
+			throw $e;
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
 		}
+	}
+
+	/**
+	 * Cooperative-stop checkpoint ([42]): the fair-shot rule for a timeout / memory
+	 * stop. Called at worker shutdown INSTEAD of the graceful checkpoint() when the
+	 * stop was cooperative — it decides whether the in-flight message earned a strike.
+	 *
+	 * Fair-shot proxy: a strike counts ONLY when the worker stopped on the message it
+	 * BOOTED on (the cursor never advanced this lifetime) with that message still
+	 * buffered (un-forwarded). An advanced cursor is a late "sliver" / a normal
+	 * memory-recycle, and an empty buffer is an idle worker — neither is poison, so
+	 * both hand off cleanly (attempts=0). At COOP_MAX_ATTEMPTS strikes the message is
+	 * quarantined and the cursor advances past it, handing off at the virgin baseline.
+	 *
+	 * @param string $reason                 'timeout' | 'memory'.
+	 * @param bool   $baseline_near_watermark Memory-only: the fresh post-reset baseline
+	 *                                        was already near the watermark, so a leak /
+	 *                                        undersized memory_limit — not this message —
+	 *                                        is to blame. Alert, do not strike.
+	 */
+	public function cooperative_stop( string $reason, bool $baseline_near_watermark ): void {
+		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
+			return; // Ephemeral reader, or an unestablished 0:0 cursor (stopped before first poll) — nothing to strike.
+		}
+		// Strike only a still-buffered boot-cursor message the worker stopped mid-dispatch; else clean handoff.
+		$head = $this->buffer_head_line();
+		if ( null === $head || ! $this->stopped_in_fill || $this->cursor_advanced_since_boot() ) {
+			$this->checkpoint( true );
+			return;
+		}
+		if ( 'memory' === $reason && $baseline_near_watermark ) {
+			$this->print_less_often( "WARNING: {$this->name} baseline memory near the watermark at a cooperative stop — raise memory_limit or investigate a leak; not striking the in-flight message" );
+			$this->checkpoint( true );
+			return;
+		}
+		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
+		$this->poison_reason = $reason;
+		if ( null === $this->first_crash_ts ) {
+			$this->first_crash_ts = Core::$now;
+		}
+		if ( $this->attempts >= self::COOP_MAX_ATTEMPTS ) {
+			// Fair shots exhausted: quarantine first, advance past it, hand off at the virgin baseline.
+			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_off ), $reason );
+			$this->cursor_off += \strlen( $head ) + 1; // Past the line + its consumed \n.
+			$this->buffer      = '';
+			$this->checkpoint( true );
+			return;
+		}
+		// Below threshold: record the strike (reason + live attempt count) at the
+		// unchanged boot cursor, so the respawn boots on it again and climbs.
+		$this->write_checkpoint_frame( false, true );
+	}
+
+	/**
+	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
+	 *                       (the cursor sits at an un-attempted message), so a respawn
+	 *                       resumes at a virgin first attempt rather than counting a strike.
+	 */
+	public function checkpoint( bool $graceful = false ): void {
+		// Skip an unestablished cursor (never polled AND never explicitly positioned): it's the
+		// 0:0 construction default, and committing it would clobber the real durable position.
+		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
+			return;
+		}
+		// Advance-guard: skip a redundant same-cursor write (graceful is exempt — its
+		// attempts=0 is new content; boot frames bypass via write_checkpoint_frame).
+		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
+		if (
+			! $graceful
+			&& ! $first_checkpoint
+			&& $this->cursor_seg === $this->checkpoint_seg
+			&& $this->cursor_off === $this->checkpoint_off
+		) {
+			return;
+		}
+		// Forward progress past the boot cursor ends the crash streak: clear the strikes.
+		// Not in crawl — attempts stays pinned at the threshold until we exit crawl.
+		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
+			$this->attempts       = 1;
+			$this->first_crash_ts = null;
+			$this->poison_reason  = '';
+		}
+		$this->write_checkpoint_frame( $graceful, true );
+	}
+
+	/** True once the read cursor has moved past the cursor this process booted on. */
+	private function cursor_advanced_since_boot(): bool {
+		return $this->cursor_seg > $this->boot_cursor_seg
+			|| ( $this->cursor_seg === $this->boot_cursor_seg && $this->cursor_off > $this->boot_cursor_off );
+	}
+
+	/**
+	 * Commit one offsetlog frame at the current cursor — UNCONDITIONALLY (no
+	 * advance-guard; the boot sequence re-commits the same cursor on purpose).
+	 *
+	 * @param bool $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
+	 * @param bool $with_state Co-commit the snapshot node's save_state(). False for the
+	 *                         stateless boot frame written BEFORE restore — reading the
+	 *                         un-restored node there would clobber the good cache.
+	 */
+	private function write_checkpoint_frame( bool $graceful, bool $with_state ): void {
+		if ( null === $this->offsetlog ) {
+			return;
+		}
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::FROM ]      = $this->name;
+		$value = [
+			'seg'            => $this->cursor_seg,
+			'off'            => $this->cursor_off,
+			'attempts'       => $graceful ? 0 : $this->attempts,
+			'reason'         => $graceful ? '' : $this->poison_reason,
+			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
+			'ts'             => Core::$now,
+			'name'           => $this->name,
+			'target'         => \is_string( $this->target ) ? $this->target : '',
+			'targets'        => $this->resolve_downstream_targets(),
+			'worker_type'    => self::worker_type_env(),
+			// Real source log basename. Two readers can tail the same log under
+			// distinct offset-dir names (firehose vs firehose.job-router); the
+			// dashboard labels by this, not the disambiguated offset dir.
+			'source_log'     => \basename( $this->source_dir ),
+		];
+		// Co-commit the snapshot node's state with the offset, as ONE record, so a
+		// respawn restores the cache and resumes the cursor in lockstep.
+		if ( $with_state && '' !== $this->snapshot_node ) {
+			$node = Core::node( $this->snapshot_node );
+			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
+				$value['cache'] = $node->save_state();
+			}
+		}
+		$message[ Message::VALUE ]     = $value;
+		$this->offsetlog->fill( $message );
+		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
+		$this->offsetlog->flush();
+		$this->checkpoint_seg = $this->cursor_seg;
+		$this->checkpoint_off = $this->cursor_off;
+
+		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off ] ) );
+	}
+
+	/**
+	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
+	 *
+	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
+	 *
+	 * @return array<int,array{name:string,class:string}>
+	 */
+	private function resolve_downstream_targets(): array {
+		if ( ! \is_string( $this->target ) || '' === $this->target ) {
+			return [];
+		}
+		$node = Core::node( $this->target );
+		if ( null === $node ) {
+			// Not yet registered or removed; surface the name without a class.
+			return [ [ 'name' => $this->target, 'class' => '' ] ];
+		}
+		$class = Command_Interpreter_Node::shell_name_for( $node );
+		// instanceof, not an exact name match, so a Tee subclass (Tap) expands too.
+		if ( ! $node instanceof Tee_Node ) {
+			return [ [ 'name' => $this->target, 'class' => $class ] ];
+		}
+		$tee_targets = $node->target;
+		if ( ! \is_array( $tee_targets ) ) {
+			return [ [ 'name' => $this->target, 'class' => $class ] ];
+		}
+		$out = [];
+		foreach ( $tee_targets as $t ) {
+			if ( '' === $t ) {
+				continue;
+			}
+			$tn = Core::node( $t );
+			$tc = null === $tn ? '' : Command_Interpreter_Node::shell_name_for( $tn );
+			$out[] = [ 'name' => $t, 'class' => $tc ];
+		}
+		return $out;
+	}
+
+	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
+	private static function worker_type_env(): string {
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
 	}
 
 	/**
@@ -993,6 +1079,12 @@ class Consumer_Node extends Timer_Node {
 			}
 		}
 		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at {$where} — {$outcome}{$why}" );
+	}
+
+	/** First complete (newline-terminated) line buffered at the cursor, or null when none is in flight. */
+	private function buffer_head_line(): ?string {
+		$nl = \strpos( $this->buffer, "\n" );
+		return false === $nl ? null : \substr( $this->buffer, 0, $nl );
 	}
 
 	/** DoS guard for a partial line that never terminates: discard once it can't fit a real line. */
@@ -1283,16 +1375,20 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * `set_line_mode` verb handler — toggle the patron's line-mode framing.
+	 * `set_line_mode` verb handler — toggle the patron's line-mode framing. Only an
+	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; a bare/empty verb or any
+	 * other value disables it, so the default is "off" and an accidental enable is reversible.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param string                   $args        Optional bool; only a truthy value enables.
 	 *
 	 * @return string
 	 */
-	public static function cmd_set_line_mode( Command_Interpreter_Node $interpreter ): string {
+	public static function cmd_set_line_mode( Command_Interpreter_Node $interpreter, string $args ): string {
 		/** @var self $patron */
-		$patron = $interpreter->patron();
-		$patron->set_line_mode( true );
+		$patron  = $interpreter->patron();
+		$enabled = \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true );
+		$patron->set_line_mode( $enabled );
 		return 'ok';
 	}
 
@@ -1300,7 +1396,7 @@ class Consumer_Node extends Timer_Node {
 	 * `SEEK_FRAME` verb handler — seek the patron consumer to a frame.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string $args Verb argument.
+	 * @param string                   $args        Verb argument.
 	 *
 	 * @return string
 	 */
@@ -1372,8 +1468,10 @@ class Consumer_Node extends Timer_Node {
 				[
 					'name'        => 'set_line_mode',
 					'description' => 'Fine-grained drain mode: emits one line per event cycle',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_line_mode( $interpreter ),
+					'args'        => [
+						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_line_mode( $interpreter, $args ),
 				],
 				[
 					'name'        => 'SEEK_FRAME',

@@ -960,6 +960,328 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( Consumer_Node::CRASH_MAX_ATTEMPTS, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'], 'crawl must not exit while the head is unsacrificed' );
 	}
 
+	/**
+	 * Drive a Consumer until its sink throws Worker_Should_Stop, leaving the in-flight
+	 * message buffered at the boot cursor (the realistic mid-job cooperative-stop state).
+	 */
+	private function stop_on_value( Consumer_Node $c, string $value ): void {
+		$c->sink( new class( $value ) extends Node {
+			public function __construct( private string $stop_at ) {}
+			public function fill( array &$message ): void {
+				if ( $this->stop_at === $message[ Message::VALUE ] ) {
+					throw new \Newspack_Nodes\Worker_Should_Stop();
+				}
+			}
+		} );
+	}
+
+	public function test_cooperative_timeout_strikes_when_stopped_on_the_boot_cursor(): void {
+		// A timeout at the message the worker BOOTED on (cursor never advanced, message
+		// still buffered) got a fair full-lifetime shot — it counts as a strike: the
+		// shutdown stamps reason=timeout at the live attempt count (not the attempts=0
+		// graceful handoff), so the respawn climbs toward the dead-letter threshold.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'poison' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$this->stop_on_value( $c, 'poison' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$c->cooperative_stop( 'timeout', false );
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 'timeout', $entry['reason'], 'a boot-cursor timeout stamps reason=timeout' );
+		$this->assertSame( 1, $entry['attempts'], 'the first strike records the live attempt count, not a graceful 0' );
+		$this->assertSame( 0, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'one strike is below threshold — no dead-letter yet' );
+	}
+
+	public function test_cooperative_timeout_does_not_strike_when_the_cursor_advanced(): void {
+		// A late "sliver" message (the worker advanced past its boot cursor before the
+		// timeout) did NOT get a fair shot — it's a clean handoff (attempts=0), not a
+		// strike. The next fresh worker boots ON it and gives it a full lifetime.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'A' );
+		$this->produce_line( $source, 'B' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$c->set_line_mode( true ); // one message per drain, so A advances the cursor before B stops.
+		$this->stop_on_value( $c, 'B' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$c->cooperative_stop( 'timeout', false );
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'an advanced cursor is a clean handoff, not a strike' );
+		$this->assertSame( '', $entry['reason'] );
+	}
+
+	public function test_cooperative_timeout_does_not_strike_an_idle_worker(): void {
+		// A worker that booted, found nothing to do, and timed out has an empty buffer —
+		// no message is in flight, so nothing earned a strike. Clean handoff.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c ); // reaches EOF with an empty buffer.
+
+		$c->cooperative_stop( 'timeout', false );
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'an idle worker carrying no message is not struck' );
+	}
+
+	public function test_counter_counts_only_successfully_forwarded_messages(): void {
+		// probe MSGS / throughput reflect work actually delivered downstream. A message
+		// quarantined on a throw (or re-delivered after a cooperative stop) must NOT inflate
+		// the counter — otherwise a respawn double-counts the same re-delivered message.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'boom' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$c->sink( new class() extends Node {
+			public function fill( array &$message ): void {
+				throw new \RuntimeException( 'handler boom' );
+			}
+		} );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::MSGS ], 'a quarantined message is not counted as forwarded' );
+	}
+
+	public function test_counter_not_incremented_when_dispatch_is_cooperatively_stopped(): void {
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'x' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$this->stop_on_value( $c, 'x' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::MSGS ], 'a message re-delivered after a stop is not counted' );
+	}
+
+	public function test_cooperative_timeout_does_not_strike_a_merely_buffered_message(): void {
+		// A message read into the buffer but NEVER dispatched (it just arrived, the timeout
+		// fired before the next drain) did not get a fair shot — striking it would penalize
+		// a healthy message. Only a message the worker was actively forwarding when the stop
+		// hit (stopped_in_fill) counts. The buffered head alone is not enough.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'just-arrived' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		// One poll: poll_init runs, get_batch reads the line into the buffer, but it is not
+		// forwarded yet (drain runs before the read). So the head is buffered, undispatched.
+		$c->poll();
+
+		$c->cooperative_stop( 'timeout', false );
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'a buffered-but-undispatched message is not struck' );
+		$this->assertSame( 0, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ) );
+	}
+
+	public function test_cooperative_stop_skips_a_consumer_that_never_polled(): void {
+		// If the worker stops BEFORE a consumer's first poll (e.g. memory already over the
+		// watermark at boot, or a restart requested on the first should_continue), the
+		// in-memory cursor is still the 0:0 construction default. The shutdown handoff must
+		// NOT write that 0:0 frame — it would clobber the real durable position and the next
+		// boot would rewind to the start of the partition and re-deliver everything.
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 2, 500, 0 );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		// No poll(): the consumer never ran poll_init / load_offsetlog.
+
+		$c->cooperative_stop( 'timeout', false );
+		$c->checkpoint( true ); // the operational-stop graceful path must also be guarded.
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 2, $entry['seg'], 'an un-polled consumer must not clobber the durable cursor' );
+		$this->assertSame( 500, $entry['off'] );
+	}
+
+	public function test_boot_cursor_tracks_a_first_spawn_end_seek(): void {
+		// boot_cursor must reflect where the worker actually started reading — including a
+		// first-spawn next_offset('end') seek — so cursor_advanced_since_boot() is honest.
+		// Otherwise an end-seeking consumer's boot_cursor stays at 0:0 and the fair-shot
+		// proxy reports "advanced" for its whole first lifetime.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'pre-existing' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->next_offset( 'end' ); // seek past the backlog before the first poll.
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( $this->read_private( $c, 'cursor_seg' ), $this->read_private( $c, 'boot_cursor_seg' ), 'boot_cursor seg tracks the seeked start' );
+		$this->assertSame( $this->read_private( $c, 'cursor_off' ), $this->read_private( $c, 'boot_cursor_off' ), 'boot_cursor off tracks the seeked start' );
+		$this->assertGreaterThan( 0, $this->read_private( $c, 'boot_cursor_off' ), 'the end seek moved boot_cursor off 0:0' );
+	}
+
+	public function test_cooperative_timeout_dead_letters_after_the_strike_threshold(): void {
+		// The boot-cursor message has now consumed COOP_MAX_ATTEMPTS full lifetimes
+		// (a prior frame records the first strike). The second strike exhausts the
+		// budget: quarantine the message, advance past it, and hand off at the virgin
+		// baseline so the next message gets a fresh first attempt.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'poison' );
+		$this->produce_line( $source, 'after' );
+
+		// Seed the first-strike frame so the boot resumes at the second attempt.
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::COOP_MAX_ATTEMPTS - 1, 'timeout' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$this->stop_on_value( $c, 'poison' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$c->cooperative_stop( 'timeout', false );
+
+		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'the message is quarantined after exhausting its fair shots' );
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'after the dead-letter the advanced cursor hands off at the virgin baseline' );
+		$this->assertGreaterThan( 0, $entry['off'], 'the cursor advanced past the quarantined message' );
+	}
+
+	public function test_cooperative_memory_does_not_strike_when_baseline_near_watermark(): void {
+		// A memory stop whose FRESH baseline was already near the watermark is a leak or
+		// an undersized memory_limit, not a single poison message: alert, do not strike.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'innocent' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$this->stop_on_value( $c, 'innocent' );
+		Core::set_stderr_handler( static function () { /* swallow the alert */ } );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$c->cooperative_stop( 'memory', true ); // baseline_near_watermark = true.
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'a high-baseline memory stop is not the message\'s fault — no strike' );
+		$this->assertSame( 0, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ) );
+	}
+
+	public function test_cooperative_memory_strikes_when_baseline_is_healthy(): void {
+		// A single message that drove a large memory delta from a HEALTHY baseline IS
+		// the culprit — it counts as a strike just like a timeout.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hog' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$this->stop_on_value( $c, 'hog' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$c->cooperative_stop( 'memory', false ); // healthy baseline.
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 'memory', $entry['reason'] );
+		$this->assertSame( 1, $entry['attempts'] );
+	}
+
+	public function test_cooperative_stop_advances_past_lines_forwarded_before_a_midbatch_stop(): void {
+		// In batch mode a cooperative stop can propagate mid-batch (a pump() inside one
+		// fill). Lines already handed to the sink are done — the cursor must advance past
+		// them (single chop in a finally), so the fair-shot proxy sees the real in-flight
+		// message, not the innocent boot head.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'A' );
+		$this->produce_line( $source, 'B' );
+		$this->produce_line( $source, 'C' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->name( 'firehose:consumer' );
+		$this->stop_on_value( $c, 'C' ); // A and B forward; C stops mid-batch.
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		// The cursor advanced past A and B; C is the buffered head.
+		$this->assertGreaterThan( 0, $this->read_private( $c, 'cursor_off' ), 'forwarded lines advance the cursor even on a mid-batch stop' );
+		$buffer   = (string) $this->read_private( $c, 'buffer' );
+		$head_nl  = \strpos( $buffer, "\n" );
+		$head     = false === $head_nl ? $buffer : \substr( $buffer, 0, $head_nl );
+		$this->assertSame( 'C', Message::unpacked( $head )[ Message::VALUE ], 'the un-forwarded in-flight message stays at the buffer head' );
+	}
+
+	public function test_set_line_mode_verb_enables_only_on_an_explicit_truthy_arg(): void {
+		// Only 1/true/yes/on enable line mode; a bare/empty verb (or any other value)
+		// disables it — so an accidental click is reversible and the default is "off".
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $c );
+
+		Consumer_Node::cmd_set_line_mode( $interpreter, 'true' );
+		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'an explicit truthy arg enables it' );
+
+		Consumer_Node::cmd_set_line_mode( $interpreter, '' );
+		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'a bare/empty verb disables it' );
+
+		Consumer_Node::cmd_set_line_mode( $interpreter, 'on' );
+		$this->assertTrue( $this->read_private( $c, 'line_mode' ) );
+
+		Consumer_Node::cmd_set_line_mode( $interpreter, 'false' );
+		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'an explicit falsey arg disables it' );
+	}
+
 	public function test_fire_checkpoints_at_most_once_per_30s(): void {
 		// The offsetlog is crash-resume only (not a position source — TopicProbe is),
 		// so fire() checkpoints at most every CHECKPOINT_INTERVAL_S (30s), not every
