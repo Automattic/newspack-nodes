@@ -67,7 +67,7 @@ const HELP = {
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
 	dump_config:
-		'dump_config\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines.\n',
+		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
 	dump_metadata:
 		'dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments`.\n',
 	debug_state:
@@ -337,7 +337,8 @@ export class CommandInterpreterNode extends Node {
 			dump: ( self, args ) => CommandInterpreterNode._cmdDumpNode( args ),
 			dump_metadata: ( self, args ) =>
 				CommandInterpreterNode._cmdDumpMetadata( args ),
-			dump_config: () => CommandInterpreterNode._cmdDumpConfig(),
+			dump_config: ( self, args ) =>
+				CommandInterpreterNode._cmdDumpConfig( args ),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreterNode._cmdUptime(),
 			debug_state: ( self, args ) => self._cmdDebugState( args ),
@@ -752,13 +753,28 @@ export class CommandInterpreterNode extends Node {
 
 	// dump_config — every node's round-trippable make_node/set_sink/connect_node
 	// lines, skipping the baseline scaffolding. Mirrors PHP cmd_dump_config.
-	static _cmdDumpConfig() {
+	static _cmdDumpConfig( glob = '' ) {
+		const pattern = ( glob || '' ).trim();
+		let re = null;
+		if ( pattern ) {
+			// Tachikoma: the arg is a regex glob on node names. A malformed
+			// pattern matches nothing (empty dump), mirroring PHP where a bad
+			// preg_match returns false and every node is skipped.
+			try {
+				re = new RegExp( pattern );
+			} catch {
+				return '';
+			}
+		}
 		let out = '';
 		for ( const [ name, node ] of Core.nodes ) {
 			// Skip only the backbone (literals avoid the `names` shadow); _output
 			// is a real node now, shown on the canvas and dumpable.
 			if ( '_command_interpreter' === name || '_router' === name ) {
 				continue;
+			}
+			if ( re && ! re.test( name ) ) {
+				continue; // regex-glob filter — skip names not matching.
 			}
 			// Omit patron-managed sidecars (a Consumer's :source / :offsetlog): the
 			// patron's own config line recreates them, so dumping them separately

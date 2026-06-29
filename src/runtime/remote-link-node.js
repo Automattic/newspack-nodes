@@ -155,7 +155,7 @@ export class RemoteLinkNode extends Node {
 		return this.sseIn ? this.sseIn.bytesRead : super.bytesRead;
 	}
 	get bytesWritten() {
-		return this.httpOut ? this.httpOut.bytesWritten : super.bytesWritten;
+		return super.bytesWritten;
 	}
 	get largestMsgSent() {
 		return this.sseIn ? this.sseIn.largestMsgSent : super.largestMsgSent;

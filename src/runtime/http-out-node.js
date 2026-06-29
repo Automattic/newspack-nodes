@@ -81,6 +81,9 @@ export class HttpOutNode extends Node {
 		Promise.resolve( this.client.postBatch( entries, packed ) )
 			.then( ( messages ) => {
 				for ( const message of messages ) {
+					// Read boundary: tally the wire size of each reply received
+					// (mirrors the bytesWritten tally on the POST above).
+					this.bytesRead += byteLength( pack( message ) );
 					this.counter += 1;
 					this.sink?.fill( message );
 				}

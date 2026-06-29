@@ -1385,6 +1385,22 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'_output'
 			);
 		} );
+
+		it( 'filters node names by a regex glob argument (mirrors PHP)', () => {
+			const interpreter = makeInterpreter();
+			dispatch( interpreter, 'make_node', 'Tee alpha' );
+			dispatch( interpreter, 'make_node', 'Tee beta' );
+			const out = dispatch( interpreter, 'dump_config', 'alph' );
+			expect( out ).toContain( 'make_node Tee alpha' );
+			expect( out ).not.toContain( 'beta' );
+		} );
+
+		it( 'a malformed glob matches nothing (empty dump), not a throw', () => {
+			const interpreter = makeInterpreter();
+			dispatch( interpreter, 'make_node', 'Tee alpha' );
+			// PHP: a bad pattern preg_matches false → matches nothing.
+			expect( dispatch( interpreter, 'dump_config', '(' ) ).toBe( '' );
+		} );
 	} );
 
 	describe( 'dispatch / table helpers', () => {
