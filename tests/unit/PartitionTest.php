@@ -266,6 +266,144 @@ class PartitionTest extends TestCase {
 		$p2->allow_large_writes( 100 ); // 100ms — well under stale_timeout
 	}
 
+	/** Partition exposing fire() so tests can drive the debounce timer without an event loop. */
+	private function debounced_partition( string $dir, int $debounce_ms ): object {
+		$p = new class() extends Partition_Node {
+			public function probe_fire(): void {
+				$this->fire();
+			}
+		};
+		$p->arguments( "{$dir} " . ( 64 * 1024 ) . ' 4 86400' );
+		$p->name( 'dbp' );
+		$p->allow_large_writes( 1000, $debounce_ms );
+		return $p;
+	}
+
+	public function test_debounced_mode_acquires_the_lock_lazily_on_first_write(): void {
+		// [65]: debounced allow_large_writes does NOT grab the lock at setup — only
+		// when a write actually arrives, so an idle partition holds nothing.
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$this->assertDirectoryDoesNotExist(
+			"{$this->tmp}.p0/write.lock.d",
+			'debounced mode must not lock until the first write'
+		);
+
+		$this->produce_into( $p, \str_repeat( 'x', 5000 ) ); // > PIPE_BUF.
+		$this->assertDirectoryExists(
+			"{$this->tmp}.p0/write.lock.d",
+			'a write acquires the lock'
+		);
+		$this->assertSame(
+			[ \str_repeat( 'x', 5000 ) ],
+			$this->read_partition_values( $p )
+		);
+	}
+
+	public function test_debounced_mode_releases_the_lock_after_an_idle_interval(): void {
+		// [65]: once writes stop, a fire() past the debounce window releases the
+		// lock so other writers can take it. The timer debounces the unlock.
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$this->produce_into( $p, \str_repeat( 'x', 5000 ) );
+		$this->assertDirectoryExists( "{$this->tmp}.p0/write.lock.d" );
+
+		// Still within the debounce window → a fire() keeps the lock.
+		\Newspack_Nodes\Core::$now = 1000.05; // 50ms < 100ms
+		$p->probe_fire();
+		$this->assertDirectoryExists(
+			"{$this->tmp}.p0/write.lock.d",
+			'a fire inside the debounce window holds the lock'
+		);
+
+		// Past the window → released.
+		\Newspack_Nodes\Core::$now = 1000.2; // 200ms >= 100ms idle
+		$p->probe_fire();
+		$this->assertDirectoryDoesNotExist(
+			"{$this->tmp}.p0/write.lock.d",
+			'an idle interval past the debounce window releases the lock'
+		);
+	}
+
+	public function test_debounced_release_lets_another_writer_acquire(): void {
+		// The point of releasing on idle: a different process can then write.
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p1 = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$this->produce_into( $p1, \str_repeat( 'a', 5000 ) );
+		\Newspack_Nodes\Core::$now = 1000.2;
+		$p1->probe_fire(); // releases.
+
+		// A continuous-mode writer now acquires the freed lock without throwing.
+		$p2 = new Partition_Node();
+		$p2->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$p2->name( 'p2' );
+		$p2->allow_large_writes( 200 );
+		$this->assertDirectoryExists( "{$this->tmp}.p0/write.lock.d" );
+		$p2->remove_node();
+	}
+
+	public function test_debounced_reacquire_appends_at_the_live_end_after_another_writer(): void {
+		// While unlocked, another writer may advance the partition. On re-acquire the
+		// debounced writer re-syncs from disk so it appends at the true end, not over
+		// the other writer's bytes.
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$this->produce_into( $p, 'first' );
+		\Newspack_Nodes\Core::$now = 1000.2;
+		$p->probe_fire(); // release.
+
+		// An independent writer appends while we hold nothing.
+		$other = new Partition_Node();
+		$other->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_into( $other, 'second' );
+
+		// Our next write re-acquires + re-syncs, appending after 'second'.
+		\Newspack_Nodes\Core::$now = 1001.0;
+		$this->produce_into( $p, 'third' );
+		$this->assertSame(
+			[ 'first', 'second', 'third' ],
+			$this->read_partition_values( $p )
+		);
+	}
+
+	public function test_debounced_large_write_arms_the_release_timer(): void {
+		// Regression [65]: a > PIPE_BUF write (the whole reason for the mode) takes
+		// fill()'s early-return branch. It must STILL arm the debounce timer — the
+		// release runs only from fire(), so without an armed timer the lock is held
+		// for life and debounced mode silently degenerates to acquire-and-hold.
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$this->produce_into( $p, \str_repeat( 'x', 5000 ) ); // > MAX_LINE_SIZE → large branch.
+		$this->assertSame(
+			100,
+			$p->interval_ms,
+			'a large write must arm the debounce release timer'
+		);
+	}
+
+	public function test_debounced_oversize_drop_still_arms_the_release_timer(): void {
+		// An oversize message is dropped after the lock is acquired; the release must
+		// still be scheduled so the lock isn't stranded by a doomed write [65].
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$oversize = $this->produce( \str_repeat( 'z', 11 * 1024 * 1024 ) ); // > MAX_LARGE_LINE_SIZE.
+		$p->fill( $oversize );
+		$this->assertSame(
+			100,
+			$p->interval_ms,
+			'even a dropped oversize write arms the release timer (lock not stranded)'
+		);
+	}
+
+	public function test_debounced_mode_round_trips_the_debounce_ms_in_dump_config(): void {
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 250 );
+		$this->assertStringContainsString(
+			'cmd dbp:config allow_large_writes 250',
+			$p->dump_config()
+		);
+	}
+
 	public function test_read_at_returns_bytes_at_offset(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 64*1024 ) . " 4 86400" );

@@ -60,6 +60,18 @@ class Partition_Node extends Timer_Node {
 	protected int $lock_stale_timeout = 0;
 	protected float $last_lock_heartbeat = 0.0;
 
+	/**
+	 * Debounced-lock mode ([65]): when > 0, allow_large_writes acquires the write lock
+	 * lazily on the first write of a burst and releases it after this many ms of idle
+	 * (fire() debounces the release), so other processes can write between bursts. 0 =
+	 * the default acquire-and-hold-for-life mode. $lock_held tracks current ownership;
+	 * $last_write_at (Core::$now seconds) is the idle reference the debounce measures from.
+	 */
+	protected int $debounce_lock_ms = 0;
+	protected int $lock_max_wait_ms = 0;
+	protected bool $lock_held = false;
+	protected float $last_write_at = 0.0;
+
 	protected float $last_segment_check = 0.0;
 
 	/** @var (callable(string, array<string, mixed>, mixed): (string|null))|null fn(string $line, array $position, ?array &$data) => string|null */
@@ -118,8 +130,21 @@ class Partition_Node extends Timer_Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
+		// Debounced mode: grab the lock for this write burst (re-syncing from disk, since
+		// another writer may have advanced the partition while we held nothing) and mark
+		// the burst's last-write time. Arm the release timer HERE — the moment the lock is
+		// held — so EVERY fill() exit (small batch, >PIPE_BUF early return, oversize drop,
+		// or a pump() throw) guarantees fire() eventually releases it. The small-batch path
+		// below re-arms set_timer(0) for a prompt flush, which just fires sooner and re-arms
+		// the debounce window from fire() [65].
+		if ( $this->debounce_lock_ms > 0 ) {
+			$this->ensure_debounced_lock();
+			$this->last_write_at = Core::$now;
+			$this->set_timer( $this->debounce_lock_ms, true );
+		}
+
 		// No-event-loop heartbeat: heartbeat() returns false if ownership was stolen, so throw.
-		if ( $this->allow_large_writes && null === $this->heartbeat_timer && null !== $this->write_lock ) {
+		if ( $this->allow_large_writes && $this->lock_held && null === $this->heartbeat_timer && null !== $this->write_lock ) {
 			$now = \microtime( true );
 			if ( $now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
 				if ( ! $this->write_lock->heartbeat() ) {
@@ -207,6 +232,17 @@ class Partition_Node extends Timer_Node {
 	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
 	protected function fire(): void {
 		$this->flush();
+		// Debounced lock: release once the burst has been idle past the debounce window,
+		// else re-arm to re-check at the window's end. A fresh write resets the window by
+		// re-arming the 0-delay flush timer (which preempts this) [65].
+		if ( $this->debounce_lock_ms > 0 && $this->lock_held ) {
+			$idle_ms = ( Core::$now - $this->last_write_at ) * 1000.0;
+			if ( $idle_ms >= $this->debounce_lock_ms ) {
+				$this->release_debounced_lock();
+			} else {
+				$this->set_timer( $this->debounce_lock_ms, true );
+			}
+		}
 	}
 
 	/**
@@ -623,7 +659,11 @@ class Partition_Node extends Timer_Node {
 	public function remove_node(): void {
 		$this->close_handle();
 		if ( null !== $this->write_lock ) {
-			$this->write_lock->release();
+			// Only release a lock we actually hold — in debounced mode another writer may
+			// own it right now, and releasing it would steal their exclusivity ([65]).
+			if ( $this->lock_held ) {
+				$this->write_lock->release();
+			}
 			$this->write_lock = null;
 		}
 		parent::remove_node();
@@ -647,10 +687,14 @@ class Partition_Node extends Timer_Node {
 	 * Requires name() and sink() to be set BEFORE this is called.
 	 *
 	 * @param int $max_wait_ms Lock acquisition timeout (ms).
-	 * @throws \RuntimeException when the lock cannot be acquired.
+	 * @param int $debounce_ms 0 (default) = acquire the lock now and hold it for life.
+	 *                         > 0 = debounced mode: acquire lazily on each write burst and
+	 *                         release after this many ms of idle so other writers can take
+	 *                         turns ([65]). Lock acquisition is deferred to the first write.
+	 * @throws \RuntimeException when the lock cannot be acquired (hold mode).
 	 * @return self
 	 */
-	public function allow_large_writes( int $max_wait_ms = 65000 ): self {
+	public function allow_large_writes( int $max_wait_ms = 65000, int $debounce_ms = 0 ): self {
 		$stale_timeout = 60;
 		$lock          = new Lock_Node( $this->write_lock_path(), $stale_timeout );
 
@@ -662,6 +706,18 @@ class Partition_Node extends Timer_Node {
 		$lock->sink( $this->sink );
 		$lock->patron( $this );
 
+		$this->allow_large_writes = true;
+		$this->write_lock         = $lock;
+		$this->lock_stale_timeout = $stale_timeout;
+		$this->lock_max_wait_ms   = $max_wait_ms;
+
+		if ( $debounce_ms > 0 ) {
+			// Debounced: don't acquire now — fill() grabs the lock per burst, fire() frees it.
+			$this->debounce_lock_ms = $debounce_ms;
+			return $this;
+		}
+
+		// Hold mode: acquire-and-hold for the partition's lifetime.
 		// Drain active: arm the heartbeat Timer. Request-scope: drive heartbeat from fill().
 		$ef_running = Event_Framework::instance()->is_running();
 
@@ -675,9 +731,7 @@ class Partition_Node extends Timer_Node {
 			);
 		}
 
-		$this->allow_large_writes  = true;
-		$this->write_lock          = $lock;
-		$this->lock_stale_timeout  = $stale_timeout;
+		$this->lock_held           = true;
 		$this->last_lock_heartbeat = \microtime( true );
 
 		if ( $ef_running ) {
@@ -691,6 +745,43 @@ class Partition_Node extends Timer_Node {
 		}
 
 		return $this;
+	}
+
+	/**
+	 * Debounced mode: acquire the write lock for the current burst if we don't hold it,
+	 * re-syncing segment state from disk afterwards — another writer may have appended or
+	 * rotated while we held nothing, so the cached handle/segment/size are stale ([65]).
+	 *
+	 * @throws \RuntimeException when the lock can't be acquired within lock_max_wait_ms.
+	 */
+	private function ensure_debounced_lock(): void {
+		if ( $this->lock_held || null === $this->write_lock ) {
+			return;
+		}
+		if ( ! $this->write_lock->acquire( $this->lock_max_wait_ms ) ) {
+			throw new \RuntimeException(
+				\esc_html(
+					'Partition::allow_large_writes() (debounced) failed to acquire write lock at '
+					. "{$this->write_lock_path()} after {$this->lock_max_wait_ms}ms — another writer holds it."
+				)
+			);
+		}
+		$this->lock_held           = true;
+		$this->last_lock_heartbeat = \microtime( true );
+		// Drop cached position/handle: the live end on disk is authoritative now.
+		$this->close_handle();
+		$this->current_segment_id = null;
+		$this->segments_cache     = null;
+	}
+
+	/** Debounced mode: drain the batch, close the handle, and free the lock for other writers ([65]). */
+	private function release_debounced_lock(): void {
+		$this->flush();
+		$this->close_handle();
+		if ( null !== $this->write_lock ) {
+			$this->write_lock->release();
+		}
+		$this->lock_held = false;
 	}
 
 	/** Seam (Log overrides): per-writer exclusivity lock dir for allow_large_writes(). */
@@ -978,7 +1069,13 @@ class Partition_Node extends Timer_Node {
 	public function dump_config(): string {
 		$out = parent::dump_config();
 		if ( $this->allow_large_writes ) {
-			$verb = $this->warranty_voided ? 'void_warranty' : 'allow_large_writes';
+			if ( $this->warranty_voided ) {
+				$verb = 'void_warranty';
+			} elseif ( $this->debounce_lock_ms > 0 ) {
+				$verb = "allow_large_writes {$this->debounce_lock_ms}";
+			} else {
+				$verb = 'allow_large_writes';
+			}
 			$out .= "cmd {$this->name}:config {$verb}\n";
 		}
 		if ( null !== $this->index_formatter_name ) {
@@ -1049,16 +1146,20 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 	/**
-	 * `allow_large_writes` verb handler — lift the 4KB cap on the patron + acquire its write lock.
+	 * `allow_large_writes` verb handler — lift the 4KB cap on the patron + acquire its write
+	 * lock. An optional debounce_ms arg switches to debounced mode (lock per write burst,
+	 * released after that many ms of idle) instead of acquire-and-hold ([65]).
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param string                   $args        Optional debounce_ms (default 0 = hold mode).
 	 *
 	 * @return string
 	 */
-	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter ): string {
+	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, string $args ): string {
 		/** @var self $patron */
-		$patron = $interpreter->patron();
-		$patron->allow_large_writes();
+		$patron   = $interpreter->patron();
+		$debounce = \max( 0, (int) \trim( $args ) );
+		$patron->allow_large_writes( 65000, $debounce );
 		return 'ok';
 	}
 
@@ -1114,9 +1215,11 @@ class Partition_Node extends Timer_Node {
 			'commands'    => [
 				[
 					'name'        => 'allow_large_writes',
-					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter ),
+					'description' => 'Lift the 4KB PIPE_BUF cap; acquire the per-partition write lock. Optional debounce_ms > 0 switches to debounced mode: lock per write burst, release after that idle window.',
+					'args'        => [
+						[ 'name' => 'debounce_ms', 'type' => 'int', 'required' => false ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter, $args ),
 				],
 				[
 					'name'        => 'void_warranty',
