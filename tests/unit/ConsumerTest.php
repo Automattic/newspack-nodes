@@ -447,6 +447,219 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThan( 0, $entry['off'] );
 	}
 
+	public function test_checkpoint_records_attempts_at_healthy_baseline(): void {
+		// The offsetlog frame carries an `attempts` counter so a respawn can tell a
+		// stuck/poison cursor (climbing attempts) from healthy progress. A normal
+		// running checkpoint writes the healthy baseline of 1 (0 is reserved for a
+		// graceful-shutdown handoff at a genuinely un-attempted cursor).
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$c->checkpoint();
+
+		$content = (string) file_get_contents( "{$this->tmp}/offsets.p0/0.log" );
+		$entry   = Message::unpacked( rtrim( $content, "\n" ) )[ Message::VALUE ];
+		$this->assertSame( 1, $entry['attempts'] );
+	}
+
+	public function test_graceful_checkpoint_records_attempts_zero(): void {
+		// A graceful shutdown checkpoints at a cursor whose next message has NOT yet
+		// been attempted — a clean handoff, not a strike — so it stamps attempts=0.
+		// The respawn then resumes at attempts+1 = 1 (a virgin first attempt), so a
+		// clean recycle costs nothing, while a crashed in-flight interval costs one.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$c->checkpoint( graceful: true );
+
+		$content = (string) file_get_contents( "{$this->tmp}/offsets.p0/0.log" );
+		$entry   = Message::unpacked( rtrim( $content, "\n" ) )[ Message::VALUE ];
+		$this->assertSame( 0, $entry['attempts'] );
+	}
+
+	public function test_boot_resumes_at_prior_attempts_plus_one(): void {
+		// A respawned worker re-reads the durable cursor. It resumes at attempts+1 so
+		// a stuck/poison cursor that never advances climbs toward the dead-letter
+		// threshold each respawn. Here consumer A checkpoints at the healthy baseline
+		// (1); a fresh consumer B on the SAME offsetlog must boot and record 2.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $a );
+		$a->checkpoint();
+		$this->assertSame( 1, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
+
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $b ); // first poll → poll_init → load_offsetlog boot-bump.
+
+		$this->assertSame( 2, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
+	}
+
+	/**
+	 * Read the newest offsetlog keyframe's VALUE. segment_size=1 makes each
+	 * checkpoint its own segment ({id}.log), so the newest frame is the last line
+	 * of the highest-numbered segment file.
+	 *
+	 * @return array<array-key, mixed>
+	 */
+	private function newest_offsetlog_entry( string $dir ): array {
+		$paths = \glob( "{$dir}/*.log" );
+		\usort( $paths, static fn ( $x, $y ): int => (int) \basename( $x, '.log' ) <=> (int) \basename( $y, '.log' ) );
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
+		return Message::unpacked( (string) \end( $lines ) )[ Message::VALUE ];
+	}
+
+	public function test_checkpoint_resets_attempts_to_baseline_on_forward_progress(): void {
+		// Once a recovering worker advances PAST the cursor it booted on, the poison
+		// region is behind it — its next interval checkpoint resets to the healthy
+		// baseline (1), so a later unrelated crash doesn't inherit a stale strike count.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $a );
+		$a->checkpoint();
+
+		// B respawns onto A's cursor → boots at attempts=2 and stays there while stuck.
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $b );
+		$this->assertSame( 2, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
+
+		// New data arrives; B advances past its boot cursor → forward progress.
+		$this->produce_line( $source, 'world' );
+		$this->pump_consumer( $b );
+		$b->checkpoint();
+
+		$this->assertSame( 1, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
+	}
+
+	public function test_checkpoint_frame_carries_reason_and_first_crash_ts(): void {
+		// The frame carries the dead-letter metadata a respawn classifies on: `reason`
+		// (why the prior process stopped — '' = none/hard-crash) and `first_crash_ts`
+		// (when the strike streak began, for the 900s state-wipe escalation). A healthy
+		// running checkpoint has neither: reason='' and first_crash_ts=null.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$c->checkpoint();
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertArrayHasKey( 'reason', $entry );
+		$this->assertSame( '', $entry['reason'] );
+		$this->assertArrayHasKey( 'first_crash_ts', $entry );
+		$this->assertNull( $entry['first_crash_ts'] );
+	}
+
+	public function test_boot_stamps_first_crash_ts_on_recovery_and_carries_it(): void {
+		// The first respawn onto a still-stuck cursor (attempts climbs past 1) marks
+		// WHEN the crash streak began so the 900s state-wipe can time it; later
+		// respawns carry that original timestamp forward rather than resetting it.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $a );
+		$a->checkpoint(); // healthy frame: attempts=1, first_crash_ts=null.
+
+		Core::$now = 5000.0;
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $b ); // recovery boot → streak begins now.
+		// Numeric compare: a whole-number float round-trips through the frame's JSON as int.
+		$this->assertEquals( 5000.0, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['first_crash_ts'] );
+
+		Core::$now = 6000.0; // a later respawn must NOT re-stamp.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$this->assertEquals( 5000.0, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['first_crash_ts'] );
+	}
+
+	public function test_graceful_checkpoint_forces_write_past_advance_guard(): void {
+		// A clean shutdown must record attempts=0 even when the cursor hasn't moved
+		// since the last commit (an idle consumer sitting on its checkpoint). The
+		// advance-guard suppresses a normal no-op checkpoint there, but the graceful
+		// handoff MUST still write — else the next boot mistakes a clean recycle for a
+		// crash and climbs attempts.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$c->checkpoint(); // commits at the current cursor.
+
+		$count = fn (): int => $this->count_offsetlog_records( "{$this->tmp}/offsets.p0" );
+		$before = $count();
+		$c->checkpoint();           // cursor unchanged → advance-guard no-op.
+		$this->assertSame( $before, $count(), 'a non-graceful checkpoint at an unchanged cursor is a no-op' );
+
+		$c->checkpoint( graceful: true ); // must force a write despite the unchanged cursor.
+		$this->assertSame( $before + 1, $count() );
+		$this->assertSame( 0, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
+	}
+
+	public function test_forward_progress_clears_first_crash_ts(): void {
+		// Forward progress ends the crash streak: the reset must clear first_crash_ts,
+		// not just attempts. Otherwise a stale timestamp rides into healthy frames and
+		// a later UNRELATED single crash >900s on the clock trips the state-wipe at once.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $a );
+		$a->checkpoint();
+
+		Core::$now = 5000.0;
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $b ); // recovery boot → first_crash_ts=5000.
+		$this->assertEquals( 5000.0, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['first_crash_ts'] );
+
+		$this->produce_line( $source, 'world' );
+		$this->pump_consumer( $b ); // advances past the boot cursor.
+		$b->checkpoint();
+
+		$this->assertNull( $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['first_crash_ts'], 'forward progress must clear the crash-streak timestamp' );
+	}
+
 	public function test_fire_checkpoints_at_most_once_per_30s(): void {
 		// The offsetlog is crash-resume only (not a position source — TopicProbe is),
 		// so fire() checkpoints at most every CHECKPOINT_INTERVAL_S (30s), not every
@@ -532,6 +745,131 @@ class ConsumerTest extends TestCase {
 			$node2->state,
 			'the snapshot node must resume the cache the prior worker committed with the offset'
 		);
+	}
+
+	public function test_boot_checkpoint_preserves_snapshot_cache_on_disk(): void {
+		// The boot-bump checkpoint runs BEFORE the snapshot is restored. It must not
+		// co-commit the un-restored (empty) node state, or it would clobber the good
+		// cache in the newest frame — a crash right after boot (before the next real
+		// checkpoint) would then restore EMPTY and lose the in-flight state. So the
+		// bumped attempt is recorded statelessly before restore; the cache is
+		// re-committed to a fresh frame after restore. The newest DISK frame must
+		// therefore still carry the cache.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$node        = new Snapshot_Probe();
+		$node->name( 'request-builder' );
+		$node->state = [ 'in_flight' => [ 'r1' => 'keep-me' ] ];
+
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->name( 'firehose:consumer' );
+		$a->sink( new Capture_Sink_Node() );
+		$a->set_snapshot_node( 'request-builder' );
+		$this->pump_consumer( $a );
+		$a->checkpoint();
+
+		Core::reset(); // old worker dies; offsetlog (with cache) persists.
+
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->name( 'firehose:consumer' );
+		$b->sink( new Capture_Sink_Node() );
+		$b->set_snapshot_node( 'request-builder' );
+		$node2 = new Snapshot_Probe();
+		$node2->name( 'request-builder' );
+		$this->pump_consumer( $b ); // poll_init: stateless boot frame → restore → stateful boot frame.
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame(
+			[ 'in_flight' => [ 'r1' => 'keep-me' ] ],
+			$entry['cache'] ?? null,
+			'the newest on-disk frame after a stateful boot must carry the restored cache, not an empty pre-restore snapshot'
+		);
+	}
+
+	public function test_boot_wipes_snapshot_cache_after_state_wipe_window(): void {
+		// A crash streak older than STATE_WIPE_AFTER_S is a snapshot that keeps killing
+		// us, not a poison message — no single message can be skipped to fix it. So the
+		// boot DISCARDS the resumable cache (starts the node stateless) rather than
+		// restoring the corrupt state and crashing again forever.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$node        = new Snapshot_Probe();
+		$node->name( 'request-builder' );
+		$node->state = [ 'poison' => 'state' ];
+
+		Core::$now = 1000.0;
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->sink( new Capture_Sink_Node() );
+		$a->set_snapshot_node( 'request-builder' );
+		$this->pump_consumer( $a );
+		$a->checkpoint(); // healthy frame with cache; first_crash_ts=null.
+
+		Core::reset();
+		Core::$now = 1000.0;
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->sink( new Capture_Sink_Node() );
+		$b->set_snapshot_node( 'request-builder' );
+		( new Snapshot_Probe() )->name( 'request-builder' );
+		$this->pump_consumer( $b ); // recovery boot → first_crash_ts=1000, attempts=2, cache still committed.
+
+		// A fresh worker boots PAST the wipe window — the streak has run 901s.
+		Core::reset();
+		Core::$now = 1000.0 + Consumer_Node::STATE_WIPE_AFTER_S + 1.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$c->set_snapshot_node( 'request-builder' );
+		$node3 = new Snapshot_Probe();
+		$node3->name( 'request-builder' );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( [], $node3->state, 'a crash streak past the wipe window must discard the snapshot cache, not restore it' );
+	}
+
+	public function test_boot_attempt_bump_survives_a_restore_crash(): void {
+		// The bump is recorded STATELESS, before restore_state(). So a snapshot whose
+		// restore throws still advances the durable counter — and because that frame
+		// carries no cache, the next boot won't re-attempt the bad restore (self-heal).
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'hello' );
+
+		$node        = new Snapshot_Probe();
+		$node->name( 'request-builder' );
+		$node->state = [ 'x' => 1 ];
+
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->sink( new Capture_Sink_Node() );
+		$a->set_snapshot_node( 'request-builder' );
+		$this->pump_consumer( $a );
+		$a->checkpoint();
+
+		Core::reset();
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->sink( new Capture_Sink_Node() );
+		$b->set_snapshot_node( 'request-builder' );
+		( new Throwing_Snapshot_Probe() )->name( 'request-builder' );
+
+		try {
+			$this->pump_consumer( $b ); // restore_state() throws mid-boot.
+			$this->fail( 'expected the throwing restore to propagate' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'restore boom', $e->getMessage() );
+		}
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 2, $entry['attempts'], 'the bumped attempt must be durable even though restore crashed' );
+		$this->assertArrayNotHasKey( 'cache', $entry, 'the pre-restore frame is stateless, so the next boot self-heals' );
 	}
 
 	public function test_restart_resumes_from_last_checkpoint(): void {
@@ -2421,5 +2759,15 @@ class Snapshot_Probe extends Node {
 	}
 	public function restore_state( array $saved ): void {
 		$this->state = $saved;
+	}
+}
+
+/** A snapshot node whose restore crashes — proves the pre-restore bump is durable. */
+class Throwing_Snapshot_Probe extends Node {
+	public function save_state(): array {
+		return [];
+	}
+	public function restore_state( array $saved ): void {
+		throw new \RuntimeException( 'restore boom' );
 	}
 }
