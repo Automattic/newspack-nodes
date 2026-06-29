@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -9,14 +10,35 @@ use PHPUnit\Framework\Attributes\CoversClass;
 class WorkerBaseTest extends TestCase {
 	private string $tmp;
 
+	/** @var \Closure|null Bootstrap-installed curl seam, restored in tearDown so a test capturer can't leak. */
+	private $saved_curl_exec;
+
 	protected function setUp(): void {
 		parent::setUp();
-		$this->tmp = $this->make_temp_dir();
+		$this->tmp             = $this->make_temp_dir();
+		$this->saved_curl_exec = Core::$curl_exec;
 	}
 
 	protected function tearDown(): void {
+		Core::$curl_exec = $this->saved_curl_exec;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
+	}
+
+	/**
+	 * Capture self-respawn / spawn POSTs through the real Core::$curl_exec seam
+	 * (the shared raw-curl path): URL off the handle, body as the 2nd seam arg.
+	 *
+	 * @param array<int,array{url:string,body:array<string,mixed>}> $posts Capture sink, by reference.
+	 */
+	private function capture_spawn_posts( array &$posts ): void {
+		Core::$curl_exec = static function ( \CurlHandle $ch, array $body ) use ( &$posts ) {
+			$posts[] = [
+				'url'  => (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL ),
+				'body' => $body,
+			];
+			return false;
+		};
 	}
 
 	public function test_acquire_creates_worker_lock(): void {
@@ -236,23 +258,21 @@ class WorkerBaseTest extends TestCase {
 	}
 
 	public function test_self_respawn_posts_to_spawn_url(): void {
-		// Reset the bootstrap stub's POST log.
-		$GLOBALS['_test_outbound_posts'] = [];
+		// self_respawn routes through the shared Core::fire_and_forget_post helper;
+		// capture via the real curl seam so the body-assembly path is covered.
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
 
 		$w = new TestableWorker( $this->tmp, 'firehose-workers', 3 );
 		$w->self_respawn( 'http://example.com/wp-json/newspack-nodes/v1/workers/spawn', 'token-123' );
 
-		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] );
-		$post = $GLOBALS['_test_outbound_posts'][0];
-		$this->assertSame( 'http://example.com/wp-json/newspack-nodes/v1/workers/spawn', $post['url'] );
+		$this->assertCount( 1, $posts );
+		$this->assertSame( 'http://example.com/wp-json/newspack-nodes/v1/workers/spawn', $posts[0]['url'] );
 		// Worker type + partition + token are POSTed in the body so the spawn
 		// endpoint can validate.
-		$this->assertSame( 'firehose-workers', $post['args']['body']['type'] );
-		$this->assertSame( 3, $post['args']['body']['partition'] );
-		$this->assertSame( 'token-123', $post['args']['body']['nonce'] );
-		// Non-blocking + tiny timeout so workers don't hang on respawn.
-		$this->assertFalse( $post['args']['blocking'] );
-		$this->assertSame( 1, $post['args']['timeout'] );
+		$this->assertSame( 'firehose-workers', $posts[0]['body']['type'] );
+		$this->assertSame( 3, $posts[0]['body']['partition'] );
+		$this->assertSame( 'token-123', $posts[0]['body']['nonce'] );
 	}
 
 	public function test_memory_limit_bytes_parses_units(): void {
@@ -293,17 +313,17 @@ class WorkerBaseTest extends TestCase {
 		$this->assertTrue( $ref->invoke( $w ) );
 	}
 
-	public function test_self_respawn_skips_when_wp_remote_post_unavailable(): void {
-		// Edge case: function_exists check guards the POST call.
-		// We can't undefine the bootstrap-stubbed function in PHP without runkit,
-		// but we verify the documented behavior path: skip silently.
-		// (The branch IS covered by the bootstrap path when wp_remote_post is
-		// available, so we confirm the no-op shape here.)
-		$GLOBALS['_test_outbound_posts'] = [];
+	public function test_self_respawn_swallows_empty_url_without_posting(): void {
+		// The shared helper rejects an empty URL ('empty url') before touching curl;
+		// self_respawn logs it but must not throw or hit the seam.
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
+
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->self_respawn( '', 'token' );
-		// Empty URL still records the post (fire-and-forget). What matters: it doesn't throw.
-		$this->assertTrue( true );
+
+		$this->assertCount( 0, $posts, 'an empty spawn URL never reaches the curl seam' );
 	}
 
 	public function test_execute_returns_skipped_when_lock_held_by_another(): void {
@@ -327,8 +347,9 @@ class WorkerBaseTest extends TestCase {
 	public function test_execute_runs_topology_then_releases_lock_and_respawns(): void {
 		// Happy path: topology closure sets the restart flag so should_continue()
 		// returns false on the first drain tick; finally block releases the lock
-		// and POSTs to the spawn endpoint.
-		$GLOBALS['_test_outbound_posts'] = [];
+		// and POSTs to the spawn endpoint (captured via the real curl seam).
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
 
 		$worker = new TestableWorker( $this->tmp, 'happy-path', 0 );
 
@@ -347,11 +368,11 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( \is_dir( $topology_lock_path ) );
 
 		// Self-respawn POSTed to the spawn endpoint with the right body.
-		$this->assertNotEmpty( $GLOBALS['_test_outbound_posts'] );
-		$post = $GLOBALS['_test_outbound_posts'][0];
-		$this->assertSame( 'http://example/spawn', $post['url'] );
-		$this->assertSame( 'happy-path', $post['args']['body']['type'] );
-		$this->assertSame( 'token-abc', $post['args']['body']['nonce'] );
+		$this->assertNotEmpty( $posts );
+		$this->assertSame( 'http://example/spawn', $posts[0]['url'] );
+		$this->assertSame( 'happy-path', $posts[0]['body']['type'] );
+		$this->assertSame( 0, $posts[0]['body']['partition'] );
+		$this->assertSame( 'token-abc', $posts[0]['body']['nonce'] );
 	}
 
 	public function test_execute_checkpoints_ipc_input_at_shutdown(): void {

@@ -10,7 +10,7 @@
  * symmetric drain: remove the name, write, invalidate, then kill the fleet via
  * Supervisor::kill_readers().
  *
- * Spawn is captured via the bootstrap-installed Supervisor::$curl_exec seam,
+ * Spawn is captured via the bootstrap-installed Core::$curl_exec seam,
  * which records every fire-and-forget POST into $GLOBALS['_test_outbound_posts'].
  * Drain is asserted via the restart flags kill_readers drops on each live
  * lock dir (Lock_Node::is_restart_pending).

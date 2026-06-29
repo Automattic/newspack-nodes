@@ -6,7 +6,7 @@
  * shared Topology_Registry::activate() / deactivate(); the CLI layer owns arg
  * validation, the catalog-listing error on an unknown name, and the WP_CLI
  * success/warning messaging. Spawn POSTs are captured via the bootstrap
- * Supervisor::$curl_exec seam into $GLOBALS['_test_outbound_posts']; drain is
+ * Core::$curl_exec seam into $GLOBALS['_test_outbound_posts']; drain is
  * asserted via the restart flags kill_readers drops on live lock dirs.
  *
  * @package Newspack_Nodes

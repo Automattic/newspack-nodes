@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Workers now self-respawn via the same 10ms raw-curl fire-and-forget POST the supervisor uses**, instead of `wp_remote_post( timeout: 1, blocking: false )`. The shared helper (`Core::fire_and_forget_post()`, with the single `Core::$curl_exec` test seam) was hoisted out of `Supervisor` so both spawn paths share one implementation; `Worker_Base::self_respawn()` was on the slower path because WordPress's Requests Curl transport floors any sub-second timeout to a full second, defeating the fire-and-forget contract a dying worker needs. The POST body (`type`/`partition`/`nonce`) is unchanged, so spawn HMAC/nonce validation is unaffected.
+
 ## [0.24.2] - 2026-06-29
 
 ### Fixed
