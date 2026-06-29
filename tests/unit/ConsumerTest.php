@@ -148,7 +148,7 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 10, $stats, 'lean positional record' );
 		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
 		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
-		$this->assertSame( 'p0', $stats[ Probe_Record::SOURCE ] );
+		$this->assertSame( 'data.p0', $stats[ Probe_Record::SOURCE ] );
 		$this->assertSame( 0, $stats[ Probe_Record::CURSOR_SEG ] );
 		$this->assertGreaterThan( 0, $stats[ Probe_Record::CURSOR_OFF ] );
 		$this->assertSame( 0, $stats[ Probe_Record::DISTANCE ], 'caught up after pump' );
