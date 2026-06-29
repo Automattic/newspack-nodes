@@ -110,6 +110,10 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 import { useConsoleGraph } from '../useConsoleGraph';
 
 beforeEach( () => {
+	// The Dumper now persists its transcript to localStorage on every change, so
+	// isolate each test's storage — otherwise one test's transcript restores into
+	// the next test's freshly-mounted Dumper.
+	window.localStorage.clear();
 	Core.reset();
 	lastConnector = null;
 	RemoteIpcNode.active = null;
@@ -703,6 +707,40 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		expect(
 			Core.node( names.METADATA ).setStateCache.metadata
 		).toBeDefined();
+	} );
+} );
+
+describe( 'useConsoleGraph — hub transcript persistence [87]', () => {
+	const { saveHubTranscript } = require( '../../core/consolePersistence' );
+
+	it( 'restores the persisted hub transcript into the Dumper on mount', () => {
+		saveHubTranscript( [ { kind: 'recv', text: 'last session' } ] );
+		renderGraph();
+		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
+			expect.objectContaining( { kind: 'recv', text: 'last session' } ),
+		] );
+	} );
+
+	it( 'keeps the transcript across a worker switch (partition-change rebuild)', () => {
+		const { rerender } = renderGraph( { partition: 0 } );
+		act( () =>
+			Core.node( names.OUTPUT ).append( {
+				kind: 'sent',
+				text: 'survive the switch',
+			} )
+		);
+		// Switching workers tears down + rebuilds the backbone (fresh Dumper).
+		act( () =>
+			rerender( {
+				topology: 'demo',
+				partition: 1,
+				enabled: true,
+				debugLevelRef: { current: 0 },
+			} )
+		);
+		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
+			expect.objectContaining( { text: 'survive the switch' } ),
+		] );
 	} );
 } );
 

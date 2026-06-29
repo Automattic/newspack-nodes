@@ -1,6 +1,8 @@
 import {
 	loadTranscript,
 	saveTranscript,
+	loadHubTranscript,
+	saveHubTranscript,
 	loadHistory,
 	saveHistory,
 	loadDebugLevel,
@@ -27,6 +29,33 @@ describe( 'consolePersistence [87]', () => {
 		const loaded = loadTranscript();
 		expect( loaded ).toHaveLength( MAX_PERSISTED_TRANSCRIPT );
 		// Kept the tail (most recent), dropped the oldest.
+		expect( loaded[ loaded.length - 1 ].text ).toBe(
+			`line ${ MAX_PERSISTED_TRANSCRIPT + 49 }`
+		);
+	} );
+
+	it( 'round-trips the hub-console transcript under its OWN key, independent of the overlay transcript', () => {
+		expect( loadHubTranscript() ).toEqual( [] ); // empty default
+		saveHubTranscript( [ { kind: 'recv', text: 'worker line' } ] );
+		saveTranscript( [ { kind: 'sent', text: 'overlay line' } ] );
+		// Separate keys: the hub console (worker realm) must not share storage
+		// with the local-only debug overlay, or one would clobber the other.
+		expect( loadHubTranscript() ).toEqual( [
+			{ kind: 'recv', text: 'worker line' },
+		] );
+		expect( loadTranscript() ).toEqual( [
+			{ kind: 'sent', text: 'overlay line' },
+		] );
+	} );
+
+	it( 'caps the hub transcript to the most-recent N like the overlay transcript', () => {
+		const entries = Array.from(
+			{ length: MAX_PERSISTED_TRANSCRIPT + 50 },
+			( _, i ) => ( { kind: 'recv', text: `line ${ i }` } )
+		);
+		saveHubTranscript( entries );
+		const loaded = loadHubTranscript();
+		expect( loaded ).toHaveLength( MAX_PERSISTED_TRANSCRIPT );
 		expect( loaded[ loaded.length - 1 ].text ).toBe(
 			`line ${ MAX_PERSISTED_TRANSCRIPT + 49 }`
 		);
