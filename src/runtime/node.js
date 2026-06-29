@@ -279,6 +279,49 @@ export class Node {
 		return out;
 	}
 
+	// Build a serializable state snapshot (class header + scalar state) for `dump_node`.
+	// References to OTHER nodes are filtered out generically — any field holding a node
+	// instance serializes as '{...}', never the live object — so a composite node (e.g.
+	// Remote_Link's sseIn/httpOut/heartbeat) never leaks or circular-JSONs its plumbing,
+	// with no per-class allow-list. The sink is the one ref kept, rendered as its name
+	// (the meaningful wiring). A subclass with non-node internals (e.g. the interpreter's
+	// verb table) overrides this and masks them. [96]
+	dumpNode() {
+		const snapshot = { class: this.constructor?.name ?? 'Node' };
+		for ( const key of Object.keys( this ) ) {
+			const val = this[ key ];
+			if ( 'sink' === key ) {
+				snapshot.sink = val && val.name ? val.name : '';
+				continue;
+			}
+			// `_name`/`_arguments` back the public name/arguments accessors — keep the
+			// public surface, not the private backing names.
+			if ( '_name' === key ) {
+				snapshot.name = val;
+				continue;
+			}
+			if ( '_arguments' === key ) {
+				snapshot.arguments = val;
+				continue;
+			}
+			// Any reference to another node (patron, interpreter, a subclass's sub-nodes).
+			if ( val instanceof Node ) {
+				snapshot[ key ] = '{...}';
+				continue;
+			}
+			// Internal structures — not nodes, not display state.
+			if ( 'registrations' === key || 'setStateCache' === key ) {
+				snapshot[ key ] = '{...}';
+				continue;
+			}
+			if ( 'function' === typeof val ) {
+				continue;
+			}
+			snapshot[ key ] = val;
+		}
+		return snapshot;
+	}
+
 	// Teardown. Order matters: own name LAST, so in-flight Core.node() lookups
 	// see null not a half-torn-down self. Mirrors PHP Node::remove_node.
 	removeNode() {
