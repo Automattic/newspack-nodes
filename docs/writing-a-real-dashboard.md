@@ -45,7 +45,7 @@ if ( 'Hidden' === $cat || '' === $cat ) {
 }
 ```
 
-So `category: 'Hidden'` (or no category at all) removes a class from the catalog **entirely**. And "entirely" is the gotcha, because `GraphView` feeds that *same array* to two children (`src/topology-console/components/GraphView.js:174` and `:211`):
+So `category: 'Hidden'` (or no category at all) removes a class from the catalog **entirely**. And "entirely" is the gotcha, because `GraphView` feeds that *same array* to two children (`src/topology-console/components/GraphView.js:187` and `:254`):
 
 ```jsx
 { showPalette && (
@@ -57,7 +57,7 @@ So `category: 'Hidden'` (or no category at all) removes a class from the catalog
 ) }
 ```
 
-The Palette renders draggable class tiles from it. The Inspector renders a selected node's verb buttons by looking the node's class up in it (`src/topology-console/components/Inspector.js:1394`):
+The Palette renders draggable class tiles from it. The Inspector renders a selected node's verb buttons by looking the node's class up in it (`src/topology-console/components/Inspector.js:2016`):
 
 ```jsx
 const schema = catalog.find( ( c ) => c.shell_name === type );
@@ -71,7 +71,7 @@ One array, two consumers. That coupling is the whole section: **`category: 'Hidd
 
 A Service CI like `Insights_CI` is **mounted** into every request graph (`make_node( 'Insights_CI', 'insights' )` on `request_graph_ready` — toy guide §2). It is *never* `make_node`'d from the canvas. Dragging it from the palette would mint a stray second `insights` node that nobody routes to — a duplicate with no purpose. So you want it gone from the palette. But you still want its verb buttons in the inspector: select the mounted `insights` node, see an `insights` button, fire it. Dropping it from the catalog kills both.
 
-The substrate's answer is a **palette-only** filter, not a catalog drop. `Palette` keeps a category denylist (`src/topology-console/components/Palette.js:12`):
+The substrate's answer is a **palette-only** filter, not a catalog drop. `Palette` keeps a category denylist (`src/topology-console/components/Palette.js:15`):
 
 ```js
 // Categories that stay in the catalog (so the inspector still resolves their
@@ -103,7 +103,7 @@ When your real dashboard's CI doesn't show its verb buttons, this is the first t
 
 The toy's `Insights_CI` declared a `commands` array and got command buttons. A real pipeline also has **runtime triggers** — the fire-and-forget `TM_REQUEST` verbs that drive the graph (the toy's §8 `TICK`). Those live under a *different* schema key, `requests`, and the Inspector renders them as a distinct button kind.
 
-The real plugin's source nodes declare a `TICK` request (`newspack-ai-newsletter/includes/class-source-node.php:124`):
+The real plugin's source nodes declare a `TICK` request (`newspack-ai-newsletter/includes/class-source-node.php:133`):
 
 ```php
 return \array_merge( parent::node_schema(), [
@@ -118,18 +118,22 @@ return \array_merge( parent::node_schema(), [
 ] );
 ```
 
-and the digest a `FLUSH` request (`newspack-ai-newsletter/includes/class-digest-builder-node.php:163`):
+and the digest its `RESET` / `REGENERATE` requests (`newspack-ai-newsletter/includes/class-digest-builder-node.php:250`):
 
 ```php
 'requests'     => [
 	[
-		'name'        => 'FLUSH',
-		'description' => 'Emit the accumulated draft and clear. Trigger with `request_node digest FLUSH`.',
+		'name'        => 'RESET',
+		'description' => 'Zero the collection counter (the dashboard Collect sends this before TICKing sources). `total` comes from the make_node argument, not this request.',
+	],
+	[
+		'name'        => 'REGENERATE',
+		'description' => 'Compose a new draft based on the items already collected.',
 	],
 ],
 ```
 
-Neither is a `TM_COMMAND` verb dispatched through the interpreter's verb table — they're `TM_REQUEST` triggers handled directly in the node's own `fill()` (`if ( $type & Message::TM_REQUEST )`). The schema split mirrors the wire split, and the Inspector keeps them visually distinct (`src/topology-console/components/Inspector.js:1407`):
+None of these is a `TM_COMMAND` verb dispatched through the interpreter's verb table — they're `TM_REQUEST` triggers handled directly in the node's own `fill()` (`if ( $type & Message::TM_REQUEST )`). The schema split mirrors the wire split, and the Inspector keeps them visually distinct (`src/topology-console/components/Inspector.js:2030`):
 
 ```jsx
 return [
@@ -142,7 +146,7 @@ return [
 ];
 ```
 
-`VerbButton` labels a request `TM_REQUEST <name>` and dispatches it as a `TM_REQUEST` rather than a `TM_COMMAND` (`Inspector.js:1015`, `:1030`). So select your `releases` source in the console, hit the **TICK** button, and you've driven the pipeline from the canvas — the same trigger the toy guide typed as `request_node releases TICK` at the REPL, now a button. Declaring a `requests` entry is all it takes; the inspector wiring is free.
+`VerbButton` labels a request `TM_REQUEST <name>` and dispatches it as a `TM_REQUEST` rather than a `TM_COMMAND` (`Inspector.js:1219`). So select your `releases` source in the console, hit the **TICK** button, and you've driven the pipeline from the canvas — the same trigger the toy guide typed as `request_node releases TICK` at the REPL, now a button. Declaring a `requests` entry is all it takes; the inspector wiring is free.
 
 The takeaway for a real dashboard: your operator-facing **actions** (admin commands the CI answers) go in `commands`; your pipeline **triggers** (the runtime pokes that make data flow) go in `requests`. Both render; they just render as different kinds, because they *are* different kinds on the wire.
 
@@ -152,7 +156,7 @@ The takeaway for a real dashboard: your operator-facing **actions** (admin comma
 
 The toy view was a normal block in the admin content column — it scrolled with the page, no height math. A real REPL surface is different: the transcript pane can't grow past the canvas it floats over, and "the canvas" is a different height in every host. This is where a hard-coded `window.innerHeight − const` quietly goes wrong.
 
-`ReplFooter` is deliberately dumb about its own ceiling. It accepts a `maxHeightPx` prop and, when set, prefers it over its viewport fallback (`src/topology-console/components/ReplFooter.js:79`, used at `:191`, `:214`, `:248`):
+`ReplFooter` is deliberately dumb about its own ceiling. It accepts a `maxHeightPx` prop and, when set, prefers it over its viewport fallback (`src/topology-console/components/ReplFooter.js:93`, used at `:217`, `:240`, `:274`):
 
 ```js
 // Optional ceiling override — when set, takes precedence over the
@@ -172,7 +176,7 @@ const FIXED_CHROME_PX = 174; // 32 (WP admin bar) + 64 (header) + 40 (hub tab ba
 
 It's correct *only* on a full-page console with exactly that chrome above it. The two hosts that actually mount a REPL each compute their own ceiling and pass it in.
 
-**Host A — the full-page Topology Console.** It measures its `.topology-app` grid with a `ResizeObserver` rather than trusting the viewport (`src/topology-console/TopologyConsole.js:363`):
+**Host A — the full-page Topology Console.** It measures its `.topology-app` grid with a `ResizeObserver` rather than trusting the viewport (`src/topology-console/TopologyConsole.js:361`):
 
 ```js
 const measure = () => setAppHeight( el.offsetHeight );
@@ -182,7 +186,7 @@ const ro = new window.ResizeObserver( measure );
 ro.observe( el );
 ```
 
-and derives the ceiling from the *measured* app height, subtracting the grid's own rows (`TopologyConsole.js:245`):
+and derives the ceiling from the *measured* app height, subtracting the grid's own rows (`TopologyConsole.js:220`):
 
 ```js
 const CONSOLE_HEADER_PX = 64;
@@ -198,9 +202,9 @@ export function replCeilingFromAppHeight( appHeight ) {
 }
 ```
 
-The comment at `:238` names the exact reason a viewport constant drifts here: the console now renders **inside the DevtoolsTabHost tab bar**, "whose height the old `window.innerHeight − FIXED_CHROME_PX` math never subtracted." The tab bar is real chrome the constant can't see. Measure the container and the drift can't happen.
+The comment at `:351` names the exact reason a viewport constant drifts here: the console now renders **inside the DevtoolsTabHost tab bar**, "whose height the old `window.innerHeight − FIXED_CHROME_PX` math never subtracted." The tab bar is real chrome the constant can't see. Measure the container and the drift can't happen.
 
-**Host B — the debug overlay's Inspector tab.** Same disease, different frame. It measures *its own* tab bar instead of hardcoding it (`src/debug-overlay/tabs/InspectorTab.js:38`):
+**Host B — the debug overlay's Inspector tab.** Same disease, different frame. It measures *its own* tab bar instead of hardcoding it (`src/debug-overlay/tabs/InspectorTab.js:35`):
 
 ```js
 export function measureTabBarHeight( rootEl ) {
@@ -213,7 +217,7 @@ export function measureTabBarHeight( rootEl ) {
 }
 ```
 
-and folds that measurement into its ceiling (`InspectorTab.js:59`):
+and folds that measurement into its ceiling (`InspectorTab.js:56`):
 
 ```js
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
@@ -221,9 +225,9 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
 }
 ```
 
-Two nuances are worth lifting out of those comments. First, **content-box vs border-box**: the overlay panel is content-box, so `frame.h` already excludes its border — no extra reserve needed (`InspectorTab.js:55`). And the prompt bar it subtracts is `38` because the transcript's CSS anchor sits at `bottom: 38px` — the bar's *actual* rendered height, not the round `40` you'd guess (the `bottom: 38px` anchor is visible in `ReplFooter.js:457`). Get that number from the CSS, not from intuition. Second, **a `ResizeObserver` on the bar** keeps the measurement honest if the tab bar wraps to two rows (`InspectorTab.js:103`).
+Two nuances are worth lifting out of those comments. First, **content-box vs border-box**: the overlay panel is content-box, so `frame.h` already excludes its border — no extra reserve needed (`InspectorTab.js:49`). And the prompt bar it subtracts is `38` because the transcript's CSS anchor sits at `bottom: 38px` — the bar's *actual* rendered height, not the round `40` you'd guess (the `bottom: 38px` anchor is visible in `ReplFooter.js:484`). Get that number from the CSS, not from intuition. Second, **a `ResizeObserver` on the bar** keeps the measurement honest if the tab bar wraps to two rows (`InspectorTab.js:106`).
 
-The pattern, stated once: `ReplFooter` is a pure consumer of `maxHeightPx`; **each host measures its own frame and hands the floor in.** A floating panel never knows its own bounds from the viewport — it knows them from the box it's mounted in. If you build a third REPL surface, you measure, you don't guess `window.innerHeight − 134`.
+The pattern, stated once: `ReplFooter` is a pure consumer of `maxHeightPx`; **each host measures its own frame and hands the floor in.** A floating panel never knows its own bounds from the viewport — it knows them from the box it's mounted in. If you build a third REPL surface, you measure, you don't guess `window.innerHeight − 174`.
 
 ---
 
@@ -231,7 +235,7 @@ The pattern, stated once: `ReplFooter` is a pure consumer of `maxHeightPx`; **ea
 
 The toy build "just worked" because it only imported `@wordpress/element` and `@wordpress/i18n` — packages WordPress genuinely exposes as runtime scripts. The first time a real dashboard reaches for an **icon**, the build kit's externalization model breaks in a way that's invisible until runtime.
 
-`buildDashboards` rewrites every `@wordpress/*` import to a `window` global and records the matching enqueue handle in `*.asset.php` (toy guide §6). The map that drives it is `WP_EXTERNALS` (`src/build-kit/index.mjs:31`). Look at what's conspicuously *absent* — and the comment explaining why (`index.mjs:50`):
+`buildDashboards` rewrites every `@wordpress/*` import to a `window` global and records the matching enqueue handle in `*.asset.php` (toy guide §6). The map that drives it is `WP_EXTERNALS` (`src/build-kit/index.mjs:31`). Look at what's conspicuously *absent* — and the comment explaining why (`index.mjs:60`):
 
 ```js
 // NOT @wordpress/icons: it is a build-time package (SVG-as-React-components),
@@ -249,7 +253,7 @@ The failure mode is a clean two-stage trap. `@wordpress/element` and `@wordpress
 1. **At runtime:** esbuild rewrites `import { chartBar } from '@wordpress/icons'` to read `window.wp.icons.chartBar` — which is `undefined`. Your icon renders nothing, no error at build time.
 2. **In wp-admin (WP 6.9.1):** the `*.asset.php` lists `wp-icons` as a dependency WordPress can't satisfy, and WP logs *"dependencies that are not registered: wp-icons."*
 
-The fix is the absence itself: **omit `@wordpress/icons` from `WP_EXTERNALS` so esbuild bundles it** from `node_modules` like any ordinary library. The icon's SVG ends up inlined in your bundle (esbuild already handles `.svg` as `dataurl` — `index.mjs:232`), `window.wp.icons` is never read, and the `.asset.php` no longer lists the phantom `wp-icons`.
+The fix is the absence itself: **omit `@wordpress/icons` from `WP_EXTERNALS` so esbuild bundles it** from `node_modules` like any ordinary library. The icon's SVG ends up inlined in your bundle (esbuild already handles `.svg` as `dataurl` — `index.mjs:274`), `window.wp.icons` is never read, and the `.asset.php` no longer lists the phantom `wp-icons`.
 
 The general rule, and the one to internalize for any package you're tempted to add to that map: **only externalize packages WordPress actually registers as runtime scripts.** `@wordpress/element`, `-i18n`, `-components`, `-api-fetch`, `-data`, `react`, `react-dom` — yes, WP serves those. Build-time-only packages (icons, and most `@wordpress/*` that are pure JS helpers) must be *bundled*, not externalized, or you ship an undefined global and an unmet-dependency warning. This one reached a real WP version before we caught it; treat the `WP_EXTERNALS` map as a closed set you extend only with proof WP registers the handle.
 
@@ -259,18 +263,18 @@ The general rule, and the one to internalize for any package you're tempted to a
 
 Sections 1–3 kept referring to "the overlay" and "the hub." Here's the shared machinery, kept tight — the files carry the detail.
 
-The center of it is **`DevtoolsTabHost`** (`src/shared/devtools/DevtoolsTabHost.js`) — one component, two hosts. It reads the tab registry for a given `host`, renders a tab bar (hidden when ≤1 tab), and **lazily mounts only the selected tab**, keyed on the active id so each tab's build-before-render runs fresh on switch (`DevtoolsTabHost.js:76`):
+The center of it is **`DevtoolsTabHost`** (`src/shared/devtools/DevtoolsTabHost.js`) — one component, two hosts. It reads the tab registry for a given `host`, renders a tab bar (hidden when ≤1 tab), and **lazily mounts only the selected tab**, keyed on the active id so each tab's build-before-render runs fresh on switch (`DevtoolsTabHost.js:109`):
 
 ```jsx
 <Active key={ active.id } { ...tabProps } host={ host } />
 ```
 
-A tab declares which host(s) it belongs to (`host ∈ overlay | hub | both`) and whether it's full-bleed. A list-style tab scrolls inside `.nodes-devtools__tab-content`; a tab that owns its own full-height canvas (the Topology Console) sets `fullBleed: true` to opt out via `.is-full-bleed` (`DevtoolsTabHost.js:70`). That `fullBleed` flag is exactly why §3's console-in-the-hub needs the measured ceiling — it fills the frame.
+A tab declares which host(s) it belongs to (`host ∈ overlay | hub | both`) and whether it's full-bleed. A list-style tab scrolls inside `.nodes-devtools__tab-content`; a tab that owns its own full-height canvas (the Topology Console) sets `fullBleed: true` to opt out via `.is-full-bleed` (`DevtoolsTabHost.js:105`). That `fullBleed` flag is exactly why §3's console-in-the-hub needs the measured ceiling — it fills the frame.
 
 The two hosts are thin wrappers around it:
 
 - **The floating overlay** mounts tabs with `host="overlay"` (the Inspector tab from §3 is one of them).
-- **The full-page hub** (`src/devtools-hub/DevToolsHub.js`) mounts `host="hub"` inside a `position: fixed`, full-height admin container so a full-screen canvas tab gets usable height (`DevToolsHub.js:46`). It also gates the floating overlay off the Console tab — mounting an overlay *inside* the live-graph console would nest a console-in-a-console (`DevToolsHub.js:18`, `:55`).
+- **The full-page hub** (`src/devtools-hub/DevToolsHub.js`) mounts `host="hub"` inside a `position: fixed`, full-height admin container so a full-screen canvas tab gets usable height (`DevToolsHub.js:51`). It also gates the floating overlay's REPL off the Console tab — a second overlay REPL there would collide on the shared `_output` infra (`DevToolsHub.js:24`).
 
 You register a tab by filtering into the registry via the **`newspack_nodes/devtools_tab_bundles`** filter (the PHP analogue of the toy's CI mount). Your bundle exports a tab descriptor; the host picks it up by `host`. If your real dashboard genuinely *is* a Nodes-internal tool rather than a standalone page, this is where it belongs — a `host: 'hub'` tab — instead of the toy guide's standalone `add_menu_page`. Read `DevtoolsTabHost.js` and `DevToolsHub.js` once; the contract is small.
 
