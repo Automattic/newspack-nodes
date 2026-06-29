@@ -28,7 +28,6 @@ class Partition_Node extends Timer_Node {
 
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 
-	protected string $dir           = '';
 	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
 	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
 	protected int $max_lifespan     = self::DEFAULT_MAX_LIFESPAN;
@@ -104,10 +103,10 @@ class Partition_Node extends Timer_Node {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
+		$this->partition_dir = \rtrim( $this->partition_dir, '/' );
 		$this->segment_size  = \max( 1, $this->segment_size );
 		$this->num_segments  = \max( 2, $this->num_segments );
 		$this->max_lifespan  = \max( 0, $this->max_lifespan );
-		$this->partition_dir = \rtrim( $this->dir, '/' );
 		return $args;
 	}
 
@@ -1107,10 +1106,10 @@ class Partition_Node extends Timer_Node {
 			'category'    => 'I/O',
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
 			'arguments'   => [
-				[ 'name' => 'dir',          'type' => 'string', 'required' => true ],
-				[ 'name' => 'segment_size', 'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE ],
-				[ 'name' => 'num_segments', 'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS ],
-				[ 'name' => 'max_lifespan', 'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN ],
+				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true ],
+				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE ],
+				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS ],
+				[ 'name' => 'max_lifespan',  'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN ],
 			],
 			'commands'    => [
 				[
