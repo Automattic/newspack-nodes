@@ -89,32 +89,6 @@
 	}
 }
 
-// ── Sparkline ─────────────────────────────────────────────────────────────
-.nodes-spark {
-	display: block;
-	vertical-align: middle;
-
-	&__baseline {
-		stroke: base.$dark-border;
-		stroke-width: 1;
-	}
-
-	&__line {
-		stroke-width: 1.5;
-		stroke-linejoin: round;
-		stroke-linecap: round;
-		vector-effect: non-scaling-stroke;
-	}
-
-	&--rising &__line {
-		stroke: var(--brass);
-	}
-
-	&--falling &__line {
-		stroke: var(--sage);
-	}
-}
-
 // ── Topics panels (Message Rate / Byte Rate / Backlog) — d3 via useTimeChart ─
 .nodes-overview__panels {
 	display: flex;

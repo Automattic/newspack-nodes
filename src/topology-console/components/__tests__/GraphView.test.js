@@ -269,7 +269,9 @@ describe( 'GraphView', () => {
 			has_target: true,
 			accepts_fill: false,
 		} );
-		const g0 = { nodes: [ src( 0 ) ], edges: [] };
+		// g0 seeds the baseline WITH data (a zero reading no longer seeds), g1 is
+		// the next poll that yields a real In-rate delta.
+		const g0 = { nodes: [ src( 5 ) ], edges: [] };
 		const g1 = { nodes: [ src( 10 ) ], edges: [] };
 		const { rerender } = render(
 			<GraphView graph={ g0 } frame={ Frame } resetKey="k" />

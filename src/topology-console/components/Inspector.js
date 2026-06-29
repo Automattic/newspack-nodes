@@ -9,7 +9,7 @@ import { CtorField } from './CtorField';
 import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { processStats } from '../utils/processStats';
-import { Sparkline } from '../../event-dashboards/Sparkline';
+import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
 
@@ -276,69 +276,82 @@ function formatBytes( n ) {
 // survives this header un/remounting on node-select or panel-collapse) and the
 // error/warning/debug counts come from a `dmesg` of that process (the `_dmesg`
 // poll node classifies the stderr tail).
-function ProcessStatsHeader( { nodes, rateSeries } ) {
-	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
-		processStats( nodes );
-	const {
-		in: inSpark = [],
-		out: outSpark = [],
-		read: readSpark = [],
-		write: writeSpark = [],
-	} = rateSeries || {};
-	// The current rate is the most recent sample of each trailing series.
-	const last = ( arr ) => ( arr.length ? arr[ arr.length - 1 ] : 0 );
-	const levels = useNodeState( reservedNames.DMESG, 'dmesg' ) || {
-		errors: 0,
-		warnings: 0,
-		debug: 0,
-	};
-	const cell = ( label, value, rate, spark ) => (
-		<div className="topology-insp__stat">
-			<span className="topology-insp__stat-label">{ label }</span>
-			<span className="topology-insp__stat-val">{ value }</span>
-			<span className="topology-insp__stat-rate">{ rate }</span>
-			{ spark }
-		</div>
-	);
+const lastSample = ( arr ) => ( arr.length ? arr[ arr.length - 1 ] : 0 );
+
+// The four Activity rows share their labels + formatters across both stat
+// sources (graph roll-up and browser IoTelemetry); only the per-second series
+// differ. Build them once from the four rate series so the labels can't drift.
+function buildActivity( msgIn, msgOut, byteRead, byteWrite ) {
+	const row = ( label, series, format ) => ( {
+		label,
+		history: series,
+		currentValue: lastSample( series ),
+		format,
+	} );
+	return [
+		row( __( 'messages in /s', 'newspack-nodes' ), msgIn, formatRate ),
+		row( __( 'messages out /s', 'newspack-nodes' ), msgOut, formatRate ),
+		row(
+			__( 'bytes read /s', 'newspack-nodes' ),
+			byteRead,
+			formatByteRate
+		),
+		row(
+			__( 'bytes written /s', 'newspack-nodes' ),
+			byteWrite,
+			formatByteRate
+		),
+	];
+}
+
+// Presentational process-stats body: an Activity section of peak-labeled
+// sparkline rows + a cumulative Throughput section + the dmesg level strip.
+// Both the graph-rollup and the browser-IoTelemetry sources feed this shape.
+function ProcessStatsView( { windowMeta, activity, totals, levels } ) {
 	return (
 		<div
 			className="topology-insp__stats"
 			data-testid="inspector-process-stats"
 		>
-			<div className="topology-insp__stat-grid">
-				{ cell(
-					__( 'Msgs in', 'newspack-nodes' ),
-					messagesIn.toLocaleString(),
-					formatRate( last( inSpark ) ),
-					<Sparkline values={ inSpark } width={ 84 } height={ 16 } />
-				) }
-				{ cell(
-					__( 'Msgs out', 'newspack-nodes' ),
-					messagesOut.toLocaleString(),
-					formatRate( last( outSpark ) ),
-					<Sparkline values={ outSpark } width={ 84 } height={ 16 } />
-				) }
-				{ cell(
-					__( 'Bytes read', 'newspack-nodes' ),
-					formatBytes( bytesRead ),
-					formatByteRate( last( readSpark ) ),
-					<Sparkline
-						values={ readSpark }
-						width={ 84 }
-						height={ 16 }
+			<Section
+				title={ __( 'Activity', 'newspack-nodes' ) }
+				meta={ windowMeta }
+			>
+				{ activity.map( ( a ) => (
+					<SparklineRow
+						key={ a.label }
+						label={ a.label }
+						history={ a.history }
+						currentValue={ a.currentValue }
+						format={ a.format }
 					/>
-				) }
-				{ cell(
-					__( 'Bytes written', 'newspack-nodes' ),
-					formatBytes( bytesWritten ),
-					formatByteRate( last( writeSpark ) ),
-					<Sparkline
-						values={ writeSpark }
-						width={ 84 }
-						height={ 16 }
-					/>
-				) }
-			</div>
+				) ) }
+			</Section>
+			<Section
+				title={ __( 'Throughput', 'newspack-nodes' ) }
+				meta={ __( 'cumulative', 'newspack-nodes' ) }
+			>
+				<FieldRow
+					k="msgs in"
+					v={ totals.msgsIn.toLocaleString() }
+					vClass="topology-field-row__val--num"
+				/>
+				<FieldRow
+					k="msgs out"
+					v={ totals.msgsOut.toLocaleString() }
+					vClass="topology-field-row__val--num"
+				/>
+				<FieldRow
+					k="bytes read"
+					v={ formatBytes( totals.bytesRead ) }
+					vClass="topology-field-row__val--num"
+				/>
+				<FieldRow
+					k="bytes written"
+					v={ formatBytes( totals.bytesWritten ) }
+					vClass="topology-field-row__val--num"
+				/>
+			</Section>
 			<div className="topology-insp__levels">
 				<span className="topology-insp__level topology-insp__level--error">
 					{ sprintf(
@@ -363,6 +376,112 @@ function ProcessStatsHeader( { nodes, rateSeries } ) {
 				</span>
 			</div>
 		</div>
+	);
+}
+
+// Remote/worker scope: roll the live dump_metadata graph up via processStats +
+// the GraphView-accumulated In/Out rate series, dmesg from the `_dmesg` poll.
+function GraphProcessStats( { nodes, rateSeries } ) {
+	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
+		processStats( nodes );
+	const {
+		in: inSpark = [],
+		out: outSpark = [],
+		read: readSpark = [],
+		write: writeSpark = [],
+	} = rateSeries || {};
+	const levels = useNodeState( reservedNames.DMESG, 'dmesg' ) || {
+		errors: 0,
+		warnings: 0,
+		debug: 0,
+	};
+	return (
+		<ProcessStatsView
+			windowMeta={ formatActivityWindow( ( nodes || [] ).length ) }
+			activity={ buildActivity(
+				inSpark,
+				outSpark,
+				readSpark,
+				writeSpark
+			) }
+			totals={ {
+				msgsIn: messagesIn,
+				msgsOut: messagesOut,
+				bytesRead,
+				bytesWritten,
+			} }
+			levels={ levels }
+		/>
+	);
+}
+
+// Human window label for the IoTelemetry rate ring's accumulated span (seconds).
+function formatTelemetryWindow( span ) {
+	if ( span >= 60 ) {
+		return sprintf(
+			// translators: %d: minutes of accumulated history.
+			__( 'last ~%dm', 'newspack-nodes' ),
+			Math.round( span / 60 )
+		);
+	}
+	if ( span > 0 ) {
+		return sprintf(
+			// translators: %d: seconds of accumulated history.
+			__( 'last ~%ds', 'newspack-nodes' ),
+			span
+		);
+	}
+	return __( 'live', 'newspack-nodes' );
+}
+
+// Browser/local scope: the wire-accurate IoTelemetry counters that also back
+// the Overview tab — counted once at the SSE/HTTP boundary, so it sidesteps the
+// graph-rollup double-count. Totals + the 5s rate ring (cols
+// [t, msgIn, msgOut, byteIn, byteOut]); a sample-tick subscription re-renders.
+function BrowserProcessStats() {
+	const [ , force ] = useState( 0 );
+	useEffect(
+		() => IoTelemetry.subscribe( () => force( ( n ) => n + 1 ) ),
+		[]
+	);
+	const t = IoTelemetry.snapshot();
+	const ring = IoTelemetry.getSeries();
+	const col = ( i ) => ring.map( ( r ) => r[ i ] );
+	const span =
+		ring.length > 1
+			? Math.round( ring[ ring.length - 1 ][ 0 ] - ring[ 0 ][ 0 ] )
+			: 0;
+	const windowMeta = formatTelemetryWindow( span );
+	const msgIn = col( 1 );
+	const msgOut = col( 2 );
+	const byteIn = col( 3 );
+	const byteOut = col( 4 );
+	return (
+		<ProcessStatsView
+			windowMeta={ windowMeta }
+			activity={ buildActivity( msgIn, msgOut, byteIn, byteOut ) }
+			totals={ {
+				msgsIn: t.msgsIn,
+				msgsOut: t.msgsOut,
+				bytesRead: t.bytesIn,
+				bytesWritten: t.bytesOut,
+			} }
+			levels={ {
+				errors: t.errors,
+				warnings: t.warnings,
+				debug: t.debug,
+			} }
+		/>
+	);
+}
+
+// Browser graphs read their own wire-accurate IoTelemetry (matches the Overview
+// tab); remote/worker graphs roll up that process's dump_metadata via processStats.
+function ProcessStatsHeader( { nodes, rateSeries, local } ) {
+	return local ? (
+		<BrowserProcessStats />
+	) : (
+		<GraphProcessStats nodes={ nodes } rateSeries={ rateSeries } />
 	);
 }
 
@@ -1347,6 +1466,7 @@ export default function Inspector( {
 	streamStatus,
 	rateInfo,
 	rateSeries,
+	local = false,
 	onAction,
 	onSelect,
 	onHover,
@@ -1406,6 +1526,7 @@ export default function Inspector( {
 				<ProcessStatsHeader
 					nodes={ parsed.nodes }
 					rateSeries={ rateSeries }
+					local={ local }
 				/>
 				<div
 					className="topology-insp__commands"

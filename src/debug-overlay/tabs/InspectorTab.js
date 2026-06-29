@@ -341,6 +341,10 @@ export default function InspectorTab( {
 					canvasProps={ {
 						...canvasChromeProps,
 						resetKey: storageKey,
+						// No cwd = the page's own (local) graph → the no-node
+						// header reads this overlay's IoTelemetry (same source as
+						// the Overview tab); a pivoted cwd stays on dump_metadata.
+						local: ! cwd,
 						interactive: true,
 						editMode: false,
 						showPalette: true,

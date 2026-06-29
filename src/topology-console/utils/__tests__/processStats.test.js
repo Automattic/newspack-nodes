@@ -3,9 +3,9 @@ import { processStats } from '../processStats';
 describe( 'processStats', () => {
 	it( 'sums source counters as messages-in, sink counters as messages-out', () => {
 		const nodes = [
-			// Source: emits (has_target) but does not accept fill → produced.
+			// Pure source (emits, does not accept fill) → counts toward messages-in.
 			{ id: 'src', count: 10, has_target: true, accepts_fill: false },
-			// Sink: accepts fill but does not emit → consumed.
+			// Pure sink (accepts fill, does not emit) → counts toward messages-out.
 			{ id: 'snk', count: 7, has_target: false, accepts_fill: true },
 			// Through node (both ports) counts toward neither.
 			{ id: 'mid', count: 99, has_target: true, accepts_fill: true },

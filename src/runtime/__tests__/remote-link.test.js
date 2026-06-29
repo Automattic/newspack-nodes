@@ -95,16 +95,19 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
 	} );
 
-	it( 'delegates byte stats to its SseIn (read) and HttpOut (write) children', () => {
+	it( 'surfaces its anonymous SseIn read tally but NOT the shared HttpOut writes (avoids double-count)', () => {
 		const { link } = makeLink();
 		link.connect();
-		// The link does no wire I/O itself; it surfaces its children's tallies.
 		link.sseIn.bytesRead = 500;
 		link.sseIn.largestMsgSent = 120;
 		link.httpOut.bytesWritten = 80;
+		// SseIn is anonymous (unlisted), so the link surfaces its read tally —
+		// otherwise those bytes would be counted by no node at all.
 		expect( link.bytesRead ).toBe( 500 );
 		expect( link.largestMsgSent ).toBe( 120 );
-		expect( link.bytesWritten ).toBe( 80 );
+		// HttpOut is the shared `_http` singleton, already a listed node; the link
+		// must NOT also surface its writes or a graph roll-up double-counts them.
+		expect( link.bytesWritten ).toBe( 0 );
 	} );
 
 	it( 'connectNode points BOTH the link target and its already-built SseIn', () => {

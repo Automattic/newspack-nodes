@@ -6,6 +6,7 @@ import { render, fireEvent } from '@testing-library/react';
 import Inspector, { formatActivityWindow } from '../Inspector';
 import { Core } from '../../../runtime/core';
 import { Node } from '../../../runtime/node';
+import { IoTelemetry } from '../../../runtime/io-telemetry';
 import names from '../../../runtime/reserved-node-names.json';
 
 const baseProps = {
@@ -94,12 +95,53 @@ describe( 'Inspector (view mode)', () => {
 				} }
 			/>
 		);
-		const stats = getByTestId( 'inspector-process-stats' ).textContent;
+		const header = getByTestId( 'inspector-process-stats' );
+		const stats = header.textContent;
+		// Activity section: four labeled sparkline rows (msgs in/out + bytes read/written).
+		expect( stats ).toContain( 'messages in /s' );
+		expect( stats ).toContain( 'messages out /s' );
+		expect( stats ).toContain( 'bytes read /s' );
+		expect( stats ).toContain( 'bytes written /s' );
+		expect(
+			header.querySelectorAll( '.topology-insp__spark-row' ).length
+		).toBe( 4 );
 		// Current rate = the last sample of each series, formatted /s.
 		expect( stats ).toContain( '5.0 /s' ); // msgs in
 		expect( stats ).toContain( '2.0 /s' ); // msgs out
 		expect( stats ).toContain( '2.0 K/s' ); // bytes read (2048 B/s)
 		expect( stats ).toContain( '512 B/s' ); // bytes written
+	} );
+
+	it( 'sources the no-node header from IoTelemetry for the browser/local scope (matches the Overview tab)', () => {
+		IoTelemetry.reset();
+		// Received: 5185 msgs / 995 bytes; sent: 118 msgs / 6300 bytes.
+		IoTelemetry.recordIn( 995, 5185 );
+		IoTelemetry.recordOut( 6300, 118 );
+		const { getByTestId } = render(
+			<Inspector
+				{ ...baseProps }
+				local
+				parsed={ {
+					// Node counts deliberately differ from IoTelemetry, so a
+					// processStats path would show these instead.
+					nodes: [
+						{
+							id: 'src',
+							count: 3,
+							has_target: true,
+							accepts_fill: false,
+						},
+					],
+					edges: [],
+				} }
+			/>
+		);
+		const stats = getByTestId( 'inspector-process-stats' ).textContent;
+		// IoTelemetry totals win, NOT the node count (3).
+		expect( stats ).toContain( '5,185' ); // msgs in
+		expect( stats ).toContain( '118' ); // msgs out
+		expect( stats ).not.toContain( '–3' ); // not the node count
+		IoTelemetry.reset();
 	} );
 
 	it( 'shows dmesg error/warning/debug counts + rate sparklines in the header', () => {
@@ -115,10 +157,10 @@ describe( 'Inspector (view mode)', () => {
 		expect( levels.textContent ).toMatch( /2 err/ );
 		expect( levels.textContent ).toMatch( /1 warn/ );
 		expect( levels.textContent ).toMatch( /3 dbg/ );
-		// In + Out rate sparklines (a flat baseline svg renders even pre-data).
+		// Four Activity sparkline rows render even pre-data (flat baseline).
 		expect(
-			header.querySelectorAll( '.nodes-spark' ).length
-		).toBeGreaterThanOrEqual( 2 );
+			header.querySelectorAll( '.topology-insp__spark-row' ).length
+		).toBe( 4 );
 		Core.reset();
 	} );
 

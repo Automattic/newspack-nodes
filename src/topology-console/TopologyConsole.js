@@ -1584,6 +1584,10 @@ export default function TopologyConsole( {
 				canvasProps={ {
 					...canvasChromeProps,
 					resetKey: `${ scope.key }|${ mode }|${ editingName }`,
+					// Empty cwd = the browser's own (local) graph → the no-node
+					// header reads wire-accurate IoTelemetry; a pivoted worker cwd
+					// stays on the dump_metadata roll-up.
+					local: '' === cwd,
 					interactive: true,
 					editMode: mode === 'edit',
 					showPalette: true,

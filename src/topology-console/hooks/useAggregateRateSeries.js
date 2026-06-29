@@ -5,9 +5,12 @@
  * the last poll, over elapsed time. The first reading only seeds the baseline —
  * a delta against a cold zero would turn the cumulative backfill into a bogus
  * spike (the reason `useGraphRates` stays "cold" for one sample). A counter going
- * backward (worker respawn) clamps to 0.
+ * backward (worker respawn) clamps to 0. `resetKey` drops the baseline + history
+ * when the scope changes (e.g. switching to a different worker), so the new
+ * scope's cumulative counters never delta against the prior scope's baseline.
  *
- * @param {Array} nodes The latest dump_metadata node list (`parsed.nodes`).
+ * @param {Array}  nodes    The latest dump_metadata node list (`parsed.nodes`).
+ * @param {string} resetKey Scope identity; a change clears the baseline + history.
  * @return {{ in: number[], out: number[], read: number[], write: number[] }}
  *   Trailing In/Out msg/s + bytes read/written per-second sample rings.
  */
@@ -18,7 +21,7 @@ import { processStats } from '../utils/processStats';
 // ~1 minute of trailing samples at the ~1s metadata cadence.
 const RATE_HISTORY_MAX = 60;
 
-export function useAggregateRateSeries( nodes ) {
+export function useAggregateRateSeries( nodes, resetKey ) {
 	const [ series, setSeries ] = useState( {
 		in: [],
 		out: [],
@@ -26,12 +29,34 @@ export function useAggregateRateSeries( nodes ) {
 		write: [],
 	} );
 	const prevRef = useRef( null );
+	const keyRef = useRef( resetKey );
 
 	useEffect( () => {
+		// Scope changed (e.g. switched to a different worker): drop the prior
+		// scope's baseline + history. Otherwise the new scope's cumulative counters
+		// delta against the old baseline into a totals-as-rates spike.
+		if ( keyRef.current !== resetKey ) {
+			keyRef.current = resetKey;
+			prevRef.current = null;
+			setSeries( { in: [], out: [], read: [], write: [] } );
+		}
 		const { messagesIn, messagesOut, bytesRead, bytesWritten } =
-			processStats( nodes );
-		const now = Date.now() / 1000;
+			processStats( nodes || [] );
 		const prev = prevRef.current;
+		// Don't seed the baseline from a not-yet-loaded reading (all counters
+		// zero): the next cumulative reading would delta against ~zero into a
+		// totals-as-rates spike — the first datapoint comparing 0 to the full
+		// total, while the sparkline is still empty. Wait for the first reading
+		// WITH data to seed; real per-interval rates accrue from the next on.
+		const hasData =
+			messagesIn > 0 ||
+			messagesOut > 0 ||
+			bytesRead > 0 ||
+			bytesWritten > 0;
+		if ( ! prev && ! hasData ) {
+			return;
+		}
+		const now = Date.now() / 1000;
 		prevRef.current = {
 			messagesIn,
 			messagesOut,
@@ -55,7 +80,7 @@ export function useAggregateRateSeries( nodes ) {
 			read: [ ...s.read, readRate ].slice( -RATE_HISTORY_MAX ),
 			write: [ ...s.write, writeRate ].slice( -RATE_HISTORY_MAX ),
 		} ) );
-	}, [ nodes ] );
+	}, [ nodes, resetKey ] );
 
 	return series;
 }

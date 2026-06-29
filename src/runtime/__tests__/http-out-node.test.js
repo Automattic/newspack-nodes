@@ -23,9 +23,9 @@ import {
 
 function makeNode() {
 	const real = new CommandClient( { baseUrl: '/wp-json/', nonce: 'NONCE' } );
-	const postBatch = jest
-		.fn()
-		.mockResolvedValue( [ 0, 0, '', '', '', '', '{}' ] );
+	// Default: a bare 202 with no synchronous reply Messages (the routed-onward
+	// case). Reply-forwarding tests override with a proper array of Messages.
+	const postBatch = jest.fn().mockResolvedValue( [] );
 	const client = {
 		buildMessage: real.buildMessage.bind( real ),
 		postBatch,
@@ -72,6 +72,18 @@ describe( 'HttpOut', () => {
 		node.fill( m );
 		expect( node.bytesWritten ).toBe( size );
 		expect( node.largestMsgSent ).toBe( size );
+	} );
+
+	it( 'records bytesRead for each reply Message returned by the POST (read boundary)', async () => {
+		const { node, postBatch } = makeNode();
+		const reply = routed( {
+			to: '_output/1',
+			value: { name: 'r', arguments: 'ok' },
+		} );
+		postBatch.mockResolvedValue( [ reply ] );
+		node.fill( routed( { to: 'demo.p0' } ) );
+		await new Promise( ( r ) => setTimeout( r, 0 ) );
+		expect( node.bytesRead ).toBe( byteLength( pack( reply ) ) );
 	} );
 
 	it( 'packs each message once and hands the packed lines to postBatch (no double-serialize)', () => {
