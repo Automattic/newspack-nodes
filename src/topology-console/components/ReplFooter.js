@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { longestCommonPrefix } from '../../runtime/completion-node';
+import { loadHistory, saveHistory } from '../core/consolePersistence';
 
 // The whitespace-delimited token under the cursor — the last token of the
 // input, or '' after a trailing space. Returns the token + the prefix before it.
@@ -97,9 +98,12 @@ export default function ReplFooter( {
 	const [ value, setValue ] = useState( '' );
 	// Command history (oldest→newest). `historyCursor` points at the recalled
 	// entry; `history.length` means "past the end" (the live draft). The draft
-	// typed before navigation began is stashed so Down can restore it.
-	const history = useRef( [] );
-	const historyCursor = useRef( 0 );
+	// typed before navigation began is stashed so Down can restore it. Seeded
+	// from localStorage so recall survives a reload [87].
+	const history = useRef( loadHistory() );
+	// Start past-the-end (at the live draft) so the first ArrowUp recalls the
+	// most-recent persisted command rather than clamping at the oldest.
+	const historyCursor = useRef( history.current.length );
 	const historyDraft = useRef( '' );
 	// The token being completed when the last Tab fired, plus the last applied
 	// completion seq so a re-render doesn't re-apply the same reply. Cleared once
@@ -431,6 +435,7 @@ export default function ReplFooter( {
 		const entries = history.current;
 		if ( entries[ entries.length - 1 ] !== trimmed ) {
 			entries.push( trimmed );
+			saveHistory( entries ); // persist recall across reloads [87].
 		}
 		// Reset the cursor past-the-end and drop the stashed draft.
 		historyCursor.current = entries.length;

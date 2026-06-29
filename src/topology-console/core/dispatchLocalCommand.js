@@ -8,13 +8,14 @@ import { resolveSkin, formatSkinList } from './skinCommands';
  * `debugLevelRef` (mutable) / `setSkin` (apply a skin slug).
  *
  * @param {Object}   args
- * @param {Object}   args.parsed        Shell.parse result.
- * @param {Function} args.append        Append one transcript entry.
- * @param {Function} args.clear         Clear the transcript.
- * @param {Object}   args.debugLevelRef Ref holding the current debug level.
- * @param {Function} [args.setSkin]     Apply a resolved skin slug (set_skin).
- * @param {Array}    [args.skins]       THEMES registry for set_skin/list_skins.
- * @param {string}   [args.currentSkin] Active skin slug, marked by list_skins.
+ * @param {Object}   args.parsed         Shell.parse result.
+ * @param {Function} args.append         Append one transcript entry.
+ * @param {Function} args.clear          Clear the transcript.
+ * @param {Object}   args.debugLevelRef  Ref holding the current debug level.
+ * @param {Function} [args.onDebugLevel] Called with the new level when debug_level changes (persistence [87]).
+ * @param {Function} [args.setSkin]      Apply a resolved skin slug (set_skin).
+ * @param {Array}    [args.skins]        THEMES registry for set_skin/list_skins.
+ * @param {string}   [args.currentSkin]  Active skin slug, marked by list_skins.
  * @return {boolean} True when a local command was handled; false otherwise.
  */
 export function dispatchLocalCommand( {
@@ -22,6 +23,7 @@ export function dispatchLocalCommand( {
 	append,
 	clear,
 	debugLevelRef,
+	onDebugLevel = () => {},
 	setSkin = () => {},
 	skins = [],
 	currentSkin = '',
@@ -38,6 +40,7 @@ export function dispatchLocalCommand( {
 		} else {
 			debugLevelRef.current = Math.max( 0, Math.min( 2, parsed.level ) );
 		}
+		onDebugLevel( debugLevelRef.current );
 		append( {
 			kind: 'info',
 			text: `debug_level: ${ debugLevelRef.current }`,

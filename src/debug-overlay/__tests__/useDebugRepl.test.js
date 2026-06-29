@@ -19,6 +19,56 @@ function makeShell() {
 describe( 'useDebugRepl', () => {
 	beforeEach( () => {
 		Core.reset();
+		window.localStorage.clear();
+	} );
+
+	it( 'restores debug_level, transcript, and debug_state from localStorage [87]', () => {
+		window.localStorage.setItem(
+			'newspack-nodes:console:debug-level',
+			'2'
+		);
+		window.localStorage.setItem(
+			'newspack-nodes:console:debug-state',
+			'1'
+		);
+		window.localStorage.setItem(
+			'newspack-nodes:console:transcript',
+			JSON.stringify( [ { kind: 'recv', text: 'old line' } ] )
+		);
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		// Recent transcript restored into the displayed mirror.
+		expect( result.current.transcript.map( ( e ) => e.text ) ).toContain(
+			'old line'
+		);
+		// debug_state restored onto the browser interpreter.
+		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 1 );
+		// debug_level restored (2): a no-arg debug_level toggles >0 → 0 and persists.
+		act( () => result.current.sendLine( 'debug_level' ) );
+		expect(
+			window.localStorage.getItem( 'newspack-nodes:console:debug-level' )
+		).toBe( '0' );
+		teardown();
+	} );
+
+	it( 'persists debug_state and transcript as they change [87]', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		act( () => result.current.sendLine( 'debug_state' ) ); // toggles interpreter 0 → 1
+		expect(
+			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
+		).toBe( '1' );
+
+		act( () => result.current.append( { kind: 'info', text: 'hello' } ) );
+		const saved = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:console:transcript' )
+		);
+		expect( saved.map( ( e ) => e.text ) ).toContain( 'hello' );
+		teardown();
 	} );
 
 	it( 'ready is false when inactive', () => {
