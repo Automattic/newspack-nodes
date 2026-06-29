@@ -449,6 +449,66 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $node, 'batch' ) );
 	}
 
+	public function test_arguments_null_returns_stored_server_id(): void {
+		// arguments(null) is the getter — it returns the server_id last set.
+		$node = $this->make_node( 'austin' );
+		$this->assertSame( 'austin', $node->arguments() );
+	}
+
+	public function test_fire_uses_real_libcurl_dispatch_when_no_seam_installed(): void {
+		// With no $curl_dispatch seam the default closure runs for real: curl_init,
+		// curl_setopt_array, curl_multi_add_handle. No transfer happens (the EF drain
+		// never runs in unit tests), so the handle just sits in-flight until teardown.
+		HTTP_Out_Node::$curl_dispatch = null;
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$node = $this->make_node( 'austin' );
+		$msg  = $this->command_message( 'settings', 'set', 'k v' );
+		$node->fill( $msg );
+		$node->fire();
+
+		$this->assertInstanceOf( \CurlMultiHandle::class, $this->read_private( $node, 'multi' ) );
+		$this->assertCount( 1, $this->read_private( $node, 'inflight' ) );
+		$node->remove_node(); // detach + close the real handle (no network transfer occurred)
+	}
+
+	public function test_fire_logs_and_tracks_nothing_when_dispatch_returns_false(): void {
+		// A dispatch seam that fails to produce a CurlHandle is logged rate-limited;
+		// fire() returns without tracking an in-flight handle (and never throws).
+		HTTP_Out_Node::$curl_dispatch = static fn ( \CurlMultiHandle $m, array $o ): bool => false;
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$node = $this->make_node( 'austin' );
+		$msg  = $this->command_message( 'settings', 'set', 'k v' );
+		$node->fill( $msg );
+		$node->fire();
+		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+	}
+
+	public function test_on_curl_message_done_without_handle_is_ignored(): void {
+		// A CURLMSG_DONE info lacking a CurlHandle returns early. Seed one in-flight
+		// request first so the guard has something to leave alone: the no-handle
+		// message must NOT touch it (a regression that unset by a null/zero id, or
+		// cleared inflight on this path, would drop the live request).
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$before          = $this->read_private( $node, 'inflight' );
+		$this->assertCount( 1, $before );
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE ] );
+
+		$after = $this->read_private( $node, 'inflight' );
+		$this->assertSame( $before, $after );
+		$this->assertArrayHasKey( \spl_object_id( $easy ), $after );
+		$node->remove_node(); // detach + close the real handle (no transfer occurred)
+	}
+
+	public function test_on_curl_message_reads_real_curl_result_when_no_seam(): void {
+		// With no $curl_result seam, read_result reads libcurl directly. An
+		// un-transferred handle reports HTTP 0 → non-200 logged, handle cleaned up.
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		HTTP_Out_Node::$curl_result = null;
+		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+	}
+
 	public function test_on_curl_message_malformed_line_is_skipped_not_fatal(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$reply                   = Message::new_message();

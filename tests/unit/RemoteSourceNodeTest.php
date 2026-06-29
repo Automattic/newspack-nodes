@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
@@ -33,6 +34,9 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$memd                = null;
 		SSE_In_Node::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_dispatch = null;
+		// The SSE_In patrons register CurlMultiHandles with the process-lifetime
+		// Event_Framework singleton; reset it so handles don't leak into later suites.
+		Event_Framework::reset();
 		Vault::get_instance()->reset_cache();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		\Newspack_Nodes\Config::reset();
@@ -345,6 +349,71 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
 		$this->assertSame( 1748960000, $status['last_sse_heartbeat'] );
+	}
+
+	public function test_restore_position_ignores_unparseable_offsetlog_entry(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->seed_offsetlog_file( "this is not a packed message\n" );
+
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+
+		// A junk line can't be unpacked → restore yields nothing → default cursor.
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $sse->position() );
+	}
+
+	public function test_restore_position_ignores_non_array_value(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = 'scalar-not-a-cursor';
+		$this->seed_offsetlog_file( Message::packed( $message ) . "\n" );
+
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $sse->position() );
+	}
+
+	public function test_restore_position_falls_back_to_prior_segment_when_last_empty(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [ 'seg' => 4, 'off' => 256, '_ts' => 1 ];
+		// Last segment is empty (a rotated-but-unwritten tail); the committed cursor
+		// lives in the prior segment and restore must fall back to it.
+		$this->seed_offsetlog_file( Message::packed( $message ) . "\n", 0 );
+		$this->seed_offsetlog_file( '', 1 );
+
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( [ 'segment_id' => 4, 'offset' => 256 ], $sse->position() );
+	}
+
+	public function test_restore_position_returns_empty_when_all_segments_empty(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		// Both the tail and the prior segment are empty — nothing to restore.
+		$this->seed_offsetlog_file( '', 0 );
+		$this->seed_offsetlog_file( '', 1 );
+
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $sse->position() );
+	}
+
+	/** Write a raw offsetlog segment file (`<seg>.log`) for the default remote node. */
+	private function seed_offsetlog_file( string $contents, int $segment_id = 0 ): void {
+		$dir = \Newspack_Nodes\Config::get_offsets_directory() . '/remote-austin.firehose.p0';
+		if ( ! \is_dir( $dir ) ) {
+			\mkdir( $dir, 0755, true );
+		}
+		\file_put_contents( "{$dir}/{$segment_id}.log", $contents );
 	}
 
 	/** Install an SSE_In connect seam returning a real idle handle (never transferred). */

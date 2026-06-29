@@ -108,6 +108,74 @@ class TopicProbeTest extends TestCase {
 		);
 	}
 
+	public function test_arguments_sets_interval_and_returns_raw_string(): void {
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' ); // set_timer hitchhikes the Router TIMER
+		$probe = new TopicProbe_Node();
+		$probe->name( '_topicprobe' );
+		$this->assertSame( '5', $probe->arguments( '5' ) );
+		// The getter (null arg) returns the raw string last set, not a re-parse.
+		$this->assertSame( '5', $probe->arguments() );
+		$ref = new \ReflectionProperty( $probe, 'interval_ms' );
+		$this->assertSame( 5000, $ref->getValue( $probe ) );
+	}
+
+	public function test_arguments_empty_string_keeps_default_interval(): void {
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
+		$probe = new TopicProbe_Node();
+		$probe->name( '_topicprobe' );
+		$this->assertSame( '', $probe->arguments( '' ) );
+		$ref = new \ReflectionProperty( $probe, 'interval_ms' );
+		$this->assertSame( 15000, $ref->getValue( $probe ) );
+	}
+
+	public function test_arguments_rejects_non_numeric(): void {
+		$probe = new TopicProbe_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$probe->arguments( 'every-15s' );
+	}
+
+	public function test_fire_notifies_then_bails_before_sweeping_when_no_sink(): void {
+		// fire() guards against a null sink independently of fire_cb's gate. Invoke
+		// fire() directly (fire_cb would short-circuit before reaching it): the FIRE
+		// notify still happens, then it returns before sweeping any Consumer.
+		$this->stub_consumer( 'firehose' );
+		$probe = new TopicProbe_Node();
+		$probe->name( '_topicprobe' );
+
+		$fired = [];
+		$probe->register( 'FIRE', 'cb', function ( $payload ) use ( &$fired ): void {
+			$fired[] = $payload;
+		} );
+
+		( new \ReflectionMethod( $probe, 'fire' ) )->invoke( $probe );
+
+		$this->assertSame( [ Core::$now ], $fired );
+	}
+
+	public function test_fire_skips_a_consumer_whose_probe_stats_throws(): void {
+		// One bad Consumer (probe_stats throws) is skipped rate-limited; the healthy
+		// Consumer in the same sweep still emits its snapshot.
+		$bad = new class() extends Consumer_Node {
+			public function probe_stats(): array {
+				throw new \RuntimeException( 'no segment yet' );
+			}
+		};
+		$bad->name( 'broken' );
+		$this->stub_consumer( 'firehose' );
+
+		$capture = new Capture_Sink_Node();
+		$probe   = new TopicProbe_Node();
+		$probe->name( '_topicprobe' );
+		$probe->sink( $capture );
+		$probe->fire_cb();
+
+		$this->assertCount( 1, $capture->captured );
+		$this->assertSame(
+			'firehose.p0',
+			$capture->captured[0][ Message::VALUE ][ Probe_Record::READER ]
+		);
+	}
+
 	public function test_fire_gates_to_the_interval_against_last_fire_time(): void {
 		// Hitchhikes the Router TIMER (fires every tick); only does real work once
 		// per interval_s, gated against last_fire_time — like Consumer's publish.

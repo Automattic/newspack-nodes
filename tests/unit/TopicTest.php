@@ -466,6 +466,97 @@ class TopicTest extends TestCase {
 		$this->assertSame( '', file_exists( $path ) ? (string) file_get_contents( $path ) : '' );
 	}
 
+	public function test_arguments_null_returns_last_set_string(): void {
+		// arguments(null) is the getter — it returns the raw string last passed in,
+		// not a re-parse. (The setter path stores it via parse_schema_args.)
+		$t = new Topic_Node();
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
+		$this->assertSame(
+			"{$this->tmp}/firehose.p{partition} 4 65536 4 86400",
+			$t->arguments()
+		);
+	}
+
+	public function test_allow_large_writes_lifts_cap_on_existing_and_future_partitions(): void {
+		// allow_large_writes() is the held-lock cousin of void_warranty(): it lifts
+		// the 4 KB cap on every partition — both those already materialized (the
+		// set_large_write_mode loop) AND any created later (apply at partition()).
+		$t = new Topic_Node();
+		$t->name( 'firehose' );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 4 0" );
+
+		// Materialize p0 BEFORE the opt-in so the existing-partition loop runs.
+		$this->produce_into( $t, 'small', 'k1' );
+		$this->assertSame( $t, $t->allow_large_writes() );
+
+		$big = str_repeat( 'z', 5000 );
+		$this->produce_into( $t, $big, 'k1' );
+
+		$values = $this->read_partition_values(
+			$this->read_private( $t, 'partitions' )[0]
+		);
+		$this->assertSame( [ 'small', $big ], $values );
+	}
+
+	public function test_allow_large_writes_repeat_in_same_mode_is_a_noop(): void {
+		// The Topic-level guard short-circuits a repeat call in the same mode so it
+		// never re-runs the existing-partition loop — which would call
+		// Partition::allow_large_writes() a second time on the already-locked
+		// partition and block re-acquiring the held write lock. Materialize a
+		// partition FIRST so that loop has something to act on (without it the loop
+		// is empty and the guard is never exercised).
+		$t = new Topic_Node();
+		$t->name( 'firehose' );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 4 0" );
+		$this->produce_into( $t, 'small', 'k1' );
+
+		$this->assertSame( $t, $t->allow_large_writes() );
+		$partition = $this->read_private( $t, 'partitions' )[0];
+		// The mode actually reached the materialized partition.
+		$this->assertTrue( $this->read_private( $partition, 'allow_large_writes' ) );
+		$held_lock = $this->read_private( $partition, 'write_lock' );
+
+		// Repeat in the same mode is a genuine no-op: the partition's held lock is the
+		// SAME instance afterward (the guard skipped the re-lock loop entirely), and
+		// the Topic itself is returned.
+		$this->assertSame( $t, $t->allow_large_writes() );
+		$this->assertSame( 'lock', $this->read_private( $t, 'large_write_mode' ) );
+		$this->assertSame( $held_lock, $this->read_private( $partition, 'write_lock' ) );
+	}
+
+	public function test_byte_stats_aggregate_across_materialized_partitions(): void {
+		// largest_msg_sent() is the max single record over partitions; bytes_written()
+		// is the sum. Route two distinct keys (k1->p1, k2->p3) so they materialize two
+		// partitions, then assert the aggregate against the actual on-disk bytes —
+		// measured INDEPENDENTLY of the per-partition counters so the test can't
+		// tautologically restate the production aggregation.
+		$t = new Topic_Node();
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
+		$this->produce_into( $t, 'hello', 'k1' );
+		$this->produce_into( $t, 'a-longer-message', 'k2' );
+
+		$partitions = $this->read_private( $t, 'partitions' );
+		// Two distinct keys MUST land in two distinct partitions; a hash collision
+		// would collapse them into one and turn max==sum into a tautology.
+		$this->assertCount( 2, $partitions );
+
+		// Ground truth from disk: each partition holds exactly one record, so its
+		// segment file size IS that record's byte count. sum = both files, max = the
+		// bigger file.
+		$file_sizes = [];
+		foreach ( $partitions as $p ) {
+			$file_sizes[] = \strlen( (string) \file_get_contents( "{$p->partition_dir()}/0.log" ) );
+		}
+		$expected_sum = \array_sum( $file_sizes );
+		$expected_max = \max( $file_sizes );
+
+		// Two non-empty partitions → the sum is strictly larger than the largest
+		// single record; collapsing both keys into one partition would break this.
+		$this->assertGreaterThan( $expected_max, $expected_sum );
+		$this->assertSame( $expected_max, $t->largest_msg_sent() );
+		$this->assertSame( $expected_sum, $t->bytes_written() );
+	}
+
 	public function test_void_warranty_applies_to_partitions_materialized_after_the_call(): void {
 		// void_warranty() before any fill() must still reach lazily-materialized
 		// partitions — mirrors how sink() propagates to future children.

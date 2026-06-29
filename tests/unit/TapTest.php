@@ -51,6 +51,52 @@ class TapTest extends TestCase {
 		$this->assertSame( [], \array_values( $tap->target() ) );
 	}
 
+	public function test_fill_without_a_wired_sink_throws(): void {
+		// Tap fans out THROUGH its sink, so a sink is mandatory.
+		$tap = new Tap_Node();
+		$tap->name( 'tap' );
+
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+
+		$this->expectException( \RuntimeException::class );
+		$tap->fill( $message );
+	}
+
+	public function test_target_whose_delivery_throws_is_logged_not_fatal(): void {
+		// A live-head target whose fan-out delivery throws is caught + logged
+		// rate-limited; the original message still passes through to the sink.
+		$live = new Capture_Sink_Node();
+		$live->name( 'boom' ); // keeps `boom/x` alive through the dead-target prune
+
+		$sink = new class() extends \Newspack_Nodes\Node {
+			/** @var array<int,array<int,mixed>> */
+			public array $passed = [];
+			public function fill( array &$message ): void {
+				if ( 'boom/x' === $message[ Message::TO ] ) {
+					throw new \RuntimeException( 'delivery failed' );
+				}
+				$this->passed[] = $message;
+			}
+		};
+
+		$tap = new Tap_Node();
+		$tap->name( 'tap' );
+		$tap->sink( $sink );
+		$tap->connect_node( 'boom/x' );
+
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+		$tap->fill( $message );
+
+		// The throwing fan-out was swallowed; only the passthrough (TO empty) landed.
+		$this->assertCount( 1, $sink->passed );
+		$this->assertSame( '', $sink->passed[0][ Message::TO ] );
+		$this->assertSame( 'data', $sink->passed[0][ Message::VALUE ] );
+	}
+
 	public function test_passthrough_still_forwards_to_sink(): void {
 		// Tap's defining behavior: after fanning out, the original message passes
 		// through unchanged to the sink.

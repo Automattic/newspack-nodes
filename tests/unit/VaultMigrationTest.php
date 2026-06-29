@@ -37,4 +37,12 @@ final class VaultMigrationTest extends TestCase {
 		Vault_Migration::maybe_migrate();
 		$this->assertFalse( \get_option( Vault::OPTION_KEY ) );
 	}
+
+	public function test_returns_early_when_marker_already_set(): void {
+		\update_option( self::MARKER, '1' );
+		\update_option( self::SOURCE, [ 'spoke' => [ 'url' => 'https://e.com' ] ] );
+		Vault_Migration::maybe_migrate();
+		// The marker short-circuits before any copy — target stays absent.
+		$this->assertFalse( \get_option( Vault::OPTION_KEY ) );
+	}
 }

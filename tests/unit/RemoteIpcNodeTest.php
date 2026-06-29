@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
@@ -31,6 +32,9 @@ class RemoteIpcNodeTest extends TestCase {
 		Core::$memd                    = null;
 		SSE_In_Node::$curl_dispatch    = null;
 		HTTP_Out_Node::$curl_dispatch  = null;
+		// The SSE_In patrons register CurlMultiHandles with the process-lifetime
+		// Event_Framework singleton; reset it so handles don't leak into later suites.
+		Event_Framework::reset();
 		Vault::get_instance()->reset_cache();
 		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
@@ -178,6 +182,47 @@ class RemoteIpcNodeTest extends TestCase {
 		$batch_b = $this->read_private( Core::node( 'flame.p0:http-out' ), 'batch' );
 		$this->assertCount( 1, $batch_b );
 		$this->assertSame( 'heartbeat', $batch_b[0][ Message::VALUE ]['name'] );
+	}
+
+	public function test_send_without_vault_entry_is_noop(): void {
+		// No vault entry → ensure_patrons never builds the HTTP_Out, so send bails
+		// before bundling — no patrons, no crash.
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_ipc( 'combined.p0', 'ghost combined.p0' );
+
+		$cmd = $this->command( '_metadata', 'dump_metadata' );
+		$node->fill( $cmd );
+
+		$this->assertNull( Core::node( 'combined.p0:http-out' ) );
+	}
+
+	public function test_remove_node_releases_active_claim_and_tears_down_patrons(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_ipc( 'combined.p0' );
+		$node->connect();
+		$this->assertSame( $node, Remote_IPC_Node::$active );
+
+		$node->remove_node();
+
+		$this->assertNull( Remote_IPC_Node::$active );
+		$this->assertNull( Core::node( 'combined.p0:sse-in' ) );
+		$this->assertNull( Core::node( 'combined.p0:http-out' ) );
+	}
+
+	public function test_remove_node_of_dormant_link_leaves_active_claim_intact(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined.p0' );
+		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame.p0' );
+		$a->connect();
+		$this->assertSame( $a, Remote_IPC_Node::$active );
+
+		// Removing the dormant link must not steal the live-connection claim from A.
+		$b->remove_node();
+
+		$this->assertSame( $a, Remote_IPC_Node::$active );
+		$this->assertNull( Core::node( 'flame.p0:sse-in' ) );
 	}
 
 	public function test_node_schema_is_visible_io_inheriting_base_args(): void {
