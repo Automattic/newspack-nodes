@@ -476,7 +476,7 @@ describe( 'useTopologyManager', () => {
 		expect( transform ).toBeTruthy();
 		expect( transform.target ).toBe( 'workerstatus:view' );
 		// The worker-status receiver Tee fans its reply into the transform.
-		expect( Core.node( 'wsIn' ).target ).toEqual(
+		expect( Core.node( 'workerstatus:in' ).target ).toEqual(
 			expect.arrayContaining( [ 'workerstatus:transform' ] )
 		);
 	} );

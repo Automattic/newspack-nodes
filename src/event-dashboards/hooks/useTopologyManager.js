@@ -7,17 +7,17 @@
  *
  * Graph (clipped onto the rule-#2 backbone the toolkit owns):
  *
- *   topologymanager:timer (Timer) ─> topologymanager:tee (Tee) ─> fetch-workers ─┐ target = _shell/_http/workers
+ *   topologymanager:timer (Timer) ─> topologymanager:tee (Tee) ─> fetch-workers   ─┐ target = _shell/_http/workers
  *                                                              └> fetch-topologies ┤ target = _shell/_http/topologies
- *   wsIn   (Tee) ─> workerstatus:transform ─> workerstatus:view   ─> React
- *   topoIn (Tee) ─> topologymanager:view                          ─> React
+ *   workerstatus:in    (Tee) ─> workerstatus:transform ─> workerstatus:view ─> React
+ *   topologymanager:in (Tee) ─> topologymanager:view                        ─> React
  *
  * `useBatchedPoll` owns ALL the poll boilerplate (the `_shell`-Tap + `_http`
  * HttpOut, the fan-out Tee + the router-hitchhike Timer, the lock/flush batch
  * bracket so a tick's two fetcher commands ride ONE POST, and the page-visibility
  * + `paused` gates). This hook supplies only its two slices via `addSliceFetcher`:
  *  - the worker slice fires `dump_graph` and rides the H4 `transform` slot, so the
- *    `WorkerStatusTransform` enrich-join lands on a graph EDGE (the wsIn → view
+ *    `WorkerStatusTransform` enrich-join lands on a graph EDGE (the workerstatus:in → view
  *    edge), not inside the view;
  *  - the topology slice fires `topologies list` straight into its view.
  *
@@ -87,12 +87,12 @@ const WORKERS_CI = 'workers';
 const TOPOLOGIES_CI = 'topologies';
 
 // The two polled slices: the worker-status slice rides the H4 `transform` slot
-// (the WorkerStatusTransform enrich-join on the wsIn → view edge), and the
+// (the WorkerStatusTransform enrich-join on the workerstatus:in → view edge), and the
 // topology-list slice fires straight into its view.
 const SLICES = [
 	{
 		fetcher: 'fetch-workers',
-		receiver: 'wsIn',
+		receiver: 'workerstatus:in',
 		command: 'dump_graph',
 		view: WORKER_VIEW,
 		viewClass: 'WorkerStatusView',
@@ -104,7 +104,7 @@ const SLICES = [
 	},
 	{
 		fetcher: 'fetch-topologies',
-		receiver: 'topoIn',
+		receiver: 'topologymanager:in',
 		command: 'list',
 		view: TOPOLOGY_VIEW,
 		viewClass: 'TopologyManagerView',
