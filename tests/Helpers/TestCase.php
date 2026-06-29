@@ -123,7 +123,6 @@ abstract class TestCase extends PHPUnitTestCase {
 			// permits /usr/src by default; /tmp is where every test puts
 			// its scratch directory.
 			$ref  = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-			$ref->setAccessible( true );
 			$dirs = $ref->getValue();
 			if ( ! \in_array( $dir, $dirs, true ) ) {
 				$dirs[] = $dir;
@@ -244,7 +243,6 @@ abstract class TestCase extends PHPUnitTestCase {
 	/** Read a private/protected property — these nodes expose internal state to tests via reflection, not getters. */
 	protected function read_private( object $obj, string $prop ): mixed {
 		$ref = new \ReflectionProperty( $obj, $prop );
-		$ref->setAccessible( true );
 		return $ref->getValue( $obj );
 	}
 
@@ -256,9 +254,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	protected function pump_consumer( \Newspack_Nodes\Consumer_Node $c, int $max = 5000 ): void {
 		$ref = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
 		$eof = $ref->getProperty( 'at_eof' );
-		$eof->setAccessible( true );
 		$buf = $ref->getProperty( 'buffer' );
-		$buf->setAccessible( true );
 		for ( $i = 0; $i < $max; $i++ ) {
 			$c->poll();
 			$has_complete_line = ( false !== \strpos( (string) $buf->getValue( $c ), "\n" ) );

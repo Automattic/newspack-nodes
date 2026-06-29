@@ -413,7 +413,6 @@ class SupervisorBaseTest extends TestCase {
 		// No record_spawn called — no persisted state.
 		$s = new Supervisor_Base( $this->tmp );
 		$method = new \ReflectionMethod( Supervisor_Base::class, 'load_spawn_ts' );
-		$method->setAccessible( true );
 
 		$result = $method->invoke( $s, 'never-recorded|0' );
 		$this->assertNull( $result, 'load_spawn_ts must return null on miss' );

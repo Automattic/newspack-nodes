@@ -81,7 +81,6 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-concrete-probe-node.php';
 
 		$ref      = new \ReflectionProperty( Command_Interpreter_Node::class, 'namespaces' );
-		$ref->setAccessible( true );
 		$snapshot = $ref->getValue();
 		try {
 			// Abstract prefix registered FIRST so the buggy resolver hits it first.
@@ -107,8 +106,6 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		// LateProbe (and caching 'Late') can't leak into sibling tests.
 		$ns_ref    = new \ReflectionProperty( Command_Interpreter_Node::class, 'namespaces' );
 		$cache_ref = new \ReflectionProperty( Command_Interpreter_Node::class, 'resolve_cache' );
-		$ns_ref->setAccessible( true );
-		$cache_ref->setAccessible( true );
 		$ns_snapshot    = $ns_ref->getValue();
 		$cache_snapshot = $cache_ref->getValue();
 		try {

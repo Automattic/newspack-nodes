@@ -282,8 +282,8 @@ class Insights_CI_Node extends Service_CI_Node {
 	}
 
 	/** Read one offset dir's newest snapshot, return its cache['items']. */
-	private static function read_cache_items( string $offset_dir ): array {
-		$value = \Newspack_Nodes\Partition_Node::read_latest_value_at( $offset_dir );
+	private static function read_cache_items( string $offsetlog_dir ): array {
+		$value = \Newspack_Nodes\Partition_Node::read_latest_value_at( $offsetlog_dir );
 		$cache = \is_array( $value ) && \is_array( $value['cache'] ?? null ) ? $value['cache'] : [];
 		$items = $cache['items'] ?? null;
 		if ( ! \is_array( $items ) ) {
@@ -300,7 +300,7 @@ class Insights_CI_Node extends Service_CI_Node {
 }
 ```
 
-> **← a substrate refinement.** `read_cache_items` used to be a 20-line walk: `new Partition_Node`, `arguments`, `get_segments(true)`, find the newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE` — guarded and try/caught. The substrate's `CLI::read_offsetlog_entry()` had a byte-identical copy. Reading "the newest committed record's VALUE from an offsetlog" is a substrate concern, so it became **`Partition_Node::read_latest_value_at( $offset_dir )`**, and both callers collapsed to one line. You don't walk segments; you ask the Partition for its latest value.
+> **← a substrate refinement.** `read_cache_items` used to be a 20-line walk: `new Partition_Node`, `arguments`, `get_segments(true)`, find the newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE` — guarded and try/caught. The substrate's `CLI::read_offsetlog_entry()` had a byte-identical copy. Reading "the newest committed record's VALUE from an offsetlog" is a substrate concern, so it became **`Partition_Node::read_latest_value_at( $offsetlog_dir )`**, and both callers collapsed to one line. You don't walk segments; you ask the Partition for its latest value.
 
 Now the three verbs. Each is a one-line `handler` that shapes one slice off the **memoized** `items()` and JSON-encodes it. Because a `Service_CI` verb runs *on the CI itself*, the interpreter handed to each handler **is** this node — so `$ci->items()` shares the per-request memo across all three:
 

@@ -36,7 +36,6 @@ class ConfigTest extends TestCase {
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
 		// Snapshot the allowlist; allow_dir() restores from this in tearDown.
 		$ref                      = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
-		$ref->setAccessible( true );
 		$this->saved_allowed_dirs = $ref->getValue();
 	}
 
@@ -47,7 +46,6 @@ class ConfigTest extends TestCase {
 		$GLOBALS['_wp_options'] = [];
 		// Restore allowed_config_dirs in case allow_dir() was used.
 		$ref = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
-		$ref->setAccessible( true );
 		$ref->setValue( null, $this->saved_allowed_dirs );
 		parent::tearDown();
 	}
@@ -151,7 +149,6 @@ class ConfigTest extends TestCase {
 
 	public function test_local_env_override_outside_allowed_dirs_rejected(): void {
 		$ref = new \ReflectionMethod( Config::class, 'validate_config_path' );
-		$ref->setAccessible( true );
 
 		// /var/tmp is not in the allowlist (and isn't the plugin dir).
 		$outside_dir = '/var/tmp/newspack-nodes-test-evil-' . \uniqid();
@@ -271,13 +268,11 @@ class ConfigTest extends TestCase {
 
 	public function test_validate_config_path_rejects_non_php(): void {
 		$ref = new \ReflectionMethod( Config::class, 'validate_config_path' );
-		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, '/tmp/config.txt' ) );
 	}
 
 	public function test_validate_config_path_rejects_null_byte(): void {
 		$ref = new \ReflectionMethod( Config::class, 'validate_config_path' );
-		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, "/tmp/evil\0config.php" ) );
 	}
 
@@ -285,13 +280,11 @@ class ConfigTest extends TestCase {
 
 	public function test_validate_config_values_rejects_objects(): void {
 		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
-		$ref->setAccessible( true );
 		$this->assertFalse( $ref->invoke( null, new \stdClass() ) );
 	}
 
 	public function test_validate_config_values_rejects_deep_nesting(): void {
 		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
-		$ref->setAccessible( true );
 		$value = 'leaf';
 		for ( $i = 0; $i < 12; $i++ ) {
 			$value = [ $value ];
@@ -301,7 +294,6 @@ class ConfigTest extends TestCase {
 
 	public function test_validate_config_values_allows_scalars(): void {
 		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
-		$ref->setAccessible( true );
 		$this->assertTrue( $ref->invoke( null, 'string' ) );
 		$this->assertTrue( $ref->invoke( null, 42 ) );
 		$this->assertTrue( $ref->invoke( null, 3.14 ) );
@@ -311,7 +303,6 @@ class ConfigTest extends TestCase {
 
 	public function test_validate_config_values_allows_arrays(): void {
 		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
-		$ref->setAccessible( true );
 		$this->assertTrue( $ref->invoke( null, [ 'a', 'b' ] ) );
 		$this->assertTrue( $ref->invoke( null, [ 'nested' => [ 'k' => 'v' ] ] ) );
 	}
@@ -378,7 +369,6 @@ class ConfigTest extends TestCase {
 
 	public function test_is_within_returns_null_when_path_does_not_exist(): void {
 		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
-		$ref->setAccessible( true );
 		// Both args nonexistent.
 		$this->assertNull( $ref->invoke( null, '/never/existed/anywhere', '/tmp' ) );
 		// Existing base, nonexistent path.
@@ -387,7 +377,6 @@ class ConfigTest extends TestCase {
 
 	public function test_is_within_returns_null_when_outside_base(): void {
 		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
-		$ref->setAccessible( true );
 		// Real path exists but outside base.
 		$this->assertNull( $ref->invoke( null, '/etc', $this->temp_dir ) );
 	}
@@ -395,7 +384,6 @@ class ConfigTest extends TestCase {
 	public function test_is_within_accepts_path_that_equals_base(): void {
 		// Path == base must be considered "within" (the base itself).
 		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
-		$ref->setAccessible( true );
 		$result = $ref->invoke( null, $this->temp_dir, $this->temp_dir );
 		$this->assertSame( \realpath( $this->temp_dir ), $result );
 	}
@@ -438,7 +426,6 @@ class ConfigTest extends TestCase {
 	 */
 	private function allow_dir( string $dir ): void {
 		$ref  = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
-		$ref->setAccessible( true );
 		$dirs   = $ref->getValue();
 		$dirs[] = $dir;
 		$ref->setValue( null, $dirs );

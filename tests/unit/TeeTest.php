@@ -174,7 +174,6 @@ class TeeTest extends TestCase {
 		// the existing target to an array, not lose it.
 		$tee = new Tee_Node();
 		$ref = new \ReflectionProperty( $tee, 'target' );
-		$ref->setAccessible( true );
 		$ref->setValue( $tee, 'preexisting' );
 
 		$tee->connect_node( 'new' );
@@ -186,7 +185,6 @@ class TeeTest extends TestCase {
 		// as an empty list rather than including '' in the list.
 		$tee = new Tee_Node();
 		$ref = new \ReflectionProperty( $tee, 'target' );
-		$ref->setAccessible( true );
 		$ref->setValue( $tee, '' );
 
 		$tee->connect_node( 'a' );
@@ -205,7 +203,6 @@ class TeeTest extends TestCase {
 		// String target → disconnect → empty array (and nothing else happens).
 		$tee = new Tee_Node();
 		$ref = new \ReflectionProperty( $tee, 'target' );
-		$ref->setAccessible( true );
 		$ref->setValue( $tee, 'string-target' );
 
 		$tee->disconnect_node( 'string-target' );

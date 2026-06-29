@@ -62,7 +62,6 @@ final class VaultTest extends TestCase {
 	 */
 	private function seed_config_servers( array $servers ): void {
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
-		$ref->setAccessible( true );
 		$ref->setValue( null, [ 'vault' => $servers ] );
 		Vault::get_instance()->reset_cache();
 	}

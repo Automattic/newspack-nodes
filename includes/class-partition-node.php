@@ -898,7 +898,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Read the latest committed record's VALUE from an offsetlog directory.
 	 *
-	 * The offsetlog is a flat segmented-log dir; this opens it at $offset_dir,
+	 * The offsetlog is a flat segmented-log dir; this opens it at $offsetlog_dir,
 	 * reads the last non-empty line of the newest segment, unpacks the packed Message,
 	 * and returns its VALUE (a decoded JSON object), or null if empty/unreadable.
 	 *
@@ -906,13 +906,13 @@ class Partition_Node extends Timer_Node {
 	 *      offsetlog snapshot (e.g. a Service_CI serving dashboard state). No
 	 *      in-substrate caller, so this is marked API to keep the deadcode gate honest.
 	 *
-	 * @param string $offset_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
+	 * @param string $offsetlog_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
 	 * @return array<string,mixed>|null The newest record's VALUE, or null.
 	 */
-	public static function read_latest_value_at( string $offset_dir ): ?array {
+	public static function read_latest_value_at( string $offsetlog_dir ): ?array {
 		try {
 			$offsetlog = new self();
-			$offsetlog->arguments( $offset_dir );
+			$offsetlog->arguments( $offsetlog_dir );
 			$segments = $offsetlog->get_segments( true );
 			if ( empty( $segments ) ) {
 				return null;

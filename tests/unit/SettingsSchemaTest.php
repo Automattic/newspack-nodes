@@ -62,7 +62,6 @@ class SettingsSchemaTest extends TestCase {
 		parent::setUp();
 
 		$schema = new \ReflectionProperty( Settings_Schema::class, 'schema' );
-		$schema->setAccessible( true );
 		$schema->setValue( null, null );
 	}
 

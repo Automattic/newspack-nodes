@@ -355,7 +355,6 @@ class Node {
 		$ref      = new \ReflectionObject( $this );
 		$snapshot = [];
 		foreach ( $ref->getProperties() as $prop ) {
-			$prop->setAccessible( true );
 			$key   = $prop->getName();
 			if ( $prop->isInitialized( $this ) ) {
 				$value = $prop->getValue( $this );
