@@ -37,6 +37,32 @@ class TailTest extends TestCase {
 		return \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
 	}
 
+	public function test_crawl_head_sacrifice_works_for_the_tail_subclass(): void {
+		// Regression: the crawl head-sacrifice lives in the shared drain_buffer, NOT
+		// forward_line (which Tail overrides to emit raw bytes). A Tail that enters
+		// crawl must still skip the poison head instead of re-emitting it every boot.
+		$file = "{$this->tmp}/data.log";
+		$this->write_segment( $file, 0, "head\nnext\n" );
+
+		// Seed a hard-crash frame at the head in the Tail's offsetlog (a dir-Partition).
+		\mkdir( "{$this->tmp}/off", 0755, true );
+		$frame                   = Message::new_message();
+		$frame[ Message::TYPE ]  = Message::TM_STRUCT;
+		$frame[ Message::FROM ]  = 'seed';
+		$frame[ Message::VALUE ] = [ 'seg' => 0, 'off' => 0, 'attempts' => \Newspack_Nodes\Consumer_Node::CRASH_MAX_ATTEMPTS, 'reason' => '', 'first_crash_ts' => null ];
+		\file_put_contents( "{$this->tmp}/off/0.log", Message::packed( $frame ) . "\n" );
+
+		$t = new Tail_Node();
+		$t->arguments( "{$file} {$this->tmp}/off" );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		$this->pump( $t );
+
+		$values = $this->values( $cap );
+		$this->assertNotContains( "head\n", $values, 'the crawl head is sacrificed, not re-emitted' );
+		$this->assertContains( "next\n", $values, 'the Tail advances past the sacrificed head' );
+	}
+
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$t = new Tail_Node();
 		$t->arguments( "{$this->tmp}/data.log {$this->tmp}/off" );
