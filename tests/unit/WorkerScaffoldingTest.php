@@ -110,6 +110,36 @@ class WorkerScaffoldingTest extends TestCase {
 		$partition->flush();
 	}
 
+	public function test_clean_shutdown_graceful_checkpoints_registry_work_consumers(): void {
+		// A clean recycle must hand off the worker's durable work consumers (registered
+		// in Core, unlike the anonymous IPC consumer) at attempts=0, so a respawn
+		// resumes at the virgin baseline (1) instead of climbing toward a false poison
+		// strike. Only a hard crash — which never runs this shutdown path — leaves a
+		// non-graceful frame and lets attempts climb.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$msg                            = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$msg[ \Newspack_Nodes\Message::VALUE ] = 'hello';
+		$source->fill( $msg );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->name( 'firehose:consumer' ); // registers in Core::$nodes_by_name.
+		$c->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$this->pump_consumer( $c ); // advances → healthy attempts=1.
+
+		$w = new Worker_Base( $this->tmp, 'firehose', 0 );
+		$w->checkpoint_durable_consumers(); // clean-shutdown handoff.
+
+		$paths = \glob( "{$this->tmp}/offsets.p0/*.log" );
+		\usort( $paths, static fn ( $x, $y ): int => (int) \basename( $x, '.log' ) <=> (int) \basename( $y, '.log' ) );
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
+		$entry = \Newspack_Nodes\Message::unpacked( (string) \end( $lines ) )[ \Newspack_Nodes\Message::VALUE ];
+		$this->assertSame( 0, $entry['attempts'], 'a clean shutdown hands off work consumers at attempts=0' );
+	}
+
 	public function test_checkpoint_ipc_input_persists_consumed_offset(): void {
 		// A clean recycle checkpoints the IPC input: a command consumed before
 		// shutdown is NOT replayed on respawn, while one that arrived during the

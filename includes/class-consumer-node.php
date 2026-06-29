@@ -57,6 +57,40 @@ class Consumer_Node extends Timer_Node {
 	protected int $checkpoint_seg = -1;
 	protected int $checkpoint_off = -1;
 
+	/**
+	 * Times the message at the boot cursor has been attempted without advancing past
+	 * it (dead-letter [42]). 1 = healthy baseline (a running checkpoint); 0 = a
+	 * graceful-shutdown handoff at a genuinely un-attempted cursor. A respawn reads
+	 * the frame's value and resumes at attempts+1, so a stuck/poison cursor climbs.
+	 */
+	protected int $attempts = 1;
+
+	/**
+	 * The cursor this process booted on (seeded by load_offsetlog). Advancing past it
+	 * is "forward progress" — the poison region is behind us, so attempts resets to the
+	 * healthy baseline. Also the fair-shot proxy for cooperative-stop strikes ([42]).
+	 */
+	protected int $boot_cursor_seg = 0;
+	protected int $boot_cursor_off = 0;
+
+	/**
+	 * Why the prior process stopped at this cursor — '' = none / hard crash (the
+	 * signature that drives crawl-mode isolation), else a cooperative-stop reason
+	 * (`timeout`/`memory`, stamped at shutdown). A respawn reads it to classify.
+	 */
+	protected string $poison_reason = '';
+
+	/**
+	 * Wall-clock of the first crash in the current stuck streak (null when healthy),
+	 * carried forward across respawns. Once it's older than STATE_WIPE_AFTER_S the
+	 * boot discards the snapshot cache — a state that keeps killing us, not a poison
+	 * message. Cleared on forward progress / graceful handoff.
+	 */
+	protected ?float $first_crash_ts = null;
+
+	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
+	public const STATE_WIPE_AFTER_S = 900;
+
 	protected string $source_dir = '';
 	/**
 	 * Raw token assigned by parse_schema_args() — the override normalizes it
@@ -232,17 +266,52 @@ class Consumer_Node extends Timer_Node {
 		$this->sink->fill( $reply );
 	}
 
-	public function checkpoint(): void {
+	/**
+	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
+	 *                       (the cursor sits at an un-attempted message), so a respawn
+	 *                       resumes at a virgin first attempt rather than counting a strike.
+	 */
+	public function checkpoint( bool $graceful = false ): void {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
-		// Always write the first checkpoint (even at 0:0) so an idle Consumer is still attributed.
+		// Advance-guard: skip a redundant same-cursor write (graceful is exempt — its
+		// attempts=0 is new content; boot frames bypass via write_checkpoint_frame).
 		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
 		if (
-			! $first_checkpoint
+			! $graceful
+			&& ! $first_checkpoint
 			&& $this->cursor_seg === $this->checkpoint_seg
 			&& $this->cursor_off === $this->checkpoint_off
 		) {
+			return;
+		}
+		// Forward progress past the boot cursor ends the crash streak: clear the strikes.
+		if ( ! $graceful && $this->cursor_advanced_since_boot() ) {
+			$this->attempts       = 1;
+			$this->first_crash_ts = null;
+			$this->poison_reason  = '';
+		}
+		$this->write_checkpoint_frame( $graceful, true );
+	}
+
+	/** True once the read cursor has moved past the cursor this process booted on. */
+	private function cursor_advanced_since_boot(): bool {
+		return $this->cursor_seg > $this->boot_cursor_seg
+			|| ( $this->cursor_seg === $this->boot_cursor_seg && $this->cursor_off > $this->boot_cursor_off );
+	}
+
+	/**
+	 * Commit one offsetlog frame at the current cursor — UNCONDITIONALLY (no
+	 * advance-guard; the boot sequence re-commits the same cursor on purpose).
+	 *
+	 * @param bool $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
+	 * @param bool $with_state Co-commit the snapshot node's save_state(). False for the
+	 *                         stateless boot frame written BEFORE restore — reading the
+	 *                         un-restored node there would clobber the good cache.
+	 */
+	private function write_checkpoint_frame( bool $graceful, bool $with_state ): void {
+		if ( null === $this->offsetlog ) {
 			return;
 		}
 		$message                       = Message::new_message();
@@ -250,21 +319,24 @@ class Consumer_Node extends Timer_Node {
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::FROM ]      = $this->name;
 		$value = [
-			'seg'         => $this->cursor_seg,
-			'off'         => $this->cursor_off,
-			'ts'          => Core::$now,
-			'name'        => $this->name,
-			'target'      => \is_string( $this->target ) ? $this->target : '',
-			'targets'     => $this->resolve_downstream_targets(),
-			'worker_type' => self::worker_type_env(),
+			'seg'            => $this->cursor_seg,
+			'off'            => $this->cursor_off,
+			'attempts'       => $graceful ? 0 : $this->attempts,
+			'reason'         => $graceful ? '' : $this->poison_reason,
+			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
+			'ts'             => Core::$now,
+			'name'           => $this->name,
+			'target'         => \is_string( $this->target ) ? $this->target : '',
+			'targets'        => $this->resolve_downstream_targets(),
+			'worker_type'    => self::worker_type_env(),
 			// Real source log basename. Two readers can tail the same log under
 			// distinct offset-dir names (firehose vs firehose.job-router); the
 			// dashboard labels by this, not the disambiguated offset dir.
-			'source_log'  => \basename( $this->source_dir ),
+			'source_log'     => \basename( $this->source_dir ),
 		];
 		// Co-commit the snapshot node's state with the offset, as ONE record, so a
 		// respawn restores the cache and resumes the cursor in lockstep.
-		if ( '' !== $this->snapshot_node ) {
+		if ( $with_state && '' !== $this->snapshot_node ) {
 			$node = Core::node( $this->snapshot_node );
 			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
 				$value['cache'] = $node->save_state();
@@ -547,6 +619,8 @@ class Consumer_Node extends Timer_Node {
 			$node = Core::node( $this->snapshot_node );
 			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
 				$node->restore_state( $this->loaded_cache );
+				// Restore survived: re-commit the cache statefully (the boot frame was stateless).
+				$this->write_checkpoint_frame( false, true );
 			} else {
 				$this->print_less_often( "WARNING: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
 			}
@@ -593,15 +667,34 @@ class Consumer_Node extends Timer_Node {
 		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
 			return;
 		}
-		$seg                  = $entry['seg'];
-		$off                  = $entry['off'];
-		$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
-		$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
-		$this->checkpoint_seg = $this->cursor_seg;
-		$this->checkpoint_off = $this->cursor_off;
+		$seg              = $entry['seg'];
+		$off              = $entry['off'];
+		$this->cursor_seg      = \is_numeric( $seg ) ? (int) $seg : 0;
+		$this->cursor_off      = \is_numeric( $off ) ? (int) $off : 0;
+		$this->boot_cursor_seg = $this->cursor_seg;
+		$this->boot_cursor_off = $this->cursor_off;
+		// Resume at attempts+1 — a clean handoff wrote 0 → 1 (virgin); a crash left ≥1 → climbs.
+		$prior          = $entry['attempts'] ?? 0;
+		$this->attempts = ( \is_numeric( $prior ) ? (int) $prior : 0 ) + 1;
+		// Recovering: stamp when the streak began, carrying an existing mark forward.
+		if ( $this->attempts > 1 ) {
+			$prior_ts             = $entry['first_crash_ts'] ?? null;
+			$this->first_crash_ts = \is_numeric( $prior_ts ) ? (float) $prior_ts : Core::$now;
+		}
 		// Offset + cache come from ONE record, so the resumed cursor and the
 		// restored state are always aligned.
 		$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
+		// Crash streak past the wipe window: discard the corrupt resumable state (no message-skip can fix it).
+		if (
+			null !== $this->loaded_cache
+			&& null !== $this->first_crash_ts
+			&& ( Core::$now - $this->first_crash_ts ) > self::STATE_WIPE_AFTER_S
+		) {
+			$this->print_less_often( 'WARNING: snapshot cache exceeded ' . self::STATE_WIPE_AFTER_S . 's crash streak; discarding (suspected corrupt state, not a poison message)' );
+			$this->loaded_cache = null;
+		}
+		// Stateless boot frame BEFORE restore: a restore crash still advances the durable counter.
+		$this->write_checkpoint_frame( false, false );
 	}
 
 	/**

@@ -80,8 +80,9 @@ class Worker_Base {
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
-				// Persist the IPC-input cursor before teardown so a clean recycle doesn't replay consumed commands.
-				$this->checkpoint_ipc_input();
+				// Graceful handoff of every durable cursor before teardown: a clean recycle
+				// doesn't replay consumed commands AND doesn't count as a crash (attempts=0).
+				$this->checkpoint_durable_consumers();
 				// Tear down nodes first so Partitions release their locks before the next spawn.
 				Core::cleanup_all_nodes();
 				$this->release();
@@ -105,7 +106,7 @@ class Worker_Base {
 		} finally {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
-				$this->checkpoint_ipc_input();
+				$this->checkpoint_durable_consumers();
 				Core::cleanup_all_nodes();
 				$this->release();
 				$this->self_respawn( $spawn_url, $token );
@@ -137,12 +138,29 @@ class Worker_Base {
 	}
 
 	/**
+	 * Graceful clean-shutdown handoff for every durable consumer this process owns:
+	 * the registered work consumers (Core::$nodes_by_name) plus the anonymous IPC
+	 * consumer. A graceful checkpoint stamps attempts=0 at the current cursor, so the
+	 * respawn resumes at the virgin baseline rather than counting the clean recycle as
+	 * a crash (dead-letter [42]). Only a hard crash skips this path, so only crashes
+	 * climb the attempt counter.
+	 */
+	public function checkpoint_durable_consumers(): void {
+		foreach ( Core::$nodes_by_name as $node ) {
+			if ( $node instanceof Consumer_Node ) {
+				$node->checkpoint( true );
+			}
+		}
+		$this->checkpoint_ipc_input();
+	}
+
+	/**
 	 * Persist the IPC-input read cursor. Called at worker shutdown so a clean
 	 * recycle never replays already-consumed commands (the Consumer otherwise
 	 * only checkpoints on a periodic cadence; the final <1s would re-deliver).
 	 */
 	public function checkpoint_ipc_input(): void {
-		$this->ipc_input_consumer?->checkpoint();
+		$this->ipc_input_consumer?->checkpoint( true );
 	}
 
 	public function release(): void {
