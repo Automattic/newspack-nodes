@@ -546,6 +546,19 @@ class ConsumerTest extends TestCase {
 		return Message::unpacked( (string) \end( $lines ) )[ Message::VALUE ];
 	}
 
+	/**
+	 * Write a single offsetlog keyframe with a chosen cursor + attempt state, to
+	 * simulate the durable frame a respawning worker boots on (crash-simulation).
+	 */
+	private function seed_offsetlog_frame( string $dir, int $seg, int $off, int $attempts, string $reason = '' ): void {
+		\mkdir( $dir, 0755, true );
+		$m                       = Message::new_message();
+		$m[ Message::TYPE ]      = Message::TM_STRUCT;
+		$m[ Message::FROM ]      = 'seed';
+		$m[ Message::VALUE ]     = [ 'seg' => $seg, 'off' => $off, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
+		\file_put_contents( "{$dir}/0.log", Message::packed( $m ) . "\n" );
+	}
+
 	public function test_checkpoint_resets_attempts_to_baseline_on_forward_progress(): void {
 		// Once a recovering worker advances PAST the cursor it booted on, the poison
 		// region is behind it — its next interval checkpoint resets to the healthy
@@ -843,6 +856,108 @@ class ConsumerTest extends TestCase {
 		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
 		$entry = Message::unpacked( (string) \end( $lines ) );
 		$this->assertSame( 'this is not a packed message', $entry[ Message::VALUE ], 'the raw bytes are preserved for inspection' );
+	}
+
+	public function test_hard_crash_crawl_dead_letters_the_head_on_entry(): void {
+		// After CRASH_MAX_ATTEMPTS hard-crash respawns at one cursor (attempts climbed
+		// with NO reason = an uncatchable death, not a caught throw), the worker enters
+		// crawl mode: it sacrifices the head (the in-flight-at-crash suspect) to the
+		// DLQ, skips it, and advances — guaranteeing progress past a poison that kills
+		// the process before any catch can run. One accepted false-positive.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'head' );
+		$this->produce_line( $source, 'next' );
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'the crawl head is dead-lettered' );
+		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
+		$this->assertNotContains( 'head', $values, 'the sacrificed head is not forwarded' );
+		$this->assertContains( 'next', $values, 'the worker advances past the head' );
+	}
+
+	public function test_crawl_checkpoints_each_message_to_pin_the_in_flight_offset(): void {
+		// In crawl the cursor is checkpointed per message during polling (not batched,
+		// not on the 30s interval) so an uncatchable crash pins the EXACT in-flight
+		// offset — the next boot dead-letters precisely that message. A batched single
+		// checkpoint couldn't isolate which message in the batch killed the process.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		foreach ( [ 'head', 'A', 'B', 'C' ] as $v ) {
+			$this->produce_line( $source, $v );
+		}
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+		$this->pump_consumer( $c );
+
+		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
+		$this->assertSame( [ 'A', 'B', 'C' ], $values, 'head sacrificed; the rest forwarded one at a time' );
+		// Boot frame + one checkpoint per crawled message — far more than the ≤2 a
+		// batched/interval checkpoint would leave.
+		$this->assertGreaterThanOrEqual( 4, $this->count_offsetlog_records( "{$this->tmp}/offsets.p0" ), 'crawl checkpoints per message' );
+		$this->assertSame( Consumer_Node::CRASH_MAX_ATTEMPTS, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'], 'attempts stays pinned at the threshold during crawl' );
+	}
+
+	public function test_crawl_exits_to_healthy_after_surviving_an_interval(): void {
+		// Surviving a full checkpoint interval in crawl without an uncatchable crash
+		// means the poison is behind us: drop back to coarse mode at the healthy
+		// baseline (attempts=1), so we don't pay per-message I/O forever.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'head' );
+		$this->produce_line( $source, 'A' );
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		Core::$now = 1000.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c ); // crawls head-skip + A within the interval; still crawling.
+		$this->assertSame( Consumer_Node::CRASH_MAX_ATTEMPTS, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
+
+		// A full interval elapses without a crash, then more data arrives.
+		Core::$now = 1000.0 + Consumer_Node::CHECKPOINT_INTERVAL_S + 1.0;
+		$this->produce_line( $source, 'B' );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 1, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'], 'crawl exits to the healthy baseline after surviving an interval' );
+	}
+
+	public function test_crawl_does_not_exit_while_the_head_is_unsacrificed(): void {
+		// If the boot head never completes (a partial line, no terminating newline)
+		// within the interval, crawl must NOT exit on the wall clock — exiting would
+		// re-arm the loop by leaving the poison head un-sacrificed for the next boot.
+		\mkdir( "{$this->tmp}/data.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/data.p0/0.log", 'partial-head-without-newline' ); // no \n → never drains.
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		Core::$now = 1000.0;
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c ); // head is partial → not drained → not sacrificed.
+
+		Core::$now = 1000.0 + Consumer_Node::CHECKPOINT_INTERVAL_S + 1.0;
+		$this->pump_consumer( $c ); // interval elapsed, but the head is still pending.
+
+		$this->assertSame( Consumer_Node::CRASH_MAX_ATTEMPTS, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'], 'crawl must not exit while the head is unsacrificed' );
 	}
 
 	public function test_fire_checkpoints_at_most_once_per_30s(): void {

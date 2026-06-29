@@ -91,6 +91,23 @@ class Consumer_Node extends Timer_Node {
 	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
 	public const STATE_WIPE_AFTER_S = 900;
 
+	/**
+	 * Hard-crash threshold: after this many respawns at one cursor with NO reason
+	 * stamped (an uncatchable death — OOM/fatal/SIGKILL — not a caught throw), the
+	 * worker enters crawl mode to isolate the poison one message at a time.
+	 */
+	public const CRASH_MAX_ATTEMPTS = 5;
+
+	/**
+	 * Hard-crash crawl ([42]): per-message checkpointing to pin the exact in-flight
+	 * offset across an uncatchable crash. $crawl is the mode; $crawl_skip_head is the
+	 * one-shot "DLQ the boot-cursor head" the worker booted into (the crash suspect).
+	 */
+	protected bool $crawl           = false;
+	protected bool $crawl_skip_head = false;
+	/** Wall-clock this process entered crawl; surviving CHECKPOINT_INTERVAL_S past it exits crawl. */
+	protected float $crawl_started  = 0.0;
+
 	protected string $source_dir = '';
 	/**
 	 * Raw token assigned by parse_schema_args() — the override normalizes it
@@ -315,7 +332,8 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 		// Forward progress past the boot cursor ends the crash streak: clear the strikes.
-		if ( ! $graceful && $this->cursor_advanced_since_boot() ) {
+		// Not in crawl — attempts stays pinned at the threshold until we exit crawl.
+		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
 			$this->attempts       = 1;
 			$this->first_crash_ts = null;
 			$this->poison_reason  = '';
@@ -702,8 +720,19 @@ class Consumer_Node extends Timer_Node {
 		$this->boot_cursor_seg = $this->cursor_seg;
 		$this->boot_cursor_off = $this->cursor_off;
 		// Resume at attempts+1 — a clean handoff wrote 0 → 1 (virgin); a crash left ≥1 → climbs.
-		$prior          = $entry['attempts'] ?? 0;
-		$this->attempts = ( \is_numeric( $prior ) ? (int) $prior : 0 ) + 1;
+		$prior            = $entry['attempts'] ?? 0;
+		$prior_attempts   = \is_numeric( $prior ) ? (int) $prior : 0;
+		$reason           = Core::as_string( $entry['reason'] ?? '' );
+		$this->attempts   = $prior_attempts + 1;
+		// Hard-crash lineage (no reason stamped) that has exhausted the coarse budget:
+		// enter crawl mode and sacrifice the boot-cursor head — the message in flight
+		// when the last process died uncatchably. attempts pins at the threshold.
+		if ( '' === $reason && $this->attempts >= self::CRASH_MAX_ATTEMPTS ) {
+			$this->attempts        = self::CRASH_MAX_ATTEMPTS;
+			$this->crawl           = true;
+			$this->crawl_skip_head = true;
+			$this->crawl_started   = Core::$now;
+		}
 		// Recovering: stamp when the streak began, carrying an existing mark forward.
 		if ( $this->attempts > 1 ) {
 			$prior_ts             = $entry['first_crash_ts'] ?? null;
@@ -802,6 +831,26 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected function poll_active(): void {
 		$drained = $this->drain_buffer();
+		if ( $this->crawl ) {
+			// Don't exit until the head has actually been sacrificed — if it's a partial
+			// line that never completed within the interval, exiting now would re-arm the
+			// crash loop (next boot forwards the un-sacrificed poison head normally).
+			if ( ! $this->crawl_skip_head && ( Core::$now - $this->crawl_started ) >= self::CHECKPOINT_INTERVAL_S ) {
+				// Survived a full interval crawling without an uncatchable crash → the
+				// poison is behind us. Return to coarse mode at the healthy baseline,
+				// force-writing the reset even at an unchanged cursor (the guard would
+				// otherwise suppress it, leaving attempts pinned at the threshold).
+				$this->crawl          = false;
+				$this->attempts       = 1;
+				$this->first_crash_ts = null;
+				$this->poison_reason  = '';
+				$this->write_checkpoint_frame( false, true );
+			} elseif ( $drained > 0 ) {
+				// Per-message checkpoint (drain_buffer caps crawl at one line) so an
+				// uncatchable crash pins the exact in-flight offset.
+				$this->checkpoint();
+			}
+		}
 		if ( ! $this->line_mode || 0 === $drained ) {
 			$this->get_batch();
 		}
@@ -821,7 +870,8 @@ class Consumer_Node extends Timer_Node {
 	 * lines too, so a single bad record can't wedge the stream.
 	 */
 	private function drain_buffer(): int {
-		$max     = $this->line_mode ? 1 : \PHP_INT_MAX;
+		// Crawl forces one line per drain (like line_mode) so poll_active can checkpoint per message.
+		$max     = ( $this->line_mode || $this->crawl ) ? 1 : \PHP_INT_MAX;
 		$emitted = 0;
 		$pos     = 0;
 		while ( $emitted < $max ) {
@@ -829,7 +879,16 @@ class Consumer_Node extends Timer_Node {
 			if ( false === $nl ) {
 				break;
 			}
-			$this->forward_line( \substr( $this->buffer, $pos, $nl - $pos ), $this->cursor_off + $pos );
+			$line = \substr( $this->buffer, $pos, $nl - $pos );
+			if ( $this->crawl_skip_head ) {
+				// Crawl entry: sacrifice the boot-cursor head (the crash suspect) — one-shot.
+				// Lives here, not forward_line, so the Tail subclass (which overrides
+				// forward_line) inherits it.
+				$this->crawl_skip_head = false;
+				$this->dead_letter( $this->poison_from_line( $line, $this->cursor_off + $pos ), 'crash' );
+			} else {
+				$this->forward_line( $line, $this->cursor_off + $pos );
+			}
 			$pos = $nl + 1; // past the consumed \n.
 			++$emitted;
 		}
@@ -862,12 +921,8 @@ class Consumer_Node extends Timer_Node {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			// Won't unpack → never will: quarantine the raw bytes (no retry) for inspection; the cursor still advances.
-			$poison                   = Message::new_message();
-			$poison[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-			$poison[ Message::ID ]    = "{$this->cursor_seg}:{$abs_offset}";
-			$poison[ Message::VALUE ] = $line;
-			$this->dead_letter( $poison, 'unparseable', $e );
+			// Won't unpack → never will: quarantine (no retry) for inspection; the cursor still advances.
+			$this->dead_letter( $this->poison_from_line( $line, $abs_offset ), 'unparseable', $e );
 			return;
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
@@ -887,6 +942,25 @@ class Consumer_Node extends Timer_Node {
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
 		}
+	}
+
+	/**
+	 * Build the Message to quarantine from a raw source line: the real unpacked
+	 * message when it parses (so `wp nodes ingest` can replay it), else the raw bytes
+	 * wrapped in a TM_BYTESTREAM for inspection. Stamps the source seg:off breadcrumb.
+	 *
+	 * @return array<int, mixed>
+	 */
+	private function poison_from_line( string $line, int $abs_offset ): array {
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::VALUE ] = $line;
+		}
+		$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
+		return $message;
 	}
 
 	/**
