@@ -11,6 +11,7 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Probe_Record;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -43,6 +44,26 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/data.p2",      $ref->getProperty( 'source_dir' )->getValue( $c ) );
 		$this->assertSame( "{$this->tmp}/offsets.p2", $ref->getProperty( 'offsetlog_dir' )->getValue( $c ) );
 		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'offsetlog' )->getValue( $c ) );
+	}
+
+	public function test_arguments_builds_deadletter_sibling_when_dir_given(): void {
+		// A third positional arg names the quarantine dir for poison messages
+		// (dead-letter [42]); the Consumer auto-builds a `:deadletter` sibling
+		// Partition there, the same way it builds `:offsetlog`.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$ref = new \ReflectionClass( $c );
+		$this->assertSame( "{$this->tmp}/deadletter.p0", $ref->getProperty( 'deadletter_dir' )->getValue( $c ) );
+		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'deadletter' )->getValue( $c ) );
+	}
+
+	public function test_empty_deadletter_dir_skips_the_sibling(): void {
+		// No deadletter dir → no quarantine sibling; poison is logged and dropped.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$ref = new \ReflectionClass( $c );
+		$this->assertNull( $ref->getProperty( 'deadletter' )->getValue( $c ) );
+		$this->assertSame( '', $ref->getProperty( 'deadletter_dir' )->getValue( $c ) );
 	}
 
 	public function test_sidecar_partitions_have_no_config_interpreter(): void {
@@ -658,6 +679,146 @@ class ConsumerTest extends TestCase {
 		$b->checkpoint();
 
 		$this->assertNull( $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['first_crash_ts'], 'forward progress must clear the crash-streak timestamp' );
+	}
+
+	public function test_downstream_throw_quarantines_message_and_advances(): void {
+		// A downstream node throwing on a message is poison: the Consumer catches it,
+		// writes the (replayable) original message to its :deadletter sibling, and
+		// advances past it — so one bad message can't wedge the partition, and it's
+		// recoverable via `wp nodes ingest` rather than silently dropped.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'poison' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new class() extends Node {
+			public function fill( array &$message ): void {
+				throw new \RuntimeException( 'handler boom' );
+			}
+		} );
+		$this->pump_consumer( $c );
+
+		// Exactly one quarantined entry proves BOTH the catch AND the advance: had the
+		// cursor not moved, drain would re-forward the poison every poll and pile up.
+		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ) );
+	}
+
+	public function test_downstream_worker_should_stop_propagates_not_quarantined(): void {
+		// A cooperative stop raised downstream (pump() inside a long handler) is control
+		// flow, not poison: it must escape forward_line so the worker shuts down, and the
+		// in-flight message must NOT be quarantined.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'msg' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new class() extends Node {
+			public function fill( array &$message ): void {
+				throw new \Newspack_Nodes\Worker_Should_Stop();
+			}
+		} );
+
+		try {
+			$this->pump_consumer( $c );
+			$this->fail( 'expected Worker_Should_Stop to propagate out of forward_line' );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$this->assertSame( 0, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'a cooperative stop must not be quarantined' );
+	}
+
+	public function test_quarantined_entry_is_the_replayable_original_message(): void {
+		// `wp nodes ingest` replays each DLQ line via Message::unpacked → fill(), so the
+		// quarantined entry must be the original message recoverable verbatim — not a
+		// metadata wrapper. The diagnostic why rides the rate-limited alert instead.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'poison-payload' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new class() extends Node {
+			public function fill( array &$message ): void {
+				throw new \RuntimeException( 'boom' );
+			}
+		} );
+		$this->pump_consumer( $c );
+
+		$paths = \glob( "{$this->tmp}/deadletter.p0/*.log" );
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( (string) \end( $paths ) ) ) ) );
+		$replayed = Message::unpacked( (string) \end( $lines ) );
+		$this->assertSame( 'poison-payload', $replayed[ Message::VALUE ] );
+		$this->assertSame( Message::TM_BYTESTREAM, (int) $replayed[ Message::TYPE ] );
+	}
+
+	public function test_throw_propagates_through_interpreter_and_router_to_deadletter(): void {
+		// The real worker sink chain is Consumer → _command_interpreter → _router →
+		// processor. A processor throw must traverse that chain UN-swallowed back to
+		// forward_line so the message is quarantined: the data path has no catch (only
+		// the interpreter's COMMAND path does), which is what lets job-handler throws
+		// reach the cursor owner.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
+		$router = new Router_Node();
+		$router->name( Node_Names::ROUTER );
+		$interpreter->sink( $router );
+
+		$boom = new class() extends Node {
+			public function fill( array &$message ): void {
+				throw new \RuntimeException( 'downstream boom' );
+			}
+		};
+		$boom->name( 'processor' );
+
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'poison' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$c->sink( $interpreter );
+		$c->target( 'processor' );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ) );
+	}
+
+	public function test_deadletter_write_failure_does_not_wedge_the_partition(): void {
+		// If quarantine itself fails (disk full / I/O), the poison must still be
+		// dropped and the cursor advanced — a failed DLQ write must NOT re-wedge the
+		// partition, which would loop forever: re-read poison → sink throws →
+		// dead_letter's write throws → escapes forward_line uncaught → never advances.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'poison' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new class() extends Node {
+			public function fill( array &$message ): void {
+				throw new \RuntimeException( 'handler boom' );
+			}
+		} );
+
+		// Swap the DLQ sibling for one whose write itself fails.
+		$ref  = new \ReflectionProperty( Consumer_Node::class, 'deadletter' );
+		$ref->setValue( $c, new class() extends Partition_Node {
+			public function fill( array &$message ): void {
+				throw new \RuntimeException( 'disk full' );
+			}
+		} );
+
+		// Must complete without the DLQ-write failure escaping (no infinite wedge).
+		$this->pump_consumer( $c );
+		$this->addToAssertionCount( 1 );
 	}
 
 	public function test_fire_checkpoints_at_most_once_per_30s(): void {
@@ -2317,11 +2478,11 @@ class ConsumerTest extends TestCase {
 			'Consumer exposes the snapshot-cache + line-mode config verbs plus the time-travel transport (STEP is a mutating command, not a request)'
 		);
 
-		// Two ctor params: source_dir (required), offsetlog_dir (default '').
-		$this->assertCount( 2, $schema['arguments'] );
+		// Three ctor params: source_dir (required), offsetlog_dir + deadletter_dir (default '').
+		$this->assertCount( 3, $schema['arguments'] );
 		$names = \array_column( $schema['arguments'], 'name' );
 		$this->assertSame(
-			[ 'source_dir', 'offsetlog_dir' ],
+			[ 'source_dir', 'offsetlog_dir', 'deadletter_dir' ],
 			$names
 		);
 

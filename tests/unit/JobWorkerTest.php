@@ -65,6 +65,9 @@ class JobWorkerTest extends TestCase {
 	}
 
 	public function test_after_job_action_fires_even_when_handler_throws(): void {
+		// after_job runs in a finally, so it fires even though the handler throw now
+		// propagates (for the Consumer to quarantine) — an app logger suspended in
+		// before_job is always resumed.
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'boom', function () { throw new \RuntimeException( 'x' ); } );
 
@@ -72,10 +75,31 @@ class JobWorkerTest extends TestCase {
 		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
 
 		$message = $this->job_message( 'boom' );
-		$jw->fill( $message ); // swallowed
+		try {
+			$jw->fill( $message );
+			$this->fail( 'expected the handler throw to propagate' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'x', $e->getMessage() );
+		}
 
-		$this->assertSame( 1, $after );
-		$this->assertSame( 1, $this->jobs_executed( $jw ) );
+		$this->assertSame( 1, $after, 'after_job fires before the throw propagates' );
+	}
+
+	public function test_after_job_listener_throw_does_not_poison_a_successful_job(): void {
+		// after_job is an app cleanup extension point. A listener throwing there must
+		// NOT masquerade as handler poison — otherwise a job that already SUCCEEDED is
+		// quarantined and double-executed on replay. Swallow it, symmetric with
+		// before_job; the successful job is still counted.
+		$jw  = new Job_Worker_Node();
+		$ran = false;
+		$this->register_job_handler( $jw, 'ok', function () use ( &$ran ) { $ran = true; } );
+		add_action( 'newspack_nodes/job_worker/after_job', function () { throw new \RuntimeException( 'cleanup boom' ); } );
+
+		$message = $this->job_message( 'ok' );
+		$jw->fill( $message ); // must NOT throw — the handler succeeded.
+
+		$this->assertTrue( $ran );
+		$this->assertSame( 1, $this->jobs_executed( $jw ), 'a successful job is counted even if after_job throws' );
 	}
 
 	public function test_after_job_fires_and_worker_survives_when_before_job_listener_throws(): void {
@@ -129,13 +153,23 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 0, $this->jobs_executed( $jw ) );
 	}
 
-	public function test_handler_exception_caught_and_logged(): void {
+	public function test_handler_throw_propagates_out_of_fill_for_quarantine(): void {
+		// A throwing job handler is poison: fill() no longer swallows it — the
+		// exception propagates so the driving Consumer quarantines the job to its
+		// deadletter sibling (a job entry is TM_STRUCT data, so it flows un-caught
+		// back through router + interpreter to the Consumer's forward_line). The job
+		// is NOT counted as executed — the handler did not complete.
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'boom', function () { throw new \RuntimeException( 'x' ); } );
 
 		$message = $this->job_message( 'boom' );
-		$jw->fill( $message );
-		$this->assertSame( 1, $this->jobs_executed( $jw ) );
+		try {
+			$jw->fill( $message );
+			$this->fail( 'expected the handler throw to propagate out of fill()' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'x', $e->getMessage() );
+		}
+		$this->assertSame( 0, $this->jobs_executed( $jw ) );
 	}
 
 	// --- Constructor params + getters ---------------------------------------

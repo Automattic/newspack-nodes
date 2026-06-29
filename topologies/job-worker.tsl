@@ -7,7 +7,9 @@
 # in-flight jobs aren't killed mid-execution.
 var stale_timeout = 600;
 
-make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/jobs.job-worker.p<partition>
+# A throwing job handler propagates back to the Consumer, which quarantines the
+# job to its :deadletter sibling (dead-letter [42]) instead of silently dropping it.
+make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/jobs.job-worker.p<partition> <config:deadletter_dir>/jobs.job-worker.p<partition>
 cmd jobs:consumer:config set_line_mode
 make_node Job_Worker job-worker
 connect_node jobs:consumer job-worker

@@ -66,6 +66,18 @@ class TopologyRegistryConflictsTest extends TestCase {
 		$this->assertContains( 'offsetlog:<config:offsets_dir>/firehose.p<partition>', $conflicts[0]['shared'] );
 	}
 
+	public function test_conflict_when_two_consumers_share_a_deadletter_dir(): void {
+		// The :deadletter sibling is void_warranty'd (unlocked, sole-writer assumed),
+		// so two Consumers quarantining into the same dir corrupt the DLQ segments —
+		// same hazard as a shared offsetlog. Distinct offsetlogs, shared deadletter.
+		$this->write_tsl( 'reader-a', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.a.p<partition> <config:deadletter_dir>/firehose.p<partition>" );
+		$this->write_tsl( 'reader-b', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.b.p<partition> <config:deadletter_dir>/firehose.p<partition>" );
+
+		$conflicts = Topology_Registry::find_conflicts( [ 'reader-a', 'reader-b' ] );
+		$this->assertCount( 1, $conflicts );
+		$this->assertContains( 'deadletter:<config:deadletter_dir>/firehose.p<partition>', $conflicts[0]['shared'] );
+	}
+
 	public function test_topic_is_a_writer_in_the_write_set(): void {
 		// A Topic appends to the partitions under its path exactly like Partition,
 		// so it belongs in the write-set under the same `partition:` namespace —
