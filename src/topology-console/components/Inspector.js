@@ -279,16 +279,24 @@ function formatBytes( n ) {
 function ProcessStatsHeader( { nodes, rateSeries } ) {
 	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 		processStats( nodes );
-	const { in: inSpark = [], out: outSpark = [] } = rateSeries || {};
+	const {
+		in: inSpark = [],
+		out: outSpark = [],
+		read: readSpark = [],
+		write: writeSpark = [],
+	} = rateSeries || {};
+	// The current rate is the most recent sample of each trailing series.
+	const last = ( arr ) => ( arr.length ? arr[ arr.length - 1 ] : 0 );
 	const levels = useNodeState( reservedNames.DMESG, 'dmesg' ) || {
 		errors: 0,
 		warnings: 0,
 		debug: 0,
 	};
-	const cell = ( label, value, spark ) => (
+	const cell = ( label, value, rate, spark ) => (
 		<div className="topology-insp__stat">
 			<span className="topology-insp__stat-label">{ label }</span>
 			<span className="topology-insp__stat-val">{ value }</span>
+			<span className="topology-insp__stat-rate">{ rate }</span>
 			{ spark }
 		</div>
 	);
@@ -301,20 +309,34 @@ function ProcessStatsHeader( { nodes, rateSeries } ) {
 				{ cell(
 					__( 'Msgs in', 'newspack-nodes' ),
 					messagesIn.toLocaleString(),
+					formatRate( last( inSpark ) ),
 					<Sparkline values={ inSpark } width={ 84 } height={ 16 } />
 				) }
 				{ cell(
 					__( 'Msgs out', 'newspack-nodes' ),
 					messagesOut.toLocaleString(),
+					formatRate( last( outSpark ) ),
 					<Sparkline values={ outSpark } width={ 84 } height={ 16 } />
 				) }
 				{ cell(
 					__( 'Bytes read', 'newspack-nodes' ),
-					formatBytes( bytesRead )
+					formatBytes( bytesRead ),
+					formatByteRate( last( readSpark ) ),
+					<Sparkline
+						values={ readSpark }
+						width={ 84 }
+						height={ 16 }
+					/>
 				) }
 				{ cell(
 					__( 'Bytes written', 'newspack-nodes' ),
-					formatBytes( bytesWritten )
+					formatBytes( bytesWritten ),
+					formatByteRate( last( writeSpark ) ),
+					<Sparkline
+						values={ writeSpark }
+						width={ 84 }
+						height={ 16 }
+					/>
 				) }
 			</div>
 			<div className="topology-insp__levels">

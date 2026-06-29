@@ -69,6 +69,39 @@ describe( 'Inspector (view mode)', () => {
 		expect( stats ).toContain( '7' );
 	} );
 
+	it( 'shows the current msg + byte /s rates in the no-node process header [98]', () => {
+		const { getByTestId } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{
+							id: 'src',
+							count: 10,
+							bytesRead: 4096,
+							bytesWritten: 1024,
+							has_target: true,
+							accepts_fill: false,
+						},
+					],
+					edges: [],
+				} }
+				rateSeries={ {
+					in: [ 1, 5 ],
+					out: [ 0, 2 ],
+					read: [ 0, 2048 ],
+					write: [ 0, 512 ],
+				} }
+			/>
+		);
+		const stats = getByTestId( 'inspector-process-stats' ).textContent;
+		// Current rate = the last sample of each series, formatted /s.
+		expect( stats ).toContain( '5.0 /s' ); // msgs in
+		expect( stats ).toContain( '2.0 /s' ); // msgs out
+		expect( stats ).toContain( '2.0 K/s' ); // bytes read (2048 B/s)
+		expect( stats ).toContain( '512 B/s' ); // bytes written
+	} );
+
 	it( 'shows dmesg error/warning/debug counts + rate sparklines in the header', () => {
 		Core.reset();
 		// The console mounts a `_dmesg` poll node publishing the viewed process's

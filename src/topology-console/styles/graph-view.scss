@@ -1417,6 +1417,12 @@
 	color: var(--ink);
 }
 
+// Current per-second rate under the cumulative total [98].
+.topology-insp__stat-rate {
+	font: 400 10px var(--font-mono);
+	color: var(--ink-3);
+}
+
 .topology-insp__stat .nodes-spark {
 	margin-top: 3px;
 }
