@@ -211,9 +211,22 @@ class TailTest extends TestCase {
 	public function test_node_schema_arguments_and_terminal_shape(): void {
 		$schema = Tail_Node::node_schema();
 		$names  = \array_column( $schema['arguments'], 'name' );
-		$this->assertSame( [ 'source_file', 'offsetlog_dir' ], $names );
+		// Tail keeps its own source_file naming AND inherits the optional deadletter_dir
+		// so a Tail can quarantine poison (crawl head-sacrifice / cooperative-stop) too.
+		$this->assertSame( [ 'source_file', 'offsetlog_dir', 'deadletter_dir' ], $names );
 		// Pure producer: no IN port, has an OUT target. (Inherited from Consumer.)
 		$this->assertFalse( $schema['accepts_fill'] ?? true );
 		$this->assertTrue( $schema['has_target'] ?? false );
+	}
+
+	public function test_arguments_builds_deadletter_sibling_when_dir_given(): void {
+		// The third positional arg names the Tail's quarantine dir; it builds a
+		// `:deadletter` sibling Partition just like a Consumer, so a Tail's poison
+		// (hard-crash crawl / cooperative-stop strike) is recoverable, not silently dropped.
+		$t = new Tail_Node();
+		$t->arguments( "{$this->tmp}/data.log {$this->tmp}/off {$this->tmp}/deadletter" );
+		$ref = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
+		$this->assertSame( "{$this->tmp}/deadletter", $ref->getProperty( 'deadletter_dir' )->getValue( $t ) );
+		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, $ref->getProperty( 'deadletter' )->getValue( $t ) );
 	}
 }

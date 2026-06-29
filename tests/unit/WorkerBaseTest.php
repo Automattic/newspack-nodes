@@ -76,6 +76,68 @@ class WorkerBaseTest extends TestCase {
 		$this->assertStringContainsString( 'memory watermark', $buf );
 	}
 
+	public function test_should_continue_stamps_timeout_stop_reason(): void {
+		// A max_runtime stop is categorized 'timeout' so the shutdown path applies the
+		// cooperative-stop fair-shot rule (dead-letter [42]), not a blanket graceful handoff.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
+		$w->acquire();
+		$w->set_start_time_for_test( \microtime( true ) - 2.0 );
+		$this->assertFalse( $w->should_continue() );
+		$this->assertSame( 'timeout', $this->read_private( $w, 'stop_reason' ) );
+	}
+
+	public function test_should_continue_stamps_memory_stop_reason(): void {
+		$w = new WatermarkWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
+		$this->assertFalse( $w->should_continue() );
+		$this->assertSame( 'memory', $this->read_private( $w, 'stop_reason' ) );
+	}
+
+	public function test_operational_stop_leaves_stop_reason_empty(): void {
+		// Lock-lost / restart / db-fail are operational, NOT message poison — they must
+		// NOT stamp a cooperative reason, so the shutdown hands off cleanly (no strike).
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		$w->release(); // drop the lock so should_continue() takes the lock-lost branch.
+		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
+		$this->assertFalse( $w->should_continue() );
+		$this->assertSame( '', $this->read_private( $w, 'stop_reason' ) );
+	}
+
+	public function test_baseline_near_watermark_compares_baseline_to_the_limit(): void {
+		// The memory baseline guard: a fresh post-reset baseline already at/above half the
+		// limit is "near the watermark" (a leak / undersized limit), so a memory stop on it
+		// must NOT strike the in-flight message.
+		$w = new FixedLimitWorker( $this->tmp, 'test-worker', 0 );
+		$ref = new \ReflectionClass( Worker_Base::class );
+		$baseline = $ref->getProperty( 'baseline_memory' );
+		$method   = new \ReflectionMethod( Worker_Base::class, 'baseline_near_watermark' );
+
+		$baseline->setValue( $w, 600 ); // >= 1000 * 0.5
+		$this->assertTrue( $method->invoke( $w ) );
+
+		$baseline->setValue( $w, 100 ); // < 500
+		$this->assertFalse( $method->invoke( $w ) );
+	}
+
+	public function test_is_fatal_shutdown_detects_unrecoverable_error_types(): void {
+		// A catchable PHP fatal (OOM, E_ERROR) runs register_shutdown_function but bypasses
+		// the cooperative finally. is_fatal_shutdown() tells the shutdown handler to treat it
+		// as a crash (don't graceful-handoff) so the attempt counter climbs toward the crawl.
+		$w   = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$ref = new \ReflectionMethod( Worker_Base::class, 'is_fatal_shutdown' );
+
+		$w->test_last_error = null;
+		$this->assertFalse( $ref->invoke( $w ), 'a clean exit (no error) is not fatal' );
+
+		$w->test_last_error = [ 'type' => \E_WARNING, 'message' => 'x', 'file' => 'f', 'line' => 1 ];
+		$this->assertFalse( $ref->invoke( $w ), 'a non-fatal warning is not a fatal shutdown' );
+
+		$w->test_last_error = [ 'type' => \E_ERROR, 'message' => 'oom', 'file' => 'f', 'line' => 1 ];
+		$this->assertTrue( $ref->invoke( $w ), 'E_ERROR (e.g. OOM) is a fatal shutdown' );
+	}
+
 	public function test_should_continue_returns_false_when_lock_lost(): void {
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
@@ -309,11 +371,19 @@ class WorkerBaseTest extends TestCase {
 
 class TestableWorker extends Worker_Base {
 	public int $ipc_checkpoint_calls = 0;
+	/** Stub for error_get_last() so the fatal-shutdown branch is testable without a real fatal. */
+	public ?array $test_last_error = null;
 	public function set_start_time_for_test( float $t ): void {
 		$this->start_time = $t;
 	}
 	public function set_last_heartbeat_for_test( float $t ): void {
 		$this->last_heartbeat = $t;
+	}
+	public function set_stop_reason_for_test( string $reason ): void {
+		$this->stop_reason = $reason;
+	}
+	protected function last_error(): ?array {
+		return $this->test_last_error;
 	}
 	public function checkpoint_ipc_input(): void {
 		++$this->ipc_checkpoint_calls;
@@ -330,6 +400,12 @@ class UnlimitedMemoryWorker extends Worker_Base {
 class WatermarkWorker extends Worker_Base {
 	protected function memory_over_watermark(): bool {
 		return true;
+	}
+}
+
+class FixedLimitWorker extends Worker_Base {
+	protected function memory_limit_bytes(): int {
+		return 1000;
 	}
 }
 

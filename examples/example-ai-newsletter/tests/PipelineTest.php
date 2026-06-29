@@ -120,6 +120,7 @@ final class PipelineTest extends TestCase {
 		$consumer->name( 'scored:consumer' );
 		$consumer->arguments( "$offsets/src.log $offsets/example-scored.p0" );
 		$consumer->set_snapshot_node( 'digest' );
+		$consumer->poll(); // seed the cursor (poll_init) before checkpointing, as a live worker does.
 		$consumer->checkpoint();
 
 		$items = Insights_CI_Demo_Node::read_snapshot_items( $offsets );
