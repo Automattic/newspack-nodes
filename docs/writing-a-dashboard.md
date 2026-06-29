@@ -411,7 +411,7 @@ Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=coun
 
 ### d. The thin view node
 
-Each view node is a `SliceViewNode` subclass that parses *its own* slice reply and publishes it. The base is small, `src/dashboard/nodes/slice-view-node.js`:
+Each view node is a `SliceViewNode` subclass that parses *its own* slice reply and publishes it. The base ships in the substrate — `@newspack-nodes/shared/nodes/slice-view-node` (shown here so you know the contract; it was a per-dashboard copy until it became a shared primitive):
 
 ```js
 import { Node, TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
@@ -452,7 +452,7 @@ export class SliceViewNode extends Node {
 Each subclass supplies **only** its empty slice — that is the whole subclass, `src/dashboard/nodes/source-counts-view-node.js`:
 
 ```js
-import { SliceViewNode } from './slice-view-node';
+import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
 
 // `source-counts:view` — owns the per-source counts slice ({ sources:{name:count} }).
 export class SourceCountsViewNode extends SliceViewNode {

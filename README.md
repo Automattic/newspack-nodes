@@ -73,4 +73,4 @@ GPL-2.0-or-later
 
 ## Status
 
-v0.18.x. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime; the substrate's API is stabilizing toward 1.0 but still pre-1.0 — expect schema-field renames and incremental contract tightening. See [CHANGELOG.md](CHANGELOG.md) for the per-version history.
+v0.24.x. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime; the substrate's API is stabilizing toward 1.0 but still pre-1.0 — expect schema-field renames and incremental contract tightening. See [CHANGELOG.md](CHANGELOG.md) for the per-version history.
