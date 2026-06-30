@@ -66,7 +66,7 @@ class Message {
 	public static function new_message(): array {
 		return [
 			self::TYPE      => 0,
-			self::TIMESTAMP => \microtime( true ),
+			self::TIMESTAMP => Core::$now ?: \microtime( true ), // cached per-tick clock (no syscall per message); microtime() fallback when minted outside the drain loop.
 			self::FROM      => '',
 			self::TO        => '',
 			self::ID        => '',

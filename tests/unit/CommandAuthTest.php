@@ -36,12 +36,12 @@ class CommandAuthTest extends TestCase {
 
 	public function test_sign_injects_auth_envelope_and_preserves_command(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$v = $m[ Message::VALUE ];
 		$this->assertSame( 'make_node', $v['name'] );
 		$this->assertSame( 'Tee t', $v['arguments'] );
 		$this->assertIsArray( $v['auth'] );
-		$this->assertSame( 1000, $v['auth']['ts'] );
 		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}$/', $v['auth']['nonce'] );
 		$this->assertIsString( $v['auth']['sig'] );
 		$this->assertNotSame( '', $v['auth']['sig'] );
@@ -49,7 +49,8 @@ class CommandAuthTest extends TestCase {
 
 	public function test_verify_accepts_freshly_signed_command(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
 	}
 
@@ -59,7 +60,8 @@ class CommandAuthTest extends TestCase {
 		// worker's boot topology fails HMAC and refuses to load.
 		$m                  = $this->command();
 		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$this->assertIsArray( $m[ Message::VALUE ]['auth'] );
 		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
 	}
@@ -69,41 +71,47 @@ class CommandAuthTest extends TestCase {
 		// signed — only inbound commands are.
 		$m                  = $this->command();
 		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
 	}
 
 	public function test_verify_rejects_tampered_name(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$m[ Message::VALUE ]['name'] = 'remove_node';
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
 	public function test_verify_rejects_tampered_arguments(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$m[ Message::VALUE ]['arguments'] = 'Tee evil';
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
 	public function test_verify_rejects_signature_too_old(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		// 21s later — past the 20s acceptance window.
 		$this->assertFalse( Command_Auth::verify( $m, 1021 ) );
 	}
 
 	public function test_verify_accepts_within_past_window(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		// 19s later — still inside the 20s window.
 		$this->assertTrue( Command_Auth::verify( $m, 1019 ) );
 	}
 
 	public function test_verify_rejects_future_signature_beyond_skew(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		// Verifier clock 11s behind the signer — beyond the 10s skew tolerance.
 		$this->assertFalse( Command_Auth::verify( $m, 989 ) );
 	}
@@ -119,7 +127,8 @@ class CommandAuthTest extends TestCase {
 			return true;
 		};
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$this->assertTrue( Command_Auth::verify( $m, 1000 ), 'first use accepted' );
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ), 'replay rejected' );
 	}
@@ -144,14 +153,16 @@ class CommandAuthTest extends TestCase {
 			$captured .= $t;
 		} );
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 		$this->assertStringContainsString( 'memcache', \strtolower( $captured ) );
 	}
 
 	public function test_verifier_closure_verifies_with_real_clock(): void {
 		$m = $this->command();
-		Command_Auth::sign( $m ); // real time()
+		$m[ Message::TIMESTAMP ] = \time(); // real clock: verify() compares against time() with no $now pin
+		Command_Auth::sign( $m );
 		$verify = Command_Auth::verifier();
 		$this->assertTrue( $verify( $m ) );
 	}
@@ -188,7 +199,8 @@ class CommandAuthTest extends TestCase {
 	public function test_verify_rejects_tampered_type(): void {
 		// TYPE is part of the canonical, so re-typing a signed command breaks it.
 		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_STRUCT;
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
@@ -197,7 +209,8 @@ class CommandAuthTest extends TestCase {
 		// Invalid UTF-8 makes wp_json_encode return false; signing must fail closed
 		// (no auth) rather than collapse onto an HMAC('') collision.
 		$m = $this->command( 'make_node', "\xB1\x31" );
-		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}

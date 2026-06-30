@@ -57,20 +57,21 @@ class Command_Auth {
 	 * the verifier's.
 	 *
 	 * @param array<int,mixed> $message Message (mutated in place).
-	 * @param int|null         $now     Signing time; defaults to time().
 	 */
-	public static function sign( array &$message, ?int $now = null ): void {
-		$type  = $message[ Message::TYPE ]  ?? 0;
-		$value = $message[ Message::VALUE ] ?? null;
+	public static function sign( array &$message ): void {
+		$type  = $message[ Message::TYPE ]      ?? null;
+		$ts    = $message[ Message::TIMESTAMP ] ?? null;
+		$value = $message[ Message::VALUE ]     ?? null;
 		if ( ! \is_integer( $type )
 				|| ! ( $type & Message::TM_COMMAND )
 				|| ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
+			    || ! \is_numeric( $ts )
 				|| ! \is_array( $value ) ) {
 			return;
 		}
-		$ts    = $now ?? \time();
+		$ts    = (int) $ts; // TIMESTAMP is float seconds; sign at second granularity (matches the freshness window).
 		$nonce = \bin2hex( \random_bytes( 16 ) );
-		$canon = self::canonical( $type, $value, $ts, $nonce );
+		$canon = self::canonical( $type, $ts, $value, $nonce );
 		if ( null === $canon ) {
 			// Un-encodable arguments: leave the command unsigned so the verifier
 			// refuses it, rather than signing a collision-prone empty canonical.
@@ -78,7 +79,6 @@ class Command_Auth {
 			return;
 		}
 		$value['auth'] = [
-			'ts'    => $ts,
 			'nonce' => $nonce,
 			'sig'   => \hash_hmac( 'sha256', $canon, self::secret() ),
 		];
@@ -93,15 +93,15 @@ class Command_Auth {
 	 *
 	 * @param array<array-key, mixed> $value Command struct (name/arguments).
 	 */
-	private static function canonical( int $type, array $value, int $ts, string $nonce ): ?string {
-		$name      = $value['name'] ?? '';
+	private static function canonical( int $type, int $ts, array $value, string $nonce ): ?string {
+		$name      = $value['name']      ?? '';
 		$arguments = $value['arguments'] ?? '';
 		$encoded   = \wp_json_encode(
 			[
 				$type,
+				$ts,
 				Core::as_string( $name ),
 				Core::as_string( $arguments ),
-				$ts,
 				$nonce,
 			]
 		);
@@ -121,24 +121,25 @@ class Command_Auth {
 	 * @param int|null          $now     Verification time; defaults to time().
 	 */
 	public static function verify( array $message, ?int $now = null ): bool {
-		$type        = $message[ Message::TYPE ]  ?? 0;
-		$value       = $message[ Message::VALUE ] ?? null;
+		$type        = $message[ Message::TYPE ]       ?? null;
+		$ts          = $message[ Message::TIMESTAMP ]  ?? null;
+		$value       = $message[ Message::VALUE ]      ?? null;
 		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( ! \is_integer( $type )
 				|| ! ( $type & Message::TM_COMMAND )
 				|| ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
+				|| ! \is_numeric( $ts )
 				|| ! \is_array( $value ) ) {
 			$interpreter?->drop_message( $message, 'verification failed: wrong type' );
 			return false;
 		}
+		$ts   = (int) $ts; // float seconds → second granularity; both sign + verify truncate the same wire value identically.
 		$auth = $value['auth'] ?? null;
 		if ( ! \is_array( $auth )
-				|| ! isset( $auth['ts'], $auth['nonce'], $auth['sig'] )
-				|| ! \is_integer( $auth['ts'] ) ) {
+				|| ! isset( $auth['nonce'], $auth['sig'] ) ) {
 			$interpreter?->drop_message( $message, 'verification failed: bad envelope' );
 			return false;
 		}
-		$ts       = $auth['ts'];
 		$nonce_in = $auth['nonce'];
 		$nonce    = Core::as_string( $nonce_in );
 		$now      = $now ?? \time();
@@ -149,7 +150,7 @@ class Command_Auth {
 			return false;
 		}
 
-		$canon = self::canonical( $type, $value, $ts, $nonce );
+		$canon = self::canonical( $type, $ts, $value, $nonce );
 		if ( null === $canon ) {
 			$interpreter?->drop_message( $message, 'verification failed: invalid signature' );
 			return false;
