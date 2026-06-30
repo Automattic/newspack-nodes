@@ -21,96 +21,293 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Remote_Source_Node extends Remote_Link_Node {
+	use Offsetlog_Cursor;
+	use Dead_Letter_Queue;
 
-	/** Offsetlog commit cadence (seconds). */
+	/** Offsetlog commit cadence (seconds) for healthy running progress. */
 	private const COMMIT_INTERVAL = 5;
-
-	/** Durable per-node offsetlog (`<offsets_dir>/<name>.<remote_partition>`). */
-	private ?Partition_Node $offsetlog = null;
 
 	private float $last_commit_time = 0.0;
 
 	/**
-	 * Read the latest committed `{seg,off}` line from the offsetlog into a position
-	 * array seeding SSE_In before connect. Empty on a fresh offsetlog.
+	 * Poison head's own start `{seg,off}`; non-null = BLOCKED ([42]). While blocked,
+	 * nothing past the poison forwards and the committed cursor freezes here, so a
+	 * respawn re-pulls exactly this message and the attempt count climbs.
+	 *
+	 * @var array{seg:int,off:int}|null
+	 */
+	private ?array $poison_pos = null;
+
+	/**
+	 * A quarantined-poison offset `{seg,off}`; non-null = a `dlq`-marked frame is committed
+	 * here ([42]). SSE_In can't compute the poison's byte END (its cursor sits at a message's
+	 * OWN start, and the remote-log line length is unknown to the client), so "advance PAST"
+	 * is durable as a marker AT the poison's offset: a respawn / idle reconnect re-pulls the
+	 * poison once and DROPS it (recognized by this offset) instead of re-forwarding /
+	 * re-quarantining it, and the cursor advances the moment a later message forwards past.
+	 *
+	 * @var array{seg:int,off:int}|null
+	 */
+	private ?array $dlq_pos = null;
+
+	/**
+	 * Stream data relayed from our own SSE_In patron — quarantine-guarded — vs the base
+	 * channel's traffic. SSE_In's sink is pointed at THIS node (see ensure_patrons) so
+	 * each parsed stream message passes through here; a heartbeat reply or an outbound
+	 * command is the base channel's (record-reply vs send). Discriminate by TYPE, not by
+	 * a FROM-prefix match: an over-MAX_FROM_SIZE message that lost its stamp must still
+	 * route by what it IS (TM_BYTESTREAM/TM_STRUCT = stream data), not by its FROM.
+	 *
+	 * @api Dynamic entrypoint.
+	 * @param array<int, mixed> $message The 7-field positional message array.
+	 */
+	public function fill( array &$message ): void {
+		$type       = \is_int( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : 0;
+		$is_command = 0 !== ( $type & Message::TM_COMMAND );
+		if ( ! $is_command && 0 !== ( $type & ( Message::TM_BYTESTREAM | Message::TM_STRUCT ) ) ) {
+			$this->relay_stream_message( $message );
+			return;
+		}
+		parent::fill( $message );
+	}
+
+	/**
+	 * Relay one stream message downstream with the full Consumer-style poison lifecycle
+	 * ([42]): a Worker_Should_Stop is control flow and escapes; any other Throwable is
+	 * poison that BLOCKS the head (strictly serialized — nothing past it forwards, the
+	 * committed cursor freezes) until COOP_MAX fair shots across respawns, then it is
+	 * dead-lettered and the cursor advances PAST it. A null downstream FAILS LOUD (bug D)
+	 * rather than silently dropping while the stream is consumed.
+	 *
+	 * @param array<int, mixed> $message The 7-field positional message array.
+	 */
+	private function relay_stream_message( array &$message ): void {
+		if ( null !== $this->poison_pos ) {
+			return; // Head poison blocks: nothing past it forwards, committed cursor frozen.
+		}
+		if ( $this->at_dlq_offset() ) {
+			return; // Re-pulled already-quarantined poison: drop (keep the marker until real progress past it).
+		}
+		$sink = $this->sink;
+		if ( null === $sink ) {
+			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
+		}
+		try {
+			$sink->fill( $message );
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e; // Control flow, not poison: let the worker shut down.
+		} catch ( \Throwable $e ) {
+			$this->handle_poison( $message, $e );
+			return;
+		}
+		$this->after_forward();
+	}
+
+	/**
+	 * A caught downstream throw ([42]): block the head at the poison's OWN start and
+	 * either climb (below COOP_MAX) or — fair shots exhausted — quarantine, advance PAST
+	 * it (next message's offset, bug B), and resume.
+	 *
+	 * @param array<int, mixed> $message The poison message (relayed verbatim to the DLQ for replay).
+	 */
+	private function handle_poison( array &$message, \Throwable $e ): void {
+		$pos              = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
+		$poison           = [ 'seg' => $pos['segment_id'], 'off' => $pos['offset'] ];
+		$this->poison_pos = $poison;
+		if ( $this->record_poison_strike( 'throw' ) ) {
+			$this->ensure_deadletter_sibling();
+			$this->dead_letter( $message, 'throw', $e );
+			// Quarantine is terminal for this offset. Commit a durable `dlq` marker AT the
+			// poison's offset NOW — not deferred to a next message — so an idle stream or a
+			// recycle re-pulls it once and DROPS it (no re-quarantine), and the cursor
+			// advances past the moment a later message forwards. Unblock + reset the streak.
+			$this->dlq_pos        = $poison;
+			$this->poison_pos     = null;
+			$this->attempts       = 1;
+			$this->first_crash_ts = null;
+			$this->poison_reason  = '';
+			$this->commit_position( $poison['seg'], $poison['off'], true, true );
+			return;
+		}
+		// Below threshold: freeze the committed cursor at the poison's OWN start with the
+		// climbing attempts/reason so the respawn re-pulls exactly this message and climbs.
+		$this->commit_position( $poison['seg'], $poison['off'], false );
+	}
+
+	/**
+	 * Post-forward bookkeeping ([42]): explicit advance-past after a quarantine, the
+	 * crawl per-message checkpoint (+ exit), or a forward-progress streak reset after a
+	 * transient poison cleared.
+	 */
+	private function after_forward(): void {
+		if ( null === $this->sse_in ) {
+			return;
+		}
+		$pos = $this->sse_in->position();
+		$seg = $pos['segment_id'];
+		$off = $pos['offset'];
+		$dlq = $this->dlq_pos;
+		if ( null !== $dlq
+				&& ( $seg > $dlq['seg'] || ( $seg === $dlq['seg'] && $off > $dlq['off'] ) ) ) {
+			// A later message forwarded past the quarantined poison → the marker is obsolete;
+			// commit this (past-the-poison) position as the clean cursor.
+			$this->dlq_pos = null;
+			$this->commit_position( $seg, $off, true );
+			return;
+		}
+		if ( $this->crawl ) {
+			// Survived a full interval crash-free → drop back to the baseline; either way
+			// checkpoint per message (pinned attempts while crawling, baseline once exited)
+			// so an uncatchable re-crash pins the exact culprit.
+			if ( $this->crawl_interval_elapsed() ) {
+				$this->exit_crawl();
+			}
+			$this->commit_position( $seg, $off, false );
+			return;
+		}
+		if ( $this->attempts > 1 ) {
+			// Forward progress past a poison lineage: the poison was transient → clear the streak.
+			$this->attempts       = 1;
+			$this->first_crash_ts = null;
+			$this->poison_reason  = '';
+			$this->commit_position( $seg, $off, true );
+		}
+	}
+
+	/**
+	 * Read the latest committed frame into the position seeding SSE_In before connect,
+	 * and resume the shared poison/crash accounting from it (attempts+1, a hard-crash
+	 * lineage → crawl). Empty on a fresh offsetlog.
 	 *
 	 * @return array{segment_id?:int,offset?:int}
 	 */
 	protected function restore_position(): array {
-		$offsetlog = $this->ensure_offsetlog();
-		if ( null === $offsetlog ) {
+		if ( null === $this->ensure_offsetlog_partition() ) {
 			return [];
 		}
-		$segments = $offsetlog->get_segments( true );
-		if ( empty( $segments ) ) {
-			return [];
-		}
-		$last    = \end( $segments );
-		$content = $offsetlog->read_at( $last['id'], 0, $last['size'] );
-		if ( '' === $content && \count( $segments ) > 1 ) {
-			$prev    = $segments[ \count( $segments ) - 2 ];
-			$content = $offsetlog->read_at( $prev['id'], 0, $prev['size'] );
-		}
-		if ( '' === $content ) {
-			return [];
-		}
-		$lines = \explode( "\n", \rtrim( $content, "\n" ) );
-		try {
-			$message = Message::unpacked( \end( $lines ) );
-		} catch ( \InvalidArgumentException $e ) {
-			$this->print_less_often( "ignoring unparseable offsetlog entry: {$e->getMessage()}" );
-			return [];
-		}
-		$value = $message[ Message::VALUE ];
-		if ( ! \is_array( $value ) ) {
+		$value = $this->read_last_offsetlog_frame();
+		if ( null === $value ) {
 			return [];
 		}
 		$seg = $value['seg'] ?? 0;
 		$off = $value['off'] ?? 0;
+		$seg = \is_scalar( $seg ) ? (int) $seg : 0;
+		$off = \is_scalar( $off ) ? (int) $off : 0;
+		if ( ! empty( $value['dlq'] ) ) {
+			// The frame marks this offset as an already-quarantined poison: arm the
+			// re-pull-once-and-drop marker (the lineage is resolved, baseline attempts).
+			$this->dlq_pos  = [ 'seg' => $seg, 'off' => $off ];
+			$this->attempts = 1;
+		} else {
+			$this->resume_attempts_from_frame( $value );
+		}
 		return [
-			'segment_id' => \is_scalar( $seg ) ? (int) $seg : 0,
-			'offset'     => \is_scalar( $off ) ? (int) $off : 0,
+			'segment_id' => $seg,
+			'offset'     => $off,
 		];
 	}
 
-	/** Write the SSE_In cursor to the offsetlog every ~COMMIT_INTERVAL seconds. */
+	/**
+	 * Throttled healthy cursor commit (the base channel's per-tick seam). Skipped while
+	 * a poison lineage is in flight (blocked / crawling / climbing) — those commit on the
+	 * relay path so the throttle can't overwrite the frozen/per-message frame.
+	 */
 	protected function persist_cursor(): void {
+		if ( null !== $this->poison_pos || $this->crawl || $this->attempts > 1 ) {
+			return;
+		}
 		$now = Core::$now ?: \microtime( true );
 		if ( $this->last_commit_time > 0.0 && ( $now - $this->last_commit_time ) < self::COMMIT_INTERVAL ) {
 			return;
 		}
-		$this->last_commit_time = $now;
-		$this->commit_offsetlog();
-	}
-
-	/** Write a single `{seg,off,_ts}` JSONL line covering this node's cursor. */
-	private function commit_offsetlog(): void {
 		if ( null === $this->sse_in ) {
 			return;
 		}
-		$offsetlog = $this->ensure_offsetlog();
-		if ( null === $offsetlog ) {
+		if ( null !== $this->dlq_pos ) {
+			// A quarantined poison sits at the cursor; keep its durable marker (don't
+			// overwrite it with a plain frame) until a later message advances past it —
+			// else an idle recycle would lose the marker and re-quarantine the poison.
+			$this->commit_position( $this->dlq_pos['seg'], $this->dlq_pos['off'], true, true );
 			return;
 		}
-		$pos                           = $this->sse_in->position();
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::VALUE ]     = [
-			'seg' => $pos['segment_id'],
-			'off' => $pos['offset'],
-			'_ts' => (int) Core::$now,
+		$pos = $this->sse_in->position();
+		$this->commit_position( $pos['segment_id'], $pos['offset'], true );
+	}
+
+	/**
+	 * Final cursor handoff at worker shutdown (bug C) — Remote_Source isn't a
+	 * Consumer_Node, so the worker's checkpoint_durable_consumers() reaches it here.
+	 * Healthy → a clean graceful commit (attempts=0) so progress survives the recycle;
+	 * a poison/crash lineage in flight → preserve its climbing/pinned frame.
+	 *
+	 * @api Invoked by Worker_Base::checkpoint_durable_consumers().
+	 */
+	public function checkpoint_shutdown(): void {
+		if ( null === $this->ensure_offsetlog_partition() ) {
+			return;
+		}
+		if ( null !== $this->poison_pos ) {
+			$this->commit_position( $this->poison_pos['seg'], $this->poison_pos['off'], false );
+			return;
+		}
+		if ( null !== $this->dlq_pos ) {
+			// Preserve a pending quarantine marker across the recycle.
+			$this->commit_position( $this->dlq_pos['seg'], $this->dlq_pos['off'], true, true );
+			return;
+		}
+		if ( null === $this->sse_in ) {
+			return;
+		}
+		$pos      = $this->sse_in->position();
+		$graceful = $this->attempts <= 1 && ! $this->crawl;
+		$this->commit_position( $pos['segment_id'], $pos['offset'], $graceful );
+	}
+
+	/** True when the live SSE_In cursor sits on a quarantined-poison offset (the re-pulled poison). */
+	private function at_dlq_offset(): bool {
+		$dlq = $this->dlq_pos;
+		if ( null === $dlq || null === $this->sse_in ) {
+			return false;
+		}
+		$pos = $this->sse_in->position();
+		return $pos['segment_id'] === $dlq['seg'] && $pos['offset'] === $dlq['off'];
+	}
+
+	/**
+	 * Commit one offsetlog frame at `{seg,off}`. A graceful frame is a clean handoff
+	 * (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful frame
+	 * carries the live attempt accounting (a climbing poison lineage / pinned crawl).
+	 * `$dlq` marks the offset as an already-quarantined poison so a respawn drops it once.
+	 */
+	private function commit_position( int $seg, int $off, bool $graceful, bool $dlq = false ): void {
+		if ( null === $this->ensure_offsetlog_partition() ) {
+			return;
+		}
+		$frame = [
+			'seg'            => $seg,
+			'off'            => $off,
+			'attempts'       => $graceful ? 0 : $this->attempts,
+			'reason'         => $graceful ? '' : $this->poison_reason,
+			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
+			'_ts'            => (int) Core::$now,
 		];
-		$offsetlog->fill( $message );
-		$offsetlog->flush();
+		if ( $dlq ) {
+			$frame['dlq'] = true;
+		}
+		$this->commit_offsetlog_frame( $frame );
+		$this->last_commit_time = Core::$now ?: \microtime( true );
 	}
 
 	// =========================================================================
 	// Durable offsetlog — per-node, keyed by NODE NAME.
 	// =========================================================================
 
-	/** Ensure the per-node offsetlog Partition exists + is registered. Idempotent. */
-	private function ensure_offsetlog(): ?Partition_Node {
+	/**
+	 * Ensure the per-node offsetlog Partition exists + is registered. Derives the
+	 * dir (`<offsets_dir>/<name>.<remote_partition>`), delegates the build to the
+	 * Offsetlog_Cursor trait, and routes its sink to the command interpreter.
+	 */
+	private function ensure_offsetlog_partition(): ?Partition_Node {
 		if ( null !== $this->offsetlog ) {
 			return $this->offsetlog;
 		}
@@ -121,31 +318,73 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( '' === $offsets_dir ) {
 			return null;
 		}
-		$dir = "{$offsets_dir}/{$this->name}.{$this->remote_partition}";
-		if ( ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $dir, 0755, true );
-		}
-		$offsetlog = new Partition_Node();
-		$offsetlog->name( "{$this->name}:{$this->remote_partition}:offsetlog" );
-		$offsetlog->patron( $this );
+		$offsetlog = $this->ensure_offsetlog(
+			"{$offsets_dir}/{$this->name}.{$this->remote_partition}",
+			"{$this->name}:{$this->remote_partition}:offsetlog",
+			Partition_Node::DEFAULT_SEGMENT_SIZE,
+			Partition_Node::DEFAULT_NUM_SEGMENTS
+		);
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null === $offsetlog->sink() && null !== $ci ) {
+		if ( null !== $offsetlog && null === $offsetlog->sink() && null !== $ci ) {
 			$offsetlog->sink( $ci );
 		}
-		$offsetlog->arguments( $dir );
-		$this->offsetlog = $offsetlog;
 		return $offsetlog;
 	}
 
+	// =========================================================================
+	// Dead-letter sibling — per-node quarantine for poison stream messages.
+	// =========================================================================
+
 	/**
-	 * Teardown: tear down the offsetlog, then the patrons + self via the base.
+	 * Ensure the per-node deadletter Partition exists. Derives the dir
+	 * (`<base>/deadletter/<name>.<remote_partition>`), delegates the build to the
+	 * Dead_Letter_Queue trait, and routes its sink to the command interpreter.
+	 */
+	private function ensure_deadletter_sibling(): ?Partition_Node {
+		if ( null !== $this->deadletter ) {
+			return $this->deadletter;
+		}
+		if ( '' === $this->name ) {
+			return null;
+		}
+		$base       = \rtrim( Config::get_base_directory(), '/' );
+		$deadletter = $this->ensure_deadletter(
+			"{$base}/deadletter/{$this->name}.{$this->remote_partition}",
+			"{$this->name}:{$this->remote_partition}:deadletter"
+		);
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null !== $deadletter && null === $deadletter->sink() && null !== $ci ) {
+			$deadletter->sink( $ci );
+		}
+		return $deadletter;
+	}
+
+	// =========================================================================
+	// Patron wiring — relay the stream through our own fill() (see fill()).
+	// =========================================================================
+
+	/**
+	 * Build the base patrons, then point SSE_In's sink at THIS node so each stream
+	 * message passes through fill() (where a poison one is quarantined). The base
+	 * already set SSE_In's target to our downstream path, so healthy messages still
+	 * land at the same place — we just interpose ourselves for the poison guard.
+	 */
+	protected function ensure_patrons(): ?SSE_In_Node {
+		$sse = parent::ensure_patrons();
+		$sse?->sink( $this );
+		return $sse;
+	}
+
+	/**
+	 * Teardown: tear down the offsetlog + deadletter, then the patrons + self via the base.
 	 *
 	 * @api Dynamic entrypoint.
 	 */
 	public function remove_node(): void {
 		$this->offsetlog?->remove_node();
 		$this->offsetlog = null;
+		$this->deadletter?->remove_node();
+		$this->deadletter = null;
 		parent::remove_node();
 	}
 

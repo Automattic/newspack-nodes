@@ -5,6 +5,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Router_Node;
@@ -14,6 +15,21 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+
+/** Downstream relay sink: records forwards, throws on a `boom`-keyed message (poison). */
+class Relay_Sink_Spy extends Node {
+	/** @var array<int,array<int,mixed>> */
+	public array $captured = [];
+	public int $fill_count = 0;
+
+	public function fill( array &$message ): void {
+		++$this->fill_count;
+		if ( 'boom' === Core::as_string( $message[ Message::KEY ] ) ) {
+			throw new \RuntimeException( 'downstream boom' );
+		}
+		$this->captured[] = $message;
+	}
+}
 
 #[CoversClass( Remote_Source_Node::class )]
 class RemoteSourceNodeTest extends TestCase {
@@ -87,9 +103,296 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'https://austin.example', $this->read_private( $sse, 'url' ) );
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
 		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
-		// SSE_In forwards to the Remote_Source's OWN downstream target, not back to it.
-		$this->assertSame( $sink, $sse->sink() );
+		// SSE_In relays the stream THROUGH the Remote_Source's own fill() (so a poison
+		// message can be quarantined), keeping its downstream target.
+		$this->assertSame( $node, $sse->sink() );
 		$this->assertSame( 'downstream', $sse->target() );
+	}
+
+	// ---------------------------------------------------------------------
+	// Poison / crash lifecycle ([42]) — Consumer-style fair-shot + crawl.
+	// ---------------------------------------------------------------------
+
+	public function test_poison_below_threshold_blocks_head_and_freezes_cursor(): void {
+		// A caught downstream throw below COOP_MAX must BLOCK the head: nothing past it
+		// forwards, no quarantine yet, and the committed cursor freezes at the poison's
+		// OWN start with the climbing attempts so a respawn re-pulls exactly it.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:128', 'boom' );   // poison — downstream throws.
+		$this->deliver( $sse, '7:200', '' );       // arrives after the poison — must NOT forward.
+
+		// Only the poison reached downstream (and threw); the next message was blocked.
+		$this->assertSame( 1, $spy->fill_count );
+		$this->assertCount( 0, $spy->captured );
+		// Below threshold → not quarantined yet.
+		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
+		$this->assertSame( 0, $this->count_log_records( $dlq ) );
+		// Committed cursor frozen at the poison's OWN start, attempts climbing, reason stamped.
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 7, $frame['seg'] );
+		$this->assertSame( 128, $frame['off'] );
+		$this->assertSame( 1, $frame['attempts'] );
+		$this->assertSame( 'throw', $frame['reason'] );
+	}
+
+	public function test_poison_lineage_climbs_attempts_across_respawn(): void {
+		// A respawn restores the frozen poison frame and resumes at attempts+1 — the
+		// climb that eventually reaches COOP_MAX and quarantines.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 128, 1, 'throw' );
+
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore_position applies the frame → attempts+1.
+
+		$this->assertSame( 2, $this->read_private( $node, 'attempts' ) );
+	}
+
+	public function test_poison_quarantined_and_cursor_advances_at_threshold(): void {
+		// At COOP_MAX the poison is dead-lettered and the committed cursor advances PAST
+		// it (the next message's start = the poison's END/next offset), then relaying resumes.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		// Seed a prior cycle's frozen frame: COOP_MAX-1 strikes already. (COOP_MAX = 2 → 1.)
+		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::COOP_MAX_ATTEMPTS - 1, 'throw' );
+
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore → attempts = COOP_MAX.
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:128', 'boom' ); // re-pull poison → strike reaches COOP_MAX → quarantine + advance.
+		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
+		$this->assertSame( 1, $this->count_log_records( $dlq ), 'poison quarantined at the threshold' );
+
+		$this->deliver( $sse, '7:300', '' ); // a healthy message resumes + commits PAST the poison.
+		$this->assertCount( 1, $spy->captured, 'relaying resumes after the quarantine' );
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 7, $frame['seg'] );
+		$this->assertSame( 300, $frame['off'], 'committed cursor advanced PAST the poison (END/next offset)' );
+		$this->assertSame( 0, $frame['attempts'], 'streak reset to the healthy baseline after quarantine' );
+	}
+
+	public function test_quarantined_last_message_poison_not_requarantined_on_respawn(): void {
+		// The quarantine must commit a durable past-the-poison decision IMMEDIATELY — not
+		// defer it to a next message. If the poison is the newest/last message and the
+		// stream goes idle (or the worker recycles) before another arrives, a respawn must
+		// NOT re-pull-and-re-quarantine it (no duplicate DLQ, no further attempts climb).
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::COOP_MAX_ATTEMPTS - 1, 'throw' );
+
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore → attempts = COOP_MAX.
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:128', 'boom' ); // last message → quarantine, then idle.
+		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
+		$this->assertSame( 1, $this->count_log_records( $dlq ) );
+		// The committed frame records the quarantine durably (a dlq marker at the poison offset).
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 128, $frame['off'] );
+		$this->assertTrue( ! empty( $frame['dlq'] ), 'quarantine commits a durable dlq marker immediately' );
+
+		// Simulate a respawn: a fresh node restores from the committed frame and the idle
+		// stream re-delivers the SAME poison from the committed offset. Tear the first node
+		// AND its downstream spy down so the rebuilt graph can reuse the names.
+		$node->remove_node();
+		$spy->remove_node();
+		[ $node2, $spy2 ] = $this->make_remote_spy( 'remote-austin' );
+		$node2->fire();
+		$sse2 = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse2, '7:128', 'boom' ); // re-pulled poison.
+		$this->assertSame( 1, $this->count_log_records( $dlq ), 'poison must NOT be re-quarantined on respawn' );
+		$this->assertCount( 0, $spy2->captured, 'and must NOT be re-forwarded downstream' );
+
+		// A later healthy message resumes relaying and advances the cursor past the poison.
+		$this->deliver( $sse2, '7:300', '' );
+		$this->assertCount( 1, $spy2->captured, 'relaying resumes past the quarantined poison' );
+		$frame2 = $this->newest_offsetlog_frame( $node2 );
+		$this->assertSame( 300, $frame2['off'] );
+		$this->assertArrayNotHasKey( 'dlq', $frame2, 'the dlq marker clears once the cursor advances past' );
+	}
+
+	public function test_transient_poison_recovered_resets_streak_on_forward_progress(): void {
+		// A poison lineage that turns out transient (downstream recovered) must clear its
+		// climbing streak the moment a message forwards successfully — else the next
+		// unclean recycle would falsely keep climbing toward the quarantine threshold.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 128, 1, 'throw' ); // prior cycle's strike.
+
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore → attempts = 2 (lineage in flight).
+		$this->assertSame( 2, $this->read_private( $node, 'attempts' ) );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:128', '' ); // downstream healthy now → forwards successfully.
+
+		$this->assertCount( 1, $spy->captured );
+		$this->assertSame( 1, $this->read_private( $node, 'attempts' ), 'forward progress clears the streak' );
+		$this->assertSame( 0, $this->newest_offsetlog_frame( $node )['attempts'], 'and commits a clean handoff frame' );
+	}
+
+	public function test_hard_crash_crawl_checkpoints_each_message_then_exits(): void {
+		// A hard-crash lineage (NO reason, attempts ≥ CRASH_MAX) enters crawl: checkpoint
+		// per relayed message (pins the culprit on a re-crash), attempts pinned — until a
+		// full checkpoint interval of forward progress, then reset to the healthy baseline.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 0, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		Core::$now = 1000.0;
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore → crawl, attempts pinned at CRASH_MAX, crawl_started = 1000.
+		$this->assertTrue( $this->read_private( $node, 'crawl' ) );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:100', '' );
+		$this->deliver( $sse, '7:200', '' );
+		$this->assertSame( 2, $spy->fill_count, 'crawl still forwards each message' );
+		$this->assertGreaterThanOrEqual( 2, $this->count_offsetlog_records( $node ), 'crawl checkpoints per message' );
+		$this->assertSame( Remote_Source_Node::CRASH_MAX_ATTEMPTS, $this->newest_offsetlog_frame( $node )['attempts'], 'attempts pinned during crawl' );
+
+		// A full interval elapses crash-free → the next message exits crawl to the baseline.
+		Core::$now = 1000.0 + Remote_Source_Node::CHECKPOINT_INTERVAL_S + 1.0;
+		$this->deliver( $sse, '7:300', '' );
+		$this->assertFalse( $this->read_private( $node, 'crawl' ) );
+		$this->assertSame( 1, $this->newest_offsetlog_frame( $node )['attempts'], 'crawl exits to the healthy baseline' );
+	}
+
+	public function test_relay_with_null_sink_fails_loud(): void {
+		// Bug D: a null/unwired downstream must FAIL LOUD — never silently no-op while the
+		// stream is consumed (which would advance the cursor past undelivered messages).
+		$node = new Remote_Source_Node();
+		$node->name( 'remote-austin' );
+		$node->arguments( 'austin firehose.p0' ); // no sink wired.
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = '7:1';
+		$m[ Message::VALUE ] = [ 'p' => 1 ];
+
+		$this->expectException( \RuntimeException::class );
+		$node->fill( $m );
+	}
+
+	public function test_stream_data_routed_by_type_not_from_prefix(): void {
+		// Bug A(ii): the relay discriminator is structural (by TYPE), not a FROM-prefix
+		// match. A TM_STRUCT whose FROM does NOT match the SSE_In name is still relayed
+		// downstream — never misrouted to the outbound send()/HTTP_Out path.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$http = Core::node( 'remote-austin:http-out' );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::FROM ]  = 'some-unrelated-node';
+		$m[ Message::ID ]    = '7:1';
+		$m[ Message::VALUE ] = [ 'p' => 1 ];
+		$node->fill( $m );
+
+		$this->assertCount( 1, $spy->captured, 'stream data is relayed by TYPE regardless of FROM' );
+		$this->assertCount( 0, $this->read_private( $http, 'batch' ), 'stream data must NOT be misrouted to HTTP_Out' );
+	}
+
+	public function test_checkpoint_shutdown_commits_healthy_cursor(): void {
+		// Bug C: Remote_Source isn't a Consumer, so the worker's
+		// checkpoint_durable_consumers() must commit its live cursor at shutdown — else
+		// healthy progress is lost on every ~10-min recycle.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->restore_position( 9, 512 );
+
+		$node->checkpoint_shutdown();
+
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 9, $frame['seg'] );
+		$this->assertSame( 512, $frame['off'] );
+		$this->assertSame( 0, $frame['attempts'], 'a healthy shutdown is a clean handoff (attempts=0)' );
+	}
+
+	/** Build a named Remote_Source wired to a Relay_Sink_Spy downstream + target. */
+	private function make_remote_spy( string $name = 'remote-austin', string $args = 'austin firehose.p0' ): array {
+		$node = new Remote_Source_Node();
+		$node->name( $name );
+		$spy = new Relay_Sink_Spy();
+		$spy->name( 'downstream' );
+		$node->sink( $spy );
+		$node->target( 'downstream' );
+		$node->arguments( $args );
+		return [ $node, $spy ];
+	}
+
+	/** Push one TM_STRUCT stream message through the SSE_In parser (keyed `boom` to poison the relay). */
+	private function deliver( SSE_In_Node $sse, string $id, string $key = '', array $value = [ 'p' => 1 ] ): void {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = $id;
+		$m[ Message::KEY ]   = $key;
+		$m[ Message::VALUE ] = $value;
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+	}
+
+	/** Write a single committed offsetlog frame (with attempt accounting) for the default remote node. */
+	private function seed_offsetlog_frame( int $seg, int $off, int $attempts, string $reason, string $name = 'remote-austin' ): void {
+		$dir = \Newspack_Nodes\Config::get_offsets_directory() . "/{$name}.firehose.p0";
+		if ( ! \is_dir( $dir ) ) {
+			\mkdir( $dir, 0755, true );
+		}
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::VALUE ] = [ 'seg' => $seg, 'off' => $off, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null, '_ts' => 1 ];
+		\file_put_contents( "{$dir}/0.log", Message::packed( $m ) . "\n" );
+	}
+
+	/** @return array<array-key,mixed> The newest committed offsetlog frame VALUE. */
+	private function newest_offsetlog_frame( Remote_Source_Node $node ): array {
+		$offsetlog = $this->read_private( $node, 'offsetlog' );
+		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
+		$segments = $offsetlog->get_segments( true );
+		$last     = \end( $segments );
+		$content  = $offsetlog->read_at( $last['id'], 0, $last['size'] );
+		$lines    = \array_values( \array_filter( \explode( "\n", $content ), static fn ( $l ) => '' !== $l ) );
+		return Message::unpacked( \end( $lines ) )[ Message::VALUE ];
+	}
+
+	private function count_offsetlog_records( Remote_Source_Node $node ): int {
+		$offsetlog = $this->read_private( $node, 'offsetlog' );
+		if ( ! $offsetlog instanceof Partition_Node ) {
+			return 0;
+		}
+		$count = 0;
+		foreach ( $offsetlog->get_segments( true ) as $s ) {
+			foreach ( \explode( "\n", $offsetlog->read_at( $s['id'], 0, $s['size'] ) ) as $l ) {
+				if ( '' !== $l ) {
+					++$count;
+				}
+			}
+		}
+		return $count;
+	}
+
+	private function count_log_records( string $dir ): int {
+		$count = 0;
+		foreach ( (array) \glob( "{$dir}/*.log" ) as $path ) {
+			foreach ( \explode( "\n", (string) \file_get_contents( (string) $path ) ) as $line ) {
+				if ( '' !== $line ) {
+					++$count;
+				}
+			}
+		}
+		return $count;
 	}
 
 	public function test_first_tick_creates_http_out_patron(): void {

@@ -197,6 +197,10 @@ class Worker_Base {
 		foreach ( Core::$nodes_by_name as $node ) {
 			if ( $node instanceof Consumer_Node ) {
 				$this->handoff_consumer( $node );
+			} elseif ( $node instanceof Remote_Source_Node ) {
+				// Remote_Source carries a durable cursor but is NOT a Consumer_Node, so it
+				// needs its own shutdown commit — else its healthy cursor is lost each recycle.
+				$node->checkpoint_shutdown();
 			}
 		}
 		$this->checkpoint_ipc_input();

@@ -283,10 +283,9 @@ class ConsumerTest extends TestCase {
 	 * on the read side. Tests use this to simulate real producer flow.
 	 */
 	private function produce_line( Partition_Node $partition, string $value ): void {
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$message[ Message::TIMESTAMP ] = microtime( true );
-		$message[ Message::VALUE ]     = $value;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $value;
 		$partition->fill( $message );
 		// Partition::fill batches in memory now — force on-disk visibility
 		// so the Consumer's poll() picks up the bytes synchronously.

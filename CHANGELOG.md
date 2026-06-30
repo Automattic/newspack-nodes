@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Two shared substrate traits — `Offsetlog_Cursor` (durable offsetlog read/commit) and `Dead_Letter_Queue` (poison quarantine + fair-shot / crash-crawl accounting)** — extracted from `Consumer_Node` and now used by both `Consumer_Node` and `Remote_Source_Node`, so the durable-cursor and dead-letter logic has one implementation. See ADR-12.
+
 ### Changed
 
 - **Workers now self-respawn via the same 10ms raw-curl fire-and-forget POST the supervisor uses**, instead of `wp_remote_post( timeout: 1, blocking: false )`. The shared helper (`Core::fire_and_forget_post()`, with the single `Core::$curl_exec` test seam) was hoisted out of `Supervisor` so both spawn paths share one implementation; `Worker_Base::self_respawn()` was on the slower path because WordPress's Requests Curl transport floors any sub-second timeout to a full second, defeating the fire-and-forget contract a dying worker needs. The POST body (`type`/`partition`/`nonce`) is unchanged, so spawn HMAC/nonce validation is unaffected.
 - **`Command_Auth` now signs/verifies the message's positional `Message::TIMESTAMP`** instead of a separate `ts` field smuggled into the `auth` envelope, and `Message::new_message()`'s default timestamp is the cached `Core::$now ?: microtime( true )` (float seconds). Sign/verify cast the timestamp to integer seconds (the freshness window's granularity) under an `is_numeric` guard, so the same wire value truncates identically on both sides.
+- **`Remote_Source` now applies the full dead-letter lifecycle to its pulled stream.** A stream message whose downstream forward throws blocks the head (nothing past it forwards; the committed cursor freezes) and climbs `attempts` across worker cycles; at `COOP_MAX_ATTEMPTS` it is quarantined to a `:deadletter` sibling and the cursor advances past it — a durable `dlq` offsetlog marker makes that advance safe even when the poison is the last/idle message (no re-quarantine on recycle). A hard crash enters a per-message-checkpoint crawl that resets to the baseline after one clean checkpoint interval, and `Remote_Source`'s cursor is now checkpointed at worker shutdown.
 
 ### Fixed
 
 - **Command freshness is anchored to the server clock at the sign boundary.** `HTTP_In` now stamps `Message::TIMESTAMP = Core::$now` immediately before `Command_Auth::sign()`, so the freshness window no longer depends on the browser's wall clock — a dashboard client whose clock is skewed >10–20s is no longer silently rejected (`timestamp out of range`).
 - **CLI error messages are sanitized for the terminal, not HTML-escaped.** `wp nodes cli` exception messages ran through `esc_html()`, rendering quotes as `&#039;` in the shell. They now strip control characters (defanging ANSI injection from an untrusted worker id) while leaving the literal text intact.
+- **Remote_Source stream routing/forwarding hardened:** `SSE_In::forward()` now honors a failed `stamp_message()` (drops an over-`MAX_FROM_SIZE` message instead of forwarding it unstamped); `Remote_Source` discriminates a relayed stream message by TYPE (`TM_BYTESTREAM`/`TM_STRUCT`) rather than a fragile FROM-prefix; and a null/unwired downstream sink now fails loud instead of silently dropping the stream while advancing the cursor.
 
 ## [0.24.2] - 2026-06-29
 

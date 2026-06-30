@@ -85,6 +85,27 @@ class SseInTest extends TestCase {
 		$this->assertSame( [ 'segment_id' => 3, 'offset' => 128 ], $node->position() );
 	}
 
+	public function test_forward_drops_message_whose_from_overflows_max(): void {
+		// Bug A(i): a relayed message whose FROM is already at MAX_FROM_SIZE overflows
+		// when stamped — stamp_message() returns false. forward() must honor that and
+		// DROP the message, never forward an unstamped one (which the downstream
+		// Remote_Source would then misroute). The cursor still advances (position set).
+		[ $node, $sink ] = $this->configured_node( 'austin' );
+
+		$m                  = Message::new_message();
+		$m[ Message::TYPE ] = Message::TM_STRUCT;
+		$m[ Message::FROM ] = \str_repeat( 'a', \Newspack_Nodes\Node::MAX_FROM_SIZE );
+		$m[ Message::ID ]   = '5:64';
+		$m[ Message::KEY ]  = 'k';
+		$m[ Message::VALUE ] = [ 'p' => 1 ];
+
+		$node->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+
+		$this->assertCount( 0, $sink->captured, 'an over-MAX_FROM_SIZE message must be dropped, not forwarded' );
+		// The position breadcrumb still advanced — a single bad record can't wedge the stream.
+		$this->assertSame( [ 'segment_id' => 5, 'offset' => 64 ], $node->position() );
+	}
+
 	public function test_connected_handshake_consumed_and_captures_slot(): void {
 		[ $node, $sink ] = $this->configured_node();
 

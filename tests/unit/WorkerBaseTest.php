@@ -375,6 +375,23 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'token-abc', $posts[0]['body']['nonce'] );
 	}
 
+	public function test_checkpoint_durable_consumers_checkpoints_remote_sources(): void {
+		// Bug C: Remote_Source isn't a Consumer_Node, so the shutdown handoff must reach
+		// it explicitly — otherwise its healthy cursor is lost on every ~10-min recycle.
+		$w   = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$spy = new class() extends \Newspack_Nodes\Remote_Source_Node {
+			public int $shutdown_calls = 0;
+			public function checkpoint_shutdown(): void {
+				++$this->shutdown_calls;
+			}
+		};
+		$spy->name( 'remote-austin' );
+
+		$w->checkpoint_durable_consumers();
+
+		$this->assertSame( 1, $spy->shutdown_calls, 'the shutdown handoff must checkpoint Remote_Source nodes' );
+	}
+
 	public function test_execute_checkpoints_ipc_input_at_shutdown(): void {
 		// The clean-recycle shutdown path must checkpoint the IPC input so the
 		// respawned worker resumes past consumed commands (no replay).

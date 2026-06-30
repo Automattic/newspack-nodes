@@ -13,6 +13,8 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Consumer_Node extends Timer_Node {
 	use Schema_Reflection;
+	use Offsetlog_Cursor;
+	use Dead_Letter_Queue;
 
 	// Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces
 	// one checkpoint = one segment = one frame, uniformly for stateless consumers
@@ -39,10 +41,9 @@ class Consumer_Node extends Timer_Node {
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
 	// Offsetlog is crash-resume only (TopicProbe, not the offsetlog, is the position
-	// source now), so checkpoint coarsely — losing <30s of cursor on a crash just
-	// re-delivers those messages on respawn (at-least-once). Cheaper offsetlog I/O.
-	public const CHECKPOINT_INTERVAL_S = 30;
-
+	// source now), so checkpoint coarsely (Dead_Letter_Queue::CHECKPOINT_INTERVAL_S) —
+	// losing <30s of cursor on a crash just re-delivers those messages on respawn
+	// (at-least-once). Cheaper offsetlog I/O.
 	protected float $last_checkpoint = 0.0;
 
 	/**
@@ -58,14 +59,6 @@ class Consumer_Node extends Timer_Node {
 	protected int $checkpoint_off = -1;
 
 	/**
-	 * Times the message at the boot cursor has been attempted without advancing past
-	 * it (dead-letter [42]). 1 = healthy baseline (a running checkpoint); 0 = a
-	 * graceful-shutdown handoff at a genuinely un-attempted cursor. A respawn reads
-	 * the frame's value and resumes at attempts+1, so a stuck/poison cursor climbs.
-	 */
-	protected int $attempts = 1;
-
-	/**
 	 * The cursor this process booted on (seeded by load_offsetlog). Advancing past it
 	 * is "forward progress" — the poison region is behind us, so attempts resets to the
 	 * healthy baseline. Also the fair-shot proxy for cooperative-stop strikes ([42]).
@@ -73,48 +66,19 @@ class Consumer_Node extends Timer_Node {
 	protected int $boot_cursor_seg = 0;
 	protected int $boot_cursor_off = 0;
 
-	/**
-	 * Why the prior process stopped at this cursor — '' = none / hard crash (the
-	 * signature that drives crawl-mode isolation), else a cooperative-stop reason
-	 * (`timeout`/`memory`, stamped at shutdown). A respawn reads it to classify.
-	 */
-	protected string $poison_reason = '';
-
-	/**
-	 * Wall-clock of the first crash in the current stuck streak (null when healthy),
-	 * carried forward across respawns. Once it's older than STATE_WIPE_AFTER_S the
-	 * boot discards the snapshot cache — a state that keeps killing us, not a poison
-	 * message. Cleared on forward progress / graceful handoff.
-	 */
-	protected ?float $first_crash_ts = null;
+	// Crash-streak state ($attempts, $poison_reason, $first_crash_ts), the crawl mode
+	// ($crawl, $crawl_started), and the CRASH_MAX / COOP_MAX / CHECKPOINT_INTERVAL_S
+	// thresholds all live in Dead_Letter_Queue (shared with Remote_Source).
 
 	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
 	public const STATE_WIPE_AFTER_S = 900;
 
 	/**
-	 * Hard-crash threshold: after this many respawns at one cursor with NO reason
-	 * stamped (an uncatchable death — OOM/fatal/SIGKILL — not a caught throw), the
-	 * worker enters crawl mode to isolate the poison one message at a time.
+	 * One-shot crawl-entry flag: DLQ the boot-cursor head (the in-flight-at-crash
+	 * suspect) on the first crawled drain. Consumer-only — the per-line drain model's
+	 * head-sacrifice; Remote_Source's per-relayed-message crawl has no head to sacrifice.
 	 */
-	public const CRASH_MAX_ATTEMPTS = 5;
-
-	/**
-	 * Cooperative-stop threshold ([42]): after this many fair-shot strikes (full
-	 * worker lifetimes spent on the boot-cursor message under a timeout/memory stop),
-	 * the message is dead-lettered and the cursor advances. Lower than the hard-crash
-	 * budget — a cooperative stop is a clean signal, so fewer mulligans are needed.
-	 */
-	public const COOP_MAX_ATTEMPTS = 2;
-
-	/**
-	 * Hard-crash crawl ([42]): per-message checkpointing to pin the exact in-flight
-	 * offset across an uncatchable crash. $crawl is the mode; $crawl_skip_head is the
-	 * one-shot "DLQ the boot-cursor head" the worker booted into (the crash suspect).
-	 */
-	protected bool $crawl           = false;
 	protected bool $crawl_skip_head = false;
-	/** Wall-clock this process entered crawl; surviving CHECKPOINT_INTERVAL_S past it exits crawl. */
-	protected float $crawl_started  = 0.0;
 
 	protected string $source_dir = '';
 	/**
@@ -123,21 +87,8 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected string $offsetlog_dir      = '';
 	protected ?Partition_Node $source    = null;
-	/** Null when constructed with empty $offsetlog_dir (ephemeral readers skip durable cursors). */
-	protected ?Partition_Node $offsetlog = null;
 
-	/**
-	 * Quarantine dir for poison messages (dead-letter [42]); '' = no DLQ (log + drop).
-	 * The Consumer is the sole writer of its DLQ sibling, so it lifts the PIPE_BUF cap
-	 * (a poison message can exceed it).
-	 */
-	protected string $deadletter_dir = '';
-	/** Null when $deadletter_dir is empty — poison is logged and dropped instead of quarantined. */
-	protected ?Partition_Node $deadletter = null;
-
-	/** DLQ sibling retention: 1 MiB segments × 16, rotate by count (no time-based aging). */
-	public const DEADLETTER_SEGMENT_SIZE = 1048576;
-	public const DEADLETTER_NUM_SEGMENTS = 16;
+	// $deadletter_dir + $deadletter (the quarantine sibling, schema-arg-assigned) live in Dead_Letter_Queue.
 
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
@@ -246,32 +197,18 @@ class Consumer_Node extends Timer_Node {
 		$this->source->sink( $this->sink );
 		$this->source->patron( $this );
 
-		if ( '' !== $this->offsetlog_dir ) {
-			$this->offsetlog = new Partition_Node();
-			if ( '' !== $this->name ) {
-				$this->offsetlog->name( "{$this->name}:offsetlog" );
-			}
-			$this->offsetlog->arguments( implode( ' ', [ "{$this->offsetlog_dir}", self::OFFSETLOG_SEGMENT_SIZE, self::OFFSETLOG_NUM_SEGMENTS ] ) );
-			$this->offsetlog->sink( $this->sink );
-			$this->offsetlog->patron( $this );
-		} else {
-			$this->offsetlog = null;
-		}
+		$this->ensure_offsetlog(
+			$this->offsetlog_dir,
+			'' !== $this->name ? "{$this->name}:offsetlog" : '',
+			self::OFFSETLOG_SEGMENT_SIZE,
+			self::OFFSETLOG_NUM_SEGMENTS
+		);
+		// The offsetlog shares the consumer's data sink (its sink() override keeps them in step).
+		$this->offsetlog?->sink( $this->sink );
 
 		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
-		if ( '' !== $this->deadletter_dir ) {
-			$this->deadletter = new Partition_Node();
-			if ( '' !== $this->name ) {
-				$this->deadletter->name( "{$this->name}:deadletter" );
-			}
-			$this->deadletter->arguments( implode( ' ', [ "{$this->deadletter_dir}", self::DEADLETTER_SEGMENT_SIZE, self::DEADLETTER_NUM_SEGMENTS ] ) );
-			$this->deadletter->sink( $this->sink );
-			$this->deadletter->patron( $this );
-			// Sole writer (this Consumer), so quarantine poison larger than PIPE_BUF.
-			$this->deadletter->void_warranty();
-		} else {
-			$this->deadletter = null;
-		}
+		$this->ensure_deadletter( $this->deadletter_dir, '' !== $this->name ? "{$this->name}:deadletter" : '' );
+		$this->deadletter?->sink( $this->sink );
 
 		// No I/O at construction: the first poll loads the durable cursor and
 		// restores the snapshot, once the whole topology graph exists.
@@ -586,28 +523,8 @@ class Consumer_Node extends Timer_Node {
 	 * cursor is left as-is (offsetlog disabled, empty, or corrupt).
 	 */
 	protected function load_offsetlog(): void {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		$segments = $this->offsetlog->get_segments( true );
-		if ( empty( $segments ) ) {
-			return;
-		}
-		$newest = \end( $segments );
-		$bytes  = $this->offsetlog->read_at( $newest['id'], 0, $newest['size'] );
-		$lines  = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-		if ( empty( $lines ) ) {
-			return;
-		}
-		try {
-			$message = Message::unpacked( \end( $lines ) );
-		} catch ( \InvalidArgumentException $e ) {
-			// Unparseable entry: keep the current position rather than resuming.
-			$this->print_less_often( "WARNING: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
-			return;
-		}
-		$entry = $message[ Message::VALUE ];
-		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
+		$entry = $this->read_last_offsetlog_frame();
+		if ( null === $entry || ! isset( $entry['seg'], $entry['off'] ) ) {
 			return;
 		}
 		$seg              = $entry['seg'];
@@ -616,24 +533,11 @@ class Consumer_Node extends Timer_Node {
 		$this->cursor_off      = \is_numeric( $off ) ? (int) $off : 0;
 		$this->boot_cursor_seg = $this->cursor_seg;
 		$this->boot_cursor_off = $this->cursor_off;
-		// Resume at attempts+1 — a clean handoff wrote 0 → 1 (virgin); a crash left ≥1 → climbs.
-		$prior            = $entry['attempts'] ?? 0;
-		$prior_attempts   = \is_numeric( $prior ) ? (int) $prior : 0;
-		$reason           = Core::as_string( $entry['reason'] ?? '' );
-		$this->attempts   = $prior_attempts + 1;
-		// Hard-crash lineage (no reason stamped) that has exhausted the coarse budget:
-		// enter crawl mode and sacrifice the boot-cursor head — the message in flight
-		// when the last process died uncatchably. attempts pins at the threshold.
-		if ( '' === $reason && $this->attempts >= self::CRASH_MAX_ATTEMPTS ) {
-			$this->attempts        = self::CRASH_MAX_ATTEMPTS;
-			$this->crawl           = true;
+		// Resume the shared attempt accounting (climb at attempts+1, carry the streak,
+		// detect a hard-crash lineage → crawl). On crawl entry the per-line drain model
+		// also sacrifices the boot-cursor head — the message in flight at the uncatchable death.
+		if ( $this->resume_attempts_from_frame( $entry ) ) {
 			$this->crawl_skip_head = true;
-			$this->crawl_started   = Core::$now;
-		}
-		// Recovering: stamp when the streak began, carrying an existing mark forward.
-		if ( $this->attempts > 1 ) {
-			$prior_ts             = $entry['first_crash_ts'] ?? null;
-			$this->first_crash_ts = \is_numeric( $prior_ts ) ? (float) $prior_ts : Core::$now;
 		}
 		// Offset + cache come from ONE record, so the resumed cursor and the
 		// restored state are always aligned.
@@ -732,15 +636,12 @@ class Consumer_Node extends Timer_Node {
 			// Don't exit until the head has actually been sacrificed — if it's a partial
 			// line that never completed within the interval, exiting now would re-arm the
 			// crash loop (next boot forwards the un-sacrificed poison head normally).
-			if ( ! $this->crawl_skip_head && ( Core::$now - $this->crawl_started ) >= self::CHECKPOINT_INTERVAL_S ) {
+			if ( ! $this->crawl_skip_head && $this->crawl_interval_elapsed() ) {
 				// Survived a full interval crawling without an uncatchable crash → the
 				// poison is behind us. Return to coarse mode at the healthy baseline,
 				// force-writing the reset even at an unchanged cursor (the guard would
 				// otherwise suppress it, leaving attempts pinned at the threshold).
-				$this->crawl          = false;
-				$this->attempts       = 1;
-				$this->first_crash_ts = null;
-				$this->poison_reason  = '';
+				$this->exit_crawl();
 				$this->write_checkpoint_frame( false, true );
 			} elseif ( $drained > 0 ) {
 				// Per-message checkpoint (drain_buffer caps crawl at one line) so an
@@ -784,7 +685,7 @@ class Consumer_Node extends Timer_Node {
 					// Lives here, not forward_line, so the Tail subclass (which overrides
 					// forward_line) inherits it.
 					$this->crawl_skip_head = false;
-					$this->dead_letter( $this->poison_from_line( $line, $this->cursor_off + $pos ), 'crash' );
+					$this->dead_letter( $this->poison_from_line( $line, $this->cursor_seg, $this->cursor_off + $pos ), 'crash' );
 				} else {
 					$this->forward_line( $line, $this->cursor_off + $pos );
 				}
@@ -823,7 +724,7 @@ class Consumer_Node extends Timer_Node {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
 			// Won't unpack → never will: quarantine (no retry) for inspection; the cursor still advances.
-			$this->dead_letter( $this->poison_from_line( $line, $abs_offset ), 'unparseable', $e );
+			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_seg, $abs_offset ), 'unparseable', $e );
 			return;
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
@@ -881,13 +782,9 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
-		$this->poison_reason = $reason;
-		if ( null === $this->first_crash_ts ) {
-			$this->first_crash_ts = Core::$now;
-		}
-		if ( $this->attempts >= self::COOP_MAX_ATTEMPTS ) {
+		if ( $this->record_poison_strike( $reason ) ) {
 			// Fair shots exhausted: quarantine first, advance past it, hand off at the virgin baseline.
-			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_off ), $reason );
+			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_seg, $this->cursor_off ), $reason );
 			$this->cursor_off += \strlen( $head ) + 1; // Past the line + its consumed \n.
 			$this->buffer      = '';
 			$this->checkpoint( true );
@@ -949,17 +846,12 @@ class Consumer_Node extends Timer_Node {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = $this->name;
 		$value = [
 			'seg'            => $this->cursor_seg,
 			'off'            => $this->cursor_off,
 			'attempts'       => $graceful ? 0 : $this->attempts,
 			'reason'         => $graceful ? '' : $this->poison_reason,
 			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
-			'ts'             => Core::$now,
 			'name'           => $this->name,
 			'target'         => \is_string( $this->target ) ? $this->target : '',
 			'targets'        => $this->resolve_downstream_targets(),
@@ -977,10 +869,7 @@ class Consumer_Node extends Timer_Node {
 				$value['cache'] = $node->save_state();
 			}
 		}
-		$message[ Message::VALUE ]     = $value;
-		$this->offsetlog->fill( $message );
-		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
-		$this->offsetlog->flush();
+		$this->commit_offsetlog_frame( $value );
 		$this->checkpoint_seg = $this->cursor_seg;
 		$this->checkpoint_off = $this->cursor_off;
 
@@ -1028,57 +917,6 @@ class Consumer_Node extends Timer_Node {
 	private static function worker_type_env(): string {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
-	}
-
-	/**
-	 * Build the Message to quarantine from a raw source line: the real unpacked
-	 * message when it parses (so `wp nodes ingest` can replay it), else the raw bytes
-	 * wrapped in a TM_BYTESTREAM for inspection. Stamps the source seg:off breadcrumb.
-	 *
-	 * @return array<int, mixed>
-	 */
-	private function poison_from_line( string $line, int $abs_offset ): array {
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			$message                   = Message::new_message();
-			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-			$message[ Message::VALUE ] = $line;
-		}
-		$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
-		return $message;
-	}
-
-	/**
-	 * Quarantine a poison message: write the (replayable) original to the :deadletter
-	 * sibling when one is configured, else log + drop. Always emits a rate-limited
-	 * alert carrying the why (reason, source breadcrumb, error) — durable via
-	 * Core::stderr's error_log, so the give-up is never silent. The caller advances
-	 * the cursor past the line regardless, so poison can't wedge the partition.
-	 *
-	 * Replay is `wp nodes ingest <topic> <deadletter-segment>`, which re-`fill()`s each
-	 * stored message verbatim — so the entry is the original message, not a wrapper.
-	 *
-	 * @param array<int, mixed> $message The poison Message (positional).
-	 */
-	protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
-		$where   = Core::as_string( $message[ Message::ID ] ?? '' );
-		$why     = null === $error ? '' : ': ' . $error->getMessage();
-		$outcome = 'dropped (no deadletter_dir)';
-		if ( null !== $this->deadletter ) {
-			try {
-				$this->deadletter->fill( $message );
-				$this->deadletter->flush();
-				$outcome = 'quarantined';
-			} catch ( Worker_Should_Stop $e ) {
-				throw $e; // A stop during the DLQ write still escapes; poison re-quarantines on respawn.
-			} catch ( \Throwable $e ) {
-				// Quarantine itself failed (disk full / I/O). Drop the poison and let the
-				// cursor advance — re-wedging here would loop the partition forever.
-				$outcome = 'DROP — deadletter write failed: ' . $e->getMessage();
-			}
-		}
-		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at {$where} — {$outcome}{$why}" );
 	}
 
 	/** First complete (newline-terminated) line buffered at the cursor, or null when none is in flight. */
