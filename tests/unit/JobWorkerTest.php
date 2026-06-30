@@ -29,7 +29,6 @@ class JobWorkerTest extends TestCase {
 			'k'          => $kind,
 			'handler'    => $handler,
 			'parameters' => $parameters,
-			'ts'         => 1700000000.0,
 		];
 		return $message;
 	}
@@ -254,7 +253,6 @@ class JobWorkerTest extends TestCase {
 			'k'          => 'job',
 			'handler'    => 'evtemplate',
 			'parameters' => [ 'template' => 'Tools/ImportFilmTimes.html' ],
-			'ts'         => 1700000000.0,
 		];
 		$jw->fill( $message );
 
@@ -273,7 +271,6 @@ class JobWorkerTest extends TestCase {
 			'k'          => 'remote_job',
 			'handler'    => 'hub_op',
 			'parameters' => [ 'a' => 1 ],
-			'ts'         => 1700000000.0,
 		];
 		$jw->fill( $message );
 

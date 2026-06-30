@@ -498,7 +498,13 @@ class SSE_In_Node extends Node {
 		if ( $this->target ) {
 			$message[ Message::TO ] = Core::as_string( $this->target );
 		}
-		$this->stamp_message( $message, $this->name );
+		// Honor a false stamp (FROM over MAX_FROM_SIZE / empty name): DROP the message
+		// rather than forward an unstamped one the downstream would then misroute. The
+		// cursor breadcrumb already advanced, so one bad record can't wedge the stream.
+		if ( ! $this->stamp_message( $message, $this->name ) ) {
+			$this->print_less_often( 'dropping stream message: FROM exceeded MAX_FROM_SIZE' );
+			return;
+		}
 
 		++$this->counter;
 		$this->sink->fill( $message );

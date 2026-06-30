@@ -22,6 +22,7 @@ ADR-N is that N. Don't renumber — supersede.
 | [9](#adr-9-two-tier-safety-net) | Two-tier safety net |
 | [10](#adr-10-class-naming--make_node-namespace-resolution) | Class naming + `make_node` namespace resolution |
 | [11](#adr-11-make_node-construction-sequence) | `make_node` construction sequence |
+| [12](#adr-12-dead-letter-poison--crash-lifecycle) | Dead-letter poison / crash lifecycle ([42]) |
 
 ---
 
@@ -364,3 +365,75 @@ args, so they still construct bare.
 revision: the parsed default/required ladder now lives once in `parse_schema_args()`. Revisit
 again only if throw-on-required-at-construction proves too strict for a legitimate deferred-config
 flow that must build a bare node before configuring it.
+
+---
+
+## ADR-12: Dead-letter poison / crash lifecycle ([42])
+
+**Status:** Accepted (extended: the fair-shot + crawl machinery, originally Consumer-only, is now
+shared by `Consumer_Node` and `Remote_Source_Node` via the `Dead_Letter_Queue` / `Offsetlog_Cursor`
+traits)
+
+**Context:** A durable reader (Consumer tailing a Partition; Remote_Source relaying a remote SSE
+stream) can hit a message that always fails downstream — a *poison* message. Two failure shapes
+exist, and they need opposite responses. A **caught throw** (the downstream `fill()` raised, we
+caught it) is deterministic and recoverable: we can retry it a bounded number of times and then set
+it aside. An **uncatchable death** (OOM / fatal / SIGKILL mid-forward) leaves no catch point; all we
+know on the next boot is that the attempt count at this cursor climbed with no reason stamped. Naively
+either (a) dropping a poison on first failure loses data we might have delivered after a transient
+blip, or (b) never advancing past it wedges the whole stream forever. Both shapes must converge on
+"make progress eventually, but only after honest retries, and never silently."
+
+**Decision:** A durable reader carries per-cursor attempt accounting in its offsetlog frame
+(`attempts`, `reason`, `first_crash_ts`); a respawn resumes at `attempts+1`. A graceful shutdown
+stamps `attempts=0` (a clean handoff → the respawn is virgin), so only a *stuck* cursor climbs.
+
+- **Caught-throw poison is strictly serialized.** The poison BLOCKS the head: nothing past it
+  forwards and the committed cursor freezes at the poison's own start, so each respawn re-pulls
+  exactly it and `attempts` climbs. At `COOP_MAX_ATTEMPTS` the message is `dead_letter()`ed (quarantined
+  to the `:deadletter` sibling for `wp nodes ingest` replay) and the quarantine is recorded durably
+  *at quarantine time* so an idle stream or a recycle can't re-pull-and-re-quarantine it. Remote_Source
+  can't compute the poison's byte END locally (SSE_In's cursor sits at a message's OWN start, and the
+  remote-log line length is unknown to the client — only the *next* message's ID reveals "past"), so
+  instead of deferring the advance to a hypothetical next message it commits a **`dlq` marker frame**
+  at the poison's offset: a respawn / reconnect re-pulls the poison once, recognizes the marked offset,
+  and DROPS it (no re-forward, no duplicate DLQ); the marker clears and the cursor advances the moment
+  a *later* message forwards past it. Forward progress before the threshold clears the streak — a
+  transient blip doesn't count against the message. (Consumer, which owns its byte cursor, advances
+  past directly; the `dlq`-marker indirection is Remote_Source-specific to the SSE-push model.)
+- **Uncatchable-death poison crawls.** Booting into an elevated attempt count with NO reason stamped
+  (and `>= CRASH_MAX_ATTEMPTS`) enters *crawl*: checkpoint after EVERY message so a re-crash pins the
+  exact culprit, attempts pinned at the threshold. Surviving `CHECKPOINT_INTERVAL_S` of crash-free
+  forward progress exits crawl back to the healthy baseline (`attempts=1`) and resumes coarse
+  checkpointing. Consumer additionally sacrifices its boot-cursor head on crawl entry (its per-line
+  drain model has an in-flight head to blame); Remote_Source's per-relayed-message model has none, so
+  it only isolates.
+
+The reusable core (`attempts` accounting, `record_poison_strike`, `resume_attempts_from_frame`,
+`crawl_interval_elapsed` / `exit_crawl`, `dead_letter`, the `CRASH_MAX_ATTEMPTS` / `COOP_MAX_ATTEMPTS`
+/ `CHECKPOINT_INTERVAL_S` thresholds) lives in `Dead_Letter_Queue`; each reader supplies its own
+read-loop shape (Consumer's buffer/line cursor vs Remote_Source's SSE-pushed `{seg,off}` cursor with a
+`poison_pos` block + an explicit advance-past on the next relay). Worker shutdown checkpoints BOTH:
+`Worker_Base::checkpoint_durable_consumers()` handles `Consumer_Node` (graceful / fair-shot) and now
+`Remote_Source_Node` (`checkpoint_shutdown()`), so a healthy remote cursor isn't lost each ~10-min
+recycle.
+
+**Alternatives considered:** Drop-on-first-failure — rejected (loses recoverable transient failures,
+no audit trail). Unbounded retry without quarantine — rejected (wedges the stream forever on a truly
+poison message). A single shared read loop for both readers — rejected: the buffer/line model and the
+SSE-push model genuinely differ, so only the *accounting/decision* logic is shared (forcing a common
+loop would couple two things split apart on purpose). Treating a Remote_Source caught-throw the way
+Consumer treats one (one-shot dead-letter) — rejected: across the SSE-pull model a downstream throw is
+often transient (a recycling spoke), so the fair-shot block-and-climb earns the message real retries
+before quarantine.
+
+**Consequences:** Poison can't wedge a durable stream and is never silently lost — every give-up
+emits a rate-limited `error_log` alert and (when configured) a replayable `:deadletter` entry. The
+cost is per-cursor offsetlog bookkeeping and, in crawl, per-message checkpoint I/O — bounded to the
+crash region by the interval-survival exit. Remote_Source's poison accounting is throw-driven (its
+`poison_pos` block), distinct from Consumer's boot-cursor cooperative-stop strikes; this is a
+deliberate, documented asymmetry, not an inconsistency.
+
+**Revisit if:** the shared trait surface starts carrying read-loop specifics (a sign the wrong thing
+was extracted — keep loops in the readers), or a third durable reader appears whose model fits neither
+shape (re-evaluate whether the trait split is still the right seam).

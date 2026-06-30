@@ -785,11 +785,12 @@ class ConsumerTimeTravelTest extends TestCase {
 		return \end( $segments )['id'];
 	}
 
-	/** Build one packed offsetlog record (the {seg,off,ts,...} VALUE) + trailing \n. */
+	/** Build one packed offsetlog record (the {seg,off,...} VALUE) + trailing \n. */
 	private function offset_record( int $seg, int $off, int $ts ): string {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = [ 'seg' => $seg, 'off' => $off, 'ts' => $ts, 'name' => 'r', 'cache' => [ 'big' => 'blob' ] ];
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = $ts;
+		$message[ Message::VALUE ]     = [ 'seg' => $seg, 'off' => $off, 'name' => 'r', 'cache' => [ 'big' => 'blob' ] ];
 		return Message::packed( $message ) . "\n";
 	}
 

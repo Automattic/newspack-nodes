@@ -341,7 +341,7 @@ class WorkersCITest extends TestCase {
 			}
 			public function read_probe_index(): array { return []; }
 			public function live_position( array $index, string $type, int $partition ): ?array {
-				return [ 'seg' => 0, 'off' => 100, 'ts' => 1747000000 ];
+				return [ 'seg' => 0, 'off' => 100 ];
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
@@ -361,7 +361,7 @@ class WorkersCITest extends TestCase {
 			public function ls_workers(): array {
 				return [
 					[ 'type' => 'demo-workers', 'partition' => 0 ],
-					[ 'type' => 'job-workers',                'partition' => 0 ],
+					[ 'type' => 'job-workers',  'partition' => 0 ],
 				];
 			}
 			public function read_probe_index(): array { return []; }
