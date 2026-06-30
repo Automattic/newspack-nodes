@@ -287,6 +287,183 @@ class Partition_Node extends Timer_Node {
 		$this->close_handle();
 	}
 
+	/**
+	 * Truncate the log AFTER a segment: delete every segment with id > $segment_id,
+	 * then reset the write state so the log resumes coherently FROM $segment_id —
+	 * the next rotate lands at $segment_id + 1, monotonic, no gap, no survivor
+	 * overwritten. No-op when $segment_id is the newest, past the newest, or absent.
+	 *
+	 * Backs the Consumer time-travel PLAY truncate-on-resume: after a rewind seek,
+	 * PLAY drops the now-stale forward frames before re-arming so the re-written
+	 * timeline stays monotonic. The OFFSETLOG only — never the source log.
+	 *
+	 * SINGLE-WRITER ONLY: safe solely on a private single-writer log (the consumer's
+	 * offsetlog, lifted via void_warranty() — no lock). An allow_large_writes()-locked
+	 * partition is a multi-writer-guarded SOURCE; truncating it races a peer append, so
+	 * this throws (mirroring allow_large_writes()'s fail-loud contract) rather than
+	 * corrupt the log. The lock — not the lifted cap — distinguishes the two.
+	 *
+	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
+	 * @throws \RuntimeException when the partition holds an exclusivity write_lock.
+	 */
+	public function truncate_after( int $segment_id ): void {
+		if ( null !== $this->write_lock ) {
+			throw new \RuntimeException(
+				\esc_html(
+					"Partition::truncate_after() refused at {$this->write_lock_path()}: this partition "
+					. 'holds an exclusivity write_lock (allow_large_writes), so it is a multi-writer-guarded '
+					. 'source — truncation is single-writer only (the consumer offsetlog).'
+				)
+			);
+		}
+		$segments = $this->get_segments( true );
+		$sizes    = \array_column( $segments, 'size', 'id' );
+		if ( ! isset( $sizes[ $segment_id ] ) ) {
+			return; // Absent or past the newest — nothing to truncate.
+		}
+
+		$survivors = [];
+		foreach ( $segments as $s ) {
+			if ( $s['id'] <= $segment_id ) {
+				$survivors[] = $s;
+				continue;
+			}
+			// Partition's segment directory is base_dir-relative — not WP-managed.
+			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+			@\unlink( $this->get_segment_path( $s['id'] ) );
+			@\unlink( $this->get_index_path( $s['id'] ) );
+			// phpcs:enable
+		}
+
+		$this->close_handle();
+		$this->current_segment_id = $segment_id;
+		$this->current_size       = $sizes[ $segment_id ];
+		$this->current_log_path   = $this->get_segment_path( $segment_id );
+		$this->current_idx_path   = $this->get_index_path( $segment_id );
+
+		// $survivors is built by appending in id order, so it is already a 0-indexed
+		// list matching get_segments()'s shape — no array_values() re-key needed.
+		$this->segments_cache      = $survivors;
+		$this->segments_cache_time = \microtime( true );
+	}
+
+	/** Close file handles + release write lock before normal Node teardown. */
+	public function remove_node(): void {
+		$this->close_handle();
+		if ( null !== $this->write_lock ) {
+			// Only release a lock we actually hold — in debounced mode another writer may
+			// own it right now, and releasing it would steal their exclusivity ([65]).
+			if ( $this->lock_held ) {
+				$this->write_lock->release();
+			}
+			$this->write_lock = null;
+		}
+		parent::remove_node();
+	}
+
+	/**
+	 * Lift the line-size limit to 10MB and acquire a Lock serializing cross-process writes.
+	 *
+	 * Requires name() and sink() to be set BEFORE this is called.
+	 *
+	 * @param int $max_wait_ms Lock acquisition timeout (ms).
+	 * @param int $debounce_ms 0 (default) = acquire the lock now and hold it for life.
+	 *                         > 0 = debounced mode: acquire lazily on each write burst and
+	 *                         release after this many ms of idle so other writers can take
+	 *                         turns ([65]). Lock acquisition is deferred to the first write.
+	 * @throws \RuntimeException when the lock cannot be acquired (hold mode).
+	 * @return self
+	 */
+	public function allow_large_writes( int $max_wait_ms = 65000, int $debounce_ms = 0 ): self {
+		$stale_timeout = 60;
+		$lock          = new Lock_Node( $this->write_lock_path(), $stale_timeout );
+
+		// Sibling: name (when the partition is named), keep the partition's own
+		// specific sink, and patron-link so dump_metadata hides it from the canvas.
+		if ( '' !== $this->name ) {
+			$lock->name( "{$this->name}:lock" );
+		}
+		$lock->sink( $this->sink );
+		$lock->patron( $this );
+
+		$this->allow_large_writes = true;
+		$this->write_lock         = $lock;
+		$this->lock_stale_timeout = $stale_timeout;
+		$this->lock_max_wait_ms   = $max_wait_ms;
+
+		if ( $debounce_ms > 0 ) {
+			// Debounced: don't acquire now — fill() grabs the lock per burst, fire() frees it.
+			$this->debounce_lock_ms = $debounce_ms;
+			return $this;
+		}
+
+		// Hold mode: acquire-and-hold for the partition's lifetime.
+		// Drain active: arm the heartbeat Timer. Request-scope: drive heartbeat from fill().
+		$ef_running = Event_Framework::instance()->is_running();
+
+		if ( ! $lock->acquire( $max_wait_ms ) ) {
+			throw new \RuntimeException(
+				\esc_html(
+					"Partition::allow_large_writes() failed to acquire write lock at "
+					. "{$this->write_lock_path()} after {$max_wait_ms}ms — another live writer holds it. "
+					. 'Two concurrent writers on the same Partition is unsupported.'
+				)
+			);
+		}
+
+		$this->lock_held           = true;
+		$this->last_lock_heartbeat = \microtime( true );
+
+		if ( $ef_running ) {
+			// Heartbeat cadence = stale_timeout/3 ms; three ticks per stale window.
+			$this->heartbeat_timer = new Timer_Node();
+			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
+			$this->heartbeat_timer->arguments( (string) \intdiv( $stale_timeout * 1000, 3 ) );
+			$this->heartbeat_timer->sink( $this->write_lock );
+			$this->heartbeat_timer->key( 'heartbeat' );
+			$this->heartbeat_timer->patron( $this );
+		}
+
+		return $this;
+	}
+
+	/**
+	 * Debounced mode: acquire the write lock for the current burst if we don't hold it,
+	 * re-syncing segment state from disk afterwards — another writer may have appended or
+	 * rotated while we held nothing, so the cached handle/segment/size are stale ([65]).
+	 *
+	 * @throws \RuntimeException when the lock can't be acquired within lock_max_wait_ms.
+	 */
+	private function ensure_debounced_lock(): void {
+		if ( $this->lock_held || null === $this->write_lock ) {
+			return;
+		}
+		if ( ! $this->write_lock->acquire( $this->lock_max_wait_ms ) ) {
+			throw new \RuntimeException(
+				\esc_html(
+					'Partition::allow_large_writes() (debounced) failed to acquire write lock at '
+					. "{$this->write_lock_path()} after {$this->lock_max_wait_ms}ms — another writer holds it."
+				)
+			);
+		}
+		$this->lock_held           = true;
+		$this->last_lock_heartbeat = \microtime( true );
+		// Drop cached position/handle: the live end on disk is authoritative now.
+		$this->close_handle();
+		$this->current_segment_id = null;
+		$this->segments_cache     = null;
+	}
+
+	/** Debounced mode: drain the batch, close the handle, and free the lock for other writers ([65]). */
+	private function release_debounced_lock(): void {
+		$this->flush();
+		$this->close_handle();
+		if ( null !== $this->write_lock ) {
+			$this->write_lock->release();
+		}
+		$this->lock_held = false;
+	}
+
 	/** Append $batch to the current segment, then write companion index entries with post-flush offsets. */
 	public function flush(): void {
 		if ( '' === $this->batch ) {
@@ -473,66 +650,6 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
-	/**
-	 * Truncate the log AFTER a segment: delete every segment with id > $segment_id,
-	 * then reset the write state so the log resumes coherently FROM $segment_id —
-	 * the next rotate lands at $segment_id + 1, monotonic, no gap, no survivor
-	 * overwritten. No-op when $segment_id is the newest, past the newest, or absent.
-	 *
-	 * Backs the Consumer time-travel PLAY truncate-on-resume: after a rewind seek,
-	 * PLAY drops the now-stale forward frames before re-arming so the re-written
-	 * timeline stays monotonic. The OFFSETLOG only — never the source log.
-	 *
-	 * SINGLE-WRITER ONLY: safe solely on a private single-writer log (the consumer's
-	 * offsetlog, lifted via void_warranty() — no lock). An allow_large_writes()-locked
-	 * partition is a multi-writer-guarded SOURCE; truncating it races a peer append, so
-	 * this throws (mirroring allow_large_writes()'s fail-loud contract) rather than
-	 * corrupt the log. The lock — not the lifted cap — distinguishes the two.
-	 *
-	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
-	 * @throws \RuntimeException when the partition holds an exclusivity write_lock.
-	 */
-	public function truncate_after( int $segment_id ): void {
-		if ( null !== $this->write_lock ) {
-			throw new \RuntimeException(
-				\esc_html(
-					"Partition::truncate_after() refused at {$this->write_lock_path()}: this partition "
-					. 'holds an exclusivity write_lock (allow_large_writes), so it is a multi-writer-guarded '
-					. 'source — truncation is single-writer only (the consumer offsetlog).'
-				)
-			);
-		}
-		$segments = $this->get_segments( true );
-		$sizes    = \array_column( $segments, 'size', 'id' );
-		if ( ! isset( $sizes[ $segment_id ] ) ) {
-			return; // Absent or past the newest — nothing to truncate.
-		}
-
-		$survivors = [];
-		foreach ( $segments as $s ) {
-			if ( $s['id'] <= $segment_id ) {
-				$survivors[] = $s;
-				continue;
-			}
-			// Partition's segment directory is base_dir-relative — not WP-managed.
-			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-			@\unlink( $this->get_segment_path( $s['id'] ) );
-			@\unlink( $this->get_index_path( $s['id'] ) );
-			// phpcs:enable
-		}
-
-		$this->close_handle();
-		$this->current_segment_id = $segment_id;
-		$this->current_size       = $sizes[ $segment_id ];
-		$this->current_log_path   = $this->get_segment_path( $segment_id );
-		$this->current_idx_path   = $this->get_index_path( $segment_id );
-
-		// $survivors is built by appending in id order, so it is already a 0-indexed
-		// list matching get_segments()'s shape — no array_values() re-key needed.
-		$this->segments_cache      = $survivors;
-		$this->segments_cache_time = \microtime( true );
-	}
-
 	/** Seam (Log overrides): mkdir-lock dir serializing multi-writer rotation. */
 	protected function rotate_lock_path(): string {
 		return "{$this->segment_dir()}/.rotate.lock.d";
@@ -655,20 +772,6 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
-	/** Close file handles + release write lock before normal Node teardown. */
-	public function remove_node(): void {
-		$this->close_handle();
-		if ( null !== $this->write_lock ) {
-			// Only release a lock we actually hold — in debounced mode another writer may
-			// own it right now, and releasing it would steal their exclusivity ([65]).
-			if ( $this->lock_held ) {
-				$this->write_lock->release();
-			}
-			$this->write_lock = null;
-		}
-		parent::remove_node();
-	}
-
 	protected function close_handle(): void {
 		if ( \is_resource( $this->fh ) ) {
 			@\fclose( $this->fh );
@@ -679,109 +782,6 @@ class Partition_Node extends Timer_Node {
 			@\fclose( $this->idx_fh );
 			$this->idx_fh = null;
 		}
-	}
-
-	/**
-	 * Lift the line-size limit to 10MB and acquire a Lock serializing cross-process writes.
-	 *
-	 * Requires name() and sink() to be set BEFORE this is called.
-	 *
-	 * @param int $max_wait_ms Lock acquisition timeout (ms).
-	 * @param int $debounce_ms 0 (default) = acquire the lock now and hold it for life.
-	 *                         > 0 = debounced mode: acquire lazily on each write burst and
-	 *                         release after this many ms of idle so other writers can take
-	 *                         turns ([65]). Lock acquisition is deferred to the first write.
-	 * @throws \RuntimeException when the lock cannot be acquired (hold mode).
-	 * @return self
-	 */
-	public function allow_large_writes( int $max_wait_ms = 65000, int $debounce_ms = 0 ): self {
-		$stale_timeout = 60;
-		$lock          = new Lock_Node( $this->write_lock_path(), $stale_timeout );
-
-		// Sibling: name (when the partition is named), keep the partition's own
-		// specific sink, and patron-link so dump_metadata hides it from the canvas.
-		if ( '' !== $this->name ) {
-			$lock->name( "{$this->name}:lock" );
-		}
-		$lock->sink( $this->sink );
-		$lock->patron( $this );
-
-		$this->allow_large_writes = true;
-		$this->write_lock         = $lock;
-		$this->lock_stale_timeout = $stale_timeout;
-		$this->lock_max_wait_ms   = $max_wait_ms;
-
-		if ( $debounce_ms > 0 ) {
-			// Debounced: don't acquire now — fill() grabs the lock per burst, fire() frees it.
-			$this->debounce_lock_ms = $debounce_ms;
-			return $this;
-		}
-
-		// Hold mode: acquire-and-hold for the partition's lifetime.
-		// Drain active: arm the heartbeat Timer. Request-scope: drive heartbeat from fill().
-		$ef_running = Event_Framework::instance()->is_running();
-
-		if ( ! $lock->acquire( $max_wait_ms ) ) {
-			throw new \RuntimeException(
-				\esc_html(
-					"Partition::allow_large_writes() failed to acquire write lock at "
-					. "{$this->write_lock_path()} after {$max_wait_ms}ms — another live writer holds it. "
-					. 'Two concurrent writers on the same Partition is unsupported.'
-				)
-			);
-		}
-
-		$this->lock_held           = true;
-		$this->last_lock_heartbeat = \microtime( true );
-
-		if ( $ef_running ) {
-			// Heartbeat cadence = stale_timeout/3 ms; three ticks per stale window.
-			$this->heartbeat_timer = new Timer_Node();
-			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
-			$this->heartbeat_timer->arguments( (string) \intdiv( $stale_timeout * 1000, 3 ) );
-			$this->heartbeat_timer->sink( $this->write_lock );
-			$this->heartbeat_timer->key( 'heartbeat' );
-			$this->heartbeat_timer->patron( $this );
-		}
-
-		return $this;
-	}
-
-	/**
-	 * Debounced mode: acquire the write lock for the current burst if we don't hold it,
-	 * re-syncing segment state from disk afterwards — another writer may have appended or
-	 * rotated while we held nothing, so the cached handle/segment/size are stale ([65]).
-	 *
-	 * @throws \RuntimeException when the lock can't be acquired within lock_max_wait_ms.
-	 */
-	private function ensure_debounced_lock(): void {
-		if ( $this->lock_held || null === $this->write_lock ) {
-			return;
-		}
-		if ( ! $this->write_lock->acquire( $this->lock_max_wait_ms ) ) {
-			throw new \RuntimeException(
-				\esc_html(
-					'Partition::allow_large_writes() (debounced) failed to acquire write lock at '
-					. "{$this->write_lock_path()} after {$this->lock_max_wait_ms}ms — another writer holds it."
-				)
-			);
-		}
-		$this->lock_held           = true;
-		$this->last_lock_heartbeat = \microtime( true );
-		// Drop cached position/handle: the live end on disk is authoritative now.
-		$this->close_handle();
-		$this->current_segment_id = null;
-		$this->segments_cache     = null;
-	}
-
-	/** Debounced mode: drain the batch, close the handle, and free the lock for other writers ([65]). */
-	private function release_debounced_lock(): void {
-		$this->flush();
-		$this->close_handle();
-		if ( null !== $this->write_lock ) {
-			$this->write_lock->release();
-		}
-		$this->lock_held = false;
 	}
 
 	/** Seam (Log overrides): per-writer exclusivity lock dir for allow_large_writes(). */

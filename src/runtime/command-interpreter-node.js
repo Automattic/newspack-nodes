@@ -119,15 +119,6 @@ export class CommandInterpreterNode extends Node {
 		this._commands = CommandInterpreterNode._defaultCommands();
 	}
 
-	// The verb table and the auth closure are internal machinery, not display state and
-	// not nodes (so the base instanceof filter wouldn't catch them) — mask them. [96]
-	dumpNode() {
-		const snapshot = super.dumpNode();
-		snapshot._commands = '{...}';
-		snapshot.authorize = '{...}';
-		return snapshot;
-	}
-
 	fill( message ) {
 		this.counter += 1;
 		const type = message[ TYPE ];
@@ -268,6 +259,15 @@ export class CommandInterpreterNode extends Node {
 			node.debugState = this.debugState;
 		}
 		return node;
+	}
+
+	// The verb table and the auth closure are internal machinery, not display state and
+	// not nodes (so the base instanceof filter wouldn't catch them) — mask them. [96]
+	dumpNode() {
+		const snapshot = super.dumpNode();
+		snapshot._commands = '{...}';
+		snapshot.authorize = '{...}';
+		return snapshot;
 	}
 
 	/**
