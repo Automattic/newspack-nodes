@@ -54,20 +54,6 @@ class Supervisor extends Supervisor_Base {
 		$this->nonce_salt = $nonce_salt;
 	}
 
-	/** HMAC spawn-token, rotating every 10s. Per-site, never logged. */
-	public function generate_spawn_token( int $now ): string {
-		$window = (int) \floor( $now / self::TOKEN_WINDOW_S );
-		return \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
-	}
-
-	/** Validate a token against the current AND previous window (don't tighten — straddle tolerance). */
-	public function validate_spawn_token( string $token, int $now ): bool {
-		$window   = (int) \floor( $now / self::TOKEN_WINDOW_S );
-		$current  = \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
-		$previous = \hash_hmac( 'sha256', "newspack_nodes_spawn:" . ( $window - 1 ), $this->nonce_salt );
-		return \hash_equals( $current, $token ) || \hash_equals( $previous, $token );
-	}
-
 	/**
 	 * Long-running tick loop (~595s, 1s ticks). Exits via max-runtime (self-respawns)
 	 * or check_config=false (logging disabled / lock stolen — no respawn).
@@ -107,6 +93,159 @@ class Supervisor extends Supervisor_Base {
 			$lock->release();
 			$this->own_lock = null;
 			$this->spawn_next_supervisor();
+		}
+	}
+
+	/**
+	 * Reload config + rebuild worker_locks from current filter values.
+	 *
+	 * @return bool False if the supervisor should exit (logging disabled / no topologies).
+	 */
+	public function check_config( float $now ): bool {
+		$this->last_config_check = $now;
+
+		// Refresh per-process option snapshots so operator changes land on the next 15s tick.
+		Config::invalidate_options_cache();
+		Config::reset();
+
+		if ( ! Bootstrap::is_supervisor_enabled() ) {
+			return false;
+		}
+
+		$workers = Bootstrap::expand_workers();
+
+		// No topologies → no work; exit so the cron skips until config changes.
+		if ( empty( $workers ) ) {
+			// Whole fleet deactivated at once: drain running workers so they exit now (reconcile bails on an empty set); cold start drains nothing.
+			if ( ! empty( $this->active_types ) ) {
+				$this->drain_all_workers();
+			}
+			return false;
+		}
+
+		// Refuse a write-conflicting active set (two topologies writing the same
+		// log/offsetlog). The activate verb rejects conflicts before persisting, but
+		// a config-FILE override bypasses that — better no workers than two fleets
+		// corrupting one partition. Exit loudly; the cron retries each minute.
+		$active    = \array_values( \array_unique( \array_column( $workers, 'type' ) ) );
+		$conflicts = Topology_Registry::find_conflicts( $active );
+		if ( ! empty( $conflicts ) ) {
+			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
+			return false;
+		}
+
+		// Active fleet table: type => max-partition-count (per-type sizing from TSL frontmatter).
+		$new_types = [];
+		foreach ( $workers as $w ) {
+			$new_types[ $w['type'] ] = \max(
+				$new_types[ $w['type'] ] ?? 0,
+				$w['partition'] + 1
+			);
+		}
+
+		// Defer first spawn of newly-added types so a predecessor can flush. Skipped on cold start.
+		if ( ! empty( $this->active_types ) ) {
+			$added = \array_diff_key( $new_types, $this->active_types );
+			foreach ( \array_keys( $added ) as $type ) {
+				$this->spawn_after[ $type ] = $now + self::NEW_TYPE_SPAWN_DELAY_S;
+			}
+		}
+		$this->active_types = $new_types;
+		$this->worker_locks = $workers;
+
+		// Reconcile on-disk lock dirs against the active fleet (removed topology, shrunk count, orphans).
+		$this->reconcile_lock_dirs();
+
+		return true;
+	}
+
+	/**
+	 * Flag every worker lock dir for restart when the whole fleet is deactivated.
+	 *
+	 * reconcile_lock_dirs() bails on an empty active set, so this is the drain path
+	 * for "all topologies off". The `.p<N>` shape naturally excludes supervisor.lock.d.
+	 */
+	private function drain_all_workers(): void {
+		$locks_dir = "{$this->base_dir}/locks";
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		$candidates = \glob( $locks_dir . '/*.p*.lock.d', \GLOB_ONLYDIR );
+		if ( empty( $candidates ) ) {
+			return;
+		}
+		foreach ( $candidates as $path ) {
+			$base = \basename( $path, '.lock.d' );
+			if ( ! \preg_match( '/\.p\d+$/', $base ) ) {
+				continue;
+			}
+			if ( \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
+				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
+				continue;
+			}
+			Lock_Node::request_restart_at( $path );
+		}
+	}
+
+	/**
+	 * Reconcile every on-disk `*.lock.d` against the active fleet (state-free).
+	 *
+	 * Order matters: remove_stale_directory must run BEFORE request_restart_at or the fresh mtime blocks removal.
+	 */
+	public function reconcile_lock_dirs(): void {
+		if ( empty( $this->active_types ) ) {
+			// Cold start: without a known fleet every dir would be reaped as an orphan.
+			return;
+		}
+		$locks_dir = "{$this->base_dir}/locks";
+		$this->reap_steal_scratch_dirs( $locks_dir );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		$candidates = \glob( $locks_dir . '/*.lock.d' );
+		if ( empty( $candidates ) ) {
+			return;
+		}
+		foreach ( $candidates as $path ) {
+			$base = \basename( $path, '.lock.d' );
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $base, $m ) ) {
+				// Non-partitioned dir (e.g. supervisor.lock.d) — leave alone.
+				continue;
+			}
+			$type           = $m[1];
+			$partition      = (int) $m[2];
+			$max_partitions = $this->active_types[ $type ] ?? 0;
+			if ( $partition < $max_partitions ) {
+				// In fleet — leave alone.
+				continue;
+			}
+			$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
+			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
+				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
+				Lock_Node::request_restart_at( $path );
+			}
+		}
+	}
+
+	/**
+	 * Reap leaked `*.lock.d.stealing.*` scratch dirs from Lock_Node's atomic
+	 * steal. A normal steal removes its scratch dir in two syscalls; a process
+	 * killed in that window leaks one, and nothing else reaps it. Only sweep
+	 * dirs older than STALE_TIMEOUT — far beyond any in-flight steal — so a live
+	 * takeover is never reaped out from under itself.
+	 *
+	 * @param string $locks_dir Absolute path to the locks/ directory.
+	 */
+	private function reap_steal_scratch_dirs( string $locks_dir ): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		$scratch = \glob( $locks_dir . '/*.lock.d.stealing.*', \GLOB_ONLYDIR );
+		if ( empty( $scratch ) ) {
+			return;
+		}
+		$cutoff = \time() - Lock_Node::STALE_TIMEOUT;
+		foreach ( $scratch as $path ) {
+			\clearstatcache( true, $path );
+			$mtime = @\filemtime( $path );
+			if ( false === $mtime || $mtime > $cutoff ) {
+				continue; // Unreadable or possibly an in-flight steal — leave it.
+			}
+			Supervisor_Base::delete_directory_recursive( $path, $locks_dir );
 		}
 	}
 
@@ -179,157 +318,10 @@ class Supervisor extends Supervisor_Base {
 		}
 	}
 
-	/**
-	 * Reload config + rebuild worker_locks from current filter values.
-	 *
-	 * @return bool False if the supervisor should exit (logging disabled / no topologies).
-	 */
-	public function check_config( float $now ): bool {
-		$this->last_config_check = $now;
-
-		// Refresh per-process option snapshots so operator changes land on the next 15s tick.
-		Config::invalidate_options_cache();
-		Config::reset();
-
-		if ( ! Bootstrap::is_supervisor_enabled() ) {
-			return false;
-		}
-
-		$workers = Bootstrap::expand_workers();
-
-		// No topologies → no work; exit so the cron skips until config changes.
-		if ( empty( $workers ) ) {
-			// Whole fleet deactivated at once: drain running workers so they exit now (reconcile bails on an empty set); cold start drains nothing.
-			if ( ! empty( $this->active_types ) ) {
-				$this->drain_all_workers();
-			}
-			return false;
-		}
-
-		// Refuse a write-conflicting active set (two topologies writing the same
-		// log/offsetlog). The activate verb rejects conflicts before persisting, but
-		// a config-FILE override bypasses that — better no workers than two fleets
-		// corrupting one partition. Exit loudly; the cron retries each minute.
-		$active    = \array_values( \array_unique( \array_column( $workers, 'type' ) ) );
-		$conflicts = Topology_Registry::find_conflicts( $active );
-		if ( ! empty( $conflicts ) ) {
-			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
-			return false;
-		}
-
-		// Active fleet table: type => max-partition-count (per-type sizing from TSL frontmatter).
-		$new_types = [];
-		foreach ( $workers as $w ) {
-			$new_types[ $w['type'] ] = \max(
-				$new_types[ $w['type'] ] ?? 0,
-				$w['partition'] + 1
-			);
-		}
-
-		// Defer first spawn of newly-added types so a predecessor can flush. Skipped on cold start.
-		if ( ! empty( $this->active_types ) ) {
-			$added = \array_diff_key( $new_types, $this->active_types );
-			foreach ( \array_keys( $added ) as $type ) {
-				$this->spawn_after[ $type ] = $now + self::NEW_TYPE_SPAWN_DELAY_S;
-			}
-		}
-		$this->active_types = $new_types;
-		$this->worker_locks = $workers;
-
-		// Reconcile on-disk lock dirs against the active fleet (removed topology, shrunk count, orphans).
-		$this->reconcile_lock_dirs();
-
-		return true;
-	}
-
-	/**
-	 * Reconcile every on-disk `*.lock.d` against the active fleet (state-free).
-	 *
-	 * Order matters: remove_stale_directory must run BEFORE request_restart_at or the fresh mtime blocks removal.
-	 */
-	public function reconcile_lock_dirs(): void {
-		if ( empty( $this->active_types ) ) {
-			// Cold start: without a known fleet every dir would be reaped as an orphan.
-			return;
-		}
-		$locks_dir = "{$this->base_dir}/locks";
-		$this->reap_steal_scratch_dirs( $locks_dir );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		$candidates = \glob( $locks_dir . '/*.lock.d' );
-		if ( empty( $candidates ) ) {
-			return;
-		}
-		foreach ( $candidates as $path ) {
-			$base = \basename( $path, '.lock.d' );
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $base, $m ) ) {
-				// Non-partitioned dir (e.g. supervisor.lock.d) — leave alone.
-				continue;
-			}
-			$type           = $m[1];
-			$partition      = (int) $m[2];
-			$max_partitions = $this->active_types[ $type ] ?? 0;
-			if ( $partition < $max_partitions ) {
-				// In fleet — leave alone.
-				continue;
-			}
-			$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
-			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
-				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
-				Lock_Node::request_restart_at( $path );
-			}
-		}
-	}
-
-	/**
-	 * Flag every worker lock dir for restart when the whole fleet is deactivated.
-	 *
-	 * reconcile_lock_dirs() bails on an empty active set, so this is the drain path
-	 * for "all topologies off". The `.p<N>` shape naturally excludes supervisor.lock.d.
-	 */
-	private function drain_all_workers(): void {
-		$locks_dir = "{$this->base_dir}/locks";
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		$candidates = \glob( $locks_dir . '/*.p*.lock.d', \GLOB_ONLYDIR );
-		if ( empty( $candidates ) ) {
-			return;
-		}
-		foreach ( $candidates as $path ) {
-			$base = \basename( $path, '.lock.d' );
-			if ( ! \preg_match( '/\.p\d+$/', $base ) ) {
-				continue;
-			}
-			if ( \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
-				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
-				continue;
-			}
-			Lock_Node::request_restart_at( $path );
-		}
-	}
-
-	/**
-	 * Reap leaked `*.lock.d.stealing.*` scratch dirs from Lock_Node's atomic
-	 * steal. A normal steal removes its scratch dir in two syscalls; a process
-	 * killed in that window leaks one, and nothing else reaps it. Only sweep
-	 * dirs older than STALE_TIMEOUT — far beyond any in-flight steal — so a live
-	 * takeover is never reaped out from under itself.
-	 *
-	 * @param string $locks_dir Absolute path to the locks/ directory.
-	 */
-	private function reap_steal_scratch_dirs( string $locks_dir ): void {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		$scratch = \glob( $locks_dir . '/*.lock.d.stealing.*', \GLOB_ONLYDIR );
-		if ( empty( $scratch ) ) {
-			return;
-		}
-		$cutoff = \time() - Lock_Node::STALE_TIMEOUT;
-		foreach ( $scratch as $path ) {
-			\clearstatcache( true, $path );
-			$mtime = @\filemtime( $path );
-			if ( false === $mtime || $mtime > $cutoff ) {
-				continue; // Unreadable or possibly an in-flight steal — leave it.
-			}
-			Supervisor_Base::delete_directory_recursive( $path, $locks_dir );
-		}
+	/** HMAC spawn-token, rotating every 10s. Per-site, never logged. */
+	public function generate_spawn_token( int $now ): string {
+		$window = (int) \floor( $now / self::TOKEN_WINDOW_S );
+		return \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
 	}
 
 	/** Reap ipc dirs for workers no longer in the fleet (a live worker's lock defers its own). */
@@ -349,66 +341,6 @@ class Supervisor extends Supervisor_Base {
 			}
 			Supervisor_Base::delete_directory_recursive( $dir, $this->base_dir );
 		}
-	}
-
-	/**
-	 * Drop restart flags for a list of worker groups (plugins call this on deactivation).
-	 *
-	 * @param string[] $groups Group names to kill.
-	 */
-	public function kill_readers( array $groups ): void {
-		$workers = Bootstrap::expand_workers();
-		$counts  = [];
-		foreach ( $workers as $w ) {
-			$counts[ $w['type'] ] = \max( $counts[ $w['type'] ] ?? 0, $w['partition'] + 1 );
-		}
-
-		$locks_dir = "{$this->base_dir}/locks";
-		foreach ( $groups as $name ) {
-			// Fall back to MAX_PARTITIONS for types no longer in topology, to clear orphans.
-			$count = $counts[ $name ] ?? self::MAX_PARTITIONS;
-			$count = \min( self::MAX_PARTITIONS, \max( 1, $count ) );
-			for ( $p = 0; $p < $count; $p++ ) {
-				$lock_path = "{$locks_dir}/{$name}.p{$p}.lock.d";
-				if ( \is_dir( $lock_path ) ) {
-					// Restart channel, not force_release (which a worker reads as a stolen lock).
-					Lock_Node::request_restart_at( $lock_path );
-				}
-			}
-		}
-	}
-
-	/**
-	 * Spawn every partition of one fleet NOW (don't wait for the reconcile tick).
-	 *
-	 * Symmetric with kill_readers() (immediate drain). The caller must have
-	 * already added $name to the active set so each worker's self_respawn is
-	 * accepted by Spawn_Controller. Reuses the tick loop's spawn token + post path.
-	 *
-	 * @param string $name Topology / worker type.
-	 * @return int Number of partitions spawned.
-	 */
-	public function spawn_fleet( string $name ): int {
-		// Defense-in-depth behind the activate verb: refuse to put a second fleet
-		// on a log/offsetlog a peer already owns. Phrased like check_config.
-		$active    = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
-		$conflicts = Topology_Registry::find_conflicts( $active );
-		if ( ! empty( $conflicts ) ) {
-			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn_fleet — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
-			return 0;
-		}
-
-		$token     = $this->generate_spawn_token( \time() );
-		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
-		$count     = 0;
-		foreach ( Bootstrap::expand_workers() as $worker ) {
-			if ( $worker['type'] !== $name ) {
-				continue;
-			}
-			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
-			++$count;
-		}
-		return $count;
 	}
 
 	/**
@@ -476,6 +408,74 @@ class Supervisor extends Supervisor_Base {
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * Spawn every partition of one fleet NOW (don't wait for the reconcile tick).
+	 *
+	 * Symmetric with kill_readers() (immediate drain). The caller must have
+	 * already added $name to the active set so each worker's self_respawn is
+	 * accepted by Spawn_Controller. Reuses the tick loop's spawn token + post path.
+	 *
+	 * @param string $name Topology / worker type.
+	 * @return int Number of partitions spawned.
+	 */
+	public function spawn_fleet( string $name ): int {
+		// Defense-in-depth behind the activate verb: refuse to put a second fleet
+		// on a log/offsetlog a peer already owns. Phrased like check_config.
+		$active    = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
+		$conflicts = Topology_Registry::find_conflicts( $active );
+		if ( ! empty( $conflicts ) ) {
+			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn_fleet — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
+			return 0;
+		}
+
+		$token     = $this->generate_spawn_token( \time() );
+		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
+		$count     = 0;
+		foreach ( Bootstrap::expand_workers() as $worker ) {
+			if ( $worker['type'] !== $name ) {
+				continue;
+			}
+			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
+			++$count;
+		}
+		return $count;
+	}
+
+	/** Validate a token against the current AND previous window (don't tighten — straddle tolerance). */
+	public function validate_spawn_token( string $token, int $now ): bool {
+		$window   = (int) \floor( $now / self::TOKEN_WINDOW_S );
+		$current  = \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
+		$previous = \hash_hmac( 'sha256', "newspack_nodes_spawn:" . ( $window - 1 ), $this->nonce_salt );
+		return \hash_equals( $current, $token ) || \hash_equals( $previous, $token );
+	}
+
+	/**
+	 * Drop restart flags for a list of worker groups (plugins call this on deactivation).
+	 *
+	 * @param string[] $groups Group names to kill.
+	 */
+	public function kill_readers( array $groups ): void {
+		$workers = Bootstrap::expand_workers();
+		$counts  = [];
+		foreach ( $workers as $w ) {
+			$counts[ $w['type'] ] = \max( $counts[ $w['type'] ] ?? 0, $w['partition'] + 1 );
+		}
+
+		$locks_dir = "{$this->base_dir}/locks";
+		foreach ( $groups as $name ) {
+			// Fall back to MAX_PARTITIONS for types no longer in topology, to clear orphans.
+			$count = $counts[ $name ] ?? self::MAX_PARTITIONS;
+			$count = \min( self::MAX_PARTITIONS, \max( 1, $count ) );
+			for ( $p = 0; $p < $count; $p++ ) {
+				$lock_path = "{$locks_dir}/{$name}.p{$p}.lock.d";
+				if ( \is_dir( $lock_path ) ) {
+					// Restart channel, not force_release (which a worker reads as a stolen lock).
+					Lock_Node::request_restart_at( $lock_path );
+				}
+			}
+		}
 	}
 
 	/** @api Test hook: install the supervisor's own lock without entering the run loop. */
