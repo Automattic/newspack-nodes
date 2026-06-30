@@ -156,6 +156,32 @@ class CliTest extends TestCase {
 		$cli->attach_to_worker( 'typo-bad-name.p0' );
 	}
 
+	public function test_no_worker_message_uses_literal_quotes_not_html_entities(): void {
+		// This is a terminal error, so it must read  no worker 'x.p0'  — not the
+		// HTML-escaped  no worker &#039;x.p0&#039;  that esc_html() produced.
+		$cli = new CLI( $this->tmp );
+		try {
+			$cli->attach_to_worker( 'typo-bad-name.p0' );
+			$this->fail( 'expected InvalidArgumentException' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( "'typo-bad-name.p0'", $e->getMessage() );
+			$this->assertStringNotContainsString( '&#039;', $e->getMessage() );
+		}
+	}
+
+	public function test_attach_to_worker_strips_control_chars_from_echoed_id(): void {
+		// An untrusted id can't smuggle an ANSI/escape sequence into the terminal:
+		// control bytes are stripped from the echoed id, printable text kept.
+		$cli = new CLI( $this->tmp );
+		try {
+			$cli->attach_to_worker( "ev\x1b[31mil.p0" );
+			$this->fail( 'expected InvalidArgumentException' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringNotContainsString( "\x1b", $e->getMessage(), 'ESC byte stripped' );
+			$this->assertStringContainsString( '.p0', $e->getMessage() );
+		}
+	}
+
 	public function test_attach_to_worker_propagates_invalid_argument(): void {
 		$cli = new CLI( $this->tmp );
 		$this->expectException( \InvalidArgumentException::class );

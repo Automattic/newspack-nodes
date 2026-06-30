@@ -29,7 +29,8 @@ class CLI {
 		$lock_dir             = "{$this->base_dir}/locks/{$worker_id}.lock.d";
 		if ( ! \is_dir( $lock_dir ) ) {
 			throw new \InvalidArgumentException(
-				\esc_html( "no worker '{$worker_id}' (run `wp nodes ls` to list active workers)" )
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would render the quotes as &#039;.
+				"no worker '" . self::cli_safe( $worker_id ) . "' (run `wp nodes ls` to list active workers)"
 			);
 		}
 		return [
@@ -49,9 +50,21 @@ class CLI {
 	 */
 	public static function parse_worker_id( string $worker_id ): array {
 		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $worker_id, $m ) ) {
-			throw new \InvalidArgumentException( \esc_html( "invalid reader id: $worker_id (expected {type}.p{N})" ) );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would mangle the text.
+			throw new \InvalidArgumentException( 'invalid reader id: ' . self::cli_safe( $worker_id ) . ' (expected {type}.p{N})' );
 		}
 		return [ $m[1], (int) $m[2] ];
+	}
+
+	/**
+	 * Make an untrusted worker id safe to echo in a TERMINAL error message:
+	 * strip C0 control characters + DEL so a crafted id can't inject an ANSI /
+	 * escape sequence, while keeping the printable text and the message's literal
+	 * quotes. This is terminal sanitization, not HTML output — esc_html() is the
+	 * wrong tool here (it renders `'` as `&#039;` in the shell).
+	 */
+	private static function cli_safe( string $worker_id ): string {
+		return (string) \preg_replace( '/[\x00-\x1F\x7F]/', '', $worker_id );
 	}
 
 	/**

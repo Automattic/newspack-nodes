@@ -203,6 +203,53 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( 'help', $message[ Message::VALUE ]['name'] );
 	}
 
+	public function test_server_restamps_timestamp_so_client_clock_skew_still_verifies(): void {
+		// A browser mints a command stamped with ITS OWN wall clock. If the client is
+		// 20+s skewed from the server, signing that client timestamp would blow the
+		// Command_Auth freshness window and silently reject every dashboard command.
+		// HTTP_In restamps TIMESTAMP to the server clock (Core::$now) right before
+		// Command_Auth::sign() — the ingress/sign moment — so a skewed command still verifies.
+		$base_interpreter = $this->build_graph();
+		$echo             = new Command_Interpreter_Node();
+		$echo->name( 'echo_service' );
+		$echo->sink( $base_interpreter );
+		$ran = [];
+		$echo->commands(
+			[
+				'echo' => static function ( $self, $args ) use ( &$ran ): string {
+					$ran[] = $args;
+					return "got: {$args}";
+				},
+			]
+		);
+
+		// Client clock an hour behind the server — far outside the freshness window.
+		$stale                       = Message::new_message();
+		$stale[ Message::TYPE ]      = Message::TM_COMMAND;
+		$stale[ Message::TIMESTAMP ] = (int) Core::$now - 3600;
+		$stale[ Message::TO ]        = 'echo_service';
+		$stale[ Message::FROM ]      = '_http';
+		$stale[ Message::ID ]        = 'cmd-skew';
+		$stale[ Message::VALUE ]     = [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ];
+
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $stale ) );
+		$req->set_header( 'content-type', 'application/json' );
+
+		$ctrl = new HTTP_In_Node();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = (string) \ob_get_clean();
+
+		// The verifier accepted the server-restamped command → echo ran and replied.
+		$this->assertSame( [ 'hi' ], $ran, 'the client-skewed command must verify after the server restamp' );
+		$this->assertNotSame( '', $body );
+		$message = Message::unpacked( $body );
+		$this->assertSame( 'cmd-skew', $message[ Message::ID ] );
+		$this->assertSame( 'got: hi', $message[ Message::VALUE ]['payload'] );
+	}
+
 	public function test_dispatch_routes_a_batch_of_messages_in_order(): void {
 		// A request body that is a LIST of packed Messages (not a single one)
 		// dispatches each in order through the one request graph. This is what

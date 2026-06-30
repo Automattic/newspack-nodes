@@ -35,7 +35,10 @@ class HookNodeTest extends TestCase {
 		// The filter receives the VALUE ('payload') and returns a list.
 		\add_filter( 'eln_hook_list', static fn( $value ) => [ 'a', 'b', 'c' ] );
 
-		$message = [ Message::TM_BYTESTREAM, 0.0, 'from', '', 0, '', 'payload' ];
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = 'from';
+		$message[ Message::VALUE ] = 'payload';
 		$node->fill( $message );
 
 		$this->assertSame( [ 'a', 'b', 'c' ], $message[ Message::VALUE ], 'A list return becomes the new VALUE.' );
@@ -51,7 +54,10 @@ class HookNodeTest extends TestCase {
 
 		\add_filter( 'eln_hook_scalar', static fn( $value ) => 'transformed' );
 
-		$message = [ Message::TM_STRUCT, 0.0, 'from', '', 0, '', [ 'k' => 'v' ] ];
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::FROM ]  = 'from';
+		$message[ Message::VALUE ] = [ 'k' => 'v' ];
 		$node->fill( $message );
 
 		$this->assertSame( 'transformed', $message[ Message::VALUE ], 'A scalar return becomes the new VALUE.' );
@@ -67,7 +73,10 @@ class HookNodeTest extends TestCase {
 		// An associative (non-list) array is not structured-list data.
 		\add_filter( 'eln_hook_assoc', static fn( $value ) => [ 'not' => 'a list' ] );
 
-		$message = [ Message::TM_BYTESTREAM, 0.0, 'from', '', 0, '', 'payload' ];
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = 'from';
+		$message[ Message::VALUE ] = 'payload';
 		$node->fill( $message );
 
 		$this->assertSame( [ 'not' => 'a list' ], $message[ Message::VALUE ] );

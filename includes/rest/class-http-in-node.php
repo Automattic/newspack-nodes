@@ -218,6 +218,13 @@ class HTTP_In_Node extends Node {
 			// when the graph was pre-built, the registered `_output` node is a DIFFERENT
 			// instance and $this is unnamed.
 			$this->stamp_message( $message, Node_Names::OUTPUT );
+			// Re-anchor freshness to the SERVER clock at the ingress/sign moment. The
+			// browser minted this command with ITS wall clock; signing that timestamp
+			// would make the downstream freshness window depend on client↔server clock
+			// skew (>20s silently rejects every dashboard command). This is the sign
+			// moment, not transit re-stamping — the signature covers TIMESTAMP, so set
+			// it immediately before Command_Auth::sign().
+			$message[ Message::TIMESTAMP ] = (int) Core::$now;
 			// WP already authenticated this request (permission_callback:
 			// manage_options). Sign command provenance on the browser's behalf so
 			// downstream verifier interpreters (request-scope + worker) accept it; the
