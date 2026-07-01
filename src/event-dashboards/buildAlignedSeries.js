@@ -1,23 +1,44 @@
 /**
  * buildAlignedSeries — turn `topicChartSeries` output into the draw-ready model
- * for the d3 Topics charts: rank topics by peak, align them onto ONE shared,
- * sorted date axis (the union of every topic's sample instants; gaps → 0), and
- * DOWNSAMPLE that axis when it's denser than the chart can show.
+ * for the d3 Topics charts: rank topics by peak, then snap every topic onto ONE
+ * shared, epoch-aligned time-bucket grid and fill each bucket per the metric's
+ * mode.
  *
- * Why downsample: the probe retains ~24h of samples — tens of thousands of
- * points per topic. Aligned across ~13 topics that is hundreds of thousands of
- * vertices, and the d3 area paths (curveMonotoneX) then carry ~1MB of `d` data
- * EACH, ~100ms to redraw, three charts — the whole reason the Overview thrashed
- * at single-digit FPS. A chart is ~1800px wide, so anything past ~1k points is
- * sub-pixel anyway. We bucket the union by index into at most `maxPoints` slots
- * and take the MAX value per bucket per topic, so spikes survive the squeeze.
+ * Why a bucket GRID, not the raw union of sample instants: each worker process
+ * runs its own TopicProbe sweeping on an independent 15s phase, so topics in
+ * different processes emit their samples at OFFSET instants. Merging on the raw
+ * union then leaves every topic with a gap at every OTHER topic's instant — and
+ * a `?? 0` gap-fill turns a LEVEL gauge (backlog/cacheSize) into a [3MB,0,3MB,0…]
+ * sawtooth under curveMonotoneX. Flooring each sample to `floor(ts/bucket)*bucket`
+ * lands two 15s-out-of-phase sweeps in the SAME bucket, so the topics share one
+ * axis with no interleaved-instant gaps.
  *
- * @param {?Object} series    `{ [topic]: { points:[{ts,value}], max, avg } }` (ts in seconds).
- * @param {number}  maxPoints Hard cap on the rendered axis length.
+ * Fill mode (from the call site, never inferred here by metric name):
+ *   - LEVEL (`fill:'hold'`, `agg:'last'`): a bucket keeps its latest-ts value;
+ *     an empty bucket carries the topic's last known value forward (0 before the
+ *     topic's first sample). A smooth decline stays smooth.
+ *   - RATE (`fill:'zero'`, `agg:'max'`): a bucket keeps its peak; an empty bucket
+ *     is 0. Spikes survive, gaps read as no-flow.
+ *
+ * Bucket width is the probe interval (15s) by default, widened only enough to
+ * keep the axis at or under `maxPoints` — a panel is ~1800px wide, so a denser
+ * axis is sub-pixel anyway, and the cap is what keeps the d3 redraw cheap.
+ *
+ * @param {?Object} series      `{ [topic]: { points:[{ts,value}], max, avg } }` (ts in seconds).
+ * @param {number}  maxPoints   Hard cap on the rendered axis length (<=0 disables the cap).
+ * @param {Object}  [mode]      Fill/aggregate mode (see `fillModeForMetric`).
+ * @param {string}  [mode.fill] `'hold'` (carry forward) or `'zero'` (default).
+ * @param {string}  [mode.agg]  `'last'` (latest-ts in bucket) or `'max'` (default).
  * @return {{ series: Array<{label:string, values:Array<{date:Date,value:number}>}>, dates: Date[] }}
- *   Ranked, axis-aligned (and capped) topics plus the shared date axis.
+ *   Ranked, grid-aligned topics plus the shared date axis (each date is the bucket instant).
  */
-export function buildAlignedSeries( series, maxPoints ) {
+const BUCKET_BASE_S = 15;
+
+export function buildAlignedSeries(
+	series,
+	maxPoints,
+	{ fill = 'zero', agg = 'max' } = {}
+) {
 	const ranked = Object.keys( series || {} )
 		.map( ( key ) => ( { key, ...series[ key ] } ) )
 		.filter( ( s ) => ( s.points || [] ).length > 0 )
@@ -27,50 +48,69 @@ export function buildAlignedSeries( series, maxPoints ) {
 		return { series: [], dates: [] };
 	}
 
-	const tsSet = new Set();
-	ranked.forEach( ( s ) => s.points.forEach( ( p ) => tsSet.add( p.ts ) ) );
-	const tsList = [ ...tsSet ].sort( ( a, b ) => a - b );
-	const maps = ranked.map(
-		( s ) => new Map( s.points.map( ( p ) => [ p.ts, p.value ] ) )
+	let minTs = Infinity;
+	let maxTs = -Infinity;
+	ranked.forEach( ( s ) =>
+		s.points.forEach( ( p ) => {
+			if ( p.ts < minTs ) {
+				minTs = p.ts;
+			}
+			if ( p.ts > maxTs ) {
+				maxTs = p.ts;
+			}
+		} )
 	);
 
-	// Contiguous index buckets over the sorted union; 1 → no downsampling.
-	const bucketSize =
-		maxPoints > 0 ? Math.ceil( tsList.length / maxPoints ) : 1;
-
-	if ( bucketSize <= 1 ) {
-		const dates = tsList.map( ( ts ) => new Date( ts * 1000 ) );
-		const aligned = ranked.map( ( s, si ) => ( {
-			label: s.key,
-			values: tsList.map( ( ts, i ) => ( {
-				date: dates[ i ],
-				value: maps[ si ].get( ts ) ?? 0,
-			} ) ),
-		} ) );
-		return { series: aligned, dates };
+	// Widen the bucket past 15s only when the window's 15s grid would overflow the
+	// cap; `maxPoints - 2` reserves for the inclusive endpoint plus grid-alignment
+	// slop, guaranteeing the emitted grid never exceeds `maxPoints`.
+	const windowSec = maxTs - minTs;
+	let bucketSec = BUCKET_BASE_S;
+	if ( maxPoints > 0 ) {
+		const denom = Math.max( 1, maxPoints - 2 );
+		bucketSec = Math.max( BUCKET_BASE_S, Math.ceil( windowSec / denom ) );
 	}
 
-	// Each bucket keeps its latest instant as the x position; its y is the topic's
-	// peak across the bucket (rates/backlog are non-negative, so 0 is the floor).
-	const bounds = [];
+	const bucketOf = ( ts ) => Math.floor( ts / bucketSec ) * bucketSec;
+	const minBucket = bucketOf( minTs );
+	const maxBucket = bucketOf( maxTs );
+	const buckets = [];
 	const dates = [];
-	for ( let start = 0; start < tsList.length; start += bucketSize ) {
-		const end = Math.min( start + bucketSize, tsList.length );
-		bounds.push( [ start, end ] );
-		dates.push( new Date( tsList[ end - 1 ] * 1000 ) );
+	for ( let b = minBucket; b <= maxBucket; b += bucketSec ) {
+		buckets.push( b );
+		dates.push( new Date( b * 1000 ) );
 	}
-	const aligned = ranked.map( ( s, si ) => ( {
-		label: s.key,
-		values: bounds.map( ( [ start, end ], bi ) => {
-			let peak = 0;
-			for ( let i = start; i < end; i++ ) {
-				const v = maps[ si ].get( tsList[ i ] ) ?? 0;
-				if ( v > peak ) {
-					peak = v;
-				}
+
+	const hold = 'hold' === fill;
+	const last = 'last' === agg;
+	const aligned = ranked.map( ( s ) => {
+		// Per bucket, keep either the latest-ts sample (LEVEL) or the peak (RATE).
+		const acc = new Map();
+		for ( const p of s.points ) {
+			const b = bucketOf( p.ts );
+			const cur = acc.get( b );
+			const wins = last
+				? ! cur || p.ts >= cur.ts
+				: ! cur || p.value > cur.value;
+			if ( wins ) {
+				acc.set( b, { value: p.value, ts: p.ts } );
 			}
-			return { date: dates[ bi ], value: peak };
-		} ),
-	} ) );
+		}
+
+		let carried = 0;
+		return {
+			label: s.key,
+			values: buckets.map( ( b, i ) => {
+				if ( acc.has( b ) ) {
+					carried = acc.get( b ).value;
+					return { date: dates[ i ], value: carried };
+				}
+				// Empty bucket: HOLD carries the last known value forward (0 before
+				// the first sample); ZERO reads a gap as no value.
+				return { date: dates[ i ], value: hold ? carried : 0 };
+			} ),
+		};
+	} );
+
 	return { series: aligned, dates };
 }
