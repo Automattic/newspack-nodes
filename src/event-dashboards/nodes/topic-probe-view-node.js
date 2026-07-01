@@ -9,8 +9,17 @@ import {
 	CACHE_SIZE,
 } from '../../runtime/probe-record';
 
-// 24h of probe records at the 15s sweep cadence ≈ 5760 samples per consumer.
-const MAX_SAMPLES = 5760;
+// The chart is a fixed 24h live window: records older than this are dropped on
+// arrival and existing samples are pruned as wall-clock advances past them, so
+// the axis never widens beyond 24h (the durable topicprobe log replays further
+// back than the chart shows). Seconds — probe ts is epoch seconds.
+const RETENTION_S = 86400;
+// Per-consumer ring cap — a hard memory ceiling held ABOVE the 24h window so the
+// wall-clock prune (_pruneExpired), not the ring, is the boundary authority. A
+// 24h span at the 15s sweep cadence is 5760 intervals = 5761 samples (N intervals
+// need N+1 points); capping at exactly 5760 would evict the boundary sample ~15s
+// early. A faster-than-15s flood still hits the ceiling and caps memory.
+const MAX_SAMPLES = RETENTION_S / 15 + 1; // 5761
 // Throttle the React-facing publish: a 'start' replay delivers thousands of
 // records in a burst, so publishing per record would thrash. Each frame is a
 // separate EventSource callback (wall-clock advances between them), so a
@@ -39,7 +48,10 @@ const CONSUMER_TTL_MS = 300000; // 5 min
  *
  * High-frequency note (mirrors `rawLogsView`): accumulation is O(1) per record
  * and does NOT publish; `setState('view', …)` is time-throttled so a 24h replay
- * burst doesn't thrash React. The series is ring-capped at `MAX_SAMPLES`.
+ * burst doesn't thrash React. The series is bounded two ways: a hard ring cap at
+ * `MAX_SAMPLES`, and the live 24h window — records older than `RETENTION_S` are
+ * dropped on arrival and existing samples are pruned as wall-clock advances past
+ * them, so the chart axis never widens beyond 24h.
  *
  * @param {number} [maxSamples] Per-consumer ring cap (defaults to MAX_SAMPLES).
  * @param {number} [ttlMs]      Consumer liveness TTL (defaults to CONSUMER_TTL_MS).
@@ -93,6 +105,11 @@ export class TopicProbeViewNode extends Node {
 	}
 
 	_accumulate( reader, value, ts ) {
+		// Drop a record already older than the live window — the replay tail
+		// reaches past 24h, and a stale sample is not plottable on a 24h axis.
+		if ( ts < Date.now() / 1000 - RETENTION_S ) {
+			return;
+		}
 		let c = this.consumers[ reader ];
 		if ( ! c ) {
 			c = {
@@ -171,8 +188,24 @@ export class TopicProbeViewNode extends Node {
 			clearTimeout( this._flushTimer );
 			this._flushTimer = null;
 		}
-		this._lastPublish = Date.now();
+		const now = Date.now();
+		this._lastPublish = now;
+		this._pruneExpired( now );
 		this.setState( 'view', { consumers: this.snapshot() } );
+	}
+
+	// Drop samples that have aged out of the 24h window. The chart is live, so a
+	// sample crosses the horizon by wall-clock TIME — not only when a newer record
+	// for its consumer arrives — so this runs at every publish (the single choke
+	// point for what React renders), across ALL consumers, not just the last one
+	// touched. O(expired) amortized: each sample is shifted at most once.
+	_pruneExpired( now ) {
+		const cutoff = now / 1000 - RETENTION_S;
+		for ( const c of Object.values( this.consumers ) ) {
+			while ( c.series.length > 0 && c.series[ 0 ].ts < cutoff ) {
+				c.series.shift();
+			}
+		}
 	}
 
 	/**
@@ -186,13 +219,10 @@ export class TopicProbeViewNode extends Node {
 	snapshot() {
 		const out = {};
 		for ( const [ reader, c ] of Object.entries( this.consumers ) ) {
-			const latest = c.series[ c.series.length - 1 ] || {
-				ts: 0,
-				msgRate: 0,
-				byteRate: 0,
-				backlog: 0,
-				cacheSize: 0,
-			};
+			if ( 0 === c.series.length ) {
+				continue; // fully aged out of the window — nothing to plot.
+			}
+			const latest = c.series[ c.series.length - 1 ];
 			out[ reader ] = {
 				source: c.source,
 				// Copies, not the live mutating refs: each publish must hand React

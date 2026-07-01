@@ -19,10 +19,17 @@ import {
 	CACHE_SIZE,
 } from '../../../runtime/probe-record';
 
+// Anchor the synthetic probe timestamps inside the live 24h window: the node
+// drops any record older than 24h by wall clock, so a `ts` passed here is an
+// OFFSET from a recent epoch base (a few hours ago). Tests that need an absolute
+// instant (the drop/prune tests) pass `absTs` to bypass the base.
+const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
+
 // Build a probe record TM_STRUCT message: a lean POSITIONAL Probe_Record VALUE,
 // with the snapshot instant carried in the Message TIMESTAMP (not in VALUE).
 function probeMsg( {
 	ts = 1000,
+	absTs = null,
 	reader = 'firehose.p0',
 	source = 'firehose.p0',
 	distance = 0,
@@ -32,7 +39,7 @@ function probeMsg( {
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
-	m[ TIMESTAMP ] = ts;
+	m[ TIMESTAMP ] = null !== absTs ? absTs : TS_BASE + ts;
 	const v = [];
 	v[ SOURCE ] = source;
 	v[ READER ] = reader;
@@ -116,7 +123,50 @@ describe( 'TopicProbeViewNode', () => {
 		}
 		const c = v.snapshot()[ 'firehose.p0' ];
 		expect( c.series.length ).toBe( 3 );
-		expect( c.series[ c.series.length - 1 ].ts ).toBe( 105 );
+		expect( c.series[ c.series.length - 1 ].ts ).toBe( TS_BASE + 105 );
+	} );
+
+	it( 'drops an incoming probe record older than the 24h window (stale replay tail)', () => {
+		const staleTs = Math.floor( Date.now() / 1000 ) - 25 * 3600; // 25h ago
+		const v = new TopicProbeViewNode();
+		v.fill( probeMsg( { absTs: staleTs } ) );
+		// Never accumulated — a record past the live window can't widen the axis.
+		expect( v.snapshot()[ 'firehose.p0' ] ).toBeUndefined();
+	} );
+
+	it( "prunes an IDLE consumer's aged samples when ANOTHER consumer drives the publish (time-based, across all consumers)", () => {
+		jest.useFakeTimers();
+		try {
+			const v = new TopicProbeViewNode();
+			const oldTs = Math.floor( Date.now() / 1000 ); // fresh when it lands
+			v.fill(
+				probeMsg( {
+					reader: 'idle.p0',
+					source: 'idle.p0',
+					absTs: oldTs,
+				} )
+			);
+			// 25h passes; idle.p0 NEVER produces again — its sample crosses the 24h
+			// horizon purely by wall-clock TIME. A DIFFERENT consumer's frame drives
+			// the publish, and the prune must sweep ALL consumers, not just the one
+			// just touched — else idle.p0's stale tail lingers on the 24h chart.
+			jest.advanceTimersByTime( 25 * 3600 * 1000 );
+			const freshTs = Math.floor( Date.now() / 1000 );
+			v.fill(
+				probeMsg( {
+					reader: 'live.p0',
+					source: 'live.p0',
+					absTs: freshTs,
+				} )
+			);
+			const snap = v.snapshot();
+			expect( snap[ 'idle.p0' ] ).toBeUndefined(); // aged out → empty → skipped
+			expect( snap[ 'live.p0' ].series.map( ( s ) => s.ts ) ).toEqual( [
+				freshTs,
+			] );
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 'ignores a non-probe message (VALUE not a positional array) without throwing', () => {
