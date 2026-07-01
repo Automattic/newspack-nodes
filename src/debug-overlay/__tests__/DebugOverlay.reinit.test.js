@@ -185,11 +185,15 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 } );
 
 describe( 'DebugOverlay — dirty-on-rewire', () => {
-	it( 'a connect gesture surfaces the Reset Layout chip (a structural change offers a fresh auto-fit)', () => {
+	it( 'a connect gesture surfaces the Reset Layout chip (a structural change offers a fresh auto-fit)', async () => {
 		// A drop / connect / disconnect / remove changes the structure, so the
 		// canvas offers a fresh auto-fit (Reset Layout) alongside Reset Graph.
 		mountExospine();
 		openOverlay();
+		// The Reset Layout chip needs an initialized layout; let the settle fire.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
+		} );
 		expect( screen.queryByTestId( 'chip-reset-layout' ) ).toBeNull();
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
 		expect( screen.queryByTestId( 'chip-reset-layout' ) ).not.toBeNull();
@@ -212,10 +216,14 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
 	} );
 
-	it( 'a node removal surfaces BOTH the Reset Graph and Reset Layout chips', () => {
+	it( 'a node removal surfaces BOTH the Reset Graph and Reset Layout chips', async () => {
 		mountExospine();
 		Core.reinit = jest.fn();
 		openOverlay();
+		// The Reset Layout chip needs an initialized layout; let the settle fire.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
+		} );
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
 		act( () => fireEvent.click( screen.getByTestId( 'do-remove' ) ) );
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).not.toBeNull();
@@ -232,11 +240,15 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).not.toBeNull();
 	} );
 
-	it( 'Reset Graph surfaces the Reset Layout chip (a rebuild offers a fresh auto-fit)', () => {
+	it( 'Reset Graph surfaces the Reset Layout chip (a rebuild offers a fresh auto-fit)', async () => {
 		// Build-delegated mount so Reset Graph's fullRebuild recreates _router.
 		mountExospine( () => {} );
 		Core.reinit = jest.fn();
 		openOverlay();
+		// The Reset Layout chip needs an initialized layout; let the settle fire.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
+		} );
 		// A connect surfaces both chips; Reset Graph keeps the layout but still
 		// offers a fresh auto-fit (Reset Layout) after the rebuild.
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
