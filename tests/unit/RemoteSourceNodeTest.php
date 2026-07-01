@@ -639,6 +639,17 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
 	}
 
+	public function test_publish_status_noop_when_no_cache(): void {
+		Core::$memd = null;
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		// Without a cache, the tick still runs cleanly — write_status short-circuits.
+		$node->fire();
+
+		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'remote-austin:sse-in' ) );
+	}
+
 	public function test_connection_attempt_reflects_actual_connect_not_each_tick(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();

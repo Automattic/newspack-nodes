@@ -455,6 +455,91 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->sse_in?->disconnect();
 	}
 
+	// =========================================================================
+	// Dashboard status snapshot — a per-node memcache key the Aggregator reads.
+	// These override the Remote_Link no-op seams; only aggregated spokes publish
+	// status (a Remote_IPC channel isn't aggregated, so it stays a no-op there).
+	// =========================================================================
+
+	/** Memcache TTL for the status snapshot (seconds). */
+	public const STATUS_TTL = 300;
+
+	private int $last_heartbeat_sent     = 0;
+	private int $last_heartbeat_response = 0;
+
+	/** Stamp the heartbeat send-time so record_heartbeat_reply() can compute the round-trip. */
+	protected function record_heartbeat_sent( int $now ): void {
+		$this->last_heartbeat_sent = $now;
+		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
+	}
+
+	/** Record a heartbeat reply's round-trip into the status snapshot. */
+	protected function record_heartbeat_reply(): void {
+		if ( 0 === $this->last_heartbeat_sent ) {
+			return;
+		}
+		$now                           = (int) Core::$now;
+		$this->last_heartbeat_response = $now;
+		$this->write_status( [
+			'last_heartbeat_response' => $now,
+			'last_heartbeat_rtt'      => $now - $this->last_heartbeat_sent,
+		] );
+	}
+
+	/**
+	 * Publish the connection-state snapshot from SSE_In::connection(). Ages out the
+	 * heartbeat round-trip so the dashboard's Status badge can't latch 'success' on a
+	 * stale timestamp: the response is "live" only while connected AND seen within the
+	 * node's HEARTBEAT_INTERVAL*4 window (the slot-TTL span); otherwise it's nulled
+	 * (mirrors the old clear-on-disconnect). Live values ride the write_status merge.
+	 */
+	protected function publish_status(): void {
+		$conn = null !== $this->sse_in
+			? $this->sse_in->connection()
+			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null ];
+		$data = [
+			'last_connection_attempt' => $conn['last_attempt'],
+			'connected'               => $conn['connected'],
+			'last_http_code'          => $conn['last_http_code'],
+			'last_error'              => $conn['last_error'],
+			'current_backoff'         => $conn['current_backoff'],
+			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
+		];
+		// Live only while connected AND the response is within the slot-TTL window.
+		$hb_live = $conn['connected']
+			&& $this->last_heartbeat_response > 0
+			&& ( (int) Core::$now - $this->last_heartbeat_response ) <= self::HEARTBEAT_INTERVAL * 4;
+		if ( ! $hb_live ) {
+			$data['last_heartbeat_response'] = null;
+			$data['last_heartbeat_rtt']      = null;
+		}
+		$this->write_status( $data );
+	}
+
+	/**
+	 * Merge $data into the status snapshot under the per-node key.
+	 *
+	 * @param array<string,mixed> $data
+	 */
+	private function write_status( array $data ): void {
+		$cache = Core::$memd;
+		if ( null === $cache ) {
+			return;
+		}
+		$key      = $this->status_key();
+		$existing = $cache->get( $key );
+		if ( ! \is_array( $existing ) ) {
+			$existing = [];
+		}
+		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
+	}
+
+	// Keyed by NODE NAME first so two spokes pulling the same remote_partition
+	// (e.g. firehose.p0) don't collide; Aggregator_CI reads the identical key.
+	private function status_key(): string {
+		return "np:remote:{$this->name}:{$this->remote_partition}";
+	}
+
 	/**
 	 * Teardown: tear down the offsetlog + deadletter, then the patrons + self via the base.
 	 *

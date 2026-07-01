@@ -5,8 +5,10 @@
  * into a topology worker (JS RemoteIpcNode): `cd /{worker}` routes commands straight
  * to it — the worker's name IS the address.
  *
- * It EXTENDS Remote_Link — same SSE_In + HTTP_Out patrons, heartbeat, status — and
- * specializes the base via the seams plus a `send()` override that carries the two
+ * It EXTENDS Remote_Link — same SSE_In + HTTP_Out patrons and slot-keepalive heartbeat
+ * (but NOT the dashboard status snapshot: that's Remote_Source-only, since the Aggregator
+ * reads only Remote_Source keys) — and specializes the base via the seams plus a `send()`
+ * override that carries the two
  * halves of the worker-pivot that used to live in SSE_In + HTTP_Out:
  *  - The reply-FROM wrap: a command minted by a reply node (`_metadata`/`_output`/…)
  *    gets FROM rewritten to the private pivot `_sse:{pid}/{node}` so the spoke's

@@ -236,86 +236,9 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertGreaterThan( Remote_Link_Node::HEARTBEAT_INTERVAL, (int) $ttl );
 	}
 
-	public function test_heartbeat_reply_into_fill_records_rtt_and_response(): void {
-		$this->seed_vault();
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_link( 'link-austin' );
-		$node->fire();
-		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 5 );
-		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
-		$node->fire(); // sends heartbeat, records send-time
-
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$reply[ Message::TO ]    = 'link-austin';
-		$reply[ Message::VALUE ] = [ 'success' => true ];
-		$node->fill( $reply );
-
-		$status = Core::$memd->get( 'np:remote:link-austin:firehose.p0' );
-		$this->assertIsArray( $status );
-		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
-		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
-		$this->assertNotNull( $status['last_heartbeat_response'] );
-	}
-
-	// ---------------------------------------------------------------------
-	// Status snapshot — publish_status / write_status / status_key.
-	// ---------------------------------------------------------------------
-
-	public function test_tick_publishes_status_snapshot(): void {
-		$this->seed_vault();
-		[ $node ] = $this->make_link( 'link-austin' );
-
-		$node->fire();
-
-		$status = Core::$memd->get( 'np:remote:link-austin:firehose.p0' );
-		$this->assertIsArray( $status );
-		$this->assertArrayHasKey( 'connected', $status );
-		$this->assertArrayHasKey( 'current_backoff', $status );
-		$this->assertArrayHasKey( 'last_connection_attempt', $status );
-		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
-	}
-
-	public function test_publish_status_ages_out_stale_heartbeat_response(): void {
-		$this->seed_vault();
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_link( 'link-austin' );
-		$node->fire();
-		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 5 );
-
-		Core::$now = 1000.0;
-		$node->fire(); // mints the heartbeat (records send-time)
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$reply[ Message::TO ]    = 'link-austin';
-		$reply[ Message::VALUE ] = [ 'success' => true ];
-		$node->fill( $reply ); // records last_heartbeat_response at t=1000
-
-		$node->fire();
-		$this->assertNotNull(
-			Core::$memd->get( 'np:remote:link-austin:firehose.p0' )['last_heartbeat_response']
-		);
-
-		// Past the HEARTBEAT_INTERVAL*4 staleness window with no further reply.
-		Core::$now = 1000.0 + ( Remote_Link_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
-		$node->fire();
-		$status = Core::$memd->get( 'np:remote:link-austin:firehose.p0' );
-		$this->assertNull( $status['last_heartbeat_response'] );
-		$this->assertNull( $status['last_heartbeat_rtt'] );
-	}
-
-	public function test_write_status_noop_when_no_cache(): void {
-		Core::$memd = null;
-		$this->seed_vault();
-		[ $node ] = $this->make_link( 'link-austin' );
-
-		// Without a cache, the tick still runs cleanly — write_status short-circuits.
-		$node->fire();
-
-		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'link-austin:sse-in' ) );
-	}
+	// The dashboard status snapshot (publish_status / record_heartbeat_* / write_status)
+	// is Remote_Source-only now — the base publishes nothing, so those cases live in
+	// RemoteSourceNodeTest. The base still SENDS the slot-keepalive heartbeat (above).
 
 	// ---------------------------------------------------------------------
 	// connect / close / is_streaming.
