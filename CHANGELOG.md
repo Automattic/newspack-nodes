@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **New shared dashboard hook `useVisibilityGatedLink`** (`src/shared/hooks`) — the SSE analog of `useDashboardGraph`: it owns a `RemoteLink`'s whole connection lifecycle (mount via `mountExospine`, close while inactive, and RECONNECT the same link from its last seen offset on refocus instead of tail-dropping the gap accumulated while hidden). Callers supply `mountNodes` / `isActive` / `onConnect`. Extracts the resume-on-refocus guard that had been copy-pasted inline into every streaming dashboard; `useTopicProbeStream` now uses it, and the `newspack-event-logger-nodes` Request Log / Error Log / Gyroscope dashboards consume it via the `@newspack-nodes/shared` alias. (Raw Logs stays custom — its `list_logs`-driven, user-selected-log flow isn't visibility-gated connect.)
 - **Two shared substrate traits — `Offsetlog_Cursor` (durable offsetlog read/commit) and `Dead_Letter_Queue` (poison quarantine + fair-shot / crash-crawl accounting)** — extracted from `Consumer_Node` and now used by both `Consumer_Node` and `Remote_Source_Node`, so the durable-cursor and dead-letter logic has one implementation. See ADR-12.
 
 ### Changed
