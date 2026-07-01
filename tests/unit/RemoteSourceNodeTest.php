@@ -511,6 +511,24 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 99, $value['off'] );
 	}
 
+	public function test_persist_cursor_does_not_recommit_an_unchanged_position(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->restore_position( 5, 5 );
+		Core::$now = \microtime( true ) + 100;
+		$node->fire(); // commits {5,5}
+		$baseline = $this->count_offsetlog_records( $node );
+		$this->assertGreaterThanOrEqual( 1, $baseline, 'a moved cursor is committed' );
+
+		// Idle stream: same SSE_In position, another throttle interval elapses.
+		Core::$now = \microtime( true ) + 200;
+		$node->fire();
+		$this->assertSame( $baseline, $this->count_offsetlog_records( $node ), 'an unchanged SSE_In position must not spam a duplicate keyframe (advance-guard, matching Consumer)' );
+	}
+
 	public function test_heartbeat_skipped_when_slot_unknown(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node ] = $this->make_remote( 'remote-austin' );

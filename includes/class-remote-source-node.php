@@ -229,21 +229,27 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( null !== $this->poison_pos || $this->crawl || $this->attempts > 1 ) {
 			return;
 		}
-		if ( ( Core::$now - $this->last_checkpoint ) < self::CHECKPOINT_INTERVAL_S ) {
+		if ( ! $this->checkpoint_due() || null === $this->sse_in ) {
 			return;
 		}
-		if ( null === $this->sse_in ) {
+		// A quarantined poison keeps its durable dlq marker (committed once by handle_poison)
+		// until a later message advances past it — else an idle recycle would re-quarantine
+		// the poison. Otherwise commit the live SSE_In position.
+		$dlq = null !== $this->dlq_pos;
+		if ( $dlq ) {
+			$seg = $this->dlq_pos['seg'];
+			$off = $this->dlq_pos['off'];
+		} else {
+			$pos = $this->sse_in->position();
+			$seg = $pos['segment_id'];
+			$off = $pos['offset'];
+		}
+		// Advance-guard (matches Consumer): skip a redundant same-cursor write so an idle
+		// stream doesn't spam identical keyframes, one per interval.
+		if ( ! $this->cursor_moved_since_checkpoint( $seg, $off ) ) {
 			return;
 		}
-		if ( null !== $this->dlq_pos ) {
-			// A quarantined poison sits at the cursor; keep its durable marker (don't
-			// overwrite it with a plain frame) until a later message advances past it —
-			// else an idle recycle would lose the marker and re-quarantine the poison.
-			$this->commit_position( $this->dlq_pos['seg'], $this->dlq_pos['off'], true, true );
-			return;
-		}
-		$pos = $this->sse_in->position();
-		$this->commit_position( $pos['segment_id'], $pos['offset'], true );
+		$this->commit_position( $seg, $off, true, $dlq );
 	}
 
 	/**

@@ -281,6 +281,25 @@ trait Time_Travel {
 	// =========================================================================
 
 	/**
+	 * True once CHECKPOINT_INTERVAL_S has elapsed since the last durable commit — the
+	 * shared throttle both nodes gate their per-tick healthy commit on (Consumer in fire(),
+	 * Remote_Source in persist_cursor()).
+	 */
+	protected function checkpoint_due(): bool {
+		return ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S;
+	}
+
+	/**
+	 * The advance-guard: true when `{seg,off}` differs from the last committed frame. Both
+	 * nodes skip a redundant same-cursor healthy commit — else an idle reader spams identical
+	 * keyframes (with segment_size=1, one per interval). The -1/-1 pre-commit sentinel never
+	 * equals a real cursor, so the first commit always passes.
+	 */
+	protected function cursor_moved_since_checkpoint( int $seg, int $off ): bool {
+		return $seg !== $this->checkpoint_seg || $off !== $this->checkpoint_off;
+	}
+
+	/**
 	 * Commit ONE offsetlog frame at `{seg,off}`. A graceful frame is a clean handoff
 	 * (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful frame
 	 * carries the live attempt accounting (a climbing poison lineage / pinned crawl).

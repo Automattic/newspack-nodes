@@ -195,10 +195,7 @@ class Consumer_Node extends Timer_Node {
 	protected function fire(): void {
 		$this->poll();
 		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
-		if (
-			null !== $this->offsetlog
-			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
-		) {
+		if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
 			$this->checkpoint();
 			// A committing checkpoint() already bumped the floor; this covers its skip
 			// paths (advance-guard / unestablished cursor) so an idle cursor re-tests the
@@ -698,13 +695,7 @@ class Consumer_Node extends Timer_Node {
 		}
 		// Advance-guard: skip a redundant same-cursor write (graceful is exempt — its
 		// attempts=0 is new content; boot frames bypass via write_checkpoint_frame).
-		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
-		if (
-			! $graceful
-			&& ! $first_checkpoint
-			&& $this->cursor_seg === $this->checkpoint_seg
-			&& $this->cursor_off === $this->checkpoint_off
-		) {
+		if ( ! $graceful && ! $this->cursor_moved_since_checkpoint( $this->cursor_seg, $this->cursor_off ) ) {
 			return;
 		}
 		// Forward progress past the boot cursor ends the crash streak: clear the strikes.
