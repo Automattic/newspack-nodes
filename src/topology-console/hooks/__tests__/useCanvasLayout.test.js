@@ -36,6 +36,8 @@ describe( 'useCanvasLayout', () => {
 
 	it( 'runs autoLayout exactly once on ready with empty storage, modified=false', () => {
 		const { result } = render();
+		// The initial autoLayout is deferred until the node set settles.
+		act( () => jest.advanceTimersByTime( 300 ) );
 		expect( result.current.positions ).toEqual( {
 			a: { x: 60, y: 80 },
 			b: { x: 300, y: 80 },
@@ -44,6 +46,31 @@ describe( 'useCanvasLayout', () => {
 		expect(
 			JSON.parse( window.localStorage.getItem( KEY ) ).positions
 		).toEqual( { a: { x: 60, y: 80 }, b: { x: 300, y: 80 } } );
+	} );
+
+	it( 'defers the initial autoLayout until the streaming node set settles (no premature partial layout)', () => {
+		// The graph streams in over frames: first only `a`, then `a→b`, all before
+		// the settle window elapses. The initial autoLayout must run on the COMPLETE
+		// graph, not the first partial frame — else the late node gets column-tucked.
+		const { result, rerender } = render( {
+			graph: { nodes: [ { id: 'a' } ], edges: [] },
+		} );
+		expect( result.current.positions ).toEqual( {} ); // still settling
+		act( () =>
+			rerender( {
+				storageKey: KEY,
+				ready: true,
+				serverLayout: null,
+				graph: GRAPH_AB,
+			} )
+		);
+		expect( result.current.positions ).toEqual( {} ); // re-armed, still settling
+		act( () => jest.advanceTimersByTime( 300 ) );
+		// b lands at the DAG position {300,80}, NOT column-tucked below a at {60,190}.
+		expect( result.current.positions ).toEqual( {
+			a: { x: 60, y: 80 },
+			b: { x: 300, y: 80 },
+		} );
 	} );
 
 	it( 'does not init on an empty graph', () => {
@@ -92,6 +119,7 @@ describe( 'useCanvasLayout', () => {
 
 	it( 'tucks a newly-appeared node below the left-most-then-bottom-most, WITHOUT marking modified', () => {
 		const { result, rerender } = render();
+		act( () => jest.advanceTimersByTime( 300 ) ); // let the initial autoLayout settle+run
 		// autoLayout: a{60,80}, b{300,80}. left-most col = x60 (just a) → new node at {60,190}.
 		rerender( {
 			storageKey: KEY,
@@ -126,10 +154,11 @@ describe( 'useCanvasLayout', () => {
 
 	it( 'resetLayout wipes storage then re-runs autoLayout once on the next render', () => {
 		const { result } = render();
+		act( () => jest.advanceTimersByTime( 300 ) ); // initial layout settles
 		act( () => result.current.onPositionChange( 'a', { x: 5, y: 5 } ) );
 		expect( result.current.canReset ).toBe( true );
 		act( () => result.current.resetLayout() );
-		// Re-init fires from the cleared state.
+		act( () => jest.advanceTimersByTime( 300 ) ); // re-init settles from cleared state
 		expect( result.current.positions ).toEqual( {
 			a: { x: 60, y: 80 },
 			b: { x: 300, y: 80 },
@@ -139,6 +168,7 @@ describe( 'useCanvasLayout', () => {
 
 	it( 'markDirty sets canReset without moving any node, and persists modified', () => {
 		const { result } = render();
+		act( () => jest.advanceTimersByTime( 300 ) ); // initial layout settles
 		expect( result.current.canReset ).toBe( false );
 		const before = result.current.positions;
 		act( () => result.current.markDirty() );
@@ -158,6 +188,7 @@ describe( 'useCanvasLayout', () => {
 
 	it( 'renamePosition moves an entry, leaves canReset unchanged', () => {
 		const { result } = render();
+		act( () => jest.advanceTimersByTime( 300 ) ); // initial layout settles
 		act( () => result.current.renamePosition( 'a', 'a2' ) );
 		expect( result.current.positions.a2 ).toEqual( { x: 60, y: 80 } );
 		expect( result.current.positions.a ).toBeUndefined();
