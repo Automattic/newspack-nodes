@@ -43,10 +43,7 @@ export class Node {
 		this._name = '';
 		this.sink = null;
 		this.target = '';
-		this.counter = 0;
-		// Byte/size tallies behind get/set accessors so composite nodes (Remote_Link)
-		// can OVERRIDE the getters to aggregate from children — an instance data
-		// field would shadow a subclass prototype getter and break delegation.
+		this._counter = 0;
 		this._bytesRead = 0;
 		this._bytesWritten = 0;
 		this._largestMsgSent = 0;
@@ -90,6 +87,12 @@ export class Node {
 	// Byte/size stats (mirror PHP Node's bytes_read()/bytes_written()/
 	// largest_msg_sent()). Leaf I/O nodes (SseIn read, HttpOut write) bump these;
 	// composite nodes override the getters to aggregate from their children.
+	get counter() {
+		return this._counter;
+	}
+	set counter( v ) {
+		this._counter = v;
+	}
 	get bytesRead() {
 		return this._bytesRead;
 	}
@@ -294,14 +297,12 @@ export class Node {
 				snapshot.sink = val && val.name ? val.name : '';
 				continue;
 			}
-			// `_name`/`_arguments` back the public name/arguments accessors — keep the
-			// public surface, not the private backing names.
-			if ( '_name' === key ) {
-				snapshot.name = val;
-				continue;
-			}
-			if ( '_arguments' === key ) {
-				snapshot.arguments = val;
+			// A `_foo` backing field with a public `foo` accessor (name, arguments,
+			// counter, the byte tallies): snapshot the PUBLIC name + accessor value —
+			// so a composite override (Remote_Link's counter from its sseIn) surfaces —
+			// and drop the private backing key.
+			if ( '_' === key[ 0 ] && key.slice( 1 ) in this ) {
+				snapshot[ key.slice( 1 ) ] = this[ key.slice( 1 ) ];
 				continue;
 			}
 			// Any reference to another node (patron, interpreter, a subclass's sub-nodes).
