@@ -27,7 +27,8 @@ namespace Newspack_Nodes;
 class Remote_Link_Node extends Timer_Node {
 	use Schema_Reflection;
 
-	private const TICK_INTERVAL_MS = 1000;
+	// Protected so Remote_Source's time-travel PLAY can re-arm the same tick cadence.
+	protected const TICK_INTERVAL_MS = 1000;
 
 	/** Slot-keepalive heartbeat cadence (seconds). */
 	public const HEARTBEAT_INTERVAL = 10;

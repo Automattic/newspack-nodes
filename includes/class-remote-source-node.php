@@ -23,11 +23,29 @@ namespace Newspack_Nodes;
 class Remote_Source_Node extends Remote_Link_Node {
 	use Offsetlog_Cursor;
 	use Dead_Letter_Queue;
+	use Time_Travel;
 
 	/** Offsetlog commit cadence (seconds) for healthy running progress. */
 	private const COMMIT_INTERVAL = 5;
 
 	private float $last_commit_time = 0.0;
+
+	/**
+	 * Time-travel cursor/checkpoint the Time_Travel trait reads. `cursor_*` mirrors
+	 * the live SSE_In read position (synced in dump_metadata, the only reader);
+	 * `checkpoint_*` is the last committed frame's {seg,off} (updated in
+	 * commit_position). Both -1 before the first commit / connect.
+	 */
+	protected int $cursor_seg     = 0;
+	protected int $cursor_off     = 0;
+	protected int $checkpoint_seg = -1;
+	protected int $checkpoint_off = -1;
+
+	/** Tachikoma-parity: no-arg ctor. Auto-wire the {name}:config interpreter for the time-travel verbs. */
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
 
 	/**
 	 * Poison head's own start `{seg,off}`; non-null = BLOCKED ([42]). While blocked,
@@ -296,6 +314,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$this->commit_offsetlog_frame( $frame );
 		$this->last_commit_time = Core::$now ?: \microtime( true );
+		// Record the committed position for the time-travel on_frame signal.
+		$this->checkpoint_seg = $seg;
+		$this->checkpoint_off = $off;
 	}
 
 	// =========================================================================
@@ -375,6 +396,69 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return $sse;
 	}
 
+	// =========================================================================
+	// Time-travel transport (Time_Travel trait) — mapped onto the SSE pull.
+	// =========================================================================
+
+	/**
+	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll
+	 * payload. Sync the reported cursor from the live SSE_In position first (the
+	 * single source of truth — nothing else mirrors it), then delegate.
+	 *
+	 * @api Dynamic entrypoint.
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 */
+	public function dump_metadata(): array {
+		$pos              = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
+		$this->cursor_seg = $pos['segment_id'];
+		$this->cursor_off = $pos['offset'];
+		return $this->time_travel_metadata();
+	}
+
+	/**
+	 * SEEK_FRAME landing: reseed SSE_In from the frame's {seg,off} and drop the
+	 * current stream. Seeking only ever happens while paused (the transport bar
+	 * gates rewind/forward on PAUSE), so the reconnect is deferred to PLAY's tick —
+	 * which replays the remote partition from the reseeded offset.
+	 *
+	 * @param string|array<array-key, mixed> $position Explicit {seg,off} from seek_frame().
+	 */
+	public function next_offset( $position ): void {
+		if ( ! \is_array( $position ) ) {
+			return;
+		}
+		$seg = \is_numeric( $position['seg'] ?? null ) ? (int) $position['seg'] : 0;
+		$off = \is_numeric( $position['off'] ?? null ) ? (int) $position['off'] : 0;
+		$sse = $this->ensure_patrons();
+		if ( null === $sse ) {
+			return;
+		}
+		$sse->disconnect();
+		$sse->restore_position( $seg, $off );
+	}
+
+	/**
+	 * STEP is a no-op for a push-driven source: SSE_In is fed by the event loop, not
+	 * pulled one message at a time, so there is nothing to single-step. Report the
+	 * current position (nothing advanced) rather than fake a step.
+	 *
+	 * @return array{seg:int, off:int, at_eof:bool}
+	 */
+	protected function advance_one_message(): array {
+		$pos = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
+		return [ 'seg' => $pos['segment_id'], 'off' => $pos['offset'], 'at_eof' => true ];
+	}
+
+	/** PLAY re-arm: resume the recurring tick, which reconnects from the current position. */
+	protected function time_travel_resume(): void {
+		$this->set_timer( self::TICK_INTERVAL_MS );
+	}
+
+	/** PAUSE also stops the pull: drop the live SSE stream so no data flows while paused. */
+	protected function time_travel_on_pause(): void {
+		$this->sse_in?->disconnect();
+	}
+
 	/**
 	 * Teardown: tear down the offsetlog + deadletter, then the patrons + self via the base.
 	 *
@@ -395,6 +479,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
+			// The time-travel verbs (set_snapshot_node, set_line_mode, SEEK_FRAME,
+			// PAUSE, PLAY, STEP) are shared with Consumer via the Time_Travel trait.
+			'commands'    => self::time_travel_verbs(),
 		] );
 	}
 }
