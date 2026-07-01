@@ -464,4 +464,31 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 		expect( FakeEventSource.instances.length ).toBe( before + 1 );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose.p0' );
 	} );
+
+	test( 'resumes from the last streamed offset on refocus (reopen carries &positions=), not a blind tail', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		// Stream a real tailed record: the server stamps a `seg:off` breadcrumb in
+		// ID and the partition dir in FROM — that is what _trackPosition records.
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = 'p0';
+		env[ FROM ] = 'firehose.p0';
+		env[ ID ] = '3:14200';
+		env[ VALUE ] = 'a real log line';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+		// Hide → close; refocus must reopen SEEKING the last offset, not tail.
+		act( () => setVisibility( 'hidden' ) );
+		act( () => setVisibility( 'visible' ) );
+		const url = FakeEventSource.last.url;
+		expect( url ).toContain( 'positions=' );
+		const positions = JSON.parse(
+			decodeURIComponent(
+				url.split( 'positions=' )[ 1 ].split( '&' )[ 0 ]
+			)
+		);
+		expect( positions ).toEqual( {
+			'firehose.p0': { seg: 3, off: 14200 },
+		} );
+	} );
 } );
