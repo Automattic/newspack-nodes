@@ -45,7 +45,7 @@ import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useTopicProbeStream } from './hooks/useTopicProbeStream';
 import { useNodeState } from '../runtime/react';
-import { topicChartSeries } from './topicProbeSeries';
+import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
 import { SupervisorStatus } from './SupervisorStatus';
 import { consoleHref, TopologyRow } from './TopologyRow';
@@ -373,21 +373,25 @@ export default function Overview( { headerControlsSlot } ) {
 					title={ __( 'Topics Message Rate', 'newspack-nodes' ) }
 					series={ msgRateSeries }
 					formatValue={ formatMsgRate }
+					fillMode={ fillModeForMetric( 'msgRate' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Byte Rate', 'newspack-nodes' ) }
 					series={ byteRateSeries }
 					formatValue={ formatByteRate }
+					fillMode={ fillModeForMetric( 'byteRate' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Backlog', 'newspack-nodes' ) }
 					series={ backlogSeries }
 					formatValue={ formatBytes }
+					fillMode={ fillModeForMetric( 'backlog' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Cache Size', 'newspack-nodes' ) }
 					series={ cacheSizeSeries }
 					formatValue={ formatBytes }
+					fillMode={ fillModeForMetric( 'cacheSize' ) }
 				/>
 			</div>
 			{ supervisor && (

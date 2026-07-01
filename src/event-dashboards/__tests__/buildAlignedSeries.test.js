@@ -1,85 +1,174 @@
 /**
- * buildAlignedSeries — aligns the per-topic probe series onto one shared date
- * axis (gaps → 0), ranked by peak, and DOWNSAMPLES a dense union (24h of
- * ~30k samples) to at most `maxPoints` max-per-bucket points so the d3 area
- * charts don't redraw a million path commands. No DOM.
+ * buildAlignedSeries — snap the per-topic probe series onto ONE shared,
+ * epoch-aligned time-bucket grid (bucket = probe interval, widened only to keep
+ * the axis under `maxPoints`), then fill each bucket per the metric's mode:
+ * LEVEL gauges (backlog/cacheSize) HOLD the last value across empty buckets
+ * (0 before the first sample); RATE metrics zero-fill and MAX-aggregate. This
+ * kills the phase-offset sawtooth the old raw-union + `?? 0` path drew. No DOM.
  */
 
 import { buildAlignedSeries } from '../buildAlignedSeries';
 
+const HOLD = { fill: 'hold', agg: 'last' };
+const ZERO = { fill: 'zero', agg: 'max' };
+
 describe( 'buildAlignedSeries', () => {
 	it( 'returns empty when no series have points', () => {
-		expect( buildAlignedSeries( {}, 100 ) ).toEqual( {
+		expect( buildAlignedSeries( {}, 100, HOLD ) ).toEqual( {
 			series: [],
 			dates: [],
 		} );
 		expect(
-			buildAlignedSeries( { a: { points: [], max: 0 } }, 100 )
+			buildAlignedSeries( { a: { points: [], max: 0 } }, 100, HOLD )
 		).toEqual( { series: [], dates: [] } );
 	} );
 
-	it( 'aligns topics onto the union axis, filling gaps with 0, ranked by max', () => {
+	it( 'aligns two LEVEL topics sampled 15s out of phase onto the SAME buckets — no interleaved zeros, smooth decline stays monotonic', () => {
 		const out = buildAlignedSeries(
 			{
-				low: { points: [ { ts: 2, value: 1 } ], max: 1 },
-				high: {
+				a: {
 					points: [
-						{ ts: 1, value: 9 },
-						{ ts: 3, value: 5 },
+						{ ts: 0, value: 300 },
+						{ ts: 15, value: 200 },
+						{ ts: 30, value: 100 },
 					],
-					max: 9,
+					max: 300,
+				},
+				b: {
+					points: [
+						{ ts: 7, value: 300 },
+						{ ts: 22, value: 200 },
+						{ ts: 37, value: 100 },
+					],
+					max: 300,
+				},
+			},
+			100,
+			HOLD
+		);
+		// Both phases floor into the same 15s buckets: 0, 15, 30.
+		expect( out.dates.map( ( d ) => d.getTime() / 1000 ) ).toEqual( [
+			0, 15, 30,
+		] );
+		// Each topic has ONE value per bucket, no 0 dips, monotonically declining.
+		out.series.forEach( ( s ) => {
+			expect( s.values.map( ( v ) => v.value ) ).toEqual( [
+				300, 200, 100,
+			] );
+		} );
+	} );
+
+	it( 'HOLDS a LEVEL topic’s previous value across a genuinely-skipped bucket', () => {
+		const out = buildAlignedSeries(
+			{
+				a: {
+					points: [
+						{ ts: 0, value: 500 },
+						{ ts: 30, value: 300 },
+					],
+					max: 500,
+				},
+			},
+			100,
+			HOLD
+		);
+		// Grid 0,15,30 — bucket 15 has no sample, so it holds 500 (not 0).
+		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
+			500, 500, 300,
+		] );
+	} );
+
+	it( 'a LEVEL topic reads 0 for buckets before its first sample', () => {
+		const out = buildAlignedSeries(
+			{
+				// `wide` spans the grid 0..30; `late` first appears at bucket 30.
+				wide: {
+					points: [
+						{ ts: 0, value: 100 },
+						{ ts: 15, value: 100 },
+						{ ts: 30, value: 100 },
+					],
+					max: 100,
+				},
+				late: { points: [ { ts: 30, value: 400 } ], max: 400 },
+			},
+			100,
+			HOLD
+		);
+		// Ranked by max: `late` (400) first.
+		expect( out.series[ 0 ].label ).toBe( 'late' );
+		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
+			0, 0, 400,
+		] );
+	} );
+
+	it( 'a RATE metric zero-fills an empty bucket and MAX-aggregates within a bucket', () => {
+		const out = buildAlignedSeries(
+			{
+				a: {
+					points: [
+						{ ts: 0, value: 10 },
+						{ ts: 5, value: 40 },
+						{ ts: 30, value: 20 },
+					],
+					max: 40,
+				},
+			},
+			100,
+			ZERO
+		);
+		// bucket 0 = max(10,40)=40; bucket 15 empty → 0; bucket 30 = 20.
+		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
+			40, 0, 20,
+		] );
+	} );
+
+	it( 'defaults to RATE behavior (zero-fill + max) when no mode is given', () => {
+		const out = buildAlignedSeries(
+			{
+				a: {
+					points: [
+						{ ts: 0, value: 10 },
+						{ ts: 30, value: 20 },
+					],
+					max: 20,
 				},
 			},
 			100
 		);
-		// union axis = [1,2,3]; ranked high (max 9) before low (max 1).
-		expect( out.dates.map( ( d ) => d.getTime() / 1000 ) ).toEqual( [
-			1, 2, 3,
+		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
+			10, 0, 20,
 		] );
+	} );
+
+	it( 'ranks topics by peak', () => {
+		const out = buildAlignedSeries(
+			{
+				low: { points: [ { ts: 0, value: 1 } ], max: 1 },
+				high: { points: [ { ts: 0, value: 9 } ], max: 9 },
+			},
+			100,
+			ZERO
+		);
 		expect( out.series.map( ( s ) => s.label ) ).toEqual( [
 			'high',
 			'low',
 		] );
-		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
-			9, 0, 5,
-		] );
-		expect( out.series[ 1 ].values.map( ( v ) => v.value ) ).toEqual( [
-			0, 1, 0,
-		] );
 	} );
 
-	it( 'leaves the axis untouched when the union is within maxPoints', () => {
-		const out = buildAlignedSeries(
-			{ a: { points: [ { ts: 1, value: 3 } ], max: 3 } },
-			100
-		);
-		expect( out.dates ).toHaveLength( 1 );
-		expect( out.series[ 0 ].values ).toHaveLength( 1 );
-	} );
-
-	it( 'downsamples a dense union to at most maxPoints, preserving spikes (max-per-bucket)', () => {
-		// 8 timestamps, one series; cap to 2 points → two buckets of 4.
-		const spikes = { 3: 100, 7: 50 };
-		const points = [ 1, 2, 3, 4, 5, 6, 7, 8 ].map( ( ts ) => ( {
-			ts,
-			value: spikes[ ts ] ?? 1,
-		} ) );
-		const out = buildAlignedSeries( { a: { points, max: 100 } }, 2 );
-		expect( out.dates ).toHaveLength( 2 );
-		expect( out.series[ 0 ].values ).toHaveLength( 2 );
-		// bucket [1..4] peak 100, bucket [5..8] peak 50 — spikes survive.
-		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
-			100, 50,
-		] );
-	} );
-
-	it( 'never emits more than maxPoints buckets for a huge union', () => {
-		const points = Array.from( { length: 30000 }, ( _, i ) => ( {
-			ts: i + 1,
+	it( 'never emits more than maxPoints buckets for a window that would exceed it', () => {
+		// 5001 samples one probe-interval apart → a ~75000s window; at 15s buckets
+		// that is ~5000 slots, far past the cap.
+		const points = Array.from( { length: 5001 }, ( _, i ) => ( {
+			ts: i * 15,
 			value: i,
 		} ) );
-		const out = buildAlignedSeries( { a: { points, max: 29999 } }, 1000 );
-		expect( out.dates.length ).toBeLessThanOrEqual( 1000 );
+		const out = buildAlignedSeries(
+			{ a: { points, max: 5000 } },
+			100,
+			ZERO
+		);
+		expect( out.dates.length ).toBeLessThanOrEqual( 100 );
 		expect( out.series[ 0 ].values.length ).toBe( out.dates.length );
 	} );
 } );

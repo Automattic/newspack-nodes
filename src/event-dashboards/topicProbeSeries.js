@@ -9,6 +9,33 @@
  * legend.
  */
 
+// A metric is either a LEVEL gauge (backlog/cacheSize — a standing quantity, so
+// an unsampled instant means "unknown, hold the last reading", not "zero") or a
+// RATE (msgRate/byteRate — a per-interval flow, so an unsampled instant IS zero).
+// buildAlignedSeries needs this distinction to fill empty buckets correctly; we
+// derive it from the metric name HERE (the layer that knows the name) and pass
+// {fill,agg} down as data, so the low-level aligner never string-matches metrics.
+const LEVEL_MODE = { fill: 'hold', agg: 'last' };
+const RATE_MODE = { fill: 'zero', agg: 'max' };
+const FILL_MODES = {
+	msgRate: RATE_MODE,
+	byteRate: RATE_MODE,
+	backlog: LEVEL_MODE,
+	cacheSize: LEVEL_MODE,
+};
+
+/**
+ * Fill/aggregate mode for a Topics metric: LEVEL gauges hold across gaps and
+ * keep the last reading per bucket; RATE metrics zero-fill gaps and keep the
+ * bucket peak. Unknown metrics fall back to RATE.
+ *
+ * @param {string} metric One of `msgRate` | `byteRate` | `backlog` | `cacheSize`.
+ * @return {{fill:('hold'|'zero'),agg:('last'|'max')}} The fill/aggregate mode.
+ */
+export function fillModeForMetric( metric ) {
+	return FILL_MODES[ metric ] || RATE_MODE;
+}
+
 /**
  * Downsample to at most `width` points, taking the MAX per bucket so a spike
  * survives the reduction rather than being averaged away.

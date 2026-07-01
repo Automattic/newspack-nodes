@@ -7,9 +7,9 @@
  * renderer modeled on the event-logger's `CategoryTimeChart`.
  *
  * Fed by `topicChartSeries`: `{ [topic]: { points:[{ts,value}], max, avg } }`
- * (ts in seconds). The topics' samples sweep together, but to draw + hover
- * cleanly we align every topic onto ONE sorted date axis (the union of sample
- * ts), filling gaps with 0.
+ * (ts in seconds), plus a `fillMode` from `fillModeForMetric`. To draw + hover
+ * cleanly `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket
+ * grid and fills empty buckets per that mode (LEVEL gauges hold, rates zero).
  */
 
 import { memo, useCallback, useMemo, useRef } from '@wordpress/element';
@@ -37,10 +37,11 @@ export const TopicsChart = memo( function TopicsChart( {
 	title,
 	series,
 	formatValue,
+	fillMode,
 } ) {
 	const chartState = useMemo(
-		() => buildAlignedSeries( series, MAX_POINTS ),
-		[ series ]
+		() => buildAlignedSeries( series, MAX_POINTS, fillMode ),
+		[ series, fillMode ]
 	);
 
 	// Anchor in the themed `.topology-app` cascade so the chart's series colors

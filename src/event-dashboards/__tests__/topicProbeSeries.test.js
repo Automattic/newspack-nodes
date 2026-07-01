@@ -1,4 +1,8 @@
-import { topicChartSeries, downsample } from '../topicProbeSeries';
+import {
+	topicChartSeries,
+	downsample,
+	fillModeForMetric,
+} from '../topicProbeSeries';
 
 // Build a topicprobe:view `consumers` map entry (the real snapshot() shape:
 // keyed by reader, carrying `source` + a {ts,msgRate,byteRate,backlog} series).
@@ -20,6 +24,37 @@ describe( 'downsample', () => {
 
 	it( 'returns [] for empty input', () => {
 		expect( downsample( [], 4 ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'fillModeForMetric', () => {
+	it( 'maps LEVEL gauges to hold/last', () => {
+		expect( fillModeForMetric( 'backlog' ) ).toEqual( {
+			fill: 'hold',
+			agg: 'last',
+		} );
+		expect( fillModeForMetric( 'cacheSize' ) ).toEqual( {
+			fill: 'hold',
+			agg: 'last',
+		} );
+	} );
+
+	it( 'maps RATE metrics to zero/max', () => {
+		expect( fillModeForMetric( 'msgRate' ) ).toEqual( {
+			fill: 'zero',
+			agg: 'max',
+		} );
+		expect( fillModeForMetric( 'byteRate' ) ).toEqual( {
+			fill: 'zero',
+			agg: 'max',
+		} );
+	} );
+
+	it( 'defaults an unknown metric to RATE (zero/max)', () => {
+		expect( fillModeForMetric( 'whatever' ) ).toEqual( {
+			fill: 'zero',
+			agg: 'max',
+		} );
 	} );
 } );
 
