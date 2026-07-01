@@ -64,6 +64,11 @@ const VIEW = 'topicprobe:view';
 
 const fakeClient = () => ( { postBatch: () => Promise.resolve( [] ) } );
 
+// The view node drops probe records older than 24h by wall clock, so `ts` here is
+// an OFFSET from a recent epoch base — the synthetic frames must sit in the live
+// window or they never accumulate.
+const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
+
 function probeFrame( {
 	ts = 1000,
 	reader = 'firehose.p0',
@@ -78,7 +83,7 @@ function probeFrame( {
 	// probe stamped server-side (routing it to the partition) — a path that means
 	// nothing in the browser. The RemoteLink must re-home it to its target.
 	m[ TO ] = 'topicprobe';
-	m[ TIMESTAMP ] = ts;
+	m[ TIMESTAMP ] = TS_BASE + ts;
 	const v = [];
 	v[ SOURCE ] = source;
 	v[ READER ] = reader;
