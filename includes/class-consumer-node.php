@@ -17,16 +17,8 @@ class Consumer_Node extends Timer_Node {
 	use Dead_Letter_Queue;
 	use Time_Travel;
 
-	// Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces
-	// one checkpoint = one segment = one frame, uniformly for stateless consumers
-	// (small offset records) and stateful/snapshot ones (offset + cache). Partition's
-	// do_rotate() adopts the still-empty newest segment on the first commit, then
-	// rotates to a fresh segment on every later commit (current_size ≥ 1 > the
-	// 1-byte threshold) — so segment_size=1 produces no empty-segment spam.
-	public const OFFSETLOG_SEGMENT_SIZE = 1;
-	// Retain the last 10 keyframes (time-travel history depth); load_offsetlog()
-	// crash-resume reads the newest segment, now exactly one record.
-	public const OFFSETLOG_NUM_SEGMENTS = 10;
+	// Offsetlog geometry (OFFSETLOG_SEGMENT_SIZE / NUM_SEGMENTS = one keyframe per commit,
+	// 10-deep history) lives in the Time_Travel trait, shared with Remote_Source.
 	public const MAX_LINE_BUFFER_SIZE = 33554432;
 
 	/**
@@ -41,11 +33,7 @@ class Consumer_Node extends Timer_Node {
 	/** 0 = next event-loop iteration. */
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
-	// Offsetlog is crash-resume only (TopicProbe, not the offsetlog, is the position
-	// source now), so checkpoint coarsely (Dead_Letter_Queue::CHECKPOINT_INTERVAL_S) —
-	// losing <30s of cursor on a crash just re-delivers those messages on respawn
-	// (at-least-once). Cheaper offsetlog I/O.
-	protected float $last_checkpoint = 0.0;
+	// $last_checkpoint (the throttle floor) lives in the Time_Travel trait, shared with Remote_Source.
 
 	/**
 	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
@@ -55,9 +43,8 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected ?\Closure $poll_cb = null;
 
-	/** Last (seg, off) committed; skip checkpoint if cursor hasn't advanced. */
-	protected int $checkpoint_seg = -1;
-	protected int $checkpoint_off = -1;
+	// $checkpoint_seg / $checkpoint_off (last committed cursor; the advance-guard) live in
+	// the Time_Travel trait, shared with Remote_Source.
 
 	/**
 	 * The cursor this process booted on (seeded by load_offsetlog). Advancing past it
@@ -213,6 +200,9 @@ class Consumer_Node extends Timer_Node {
 			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
 		) {
 			$this->checkpoint();
+			// A committing checkpoint() already bumped the floor; this covers its skip
+			// paths (advance-guard / unestablished cursor) so an idle cursor re-tests the
+			// throttle once per interval, not every tick.
 			$this->last_checkpoint = Core::$now;
 		}
 		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
@@ -735,7 +725,9 @@ class Consumer_Node extends Timer_Node {
 
 	/**
 	 * Commit one offsetlog frame at the current cursor — UNCONDITIONALLY (no
-	 * advance-guard; the boot sequence re-commits the same cursor on purpose).
+	 * advance-guard; the boot sequence re-commits the same cursor on purpose). The
+	 * shared base frame + Consumer's static extra ride commit_checkpoint_frame(); the
+	 * only per-call variation is the snapshot cache.
 	 *
 	 * @param bool $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
 	 * @param bool $with_state Co-commit the snapshot node's save_state(). False for the
@@ -743,37 +735,39 @@ class Consumer_Node extends Timer_Node {
 	 *                         un-restored node there would clobber the good cache.
 	 */
 	private function write_checkpoint_frame( bool $graceful, bool $with_state ): void {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		$value = [
-			'seg'            => $this->cursor_seg,
-			'off'            => $this->cursor_off,
-			'attempts'       => $graceful ? 0 : $this->attempts,
-			'reason'         => $graceful ? '' : $this->poison_reason,
-			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
-			'name'           => $this->name,
-			'target'         => \is_string( $this->target ) ? $this->target : '',
-			'targets'        => $this->resolve_downstream_targets(),
-			'worker_type'    => self::worker_type_env(),
-			// Real source log basename. Two readers can tail the same log under
-			// distinct offset-dir names (firehose vs firehose.job-router); the
-			// dashboard labels by this, not the disambiguated offset dir.
-			'source_log'     => \basename( $this->source_dir ),
-		];
+		$extra = [];
 		// Co-commit the snapshot node's state with the offset, as ONE record, so a
 		// respawn restores the cache and resumes the cursor in lockstep.
 		if ( $with_state && '' !== $this->snapshot_node ) {
 			$node = Core::node( $this->snapshot_node );
 			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
-				$value['cache'] = $node->save_state();
+				$extra['cache'] = $node->save_state();
 			}
 		}
-		$this->commit_offsetlog_frame( $value );
-		$this->checkpoint_seg = $this->cursor_seg;
-		$this->checkpoint_off = $this->cursor_off;
+		$this->commit_checkpoint_frame( $this->cursor_seg, $this->cursor_off, $graceful, $extra );
+	}
 
-		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off ] ) );
+	/**
+	 * Consumer's frame extras beyond the shared base: its identity + downstream wiring the
+	 * dashboard labels by. `source_log` is the real source log basename — two readers can
+	 * tail the same log under distinct offset-dir names (firehose vs firehose.job-router);
+	 * the dashboard labels by this, not the disambiguated offset dir.
+	 *
+	 * @return array<array-key, mixed>
+	 */
+	protected function checkpoint_frame_extra(): array {
+		return [
+			'name'        => $this->name,
+			'target'      => \is_string( $this->target ) ? $this->target : '',
+			'targets'     => $this->resolve_downstream_targets(),
+			'worker_type' => self::worker_type_env(),
+			'source_log'  => \basename( $this->source_dir ),
+		];
+	}
+
+	/** Publish the CHECKPOINT state after each committed frame (the trait's post-commit hook). */
+	protected function on_checkpoint_committed(): void {
+		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->checkpoint_seg, 'OFFSET', $this->checkpoint_off ] ) );
 	}
 
 	/**
