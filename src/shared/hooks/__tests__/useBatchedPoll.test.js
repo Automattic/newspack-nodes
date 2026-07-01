@@ -206,7 +206,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		expect( client.batches.length ).toBe( 0 );
 	} );
 
-	test( 'does NOT fire the initial poll while paused', async () => {
+	test( 'DOES fire the initial poll when visible even if paused — paused suspends only ongoing polling, not the one-time first load', async () => {
 		const client = makeFakeClient();
 		renderHook( () =>
 			useBatchedPoll( {
@@ -218,7 +218,35 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 			} )
 		);
 		await act( async () => {} );
-		expect( client.batches.length ).toBe( 0 );
+		expect( client.batches.length ).toBe( 1 );
+	} );
+
+	test( 'a hidden+paused mount still delivers the first load when the tab becomes visible (deep-link opened in a background tab)', async () => {
+		// The exact spinner-forever repro: mounted hidden (immediate first-paint
+		// tick skipped) while a deep-link sets paused=true — becoming visible must
+		// still fire the ONE-TIME initial load, else the loading gate never clears.
+		Object.defineProperty( document, 'visibilityState', {
+			configurable: true,
+			get: () => 'hidden',
+		} );
+		const client = makeFakeClient();
+		renderHook( () =>
+			useBatchedPoll( {
+				build: buildSlices,
+				timerName: 'insights:timer',
+				teeName: 'insights:tee',
+				commandClient: client,
+				paused: true,
+			} )
+		);
+		await act( async () => {} );
+		expect( client.batches.length ).toBe( 0 ); // hidden ⇒ nothing yet
+
+		await act( async () => {
+			setVisibility( 'visible' );
+		} );
+		expect( client.batches.length ).toBe( 1 );
+		expect( client.batches[ 0 ].length ).toBe( 3 );
 	} );
 } );
 

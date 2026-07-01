@@ -76,6 +76,12 @@ export function useBatchedPoll( opts ) {
 	const interpreterRef = useRef( null );
 	const timerRef = useRef( null );
 
+	// Fire ONE batched tick (lock → fire → flush), captured during build so the
+	// visibility effect can deliver the first load without re-running the mount
+	// effect. `firstLoadDone` guards it to exactly once.
+	const fireTickRef = useRef( null );
+	const firstLoadDoneRef = useRef( false );
+
 	// Pause polling while the tab is hidden.
 	const isPageVisible = usePageVisibility();
 
@@ -120,20 +126,25 @@ export function useBatchedPoll( opts ) {
 			router.beforeTimerNotify = () => http.lock();
 			router.afterTimerNotify = () => http.flush();
 
-			// Immediate first paint: fire ONE batched tick on mount (the old
-			// useDashboardGraph polled on mount; without this the dashboard would
-			// wait a whole interval for its first data). Same lock/flush bracket as
-			// the router tick so it's ONE POST. Gated on visible AND not paused —
-			// a hidden/paused mount waits for the visibility/paused effect to arm.
-			// Match usePageVisibility's check (not document.hidden) so the gate is
-			// consistent with the effect that re-arms the Timer.
-			if (
-				'visible' === document.visibilityState &&
-				! optsRef.current.paused
-			) {
+			// One batched tick (lock → fire → flush = ONE POST), reused by the
+			// visibility effect to deliver the first load on a hidden→visible switch.
+			const fireTick = () => {
 				http.lock();
 				timer.fire();
 				http.flush();
+			};
+			fireTickRef.current = fireTick;
+
+			// Immediate first paint: fire ONE batched tick on mount (without this the
+			// dashboard would wait a whole interval for its first data). Gated on
+			// VISIBILITY ONLY — the one-time first load is not suppressed by `paused`
+			// (that only suspends ongoing polling); a hidden mount defers to the
+			// visibility effect, which fires the first load when the tab is shown even
+			// while paused (else a deep-link opened in a background tab — mounted
+			// hidden, then paused by its own selection — would spin forever).
+			if ( 'visible' === document.visibilityState ) {
+				fireTick();
+				firstLoadDoneRef.current = true;
 			}
 
 			// Re-render so each widget's useNodeState re-subscribes to its freshly-
@@ -146,6 +157,7 @@ export function useBatchedPoll( opts ) {
 				router.afterTimerNotify = null;
 				timerRef.current = null;
 				interpreterRef.current = null;
+				fireTickRef.current = null;
 				if ( 'function' === typeof cleanup ) {
 					cleanup();
 				}
@@ -166,6 +178,13 @@ export function useBatchedPoll( opts ) {
 		const timer = timerRef.current;
 		if ( ! timer ) {
 			return;
+		}
+		// Deliver the one-time first load when the tab becomes visible, even while
+		// paused — a hidden mount skipped the immediate tick, and `paused` (a modal
+		// open on a deep-link) must not strand the initial fetch behind its loading gate.
+		if ( isPageVisible && ! firstLoadDoneRef.current ) {
+			fireTickRef.current?.();
+			firstLoadDoneRef.current = true;
 		}
 		if ( isPageVisible && ! opts.paused ) {
 			armTimer( timer, opts.intervalMs );
