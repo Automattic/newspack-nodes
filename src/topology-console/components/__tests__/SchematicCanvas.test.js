@@ -213,6 +213,27 @@ describe( 'SchematicCanvas', () => {
 		expect( byId( 'a' ).classList.contains( 'is-drift' ) ).toBe( false );
 	} );
 
+	it( 'dims idle nodes (is-idle) in LIVE mode when there is no rate for them', () => {
+		// baseProps.rateRef is an empty Map → every node reads as idle.
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } editMode={ false } />
+		);
+		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
+		expect(
+			nodes.every( ( n ) => n.classList.contains( 'is-idle' ) )
+		).toBe( true );
+	} );
+
+	it( 'never dims nodes (no is-idle) in EDIT mode — there is no live rate to be idle against', () => {
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } editMode={ true } />
+		);
+		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
+		expect( nodes.some( ( n ) => n.classList.contains( 'is-idle' ) ) ).toBe(
+			false
+		);
+	} );
+
 	// Arrow-pan only fires while the canvas is hovered (so the debug overlay
 	// doesn't hijack the host page's arrows) — hover the SVG before pressing.
 	const hoverCanvas = ( container ) =>
