@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-07-01
+
 ### Fixed
 
 - **Dashboards opened in a background tab no longer spin forever.** `useBatchedPoll` gated its immediate first-paint fetch on `visible && !paused` and re-armed the poll on `visible && !paused` — so a dashboard mounted while its tab was hidden (e.g. a deep-link opened in a new tab) skipped the first fetch, and if a modal was open (`paused`, which a deep-link sets via its own selection) the re-arm never fired when the tab was shown, leaving the loading gate stuck. The one-time first load is now gated on VISIBILITY ONLY; `paused` suspends only ongoing polling. Fixes the Performance Dashboard's "Loading performance data…" hang when a request trace is opened in a background tab. Shared hook — every dashboard benefits.
