@@ -41,6 +41,9 @@ class Node {
 	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
 	protected ?Node $patron = null;
 
+	/** @var array<string,string> */
+	protected array $set_state = [];
+
 	/**
 	 * No-op chain anchor: a node only acquires schema-reflection behavior (positional
 	 * arg parsing, the `{name}:config` interpreter auto-wire) by `use`-ing the
@@ -215,9 +218,6 @@ class Node {
 		return true;
 	}
 
-	/** @var array<string,mixed> */
-	protected array $set_state = [];
-
 	/**
 	 * Multi-modal listener: store either a closure (with callable) or a Node name string.
 	 *
@@ -277,7 +277,7 @@ class Node {
 	  * Notify + cache so new registrants get the payload at register-time.
 	  * With debug_state on, emit a flat Tachikoma-style `DEBUG: <event> <payload>`
 	  */
-	public function set_state( string $event, ?string $payload = null ): void {
+	protected function set_state( string $event, string $payload = '' ): void {
 		$this->set_state[ $event ] = $payload;
 		if ( $this->debug_state > 0 ) {
 			$router = Core::node( Node_Names::ROUTER );
@@ -287,6 +287,15 @@ class Node {
 			}
 		}
 		$this->notify( $event, $payload );
+	}
+
+	/**
+	 * Return a value from the set_state cache. Returns null if the event has never been set.
+	 * @param string $event Event name.
+	 * @return string|null
+	 */
+	public function get_state( string $event ): ?string {
+		return $this->set_state[ $event ] ?? null;
 	}
 
 	/**

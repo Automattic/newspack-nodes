@@ -77,29 +77,6 @@ class Topic_Node extends Node {
 		$this->partition( $idx )->fill( $message );
 	}
 
-	protected function partition( int $i ): Partition_Node {
-		$first = empty( $this->partitions );
-		if ( ! isset( $this->partitions[ $i ] ) ) {
-			$p = new Partition_Node();
-			// Name the sibling `{topic}:p{i}` (mirrors Consumer's `{name}:source`) when the Topic is named.
-			if ( '' !== $this->name ) {
-				$p->name( "{$this->name}:p{$i}" );
-			}
-			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
-			$p->arguments( "{$child_dir} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
-			// Keep Topic's own sink (specific) and patron-link so dump_metadata hides it from the canvas.
-			$p->sink( $this->sink );
-			$p->patron( $this );
-			$this->apply_large_write_mode( $p );
-			$this->partitions[ $i ] = $p;
-		}
-		if ( $first ) {
-			// set_state caches READY so late registrants get immediate replay.
-			$this->set_state( 'READY', $this->name );
-		}
-		return $this->partitions[ $i ];
-	}
-
 	/** Lift the 4KB cap on every partition via a held write lock — propagates to future children too. See Partition_Node::allow_large_writes(). */
 	public function allow_large_writes(): self {
 		return $this->set_large_write_mode( 'lock' );
@@ -122,6 +99,36 @@ class Topic_Node extends Node {
 		return $this;
 	}
 
+	/** Override Node::sink() so child Partitions inherit the new sink. */
+	public function sink( ?Node $node = null ): ?Node {
+		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
+		if ( \func_num_args() > 0 ) {
+			for ( $i = 0; $i < $this->num_partitions; ++$i ) {
+				$this->partition( $i )->sink( $node );
+			}
+		}
+		return $result;
+	}
+
+	protected function partition( int $i ): Partition_Node {
+		$first = empty( $this->partitions );
+		if ( ! isset( $this->partitions[ $i ] ) ) {
+			$p = new Partition_Node();
+			// Name the sibling `{topic}:p{i}` (mirrors Consumer's `{name}:source`) when the Topic is named.
+			if ( '' !== $this->name ) {
+				$p->name( "{$this->name}:p{$i}" );
+			}
+			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
+			$p->arguments( "{$child_dir} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
+			// Keep Topic's own sink (specific) and patron-link so dump_metadata hides it from the canvas.
+			$p->sink( $this->sink );
+			$p->patron( $this );
+			$this->apply_large_write_mode( $p );
+			$this->partitions[ $i ] = $p;
+		}
+		return $this->partitions[ $i ];
+	}
+
 	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
 	private function apply_large_write_mode( Partition_Node $p ): void {
 		if ( 'lock' === $this->large_write_mode ) {
@@ -129,17 +136,6 @@ class Topic_Node extends Node {
 		} elseif ( 'void' === $this->large_write_mode ) {
 			$p->void_warranty();
 		}
-	}
-
-	/** Override Node::sink() so child Partitions inherit the new sink. */
-	public function sink( ?Node $node = null ): ?Node {
-		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
-		if ( \func_num_args() > 0 ) {
-			foreach ( $this->partitions as $p ) {
-				$p->sink( $node );
-			}
-		}
-		return $result;
 	}
 
 	/** @api Flush every materialized partition's batch (request-scope callers land pending writes). */
@@ -185,8 +181,7 @@ class Topic_Node extends Node {
 				[ 'name' => 'num_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_NUM_SEGMENTS ],
 				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_LIFESPAN ],
 			],
-			'commands'       => [],
-			'registrations'  => [ 'READY' ],
+			'commands'    => [],
 			'has_target'  => false,
 		];
 	}

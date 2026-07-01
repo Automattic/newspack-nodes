@@ -128,7 +128,7 @@ class SSE_In_Node extends Node {
 			$this->last_error = 'refusing non-HTTPS URL';
 			$this->print_less_often( "ERROR: disconnected - non-HTTPS URL refused: {$this->url}" );
 			$this->increase_backoff();
-			$this->set_state( 'DISCONNECTED', $this->last_error );
+			$this->set_state( 'DISCONNECTED', $this->last_error ?? '' );
 			return false;
 		}
 
@@ -198,7 +198,7 @@ class SSE_In_Node extends Node {
 		if ( ! $ch instanceof \CurlHandle ) {
 			$this->last_error = 'curl_init / multi_add failed';
 			$this->increase_backoff();
-			$this->set_state( 'DISCONNECTED', $this->last_error );
+			$this->set_state( 'DISCONNECTED', $this->last_error ?? '' );
 			return false;
 		}
 
