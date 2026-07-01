@@ -787,9 +787,12 @@ export default function SchematicCanvas( {
 		const isSelected = n.id === selectedId;
 		const isHovered = n.id === hoveredId;
 		const isFaded = hoveredId && ! isHovered;
-		// Dim quiet nodes (live mode only): no rate ref = edit mode, never dim.
+		// Dim quiet nodes in LIVE mode only. Edit mode has no live rate stream, so
+		// every node would read as idle (rate undefined) and dim — never dim there.
 		const isIdle =
-			!! rateRef && isIdleRate( rateRef.current?.get( n.id )?.rate );
+			! editMode &&
+			!! rateRef &&
+			isIdleRate( rateRef.current?.get( n.id )?.rate );
 		const isDragging = drag && drag.nodeId === n.id;
 		return (
 			<g
