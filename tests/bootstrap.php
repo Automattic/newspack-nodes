@@ -420,6 +420,13 @@ if ( ! function_exists( 'get_option' ) ) {
 		$GLOBALS['_wp_option_autoload'][ $option ]     = $autoload;
 		return true;
 	}
+	// WP 6.4+ bulk option-cache primer. Records the primed option names so tests
+	// can assert the overlay batches its reads into one call (a no-op for the
+	// array-backed get_option stub above — it just records intent).
+	$GLOBALS['_wp_primed_options'] = [];
+	function wp_prime_option_caches( array $options ): void {
+		$GLOBALS['_wp_primed_options'] = array_merge( $GLOBALS['_wp_primed_options'], $options );
+	}
 }
 
 if ( ! function_exists( 'wp_salt' ) ) {
