@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SSE rate-limit slots are now namespaced per host.** Multiple hosts sharing one memcache collided on slot keys (`evlog:sse:{user}:{ip}:{slot}`); the key now carries the hostname, so each host gets an independent pool. A single `SSE_Slot_Pool::hostname()` source (`gethostname() ?: 'unknown'`) feeds every slot method and the heartbeat `touch` caller, guarding the string-typed methods against a `gethostname()` failure.
 - **Topology Console: the default (local / `_http`) graph now auto-lays-out cleanly on first open instead of stacking nodes in an off-center column.** The local scope's Core graph registers its nodes over several frames (as other views mount), but the one-shot `autoLayout` fired on the FIRST partial frame and then locked — so every node that streamed in afterward got column-tucked below, and only the first few got a real layout. The initial autoLayout now waits for the node set to SETTLE (`LAYOUT_SETTLE_MS` after the last node arrives) and runs once over the COMPLETE graph. Server-seeded worker topologies (which arrive complete) still adopt their saved layout immediately.
 
 ## [0.25.0] - 2026-06-30
