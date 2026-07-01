@@ -491,7 +491,6 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected function poll_init(): void {
 		$this->load_offsetlog();
-		$this->set_state( 'READY' );
 		if ( null !== $this->loaded_cache && '' !== $this->snapshot_node ) {
 			$node = Core::node( $this->snapshot_node );
 			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
@@ -513,6 +512,7 @@ class Consumer_Node extends Timer_Node {
 		$this->boot_cursor_seg  = $this->cursor_seg;
 		$this->boot_cursor_off  = $this->cursor_off;
 		$this->poll_initialized = true;
+		$this->set_state( 'READY' );
 		$this->poll_cb = $this->poll_active( ... );
 		( $this->poll_cb )();
 	}
@@ -1359,5 +1359,4 @@ class Consumer_Node extends Timer_Node {
 			'accepts_fill'  => false,
 		] );
 	}
-
 }

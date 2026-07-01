@@ -1201,12 +1201,20 @@ class Partition_Node extends Timer_Node {
 		return 'ok';
 	}
 
+	public function sink( ?Node $node = null ): ?Node {
+		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
+		if ( \func_num_args() > 0 ) {
+			$this->set_state( 'READY' );
+		}
+		return $result;
+	}
+
 	/** Topology console manifest: palette entry + ctor form + verb forms. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'I/O',
-			'description' => 'Append-only segmented log; data file + offset index per partition.',
-			'arguments'   => [
+			'category'      => 'I/O',
+			'description'   => 'Append-only segmented log; data file + offset index per partition.',
+			'arguments'     => [
 				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true ],
 				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE ],
 				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS ],
@@ -1236,7 +1244,8 @@ class Partition_Node extends Timer_Node {
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_with_index( $interpreter, $args ),
 				],
 			],
-			'has_target'  => false,
+			'registrations' => [ 'READY' ],
+			'has_target'    => false,
 		] );
 	}
 

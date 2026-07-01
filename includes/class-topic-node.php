@@ -106,6 +106,7 @@ class Topic_Node extends Node {
 			for ( $i = 0; $i < $this->num_partitions; ++$i ) {
 				$this->partition( $i )->sink( $node );
 			}
+			$this->set_state( 'READY' );
 		}
 		return $result;
 	}
@@ -172,8 +173,8 @@ class Topic_Node extends Node {
 
 	public static function node_schema(): array {
 		return [
-			'category'    => 'I/O',
-			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
+			'category'      => 'I/O',
+			'description'   => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
 			'arguments'        => [
 				[ 'name' => 'dir_template',   'type' => 'string', 'required' => true ],
 				[ 'name' => 'num_partitions', 'type' => 'int',    'default'  => 1 ],
@@ -181,8 +182,9 @@ class Topic_Node extends Node {
 				[ 'name' => 'num_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_NUM_SEGMENTS ],
 				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_LIFESPAN ],
 			],
-			'commands'    => [],
-			'has_target'  => false,
+			'commands'      => [],
+			'registrations' => [ 'READY' ],
+			'has_target'    => false,
 		];
 	}
 }
