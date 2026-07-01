@@ -36,10 +36,10 @@ class SSE_Slot_Pool {
 	 */
 	public static function wire(): void {
 		SSE_Out_Node::$acquire_slot = static function (): int|false {
-			return self::acquire( self::user_id(), self::ip_hash(), self::$max_slots, self::$ttl );
+			return self::acquire( self::hostname(), self::user_id(), self::ip_hash(), self::$max_slots, self::$ttl );
 		};
 		SSE_Out_Node::$release_slot = static function ( int $slot ): void {
-			self::release( self::user_id(), self::ip_hash(), $slot );
+			self::release( self::hostname(), self::user_id(), self::ip_hash(), $slot );
 		};
 		SSE_Out_Node::$check_slot = static function ( int $slot ): bool {
 			// Check-only — NEVER refresh the TTL here. The slot TTL is refreshed
@@ -47,7 +47,7 @@ class SSE_Slot_Pool {
 			// (Workers_CI -> Sse_Slot_Pool::touch). A stream draining is not proof
 			// the browser is alive; refresh-on-check would let a zombie connection
 			// hold a slot indefinitely, defeating the rate-limit invariant.
-			return self::check( self::user_id(), self::ip_hash(), $slot );
+			return self::check( self::hostname(), self::user_id(), self::ip_hash(), $slot );
 		};
 	}
 
@@ -57,14 +57,14 @@ class SSE_Slot_Pool {
 	 *
 	 * @return int|false Slot index 0..max_slots-1, or false if all taken / no memcache.
 	 */
-	public static function acquire( int $user_id, string $ip_hash, int $max_slots, int $ttl ): int|false {
+	public static function acquire( string $hostname, int $user_id, string $ip_hash, int $max_slots, int $ttl ): int|false {
 		if ( null === Core::$memd ) {
 			return false;
 		}
 		// Opaque per-connection marker; only its presence (not value) is read.
 		$connection_id = \bin2hex( \random_bytes( 8 ) );
 		for ( $slot = 0; $slot < $max_slots; $slot++ ) {
-			$key = self::slot_key( $user_id, $ip_hash, $slot );
+			$key = self::slot_key( $hostname, $user_id, $ip_hash, $slot );
 			if ( Core::$memd->add( $key, $connection_id, $ttl ) ) {
 				return $slot;
 			}
@@ -75,8 +75,17 @@ class SSE_Slot_Pool {
 	/**
 	 * Slot cache key.
 	 */
-	private static function slot_key( int $user_id, string $ip_hash, int $slot ): string {
-		return "evlog:sse:{$user_id}:{$ip_hash}:{$slot}";
+	private static function slot_key( string $hostname, int $user_id, string $ip_hash, int $slot ): string {
+		return "evlog:sse:{$hostname}:{$user_id}:{$ip_hash}:{$slot}";
+	}
+
+	/**
+	 * Host component of the slot key — namespaces slots per host so multiple
+	 * hosts sharing one memcache don't collide. Falls back to 'unknown' so a
+	 * gethostname() failure can never pass false to the string-typed callees.
+	 */
+	public static function hostname(): string {
+		return \gethostname() ?: 'unknown';
 	}
 
 	public static function user_id(): int {
@@ -94,26 +103,26 @@ class SSE_Slot_Pool {
 	}
 
 	/** Release a slot. Fail-OPEN (slots auto-expire via TTL). */
-	public static function release( int $user_id, string $ip_hash, int $slot ): bool {
+	public static function release( string $hostname, int $user_id, string $ip_hash, int $slot ): bool {
 		if ( null === Core::$memd ) {
 			return true;
 		}
-		return Core::$memd->delete( self::slot_key( $user_id, $ip_hash, $slot ) );
+		return Core::$memd->delete( self::slot_key( $hostname, $user_id, $ip_hash, $slot ) );
 	}
 
 	/** Whether the slot is still held (no TTL refresh). Fail-CLOSED. */
-	public static function check( int $user_id, string $ip_hash, int $slot ): bool {
+	public static function check( string $hostname, int $user_id, string $ip_hash, int $slot ): bool {
 		if ( null === Core::$memd ) {
 			return false;
 		}
-		return false !== Core::$memd->get( self::slot_key( $user_id, $ip_hash, $slot ) );
+		return false !== Core::$memd->get( self::slot_key( $hostname, $user_id, $ip_hash, $slot ) );
 	}
 
 	/** Refresh slot TTL (client heartbeat). Fail-OPEN (true when no memcache). */
-	public static function touch( int $user_id, string $ip_hash, int $slot, int $ttl ): bool {
+	public static function touch( string $hostname, int $user_id, string $ip_hash, int $slot, int $ttl ): bool {
 		if ( null === Core::$memd ) {
 			return true;
 		}
-		return Core::$memd->touch( self::slot_key( $user_id, $ip_hash, $slot ), $ttl );
+		return Core::$memd->touch( self::slot_key( $hostname, $user_id, $ip_hash, $slot ), $ttl );
 	}
 }

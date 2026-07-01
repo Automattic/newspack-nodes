@@ -428,7 +428,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$user_id = \get_current_user_id();
 		$ip_hash = \Newspack_Nodes\SSE_Slot_Pool::ip_hash();
-		$slot    = \Newspack_Nodes\SSE_Slot_Pool::acquire( $user_id, $ip_hash, 8, 30, -1 );
+		$slot    = \Newspack_Nodes\SSE_Slot_Pool::acquire( \Newspack_Nodes\SSE_Slot_Pool::hostname(), $user_id, $ip_hash, 8, 30 );
 		$this->assertSame( 0, $slot, 'first acquire claims slot 0' );
 
 		$interpreter     = new Workers_CI_Node();

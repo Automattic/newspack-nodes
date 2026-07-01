@@ -42,55 +42,70 @@ class SseSlotPoolTest extends TestCase {
 	// ── slot algorithm (direct) ──────────────────────────────────────────────
 
 	public function test_acquire_returns_first_free_slot(): void {
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
-		$this->assertSame( 1, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 'host', 1, 'abc', 8, 30 ) );
+		$this->assertSame( 1, SSE_Slot_Pool::acquire( 'host', 1, 'abc', 8, 30 ) );
 	}
 
 	public function test_acquire_returns_false_when_pool_exhausted(): void {
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
-		$this->assertSame( 1, SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
-		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 2, 30 ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 'host', 1, 'abc', 2, 30 ) );
+		$this->assertSame( 1, SSE_Slot_Pool::acquire( 'host', 1, 'abc', 2, 30 ) );
+		$this->assertFalse( SSE_Slot_Pool::acquire( 'host', 1, 'abc', 2, 30 ) );
+	}
+
+	public function test_slots_are_namespaced_per_hostname(): void {
+		// Same user + ip on two hosts get independent pools (shared memcache).
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 'hostA', 1, 'abc', 1, 30 ) );
+		$this->assertFalse( SSE_Slot_Pool::acquire( 'hostA', 1, 'abc', 1, 30 ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 'hostB', 1, 'abc', 1, 30 ) );
+	}
+
+	public function test_hostname_is_always_a_non_empty_string(): void {
+		// The `?: 'unknown'` fallback guarantees a gethostname() failure can never
+		// pass false to the string-typed slot methods.
+		$host = SSE_Slot_Pool::hostname();
+		$this->assertIsString( $host );
+		$this->assertNotSame( '', $host );
 	}
 
 	public function test_release_frees_the_slot_for_reacquire(): void {
-		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 );
+		$slot = SSE_Slot_Pool::acquire( 'host', 1, 'abc', 8, 30 );
 		$this->assertSame( 0, $slot );
-		$this->assertTrue( SSE_Slot_Pool::release( 1, 'abc', $slot ) );
-		$this->assertSame( 0, SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
+		$this->assertTrue( SSE_Slot_Pool::release( 'host', 1, 'abc', $slot ) );
+		$this->assertSame( 0, SSE_Slot_Pool::acquire( 'host', 1, 'abc', 8, 30 ) );
 	}
 
 	public function test_check_true_for_held_slot_false_for_free(): void {
-		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 );
-		$this->assertTrue( SSE_Slot_Pool::check( 1, 'abc', $slot ) );
-		$this->assertFalse( SSE_Slot_Pool::check( 1, 'abc', 5 ) );
+		$slot = SSE_Slot_Pool::acquire( 'host', 1, 'abc', 8, 30 );
+		$this->assertTrue( SSE_Slot_Pool::check( 'host', 1, 'abc', $slot ) );
+		$this->assertFalse( SSE_Slot_Pool::check( 'host', 1, 'abc', 5 ) );
 	}
 
 	public function test_touch_returns_true_for_held_slot_false_for_missing(): void {
-		$slot = SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 );
-		$this->assertTrue( SSE_Slot_Pool::touch( 1, 'abc', $slot, 30 ) );
-		$this->assertFalse( SSE_Slot_Pool::touch( 1, 'abc', 5, 30 ) );
+		$slot = SSE_Slot_Pool::acquire( 'host', 1, 'abc', 8, 30 );
+		$this->assertTrue( SSE_Slot_Pool::touch( 'host', 1, 'abc', $slot, 30 ) );
+		$this->assertFalse( SSE_Slot_Pool::touch( 'host', 1, 'abc', 5, 30 ) );
 	}
 
 	// ── fail-closed when Core::$memd is null ─────────────────────────────────
 
 	public function test_acquire_fails_closed_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertFalse( SSE_Slot_Pool::acquire( 1, 'abc', 8, 30 ) );
+		$this->assertFalse( SSE_Slot_Pool::acquire( 'host', 1, 'abc', 8, 30 ) );
 	}
 
 	public function test_check_fails_closed_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertFalse( SSE_Slot_Pool::check( 1, 'abc', 0 ) );
+		$this->assertFalse( SSE_Slot_Pool::check( 'host', 1, 'abc', 0 ) );
 	}
 
 	public function test_release_fails_open_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertTrue( SSE_Slot_Pool::release( 1, 'abc', 0 ) );
+		$this->assertTrue( SSE_Slot_Pool::release( 'host', 1, 'abc', 0 ) );
 	}
 
 	public function test_touch_fails_open_when_memd_null(): void {
 		Core::$memd = null;
-		$this->assertTrue( SSE_Slot_Pool::touch( 1, 'abc', 0, 30 ) );
+		$this->assertTrue( SSE_Slot_Pool::touch( 'host', 1, 'abc', 0, 30 ) );
 	}
 
 	// ── wire() installs the SSE_Out seams ────────────────────────────────────
