@@ -56,7 +56,6 @@ class Remote_Link_Node extends Timer_Node {
 
 	/**
 	 * Parse `<vault-id> <remote_partition>` and arm the recurring tick.
-	 * A Timer_Node subclass does not self-schedule, so we explicitly set_timer().
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param string|null $args

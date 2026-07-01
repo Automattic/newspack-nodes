@@ -25,10 +25,22 @@ class Remote_Source_Node extends Remote_Link_Node {
 	use Dead_Letter_Queue;
 	use Time_Travel;
 
-	/** Offsetlog commit cadence (seconds) for healthy running progress. */
-	private const COMMIT_INTERVAL = 5;
+	// Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces
+	// one checkpoint = one segment = one frame, uniformly for stateless consumers
+	// (small offset records) and stateful/snapshot ones (offset + cache). Partition's
+	// do_rotate() adopts the still-empty newest segment on the first commit, then
+	// rotates to a fresh segment on every later commit (current_size ≥ 1 > the
+	// 1-byte threshold) — so segment_size=1 produces no empty-segment spam.
+	public const OFFSETLOG_SEGMENT_SIZE = 1;
+	// Retain the last 10 keyframes (time-travel history depth); load_offsetlog()
+	// crash-resume reads the newest segment, now exactly one record.
+	public const OFFSETLOG_NUM_SEGMENTS = 10;
 
-	private float $last_commit_time = 0.0;
+	// Offsetlog is crash-resume only (TopicProbe, not the offsetlog, is the position
+	// source now), so checkpoint coarsely (Dead_Letter_Queue::CHECKPOINT_INTERVAL_S) —
+	// losing <30s of cursor on a crash just re-delivers those messages on respawn
+	// (at-least-once). Cheaper offsetlog I/O.
+	protected float $last_checkpoint = 0.0;
 
 	/**
 	 * Time-travel cursor/checkpoint the Time_Travel trait reads. `cursor_*` mirrors
@@ -234,8 +246,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( null !== $this->poison_pos || $this->crawl || $this->attempts > 1 ) {
 			return;
 		}
-		$now = Core::$now ?: \microtime( true );
-		if ( $this->last_commit_time > 0.0 && ( $now - $this->last_commit_time ) < self::COMMIT_INTERVAL ) {
+		if ( ( Core::$now - $this->last_checkpoint ) < self::CHECKPOINT_INTERVAL_S ) {
 			return;
 		}
 		if ( null === $this->sse_in ) {
@@ -313,7 +324,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$frame['dlq'] = true;
 		}
 		$this->commit_offsetlog_frame( $frame );
-		$this->last_commit_time = Core::$now ?: \microtime( true );
+		$this->last_checkpoint = Core::$now;
 		// Record the committed position for the time-travel on_frame signal.
 		$this->checkpoint_seg = $seg;
 		$this->checkpoint_off = $off;
@@ -342,8 +353,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$offsetlog = $this->ensure_offsetlog(
 			"{$offsets_dir}/{$this->name}.{$this->remote_partition}",
 			"{$this->name}:{$this->remote_partition}:offsetlog",
-			Partition_Node::DEFAULT_SEGMENT_SIZE,
-			Partition_Node::DEFAULT_NUM_SEGMENTS
+			self::OFFSETLOG_SEGMENT_SIZE,
+			self::OFFSETLOG_NUM_SEGMENTS
 		);
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null !== $offsetlog && null === $offsetlog->sink() && null !== $ci ) {
