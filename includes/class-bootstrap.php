@@ -103,8 +103,9 @@ class Bootstrap {
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
-			SSE_Slot_Pool::wire();
 		}
+		// Footgun: do NOT wire SSE_Slot_Pool here — it force-loads the SSE REST controller
+		// on every admin/cron caller. It rides register_rest_routes() (the only SSE_Out path).
 	}
 
 	/**
@@ -434,6 +435,8 @@ class Bootstrap {
 
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
+		// Slot-pool seams live here, not in ensure_runtime_wired — SSE_Out is REST-only.
+		SSE_Slot_Pool::wire();
 		( new Spawn_Controller( self::supervisor() ) )->register_routes();
 		( new SSE_Out_Node() )->register_routes();
 		( new HTTP_In_Node() )->register_routes();
