@@ -553,7 +553,7 @@ describe( 'DebugOverlay', () => {
 		expect( optionValues ).toContain( '_my_service' );
 	} );
 
-	it( 'inspector action through GraphView pops the transcript footer (setReplExpanded=true)', () => {
+	it( 'inspector action through GraphView pops the transcript footer (setReplExpanded=true)', async () => {
 		// Drive an inspector-action through the rendered subtree: select a node
 		// (clicking the SVG <g class=topology-node>), then click the Inspector's
 		// dump button. The inline closure in DebugOverlay's <GraphView
@@ -573,6 +573,10 @@ describe( 'DebugOverlay', () => {
 				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
 				edges: [],
 			} );
+		} );
+		// autoLayout is deferred until the node set settles.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
 		// SchematicCanvas renders one <g class="topology-node"> per graph node.
 		const nodeEls = container.querySelectorAll( '.topology-node' );
@@ -671,7 +675,7 @@ describe( 'DebugOverlay', () => {
 		).not.toThrow();
 	} );
 
-	it( 'paints the local graph instantly on open via coreToGraph, without waiting for a metadata poll', () => {
+	it( 'paints the local graph instantly on open via coreToGraph, without waiting for a metadata poll', async () => {
 		// F3: the overlay must render GraphView from the in-process graph the
 		// instant its own infra mounts — no ~1-tick wait for the first
 		// dump_metadata poll. With a local visible node in Core and NO metadata
@@ -684,6 +688,10 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// autoLayout is deferred until the node set settles.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
+		} );
 		// No metadata.setState — the canvas is ready off coreToGraph alone.
 		expect(
 			container.querySelector( '.nodes-debug__canvas-building' )
@@ -693,7 +701,7 @@ describe( 'DebugOverlay', () => {
 		).toBeGreaterThan( 0 );
 	} );
 
-	it( 'fresh open with empty localStorage lays the COMPLETE graph out once (isolated nodes on the right)', () => {
+	it( 'fresh open with empty localStorage lays the COMPLETE graph out once (isolated nodes on the right)', async () => {
 		// Graph: s->t connected; iso isolated. autoLayout puts s col0, t+iso at maxDepth(col1).
 		// The bug placed iso in the LEFT column via incremental placeNewNode.
 		// Local-scope reality: the graph's nodes live in Core, so coreToGraph
@@ -712,6 +720,10 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// autoLayout is deferred until the node set settles.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
+		} );
 		const stored = JSON.parse(
 			window.localStorage.getItem( 'newspack-nodes:debug:local' )
 		);

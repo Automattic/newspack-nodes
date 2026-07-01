@@ -1,4 +1,4 @@
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { Node } from '../../runtime/node';
@@ -65,7 +65,7 @@ describe( 'DebugOverlay composite readiness', () => {
 		);
 	} );
 
-	it( 'canvas becomes ready once replReady is true and the graph has nodes', () => {
+	it( 'canvas becomes ready once replReady is true and the graph has nodes', async () => {
 		mockReplReady = true;
 		mountExospine();
 		const a = new Node();
@@ -74,6 +74,10 @@ describe( 'DebugOverlay composite readiness', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// autoLayout is deferred until the node set settles.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
+		} );
 		expect(
 			container.querySelector( '.nodes-debug__canvas-building' )
 		).toBeNull();
