@@ -491,6 +491,7 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected function poll_init(): void {
 		$this->load_offsetlog();
+		$this->set_state( 'READY' );
 		if ( null !== $this->loaded_cache && '' !== $this->snapshot_node ) {
 			$node = Core::node( $this->snapshot_node );
 			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
@@ -1287,14 +1288,14 @@ class Consumer_Node extends Timer_Node {
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'I/O',
-			'description' => 'Tails a Partition; emits each appended message to its sink.',
-			'arguments'        => [
+			'category'      => 'I/O',
+			'description'   => 'Tails a Partition; emits each appended message to its sink.',
+			'arguments'     => [
 				[ 'name' => 'source_dir',     'type' => 'string', 'required' => true ],
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '' ],
 			],
-			'commands'    => [
+			'commands'      => [
 				[
 					'name'        => 'set_snapshot_node',
 					'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor, so it resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
@@ -1347,14 +1348,15 @@ class Consumer_Node extends Timer_Node {
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_step( $interpreter ),
 				],
 			],
-			'requests'    => [
+			'requests'      => [
 				[
 					'name'        => 'GET_LAG',
 					'description' => 'Bytes/messages behind the source partition tail.',
 					'reply_shape' => '{ bytes_behind, segments_behind, caught_up }',
 				],
 			],
-			'accepts_fill' => false,
+			'registrations' => [ 'READY' ],
+			'accepts_fill'  => false,
 		] );
 	}
 

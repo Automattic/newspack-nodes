@@ -60,7 +60,7 @@ class TopicProbe_Node extends Timer_Node {
 			return;
 		}
 		foreach ( Core::$nodes_by_name as $node ) {
-			if ( ! $node instanceof Consumer_Node ) {
+			if ( ! $node instanceof Consumer_Node || null === $node->get_state( 'READY' ) ) {
 				continue;
 			}
 			try {
