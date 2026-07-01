@@ -149,8 +149,13 @@ export class RemoteLinkNode extends Node {
 
 	// Composite stat delegation (mirrors PHP Remote_Link): this link does no wire
 	// I/O itself — its SseIn child reads the stream and its HttpOut child POSTs — so
-	// surface THEIR byte tallies, not the link's own zeros. (counter stays the
-	// link's own field; the JS readers don't aggregate it.)
+	// surface THEIR byte tallies, not the link's own zeros.
+	get counter() {
+		return this.sseIn ? this.sseIn.counter : super.counter;
+	}
+	// Derived from the sseIn child — the pass-through link tallies nothing of its
+	// own, so base fill()'s `counter += 1` is a no-op (avoids a getter-only write).
+	set counter( _v ) {}
 	get bytesRead() {
 		return this.sseIn ? this.sseIn.bytesRead : super.bytesRead;
 	}

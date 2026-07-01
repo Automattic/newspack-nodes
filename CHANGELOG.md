@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Time Travel for `Remote_Source` nodes.** Extracted `Consumer`'s time-travel transport into a shared `Time_Travel` trait (seek/step/pause/play, the `frames`+`cursor` read surface, snapshot/line-mode, and the six console verbs) and wired it into `Remote_Source_Node`, so the topology console's Time Travel panel renders for remote sources: `SEEK_FRAME` reconnects the SSE pull from the frame's offset and `PAUSE`/`PLAY` stop/resume it. `STEP` is a documented no-op for a push-driven source (nothing to single-step). `Consumer` was refactored onto the same trait with no behavior change.
 
+### Fixed
+
+- **`RemoteLink`'s dashboard `counter` now aggregates from its `SseIn` child** instead of showing the pass-through link's own zero — matching how `bytesRead`/`largestMsgSent` already delegate. `counter` moved behind a get/set accessor (a pass-through link's own increment is a no-op), and `dumpNode` now surfaces getter-backed accessors under their public names.
+
 ## [0.25.1] - 2026-07-01
 
 ### Fixed
