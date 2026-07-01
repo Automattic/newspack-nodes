@@ -31,6 +31,12 @@ class Options_Overlay {
 	 * @return array<string,mixed>
 	 */
 	public static function apply( array $defaults, array $schema_keys, string $prefix ): array {
+		// Batch-prime the whole schema in ONE query so the per-key get_option() loop is
+		// cache hits — a schema key with no option row (config on its file default) is not
+		// autoloaded, so it otherwise costs one uncached DB round-trip each on a cold request.
+		if ( \function_exists( 'wp_prime_option_caches' ) && [] !== $schema_keys ) {
+			\wp_prime_option_caches( \array_map( static fn ( string $key ): string => $prefix . $key, $schema_keys ) );
+		}
 		foreach ( $schema_keys as $key ) {
 			$value = self::stored_value( $prefix, $key );
 			if ( self::ABSENT === $value ) {

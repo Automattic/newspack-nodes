@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Config overlay now batch-primes its option reads (one query, not N).** `Config_System\Options_Overlay::apply()` did a `get_option()` per schema key; a key on its file default has no option row and isn't autoloaded, so each cost a separate uncached DB round-trip on a cold request (measured: 8 queries for the substrate's 11-key overlay, ~1.2ms on the local bind-mounted MySQL, on every admin page and supervisor-cron tick). It now calls `wp_prime_option_caches()` once for the whole prefixed key-set before the read loop, so the reads are cache hits (~0.7ms). Guarded by `function_exists` (WP 6.4+); shared, so every consumer overlay (event-logger, ai-newsletter, …) benefits.
 - **Admin pages no longer force-load the SSE REST controller.** `Bootstrap::ensure_runtime_wired()` (which runs on every wp-admin page and supervisor-cron tick) called `SSE_Slot_Pool::wire()`, whose static-property writes autoloaded the ~530-line `SSE_Out_Node` REST controller for a stream that never happens on those requests. The slot-pool seams are consumed only by an `SSE_Out_Node` instance — built only on the REST path — so wiring moved to `register_rest_routes()`. Drops the substrate's admin/cron plugin-load class graph back down (the controller + the slot pool no longer compile there); the SSE stream path is unchanged (the seams are still wired before any `SSE_Out_Node` is instantiated).
 
 ## [0.26.1] - 2026-07-01

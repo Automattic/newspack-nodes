@@ -37,6 +37,22 @@ class OptionsOverlayTest extends TestCase {
 		$this->assertSame( '', $result['base_directory'] );
 	}
 
+	public function test_apply_bulk_primes_every_schema_option_before_reading(): void {
+		// One wp_prime_option_caches() batch-loads all prefixed schema options so the
+		// per-key get_option() loop is cache hits, not N uncached DB round-trips on a
+		// cold request (a missing option row otherwise costs one query each).
+		$GLOBALS['_wp_primed_options'] = [];
+		Options_Overlay::apply(
+			[ 'num_partitions' => 1, 'base_directory' => '/d' ],
+			[ 'num_partitions', 'base_directory' ],
+			'tp_'
+		);
+		$this->assertSame(
+			[ 'tp_num_partitions', 'tp_base_directory' ],
+			$GLOBALS['_wp_primed_options']
+		);
+	}
+
 	public function test_unschemad_keys_are_untouched(): void {
 		\update_option( 'tp_num_partitions', '8' );
 		$result = Options_Overlay::apply( [ 'kept' => 'yes' ], [ 'num_partitions' ], 'tp_' );
