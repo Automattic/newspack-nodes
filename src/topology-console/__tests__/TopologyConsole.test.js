@@ -1955,6 +1955,11 @@ describe( 'TopologyConsole boot', () => {
 				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
 			},
 		} );
+		// Let the initial autoLayout settle so the layout is initialized (Reset
+		// Graph's markDirty is a no-op until positions exist).
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
+		} );
 		expect( queryByText( 'reset-layout' ) ).toBeNull();
 		const chip = await findByText( 'reset-graph' );
 		act( () => {
@@ -3568,7 +3573,7 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
 		await act( async () => {
-			await new Promise( ( r ) => setTimeout( r, 10 ) );
+			await new Promise( ( r ) => setTimeout( r, 300 ) ); // edit-mode autoLayout settles
 		} );
 		// Drag n1 away from the server position so Reset Layout has work to do.
 		await act( async () => {
@@ -3584,7 +3589,7 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'confirm' ) );
 		} );
 		await act( async () => {
-			await new Promise( ( r ) => setTimeout( r, 10 ) );
+			await new Promise( ( r ) => setTimeout( r, 300 ) ); // post-reset autoLayout settles
 		} );
 		// After edit-mode Reset the layout is autoLayout, NOT the server seed —
 		// n1 is NOT at {500,600}, and the map is a fresh (unmodified) auto-fit.
@@ -3818,6 +3823,10 @@ describe( 'TopologyConsole boot', () => {
 				t: { class: 'Echo', counter: 0, sink: '', target: '' },
 				iso: { class: 'Echo', counter: 0, sink: '', target: '' },
 			},
+		} );
+		// The local-scope autoLayout is deferred until the streaming node set settles.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
 		const stored = JSON.parse(
 			window.localStorage.getItem( 'newspack-nodes:topology:local' )

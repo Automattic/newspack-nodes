@@ -70,6 +70,13 @@ function visiblePositions( positions, nodes ) {
  * @param {Object}  [opts.serverLayout] Worker-topology saved layout, or null.
  * @return {Object} { positions, viewport, canReset, onPositionChange, onViewportChange, renamePosition, resetLayout }.
  */
+// A no-saved-layout (local) scope's Core graph registers its nodes over several
+// frames as other views mount, so the one-shot autoLayout waits this long after the
+// node set last changed before running — else it lays out a partial graph and every
+// node that arrives afterward gets column-tucked. A server-seeded worker topology
+// arrives complete and skips this (adopts its saved layout immediately).
+const LAYOUT_SETTLE_MS = 250;
+
 export function useCanvasLayout( {
 	storageKey,
 	graph,
@@ -80,6 +87,7 @@ export function useCanvasLayout( {
 	const stateRef = useRef( state );
 	stateRef.current = state;
 	const vpTimer = useRef( null );
+	const settleTimer = useRef( null );
 
 	// Reload on scope switch; cancel any pending viewport write.
 	useEffect( () => {
@@ -97,19 +105,25 @@ export function useCanvasLayout( {
 	// of clobbering them with autoLayout off a stale (null) closure snapshot.
 	useEffect( () => {
 		if ( ! ready ) {
-			return;
+			return undefined;
 		}
 		const nodes = graph?.nodes ?? [];
 		if ( nodes.length === 0 ) {
-			return;
+			return undefined;
 		}
-		setState( ( prev ) => {
-			if ( prev.positions !== null || prev.key !== storageKey ) {
-				return prev;
-			}
-			let positions;
-			if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
-				positions = { ...serverLayout };
+		// Already initialized for this scope — graph growth is the tuck effect's job.
+		if ( state.positions !== null && state.key === storageKey ) {
+			return undefined;
+		}
+
+		// Server-seeded scopes (a worker topology's saved layout) arrive complete —
+		// adopt the saved layout immediately.
+		if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
+			setState( ( prev ) => {
+				if ( prev.positions !== null || prev.key !== storageKey ) {
+					return prev;
+				}
+				const positions = { ...serverLayout };
 				for ( const n of nodes ) {
 					if ( ! positions[ n.id ] ) {
 						positions[ n.id ] = placeBelow(
@@ -117,29 +131,48 @@ export function useCanvasLayout( {
 						);
 					}
 				}
-			} else {
-				positions = {};
+				const next = {
+					positions,
+					viewport: prev.viewport,
+					modified: false,
+					key: storageKey,
+				};
+				persist( storageKey, next );
+				return next;
+			} );
+			return undefined;
+		}
+
+		// No saved layout: wait for the streaming node set to SETTLE, then autoLayout
+		// the COMPLETE graph. The effect re-runs (and this timer re-arms) on every
+		// graph change, so it fires LAYOUT_SETTLE_MS after the last node arrived.
+		settleTimer.current = setTimeout( () => {
+			settleTimer.current = null;
+			setState( ( prev ) => {
+				if ( prev.positions !== null || prev.key !== storageKey ) {
+					return prev;
+				}
+				const positions = {};
 				for ( const n of autoLayout( graph ).nodes ) {
 					positions[ n.id ] = n.position;
 				}
+				const next = {
+					positions,
+					viewport: prev.viewport,
+					modified: false,
+					key: storageKey,
+				};
+				persist( storageKey, next );
+				return next;
+			} );
+		}, LAYOUT_SETTLE_MS );
+		return () => {
+			if ( settleTimer.current ) {
+				clearTimeout( settleTimer.current );
+				settleTimer.current = null;
 			}
-			const next = {
-				positions,
-				viewport: prev.viewport,
-				modified: false,
-				key: storageKey,
-			};
-			persist( storageKey, next );
-			return next;
-		} );
-	}, [
-		ready,
-		graph,
-		serverLayout,
-		storageKey,
-		state.positions,
-		state.viewport,
-	] );
+		};
+	}, [ ready, graph, serverLayout, storageKey, state.positions, state.key ] );
 
 	// New, undropped nodes tuck below the left-most-then-bottom-most node.
 	useEffect( () => {

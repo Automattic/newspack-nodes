@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Topology Console: the default (local / `_http`) graph now auto-lays-out cleanly on first open instead of stacking nodes in an off-center column.** The local scope's Core graph registers its nodes over several frames (as other views mount), but the one-shot `autoLayout` fired on the FIRST partial frame and then locked — so every node that streamed in afterward got column-tucked below, and only the first few got a real layout. The initial autoLayout now waits for the node set to SETTLE (`LAYOUT_SETTLE_MS` after the last node arrives) and runs once over the COMPLETE graph. Server-seeded worker topologies (which arrive complete) still adopt their saved layout immediately.
+
 ## [0.25.0] - 2026-06-30
 
 ### Added
