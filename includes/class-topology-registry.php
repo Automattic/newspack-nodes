@@ -294,6 +294,10 @@ class Topology_Registry {
 					$seen[ 'deadletter:' . $m[2] ] = true;
 				}
 			}
+			// make_node Remote_Source <node> <vault_id> <source>
+			if ( \preg_match( '/^make_node\s+Remote_Source\s+(\S+)\s+\S+\s+(\S+)/', $line, $m ) ) {
+				$seen[ 'offsetlog:<config:offsets_dir>/' . $m[1] . '.' . $m[2] ] = true;
+			}
 		}
 		$out = \array_keys( $seen );
 		\sort( $out );
