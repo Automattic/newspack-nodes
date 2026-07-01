@@ -1034,6 +1034,40 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_register_rest_routes_wires_the_sse_slot_pool_seams(): void {
+		// The slot-pool seams are consumed only by SSE_Out_Node, which is instantiated
+		// only on the REST path — so wiring them belongs here, NOT in ensure_runtime_wired
+		// (whose admin/cron callers would else force-load the SSE controller for nothing).
+		$acquire_ref = new \ReflectionProperty( \Newspack_Nodes\Rest\SSE_Out_Node::class, 'acquire_slot' );
+		$saved       = $acquire_ref->getValue();
+		try {
+			$acquire_ref->setValue( null, null );
+			Bootstrap::register_rest_routes();
+			$this->assertInstanceOf( \Closure::class, $acquire_ref->getValue(), 'REST wiring installs the SSE slot-pool acquire seam' );
+		} finally {
+			$acquire_ref->setValue( null, $saved );
+		}
+	}
+
+	public function test_ensure_runtime_wired_does_not_force_load_the_sse_controller(): void {
+		// The SSE slot-pool seams must NOT be wired by ensure_runtime_wired — touching
+		// SSE_Out_Node::$acquire_slot there force-autoloads the 500-line REST controller
+		// on every admin page and supervisor-cron tick that never streams.
+		$acquire_ref = new \ReflectionProperty( \Newspack_Nodes\Rest\SSE_Out_Node::class, 'acquire_slot' );
+		$saved       = $acquire_ref->getValue();
+		$wired_ref   = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$saved_wired = $wired_ref->getValue();
+		try {
+			$acquire_ref->setValue( null, null );
+			$wired_ref->setValue( null, false );
+			Bootstrap::ensure_runtime_wired();
+			$this->assertNull( $acquire_ref->getValue(), 'ensure_runtime_wired must not wire the SSE slot-pool seams' );
+		} finally {
+			$acquire_ref->setValue( null, $saved );
+			$wired_ref->setValue( null, $saved_wired );
+		}
+	}
+
 	// ── deactivate ─────────────────────────────────────────────────────────
 
 	public function test_deactivate_clears_supervisor_cron_hook(): void {
