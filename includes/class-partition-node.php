@@ -1204,7 +1204,7 @@ class Partition_Node extends Timer_Node {
 	public function sink( ?Node $node = null ): ?Node {
 		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
 		if ( \func_num_args() > 0 ) {
-			$this->set_state( 'READY' );
+			$this->set_state( 'READY', $this->name );
 		}
 		return $result;
 	}

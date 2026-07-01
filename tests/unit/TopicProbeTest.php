@@ -34,8 +34,11 @@ class TopicProbeTest extends TestCase {
 			public function probe_stats(): array {
 				return $this->canned;
 			}
+			public function make_ready(): void {
+				$this->set_state( 'READY', $this->name );
+			}
 		};
-		$record                          = [];
+		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = 'requests.p0';
 		$record[ Probe_Record::READER ]     = "{$name}.p0";
 		$record[ Probe_Record::CURSOR_SEG ] = 3;
@@ -47,6 +50,7 @@ class TopicProbeTest extends TestCase {
 		$record[ Probe_Record::END_BYTES ]  = 100 + $distance;
 		$c->canned = $record;
 		$c->name( $name ); // registers into Core::$nodes_by_name (the sweep set)
+		$c->make_ready();
 		return $c;
 	}
 

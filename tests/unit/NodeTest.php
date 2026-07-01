@@ -201,13 +201,16 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->registrations = [ 'READY' => [] ];
 			}
+			public function make_ready(): void {
+				$this->set_state( 'READY', $this->name );
+			}
 		};
 		$n->name( 'p' );
-		$n->set_state( 'READY', 'now-ready' );
+		$n->make_ready();
 
 		$received = null;
 		$n->register( 'READY', 'late', function ( $payload ) use ( &$received ) { $received = $payload; } );
-		$this->assertSame( 'now-ready', $received );
+		$this->assertSame( 'p', $received );
 	}
 
 	public function test_notify_dispatches_to_node_name_via_TM_INFO(): void {
@@ -265,11 +268,14 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->registrations = [ 'READY' => [] ];
 			}
+			public function make_ready(): void {
+				$this->set_state( 'READY', $this->name );
+			}
 		};
 		$n->name( 'producer' );
 		\Newspack_Nodes\Core::$recent_log = [];
 		$this->assertSame( 0, $n->debug_state(), 'default off' );
-		$n->set_state( 'READY', 'payload' );
+		$n->make_ready();
 
 		$this->assertEmpty( \Newspack_Nodes\Core::$recent_log, 'no trace emitted at level 0' );
 	}
@@ -286,14 +292,17 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->registrations = [ 'READY' => [] ];
 			}
+			public function make_ready(): void {
+				$this->set_state( 'READY', $this->name );
+			}
 		};
 		$n->name( 'producer' );
 		$n->debug_state( 1 );
-		$n->set_state( 'READY', 'payload-x' );
+		$n->make_ready();
 
 		$this->assertNotEmpty( \Newspack_Nodes\Core::$recent_log );
 		$this->assertStringContainsString(
-			'DEBUG: READY payload-x',
+			'DEBUG: READY producer',
 			\implode( "\n", \Newspack_Nodes\Core::$recent_log )
 		);
 	}
@@ -308,15 +317,18 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->registrations = [ 'READY' => [] ];
 			}
+			public function make_ready(): void {
+				$this->set_state( 'READY', $this->name );
+			}
 		};
 		$n->name( 'producer' );
 		$n->debug_state( 1 );
 		$n->register( 'READY', 'subscriber', function ( $p ) use ( &$received ) { $received = $p; } );
-		$n->set_state( 'READY', 'still-fires' );
+		$n->make_ready();
 
 		// notify still ran (state cache replays to the late subscriber);
 		// no trace was emitted because _router isn't registered.
-		$this->assertSame( 'still-fires', $received );
+		$this->assertSame( 'producer', $received );
 	}
 
 	public function test_debug_state_clamps_to_non_negative(): void {
