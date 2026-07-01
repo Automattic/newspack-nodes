@@ -417,8 +417,8 @@ describe( 'RawLogs', () => {
 		expect( useRawLogsGraph.mock.calls.length ).toBe( rendersAfterSettle );
 	} );
 
-	it( 'sources "Xs ago" from the _sse connector — a heartbeat resets it on an idle stream', () => {
-		// Staleness reflects CONNECTION liveness: the shared _sse connector stamps
+	it( 'sources "Xs ago" from the link connector — a heartbeat resets it on an idle stream', () => {
+		// Staleness reflects CONNECTION liveness: the shared link connector stamps
 		// lastEventTime on every frame AND the server's idle heartbeats, so an
 		// idle-but-healthy stream (no new lines) resets "ago" on each heartbeat.
 		jest.useFakeTimers( {
@@ -434,13 +434,15 @@ describe( 'RawLogs', () => {
 				],
 			} );
 			// The connector last saw a frame 12s ago → "ago" reads ~12s.
-			Core.nodes.set( '_sse', { lastEventTime: Date.now() - 12000 } );
+			Core.nodes.set( 'rawlogs:link', {
+				lastEventTime: () => Date.now() - 12000,
+			} );
 			const { container } = render( <RawLogs /> );
 			tickFrame();
 			act( () => jest.advanceTimersByTime( 1000 ) );
 			expect( container.textContent ).toMatch( /1[23]s ago/ );
 			// Heartbeat: the connector stamps a fresh lastEventTime with NO new lines.
-			Core.node( '_sse' ).lastEventTime = Date.now();
+			Core.node( 'rawlogs:link' ).lastEventTime = () => Date.now();
 			tickFrame();
 			act( () => jest.advanceTimersByTime( 1000 ) );
 			expect( container.textContent ).toMatch( /[01]s ago/ );
