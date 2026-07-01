@@ -25,33 +25,16 @@ class Remote_Source_Node extends Remote_Link_Node {
 	use Dead_Letter_Queue;
 	use Time_Travel;
 
-	// Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces
-	// one checkpoint = one segment = one frame, uniformly for stateless consumers
-	// (small offset records) and stateful/snapshot ones (offset + cache). Partition's
-	// do_rotate() adopts the still-empty newest segment on the first commit, then
-	// rotates to a fresh segment on every later commit (current_size ≥ 1 > the
-	// 1-byte threshold) — so segment_size=1 produces no empty-segment spam.
-	public const OFFSETLOG_SEGMENT_SIZE = 1;
-	// Retain the last 10 keyframes (time-travel history depth); load_offsetlog()
-	// crash-resume reads the newest segment, now exactly one record.
-	public const OFFSETLOG_NUM_SEGMENTS = 10;
-
-	// Offsetlog is crash-resume only (TopicProbe, not the offsetlog, is the position
-	// source now), so checkpoint coarsely (Dead_Letter_Queue::CHECKPOINT_INTERVAL_S) —
-	// losing <30s of cursor on a crash just re-delivers those messages on respawn
-	// (at-least-once). Cheaper offsetlog I/O.
-	protected float $last_checkpoint = 0.0;
+	// Offsetlog geometry (OFFSETLOG_SEGMENT_SIZE / NUM_SEGMENTS), the throttle floor
+	// ($last_checkpoint) and the committed-cursor bookkeeping ($checkpoint_seg/off) all
+	// live in the Time_Travel trait, shared with Consumer.
 
 	/**
-	 * Time-travel cursor/checkpoint the Time_Travel trait reads. `cursor_*` mirrors
-	 * the live SSE_In read position (synced in dump_metadata, the only reader);
-	 * `checkpoint_*` is the last committed frame's {seg,off} (updated in
-	 * commit_position). Both -1 before the first commit / connect.
+	 * Live SSE_In read position the Time_Travel trait reads (synced in dump_metadata, the
+	 * only reader). The committed {seg,off} it compares against is the trait's checkpoint_*.
 	 */
-	protected int $cursor_seg     = 0;
-	protected int $cursor_off     = 0;
-	protected int $checkpoint_seg = -1;
-	protected int $checkpoint_off = -1;
+	protected int $cursor_seg = 0;
+	protected int $cursor_off = 0;
 
 	/** Tachikoma-parity: no-arg ctor. Auto-wire the {name}:config interpreter for the time-travel verbs. */
 	public function __construct() {
@@ -303,31 +286,27 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Commit one offsetlog frame at `{seg,off}`. A graceful frame is a clean handoff
-	 * (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful frame
-	 * carries the live attempt accounting (a climbing poison lineage / pinned crawl).
+	 * Commit one offsetlog frame at `{seg,off}` via the shared writer. A graceful frame is
+	 * a clean handoff (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful
+	 * frame carries the live attempt accounting (a climbing poison lineage / pinned crawl).
 	 * `$dlq` marks the offset as an already-quarantined poison so a respawn drops it once.
+	 * Ensures the lazy per-node offsetlog exists first (Consumer builds its in arguments()).
 	 */
 	private function commit_position( int $seg, int $off, bool $graceful, bool $dlq = false ): void {
 		if ( null === $this->ensure_offsetlog_partition() ) {
 			return;
 		}
-		$frame = [
-			'seg'            => $seg,
-			'off'            => $off,
-			'attempts'       => $graceful ? 0 : $this->attempts,
-			'reason'         => $graceful ? '' : $this->poison_reason,
-			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
-			'_ts'            => (int) Core::$now,
-		];
-		if ( $dlq ) {
-			$frame['dlq'] = true;
-		}
-		$this->commit_offsetlog_frame( $frame );
-		$this->last_checkpoint = Core::$now;
-		// Record the committed position for the time-travel on_frame signal.
-		$this->checkpoint_seg = $seg;
-		$this->checkpoint_off = $off;
+		$this->commit_checkpoint_frame( $seg, $off, $graceful, $dlq ? [ 'dlq' => true ] : [] );
+	}
+
+	/**
+	 * Remote_Source's frame extra beyond the shared base: the commit wall-clock, carried on
+	 * every frame so an idle-vs-fresh cursor is distinguishable in the durable record.
+	 *
+	 * @return array<array-key, mixed>
+	 */
+	protected function checkpoint_frame_extra(): array {
+		return [ '_ts' => (int) Core::$now ];
 	}
 
 	// =========================================================================

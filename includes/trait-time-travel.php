@@ -14,8 +14,16 @@
  *   - time_travel_on_pause() — extra halt on PAUSE (Remote_Source drops the stream).
  *
  * The trait OWNS the transport state (snapshot_node, line_mode, saved_line_mode,
- * rewound_to, stepped_since_seek); it READS the using class's cursor/checkpoint
- * fields (cursor_seg/off, checkpoint_seg/off) and its Offsetlog_Cursor $offsetlog.
+ * rewound_to, stepped_since_seek), the checkpoint bookkeeping (checkpoint_seg/off,
+ * last_checkpoint) and the offsetlog geometry (OFFSETLOG_SEGMENT_SIZE / NUM_SEGMENTS);
+ * it READS the using class's live read cursor (cursor_seg/off). It also owns the shared
+ * frame writer commit_checkpoint_frame(), whose base frame ({seg,off} + graceful-gated
+ * attempt accounting) both nodes commit identically — each contributing only its
+ * node-specific extra fields via checkpoint_frame_extra().
+ *
+ * REQUIRES the using class to also `use Offsetlog_Cursor` (the $offsetlog Partition +
+ * commit_offsetlog_frame()) and `use Dead_Letter_Queue` (attempts / poison_reason /
+ * first_crash_ts / CHECKPOINT_INTERVAL_S, the accounting the base frame stamps).
  *
  * @package Newspack_Nodes
  */
@@ -25,6 +33,31 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 trait Time_Travel {
+
+	/**
+	 * Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces one
+	 * checkpoint = one segment = one frame, uniformly for stateless readers (small offset
+	 * records) and stateful/snapshot ones (offset + cache). Partition's do_rotate() adopts
+	 * the still-empty newest segment on the first commit, then rotates to a fresh segment
+	 * on every later commit (current_size ≥ 1 > the 1-byte threshold) — so segment_size=1
+	 * produces no empty-segment spam. Retain the last 10 keyframes (history depth).
+	 */
+	public const OFFSETLOG_SEGMENT_SIZE = 1;
+	public const OFFSETLOG_NUM_SEGMENTS = 10;
+
+	/**
+	 * Last (seg,off) committed to the offsetlog (-1/-1 before the first commit). Feeds the
+	 * advance-guard (skip a redundant same-cursor write) and dump_metadata's on_frame signal.
+	 */
+	protected int $checkpoint_seg = -1;
+	protected int $checkpoint_off = -1;
+
+	/**
+	 * Wall-clock of the last durable commit — the throttle floor. Offsetlog is crash-resume
+	 * only, so both nodes checkpoint coarsely (Dead_Letter_Queue::CHECKPOINT_INTERVAL_S);
+	 * losing <30s of cursor on a crash just re-delivers those messages (at-least-once).
+	 */
+	protected float $last_checkpoint = 0.0;
 
 	/**
 	 * Name of a node whose state rides in the offsetlog alongside the cursor
@@ -238,6 +271,53 @@ trait Time_Travel {
 		$this->time_travel_resume();
 		$this->set_state( 'POLLING', 'ACTIVE' );
 	}
+
+	// =========================================================================
+	// Shared checkpoint writer. Both nodes commit the SAME base frame — {seg,off}
+	// plus the graceful-gated attempt accounting; each layers only its own extra
+	// fields via checkpoint_frame_extra() (Consumer: name/target/…/cache;
+	// Remote_Source: _ts) and any per-call $extra (Consumer's snapshot cache,
+	// Remote_Source's dlq marker).
+	// =========================================================================
+
+	/**
+	 * Commit ONE offsetlog frame at `{seg,off}`. A graceful frame is a clean handoff
+	 * (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful frame
+	 * carries the live attempt accounting (a climbing poison lineage / pinned crawl).
+	 * Records the committed position + wall-clock, then lets the node react
+	 * (on_checkpoint_committed — Consumer publishes its CHECKPOINT state).
+	 *
+	 * @param bool                    $graceful Stamp attempts=0 instead of the live count.
+	 * @param array<array-key, mixed> $extra    Per-call frame additions (cache / dlq marker).
+	 */
+	protected function commit_checkpoint_frame( int $seg, int $off, bool $graceful, array $extra = [] ): void {
+		if ( null === $this->offsetlog ) {
+			return;
+		}
+		$frame = [
+			'seg'            => $seg,
+			'off'            => $off,
+			'attempts'       => $graceful ? 0 : $this->attempts,
+			'reason'         => $graceful ? '' : $this->poison_reason,
+			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
+		] + $this->checkpoint_frame_extra() + $extra;
+		$this->commit_offsetlog_frame( $frame );
+		$this->checkpoint_seg  = $seg;
+		$this->checkpoint_off  = $off;
+		$this->last_checkpoint = Core::$now;
+		$this->on_checkpoint_committed();
+	}
+
+	/**
+	 * Node-specific frame fields beyond the shared {seg,off,attempts,reason,first_crash_ts}
+	 * base (Consumer: name/target/…; Remote_Source: _ts). Return [] for none.
+	 *
+	 * @return array<array-key, mixed>
+	 */
+	abstract protected function checkpoint_frame_extra(): array;
+
+	/** React to a committed frame (Consumer publishes its CHECKPOINT state). Base no-op. */
+	protected function on_checkpoint_committed(): void {}
 
 	// =========================================================================
 	// Node-specific hooks.
