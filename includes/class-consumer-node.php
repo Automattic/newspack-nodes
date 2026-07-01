@@ -15,6 +15,7 @@ class Consumer_Node extends Timer_Node {
 	use Schema_Reflection;
 	use Offsetlog_Cursor;
 	use Dead_Letter_Queue;
+	use Time_Travel;
 
 	// Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces
 	// one checkpoint = one segment = one frame, uniformly for stateless consumers
@@ -93,37 +94,8 @@ class Consumer_Node extends Timer_Node {
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
 
-	/**
-	 * Name of a node whose state rides in the offsetlog alongside the cursor
-	 * (Tachikoma's snapshot cache). Empty = offset-only. Set via set_snapshot_node.
-	 */
-	private string $snapshot_node = '';
-
-	private bool $line_mode = false;
-
-	/**
-	 * Time-travel STEP captures the production line_mode here on the first step of
-	 * a session; PLAY restores it (line_mode is a legitimate production setting —
-	 * some topologies run it on) and clears this back to null.
-	 */
-	private ?bool $saved_line_mode = null;
-
-	/**
-	 * Offsetlog segment id the consumer was last rewound to by seek_frame() while
-	 * paused, or null when it hasn't been rewound. PLAY reads this to truncate the
-	 * offsetlog after the rewind point before re-arming (commit-to-this-branch), so
-	 * the re-written forward timeline stays monotonic; it then clears this back to
-	 * null. A second seek overwrites it with the newer branch point.
-	 */
-	private ?int $rewound_to = null;
-
-	/**
-	 * True once STEP has advanced the cursor past the frame seek_frame() put it at;
-	 * seek_frame() (a fresh park) and play() (going live) clear it. Feeds the seeked
-	 * case of dump_metadata()'s `on_frame` signal (`! stepped_since_seek`), so the
-	 * debugger panel's "off the keyframe" position survives a remount.
-	 */
-	private bool $stepped_since_seek = false;
+	// Time-travel transport state (snapshot_node, line_mode, saved_line_mode,
+	// rewound_to, stepped_since_seek) lives in the Time_Travel trait.
 
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
@@ -376,103 +348,30 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	// ============================================================================
-	// Time-travel transport (debugger UI): pause / step / play / seek a consumer.
-	// The read surface (frames + cursor) rides dump_metadata(); STEP returns
-	// the resulting cursor.
+	// Time-travel transport hooks. The shared machinery (pause/step/play/seek, the
+	// read surface, verbs + command handlers) lives in the Time_Travel trait; these
+	// are Consumer's file-tail-specific moves the trait calls.
 	// ============================================================================
 
 	/**
-	 * Jump to a known (cursor, state) keyframe identified by its OFFSETLOG SEGMENT
-	 * ID (from dump_metadata's frames[].id): read that one offsetlog segment, take
-	 * its (single) record to recover the co-committed cache, restore_state() it
-	 * into the snapshot node (when one is set), then reposition the read cursor to
-	 * the record's SOURCE {seg,off}. Does NOT resume the timer — a paused consumer
-	 * stays paused after seeking.
+	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is
+	 * reached. poll_init's first tick only loads the buffer (emits nothing in line
+	 * mode), so always tick at least once, then keep going until one message lands
+	 * or a poll leaves us genuinely at EOF with nothing buffered.
 	 *
-	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
-	 * @return string 'ok', or an error string when the offsetlog/segment is absent.
+	 * @return array{seg:int, off:int, at_eof:bool}
 	 */
-	public function seek_frame( int $segment_id ): string {
-		if ( null === $this->offsetlog ) {
-			return 'error: no offsetlog to seek';
-		}
-		$entry = $this->read_frame_record( $segment_id );
-		if ( null === $entry ) {
-			return "error: no frame at segment {$segment_id}";
-		}
-		if ( '' !== $this->snapshot_node ) {
-			$node  = Core::node( $this->snapshot_node );
-			$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
-			if ( null !== $cache && null !== $node && \method_exists( $node, 'restore_state' ) ) {
-				$node->restore_state( $cache );
-			}
-		}
-		$this->next_offset( [ 'seg' => $entry['seg'], 'off' => $entry['off'] ] );
-		// Record the rewind point: PLAY truncates the offsetlog after it before
-		// re-arming, so the re-written forward timeline stays monotonic.
-		$this->rewound_to         = $segment_id;
-		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
-		return 'ok';
-	}
-
-	/**
-	 * Read ONE offsetlog segment and return its keyframe record VALUE (`{seg, off,
-	 * ...cache}`), or null when the segment is absent / empty / unparseable. There's
-	 * exactly one record per offsetlog segment (segment_size=1), but be defensive
-	 * and take the last parseable line.
-	 *
-	 * @return array<array-key, mixed>|null
-	 */
-	private function read_frame_record( int $segment_id ): ?array {
-		if ( null === $this->offsetlog ) {
-			return null;
-		}
-		$sizes = \array_column( $this->offsetlog->get_segments( true ), 'size', 'id' );
-		if ( ! isset( $sizes[ $segment_id ] ) ) {
-			return null;
-		}
-		$bytes = $this->offsetlog->read_at( $segment_id, 0, $sizes[ $segment_id ] );
-		$entry = null;
-		foreach ( \explode( "\n", $bytes ) as $line ) {
-			if ( '' === $line ) {
-				continue;
-			}
-			$parsed = $this->parse_offsetlog_entry( $line );
-			if ( null !== $parsed ) {
-				$entry = $parsed; // Keep the last parseable record.
-			}
-		}
-		return $entry;
-	}
-
-	/**
-	 * Single-step one message. Forces one-message granularity (capturing the
-	 * production line_mode on the first step of a session so PLAY can restore it),
-	 * then drives ticks until exactly one message is emitted or EOF is reached.
-	 *
-	 * @api Consumed over the wire by the debugger UI (auth-gated STEP command).
-	 * @return array{seg:int, off:int, at_eof:bool} The resulting cursor + EOF flag.
-	 */
-	public function step(): array {
-		// Stepping always leaves the consumer paused: an un-paused self-rearming
-		// fire() loop would interleave full-batch polls between steps (leaping the
-		// cursor past messages) and an abandoned session would stay in line_mode.
-		// PLAY re-arms. Idempotent — PAUSE-then-STEP makes this a no-op.
-		$this->stop_timer();
-		$this->set_state( 'POLLING', 'PAUSED' );
-		if ( null === $this->saved_line_mode ) {
-			$this->saved_line_mode = $this->line_mode;
-		}
-		$this->line_mode          = true;
-		$this->stepped_since_seek = true; // Cursor advances off the seeked frame.
-		$before                   = $this->counter;
-		// poll_init's first tick only loads the buffer (emits nothing in line
-		// mode), so always tick at least once, then keep going until one message
-		// lands or a poll leaves us genuinely at EOF with nothing buffered.
+	protected function advance_one_message(): array {
+		$before = $this->counter;
 		do {
 			$this->poll();
 		} while ( $this->counter === $before && ! $this->at_eof );
 		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => $this->at_eof ];
+	}
+
+	/** PLAY re-arm: the busy-cadence oneshot fire() loop. */
+	protected function time_travel_resume(): void {
+		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
 	}
 
 	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */
@@ -1043,111 +942,20 @@ class Consumer_Node extends Timer_Node {
 		}
 	}
 
-	/**
-	 * Parse one packed offsetlog line into its {seg, off, ...} VALUE, or null when
-	 * the line is unparseable or its VALUE isn't the expected struct.
-	 *
-	 * @return array<array-key, mixed>|null
-	 */
-	private function parse_offsetlog_entry( string $line ): ?array {
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			return null;
-		}
-		$entry = $message[ Message::VALUE ];
-		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
-			return null;
-		}
-		return $entry;
-	}
-
 	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
 	public function set_stamp_as( string $stamp ): void {
 		$this->stamp_override = $stamp;
 	}
 
 	/**
-	 * Name the node whose state is snapshotted into the offsetlog alongside the
-	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot). On checkpoint the
-	 * named node's save_state() rides in the committed record; the first poll
-	 * (poll_init) restores it into the by-then-built node. Recording the name is
-	 * all this does — the restore is deferred so topology declaration order can't
-	 * forward-reference a node that doesn't exist yet. Lifts the offsetlog's
-	 * PIPE_BUF cap (void_warranty): the worker holding the topology lock is the
-	 * offsetlog's sole writer, so no per-write lock is needed.
-	 */
-	public function set_snapshot_node( string $name ): void {
-		$this->snapshot_node = $name;
-		$this->offsetlog?->void_warranty();
-	}
-
-	public function set_line_mode( bool $flag ): void {
-		$this->line_mode = $flag;
-	}
-
-	/**
-	 * Generic dump_metadata hook: fold the consumer's time-travel READ surface into
-	 * the canvas-poll payload the inspector already round-trips. CHEAP — the warm
-	 * segments cache only (no record reads, no scandir on the poll path):
-	 *   - `frames`: the offsetlog segment list `[{id,size}]` — one checkpoint = one
-	 *     segment = one keyframe (the debugger ruler identifies a frame by its
-	 *     segment id). Empty when the offsetlog is disabled (ephemeral consumers).
-	 *   - `cursor`: the live source read position `{seg,off}`.
-	 *   - `polling`: the current polling state (`INIT`, `ACTIVE`, `PAUSED`).
-	 *   - `at_frame`: the offsetlog keyframe the cursor is at-or-just-past — its
-	 *     current checkpoint. `rewound_to` when seeked, else the newest frame id when
-	 *     live (the cursor reads forward from its last checkpoint), null only when
-	 *     there are no frames yet. Used for BOTH live status and time-travel position.
-	 *   - `on_frame`: the cursor is exactly on `at_frame`'s committed position vs
-	 *     advanced past it. Seeked: `! stepped_since_seek`. Live: cursor == checkpoint
-	 *     (a quiet consumer sits ON its last checkpoint; an actively-reading one is
-	 *     past it). Reported so the panel's position survives a remount.
+	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll
+	 * payload the inspector round-trips. Delegates to the Time_Travel trait, which
+	 * reads the cursor/checkpoint fields directly.
 	 *
 	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}, polling: string, at_frame: int|null, on_frame: bool}
 	 */
 	public function dump_metadata(): array {
-		$frames    = $this->offsetlog?->get_segments() ?? [];
-		$newest_id = empty( $frames ) ? null : \end( $frames )['id'];
-		$at_frame  = $this->rewound_to ?? $newest_id;
-		$on_frame  = null === $this->rewound_to
-			? ( $this->cursor_seg === $this->checkpoint_seg && $this->cursor_off === $this->checkpoint_off )
-			: ! $this->stepped_since_seek;
-		return [
-			'frames'   => $frames,
-			'cursor'   => [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ],
-			'polling'  => Core::as_string( $this->set_state['POLLING'] ?? 'INIT' ),
-			'at_frame' => $at_frame,
-			'on_frame' => $on_frame,
-		];
-	}
-
-	/** Hold the cursor and emit nothing until STEP / PLAY. */
-	public function pause(): void {
-		$this->stop_timer();
-		$this->set_state( 'POLLING', 'PAUSED' );
-	}
-
-	/**
-	 * Resume normal polling: restore the line_mode STEP captured (NOT hardcoded
-	 * false — line_mode is a legitimate production setting), clear the saved field,
-	 * and re-arm the fire() loop.
-	 */
-	public function play(): void {
-		// If the consumer was rewound while paused, this is the commit-to-this-branch
-		// moment: drop the now-stale forward keyframes so the re-written timeline stays
-		// monotonic. The OFFSETLOG only — never the source log.
-		if ( null !== $this->rewound_to ) {
-			$this->offsetlog?->truncate_after( $this->rewound_to );
-			$this->rewound_to = null;
-		}
-		$this->stepped_since_seek = false; // Going live: no longer off a seeked frame.
-		if ( null !== $this->saved_line_mode ) {
-			$this->line_mode      = $this->saved_line_mode;
-			$this->saved_line_mode = null;
-		}
-		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
-		$this->set_state( 'POLLING', 'ACTIVE' );
+		return $this->time_travel_metadata();
 	}
 
 	protected function check_name_availability( string $name ): void {
@@ -1198,93 +1006,6 @@ class Consumer_Node extends Timer_Node {
 		}
 		parent::remove_node();
 	}
-	/**
-	 * `set_snapshot_node` verb handler — set the patron's snapshot-target node.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string $args Verb argument.
-	 *
-	 * @return string
-	 */
-	public static function cmd_set_snapshot_node( Command_Interpreter_Node $interpreter, string $args ): string {
-		/** @var self $patron */
-		$patron = $interpreter->patron();
-		$patron->set_snapshot_node( \trim( $args ) );
-		return 'ok';
-	}
-
-	/**
-	 * `set_line_mode` verb handler — toggle the patron's line-mode framing. Only an
-	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; a bare/empty verb or any
-	 * other value disables it, so the default is "off" and an accidental enable is reversible.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string                   $args        Optional bool; only a truthy value enables.
-	 *
-	 * @return string
-	 */
-	public static function cmd_set_line_mode( Command_Interpreter_Node $interpreter, string $args ): string {
-		/** @var self $patron */
-		$patron  = $interpreter->patron();
-		$enabled = \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true );
-		$patron->set_line_mode( $enabled );
-		return 'ok';
-	}
-
-	/**
-	 * `SEEK_FRAME` verb handler — seek the patron consumer to a frame.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string                   $args        Verb argument.
-	 *
-	 * @return string
-	 */
-	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, string $args ): string {
-		/** @var self $patron */
-		$patron = $interpreter->patron();
-		return $patron->seek_frame( (int) \trim( $args ) );
-	}
-
-	/**
-	 * `PAUSE` verb handler — pause the patron consumer.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 *
-	 * @return string
-	 */
-	public static function cmd_pause( Command_Interpreter_Node $interpreter ): string {
-		/** @var self $patron */
-		$patron = $interpreter->patron();
-		$patron->pause();
-		return 'ok';
-	}
-
-	/**
-	 * `PLAY` verb handler — resume the patron consumer.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 *
-	 * @return string
-	 */
-	public static function cmd_play( Command_Interpreter_Node $interpreter ): string {
-		/** @var self $patron */
-		$patron = $interpreter->patron();
-		$patron->play();
-		return 'ok';
-	}
-
-	/**
-	 * `STEP` verb handler — single-step the patron consumer.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 *
-	 * @return string
-	 */
-	public static function cmd_step( Command_Interpreter_Node $interpreter ): string {
-		/** @var self $patron */
-		$patron = $interpreter->patron();
-		return (string) \wp_json_encode( $patron->step() );
-	}
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
@@ -1295,59 +1016,9 @@ class Consumer_Node extends Timer_Node {
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '' ],
 			],
-			'commands'      => [
-				[
-					'name'        => 'set_snapshot_node',
-					'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor, so it resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
-					'args'        => [
-						[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_snapshot_node( $interpreter, $args ),
-				],
-				[
-					'name'        => 'set_line_mode',
-					'description' => 'Fine-grained drain mode: emits one line per event cycle',
-					'args'        => [
-						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_line_mode( $interpreter, $args ),
-				],
-				[
-					'name'        => 'SEEK_FRAME',
-					'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment_id> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
-					// Driven by the Inspector's Time Travel transport bar; hide the
-					// redundant standalone verb button.
-					'hidden'      => true,
-					'args'        => [
-						[ 'name' => 'segment_id', 'type' => 'int', 'required' => true ],
-					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_seek_frame( $interpreter, $args ),
-				],
-				[
-					'name'        => 'PAUSE',
-					'description' => 'Time-travel: stop the poll timer; the consumer holds its cursor until STEP / PLAY.',
-					'hidden'      => true,
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_pause( $interpreter ),
-				],
-				[
-					'name'        => 'PLAY',
-					'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
-					'hidden'      => true,
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_play( $interpreter ),
-				],
-				[
-					// A COMMAND, not a request: STEP mutates (emits a message + advances the
-					// durable cursor), so it must ride the auth-gated interpreter path —
-					// handle_request() (the TM_REQUEST path) bypasses interpret()'s auth gate.
-					'name'        => 'STEP',
-					'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
-					'hidden'      => true,
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_step( $interpreter ),
-				],
-			],
+			// The time-travel verbs (set_snapshot_node, set_line_mode, SEEK_FRAME,
+			// PAUSE, PLAY, STEP) are shared with Remote_Source via the Time_Travel trait.
+			'commands'      => self::time_travel_verbs(),
 			'requests'      => [
 				[
 					'name'        => 'GET_LAG',
