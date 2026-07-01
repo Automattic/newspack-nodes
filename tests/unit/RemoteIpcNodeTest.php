@@ -161,6 +161,25 @@ class RemoteIpcNodeTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( Core::node( 'combined.p0:http-out' ), 'batch' ) );
 	}
 
+	public function test_active_link_does_not_publish_status(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_ipc( 'combined.p0' );
+		$node->connect();
+		$this->feed_connected( Core::node( 'combined.p0:sse-in' ), 5, 4242 );
+
+		// Active + connected: the base link would publish a per-tick status snapshot.
+		Core::$now = \microtime( true ) + 16;
+		$node->fire();
+
+		// Remote_IPC is an interactive channel, not an aggregated spoke — the Aggregator
+		// only reads Remote_Source keys, so a Remote_IPC status write is dead output.
+		$this->assertFalse(
+			Core::$memd->get( 'np:remote:combined.p0:combined.p0' ),
+			'Remote_IPC must not write a status snapshot'
+		);
+	}
+
 	public function test_only_the_active_link_ticks_a_heartbeat(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();

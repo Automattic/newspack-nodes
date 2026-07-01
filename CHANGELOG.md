@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The dashboard status snapshot is now `Remote_Source`-only.** It moved out of the base `Remote_Link` into `Remote_Source_Node` (`publish_status` / `record_heartbeat_sent` / `record_heartbeat_reply` are no-op seams on the base that only `Remote_Source` overrides), so a `Remote_IPC` interactive channel no longer writes a `np:remote:*` status key — the Aggregator reads only `Remote_Source` keys, so those writes were dead output. `Remote_IPC` still sends the slot-keepalive heartbeat; only the status recording moved.
+
 ## [0.26.0] - 2026-07-01
 
 ### Added

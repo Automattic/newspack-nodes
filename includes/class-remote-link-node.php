@@ -12,9 +12,11 @@
  * Credentials + URL come from the Vault entry resolved by `<vault-id>`; a missing
  * entry leaves the node disconnected (no mis-configured patrons created).
  *
- * Mirrors the JS RemoteLinkNode. Two subclasses specialize the base via three
- * protected seams (`restore_position`, `persist_cursor`, `should_connect`).
- * `Remote_Source_Node` adds the durable aggregation offsetlog;
+ * Mirrors the JS RemoteLinkNode. Two subclasses specialize the base via protected
+ * seams: connection (`restore_position`, `persist_cursor`, `should_connect`) and the
+ * dashboard status snapshot (`publish_status`, `record_heartbeat_sent`,
+ * `record_heartbeat_reply` — all no-ops here, so only `Remote_Source_Node` publishes).
+ * `Remote_Source_Node` adds the durable aggregation offsetlog + that status snapshot;
  * `Remote_IPC_Node` adds the worker-pivot send + single-connection steal.
  *
  * @package Newspack_Nodes
@@ -33,9 +35,6 @@ class Remote_Link_Node extends Timer_Node {
 	/** Slot-keepalive heartbeat cadence (seconds). */
 	public const HEARTBEAT_INTERVAL = 10;
 
-	/** Memcache TTL for the status snapshot (seconds). */
-	public const STATUS_TTL = 300;
-
 	protected string $vault_id         = '';
 	protected string $remote_partition = '';
 
@@ -45,9 +44,10 @@ class Remote_Link_Node extends Timer_Node {
 	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
 	protected ?HTTP_Out_Node $http_out = null;
 
-	private int $last_heartbeat          = 0;
-	private int $last_heartbeat_sent     = 0;
-	private int $last_heartbeat_response = 0;
+	private int $last_heartbeat = 0;
+
+	// The dashboard status snapshot is Remote_Source-only; the base exposes it as the
+	// no-op seams below (see the "Dashboard status snapshot" section for why).
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
@@ -113,20 +113,6 @@ class Remote_Link_Node extends Timer_Node {
 		$this->publish_status();
 	}
 
-	/** Record a heartbeat reply's round-trip into the status snapshot. */
-	private function record_heartbeat_reply(): void {
-		if ( 0 === $this->last_heartbeat_sent ) {
-			return;
-		}
-		$now                           = (int) Core::$now;
-		$rtt                           = $this->last_heartbeat_sent > 0 ? ( $now - $this->last_heartbeat_sent ) : 0;
-		$this->last_heartbeat_response = $now;
-		$this->write_status( [
-			'last_heartbeat_response' => $now,
-			'last_heartbeat_rtt'      => $rtt,
-		] );
-	}
-
 	/**
 	 * Default send: relay the message out through the patron HTTP_Out. Remote_IPC
 	 * overrides this to wrap the reply-FROM pivot + bundle a `connect_worker_input`.
@@ -168,8 +154,7 @@ class Remote_Link_Node extends Timer_Node {
 		if ( $now - $this->last_heartbeat < self::HEARTBEAT_INTERVAL ) {
 			return;
 		}
-		$this->last_heartbeat      = $now;
-		$this->last_heartbeat_sent = $now;
+		$this->last_heartbeat = $now;
 
 		// ttl must outlive HEARTBEAT_INTERVAL — only the client refreshes the slot.
 		$message                   = Message::new_message();
@@ -183,66 +168,23 @@ class Remote_Link_Node extends Timer_Node {
 		++$this->counter;
 		$this->http_out->fill( $message );
 
-		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
-	}
-
-	/**
-	 * Publish the connection-state snapshot from SSE_In::connection(). Ages out the
-	 * heartbeat round-trip so the dashboard's Status badge can't latch 'success' on a
-	 * stale timestamp: the response is "live" only while connected AND seen within the
-	 * node's HEARTBEAT_INTERVAL*4 window (the slot-TTL span); otherwise it's nulled
-	 * (mirrors the old clear-on-disconnect). Live values ride the write_status merge.
-	 */
-	private function publish_status(): void {
-		$conn = null !== $this->sse_in
-			? $this->sse_in->connection()
-			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null ];
-		$data = [
-			'last_connection_attempt' => $conn['last_attempt'],
-			'connected'               => $conn['connected'],
-			'last_http_code'          => $conn['last_http_code'],
-			'last_error'              => $conn['last_error'],
-			'current_backoff'         => $conn['current_backoff'],
-			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
-		];
-		// Live only while connected AND the response is within the slot-TTL window.
-		$hb_live = $conn['connected']
-			&& $this->last_heartbeat_response > 0
-			&& ( (int) Core::$now - $this->last_heartbeat_response ) <= self::HEARTBEAT_INTERVAL * 4;
-		if ( ! $hb_live ) {
-			$data['last_heartbeat_response'] = null;
-			$data['last_heartbeat_rtt']      = null;
-		}
-		$this->write_status( $data );
-	}
-
-	/**
-	 * Merge $data into the status snapshot under the per-node key.
-	 *
-	 * @param array<string,mixed> $data
-	 */
-	private function write_status( array $data ): void {
-		$cache = Core::$memd;
-		if ( null === $cache ) {
-			return;
-		}
-		$key      = $this->status_key();
-		$existing = $cache->get( $key );
-		if ( ! \is_array( $existing ) ) {
-			$existing = [];
-		}
-		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
+		$this->record_heartbeat_sent( $now );
 	}
 
 	// =========================================================================
-	// Status snapshot — per-node memcache key (node name + remote_partition).
+	// Dashboard status snapshot — Remote_Source-only seams (no-op in the base).
+	// The Aggregator reads only Remote_Source keys, so a Remote_IPC status write is
+	// dead output; Remote_Source overrides these to publish its per-node snapshot.
 	// =========================================================================
 
-	// Keyed by NODE NAME first so two spokes pulling the same remote_partition
-	// (e.g. firehose.p0) don't collide; Aggregator_CI reads the identical key.
-	private function status_key(): string {
-		return "np:remote:{$this->name}:{$this->remote_partition}";
-	}
+	/** Per-tick connection-state snapshot (Remote_Source overrides; base no-op). */
+	protected function publish_status(): void {}
+
+	/** Record the heartbeat send-time into the status snapshot (Remote_Source overrides). */
+	protected function record_heartbeat_sent( int $now ): void {}
+
+	/** Record a heartbeat reply's round-trip into the status snapshot (Remote_Source overrides). */
+	protected function record_heartbeat_reply(): void {}
 
 	/**
 	 * Open the inbound stream (children built lazily). Mirrors JS RemoteLink.connect.
@@ -395,7 +337,7 @@ class Remote_Link_Node extends Timer_Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'I/O',
-			'description'  => 'Full-duplex SSE+HTTP channel base: composes an SSE_In + HTTP_Out and drives the heartbeat/status tick.',
+			'description'  => 'Full-duplex SSE+HTTP channel base: composes an SSE_In + HTTP_Out and drives the slot-keepalive heartbeat tick.',
 			'arguments'    => [
 				[ 'name' => 'vault_id',         'type' => 'string', 'required' => true ],
 				[ 'name' => 'remote_partition', 'type' => 'string', 'required' => true ],
