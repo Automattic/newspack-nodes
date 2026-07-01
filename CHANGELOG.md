@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-07-01
+
 ### Fixed
 
 - **SSE rate-limit slots are now namespaced per host.** Multiple hosts sharing one memcache collided on slot keys (`evlog:sse:{user}:{ip}:{slot}`); the key now carries the hostname, so each host gets an independent pool. A single `SSE_Slot_Pool::hostname()` source (`gethostname() ?: 'unknown'`) feeds every slot method and the heartbeat `touch` caller, guarding the string-typed methods against a `gethostname()` failure.
