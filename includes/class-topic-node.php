@@ -106,7 +106,7 @@ class Topic_Node extends Node {
 			for ( $i = 0; $i < $this->num_partitions; ++$i ) {
 				$this->partition( $i )->sink( $node );
 			}
-			$this->set_state( 'READY' );
+			$this->set_state( 'READY', $this->name );
 		}
 		return $result;
 	}

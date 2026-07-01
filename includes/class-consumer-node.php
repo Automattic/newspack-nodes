@@ -512,7 +512,7 @@ class Consumer_Node extends Timer_Node {
 		$this->boot_cursor_seg  = $this->cursor_seg;
 		$this->boot_cursor_off  = $this->cursor_off;
 		$this->poll_initialized = true;
-		$this->set_state( 'READY' );
+		$this->set_state( 'READY', $this->name );
 		$this->poll_cb = $this->poll_active( ... );
 		( $this->poll_cb )();
 	}
