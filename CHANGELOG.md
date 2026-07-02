@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Consumer seal-grace for multi-writer segment rotation.** On a multi-writer log (the firehose, appended by every request/worker process), a peer can keep writing to segment N for up to `DRIFT_RESCAN_INTERVAL` (~1s) after another writer created N+1. The reader advanced off N the instant it was caught up and N+1 existed, orphaning those late writes — chiefly a request's terminal `process (complete)`, which then never finalized downstream. `Consumer_Node` gains a `multi_writer` mode (config verb `set_multi_writer`, default off) that holds the reader on N until N's size has been stable for `SEAL_GRACE_SECONDS` (2.0s, > the 1s linger bound), so a straggler is consumed in order. Single-writer logs (requests, flames, offsetlogs — every SSE-fed dashboard stream) leave it off and advance immediately: a single writer seals N the instant it creates N+1, so no grace is needed and no latency is added. Documented at the `Topic_Node` shared-source seam.
+
 ## [0.26.3] - 2026-07-02
 
 ### Added

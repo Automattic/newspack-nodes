@@ -32,6 +32,18 @@ class Consumer_Node extends Timer_Node {
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
 	/**
+	 * Multi-writer seal-grace: seconds a segment's size must hold steady before,
+	 * with a newer segment present, the reader advances off it. A peer writer on a
+	 * shared log (the firehose) can keep appending to segment N for up to
+	 * Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS after N+1 appears; this must
+	 * exceed that so a straggler's final line (often a request's terminal
+	 * `process (complete)`) is never orphaned by a premature advance. Only applies
+	 * in $multi_writer mode — a single-writer log seals N the instant it creates
+	 * N+1, so its reader advances immediately (no added latency).
+	 */
+	public const SEAL_GRACE_SECONDS = 2.0;
+
+	/**
 	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
 	 * points this at poll_init; the first poll loads the durable cursor + restores
 	 * the snapshot — by which time the whole topology is built — then swaps to
@@ -64,6 +76,19 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected string $offsetlog_dir      = '';
 	protected ?Partition_Node $source    = null;
+
+	/**
+	 * Multi-writer source: apply the seal-grace (see SEAL_GRACE_SECONDS) before
+	 * advancing off a segment that a newer segment supersedes. Set true ONLY for a
+	 * genuinely shared log (the firehose); single-writer logs leave it false and
+	 * advance immediately.
+	 */
+	protected bool $multi_writer = false;
+
+	/** Seal-grace bookkeeping: the segment + size last seen caught-up, and when that size last changed. */
+	protected int $seal_seg     = -1;
+	protected int $seal_size    = -1;
+	protected float $seal_since = 0.0;
 
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
@@ -823,6 +848,20 @@ class Consumer_Node extends Timer_Node {
 		if ( $read_at >= $seg_size ) {
 			$next = $this->next_segment_id( $segments, $this->cursor_seg );
 			if ( null !== $next ) {
+				// Multi-writer seal-grace: a peer may still be appending to this
+				// segment for up to DRIFT_RESCAN after the newer one appeared. Hold
+				// until its size has been steady for SEAL_GRACE, then advance. If a
+				// straggler writes in the meantime, $read_at < $seg_size on the next
+				// poll and we consume it here (in order) before re-testing the seal.
+				// Only the live boundary (second-newest) can still receive a straggler;
+				// segments further back are definitely sealed, so a backlog catch-up
+				// crosses them at once (no per-segment grace tax).
+				if ( $this->multi_writer
+					&& $this->cursor_seg >= $newest_id - 1
+					&& ! $this->segment_sealed( $this->cursor_seg, $seg_size ) ) {
+					$this->at_eof = true;
+					return;
+				}
 				$this->cursor_seg = $next;
 				$this->cursor_off = 0;
 				$this->buffer     = '';
@@ -863,6 +902,43 @@ class Consumer_Node extends Timer_Node {
 			}
 		}
 		return $next;
+	}
+
+	/** Enable/disable the multi-writer seal-grace. Set true only for a shared log (the firehose). */
+	public function set_multi_writer( bool $flag ): void {
+		$this->multi_writer = $flag;
+	}
+
+	/**
+	 * `set_multi_writer` verb handler — toggle the patron's seal-grace. Only an
+	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; anything else disables,
+	 * so the default stays "off" (single-writer, immediate advance).
+	 *
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
+	 * @param string                   $args        Optional bool; only a truthy value enables.
+	 */
+	public static function cmd_set_multi_writer( Command_Interpreter_Node $interpreter, string $args ): string {
+		$patron = $interpreter->patron();
+		if ( $patron instanceof self ) {
+			$patron->set_multi_writer( \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true ) );
+		}
+		return 'ok';
+	}
+
+	/**
+	 * Multi-writer seal test: true once segment $seg has held $size steady for
+	 * >= SEAL_GRACE_SECONDS. Any change in ($seg, $size) restarts the clock and
+	 * returns false, so a straggler append (which grows $size) always defers the
+	 * advance by another full grace window. Uses Core::$now so tests drive it.
+	 */
+	private function segment_sealed( int $seg, int $size ): bool {
+		if ( $seg !== $this->seal_seg || $size !== $this->seal_size ) {
+			$this->seal_seg   = $seg;
+			$this->seal_size  = $size;
+			$this->seal_since = Core::$now;
+			return false;
+		}
+		return ( Core::$now - $this->seal_since ) >= self::SEAL_GRACE_SECONDS;
 	}
 
 	/** True when $buffer holds at least one complete (newline-terminated) line still to drain. */
@@ -986,8 +1062,18 @@ class Consumer_Node extends Timer_Node {
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '' ],
 			],
 			// The time-travel verbs (set_snapshot_node, set_line_mode, SEEK_FRAME,
-			// PAUSE, PLAY, STEP) are shared with Remote_Source via the Time_Travel trait.
-			'commands'      => self::time_travel_verbs(),
+			// PAUSE, PLAY, STEP) are shared with Remote_Source via the Time_Travel trait;
+			// set_multi_writer is Consumer-specific (the seal-grace for shared logs).
+			'commands'      => \array_merge(
+				self::time_travel_verbs(),
+				[
+					[
+						'name'        => 'set_multi_writer',
+						'description' => 'Enable the multi-writer seal-grace (shared logs, e.g. the firehose).',
+						'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_multi_writer( $interpreter, $args ),
+					],
+				]
+			),
 			'requests'      => [
 				[
 					'name'        => 'GET_LAG',

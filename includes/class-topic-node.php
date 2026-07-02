@@ -4,6 +4,14 @@
  *
  * Class-API contract: constructor must be safe in request scope (no event-loop deps).
  *
+ * MULTI-WRITER seam: a Topic whose partitions are appended to by MANY processes
+ * (e.g. the firehose, written by every request/worker) is a multi-writer log. A
+ * Consumer reading such a log MUST opt into the seal-grace via
+ * `set_multi_writer(true)` (topology: `cmd <consumer>:config set_multi_writer true`),
+ * or a peer's straggler append at a segment-rotation boundary is orphaned. A
+ * single-writer log (one process appends) needs nothing — its reader advances
+ * immediately. See Consumer_Node::SEAL_GRACE_SECONDS.
+ *
  * @package Newspack_Nodes
  */
 
