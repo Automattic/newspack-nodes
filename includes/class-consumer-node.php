@@ -356,11 +356,6 @@ class Consumer_Node extends Timer_Node {
 		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => $this->at_eof ];
 	}
 
-	/** PLAY re-arm: the busy-cadence oneshot fire() loop. */
-	protected function time_travel_resume(): void {
-		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
-	}
-
 	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */
 	public function poll(): void {
 		( $this->poll_cb ?? ( $this->poll_cb = $this->poll_init( ... ) ) )();
@@ -756,11 +751,6 @@ class Consumer_Node extends Timer_Node {
 		];
 	}
 
-	/** Publish the CHECKPOINT state after each committed frame (the trait's post-commit hook). */
-	protected function on_checkpoint_committed(): void {
-		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->checkpoint_seg, 'OFFSET', $this->checkpoint_off ] ) );
-	}
-
 	/**
 	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
 	 *
@@ -925,6 +915,16 @@ class Consumer_Node extends Timer_Node {
 			$this->cursor_off = 0;
 			$this->buffer     = '';
 		}
+	}
+
+	/** PLAY re-arm: the busy-cadence oneshot fire() loop. */
+	protected function time_travel_resume(): void {
+		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
+	}
+
+	/** Publish the CHECKPOINT state after each committed frame (the trait's post-commit hook). */
+	protected function on_checkpoint_committed(): void {
+		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->checkpoint_seg, 'OFFSET', $this->checkpoint_off ] ) );
 	}
 
 	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
