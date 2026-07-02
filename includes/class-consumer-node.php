@@ -365,6 +365,31 @@ class Consumer_Node extends Timer_Node {
 		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => $this->at_eof ];
 	}
 
+	/**
+	 * Synchronous read-to-EOF — the messaging interface a CLI (reqgrep) drives instead
+	 * of hand-rolling read_bytes_at + decode. This is Tachikoma v2.0's drain(): poll the
+	 * source until it is genuinely at EOF with no buffered complete line, fill()ing each
+	 * unpacked Message into the sink as poll() does, then emit one terminal TM_EOF (its
+	 * drain tail). The Consumer's fire_cb is the async event-loop wrapper of the same path.
+	 *
+	 * @api Cross-plugin CLI entrypoint — reqgrep (event-logger-nodes) drives it.
+	 */
+	public function drain(): void {
+		do {
+			$this->poll();
+		} while ( ! $this->at_eof || false !== \strpos( $this->buffer, "\n" ) );
+		$eof                  = Message::new_message();
+		$eof[ Message::TYPE ] = Message::TM_EOF;
+		$stamp                = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		if ( '' !== $stamp ) {
+			$this->stamp_message( $eof, $stamp );
+		}
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			$eof[ Message::TO ] = $this->target;
+		}
+		$this->sink?->fill( $eof );
+	}
+
 	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */
 	public function poll(): void {
 		( $this->poll_cb ?? ( $this->poll_cb = $this->poll_init( ... ) ) )();
@@ -622,8 +647,9 @@ class Consumer_Node extends Timer_Node {
 		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
 			return; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 		}
-		// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
-		$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
+		// Breadcrumb goes in ID as segment:offset:length (length = the on-disk span, so a hub
+		// resumes at offset+length); KEY stays the producer's routing key.
+		$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}:{$line_size}";
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}

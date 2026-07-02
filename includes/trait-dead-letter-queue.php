@@ -117,11 +117,11 @@ trait Dead_Letter_Queue {
 	/**
 	 * Build the Message to quarantine from a raw source line: the real unpacked
 	 * message when it parses (so `wp nodes ingest` can replay it), else the raw bytes
-	 * wrapped in a TM_BYTESTREAM for inspection. Stamps the source seg:off breadcrumb.
+	 * wrapped in a TM_BYTESTREAM for inspection. Stamps the source segment:offset:length breadcrumb.
 	 *
 	 * @return array<int, mixed>
 	 */
-	protected function poison_from_line( string $line, int $seg, int $abs_offset ): array {
+	protected function poison_from_line( string $line, int $segment, int $offset ): array {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
@@ -129,7 +129,8 @@ trait Dead_Letter_Queue {
 			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 			$message[ Message::VALUE ] = $line;
 		}
-		$message[ Message::ID ] = "{$seg}:{$abs_offset}";
+		$length                 = \strlen( $line ) + 1;
+		$message[ Message::ID ] = "{$segment}:{$offset}:{$length}";
 		return $message;
 	}
 

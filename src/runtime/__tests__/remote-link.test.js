@@ -134,13 +134,13 @@ describe( 'RemoteLinkNode', () => {
 		const m = newMessage();
 		m[ TYPE ] = TM_BYTESTREAM;
 		m[ FROM ] = 'errors.p0/request-builder';
-		m[ ID ] = '3:99';
+		m[ ID ] = '3:99:70';
 		m[ VALUE ] = 'a line';
 		FakeEventSource.last.listeners.msg[ 0 ]( {
 			data: JSON.stringify( m ),
 		} );
 		expect( link.resumePositions() ).toEqual( {
-			'errors.p0': { seg: 3, off: 99 },
+			'errors.p0': { seg: 3, off: 99 + 70 },
 		} );
 	} );
 

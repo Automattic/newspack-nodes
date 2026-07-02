@@ -147,9 +147,11 @@ class DeadLetterQueueTest extends TestCase {
 		$original                  = Message::new_message();
 		$original[ Message::TYPE ] = Message::TM_STRUCT;
 		$original[ Message::VALUE ] = [ 'a' => 1 ];
-		$poison = $d->poison( Message::packed( $original ), 2, 128 );
+		$line   = Message::packed( $original );
+		$poison = $d->poison( $line, 2, 128 );
 		$this->assertSame( [ 'a' => 1 ], $poison[ Message::VALUE ] );
-		$this->assertSame( '2:128', $poison[ Message::ID ] );
+		// ID = segment:offset:length, length = the on-disk span (line + newline).
+		$this->assertSame( '2:128:' . ( \strlen( $line ) + 1 ), $poison[ Message::ID ] );
 	}
 
 	public function test_poison_from_line_wraps_unparseable_bytes(): void {
@@ -157,7 +159,7 @@ class DeadLetterQueueTest extends TestCase {
 		$poison = $d->poison( 'not a packed message', 3, 64 );
 		$this->assertSame( Message::TM_BYTESTREAM, $poison[ Message::TYPE ] );
 		$this->assertSame( 'not a packed message', $poison[ Message::VALUE ] );
-		$this->assertSame( '3:64', $poison[ Message::ID ] );
+		$this->assertSame( '3:64:' . ( \strlen( 'not a packed message' ) + 1 ), $poison[ Message::ID ] );
 	}
 
 	public function test_record_poison_strike_stamps_reason_and_streak(): void {

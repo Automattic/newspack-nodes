@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SSE aggregation no longer loses a record per reconnect (data loss).** A hub `Remote_Source` computed its resume cursor as `offset + wire_bytes + 1`, assuming the streamed bytes equalled the remote's on-disk record length. They don't: the remote streams through a `Consumer` that re-stamps FROM + ID, so the wire record is longer than the on-disk line. The committed exclusive cursor therefore landed *inside* the next on-disk record, and on every reconnect / ~10-min worker recycle the remote seeked mid-record, dead-lettered the fragment, and skipped a record — silent at-most-once loss. The record's ID breadcrumb is now `segment:offset:length` (the remote — which read the bytes — stamps the authoritative on-disk length), so the hub resumes at the exact `offset + length` boundary: exclusive resume with no loss and no recycle-duplicate. `SSE_In` (PHP + JS) and the JS `positions=` seed all parse the three-part breadcrumb; a torn/partial breadcrumb falls through without advancing. A trailing quarantined poison can now also be skipped cleanly (its next-read is a known boundary).
+
+### Added
+
+- **Cooperative-stop fair-shot for `Remote_Source`** — EXACTLY `Consumer_Node`'s rule, adapted to the push arrival seam. When a worker cooperatively stops (timeout/memory) mid-forward of the message it booted on, that message earns a fair-shot strike; the streak climbs across respawns and quarantines at `COOP_MAX`, advancing past. An advanced cursor (a later message forwarded) or an idle worker hands off cleanly; the memory-watermark exemption blames a leak, not the in-flight message. `Worker_Base` routes a cooperative stop to `Remote_Source::cooperative_stop()` (mirroring `handoff_consumer`); an operational stop stays a graceful `checkpoint_shutdown`. Previously a stream message that reliably timed a worker out looped forever with no climb-to-quarantine.
+- **`Consumer_Node::drain()`** — a synchronous read-to-EOF (Tachikoma v2.0's `drain()`): poll the source until genuinely at EOF, `fill()` each unpacked Message into the sink, then emit one terminal `TM_EOF`. The messaging interface a CLI drives instead of hand-rolling byte reads + `json_decode`.
+- **`Grep_Node`** — ported from Tachikoma's `Grep.pm`: forward a Message when its stringified VALUE matches the compiled pattern, drop it otherwise.
+- **`Partition_Node::read_message_at()`** — seek-and-unpack one Message at `{segment, offset, length}`, returning the positional array (null on a torn read) so callers stop hand-rolling `read_at` + `json_decode`.
+
+### Changed
+
+- **`Remote_Source_Node` normalized onto `Consumer_Node`'s cursor/DLQ model.** The durable cursor is now node-owned and advances **after** a successful forward (from the message's own breadcrumb), so the throttled checkpoint can no longer commit the end of an in-flight message (the prior hard-crash loss window); a downstream throw **dead-letters on sight** and advances past (Consumer's model) instead of the old block-and-climb head-freeze — deleting `poison_pos`, `dlq_pos`, `at_dlq_offset`, and the re-pull-once-and-drop marker. Time-travel, the offsetlog cursor, and the dead-letter machinery are now the same in both nodes via the shared `Time_Travel` / `Offsetlog_Cursor` / `Dead_Letter_Queue` traits. Upgrade note: an in-flight pre-upgrade `dlq`-marked offsetlog frame re-quarantines its poison once (self-healing).
+- **`SSE_Out` streams `Message::packed` on the wire** (was `wp_json_encode`), so the streamed record is byte-identical framing to the source; heartbeats ride a `TM_INFO` envelope. The pull side short-circuits heartbeats before unpack, so it is unaffected.
+- **`Partition_Node` index formatter contract** (`with_index` / `write_index_entry`): the formatter callback now receives the unpacked **Message array** + `{segment, offset, length}` position rather than the serialized line, so consumers read `Message::VALUE` directly with no re-decode.
+
 ## [0.26.4] - 2026-07-02
 
 ### Fixed

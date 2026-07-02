@@ -198,9 +198,8 @@ class Worker_Base {
 			if ( $node instanceof Consumer_Node ) {
 				$this->handoff_consumer( $node );
 			} elseif ( $node instanceof Remote_Source_Node ) {
-				// Remote_Source carries a durable cursor but is NOT a Consumer_Node, so it
-				// needs its own shutdown commit — else its healthy cursor is lost each recycle.
-				$node->checkpoint_shutdown();
+				// Not a Consumer_Node but carries a durable cursor: cooperative stop → fair-shot, operational → graceful.
+				$this->handoff_remote_source( $node );
 			}
 		}
 		$this->checkpoint_ipc_input();
@@ -220,6 +219,21 @@ class Worker_Base {
 			return;
 		}
 		$node->checkpoint( true );
+	}
+
+	/**
+	 * Shutdown handoff for one Remote_Source. Mirrors handoff_consumer: a cooperative stop
+	 * (timeout/memory) routes through the fair-shot rule; an operational stop is a clean
+	 * graceful checkpoint. For memory, pass whether the fresh baseline was already near the
+	 * watermark so a leak isn't blamed on the in-flight message ([42]).
+	 */
+	private function handoff_remote_source( Remote_Source_Node $node ): void {
+		$is_memory = 'memory' === $this->stop_reason;
+		if ( 'timeout' === $this->stop_reason || $is_memory ) {
+			$node->cooperative_stop( $this->stop_reason, $is_memory && $this->baseline_near_watermark() );
+			return;
+		}
+		$node->checkpoint_shutdown();
 	}
 
 	/**

@@ -75,14 +75,22 @@ class SseInTest extends TestCase {
 	public function test_msg_frame_forwarded_to_target_with_position_update(): void {
 		[ $node, $sink ] = $this->configured_node( 'austin' );
 
-		$node->process_sse_chunk( $this->msg_frame( '3:128', 'req', [ 'rid' => 'abc', 'url' => '/x' ] ) );
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = '3:128:50';
+		$m[ Message::KEY ]   = 'req';
+		$m[ Message::VALUE ] = [ 'rid' => 'abc', 'url' => '/x' ];
+		$packed              = Message::packed( $m );
+
+		$node->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
 
 		$this->assertCount( 1, $sink->captured );
 		$fwd = $sink->captured[0];
 		$this->assertSame( 'merger', $fwd[ Message::TO ] );
 		$this->assertIsArray( $fwd[ Message::VALUE ] );
 		$this->assertSame( 'abc', $fwd[ Message::VALUE ]['rid'] );
-		$this->assertSame( [ 'segment_id' => 3, 'offset' => 128 ], $node->position() );
+		// Exclusive next-read cursor from the breadcrumb: offset (128) + length (50).
+		$this->assertSame( [ 'segment_id' => 3, 'offset' => 128 + 50 ], $node->position() );
 	}
 
 	public function test_forward_drops_message_whose_from_overflows_max(): void {
@@ -95,15 +103,31 @@ class SseInTest extends TestCase {
 		$m                  = Message::new_message();
 		$m[ Message::TYPE ] = Message::TM_STRUCT;
 		$m[ Message::FROM ] = \str_repeat( 'a', \Newspack_Nodes\Node::MAX_FROM_SIZE );
-		$m[ Message::ID ]   = '5:64';
+		$m[ Message::ID ]   = '5:64:50';
 		$m[ Message::KEY ]  = 'k';
 		$m[ Message::VALUE ] = [ 'p' => 1 ];
 
-		$node->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$packed = Message::packed( $m );
+		$node->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
 
 		$this->assertCount( 0, $sink->captured, 'an over-MAX_FROM_SIZE message must be dropped, not forwarded' );
-		// The position breadcrumb still advanced — a single bad record can't wedge the stream.
-		$this->assertSame( [ 'segment_id' => 5, 'offset' => 64 ], $node->position() );
+		// The position breadcrumb still advanced (exclusive) — a single bad record can't wedge the stream.
+		$this->assertSame( [ 'segment_id' => 5, 'offset' => 64 + 50 ], $node->position() );
+	}
+
+	public function test_unparseable_frame_routes_to_on_poison_and_keeps_draining(): void {
+		// A torn/non-envelope frame must NOT crash the reader — it goes to the patron's
+		// DLQ hook (the raw bytes), nothing is forwarded, and the stream keeps draining.
+		[ $node, $sink ] = $this->configured_node();
+		$captured        = null;
+		$node->on_poison = static function ( string $raw ) use ( &$captured ): void {
+			$captured = $raw;
+		};
+
+		$node->process_sse_chunk( "event: msg\ndata: {not a message}\n\n" );
+
+		$this->assertSame( '{not a message}', $captured, 'raw frame handed to the DLQ hook' );
+		$this->assertCount( 0, $sink->captured, 'nothing forwarded downstream on an unparseable frame' );
 	}
 
 	public function test_connected_handshake_consumed_and_captures_slot(): void {

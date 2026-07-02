@@ -74,13 +74,13 @@ class Partition_Node extends Timer_Node {
 
 	protected float $last_segment_check = 0.0;
 
-	/** @var (callable(string, array<string, mixed>, mixed): (string|null))|null fn(string $line, array $position, ?array &$data) => string|null */
+	/** @var (callable(array<int, mixed>, array<string, int>): (string|null))|null fn(array $message, array $position) => string|null */
 	protected $index_callback = null;
 
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
 
-	/** @var list<array{record:string,size:int,data:mixed}> Flushed in lockstep with $batch. */
+	/** @var list<array{message:array<int, mixed>,size:int}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 
 	/**
@@ -184,8 +184,6 @@ class Partition_Node extends Timer_Node {
 
 		$this->maybe_rescan_segments();
 
-		$data = null;
-
 		// Large messages bypass the batch; flush pending batch first to preserve ordering.
 		if ( $size > self::MAX_LINE_SIZE ) {
 			$this->flush();
@@ -203,7 +201,7 @@ class Partition_Node extends Timer_Node {
 				return;
 			}
 			if ( null !== $this->index_callback ) {
-				$this->write_index_entry( $record, $offset, $size, $data );
+				$this->write_index_entry( $message, $offset, $size );
 			}
 			$this->touch_segments_cache();
 			return;
@@ -220,9 +218,8 @@ class Partition_Node extends Timer_Node {
 
 		$this->batch              .= $record;
 		$this->batch_index_args[]  = [
-			'record' => $record,
-			'size'   => $size,
-			'data'   => $data,
+			'message' => $message,
+			'size'    => $size,
 		];
 
 		// 0-delay one-shot flush at the end of this event-loop iteration.
@@ -498,7 +495,7 @@ class Partition_Node extends Timer_Node {
 		if ( null !== $this->index_callback ) {
 			$offset = $start_offset;
 			foreach ( $batch_args as $item ) {
-				$this->write_index_entry( $item['record'], $offset, $item['size'], $item['data'] );
+				$this->write_index_entry( $item['message'], $offset, $item['size'] );
 				$offset += $item['size'];
 			}
 		}
@@ -728,22 +725,23 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write one companion-index entry for a serialized record at $offset. Caller guards on $index_callback.
+	 * Write one companion-index entry for the message at $offset. Caller guards on $index_callback.
 	 *
-	 * @param mixed $data Opaque per-message data passed through to the index callback.
+	 * @param array<int, mixed> $message The unpacked message array handed to the index callback.
 	 */
-	private function write_index_entry( string $record, int $offset, int $len, $data ): void {
-		$callback = $this->index_callback;
-		if ( null === $callback ) {
+	private function write_index_entry( array $message, int $offset, int $len ): void {
+		$callback   = $this->index_callback;
+		$segment_id = $this->current_segment_id;
+		if ( null === $callback || null === $segment_id ) {
 			return;
 		}
 		$position = [
-			'segment_id' => $this->current_segment_id,
+			'segment_id' => $segment_id,
 			'offset'     => $offset,
 			'length'     => $len,
 		];
 		try {
-			$entry = $callback( $record, $position, $data );
+			$entry = $callback( $message, $position );
 			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
 				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
 			}
@@ -823,6 +821,27 @@ class Partition_Node extends Timer_Node {
 			return $bytes;
 		}
 		return '';
+	}
+
+	/**
+	 * Decoded random-access read: the record at {seg,off,len} unpacked to a Message.
+	 * The single canonical "read a record as a message" — callers use this instead of
+	 * read_at + a hand-rolled json_decode. Returns null on a torn/short record (the
+	 * bytes don't unpack to a 7-field envelope) rather than throwing.
+	 *
+	 * @api Cross-plugin entrypoint — Performance_CI (event-logger-nodes) reads via this.
+	 * @return array<int, mixed>|null
+	 */
+	public function read_message_at( int $segment_id, int $offset, int $length ): ?array {
+		$bytes = $this->read_at( $segment_id, $offset, $length );
+		if ( '' === $bytes ) {
+			return null;
+		}
+		try {
+			return Message::unpacked( $bytes );
+		} catch ( \InvalidArgumentException $e ) {
+			return null;
+		}
 	}
 
 	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
@@ -1053,7 +1072,11 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Enable companion index files via a custom formatter callback.
 	 *
-	 * @param callable $callback fn(string $line, array $position, ?array &$data) => string|null. Return null/'' to skip.
+	 * The formatter receives the unpacked message array (the 7-field positional
+	 * Message) plus the on-disk position — never the serialized JSONL line — so
+	 * it reads `$message[ Message::VALUE ]` directly instead of json_decode-ing.
+	 *
+	 * @param callable(array<int, mixed>, array<string, int>): (string|null) $callback fn(array $message, array $position) => string|null. Return null/'' to skip.
 	 * @return self
 	 */
 	public function with_index( callable $callback ): self {

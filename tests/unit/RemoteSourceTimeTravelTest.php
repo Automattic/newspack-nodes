@@ -112,18 +112,18 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->assertArrayHasKey( 'off', $meta['cursor'] );
 	}
 
-	public function test_dump_metadata_cursor_tracks_the_live_sse_position(): void {
+	public function test_dump_metadata_cursor_reports_the_node_cursor(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire();
 
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->restore_position( 4, 42 );
+		// The reported cursor is the node-owned after-forward cursor, set here via a seek.
+		$node->next_offset( [ 'seg' => 4, 'off' => 42 ] );
 
 		$meta = $node->dump_metadata();
-		$this->assertSame( [ 'seg' => 4, 'off' => 42 ], $meta['cursor'], 'cursor mirrors the live SSE_In read position' );
+		$this->assertSame( [ 'seg' => 4, 'off' => 42 ], $meta['cursor'], 'cursor reports the node-owned read position' );
 	}
 
 	// =========================================================================
@@ -138,13 +138,13 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		// Commit a durable frame at a known remote {seg,off}.
-		$sse->restore_position( 7, 128 );
+		// Commit a durable frame at a known remote {seg,off} via the node cursor.
+		$node->next_offset( [ 'seg' => 7, 'off' => 128 ] );
 		$node->checkpoint_shutdown();
 		$segment_id = \end( $node->dump_metadata()['frames'] )['id'];
 
-		// Drift the live cursor away, then seek back to the committed frame.
-		$sse->restore_position( 3, 3 );
+		// Drift the cursor away, then seek back to the committed frame.
+		$node->next_offset( [ 'seg' => 3, 'off' => 3 ] );
 		$node->pause();
 		$this->assertSame( 'ok', $node->seek_frame( $segment_id ) );
 
@@ -164,7 +164,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$sse->restore_position( 7, 128 );
+		$node->next_offset( [ 'seg' => 7, 'off' => 128 ] );
 		$node->checkpoint_shutdown();
 		$segment_id = \end( $node->dump_metadata()['frames'] )['id'];
 
@@ -238,8 +238,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->restore_position( 5, 55 );
+		$node->next_offset( [ 'seg' => 5, 'off' => 55 ] );
 
 		$result = $node->step();
 		$this->assertSame( [ 'seg' => 5, 'off' => 55, 'at_eof' => true ], $result, 'STEP reports the current position without advancing' );

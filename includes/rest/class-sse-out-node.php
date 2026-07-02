@@ -272,10 +272,7 @@ class SSE_Out_Node extends Node {
 					}
 					$now = \microtime( true );
 					if ( ( $now - $last_heartbeat ) >= $heartbeat_interval ) {
-						$this->send_sse_event(
-							'heartbeat',
-							[ 'ts' => $now ]
-						);
+						$this->send_sse_event( 'heartbeat', $this->build_heartbeat_msg( $now ) );
 						$last_heartbeat = $now;
 					}
 					// Flush before the framework sleeps so this tick's msgs + heartbeats reach the client.
@@ -316,15 +313,15 @@ class SSE_Out_Node extends Node {
 	 * Emit a single SSE event. SAFE_EVENTS pass through; anything else is
 	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
 	 *
-	 * @param string $event Event name.
-	 * @param mixed  $data  JSON-serializable payload.
+	 * @param string            $event   Event name.
+	 * @param array<int, mixed> $message 7-field positional Message.
 	 */
-	protected function send_sse_event( string $event, mixed $data ): void {
+	protected function send_sse_event( string $event, array $message ): void {
 		$event = $this->sanitize_event_name( $event );
 		if ( '' === $event ) {
 			throw new \InvalidArgumentException( 'SSE event name is empty after sanitization; refusing to emit a nameless event.' );
 		}
-		$json    = \wp_json_encode( $data );
+		$json    = Message::packed( $message );
 		$payload = "event: {$event}\ndata: {$json}\n\n";
 		// SSE wire format must reach the client byte-for-byte; HTML escaping would corrupt the stream.
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
@@ -454,6 +451,21 @@ class SSE_Out_Node extends Node {
 			'SUBSCRIPTIONS', \implode( ',', $subs ),
 			'INTERVAL',      (string) $interval,
 		] );
+		return $message;
+	}
+
+	/**
+	 * Build a `heartbeat` Message envelope
+	 *
+	 * @param float $now Current timestamp.
+	 * @return array<int, mixed> The 7-field positional Message.
+	 */
+	private function build_heartbeat_msg( float $now ): array {
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_INFO;
+		$message[ Message::FROM ]      = '_stream';
+		$message[ Message::KEY ]       = 'heartbeat';
+		$message[ Message::VALUE ]     = (string) $now;
 		return $message;
 	}
 

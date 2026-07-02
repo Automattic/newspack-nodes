@@ -392,6 +392,30 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 1, $spy->shutdown_calls, 'the shutdown handoff must checkpoint Remote_Source nodes' );
 	}
 
+	public function test_cooperative_stop_routes_remote_source_to_the_fair_shot_rule(): void {
+		// A cooperative stop (timeout/memory) must route Remote_Source through cooperative_stop
+		// — the fair-shot rule, EXACTLY like a Consumer_Node — not the plain graceful shutdown.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->set_stop_reason_for_test( 'timeout' );
+		$spy = new class() extends \Newspack_Nodes\Remote_Source_Node {
+			/** @var array<int,array{0:string,1:bool}> */
+			public array $coop = [];
+			public int $shutdown_calls = 0;
+			public function cooperative_stop( string $reason, bool $baseline_near_watermark ): void {
+				$this->coop[] = [ $reason, $baseline_near_watermark ];
+			}
+			public function checkpoint_shutdown(): void {
+				++$this->shutdown_calls;
+			}
+		};
+		$spy->name( 'remote-austin' );
+
+		$w->checkpoint_durable_consumers();
+
+		$this->assertSame( [ [ 'timeout', false ] ], $spy->coop, 'a cooperative stop routes Remote_Source to the fair-shot rule' );
+		$this->assertSame( 0, $spy->shutdown_calls, 'and NOT the plain graceful shutdown' );
+	}
+
 	public function test_execute_checkpoints_ipc_input_at_shutdown(): void {
 		// The clean-recycle shutdown path must checkpoint the IPC input so the
 		// respawned worker resumes past consumed commands (no replay).
