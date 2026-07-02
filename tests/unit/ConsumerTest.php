@@ -2933,9 +2933,9 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
 		$this->assertSame(
-			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP' ],
+			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
-			'Consumer exposes the snapshot-cache + line-mode config verbs plus the time-travel transport (STEP is a mutating command, not a request)'
+			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (STEP is a mutating command, not a request), and set_multi_writer (seal-grace)'
 		);
 
 		// Three ctor params: source_dir (required), offsetlog_dir + deadletter_dir (default '').
