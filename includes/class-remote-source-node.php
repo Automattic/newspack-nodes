@@ -25,10 +25,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	use Dead_Letter_Queue;
 	use Time_Travel;
 
-	// Offsetlog geometry (OFFSETLOG_SEGMENT_SIZE / NUM_SEGMENTS), the throttle floor
-	// ($last_checkpoint) and the committed-cursor bookkeeping ($checkpoint_seg/off) all
-	// live in the Time_Travel trait, shared with Consumer.
-
 	/**
 	 * Live SSE_In read position the Time_Travel trait reads (synced in dump_metadata, the
 	 * only reader). The committed {seg,off} it compares against is the trait's checkpoint_*.
@@ -62,6 +58,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @var array{seg:int,off:int}|null
 	 */
 	private ?array $dlq_pos = null;
+
+	/** Memcache TTL for the status snapshot (seconds). */
+	public const STATUS_TTL = 300;
+
+	private int $last_heartbeat_sent     = 0;
+	private int $last_heartbeat_response = 0;
 
 	/**
 	 * Stream data relayed from our own SSE_In patron — quarantine-guarded — vs the base
@@ -460,12 +462,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	// These override the Remote_Link no-op seams; only aggregated spokes publish
 	// status (a Remote_IPC channel isn't aggregated, so it stays a no-op there).
 	// =========================================================================
-
-	/** Memcache TTL for the status snapshot (seconds). */
-	public const STATUS_TTL = 300;
-
-	private int $last_heartbeat_sent     = 0;
-	private int $last_heartbeat_response = 0;
 
 	/** Stamp the heartbeat send-time so record_heartbeat_reply() can compute the round-trip. */
 	protected function record_heartbeat_sent( int $now ): void {

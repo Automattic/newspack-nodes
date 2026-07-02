@@ -17,8 +17,6 @@ class Consumer_Node extends Timer_Node {
 	use Dead_Letter_Queue;
 	use Time_Travel;
 
-	// Offsetlog geometry (OFFSETLOG_SEGMENT_SIZE / NUM_SEGMENTS = one keyframe per commit,
-	// 10-deep history) lives in the Time_Travel trait, shared with Remote_Source.
 	public const MAX_LINE_BUFFER_SIZE = 33554432;
 
 	/**
@@ -33,8 +31,6 @@ class Consumer_Node extends Timer_Node {
 	/** 0 = next event-loop iteration. */
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
-	// $last_checkpoint (the throttle floor) lives in the Time_Travel trait, shared with Remote_Source.
-
 	/**
 	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
 	 * points this at poll_init; the first poll loads the durable cursor + restores
@@ -43,9 +39,6 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected ?\Closure $poll_cb = null;
 
-	// $checkpoint_seg / $checkpoint_off (last committed cursor; the advance-guard) live in
-	// the Time_Travel trait, shared with Remote_Source.
-
 	/**
 	 * The cursor this process booted on (seeded by load_offsetlog). Advancing past it
 	 * is "forward progress" — the poison region is behind us, so attempts resets to the
@@ -53,10 +46,6 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected int $boot_cursor_seg = 0;
 	protected int $boot_cursor_off = 0;
-
-	// Crash-streak state ($attempts, $poison_reason, $first_crash_ts), the crawl mode
-	// ($crawl, $crawl_started), and the CRASH_MAX / COOP_MAX / CHECKPOINT_INTERVAL_S
-	// thresholds all live in Dead_Letter_Queue (shared with Remote_Source).
 
 	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
 	public const STATE_WIPE_AFTER_S = 900;
@@ -76,13 +65,8 @@ class Consumer_Node extends Timer_Node {
 	protected string $offsetlog_dir      = '';
 	protected ?Partition_Node $source    = null;
 
-	// $deadletter_dir + $deadletter (the quarantine sibling, schema-arg-assigned) live in Dead_Letter_Queue.
-
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
-
-	// Time-travel transport state (snapshot_node, line_mode, saved_line_mode,
-	// rewound_to, stepped_since_seek) lives in the Time_Travel trait.
 
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
