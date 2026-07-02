@@ -35,10 +35,10 @@ import {
 	unpack,
 } from './message';
 
-// A record's ID is the Consumer's `seg:offset` breadcrumb; FROM carries the
+// A record's ID is the Consumer's `segment:offset:length` breadcrumb; FROM carries the
 // producer path `<sub>.p<partition>/…`. Parsing both lets the client resume a
 // reconnect from exactly where it left off (no gap, no replay).
-const ID_POSITION_RE = /^(\d+):(\d+)$/;
+const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
 // Heartbeat-timeout watchdog. The server beats every 2s; force a fresh stream
 // only after STALE (3 missed beats) + GRACE (self-recovery observe window) of
@@ -261,7 +261,7 @@ export class SseInNode extends Node {
 	// Remember a record's `{seg,off}` keyed by its concrete partition DIRECTORY —
 	// the FROM's first path segment (`completed.p0`, or any layout the producer
 	// stamped). Each directory is its own unique partition; we never parse a
-	// `.p{N}` integer out of the name. A non-`seg:offset` ID (a command reply's
+	// `.p{N}` integer out of the name. A non-breadcrumb ID (a command reply's
 	// correlation id) is ignored.
 	_trackPosition( message ) {
 		const idMatch = ID_POSITION_RE.exec(
@@ -274,9 +274,11 @@ export class SseInNode extends Node {
 		if ( '' === dir ) {
 			return;
 		}
+		// Resume at the exclusive next-read offset+length — the remote stamped the on-disk
+		// length in the breadcrumb, so this is the exact next-record boundary.
 		this.lastPositions[ dir ] = {
 			seg: Number( idMatch[ 1 ] ),
-			off: Number( idMatch[ 2 ] ),
+			off: Number( idMatch[ 2 ] ) + Number( idMatch[ 3 ] ),
 		};
 	}
 

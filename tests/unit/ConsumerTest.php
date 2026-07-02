@@ -292,6 +292,32 @@ class ConsumerTest extends TestCase {
 		$partition->flush();
 	}
 
+	public function test_drain_emits_every_record_then_a_terminal_tm_eof(): void {
+		// Synchronous Tachikoma-v2.0 drain(): read the source to EOF, fill() each
+		// unpacked Message into the sink, then a single terminal TM_EOF — the whole
+		// messaging interface reqgrep consumes instead of hand-rolling read_at + decode.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'first' );
+		$this->produce_line( $source, 'second' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+
+		$c->drain();
+
+		$this->assertCount( 3, $capture->captured, 'two records + one terminal EOF' );
+		$this->assertSame( 'first',  $capture->captured[0][ Message::VALUE ] );
+		$this->assertSame( 'second', $capture->captured[1][ Message::VALUE ] );
+		$this->assertNotSame(
+			0,
+			$capture->captured[2][ Message::TYPE ] & Message::TM_EOF,
+			'drain() closes with a TM_EOF'
+		);
+	}
+
 	public function test_poll_does_not_re_emit_old_lines_on_second_call(): void {
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
@@ -1586,7 +1612,7 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 1, $cap->captured, 'completed line must emit once fully written' );
 		$this->assertSame( 'first', $cap->captured[0][ Message::VALUE ] );
 		// Cursor should be at start of segment 0.
-		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
+		$this->assertStringStartsWith( '0:0:', $cap->captured[0][ Message::ID ] );
 	}
 
 	public function test_partial_line_does_not_double_emit_bytes(): void {
@@ -1852,7 +1878,7 @@ class ConsumerTest extends TestCase {
 
 		$this->assertCount( 1, $cap->captured, 'cursor past EOF of an existing segment must rewind and drain' );
 		$this->assertSame( 'after-wipe', $cap->captured[0][ Message::VALUE ] );
-		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ], 'rewind must restart at segment offset 0' );
+		$this->assertStringStartsWith( '0:0:', $cap->captured[0][ Message::ID ], 'rewind must restart at segment offset 0' );
 	}
 
 	public function test_handle_request_GET_LAG_reports_replay_when_cursor_past_eof(): void {
@@ -1993,11 +2019,11 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( '_repl', $cap->captured[0][ Message::FROM ], 'override must replace name in FROM' );
 	}
 
-	public function test_poll_emitted_ID_is_seg_colon_offset(): void {
-		// Each emitted message's ID = "{seg}:{abs_offset}" — the offsetlog
-		// uses this to checkpoint by segment+offset. ID (not KEY) because KEY
-		// is the producer's routing key (rid for firehose, handler for
-		// jobintake) and Consumer must preserve it for downstream routing.
+	public function test_poll_emitted_ID_is_segment_offset_length(): void {
+		// Each emitted message's ID = "{segment}:{offset}:{length}" — offset is the record's
+		// start, length its on-disk byte span (incl. newline). A hub's SSE_In resumes at
+		// offset+length (the exact next boundary); it can't derive the on-disk length from the
+		// re-stamped wire bytes, so the producing Consumer — which read the bytes — stamps it.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
@@ -2010,12 +2036,15 @@ class ConsumerTest extends TestCase {
 		$this->pump_consumer( $c );
 
 		$this->assertCount( 2, $cap->captured );
-		// First line lands at offset 0 within segment 0.
-		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
-		// Second line lands AFTER the first packed line + newline.
-		[ $seg2, $off2 ] = explode( ':', $cap->captured[1][ Message::ID ] );
-		$this->assertSame( '0', $seg2 );
-		$this->assertGreaterThan( 0, (int) $off2, 'second line offset must be past first' );
+		[ $segment1, $offset1, $length1 ] = explode( ':', $cap->captured[0][ Message::ID ] );
+		$this->assertSame( '0', $segment1 );
+		$this->assertSame( '0', $offset1 );
+		[ $segment2, $offset2, $length2 ] = explode( ':', $cap->captured[1][ Message::ID ] );
+		$this->assertSame( '0', $segment2 );
+		// The first record's length is exactly the second record's start offset — proving
+		// length is the on-disk span (offset + length = the next record's boundary).
+		$this->assertGreaterThan( 0, (int) $length1 );
+		$this->assertSame( (int) $length1, (int) $offset2, 'length is the on-disk span to the next record' );
 	}
 
 	public function test_poll_preserves_producer_KEY(): void {
@@ -2042,7 +2071,7 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( 'producer-key-abc123', $cap->captured[0][ Message::KEY ] );
 		// Position breadcrumb lands on ID alongside.
-		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
+		$this->assertStringStartsWith( '0:0:', $cap->captured[0][ Message::ID ] );
 	}
 
 	public function test_poll_overwrites_existing_TO_with_target(): void {

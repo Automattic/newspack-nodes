@@ -468,23 +468,24 @@ test( 'a forced reconnect with nothing tracked tail-follows — it does NOT re-r
 	}
 } );
 
-test( 'tracks the seg:offset from each subscription frame, exposed via resumePositions()', () => {
+test( 'tracks segment:offset:length from each frame, resuming at offset+length', () => {
 	const { sse } = makeSseIn( { subscribe: [ 'completed' ] } );
 	sse.start();
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;
 	m[ FROM ] = 'completed.p0/request-builder';
-	m[ ID ] = '4:623851';
+	m[ ID ] = '4:623851:120';
 	m[ VALUE ] = 'a line';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 	// Keyed by the OPAQUE concrete-partition dir name (the FROM's first segment),
-	// not a parsed integer — each directory is its own unique partition.
+	// not a parsed integer — each directory is its own unique partition. The tracked
+	// offset is the exclusive next-read: the record's offset + its on-disk length.
 	expect( sse.resumePositions() ).toEqual( {
-		'completed.p0': { seg: 4, off: 623851 },
+		'completed.p0': { seg: 4, off: 623851 + 120 },
 	} );
 } );
 
-test( 'a command-reply ID (not seg:offset) is not tracked as a position', () => {
+test( 'a command-reply ID (not a breadcrumb) is not tracked as a position', () => {
 	const { sse } = makeSseIn( { subscribe: [ 'completed' ] } );
 	sse.start();
 	const m = newMessage();
@@ -507,7 +508,7 @@ test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no repla
 		const m = newMessage();
 		m[ TYPE ] = TM_BYTESTREAM;
 		m[ FROM ] = 'completed.p1/x';
-		m[ ID ] = '2:500';
+		m[ ID ] = '2:500:100';
 		m[ VALUE ] = 'x';
 		FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 		jest.advanceTimersByTime( 13000 ); // watchdog forces a reconnect
@@ -517,7 +518,7 @@ test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no repla
 			decodeURIComponent( url.split( 'positions=' )[ 1 ] )
 		);
 		expect( positions ).toEqual( {
-			'completed.p1': { seg: 2, off: 500 },
+			'completed.p1': { seg: 2, off: 500 + 100 },
 		} );
 	} finally {
 		jest.useRealTimers();

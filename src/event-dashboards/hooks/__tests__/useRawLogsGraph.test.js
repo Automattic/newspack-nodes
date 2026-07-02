@@ -474,7 +474,7 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 		env[ TYPE ] = TM_BYTESTREAM;
 		env[ KEY ] = 'p0';
 		env[ FROM ] = 'firehose.p0';
-		env[ ID ] = '3:14200';
+		env[ ID ] = '3:14200:90';
 		env[ VALUE ] = 'a real log line';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
 		// Hide → close; refocus must reopen SEEKING the last offset, not tail.
@@ -488,7 +488,7 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 			)
 		);
 		expect( positions ).toEqual( {
-			'firehose.p0': { seg: 3, off: 14200 },
+			'firehose.p0': { seg: 3, off: 14200 + 90 },
 		} );
 	} );
 } );

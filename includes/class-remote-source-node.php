@@ -26,38 +26,50 @@ class Remote_Source_Node extends Remote_Link_Node {
 	use Time_Travel;
 
 	/**
-	 * Live SSE_In read position the Time_Travel trait reads (synced in dump_metadata, the
-	 * only reader). The committed {seg,off} it compares against is the trait's checkpoint_*.
+	 * The node-owned durable read cursor: the start of the next unforwarded message (=
+	 * the last forwarded message's END, or the restored boot position). Advanced AFTER a
+	 * successful downstream forward — the offsetlog commits THIS, never SSE_In's eager
+	 * connection position. The Time_Travel trait reads it; the committed {seg,off} it
+	 * compares against is the trait's checkpoint_*.
 	 */
 	protected int $cursor_seg = 0;
 	protected int $cursor_off = 0;
+
+	/**
+	 * The cursor this process booted on (seeded by restore_position). Advancing past it is
+	 * "forward progress" — the fair-shot proxy for a cooperative-stop strike ([42]), EXACTLY
+	 * like Consumer's boot_cursor.
+	 */
+	protected int $boot_cursor_seg = 0;
+	protected int $boot_cursor_off = 0;
+
+	/**
+	 * True once restore_position has run (the cursor is real, not the 0:0 construction default).
+	 * A shutdown handoff before this must NOT commit — it would clobber the durable position.
+	 * Mirrors Consumer's poll_initialized.
+	 */
+	protected bool $cursor_established = false;
+
+	/**
+	 * True once a downstream fill() raised Worker_Should_Stop through relay_stream_message — the
+	 * The message in flight when the cooperative stop hit (null = none — an idle worker, not
+	 * poison), plus its source start {segment,offset} (from its ID breadcrumb) and its exclusive
+	 * next-read {segment,offset} — captured at the throw because, unlike Consumer's buffered
+	 * head, a push source holds no line to re-read at cooperative_stop time.
+	 *
+	 * @var array<int, mixed>|null
+	 */
+	private ?array $stopped_message = null;
+	/** @var array{segment:int,offset:int}|null */
+	private ?array $stopped_message_start = null;
+	/** @var array{segment:int,offset:int}|null */
+	private ?array $stopped_message_end = null;
 
 	/** Tachikoma-parity: no-arg ctor. Auto-wire the {name}:config interpreter for the time-travel verbs. */
 	public function __construct() {
 		parent::__construct();
 		$this->auto_wire_interpreter();
 	}
-
-	/**
-	 * Poison head's own start `{seg,off}`; non-null = BLOCKED ([42]). While blocked,
-	 * nothing past the poison forwards and the committed cursor freezes here, so a
-	 * respawn re-pulls exactly this message and the attempt count climbs.
-	 *
-	 * @var array{seg:int,off:int}|null
-	 */
-	private ?array $poison_pos = null;
-
-	/**
-	 * A quarantined-poison offset `{seg,off}`; non-null = a `dlq`-marked frame is committed
-	 * here ([42]). SSE_In can't compute the poison's byte END (its cursor sits at a message's
-	 * OWN start, and the remote-log line length is unknown to the client), so "advance PAST"
-	 * is durable as a marker AT the poison's offset: a respawn / idle reconnect re-pulls the
-	 * poison once and DROPS it (recognized by this offset) instead of re-forwarding /
-	 * re-quarantining it, and the cursor advances the moment a later message forwards past.
-	 *
-	 * @var array{seg:int,off:int}|null
-	 */
-	private ?array $dlq_pos = null;
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
@@ -87,89 +99,50 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Relay one stream message downstream with the full Consumer-style poison lifecycle
-	 * ([42]): a Worker_Should_Stop is control flow and escapes; any other Throwable is
-	 * poison that BLOCKS the head (strictly serialized — nothing past it forwards, the
-	 * committed cursor freezes) until COOP_MAX fair shots across respawns, then it is
-	 * dead-lettered and the cursor advances PAST it. A null downstream FAILS LOUD (bug D)
-	 * rather than silently dropping while the stream is consumed.
+	 * Relay one stream message downstream, Consumer's model all the way down ([42]): a
+	 * Worker_Should_Stop is control flow and escapes; any other Throwable is a won't-forward
+	 * poison → dead-lettered ON SIGHT (no head-block, no fair-shot climb) and the cursor
+	 * advances PAST it, exactly like Consumer's forward_line. The fair-shot climb is reserved
+	 * for the hard-crash lineage (crawl, seeded by restore_position). A null downstream FAILS
+	 * LOUD (bug D) rather than silently dropping while the stream is consumed.
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
 	private function relay_stream_message( array &$message ): void {
-		if ( null !== $this->poison_pos ) {
-			return; // Head poison blocks: nothing past it forwards, committed cursor frozen.
-		}
-		if ( $this->at_dlq_offset() ) {
-			return; // Re-pulled already-quarantined poison: drop (keep the marker until real progress past it).
-		}
 		$sink = $this->sink;
 		if ( null === $sink ) {
 			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
 		}
+		$crumb = $this->parse_breadcrumb( $message );
 		try {
 			$sink->fill( $message );
 		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // Control flow, not poison: let the worker shut down.
+			// Cooperative deadline mid-forward of THIS message: record it for the fair-shot rule, then escape.
+			$this->stopped_message       = $message;
+			$this->stopped_message_start = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] ];
+			$this->stopped_message_end   = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] + $crumb['length'] ];
+			throw $e;
 		} catch ( \Throwable $e ) {
-			$this->handle_poison( $message, $e );
-			return;
+			// Consumer's model: a downstream throw dead-letters on sight (no block, no climb); the cursor advances below.
+			$this->ensure_deadletter_sibling();
+			$this->dead_letter( $message, 'throw', $e );
+		}
+		// Advance to this message's exclusive next-read (offset+length) from its own breadcrumb — the remote stamped the on-disk length.
+		if ( null !== $crumb ) {
+			$this->cursor_seg = $crumb['segment'];
+			$this->cursor_off = $crumb['offset'] + $crumb['length'];
 		}
 		$this->after_forward();
 	}
 
 	/**
-	 * A caught downstream throw ([42]): block the head at the poison's OWN start and
-	 * either climb (below COOP_MAX) or — fair shots exhausted — quarantine, advance PAST
-	 * it (next message's offset, bug B), and resume.
-	 *
-	 * @param array<int, mixed> $message The poison message (relayed verbatim to the DLQ for replay).
-	 */
-	private function handle_poison( array &$message, \Throwable $e ): void {
-		$pos              = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
-		$poison           = [ 'seg' => $pos['segment_id'], 'off' => $pos['offset'] ];
-		$this->poison_pos = $poison;
-		if ( $this->record_poison_strike( 'throw' ) ) {
-			$this->ensure_deadletter_sibling();
-			$this->dead_letter( $message, 'throw', $e );
-			// Quarantine is terminal for this offset. Commit a durable `dlq` marker AT the
-			// poison's offset NOW — not deferred to a next message — so an idle stream or a
-			// recycle re-pulls it once and DROPS it (no re-quarantine), and the cursor
-			// advances past the moment a later message forwards. Unblock + reset the streak.
-			$this->dlq_pos        = $poison;
-			$this->poison_pos     = null;
-			$this->attempts       = 1;
-			$this->first_crash_ts = null;
-			$this->poison_reason  = '';
-			$this->commit_position( $poison['seg'], $poison['off'], true, true );
-			return;
-		}
-		// Below threshold: freeze the committed cursor at the poison's OWN start with the
-		// climbing attempts/reason so the respawn re-pulls exactly this message and climbs.
-		$this->commit_position( $poison['seg'], $poison['off'], false );
-	}
-
-	/**
-	 * Post-forward bookkeeping ([42]): explicit advance-past after a quarantine, the
-	 * crawl per-message checkpoint (+ exit), or a forward-progress streak reset after a
-	 * transient poison cleared.
+	 * Post-forward bookkeeping ([42]): the crawl per-message checkpoint (+ exit), or a
+	 * forward-progress streak reset after a hard-crash lineage cleared. The healthy steady
+	 * state commits via the throttled persist_cursor, not here (matching Consumer).
 	 */
 	private function after_forward(): void {
-		if ( null === $this->sse_in ) {
-			return;
-		}
-		$pos = $this->sse_in->position();
-		$seg = $pos['segment_id'];
-		$off = $pos['offset'];
-		$dlq = $this->dlq_pos;
-		if ( null !== $dlq
-				&& ( $seg > $dlq['seg'] || ( $seg === $dlq['seg'] && $off > $dlq['off'] ) ) ) {
-			// A later message forwarded past the quarantined poison → the marker is obsolete;
-			// commit this (past-the-poison) position as the clean cursor.
-			$this->dlq_pos = null;
-			$this->commit_position( $seg, $off, true );
-			return;
-		}
+		$seg = $this->cursor_seg;
+		$off = $this->cursor_off;
 		if ( $this->crawl ) {
 			// Survived a full interval crash-free → drop back to the baseline; either way
 			// checkpoint per message (pinned attempts while crawling, baseline once exited)
@@ -200,6 +173,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( null === $this->ensure_offsetlog_partition() ) {
 			return [];
 		}
+		// The cursor is now real (this ran) — a shutdown before it must not clobber it. Mirrors
+		// Consumer's poll_initialized; set even on a fresh offsetlog (like poll_init runs).
+		$this->cursor_established = true;
 		$value = $this->read_last_offsetlog_frame();
 		if ( null === $value ) {
 			return [];
@@ -208,14 +184,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$off = $value['off'] ?? 0;
 		$seg = \is_scalar( $seg ) ? (int) $seg : 0;
 		$off = \is_scalar( $off ) ? (int) $off : 0;
-		if ( ! empty( $value['dlq'] ) ) {
-			// The frame marks this offset as an already-quarantined poison: arm the
-			// re-pull-once-and-drop marker (the lineage is resolved, baseline attempts).
-			$this->dlq_pos  = [ 'seg' => $seg, 'off' => $off ];
-			$this->attempts = 1;
-		} else {
-			$this->resume_attempts_from_frame( $value );
-		}
+		// Resume the shared attempt accounting (climb at attempts+1, carry the streak, detect a
+		// hard-crash lineage → crawl). A cooperative-stop lineage climbs here too.
+		$this->resume_attempts_from_frame( $value );
+		// Seed the node-owned cursor + freeze the boot cursor at the restored position (so
+		// cursor_advanced_since_boot() is honest); forwards advance the cursor past boot.
+		$this->cursor_seg      = $seg;
+		$this->cursor_off      = $off;
+		$this->boot_cursor_seg = $seg;
+		$this->boot_cursor_off = $off;
 		return [
 			'segment_id' => $seg,
 			'offset'     => $off,
@@ -223,88 +200,123 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Throttled healthy cursor commit (the base channel's per-tick seam). Skipped while
-	 * a poison lineage is in flight (blocked / crawling / climbing) — those commit on the
-	 * relay path so the throttle can't overwrite the frozen/per-message frame.
+	 * Throttled healthy cursor commit (the base channel's per-tick seam). Skipped while a
+	 * hard-crash lineage is in flight (crawling / climbing) — that commits per message on the
+	 * relay path (after_forward) so the throttle can't overwrite the per-message frame.
 	 */
 	protected function persist_cursor(): void {
-		if ( null !== $this->poison_pos || $this->crawl || $this->attempts > 1 ) {
+		if ( $this->crawl || $this->attempts > 1 ) {
 			return;
 		}
 		if ( ! $this->checkpoint_due() || null === $this->sse_in ) {
 			return;
 		}
-		// A quarantined poison keeps its durable dlq marker (committed once by handle_poison)
-		// until a later message advances past it — else an idle recycle would re-quarantine
-		// the poison. Otherwise commit the live SSE_In position.
-		$dlq = null !== $this->dlq_pos;
-		if ( $dlq ) {
-			$seg = $this->dlq_pos['seg'];
-			$off = $this->dlq_pos['off'];
-		} else {
-			$pos = $this->sse_in->position();
-			$seg = $pos['segment_id'];
-			$off = $pos['offset'];
-		}
+		$seg = $this->cursor_seg;
+		$off = $this->cursor_off;
 		// Advance-guard (matches Consumer): skip a redundant same-cursor write so an idle
 		// stream doesn't spam identical keyframes, one per interval.
 		if ( ! $this->cursor_moved_since_checkpoint( $seg, $off ) ) {
 			return;
 		}
-		$this->commit_position( $seg, $off, true, $dlq );
+		$this->commit_position( $seg, $off, true );
 	}
 
 	/**
 	 * Final cursor handoff at worker shutdown (bug C) — Remote_Source isn't a
 	 * Consumer_Node, so the worker's checkpoint_durable_consumers() reaches it here.
 	 * Healthy → a clean graceful commit (attempts=0) so progress survives the recycle;
-	 * a poison/crash lineage in flight → preserve its climbing/pinned frame.
+	 * a hard-crash lineage in flight → preserve its climbing/pinned frame.
 	 *
 	 * @api Invoked by Worker_Base::checkpoint_durable_consumers().
 	 */
 	public function checkpoint_shutdown(): void {
-		if ( null === $this->ensure_offsetlog_partition() ) {
+		if ( null === $this->ensure_offsetlog_partition() || ! $this->cursor_established ) {
 			return;
 		}
-		if ( null !== $this->poison_pos ) {
-			$this->commit_position( $this->poison_pos['seg'], $this->poison_pos['off'], false );
-			return;
-		}
-		if ( null !== $this->dlq_pos ) {
-			// Preserve a pending quarantine marker across the recycle.
-			$this->commit_position( $this->dlq_pos['seg'], $this->dlq_pos['off'], true, true );
-			return;
-		}
-		if ( null === $this->sse_in ) {
-			return;
-		}
-		$pos      = $this->sse_in->position();
 		$graceful = $this->attempts <= 1 && ! $this->crawl;
-		$this->commit_position( $pos['segment_id'], $pos['offset'], $graceful );
+		$this->commit_position( $this->cursor_seg, $this->cursor_off, $graceful );
 	}
 
-	/** True when the live SSE_In cursor sits on a quarantined-poison offset (the re-pulled poison). */
-	private function at_dlq_offset(): bool {
-		$dlq = $this->dlq_pos;
-		if ( null === $dlq || null === $this->sse_in ) {
-			return false;
+	/**
+	 * Cooperative-stop fair-shot ([42]) — EXACTLY Consumer's rule, adapted to the push arrival
+	 * seam. Called at worker shutdown INSTEAD of checkpoint_shutdown when the stop was
+	 * cooperative (timeout/memory). A strike counts ONLY when the worker stopped mid-forward on
+	 * the message it BOOTED on (the cursor never advanced this lifetime). An advanced cursor is
+	 * a normal recycle and a not-stopped-in-fill worker is idle — both hand off cleanly
+	 * (attempts=0). At COOP_MAX strikes the in-flight message is quarantined and the cursor
+	 * advances past it; below it, the strike is recorded at the message's own start so the
+	 * respawn re-pulls it and climbs.
+	 *
+	 * @api Invoked by Worker_Base::checkpoint_durable_consumers() on a cooperative stop.
+	 * @param string $reason                  'timeout' | 'memory'.
+	 * @param bool   $baseline_near_watermark Memory-only: the fresh post-reset baseline was
+	 *                                        already near the watermark, so a leak / undersized
+	 *                                        memory_limit — not this message — is to blame.
+	 */
+	public function cooperative_stop( string $reason, bool $baseline_near_watermark ): void {
+		if ( null === $this->ensure_offsetlog_partition() || ! $this->cursor_established ) {
+			return; // Ephemeral, or an unestablished cursor — nothing to strike.
 		}
-		$pos = $this->sse_in->position();
-		return $pos['segment_id'] === $dlq['seg'] && $pos['offset'] === $dlq['off'];
+		// Strike only a boot-cursor message the worker stopped mid-forward; else clean handoff.
+		if ( null === $this->stopped_message || $this->cursor_advanced_since_boot() ) {
+			$this->checkpoint_shutdown();
+			return;
+		}
+		if ( 'memory' === $reason && $baseline_near_watermark ) {
+			$this->print_less_often( "WARNING: {$this->name} baseline memory near the watermark at a cooperative stop — raise memory_limit or investigate a leak; not striking the in-flight message" );
+			$this->checkpoint_shutdown();
+			return;
+		}
+		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
+		if ( $this->record_poison_strike( $reason ) ) {
+			// Fair shots exhausted: quarantine, advance PAST it (its exclusive next-read), hand
+			// off at the virgin baseline.
+			$this->ensure_deadletter_sibling();
+			$this->dead_letter( $this->stopped_message, $reason );
+			$end = $this->stopped_message_end ?? [ 'segment' => $this->cursor_seg, 'offset' => $this->cursor_off ];
+			$this->commit_position( $end['segment'], $end['offset'], true );
+			return;
+		}
+		// Below threshold: record the strike at the message's OWN start with the climbing
+		// attempts/reason so the respawn re-pulls exactly it and climbs.
+		$start = $this->stopped_message_start ?? [ 'segment' => $this->cursor_seg, 'offset' => $this->cursor_off ];
+		$this->commit_position( $start['segment'], $start['offset'], false );
+	}
+
+	/** True once the read cursor has moved past the cursor this process booted on (Consumer-parallel). */
+	private function cursor_advanced_since_boot(): bool {
+		return $this->cursor_seg > $this->boot_cursor_seg
+			|| ( $this->cursor_seg === $this->boot_cursor_seg && $this->cursor_off > $this->boot_cursor_off );
+	}
+
+	/**
+	 * Parse the record's ID breadcrumb "segment:offset:length" into its parts, or null when the
+	 * ID isn't a well-formed breadcrumb. offset is the record's own on-disk start; offset+length
+	 * is its exclusive next-read (the next record's boundary).
+	 *
+	 * @param array<int, mixed> $message
+	 * @return array{segment:int, offset:int, length:int}|null
+	 */
+	private function parse_breadcrumb( array $message ): ?array {
+		$id    = Core::as_string( $message[ Message::ID ] ?? '' );
+		$parts = \explode( ':', $id );
+		if ( 3 !== \count( $parts ) || ! \ctype_digit( $parts[0] ) || ! \ctype_digit( $parts[1] ) || ! \ctype_digit( $parts[2] ) ) {
+			return null;
+		}
+		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => (int) $parts[2] ];
 	}
 
 	/**
 	 * Commit one offsetlog frame at `{seg,off}` via the shared writer. A graceful frame is
 	 * a clean handoff (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful
-	 * frame carries the live attempt accounting (a climbing poison lineage / pinned crawl).
-	 * `$dlq` marks the offset as an already-quarantined poison so a respawn drops it once.
+	 * frame carries the live attempt accounting (a climbing hard-crash lineage / pinned crawl).
 	 * Ensures the lazy per-node offsetlog exists first (Consumer builds its in arguments()).
 	 */
-	private function commit_position( int $seg, int $off, bool $graceful, bool $dlq = false ): void {
+	private function commit_position( int $seg, int $off, bool $graceful ): void {
 		if ( null === $this->ensure_offsetlog_partition() ) {
 			return;
 		}
-		$this->commit_checkpoint_frame( $seg, $off, $graceful, $dlq ? [ 'dlq' => true ] : [] );
+		$this->commit_checkpoint_frame( $seg, $off, $graceful );
 	}
 
 	/**
@@ -391,6 +403,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 	protected function ensure_patrons(): ?SSE_In_Node {
 		$sse = parent::ensure_patrons();
 		$sse?->sink( $this );
+		if ( null !== $sse ) {
+			// Route an unparseable frame into this node's DLQ at its last known
+			// position — same quarantine the Consumer gives a torn on-disk line.
+			$sse->on_poison = function ( string $raw ): void {
+				$this->ensure_deadletter_sibling();
+				$pos = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
+				$this->dead_letter( $this->poison_from_line( $raw, $pos['segment_id'], $pos['offset'] ), 'unparseable' );
+			};
+		}
 		return $sse;
 	}
 
@@ -399,17 +420,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 	// =========================================================================
 
 	/**
-	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll
-	 * payload. Sync the reported cursor from the live SSE_In position first (the
-	 * single source of truth — nothing else mirrors it), then delegate.
+	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload.
+	 * The reported cursor is the node-owned after-forward cursor (cursor_seg/off) — the
+	 * single source of truth now — so no SSE_In sync is needed.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}, polling: string, at_frame: int|null, on_frame: bool}
 	 */
 	public function dump_metadata(): array {
-		$pos              = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
-		$this->cursor_seg = $pos['segment_id'];
-		$this->cursor_off = $pos['offset'];
 		return $this->time_travel_metadata();
 	}
 
@@ -433,6 +451,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$sse->disconnect();
 		$sse->restore_position( $seg, $off );
+		$this->cursor_seg = $seg;
+		$this->cursor_off = $off;
 	}
 
 	/**
@@ -443,8 +463,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @return array{seg:int, off:int, at_eof:bool}
 	 */
 	protected function advance_one_message(): array {
-		$pos = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
-		return [ 'seg' => $pos['segment_id'], 'off' => $pos['offset'], 'at_eof' => true ];
+		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => true ];
 	}
 
 	/** PLAY re-arm: resume the recurring tick, which reconnects from the current position. */

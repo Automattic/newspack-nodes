@@ -175,6 +175,35 @@ class PartitionTest extends TestCase {
 		$this->assertStringContainsString( \str_repeat( 'x', 5000 ), $bytes );
 	}
 
+	public function test_read_message_at_returns_the_unpacked_message(): void {
+		// The decoded random-access read: read_bytes_at + Message::unpacked in one
+		// call, so callers stop hand-rolling json_decode over a raw read.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}.p0" );
+		$msg = $this->produce( 'payload-here' );
+		$p->fill( $msg );
+		$p->flush();
+
+		$segs   = $p->get_segments( true );
+		$newest = \end( $segs );
+		$got    = $p->read_message_at( $newest['id'], 0, $newest['size'] );
+
+		$this->assertIsArray( $got );
+		$this->assertSame( 'payload-here', $got[ \Newspack_Nodes\Message::VALUE ] );
+	}
+
+	public function test_read_message_at_returns_null_on_a_torn_record(): void {
+		// A truncated/short byte range can't unpack to a 7-field envelope — the
+		// method swallows the InvalidArgumentException and returns null, never throws.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}.p0" );
+		$msg = $this->produce( 'payload-here' );
+		$p->fill( $msg );
+		$p->flush();
+
+		$this->assertNull( $p->read_message_at( 0, 0, 5 ) );
+	}
+
 	public function test_void_warranty_dumps_its_own_verb_not_allow_large_writes(): void {
 		// Round-trip fidelity: a void_warranty partition must NOT dump
 		// `allow_large_writes` — replaying that would acquire the very lock we
@@ -582,7 +611,7 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}.p0 " . ( 64*1024 ) . " 4 86400" );
 		// with_index() so the .idx companion handle actually opens (default mode
 		// never opens idx_fh, leaving the is_resource(idx_fh) assert false).
-		$p->with_index( fn ( $l, $pos, &$d = null ) => 'entry' );
+		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, 'hello' );
 
 		// File handle is open after write. Use lsof to verify, but more portably,
@@ -788,10 +817,28 @@ class PartitionTest extends TestCase {
 	// Hardening: with_index() round-trip.
 	// ============================================================================
 
+	public function test_with_index_passes_unpacked_message_array_to_formatter(): void {
+		// The formatter receives the unpacked 7-field message array (not the
+		// serialized JSONL line), so it never has to json_decode.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
+		$received = null;
+		$p->with_index( function ( array $message, array $pos ) use ( &$received ) {
+			$received = $message;
+			return 'entry';
+		} );
+
+		$this->produce_into( $p, 'hello-value', 'my-key' );
+
+		$this->assertIsArray( $received, 'formatter must receive the unpacked message array' );
+		$this->assertSame( 'hello-value', $received[ Message::VALUE ] );
+		$this->assertSame( 'my-key', $received[ Message::KEY ] );
+	}
+
 	public function test_with_index_uses_callback_for_idx_format(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$p->with_index( function ( string $line, array $pos, ?array &$data = null ) {
+		$p->with_index( function ( array $message, array $pos ) {
 			return (string) json_encode( [
 				'seg' => $pos['segment_id'],
 				'off' => $pos['offset'],
@@ -816,10 +863,9 @@ class PartitionTest extends TestCase {
 	public function test_with_index_callback_returning_null_skips_entry(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
-		// The callback inspects the packed-Message line to extract the inner VALUE.
-		$p->with_index( function ( string $line, array $pos, ?array &$data = null ) {
-			$decoded = json_decode( rtrim( $line, "\n" ), true );
-			$value   = (string) ( $decoded[ \Newspack_Nodes\Message::VALUE ] ?? '' );
+		// The callback reads the unpacked message array's inner VALUE directly.
+		$p->with_index( function ( array $message, array $pos ) {
+			$value = (string) ( $message[ Message::VALUE ] ?? '' );
 			return ( strpos( $value, 'skip' ) === 0 ) ? null : 'kept';
 		} );
 
@@ -833,9 +879,8 @@ class PartitionTest extends TestCase {
 	public function test_with_index_callback_returning_empty_string_skips_overflow(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$p->with_index( function ( string $line, array $pos, ?array &$data = null ) {
-			$decoded = json_decode( rtrim( $line, "\n" ), true );
-			$value   = (string) ( $decoded[ \Newspack_Nodes\Message::VALUE ] ?? '' );
+		$p->with_index( function ( array $message, array $pos ) {
+			$value = (string) ( $message[ Message::VALUE ] ?? '' );
 			return ( strpos( $value, 'overflow' ) === 0 ) ? '' : 'kept';
 		} );
 
@@ -849,9 +894,8 @@ class PartitionTest extends TestCase {
 	public function test_scan_index_with_jsonl_callback_format(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$p->with_index( function ( string $line, array $pos, ?array &$data = null ) {
-			$decoded = json_decode( rtrim( $line, "\n" ), true );
-			return (string) json_encode( [ 'l' => $decoded[ \Newspack_Nodes\Message::VALUE ] ?? '', 'o' => $pos['offset'] ] );
+		$p->with_index( function ( array $message, array $pos ) {
+			return (string) json_encode( [ 'l' => $message[ Message::VALUE ] ?? '', 'o' => $pos['offset'] ] );
 		} );
 
 		$this->produce_into( $p, 'alpha' );
@@ -877,7 +921,7 @@ class PartitionTest extends TestCase {
 	public function test_scan_index_early_termination_jsonl(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$p->with_index( fn ( $l, $pos, &$d = null ) => 'entry' );
+		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, 'a' );
 		$this->produce_into( $p, 'b' );
 		$this->produce_into( $p, 'c' );
@@ -1463,7 +1507,7 @@ class PartitionTest extends TestCase {
 		// with_index is on (JSONL path), so each segment normally gets an .idx.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 64 4 86400" );
-		$p->with_index( fn ( $l, $pos, &$d = null ) => 'entry' );
+		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, \str_repeat( 'a', 40 ) ); // seg 0.
 		$this->produce_into( $p, \str_repeat( 'b', 40 ) ); // forces rotate.
 
@@ -1593,7 +1637,7 @@ class PartitionTest extends TestCase {
 		// empty string yields no entries, so the segment contributes nothing.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . " 4 86400" );
-		$p->with_index( fn ( $l, $pos, &$d = null ) => 'entry' );
+		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, 'seed' ); // creates p0/ + 0.idx with one entry.
 
 		// Pre-create segment 5 with an empty .idx + a corresponding .log so
@@ -1701,9 +1745,8 @@ class PartitionTest extends TestCase {
 
 		$bargs = $ref->getProperty( 'batch_index_args' );
 		$bargs->setValue( $p, [ [
-			'packed' => $packed,
-			'size'   => \strlen( $packed ),
-			'data'   => null,
+			'message' => $message,
+			'size'    => \strlen( $packed ),
 		] ] );
 
 		$p->flush();
@@ -2017,9 +2060,8 @@ class PartitionTest extends TestCase {
 		// Confirms the `array_reverse($lines)` branch (line 890).
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$p->with_index( static function ( string $line, array $pos, ?array &$data = null ) {
-			$decoded = \json_decode( \rtrim( $line, "\n" ), true );
-			return (string) \json_encode( [ 'v' => $decoded[ \Newspack_Nodes\Message::VALUE ] ?? '' ] );
+		$p->with_index( static function ( array $message, array $pos ) {
+			return (string) \json_encode( [ 'v' => $message[ Message::VALUE ] ?? '' ] );
 		} );
 
 		$this->produce_into( $p, 'alpha' );
@@ -2043,7 +2085,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
 		$p->with_index(
-			static function ( string $line, array $pos, ?array &$data = null ) {
+			static function ( array $message, array $pos ) {
 				return 'real-entry';
 			}
 		);
@@ -2106,9 +2148,8 @@ class PartitionTest extends TestCase {
 		$batch->setValue( $p, $packed );
 		$bargs = $ref->getProperty( 'batch_index_args' );
 		$bargs->setValue( $p, [ [
-			'packed' => $packed,
-			'size'   => \strlen( $packed ),
-			'data'   => null,
+			'message' => $message,
+			'size'    => \strlen( $packed ),
 		] ] );
 
 		$p->flush(); // Must not throw; bails on null fh.

@@ -91,6 +91,14 @@ class SSE_In_Node extends Node {
 	private ?int  $last_http_code  = null;
 	private ?int  $last_sse_heartbeat = null;
 
+	/**
+	 * Poison hook. The patron (Remote_Source) sets this to route an unparseable
+	 * frame's raw bytes into its DLQ. Signature: `function ( string $raw ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public ?\Closure $on_poison = null;
+
 	/** Tachikoma-parity: no-arg ctor. Config arrives via configure(); no I/O here (ADR-5). */
 	public function __construct() {
 		parent::__construct();
@@ -363,9 +371,6 @@ class SSE_In_Node extends Node {
 				$this->current_event['event'] = $value;
 				break;
 			case 'data':
-				if ( '' !== $this->current_event['data'] ) {
-					$this->current_event['data'] .= "\n";
-				}
 				$this->current_event['data'] .= $value;
 				if ( \strlen( $this->current_event['data'] ) > self::MAX_EVENT_SIZE ) {
 					$this->last_error    = 'Event data overflow (' . self::MAX_EVENT_SIZE . ' bytes)';
@@ -394,24 +399,29 @@ class SSE_In_Node extends Node {
 		$this->current_backoff = self::INITIAL_BACKOFF;
 		$this->last_event_time = Core::$now ?: \microtime( true );
 
-		$message = \json_decode( $raw_data, true, 16 );
-
-		// The remote's messages-stream emits periodic `heartbeat` events when a
-		// stream is idle-but-live. Record the receipt (not forwarded).
+		// Heartbeats prove liveness only — record receipt and return BEFORE unpack (not routed).
 		if ( 'heartbeat' === $type ) {
-			$this->last_event_time    = Core::$now ?: \microtime( true );
-			$this->last_sse_heartbeat = (int) Core::$now;
+			$this->last_sse_heartbeat = (int) ( Core::$now ?: \microtime( true ) );
 			return true;
 		}
 
-		// `/messages/stream` data lines are `msg` events carrying a 7-field
-		// Message; any other event type is silently ignored.
-		if ( 'msg' === $type && \is_array( $message ) && \count( $message ) === 7 ) {
-			$this->largest_msg_sent = \max(
-				$this->largest_msg_sent,
-				\strlen( $raw_data )
-			);
-			return $this->dispatch_message( \array_values( $message ) );
+		try {
+			$message = Message::unpacked( $raw_data );
+		} catch ( \InvalidArgumentException $e ) {
+			// A torn frame won't unpack — quarantine the raw bytes via the patron's DLQ, keep draining.
+			if ( null !== $this->on_poison ) {
+				( $this->on_poison )( $raw_data );
+			}
+			$this->last_error = 'unparseable SSE frame';
+			$this->print_less_often( 'ERROR: ' . $this->last_error );
+			return true;
+		}
+
+		// `/messages/stream` data lines are `msg` events carrying a 7-field Message
+		// (unpacked() guaranteed the shape above); any other event type is ignored.
+		if ( 'msg' === $type ) {
+			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
+			return $this->dispatch_message( $message );
 		}
 
 		return true;
@@ -422,10 +432,11 @@ class SSE_In_Node extends Node {
 	 *
 	 * The only message inspected is the substrate's bookkeeping `connected` frame
 	 * (KEY = 'connected', VALUE = `{slot, ...}`), which feeds local slot/connection
-	 * state and is NOT forwarded. Everything else is forwarded. Per-message
-	 * position rides `ID = "seg:off"` (Consumer stamps at emit).
+	 * state and is NOT forwarded. Everything else is forwarded. Per-message resume
+	 * position rides `ID = "segment:offset:length"` (the remote Consumer stamps it at emit).
 	 *
 	 * @param array<int,mixed> $message 7-field Message array.
+	 * @return bool
 	 */
 	private function dispatch_message( array $message ): bool {
 		$id_raw  = $message[ Message::ID ];
@@ -434,20 +445,16 @@ class SSE_In_Node extends Node {
 		$key     = Core::as_string( $key_raw );
 		$value   = $message[ Message::VALUE ];
 
-		// Position from message ID — `{segment_id}:{offset}` shape. Empty ID
-		// (e.g. the connected message) is a no-op. The ctype check is defensive:
-		// `(int)` on a non-numeric string silently returns 0, resetting the cursor.
+		// Resume at the exclusive next-read offset+length: the remote stamped the on-disk
+		// length in the breadcrumb, so this is the exact next-record boundary (the client
+		// cannot derive it from the re-stamped wire bytes). Empty/non-breadcrumb ID = no-op.
 		if ( '' !== $id ) {
-			$colon = \strpos( $id, ':' );
-			if ( false !== $colon ) {
-				$seg_str = \substr( $id, 0, $colon );
-				$off_str = \substr( $id, $colon + 1 );
-				if ( \ctype_digit( $seg_str ) && \ctype_digit( $off_str ) ) {
-					$this->position = [
-						'segment_id' => (int) $seg_str,
-						'offset'     => (int) $off_str,
-					];
-				}
+			$parts = \explode( ':', $id );
+			if ( 3 === \count( $parts ) && \ctype_digit( $parts[0] ) && \ctype_digit( $parts[1] ) && \ctype_digit( $parts[2] ) ) {
+				$this->position = [
+					'segment_id' => (int) $parts[0],
+					'offset'     => (int) $parts[1] + (int) $parts[2],
+				];
 			}
 		}
 
