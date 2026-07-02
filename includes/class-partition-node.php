@@ -570,9 +570,9 @@ class Partition_Node extends Timer_Node {
 	 */
 	protected function do_rotate(): void {
 		// Multi-writer partitions force-refresh to detect a peer that already
-		// rotated the dir behind us; a warranty-voided (single-writer) log has no
+		// rotated the dir behind us; an allow_large_writes (single-writer) log has no
 		// peer, so a warm-cache read suffices — saving a scandir per ~30s checkpoint.
-		$segments = $this->get_segments( ! $this->warranty_voided );
+		$segments = $this->get_segments( ! $this->allow_large_writes );
 
 		if ( ! empty( $segments ) ) {
 			$newest = \end( $segments );
@@ -885,7 +885,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
 	 *
-	 * A warranty-voided (single-writer) log skips the TTL: with no peer able to
+	 * An allow_large_writes (single-writer) log skips the TTL: with no peer able to
 	 * change the dir behind it, its cache never goes stale, so it serves warm.
 	 *
 	 * @param bool $force_refresh Skip the cache and rescan.
@@ -893,7 +893,7 @@ class Partition_Node extends Timer_Node {
 	 */
 	public function get_segments( bool $force_refresh = false ): array {
 		$now = \microtime( true );
-		$cache_fresh = $this->warranty_voided || ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL;
+		$cache_fresh = $this->allow_large_writes || ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL;
 		if ( ! $force_refresh && null !== $this->segments_cache && $cache_fresh ) {
 			return $this->segments_cache;
 		}
@@ -1248,5 +1248,4 @@ class Partition_Node extends Timer_Node {
 			'has_target'    => false,
 		] );
 	}
-
 }
