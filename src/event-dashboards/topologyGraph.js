@@ -166,11 +166,11 @@ function collectLogPartitions( logName, ctx ) {
 			const entry = ( wk.inputs_status || [] ).find(
 				( s ) => s && s.name === logName
 			);
-			if ( entry && entry.cursor_seg !== undefined ) {
+			if ( entry && entry.cursor_segment !== undefined ) {
 				probeByPartition.set( wk.partition, {
-					cursor_seg: entry.cursor_seg,
+					cursor_segment: entry.cursor_segment,
 					cursor_offset: entry.cursor_offset,
-					end_seg: entry.end_seg,
+					end_segment: entry.end_segment,
 					end_size: entry.end_size,
 				} );
 				hasCursor = true;
@@ -204,9 +204,9 @@ function collectLogPartitions( logName, ctx ) {
 					partition: wk.partition,
 					segments: entry.segments || [],
 					total_size: entry.total_size || 0,
-					cursor_seg: entry.cursor_seg,
+					cursor_segment: entry.cursor_segment,
 					cursor_offset: entry.cursor_offset,
-					end_seg: entry.end_seg,
+					end_segment: entry.end_segment,
 					end_size: entry.end_size,
 				} );
 			}

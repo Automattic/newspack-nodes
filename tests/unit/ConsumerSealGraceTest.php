@@ -37,14 +37,14 @@ class ConsumerSealGraceTest extends TestCase {
 	}
 
 	/** Append one packed TM_BYTESTREAM line directly to a segment file (simulates a raw producer append). */
-	private function append_line( string $dir, int $seg, string $value ): void {
+	private function append_line( string $dir, int $segment, string $value ): void {
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}
 		$m                    = Message::new_message();
 		$m[ Message::TYPE ]   = Message::TM_BYTESTREAM;
 		$m[ Message::VALUE ]  = $value;
-		\file_put_contents( "{$dir}/{$seg}.log", Message::packed( $m ) . "\n", \FILE_APPEND );
+		\file_put_contents( "{$dir}/{$segment}.log", Message::packed( $m ) . "\n", \FILE_APPEND );
 	}
 
 	private function make_consumer( string $dir, bool $multi_writer ): Consumer_Node {
@@ -62,8 +62,8 @@ class ConsumerSealGraceTest extends TestCase {
 		return \array_map( static fn ( array $m ): mixed => $m[ Message::VALUE ], \is_array( $msgs ) ? $msgs : [] );
 	}
 
-	private function cursor_seg( Consumer_Node $c ): int {
-		return (int) ( new \ReflectionProperty( Consumer_Node::class, 'cursor_seg' ) )->getValue( $c );
+	private function cursor_segment( Consumer_Node $c ): int {
+		return (int) ( new \ReflectionProperty( Consumer_Node::class, 'cursor_segment' ) )->getValue( $c );
 	}
 
 	// ---- default (single-writer) path: unchanged, no added latency ----------
@@ -108,13 +108,13 @@ class ConsumerSealGraceTest extends TestCase {
 		// Caught up to seg 0; seg 1 exists — but multi_writer holds (unsealed).
 		$this->pump_consumer( $c );
 		$this->assertSame( [ 'a' ], $this->captured_values( $c ), 'held on seg 0, did not jump to b' );
-		$this->assertSame( 0, $this->cursor_seg( $c ) );
+		$this->assertSame( 0, $this->cursor_segment( $c ) );
 
 		// Straggler lands on seg 0 within the grace window; it is consumed in order.
 		$this->append_line( $dir, 0, 'late' );
 		$this->pump_consumer( $c );
 		$this->assertSame( [ 'a', 'late' ], $this->captured_values( $c ) );
-		$this->assertSame( 0, $this->cursor_seg( $c ) );
+		$this->assertSame( 0, $this->cursor_segment( $c ) );
 
 		// Segment now quiescent for >= SEAL_GRACE → advance to seg 1.
 		Core::$now += Consumer_Node::SEAL_GRACE_SECONDS + 0.1;
@@ -140,7 +140,7 @@ class ConsumerSealGraceTest extends TestCase {
 		// sealed → still held.
 		Core::$now += 0.2;
 		$this->pump_consumer( $c );
-		$this->assertSame( 0, $this->cursor_seg( $c ), 'growth reset the seal timer' );
+		$this->assertSame( 0, $this->cursor_segment( $c ), 'growth reset the seal timer' );
 		$this->assertSame( [ 'a', 'late' ], $this->captured_values( $c ) );
 
 		// A fresh full grace of quiescence → advance.
@@ -177,7 +177,7 @@ class ConsumerSealGraceTest extends TestCase {
 		// live-boundary seg 1 (newest-1) holds for the grace.
 		$this->pump_consumer( $c );
 		$this->assertSame( [ 'a', 'b' ], $this->captured_values( $c ) );
-		$this->assertSame( 1, $this->cursor_seg( $c ), 'sat on the live-boundary segment, not stalled on the ancient one' );
+		$this->assertSame( 1, $this->cursor_segment( $c ), 'sat on the live-boundary segment, not stalled on the ancient one' );
 
 		Core::$now += Consumer_Node::SEAL_GRACE_SECONDS + 0.1;
 		$this->pump_consumer( $c );

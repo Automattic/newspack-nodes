@@ -468,7 +468,7 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 	test( 'resumes from the last streamed offset on refocus (reopen carries &positions=), not a blind tail', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		// Stream a real tailed record: the server stamps a `seg:off` breadcrumb in
+		// Stream a real tailed record: the server stamps a `segment:offset` breadcrumb in
 		// ID and the partition dir in FROM — that is what _trackPosition records.
 		const env = newMessage();
 		env[ TYPE ] = TM_BYTESTREAM;
@@ -488,7 +488,7 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 			)
 		);
 		expect( positions ).toEqual( {
-			'firehose.p0': { seg: 3, off: 14200 + 90 },
+			'firehose.p0': { segment: 3, offset: 14200 + 90 },
 		} );
 	} );
 } );

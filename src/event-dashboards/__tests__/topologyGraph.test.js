@@ -592,7 +592,7 @@ it( 'merges cursor data from consuming workers onto canonical log slots', () => 
 				inputs_status: [
 					{
 						name: 'in.log',
-						cursor_seg: 2,
+						cursor_segment: 2,
 						cursor_offset: 128,
 					},
 				],
@@ -613,7 +613,7 @@ it( 'merges cursor data from consuming workers onto canonical log slots', () => 
 	expect( log.partitions[ 0 ] ).toEqual(
 		expect.objectContaining( {
 			partition: 0,
-			cursor_seg: 2,
+			cursor_segment: 2,
 			cursor_offset: 128,
 			name: 'in.log',
 		} )
@@ -642,7 +642,7 @@ it( 'falls back to consuming worker input status when the log catalog is absent'
 						name: 'in.log',
 						segments: [ { id: 7 } ],
 						total_size: 700,
-						cursor_seg: 7,
+						cursor_segment: 7,
 						cursor_offset: 10,
 					},
 				],
@@ -657,7 +657,7 @@ it( 'falls back to consuming worker input status when the log catalog is absent'
 			partition: 0,
 			segments: [ { id: 7 } ],
 			total_size: 700,
-			cursor_seg: 7,
+			cursor_segment: 7,
 			cursor_offset: 10,
 			name: 'in.log',
 		} )
@@ -943,7 +943,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 		},
 	];
 
-	it( 'merges cursor + end_seg/end_size from this topology consumer into the canonical slot', () => {
+	it( 'merges cursor + end_segment/end_size from this topology consumer into the canonical slot', () => {
 		const workers = [
 			w( {
 				type: 't',
@@ -956,9 +956,9 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 						partition: 0,
 						segments: [ { id: 0, size: 100 } ],
 						total_size: 100,
-						cursor_seg: 0,
+						cursor_segment: 0,
 						cursor_offset: 40,
-						end_seg: 0,
+						end_segment: 0,
 						end_size: 80,
 					},
 				],
@@ -973,9 +973,9 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 			( e ) => 'log' === e.kind && 'firehose.log' === e.name
 		);
 		const part = firehose.partitions[ 0 ];
-		expect( part.cursor_seg ).toBe( 0 );
+		expect( part.cursor_segment ).toBe( 0 );
 		expect( part.cursor_offset ).toBe( 40 );
-		expect( part.end_seg ).toBe( 0 );
+		expect( part.end_segment ).toBe( 0 );
 		expect( part.end_size ).toBe( 80 );
 	} );
 
@@ -1011,8 +1011,8 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 		);
 		const part = firehose.partitions[ 0 ];
 		expect( part.segments.map( ( s ) => s.id ) ).toEqual( [ 0 ] );
-		expect( part.cursor_seg ).toBeUndefined();
-		expect( part.end_seg ).toBeUndefined();
+		expect( part.cursor_segment ).toBeUndefined();
+		expect( part.end_segment ).toBeUndefined();
 		expect( firehose.hasCursor ).toBe( false );
 	} );
 
@@ -1045,9 +1045,9 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 						partition: 0,
 						segments: [ { id: 0, size: 100 } ],
 						total_size: 100,
-						cursor_seg: 0,
+						cursor_segment: 0,
 						cursor_offset: cursorOffset,
-						end_seg: 0,
+						end_segment: 0,
 						end_size: endSize,
 					},
 				],

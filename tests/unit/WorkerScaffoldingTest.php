@@ -225,12 +225,12 @@ class WorkerScaffoldingTest extends TestCase {
 	}
 
 	/** Write one offsetlog keyframe to seed a respawning worker's boot state (crash-simulation). */
-	private function seed_offsetlog_frame( string $dir, int $seg, int $off, int $attempts, string $reason = '' ): void {
+	private function seed_offsetlog_frame( string $dir, int $segment, int $offset, int $attempts, string $reason = '' ): void {
 		\mkdir( $dir, 0755, true );
 		$m                   = \Newspack_Nodes\Message::new_message();
 		$m[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_STRUCT;
 		$m[ \Newspack_Nodes\Message::FROM ]  = 'seed';
-		$m[ \Newspack_Nodes\Message::VALUE ] = [ 'seg' => $seg, 'off' => $off, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
+		$m[ \Newspack_Nodes\Message::VALUE ] = [ 'segment' => $segment, 'offset' => $offset, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
 		\file_put_contents( "{$dir}/0.log", \Newspack_Nodes\Message::packed( $m ) . "\n" );
 	}
 

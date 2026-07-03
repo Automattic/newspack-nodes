@@ -22,8 +22,8 @@ class TailTest extends TestCase {
 	}
 
 	/** A Tail reads a Log's {file}.{seg} segments; seed one directly. */
-	private function write_segment( string $file, int $seg, string $bytes ): void {
-		\file_put_contents( "{$file}.{$seg}", $bytes );
+	private function write_segment( string $file, int $segment, string $bytes ): void {
+		\file_put_contents( "{$file}.{$segment}", $bytes );
 	}
 
 	/** poll_active drains-then-reads (one-tick lag), so pump several times to flush. */
@@ -49,7 +49,7 @@ class TailTest extends TestCase {
 		$frame                   = Message::new_message();
 		$frame[ Message::TYPE ]  = Message::TM_STRUCT;
 		$frame[ Message::FROM ]  = 'seed';
-		$frame[ Message::VALUE ] = [ 'seg' => 0, 'off' => 0, 'attempts' => \Newspack_Nodes\Consumer_Node::CRASH_MAX_ATTEMPTS, 'reason' => '', 'first_crash_ts' => null ];
+		$frame[ Message::VALUE ] = [ 'segment' => 0, 'offset' => 0, 'attempts' => \Newspack_Nodes\Consumer_Node::CRASH_MAX_ATTEMPTS, 'reason' => '', 'first_crash_ts' => null ];
 		\file_put_contents( "{$this->tmp}/off/0.log", Message::packed( $frame ) . "\n" );
 
 		$t = new Tail_Node();
@@ -147,11 +147,11 @@ class TailTest extends TestCase {
 		// Tail1 reads everything from start and checkpoints; Tail2 (same offsetlog)
 		// resumes from the cursor — it does NOT re-read, and picks up only new appends.
 		$file = "{$this->tmp}/data.log";
-		$off  = "{$this->tmp}/off";
+		$offset  = "{$this->tmp}/off";
 		$this->write_segment( $file, 0, "one\ntwo\n" );
 
 		$t1  = new Tail_Node();
-		$t1->arguments( "{$file} {$off}" );
+		$t1->arguments( "{$file} {$offset}" );
 		$t1->next_offset( 'start' );
 		$cap1 = new Capture_Sink_Node();
 		$t1->sink( $cap1 );
@@ -162,7 +162,7 @@ class TailTest extends TestCase {
 		\file_put_contents( "{$file}.0", "three\n", \FILE_APPEND );
 
 		$t2  = new Tail_Node();
-		$t2->arguments( "{$file} {$off}" );
+		$t2->arguments( "{$file} {$offset}" );
 		$cap2 = new Capture_Sink_Node();
 		$t2->sink( $cap2 );
 		$this->pump( $t2 );

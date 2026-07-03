@@ -303,9 +303,9 @@ class CliTest extends TestCase {
 		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = $fields['source'] ?? 'firehose.p0';
 		$record[ Probe_Record::READER ]     = $fields['reader'] ?? 'firehose.p0';
-		$record[ Probe_Record::CURSOR_SEG ] = $fields['cursor_seg'] ?? 0;
-		$record[ Probe_Record::CURSOR_OFF ] = $fields['cursor_off'] ?? 0;
-		$record[ Probe_Record::END_SEG ]    = $fields['end_seg'] ?? 0;
+		$record[ Probe_Record::CURSOR_SEGMENT ] = $fields['cursor_segment'] ?? 0;
+		$record[ Probe_Record::CURSOR_OFF ] = $fields['cursor_offset'] ?? 0;
+		$record[ Probe_Record::END_SEGMENT ]    = $fields['end_segment'] ?? 0;
 		$record[ Probe_Record::END_SIZE ]   = $fields['end_size'] ?? 0;
 		$record[ Probe_Record::DISTANCE ]   = $fields['distance'] ?? 0;
 		$record[ Probe_Record::MSGS ]       = $fields['msgs'] ?? 0;
@@ -316,13 +316,13 @@ class CliTest extends TestCase {
 	}
 
 	public function test_read_probe_index_keys_records_by_reader(): void {
-		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'cursor_seg' => 2, 'cursor_off' => 50 ] );
-		$this->seed_probe_record( [ 'reader' => 'jobintake.p0', 'cursor_seg' => 1, 'cursor_off' => 9 ] );
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'cursor_segment' => 2, 'cursor_offset' => 50 ] );
+		$this->seed_probe_record( [ 'reader' => 'jobintake.p0', 'cursor_segment' => 1, 'cursor_offset' => 9 ] );
 
 		$index = ( new CLI( $this->tmp ) )->read_probe_index();
 
 		$this->assertSame( [ 'firehose.p0', 'jobintake.p0' ], \array_keys( $index ) );
-		$this->assertSame( 2, $index['firehose.p0'][ Probe_Record::CURSOR_SEG ] );
+		$this->assertSame( 2, $index['firehose.p0'][ Probe_Record::CURSOR_SEGMENT ] );
 		$this->assertSame( 9, $index['jobintake.p0'][ Probe_Record::CURSOR_OFF ] );
 	}
 
@@ -335,8 +335,8 @@ class CliTest extends TestCase {
 	public function test_consumer_rows_returns_lean_per_reader_state(): void {
 		$this->seed_probe_record( [
 			'reader' => 'firehose.job-router.p0', 'source' => 'firehose.p0',
-			'cursor_seg' => 5, 'cursor_off' => 100,
-			'end_seg' => 7, 'end_size' => 2048, 'distance' => 4096, 'msgs' => 31,
+			'cursor_segment' => 5, 'cursor_offset' => 100,
+			'end_segment' => 7, 'end_size' => 2048, 'distance' => 4096, 'msgs' => 31,
 		] );
 
 		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
@@ -346,9 +346,9 @@ class CliTest extends TestCase {
 		$this->assertSame( 'firehose.job-router.p0', $row['reader'] );
 		$this->assertSame( 'firehose.p0', $row['source'] );
 		$this->assertSame( 0, $row['partition'] );
-		$this->assertSame( 5, $row['cursor_seg'] );
-		$this->assertSame( 100, $row['cursor_off'] );
-		$this->assertSame( 7, $row['end_seg'] );
+		$this->assertSame( 5, $row['cursor_segment'] );
+		$this->assertSame( 100, $row['cursor_offset'] );
+		$this->assertSame( 7, $row['end_segment'] );
 		$this->assertSame( 2048, $row['end_size'] );
 		$this->assertSame( 4096, $row['distance'] );
 		$this->assertSame( 31, $row['msgs'] );

@@ -71,8 +71,8 @@ class IngestCliCommandTest extends TestCase {
 		$values = [];
 		for ( $i = 0; $i < $n; ++$i ) {
 			$dir = "{$base}/{$name}.p{$i}";
-			foreach ( \glob( "{$dir}/*.log" ) ?: [] as $seg ) {
-				$lines = \array_filter( \explode( "\n", (string) \file_get_contents( $seg ) ), static fn ( $l ) => '' !== $l );
+			foreach ( \glob( "{$dir}/*.log" ) ?: [] as $segment ) {
+				$lines = \array_filter( \explode( "\n", (string) \file_get_contents( $segment ) ), static fn ( $l ) => '' !== $l );
 				foreach ( $lines as $line ) {
 					$values[] = Message::unpacked( $line )[ Message::VALUE ];
 				}

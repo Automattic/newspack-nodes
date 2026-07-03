@@ -170,11 +170,11 @@ class ConsumerTest extends TestCase {
 		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
 		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
 		$this->assertSame( 'data.p0', $stats[ Probe_Record::SOURCE ] );
-		$this->assertSame( 0, $stats[ Probe_Record::CURSOR_SEG ] );
+		$this->assertSame( 0, $stats[ Probe_Record::CURSOR_SEGMENT ] );
 		$this->assertGreaterThan( 0, $stats[ Probe_Record::CURSOR_OFF ] );
 		$this->assertSame( 0, $stats[ Probe_Record::DISTANCE ], 'caught up after pump' );
 		// Partition END = the one segment + its (non-zero) size.
-		$this->assertSame( 0, $stats[ Probe_Record::END_SEG ] );
+		$this->assertSame( 0, $stats[ Probe_Record::END_SEGMENT ] );
 		$this->assertGreaterThan( 0, $stats[ Probe_Record::END_SIZE ] );
 		$this->assertSame( 2, $stats[ Probe_Record::MSGS ] );
 		// END_BYTES = the partition's total bytes; caught up → equals what we consumed.
@@ -250,9 +250,9 @@ class ConsumerTest extends TestCase {
 		$row = $rows[0];
 		$this->assertSame( $stats[ Probe_Record::READER ], $row['reader'] );
 		$this->assertSame( $stats[ Probe_Record::SOURCE ], $row['source'] );
-		$this->assertSame( $stats[ Probe_Record::CURSOR_SEG ], $row['cursor_seg'] );
-		$this->assertSame( $stats[ Probe_Record::CURSOR_OFF ], $row['cursor_off'] );
-		$this->assertSame( $stats[ Probe_Record::END_SEG ], $row['end_seg'] );
+		$this->assertSame( $stats[ Probe_Record::CURSOR_SEGMENT ], $row['cursor_segment'] );
+		$this->assertSame( $stats[ Probe_Record::CURSOR_OFF ], $row['cursor_offset'] );
+		$this->assertSame( $stats[ Probe_Record::END_SEGMENT ], $row['end_segment'] );
 		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $row['end_size'] );
 		$this->assertSame( $stats[ Probe_Record::DISTANCE ], $row['distance'] );
 		$this->assertSame( $stats[ Probe_Record::MSGS ], $row['msgs'] );
@@ -340,7 +340,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_line_mode_emits_each_entry_exactly_once_in_order(): void {
-		// Line mode advances cursor_off per emitted line; if it doesn't, the buffer
+		// Line mode advances cursor_offset per emitted line; if it doesn't, the buffer
 		// chop and cursor drift apart and get_batch re-reads already-emitted bytes
 		// (re-emitting whole lines, or mis-aligning a partial into unparseable garbage).
 		$source = new Partition_Node();
@@ -489,8 +489,8 @@ class ConsumerTest extends TestCase {
 		$content = (string) file_get_contents( $offsetlog_path );
 		$message     = Message::unpacked( rtrim( $content, "\n" ) );
 		$entry   = $message[ Message::VALUE ];
-		$this->assertSame( 0, $entry['seg'] );
-		$this->assertGreaterThan( 0, $entry['off'] );
+		$this->assertSame( 0, $entry['segment'] );
+		$this->assertGreaterThan( 0, $entry['offset'] );
 	}
 
 	public function test_checkpoint_records_attempts_at_healthy_baseline(): void {
@@ -575,12 +575,12 @@ class ConsumerTest extends TestCase {
 	 * Write a single offsetlog keyframe with a chosen cursor + attempt state, to
 	 * simulate the durable frame a respawning worker boots on (crash-simulation).
 	 */
-	private function seed_offsetlog_frame( string $dir, int $seg, int $off, int $attempts, string $reason = '' ): void {
+	private function seed_offsetlog_frame( string $dir, int $segment, int $offset, int $attempts, string $reason = '' ): void {
 		\mkdir( $dir, 0755, true );
 		$m                       = Message::new_message();
 		$m[ Message::TYPE ]      = Message::TM_STRUCT;
 		$m[ Message::FROM ]      = 'seed';
-		$m[ Message::VALUE ]     = [ 'seg' => $seg, 'off' => $off, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
+		$m[ Message::VALUE ]     = [ 'segment' => $segment, 'offset' => $offset, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
 		\file_put_contents( "{$dir}/0.log", Message::packed( $m ) . "\n" );
 	}
 
@@ -1153,8 +1153,8 @@ class ConsumerTest extends TestCase {
 		$c->checkpoint( true ); // the operational-stop graceful path must also be guarded.
 
 		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
-		$this->assertSame( 2, $entry['seg'], 'an un-polled consumer must not clobber the durable cursor' );
-		$this->assertSame( 500, $entry['off'] );
+		$this->assertSame( 2, $entry['segment'], 'an un-polled consumer must not clobber the durable cursor' );
+		$this->assertSame( 500, $entry['offset'] );
 	}
 
 	public function test_boot_cursor_tracks_a_first_spawn_end_seek(): void {
@@ -1172,9 +1172,9 @@ class ConsumerTest extends TestCase {
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
-		$this->assertSame( $this->read_private( $c, 'cursor_seg' ), $this->read_private( $c, 'boot_cursor_seg' ), 'boot_cursor seg tracks the seeked start' );
-		$this->assertSame( $this->read_private( $c, 'cursor_off' ), $this->read_private( $c, 'boot_cursor_off' ), 'boot_cursor off tracks the seeked start' );
-		$this->assertGreaterThan( 0, $this->read_private( $c, 'boot_cursor_off' ), 'the end seek moved boot_cursor off 0:0' );
+		$this->assertSame( $this->read_private( $c, 'cursor_segment' ), $this->read_private( $c, 'boot_cursor_segment' ), 'boot_cursor seg tracks the seeked start' );
+		$this->assertSame( $this->read_private( $c, 'cursor_offset' ), $this->read_private( $c, 'boot_cursor_offset' ), 'boot_cursor off tracks the seeked start' );
+		$this->assertGreaterThan( 0, $this->read_private( $c, 'boot_cursor_offset' ), 'the end seek moved boot_cursor off 0:0' );
 	}
 
 	public function test_cooperative_timeout_dead_letters_after_the_strike_threshold(): void {
@@ -1205,7 +1205,7 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'the message is quarantined after exhausting its fair shots' );
 		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
 		$this->assertSame( 0, $entry['attempts'], 'after the dead-letter the advanced cursor hands off at the virgin baseline' );
-		$this->assertGreaterThan( 0, $entry['off'], 'the cursor advanced past the quarantined message' );
+		$this->assertGreaterThan( 0, $entry['offset'], 'the cursor advanced past the quarantined message' );
 	}
 
 	public function test_cooperative_memory_does_not_strike_when_baseline_near_watermark(): void {
@@ -1279,7 +1279,7 @@ class ConsumerTest extends TestCase {
 		}
 
 		// The cursor advanced past A and B; C is the buffered head.
-		$this->assertGreaterThan( 0, $this->read_private( $c, 'cursor_off' ), 'forwarded lines advance the cursor even on a mid-batch stop' );
+		$this->assertGreaterThan( 0, $this->read_private( $c, 'cursor_offset' ), 'forwarded lines advance the cursor even on a mid-batch stop' );
 		$buffer   = (string) $this->read_private( $c, 'buffer' );
 		$head_nl  = \strpos( $buffer, "\n" );
 		$head     = false === $head_nl ? $buffer : \substr( $buffer, 0, $head_nl );
@@ -1760,7 +1760,7 @@ class ConsumerTest extends TestCase {
 		$c->next_offset( 'recent' );
 
 		$ref = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
+		$seg_prop = $ref->getProperty( 'cursor_segment' );
 		$expected = $segments[ $count - 2 ]['id'];
 		$this->assertSame( $expected, $seg_prop->getValue( $c ) );
 	}
@@ -1791,11 +1791,11 @@ class ConsumerTest extends TestCase {
 	public function test_next_offset_explicit_array_position(): void {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
-		$c->next_offset( [ 'seg' => 5, 'off' => 100 ] );
+		$c->next_offset( [ 'segment' => 5, 'offset' => 100 ] );
 
 		$ref = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$off_prop = $ref->getProperty( 'cursor_off' );
+		$seg_prop = $ref->getProperty( 'cursor_segment' );
+		$off_prop = $ref->getProperty( 'cursor_offset' );
 		$this->assertSame( 5, $seg_prop->getValue( $c ) );
 		$this->assertSame( 100, $off_prop->getValue( $c ) );
 	}
@@ -1804,11 +1804,11 @@ class ConsumerTest extends TestCase {
 		$c   = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
 		$ref = new \ReflectionClass( $c );
-		$off = $ref->getProperty( 'cursor_off' );
+		$offset = $ref->getProperty( 'cursor_offset' );
 
 		// Spec: negative offsets must be clamped to 0 (max(0, ...)).
-		$c->next_offset( [ 'seg' => 2, 'off' => -42 ] );
-		$this->assertSame( 0, $off->getValue( $c ), 'negative off must be clamped to 0' );
+		$c->next_offset( [ 'segment' => 2, 'offset' => -42 ] );
+		$this->assertSame( 0, $offset->getValue( $c ), 'negative off must be clamped to 0' );
 	}
 
 	// ============================================================================
@@ -1833,19 +1833,19 @@ class ConsumerTest extends TestCase {
 		$c->sink( $cap );
 
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$off = $ref->getProperty( 'cursor_off' );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$offset = $ref->getProperty( 'cursor_offset' );
 
 		// Force cursor into an id that does NOT appear in the segment list.
 		$max_id = (int) end( $segments )['id'];
-		$seg->setValue( $c, $max_id + 50 );
-		$off->setValue( $c, 999 );
+		$segment->setValue( $c, $max_id + 50 );
+		$offset->setValue( $c, 999 );
 
 		$this->pump_consumer( $c );
 
 		// After rewind + drain, cursor lands on the NEWEST segment (poll stepped
 		// from oldest forward through all segments, one per tick).
-		$this->assertSame( $max_id, $seg->getValue( $c ), 'cursor must end on newest segment after full drain' );
+		$this->assertSame( $max_id, $segment->getValue( $c ), 'cursor must end on newest segment after full drain' );
 		// All lines should have been emitted: 3 produce_line calls = 3 lines.
 		$this->assertSame( 3, count( $cap->captured ), 'rewind must let us read all existing data' );
 	}
@@ -1869,8 +1869,8 @@ class ConsumerTest extends TestCase {
 		// far past the recreated segment's size, plus a leftover partial line.
 		$stale_off = 5774576; // any value past the recreated segment's size
 		$ref       = new \ReflectionClass( $c );
-		$off       = $ref->getProperty( 'cursor_off' );
-		$off->setValue( $c, $stale_off );
+		$offset       = $ref->getProperty( 'cursor_offset' );
+		$offset->setValue( $c, $stale_off );
 		$rem = $ref->getProperty( 'buffer' );
 		$rem->setValue( $c, 'stale-partial' );
 
@@ -1901,8 +1901,8 @@ class ConsumerTest extends TestCase {
 		// bytes_behind back to 0 and re-mask the wedge.
 		$stale_off = 5774576; // any value past the recreated segment's size
 		$ref       = new \ReflectionClass( $c );
-		$off       = $ref->getProperty( 'cursor_off' );
-		$off->setValue( $c, $stale_off );
+		$offset       = $ref->getProperty( 'cursor_offset' );
+		$offset->setValue( $c, $stale_off );
 		$rem = $ref->getProperty( 'buffer' );
 		$rem->setValue( $c, str_repeat( 'x', $segment_size + 1 ) );
 
@@ -1932,8 +1932,8 @@ class ConsumerTest extends TestCase {
 		$c->sink( $cap );
 
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$seg->setValue( $c, 84 ); // checkpointed segment no longer exists
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$segment->setValue( $c, 84 ); // checkpointed segment no longer exists
 
 		$req                   = Message::new_message();
 		$req[ Message::TYPE ]  = Message::TM_REQUEST;
@@ -1948,7 +1948,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_poll_advances_across_segment_boundary(): void {
 		// Multi-segment drain: a single poll spanning into a new segment must
-		// reset cursor_off to 0 when it crosses the boundary.
+		// reset cursor_offset to 0 when it crosses the boundary.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
@@ -1975,8 +1975,8 @@ class ConsumerTest extends TestCase {
 
 		// Cursor should be parked on the newest segment.
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$this->assertSame( (int) end( $segments )['id'], $seg->getValue( $c ) );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$this->assertSame( (int) end( $segments )['id'], $segment->getValue( $c ) );
 	}
 
 	public function test_poll_stamps_message_FROM_with_consumer_name(): void {
@@ -2152,11 +2152,11 @@ class ConsumerTest extends TestCase {
 		// Cursor must remain at the constructor default (0/0) when the offsetlog
 		// entry's VALUE doesn't match the expected schema.
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$off = $ref->getProperty( 'cursor_off' );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$offset = $ref->getProperty( 'cursor_offset' );
 
-		$this->assertSame( 0, $seg->getValue( $c ) );
-		$this->assertSame( 0, $off->getValue( $c ) );
+		$this->assertSame( 0, $segment->getValue( $c ) );
+		$this->assertSame( 0, $offset->getValue( $c ) );
 	}
 
 	public function test_load_offsetlog_skips_when_only_blank_lines(): void {
@@ -2170,10 +2170,10 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
 
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$off = $ref->getProperty( 'cursor_off' );
-		$this->assertSame( 0, $seg->getValue( $c ) );
-		$this->assertSame( 0, $off->getValue( $c ) );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$offset = $ref->getProperty( 'cursor_offset' );
+		$this->assertSame( 0, $segment->getValue( $c ) );
+		$this->assertSame( 0, $offset->getValue( $c ) );
 	}
 
 	// ============================================================================
@@ -2311,11 +2311,11 @@ class ConsumerTest extends TestCase {
 		$last = $ref->getProperty( 'last_checkpoint' );
 		$last->setValue( $c, Core::$now );
 
-		// Pre-set checkpoint_seg/off to match cursor so checkpoint() would skip
+		// Pre-set checkpoint_segment/off to match cursor so checkpoint() would skip
 		// even if it WAS called — but more importantly, our test asserts the
 		// caller of checkpoint() (fire) is gated by the interval.
-		$cp_seg = $ref->getProperty( 'checkpoint_seg' );
-		$cp_off = $ref->getProperty( 'checkpoint_off' );
+		$cp_seg = $ref->getProperty( 'checkpoint_segment' );
+		$cp_off = $ref->getProperty( 'checkpoint_offset' );
 		// Force divergent values so if checkpoint() runs, it WOULD write.
 		$cp_seg->setValue( $c, -999 );
 		$cp_off->setValue( $c, -999 );
@@ -2534,10 +2534,10 @@ class ConsumerTest extends TestCase {
 		// Park cursor at oldest segment, offset 0 — every newer segment is
 		// behind.
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$seg->setValue( $c, (int) $segments[0]['id'] );
-		$off = $ref->getProperty( 'cursor_off' );
-		$off->setValue( $c, 0 );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$segment->setValue( $c, (int) $segments[0]['id'] );
+		$offset = $ref->getProperty( 'cursor_offset' );
+		$offset->setValue( $c, 0 );
 
 		$req                   = Message::new_message();
 		$req[ Message::TYPE ]  = Message::TM_REQUEST;
@@ -2996,33 +2996,33 @@ class ConsumerTest extends TestCase {
 	// ============================================================================
 
 	public function test_next_offset_array_defaults_offset_to_zero_when_missing(): void {
-		// Explicit-array form: seg=5 with no 'off' key. The off lookup uses
+		// Explicit-array form: seg=5 with no 'offset' key. The off lookup uses
 		// `? 0` so absent off lands at 0 — matches the spec "explicit position
 		// with seg only".
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
-		$c->next_offset( [ 'seg' => 7 ] );
+		$c->next_offset( [ 'segment' => 7 ] );
 
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$off = $ref->getProperty( 'cursor_off' );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$offset = $ref->getProperty( 'cursor_offset' );
 
-		$this->assertSame( 7, $seg->getValue( $c ) );
-		$this->assertSame( 0, $off->getValue( $c ), 'missing off must default to 0' );
+		$this->assertSame( 7, $segment->getValue( $c ) );
+		$this->assertSame( 0, $offset->getValue( $c ), 'missing off must default to 0' );
 	}
 
 	public function test_next_offset_array_defaults_seg_to_zero_when_missing(): void {
-		// Explicit-array form: off=42 with no 'seg' key. Defaults to 0.
+		// Explicit-array form: off=42 with no 'segment' key. Defaults to 0.
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
-		$c->next_offset( [ 'off' => 42 ] );
+		$c->next_offset( [ 'offset' => 42 ] );
 
 		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$off = $ref->getProperty( 'cursor_off' );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$offset = $ref->getProperty( 'cursor_offset' );
 
-		$this->assertSame( 0, $seg->getValue( $c ) );
-		$this->assertSame( 42, $off->getValue( $c ) );
+		$this->assertSame( 0, $segment->getValue( $c ) );
+		$this->assertSame( 42, $offset->getValue( $c ) );
 	}
 
 	public function test_next_offset_recent_with_single_segment_picks_that_one(): void {
@@ -3041,8 +3041,8 @@ class ConsumerTest extends TestCase {
 		$c->next_offset( 'recent' );
 
 		$ref      = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$off_prop = $ref->getProperty( 'cursor_off' );
+		$seg_prop = $ref->getProperty( 'cursor_segment' );
+		$off_prop = $ref->getProperty( 'cursor_offset' );
 
 		$this->assertSame( $segments[0]['id'], $seg_prop->getValue( $c ), 'single-segment recent picks that segment' );
 		$this->assertSame( 0, $off_prop->getValue( $c ), 'recent always resets off to 0' );
@@ -3056,8 +3056,8 @@ class ConsumerTest extends TestCase {
 		$c->next_offset( 'end' );
 
 		$ref      = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$off_prop = $ref->getProperty( 'cursor_off' );
+		$seg_prop = $ref->getProperty( 'cursor_segment' );
+		$off_prop = $ref->getProperty( 'cursor_offset' );
 
 		$this->assertSame( 0, $seg_prop->getValue( $c ) );
 		$this->assertSame( 0, $off_prop->getValue( $c ) );
@@ -3070,8 +3070,8 @@ class ConsumerTest extends TestCase {
 		$c->next_offset( 'recent' );
 
 		$ref      = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$off_prop = $ref->getProperty( 'cursor_off' );
+		$seg_prop = $ref->getProperty( 'cursor_segment' );
+		$off_prop = $ref->getProperty( 'cursor_offset' );
 
 		$this->assertSame( 0, $seg_prop->getValue( $c ) );
 		$this->assertSame( 0, $off_prop->getValue( $c ) );
@@ -3094,10 +3094,10 @@ class ConsumerTest extends TestCase {
 
 		// Cursor stays at default; no offsets directory appears.
 		$rc      = new \ReflectionClass( $c );
-		$seg     = $rc->getProperty( 'cursor_seg' );
-		$off     = $rc->getProperty( 'cursor_off' );
-		$this->assertSame( 0, $seg->getValue( $c ) );
-		$this->assertSame( 0, $off->getValue( $c ) );
+		$segment     = $rc->getProperty( 'cursor_segment' );
+		$offset     = $rc->getProperty( 'cursor_offset' );
+		$this->assertSame( 0, $segment->getValue( $c ) );
+		$this->assertSame( 0, $offset->getValue( $c ) );
 		$this->assertFalse( \is_dir( "{$this->tmp}/offsets" ) );
 	}
 
@@ -3128,7 +3128,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_poll_skips_segments_older_than_cursor(): void {
 		// Cursor parked on a newer segment must skip older segments in the
-		// poll loop. The `$s['id'] < $this->cursor_seg → continue` branch.
+		// poll loop. The `$s['id'] < $this->cursor_segment → continue` branch.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
 		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
@@ -3145,8 +3145,8 @@ class ConsumerTest extends TestCase {
 
 		// Park cursor at NEWEST segment, off=size so nothing to read.
 		$ref      = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$off_prop = $ref->getProperty( 'cursor_off' );
+		$seg_prop = $ref->getProperty( 'cursor_segment' );
+		$off_prop = $ref->getProperty( 'cursor_offset' );
 
 		$newest = \end( $segments );
 		$seg_prop->setValue( $c, (int) $newest['id'] );
@@ -3211,10 +3211,10 @@ class ConsumerTest extends TestCase {
 		$c2  = new Consumer_Node();
 		$c2->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
 		$ref = new \ReflectionObject( $c2 );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$off = $ref->getProperty( 'cursor_off' );
-		$this->assertSame( 0, $seg->getValue( $c2 ) );
-		$this->assertSame( 0, $off->getValue( $c2 ) );
+		$segment = $ref->getProperty( 'cursor_segment' );
+		$offset = $ref->getProperty( 'cursor_offset' );
+		$this->assertSame( 0, $segment->getValue( $c2 ) );
+		$this->assertSame( 0, $offset->getValue( $c2 ) );
 	}
 
 	public function test_named_consumer_registers_source_sibling(): void {

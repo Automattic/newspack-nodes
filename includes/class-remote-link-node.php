@@ -273,7 +273,7 @@ class Remote_Link_Node extends Timer_Node {
 	/**
 	 * Initial SSE_In cursor. Base seeds none; Remote_Source restores its offsetlog.
 	 *
-	 * @return array{segment_id?:int,offset?:int}
+	 * @return array{segment?:int,offset?:int}
 	 */
 	protected function restore_position(): array {
 		return [];

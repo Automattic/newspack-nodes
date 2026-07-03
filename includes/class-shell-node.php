@@ -94,8 +94,8 @@ class Shell_Node extends Node {
 			}
 			$buf      = '';
 			$in_quote = null;
-			$len      = \strlen( $line );
-			for ( $i = 0; $i < $len; ++$i ) {
+			$length      = \strlen( $line );
+			for ( $i = 0; $i < $length; ++$i ) {
 				$ch = $line[ $i ];
 				if ( null !== $in_quote ) {
 					$buf .= $ch;
@@ -204,7 +204,7 @@ class Shell_Node extends Node {
 
 		if ( 'show_parse' === $verb ) {
 			$this->show_parse = ! $this->show_parse;
-			$this->stdout( 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
+			$this->stdout( 'show_parse: ' . ( $this->show_parse ? 'on' : 'offset' ) . "\n" );
 			return null;
 		}
 
@@ -332,8 +332,8 @@ class Shell_Node extends Node {
 	public function interpolate( string $line ): string {
 		$out     = '';
 		$literal = null; // active single-quote or backtick span suppressing expansion.
-		$len     = \strlen( $line );
-		for ( $i = 0; $i < $len; ) {
+		$length     = \strlen( $line );
+		for ( $i = 0; $i < $length; ) {
 			$ch = $line[ $i ];
 			if ( null !== $literal ) {
 				$out .= $ch;
@@ -374,9 +374,9 @@ class Shell_Node extends Node {
 		$buf      = '';
 		$in_quote = null;
 		$in_token = false;
-		$len      = \strlen( $line );
+		$length      = \strlen( $line );
 
-		for ( $i = 0; $i < $len; ++$i ) {
+		for ( $i = 0; $i < $length; ++$i ) {
 			$ch = $line[ $i ];
 			if ( null !== $in_quote ) {
 				if ( $ch === $in_quote ) {

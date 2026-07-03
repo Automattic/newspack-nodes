@@ -11,7 +11,7 @@
  *
  * The segment bar paints the FULL live segments in three regions (green read,
  * red/yellow recorded backlog, gray live-beyond-the-probe), so this join carries
- * the untrimmed live segments through plus each consumer's recorded (end_seg,
+ * the untrimmed live segments through plus each consumer's recorded (end_segment,
  * end_size) — the bar derives the regions itself per tree, never a global trim.
  *
  * PARTITION token substitution mirrors `topologyGraph.concreteLogNames`: a
@@ -110,21 +110,21 @@ const liveTotal = ( segments ) =>
 
 // Absolute byte position of a cursor within its partition: the sum of every
 // segment fully behind the cursor plus the offset into the current one.
-const cursorBytes = ( segments, cursorSeg, cursorOff ) =>
+const cursorBytes = ( segments, cursorSegment, cursorOffset ) =>
 	segments.reduce(
-		( acc, seg ) => ( seg.id < cursorSeg ? acc + seg.size : acc ),
+		( acc, seg ) => ( seg.id < cursorSegment ? acc + seg.size : acc ),
 		0
-	) + cursorOff;
+	) + cursorOffset;
 
 // Absolute byte position of a partition's HEAD as the consumer knows it: full
-// segments below `endSeg` plus the fresh `endSize` offset. Mirrors `cursorBytes`
+// segments below `endSegment` plus the fresh `endSize` offset. Mirrors `cursorBytes`
 // and, crucially, does NOT cap `endSize` at the live head-segment's size — that
 // segment size is sampled separately and often lags `endSize`, which stuck the
 // write rate at 0 while the read rate (fresh cursor offset) advanced. Used only
 // for the write RATE.
-const endPosition = ( segments, endSeg, endSize ) =>
+const endPosition = ( segments, endSegment, endSize ) =>
 	segments.reduce(
-		( acc, seg ) => ( seg.id < endSeg ? acc + seg.size : acc ),
+		( acc, seg ) => ( seg.id < endSegment ? acc + seg.size : acc ),
 		0
 	) + endSize;
 
@@ -214,7 +214,7 @@ export function reconstructWorkers( data, prior ) {
 	consumers.forEach( ( row ) => {
 		const live =
 			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
-		const total = endPosition( live, row.end_seg, row.end_size );
+		const total = endPosition( live, row.end_segment, row.end_size );
 		const prevMax = writeTotals.get( row.source );
 		if ( prevMax === undefined || total > prevMax ) {
 			writeTotals.set( row.source, total );
@@ -255,7 +255,7 @@ export function reconstructWorkers( data, prior ) {
 			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
 		const step = steppedRate(
 			priorRead[ row.reader ],
-			cursorBytes( live, row.cursor_seg, row.cursor_off ),
+			cursorBytes( live, row.cursor_segment, row.cursor_offset ),
 			ts
 		);
 		readStepByReader.set( row.reader, step );
@@ -311,16 +311,16 @@ export function reconstructWorkers( data, prior ) {
 			// (firehose → request-builder AND job-router) lands a row on EACH
 			// processor's collapsed-graph vertex, exactly as the old one-row-per-
 			// target data did. They share the reader's cursor/end/segments. The bar
-			// carries the FULL live segments plus the reader's recorded (end_seg,
+			// carries the FULL live segments plus the reader's recorded (end_segment,
 			// end_size) so it can paint the green/red/gray regions itself.
 			const inputsStatus = {
 				name: concrete,
 				partition: row.partition,
 				segments: live,
 				total_size: liveTotal( live ),
-				cursor_seg: row.cursor_seg,
-				cursor_offset: row.cursor_off,
-				end_seg: row.end_seg,
+				cursor_segment: row.cursor_segment,
+				cursor_offset: row.cursor_offset,
+				end_segment: row.end_segment,
 				end_size: row.end_size,
 			};
 
@@ -344,8 +344,8 @@ export function reconstructWorkers( data, prior ) {
 					restart_pending: status ? status.restart_pending : false,
 					heartbeat_age: status ? status.heartbeat_age : null,
 					started_at: status ? status.started_at : null,
-					cursor_seg: row.cursor_seg,
-					cursor_offset: row.cursor_off,
+					cursor_segment: row.cursor_segment,
+					cursor_offset: row.cursor_offset,
 					behind: row.distance,
 					read_rate: readStep.rate,
 					inputs: [ concrete ],
@@ -382,7 +382,7 @@ export function reconstructWorkers( data, prior ) {
 				restart_pending: w.restart_pending,
 				heartbeat_age: w.heartbeat_age,
 				started_at: w.started_at,
-				cursor_seg: undefined,
+				cursor_segment: undefined,
 				cursor_offset: undefined,
 				behind: 0,
 				inputs: [],

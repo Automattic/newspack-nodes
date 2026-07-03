@@ -113,7 +113,7 @@ test( 'start omits the positions param when none is set (default tail-seek)', ()
 } );
 
 test( 'start appends positions as an encoded JSON blob when set', () => {
-	// The dashboards seed a per-subscription start/end (or {seg,off}) so the
+	// The dashboards seed a per-subscription start/end (or {segment,offset}) so the
 	// server's open_subscription seeks there instead of tailing the end.
 	const { sse } = makeSseIn( {
 		subscribe: [ 'topicprobe.p0' ],
@@ -481,7 +481,7 @@ test( 'tracks segment:offset:length from each frame, resuming at offset+length',
 	// not a parsed integer — each directory is its own unique partition. The tracked
 	// offset is the exclusive next-read: the record's offset + its on-disk length.
 	expect( sse.resumePositions() ).toEqual( {
-		'completed.p0': { seg: 4, off: 623851 + 120 },
+		'completed.p0': { segment: 4, offset: 623851 + 120 },
 	} );
 } );
 
@@ -518,7 +518,7 @@ test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no repla
 			decodeURIComponent( url.split( 'positions=' )[ 1 ] )
 		);
 		expect( positions ).toEqual( {
-			'completed.p1': { seg: 2, off: 500 + 100 },
+			'completed.p1': { segment: 2, offset: 500 + 100 },
 		} );
 	} finally {
 		jest.useRealTimers();

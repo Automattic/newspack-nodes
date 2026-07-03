@@ -245,14 +245,14 @@ class SseInCoverageTest extends TestCase {
 	public function test_message_id_without_colon_leaves_position_unchanged(): void {
 		[ $node, $sink ] = $this->configured_node();
 		$node->process_sse_chunk( $this->msg_frame( 'plainid', 'req', [ 'x' => 1 ] ) );
-		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $node->position() );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position() );
 		$this->assertCount( 1, $sink->captured );
 	}
 
 	public function test_message_id_with_non_digit_parts_leaves_position_unchanged(): void {
 		[ $node ] = $this->configured_node();
 		$node->process_sse_chunk( $this->msg_frame( 'a:b', 'req', [ 'x' => 1 ] ) );
-		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $node->position() );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position() );
 	}
 
 	public function test_connected_envelope_with_non_string_value_is_error_not_forwarded(): void {

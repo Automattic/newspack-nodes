@@ -114,9 +114,9 @@ class WorkersCITest extends TestCase {
 		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = $extra['source'] ?? $extra['source_log'] ?? "{$source_basename}.p{$partition}";
 		$record[ Probe_Record::READER ]     = "{$source_basename}.p{$partition}";
-		$record[ Probe_Record::CURSOR_SEG ] = $extra['seg'] ?? 0;
-		$record[ Probe_Record::CURSOR_OFF ] = $extra['off'] ?? 0;
-		$record[ Probe_Record::END_SEG ]    = $extra['end_seg'] ?? 0;
+		$record[ Probe_Record::CURSOR_SEGMENT ] = $extra['segment'] ?? 0;
+		$record[ Probe_Record::CURSOR_OFF ] = $extra['offset'] ?? 0;
+		$record[ Probe_Record::END_SEGMENT ]    = $extra['end_segment'] ?? 0;
 		$record[ Probe_Record::END_SIZE ]   = $extra['end_size'] ?? 0;
 		$record[ Probe_Record::DISTANCE ]   = $extra['distance'] ?? $extra['bytes_behind'] ?? 0;
 		$record[ Probe_Record::MSGS ]       = $extra['msgs'] ?? 0;
@@ -341,7 +341,7 @@ class WorkersCITest extends TestCase {
 			}
 			public function read_probe_index(): array { return []; }
 			public function live_position( array $index, string $type, int $partition ): ?array {
-				return [ 'seg' => 0, 'off' => 100 ];
+				return [ 'segment' => 0, 'offset' => 100 ];
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
@@ -590,7 +590,7 @@ class WorkersCITest extends TestCase {
 			$base,
 			'firehose',
 			0,
-			[ 'source' => 'firehose.p0', 'seg' => 2, 'off' => 50, 'distance' => 128, 'msgs' => 7 ]
+			[ 'source' => 'firehose.p0', 'segment' => 2, 'offset' => 50, 'distance' => 128, 'msgs' => 7 ]
 		);
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 
@@ -617,7 +617,7 @@ class WorkersCITest extends TestCase {
 		) );
 		$this->assertNotEmpty( $consumers, 'expected a probe consumer row' );
 		$this->assertSame( 'firehose.p0', $consumers[0]['source'] );
-		$this->assertSame( 2, $consumers[0]['cursor_seg'] );
+		$this->assertSame( 2, $consumers[0]['cursor_segment'] );
 		$this->assertSame( 128, $consumers[0]['distance'] );
 		$this->assertSame( 7, $consumers[0]['msgs'] );
 	}
@@ -644,8 +644,8 @@ class WorkersCITest extends TestCase {
 		// Two readers tail the same source under distinct reader ids; each keeps its
 		// OWN cursor in consumers[], keyed by reader.
 		$base = $this->arrange_base_dir();
-		$this->seed_probe_record( $base, 'firehose.job-router', 0, [ 'source' => 'firehose.p0', 'seg' => 5, 'off' => 100 ] );
-		$this->seed_probe_record( $base, 'firehose', 0, [ 'source' => 'firehose.p0', 'seg' => 9, 'off' => 999 ] );
+		$this->seed_probe_record( $base, 'firehose.job-router', 0, [ 'source' => 'firehose.p0', 'segment' => 5, 'offset' => 100 ] );
+		$this->seed_probe_record( $base, 'firehose', 0, [ 'source' => 'firehose.p0', 'segment' => 9, 'offset' => 999 ] );
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
@@ -655,9 +655,9 @@ class WorkersCITest extends TestCase {
 		foreach ( $result['consumers'] as $c ) {
 			$by_reader[ $c['reader'] ] = $c;
 		}
-		$this->assertSame( 5, $by_reader['firehose.job-router.p0']['cursor_seg'] );
-		$this->assertSame( 100, $by_reader['firehose.job-router.p0']['cursor_off'] );
-		$this->assertSame( 9, $by_reader['firehose.p0']['cursor_seg'] );
+		$this->assertSame( 5, $by_reader['firehose.job-router.p0']['cursor_segment'] );
+		$this->assertSame( 100, $by_reader['firehose.job-router.p0']['cursor_offset'] );
+		$this->assertSame( 9, $by_reader['firehose.p0']['cursor_segment'] );
 	}
 
 	public function test_dump_metadata_includes_logs_enumeration(): void {
@@ -910,8 +910,8 @@ class WorkersCITest extends TestCase {
 
 		// Segment ids come from the numeric suffix; highest-suffix is newest.
 		$by_id = [];
-		foreach ( $segments as $seg ) {
-			$by_id[ $seg['id'] ] = $seg['size'];
+		foreach ( $segments as $segment ) {
+			$by_id[ $segment['id'] ] = $segment['size'];
 		}
 		$this->assertSame( [ 0, 1, 2 ], \array_keys( $by_id ) );
 		$this->assertSame( 10, $by_id[0] );
@@ -949,7 +949,7 @@ class WorkersCITest extends TestCase {
 			$base,
 			'firehose',
 			0,
-			[ 'source' => 'firehose.p0', 'seg' => 0, 'off' => 50, 'distance' => 150, 'end_seg' => 0, 'end_size' => 200 ]
+			[ 'source' => 'firehose.p0', 'segment' => 0, 'offset' => 50, 'distance' => 150, 'end_segment' => 0, 'end_size' => 200 ]
 		);
 
 		$interpreter      = new Workers_CI_Node();
@@ -970,10 +970,10 @@ class WorkersCITest extends TestCase {
 			static fn ( $c ) => 'firehose.p0' === ( $c['reader'] ?? '' )
 		) );
 		$this->assertNotEmpty( $consumers );
-		$this->assertSame( 0, $consumers[0]['cursor_seg'] );
-		$this->assertSame( 50, $consumers[0]['cursor_off'] );
+		$this->assertSame( 0, $consumers[0]['cursor_segment'] );
+		$this->assertSame( 50, $consumers[0]['cursor_offset'] );
 		$this->assertSame( 150, $consumers[0]['distance'] );
-		$this->assertSame( 0, $consumers[0]['end_seg'] );
+		$this->assertSame( 0, $consumers[0]['end_segment'] );
 		$this->assertSame( 200, $consumers[0]['end_size'] );
 	}
 

@@ -5,9 +5,9 @@
  * and tracks a position model SEEDED from / RECONCILED to two consumer-reported
  * signals: `atFrame` (the keyframe the cursor is at-or-just-past; null = no frames)
  * and `onFrame` (the cursor sits exactly on it vs advanced past it), plus the
- * `paused` gate. The live `cursor` ({seg,off}) is informational only and does NOT
+ * `paused` gate. The live `cursor` ({segment,offset}) is informational only and does NOT
  * drive selection — frame ids are offsetlog segment ids, an independent number
- * space from the source-partition cursor seg. Each transport button calls
+ * space from the source-partition cursor segment. Each transport button calls
  * onTransport( verb, positional ).
  */
 
@@ -15,13 +15,13 @@ import { render, fireEvent } from '@testing-library/react';
 import TimeTravelPanel from '../TimeTravelPanel';
 
 // Offsetlog-style frame ids (monotonic, climbed far past 0); the source cursor
-// seg is an UNRELATED small number — the two spaces must NOT be conflated.
+// segment is an UNRELATED small number — the two spaces must NOT be conflated.
 const FRAMES = [
 	{ id: 8, size: 120 },
 	{ id: 9, size: 40 },
 	{ id: 10, size: 80 },
 ];
-const CURSOR = { seg: 2, off: 12 };
+const CURSOR = { segment: 2, offset: 12 };
 
 const current = ( container ) =>
 	container.querySelector( '.topology-tt__marker--current' )?.dataset.frameId;
@@ -55,13 +55,13 @@ describe( 'TimeTravelPanel — ruler & cursor', () => {
 		).toHaveLength( 3 );
 	} );
 
-	it( 'flags atFrame (the newest while live) as current — selection, not cursor.seg', () => {
+	it( 'flags atFrame (the newest while live) as current — selection, not cursor.segment', () => {
 		const { container } = renderPanel();
 		const markers = container.querySelectorAll(
 			'.topology-tt__marker--current'
 		);
 		expect( markers ).toHaveLength( 1 );
-		// atFrame=10, NOT cursor.seg (2 isn't even a frame id).
+		// atFrame=10, NOT cursor.segment (2 isn't even a frame id).
 		expect( markers[ 0 ].dataset.frameId ).toBe( '10' );
 	} );
 
@@ -93,8 +93,10 @@ describe( 'TimeTravelPanel — ruler & cursor', () => {
 		expect( container.textContent ).toMatch( /no keyframes yet/i );
 	} );
 
-	it( 'renders the cursor seg:off (informational)', () => {
-		const { container } = renderPanel( { cursor: { seg: 2, off: 42 } } );
+	it( 'renders the cursor segment:offset (informational)', () => {
+		const { container } = renderPanel( {
+			cursor: { segment: 2, offset: 42 },
+		} );
 		expect( container.textContent ).toMatch( /2:42/ );
 	} );
 
@@ -482,7 +484,7 @@ describe( 'TimeTravelPanel — clamp on aged-out at_frame', () => {
 		view.rerender(
 			<TimeTravelPanel
 				frames={ NEXT }
-				cursor={ { seg: 3, off: 0 } }
+				cursor={ { segment: 3, offset: 0 } }
 				atFrameSignal={ 9 }
 				onFrameSignal={ true }
 				paused={ true }

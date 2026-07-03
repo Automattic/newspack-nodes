@@ -140,7 +140,7 @@ describe( 'RemoteLinkNode', () => {
 			data: JSON.stringify( m ),
 		} );
 		expect( link.resumePositions() ).toEqual( {
-			'errors.p0': { seg: 3, off: 99 + 70 },
+			'errors.p0': { segment: 3, offset: 99 + 70 },
 		} );
 	} );
 

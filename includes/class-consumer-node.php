@@ -56,8 +56,8 @@ class Consumer_Node extends Timer_Node {
 	 * is "forward progress" — the poison region is behind us, so attempts resets to the
 	 * healthy baseline. Also the fair-shot proxy for cooperative-stop strikes ([42]).
 	 */
-	protected int $boot_cursor_seg = 0;
-	protected int $boot_cursor_off = 0;
+	protected int $boot_cursor_segment = 0;
+	protected int $boot_cursor_offset = 0;
 
 	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
 	public const STATE_WIPE_AFTER_S = 900;
@@ -86,7 +86,7 @@ class Consumer_Node extends Timer_Node {
 	protected bool $multi_writer = false;
 
 	/** Seal-grace bookkeeping: the segment + size last seen caught-up, and when that size last changed. */
-	protected int $seal_seg     = -1;
+	protected int $seal_segment     = -1;
 	protected int $seal_size    = -1;
 	protected float $seal_since = 0.0;
 
@@ -102,13 +102,13 @@ class Consumer_Node extends Timer_Node {
 	 */
 	private ?array $loaded_cache = null;
 
-	/** Cursor segment. cursor_off + buffer length is the next read position. */
-	protected int $cursor_seg = 0;
+	/** Cursor segment. cursor_offset + buffer length is the next read position. */
+	protected int $cursor_segment = 0;
 
-	/** Durable read offset for cursor_seg; always a line boundary (last fully-emitted line). */
-	protected int $cursor_off = 0;
+	/** Durable read offset for cursor_segment; always a line boundary (last fully-emitted line). */
+	protected int $cursor_offset = 0;
 
-	/** Bytes read past cursor_off but not yet emitted (read-ahead + trailing partial). Tachikoma's buffer. */
+	/** Bytes read past cursor_offset but not yet emitted (read-ahead + trailing partial). Tachikoma's buffer. */
 	protected string $buffer = '';
 
 	protected bool $at_eof = true;
@@ -270,9 +270,9 @@ class Consumer_Node extends Timer_Node {
 		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
 		$record[ Probe_Record::READER ]     = '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '';
-		$record[ Probe_Record::CURSOR_SEG ] = $this->cursor_seg;
-		$record[ Probe_Record::CURSOR_OFF ] = $this->cursor_off;
-		$record[ Probe_Record::END_SEG ]    = $lag['end_seg'];
+		$record[ Probe_Record::CURSOR_SEGMENT ] = $this->cursor_segment;
+		$record[ Probe_Record::CURSOR_OFF ] = $this->cursor_offset;
+		$record[ Probe_Record::END_SEGMENT ]    = $lag['end_segment'];
 		$record[ Probe_Record::END_SIZE ]   = $lag['end_size'];
 		$record[ Probe_Record::DISTANCE ]   = $lag['bytes_behind'];
 		$record[ Probe_Record::MSGS ]       = $this->counter;
@@ -298,12 +298,12 @@ class Consumer_Node extends Timer_Node {
 		return $last['size'];
 	}
 
-	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_seg: int, end_size: int, end_bytes: int} */
+	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int} */
 	private function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_seg' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
+			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_segment' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
 		}
 		// Recover a deleted/recreated cursor segment first so lag reflects the
 		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
@@ -318,11 +318,11 @@ class Consumer_Node extends Timer_Node {
 			// browser derives the byte THROUGHPUT from its delta (Δ end_bytes/Δt),
 			// the only way it can: the lean record carries no per-segment sizes.
 			$end_bytes += $size;
-			if ( $id < $this->cursor_seg ) {
+			if ( $id < $this->cursor_segment ) {
 				continue;
 			}
-			if ( $id === $this->cursor_seg ) {
-				$bytes_behind += \max( 0, $size - $this->cursor_off );
+			if ( $id === $this->cursor_segment ) {
+				$bytes_behind += \max( 0, $size - $this->cursor_offset );
 			} else {
 				$bytes_behind += $size;
 				++$segments_behind;
@@ -337,7 +337,7 @@ class Consumer_Node extends Timer_Node {
 			'bytes_behind'    => $bytes_behind,
 			'segments_behind' => $segments_behind,
 			'caught_up'       => 0 === $bytes_behind,
-			'end_seg'         => $last['id'],
+			'end_segment'         => $last['id'],
 			'end_size'        => $last['size'],
 			'end_bytes'       => $end_bytes,
 		];
@@ -355,14 +355,14 @@ class Consumer_Node extends Timer_Node {
 	 * mode), so always tick at least once, then keep going until one message lands
 	 * or a poll leaves us genuinely at EOF with nothing buffered.
 	 *
-	 * @return array{seg:int, off:int, at_eof:bool}
+	 * @return array{segment:int, offset:int, at_eof:bool}
 	 */
 	protected function advance_one_message(): array {
 		$before = $this->counter;
 		do {
 			$this->poll();
 		} while ( $this->counter === $before && ! $this->at_eof );
-		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => $this->at_eof ];
+		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => $this->at_eof ];
 	}
 
 	/**
@@ -424,8 +424,8 @@ class Consumer_Node extends Timer_Node {
 			}
 		}
 		// Freeze the boot cursor at the real start (resume or first-spawn seek) so cursor_advanced_since_boot() is honest.
-		$this->boot_cursor_seg  = $this->cursor_seg;
-		$this->boot_cursor_off  = $this->cursor_off;
+		$this->boot_cursor_segment  = $this->cursor_segment;
+		$this->boot_cursor_offset  = $this->cursor_offset;
 		$this->poll_initialized = true;
 		$this->set_state( 'READY', $this->name );
 		$this->poll_cb = $this->poll_active( ... );
@@ -440,15 +440,15 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected function load_offsetlog(): void {
 		$entry = $this->read_last_offsetlog_frame();
-		if ( null === $entry || ! isset( $entry['seg'], $entry['off'] ) ) {
+		if ( null === $entry || ! isset( $entry['segment'], $entry['offset'] ) ) {
 			return;
 		}
-		$seg              = $entry['seg'];
-		$off              = $entry['off'];
-		$this->cursor_seg      = \is_numeric( $seg ) ? (int) $seg : 0;
-		$this->cursor_off      = \is_numeric( $off ) ? (int) $off : 0;
-		$this->boot_cursor_seg = $this->cursor_seg;
-		$this->boot_cursor_off = $this->cursor_off;
+		$segment              = $entry['segment'];
+		$offset              = $entry['offset'];
+		$this->cursor_segment      = \is_numeric( $segment ) ? (int) $segment : 0;
+		$this->cursor_offset      = \is_numeric( $offset ) ? (int) $offset : 0;
+		$this->boot_cursor_segment = $this->cursor_segment;
+		$this->boot_cursor_offset = $this->cursor_offset;
 		// Resume the shared attempt accounting (climb at attempts+1, carry the streak,
 		// detect a hard-crash lineage → crawl). On crawl entry the per-line drain model
 		// also sacrifices the boot-cursor head — the message in flight at the uncatchable death.
@@ -479,7 +479,7 @@ class Consumer_Node extends Timer_Node {
 	 * when one exists (overriding that seek) and keeps it otherwise.
 	 */
 	public function has_checkpoint(): bool {
-		return -1 !== $this->checkpoint_seg || -1 !== $this->checkpoint_off;
+		return -1 !== $this->checkpoint_segment || -1 !== $this->checkpoint_offset;
 	}
 
 	/**
@@ -492,9 +492,9 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
+	 * Set next read position: 'start' | 'recent' | 'end' | array{segment,offset}.
 	 *
-	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
+	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'segment'/'offset').
 	 */
 	public function next_offset( $position ): void {
 		$this->offset_set = true;
@@ -502,10 +502,10 @@ class Consumer_Node extends Timer_Node {
 		$this->at_eof     = false;
 
 		if ( \is_array( $position ) ) {
-			$seg              = $position['seg'] ?? 0;
-			$off              = $position['off'] ?? 0;
-			$this->cursor_seg = \is_numeric( $seg ) ? (int) $seg : 0;
-			$this->cursor_off = \max( 0, \is_numeric( $off ) ? (int) $off : 0 );
+			$segment              = $position['segment'] ?? 0;
+			$offset              = $position['offset'] ?? 0;
+			$this->cursor_segment = \is_numeric( $segment ) ? (int) $segment : 0;
+			$this->cursor_offset = \max( 0, \is_numeric( $offset ) ? (int) $offset : 0 );
 			return;
 		}
 
@@ -515,8 +515,8 @@ class Consumer_Node extends Timer_Node {
 			case 'end':
 				if ( ! empty( $segments ) ) {
 					$newest           = \end( $segments );
-					$this->cursor_seg = $newest['id'];
-					$this->cursor_off = $newest['size'];
+					$this->cursor_segment = $newest['id'];
+					$this->cursor_offset = $newest['size'];
 				}
 				break;
 
@@ -524,18 +524,18 @@ class Consumer_Node extends Timer_Node {
 				if ( ! empty( $segments ) ) {
 					$count = \count( $segments );
 					if ( $count >= 2 ) {
-						$this->cursor_seg = $segments[ $count - 2 ]['id'];
+						$this->cursor_segment = $segments[ $count - 2 ]['id'];
 					} else {
-						$this->cursor_seg = $segments[0]['id'];
+						$this->cursor_segment = $segments[0]['id'];
 					}
-					$this->cursor_off = 0;
+					$this->cursor_offset = 0;
 				}
 				break;
 
 			case 'start':
 			default:
-				$this->cursor_seg = 0;
-				$this->cursor_off = 0;
+				$this->cursor_segment = 0;
+				$this->cursor_offset = 0;
 				break;
 		}
 	}
@@ -577,8 +577,8 @@ class Consumer_Node extends Timer_Node {
 	 *
 	 * Scans by offset and chops the buffer ONCE at the end, so batch stays a single O(n)
 	 * pass (no substr-per-line) and an empty line is consumed cleanly (the old rtrim+explode
-	 * silently dropped a trailing empty line's byte). Advancing cursor_off in lockstep with
-	 * the chop is load-bearing: get_batch reads at `cursor_off + strlen(buffer)`, so a chop
+	 * silently dropped a trailing empty line's byte). Advancing cursor_offset in lockstep with
+	 * the chop is load-bearing: get_batch reads at `cursor_offset + strlen(buffer)`, so a chop
 	 * without the matching cursor bump re-reads the gap and mis-aligns the next line into
 	 * unparseable garbage. The cursor advances past skipped (unparseable / over-long-FROM)
 	 * lines too, so a single bad record can't wedge the stream.
@@ -601,9 +601,9 @@ class Consumer_Node extends Timer_Node {
 					// Lives here, not forward_line, so the Tail subclass (which overrides
 					// forward_line) inherits it.
 					$this->crawl_skip_head = false;
-					$this->dead_letter( $this->poison_from_line( $line, $this->cursor_seg, $this->cursor_off + $pos ), 'crash' );
+					$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset + $pos ), 'crash' );
 				} else {
-					$this->forward_line( $line, $this->cursor_off + $pos );
+					$this->forward_line( $line, $this->cursor_offset + $pos );
 				}
 				$pos = $nl + 1; // past the consumed \n.
 				++$emitted;
@@ -611,7 +611,7 @@ class Consumer_Node extends Timer_Node {
 		} finally {
 			if ( $pos > 0 ) {
 				$this->buffer      = \substr( $this->buffer, $pos );
-				$this->cursor_off += $pos;
+				$this->cursor_offset += $pos;
 			}
 		}
 		// Ran the buffer dry of complete lines (not just hit the cap) — the remainder is a
@@ -640,7 +640,7 @@ class Consumer_Node extends Timer_Node {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
 			// Won't unpack → never will: quarantine (no retry) for inspection; the cursor still advances.
-			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_seg, $abs_offset ), 'unparseable', $e );
+			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'unparseable', $e );
 			return;
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
@@ -649,7 +649,7 @@ class Consumer_Node extends Timer_Node {
 		}
 		// Breadcrumb goes in ID as segment:offset:length (length = the on-disk span, so a hub
 		// resumes at offset+length); KEY stays the producer's routing key.
-		$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}:{$line_size}";
+		$message[ Message::ID ] = "{$this->cursor_segment}:{$abs_offset}:{$line_size}";
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
@@ -701,8 +701,8 @@ class Consumer_Node extends Timer_Node {
 		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
 		if ( $this->record_poison_strike( $reason ) ) {
 			// Fair shots exhausted: quarantine first, advance past it, hand off at the virgin baseline.
-			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_seg, $this->cursor_off ), $reason );
-			$this->cursor_off += \strlen( $head ) + 1; // Past the line + its consumed \n.
+			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_segment, $this->cursor_offset ), $reason );
+			$this->cursor_offset += \strlen( $head ) + 1; // Past the line + its consumed \n.
 			$this->buffer      = '';
 			$this->checkpoint( true );
 			return;
@@ -725,7 +725,7 @@ class Consumer_Node extends Timer_Node {
 		}
 		// Advance-guard: skip a redundant same-cursor write (graceful is exempt — its
 		// attempts=0 is new content; boot frames bypass via write_checkpoint_frame).
-		if ( ! $graceful && ! $this->cursor_moved_since_checkpoint( $this->cursor_seg, $this->cursor_off ) ) {
+		if ( ! $graceful && ! $this->cursor_moved_since_checkpoint( $this->cursor_segment, $this->cursor_offset ) ) {
 			return;
 		}
 		// Forward progress past the boot cursor ends the crash streak: clear the strikes.
@@ -740,8 +740,8 @@ class Consumer_Node extends Timer_Node {
 
 	/** True once the read cursor has moved past the cursor this process booted on. */
 	private function cursor_advanced_since_boot(): bool {
-		return $this->cursor_seg > $this->boot_cursor_seg
-			|| ( $this->cursor_seg === $this->boot_cursor_seg && $this->cursor_off > $this->boot_cursor_off );
+		return $this->cursor_segment > $this->boot_cursor_segment
+			|| ( $this->cursor_segment === $this->boot_cursor_segment && $this->cursor_offset > $this->boot_cursor_offset );
 	}
 
 	/**
@@ -765,7 +765,7 @@ class Consumer_Node extends Timer_Node {
 				$extra['cache'] = $node->save_state();
 			}
 		}
-		$this->commit_checkpoint_frame( $this->cursor_seg, $this->cursor_off, $graceful, $extra );
+		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
 	}
 
 	/**
@@ -841,10 +841,10 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 		$this->print_less_often(
-			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
+			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_segment )
 		);
-		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
-		$this->cursor_off += \strlen( $this->buffer ); // Skip the garbage so polls don't re-read it.
+		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $this->cursor_segment, 'OFFSET', $this->cursor_offset, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
+		$this->cursor_offset += \strlen( $this->buffer ); // Skip the garbage so polls don't re-read it.
 		$this->buffer      = '';
 	}
 
@@ -867,12 +867,12 @@ class Consumer_Node extends Timer_Node {
 		$newest_id   = \end( $segments )['id'];
 		$newest_size = \end( $segments )['size'];
 
-		$seg_size = $sizes[ $this->cursor_seg ] ?? 0;
-		$read_at  = $this->cursor_off + \strlen( $this->buffer );
+		$seg_size = $sizes[ $this->cursor_segment ] ?? 0;
+		$read_at  = $this->cursor_offset + \strlen( $this->buffer );
 
 		// Current segment fully read: step to the next live segment (one per poll) or rest at EOF.
 		if ( $read_at >= $seg_size ) {
-			$next = $this->next_segment_id( $segments, $this->cursor_seg );
+			$next = $this->next_segment_id( $segments, $this->cursor_segment );
 			if ( null !== $next ) {
 				// Multi-writer seal-grace: a peer may still be appending to this
 				// segment for up to DRIFT_RESCAN after the newer one appeared. Hold
@@ -883,16 +883,16 @@ class Consumer_Node extends Timer_Node {
 				// segments further back are definitely sealed, so a backlog catch-up
 				// crosses them at once (no per-segment grace tax).
 				if ( $this->multi_writer
-					&& $this->cursor_seg >= $newest_id - 1
-					&& ! $this->segment_sealed( $this->cursor_seg, $seg_size ) ) {
+					&& $this->cursor_segment >= $newest_id - 1
+					&& ! $this->segment_sealed( $this->cursor_segment, $seg_size ) ) {
 					$this->at_eof = true;
 					return;
 				}
-				$this->cursor_seg = $next;
-				$this->cursor_off = 0;
+				$this->cursor_segment = $next;
+				$this->cursor_offset = 0;
 				$this->buffer     = '';
 				$this->at_eof     = false;
-				$this->set_state( 'SEGMENT', (string) $this->cursor_seg );
+				$this->set_state( 'SEGMENT', (string) $this->cursor_segment );
 				return;
 			}
 			// Nothing more on disk. drain_buffer ran first this tick, so the buffer
@@ -901,8 +901,8 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 
-		$len   = \min( self::READ_BLOCK_BYTES, $seg_size - $read_at );
-		$bytes = $this->source()->read_at( $this->cursor_seg, $read_at, $len );
+		$length   = \min( self::READ_BLOCK_BYTES, $seg_size - $read_at );
+		$bytes = $this->source()->read_at( $this->cursor_segment, $read_at, $length );
 		// Consumers are the user-facing read nodes, so surface bytes_read here too.
 		$this->bytes_read += \strlen( $bytes );
 		$this->buffer     .= $bytes;
@@ -910,8 +910,8 @@ class Consumer_Node extends Timer_Node {
 		// at_eof means "nothing left to do": caught up on disk AND no buffered line
 		// still to drain. Leaving a pending line would back off to the EOF cadence
 		// and stall the burst's trailing record ~100ms.
-		$tail            = $this->cursor_off + \strlen( $this->buffer );
-		$disk_caught_up  = ( $this->cursor_seg >= $newest_id ) && ( $tail >= $newest_size );
+		$tail            = $this->cursor_offset + \strlen( $this->buffer );
+		$disk_caught_up  = ( $this->cursor_segment >= $newest_id ) && ( $tail >= $newest_size );
 		$this->at_eof    = $disk_caught_up && ! $this->buffer_has_line();
 	}
 
@@ -931,14 +931,14 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Multi-writer seal test: true once segment $seg has held $size steady for
-	 * >= SEAL_GRACE_SECONDS. Any change in ($seg, $size) restarts the clock and
+	 * Multi-writer seal test: true once segment $segment has held $size steady for
+	 * >= SEAL_GRACE_SECONDS. Any change in ($segment, $size) restarts the clock and
 	 * returns false, so a straggler append (which grows $size) always defers the
 	 * advance by another full grace window. Uses Core::$now so tests drive it.
 	 */
-	private function segment_sealed( int $seg, int $size ): bool {
-		if ( $seg !== $this->seal_seg || $size !== $this->seal_size ) {
-			$this->seal_seg   = $seg;
+	private function segment_sealed( int $segment, int $size ): bool {
+		if ( $segment !== $this->seal_segment || $size !== $this->seal_size ) {
+			$this->seal_segment   = $segment;
 			$this->seal_size  = $size;
 			$this->seal_since = Core::$now;
 			return false;
@@ -972,12 +972,12 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected function normalize_cursor( array $segments ): void {
 		$sizes = \array_column( $segments, 'size', 'id' );
-		if ( ! isset( $sizes[ $this->cursor_seg ] ) ) {
-			$this->cursor_seg = $segments[0]['id'];
-			$this->cursor_off = 0;
+		if ( ! isset( $sizes[ $this->cursor_segment ] ) ) {
+			$this->cursor_segment = $segments[0]['id'];
+			$this->cursor_offset = 0;
 			$this->buffer     = '';
-		} elseif ( $sizes[ $this->cursor_seg ] < $this->cursor_off + \strlen( $this->buffer ) ) {
-			$this->cursor_off = 0;
+		} elseif ( $sizes[ $this->cursor_segment ] < $this->cursor_offset + \strlen( $this->buffer ) ) {
+			$this->cursor_offset = 0;
 			$this->buffer     = '';
 		}
 	}
@@ -1010,7 +1010,7 @@ class Consumer_Node extends Timer_Node {
 
 	/** Publish the CHECKPOINT state after each committed frame (the trait's post-commit hook). */
 	protected function on_checkpoint_committed(): void {
-		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->checkpoint_seg, 'OFFSET', $this->checkpoint_off ] ) );
+		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->checkpoint_segment, 'OFFSET', $this->checkpoint_offset ] ) );
 	}
 
 	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
@@ -1023,7 +1023,7 @@ class Consumer_Node extends Timer_Node {
 	 * payload the inspector round-trips. Delegates to the Time_Travel trait, which
 	 * reads the cursor/checkpoint fields directly.
 	 *
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
 	 */
 	public function dump_metadata(): array {
 		return $this->time_travel_metadata();

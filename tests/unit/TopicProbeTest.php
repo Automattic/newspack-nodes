@@ -41,9 +41,9 @@ class TopicProbeTest extends TestCase {
 		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = 'requests.p0';
 		$record[ Probe_Record::READER ]     = "{$name}.p0";
-		$record[ Probe_Record::CURSOR_SEG ] = 3;
+		$record[ Probe_Record::CURSOR_SEGMENT ] = 3;
 		$record[ Probe_Record::CURSOR_OFF ] = 100;
-		$record[ Probe_Record::END_SEG ]    = 3;
+		$record[ Probe_Record::END_SEGMENT ]    = 3;
 		$record[ Probe_Record::END_SIZE ]   = 100 + $distance;
 		$record[ Probe_Record::DISTANCE ]   = $distance;
 		$record[ Probe_Record::MSGS ]       = 42;

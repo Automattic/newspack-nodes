@@ -7,17 +7,17 @@
  * Consumer_Node (a file-tailing reader) and Remote_Source_Node (a push-driven SSE
  * pull) — the read surface, seek, snapshot restore, line_mode, verbs and command
  * handlers are identical; the four node-specific moves ride abstract hooks:
- *   - next_offset()          — reposition the read cursor to a {seg,off}.
+ *   - next_offset()          — reposition the read cursor to a {segment,offset}.
  *   - advance_one_message()  — STEP's single-tick advance (Consumer polls one line;
  *                              a push source can't single-step → a documented no-op).
  *   - time_travel_resume()   — re-arm the node's own poll/tick timer on PLAY.
  *   - time_travel_on_pause() — extra halt on PAUSE (Remote_Source drops the stream).
  *
  * The trait OWNS the transport state (snapshot_node, line_mode, saved_line_mode,
- * rewound_to, stepped_since_seek), the checkpoint bookkeeping (checkpoint_seg/off,
+ * rewound_to, stepped_since_seek), the checkpoint bookkeeping (checkpoint_segment/off,
  * last_checkpoint) and the offsetlog geometry (OFFSETLOG_SEGMENT_SIZE / NUM_SEGMENTS);
- * it READS the using class's live read cursor (cursor_seg/off). It also owns the shared
- * frame writer commit_checkpoint_frame(), whose base frame ({seg,off} + graceful-gated
+ * it READS the using class's live read cursor (cursor_segment/off). It also owns the shared
+ * frame writer commit_checkpoint_frame(), whose base frame ({segment,offset} + graceful-gated
  * attempt accounting) both nodes commit identically — each contributing only its
  * node-specific extra fields via checkpoint_frame_extra().
  *
@@ -49,8 +49,8 @@ trait Time_Travel {
 	 * Last (seg,off) committed to the offsetlog (-1/-1 before the first commit). Feeds the
 	 * advance-guard (skip a redundant same-cursor write) and dump_metadata's on_frame signal.
 	 */
-	protected int $checkpoint_seg = -1;
-	protected int $checkpoint_off = -1;
+	protected int $checkpoint_segment = -1;
+	protected int $checkpoint_offset = -1;
 
 	/**
 	 * Wall-clock of the last durable commit — the throttle floor. Offsetlog is crash-resume
@@ -98,19 +98,19 @@ trait Time_Travel {
 	 * ID (from dump_metadata's frames[].id): read that one offsetlog segment, take
 	 * its (last) record to recover the co-committed cache, restore_state() it into
 	 * the snapshot node (when one is set), then reposition the read cursor to the
-	 * record's SOURCE {seg,off}. Does NOT resume the timer — a paused reader stays
+	 * record's SOURCE {segment,offset}. Does NOT resume the timer — a paused reader stays
 	 * paused after seeking.
 	 *
 	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
 	 * @return string 'ok', or an error string when the offsetlog/segment is absent.
 	 */
-	public function seek_frame( int $segment_id ): string {
+	public function seek_frame( int $segment ): string {
 		if ( null === $this->offsetlog ) {
 			return 'error: no offsetlog to seek';
 		}
-		$entry = $this->read_frame_record( $segment_id );
+		$entry = $this->read_frame_record( $segment );
 		if ( null === $entry ) {
-			return "error: no frame at segment {$segment_id}";
+			return "error: no frame at segment {$segment}";
 		}
 		if ( '' !== $this->snapshot_node ) {
 			$node  = Core::node( $this->snapshot_node );
@@ -119,10 +119,10 @@ trait Time_Travel {
 				$node->restore_state( $cache );
 			}
 		}
-		$this->next_offset( [ 'seg' => $entry['seg'], 'off' => $entry['off'] ] );
+		$this->next_offset( [ 'segment' => $entry['segment'], 'offset' => $entry['offset'] ] );
 		// Record the rewind point: PLAY truncates the offsetlog after it before
 		// re-arming, so the re-written forward timeline stays monotonic.
-		$this->rewound_to         = $segment_id;
+		$this->rewound_to         = $segment;
 		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
 		return 'ok';
 	}
@@ -135,15 +135,15 @@ trait Time_Travel {
 	 *
 	 * @return array<array-key, mixed>|null
 	 */
-	private function read_frame_record( int $segment_id ): ?array {
+	private function read_frame_record( int $segment ): ?array {
 		if ( null === $this->offsetlog ) {
 			return null;
 		}
 		$sizes = \array_column( $this->offsetlog->get_segments( true ), 'size', 'id' );
-		if ( ! isset( $sizes[ $segment_id ] ) ) {
+		if ( ! isset( $sizes[ $segment ] ) ) {
 			return null;
 		}
-		$bytes = $this->offsetlog->read_at( $segment_id, 0, $sizes[ $segment_id ] );
+		$bytes = $this->offsetlog->read_at( $segment, 0, $sizes[ $segment ] );
 		$entry = null;
 		foreach ( \explode( "\n", $bytes ) as $line ) {
 			if ( '' === $line ) {
@@ -170,7 +170,7 @@ trait Time_Travel {
 			return null;
 		}
 		$entry = $message[ Message::VALUE ];
-		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
+		if ( ! \is_array( $entry ) || ! isset( $entry['segment'], $entry['offset'] ) ) {
 			return null;
 		}
 		return $entry;
@@ -182,7 +182,7 @@ trait Time_Travel {
 	 * then advances exactly one message via the node's advance_one_message() hook.
 	 *
 	 * @api Consumed over the wire by the debugger UI (auth-gated STEP command).
-	 * @return array{seg:int, off:int, at_eof:bool} The resulting cursor + EOF flag.
+	 * @return array{segment:int, offset:int, at_eof:bool} The resulting cursor + EOF flag.
 	 */
 	public function step(): array {
 		// Stepping always leaves the reader paused: an un-paused self-rearming fire()
@@ -221,25 +221,25 @@ trait Time_Travel {
 	 *   - `frames`: the offsetlog segment list `[{id,size}]` — a keyframe per segment
 	 *     (the debugger ruler identifies a frame by its segment id). Empty when the
 	 *     offsetlog is disabled.
-	 *   - `cursor`: the live source read position `{seg,off}`.
+	 *   - `cursor`: the live source read position `{segment,offset}`.
 	 *   - `polling`: the current polling state (`INIT`, `ACTIVE`, `PAUSED`).
 	 *   - `at_frame`: the offsetlog keyframe the cursor is at-or-just-past. `rewound_to`
 	 *     when seeked, else the newest frame id when live, null only with no frames yet.
 	 *   - `on_frame`: the cursor is exactly on `at_frame`'s committed position vs
 	 *     advanced past it. Seeked: `! stepped_since_seek`. Live: cursor == checkpoint.
 	 *
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
 	 */
 	public function time_travel_metadata(): array {
 		$frames    = $this->offsetlog?->get_segments() ?? [];
 		$newest_id = empty( $frames ) ? null : \end( $frames )['id'];
 		$at_frame  = $this->rewound_to ?? $newest_id;
 		$on_frame  = null === $this->rewound_to
-			? ( $this->cursor_seg === $this->checkpoint_seg && $this->cursor_off === $this->checkpoint_off )
+			? ( $this->cursor_segment === $this->checkpoint_segment && $this->cursor_offset === $this->checkpoint_offset )
 			: ! $this->stepped_since_seek;
 		return [
 			'frames'   => $frames,
-			'cursor'   => [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ],
+			'cursor'   => [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ],
 			'polling'  => Core::as_string( $this->set_state['POLLING'] ?? 'INIT' ),
 			'at_frame' => $at_frame,
 			'on_frame' => $on_frame,
@@ -273,7 +273,7 @@ trait Time_Travel {
 	}
 
 	// =========================================================================
-	// Shared checkpoint writer. Both nodes commit the SAME base frame — {seg,off}
+	// Shared checkpoint writer. Both nodes commit the SAME base frame — {segment,offset}
 	// plus the graceful-gated attempt accounting; each layers only its own extra
 	// fields via checkpoint_frame_extra() (Consumer: name/target/…/cache;
 	// Remote_Source: _ts) and any per-call $extra (Consumer's snapshot cache,
@@ -290,17 +290,17 @@ trait Time_Travel {
 	}
 
 	/**
-	 * The advance-guard: true when `{seg,off}` differs from the last committed frame. Both
+	 * The advance-guard: true when `{segment,offset}` differs from the last committed frame. Both
 	 * nodes skip a redundant same-cursor healthy commit — else an idle reader spams identical
 	 * keyframes (with segment_size=1, one per interval). The -1/-1 pre-commit sentinel never
 	 * equals a real cursor, so the first commit always passes.
 	 */
-	protected function cursor_moved_since_checkpoint( int $seg, int $off ): bool {
-		return $seg !== $this->checkpoint_seg || $off !== $this->checkpoint_off;
+	protected function cursor_moved_since_checkpoint( int $segment, int $offset ): bool {
+		return $segment !== $this->checkpoint_segment || $offset !== $this->checkpoint_offset;
 	}
 
 	/**
-	 * Commit ONE offsetlog frame at `{seg,off}`. A graceful frame is a clean handoff
+	 * Commit ONE offsetlog frame at `{segment,offset}`. A graceful frame is a clean handoff
 	 * (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful frame
 	 * carries the live attempt accounting (a climbing poison lineage / pinned crawl).
 	 * Records the committed position + wall-clock, then lets the node react
@@ -309,20 +309,20 @@ trait Time_Travel {
 	 * @param bool                    $graceful Stamp attempts=0 instead of the live count.
 	 * @param array<array-key, mixed> $extra    Per-call frame additions (cache / dlq marker).
 	 */
-	protected function commit_checkpoint_frame( int $seg, int $off, bool $graceful, array $extra = [] ): void {
+	protected function commit_checkpoint_frame( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
 		$frame = [
-			'seg'            => $seg,
-			'off'            => $off,
+			'segment'            => $segment,
+			'offset'            => $offset,
 			'attempts'       => $graceful ? 0 : $this->attempts,
 			'reason'         => $graceful ? '' : $this->poison_reason,
 			'first_crash_ts' => $graceful ? null : $this->first_crash_ts,
 		] + $this->checkpoint_frame_extra() + $extra;
 		$this->commit_offsetlog_frame( $frame );
-		$this->checkpoint_seg  = $seg;
-		$this->checkpoint_off  = $off;
+		$this->checkpoint_segment  = $segment;
+		$this->checkpoint_offset  = $offset;
 		$this->last_checkpoint = Core::$now;
 		$this->on_checkpoint_committed();
 	}
@@ -343,9 +343,9 @@ trait Time_Travel {
 	// =========================================================================
 
 	/**
-	 * Reposition the read cursor to `{seg,off}` (seek_frame's landing).
+	 * Reposition the read cursor to `{segment,offset}` (seek_frame's landing).
 	 *
-	 * @param string|array<array-key, mixed> $position Magic value or explicit {seg,off}.
+	 * @param string|array<array-key, mixed> $position Magic value or explicit {segment,offset}.
 	 */
 	abstract public function next_offset( $position ): void;
 
@@ -353,7 +353,7 @@ trait Time_Travel {
 	 * STEP's single-tick advance: emit at most one message and return the resulting
 	 * cursor + EOF flag.
 	 *
-	 * @return array{seg:int, off:int, at_eof:bool}
+	 * @return array{segment:int, offset:int, at_eof:bool}
 	 */
 	abstract protected function advance_one_message(): array;
 
@@ -469,12 +469,12 @@ trait Time_Travel {
 			],
 			[
 				'name'        => 'SEEK_FRAME',
-				'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment_id> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
+				'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
 				// Driven by the Inspector's Time Travel transport bar; hide the
 				// redundant standalone verb button.
 				'hidden'      => true,
 				'args'        => [
-					[ 'name' => 'segment_id', 'type' => 'int', 'required' => true ],
+					[ 'name' => 'segment', 'type' => 'int', 'required' => true ],
 				],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_seek_frame( $interpreter, $args ),
 			],

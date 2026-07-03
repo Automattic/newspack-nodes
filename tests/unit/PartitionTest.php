@@ -840,9 +840,9 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}.p0 " . ( 1024 * 1024 ) . " 4 86400" );
 		$p->with_index( function ( array $message, array $pos ) {
 			return (string) json_encode( [
-				'seg' => $pos['segment_id'],
-				'off' => $pos['offset'],
-				'len' => $pos['length'],
+				'segment' => $pos['segment'],
+				'offset' => $pos['offset'],
+				'length' => $pos['length'],
 			] );
 		} );
 
@@ -854,10 +854,10 @@ class PartitionTest extends TestCase {
 		$this->assertCount( 2, $lines );
 		$first  = json_decode( $lines[0], true );
 		$second = json_decode( $lines[1], true );
-		$this->assertSame( 0, $first['off'] );
+		$this->assertSame( 0, $first['offset'] );
 		// Second entry's offset is the length of the first (packed) line.
-		$this->assertSame( $first['len'], $second['off'] );
-		$this->assertGreaterThan( 0, $first['len'] );
+		$this->assertSame( $first['length'], $second['offset'] );
+		$this->assertGreaterThan( 0, $first['length'] );
 	}
 
 	public function test_with_index_callback_returning_null_skips_entry(): void {
@@ -903,7 +903,7 @@ class PartitionTest extends TestCase {
 		$this->produce_into( $p, 'gamma' );
 
 		$collected = [];
-		$p->scan_index( function ( string $line, int $seg ) use ( &$collected ) {
+		$p->scan_index( function ( string $line, int $segment ) use ( &$collected ) {
 			$collected[] = json_decode( $line, true );
 		} );
 
@@ -927,7 +927,7 @@ class PartitionTest extends TestCase {
 		$this->produce_into( $p, 'c' );
 
 		$count = 0;
-		$p->scan_index( function ( string $line, int $seg ) use ( &$count ) {
+		$p->scan_index( function ( string $line, int $segment ) use ( &$count ) {
 			++$count;
 			return ( $count >= 2 ) ? false : null;
 		} );
@@ -1521,7 +1521,7 @@ class PartitionTest extends TestCase {
 		}
 
 		$count = 0;
-		$p->scan_index( function ( string $line, int $seg ) use ( &$count ) {
+		$p->scan_index( function ( string $line, int $segment ) use ( &$count ) {
 			++$count;
 		} );
 
@@ -1646,7 +1646,7 @@ class PartitionTest extends TestCase {
 		\file_put_contents( "{$this->tmp}.p0/5.idx", '' );
 
 		$count = 0;
-		$p->scan_index( function ( string $line, int $seg ) use ( &$count ) {
+		$p->scan_index( function ( string $line, int $segment ) use ( &$count ) {
 			++$count;
 		} );
 
@@ -1805,7 +1805,7 @@ class PartitionTest extends TestCase {
 			\Newspack_Nodes\Core::set_stderr_handler( static function () {} );
 
 			// 10 bytes offered, only 4 accepted before the stream stalls.
-			$wrote = $wa->invoke( $p, $fh, 'ABCDEFGHIJ', 'seg' );
+			$wrote = $wa->invoke( $p, $fh, 'ABCDEFGHIJ', 'segment' );
 			\fclose( $fh );
 
 			$this->assertSame( 4, $wrote, 'write_all must report the bytes that actually landed' );
@@ -2069,7 +2069,7 @@ class PartitionTest extends TestCase {
 		$this->produce_into( $p, 'gamma' );
 
 		$collected = [];
-		$p->scan_index( function ( string $line, int $seg ) use ( &$collected ) {
+		$p->scan_index( function ( string $line, int $segment ) use ( &$collected ) {
 			$collected[] = \json_decode( $line, true )['v'];
 		}, true ); // newest_first
 
@@ -2102,7 +2102,7 @@ class PartitionTest extends TestCase {
 		);
 
 		$collected = [];
-		$p->scan_index( function ( string $line, int $seg ) use ( &$collected ) {
+		$p->scan_index( function ( string $line, int $segment ) use ( &$collected ) {
 			$collected[] = $line;
 		} );
 
@@ -2319,7 +2319,7 @@ class PartitionTest extends TestCase {
 
 	/** Write one snapshot record (`{ cache: { items: [...] } }`) into $offsets/$name. */
 	private function write_snapshot_cache( string $name, array $items ): void {
-		$this->write_value_record( "{$this->tmp}/$name", [ 'seg' => 0, 'off' => 0, 'cache' => [ 'items' => $items ] ] );
+		$this->write_value_record( "{$this->tmp}/$name", [ 'segment' => 0, 'offset' => 0, 'cache' => [ 'items' => $items ] ] );
 	}
 
 	public function test_read_latest_snapshot_cache_returns_empty_for_no_matching_dirs(): void {
@@ -2356,7 +2356,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_read_latest_snapshot_cache_returns_empty_when_cache_items_absent(): void {
-		$this->write_value_record( "{$this->tmp}/scored.p0", [ 'seg' => 0, 'off' => 0 ] );
+		$this->write_value_record( "{$this->tmp}/scored.p0", [ 'segment' => 0, 'offset' => 0 ] );
 
 		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' ) );
 	}
@@ -2421,10 +2421,10 @@ class PartitionTest extends TestCase {
 		$log->arguments( "{$dir} " . ( 64 * 1024 ) . ' 2 0' );
 		foreach (
 			[
-				[ 'offsetlog_dir' => 'a.p0', 'cursor_off' => 1 ],
-				[ 'offsetlog_dir' => 'b.p0', 'cursor_off' => 2 ],
-				[ 'offsetlog_dir' => '', 'cursor_off' => 7 ],     // empty key → skipped
-				[ 'offsetlog_dir' => 'a.p0', 'cursor_off' => 9 ], // newer a → wins
+				[ 'offsetlog_dir' => 'a.p0', 'cursor_offset' => 1 ],
+				[ 'offsetlog_dir' => 'b.p0', 'cursor_offset' => 2 ],
+				[ 'offsetlog_dir' => '', 'cursor_offset' => 7 ],     // empty key → skipped
+				[ 'offsetlog_dir' => 'a.p0', 'cursor_offset' => 9 ], // newer a → wins
 			] as $value
 		) {
 			$message                   = Message::new_message();
@@ -2436,8 +2436,8 @@ class PartitionTest extends TestCase {
 
 		$index = Partition_Node::read_tail_index_by( $dir, 'offsetlog_dir' );
 		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
-		$this->assertSame( 9, $index['a.p0']['cursor_off'], 'latest record per key wins' );
-		$this->assertSame( 2, $index['b.p0']['cursor_off'] );
+		$this->assertSame( 9, $index['a.p0']['cursor_offset'], 'latest record per key wins' );
+		$this->assertSame( 2, $index['b.p0']['cursor_offset'] );
 	}
 
 	public function test_fill_pumps_event_framework_so_a_blocked_worker_can_stop_mid_write(): void {

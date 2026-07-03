@@ -285,10 +285,10 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Truncate the log AFTER a segment: delete every segment with id > $segment_id,
-	 * then reset the write state so the log resumes coherently FROM $segment_id —
-	 * the next rotate lands at $segment_id + 1, monotonic, no gap, no survivor
-	 * overwritten. No-op when $segment_id is the newest, past the newest, or absent.
+	 * Truncate the log AFTER a segment: delete every segment with id > $segment,
+	 * then reset the write state so the log resumes coherently FROM $segment —
+	 * the next rotate lands at $segment + 1, monotonic, no gap, no survivor
+	 * overwritten. No-op when $segment is the newest, past the newest, or absent.
 	 *
 	 * Backs the Consumer time-travel PLAY truncate-on-resume: after a rewind seek,
 	 * PLAY drops the now-stale forward frames before re-arming so the re-written
@@ -303,7 +303,7 @@ class Partition_Node extends Timer_Node {
 	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
 	 * @throws \RuntimeException when the partition holds an exclusivity write_lock.
 	 */
-	public function truncate_after( int $segment_id ): void {
+	public function truncate_after( int $segment ): void {
 		if ( null !== $this->write_lock ) {
 			throw new \RuntimeException(
 				\esc_html(
@@ -315,13 +315,13 @@ class Partition_Node extends Timer_Node {
 		}
 		$segments = $this->get_segments( true );
 		$sizes    = \array_column( $segments, 'size', 'id' );
-		if ( ! isset( $sizes[ $segment_id ] ) ) {
+		if ( ! isset( $sizes[ $segment ] ) ) {
 			return; // Absent or past the newest — nothing to truncate.
 		}
 
 		$survivors = [];
 		foreach ( $segments as $s ) {
-			if ( $s['id'] <= $segment_id ) {
+			if ( $s['id'] <= $segment ) {
 				$survivors[] = $s;
 				continue;
 			}
@@ -333,10 +333,10 @@ class Partition_Node extends Timer_Node {
 		}
 
 		$this->close_handle();
-		$this->current_segment_id = $segment_id;
-		$this->current_size       = $sizes[ $segment_id ];
-		$this->current_log_path   = $this->get_segment_path( $segment_id );
-		$this->current_idx_path   = $this->get_index_path( $segment_id );
+		$this->current_segment_id = $segment;
+		$this->current_size       = $sizes[ $segment ];
+		$this->current_log_path   = $this->get_segment_path( $segment );
+		$this->current_idx_path   = $this->get_index_path( $segment );
 
 		// $survivors is built by appending in id order, so it is already a 0-indexed
 		// list matching get_segments()'s shape — no array_values() re-key needed.
@@ -671,12 +671,12 @@ class Partition_Node extends Timer_Node {
 		// init_current_segment() always sets these together; bail if somehow unset.
 		$log_path   = $this->current_log_path;
 		$idx_path   = $this->current_idx_path;
-		$segment_id = $this->current_segment_id;
-		if ( null === $log_path || null === $idx_path || null === $segment_id ) {
+		$segment = $this->current_segment_id;
+		if ( null === $log_path || null === $idx_path || null === $segment ) {
 			return null;
 		}
 
-		if ( null === $this->fh || $this->fh_segment_id !== $segment_id ) {
+		if ( null === $this->fh || $this->fh_segment_id !== $segment ) {
 			$this->close_handle();
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
 			$fh = @\fopen( $log_path, 'a' );
@@ -684,7 +684,7 @@ class Partition_Node extends Timer_Node {
 				return null;
 			}
 			$this->fh            = $fh;
-			$this->fh_segment_id = $segment_id;
+			$this->fh_segment_id = $segment;
 
 			// Single-writer mode: disable PHP's 8KB buffer so readers see writes immediately.
 			if ( $this->allow_large_writes ) {
@@ -729,16 +729,16 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param array<int, mixed> $message The unpacked message array handed to the index callback.
 	 */
-	private function write_index_entry( array $message, int $offset, int $len ): void {
+	private function write_index_entry( array $message, int $offset, int $length ): void {
 		$callback   = $this->index_callback;
-		$segment_id = $this->current_segment_id;
-		if ( null === $callback || null === $segment_id ) {
+		$segment = $this->current_segment_id;
+		if ( null === $callback || null === $segment ) {
 			return;
 		}
 		$position = [
-			'segment_id' => $segment_id,
+			'segment' => $segment,
 			'offset'     => $offset,
-			'length'     => $len,
+			'length'     => $length,
 		];
 		try {
 			$entry = $callback( $message, $position );
@@ -796,8 +796,8 @@ class Partition_Node extends Timer_Node {
 	 * @api Cross-plugin entrypoint — Performance_CI (event-logger-nodes) reads via this.
 	 * @return array<int, mixed>|null
 	 */
-	public function read_message_at( int $segment_id, int $offset, int $length ): ?array {
-		$bytes = $this->read_at( $segment_id, $offset, $length );
+	public function read_message_at( int $segment, int $offset, int $length ): ?array {
+		$bytes = $this->read_at( $segment, $offset, $length );
 		if ( '' === $bytes ) {
 			return null;
 		}
@@ -811,19 +811,19 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Read bytes from a segment at a given offset (bounds-checked).
 	 *
-	 * @param int $segment_id Segment to read from.
+	 * @param int $segment Segment to read from.
 	 * @param int $offset     Byte offset within segment.
 	 * @param int $length     Number of bytes to read.
 	 * @return string Bytes read; empty string on bounds violation, missing file, or read failure.
 	 */
-	public function read_at( int $segment_id, int $offset, int $length ): string {
-		if ( $segment_id < 0 || $offset < 0 || $length < 0 ) {
+	public function read_at( int $segment, int $offset, int $length ): string {
+		if ( $segment < 0 || $offset < 0 || $length < 0 ) {
 			return '';
 		}
 		if ( 0 === $length ) {
 			return '';  // fread() throws on $length === 0 in PHP 8.1+; short-circuit.
 		}
-		$path = $this->get_segment_path( $segment_id );
+		$path = $this->get_segment_path( $segment );
 		if ( ! \file_exists( $path ) ) {
 			return '';
 		}
@@ -845,11 +845,11 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
-	public function get_segment_path( int $segment_id ): string {
-		if ( $segment_id < 0 ) {
+	public function get_segment_path( int $segment ): string {
+		if ( $segment < 0 ) {
 			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
 		}
-		return "{$this->segment_dir()}/{$segment_id}.log";
+		return "{$this->segment_dir()}/{$segment}.log";
 	}
 
 	/**
@@ -857,7 +857,7 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * Only meaningful when a with_index() formatter is installed — without it no
 	 * .idx is written, so this early-returns. Callback signature: fn(string $line,
-	 * int $segment_id). Return false from the callback to terminate the scan early.
+	 * int $segment). Return false from the callback to terminate the scan early.
 	 *
 	 * @api
 	 * @param callable $cb           Per-entry callback.
@@ -949,8 +949,8 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/** Seam (Log overrides): companion-index path for a segment. Partition = {dir}/{seg}.idx. */
-	protected function get_index_path( int $segment_id ): string {
-		return "{$this->segment_dir()}/{$segment_id}.idx";
+	protected function get_index_path( int $segment ): string {
+		return "{$this->segment_dir()}/{$segment}.idx";
 	}
 
 	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */

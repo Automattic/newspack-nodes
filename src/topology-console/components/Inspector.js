@@ -1860,11 +1860,11 @@ export default function Inspector( {
 								verb,
 								kind: 'command',
 								positional,
-								// SEEK_FRAME's schema arg is `segment_id`; bare
+								// SEEK_FRAME's schema arg is `segment`; bare
 								// transport verbs (PAUSE/PLAY/STEP) take none.
 								byName:
 									'SEEK_FRAME' === verb
-										? { segment_id: positional }
+										? { segment: positional }
 										: {},
 							} )
 						}

@@ -468,14 +468,14 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * Scan a flat concrete log dir and return the per-log status block for
 	 * `inputs_status` / `outputs_status`. Cursor fields included only when both
-	 * `$cursor_seg` and `$cursor_offset` are non-null (else the UI treats it as output-only).
+	 * `$cursor_segment` and `$cursor_offset` are non-null (else the UI treats it as output-only).
 	 *
 	 * @return array<string, mixed>
 	 */
 	private static function build_log_status_entry(
 		string $log_name,
 		int $partition,
-		?int $cursor_seg,
+		?int $cursor_segment,
 		?int $cursor_offset,
 		string $log_base
 	): array {
@@ -510,8 +510,8 @@ class Workers_CI_Node extends Service_CI_Node {
 			'segments'   => $segments,
 			'total_size' => $total_size,
 		];
-		if ( null !== $cursor_seg && null !== $cursor_offset ) {
-			$entry['cursor_seg']    = $cursor_seg;
+		if ( null !== $cursor_segment && null !== $cursor_offset ) {
+			$entry['cursor_segment']    = $cursor_segment;
 			$entry['cursor_offset'] = $cursor_offset;
 		}
 		return $entry;
