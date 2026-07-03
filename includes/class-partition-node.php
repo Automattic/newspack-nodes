@@ -788,6 +788,27 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Decoded random-access read: the record at {seg,off,len} unpacked to a Message.
+	 * The single canonical "read a record as a message" — callers use this instead of
+	 * read_at + a hand-rolled json_decode. Returns null on a torn/short record (the
+	 * bytes don't unpack to a 7-field envelope) rather than throwing.
+	 *
+	 * @api Cross-plugin entrypoint — Performance_CI (event-logger-nodes) reads via this.
+	 * @return array<int, mixed>|null
+	 */
+	public function read_message_at( int $segment_id, int $offset, int $length ): ?array {
+		$bytes = $this->read_at( $segment_id, $offset, $length );
+		if ( '' === $bytes ) {
+			return null;
+		}
+		try {
+			return Message::unpacked( $bytes );
+		} catch ( \InvalidArgumentException $e ) {
+			return null;
+		}
+	}
+
+	/**
 	 * Read bytes from a segment at a given offset (bounds-checked).
 	 *
 	 * @param int $segment_id Segment to read from.
@@ -821,27 +842,6 @@ class Partition_Node extends Timer_Node {
 			return $bytes;
 		}
 		return '';
-	}
-
-	/**
-	 * Decoded random-access read: the record at {seg,off,len} unpacked to a Message.
-	 * The single canonical "read a record as a message" — callers use this instead of
-	 * read_at + a hand-rolled json_decode. Returns null on a torn/short record (the
-	 * bytes don't unpack to a 7-field envelope) rather than throwing.
-	 *
-	 * @api Cross-plugin entrypoint — Performance_CI (event-logger-nodes) reads via this.
-	 * @return array<int, mixed>|null
-	 */
-	public function read_message_at( int $segment_id, int $offset, int $length ): ?array {
-		$bytes = $this->read_at( $segment_id, $offset, $length );
-		if ( '' === $bytes ) {
-			return null;
-		}
-		try {
-			return Message::unpacked( $bytes );
-		} catch ( \InvalidArgumentException $e ) {
-			return null;
-		}
 	}
 
 	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */

@@ -930,27 +930,6 @@ class Consumer_Node extends Timer_Node {
 		return $next;
 	}
 
-	/** Enable/disable the multi-writer seal-grace. Set true only for a shared log (the firehose). */
-	public function set_multi_writer( bool $flag ): void {
-		$this->multi_writer = $flag;
-	}
-
-	/**
-	 * `set_multi_writer` verb handler — toggle the patron's seal-grace. Only an
-	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; anything else disables,
-	 * so the default stays "off" (single-writer, immediate advance).
-	 *
-	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param string                   $args        Optional bool; only a truthy value enables.
-	 */
-	public static function cmd_set_multi_writer( Command_Interpreter_Node $interpreter, string $args ): string {
-		$patron = $interpreter->patron();
-		if ( $patron instanceof self ) {
-			$patron->set_multi_writer( \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true ) );
-		}
-		return 'ok';
-	}
-
 	/**
 	 * Multi-writer seal test: true once segment $seg has held $size steady for
 	 * >= SEAL_GRACE_SECONDS. Any change in ($seg, $size) restarts the clock and
@@ -1001,6 +980,27 @@ class Consumer_Node extends Timer_Node {
 			$this->cursor_off = 0;
 			$this->buffer     = '';
 		}
+	}
+
+	/** Enable/disable the multi-writer seal-grace. Set true only for a shared log (the firehose). */
+	public function set_multi_writer( bool $flag ): void {
+		$this->multi_writer = $flag;
+	}
+
+	/**
+	 * `set_multi_writer` verb handler — toggle the patron's seal-grace. Only an
+	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; anything else disables,
+	 * so the default stays "off" (single-writer, immediate advance).
+	 *
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
+	 * @param string                   $args        Optional bool; only a truthy value enables.
+	 */
+	public static function cmd_set_multi_writer( Command_Interpreter_Node $interpreter, string $args ): string {
+		$patron = $interpreter->patron();
+		if ( $patron instanceof self ) {
+			$patron->set_multi_writer( \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true ) );
+		}
+		return 'ok';
 	}
 
 	/** PLAY re-arm: the busy-cadence oneshot fire() loop. */
