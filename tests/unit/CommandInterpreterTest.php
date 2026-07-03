@@ -1795,10 +1795,10 @@ class CommandInterpreterTest extends TestCase {
 			$this->assertSame( '', $out, 'log returns empty string — caller suppresses response' );
 			$this->assertCount( 1, $captured );
 			// log routes through the interpreter NODE's stderr (per "$this->stderr() when a
-			// $this is handy"), so the captured line carries the log_prefix
-			// (timestamp + identity) AND the node's log_midfix tag.
+			// $this is handy"), so the captured line carries the node's "<name>: " midfix tag.
+			// The dated identity prefix is the real handler's job, bypassed by this capture.
 			$this->assertMatchesRegularExpression(
-				'/^\d{4}-\d\d-\d\d.*\]: _command_interpreter: hello from log verb\n$/',
+				'/^_command_interpreter: hello from log verb\n$/',
 				$captured[0]
 			);
 		} finally {

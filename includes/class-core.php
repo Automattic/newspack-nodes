@@ -110,7 +110,7 @@ class Core {
 		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
 			$line = \rtrim( $text, "\n" ) . "\n";
 		} else {
-			$line = self::log_prefix( $text );
+			$line = $text;
 		}
 		self::$recent_log[] = $line;
 		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
@@ -121,17 +121,14 @@ class Core {
 	}
 
 	/**
-	 * Per-line timestamp + process-identity prefix (Tachikoma Node::log_prefix,
-	 * root/job branch): "%Y-%m-%d %H:%M:%S %Z <hostname> <argv0>[<pid>]: ".
+	 * Per-line timestamp prefix.
 	 *
 	 * With no message, returns the bare prefix. With a message, chomps a
 	 * trailing newline, prepends the prefix to every line, and appends one
-	 * trailing newline — matching Perl's `s{^}{$prefix}mg` multiline substitute.
+	 * trailing newline.
 	 */
 	public static function log_prefix( ?string $message = null ): string {
-		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC '
-			. ( \gethostname() ?: 'unknown' ) . ' '
-			. self::argv0() . '[' . \getmypid() . ']: ';
+		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
 		if ( null === $message ) {
 			return $prefix;
 		}
@@ -141,7 +138,26 @@ class Core {
 		return $message . "\n";
 	}
 
-	/** Process identity for log_prefix (Perl $0): worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
+	/**
+	 * Per-line process-identity midfix.
+	 *
+	 * With no message, returns the bare midfix. With a message, chomps a
+	 * trailing newline, prepends the midfix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_midfix( ?string $message = null ): string {
+		$midfix = ( \gethostname() ?: 'unknown' ) . ' '
+			. self::argv0() . '[' . \getmypid() . ']: ';
+		if ( null === $message ) {
+			return $midfix;
+		}
+		$message = \rtrim( $message, "\n" );
+		// Prepend the midfix to the start of every line (Perl m///mg).
+		$message = $midfix . \str_replace( "\n", "\n" . $midfix, $message );
+		return $message . "\n";
+	}
+
+	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
 	public static function argv0(): string {
 		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
 			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
@@ -187,20 +203,21 @@ class Core {
 		self::$in_stderr         = false;
 		self::$var               = [];
 		self::$memd              = null;
-		self::set_stderr_handler( static function ( string $message ): void {
+		self::set_stderr_handler( static function ( string $text ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
 				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
 				?? null;
+			$line = self::log_midfix( $text );
 			if ( null !== $sink ) {
-				$m                       = Message::new_message();
-				$m[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-				$m[ Message::TIMESTAMP ] = self::$now;
-				$m[ Message::VALUE ]     = $message;
-				$sink->fill( $m );
+				$message                       = Message::new_message();
+				$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+				$message[ Message::TIMESTAMP ] = self::$now;
+				$message[ Message::VALUE ]     = self::log_prefix( $line );
+				$sink->fill( $message );
 			}
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \rtrim( $message ) );
+			\error_log( \rtrim( $line ) );
 		} );
 		self::$now       = \microtime( true );
 		self::$init_time = self::$now;
