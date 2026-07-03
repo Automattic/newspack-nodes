@@ -388,15 +388,24 @@ class CoreTest extends TestCase {
 
 	// ── log_prefix / log_midfix / stderr formatting ──────────────────────
 
-	public function test_log_prefix_no_args_returns_dated_identity_prefix(): void {
-		// Mirrors Tachikoma Node::log_prefix root/job branch:
-		// "%F %T %Z <hostname> <$0>[<pid>]: ". With no args it returns just
-		// the prefix (no trailing newline).
+	public function test_log_prefix_no_args_returns_dated_prefix(): void {
+		// log_prefix is the timestamp only now — the "<host> <$0>[<pid>]: " process identity
+		// split out into log_midfix. With no args it returns just the prefix (no newline).
 		$prefix = Core::log_prefix();
-		$this->assertMatchesRegularExpression(
-			'/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d .+\[\d+\]: $/',
-			$prefix
-		);
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC $/', $prefix );
+	}
+
+	public function test_log_midfix_no_args_returns_process_identity(): void {
+		// log_midfix carries the "<hostname> <$0>[<pid>]: " identity split out of log_prefix.
+		$midfix = Core::log_midfix();
+		$this->assertMatchesRegularExpression( '/^.+\[\d+\]: $/', $midfix );
+	}
+
+	public function test_log_prefix_and_midfix_compose_the_full_line(): void {
+		// The production line is log_prefix( log_midfix( text ) ): timestamp, then identity,
+		// then the message — the composition the real stderr handler applies.
+		$full = Core::log_prefix( Core::log_midfix( 'a warning' ) );
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC .+\[\d+\]: a warning\n$/', $full );
 	}
 
 	public function test_log_prefix_prepends_prefix_and_appends_newline(): void {
@@ -412,7 +421,7 @@ class CoreTest extends TestCase {
 		$parts = \explode( "\n", \rtrim( $line, "\n" ) );
 		$this->assertCount( 2, $parts );
 		foreach ( $parts as $part ) {
-			$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: line (one|two)$/', $part );
+			$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC line (one|two)$/', $part );
 		}
 	}
 
@@ -423,12 +432,14 @@ class CoreTest extends TestCase {
 		$this->assertStringEndsWith( "trailing\n", $line );
 	}
 
-	public function test_stderr_writes_prefixed_line(): void {
+	public function test_stderr_passes_text_to_the_handler_verbatim(): void {
+		// Core::stderr writes the text through as-is — the timestamp/identity prefixing is the
+		// stderr HANDLER's job now (log_prefix + log_midfix), not Core::stderr's. The full
+		// composition is covered by test_log_prefix_and_midfix_compose_the_full_line.
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::stderr( 'a warning' );
-		// The handler receives the fully-prefixed line.
-		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: a warning\n$/', $buf );
+		$this->assertSame( 'a warning', $buf );
 	}
 
 	public function test_stderr_passes_through_already_dated_message(): void {
@@ -444,13 +455,13 @@ class CoreTest extends TestCase {
 		$this->assertStringNotContainsString( '[1]: 2026', $buf );
 	}
 
-	public function test_print_less_often_routes_through_stderr_prefix(): void {
-		// The rate-limited helper must emit a prefixed line, proving it routes
-		// through stderr()'s formatting rather than the raw text.
+	public function test_print_less_often_routes_through_stderr(): void {
+		// The rate-limited helper still routes its text through stderr() (the handler prefixes);
+		// prove the routing by capturing the emitted text.
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::print_less_often( 'rate limited msg' );
-		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: rate limited msg\n$/', $buf );
+		$this->assertStringContainsString( 'rate limited msg', $buf );
 	}
 
 	public function test_print_less_often_keys_by_log_midfix(): void {

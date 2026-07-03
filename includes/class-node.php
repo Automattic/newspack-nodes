@@ -514,11 +514,11 @@ class Node {
 	}
 
 	/**
-	 * Per-node mid-line tag (Tachikoma Node::log_midfix): "<name>: " prepended
-	 * to every line. Empty when the node is unnamed, or when the process
-	 * identity ($0 / Core::argv0()) already starts with the node name (so the
-	 * tag would be redundant). With a message, chomps a trailing newline,
-	 * prepends the tag to every line, and appends one trailing newline.
+	 * Per-node mid-line tag: "<name>: " prepended to every line. Empty when
+	 * the node is unnamed, or when the process identity ($0 / Core::argv0())
+	 * already starts with the node name (so the tag would be redundant). With
+	 * a message, chomps a trailing newline, prepends the tag to every line,
+	 * and appends one trailing newline.
 	 */
 	public function log_midfix( ?string $message = null ): string {
 		$midfix = '';

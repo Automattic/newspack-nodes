@@ -946,15 +946,16 @@ class NodeTest extends TestCase {
 		$this->assertSame( "alice: one\nalice: two\n", $n->log_midfix( "one\ntwo" ) );
 	}
 
-	public function test_stderr_emits_dateprefix_name_message_through_core_seam(): void {
-		// Node::stderr routes through Core::stderr, which applies the dated
-		// process prefix; Node::log_midfix supplies the "<name>: " tag.
+	public function test_stderr_emits_name_tagged_message_through_core_seam(): void {
+		// Node::stderr routes through Core::stderr carrying its "<name>: " midfix tag. The dated
+		// process prefix (log_prefix/log_midfix) is the real handler's job; this capture handler
+		// bypasses it, so it sees the name-tagged text verbatim.
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$n = new \Newspack_Nodes\Node();
 		$n->name( 'alice' );
 		$n->stderr( 'a warning' );
-		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: alice: a warning\n$/', $buf );
+		$this->assertSame( "alice: a warning\n", $buf );
 	}
 
 	public function test_stderr_empty_message_emits_nothing(): void {
