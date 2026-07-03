@@ -222,21 +222,6 @@ class Worker_Base {
 	}
 
 	/**
-	 * Shutdown handoff for one Remote_Source. Mirrors handoff_consumer: a cooperative stop
-	 * (timeout/memory) routes through the fair-shot rule; an operational stop is a clean
-	 * graceful checkpoint. For memory, pass whether the fresh baseline was already near the
-	 * watermark so a leak isn't blamed on the in-flight message ([42]).
-	 */
-	private function handoff_remote_source( Remote_Source_Node $node ): void {
-		$is_memory = 'memory' === $this->stop_reason;
-		if ( 'timeout' === $this->stop_reason || $is_memory ) {
-			$node->cooperative_stop( $this->stop_reason, $is_memory && $this->baseline_near_watermark() );
-			return;
-		}
-		$node->checkpoint_shutdown();
-	}
-
-	/**
 	 * Memory baseline guard ([42]): was the fresh post-reset baseline already near the
 	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
 	 * poison message — the fair-shot rule alerts instead of striking the in-flight message.
@@ -261,6 +246,21 @@ class Worker_Base {
 			case 'k': $num *= 1024;               break;
 		}
 		return $num;
+	}
+
+	/**
+	 * Shutdown handoff for one Remote_Source. Mirrors handoff_consumer: a cooperative stop
+	 * (timeout/memory) routes through the fair-shot rule; an operational stop is a clean
+	 * graceful checkpoint. For memory, pass whether the fresh baseline was already near the
+	 * watermark so a leak isn't blamed on the in-flight message ([42]).
+	 */
+	private function handoff_remote_source( Remote_Source_Node $node ): void {
+		$is_memory = 'memory' === $this->stop_reason;
+		if ( 'timeout' === $this->stop_reason || $is_memory ) {
+			$node->cooperative_stop( $this->stop_reason, $is_memory && $this->baseline_near_watermark() );
+			return;
+		}
+		$node->checkpoint_shutdown();
 	}
 
 	/**
