@@ -90,7 +90,7 @@ class SseInTest extends TestCase {
 		$this->assertIsArray( $fwd[ Message::VALUE ] );
 		$this->assertSame( 'abc', $fwd[ Message::VALUE ]['rid'] );
 		// Exclusive next-read cursor from the breadcrumb: offset (128) + length (50).
-		$this->assertSame( [ 'segment_id' => 3, 'offset' => 128 + 50 ], $node->position() );
+		$this->assertSame( [ 'segment' => 3, 'offset' => 128 + 50 ], $node->position() );
 	}
 
 	public function test_forward_drops_message_whose_from_overflows_max(): void {
@@ -112,7 +112,7 @@ class SseInTest extends TestCase {
 
 		$this->assertCount( 0, $sink->captured, 'an over-MAX_FROM_SIZE message must be dropped, not forwarded' );
 		// The position breadcrumb still advanced (exclusive) — a single bad record can't wedge the stream.
-		$this->assertSame( [ 'segment_id' => 5, 'offset' => 64 + 50 ], $node->position() );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 64 + 50 ], $node->position() );
 	}
 
 	public function test_unparseable_frame_routes_to_on_poison_and_keeps_draining(): void {
@@ -236,8 +236,8 @@ class SseInTest extends TestCase {
 		// Flat `{ <concrete-dir>: {seg,off} }` — the subscription IS the dir name
 		// (`open_subscription` seeds `$positions[$dir]`), not a nested topic→index.
 		$positions = \json_decode( $query['positions'], true );
-		$this->assertSame( 5, $positions['firehose.p0']['seg'] );
-		$this->assertSame( 10, $positions['firehose.p0']['off'] );
+		$this->assertSame( 5, $positions['firehose.p0']['segment'] );
+		$this->assertSame( 10, $positions['firehose.p0']['offset'] );
 	}
 
 	public function test_require_https_refuses_http_url(): void {

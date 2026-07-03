@@ -25,13 +25,13 @@ class Probe_Record {
 	public const READER = 1;
 
 	/** Consumer offset: segment id. */
-	public const CURSOR_SEG = 2;
+	public const CURSOR_SEGMENT = 2;
 
 	/** Consumer offset: byte within the cursor segment. */
 	public const CURSOR_OFF = 3;
 
 	/** Partition end: id of the last (newest) segment. */
-	public const END_SEG = 4;
+	public const END_SEGMENT = 4;
 
 	/** Partition end: size of that last segment. */
 	public const END_SIZE = 5;

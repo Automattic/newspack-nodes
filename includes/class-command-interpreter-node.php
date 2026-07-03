@@ -607,8 +607,8 @@ class Command_Interpreter_Node extends Node {
 				continue;
 			}
 			if ( \preg_match( '/^-([aclst]+)$/', $tok, $m ) ) {
-				$len = \strlen( $m[1] );
-				for ( $i = 0; $i < $len; ++$i ) {
+				$length = \strlen( $m[1] );
+				for ( $i = 0; $i < $length; ++$i ) {
 					$opt = $m[1][ $i ];
 					if ( 'a' === $opt ) { $list_matches = true; }
 					if ( 'c' === $opt ) { $show_count   = true; }

@@ -66,9 +66,9 @@ const FANOUT_DATA = {
 			reader: 'firehose.p0',
 			source: 'firehose.p0',
 			partition: 0,
-			cursor_seg: 0,
-			cursor_off: 50,
-			end_seg: 0,
+			cursor_segment: 0,
+			cursor_offset: 50,
+			end_segment: 0,
 			end_size: 200,
 			distance: 150,
 			msgs: 7,
@@ -185,9 +185,9 @@ const SHARED_SOURCE_DATA = {
 			reader: 'firehose.request-builder.p0',
 			source: 'firehose.p0',
 			partition: 0,
-			cursor_seg: 0,
-			cursor_off: 50,
-			end_seg: 0,
+			cursor_segment: 0,
+			cursor_offset: 50,
+			end_segment: 0,
 			end_size: 200,
 			distance: 150,
 			msgs: 7,
@@ -196,9 +196,9 @@ const SHARED_SOURCE_DATA = {
 			reader: 'firehose.job-router.p0',
 			source: 'firehose.p0',
 			partition: 0,
-			cursor_seg: 0,
-			cursor_off: 10,
-			end_seg: 0,
+			cursor_segment: 0,
+			cursor_offset: 10,
+			end_segment: 0,
 			end_size: 200,
 			distance: 190,
 			msgs: 3,
@@ -261,9 +261,9 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 					reader: 'firehose.p0',
 					source: 'firehose.p0',
 					partition: 0,
-					cursor_seg: 0,
-					cursor_off: 50,
-					end_seg: 1,
+					cursor_segment: 0,
+					cursor_offset: 50,
+					end_segment: 1,
 					end_size: 30,
 					distance: 0,
 					msgs: 1,
@@ -298,7 +298,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 		expect( logs[ 0 ].partitions[ 0 ].total_size ).toBe( 1349 );
 	} );
 
-	it( 'inputs_status carries FULL live segments and the consumer end_seg/end_size', () => {
+	it( 'inputs_status carries FULL live segments and the consumer end_segment/end_size', () => {
 		const data = {
 			...FANOUT_DATA,
 			consumers: [
@@ -306,9 +306,9 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 					reader: 'firehose.p0',
 					source: 'firehose.p0',
 					partition: 0,
-					cursor_seg: 0,
-					cursor_off: 50,
-					end_seg: 1,
+					cursor_segment: 0,
+					cursor_offset: 50,
+					end_segment: 1,
 					end_size: 30,
 					distance: 0,
 					msgs: 1,
@@ -339,9 +339,9 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			[ 2, 999 ],
 		] );
 		expect( status.total_size ).toBe( 1349 );
-		expect( status.cursor_seg ).toBe( 0 );
+		expect( status.cursor_segment ).toBe( 0 );
 		expect( status.cursor_offset ).toBe( 50 );
-		expect( status.end_seg ).toBe( 1 );
+		expect( status.end_segment ).toBe( 1 );
 		expect( status.end_size ).toBe( 30 );
 	} );
 
@@ -353,9 +353,9 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 					reader: 'firehose.p0',
 					source: 'firehose.p0',
 					partition: 0,
-					cursor_seg: 0,
-					cursor_off: 50,
-					end_seg: 1,
+					cursor_segment: 0,
+					cursor_offset: 50,
+					end_segment: 1,
 					end_size: 30,
 					distance: 0,
 					msgs: 1,
@@ -386,9 +386,9 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 		const part = firehose.partitions[ 0 ];
 		// id 2 (live, past the probe end) STAYS — it paints as the gray beyond region.
 		expect( part.segments.map( ( s ) => s.id ) ).toEqual( [ 0, 1, 2 ] );
-		expect( part.cursor_seg ).toBe( 0 );
+		expect( part.cursor_segment ).toBe( 0 );
 		expect( part.cursor_offset ).toBe( 50 );
-		expect( part.end_seg ).toBe( 1 );
+		expect( part.end_segment ).toBe( 1 );
 		expect( part.end_size ).toBe( 30 );
 	} );
 
@@ -400,7 +400,9 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 		// Cursor advances 50 → 150 over 10s → 10 B/s.
 		const next = {
 			...FANOUT_DATA,
-			consumers: [ { ...FANOUT_DATA.consumers[ 0 ], cursor_off: 150 } ],
+			consumers: [
+				{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
+			],
 			timestamp: 1010,
 		};
 		const second = reconstructWorkers( next, {
@@ -420,7 +422,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			{
 				...FANOUT_DATA,
 				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_off: 150 },
+					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
 				],
 			},
 			EMPTY_PRIOR
@@ -429,7 +431,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			{
 				...FANOUT_DATA,
 				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_off: 10 },
+					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 10 },
 				],
 				timestamp: 1010,
 			},
@@ -446,7 +448,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			{
 				...FANOUT_DATA,
 				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_off: 150 },
+					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
 				],
 				timestamp: 1010,
 			},
@@ -459,7 +461,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			{
 				...FANOUT_DATA,
 				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_off: 150 },
+					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
 				],
 				timestamp: 1011,
 			},
@@ -475,7 +477,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			consumers: [
 				{
 					...FANOUT_DATA.consumers[ 0 ],
-					end_seg: 0,
+					end_segment: 0,
 					end_size: endSize,
 				},
 			],
@@ -553,7 +555,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			consumers: [
 				{
 					...FANOUT_DATA.consumers[ 0 ],
-					end_seg: 0,
+					end_segment: 0,
 					end_size: endSize,
 				},
 			],
@@ -593,7 +595,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			consumers: order.map( ( which ) => ( {
 				...FANOUT_DATA.consumers[ 0 ],
 				reader: 'A' === which ? 'rb/firehose.p0' : 'jr/firehose.p0',
-				end_seg: 0,
+				end_segment: 0,
 				end_size: 'A' === which ? endA : endB,
 			} ) ),
 			logs: [
@@ -663,9 +665,9 @@ const SUBSTRING_COLLISION_DATA = {
 			reader: 'prereq.p0',
 			source: 'shared.p0',
 			partition: 0,
-			cursor_seg: 0,
-			cursor_off: 50,
-			end_seg: 0,
+			cursor_segment: 0,
+			cursor_offset: 50,
+			end_segment: 0,
 			end_size: 200,
 			distance: 150,
 			msgs: 7,
@@ -737,9 +739,9 @@ describe( 'reconstructWorkers — read step computed once per reader (not per to
 					reader: 'shared.p0',
 					source: 'shared.p0',
 					partition: 0,
-					cursor_seg: 0,
-					cursor_off: 50,
-					end_seg: 0,
+					cursor_segment: 0,
+					cursor_offset: 50,
+					end_segment: 0,
 					end_size: 200,
 					distance: 150,
 					msgs: 7,
@@ -807,9 +809,9 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 				reader: 'firehose.p0',
 				source: 'firehose.p0',
 				partition: 0,
-				cursor_seg: 0,
-				cursor_off: 50,
-				end_seg: 0,
+				cursor_segment: 0,
+				cursor_offset: 50,
+				end_segment: 0,
 				end_size: 200,
 				distance: 150,
 				msgs: 7,
@@ -819,9 +821,9 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 				reader: 'firehose.p1',
 				source: 'firehose.p1',
 				partition: 1,
-				cursor_seg: 0,
-				cursor_off: 0,
-				end_seg: 0,
+				cursor_segment: 0,
+				cursor_offset: 0,
+				end_segment: 0,
 				end_size: 0,
 				distance: 0,
 				msgs: 0,

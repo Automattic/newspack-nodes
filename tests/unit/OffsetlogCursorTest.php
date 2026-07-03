@@ -64,12 +64,12 @@ class OffsetlogCursorTest extends TestCase {
 	public function test_commit_then_read_round_trips_the_value(): void {
 		$d = new Offsetlog_Cursor_Double();
 		$d->build( "{$this->tmp}/offsets.p0" );
-		$d->commit( [ 'seg' => 3, 'off' => 7, 'foo' => 'bar' ] );
+		$d->commit( [ 'segment' => 3, 'offset' => 7, 'foo' => 'bar' ] );
 
 		$value = $d->read();
 		$this->assertIsArray( $value );
-		$this->assertSame( 3, $value['seg'] );
-		$this->assertSame( 7, $value['off'] );
+		$this->assertSame( 3, $value['segment'] );
+		$this->assertSame( 7, $value['offset'] );
 		$this->assertSame( 'bar', $value['foo'] );
 	}
 
@@ -85,7 +85,7 @@ class OffsetlogCursorTest extends TestCase {
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = [ 'seg' => 4, 'off' => 256 ];
+		$message[ Message::VALUE ] = [ 'segment' => 4, 'offset' => 256 ];
 		// Newest segment empty (rotated-but-unwritten tail); the committed frame
 		// lives in the prior segment — read must fall back to it.
 		\file_put_contents( "{$this->tmp}/offsets.p0/0.log", Message::packed( $message ) . "\n" );
@@ -93,8 +93,8 @@ class OffsetlogCursorTest extends TestCase {
 
 		$value = $d->read();
 		$this->assertIsArray( $value );
-		$this->assertSame( 4, $value['seg'] );
-		$this->assertSame( 256, $value['off'] );
+		$this->assertSame( 4, $value['segment'] );
+		$this->assertSame( 256, $value['offset'] );
 	}
 
 	public function test_read_returns_null_for_unparseable_entry(): void {

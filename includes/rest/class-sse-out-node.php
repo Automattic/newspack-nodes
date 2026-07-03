@@ -475,7 +475,7 @@ class SSE_Out_Node extends Node {
 	 */
 	protected function init_sse_headers(): void {
 		// phpcs:disable WordPress.PHP.IniSet.Risky
-		@\ini_set( 'output_buffering', 'off' );
+		@\ini_set( 'output_buffering', 'offset' );
 		@\ini_set( 'zlib.output_compression', false );
 		@\ini_set( 'implicit_flush', true );
 		// phpcs:enable

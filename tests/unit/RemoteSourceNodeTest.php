@@ -141,8 +141,8 @@ class RemoteSourceNodeTest extends TestCase {
 		// A clean shutdown commits past-the-poison at the healthy message's next boundary (offset+length).
 		$node->checkpoint_shutdown();
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['seg'] );
-		$this->assertSame( 300 + 40, $frame['off'] );
+		$this->assertSame( 7, $frame['segment'] );
+		$this->assertSame( 300 + 40, $frame['offset'] );
 		$this->assertSame( 0, $frame['attempts'], 'no fair-shot climb — a clean handoff' );
 	}
 
@@ -165,7 +165,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// next-read = offset + length.
 		$node->checkpoint_shutdown();
 		$past = 128 + 44;
-		$this->assertSame( $past, $this->newest_offsetlog_frame( $node )['off'], 'clean recycle commits past the poison' );
+		$this->assertSame( $past, $this->newest_offsetlog_frame( $node )['offset'], 'clean recycle commits past the poison' );
 
 		// Respawn: a fresh node restores from the committed (past-the-poison) frame; the idle
 		// stream would only replay from there, so the poison is never re-pulled/re-quarantined.
@@ -174,7 +174,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node2, $spy2 ] = $this->make_remote_spy( 'remote-austin' );
 		$node2->fire();
 		$sse2 = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment_id' => 7, 'offset' => $past ], $sse2->position(), 'respawn resumes PAST the quarantined poison' );
+		$this->assertSame( [ 'segment' => 7, 'offset' => $past ], $sse2->position(), 'respawn resumes PAST the quarantined poison' );
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'poison not re-quarantined on respawn' );
 	}
 
@@ -254,8 +254,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 0, $this->count_log_records( $dlq ), 'below threshold → not quarantined' );
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['seg'] );
-		$this->assertSame( 128, $frame['off'], 'frozen at the poison message start (offset, not offset+length)' );
+		$this->assertSame( 7, $frame['segment'] );
+		$this->assertSame( 128, $frame['offset'], 'frozen at the poison message start (offset, not offset+length)' );
 		$this->assertSame( 1, $frame['attempts'] );
 		$this->assertSame( 'timeout', $frame['reason'] );
 	}
@@ -276,8 +276,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'quarantined at COOP_MAX' );
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['seg'] );
-		$this->assertSame( 128 + 44, $frame['off'], 'advanced PAST the poison (offset + length)' );
+		$this->assertSame( 7, $frame['segment'] );
+		$this->assertSame( 128 + 44, $frame['offset'], 'advanced PAST the poison (offset + length)' );
 		$this->assertSame( 0, $frame['attempts'], 'clean handoff at the virgin baseline' );
 	}
 
@@ -298,7 +298,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 0, $this->count_log_records( $dlq ), 'advanced cursor → no strike' );
 		$this->assertCount( 1, $spy->captured );
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 100 + 40, $frame['off'], 'graceful commit at the last forwarded boundary' );
+		$this->assertSame( 100 + 40, $frame['offset'], 'graceful commit at the last forwarded boundary' );
 		$this->assertSame( 0, $frame['attempts'] );
 	}
 
@@ -318,7 +318,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 0, $this->count_log_records( $dlq ), 'watermark exemption → not struck' );
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 128, $frame['off'], 'graceful commit at the boot cursor' );
+		$this->assertSame( 128, $frame['offset'], 'graceful commit at the boot cursor' );
 		$this->assertSame( 0, $frame['attempts'], 'clean handoff, no strike' );
 	}
 
@@ -374,13 +374,13 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->checkpoint_shutdown();
 
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 9, $frame['seg'] );
-		$this->assertSame( 512 + 40, $frame['off'] );
+		$this->assertSame( 9, $frame['segment'] );
+		$this->assertSame( 512 + 40, $frame['offset'] );
 		$this->assertSame( 0, $frame['attempts'], 'a healthy shutdown is a clean handoff (attempts=0)' );
 	}
 
 	public function test_durable_cursor_is_node_owned_not_sse_in_position(): void {
-		// Remote_Source owns cursor_seg/off, advanced AFTER a successful forward from the
+		// Remote_Source owns cursor_segment/off, advanced AFTER a successful forward from the
 		// message's OWN breadcrumb (offset+length) — never SSE_In's connection position, which
 		// advances eagerly and can lead an in-flight message. Prove independence: forward one
 		// healthy message, then shove SSE_In's position far ahead, then commit at shutdown —
@@ -397,8 +397,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->checkpoint_shutdown();
 
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['seg'], 'committed the forwarded boundary, not SSE_In lead' );
-		$this->assertSame( 300 + 40, $frame['off'] );
+		$this->assertSame( 7, $frame['segment'], 'committed the forwarded boundary, not SSE_In lead' );
+		$this->assertSame( 300 + 40, $frame['offset'] );
 	}
 
 	/** Build a named Remote_Source wired to a Relay_Sink_Spy downstream + target. */
@@ -454,14 +454,14 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	/** Write a single committed offsetlog frame (with attempt accounting) for the default remote node. */
-	private function seed_offsetlog_frame( int $seg, int $off, int $attempts, string $reason, string $name = 'remote-austin' ): void {
+	private function seed_offsetlog_frame( int $segment, int $offset, int $attempts, string $reason, string $name = 'remote-austin' ): void {
 		$dir = \Newspack_Nodes\Config::get_offsets_directory() . "/{$name}.firehose.p0";
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::VALUE ] = [ 'seg' => $seg, 'off' => $off, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null, '_ts' => 1 ];
+		$m[ Message::VALUE ] = [ 'segment' => $segment, 'offset' => $offset, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null, '_ts' => 1 ];
 		\file_put_contents( "{$dir}/0.log", Message::packed( $m ) . "\n" );
 	}
 
@@ -583,7 +583,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$pre->arguments( $dir );
 		$entry                       = Message::new_message();
 		$entry[ Message::TYPE ]      = Message::TM_STRUCT;
-		$entry[ Message::VALUE ]     = [ 'seg' => 4, 'off' => 256, '_ts' => 123 ];
+		$entry[ Message::VALUE ]     = [ 'segment' => 4, 'offset' => 256, '_ts' => 123 ];
 		$pre->fill( $entry );
 		$pre->flush();
 
@@ -592,7 +592,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		$this->assertSame( [ 'segment_id' => 4, 'offset' => 256 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 4, 'offset' => 256 ], $sse->position() );
 	}
 
 	public function test_fire_commits_node_cursor(): void {
@@ -611,8 +611,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$value = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $value['seg'] );
-		$this->assertSame( 99 + 40, $value['off'] );
+		$this->assertSame( 7, $value['segment'] );
+		$this->assertSame( 99 + 40, $value['offset'] );
 	}
 
 	public function test_persist_cursor_does_not_recommit_an_unchanged_position(): void {
@@ -797,7 +797,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		// A junk line can't be unpacked → restore yields nothing → default cursor.
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $sse->position() );
 	}
 
 	public function test_restore_position_ignores_non_array_value(): void {
@@ -811,14 +811,14 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $sse->position() );
 	}
 
 	public function test_restore_position_falls_back_to_prior_segment_when_last_empty(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = [ 'seg' => 4, 'off' => 256, '_ts' => 1 ];
+		$message[ Message::VALUE ] = [ 'segment' => 4, 'offset' => 256, '_ts' => 1 ];
 		// Last segment is empty (a rotated-but-unwritten tail); the committed cursor
 		// lives in the prior segment and restore must fall back to it.
 		$this->seed_offsetlog_file( Message::packed( $message ) . "\n", 0 );
@@ -828,7 +828,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment_id' => 4, 'offset' => 256 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 4, 'offset' => 256 ], $sse->position() );
 	}
 
 	public function test_restore_position_returns_empty_when_all_segments_empty(): void {
@@ -841,7 +841,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $sse->position() );
 	}
 
 	/** Write a raw offsetlog segment file (`<seg>.log`) for the default remote node. */

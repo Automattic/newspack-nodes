@@ -20,9 +20,9 @@ class ProbeRecordTest extends TestCase {
 			[
 				Probe_Record::SOURCE,
 				Probe_Record::READER,
-				Probe_Record::CURSOR_SEG,
+				Probe_Record::CURSOR_SEGMENT,
 				Probe_Record::CURSOR_OFF,
-				Probe_Record::END_SEG,
+				Probe_Record::END_SEGMENT,
 				Probe_Record::END_SIZE,
 				Probe_Record::DISTANCE,
 				Probe_Record::MSGS,
@@ -41,9 +41,9 @@ class ProbeRecordTest extends TestCase {
 		$expected = [
 			'SOURCE'     => Probe_Record::SOURCE,
 			'READER'     => Probe_Record::READER,
-			'CURSOR_SEG' => Probe_Record::CURSOR_SEG,
+			'CURSOR_SEGMENT' => Probe_Record::CURSOR_SEGMENT,
 			'CURSOR_OFF' => Probe_Record::CURSOR_OFF,
-			'END_SEG'    => Probe_Record::END_SEG,
+			'END_SEGMENT'    => Probe_Record::END_SEGMENT,
 			'END_SIZE'   => Probe_Record::END_SIZE,
 			'DISTANCE'   => Probe_Record::DISTANCE,
 			'MSGS'       => Probe_Record::MSGS,

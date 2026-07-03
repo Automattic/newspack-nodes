@@ -129,7 +129,7 @@ it( 'a consumed (hasCursor) log still shows its WRITE rate, labeled W', () => {
 				partition: 0,
 				name: 'firehose.p0',
 				segments: [ { id: 0, size: 100 } ],
-				cursor_seg: 0,
+				cursor_segment: 0,
 				cursor_offset: 50,
 			},
 		],

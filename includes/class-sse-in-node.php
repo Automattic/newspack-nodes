@@ -5,7 +5,7 @@
  * internals, minus the durable/aggregator concerns.
  *
  * It owns one cURL multi handle (registered with the Event_Framework), one easy
- * handle (the SSE GET), one in-memory `{segment_id, offset}` cursor, and one SSE
+ * handle (the SSE GET), one in-memory `{segment, offset}` cursor, and one SSE
  * connection's worth of parser state. It is a *source*: `fill()` is a no-op
  * (it doesn't receive messages); it parses Messages off the SSE feed and forwards
  * them to its sink with TO=target.
@@ -81,8 +81,8 @@ class SSE_In_Node extends Node {
 	private ?int  $slot            = null;
 	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM pivot). */
 	private ?int  $session_pid    = null;
-	/** @var array{segment_id:int, offset:int} Read cursor. */
-	private array $position        = [ 'segment_id' => 0, 'offset' => 0 ];
+	/** @var array{segment:int, offset:int} Read cursor. */
+	private array $position        = [ 'segment' => 0, 'offset' => 0 ];
 	private float $last_event_time = 0.0;
 	private int   $current_backoff = self::INITIAL_BACKOFF;
 	private float $last_attempt    = 0.0;
@@ -146,16 +146,16 @@ class SSE_In_Node extends Node {
 		$params   = [
 			'subscribe' => $this->subscribe,
 		];
-		if ( $this->position['segment_id'] > 0 || $this->position['offset'] > 0 ) {
-			// Positions are a FLAT `{ <concrete-dir>: {seg, off} }` map keyed by the
+		if ( $this->position['segment'] > 0 || $this->position['offset'] > 0 ) {
+			// Positions are a FLAT `{ <concrete-dir>: {segment,offset} }` map keyed by the
 			// partition's directory name. `$subscribe` IS that dir name
 			// (`<topic>.p<N>`, one connection per partition), so key by it directly —
 			// `open_subscription` seeds `$positions[$dir]`.
 			$params['positions'] = (string) \wp_json_encode(
 				[
 					$this->subscribe => [
-						'seg' => $this->position['segment_id'],
-						'off' => $this->position['offset'],
+						'segment' => $this->position['segment'],
+						'offset' => $this->position['offset'],
 					],
 				]
 			);
@@ -255,8 +255,8 @@ class SSE_In_Node extends Node {
 		if ( $handle !== $this->handle ) {
 			return \strlen( $bytes );
 		}
-		$len = \strlen( $bytes );
-		if ( 0 === $len ) {
+		$length = \strlen( $bytes );
+		if ( 0 === $length ) {
 			return 0;
 		}
 		if ( null === $this->last_http_code ) {
@@ -266,7 +266,7 @@ class SSE_In_Node extends Node {
 				$this->last_error = null;
 			}
 		}
-		return $this->process_sse_chunk( $bytes ) ? $len : 0;
+		return $this->process_sse_chunk( $bytes ) ? $length : 0;
 	}
 
 	/**
@@ -452,7 +452,7 @@ class SSE_In_Node extends Node {
 			$parts = \explode( ':', $id );
 			if ( 3 === \count( $parts ) && \ctype_digit( $parts[0] ) && \ctype_digit( $parts[1] ) && \ctype_digit( $parts[2] ) ) {
 				$this->position = [
-					'segment_id' => (int) $parts[0],
+					'segment' => (int) $parts[0],
 					'offset'     => (int) $parts[1] + (int) $parts[2],
 				];
 			}
@@ -601,7 +601,7 @@ class SSE_In_Node extends Node {
 	 * @param string             $auth_password Application-Password secret.
 	 * @param string             $auth_token    Optional Bearer token fallback.
 	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
-	 * @param array{segment_id?:int,offset?:int} $positions Initial cursor.
+	 * @param array{segment?:int,offset?:int} $positions Initial cursor.
 	 * @param string             $source        Unused/reserved (formerly the _source server id).
 	 * @param bool               $verify_ssl    Verify the remote SSL cert.
 	 * @param bool               $require_https Refuse non-HTTPS remote URLs.
@@ -625,7 +625,7 @@ class SSE_In_Node extends Node {
 		$this->verify_ssl    = $verify_ssl;
 		$this->require_https = $require_https;
 		$this->position      = [
-			'segment_id' => \max( 0, $positions['segment_id'] ?? 0 ),
+			'segment' => \max( 0, $positions['segment'] ?? 0 ),
 			'offset'     => \max( 0, $positions['offset'] ?? 0 ),
 		];
 	}
@@ -635,9 +635,9 @@ class SSE_In_Node extends Node {
 	 *
 	 * @api Dynamic entrypoint.
 	 */
-	public function restore_position( int $segment_id, int $offset ): void {
+	public function restore_position( int $segment, int $offset ): void {
 		$this->position = [
-			'segment_id' => \max( 0, $segment_id ),
+			'segment' => \max( 0, $segment ),
 			'offset'     => \max( 0, $offset ),
 		];
 	}
@@ -646,7 +646,7 @@ class SSE_In_Node extends Node {
 	 * Current in-memory cursor.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{segment_id:int,offset:int}
+	 * @return array{segment:int,offset:int}
 	 */
 	public function position(): array {
 		return $this->position;

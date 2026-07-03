@@ -13,24 +13,24 @@ import { formatBytes } from './formatters';
 /**
  * Single segment bar visualization (horizontal bar layout).
  *
- * @param {Object}  props              Component props.
- * @param {Object}  props.segment      Segment data { id, size, mtime }.
- * @param {number}  props.maxSize      Max segment size for scaling.
- * @param {number}  props.cursorSeg    Reader cursor segment ID (null = no consumer).
- * @param {number}  props.cursorOffset Reader cursor offset within cursorSeg.
- * @param {number}  props.endSeg       Recorded probe-end segment ID (null = no consumer).
- * @param {number}  props.endSize      Recorded probe-end offset within endSeg.
- * @param {number}  props.index        Position in the row; staggers the fill animation.
- * @param {boolean} props.isNew        Whether this segment is newly appeared.
- * @param {boolean} props.isRemoving   Whether this segment is being removed.
+ * @param {Object}  props               Component props.
+ * @param {Object}  props.segment       Segment data { id, size, mtime }.
+ * @param {number}  props.maxSize       Max segment size for scaling.
+ * @param {number}  props.cursorSegment Reader cursor segment ID (null = no consumer).
+ * @param {number}  props.cursorOffset  Reader cursor offset within cursorSegment.
+ * @param {number}  props.endSegment    Recorded probe-end segment ID (null = no consumer).
+ * @param {number}  props.endSize       Recorded probe-end offset within endSegment.
+ * @param {number}  props.index         Position in the row; staggers the fill animation.
+ * @param {boolean} props.isNew         Whether this segment is newly appeared.
+ * @param {boolean} props.isRemoving    Whether this segment is being removed.
  * @return {import('react').ReactElement} Rendered component.
  */
 export const SegmentBar = memo( function SegmentBar( {
 	segment,
 	maxSize,
-	cursorSeg,
+	cursorSegment,
 	cursorOffset,
-	endSeg,
+	endSegment,
 	endSize,
 	index = 0,
 	isNew,
@@ -51,7 +51,7 @@ export const SegmentBar = memo( function SegmentBar( {
 	const pct = ( bytes ) =>
 		drawn && maxSize > 0 ? ( bytes / maxSize ) * 100 : 0;
 	// cursor + end arrive together; a tree with no consumer of this log has both null.
-	const hasConsumer = cursorSeg !== undefined && cursorSeg !== null;
+	const hasConsumer = cursorSegment !== undefined && cursorSegment !== null;
 
 	// Bytes of THIS segment up to a (boundarySeg, boundaryOffset) marker: whole
 	// segment if the marker is past it, the offset if the marker is inside it,
@@ -68,13 +68,13 @@ export const SegmentBar = memo( function SegmentBar( {
 
 	// Green stops at the read cursor; red/yellow backlog stops at the recorded
 	// probe end; gray fills past it to the live head. No consumer → all gray.
-	const readEnd = hasConsumer ? bytesUpTo( cursorSeg, cursorOffset ) : 0;
-	const recordedEnd = hasConsumer ? bytesUpTo( endSeg, endSize ) : 0;
+	const readEnd = hasConsumer ? bytesUpTo( cursorSegment, cursorOffset ) : 0;
+	const recordedEnd = hasConsumer ? bytesUpTo( endSegment, endSize ) : 0;
 	const recorded = Math.max( readEnd, recordedEnd );
 
 	// The whole backlog is ONE color: yellow when the lag stays within the segment
 	// the cursor is in, red when it spans a segment boundary (a bigger fall-behind).
-	const backlogClass = endSeg > cursorSeg ? '' : 'pending';
+	const backlogClass = endSegment > cursorSegment ? '' : 'pending';
 
 	const classNames = [
 		'worker-segment-h',

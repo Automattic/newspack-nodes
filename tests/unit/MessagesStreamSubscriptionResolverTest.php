@@ -84,12 +84,12 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription(
 			'firehose',
-			[ 'firehose.p1' => [ 'seg' => 2, 'off' => 5 ] ]
+			[ 'firehose.p1' => [ 'segment' => 2, 'offset' => 5 ] ]
 		);
 
 		$stamp = new \ReflectionProperty( Consumer_Node::class, 'stamp_override' );
-		$seg   = new \ReflectionProperty( Consumer_Node::class, 'cursor_seg' );
-		$off   = new \ReflectionProperty( Consumer_Node::class, 'cursor_off' );
+		$segment   = new \ReflectionProperty( Consumer_Node::class, 'cursor_segment' );
+		$offset   = new \ReflectionProperty( Consumer_Node::class, 'cursor_offset' );
 		$seeded = null;
 		foreach ( $consumers as $c ) {
 			if ( 'firehose.p1' === $stamp->getValue( $c ) ) {
@@ -97,8 +97,8 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 			}
 		}
 		$this->assertNotNull( $seeded, 'a consumer is stamped with the concrete dir name' );
-		$this->assertSame( 2, $seg->getValue( $seeded ) );
-		$this->assertSame( 5, $off->getValue( $seeded ) );
+		$this->assertSame( 2, $segment->getValue( $seeded ) );
+		$this->assertSame( 5, $offset->getValue( $seeded ) );
 	}
 
 	public function test_ipc_reader_subscription_returns_one_consumer(): void {
@@ -233,7 +233,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		//
 		// Browser shape: `{ "0": { seg: 5, off: 1024 }, ... }`. PHP receives
 		// the JSON-decoded version, which matches Consumer::next_offset's
-		// is_array($position) branch (cursor_seg/cursor_off direct seed).
+		// is_array($position) branch (cursor_segment/cursor_offset direct seed).
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
@@ -241,18 +241,18 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription(
 			'firehose.p0',
-			[ 'firehose.p0' => [ 'seg' => 5, 'off' => 1024 ] ]
+			[ 'firehose.p0' => [ 'segment' => 5, 'offset' => 1024 ] ]
 		);
 
 		$this->assertCount( 1, $consumers );
 		$consumer = $consumers[0];
-		// next_offset's array branch seeds cursor_seg / cursor_off directly.
+		// next_offset's array branch seeds cursor_segment / cursor_offset directly.
 		// Reflect on the protected fields to confirm the resolver routed
 		// the supplied position through (instead of silently falling
 		// through to the 'end' default which would skip historical events).
-		$seg = new \ReflectionProperty( $consumer, 'cursor_seg' );
-		$off = new \ReflectionProperty( $consumer, 'cursor_off' );
-		$this->assertSame( 5, $seg->getValue( $consumer ) );
-		$this->assertSame( 1024, $off->getValue( $consumer ) );
+		$segment = new \ReflectionProperty( $consumer, 'cursor_segment' );
+		$offset = new \ReflectionProperty( $consumer, 'cursor_offset' );
+		$this->assertSame( 5, $segment->getValue( $consumer ) );
+		$this->assertSame( 1024, $offset->getValue( $consumer ) );
 	}
 }

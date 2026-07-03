@@ -49,8 +49,8 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	/** Drive a checkpoint at the given cursor by setting it then committing. */
-	private function checkpoint_at( Consumer_Node $c, int $seg, int $off ): void {
-		$c->next_offset( [ 'seg' => $seg, 'off' => $off ] );
+	private function checkpoint_at( Consumer_Node $c, int $segment, int $offset ): void {
+		$c->next_offset( [ 'segment' => $segment, 'offset' => $offset ] );
 		Core::$now = Core::$now + 1.0;
 		$c->checkpoint();
 	}
@@ -76,7 +76,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		$offsetlog = $this->read_private( $c, 'offsetlog' );
 		$this->assertSame( $offsetlog->get_segments(), $extra['frames'], 'frames are the offsetlog segment list (id+size)' );
-		$this->assertSame( [ 'seg' => 1, 'off' => 5 ], $extra['cursor'], 'cursor is the live source position' );
+		$this->assertSame( [ 'segment' => 1, 'offset' => 5 ], $extra['cursor'], 'cursor is the live source position' );
 	}
 
 	public function test_dump_metadata_reports_at_frame_and_on_frame_across_the_transport_lifecycle(): void {
@@ -105,7 +105,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		// Live + read-ahead: advance the cursor past the committed checkpoint without
 		// re-checkpointing — the cursor has read forward, so on_frame is false.
-		$c->next_offset( [ 'seg' => 0, 'off' => 99 ] );
+		$c->next_offset( [ 'segment' => 0, 'offset' => 99 ] );
 		$meta = $c->dump_metadata();
 		$this->assertSame( $newer, $meta['at_frame'], 'still the newest frame while live' );
 		$this->assertFalse( $meta['on_frame'], 'a live consumer that read past its checkpoint is no longer on the frame' );
@@ -139,7 +139,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		// Live read-ahead after PLAY: advance the cursor past the checkpoint; on_frame
 		// flips false, mirroring the live read-ahead case above.
-		$c->next_offset( [ 'seg' => 1, 'off' => 7 ] );
+		$c->next_offset( [ 'segment' => 1, 'offset' => 7 ] );
 		$meta = $c->dump_metadata();
 		$this->assertSame( $newer, $meta['at_frame'], 'still the newest frame while live' );
 		$this->assertFalse( $meta['on_frame'], 'a live consumer reading ahead after PLAY is off the frame' );
@@ -166,7 +166,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		$extra = $c->dump_metadata();
 		$this->assertSame( [], $extra['frames'], 'ephemeral consumer (no offsetlog) has no frames' );
-		$this->assertSame( [ 'seg' => 0, 'off' => 0 ], $extra['cursor'] );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $extra['cursor'] );
 	}
 
 	public function test_dump_metadata_reads_only_the_warm_cache(): void {
@@ -261,8 +261,8 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c2->poll();
 
 		$this->assertTrue( $c2->has_checkpoint() );
-		$this->assertSame( 2, $this->read_private( $c2, 'cursor_seg' ) );
-		$this->assertSame( $total * 100, $this->read_private( $c2, 'cursor_off' ), 'resumes from the newest retained keyframe' );
+		$this->assertSame( 2, $this->read_private( $c2, 'cursor_segment' ) );
+		$this->assertSame( $total * 100, $this->read_private( $c2, 'cursor_offset' ), 'resumes from the newest retained keyframe' );
 	}
 
 	// ============================================================================
@@ -291,14 +291,14 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		// Drift the node + cursor away from the committed frame.
 		$node->state = [ 'in_flight' => [ 'r9' => 9 ] ];
-		$c->next_offset( [ 'seg' => 5, 'off' => 999 ] );
+		$c->next_offset( [ 'segment' => 5, 'offset' => 999 ] );
 
 		$result = $c->seek_frame( $segment_id );
 		$this->assertSame( 'ok', $result );
 		$this->assertSame( $frame_cache, $node->restored, 'restore_state got the frame cache' );
 
-		$this->assertSame( 2, $this->read_private( $c, 'cursor_seg' ), 'cursor moved to the record source seg' );
-		$this->assertSame( 64, $this->read_private( $c, 'cursor_off' ), 'cursor moved to the record source off' );
+		$this->assertSame( 2, $this->read_private( $c, 'cursor_segment' ), 'cursor moved to the record source seg' );
+		$this->assertSame( 64, $this->read_private( $c, 'cursor_offset' ), 'cursor moved to the record source off' );
 	}
 
 	public function test_seek_frame_does_not_rearm_timer(): void {
@@ -454,8 +454,8 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		$reply = $this->dispatch_command( $c, 'STEP' );
 		$data  = \json_decode( $reply, true );
-		$this->assertSame( 0, $data['seg'] );
-		$this->assertGreaterThan( 0, $data['off'], 'cursor advanced past the emitted line' );
+		$this->assertSame( 0, $data['segment'] );
+		$this->assertGreaterThan( 0, $data['offset'], 'cursor advanced past the emitted line' );
 		$this->assertFalse( $data['at_eof'] );
 		// The stepped data line was emitted to the same sink.
 		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
@@ -476,7 +476,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$data_cap = new Capture_Sink_Node();
 		$c->sink( $data_cap );
 
-		$cursor_before = $this->read_private( $c, 'cursor_off' );
+		$cursor_before = $this->read_private( $c, 'cursor_offset' );
 
 		$interpreter = $this->read_private( $c, 'interpreter' );
 		$reply_cap   = new Capture_Sink_Node();
@@ -499,7 +499,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		);
 		$this->assertStringContainsString( 'unauthorized', $reply[ Message::VALUE ]['payload'] );
 		$this->assertCount( 0, $data_cap->captured, 'refused STEP must emit no data message' );
-		$this->assertSame( $cursor_before, $this->read_private( $c, 'cursor_off' ), 'refused STEP must not advance the cursor' );
+		$this->assertSame( $cursor_before, $this->read_private( $c, 'cursor_offset' ), 'refused STEP must not advance the cursor' );
 	}
 
 	public function test_step_at_eof_is_a_noop(): void {
@@ -673,8 +673,8 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		// The newest frame is the post-PLAY checkpoint, not a stale future frame.
 		$record = $this->read_newest_offset_record( $offsetlog );
-		$this->assertSame( 8, $record['seg'], 'newest frame is the post-PLAY checkpoint source seg' );
-		$this->assertSame( 44, $record['off'], 'newest frame is the post-PLAY checkpoint source off' );
+		$this->assertSame( 8, $record['segment'], 'newest frame is the post-PLAY checkpoint source seg' );
+		$this->assertSame( 44, $record['offset'], 'newest frame is the post-PLAY checkpoint source off' );
 	}
 
 	/** Read the newest offsetlog segment's record VALUE ({seg,off,...}). */
@@ -705,8 +705,8 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		// SEEK_FRAME <segment-id> — arg parsing casts the one int.
 		$this->assertSame( 'ok', $this->dispatch_command( $c, 'SEEK_FRAME', (string) $segment_id ) );
-		$this->assertSame( 3, $this->read_private( $c, 'cursor_seg' ), 'cursor restored to the record source seg' );
-		$this->assertSame( 77, $this->read_private( $c, 'cursor_off' ), 'cursor restored to the record source off' );
+		$this->assertSame( 3, $this->read_private( $c, 'cursor_segment' ), 'cursor restored to the record source seg' );
+		$this->assertSame( 77, $this->read_private( $c, 'cursor_offset' ), 'cursor restored to the record source off' );
 
 		// PLAY re-arms.
 		$this->assertSame( 'ok', $this->dispatch_command( $c, 'PLAY' ) );
@@ -786,11 +786,11 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	/** Build one packed offsetlog record (the {seg,off,...} VALUE) + trailing \n. */
-	private function offset_record( int $seg, int $off, int $ts ): string {
+	private function offset_record( int $segment, int $offset, int $ts ): string {
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
 		$message[ Message::TIMESTAMP ] = $ts;
-		$message[ Message::VALUE ]     = [ 'seg' => $seg, 'off' => $off, 'name' => 'r', 'cache' => [ 'big' => 'blob' ] ];
+		$message[ Message::VALUE ]     = [ 'segment' => $segment, 'offset' => $offset, 'name' => 'r', 'cache' => [ 'big' => 'blob' ] ];
 		return Message::packed( $message ) . "\n";
 	}
 

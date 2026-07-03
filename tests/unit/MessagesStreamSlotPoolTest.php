@@ -191,7 +191,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		// Positions = start so the consumer reads our seeded message instead
 		// of skipping to end-of-partition (the default for null positions).
-		$positions = [ 'firehose.p0' => [ 'seg' => 0, 'off' => 0 ] ];
+		$positions = [ 'firehose.p0' => [ 'segment' => 0, 'offset' => 0 ] ];
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], $positions, 500, 1, -1 );

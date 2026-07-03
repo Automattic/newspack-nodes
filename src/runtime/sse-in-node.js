@@ -57,11 +57,11 @@ export class SseInNode extends Node {
 		this.nonce = '';
 		// Optional per-subscription seek seed, `{ <sub>: { <partition>: pos } }`
 		// where pos is 'start' (replay from the oldest retained record), 'end'
-		// (tail — the default when unset), or a `{seg,off}`. Set programmatically
+		// (tail — the default when unset), or a `{segment,offset}`. Set programmatically
 		// (a structured blob, NOT a positional arg); serialized into the stream
 		// URL by start(). null/empty → omit the param → the server tail-seeks.
 		this.positions = null;
-		// Last seen record position per `[sub][partition] = { seg, off }`, parsed
+		// Last seen record position per `[sub][partition] = { segment, offset }`, parsed
 		// from each frame's ID + FROM — so a reconnect resumes from the exact offset.
 		this.lastPositions = {};
 		this._es = null;
@@ -258,7 +258,7 @@ export class SseInNode extends Node {
 		IoTelemetry.markSseConnected();
 	}
 
-	// Remember a record's `{seg,off}` keyed by its concrete partition DIRECTORY —
+	// Remember a record's `{segment,offset}` keyed by its concrete partition DIRECTORY —
 	// the FROM's first path segment (`completed.p0`, or any layout the producer
 	// stamped). Each directory is its own unique partition; we never parse a
 	// `.p{N}` integer out of the name. A non-breadcrumb ID (a command reply's
@@ -277,8 +277,8 @@ export class SseInNode extends Node {
 		// Resume at the exclusive next-read offset+length — the remote stamped the on-disk
 		// length in the breadcrumb, so this is the exact next-record boundary.
 		this.lastPositions[ dir ] = {
-			seg: Number( idMatch[ 1 ] ),
-			off: Number( idMatch[ 2 ] ) + Number( idMatch[ 3 ] ),
+			segment: Number( idMatch[ 1 ] ),
+			offset: Number( idMatch[ 2 ] ) + Number( idMatch[ 3 ] ),
 		};
 	}
 

@@ -52,15 +52,15 @@ class Log_Node extends Partition_Node {
 		return \dirname( $this->file );
 	}
 
-	public function get_segment_path( int $segment_id ): string {
-		if ( $segment_id < 0 ) {
+	public function get_segment_path( int $segment ): string {
+		if ( $segment < 0 ) {
 			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
 		}
-		return "{$this->file}.{$segment_id}";
+		return "{$this->file}.{$segment}";
 	}
 
-	protected function get_index_path( int $segment_id ): string {
-		return "{$this->file}.{$segment_id}.idx";
+	protected function get_index_path( int $segment ): string {
+		return "{$this->file}.{$segment}.idx";
 	}
 
 	protected function segment_pattern(): string {

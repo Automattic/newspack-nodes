@@ -14,7 +14,7 @@ const section = {
 					partition: 0,
 					name: 'firehose.log.p0',
 					segments: [],
-					cursor_seg: 0,
+					cursor_segment: 0,
 					cursor_offset: 0,
 				},
 			],

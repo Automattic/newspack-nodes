@@ -146,9 +146,9 @@ const consumerRow = ( reader, source, partition, extra = {} ) => ( {
 	reader,
 	source,
 	partition,
-	cursor_seg: 0,
-	cursor_off: 0,
-	end_seg: 0,
+	cursor_segment: 0,
+	cursor_offset: 0,
+	end_segment: 0,
 	end_size: 0,
 	distance: 0,
 	msgs: 0,
@@ -240,7 +240,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 		expect( model.workers[ 0 ].handler ).toBe( 'request-builder' );
 	} );
 
-	test( 'joins probe cursor/distance onto the rich worker (cursor_off→cursor_offset, distance→behind)', () => {
+	test( 'joins probe cursor/distance onto the rich worker (cursor_offset carried through, distance→behind)', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
@@ -251,8 +251,8 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 					workers: [ liveness( 'firehose-workers', 0 ) ],
 					consumers: [
 						consumerRow( 'firehose.p0', 'firehose.p0', 0, {
-							cursor_seg: 2,
-							cursor_off: 50,
+							cursor_segment: 2,
+							cursor_offset: 50,
 							distance: 4096,
 						} ),
 					],
@@ -263,7 +263,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 			)
 		);
 		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
-		expect( wkr.cursor_seg ).toBe( 2 );
+		expect( wkr.cursor_segment ).toBe( 2 );
 		expect( wkr.cursor_offset ).toBe( 50 );
 		expect( wkr.behind ).toBe( 4096 );
 	} );
@@ -436,7 +436,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 } );
 
 describe( 'workerstatus:transform — inputs_status carries full live segments + recorded end', () => {
-	test( 'keeps the full live segments and carries the consumer end_seg/end_size', () => {
+	test( 'keeps the full live segments and carries the consumer end_segment/end_size', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
@@ -447,9 +447,9 @@ describe( 'workerstatus:transform — inputs_status carries full live segments +
 					workers: [ liveness( 'firehose-workers', 0 ) ],
 					consumers: [
 						consumerRow( 'firehose.p0', 'firehose.p0', 0, {
-							cursor_seg: 1,
-							cursor_off: 0,
-							end_seg: 1,
+							cursor_segment: 1,
+							cursor_offset: 0,
+							end_segment: 1,
 							end_size: 40,
 						} ),
 					],
@@ -476,24 +476,24 @@ describe( 'workerstatus:transform — inputs_status carries full live segments +
 			{ id: 2, size: 30 },
 		] );
 		expect( status.total_size ).toBe( 230 );
-		expect( status.cursor_seg ).toBe( 1 );
+		expect( status.cursor_segment ).toBe( 1 );
 		expect( status.cursor_offset ).toBe( 0 );
 		// The recorded probe end rides along so the bar can paint its red/gray split.
-		expect( status.end_seg ).toBe( 1 );
+		expect( status.end_segment ).toBe( 1 );
 		expect( status.end_size ).toBe( 40 );
 	} );
 } );
 
 describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => {
 	// Read rate = Δ(absolute cursor byte position)/Δts; absolute position =
-	// Σ(live seg.size for id < cursor_seg) + cursor_off. Write rate =
+	// Σ(live seg.size for id < cursor_segment) + cursor_offset. Write rate =
 	// Δ(partition end position)/Δts.
 	const snapshot = (
 		ts,
-		cursorSeg,
-		cursorOff,
+		cursorSegment,
+		cursorOffset,
 		segSizes,
-		endSeg,
+		endSegment,
 		endSize
 	) => ( {
 		graph: firehoseGraph(),
@@ -501,9 +501,9 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 		workers: [ liveness( 'firehose-workers', 0 ) ],
 		consumers: [
 			consumerRow( 'firehose.p0', 'firehose.p0', 0, {
-				cursor_seg: cursorSeg,
-				cursor_off: cursorOff,
-				end_seg: endSeg,
+				cursor_segment: cursorSegment,
+				cursor_offset: cursorOffset,
+				end_segment: endSegment,
 				end_size: endSize,
 			} ),
 		],
@@ -537,7 +537,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
 			// Poll 2 at ts 1002 (Δ 2s): cursor at seg 1 offset 50. The cursor seg
 			// contributes only its offset, segments below it their full live size.
-			// abs pos = Σ(live seg.size for id < cursor_seg 1) + cursor_off
+			// abs pos = Σ(live seg.size for id < cursor_segment 1) + cursor_offset
 			//         = 100 + 50 = 150. Δ = 150 - 0 = 150 over 2s = 75 B/s.
 			t.fill(
 				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )
@@ -796,13 +796,13 @@ describe( 'workerstatus:transform — model envelope', () => {
 } );
 
 describe( 'workerstatus:transform — segment tracking from the TRIMMED inputs_status', () => {
-	const grow = ( segments, endSeg, endSize ) => ( {
+	const grow = ( segments, endSegment, endSize ) => ( {
 		graph: firehoseGraph(),
 		timestamp: 1000,
 		workers: [ liveness( 'firehose-workers', 0 ) ],
 		consumers: [
 			consumerRow( 'firehose.p0', 'firehose.p0', 0, {
-				end_seg: endSeg,
+				end_segment: endSegment,
 				end_size: endSize,
 			} ),
 		],

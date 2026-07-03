@@ -49,7 +49,7 @@ export class RemoteLinkNode extends Node {
 	}
 
 	// Open the inbound stream (children built lazily on first use). An optional
-	// `positions` seed (`{ <sub>: { <partition>: 'start'|'end'|{seg,off} } }`)
+	// `positions` seed (`{ <sub>: { <partition>: 'start'|'end'|{segment,offset} } }`)
 	// seeks the server cursor — the Overview tab passes 'start' for 24h replay;
 	// omitting it tail-seeks (the live-follow default).
 	connect( positions = null ) {
@@ -178,7 +178,7 @@ export class RemoteLinkNode extends Node {
 		}
 	}
 
-	// Resume seed (last seen `{seg,off}` per sub/partition) so a reconnect picks up
+	// Resume seed (last seen `{segment,offset}` per sub/partition) so a reconnect picks up
 	// exactly where the stream left off; null (→ tail) when nothing's been seen.
 	resumePositions() {
 		return this.sseIn?.resumePositions() ?? null;

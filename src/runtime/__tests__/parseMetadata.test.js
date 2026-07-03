@@ -231,7 +231,7 @@ describe( 'parseMetadata', () => {
 					{ id: 0, size: 120 },
 					{ id: 1, size: 40 },
 				],
-				cursor: { seg: 1, off: 12 },
+				cursor: { segment: 1, offset: 12 },
 			},
 		} );
 		const c = nodes.find( ( n ) => n.id === 'firehose-consumer' );
@@ -239,7 +239,7 @@ describe( 'parseMetadata', () => {
 			{ id: 0, size: 120 },
 			{ id: 1, size: 40 },
 		] );
-		expect( c.cursor ).toEqual( { seg: 1, off: 12 } );
+		expect( c.cursor ).toEqual( { segment: 1, offset: 12 } );
 	} );
 
 	it( 'omits frames + cursor entirely for a non-consumer node (no extra keys)', () => {
@@ -258,7 +258,7 @@ describe( 'parseMetadata', () => {
 				counter: 5,
 				target: '',
 				frames: [ { id: 0, size: 120 } ],
-				cursor: { seg: 1, off: 12 },
+				cursor: { segment: 1, offset: 12 },
 				polling: 'PAUSED',
 			},
 		} );
@@ -281,7 +281,7 @@ describe( 'parseMetadata', () => {
 				counter: 5,
 				target: '',
 				frames: [ { id: 9, size: 120 } ],
-				cursor: { seg: 1, off: 12 },
+				cursor: { segment: 1, offset: 12 },
 				polling: 'PAUSED',
 				at_frame: 9,
 				on_frame: false,
@@ -299,7 +299,7 @@ describe( 'parseMetadata', () => {
 				counter: 5,
 				target: '',
 				frames: [],
-				cursor: { seg: 0, off: 0 },
+				cursor: { segment: 0, offset: 0 },
 				polling: 'ACTIVE',
 				at_frame: null,
 				on_frame: false,

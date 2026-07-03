@@ -97,12 +97,12 @@ const LogRows = memo( function LogRows( {
 		// with no consumer of the log has neither → SegmentBar paints all-gray.
 		const cursor =
 			entity.hasCursor &&
-			p.cursor_seg !== undefined &&
-			p.cursor_seg !== null
+			p.cursor_segment !== undefined &&
+			p.cursor_segment !== null
 				? {
-						seg: p.cursor_seg,
+						segment: p.cursor_segment,
 						offset: p.cursor_offset,
-						endSeg: p.end_seg,
+						endSegment: p.end_segment,
 						endSize: p.end_size,
 				  }
 				: undefined;
@@ -128,9 +128,9 @@ const LogRows = memo( function LogRows( {
 							segment={ seg }
 							index={ index }
 							maxSize={ entity.segment_size || segmentSize }
-							cursorSeg={ cursor?.seg }
+							cursorSegment={ cursor?.segment }
 							cursorOffset={ cursor?.offset }
-							endSeg={ cursor?.endSeg }
+							endSegment={ cursor?.endSegment }
 							endSize={ cursor?.endSize }
 							isNew={
 								prevSegments?.[ rateKey ] &&

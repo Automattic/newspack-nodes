@@ -66,9 +66,9 @@ class CliWorkerCommandTest extends TestCase {
 		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = $value['source'] ?? $value['source_log'] ?? "{$source_basename}.p{$partition}";
 		$record[ Probe_Record::READER ]     = "{$source_basename}.p{$partition}";
-		$record[ Probe_Record::CURSOR_SEG ] = $value['seg'] ?? 0;
-		$record[ Probe_Record::CURSOR_OFF ] = $value['off'] ?? 0;
-		$record[ Probe_Record::END_SEG ]    = $value['end_seg'] ?? 0;
+		$record[ Probe_Record::CURSOR_SEGMENT ] = $value['segment'] ?? 0;
+		$record[ Probe_Record::CURSOR_OFF ] = $value['offset'] ?? 0;
+		$record[ Probe_Record::END_SEGMENT ]    = $value['end_segment'] ?? 0;
 		$record[ Probe_Record::END_SIZE ]   = $value['end_size'] ?? 0;
 		$record[ Probe_Record::DISTANCE ]   = $value['distance'] ?? $value['bytes_behind'] ?? 0;
 		$record[ Probe_Record::MSGS ]       = $value['msgs'] ?? 0;

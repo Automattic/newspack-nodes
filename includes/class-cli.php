@@ -74,7 +74,7 @@ class CLI {
 	 * `.tsl` graph by `reader`/`source`, and `wp nodes status` joins via
 	 * `Topology_Registry`. Keyed in the array by insertion; `reader` is the id.
 	 *
-	 * @return array<int,array{reader:string,source:string,partition:int,cursor_seg:int,cursor_off:int,end_seg:int,end_size:int,distance:int,msgs:int}>
+	 * @return array<int,array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}>
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
@@ -87,9 +87,9 @@ class CLI {
 				'reader'     => $reader,
 				'source'     => self::scalar_string( $record[ Probe_Record::SOURCE ] ?? '' ),
 				'partition'  => (int) $m[2],
-				'cursor_seg' => self::scalar_int( $record[ Probe_Record::CURSOR_SEG ] ?? 0 ),
-				'cursor_off' => self::scalar_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
-				'end_seg'    => self::scalar_int( $record[ Probe_Record::END_SEG ] ?? 0 ),
+				'cursor_segment' => self::scalar_int( $record[ Probe_Record::CURSOR_SEGMENT ] ?? 0 ),
+				'cursor_offset' => self::scalar_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
+				'end_segment'    => self::scalar_int( $record[ Probe_Record::END_SEGMENT ] ?? 0 ),
 				'end_size'   => self::scalar_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
 				'distance'   => self::scalar_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
 				'msgs'       => self::scalar_int( $record[ Probe_Record::MSGS ] ?? 0 ),

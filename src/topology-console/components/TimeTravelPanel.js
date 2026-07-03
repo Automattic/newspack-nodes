@@ -26,13 +26,13 @@
  *
  * Selection is NEVER derived from the live source `cursor` — a frame id is its
  * OFFSETLOG segment id (monotonic, climbs forever), an independent number space
- * from `cursor.seg` (the SOURCE partition segment), so matching them only
- * coincides near zero. The live `cursor` ({seg,off}) is DISPLAYED as the source
+ * from `cursor.segment` (the SOURCE partition segment), so matching them only
+ * coincides near zero. The live `cursor` ({segment,offset}) is DISPLAYED as the source
  * read position, nothing more.
  *
  * The transport bar drives the consumer's `:config` verbs through the inspector's
  * invoke path via onTransport( verb, positional ): PAUSE / PLAY / STEP send the
- * bare verb; rewind / fast-forward send SEEK_FRAME <segment_id> for the snapped
+ * bare verb; rewind / fast-forward send SEEK_FRAME <segment> for the snapped
  * keyframe (a paused keyframe scrub among the retained frames — there is no
  * fast-forward into the unknown).
  */
@@ -44,15 +44,15 @@ function Cursor( { cursor } ) {
 	if ( ! cursor ) {
 		return null;
 	}
-	const seg = cursor.seg ?? '—';
-	const off = cursor.off ?? '—';
+	const segment = cursor.segment ?? '—';
+	const offset = cursor.offset ?? '—';
 	return (
 		<div className="topology-field-row">
 			<span className="topology-field-row__key">
 				{ __( 'cursor', 'newspack-nodes' ) }
 			</span>
 			<span className="topology-field-row__val topology-field-row__val--num">
-				{ `${ seg }:${ off }` }
+				{ `${ segment }:${ offset }` }
 			</span>
 		</div>
 	);
@@ -84,7 +84,7 @@ function Ruler( { frames, selectedFrameId, offFrame } ) {
 						data-frame-id={ f.id }
 						className={ cls }
 						style={ { left: `${ i * step }%` } }
-						title={ `frame seg ${ f.id } · ${ f.size } B` }
+						title={ `frame segment ${ f.id } · ${ f.size } B` }
 					/>
 				);
 			} ) }

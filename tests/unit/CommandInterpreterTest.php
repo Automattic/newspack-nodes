@@ -1549,7 +1549,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$this->assertArrayHasKey( 'extra', $decoded );
 		$this->assertSame( [ 'a', 'b' ], $decoded['extra']['frames'] );
-		$this->assertSame( [ 'seg' => 3, 'off' => 7 ], $decoded['extra']['cursor'] );
+		$this->assertSame( [ 'segment' => 3, 'offset' => 7 ], $decoded['extra']['cursor'] );
 	}
 
 	public function test_dump_metadata_hook_cannot_clobber_fixed_keys(): void {
@@ -2316,7 +2316,7 @@ class CommandInterpreterTest extends TestCase {
 /** Fixture: a node that contributes extra dump_metadata fields via the generic hook. */
 final class Extra_Metadata_Node extends Node {
 	public function dump_metadata(): array {
-		return [ 'frames' => [ 'a', 'b' ], 'cursor' => [ 'seg' => 3, 'off' => 7 ] ];
+		return [ 'frames' => [ 'a', 'b' ], 'cursor' => [ 'segment' => 3, 'offset' => 7 ] ];
 	}
 }
 

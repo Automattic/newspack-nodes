@@ -108,8 +108,8 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 		$meta = $node->dump_metadata();
 		$this->assertIsArray( $meta['frames'], 'frames must be an array so the panel renders' );
-		$this->assertArrayHasKey( 'seg', $meta['cursor'] );
-		$this->assertArrayHasKey( 'off', $meta['cursor'] );
+		$this->assertArrayHasKey( 'segment', $meta['cursor'] );
+		$this->assertArrayHasKey( 'offset', $meta['cursor'] );
 	}
 
 	public function test_dump_metadata_cursor_reports_the_node_cursor(): void {
@@ -120,10 +120,10 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node->fire();
 
 		// The reported cursor is the node-owned after-forward cursor, set here via a seek.
-		$node->next_offset( [ 'seg' => 4, 'off' => 42 ] );
+		$node->next_offset( [ 'segment' => 4, 'offset' => 42 ] );
 
 		$meta = $node->dump_metadata();
-		$this->assertSame( [ 'seg' => 4, 'off' => 42 ], $meta['cursor'], 'cursor reports the node-owned read position' );
+		$this->assertSame( [ 'segment' => 4, 'offset' => 42 ], $meta['cursor'], 'cursor reports the node-owned read position' );
 	}
 
 	// =========================================================================
@@ -139,17 +139,17 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		// Commit a durable frame at a known remote {seg,off} via the node cursor.
-		$node->next_offset( [ 'seg' => 7, 'off' => 128 ] );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 128 ] );
 		$node->checkpoint_shutdown();
 		$segment_id = \end( $node->dump_metadata()['frames'] )['id'];
 
 		// Drift the cursor away, then seek back to the committed frame.
-		$node->next_offset( [ 'seg' => 3, 'off' => 3 ] );
+		$node->next_offset( [ 'segment' => 3, 'offset' => 3 ] );
 		$node->pause();
 		$this->assertSame( 'ok', $node->seek_frame( $segment_id ) );
 
 		$this->assertSame(
-			[ 'segment_id' => 7, 'offset' => 128 ],
+			[ 'segment' => 7, 'offset' => 128 ],
 			$sse->position(),
 			'seek reconnects SSE_In from the frame offset'
 		);
@@ -164,7 +164,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$node->next_offset( [ 'seg' => 7, 'off' => 128 ] );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 128 ] );
 		$node->checkpoint_shutdown();
 		$segment_id = \end( $node->dump_metadata()['frames'] )['id'];
 
@@ -177,7 +177,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 		$positions = $this->positions_from_opts( \end( $captured ) );
 		$this->assertSame(
-			[ 'seg' => 7, 'off' => 128 ],
+			[ 'segment' => 7, 'offset' => 128 ],
 			$positions['firehose.p0'] ?? null,
 			'the reconnect request replays from the seeked frame offset'
 		);
@@ -238,10 +238,10 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire();
-		$node->next_offset( [ 'seg' => 5, 'off' => 55 ] );
+		$node->next_offset( [ 'segment' => 5, 'offset' => 55 ] );
 
 		$result = $node->step();
-		$this->assertSame( [ 'seg' => 5, 'off' => 55, 'at_eof' => true ], $result, 'STEP reports the current position without advancing' );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 55, 'at_eof' => true ], $result, 'STEP reports the current position without advancing' );
 	}
 
 	// =========================================================================

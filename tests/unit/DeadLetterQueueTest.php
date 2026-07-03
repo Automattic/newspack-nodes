@@ -30,8 +30,8 @@ class Dead_Letter_Queue_Double extends Node {
 	}
 
 	/** @return array<int, mixed> */
-	public function poison( string $line, int $seg, int $off ): array {
-		return $this->poison_from_line( $line, $seg, $off );
+	public function poison( string $line, int $segment, int $offset ): array {
+		return $this->poison_from_line( $line, $segment, $offset );
 	}
 
 	public function strike( string $reason ): bool {

@@ -20,9 +20,9 @@ import {
 import {
 	SOURCE,
 	READER,
-	CURSOR_SEG,
+	CURSOR_SEGMENT,
 	CURSOR_OFF,
-	END_SEG,
+	END_SEGMENT,
 	END_SIZE,
 	DISTANCE,
 	MSGS,
@@ -87,9 +87,9 @@ function probeFrame( {
 	const v = [];
 	v[ SOURCE ] = source;
 	v[ READER ] = reader;
-	v[ CURSOR_SEG ] = 0;
+	v[ CURSOR_SEGMENT ] = 0;
 	v[ CURSOR_OFF ] = 0;
-	v[ END_SEG ] = 0;
+	v[ END_SEGMENT ] = 0;
 	v[ END_SIZE ] = 0;
 	v[ DISTANCE ] = distance;
 	v[ MSGS ] = msgs;

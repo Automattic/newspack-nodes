@@ -1085,7 +1085,7 @@ describe( 'Inspector (view mode)', () => {
 			{ id: 5343, size: 40 },
 			{ id: 5344, size: 80 },
 		],
-		cursor: { seg: 2, off: 12 },
+		cursor: { segment: 2, offset: 12 },
 	};
 
 	it( 'shows the Time Travel section for a node carrying frames + cursor', () => {
@@ -1187,8 +1187,8 @@ describe( 'Inspector (view mode)', () => {
 			{ verb: 'PAUSE', kind: 'command', positional: '', byName: {} }
 		);
 		// First rewind from live lands on the NEWEST keyframe (5344) — not
-		// cursor.seg, and not the one before. SEEK_FRAME maps its positional to
-		// the `segment_id` byName arg.
+		// cursor.segment, and not the one before. SEEK_FRAME maps its positional to
+		// the `segment` byName arg.
 		fireEvent.click( getByLabelText( /rewind/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
@@ -1197,7 +1197,7 @@ describe( 'Inspector (view mode)', () => {
 				verb: 'SEEK_FRAME',
 				kind: 'command',
 				positional: '5344',
-				byName: { segment_id: '5344' },
+				byName: { segment: '5344' },
 			}
 		);
 		// Rewind again steps to the previous keyframe (5343)…
@@ -1209,7 +1209,7 @@ describe( 'Inspector (view mode)', () => {
 				verb: 'SEEK_FRAME',
 				kind: 'command',
 				positional: '5343',
-				byName: { segment_id: '5343' },
+				byName: { segment: '5343' },
 			}
 		);
 		// …and fast-forward walks back to the next keyframe (5344).
@@ -1221,7 +1221,7 @@ describe( 'Inspector (view mode)', () => {
 				verb: 'SEEK_FRAME',
 				kind: 'command',
 				positional: '5344',
-				byName: { segment_id: '5344' },
+				byName: { segment: '5344' },
 			}
 		);
 	} );

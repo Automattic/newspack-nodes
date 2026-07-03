@@ -5,7 +5,7 @@
  * end→live head). The backlog is ONE color: YELLOW when the lag stays within the
  * segment the cursor is in (green→yellow→gray), RED when it spans a segment
  * boundary (green→red→gray, a bigger fall-behind). A segment in a tree with no
- * consumer of the log (cursorSeg null) renders entirely gray.
+ * consumer of the log (cursorSegment null) renders entirely gray.
  */
 
 import { render } from '@testing-library/react';
@@ -28,9 +28,9 @@ describe( 'SegmentBar — three regions', () => {
 			<SegmentBar
 				segment={ { id: 0, size: 100 } }
 				maxSize={ 100 }
-				cursorSeg={ 0 }
+				cursorSegment={ 0 }
 				cursorOffset={ 40 }
-				endSeg={ 0 }
+				endSegment={ 0 }
 				endSize={ 80 }
 			/>
 		);
@@ -51,9 +51,9 @@ describe( 'SegmentBar — three regions', () => {
 			<SegmentBar
 				segment={ { id: 0, size: 100 } }
 				maxSize={ 100 }
-				cursorSeg={ 0 }
+				cursorSegment={ 0 }
 				cursorOffset={ 20 }
-				endSeg={ 0 }
+				endSegment={ 0 }
 				endSize={ 60 }
 			/>
 		);
@@ -65,14 +65,14 @@ describe( 'SegmentBar — three regions', () => {
 		expect( f[ 2 ].width ).toBe( '40%' );
 	} );
 
-	it( 'no consumer (cursorSeg null) renders the whole segment gray', () => {
+	it( 'no consumer (cursorSegment null) renders the whole segment gray', () => {
 		const { container } = render(
 			<SegmentBar
 				segment={ { id: 0, size: 80 } }
 				maxSize={ 100 }
-				cursorSeg={ null }
+				cursorSegment={ null }
 				cursorOffset={ null }
-				endSeg={ null }
+				endSegment={ null }
 				endSize={ null }
 			/>
 		);
@@ -85,7 +85,12 @@ describe( 'SegmentBar — three regions', () => {
 
 	it( 'a lag that spans a segment boundary is RED (no yellow), across every segment it covers', () => {
 		// cursor in segment 0 at 40; recorded end is in segment 1 (at 50).
-		const lag = { cursorSeg: 0, cursorOffset: 40, endSeg: 1, endSize: 50 };
+		const lag = {
+			cursorSegment: 0,
+			cursorOffset: 40,
+			endSegment: 1,
+			endSize: 50,
+		};
 		// Segment 0: green read + RED remainder (lag continues into seg 1), no gray.
 		const seg0 = fills(
 			render(
@@ -123,9 +128,9 @@ describe( 'SegmentBar — three regions', () => {
 			<SegmentBar
 				segment={ { id: 2, size: 100 } }
 				maxSize={ 100 }
-				cursorSeg={ 2 }
+				cursorSegment={ 2 }
 				cursorOffset={ 50 }
-				endSeg={ 2 }
+				endSegment={ 2 }
 				endSize={ 100 }
 				index={ 2 }
 			/>
@@ -141,9 +146,9 @@ describe( 'SegmentBar — three regions', () => {
 			<SegmentBar
 				segment={ { id: 3, size: 100 } }
 				maxSize={ 100 }
-				cursorSeg={ 3 }
+				cursorSegment={ 3 }
 				cursorOffset={ 40 }
-				endSeg={ 3 }
+				endSegment={ 3 }
 				endSize={ 80 }
 				isNew={ true }
 			/>
@@ -159,9 +164,9 @@ describe( 'SegmentBar — three regions', () => {
 			<SegmentBar
 				segment={ { id: 0, size: 100 } }
 				maxSize={ 100 }
-				cursorSeg={ 1 }
+				cursorSegment={ 1 }
 				cursorOffset={ 10 }
-				endSeg={ 1 }
+				endSegment={ 1 }
 				endSize={ 50 }
 			/>
 		);

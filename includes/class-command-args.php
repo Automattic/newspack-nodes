@@ -63,8 +63,8 @@ class Command_Args {
 		$has_tok  = false;
 		$in_quote = false;
 		$escaped  = false;
-		$len      = \strlen( $args );
-		for ( $i = 0; $i < $len; $i++ ) {
+		$length      = \strlen( $args );
+		for ( $i = 0; $i < $length; $i++ ) {
 			$ch = $args[ $i ];
 			if ( $escaped ) {
 				$current .= $ch;

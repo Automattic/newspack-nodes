@@ -4,7 +4,7 @@
  *
  * Extends Remote_Link with the one concern that distinguishes durable aggregation
  * from a transient channel: a per-node offsetlog (`<offsets_dir>/<name>.<remote_partition>`,
- * keyed by NODE NAME). It restores the committed `{seg,off}` cursor into SSE_In
+ * keyed by NODE NAME). It restores the committed `{segment,offset}` cursor into SSE_In
  * before connect (the `restore_position` seam) and commits the live cursor every
  * ~COMMIT_INTERVAL seconds (the `persist_cursor` seam). Everything else — the
  * SSE_In + HTTP_Out patrons, the heartbeat, the status snapshot, the tick — is the
@@ -29,19 +29,19 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * The node-owned durable read cursor: the start of the next unforwarded message (=
 	 * the last forwarded message's END, or the restored boot position). Advanced AFTER a
 	 * successful downstream forward — the offsetlog commits THIS, never SSE_In's eager
-	 * connection position. The Time_Travel trait reads it; the committed {seg,off} it
+	 * connection position. The Time_Travel trait reads it; the committed {segment,offset} it
 	 * compares against is the trait's checkpoint_*.
 	 */
-	protected int $cursor_seg = 0;
-	protected int $cursor_off = 0;
+	protected int $cursor_segment = 0;
+	protected int $cursor_offset = 0;
 
 	/**
 	 * The cursor this process booted on (seeded by restore_position). Advancing past it is
 	 * "forward progress" — the fair-shot proxy for a cooperative-stop strike ([42]), EXACTLY
 	 * like Consumer's boot_cursor.
 	 */
-	protected int $boot_cursor_seg = 0;
-	protected int $boot_cursor_off = 0;
+	protected int $boot_cursor_segment = 0;
+	protected int $boot_cursor_offset = 0;
 
 	/**
 	 * True once restore_position has run (the cursor is real, not the 0:0 construction default).
@@ -51,7 +51,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	protected bool $cursor_established = false;
 
 	/**
-	 * True once a downstream fill() raised Worker_Should_Stop through relay_stream_message — the
 	 * The message in flight when the cooperative stop hit (null = none — an idle worker, not
 	 * poison), plus its source start {segment,offset} (from its ID breadcrumb) and its exclusive
 	 * next-read {segment,offset} — captured at the throw because, unlike Consumer's buffered
@@ -129,8 +128,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		// Advance to this message's exclusive next-read (offset+length) from its own breadcrumb — the remote stamped the on-disk length.
 		if ( null !== $crumb ) {
-			$this->cursor_seg = $crumb['segment'];
-			$this->cursor_off = $crumb['offset'] + $crumb['length'];
+			$this->cursor_segment = $crumb['segment'];
+			$this->cursor_offset = $crumb['offset'] + $crumb['length'];
 		}
 		$this->after_forward();
 	}
@@ -141,8 +140,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * state commits via the throttled persist_cursor, not here (matching Consumer).
 	 */
 	private function after_forward(): void {
-		$seg = $this->cursor_seg;
-		$off = $this->cursor_off;
+		$segment = $this->cursor_segment;
+		$offset = $this->cursor_offset;
 		if ( $this->crawl ) {
 			// Survived a full interval crash-free → drop back to the baseline; either way
 			// checkpoint per message (pinned attempts while crawling, baseline once exited)
@@ -150,7 +149,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			if ( $this->crawl_interval_elapsed() ) {
 				$this->exit_crawl();
 			}
-			$this->commit_position( $seg, $off, false );
+			$this->commit_position( $segment, $offset, false );
 			return;
 		}
 		if ( $this->attempts > 1 ) {
@@ -158,7 +157,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->attempts       = 1;
 			$this->first_crash_ts = null;
 			$this->poison_reason  = '';
-			$this->commit_position( $seg, $off, true );
+			$this->commit_position( $segment, $offset, true );
 		}
 	}
 
@@ -167,7 +166,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * and resume the shared poison/crash accounting from it (attempts+1, a hard-crash
 	 * lineage → crawl). Empty on a fresh offsetlog.
 	 *
-	 * @return array{segment_id?:int,offset?:int}
+	 * @return array{segment?:int,offset?:int}
 	 */
 	protected function restore_position(): array {
 		if ( null === $this->ensure_offsetlog_partition() ) {
@@ -180,22 +179,22 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( null === $value ) {
 			return [];
 		}
-		$seg = $value['seg'] ?? 0;
-		$off = $value['off'] ?? 0;
-		$seg = \is_scalar( $seg ) ? (int) $seg : 0;
-		$off = \is_scalar( $off ) ? (int) $off : 0;
+		$segment = $value['segment'] ?? 0;
+		$offset = $value['offset'] ?? 0;
+		$segment = \is_scalar( $segment ) ? (int) $segment : 0;
+		$offset = \is_scalar( $offset ) ? (int) $offset : 0;
 		// Resume the shared attempt accounting (climb at attempts+1, carry the streak, detect a
 		// hard-crash lineage → crawl). A cooperative-stop lineage climbs here too.
 		$this->resume_attempts_from_frame( $value );
 		// Seed the node-owned cursor + freeze the boot cursor at the restored position (so
 		// cursor_advanced_since_boot() is honest); forwards advance the cursor past boot.
-		$this->cursor_seg      = $seg;
-		$this->cursor_off      = $off;
-		$this->boot_cursor_seg = $seg;
-		$this->boot_cursor_off = $off;
+		$this->cursor_segment      = $segment;
+		$this->cursor_offset      = $offset;
+		$this->boot_cursor_segment = $segment;
+		$this->boot_cursor_offset = $offset;
 		return [
-			'segment_id' => $seg,
-			'offset'     => $off,
+			'segment' => $segment,
+			'offset'     => $offset,
 		];
 	}
 
@@ -211,14 +210,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( ! $this->checkpoint_due() || null === $this->sse_in ) {
 			return;
 		}
-		$seg = $this->cursor_seg;
-		$off = $this->cursor_off;
+		$segment = $this->cursor_segment;
+		$offset = $this->cursor_offset;
 		// Advance-guard (matches Consumer): skip a redundant same-cursor write so an idle
 		// stream doesn't spam identical keyframes, one per interval.
-		if ( ! $this->cursor_moved_since_checkpoint( $seg, $off ) ) {
+		if ( ! $this->cursor_moved_since_checkpoint( $segment, $offset ) ) {
 			return;
 		}
-		$this->commit_position( $seg, $off, true );
+		$this->commit_position( $segment, $offset, true );
 	}
 
 	/**
@@ -234,7 +233,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			return;
 		}
 		$graceful = $this->attempts <= 1 && ! $this->crawl;
-		$this->commit_position( $this->cursor_seg, $this->cursor_off, $graceful );
+		$this->commit_position( $this->cursor_segment, $this->cursor_offset, $graceful );
 	}
 
 	/**
@@ -273,20 +272,20 @@ class Remote_Source_Node extends Remote_Link_Node {
 			// off at the virgin baseline.
 			$this->ensure_deadletter_sibling();
 			$this->dead_letter( $this->stopped_message, $reason );
-			$end = $this->stopped_message_end ?? [ 'segment' => $this->cursor_seg, 'offset' => $this->cursor_off ];
+			$end = $this->stopped_message_end ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 			$this->commit_position( $end['segment'], $end['offset'], true );
 			return;
 		}
 		// Below threshold: record the strike at the message's OWN start with the climbing
 		// attempts/reason so the respawn re-pulls exactly it and climbs.
-		$start = $this->stopped_message_start ?? [ 'segment' => $this->cursor_seg, 'offset' => $this->cursor_off ];
+		$start = $this->stopped_message_start ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 		$this->commit_position( $start['segment'], $start['offset'], false );
 	}
 
 	/** True once the read cursor has moved past the cursor this process booted on (Consumer-parallel). */
 	private function cursor_advanced_since_boot(): bool {
-		return $this->cursor_seg > $this->boot_cursor_seg
-			|| ( $this->cursor_seg === $this->boot_cursor_seg && $this->cursor_off > $this->boot_cursor_off );
+		return $this->cursor_segment > $this->boot_cursor_segment
+			|| ( $this->cursor_segment === $this->boot_cursor_segment && $this->cursor_offset > $this->boot_cursor_offset );
 	}
 
 	/**
@@ -307,16 +306,16 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Commit one offsetlog frame at `{seg,off}` via the shared writer. A graceful frame is
+	 * Commit one offsetlog frame at `{segment,offset}` via the shared writer. A graceful frame is
 	 * a clean handoff (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful
 	 * frame carries the live attempt accounting (a climbing hard-crash lineage / pinned crawl).
 	 * Ensures the lazy per-node offsetlog exists first (Consumer builds its in arguments()).
 	 */
-	private function commit_position( int $seg, int $off, bool $graceful ): void {
+	private function commit_position( int $segment, int $offset, bool $graceful ): void {
 		if ( null === $this->ensure_offsetlog_partition() ) {
 			return;
 		}
-		$this->commit_checkpoint_frame( $seg, $off, $graceful );
+		$this->commit_checkpoint_frame( $segment, $offset, $graceful );
 	}
 
 	/**
@@ -408,8 +407,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			// position — same quarantine the Consumer gives a torn on-disk line.
 			$sse->on_poison = function ( string $raw ): void {
 				$this->ensure_deadletter_sibling();
-				$pos = $this->sse_in?->position() ?? [ 'segment_id' => 0, 'offset' => 0 ];
-				$this->dead_letter( $this->poison_from_line( $raw, $pos['segment_id'], $pos['offset'] ), 'unparseable' );
+				$pos = $this->sse_in?->position() ?? [ 'segment' => 0, 'offset' => 0 ];
+				$this->dead_letter( $this->poison_from_line( $raw, $pos['segment'], $pos['offset'] ), 'unparseable' );
 			};
 		}
 		return $sse;
@@ -421,38 +420,38 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload.
-	 * The reported cursor is the node-owned after-forward cursor (cursor_seg/off) — the
+	 * The reported cursor is the node-owned after-forward cursor (cursor_segment/off) — the
 	 * single source of truth now — so no SSE_In sync is needed.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{seg:int, off:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
 	 */
 	public function dump_metadata(): array {
 		return $this->time_travel_metadata();
 	}
 
 	/**
-	 * SEEK_FRAME landing: reseed SSE_In from the frame's {seg,off} and drop the
+	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the
 	 * current stream. Seeking only ever happens while paused (the transport bar
 	 * gates rewind/forward on PAUSE), so the reconnect is deferred to PLAY's tick —
 	 * which replays the remote partition from the reseeded offset.
 	 *
-	 * @param string|array<array-key, mixed> $position Explicit {seg,off} from seek_frame().
+	 * @param string|array<array-key, mixed> $position Explicit {segment,offset} from seek_frame().
 	 */
 	public function next_offset( $position ): void {
 		if ( ! \is_array( $position ) ) {
 			return;
 		}
-		$seg = \is_numeric( $position['seg'] ?? null ) ? (int) $position['seg'] : 0;
-		$off = \is_numeric( $position['off'] ?? null ) ? (int) $position['off'] : 0;
+		$segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;
+		$offset = \is_numeric( $position['offset'] ?? null ) ? (int) $position['offset'] : 0;
 		$sse = $this->ensure_patrons();
 		if ( null === $sse ) {
 			return;
 		}
 		$sse->disconnect();
-		$sse->restore_position( $seg, $off );
-		$this->cursor_seg = $seg;
-		$this->cursor_off = $off;
+		$sse->restore_position( $segment, $offset );
+		$this->cursor_segment = $segment;
+		$this->cursor_offset = $offset;
 	}
 
 	/**
@@ -460,10 +459,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * pulled one message at a time, so there is nothing to single-step. Report the
 	 * current position (nothing advanced) rather than fake a step.
 	 *
-	 * @return array{seg:int, off:int, at_eof:bool}
+	 * @return array{segment:int, offset:int, at_eof:bool}
 	 */
 	protected function advance_one_message(): array {
-		return [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'at_eof' => true ];
+		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => true ];
 	}
 
 	/** PLAY re-arm: resume the recurring tick, which reconnects from the current position. */
