@@ -209,9 +209,10 @@ class TeeTest extends TestCase {
 		$this->assertSame( [], $tee->target() );
 	}
 
-	public function test_fill_isolates_per_target_exceptions(): void {
-		// One target throws during dispatch; sibling target must still receive the
-		// message. Wires a router → Lock-style sink that throws on a specific name.
+	public function test_fill_best_effort_then_rethrows_for_dlq(): void {
+		// One target throws during dispatch. Best-effort: the sibling target must
+		// still receive the message; and the exception must propagate after the
+		// loop so Consumer/Remote_Source can dead-letter (not be swallowed).
 		$router = new Router_Node();
 		$router->name( '_router' );
 
@@ -237,9 +238,18 @@ class TeeTest extends TestCase {
 		$message = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::VALUE ] = 'data';
-		$tee->fill( $message );
 
-		// Live target still got the message even though sibling threw.
+		// Deferred until after the fan-out, then re-thrown for the DLQ.
+		$thrown = null;
+		try {
+			$tee->fill( $message );
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
+		}
+		$this->assertNotNull( $thrown, 'fill() must re-throw after the fan-out so the DLQ is fed' );
+		$this->assertSame( 'simulated failure', $thrown->getMessage() );
+
+		// Best-effort: the live target still got the message even though the sibling threw.
 		$this->assertCount( 1, $alive->captured );
 		$this->assertSame( 'data', $alive->captured[0][ Message::VALUE ] );
 	}

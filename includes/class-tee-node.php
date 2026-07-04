@@ -35,15 +35,17 @@ class Tee_Node extends Node {
 		}
 		$this->target = $alive;
 
+		$deferred = null;
 		foreach ( $alive as $t ) {
+			$message[ Message::TO ] = '' === $to ? $t : ( $t . '/' . $to );
 			try {
-				$copy                = $message;
-				$copy[ Message::TO ] = '' === $to ? $t : ( $t . '/' . $to );
-				$this->sink?->fill( $copy );
+				$this->sink->fill( $message );
 			} catch ( \Throwable $e ) {
-				// log_midfix prepends the node name; keep only the class label here.
-				$this->print_less_often( "target $t threw: " . $e->getMessage() );
+				$deferred ??= $e;
 			}
+		}
+		if ( null !== $deferred ) {
+			throw $deferred;
 		}
 	}
 
