@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-07-04
+
 ### Fixed
 
 - **`Tee` no longer swallows per-target dispatch exceptions (they defeated the DLQ).** A target's `fill()` throwing was caught and rate-limit-logged, so the exception never reached the `Consumer`/`Remote_Source` that would dead-letter the message — a silent drop dressed as logging. `Tee::fill()` now fans out best-effort (a throwing target no longer blocks its siblings; `TO` is stamped in place, copy-on-write handles per-target isolation), stashes the first exception, and re-throws it after the loop so the DLQ is fed. A persistently-failing target now re-drives the whole message (bounded by the retry cap) instead of black-holing it.
