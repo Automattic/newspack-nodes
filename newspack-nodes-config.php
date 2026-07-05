@@ -12,7 +12,7 @@
 
 return [
 	// Deployment override: restrict admin UI to these usernames.
-	'allowed_users'    => [],
+	'allowed_users'       => [],
 
 	// Filesystem root for logs / locks / offsets / IPC dirs.
 	'base_directory'      => '/tmp/newspack-nodes',
