@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-07-05
+
+### Fixed
+
+- **`dump_config()` now round-trips the Consumer / Remote_Source config verbs (console-serialize no longer silently disables the stats mirror).** `Consumer_Node` and `Remote_Source_Node` never overrode `dump_config()`, so a serialize → replay (the topology console's "edit") dropped the `Time_Travel` trait's persistent verbs (`set_snapshot_node`, `set_line_mode`) and Consumer's `set_multi_writer` — the `make_node` line carried the offset path but not the snapshot node. A replayed Consumer therefore came back with `snapshot_node` empty, so `write_checkpoint_frame(_, with_state=true)` stopped co-committing the downstream node's `save_state()`: the same 0.25.0-class stats-mirror stall, re-entering through the serialize path. Both nodes now override `dump_config()` to re-emit their persistent `cmd {name}:config <verb>` lines from state (the sanctioned `Partition_Node` pattern), via a shared `Time_Travel::dump_time_travel_config()`. `set_line_mode` serializes the *production* value (`saved_line_mode ?? line_mode`) so a transient time-travel STEP session can't leak a debug-forced `line_mode` into the topology; `set_multi_writer` emits an explicit `1` (a bare verb parses back as "disable", which would have flipped the firehose seal-grace off on replay).
+
 ## [0.27.0] - 2026-07-04
 
 ### Fixed
