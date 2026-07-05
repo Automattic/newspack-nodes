@@ -95,6 +95,17 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		}
 	}
 
+	public function test_dump_config_roundtrips_set_snapshot_node(): void {
+		$node = $this->make_remote( 'remote-aspen' );
+		$node->set_snapshot_node( 'flame-builder' );
+
+		$this->assertStringContainsString(
+			'cmd remote-aspen:config set_snapshot_node flame-builder',
+			$node->dump_config(),
+			'Remote_Source shares the Time_Travel surface and must round-trip its snapshot node too'
+		);
+	}
+
 	// =========================================================================
 	// dump_metadata: the frames + cursor read surface the panel gates on.
 	// =========================================================================

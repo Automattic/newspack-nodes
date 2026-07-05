@@ -3398,6 +3398,91 @@ class ConsumerTest extends TestCase {
 			$this->assertArrayNotHasKey( 'hidden', $commands[ $verb ], "{$verb} must stay visible" );
 		}
 	}
+
+	public function test_dump_config_roundtrips_set_snapshot_node(): void {
+		$c = new Consumer_Node();
+		$c->name( 'requests:consumer' );
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets/requests.flame-builder.p0" );
+		$c->set_snapshot_node( 'flame-builder' );
+
+		$this->assertStringContainsString(
+			'cmd requests:consumer:config set_snapshot_node flame-builder',
+			$c->dump_config(),
+			'dump_config must round-trip the snapshot node so a console-serialized topology still co-commits save_state'
+		);
+	}
+
+	public function test_dump_config_omits_snapshot_node_when_unset(): void {
+		$c = new Consumer_Node();
+		$c->name( 'plain' );
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+
+		$this->assertStringNotContainsString( 'set_snapshot_node', $c->dump_config() );
+	}
+
+	public function test_dump_config_roundtrips_set_multi_writer(): void {
+		$c = new Consumer_Node();
+		$c->name( 'firehose' );
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->set_multi_writer( true );
+
+		// Real round-trip: extract the emitted arg and replay it through the verb
+		// handler on a fresh node — a value-less line would restore false.
+		$matched = \preg_match( '/cmd firehose:config set_multi_writer (\S+)/', $c->dump_config(), $matches );
+		$this->assertSame( 1, $matched, 'set_multi_writer must be emitted with an explicit argument' );
+		$emitted_arg = $matches[1];
+
+		$c2 = new Consumer_Node();
+		$c2->name( 'firehose2' );
+		$c2->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$interp = Core::node( 'firehose2:config' );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $interp );
+		Consumer_Node::cmd_set_multi_writer( $interp, $emitted_arg );
+
+		$mw = new \ReflectionProperty( $c2, 'multi_writer' );
+		$mw->setAccessible( true );
+		$this->assertTrue( $mw->getValue( $c2 ), 'the emitted set_multi_writer arg must replay back to true' );
+	}
+
+	public function test_dump_config_roundtrips_set_line_mode(): void {
+		$c = new Consumer_Node();
+		$c->name( 'reader' );
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->set_line_mode( true );
+
+		$this->assertStringContainsString(
+			'cmd reader:config set_line_mode 1',
+			$c->dump_config()
+		);
+	}
+
+	public function test_dump_config_omits_line_mode_when_off(): void {
+		$c = new Consumer_Node();
+		$c->name( 'reader' );
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+
+		$this->assertStringNotContainsString( 'set_line_mode', $c->dump_config() );
+	}
+
+	public function test_dump_config_serializes_production_line_mode_not_transient_step_value(): void {
+		// A STEP session forces line_mode=true transiently while saving the real
+		// production value (false here) in saved_line_mode. dump_config must serialize
+		// the production value, not the debug-transient one — guards the
+		// `saved_line_mode ?? line_mode` branch against a "simplify to line_mode" regression.
+		$c = new Consumer_Node();
+		$c->name( 'stepper' );
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+
+		$ref   = new \ReflectionObject( $c );
+		$saved = $ref->getProperty( 'saved_line_mode' );
+		$saved->setAccessible( true );
+		$saved->setValue( $c, false );
+		$mode = $ref->getProperty( 'line_mode' );
+		$mode->setAccessible( true );
+		$mode->setValue( $c, true );
+
+		$this->assertStringNotContainsString( 'set_line_mode', $c->dump_config() );
+	}
 }
 
 /** A node with the duck-typed save_state/restore_state the Consumer snapshots. */

@@ -988,6 +988,24 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
+	 * Re-emit the Consumer's persistent config verbs (the shared time-travel ones plus
+	 * `set_multi_writer`) after the base `make_node`/`connect_node` lines, so a console
+	 * dump_config → replay round-trips them. Without the snapshot_node line, a replayed
+	 * Consumer loses its snapshot target and the downstream stateful node's save_state()
+	 * silently stops co-committing.
+	 */
+	public function dump_config(): string {
+		$out  = parent::dump_config();
+		$out .= $this->dump_time_travel_config( $this->name );
+		if ( $this->multi_writer ) {
+			// Explicit `1`: cmd_set_multi_writer treats a bare/empty arg as "disable",
+			// so a value-less line would round-trip multi_writer back to false.
+			$out .= "cmd {$this->name}:config set_multi_writer 1\n";
+		}
+		return $out;
+	}
+
+	/**
 	 * `set_multi_writer` verb handler — toggle the patron's seal-grace. Only an
 	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; anything else disables,
 	 * so the default stays "off" (single-writer, immediate advance).

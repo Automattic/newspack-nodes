@@ -568,6 +568,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
+	 * Re-emit the shared time-travel config verbs after the base lines, so a console
+	 * dump_config → replay round-trips this source's snapshot node (same gap the
+	 * Consumer had) rather than silently losing it.
+	 */
+	public function dump_config(): string {
+		return parent::dump_config() . $this->dump_time_travel_config( $this->name );
+	}
+
+	/**
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
 	 */

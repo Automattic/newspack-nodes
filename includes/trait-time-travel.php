@@ -216,6 +216,29 @@ trait Time_Travel {
 	}
 
 	/**
+	 * Round-trippable `cmd {name}:config <verb>` lines for the PERSISTENT time-travel
+	 * config the trait owns — so a `dump_config()` serialize/replay restores them
+	 * (without it, a console-serialized topology loses its snapshot node and the
+	 * downstream stateful node's save_state() stops co-committing). Only the durable
+	 * settings round-trip: `snapshot_node` and `line_mode` (the production value —
+	 * `saved_line_mode` holds it while a transient STEP session forces line_mode on).
+	 * The imperative verbs (SEEK_FRAME/PAUSE/PLAY/STEP) are runtime, not config.
+	 *
+	 * @param string $name Node name the verbs address.
+	 * @return string Zero or more trailing-newline-terminated `cmd` lines.
+	 */
+	protected function dump_time_travel_config( string $name ): string {
+		$out = '';
+		if ( '' !== $this->snapshot_node ) {
+			$out .= "cmd {$name}:config set_snapshot_node {$this->snapshot_node}\n";
+		}
+		if ( $this->saved_line_mode ?? $this->line_mode ) {
+			$out .= "cmd {$name}:config set_line_mode 1\n";
+		}
+		return $out;
+	}
+
+	/**
 	 * The time-travel READ surface folded into the canvas-poll payload the inspector
 	 * round-trips. CHEAP — the warm segments cache only (no record reads, no scandir):
 	 *   - `frames`: the offsetlog segment list `[{id,size}]` — a keyframe per segment
