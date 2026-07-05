@@ -12,6 +12,7 @@
 // @use'd so the console + debug-overlay bundles are self-contained: graph-view
 // rides into both, so both get the tokens without a separate enqueued sheet.
 @use "../../theme/newspack-theme";
+@use "@newspack-nodes/shared/styles/controls";
 
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
@@ -3116,37 +3117,13 @@
 	}
 }
 
+// Layout only — the shared `_controls.scss` bare-element rule owns the chrome
+// (fill, border, mono type, dropdown triangle, focus ring) so the modal inputs
+// match the canonical menu look everywhere.
 .topology-app .topology-modal__input {
 	display: block;
 	width: 100%;
 	margin-top: 10px;
-	padding: 6px 8px;
-	border: 2px solid var(--ink-3);
-	font-family: var(--font-mono);
-	font-size: 13px;
-	background: var(--paper-2);
-	color: var(--ink);
-}
-
-.topology-app .topology-modal__input:focus {
-	outline: none;
-	border-color: var(--ink);
-	background: var(--paper);
-	color: var(--ink);
-	// Kill WordPress admin's blue focus glow; the themed ring is on :focus-visible.
-	box-shadow: none;
-}
-
-// Themed focus ring (matches the header `.topology-select`) instead of WP's blue.
-.topology-app .topology-modal__input:focus-visible {
-	outline: 2px solid var(--oxide);
-	outline-offset: -1px;
-}
-
-.topology-app .topology-modal__input:hover {
-	border-color: var(--ink);
-	background: var(--paper);
-	color: var(--ink);
 }
 
 .topology-modal__hint {
