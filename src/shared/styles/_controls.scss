@@ -5,19 +5,18 @@
  * modal). Both plugins `@use '@newspack-nodes/shared/styles/controls'` (resolved
  * by the build-kit alias importer), so the look is defined ONCE and cannot drift.
  *
- * Rules target the BARE element under `.topology-app` on purpose: that catches
- * the console's plain `<select>` AND event-logger's `@wordpress/components`
- * `<select class="components-…__input">` with one rule. The `@wordpress` controls
- * paint themselves via emotion (higher specificity), so the contested properties
- * carry `!important`; plain controls tolerate it.
+ * Rules target the BARE element on purpose: that catches the console's plain
+ * `<select>` AND event-logger's `@wordpress/components`
+ * `<select class="components-…__input">` with one rule.
+ *
+ * Specificity, not `!important`: every `.topology-app` root also carries
+ * `.newspack-nodes-theme`, so anchoring on `.topology-app.newspack-nodes-theme`
+ * gives (0,2,1) on a bare element and (0,3,0) on a `.components-*` class — both
+ * beat `@wordpress`'s emotion styling (≤ 0,2,0) cleanly.
  *
  * The look mirrors the console's cwd path selector (`.topology-select`), the
- * agreed canonical menu: `appearance:none`, faint `--ink` fill + border, mono
- * type, an SVG down-triangle, and a themed focus ring.
- *
- * Uses only the skin custom properties (`--ink`, `--oxide`, `--font-mono`), which
- * every `.topology-app` root supplies — no SCSS variables, so this partial is
- * self-contained and cross-plugin safe.
+ * agreed canonical menu. Uses only the skin custom properties (`--ink`, `--oxide`,
+ * `--cyan`, `--font-mono`), which every `.topology-app` root supplies.
  */
 
 // The down-triangle is a data-URI (SVG background can't read CSS vars), baked
@@ -25,22 +24,21 @@
 $np-chevron-dark: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%2318222E'/%3E%3C/svg%3E";
 $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E";
 
-.topology-app {
+.topology-app.newspack-nodes-theme {
 	select,
 	input:not([type="checkbox"]):not([type="radio"]),
 	textarea,
-	// @wordpress control inputs, by class, so `!important` here beats emotion.
 	.components-select-control__input,
 	.components-input-control__input,
 	.components-text-control__input,
 	.components-search-control__input {
 		appearance: none;
-		background-color: color-mix(in srgb, var(--ink) 6%, transparent) !important;
-		border: 2px solid color-mix(in srgb, var(--ink) 24%, transparent) !important;
-		border-radius: 0 !important;
-		color: var(--ink) !important;
+		background-color: color-mix(in srgb, var(--ink) 6%, transparent);
+		border: 2px solid color-mix(in srgb, var(--ink) 24%, transparent);
+		border-radius: 0;
+		color: var(--ink);
 		-webkit-text-fill-color: var(--ink);
-		box-shadow: none !important;
+		box-shadow: none;
 		font: 500 12px/1.4 var(--font-mono);
 		// Paint native sub-widgets (number spinners, date pickers) dark to match.
 		color-scheme: dark;
@@ -49,10 +47,10 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			color: var(--ink-3);
 		}
 
-		// Kill WordPress admin's / emotion's focus glow; the ring is on :focus-visible.
+		// Kill WordPress admin's / emotion's focus glow; ring is on :focus-visible.
 		&:focus {
 			outline: none;
-			box-shadow: none !important;
+			box-shadow: none;
 		}
 
 		&:focus-visible {
@@ -64,7 +62,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	// Selects get the dropdown triangle + room for it.
 	select,
 	.components-select-control__input {
-		padding: 6px 22px 6px 10px !important;
+		padding: 6px 22px 6px 10px;
 		background-image: url("#{ $np-chevron-dark }");
 		background-repeat: no-repeat;
 		background-position: right 8px center;
@@ -77,20 +75,20 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	.components-input-control__input,
 	.components-text-control__input,
 	.components-search-control__input {
-		padding: 6px 10px !important;
+		padding: 6px 10px;
 	}
 
 	// @wordpress InputControl (SelectControl / TextControl) wraps the field in a
 	// container + backdrop that draw their OWN fill + border; neutralize them so
 	// the input's own themed border/fill (above) is the only one that shows.
 	.components-input-control__container {
-		background: transparent !important;
+		background: transparent;
 	}
 
 	.components-input-control__backdrop {
-		background: transparent !important;
-		border: none !important;
-		box-shadow: none !important;
+		background: transparent;
+		border: none;
+		box-shadow: none;
 	}
 
 	// WordPress admin styles checkboxes with `appearance:none` and draws its own
@@ -113,14 +111,15 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 }
 
 // Dark skins: repaint the select chevron light (the default bakes in a dark fill
-// that vanishes on dark surfaces). Same skin list as the console.
-.topology-app.theme-blueprint,
-.topology-app.theme-crt,
-.topology-app.theme-synthwave,
-.topology-app.theme-nord,
-.topology-app.theme-aurora,
-.topology-app.theme-neotokyo,
-.topology-app.theme-scada {
+// that vanishes on dark surfaces). Same skin list as the console; the extra
+// `.theme-*` class outranks the base chevron rule.
+.topology-app.newspack-nodes-theme.theme-blueprint,
+.topology-app.newspack-nodes-theme.theme-crt,
+.topology-app.newspack-nodes-theme.theme-synthwave,
+.topology-app.newspack-nodes-theme.theme-nord,
+.topology-app.newspack-nodes-theme.theme-aurora,
+.topology-app.newspack-nodes-theme.theme-neotokyo,
+.topology-app.newspack-nodes-theme.theme-scada {
 	select,
 	.components-select-control__input {
 		background-image: url("#{ $np-chevron-light }");
