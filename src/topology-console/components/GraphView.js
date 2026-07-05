@@ -47,6 +47,7 @@ import '../styles/graph-view.scss';
  * @param {Function}         props.onInspectorToggle   () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
  * @param {boolean}          props.local               When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
  * @param {Set<string>|null} props.driftIds            Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
+ * @param {Array}            [props.composeTargets]    The Compose modal's full "To" list (derived from `parsed.nodes`: `_command_interpreter` + every node id + its `:config` sidecar); Inspector falls back to its own node-id list when omitted.
  * @return {Element} the graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -83,6 +84,7 @@ export default function GraphView( {
 	onInspectorToggle,
 	driftIds = null,
 	local = false,
+	composeTargets,
 } ) {
 	const [ selectedId, setSelectedId ] = useState( null );
 	const [ selectedEdge, setSelectedEdge ] = useState( null );
@@ -273,6 +275,7 @@ export default function GraphView( {
 							onRenameNode={ onRenameNode }
 							onRemoveEdge={ handleRemoveEdge }
 							onConnect={ onConnect }
+							composeTargets={ composeTargets }
 						/>
 					) }
 				</div>

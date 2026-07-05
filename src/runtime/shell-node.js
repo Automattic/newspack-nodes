@@ -300,20 +300,19 @@ export class ShellNode extends Node {
 		// (pack()), so it authorizes only the in-browser interpreter; the server verifies HMAC.
 		message[ LOCAL ] = true;
 
-		if ( 'ping' === verb ) {
-			message[ TYPE ] = TM_PING;
-			// Receiver bounces TO=FROM; VALUE is the send timestamp for RTT.
-			message[ VALUE ] = Date.now() / 1000;
-			return this.stampNoreply( message );
-		}
-		if ( 'tell' === verb || 'tell_node' === verb ) {
-			if ( ! to ) {
-				return { kind: 'error', text: 'usage: tell <path> <bytes>' };
+		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
+			const name = args[ 1 ] ?? '';
+			if ( ! to || ! name ) {
+				return {
+					kind: 'error',
+					text: 'usage: cmd <path> <verb> [<args>]',
+				};
 			}
-			message[ TYPE ] = TM_INFO;
-			message[ VALUE ] = join( 1 );
+			message[ TYPE ] = TM_COMMAND;
+			message[ VALUE ] = { name, arguments: join( 2 ) };
 			return this.stampNoreply( message );
 		}
+
 		if ( 'send' === verb || 'send_node' === verb ) {
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: send <path> <bytes>' };
@@ -323,6 +322,25 @@ export class ShellNode extends Node {
 			message[ VALUE ] = `${ join( 1 ) }\n`;
 			return this.stampNoreply( message );
 		}
+
+		if ( 'request' === verb || 'request_node' === verb ) {
+			if ( ! to ) {
+				return { kind: 'error', text: 'usage: request <path> <args>' };
+			}
+			message[ TYPE ] = TM_REQUEST;
+			message[ VALUE ] = join( 1 );
+			return this.stampNoreply( message );
+		}
+
+		if ( 'tell' === verb || 'tell_node' === verb ) {
+			if ( ! to ) {
+				return { kind: 'error', text: 'usage: tell <path> <bytes>' };
+			}
+			message[ TYPE ] = TM_INFO;
+			message[ VALUE ] = join( 1 );
+			return this.stampNoreply( message );
+		}
+
 		if ( 'send_struct' === verb || 'send_struct_node' === verb ) {
 			if ( ! to ) {
 				return {
@@ -340,6 +358,7 @@ export class ShellNode extends Node {
 			message[ VALUE ] = value;
 			return this.stampNoreply( message );
 		}
+
 		if ( 'send_eof' === verb ) {
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: send_eof <path>' };
@@ -347,24 +366,11 @@ export class ShellNode extends Node {
 			message[ TYPE ] = TM_EOF;
 			return this.stampNoreply( message );
 		}
-		if ( 'request' === verb || 'request_node' === verb ) {
-			if ( ! to ) {
-				return { kind: 'error', text: 'usage: request <path> <args>' };
-			}
-			message[ TYPE ] = TM_REQUEST;
-			message[ VALUE ] = join( 1 );
-			return this.stampNoreply( message );
-		}
-		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
-			const name = args[ 1 ] ?? '';
-			if ( ! to || ! name ) {
-				return {
-					kind: 'error',
-					text: 'usage: cmd <path> <verb> [<args>]',
-				};
-			}
-			message[ TYPE ] = TM_COMMAND;
-			message[ VALUE ] = { name, arguments: join( 2 ) };
+
+		if ( 'ping' === verb ) {
+			message[ TYPE ] = TM_PING;
+			// Receiver bounces TO=FROM; VALUE is the send timestamp for RTT.
+			message[ VALUE ] = Date.now() / 1000;
 			return this.stampNoreply( message );
 		}
 

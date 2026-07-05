@@ -5,7 +5,15 @@ import { Node } from '../../runtime/node';
 import { DumperNode } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
-import { TYPE, TO, VALUE, TM_PING, TM_BYTESTREAM } from '../../runtime/message';
+import {
+	TYPE,
+	TO,
+	VALUE,
+	TM_PING,
+	TM_BYTESTREAM,
+	TM_RESPONSE,
+	TM_ERROR,
+} from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
 
 // Mount the `_output` Dumper so transcript echoes are observable, mirroring the
@@ -380,10 +388,8 @@ describe( 'useDebugGraph', () => {
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onRemoveNode( 'a' ) );
-		expect( spy ).toHaveBeenCalledWith( '', 'remove_node', 'a' );
 		// Side-effect of remove_node verb: node leaves Core.
 		expect( Core.node( 'a' ) ).toBeNull();
 		teardown();
@@ -396,12 +402,18 @@ describe( 'useDebugGraph', () => {
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		// Every parsed message (interpreter verbs included) now routes through
+		// shell.dispatch, not a separate shell.sendCommand call — spy there.
+		const spy = jest.spyOn( shell, 'dispatch' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'dump', 'a', null )
 		);
-		expect( spy ).toHaveBeenCalledWith( '', 'dump_node', 'a' );
+		expect( spy ).toHaveBeenCalledTimes( 1 );
+		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
+			name: 'dump_node',
+			arguments: 'a',
+		} );
 		teardown();
 	} );
 
@@ -424,6 +436,39 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
+	it( 'onInspectorAction `cmd` with reply-flags ORs TM_RESPONSE / TM_ERROR onto the dispatched TYPE (Compose modal)', () => {
+		const { teardown } = mountExospine();
+		const captured = [];
+		const shell = new ShellNode();
+		shell.sink = { fill: ( m ) => captured.push( m ) };
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () =>
+			result.current.handlers.onInspectorAction( 'cmd', 'a', 'hi', {
+				response: true,
+				error: true,
+			} )
+		);
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
+		expect( captured[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+		teardown();
+	} );
+
+	it( 'onInspectorAction `cmd` with no flags leaves TYPE unmodified (no accidental TM_RESPONSE/TM_ERROR)', () => {
+		const { teardown } = mountExospine();
+		const captured = [];
+		const shell = new ShellNode();
+		shell.sink = { fill: ( m ) => captured.push( m ) };
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () =>
+			result.current.handlers.onInspectorAction( 'cmd', 'a', 'hi' )
+		);
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TYPE ] & TM_RESPONSE ).toBeFalsy();
+		expect( captured[ 0 ][ TYPE ] & TM_ERROR ).toBeFalsy();
+		teardown();
+	} );
+
 	it( 'onInspectorAction `trace` defaults level to 1 when payload is not numeric', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
@@ -431,13 +476,17 @@ describe( 'useDebugGraph', () => {
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		const spy = jest.spyOn( shell, 'dispatch' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		// Non-numeric payload triggers the `level = 1` default branch.
 		act( () =>
 			result.current.handlers.onInspectorAction( 'trace', 'a', undefined )
 		);
-		expect( spy ).toHaveBeenCalledWith( '', 'debug_state', 'a 1' );
+		expect( spy ).toHaveBeenCalledTimes( 1 );
+		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
+			name: 'debug_state',
+			arguments: 'a 1',
+		} );
 		teardown();
 	} );
 
@@ -487,10 +536,11 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		// A real registered browser class (Tee) so make_node actually
+		// constructs a node — `Partition` only exists on the PHP side.
 		const classes = [
 			{
-				shell_name: 'Partition',
+				shell_name: 'Tee',
 				arguments: [ { name: 'topic', required: true } ],
 			},
 		];
@@ -502,7 +552,7 @@ describe( 'useDebugGraph', () => {
 		);
 		act( () =>
 			result.current.handlers.onDropNode( {
-				shellName: 'Partition',
+				shellName: 'Tee',
 				x: 60 + 196 / 2,
 				y: 80 + 84 / 2,
 			} )
@@ -513,9 +563,10 @@ describe( 'useDebugGraph', () => {
 				args: 'mytopic 8192',
 			} )
 		);
-		const calls = spy.mock.calls.filter( ( c ) => c[ 1 ] === 'make_node' );
-		expect( calls ).toHaveLength( 1 );
-		expect( calls[ 0 ][ 2 ] ).toBe( 'Partition mypart mytopic 8192' );
+		// Side-effect of make_node: the node exists in Core, constructed with
+		// the modal-provided args string.
+		expect( Core.node( 'mypart' ) ).not.toBeNull();
+		expect( Core.node( 'mypart' ).arguments ).toBe( 'mytopic 8192' );
 		// Position recorded under the user-chosen name (not the default).
 		expect( positionCalls ).toEqual( [
 			{ id: 'mypart', pos: { x: 60, y: 80 } },
@@ -529,10 +580,9 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
 		const classes = [
 			{
-				shell_name: 'Partition',
+				shell_name: 'Tee',
 				arguments: [ { name: 'topic' } ],
 			},
 		];
@@ -541,15 +591,16 @@ describe( 'useDebugGraph', () => {
 		);
 		act( () =>
 			result.current.handlers.onDropNode( {
-				shellName: 'Partition',
+				shellName: 'Tee',
 				x: 0,
 				y: 0,
 			} )
 		);
 		act( () => result.current.commitDrop( { name: 'p1', args: '   ' } ) );
-		const calls = spy.mock.calls.filter( ( c ) => c[ 1 ] === 'make_node' );
-		expect( calls ).toHaveLength( 1 );
-		expect( calls[ 0 ][ 2 ] ).toBe( 'Partition p1' );
+		// Side-effect: the node is created with EMPTY arguments — the
+		// whitespace-only args were trimmed away, not passed through.
+		expect( Core.node( 'p1' ) ).not.toBeNull();
+		expect( Core.node( 'p1' ).arguments ).toBe( '' );
 		teardown();
 	} );
 
@@ -725,12 +776,14 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'dispatches via the passed-in Shell.sendCommand (not via dispatchLocal)', () => {
+	it( 'dispatches via the passed-in Shell.dispatch (not a separate local dispatch)', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Task 3: useDebugGraph accepts a Shell as its second argument and
-		// routes every gesture through shell.sendCommand(path, name, args).
-		// Spying on the shell proves the new wiring; the side-effect on
-		// Core.node('a').target proves the dispatch still reaches the interpreter.
+		// routes every gesture through THIS shell's own dispatch (every parsed
+		// message — interpreter verbs included — goes through shell.dispatch,
+		// not a separate local implementation). Spying on the shell's dispatch
+		// proves the wiring; the side-effect on Core.node('a').target proves
+		// the message still reaches the interpreter.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -738,10 +791,14 @@ describe( 'useDebugGraph', () => {
 		b.name = 'b';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		const spy = jest.spyOn( shell, 'dispatch' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
-		expect( spy ).toHaveBeenCalledWith( '', 'connect_node', 'a b' );
+		expect( spy ).toHaveBeenCalledTimes( 1 );
+		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
+			name: 'connect_node',
+			arguments: 'a b',
+		} );
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
 		teardown();
 	} );

@@ -58,6 +58,18 @@ export function byteLength( str ) {
 	return new Blob( [ str ] ).size;
 }
 
+// Composer reply-flag checkboxes → TYPE bits. `flags` is `{ response, error }`
+// (either key optional); a falsy `flags` is a no-op. Mutates `m` in place and
+// returns it so callers can chain `shell.dispatch( applyReplyFlags( parsed, flags ) )`.
+export function applyReplyFlags( m, flags ) {
+	if ( ! flags ) {
+		return m;
+	}
+	m[ TYPE ] |=
+		( flags.response ? TM_RESPONSE : 0 ) | ( flags.error ? TM_ERROR : 0 );
+	return m;
+}
+
 export function valueSize( m ) {
 	const v = m[ VALUE ];
 	if ( typeof v === 'string' ) {

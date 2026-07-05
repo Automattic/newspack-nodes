@@ -30,6 +30,7 @@ import { useTopologyCatalog } from './hooks/useTopologyCatalog';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
 import { useCanonicalNodes, driftNodeIds } from './hooks/useCanonicalNodes';
 import { useGraphSource } from './hooks/useGraphSource';
+import { buildComposeTargets } from './utils/composeTargets';
 import { useCompletion } from './hooks/useCompletion';
 import { useGraphHandlers } from './hooks/useGraphHandlers';
 import { useGraphSurface } from './hooks/useGraphSurface';
@@ -57,7 +58,7 @@ import { getCommandClient } from './utils/commandClient';
 import unwrapCommandResponse from './utils/unwrapCommandResponse';
 import { scopeFromCwd } from './utils/scope';
 import { Core } from '../runtime/core';
-import { TO } from '../runtime/message';
+import { TO, applyReplyFlags } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
@@ -784,7 +785,7 @@ export default function TopologyConsole( {
 	}, [ scope.key ] );
 
 	const dispatchStatement = useCallback(
-		( statement ) => {
+		( statement, flags ) => {
 			if ( ! shell ) {
 				return;
 			}
@@ -828,6 +829,8 @@ export default function TopologyConsole( {
 					} );
 					return;
 				}
+				// Compose modal's TM_RESPONSE / TM_ERROR checkboxes.
+				applyReplyFlags( parsedLine, flags );
 				// dispatch (not sink.fill) so useGraphReset's onDispatch tap sees
 				// the verb — a canvas/REPL rewire dirties the graph uniformly.
 				shell.dispatch( parsedLine );
@@ -900,11 +903,14 @@ export default function TopologyConsole( {
 		skip: () => toNeedsSseSession( cwd ) && ! ssePid,
 	} );
 
-	// Split on unquoted `;` so `help; ls` dispatches as two commands.
+	// Split on unquoted `;` so `help; ls` dispatches as two commands. `flags`
+	// (Compose modal's TM_RESPONSE / TM_ERROR checkboxes) applies to every
+	// resulting statement — Compose only ever sends a single verb line, so in
+	// practice there's exactly one.
 	const sendLine = useCallback(
-		( line ) => {
+		( line, flags ) => {
 			for ( const stmt of splitStatements( line ) ) {
-				dispatchStatement( stmt );
+				dispatchStatement( stmt, flags );
 			}
 		},
 		[ dispatchStatement ]
@@ -920,7 +926,8 @@ export default function TopologyConsole( {
 		shell,
 		graph: parsed,
 		catalogClasses: catalog.classes,
-		dispatch: ( echoLine ) => sendLine( echoLine ),
+		dispatch: ( echoLine, name, args, flags ) =>
+			sendLine( echoLine, flags ),
 		append: appendTranscript,
 		onDropStage: setPendingDrop,
 		prefix: ( target ) => shell?.prefix( target ),
@@ -931,8 +938,8 @@ export default function TopologyConsole( {
 	// Route Inspector actions through the shared handler, then pop the transcript
 	// + focus the prompt so the worker's reply is visible.
 	const handleInspectorAction = useCallback(
-		( action, nodeId, payload ) => {
-			liveHandlers.onInspectorAction( action, nodeId, payload );
+		( action, nodeId, payload, flags ) => {
+			liveHandlers.onInspectorAction( action, nodeId, payload, flags );
 			setReplExpanded( true );
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},
@@ -1002,6 +1009,14 @@ export default function TopologyConsole( {
 
 	// Source of truth: live `parsed` in view mode, frozen draft in edit mode.
 	const baseCanvasGraph = mode === 'edit' ? draft : parsed;
+
+	// Compose modal's "To" list: derived from the VIEWED graph (parsed.nodes),
+	// never Core.nodes — at a remote worker cwd the browser's own Core holds
+	// only its scaffolding, not the worker's graph.
+	const composeTargets = useMemo(
+		() => buildComposeTargets( parsed.nodes ),
+		[ parsed.nodes ]
+	);
 
 	// Virtual node_name-verb edges are derived (not in draft.edges) and marked
 	// `virtual` so the canvas dims them and skips the click-to-delete target.
@@ -1606,6 +1621,7 @@ export default function TopologyConsole( {
 					onRemoveEdge: handleRemoveEdge,
 					onDropNode: handleDropNode,
 					onInspectorAction: handleInspectorAction,
+					composeTargets,
 					onRenameNode: handleRenameNode,
 					onUpdateArgs: handleUpdateArgs,
 					onUpdateVerbs: handleUpdateVerbs,

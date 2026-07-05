@@ -1,10 +1,12 @@
 import { render, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
+import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import {
 	getDevtoolsTabs,
 	resetDevtoolsTabs,
 } from '@newspack-nodes/shared/devtools/tabRegistry';
+import { TYPE, TM_RESPONSE, TM_ERROR } from '../../runtime/message';
 import { replMaxHeight, measureTabBarHeight } from '../tabs/InspectorTab';
 
 // Capture the props InspectorTab hands its heavy children so the interaction
@@ -268,6 +270,55 @@ describe( 'InspectorTab interactions', () => {
 		);
 		// dump_node echoes a `sent` line into the transcript via the handler.
 		expect( output._transcript.length ).toBeGreaterThan( before );
+	} );
+
+	it( 'a structured inspector action with Compose reply-flags ORs TM_RESPONSE / TM_ERROR onto the dispatched TYPE', () => {
+		renderInspector();
+		const ci = Core.node( '_command_interpreter' );
+		const seen = [];
+		const realFill = ci.fill.bind( ci );
+		ci.fill = ( m ) => {
+			seen.push( m.slice() );
+			return realFill( m );
+		};
+		// Target a nonexistent node — the TM_ERROR flag makes Router's
+		// NOT_AVAILABLE branch drop silently instead of round-tripping an
+		// error reply, so this stays a pure capture-the-TYPE-bits test.
+		act( () =>
+			mockCaptured.consoleShell.canvasProps.onInspectorAction(
+				'cmd',
+				'no-such-node',
+				'dmesg',
+				{ response: true, error: true }
+			)
+		);
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
+		expect( seen[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+	} );
+
+	it( 'passes composeTargets derived from the local graph (_command_interpreter first, every node + its :config sidecar, NOT Core.nodes)', () => {
+		mountExospine();
+		const a = new Node();
+		a.name = 'a';
+		const InspectorTab = require( '../tabs/InspectorTab' ).default;
+		render(
+			<InspectorTab
+				host="overlay"
+				storageKey="newspack-nodes:debug"
+				frame={ { h: 600, w: 800 } }
+			/>
+		);
+		const targets = mockCaptured.consoleShell.canvasProps.composeTargets;
+		expect( targets[ 0 ] ).toBe( '_command_interpreter' );
+		expect( targets ).toContain( 'a' );
+		expect( targets ).toContain( 'a:config' );
+		// `_router` is a REAL registered Core node (mountExospine creates it)
+		// but is SCAFFOLDING-hidden from the local graph — its absence here
+		// proves composeTargets is sourced from `graph.nodes`, not `Core.nodes`.
+		expect( Core.node( '_router' ) ).not.toBeNull();
+		expect( targets ).not.toContain( '_router' );
+		expect( targets ).not.toContain( '_router:config' );
 	} );
 
 	it( 'a palette drop records the drop position when the modal is confirmed', () => {

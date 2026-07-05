@@ -23,6 +23,7 @@ import {
 	unpack,
 	valueSize,
 	byteLength,
+	applyReplyFlags,
 } from '../message';
 
 test( 'byteLength counts UTF-8 bytes and treats nullish as zero', () => {
@@ -144,4 +145,38 @@ test( 'valueSize on multibyte string returns UTF-8 byte count, not char count', 
 	expect( valueSize( m ) ).toBe( 2 );
 	m[ VALUE ] = '日本'; // 2 JS chars, 6 UTF-8 bytes (3 each)
 	expect( valueSize( m ) ).toBe( 6 );
+} );
+
+test( 'applyReplyFlags ORs TM_RESPONSE / TM_ERROR onto TYPE per the flags object', () => {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	applyReplyFlags( m, { response: true, error: false } );
+	expect( m[ TYPE ] ).toBe( TM_COMMAND | TM_RESPONSE );
+
+	const m2 = newMessage();
+	m2[ TYPE ] = TM_COMMAND;
+	applyReplyFlags( m2, { response: false, error: true } );
+	expect( m2[ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
+
+	const m3 = newMessage();
+	m3[ TYPE ] = TM_COMMAND;
+	applyReplyFlags( m3, { response: true, error: true } );
+	expect( m3[ TYPE ] ).toBe( TM_COMMAND | TM_RESPONSE | TM_ERROR );
+} );
+
+test( 'applyReplyFlags is a no-op when flags is null/undefined or both false', () => {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	applyReplyFlags( m, null );
+	expect( m[ TYPE ] ).toBe( TM_COMMAND );
+	applyReplyFlags( m, undefined );
+	expect( m[ TYPE ] ).toBe( TM_COMMAND );
+	applyReplyFlags( m, { response: false, error: false } );
+	expect( m[ TYPE ] ).toBe( TM_COMMAND );
+} );
+
+test( 'applyReplyFlags returns the same message it mutated', () => {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	expect( applyReplyFlags( m, { response: true } ) ).toBe( m );
 } );

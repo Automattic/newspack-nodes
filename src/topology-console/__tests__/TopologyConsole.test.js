@@ -759,6 +759,26 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'canvas' ).dataset.mode ).toBe( 'view' );
 	} );
 
+	it( 'passes composeTargets derived from the viewed graph (parsed.nodes), not Core.nodes, to the Inspector', async () => {
+		// The hub console viewing a remote worker holds only browser-side
+		// scaffolding in its own Core — the worker's addressable nodes live in
+		// `parsed.nodes` (whatever dump_metadata just published).
+		const { getByText } = render( <TopologyConsole /> );
+		await publishMeta( {
+			n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+		} );
+		// The Inspector panel only renders (and captures props) once expanded
+		// by a selection — mirrors every other lastInspectorProps assertion.
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		expect( lastInspectorProps.composeTargets ).toEqual( [
+			names.COMMAND_INTERPRETER,
+			'n1',
+			'n1:config',
+		] );
+	} );
+
 	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply pivots to _metadata/_uptime)', async () => {
 		jest.useFakeTimers();
 		try {
@@ -2907,6 +2927,29 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch(
 			/request_node request-builder GET_LAG/
 		);
+	} );
+
+	it( 'handleInspectorAction cmd with Compose reply-flags ORs TM_RESPONSE / TM_ERROR onto the posted TYPE', async () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await publishMeta();
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			lastInspectorProps.onAction( 'cmd', 'request-builder', 'GET_LAG', {
+				response: true,
+				error: true,
+			} );
+		} );
+		const posted = globalThis.__httpPosts.find(
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_LAG'
+		);
+		expect( posted ).not.toBeUndefined();
+		expect( posted[ TYPE ] & TM_COMMAND ).toBeTruthy();
+		expect( posted[ TYPE ] & TM_RESPONSE ).toBeTruthy();
+		expect( posted[ TYPE ] & TM_ERROR ).toBeTruthy();
 	} );
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {

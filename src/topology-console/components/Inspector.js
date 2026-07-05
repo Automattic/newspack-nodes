@@ -1271,7 +1271,9 @@ function VerbButton( { nodeId, spec, kind, formatters, nodeNames, onAction } ) {
 // Value-taking selected-node verbs (roadmap [48]): each button opens ONE shared
 // prompt modal keyed by verb; onConfirm dispatches onAction(verb, node.id, value).
 const PROMPT_VERBS = {
+	cmd: { label: 'Command', noun: 'phrase' },
 	send: { label: 'Send', noun: 'bytes' },
+	request: { label: 'Request', noun: 'payload' },
 	tell: { label: 'Tell', noun: 'info' },
 	send_struct: { label: 'Struct', noun: 'JSON' },
 };
@@ -1364,20 +1366,29 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 // Message-composer types (roadmap [46]): each maps to a CLI verb so Compose has
 // full CLI equivalence. [ label, onAction-action, takesValue ].
 const COMPOSE_TYPES = [
+	[ 'TM_COMMAND (cmd)', 'cmd', true ],
 	[ 'TM_BYTESTREAM (send_node)', 'send', true ],
+	[ 'TM_REQUEST (request_node)', 'request', true ],
 	[ 'TM_INFO (tell_node)', 'tell', true ],
 	[ 'TM_STRUCT (send_struct)', 'send_struct', true ],
-	[ 'TM_REQUEST (request_node)', 'request', true ],
 	[ 'TM_EOF (send_eof)', 'send_eof', false ],
 ];
 
 // Compose modal (roadmap [46]): a message-composer playground — pick a target +
 // message TYPE + value, dispatched via the matching CLI verb (full equivalence
-// with the REPL). Confirm calls onConfirm(action, to, value).
+// with the REPL). `nodeNames` is the "To" list — callers pass `composeTargets`
+// (the graph's full addressable surface: `_command_interpreter` + every node +
+// its `:config` sidecar) when available, falling back to the connect-edge
+// node-id list otherwise. The two reply-flag checkboxes OR TM_RESPONSE /
+// TM_ERROR onto the dispatched message's TYPE further downstream, at the
+// shell.parse() chokepoint — this modal only carries the flags out. Confirm
+// calls onConfirm(action, to, value, flags).
 function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 	const [ to, setTo ] = useState( nodeNames[ 0 ] || '' );
 	const [ typeIdx, setTypeIdx ] = useState( 0 );
 	const [ value, setValue ] = useState( '' );
+	const [ responseFlag, setResponseFlag ] = useState( false );
+	const [ errorFlag, setErrorFlag ] = useState( false );
 	const [ , action, takesValue ] = COMPOSE_TYPES[ typeIdx ];
 	return (
 		<ModalShell
@@ -1438,6 +1449,32 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 						/>
 					</label>
 				) }
+				<label
+					className="topology-modal__label topology-modal__label--checkbox"
+					htmlFor="nodes-compose-response"
+				>
+					<input
+						id="nodes-compose-response"
+						type="checkbox"
+						checked={ responseFlag }
+						onChange={ ( e ) =>
+							setResponseFlag( e.target.checked )
+						}
+					/>
+					{ __( 'TM_RESPONSE', 'newspack-nodes' ) }
+				</label>
+				<label
+					className="topology-modal__label topology-modal__label--checkbox"
+					htmlFor="nodes-compose-error"
+				>
+					<input
+						id="nodes-compose-error"
+						type="checkbox"
+						checked={ errorFlag }
+						onChange={ ( e ) => setErrorFlag( e.target.checked ) }
+					/>
+					{ __( 'TM_ERROR', 'newspack-nodes' ) }
+				</label>
 			</div>
 			<div className="topology-modal__actions">
 				<button
@@ -1451,7 +1488,12 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 					type="button"
 					className="topology-modal__btn topology-modal__btn--primary"
 					disabled={ ! to }
-					onClick={ () => onConfirm( action, to, value ) }
+					onClick={ () =>
+						onConfirm( action, to, value, {
+							response: responseFlag,
+							error: errorFlag,
+						} )
+					}
 				>
 					{ __( 'Send', 'newspack-nodes' ) }
 				</button>
@@ -1480,9 +1522,10 @@ export default function Inspector( {
 	onRenameNode,
 	onRemoveEdge,
 	onConnect,
+	composeTargets,
 } ) {
 	// Pending `send_node` payload prompt (replaces window.prompt).
-	// Which value-taking verb's prompt modal is open (send/tell/send_struct), or
+	// Which value-taking verb's prompt modal is open (send/request/tell/send_struct), or
 	// null. One shared PromptModal keyed by PROMPT_VERBS.
 	const [ promptVerb, setPromptVerb ] = useState( null );
 	// Whether the "Register a listener" modal is open.
@@ -1559,11 +1602,13 @@ export default function Inspector( {
 				</div>
 				{ composeOpen && (
 					<ComposeModal
-						nodeNames={ parsed.nodes.map( ( n ) => n.id ) }
-						onConfirm={ ( action, to, value ) => {
+						nodeNames={
+							composeTargets ?? parsed.nodes.map( ( n ) => n.id )
+						}
+						onConfirm={ ( action, to, value, flags ) => {
 							setComposeOpen( false );
 							if ( onAction ) {
-								onAction( action, to, value );
+								onAction( action, to, value, flags );
 							}
 						} }
 						onCancel={ () => setComposeOpen( false ) }
@@ -1897,6 +1942,16 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					onClick={ () => setPromptVerb( 'cmd' ) }
+					title={ __(
+						'Send a TM_COMMAND payload to this node via `cmd <name> <phrase>`',
+						'newspack-nodes'
+					) }
+				>
+					{ __( 'Command', 'newspack-nodes' ) }
+				</button>
+				<button
+					type="button"
 					onClick={ () => setPromptVerb( 'send' ) }
 					title={ __(
 						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
@@ -1907,9 +1962,9 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
-					onClick={ () => onAction && onAction( 'request', node.id ) }
+					onClick={ () => setPromptVerb( 'request' ) }
 					title={ __(
-						'Request a reply — `request_node <name>` (TM_REQUEST)',
+						'Send a TM_REQUEST payload — `request_node <name> <payload>`',
 						'newspack-nodes'
 					) }
 				>
