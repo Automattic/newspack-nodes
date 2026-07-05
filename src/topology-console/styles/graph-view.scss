@@ -3097,26 +3097,6 @@
 	margin: 0;
 }
 
-// WordPress admin styles checkboxes with `appearance: none` and draws its own
-// light box (white fill, admin-accent check) — which makes `accent-color` /
-// `color-scheme` inert. Restore the NATIVE control and strip WP's custom box +
-// ::before checkmark, so `color-scheme: dark` paints the box dark and
-// `accent-color` tints the checked fill with the skin accent. Scoped to
-// `.topology-app`, which wraps the hub console, the debug overlay, AND the
-// portaled compose modal — so every checkbox in those surfaces is themed.
-.topology-app input[type="checkbox"] {
-	appearance: auto;
-	background: none;
-	border: none;
-	box-shadow: none;
-	accent-color: var(--cyan);
-	color-scheme: dark;
-
-	&::before {
-		content: none;
-	}
-}
-
 // Layout only — the shared `_controls.scss` bare-element rule owns the chrome
 // (fill, border, mono type, dropdown triangle, focus ring) so the modal inputs
 // match the canonical menu look everywhere.
