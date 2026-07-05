@@ -225,13 +225,13 @@ describe( 'useGraphHandlers', () => {
 		expect( dispatch ).toHaveBeenCalledWith( 'dmesg', 'dmesg', '' );
 	} );
 
-	it( 'onInspectorAction request dispatches request_node', () => {
+	it( 'onInspectorAction request dispatches request_node with the payload', () => {
 		const { result, dispatch } = renderHandlers( {} );
-		result.current.onInspectorAction( 'request', 'a', '' );
+		result.current.onInspectorAction( 'request', 'a', 'hello' );
 		expect( dispatch ).toHaveBeenCalledWith(
-			'request_node a',
+			'request_node a hello',
 			'request_node',
-			'a'
+			'a hello'
 		);
 	} );
 
@@ -268,6 +268,34 @@ describe( 'useGraphHandlers', () => {
 			'send_eof',
 			'a'
 		);
+	} );
+
+	it( 'onInspectorAction cmd dispatches a TM_COMMAND to the node with the phrase', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'cmd', 'a', 'debug_state 1' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'cmd a debug_state 1',
+			'cmd',
+			'a debug_state 1'
+		);
+	} );
+
+	it( 'onInspectorAction forwards the Compose reply-flags as a 4th dispatch arg when supplied', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		const flags = { response: true, error: false };
+		result.current.onInspectorAction( 'cmd', 'a', 'debug_state 1', flags );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'cmd a debug_state 1',
+			'cmd',
+			'a debug_state 1',
+			flags
+		);
+	} );
+
+	it( 'onInspectorAction omits the 4th dispatch arg entirely when no flags are supplied (back-compat)', () => {
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'cmd', 'a', 'debug_state 1' );
+		expect( dispatch.mock.calls[ 0 ] ).toHaveLength( 3 );
 	} );
 
 	it( 'onInspectorAction tell dispatches tell_node with the payload', () => {

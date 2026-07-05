@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Compose modal: full addressable "To" list + TM_RESPONSE/TM_ERROR reply-flag checkboxes.** The no-node message composer's target list now includes `_command_interpreter` (first) plus every node's `:config` sidecar — previously only `parsed.nodes`' bare ids were offered, so the interpreter and per-node command targets weren't reachable. The list is derived from the VIEWED graph (`parsed.nodes` / the debug overlay's local graph), never `Core.nodes`, so it stays correct when the hub console is viewing a remote worker. Two new checkboxes OR `TM_RESPONSE`/`TM_ERROR` onto the dispatched message's `TYPE` at the `shell.parse()` dispatch chokepoint (`useDebugGraph.sendVerb`, `TopologyConsole.dispatchStatement`), via the new `Message.applyReplyFlags()` helper.
+
 ## [0.27.1] - 2026-07-05
 
 ### Fixed

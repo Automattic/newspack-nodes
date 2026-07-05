@@ -3,7 +3,7 @@ import { Core } from '../runtime/core';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
 import { useGraphSource } from '../topology-console/hooks/useGraphSource';
 import { useGraphHandlers } from '../topology-console/hooks/useGraphHandlers';
-import { TYPE, FROM, LOCAL, TM_COMMAND } from '../runtime/message';
+import { FROM, LOCAL, applyReplyFlags } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
 /**
@@ -52,25 +52,23 @@ export function useDebugGraph(
 	// via FROM; this adds the matching `sent` line) — parity with
 	// TopologyConsole.handleInspectorAction's appendTranscript echo.
 	const sendVerb = useCallback(
-		( echoText, path, name, args = '' ) => {
+		( echoText, path, name, args = '', flags = null ) => {
 			Core.node( names.OUTPUT )?.append( {
 				kind: 'sent',
 				text: echoText,
 				prompt: `/${ shell.path }`,
 			} );
-			// Shell-special verbs (ping → TM_PING, tell/send → TM_INFO/TM_BYTESTREAM,
-			// send_eof/request) parse to a NON-command Message; dispatch that so they
-			// actually work — a bare sendCommand would emit e.g. `ping` as a TM_COMMAND
-			// the interpreter rejects ("no such verb"). Plain interpreter verbs keep
-			// sendCommand (cwd-relative TO). shell.dispatch so useGraphReset's tap sees it.
+			// Use shell.dispatch so useGraphReset's tap sees it.
 			const parsed = shell.parse( echoText );
-			if ( Array.isArray( parsed ) && parsed[ TYPE ] !== TM_COMMAND ) {
+			if ( Array.isArray( parsed ) ) {
 				if ( ! parsed[ FROM ] ) {
 					parsed[ FROM ] = names.OUTPUT;
 				}
 				if ( undefined === parsed[ LOCAL ] ) {
 					parsed[ LOCAL ] = true;
 				}
+				// Compose modal's TM_RESPONSE / TM_ERROR checkboxes.
+				applyReplyFlags( parsed, flags );
 				shell.dispatch( parsed );
 			} else {
 				shell.sendCommand( path, name, args );
@@ -82,7 +80,8 @@ export function useDebugGraph(
 	// Every non-invoke verb echoes + routes through sendVerb (so the useGraphReset
 	// dispatch tap sees a mutating verb). Bound to path '' — the overlay is local-only.
 	const dispatch = useCallback(
-		( echoLine, name, args ) => sendVerb( echoLine, '', name, args ),
+		( echoLine, name, args, flags ) =>
+			sendVerb( echoLine, '', name, args, flags ),
 		[ sendVerb ]
 	);
 

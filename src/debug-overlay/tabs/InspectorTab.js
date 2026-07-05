@@ -19,6 +19,7 @@ import { useGraphSurface } from '../../topology-console/hooks/useGraphSurface';
 import names from '../../runtime/reserved-node-names.json';
 import { PALETTE_COLLAPSED_STORAGE_KEY_LIVE } from '../../topology-console/themes';
 import { useDebugGraph } from '../useDebugGraph';
+import { buildComposeTargets } from '../../topology-console/utils/composeTargets';
 import { useCanvasLayout } from '../../topology-console/hooks/useCanvasLayout';
 import { useDebugRepl } from '../useDebugRepl';
 import { useGraphReset } from '../useGraphReset';
@@ -202,6 +203,14 @@ export default function InspectorTab( {
 	// Thread the latest onPositionChange to useDebugGraph's drop recorder.
 	onPositionChangeRef.current = onPositionChange;
 
+	// Compose modal's "To" list: derived from the VIEWED graph (`graph.nodes`),
+	// never Core.nodes — at a remote worker cwd the browser's own Core holds
+	// only its scaffolding, not the worker's graph.
+	const composeTargets = useMemo(
+		() => buildComposeTargets( graph.nodes ),
+		[ graph.nodes ]
+	);
+
 	// Reachable path scopes — every top-level substrate-node-name in the current
 	// Core registry that's a legitimate `cd` target (peel-and-route). Filter out
 	// internal-only names AND bare `_sse`.
@@ -360,7 +369,13 @@ export default function InspectorTab( {
 						onRemoveEdge: handlers.onRemoveEdge,
 						onRemoveNode: handlers.onRemoveNode,
 						onDropNode: handlers.onDropNode,
-						onInspectorAction: ( action, nodeId, payload ) => {
+						composeTargets,
+						onInspectorAction: (
+							action,
+							nodeId,
+							payload,
+							flags
+						) => {
 							// Pop the transcript footer when the user fires an
 							// inspector action — matches the console's UX (the
 							// reply lands in _output and the user should see it).
@@ -377,7 +392,8 @@ export default function InspectorTab( {
 							handlers.onInspectorAction(
 								action,
 								nodeId,
-								payload
+								payload,
+								flags
 							);
 						},
 						// Selecting a node auto-opens the inspector (rail → panel).

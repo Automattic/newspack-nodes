@@ -117,7 +117,17 @@ export function useGraphHandlers( {
 				const argSchema = cls?.arguments || [];
 				onDropStage( { shellName, defaultName, argSchema, x, y } );
 			},
-			onInspectorAction: ( action, nodeId, payload ) => {
+			onInspectorAction: ( action, nodeId, payload, flags ) => {
+				// The Compose modal's reply-flag checkboxes (TM_RESPONSE / TM_ERROR)
+				// ride along as an optional 4th arg on exactly the six verbs Compose
+				// can pick (cmd/send/request/tell/send_struct/send_eof); every other
+				// caller (Send/Tell/Struct/Command/Request buttons, no flags UI)
+				// keeps dispatch's original 3-arg call — appending `flags` only when
+				// supplied avoids inventing a "no flags" 4th arg for them.
+				const dispatchVerb = ( line, verb, args ) =>
+					flags
+						? dispatch( line, verb, args, flags )
+						: dispatch( line, verb, args );
 				if ( 'dump' === action ) {
 					dispatch( `dump_node ${ nodeId }`, 'dump_node', nodeId );
 				} else if ( 'dump_config' === action ) {
@@ -176,22 +186,26 @@ export function useGraphHandlers( {
 							target: current.filter( ( t ) => t !== pwd ),
 						} );
 					}
+				} else if ( 'cmd' === action ) {
+					dispatchVerb(
+						`cmd ${ nodeId } ${ payload }`,
+						'cmd',
+						`${ nodeId } ${ payload }`
+					);
 				} else if ( 'send' === action ) {
-					dispatch(
+					dispatchVerb(
 						`send_node ${ nodeId } ${ payload }`,
 						'send_node',
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( 'request' === action ) {
-					dispatch(
-						`request_node ${ nodeId }`,
+					dispatchVerb(
+						`request_node ${ nodeId } ${ payload }`,
 						'request_node',
-						nodeId
+						`${ nodeId } ${ payload }`
 					);
-				} else if ( 'send_eof' === action ) {
-					dispatch( `send_eof ${ nodeId }`, 'send_eof', nodeId );
 				} else if ( 'tell' === action ) {
-					dispatch(
+					dispatchVerb(
 						`tell_node ${ nodeId } ${ payload }`,
 						'tell_node',
 						`${ nodeId } ${ payload }`
@@ -214,11 +228,13 @@ export function useGraphHandlers( {
 						} );
 						return;
 					}
-					dispatch(
+					dispatchVerb(
 						`send_struct ${ nodeId } ${ json }`,
 						'send_struct',
 						`${ nodeId } ${ json }`
 					);
+				} else if ( 'send_eof' === action ) {
+					dispatchVerb( `send_eof ${ nodeId }`, 'send_eof', nodeId );
 				} else if ( 'register' === action || 'unregister' === action ) {
 					// payload is `<target> <event>`; the verb is
 					// `register <source> <target> <event>` (source = nodeId).

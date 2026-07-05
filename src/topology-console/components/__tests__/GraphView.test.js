@@ -75,6 +75,19 @@ describe( 'GraphView', () => {
 		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n1' );
 	} );
 
+	it( 'forwards composeTargets through to Inspector', () => {
+		const composeTargets = [ '_command_interpreter', 'n1', 'n1:config' ];
+		render(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				composeTargets={ composeTargets }
+			/>
+		);
+		expect( global.__inspectorProps.composeTargets ).toBe( composeTargets );
+	} );
+
 	it( 'renders the palette only when showPalette is set', () => {
 		const { queryByTestId, rerender } = render(
 			<GraphView graph={ graph } frame={ Frame } resetKey="k" />

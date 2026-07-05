@@ -191,11 +191,18 @@ describe( 'Inspector (view mode)', () => {
 			/>
 		);
 		fireEvent.click( getByText( 'Compose' ) );
-		// selects[0] = To (echo default), selects[1] = Type — pick Info (index 1).
+		// selects[0] = To (echo default), selects[1] = Type — pick TM_INFO
+		// (tell_node) by its option label, not a hardcoded index (the type
+		// list's order is an implementation detail).
 		const selects = document.body.querySelectorAll(
 			'.topology-modal__body select'
 		);
-		fireEvent.change( selects[ 1 ], { target: { value: '1' } } );
+		const infoOption = Array.from( selects[ 1 ].options ).find( ( o ) =>
+			/TM_INFO/.test( o.textContent )
+		);
+		fireEvent.change( selects[ 1 ], {
+			target: { value: infoOption.value },
+		} );
 		fireEvent.change(
 			document.body.querySelector( '#nodes-compose-value' ),
 			{ target: { value: 'hi' } }
@@ -205,7 +212,10 @@ describe( 'Inspector (view mode)', () => {
 				'.topology-modal__actions .topology-modal__btn--primary'
 			)
 		);
-		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi' );
+		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi', {
+			response: false,
+			error: false,
+		} );
 	} );
 
 	it( 'no-node Compose Cancel button closes the composer without dispatching', () => {
@@ -233,6 +243,123 @@ describe( 'Inspector (view mode)', () => {
 			document.body.querySelector( '.topology-modal__body' )
 		).toBeNull();
 		expect( onAction ).not.toHaveBeenCalled();
+	} );
+
+	it( 'no-node Compose "To" list uses composeTargets (the full addressable surface), not just parsed.nodes', () => {
+		// composeTargets is the graph-derived list ( _command_interpreter +
+		// every node id + its :config sidecar) — richer than parsed.nodes,
+		// which the connect-edge menu still uses unchanged.
+		const composeTargets = [
+			'_command_interpreter',
+			'echo',
+			'echo:config',
+			'tee_a',
+			'tee_a:config',
+		];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+				composeTargets={ composeTargets }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose' ) );
+		const toSelect = document.body.querySelector( '#nodes-compose-to' );
+		const optionValues = Array.from( toSelect.options ).map(
+			( o ) => o.value
+		);
+		expect( optionValues ).toEqual( composeTargets );
+		// _command_interpreter (the list's first entry) is the default selection.
+		expect( toSelect.value ).toBe( '_command_interpreter' );
+	} );
+
+	it( 'no-node Compose falls back to parsed.nodes ids when composeTargets is not supplied', () => {
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose' ) );
+		const toSelect = document.body.querySelector( '#nodes-compose-to' );
+		expect(
+			Array.from( toSelect.options ).map( ( o ) => o.value )
+		).toEqual( [ 'echo' ] );
+	} );
+
+	it( 'no-node Compose TM_RESPONSE / TM_ERROR checkboxes pass their flags through onConfirm', () => {
+		// Inspector's job is just to carry the flags out to onAction; the
+		// dispatch-time TYPE OR-ing is covered at the dispatch layer
+		// (useGraphHandlers/useDebugGraph/TopologyConsole tests).
+		const onAction = jest.fn();
+		const { getByText, getByLabelText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ onAction }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose' ) );
+		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
+		fireEvent.click( getByLabelText( 'TM_ERROR' ) );
+		fireEvent.change(
+			document.body.querySelector( '#nodes-compose-value' ),
+			{ target: { value: 'hi' } }
+		);
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-modal__actions .topology-modal__btn--primary'
+			)
+		);
+		expect( onAction ).toHaveBeenCalledWith( 'cmd', 'echo', 'hi', {
+			response: true,
+			error: true,
+		} );
+	} );
+
+	it( 'no-node Compose leaves the flags unchecked on open, even after a prior send left them checked', () => {
+		const onAction = jest.fn();
+		const { getByText, getByLabelText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ onAction }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose' ) );
+		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-modal__actions .topology-modal__btn--primary'
+			)
+		);
+		// Re-open: a fresh ComposeModal mount resets both checkboxes.
+		fireEvent.click( getByText( 'Compose' ) );
+		fireEvent.change(
+			document.body.querySelector( '#nodes-compose-value' ),
+			{ target: { value: 'again' } }
+		);
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-modal__actions .topology-modal__btn--primary'
+			)
+		);
+		expect( onAction ).toHaveBeenLastCalledWith( 'cmd', 'echo', 'again', {
+			response: false,
+			error: false,
+		} );
 	} );
 
 	it( 'renders the missing-node state when selectedId is absent from parsed', () => {
@@ -268,11 +395,20 @@ describe( 'Inspector (view mode)', () => {
 			/>
 		);
 
-	it( 'selected-node Request and EOF buttons dispatch their verbs', () => {
+	it( 'selected-node Request opens a prompt modal and dispatches with the payload; EOF dispatches directly', () => {
 		const onAction = jest.fn();
-		const { getByText } = renderNode( { onAction } );
+		const { getByText, getByDisplayValue } = renderNode( { onAction } );
 		fireEvent.click( getByText( 'Request' ) );
-		expect( onAction ).toHaveBeenCalledWith( 'request', 'echo' );
+		// A prompt modal appears with a text input (portaled to <body>).
+		const input = document.body.querySelector( '.topology-modal__input' );
+		expect( input ).not.toBeNull();
+		fireEvent.change( input, { target: { value: 'ping' } } );
+		fireEvent.click(
+			getByDisplayValue( 'ping' )
+				.closest( '.topology-modal' )
+				.querySelector( '.topology-modal__btn--primary' )
+		);
+		expect( onAction ).toHaveBeenCalledWith( 'request', 'echo', 'ping' );
 		fireEvent.click( getByText( 'EOF' ) );
 		expect( onAction ).toHaveBeenCalledWith( 'send_eof', 'echo' );
 	} );
