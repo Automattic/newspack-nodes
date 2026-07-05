@@ -765,7 +765,15 @@ describe( 'TopologyConsole boot', () => {
 		// `parsed.nodes` (whatever dump_metadata just published).
 		const { getByText } = render( <TopologyConsole /> );
 		await publishMeta( {
-			n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			// has_config marks n1 as having a `:config` sidecar (dump_metadata
+			// reports it); without it the composer must not synthesize `n1:config`.
+			n1: {
+				class: 'Echo',
+				counter: 0,
+				sink: '',
+				target: '',
+				has_config: true,
+			},
 		} );
 		// The Inspector panel only renders (and captures props) once expanded
 		// by a selection — mirrors every other lastInspectorProps assertion.

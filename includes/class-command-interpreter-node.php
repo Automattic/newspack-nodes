@@ -844,6 +844,10 @@ class Command_Interpreter_Node extends Node {
 				'bytes_written' => $node->bytes_written(),
 				'accepts_fill'  => $schema['accepts_fill'] ?? true,
 				'has_target'    => $schema['has_target'] ?? true,
+				// Whether this node has a `:config` command sidecar (its own
+				// registered interpreter sibling) — the compose target. Not every
+				// node has one, so the GUI must not synthesize it blindly.
+				'has_config'    => isset( Core::$nodes_by_name[ "{$name}:config" ] ),
 			];
 			// Emit only when non-empty, keeping this byte-identical with the JS producer (PHP [] vs JS {}).
 			$registrations = $node->registered_listeners();

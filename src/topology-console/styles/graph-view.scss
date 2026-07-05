@@ -3073,11 +3073,46 @@
 	font-size: 11px;
 	color: var(--ink-2);
 	letter-spacing: 0.04em;
-	text-transform: lowercase;
+	text-transform: uppercase;
 }
 
 .topology-modal__label:first-child {
 	margin-top: 0;
+}
+
+// The two reply-flag checkboxes share one row; keep their TM_* labels uppercase
+// (the generic label rule above lowercases everything).
+.topology-modal__checkbox-row {
+	display: flex;
+	gap: 20px;
+	margin-top: 12px;
+}
+
+.topology-modal__label--checkbox {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+}
+
+// WordPress admin styles checkboxes with `appearance: none` and draws its own
+// light box (white fill, admin-accent check) — which makes `accent-color` /
+// `color-scheme` inert. Restore the NATIVE control and strip WP's custom box +
+// ::before checkmark, so `color-scheme: dark` paints the box dark and
+// `accent-color` tints the checked fill with the skin accent. Scoped to
+// `.topology-app`, which wraps the hub console, the debug overlay, AND the
+// portaled compose modal — so every checkbox in those surfaces is themed.
+.topology-app input[type="checkbox"] {
+	appearance: auto;
+	background: none;
+	border: none;
+	box-shadow: none;
+	accent-color: var(--cyan);
+	color-scheme: dark;
+
+	&::before {
+		content: none;
+	}
 }
 
 .topology-app .topology-modal__input {

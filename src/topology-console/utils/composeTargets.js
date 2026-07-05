@@ -5,9 +5,10 @@ import names from '../../runtime/reserved-node-names.json';
  * graph (`parsed.nodes`) — never from `Core.nodes`, which at a remote worker
  * cwd holds only the browser's own scaffolding (SseIn/HttpOut/…), not the
  * worker's graph. `_command_interpreter` always leads (it's the interpreter
- * TM_COMMAND targets by default); every other node contributes both its own
- * id AND its `:config` sidecar (the per-node command target `parsed.nodes`
- * itself omits), sorted.
+ * TM_COMMAND targets by default); every other node contributes its own id, plus
+ * its `:config` sidecar ONLY when the node actually has one (`node.has_config`,
+ * reported by dump_metadata) — not every node does, so synthesizing `<id>:config`
+ * for all of them listed dead targets. Sorted.
  *
  * @param {Array} nodes `parsed.nodes` — the graph currently on screen.
  * @return {string[]} Compose target ids, `_command_interpreter` first.
@@ -20,7 +21,9 @@ export function buildComposeTargets( nodes ) {
 			continue;
 		}
 		rest.add( id );
-		rest.add( `${ id }:config` );
+		if ( node.has_config ) {
+			rest.add( `${ id }:config` );
+		}
 	}
 	return [ names.COMMAND_INTERPRETER, ...Array.from( rest ).sort() ];
 }
