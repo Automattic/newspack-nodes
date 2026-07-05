@@ -1434,6 +1434,36 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 						) ) }
 					</select>
 				</label>
+				<div className="topology-modal__checkbox-row">
+					<label
+						className="topology-modal__label topology-modal__label--checkbox"
+						htmlFor="nodes-compose-response"
+					>
+						<input
+							id="nodes-compose-response"
+							type="checkbox"
+							checked={ responseFlag }
+							onChange={ ( e ) =>
+								setResponseFlag( e.target.checked )
+							}
+						/>
+						{ __( 'TM_RESPONSE', 'newspack-nodes' ) }
+					</label>
+					<label
+						className="topology-modal__label topology-modal__label--checkbox"
+						htmlFor="nodes-compose-error"
+					>
+						<input
+							id="nodes-compose-error"
+							type="checkbox"
+							checked={ errorFlag }
+							onChange={ ( e ) =>
+								setErrorFlag( e.target.checked )
+							}
+						/>
+						{ __( 'TM_ERROR', 'newspack-nodes' ) }
+					</label>
+				</div>
 				{ takesValue && (
 					<label
 						className="topology-modal__label"
@@ -1449,32 +1479,6 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 						/>
 					</label>
 				) }
-				<label
-					className="topology-modal__label topology-modal__label--checkbox"
-					htmlFor="nodes-compose-response"
-				>
-					<input
-						id="nodes-compose-response"
-						type="checkbox"
-						checked={ responseFlag }
-						onChange={ ( e ) =>
-							setResponseFlag( e.target.checked )
-						}
-					/>
-					{ __( 'TM_RESPONSE', 'newspack-nodes' ) }
-				</label>
-				<label
-					className="topology-modal__label topology-modal__label--checkbox"
-					htmlFor="nodes-compose-error"
-				>
-					<input
-						id="nodes-compose-error"
-						type="checkbox"
-						checked={ errorFlag }
-						onChange={ ( e ) => setErrorFlag( e.target.checked ) }
-					/>
-					{ __( 'TM_ERROR', 'newspack-nodes' ) }
-				</label>
 			</div>
 			<div className="topology-modal__actions">
 				<button

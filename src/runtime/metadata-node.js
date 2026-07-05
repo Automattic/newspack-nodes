@@ -53,6 +53,9 @@ export function dumpMetadataPayload( only = '' ) {
 			bytes_written: node.bytesWritten ?? 0,
 			accepts_fill: schema?.accepts_fill ?? true,
 			has_target: schema?.has_target ?? true,
+			// A node has a `:config` command sidecar iff that sibling node is
+			// registered (matches the PHP producer's isset check).
+			has_config: Core.nodes.has( `${ name }:config` ),
 		};
 		// Emit registrations only when non-empty, keeping this producer byte-identical
 		// with the PHP one (PHP `[]` vs JS `{}` would diverge if always emitted).
@@ -174,6 +177,10 @@ export function parseMetadata( payload ) {
 					: true,
 			has_target:
 				typeof meta.has_target === 'boolean' ? meta.has_target : true,
+			// Whether the node has a `:config` command sidecar (the compose
+			// target). Default false — only offer `<id>:config` when the producer
+			// says it exists; not every node has one.
+			has_config: meta.has_config === true,
 			targets,
 			// Raw target as reported: an array for a Tee-family fan-out node, a
 			// string otherwise. The Inspector keys its multi-target editor and
