@@ -42,7 +42,7 @@ select.newspack-nodes-raw-logs-select {
 	-moz-appearance: none;
 	appearance: none;
 	background: var(--paper-2);
-	border: 2px solid var(--paper-shadow);
+	border: 1px solid var(--paper-shadow);
 	color: var(--ink);
 	padding: 0 8px;
 	border-radius: base.$border-radius;
@@ -129,7 +129,7 @@ input.newspack-nodes-raw-logs-search {
 	overflow: hidden;
 	border-radius: var(--np-radius-md);
 	background: #1e1e1e;
-	border: 2px solid #3a3a3a;
+	border: 1px solid #3a3a3a;
 }
 
 .newspack-nodes-raw-logs-canvas {

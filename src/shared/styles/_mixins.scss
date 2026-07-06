@@ -44,7 +44,7 @@
 // Dark theme button
 @mixin dark-button {
 	background: var(--paper-2);
-	border: 2px solid var(--paper-shadow);
+	border: 1px solid var(--paper-shadow);
 	color: var(--ink);
 	padding: 0 $space-sm;
 	border-radius: $border-radius;
@@ -72,7 +72,7 @@
 // Dark theme column picker
 @mixin dark-column-picker {
 	background: var(--paper-2);
-	border: 2px solid var(--paper-shadow);
+	border: 1px solid var(--paper-shadow);
 	border-radius: $border-radius;
 	padding: $space-sm $space-md;
 	margin-bottom: $space-md;
@@ -125,8 +125,8 @@
 	-webkit-appearance: none;
 	-moz-appearance: none;
 	appearance: none;
-	background: var(--paper-2) !important;
-	border: 2px solid var(--paper-shadow) !important;
+	background: var(--paper) !important;
+	border: 1px solid var(--paper-shadow) !important;
 	color: var(--ink) !important;
 	padding: 0 $space-md !important;
 	border-radius: $border-radius !important;
@@ -143,7 +143,7 @@
 	&:focus {
 		outline: none;
 		border-color: var(--cyan) !important;
-		background: var(--paper-2) !important;
+		background: var(--paper) !important;
 		color: var(--ink) !important;
 		box-shadow: $focus-shadow;
 	}
@@ -162,14 +162,14 @@
 	gap: 8px;
 	padding: 8px 12px;
 	background: var(--paper-2);
-	border: 2px solid var(--ink-3);
+	border: 1px solid var(--ink-3);
 	border-bottom: none;
 	font-weight: 600;
 	font-size: 13px;
 }
 
 @mixin table-list {
-	border: 2px solid var(--ink-3);
+	border: 1px solid var(--ink-3);
 }
 
 @mixin table-row {

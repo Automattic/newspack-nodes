@@ -38,7 +38,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		// The lightest/innermost surface in every skin — fields read as elevated
 		// wells that pop off their panel (safe now the ramp puts --paper lightest).
 		background-color: var(--paper);
-		border: 2px solid color-mix(in srgb, var(--ink) 24%, transparent);
+		border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
 		border-radius: 0;
 		color: var(--ink);
 		-webkit-text-fill-color: var(--ink);
@@ -61,7 +61,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		}
 
 		&:focus-visible {
-			outline: 2px solid var(--oxide);
+			outline: 1px solid var(--oxide);
 			outline-offset: -1px;
 		}
 	}
@@ -118,7 +118,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		margin: 0;
 		background: transparent;
 		border: 1px solid var( --paper-shadow );
-		border-radius: 2px;
+		border-radius: 1px;
 		box-shadow: none;
 		position: relative;
 		cursor: pointer;

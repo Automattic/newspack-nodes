@@ -29,7 +29,7 @@ $health-stalled: var(--oxide);
 	padding: 10px 14px;
 	border-radius: var(--np-radius-md);
 	background: var(--paper-2);
-	border: 2px solid var(--paper-shadow);
+	border: 1px solid var(--paper-shadow);
 
 	&__value {
 		font-size: 16px;

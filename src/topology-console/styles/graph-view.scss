@@ -200,7 +200,7 @@
 	padding: 0;
 	background: var(--paper-2);
 	color: var(--ink);
-	border: 2px solid var(--ink-4);
+	border: 1px solid var(--ink-4);
 	border-radius: 2px;
 	cursor: pointer;
 	font: 700 12px/1 var(--font-mono);
@@ -282,7 +282,7 @@
 		width: 28px;
 		height: 18px;
 		margin-right: 11px;
-		border: 2px solid var(--ink-2);
+		border: 1px solid var(--ink-2);
 		background: var(--paper);
 		position: relative;
 		flex-shrink: 0;
@@ -497,7 +497,7 @@
 
 	&__layout-chip {
 		background: var(--paper-3);
-		border: 2px solid var(--ink-3);
+		border: 1px solid var(--ink-3);
 		color: var(--ink-3);
 		font: 500 10px/1 var(--font-mono);
 		letter-spacing: 0.16em;
@@ -548,7 +548,7 @@
 	position: absolute;
 	width: 24px;
 	height: 24px;
-	border: 2px solid var(--ink-2);
+	border: 1px solid var(--ink-2);
 	pointer-events: none;
 	// Behind the node SVG (z 1) — the corner alignment marks are a
 	// backdrop stamp, not chrome that should occlude a node.
@@ -560,7 +560,7 @@
 		inset: 50% 50% 50% 50%;
 		width: 4px;
 		height: 4px;
-		border: 2px solid var(--oxide);
+		border: 1px solid var(--oxide);
 		border-radius: 50%;
 		transform: translate(-50%, -50%);
 		background: var(--canvas);
@@ -600,7 +600,7 @@
 	bottom: 14px;
 	right: 18px;
 	background: var(--paper);
-	border: 2px solid var(--ink-2);
+	border: 1px solid var(--ink-2);
 	color: var(--ink-2);
 	font: 400 10px var(--font-mono);
 	// Below the SVG content layer (z 1) — the cartouche is a stamp on the
@@ -1343,7 +1343,7 @@
 	margin-top: 18px;
 
 	button {
-		border: 2px solid;
+		border: 1px solid;
 		padding: 8px 10px;
 		font: 700 10px var(--font-mono);
 		letter-spacing: 0.14em;
@@ -1449,7 +1449,7 @@
 
 .topology-app ::-webkit-scrollbar-thumb {
 	background: var(--ink-4);
-	border: 2px solid var(--paper-2);
+	border: 1px solid var(--paper-2);
 }
 
 .topology-app ::-webkit-scrollbar-thumb:hover {
@@ -1461,7 +1461,7 @@
 	display: block;
 	margin: 8px 0 12px;
 	padding: 6px 12px;
-	border: 2px solid;
+	border: 1px solid;
 	font-family: var(--font-mono);
 	font-size: 11px;
 	letter-spacing: 0.06em;
@@ -1523,7 +1523,7 @@
 	margin-top: 4px;
 	padding: 8px 8px;
 	background: transparent;
-	border: 2px dashed var(--ink-3);
+	border: 1px dashed var(--ink-3);
 	color: var(--ink-2);
 	font-size: 11px;
 	cursor: pointer;
@@ -1544,7 +1544,7 @@
 	min-width: 0;
 	padding: 5px 7px;
 	background: var(--paper-2);
-	border: 2px solid var(--ink-3);
+	border: 1px solid var(--ink-3);
 	font-family: var(--font-mono);
 	font-size: 12px;
 	color: var(--ink);
@@ -1640,10 +1640,10 @@
 	gap: 4px;
 	// Match the taller "+ add target" select so a chips-only row lines up with a
 	// row that includes it (flex only equalizes within a shared row).
-	min-height: 30px;
+	min-height: 40px;
 	box-sizing: border-box;
 	background: var(--paper-2);
-	border: 2px solid var(--ink-3);
+	border: 1px solid var(--ink-3);
 	padding: 2px 4px 2px 7px;
 	font-family: var(--font-mono);
 	font-size: 11px;
@@ -1687,7 +1687,7 @@
 	display: inline-flex;
 	align-items: center;
 	background: var(--paper-2);
-	border: 2px dashed var(--ink-2);
+	border: 1px dashed var(--ink-2);
 	padding: 5px 22px 5px 11px;
 	font-family: var(--font-mono);
 	font-size: 12px;
@@ -1792,7 +1792,7 @@
 	appearance: none;
 	-webkit-appearance: none;
 	background-color: color-mix(in srgb, var(--ink) 6%, transparent);
-	border: 2px solid color-mix(in srgb, var(--ink) 24%, transparent);
+	border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
 	color: var(--ink);
 	// WebKit paints the value via -webkit-text-fill-color; without this it blacks out on focus.
 	-webkit-text-fill-color: var(--ink);
@@ -1846,7 +1846,7 @@
 	display: inline-flex;
 	overflow: hidden;
 	margin-left: 4px;
-	border: 2px solid var(--ink);
+	border: 1px solid var(--ink);
 
 	&__btn {
 		background: transparent;
@@ -2230,7 +2230,7 @@
 	--paper-3: #0a2746;
 	--paper-shadow: #2f5f8c;
 	--canvas: var(--paper-3);
-	--hover: var(--paper);
+	--hover: color-mix(in srgb, var(--paper) 80%, white);
 	--ink: #eaf4ff;
 	--ink-2: #cfe4fb;
 	--ink-3: #9cc3e8;
@@ -2265,7 +2265,7 @@
 	--paper-3: #010a05;
 	--paper-shadow: #1d4a2c;
 	--canvas: var(--paper-3);
-	--hover: var(--paper);
+	--hover: color-mix(in srgb, var(--paper) 80%, white);
 	--ink: #7dffa0;
 	--ink-2: #5fcf85;
 	--ink-3: #3aa05f;
@@ -2361,7 +2361,7 @@
 	--paper-3: #1a0b2e;
 	--paper-shadow: #ff4da6;
 	--canvas: var(--paper-3);
-	--hover: var(--paper);
+	--hover: color-mix(in srgb, var(--paper) 80%, white);
 	--ink: #ffe7fb;
 	--ink-2: #e6b8e0;
 	--ink-3: #b98ad6;
@@ -2406,7 +2406,7 @@
 	--paper-3: #2e3440;
 	--paper-shadow: #4c566a;
 	--canvas: var(--paper-3);
-	--hover: var(--paper);
+	--hover: color-mix(in srgb, var(--paper) 80%, white);
 	--ink: #eceff4;
 	--ink-2: #d8dee9;
 	--ink-3: #81a1c1;
@@ -2434,7 +2434,7 @@
 	--paper-3: #0b1020;
 	--paper-shadow: rgba(255, 255, 255, 0.16);
 	--canvas: var(--paper-3);
-	--hover: var(--paper);
+	--hover: color-mix(in srgb, var(--paper) 80%, white);
 	--ink: #eef2ff;
 	--ink-2: #cdd5ee;
 	--ink-3: #9aa6c8;
@@ -2609,7 +2609,7 @@
 	--paper-3: #0d0d10;
 	--paper-shadow: #3a3a30;
 	--canvas: var(--paper-3);
-	--hover: var(--paper);
+	--hover: color-mix(in srgb, var(--paper) 80%, white);
 	--ink: #f2f2e9;
 	--ink-2: #c8c8b8;
 	--ink-3: #8a8a78;
@@ -2708,7 +2708,7 @@
 	--paper-3: #1a1f23;
 	--paper-shadow: #3a444b;
 	--canvas: var(--paper-3);
-	--hover: var(--paper);
+	--hover: color-mix(in srgb, var(--paper) 80%, white);
 	--ink: #dfe6ea;
 	--ink-2: #b8c2c8;
 	--ink-3: #8b969d;
@@ -2771,7 +2771,7 @@
 		// footprint from any transcript text scrolling behind —
 		// without a wrapping rectangle around both controls.
 		background: var(--repl-bg);
-		border: 2px solid color-mix(in srgb, var(--repl-fg) 25%, transparent);
+		border: 1px solid color-mix(in srgb, var(--repl-fg) 25%, transparent);
 		color: color-mix(in srgb, var(--repl-fg) 55%, transparent);
 		width: 22px;
 		height: 22px;
@@ -3024,7 +3024,7 @@
 
 .topology-modal {
 	background: var(--paper-2);
-	border: 2px solid var(--paper-shadow);
+	border: 1px solid var(--paper-shadow);
 	min-width: 360px;
 	max-width: 560px;
 	font-family: var(--font-mono);
@@ -3155,7 +3155,7 @@
 	font-family: var(--font-mono);
 	font-size: 12px;
 	padding: 6px 14px;
-	border: 2px solid;
+	border: 1px solid;
 	cursor: pointer;
 	@include buttons.secondary;
 }
