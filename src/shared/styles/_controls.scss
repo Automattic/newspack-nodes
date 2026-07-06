@@ -45,8 +45,13 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		// Paint native sub-widgets (number spinners, date pickers) dark to match.
 		color-scheme: dark;
 
+		// The `-webkit-text-fill-color: var(--ink)` above also paints the
+		// PLACEHOLDER at full brightness (it made placeholders read like real
+		// values); re-dim it here for the placeholder specifically.
 		&::placeholder {
 			color: var(--ink-3);
+			-webkit-text-fill-color: var(--ink-3);
+			opacity: 1;
 		}
 
 		// Kill WordPress admin's / emotion's focus glow; ring is on :focus-visible.
