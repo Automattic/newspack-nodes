@@ -42,8 +42,6 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		-webkit-text-fill-color: var(--ink);
 		box-shadow: none;
 		font: 500 12px/1.4 var(--font-mono);
-		// Paint native sub-widgets (number spinners, date pickers) dark to match.
-		color-scheme: dark;
 
 		// The `-webkit-text-fill-color: var(--ink)` above also paints the
 		// PLACEHOLDER at full brightness (it made placeholders read like real
@@ -98,22 +96,47 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		box-shadow: none;
 	}
 
-	// WordPress admin styles checkboxes with `appearance:none` and draws its own
-	// light box (white fill, admin-accent check), making accent-color / color-scheme
-	// inert. Restore the native control + strip WP's box/checkmark so the skin's
-	// `color-scheme: dark` (dark box) + `accent-color` (checked fill) take effect.
-	input[type="checkbox"],
-	input[type="radio"] {
+	// Bare checkboxes (no @wordpress CheckboxControl wrapper — e.g. the compose
+	// modal): restore the native control + accent so they aren't WP-admin's white
+	// box. `color-scheme` is set per-skin below (dark skins only), so a light skin
+	// keeps a light native box.
+	input[type="checkbox"]:not( .components-checkbox-control__input ),
+	input[type="radio"]:not( .components-checkbox-control__input ) {
 		appearance: auto;
 		background: none;
 		border: none;
 		box-shadow: none;
-		accent-color: var(--cyan);
-		color-scheme: dark;
+		accent-color: var( --cyan );
 
 		&::before {
 			content: none;
 		}
+	}
+
+	// @wordpress CheckboxControl (the hook / custom-event pickers): draw a fully
+	// themed box + skin-coloured check ourselves (`appearance: none`, so it's
+	// skin-adaptive with no browser-native rendering + no color-scheme needed). The
+	// box border/fill use the skin tokens; the checkmark SVG is repainted from
+	// WP's hardcoded white to --paper so it contrasts the accent fill in any skin.
+	.components-checkbox-control__input {
+		appearance: none;
+		background: transparent;
+		border: 1px solid var( --paper-shadow );
+		box-shadow: none;
+
+		&::before {
+			content: none;
+		}
+
+		&:checked {
+			background: var( --cyan );
+			border-color: var( --cyan );
+		}
+	}
+
+	.components-checkbox-control__input-container svg,
+	.components-checkbox-control__input-container svg path {
+		fill: var( --paper );
 	}
 }
 
@@ -130,5 +153,14 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	select,
 	.components-select-control__input {
 		background-image: url("#{ $np-chevron-light }");
+	}
+
+	// Dark skins only: paint native UA sub-widgets dark (number spinners, the bare
+	// native checkbox). A light skin keeps its light native widgets — forcing
+	// `color-scheme: dark` there turned unchecked boxes + spinners black.
+	select,
+	input,
+	textarea {
+		color-scheme: dark;
 	}
 }
