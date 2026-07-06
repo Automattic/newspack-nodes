@@ -96,10 +96,12 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		box-shadow: none;
 	}
 
-	// Bare checkboxes (compose modal, console verb toggles): draw the SAME themed
-	// box + check as CheckboxControl below, so every checkbox in every surface is
-	// identical — no native rendering, no color-scheme dependence.
-	input[type="checkbox"]:not( .components-checkbox-control__input ) {
+	// EVERY checkbox — bare (compose modal, console verb toggles) AND @wordpress
+	// CheckboxControl (the pickers; its own class IS an input[type=checkbox]) —
+	// renders identically: a themed box with a CSS-drawn check/dash. No native
+	// rendering, no color-scheme dependence. (CheckboxControl's own SVG mark is
+	// hidden below, so the two match exactly.)
+	input[type="checkbox"] {
 		appearance: none;
 		width: 16px;
 		height: 16px;
@@ -121,7 +123,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			border-color: var( --cyan );
 		}
 
-		// Drawn checkmark (tick) — matches the CheckboxControl SVG's --paper fill.
+		// Drawn checkmark (tick), --paper so it contrasts the accent fill.
 		&:checked::after {
 			content: "";
 			position: absolute;
@@ -146,37 +148,14 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		}
 	}
 
-	input[type="radio"]:not( .components-checkbox-control__input ) {
+	input[type="radio"] {
 		accent-color: var( --cyan );
 	}
 
-	// @wordpress CheckboxControl (the hook / custom-event pickers): draw a fully
-	// themed box + skin-coloured check ourselves (`appearance: none`, so it's
-	// skin-adaptive with no browser-native rendering + no color-scheme needed). The
-	// box border/fill use the skin tokens; the checkmark SVG is repainted from
-	// WP's hardcoded white to --paper so it contrasts the accent fill in any skin.
-	.components-checkbox-control__input {
-		appearance: none;
-		background: transparent;
-		border: 1px solid var( --paper-shadow );
-		box-shadow: none;
-
-		&::before {
-			content: none;
-		}
-
-		// Checked AND indeterminate (partial-selection) fill the box, so the
-		// checkmark / dash SVG contrasts against it.
-		&:checked,
-		&:indeterminate {
-			background: var( --cyan );
-			border-color: var( --cyan );
-		}
-	}
-
-	.components-checkbox-control__input-container svg,
-	.components-checkbox-control__input-container svg path {
-		fill: var( --paper );
+	// @wordpress CheckboxControl draws its own check/dash SVG; hide it so the
+	// CSS-drawn mark above is the only one — matching the bare checkboxes exactly.
+	.components-checkbox-control__input-container svg {
+		display: none;
 	}
 }
 
