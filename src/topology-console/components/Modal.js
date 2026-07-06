@@ -213,6 +213,7 @@ export function PromptModal( {
  * @param {Array}    props.argSchema   [{ name, type?, required?, default? }, ...]
  * @param {Array}    props.nodeNames   Other node ids (for node_name arg pickers).
  * @param {Array}    props.formatters  Registered formatter names (formatter_name args).
+ * @param {Array}    props.vaults      Registered Vault entries (vault_id args).
  * @param {Function} props.onConfirm   ({ name, args }) => void
  * @param {Function} props.onCancel    () => void
  */
@@ -222,6 +223,7 @@ export function NewNodeModal( {
 	argSchema = [],
 	nodeNames = [],
 	formatters = [],
+	vaults = [],
 	onConfirm,
 	onCancel,
 } ) {
@@ -286,6 +288,7 @@ export function NewNodeModal( {
 								value={ values[ i ] }
 								nodeNames={ nodeNames }
 								formatters={ formatters }
+								vaults={ vaults }
 								onChange={ ( v ) => {
 									const next = values.slice();
 									next[ i ] = v;

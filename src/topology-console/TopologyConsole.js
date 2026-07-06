@@ -21,6 +21,7 @@ import OpenTopologyModal from './components/OpenTopologyModal';
 import TopologySettingsPanel from './components/TopologySettingsPanel';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
+import { useVaults } from './hooks/useVaults';
 import { useJsCatalog } from './hooks/useJsCatalog';
 import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
@@ -348,6 +349,7 @@ export default function TopologyConsole( {
 	// this realm). The choice is made below once `scope` is known.
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const jsCatalog = useJsCatalog();
+	const vaultCatalog = useVaults( { enabled: true } );
 	// Measure the `.topology-app` grid so the REPL transcript ceiling tracks the
 	// real available height (the console lives inside the DevtoolsTabHost tab bar,
 	// which the window-based fallback can't see). A ResizeObserver keeps it correct
@@ -1611,6 +1613,7 @@ export default function TopologyConsole( {
 					catalog: catalog.classes,
 					driftIds,
 					formatters: catalog.formatters,
+					vaults: vaultCatalog.vaults,
 					streamStatus: status,
 					positionOverrides,
 					onPositionChange: handlePositionChange,
@@ -1749,6 +1752,7 @@ export default function TopologyConsole( {
 					argSchema={ pendingDrop.argSchema }
 					nodeNames={ parsed.nodes.map( ( n ) => n.name || n.id ) }
 					formatters={ catalog.formatters }
+					vaults={ vaultCatalog.vaults }
 					onConfirm={ commitPendingDrop }
 					onCancel={ cancelPendingDrop }
 				/>

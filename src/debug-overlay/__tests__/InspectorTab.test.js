@@ -41,6 +41,13 @@ jest.mock( '../../topology-console/hooks/useJsCatalog', () => ( {
 jest.mock( '../../topology-console/hooks/useClassCatalog', () => ( {
 	useClassCatalog: () => ( { classes: [], loading: false, formatters: {} } ),
 } ) );
+jest.mock( '../../topology-console/hooks/useVaults', () => ( {
+	useVaults: () => ( {
+		vaults: [ { id: 'austin', url: '' } ],
+		loading: false,
+		error: null,
+	} ),
+} ) );
 
 describe( 'replMaxHeight', () => {
 	it( 'subtracts header, prompt bar, the measured tab bar, AND the resize-handle overhang from the frame height', () => {
@@ -331,6 +338,20 @@ describe( 'InspectorTab interactions', () => {
 		expect( Core.node( '_router' ) ).not.toBeNull();
 		expect( targets ).not.toContain( '_router' );
 		expect( targets ).not.toContain( '_router:config' );
+	} );
+
+	it( 'threads the vault catalog into canvasProps so vault_id args render the picker', () => {
+		const InspectorTab = require( '../tabs/InspectorTab' ).default;
+		render(
+			<InspectorTab
+				host="overlay"
+				storageKey="newspack-nodes:debug"
+				frame={ { h: 600, w: 800 } }
+			/>
+		);
+		expect( mockCaptured.consoleShell.canvasProps.vaults ).toEqual( [
+			{ id: 'austin', url: '' },
+		] );
 	} );
 
 	it( 'a palette drop records the drop position when the modal is confirmed', () => {

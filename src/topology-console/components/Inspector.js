@@ -616,6 +616,7 @@ function VerbRow( {
 	multiple = false,
 	nodeNames = [],
 	formatters = [],
+	vaults = [],
 } ) {
 	const checked = !! invocation;
 	const id = `topology-verb-${ spec.name }`;
@@ -668,6 +669,7 @@ function VerbRow( {
 							value={ invocation.args[ i ] }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
+							vaults={ vaults }
 							onChange={ ( v ) => onArgChange( i, v ) }
 						/>
 					) ) }
@@ -890,6 +892,7 @@ function EditForm( {
 	node,
 	catalog,
 	formatters,
+	vaults,
 	parsed,
 	onUpdateArgs,
 	onUpdateVerbs,
@@ -979,6 +982,7 @@ function EditForm( {
 							value={ ctorArgs[ i ] }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
+							vaults={ vaults }
 							onChange={ ( v ) => {
 								const next = ctorArgs.slice();
 								next[ i ] = v;
@@ -1037,6 +1041,7 @@ function EditForm( {
 											multiple
 											nodeNames={ nodeNames }
 											formatters={ formatters }
+											vaults={ vaults }
 											onArgChange={ ( argIdx, value ) => {
 												if ( ! onUpdateVerbs ) {
 													return;
@@ -1115,6 +1120,7 @@ function EditForm( {
 								invocation={ invocation }
 								nodeNames={ nodeNames }
 								formatters={ formatters }
+								vaults={ vaults }
 								onToggle={ handleToggle }
 								onArgChange={ handleArgChange }
 							/>
@@ -1134,6 +1140,7 @@ function VerbArgModal( {
 	kind,
 	args,
 	formatters,
+	vaults,
 	nodeNames,
 	onAction,
 	onDismiss,
@@ -1179,6 +1186,7 @@ function VerbArgModal( {
 						value={ values[ i ] }
 						nodeNames={ nodeNames }
 						formatters={ formatters }
+						vaults={ vaults }
 						onChange={ ( v ) =>
 							setValues( ( prev ) => {
 								const next = prev.slice();
@@ -1212,7 +1220,15 @@ function VerbArgModal( {
 
 // One schema verb button. Argless verbs fire immediately; verbs with args open
 // the VerbArgModal. `kind` is 'command' (TM_COMMAND) or 'request' (TM_REQUEST).
-function VerbButton( { nodeId, spec, kind, formatters, nodeNames, onAction } ) {
+function VerbButton( {
+	nodeId,
+	spec,
+	kind,
+	formatters,
+	vaults,
+	nodeNames,
+	onAction,
+} ) {
 	const [ open, setOpen ] = useState( false );
 	const hasArgs = spec.args && spec.args.length > 0;
 	const verbLabel =
@@ -1255,6 +1271,7 @@ function VerbButton( { nodeId, spec, kind, formatters, nodeNames, onAction } ) {
 					kind={ kind }
 					args={ spec.args }
 					formatters={ formatters }
+					vaults={ vaults }
 					nodeNames={ nodeNames }
 					onAction={ onAction }
 					onDismiss={ () => setOpen( false ) }
@@ -1520,6 +1537,7 @@ export default function Inspector( {
 	editMode = false,
 	catalog = [],
 	formatters = [],
+	vaults = [],
 	onUpdateArgs,
 	onUpdateVerbs,
 	onRemoveNode,
@@ -1643,6 +1661,7 @@ export default function Inspector( {
 				node={ node }
 				catalog={ catalog }
 				formatters={ formatters }
+				vaults={ vaults }
 				parsed={ parsed }
 				onUpdateArgs={ onUpdateArgs }
 				onUpdateVerbs={ onUpdateVerbs }
@@ -2094,6 +2113,7 @@ export default function Inspector( {
 									spec={ spec }
 									kind="command"
 									formatters={ formatters }
+									vaults={ vaults }
 									nodeNames={ liveNodeNames }
 									onAction={ onAction }
 								/>
@@ -2105,6 +2125,7 @@ export default function Inspector( {
 									spec={ spec }
 									kind="request"
 									formatters={ formatters }
+									vaults={ vaults }
 									nodeNames={ liveNodeNames }
 									onAction={ onAction }
 								/>
