@@ -64,7 +64,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 	bottom: 60px;
 	transform: translateX(-50%);
 	padding: 10px 18px;
-	border: 2px solid var(--ink);
+	border: 1px solid var(--ink);
 	font-family: var(--font-mono);
 	font-size: 13px;
 	z-index: 9100;
@@ -120,7 +120,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 	gap: 8px;
 	padding: 6px 8px;
 	background: var(--paper-2);
-	border: 2px solid var(--paper-shadow);
+	border: 1px solid var(--paper-shadow);
 	font: 500 12px var(--font-mono);
 	color: var(--ink);
 	cursor: pointer;
@@ -166,7 +166,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 	padding: 12px 14px;
 	background: var(--paper-2);
 	color: var(--ink);
-	border: 2px solid var(--paper-shadow);
+	border: 1px solid var(--paper-shadow);
 	border-radius: 6px;
 	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 
@@ -272,7 +272,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 		flex: 0 0 auto;
 		cursor: pointer;
 		background: transparent;
-		border: 2px solid var(--paper-shadow);
+		border: 1px solid var(--paper-shadow);
 		color: var(--ink);
 		font-size: 15px;
 		line-height: 1;

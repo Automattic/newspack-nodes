@@ -30,12 +30,12 @@
 	}
 }
 
-// Secondary / default — rests at the MIDDLE surface (--paper-2), never an
-// extreme, so the --hover step is always visible: --hover resolves to --paper-3
-// in light skins and --paper in dark skins, and paper-2 differs from both. (A
-// --paper resting would collapse against --hover in dark skins.)
+// Secondary / default — the innermost control surface (--paper), per the
+// elevation rule: a control sits above its panel, so it's the lightest tone.
+// --hover reaches away from it (--paper-3 in light skins, lighter-than-paper in
+// dark), so the hover always reads.
 @mixin secondary {
-	background: var(--paper-2);
+	background: var(--paper);
 	color: var(--ink);
 	border-color: var(--ink-3);
 	@include disabled;

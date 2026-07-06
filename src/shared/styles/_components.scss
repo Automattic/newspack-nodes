@@ -77,7 +77,7 @@
 	padding: $space-xl $space-lg;
 	background: var(--paper-2);
 	border-radius: $border-radius-lg;
-	border: 2px dashed var(--ink-3);
+	border: 1px dashed var(--ink-3);
 
 	&::before {
 		content: "";
@@ -179,7 +179,7 @@ select.newspack-nodes-refresh-select {
 	-moz-appearance: none;
 	appearance: none;
 	background: var(--paper-2) !important;
-	border: 2px solid var(--paper-shadow) !important;
+	border: 1px solid var(--paper-shadow) !important;
 	color: var(--ink) !important;
 	padding: 0 8px !important;
 	border-radius: 4px !important;
