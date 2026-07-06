@@ -1337,7 +1337,7 @@
 
 	button {
 		background: transparent;
-		border: 2px solid var(--ink-2);
+		border: 2px solid var(--ink-3);
 		color: var(--ink);
 		padding: 8px 10px;
 		font: 700 10px var(--font-mono);
@@ -1537,7 +1537,7 @@
 // "+ Add <verb>" — a modest text button, not a full-width input-styled bar.
 .topology-app .topology-edit-verb__add {
 	margin-top: 4px;
-	padding: 4px 8px;
+	padding: 8px 8px;
 	background: transparent;
 	border: 2px dashed var(--ink-3);
 	color: var(--ink-2);
@@ -2217,6 +2217,7 @@
 	.topology-select,
 	.topology-mode,
 	.topology-insp__actions button,
+	.topology-insp__commands button,
 	.topology-edit-delete,
 	.topology-edit-row__input {
 		border-radius: 8px;

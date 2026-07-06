@@ -28,7 +28,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 
 .topology-app.topology-app.newspack-nodes-theme {
 	select,
-	input:not([type="checkbox"]):not([type="radio"]),
+	input:not([type="checkbox"]):not([type="radio"]):not(.topology-repl__input),
 	textarea,
 	.components-select-control__input,
 	.components-input-control__input,
@@ -75,7 +75,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		cursor: pointer;
 	}
 
-	input:not([type="checkbox"]):not([type="radio"]),
+	input:not([type="checkbox"]):not([type="radio"]):not(.topology-repl__input),
 	textarea,
 	.components-input-control__input,
 	.components-text-control__input,
