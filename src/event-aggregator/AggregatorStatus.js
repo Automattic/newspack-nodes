@@ -335,7 +335,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 				</div>
 			) }
 			<select
-				className="newspack-nodes-refresh-select"
+				className="newspack-nodes-select"
 				value={ refreshInterval }
 				onChange={ ( e ) => setRefreshInterval( e.target.value ) }
 				title={ __( 'Refresh interval', 'newspack-nodes' ) }

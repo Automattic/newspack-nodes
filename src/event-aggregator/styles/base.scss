@@ -4,6 +4,11 @@
  * Design tokens shared with other Event Logger dashboards.
  */
 
+// Canonical themed form controls (the aggregator renders inside the Nodes hub's
+// `.topology-app.newspack-nodes-theme` shell, so the shared rule reaches its
+// bare <select> — no bespoke refresh-select class needed).
+@use "@newspack-nodes/shared/styles/controls";
+
 // =============================================================================
 // Design Tokens — Newspack (all-light chrome)
 // =============================================================================
@@ -95,30 +100,3 @@ $space-xl: 24px;
 	box-sizing: border-box;
 }
 
-select.newspack-nodes-refresh-select {
-	-webkit-appearance: none;
-	-moz-appearance: none;
-	appearance: none;
-	background: var(--paper-2) !important;
-	border: 1px solid var(--paper-shadow) !important;
-	color: var(--ink) !important;
-	padding: 0 8px !important;
-	border-radius: $border-radius !important;
-	font-size: 12px !important;
-	cursor: pointer;
-	min-width: 50px;
-	height: $control-height !important;
-	max-height: $control-height !important;
-	min-height: $control-height !important;
-	box-sizing: border-box !important;
-
-	&:hover {
-		background: var(--hover) !important;
-		border-color: var(--paper-shadow) !important;
-	}
-
-	&:focus {
-		outline: none;
-		border-color: var(--cyan) !important;
-	}
-}

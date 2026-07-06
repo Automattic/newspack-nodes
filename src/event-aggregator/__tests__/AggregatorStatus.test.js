@@ -318,9 +318,7 @@ describe( 'AggregatorStatus', () => {
 	it( 'renders the refresh select bound to the graph callback', () => {
 		registerSlices( { servers: { servers: [], loading: false } } );
 		const { container } = mount();
-		const select = container.querySelector(
-			'.newspack-nodes-refresh-select'
-		);
+		const select = container.querySelector( '.newspack-nodes-select' );
 		expect( select ).toBeTruthy();
 		expect( select.value ).toBe( '2000' );
 		const setter = Object.getOwnPropertyDescriptor(
