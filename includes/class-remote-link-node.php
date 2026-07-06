@@ -226,9 +226,9 @@ class Remote_Link_Node extends Timer_Node {
 			return null;
 		}
 
-		$cfg           = Config::load_config();
-		$verify_ssl    = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
-		$require_https = ! empty( $cfg['vault_require_https'] );
+		$cfg         = Config::load_config();
+		$verify_ssl  = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
+		$require_ssl = ! empty( $cfg['vault_require_ssl'] );
 
 		// Restore the cursor before connect so it seeds SSE_In (Remote_Source's offsetlog).
 		$restored = $this->restore_position();
@@ -252,7 +252,7 @@ class Remote_Link_Node extends Timer_Node {
 			$restored,
 			$this->vault_id,
 			$verify_ssl,
-			$require_https
+			$require_ssl
 		);
 		$this->sse_in = $sse;
 
@@ -339,8 +339,8 @@ class Remote_Link_Node extends Timer_Node {
 			'category'    => 'Hidden',
 			'description'  => 'Full-duplex SSE+HTTP channel base: composes an SSE_In + HTTP_Out and drives the slot-keepalive heartbeat tick.',
 			'arguments'    => [
-				[ 'name' => 'vault_id',         'type' => 'string', 'required' => true ],
-				[ 'name' => 'remote_partition', 'type' => 'string', 'required' => true ],
+				[ 'name' => 'vault_id',         'type' => 'vault_id', 'required' => true ],
+				[ 'name' => 'remote_partition', 'type' => 'string',    'required' => true ],
 			],
 			'commands'     => [],
 			'requests'     => [],

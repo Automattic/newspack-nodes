@@ -30,7 +30,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_result   = null;
 		Vault::get_instance()->reset_cache();
-		// Drop any per-test config overlay so vault_require_https set via
+		// Drop any per-test config overlay so vault_require_ssl set via
 		// use_base_dir() doesn't bleed into the next test.
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		\Newspack_Nodes\Config::reset();
@@ -230,7 +230,7 @@ class HttpOutTest extends TestCase {
 		$node = new HTTP_Out_Node();
 		$node->name( 'remote:austin' );
 		$node->arguments( 'austin' );
-		$this->assertSame( 'austin', $this->read_private( $node, 'server_id' ) );
+		$this->assertSame( 'austin', $this->read_private( $node, 'vault_id' ) );
 		// dump_config emits a round-trippable `make_node` line ending in the args.
 		$this->assertStringEndsWith( 'austin', trim( $node->dump_config() ) );
 	}
@@ -297,7 +297,7 @@ class HttpOutTest extends TestCase {
 	}
 
 	public function test_fire_refuses_non_https_when_require_https(): void {
-		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_https' => true ] );
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
 		$this->seed_vault( 'austin', [ 'url' => 'http://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
@@ -309,8 +309,21 @@ class HttpOutTest extends TestCase {
 	}
 
 	public function test_fire_allows_https_when_require_https(): void {
-		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_https' => true ] );
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$m    = $this->command_message( 'workers', 'heartbeat', '3 60 0' );
+		$node->fill( $m );
+		$node->fire();
+		$this->assertCount( 1, $captured );
+	}
+
+	public function test_fire_allows_non_https_by_default(): void {
+		// Default off (opt-in): no overlay set → plaintext spoke is allowed.
+		$this->use_base_dir( $this->make_temp_dir() );
+		$this->seed_vault( 'austin', [ 'url' => 'http://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
@@ -324,7 +337,8 @@ class HttpOutTest extends TestCase {
 		$schema = HTTP_Out_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertFalse( $schema['has_target'] );
-		$this->assertSame( 'server_id', $schema['arguments'][0]['name'] );
+		$this->assertSame( 'vault_id', $schema['arguments'][0]['name'] );
+		$this->assertSame( 'vault_id', $schema['arguments'][0]['type'] );
 		$this->assertTrue( $schema['arguments'][0]['required'] );
 	}
 
@@ -449,8 +463,8 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $node, 'batch' ) );
 	}
 
-	public function test_arguments_null_returns_stored_server_id(): void {
-		// arguments(null) is the getter — it returns the server_id last set.
+	public function test_arguments_null_returns_stored_vault_id(): void {
+		// arguments(null) is the getter — it returns the vault_id last set.
 		$node = $this->make_node( 'austin' );
 		$this->assertSame( 'austin', $node->arguments() );
 	}

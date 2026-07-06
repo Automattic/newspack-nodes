@@ -99,6 +99,12 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( [ 'vault_id', 'remote_partition' ], $names );
 	}
 
+	public function test_vault_id_arg_uses_vault_id_type(): void {
+		$schema = Remote_Link_Node::node_schema();
+		$this->assertSame( 'vault_id', $schema['arguments'][0]['name'] );
+		$this->assertSame( 'vault_id', $schema['arguments'][0]['type'] );
+	}
+
 	// ---------------------------------------------------------------------
 	// Patron lifecycle — ensure_patrons.
 	// ---------------------------------------------------------------------
@@ -120,7 +126,7 @@ class RemoteLinkNodeTest extends TestCase {
 
 		$http = Core::node( 'link-austin:http-out' );
 		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
-		$this->assertSame( 'austin', $this->read_private( $http, 'server_id' ) );
+		$this->assertSame( 'austin', $this->read_private( $http, 'vault_id' ) );
 	}
 
 	public function test_ensure_patrons_idempotent_returns_same_sse(): void {

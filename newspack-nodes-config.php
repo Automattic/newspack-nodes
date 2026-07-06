@@ -46,7 +46,7 @@ return [
 
 	// Aggregator spoke list (hubs only; spokes leave empty).
 	'vault_verify_ssl'    => true,
-	'vault_require_ssl'   => true,
+	'vault_require_ssl'   => false,
 	'remote_num_segments' => 2,
 	'remote_segment_size' => 10 * 1024 * 1024,
 	'remote_max_lifespan' => 3600,

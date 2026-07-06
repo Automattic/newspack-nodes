@@ -512,7 +512,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$http = Core::node( 'remote-austin:http-out' );
 		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
-		$this->assertSame( 'austin', $this->read_private( $http, 'server_id' ) );
+		$this->assertSame( 'austin', $this->read_private( $http, 'vault_id' ) );
 	}
 
 	public function test_delegates_counter_bytes_read_largest_msg_to_its_sse_in(): void {
