@@ -296,7 +296,7 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
 	}
 
-	public function test_fire_refuses_non_https_when_require_https(): void {
+	public function test_fire_refuses_non_https_when_require_ssl(): void {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
 		$this->seed_vault( 'austin', [ 'url' => 'http://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
@@ -308,7 +308,7 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $captured );
 	}
 
-	public function test_fire_allows_https_when_require_https(): void {
+	public function test_fire_allows_https_when_require_ssl(): void {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];

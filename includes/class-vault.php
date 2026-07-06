@@ -81,7 +81,7 @@ class Vault {
 	 * WordPress option values override config file defaults.
 	 *
 	 * @api
-	 * @return array<array-key, array<string, mixed>> Associative array of server_id => config. Keys are
+	 * @return array<array-key, array<string, mixed>> Associative array of vault id => config. Keys are
 	 *                                                 array-key (not string) because PHP coerces numeric
 	 *                                                 server-id keys to int — callers must not assume string.
 	 */

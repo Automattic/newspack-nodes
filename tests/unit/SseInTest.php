@@ -240,7 +240,7 @@ class SseInTest extends TestCase {
 		$this->assertSame( 10, $positions['firehose.p0']['offset'] );
 	}
 
-	public function test_require_https_refuses_http_url(): void {
+	public function test_require_ssl_refuses_http_url(): void {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$sink = new Capture_Sink_Node();
