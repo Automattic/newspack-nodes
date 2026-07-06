@@ -594,7 +594,8 @@
 	bottom: 14px;
 	right: 18px;
 	background: var(--paper);
-	border: 2px solid var(--ink);
+	border: 2px solid var(--ink-2);
+	color: var(--ink-2);
 	font: 400 10px var(--font-mono);
 	// Below the SVG content layer (z 1) — the cartouche is a stamp on the
 	// paper that the drawing may overlap, not chrome that occludes a node.
@@ -656,7 +657,7 @@
 	// active→idle changes.
 	&.is-idle {
 		animation: none;
-		opacity: 0.55;
+		opacity: 0.7;
 	}
 
 	// Roadmap [49]: runtime DRIFT — a live node NOT in the registered .tsl
@@ -671,7 +672,7 @@
 	}
 
 	&.is-faded {
-		opacity: 0.4;
+		opacity: 0.55;
 	}
 
 	// Overview / zoomed-out (LOD): skip the entrance fade so panning a huge graph
