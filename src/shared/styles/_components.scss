@@ -173,38 +173,6 @@
 	@include dark-error-banner;
 }
 
-// Shared refresh select (used on Gyroscope, Worker Status, Request Log)
-select.newspack-nodes-refresh-select {
-	-webkit-appearance: none;
-	-moz-appearance: none;
-	appearance: none;
-	background: var(--paper-2) !important;
-	border: 1px solid var(--paper-shadow) !important;
-	color: var(--ink) !important;
-	padding: 0 8px !important;
-	border-radius: 4px !important;
-	font-size: 12px !important;
-	cursor: pointer;
-	min-width: 50px;
-	height: $control-height !important;
-	max-height: $control-height !important;
-	min-height: $control-height !important;
-	box-sizing: border-box !important;
-	line-height: normal !important;
-	vertical-align: middle;
-
-	&:hover {
-		background: var(--hover) !important;
-	}
-
-	&:focus {
-		outline: none;
-		border-color: var(--cyan) !important;
-		background: var(--paper-2) !important;
-		color: var(--ink) !important;
-	}
-}
-
 // Shared dashboard section header.
 .newspack-nodes-inflight-header,
 .newspack-nodes-request-stream-header,
