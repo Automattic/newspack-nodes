@@ -2212,16 +2212,20 @@
 		font-size: 16px;
 	}
 
-	// Rounded controls (DESIGN.product) instead of the square chrome — header
-	// selects + mode group, inspector action buttons, the edit-mode delete, and
-	// the routing target select / edit-row inputs (which were left square).
-	.topology-select,
+	// Rounded controls (DESIGN.product) instead of the square chrome — the mode
+	// group, the edit-mode delete, and the routing target select / edit-row inputs.
+	// The console dropdown menus + inspector command buttons deliberately stay
+	// square here (base --topology-select / button radius is 0, so just omitting
+	// them keeps the crisp edge), and the buttons take a thinner 1px border.
 	.topology-mode,
-	.topology-insp__actions button,
-	.topology-insp__commands button,
 	.topology-edit-delete,
 	.topology-edit-row__input {
 		border-radius: 8px;
+	}
+
+	.topology-insp__actions button,
+	.topology-insp__commands button {
+		border-width: 1px;
 	}
 
 	// Routing target pills + the "+ add target" affordance: smaller radius.
