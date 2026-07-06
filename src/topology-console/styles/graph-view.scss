@@ -2228,7 +2228,8 @@
 	}
 
 	.topology-insp__actions button,
-	.topology-insp__commands button {
+	.topology-insp__commands button,
+	.topology-modal__btn {
 		border-width: 1px;
 	}
 }
@@ -3008,7 +3009,7 @@
 
 .topology-modal {
 	background: var(--paper);
-	border: 2px solid var(--ink);
+	border: 2px solid var(--paper-shadow);
 	min-width: 360px;
 	max-width: 560px;
 	font-family: var(--font-mono);
