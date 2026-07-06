@@ -128,7 +128,10 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			content: none;
 		}
 
-		&:checked {
+		// Checked AND indeterminate (partial-selection) fill the box, so the
+		// checkmark / dash SVG contrasts against it.
+		&:checked,
+		&:indeterminate {
 			background: var( --cyan );
 			border-color: var( --cyan );
 		}
