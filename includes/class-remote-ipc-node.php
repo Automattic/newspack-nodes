@@ -123,6 +123,9 @@ class Remote_IPC_Node extends Remote_Link_Node {
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
+			// Explicit — the parent Remote_Link_Node is 'Hidden' (never used
+			// directly), so pin this palette-droppable subclass to I/O.
+			'category'    => 'I/O',
 			'description' => 'Per-worker interactive command channel: cd onto it and commands ride to the remote worker.',
 			'has_target' => false,
 		] );
