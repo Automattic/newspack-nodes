@@ -96,21 +96,58 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		box-shadow: none;
 	}
 
-	// Bare checkboxes (no @wordpress CheckboxControl wrapper — e.g. the compose
-	// modal): restore the native control + accent so they aren't WP-admin's white
-	// box. `color-scheme` is set per-skin below (dark skins only), so a light skin
-	// keeps a light native box.
-	input[type="checkbox"]:not( .components-checkbox-control__input ),
-	input[type="radio"]:not( .components-checkbox-control__input ) {
-		appearance: auto;
-		background: none;
-		border: none;
+	// Bare checkboxes (compose modal, console verb toggles): draw the SAME themed
+	// box + check as CheckboxControl below, so every checkbox in every surface is
+	// identical — no native rendering, no color-scheme dependence.
+	input[type="checkbox"]:not( .components-checkbox-control__input ) {
+		appearance: none;
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		background: transparent;
+		border: 1px solid var( --paper-shadow );
+		border-radius: 2px;
 		box-shadow: none;
-		accent-color: var( --cyan );
+		position: relative;
+		cursor: pointer;
 
 		&::before {
 			content: none;
 		}
+
+		&:checked,
+		&:indeterminate {
+			background: var( --cyan );
+			border-color: var( --cyan );
+		}
+
+		// Drawn checkmark (tick) — matches the CheckboxControl SVG's --paper fill.
+		&:checked::after {
+			content: "";
+			position: absolute;
+			top: 2px;
+			left: 5px;
+			width: 3px;
+			height: 7px;
+			border: solid var( --paper );
+			border-width: 0 2px 2px 0;
+			transform: rotate( 45deg );
+		}
+
+		// Drawn dash for the indeterminate (partial-selection) state.
+		&:indeterminate::after {
+			content: "";
+			position: absolute;
+			top: 6px;
+			left: 3px;
+			width: 8px;
+			height: 2px;
+			background: var( --paper );
+		}
+	}
+
+	input[type="radio"]:not( .components-checkbox-control__input ) {
+		accent-color: var( --cyan );
 	}
 
 	// @wordpress CheckboxControl (the hook / custom-event pickers): draw a fully
