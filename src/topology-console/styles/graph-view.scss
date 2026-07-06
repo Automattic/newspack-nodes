@@ -2749,11 +2749,7 @@
 // =====================================================================
 
 // Scoped under .topology-app so the REPL input outranks WP-admin's form styling.
-// Anchor matches the shared `_controls.scss` idiom (doubled `.topology-app` +
-// `.newspack-nodes-theme`) so the terminal REPL input OWNS its transparent look
-// at a higher specificity (0,4,0) than the shared form-control theming (0,3,1) —
-// no `:not(.topology-repl__input)` carve-out needed over there.
-.topology-app.topology-app.newspack-nodes-theme .topology-repl {
+.topology-app .topology-repl {
 	grid-area: repl;
 	position: relative;
 	border-top: 1px solid var(--ink);
