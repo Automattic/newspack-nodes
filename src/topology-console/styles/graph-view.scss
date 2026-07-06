@@ -1670,8 +1670,13 @@
 	opacity: 0.85;
 }
 
-.topology-edit-chip__name {
+// A <code> element — strip WordPress admin's default `code` background + padding
+// (`.wp-core-ui code`), which showed as an odd inner fill behind just the label.
+.topology-app .topology-edit-chip__name {
 	font-family: var(--font-mono);
+	background: none;
+	padding: 0;
+	color: inherit;
 }
 
 .topology-edit-chip__clear {
