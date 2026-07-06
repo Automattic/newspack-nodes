@@ -297,10 +297,19 @@ describe( 'InspectorTab interactions', () => {
 		expect( seen[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	} );
 
-	it( 'passes composeTargets derived from the local graph (_command_interpreter first, every node + its :config sidecar, NOT Core.nodes)', () => {
+	it( 'passes composeTargets derived from the local graph (_command_interpreter first; a node offers its :config sidecar only when it has one, NOT Core.nodes)', () => {
 		mountExospine();
 		const a = new Node();
 		a.name = 'a';
+		// Give `a` a real `:config` sidecar (a patron-linked plumbing sibling, so
+		// it's hidden from the node list but registered in Core) — that's what
+		// makes `a` report has_config and offer `a:config` as a target.
+		const aConfig = new Node();
+		aConfig.name = 'a:config';
+		aConfig.patron = a;
+		// `b` has NO sidecar → it must NOT offer `b:config`.
+		const b = new Node();
+		b.name = 'b';
 		const InspectorTab = require( '../tabs/InspectorTab' ).default;
 		render(
 			<InspectorTab
@@ -313,6 +322,9 @@ describe( 'InspectorTab interactions', () => {
 		expect( targets[ 0 ] ).toBe( '_command_interpreter' );
 		expect( targets ).toContain( 'a' );
 		expect( targets ).toContain( 'a:config' );
+		// `b` has no sidecar → present, but no synthesized `b:config`.
+		expect( targets ).toContain( 'b' );
+		expect( targets ).not.toContain( 'b:config' );
 		// `_router` is a REAL registered Core node (mountExospine creates it)
 		// but is SCAFFOLDING-hidden from the local graph — its absence here
 		// proves composeTargets is sourced from `graph.nodes`, not `Core.nodes`.

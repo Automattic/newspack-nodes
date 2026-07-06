@@ -77,6 +77,7 @@ describe( 'parseMetadata', () => {
 				bytesWritten: 0,
 				accepts_fill: true,
 				has_target: true,
+				has_config: false,
 				targets: [ 'beta' ],
 				target: 'beta',
 			},
