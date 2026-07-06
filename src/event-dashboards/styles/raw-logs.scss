@@ -10,7 +10,7 @@
 @use "base";
 
 .newspack-nodes-raw-logs {
-	background: base.$dark-bg;
+	background: var(--paper-3);
 	color: base.$dark-text;
 	padding: 10px 20px;
 	height: 100%;

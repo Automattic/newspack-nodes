@@ -54,6 +54,9 @@
 	min-height: 0;
 	overflow-y: auto;
 	overflow-x: hidden;
+	// The overview content bg — the darkest/base surface everything sits on.
+	// The full-bleed console tab covers this with its own canvas.
+	background: var(--paper-3);
 
 	&.is-full-bleed {
 		overflow: hidden;

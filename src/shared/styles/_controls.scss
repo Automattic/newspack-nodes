@@ -35,7 +35,9 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	.components-text-control__input,
 	.components-search-control__input {
 		appearance: none;
-		background-color: color-mix(in srgb, var(--ink) 6%, transparent);
+		// The lightest/innermost surface in every skin — fields read as elevated
+		// wells that pop off their panel (safe now the ramp puts --paper lightest).
+		background-color: var(--paper);
 		border: 2px solid color-mix(in srgb, var(--ink) 24%, transparent);
 		border-radius: 0;
 		color: var(--ink);
@@ -73,6 +75,14 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		background-position: right 8px center;
 		background-size: 8px;
 		cursor: pointer;
+	}
+
+	// @wordpress SelectControl also renders its OWN chevron icon in the suffix, on
+	// top of our background-image one — two overlapping carets ("scuffed"). Hide the
+	// @wordpress one (select controls only, so text-input suffixes survive) so it
+	// matches the bare console <select>, which has just the single background chevron.
+	.components-select-control .components-input-control__suffix {
+		display: none;
 	}
 
 	input:not([type="checkbox"]):not([type="radio"]):not(.topology-repl__input),

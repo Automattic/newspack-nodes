@@ -48,7 +48,7 @@
 	z-index: 999998;
 	// Theme tokens (DebugPanel wraps the panel in `.topology-app.theme-<x>`), so
 	// the chrome follows whatever skin is active instead of a fixed colour.
-	background: var(--paper);
+	background: var(--paper-3);
 	border: 2px solid var(--paper-shadow);
 	// The shared tab bar colours its labels from --nodes-devtools-fg, which
 	// defaults to #fff (invisible on the light panel). The hub sets this on its
