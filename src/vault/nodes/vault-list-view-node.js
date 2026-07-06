@@ -9,7 +9,7 @@ import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
  * `fill()` receives the raw reply Messages HttpOutNode feeds back from POST
  * /command (router peels the reply's TO = `vault:list`). It extends the shared
  * SliceViewNode for the TM_ERROR / pending-settle plumbing, but overrides the
- * success path because the `list` verb returns a LIVE `{ server_id:{} }` map
+ * success path because the `list` verb returns a LIVE `{ vault_id:{} }` map
  * already decoded as `value.payload` (not a JSON string), and the slice is the
  * `Object.values` array — not the raw map.
  *

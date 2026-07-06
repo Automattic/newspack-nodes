@@ -9,7 +9,7 @@
  * /command: the router peels the reply's TO (= `vault:list`) and delivers them
  * here. VALUE is the `{ name, payload }` envelope.
  *
- * On a `list` reply the node turns the raw `{ server_id:{} }` map into the
+ * On a `list` reply the node turns the raw `{ vault_id:{} }` map into the
  * render model — `servers` (Object.values → array), clears `loading` + `error`.
  * On an un-correlated TM_ERROR it surfaces the error string (table banner) and
  * keeps the prior servers. A pending-matched reply (a mutation the caller is
