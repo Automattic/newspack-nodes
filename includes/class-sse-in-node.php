@@ -66,8 +66,8 @@ class SSE_In_Node extends Node {
 	protected string $auth_token    = '';
 	protected string $subscribe     = '';
 
-	private bool $verify_ssl    = true;
-	private bool $require_https  = false;
+	private bool $verify_ssl   = true;
+	private bool $require_ssl  = false;
 
 	/** Owned multi handle, registered with the Event_Framework. */
 	private ?\CurlMultiHandle $multi = null;
@@ -132,7 +132,7 @@ class SSE_In_Node extends Node {
 			return false;
 		}
 
-		if ( $this->require_https && \stripos( $this->url, 'https://' ) !== 0 ) {
+		if ( $this->require_ssl && \stripos( $this->url, 'https://' ) !== 0 ) {
 			$this->last_error = 'refusing non-HTTPS URL';
 			$this->print_less_often( "ERROR: disconnected - non-HTTPS URL refused: {$this->url}" );
 			$this->increase_backoff();
@@ -182,7 +182,7 @@ class SSE_In_Node extends Node {
 			\CURLOPT_HTTPHEADER     => $headers,
 			\CURLOPT_SSL_VERIFYPEER => $this->verify_ssl,
 			\CURLOPT_SSL_VERIFYHOST => $this->verify_ssl ? 2 : 0,
-			\CURLOPT_PROTOCOLS      => $this->require_https ? \CURLPROTO_HTTPS : ( \CURLPROTO_HTTPS | \CURLPROTO_HTTP ),
+			\CURLOPT_PROTOCOLS      => $this->require_ssl ? \CURLPROTO_HTTPS : ( \CURLPROTO_HTTPS | \CURLPROTO_HTTP ),
 			\CURLOPT_WRITEFUNCTION  => function ( \CurlHandle $h, string $bytes ): int {
 				return $this->on_curl_data( $h, $bytes );
 			},
@@ -604,7 +604,7 @@ class SSE_In_Node extends Node {
 	 * @param array{segment?:int,offset?:int} $positions Initial cursor.
 	 * @param string             $source        Unused/reserved (formerly the _source server id).
 	 * @param bool               $verify_ssl    Verify the remote SSL cert.
-	 * @param bool               $require_https Refuse non-HTTPS remote URLs.
+	 * @param bool               $require_ssl   Refuse non-HTTPS remote URLs.
 	 */
 	public function configure(
 		string $url,
@@ -615,7 +615,7 @@ class SSE_In_Node extends Node {
 		array $positions      = [],
 		string $source        = '',
 		bool $verify_ssl      = true,
-		bool $require_https   = false
+		bool $require_ssl     = false
 	): void {
 		$this->url           = \rtrim( $url, '/' );
 		$this->auth_username = $auth_username;
@@ -623,7 +623,7 @@ class SSE_In_Node extends Node {
 		$this->auth_token    = $auth_token;
 		$this->subscribe     = $subscribe;
 		$this->verify_ssl    = $verify_ssl;
-		$this->require_https = $require_https;
+		$this->require_ssl   = $require_ssl;
 		$this->position      = [
 			'segment' => \max( 0, $positions['segment'] ?? 0 ),
 			'offset'     => \max( 0, $positions['offset'] ?? 0 ),

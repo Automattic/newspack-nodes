@@ -54,13 +54,13 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	public static ?\Closure $curl_result = null;
 
-	/** Vault server id whose url + credentials this node POSTs to. */
-	protected string $server_id = '';
+	/** Vault id whose url + credentials this node POSTs to. */
+	protected string $vault_id = '';
 
 	/** @var \CurlMultiHandle|null Owned multi handle; created + registered lazily on first fill(). */
 	protected ?\CurlMultiHandle $multi = null;
 
-	/** @var array<int,array{handle:\CurlHandle,server_id:string,url:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
+	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
 	protected array $inflight = [];
 
 	/** @var array<int,array<int,mixed>> Packed TM_COMMAND envelopes buffered between fill() and the next fire(). */
@@ -74,7 +74,7 @@ class HTTP_Out_Node extends Timer_Node {
 		parent::__construct();
 	}
 
-	/** Assign server_id from the positional token via the schema; gated on a non-empty string. */
+	/** Assign vault_id from the positional token via the schema; gated on a non-empty string. */
 	public function arguments( ?string $args = null ): string {
 		if ( null === $args ) {
 			return parent::arguments();
@@ -128,7 +128,7 @@ class HTTP_Out_Node extends Timer_Node {
 			return;
 		}
 
-		$server = Vault::get_instance()->get( $this->server_id );
+		$server = Vault::get_instance()->get( $this->vault_id );
 		$url    = \is_array( $server ) ? \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) : '';
 		if ( '' === $url ) {
 			$dropped = \count( $batch );
@@ -139,9 +139,9 @@ class HTTP_Out_Node extends Timer_Node {
 		$cfg = Config::load_config();
 		// Refuse a plaintext spoke when the operator requires HTTPS (mirrors the
 		// legacy heartbeat HTTPS guard): drop the batch, no POST.
-		if ( ( $cfg['vault_require_https'] ?? false ) && ! \str_starts_with( $url, 'https://' ) ) {
+		if ( ( $cfg['vault_require_ssl'] ?? false ) && ! \str_starts_with( $url, 'https://' ) ) {
 			$dropped = \count( $batch );
-			$this->print_less_often( "vault_require_https set but url is not https; dropping {$dropped} message(s)" );
+			$this->print_less_often( "vault_require_ssl set but url is not https; dropping {$dropped} message(s)" );
 			return;
 		}
 
@@ -199,9 +199,9 @@ class HTTP_Out_Node extends Timer_Node {
 		// Keep the handle alive in $inflight: a freed handle's spl_object_id is
 		// reused, so dropping it would collide the next enqueue's key.
 		$this->inflight[ \spl_object_id( $easy ) ] = [
-			'handle'    => $easy,
-			'server_id' => $this->server_id,
-			'url'       => $url,
+			'handle'   => $easy,
+			'vault_id' => $this->vault_id,
+			'url'      => $url,
 		];
 	}
 
@@ -235,8 +235,7 @@ class HTTP_Out_Node extends Timer_Node {
 			return;
 		}
 
-		$id        = \spl_object_id( $easy );
-		$server_id = $this->inflight[ $id ]['server_id'] ?? $this->server_id;
+		$id = \spl_object_id( $easy );
 
 		$result = $info['result'] ?? \CURLE_OK;
 		if ( \CURLE_OK !== $result ) {
@@ -343,7 +342,7 @@ class HTTP_Out_Node extends Timer_Node {
 			'description' => 'Outbound: POSTs each message as a TM_COMMAND to a remote spoke /command (non-blocking).',
 			'has_target'  => false,
 			'arguments'   => [
-				[ 'name' => 'server_id', 'type' => 'string', 'required' => true ],
+				[ 'name' => 'vault_id', 'type' => 'vault_id', 'required' => true ],
 			],
 			'commands'    => [],
 			'requests'    => [],

@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`--hover` collapse on extreme-resting controls.** Buttons/controls that hover to `--hover` now rest at the middle surface `--paper-2` so the step is always visible — `--hover` resolves to `--paper-3` in light skins and `--paper` in dark skins, so a `--paper`-resting element (the `secondary` mixin) showed no hover feedback in dark skins and a `--paper-3`-resting one (toolbar buttons, the refresh-interval select) showed none in light skins. Newspack node-card hover is restated at 4-class specificity so the per-skin resting-fill override no longer clobbers it.
+- HTTPS-required vault guard (`vault_require_ssl`) is now actually honored — it read an undeclared `vault_require_https` key and never fired; the setting is opt-in (default off).
 
 ## [0.27.1] - 2026-07-05
 
