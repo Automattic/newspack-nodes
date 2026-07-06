@@ -74,32 +74,18 @@
 	}
 }
 
-// @wordpress/components reskin — the box-shadow-outline variant WP core needs
-// (WP paints its own border; an inset shadow avoids fighting it). Consumed BOTH
-// by ThemedRoot (dashboards, in DOM flow) AND by each modal frame — modals
-// portal to <body> and escape ThemedRoot's subtree, so they must re-declare;
-// pulling it from here means the two can never drift. `@include` inside the
-// dashboard root / modal-frame selector.
+// Toolbar button theming — the raw WP `.button` keeps its NATIVE WordPress /
+// Newspack look on purpose (that's the "WordPress-default button in the newspack
+// theme" we want); this mixin adds ONLY the two toolbar state modifiers and the
+// @wordpress/components box-shadow-outline reskin (WP paints its own border; an
+// inset shadow avoids fighting it). Consumed BOTH by the dashboard roots (in DOM
+// flow) AND by each modal frame — modals portal to <body> and escape the theme
+// subtree, so they must re-declare; pulling it from here means the two can never
+// drift. `@include` inside the dashboard root / modal-frame selector.
 @mixin wp-reskin {
-	// Raw WP `.button` (e.g. the "Find" button) + its !important disabled state
-	// (WP's `.wp-core-ui .button:disabled` paints a gray border at high
-	// specificity — match both states to kill the stray white border).
-	button.button {
-		appearance: none;
-		background: var(--paper) !important;
-		color: var(--ink) !important;
-		border: 1px solid var(--paper-shadow) !important;
-	}
-
-	button.button:disabled {
-		background: var(--paper) !important;
-		color: var(--ink-3) !important;
-		border-color: var(--paper-shadow) !important;
-	}
-
 	// The two toolbar state modifiers every dashboard button needs (column-picker
 	// toggled open, stream paused) — defined once here so no toolbar reinvents its
-	// own active/paused colors.
+	// own active/paused colors. Out-specify native `.button` (0,2,1 > 0,2,0).
 	button.button.is-active {
 		@include toggle-active;
 	}
