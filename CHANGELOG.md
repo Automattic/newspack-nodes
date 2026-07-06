@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Dashboard toolbar controls collapsed onto one canonical class set.** Every dashboard toolbar uses one shared class per control type — `.newspack-nodes-toolbar` / `.newspack-nodes-search-input` / `.button` (the WordPress-default look via `wp-reskin`) / `.newspack-nodes-select` / `.newspack-nodes-column-picker` / `.newspack-nodes-toolbar-stats` — defined once in `src/shared/styles/_inputs.scss` (renamed from `_buttons.scss`). The per-dashboard `*-search`/`*-btn`/`*-controls` selectors and the parallel `dark-button`/`dark-search-input`/`secondary-button`/`dark-stats`/`dark-column-picker` mixins are removed; `<input>`/`<select>` color/border still come from the shared `_controls.scss` bare-element theming, so the canonical classes carry layout only.
+- **Dashboard toolbar controls collapsed onto one canonical class set.** Every dashboard toolbar uses one shared class per control type — `.newspack-nodes-toolbar` / `.newspack-nodes-search-input` / `.button` (the native WordPress/Newspack button look — `wp-reskin` no longer overrides it, only adds the `.is-active`/`.is-paused` toolbar states + `@wordpress` component theming) / `.newspack-nodes-select` / `.newspack-nodes-column-picker` / `.newspack-nodes-toolbar-stats` — defined once in `src/shared/styles/_inputs.scss` (renamed from `_buttons.scss`). The per-dashboard `*-search`/`*-btn`/`*-controls` selectors and the parallel `dark-button`/`dark-search-input`/`secondary-button`/`dark-stats`/`dark-column-picker` mixins are removed; `<input>`/`<select>` color/border still come from the shared `_controls.scss` bare-element theming, so the canonical classes carry layout only.
 
 ### Added
 
