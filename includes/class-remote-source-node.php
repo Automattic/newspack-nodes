@@ -582,6 +582,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
+			// Explicit — the parent Remote_Link_Node is 'Hidden' (never used
+			// directly), so pin this palette-droppable subclass to I/O.
+			'category'    => 'I/O',
 			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
 			// The time-travel verbs (set_snapshot_node, set_line_mode, SEEK_FRAME,
 			// PAUSE, PLAY, STEP) are shared with Consumer via the Time_Travel trait.

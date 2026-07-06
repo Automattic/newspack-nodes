@@ -336,7 +336,7 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	public static function node_schema(): array {
 		return [
-			'category'    => 'I/O',
+			'category'    => 'Hidden',
 			'description'  => 'Full-duplex SSE+HTTP channel base: composes an SSE_In + HTTP_Out and drives the slot-keepalive heartbeat tick.',
 			'arguments'    => [
 				[ 'name' => 'vault_id',         'type' => 'string', 'required' => true ],

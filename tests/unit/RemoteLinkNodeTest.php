@@ -92,7 +92,7 @@ class RemoteLinkNodeTest extends TestCase {
 
 	public function test_node_schema_is_visible_io_not_fillable(): void {
 		$schema = Remote_Link_Node::node_schema();
-		$this->assertSame( 'I/O', $schema['category'] );
+		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertArrayNotHasKey( 'hidden', $schema );
 		$this->assertFalse( $schema['accepts_fill'] );
 		$names = \array_column( $schema['arguments'], 'name' );
