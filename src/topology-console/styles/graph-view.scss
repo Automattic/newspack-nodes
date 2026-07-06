@@ -13,6 +13,7 @@
 // rides into both, so both get the tokens without a separate enqueued sheet.
 @use "../../theme/newspack-theme";
 @use "@newspack-nodes/shared/styles/controls";
+@use "@newspack-nodes/shared/styles/buttons";
 
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
@@ -197,7 +198,7 @@
 	align-items: center;
 	justify-content: center;
 	padding: 0;
-	background: var(--paper-3);
+	background: var(--paper-2);
 	color: var(--ink);
 	border: 2px solid var(--ink-4);
 	border-radius: 2px;
@@ -205,13 +206,13 @@
 	font: 700 12px/1 var(--font-mono);
 
 	&:hover {
-		background: var(--paper);
+		background: var(--hover);
 	}
 }
 
 .topology-palette {
 	grid-area: palette;
-	border-right: 1px solid var(--ink-4);
+	border-right: 1px solid var(--paper-shadow);
 	background: var(--paper-2);
 	padding: 14px 0 0;
 	overflow-y: auto;
@@ -267,7 +268,7 @@
 		transition: all 80ms ease;
 
 		&:hover {
-			background: var(--paper);
+			background: var(--hover);
 			border-left-color: var(--oxide);
 
 			.topology-palette__glyph {
@@ -788,7 +789,7 @@
 	}
 
 	&:hover &__bg {
-		fill: var(--canvas);
+		fill: var(--hover);
 	}
 
 	&.is-selected &__bg {
@@ -960,7 +961,7 @@
 	flex-direction: column;
 	min-height: 0;
 	background: var(--paper-2);
-	border-left: 1px solid var(--ink-4);
+	border-left: 1px solid var(--paper-shadow);
 	overflow: hidden;
 
 	&--collapsed {
@@ -1342,9 +1343,7 @@
 	margin-top: 18px;
 
 	button {
-		background: transparent;
-		border: 2px solid var(--ink-3);
-		color: var(--ink);
+		border: 2px solid;
 		padding: 8px 10px;
 		font: 700 10px var(--font-mono);
 		letter-spacing: 0.14em;
@@ -1353,30 +1352,14 @@
 		cursor: pointer;
 		transition: all 100ms ease;
 		border-radius: 0;
-
-		&:hover:not([disabled]) {
-			background: var(--ink);
-			color: var(--paper);
-		}
-
-		&[disabled] {
-			cursor: not-allowed;
-			opacity: 0.5;
-		}
+		@include buttons.secondary;
 
 		// Inverted/pressed state for toggles whose action is currently
 		// "in effect" (Trace = debug_state on, Tail = our session is
 		// in the Tee's target list). Mirrors the substrate state so
 		// the visual is authoritative.
 		&.is-active {
-			background: var(--oxide);
-			color: var(--paper);
-			border-color: var(--oxide-dark);
-		}
-
-		&.is-active:hover:not([disabled]) {
-			background: var(--oxide-dark);
-			color: var(--paper);
+			@include buttons.toggle-active;
 		}
 	}
 }
@@ -1478,18 +1461,13 @@
 	display: block;
 	margin: 8px 0 12px;
 	padding: 6px 12px;
-	background: var(--oxide);
-	color: var(--paper);
-	border: 2px solid var(--oxide-dark);
+	border: 2px solid;
 	font-family: var(--font-mono);
 	font-size: 11px;
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
 	cursor: pointer;
-}
-
-.topology-edit-delete:hover {
-	background: var(--oxide-dark);
+	@include buttons.danger;
 }
 
 .topology-edit-row {
@@ -1772,7 +1750,6 @@
 	padding: 0 18px;
 	gap: 24px;
 	z-index: 3;
-	box-shadow: 0 1px 0 var(--paper-shadow);
 }
 
 .topology-brand {
@@ -1901,6 +1878,8 @@
 			font-size: 18px;
 			line-height: 1;
 			color: var(--ink);
+			min-width: 24px;
+			height: 24px;
 
 			&:hover {
 				background: var(--oxide);
@@ -2191,6 +2170,11 @@
 		ry: 7px;
 	}
 
+	// Restated at 4 classes to outrank the equal-specificity resting-fill above.
+	.topology-node:hover .topology-node__bg {
+		fill: var(--hover);
+	}
+
 	// LOD (zoomed out) draws only the bare rect — a white card with a faint
 	// border vanishes on the white canvas. Restore the shared strong-ink LOD
 	// fill, which the equal-specificity __bg override above otherwise clobbers.
@@ -2225,13 +2209,9 @@
 		font-size: 16px;
 	}
 
-	// Rounded controls (DESIGN.product) instead of the square chrome — only the
-	// edit-mode delete button and the routing / edit-row inputs stay rounded here.
-	// The rest of the console chrome is kept SQUARE on newspack (base radius is 0,
-	// so just omitting them keeps the crisp edge): the dropdown menus + inspector
-	// command buttons, the mode group, and the tee-target chips + "+ add target"
-	// affordance. The command buttons also take a thinner 1px border.
-	.topology-edit-delete,
+	// Rounded controls (DESIGN.product): only the routing / edit-row INPUTS stay
+	// rounded. Every button is square on newspack (base radius 0) — including the
+	// delete button, which used to round here. Command buttons take a 1px border.
 	.topology-edit-row__input {
 		border-radius: 8px;
 	}
@@ -3175,37 +3155,15 @@
 	font-family: var(--font-mono);
 	font-size: 12px;
 	padding: 6px 14px;
-	background: var(--paper-2);
-	border: 2px solid var(--ink-3);
-	color: var(--ink);
+	border: 2px solid;
 	cursor: pointer;
-}
-
-.topology-modal__btn:hover {
-	background: var(--hover);
-}
-
-.topology-modal__btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
+	@include buttons.secondary;
 }
 
 .topology-modal__btn--primary {
-	background: var(--ink);
-	color: var(--paper);
-	border-color: var(--ink);
-}
-
-.topology-modal__btn--primary:hover {
-	background: var(--ink-2);
+	@include buttons.primary;
 }
 
 .topology-modal__btn--danger {
-	background: var(--oxide);
-	color: var(--paper);
-	border-color: var(--oxide-dark);
-}
-
-.topology-modal__btn--danger:hover {
-	background: var(--oxide-dark);
+	@include buttons.danger;
 }

@@ -11,7 +11,7 @@
 
 .newspack-nodes-raw-logs {
 	background: var(--paper-3);
-	color: base.$dark-text;
+	color: var(--ink);
 	padding: 10px 20px;
 	height: 100%;
 	display: flex;
@@ -26,7 +26,7 @@
 	min-height: 40px;
 	margin-bottom: 12px;
 	padding-bottom: 12px;
-	border-bottom: 1px solid base.$dark-header-border;
+	border-bottom: 1px solid var(--paper-shadow);
 	flex-shrink: 0;
 }
 
@@ -41,9 +41,9 @@ select.newspack-nodes-raw-logs-select {
 	-webkit-appearance: none;
 	-moz-appearance: none;
 	appearance: none;
-	background: base.$dark-bg-tertiary;
-	border: 2px solid base.$dark-border;
-	color: base.$dark-text;
+	background: var(--paper-2);
+	border: 2px solid var(--paper-shadow);
+	color: var(--ink);
 	padding: 0 8px;
 	border-radius: base.$border-radius;
 	font-size: 12px;
@@ -52,19 +52,19 @@ select.newspack-nodes-raw-logs-select {
 	height: 28px;
 
 	&:hover {
-		background: base.$dark-bg-hover;
-		color: base.$dark-text;
+		background: var(--hover);
+		color: var(--ink);
 	}
 
 	&:focus {
 		outline: none;
-		border-color: base.$dark-accent;
-		color: base.$dark-text;
+		border-color: var(--cyan);
+		color: var(--ink);
 	}
 
 	option {
-		background: base.$dark-bg;
-		color: base.$dark-text;
+		background: var(--paper-2);
+		color: var(--ink);
 	}
 }
 
@@ -85,7 +85,7 @@ input.newspack-nodes-raw-logs-search {
 .newspack-nodes-raw-logs-rps {
 	font-family: base.$mono-font;
 	font-size: 11px;
-	color: base.$dark-text-dim;
+	color: var(--ink-3);
 	margin-left: 8px;
 }
 
@@ -109,7 +109,7 @@ input.newspack-nodes-raw-logs-search {
 		background: base.$warning-color;
 		border-color: base.$warning-color;
 		// Dark ink on amber — warning is a mid-tone, weak under white text.
-		color: base.$dark-text;
+		color: var(--ink);
 	}
 
 	&:disabled {
@@ -128,8 +128,8 @@ input.newspack-nodes-raw-logs-search {
 	position: relative;
 	overflow: hidden;
 	border-radius: var(--np-radius-md);
-	background: base.$term-bg;
-	border: 2px solid base.$term-border;
+	background: #1e1e1e;
+	border: 2px solid #3a3a3a;
 }
 
 .newspack-nodes-raw-logs-canvas {
@@ -158,16 +158,16 @@ input.newspack-nodes-raw-logs-search {
 	}
 
 	&::-webkit-scrollbar-track {
-		background: base.$term-bg;
+		background: #1e1e1e;
 		border-radius: 4px;
 	}
 
 	&::-webkit-scrollbar-thumb {
-		background: base.$term-border;
+		background: #3a3a3a;
 		border-radius: 4px;
 
 		&:hover {
-			background: base.$term-text-dim;
+			background: #949494;
 		}
 	}
 }
@@ -177,7 +177,7 @@ input.newspack-nodes-raw-logs-search {
 	align-items: center;
 	justify-content: center;
 	height: 100%;
-	color: base.$term-text-dim;
+	color: #949494;
 	font-size: 14px;
 	font-style: italic;
 }
@@ -189,7 +189,7 @@ input.newspack-nodes-raw-logs-search {
 	font-size: 12px;
 	line-height: 1.5;
 	white-space: pre;
-	color: base.$term-text;
+	color: #e6e6e6;
 }
 
 // Single div per line, partition via ::before pseudo-element.
@@ -200,11 +200,11 @@ input.newspack-nodes-raw-logs-search {
 	white-space: pre;
 
 	&.row-odd {
-		background: base.$term-bg-alt;
+		background: #262626;
 	}
 
 	&.row-even {
-		background: base.$term-bg;
+		background: #1e1e1e;
 	}
 
 	&:hover {
@@ -219,10 +219,10 @@ input.newspack-nodes-raw-logs-search {
 		width: 32px;
 		padding-right: 8px;
 		text-align: right;
-		color: base.$term-text-dim;
+		color: #949494;
 		font-size: 10px;
 		user-select: none;
-		border-right: 1px solid base.$term-border;
+		border-right: 1px solid #3a3a3a;
 		box-sizing: border-box;
 	}
 }

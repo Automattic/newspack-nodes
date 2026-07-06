@@ -1,0 +1,112 @@
+// =============================================================================
+// Unified button system — ONE source for button color-roles.
+// =============================================================================
+// Callers own FORM (font, radius, padding, border-width, text-transform) so each
+// surface renders in its own idiom; these mixins own COLOR-ROLE only
+// (background / text / border-color / hover / disabled), skin-aware via the
+// --paper / --ink / --cyan / --oxide / --hover tokens the ThemedRoot provider
+// supplies. A caller that draws a border sets `border-style`/`border-width`
+// itself; the mixin only paints `border-color`.
+
+// Shared disabled treatment (both :disabled and [disabled]).
+@mixin disabled {
+	&:disabled,
+	&[disabled] {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+}
+
+// Primary / confirm — the skin accent.
+@mixin primary {
+	background: var(--cyan);
+	color: var(--paper);
+	border-color: var(--cyan);
+	@include disabled;
+
+	&:hover:not(:disabled):not([disabled]) {
+		background: var(--cyan-dark);
+		border-color: var(--cyan-dark);
+	}
+}
+
+// Secondary / default — rests at the MIDDLE surface (--paper-2), never an
+// extreme, so the --hover step is always visible: --hover resolves to --paper-3
+// in light skins and --paper in dark skins, and paper-2 differs from both. (A
+// --paper resting would collapse against --hover in dark skins.)
+@mixin secondary {
+	background: var(--paper-2);
+	color: var(--ink);
+	border-color: var(--ink-3);
+	@include disabled;
+
+	&:hover:not(:disabled):not([disabled]) {
+		background: var(--hover);
+	}
+}
+
+// Danger / destructive.
+@mixin danger {
+	background: var(--oxide);
+	color: var(--paper);
+	border-color: var(--oxide-dark);
+	@include disabled;
+
+	&:hover:not(:disabled):not([disabled]) {
+		background: var(--oxide-dark);
+	}
+}
+
+// Toggle "in effect" pressed state (console verb buttons: Trace on, Tail on).
+@mixin toggle-active {
+	background: var(--oxide);
+	color: var(--paper);
+	border-color: var(--oxide-dark);
+
+	&:hover:not(:disabled):not([disabled]) {
+		background: var(--oxide-dark);
+		color: var(--paper);
+	}
+}
+
+// @wordpress/components reskin — the box-shadow-outline variant WP core needs
+// (WP paints its own border; an inset shadow avoids fighting it). Consumed BOTH
+// by ThemedRoot (dashboards, in DOM flow) AND by each modal frame — modals
+// portal to <body> and escape ThemedRoot's subtree, so they must re-declare;
+// pulling it from here means the two can never drift. `@include` inside the
+// dashboard root / modal-frame selector.
+@mixin wp-reskin {
+	// Raw WP `.button` (e.g. the "Find" button) + its !important disabled state
+	// (WP's `.wp-core-ui .button:disabled` paints a gray border at high
+	// specificity — match both states to kill the stray white border).
+	button.button {
+		appearance: none;
+		background: var(--paper) !important;
+		color: var(--ink) !important;
+		border: 1px solid var(--paper-shadow) !important;
+	}
+
+	button.button:disabled {
+		background: var(--paper) !important;
+		color: var(--ink-3) !important;
+		border-color: var(--paper-shadow) !important;
+	}
+
+	.components-button.is-secondary,
+	.components-button.is-tertiary {
+		background: var(--paper);
+		color: var(--ink);
+		box-shadow: inset 0 0 0 1px var(--paper-shadow);
+
+		&:hover:not(:disabled) {
+			background: var(--paper-3);
+			color: var(--cyan);
+			box-shadow: inset 0 0 0 1px var(--cyan);
+		}
+	}
+
+	.components-button.is-primary {
+		background: var(--cyan);
+		color: var(--paper);
+	}
+}

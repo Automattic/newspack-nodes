@@ -9,7 +9,7 @@
 // Worker Status Component - Full Page
 .worker-status-full {
 	padding: 20px 16px 16px;
-	color: base.$dark-text;
+	color: var(--ink);
 	font-family: base.$system-font;
 
 	.worker-status-total-rate {
@@ -30,14 +30,14 @@
 
 		.total-rate-label {
 			font-size: 14px;
-			color: base.$dark-text-dim;
+			color: var(--ink-3);
 			text-transform: uppercase;
 		}
 
 		.total-rate-value {
 			font-size: 20px;
 			font-weight: 600;
-			color: base.$dark-info;
+			color: var(--cyan);
 		}
 	}
 
@@ -63,8 +63,8 @@
 .worker-status-error {
 	padding: 24px;
 	text-align: center;
-	color: base.$light-text-muted;
-	background: base.$light-surface;
+	color: var(--ink-3);
+	background: var(--paper-2);
 	border-radius: 4px;
 }
 
@@ -76,14 +76,14 @@
 .log-name {
 	font-weight: 600;
 	font-size: 14px;
-	color: base.$dark-info;
+	color: var(--cyan);
 }
 
 .log-partition-row {
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	background: base.$dark-bg-deep;
+	background: var(--paper-2);
 	border-radius: 4px;
 	padding: 4px 8px;
 }
@@ -98,7 +98,7 @@
 
 .log-write-rate {
 	font-size: 10px;
-	color: base.$dark-info;
+	color: var(--cyan);
 	min-width: 70px;
 }
 
@@ -106,7 +106,7 @@
 .connector-name {
 	font-weight: 600;
 	font-size: 13px;
-	color: base.$dark-text;
+	color: var(--ink);
 	min-width: 150px;
 }
 
@@ -134,7 +134,7 @@
 
 .connector-heartbeat {
 	font-size: 10px;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 	min-width: 20px;
 
 	&.stale {
@@ -144,19 +144,19 @@
 
 .connector-rate {
 	font-size: 10px;
-	color: base.$dark-info;
+	color: var(--cyan);
 	min-width: 85px;
 
 	&.dead {
 		text-decoration: line-through;
-		color: base.$dark-text-placeholder;
+		color: var(--ink-3);
 		opacity: 0.5;
 	}
 }
 
 .connector-behind {
 	font-size: 10px;
-	color: base.$dark-text-placeholder;
+	color: var(--ink-3);
 	min-width: 50px;
 
 	&.warning {
@@ -166,12 +166,12 @@
 
 .connector-eta {
 	font-size: 10px;
-	color: base.$dark-info;
+	color: var(--cyan);
 	min-width: 40px;
 
 	&::before {
 		content: "ETA ";
-		color: base.$dark-text-placeholder;
+		color: var(--ink-3);
 	}
 
 	&.stalled {
@@ -231,7 +231,7 @@
 }
 
 .partition-label-inline {
-	color: base.$dark-text-placeholder;
+	color: var(--ink-3);
 	font-size: 12px;
 	font-weight: 600;
 }
@@ -325,7 +325,7 @@
 .segment-bar-h {
 	width: 100%;
 	height: 24px;
-	background: base.$dark-bg-deepest;
+	background: var(--paper-3);
 	border-radius: 3px;
 	overflow: hidden;
 	position: relative;
@@ -374,15 +374,15 @@
 }
 
 .no-segments-h {
-	color: base.$dark-text-dim;
+	color: var(--ink-3);
 	font-style: italic;
 	padding: 8px 0;
 }
 
 // Supervisor Section — a white card + border, matching the topology rows.
 .supervisor-section {
-	background: base.$dark-bg-secondary;
-	border: 2px solid base.$dark-border;
+	background: var(--paper-2);
+	border: 2px solid var(--paper-shadow);
 	border-radius: var(--np-radius-md);
 	padding: 8px 12px;
 	margin-bottom: 12px;
@@ -397,7 +397,7 @@
 .supervisor-name {
 	font-weight: 600;
 	font-size: 13px;
-	color: base.$dark-text;
+	color: var(--ink);
 	min-width: 150px;
 	font-family: base.$mono-font;
 }
@@ -422,7 +422,7 @@
 
 .supervisor-age {
 	font-size: 10px;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 	min-width: 24px;
 	font-family: base.$mono-font;
 }
@@ -448,7 +448,7 @@
 .tree-kids {
 	margin-left: 11px;
 	padding-left: 14px;
-	border-left: 1px solid base.$dark-border;
+	border-left: 1px solid var(--paper-shadow);
 }
 
 .caret {
@@ -456,7 +456,7 @@
 	width: 14px;
 	cursor: pointer;
 	font-size: 13px;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 	user-select: none;
 	transition: transform 0.1s;
 }

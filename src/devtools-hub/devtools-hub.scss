@@ -12,17 +12,14 @@
 	// The ONE shared brand header on top — give it the console's row height so it
 	// breathes, with the same soft theme-token divider as the tab bar below it.
 	.topology-header {
-		flex: 0 0 auto;
 		min-height: 64px;
-		border-bottom-color: var(--ink);
 	}
 
 	// The tab bar is a fixed-height row; the tab-content region takes the rest.
 	// Tinted + soft-underlined in theme tokens to match the debug overlay.
 	.nodes-devtools__tabbar {
-		flex: 0 0 auto;
 		background: var(--paper-2);
-		border-bottom: 1px solid var(--ink-4);
+		border-bottom: 1px solid var(--paper-shadow);
 	}
 
 	.topology-app {

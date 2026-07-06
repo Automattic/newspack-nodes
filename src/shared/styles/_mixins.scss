@@ -27,7 +27,7 @@
 // the cards/panels.
 @mixin secondary-button {
 	background: var(--paper);
-	color: $dark-text;
+	color: var(--ink);
 	border: 1.5px solid var(--ink-3);
 	border-radius: var(--np-radius-md);
 	cursor: pointer;
@@ -43,9 +43,9 @@
 
 // Dark theme button
 @mixin dark-button {
-	background: $dark-bg-tertiary;
-	border: 2px solid $dark-border;
-	color: $dark-text;
+	background: var(--paper-2);
+	border: 2px solid var(--paper-shadow);
+	color: var(--ink);
 	padding: 0 $space-sm;
 	border-radius: $border-radius;
 	cursor: pointer;
@@ -58,21 +58,21 @@
 	transition: all 0.2s;
 
 	&:hover {
-		background: $dark-bg-hover;
-		color: $dark-text;
+		background: var(--hover);
+		color: var(--ink);
 	}
 
 	&.active {
-		background: $dark-bg-active;
-		color: $dark-accent;
-		border-color: $dark-accent;
+		background: var(--cyan-subtle);
+		color: var(--cyan);
+		border-color: var(--cyan);
 	}
 }
 
 // Dark theme column picker
 @mixin dark-column-picker {
-	background: $dark-bg-secondary;
-	border: 2px solid $dark-border;
+	background: var(--paper-2);
+	border: 2px solid var(--paper-shadow);
 	border-radius: $border-radius;
 	padding: $space-sm $space-md;
 	margin-bottom: $space-md;
@@ -80,17 +80,17 @@
 	flex-wrap: wrap;
 	gap: $space-sm;
 	font-size: 12px;
-	color: $dark-text;
+	color: var(--ink);
 
 	label {
 		display: flex;
 		align-items: center;
 		gap: $space-xs;
-		color: $dark-text-muted;
+		color: var(--ink-3);
 		cursor: pointer;
 
 		&:hover {
-			color: $dark-text;
+			color: var(--ink);
 		}
 	}
 
@@ -110,13 +110,13 @@
 @mixin dark-stats-count {
 	font-family: $mono-font;
 	font-size: 12px;
-	color: $dark-text-muted;
+	color: var(--ink-3);
 }
 
 @mixin dark-stats-rps {
 	font-family: $mono-font;
 	font-size: 12px;
-	color: $dark-success;
+	color: var(--sage);
 	font-weight: 700;
 }
 
@@ -125,9 +125,9 @@
 	-webkit-appearance: none;
 	-moz-appearance: none;
 	appearance: none;
-	background: $dark-bg-secondary !important;
-	border: 2px solid $dark-border !important;
-	color: $dark-text !important;
+	background: var(--paper-2) !important;
+	border: 2px solid var(--paper-shadow) !important;
+	color: var(--ink) !important;
 	padding: 0 $space-md !important;
 	border-radius: $border-radius !important;
 	font-size: 13px !important;
@@ -142,14 +142,14 @@
 
 	&:focus {
 		outline: none;
-		border-color: $dark-accent !important;
-		background: $dark-bg-secondary !important;
-		color: $dark-text !important;
+		border-color: var(--cyan) !important;
+		background: var(--paper-2) !important;
+		color: var(--ink) !important;
 		box-shadow: $focus-shadow;
 	}
 
 	&::placeholder {
-		color: $dark-text-placeholder !important;
+		color: var(--ink-3) !important;
 	}
 }
 
@@ -161,15 +161,15 @@
 	display: grid;
 	gap: 8px;
 	padding: 8px 12px;
-	background: $light-surface;
-	border: 2px solid $light-border;
+	background: var(--paper-2);
+	border: 2px solid var(--ink-3);
 	border-bottom: none;
 	font-weight: 600;
 	font-size: 13px;
 }
 
 @mixin table-list {
-	border: 2px solid $light-border;
+	border: 2px solid var(--ink-3);
 }
 
 @mixin table-row {
@@ -178,15 +178,15 @@
 	padding: 0 12px;
 	align-items: center;
 	box-sizing: border-box;
-	border-bottom: 1px solid $light-border-light;
+	border-bottom: 1px solid var(--paper-shadow);
 	cursor: pointer;
 
 	&:hover {
-		background: $light-surface;
+		background: var(--paper-2);
 	}
 
 	&.selected {
-		background: $light-selected;
+		background: var(--cyan-subtle);
 	}
 }
 
@@ -213,7 +213,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	color: $light-text-muted;
+	color: var(--ink-3);
 	font-style: italic;
 }
 
