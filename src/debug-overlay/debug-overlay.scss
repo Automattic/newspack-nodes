@@ -49,7 +49,7 @@
 	// Theme tokens (DebugPanel wraps the panel in `.topology-app.theme-<x>`), so
 	// the chrome follows whatever skin is active instead of a fixed colour.
 	background: var(--paper);
-	border: 2px solid var(--ink);
+	border: 2px solid var(--paper-shadow);
 	// The shared tab bar colours its labels from --nodes-devtools-fg, which
 	// defaults to #fff (invisible on the light panel). The hub sets this on its
 	// own container; the embedded overlay must set it too — bind it to the theme
