@@ -134,9 +134,7 @@ describe( 'RawLogs', () => {
 			selected: 'firehose',
 		} );
 		const { container } = render( <RawLogs /> );
-		const select = container.querySelector(
-			'.newspack-nodes-raw-logs-select'
-		);
+		const select = container.querySelector( '.newspack-nodes-select' );
 		expect( select ).not.toBeNull();
 		expect( select.options.length ).toBe( 2 );
 		expect( select.value ).toBe( 'firehose' );
@@ -157,9 +155,7 @@ describe( 'RawLogs', () => {
 			selected: 'firehose',
 		} );
 		const { container } = render( <RawLogs /> );
-		const select = container.querySelector(
-			'.newspack-nodes-raw-logs-select'
-		);
+		const select = container.querySelector( '.newspack-nodes-select' );
 		fireEvent.change( select, { target: { value: 'errors' } } );
 		expect( selectLog ).toHaveBeenCalledWith( 'errors' );
 	} );
@@ -266,7 +262,7 @@ describe( 'RawLogs', () => {
 			} );
 			const { container } = render( <RawLogs /> );
 			fireEvent.change(
-				container.querySelector( '.newspack-nodes-raw-logs-select' ),
+				container.querySelector( '.newspack-nodes-select' ),
 				{ target: { value: 'errors' } }
 			);
 			expect(
@@ -287,11 +283,11 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		tickFrame();
 		const filter = container.querySelector(
-			'.newspack-nodes-raw-logs-search'
+			'.newspack-nodes-search-input'
 		);
 		expect( filter ).not.toBeNull();
 		const count = container.querySelector(
-			'.newspack-nodes-raw-logs-count'
+			'.newspack-nodes-toolbar-stats__count'
 		);
 		expect( count.textContent ).toMatch( /2.*lines/ );
 	} );
@@ -303,9 +299,7 @@ describe( 'RawLogs', () => {
 			paused: false,
 		} );
 		const { container } = render( <RawLogs /> );
-		const pause = container.querySelectorAll(
-			'.newspack-nodes-raw-logs-btn'
-		)[ 0 ];
+		const pause = container.querySelectorAll( 'button.button' )[ 0 ];
 		expect( pause.textContent ).toBe( '⏸' );
 		fireEvent.click( pause );
 		expect( setPaused ).toHaveBeenCalledWith( true );
@@ -318,9 +312,7 @@ describe( 'RawLogs', () => {
 			paused: true,
 		} );
 		const { container } = render( <RawLogs /> );
-		const pause = container.querySelectorAll(
-			'.newspack-nodes-raw-logs-btn'
-		)[ 0 ];
+		const pause = container.querySelectorAll( 'button.button' )[ 0 ];
 		expect( pause.textContent ).toBe( '▶' );
 		fireEvent.click( pause );
 		expect( setPaused ).toHaveBeenCalledWith( false );
@@ -334,11 +326,13 @@ describe( 'RawLogs', () => {
 		} );
 		const { container } = render( <RawLogs /> );
 		tickFrame();
-		let count = container.querySelector( '.newspack-nodes-raw-logs-count' );
+		let count = container.querySelector(
+			'.newspack-nodes-toolbar-stats__count'
+		);
 		// Singular: one line renders "1 line" (the count is wrapped in `_n`).
 		expect( count.textContent.trim() ).toBe( '1 line' );
 		const clear = Array.from(
-			container.querySelectorAll( '.newspack-nodes-raw-logs-btn' )
+			container.querySelectorAll( 'button.button' )
 		).find( ( b ) => b.textContent === 'Clear' );
 		expect( clear ).not.toBeUndefined();
 		expect( clear.classList.contains( 'button' ) ).toBe( true );
@@ -346,7 +340,9 @@ describe( 'RawLogs', () => {
 		fireEvent.click( clear );
 		node.lines = [];
 		tickFrame();
-		count = container.querySelector( '.newspack-nodes-raw-logs-count' );
+		count = container.querySelector(
+			'.newspack-nodes-toolbar-stats__count'
+		);
 		expect( count.textContent ).toMatch( /0.*lines/ );
 	} );
 
@@ -357,7 +353,7 @@ describe( 'RawLogs', () => {
 		} );
 		const { container } = render( <RawLogs /> );
 		const filter = container.querySelector(
-			'.newspack-nodes-raw-logs-search'
+			'.newspack-nodes-search-input'
 		);
 		fireEvent.change( filter, { target: { value: 'foo' } } );
 		expect( filter.value ).toBe( 'foo' );
@@ -374,12 +370,12 @@ describe( 'RawLogs', () => {
 		} );
 		const { container } = render( <RawLogs /> );
 		const filter = container.querySelector(
-			'.newspack-nodes-raw-logs-search'
+			'.newspack-nodes-search-input'
 		);
 		fireEvent.change( filter, { target: { value: 'match' } } );
 		tickFrame();
 		const count = container.querySelector(
-			'.newspack-nodes-raw-logs-count'
+			'.newspack-nodes-toolbar-stats__count'
 		);
 		expect( count.textContent.trim() ).toBe( '1 / 2 lines' );
 	} );
@@ -393,7 +389,9 @@ describe( 'RawLogs', () => {
 		} );
 		const { container } = render( <RawLogs /> );
 		tickFrame();
-		const rps = container.querySelector( '.newspack-nodes-raw-logs-rps' );
+		const rps = container.querySelector(
+			'.newspack-nodes-toolbar-stats__rps'
+		);
 		expect( rps ).not.toBeNull();
 		expect( rps.textContent ).toMatch( /4\.2 lines\/s/ );
 	} );

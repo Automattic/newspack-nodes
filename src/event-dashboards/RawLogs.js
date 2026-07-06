@@ -407,7 +407,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 	// the hub slot (portal); `null` = slot pending (render nothing, no flash);
 	// `undefined` = standalone (e.g. tests) → render inline.
 	const controls = (
-		<div className="newspack-nodes-raw-logs-controls">
+		<div className="newspack-nodes-toolbar">
 			{ availableLogs.length === 0 && (
 				<span className="newspack-nodes-raw-logs-status">
 					{ __( 'No logs available', 'newspack-nodes' ) }
@@ -415,7 +415,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 			) }
 			{ availableLogs.length > 0 && (
 				<select
-					className="newspack-nodes-raw-logs-select"
+					className="newspack-nodes-select"
 					value={ selectedLog }
 					onChange={ ( e ) => handleSelectLog( e.target.value ) }
 				>
@@ -429,14 +429,14 @@ export default function RawLogs( { headerControlsSlot } ) {
 
 			<input
 				type="text"
-				className="newspack-nodes-raw-logs-search"
+				className="newspack-nodes-search-input"
 				placeholder={ __( 'Filter…', 'newspack-nodes' ) }
 				value={ filter }
 				onChange={ ( e ) => setFilter( e.target.value ) }
 			/>
 
-			<span className="newspack-nodes-raw-logs-stats">
-				<span className="newspack-nodes-raw-logs-count">
+			<span className="newspack-nodes-toolbar-stats">
+				<span className="newspack-nodes-toolbar-stats__count">
 					{ filter
 						? sprintf(
 								// translators: 1: number of matching lines, 2: total number of lines.
@@ -461,7 +461,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 						  ) }
 				</span>
 				{ linesPerSecond > 0 && (
-					<span className="newspack-nodes-raw-logs-rps">
+					<span className="newspack-nodes-toolbar-stats__rps">
 						{ sprintf(
 							// translators: %s: lines-per-second rate (one decimal place).
 							__( '%s lines/s', 'newspack-nodes' ),
@@ -487,9 +487,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 			</span>
 
 			<button
-				className={ `newspack-nodes-raw-logs-btn button ${
-					isPaused ? 'paused' : ''
-				}` }
+				className={ `button ${ isPaused ? 'is-paused' : '' }` }
 				onClick={ () => setPaused( ! isPaused ) }
 				title={
 					isPaused
@@ -501,7 +499,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 			</button>
 
 			<button
-				className="newspack-nodes-raw-logs-btn button"
+				className="button"
 				onClick={ handleClear }
 				title={ __( 'Clear all lines', 'newspack-nodes' ) }
 			>

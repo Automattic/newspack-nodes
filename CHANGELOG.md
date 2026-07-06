@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dashboard toolbar controls collapsed onto one canonical class set.** Every dashboard toolbar uses one shared class per control type — `.newspack-nodes-toolbar` / `.newspack-nodes-search-input` / `.button` (the WordPress-default look via `wp-reskin`) / `.newspack-nodes-select` / `.newspack-nodes-column-picker` / `.newspack-nodes-toolbar-stats` — defined once in `src/shared/styles/_inputs.scss` (renamed from `_buttons.scss`). The per-dashboard `*-search`/`*-btn`/`*-controls` selectors and the parallel `dark-button`/`dark-search-input`/`secondary-button`/`dark-stats`/`dark-column-picker` mixins are removed; `<input>`/`<select>` color/border still come from the shared `_controls.scss` bare-element theming, so the canonical classes carry layout only.
+
 ### Added
 
 - **`vault_id` field type — Vault-reference node args render as a dropdown.** A node_schema arg (or verb arg) typed `vault_id` now renders in the topology console (and the debug overlay) as a `<select>` of registered Vault entries sourced from the `vault.list` verb — labelled `id — url` when a url is present — instead of a free-text field. Empty vault list falls back to free text (so `<config:…>` tokens still work), and a stored value not in the fetched list is preserved as a selected option. `Remote_Link`/`Remote_Source` (`vault_id`) and `HTTP_Out` (its `server_id` arg renamed to `vault_id`) now use this type, so both speak one vocabulary for a Vault reference.

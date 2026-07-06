@@ -13,7 +13,7 @@
 // rides into both, so both get the tokens without a separate enqueued sheet.
 @use "../../theme/newspack-theme";
 @use "@newspack-nodes/shared/styles/controls";
-@use "@newspack-nodes/shared/styles/buttons";
+@use "@newspack-nodes/shared/styles/inputs";
 
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
@@ -1352,14 +1352,14 @@
 		cursor: pointer;
 		transition: all 100ms ease;
 		border-radius: 0;
-		@include buttons.secondary;
+		@include inputs.secondary;
 
 		// Inverted/pressed state for toggles whose action is currently
 		// "in effect" (Trace = debug_state on, Tail = our session is
 		// in the Tee's target list). Mirrors the substrate state so
 		// the visual is authoritative.
 		&.is-active {
-			@include buttons.toggle-active;
+			@include inputs.toggle-active;
 		}
 	}
 }
@@ -1467,7 +1467,7 @@
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
 	cursor: pointer;
-	@include buttons.danger;
+	@include inputs.danger;
 }
 
 .topology-edit-row {
@@ -3157,13 +3157,13 @@
 	padding: 6px 14px;
 	border: 1px solid;
 	cursor: pointer;
-	@include buttons.secondary;
+	@include inputs.secondary;
 }
 
 .topology-modal__btn--primary {
-	@include buttons.primary;
+	@include inputs.primary;
 }
 
 .topology-modal__btn--danger {
-	@include buttons.danger;
+	@include inputs.danger;
 }
