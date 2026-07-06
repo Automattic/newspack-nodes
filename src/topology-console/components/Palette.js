@@ -12,7 +12,7 @@ import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
 // command/request buttons via catalog.find) but are NOT draggable in the palette.
 // Service CIs are mounted into the request graph, never make_node'd, so dragging
 // one would only mint a stray duplicate.
-const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service' ] );
+const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
 
 function groupByCategory( classes ) {
 	const out = {};

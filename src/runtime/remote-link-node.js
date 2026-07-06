@@ -199,7 +199,7 @@ export class RemoteLinkNode extends Node {
 
 	static nodeSchema() {
 		return {
-			category: 'I/O',
+			category: 'Remote',
 			description:
 				'Full-duplex SSE+HTTP channel: composes a SseIn, HttpOut and Heartbeat as one node.',
 			accepts_fill: false,

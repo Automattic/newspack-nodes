@@ -341,7 +341,7 @@ export class SseInNode extends Node {
 
 	static nodeSchema() {
 		return {
-			category: 'I/O',
+			category: 'Hidden',
 			description:
 				'Inbound SSE receive-ingress; composed (unnamed) by RemoteLink as the per-link stream.',
 			// accepts_fill is a UI wireability hint: SseIn is a pure ingress source
