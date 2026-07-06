@@ -5,7 +5,7 @@
  * and shared component classes that used to live inline here were extracted to
  * `@newspack-nodes/shared/styles/{tokens,mixins,components}` (pure dedup — same
  * values, one source). This file re-exports the tokens + mixins under the
- * `base` namespace so the sibling stylesheets keep resolving `base.$dark-text`,
+ * `base` namespace so the sibling stylesheets keep resolving `var(--ink)`,
  * `@include base.dark-search-input`, etc., and pulls in the shared component
  * CSS via `@use`.
  *

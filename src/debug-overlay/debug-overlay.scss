@@ -88,18 +88,18 @@
 	// faint-ink divider as the side panels below it.
 	.nodes-devtools__tabbar {
 		background: var(--paper-2);
-		border-bottom: 1px solid var(--ink-4);
+		border-bottom: 1px solid var(--paper-shadow);
 	}
 
 	// Soften the Console's side-panel inner dividers (palette → canvas, inspector
 	// → canvas) to the faint ink so they don't read as hard as the outer frame —
 	// theme-token based, so it tracks every skin.
 	.topology-palette {
-		border-right-color: var(--ink-4);
+		border-right-color: var(--paper-shadow);
 	}
 
 	.topology-inspector-dock {
-		border-left-color: var(--ink-4);
+		border-left-color: var(--paper-shadow);
 	}
 
 	// The InspectorTab's root wrapper. It now sits between the panel and

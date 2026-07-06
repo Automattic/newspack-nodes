@@ -12,7 +12,7 @@
 
 .aggregator-status-dashboard {
 	background: var(--paper-3);
-	color: base.$dark-text;
+	color: var(--ink);
 	font-family: base.$system-font;
 	min-height: 100%;
 	padding: 16px 20px;
@@ -29,7 +29,7 @@
 	align-items: center;
 	margin-bottom: 24px;
 	padding-bottom: 16px;
-	border-bottom: 1px solid base.$dark-header-border;
+	border-bottom: 1px solid var(--paper-shadow);
 }
 
 .aggregator-status-meta {
@@ -37,7 +37,7 @@
 	align-items: center;
 	gap: 16px;
 	font-size: 12px;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 }
 
 .aggregator-status-refresh-indicator {
@@ -47,7 +47,7 @@
 	min-width: 120px;
 
 	&.refreshing {
-		color: base.$dark-info;
+		color: var(--cyan);
 	}
 }
 
@@ -55,11 +55,11 @@
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
-	background: base.$dark-success;
+	background: var(--sage);
 	transition: background 0.2s ease;
 
 	&.refreshing {
-		background: base.$dark-info;
+		background: var(--cyan);
 		animation: pulse 1s ease-in-out infinite;
 	}
 }
@@ -79,10 +79,10 @@
 
 .aggregator-status-server-count {
 	font-family: base.$mono-font;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 
 	strong {
-		color: base.$dark-text;
+		color: var(--ink);
 	}
 }
 
@@ -99,11 +99,11 @@
 .aggregator-status-empty {
 	text-align: center;
 	padding: 48px 24px;
-	color: base.$dark-text-placeholder;
+	color: var(--ink-3);
 	font-size: 14px;
 	background: var(--paper);
 	border-radius: var(--np-radius-md);
-	border: 2px dashed base.$dark-border;
+	border: 2px dashed var(--paper-shadow);
 }
 
 // =============================================================================
@@ -134,12 +134,12 @@
 	font-family: base.$mono-font;
 	font-size: 14px;
 	font-weight: 600;
-	color: base.$dark-text;
+	color: var(--ink);
 }
 
 .aggregator-server-url {
 	font-size: 12px;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -148,7 +148,7 @@
 
 .aggregator-server-partition-count {
 	font-size: 11px;
-	color: base.$dark-text-dim;
+	color: var(--ink-3);
 	font-family: base.$mono-font;
 }
 
@@ -210,14 +210,14 @@
 	align-items: center;
 	gap: 8px;
 	padding-bottom: 6px;
-	border-bottom: 1px solid base.$dark-border;
+	border-bottom: 1px solid var(--paper-shadow);
 }
 
 .aggregator-partition-label {
 	font-family: base.$mono-font;
 	font-size: 12px;
 	font-weight: 600;
-	color: base.$dark-text;
+	color: var(--ink);
 }
 
 .aggregator-partition-stats {
@@ -235,14 +235,14 @@
 }
 
 .aggregator-partition-stat-label {
-	color: base.$dark-text-placeholder;
+	color: var(--ink-3);
 	text-transform: uppercase;
 	font-size: 9px;
 	letter-spacing: 0.3px;
 }
 
 .aggregator-partition-stat-value {
-	color: base.$dark-text;
+	color: var(--ink);
 	font-family: base.$mono-font;
 	display: flex;
 	align-items: center;
@@ -328,7 +328,7 @@
 
 .aggregator-connection-time {
 	font-size: 10px;
-	color: base.$dark-text-dim;
+	color: var(--ink-3);
 }
 
 // Heartbeat Section
@@ -346,7 +346,7 @@
 }
 
 .aggregator-heartbeat-label {
-	color: base.$dark-text-placeholder;
+	color: var(--ink-3);
 	min-width: 80px;
 	text-transform: uppercase;
 	font-size: 10px;
@@ -354,11 +354,11 @@
 }
 
 .aggregator-heartbeat-value {
-	color: base.$dark-text;
+	color: var(--ink);
 	font-family: base.$mono-font;
 
 	&.success {
-		color: base.$dark-success;
+		color: var(--sage);
 	}
 
 	&.error {
@@ -370,7 +370,7 @@
 	}
 
 	&.muted {
-		color: base.$dark-text-dim;
+		color: var(--ink-3);
 	}
 }
 
@@ -381,12 +381,12 @@
 
 	.rtt-value {
 		font-weight: 600;
-		color: base.$dark-info;
+		color: var(--cyan);
 	}
 
 	.rtt-unit {
 		font-size: 10px;
-		color: base.$dark-text-dim;
+		color: var(--ink-3);
 	}
 }
 
@@ -423,14 +423,14 @@
 	}
 
 	&.pending {
-		background: base.$dark-bg-tertiary;
-		color: base.$dark-text-muted;
+		background: var(--paper-2);
+		color: var(--ink-3);
 	}
 }
 
 .aggregator-heartbeat-rtt.small {
 	font-size: 10px;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 }
 
 // HTTP code rides the Status line as a quiet mono caption beside the heartbeat
@@ -439,7 +439,7 @@
 .aggregator-http-code {
 	font-family: base.$mono-font;
 	font-size: 10px;
-	color: base.$dark-text-dim;
+	color: var(--ink-3);
 }
 
 // Error Display
@@ -473,13 +473,13 @@
 	justify-content: center;
 	min-height: 200px;
 	gap: 16px;
-	color: base.$dark-text-muted;
+	color: var(--ink-3);
 
 	.spinner {
 		width: 32px;
 		height: 32px;
-		border: 3px solid base.$dark-border;
-		border-top-color: base.$dark-info;
+		border: 3px solid var(--paper-shadow);
+		border-top-color: var(--cyan);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
 	}

@@ -10,7 +10,7 @@
 
 .nodes-overview {
 	padding: 20px 16px 24px;
-	color: base.$dark-text;
+	color: var(--ink);
 	font-family: base.$system-font;
 
 	// ── Fold-all / Unfold-all toolbar (active topologies only) ─────────────
@@ -39,7 +39,7 @@
 		flex: 0 0 220px;
 		font-weight: 600;
 		font-size: 15px;
-		color: base.$dark-text;
+		color: var(--ink);
 		text-decoration: none;
 
 		// Only the active-topology name is an <a> (it has an href); the stopped
@@ -57,7 +57,7 @@
 		gap: 8px;
 		margin-top: 20px;
 		padding-top: 14px;
-		border-top: 1px solid base.$dark-border;
+		border-top: 1px solid var(--paper-shadow);
 	}
 
 	&__stopped-label {
@@ -65,7 +65,7 @@
 		font-weight: 600;
 		letter-spacing: 0.05em;
 		text-transform: uppercase;
-		color: base.$dark-text-dim;
+		color: var(--ink-3);
 		margin-right: 4px;
 	}
 
@@ -76,15 +76,15 @@
 		font-size: 12px;
 		padding: 4px 10px;
 		border-radius: 6px;
-		background: base.$dark-bg-secondary;
-		border: 2px solid base.$dark-border;
-		color: base.$dark-text-muted;
+		background: var(--paper-2);
+		border: 2px solid var(--paper-shadow);
+		color: var(--ink-3);
 
 		.nodes-overview__name {
 			flex: 0 0 auto;
 			font-size: 12px;
 			font-weight: 500;
-			color: base.$dark-text-muted;
+			color: var(--ink-3);
 		}
 	}
 }
@@ -101,14 +101,14 @@
 	position: relative;
 	// Light Newspack chart panel — a white card on the subtle hub backdrop.
 	background: var(--paper-2);
-	border: 2px solid base.$dark-border;
+	border: 2px solid var(--paper-shadow);
 	border-radius: var(--np-radius-md);
 	padding: 8px 10px;
 
 	&__title {
 		font-size: 12px;
 		font-weight: 600;
-		color: base.$dark-text;
+		color: var(--ink);
 		text-align: center;
 		margin-bottom: 4px;
 	}
@@ -119,12 +119,12 @@
 
 		// d3 axis ink on the light panel.
 		.tick text {
-			fill: base.$dark-text-muted;
+			fill: var(--ink-3);
 		}
 
 		.tick line,
 		.domain {
-			stroke: base.$dark-border;
+			stroke: var(--paper-shadow);
 		}
 	}
 
@@ -132,8 +132,8 @@
 		display: none;
 		position: absolute;
 		background: var(--paper);
-		color: base.$dark-text;
-		border: 2px solid base.$dark-border;
+		color: var(--ink);
+		border: 2px solid var(--paper-shadow);
 		box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
 		padding: 6px 10px;
 		border-radius: 4px;

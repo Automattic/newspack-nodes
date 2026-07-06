@@ -43,9 +43,9 @@
 .newspack-nodes-skeleton {
 	background: linear-gradient(
 		90deg,
-		$light-surface 25%,
-		$light-border-light 50%,
-		$light-surface 75%
+		var(--paper-2) 25%,
+		var(--paper-shadow) 50%,
+		var(--paper-2) 75%
 	);
 	background-size: 200% 100%;
 	animation: skeleton-pulse 1.5s ease-in-out infinite;
@@ -72,12 +72,12 @@
 // Empty states
 .newspack-nodes-empty-state,
 .newspack-nodes-no-selection {
-	color: $light-text-secondary;
+	color: var(--ink-3);
 	text-align: center;
 	padding: $space-xl $space-lg;
-	background: $light-surface;
+	background: var(--paper-2);
 	border-radius: $border-radius-lg;
-	border: 2px dashed $light-border;
+	border: 2px dashed var(--ink-3);
 
 	&::before {
 		content: "";
@@ -103,11 +103,11 @@
 	.newspack-nodes-stat-value {
 		font-size: 28px;
 		font-weight: 600;
-		color: $light-text;
+		color: var(--ink);
 	}
 
 	.newspack-nodes-stat-label {
-		color: $light-text-secondary;
+		color: var(--ink-3);
 		font-size: 14px;
 	}
 }
@@ -118,7 +118,7 @@
 	justify-content: space-between;
 	align-items: center;
 	padding: 10px 14px;
-	background: $light-surface;
+	background: var(--paper-2);
 	border-radius: $border-radius-sm;
 	border-left: 3px solid transparent;
 	text-decoration: none;
@@ -130,7 +130,7 @@
 		border-color 0.2s ease;
 
 	&:hover {
-		background: $light-surface-hover;
+		background: var(--hover);
 		text-decoration: none;
 		transform: translateY(-2px);
 		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -149,11 +149,11 @@
 
 	.newspack-nodes-card-link-name {
 		font-weight: 500;
-		color: $light-text;
+		color: var(--ink);
 	}
 
 	.newspack-nodes-card-link-count {
-		color: $light-text-secondary;
+		color: var(--ink-3);
 		font-size: 12px;
 		margin-left: $space-sm;
 	}
@@ -178,9 +178,9 @@ select.newspack-nodes-refresh-select {
 	-webkit-appearance: none;
 	-moz-appearance: none;
 	appearance: none;
-	background: $dark-bg-tertiary !important;
-	border: 2px solid $dark-border !important;
-	color: $dark-text !important;
+	background: var(--paper-2) !important;
+	border: 2px solid var(--paper-shadow) !important;
+	color: var(--ink) !important;
 	padding: 0 8px !important;
 	border-radius: 4px !important;
 	font-size: 12px !important;
@@ -194,14 +194,14 @@ select.newspack-nodes-refresh-select {
 	vertical-align: middle;
 
 	&:hover {
-		background: $dark-bg-hover !important;
+		background: var(--hover) !important;
 	}
 
 	&:focus {
 		outline: none;
-		border-color: $dark-accent !important;
-		background: $dark-bg-tertiary !important;
-		color: $dark-text !important;
+		border-color: var(--cyan) !important;
+		background: var(--paper-2) !important;
+		color: var(--ink) !important;
 	}
 }
 
@@ -215,20 +215,20 @@ select.newspack-nodes-refresh-select {
 	min-height: 40px;
 	margin-bottom: 12px;
 	padding-bottom: 12px;
-	border-bottom: 1px solid $dark-header-border;
+	border-bottom: 1px solid var(--paper-shadow);
 
 	h2,
 	h3 {
 		margin: 0;
 		font-size: 14px;
 		font-weight: 600;
-		color: $dark-text;
+		color: var(--ink);
 	}
 }
 
 // Shared entry cell styles (used by Request Log and Gyroscope)
 .entry-time {
-	color: $dark-text-time;
+	color: var(--ink-3);
 	font-size: 11px;
 }
 
@@ -238,7 +238,7 @@ select.newspack-nodes-refresh-select {
 }
 
 .entry-method {
-	color: $dark-accent;
+	color: var(--cyan);
 	font-weight: 500;
 	text-transform: uppercase;
 	font-size: 11px;
@@ -266,7 +266,7 @@ select.newspack-nodes-refresh-select {
 }
 
 .entry-url {
-	color: $dark-text;
+	color: var(--ink);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -288,22 +288,22 @@ select.newspack-nodes-refresh-select {
 }
 
 .entry-url-link {
-	color: $dark-text;
+	color: var(--ink);
 	text-decoration: none;
 
 	&:hover {
-		color: $dark-accent;
+		color: var(--cyan);
 		text-decoration: underline;
 	}
 }
 
 .entry-ip {
-	color: $dark-text-muted;
+	color: var(--ink-3);
 	font-size: 11px;
 }
 
 .entry-ua {
-	color: $dark-text-time;
+	color: var(--ink-3);
 	font-size: 10px;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -311,13 +311,13 @@ select.newspack-nodes-refresh-select {
 }
 
 .entry-partition {
-	color: $dark-text-dim;
+	color: var(--ink-3);
 	font-size: 10px;
 	text-align: center;
 }
 
 .entry-default {
-	color: $dark-text-dim;
+	color: var(--ink-3);
 }
 
 // Shared search input (dark theme)
