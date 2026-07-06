@@ -30,94 +30,6 @@
 	flex-shrink: 0;
 }
 
-.newspack-nodes-raw-logs-controls {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	flex-wrap: wrap;
-}
-
-select.newspack-nodes-raw-logs-select {
-	-webkit-appearance: none;
-	-moz-appearance: none;
-	appearance: none;
-	background: var(--paper-2);
-	border: 1px solid var(--paper-shadow);
-	color: var(--ink);
-	padding: 0 8px;
-	border-radius: base.$border-radius;
-	font-size: 12px;
-	cursor: pointer;
-	min-width: 120px;
-	height: 28px;
-
-	&:hover {
-		background: var(--hover);
-		color: var(--ink);
-	}
-
-	&:focus {
-		outline: none;
-		border-color: var(--cyan);
-		color: var(--ink);
-	}
-
-	option {
-		background: var(--paper-2);
-		color: var(--ink);
-	}
-}
-
-input.newspack-nodes-raw-logs-search {
-	@include base.dark-search-input;
-	width: 160px;
-}
-
-.newspack-nodes-raw-logs-stats {
-	@include base.dark-stats;
-	min-width: 80px;
-}
-
-.newspack-nodes-raw-logs-count {
-	@include base.dark-stats-count;
-}
-
-.newspack-nodes-raw-logs-rps {
-	font-family: base.$mono-font;
-	font-size: 11px;
-	color: var(--ink-3);
-	margin-left: 8px;
-}
-
-.newspack-nodes-raw-logs-btn {
-	padding: 0 base.$space-sm;
-	cursor: pointer;
-	font-size: 12px;
-	height: base.$control-height;
-	min-height: base.$control-height;
-	max-height: base.$control-height;
-	box-sizing: border-box;
-	vertical-align: middle;
-
-	&.active {
-		background: base.$success-bg;
-		border-color: base.$success-border;
-		color: base.$white;
-	}
-
-	&.paused {
-		background: base.$warning-color;
-		border-color: base.$warning-color;
-		// Dark ink on amber — warning is a mid-tone, weak under white text.
-		color: var(--ink);
-	}
-
-	&:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-}
-
 .newspack-nodes-raw-logs-error {
 	@include base.dark-error-banner;
 }
@@ -227,23 +139,10 @@ input.newspack-nodes-raw-logs-search {
 	}
 }
 
-// Responsive adjustments.
+// Responsive adjustments — the search input is flex:1 now (canonical class), so
+// it shrinks with the toolbar; only the gap needs narrowing.
 @media (max-width: 1200px) {
-	.newspack-nodes-raw-logs-controls {
+	.newspack-nodes-toolbar {
 		gap: 8px;
-	}
-
-	input.newspack-nodes-raw-logs-search {
-		width: 120px !important;
-	}
-}
-
-@media (max-width: 800px) {
-	input.newspack-nodes-raw-logs-search {
-		width: 100px !important;
-	}
-
-	.newspack-nodes-raw-logs-controls {
-		flex-wrap: wrap;
 	}
 }

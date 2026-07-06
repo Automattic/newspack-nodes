@@ -1,5 +1,8 @@
 // =============================================================================
-// Unified button system — ONE source for button color-roles.
+// Unified control system — ONE source for button color-roles AND the
+// canonical toolbar control classes (search input, select, column picker,
+// stats readout). Every dashboard toolbar in both plugins applies these
+// classes verbatim instead of declaring its own look.
 // =============================================================================
 // Callers own FORM (font, radius, padding, border-width, text-transform) so each
 // surface renders in its own idiom; these mixins own COLOR-ROLE only
@@ -7,6 +10,8 @@
 // --paper / --ink / --cyan / --oxide / --hover tokens the ThemedRoot provider
 // supplies. A caller that draws a border sets `border-style`/`border-width`
 // itself; the mixin only paints `border-color`.
+
+@use "tokens" as *;
 
 // Shared disabled treatment (both :disabled and [disabled]).
 @mixin disabled {
@@ -92,6 +97,24 @@
 		border-color: var(--paper-shadow) !important;
 	}
 
+	// The two toolbar state modifiers every dashboard button needs (column-picker
+	// toggled open, stream paused) — defined once here so no toolbar reinvents its
+	// own active/paused colors.
+	button.button.is-active {
+		@include toggle-active;
+	}
+
+	button.button.is-paused {
+		background: var(--brass);
+		color: var(--ink);
+		border-color: var(--brass);
+
+		&:hover:not(:disabled):not([disabled]) {
+			background: var(--brass-dark);
+			color: var(--paper);
+		}
+	}
+
 	.components-button.is-secondary,
 	.components-button.is-tertiary {
 		background: var(--paper);
@@ -108,5 +131,81 @@
 	.components-button.is-primary {
 		background: var(--cyan);
 		color: var(--paper);
+	}
+}
+
+// =============================================================================
+// Canonical toolbar control classes — real classes (not mixins), so a toolbar
+// adds one className and gets the look with zero local CSS. Color/border/font
+// for `<input>`/`<select>` come from `controls.scss`'s bare-element theming
+// (already `@use`d wherever these render); these classes own layout only.
+// =============================================================================
+
+.newspack-nodes-toolbar {
+	display: flex;
+	align-items: center;
+	gap: $space-md;
+	flex-wrap: wrap;
+}
+
+.newspack-nodes-search-input {
+	flex: 1;
+}
+
+.newspack-nodes-select {
+	min-width: 60px;
+}
+
+// Moved verbatim from the retired `dark-column-picker` mixin.
+.newspack-nodes-column-picker {
+	background: var(--paper-2);
+	border: 1px solid var(--paper-shadow);
+	border-radius: $border-radius;
+	padding: $space-sm $space-md;
+	margin-bottom: $space-md;
+	display: flex;
+	flex-wrap: wrap;
+	gap: $space-sm;
+	font-size: 12px;
+	color: var(--ink);
+
+	label {
+		display: flex;
+		align-items: center;
+		gap: $space-xs;
+		color: var(--ink-3);
+		cursor: pointer;
+
+		&:hover {
+			color: var(--ink);
+		}
+	}
+
+	input[type="checkbox"] {
+		margin: 0;
+	}
+}
+
+// Moved verbatim from the retired `dark-stats`/`dark-stats-count`/`dark-stats-rps`
+// mixins. Defaults to the column layout (count above rps, right-aligned); a
+// toolbar that wants the row layout (count beside rps) overrides
+// `flex-direction`/`gap` locally — that's genuine per-dashboard layout, not look.
+.newspack-nodes-toolbar-stats {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	white-space: nowrap;
+
+	&__count {
+		font-family: $mono-font;
+		font-size: 12px;
+		color: var(--ink-3);
+	}
+
+	&__rps {
+		font-family: $mono-font;
+		font-size: 12px;
+		color: var(--sage);
+		font-weight: 700;
 	}
 }

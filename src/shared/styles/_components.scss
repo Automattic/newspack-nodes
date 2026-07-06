@@ -319,8 +319,3 @@ select.newspack-nodes-refresh-select {
 .entry-default {
 	color: var(--ink-3);
 }
-
-// Shared search input (dark theme)
-input.newspack-nodes-search-input {
-	@include dark-search-input;
-}

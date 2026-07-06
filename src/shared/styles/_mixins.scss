@@ -1,7 +1,8 @@
 /**
- * Shared dashboard mixins — the ~20 `@mixin`s every dashboard `base.scss`
- * re-declared verbatim (chrome buttons, the dark control surfaces, the table
- * grid, the themed-widefat re-skin).
+ * Shared dashboard mixins — the error banner, the table grid, and the
+ * themed-widefat re-skin. The toolbar-control mixins that used to live here
+ * (chrome buttons, search input, column picker, stats display) moved to real
+ * classes in `inputs.scss` — see the toolbar-control-normalization design doc.
  *
  * Pure dedup: bodies are the event-dashboards originals, byte-for-byte. Mixin
  * definitions emit no CSS until `@include`d, so carrying the full canonical set
@@ -18,139 +19,6 @@
 	border-radius: $border-radius-sm;
 	margin-bottom: $space-md;
 	font-size: 12px;
-}
-
-// Shared secondary/utility button — ONE look for every chrome button (Fold all,
-// New Topology, the per-row restart/Edit, the supervisor refresh). A white fill
-// + a clear border so it reads as a button on BOTH the subtle page background
-// AND a white card (where the fill alone wouldn't separate). 8px radius to match
-// the cards/panels.
-@mixin secondary-button {
-	background: var(--paper);
-	color: var(--ink);
-	border: 1.5px solid var(--ink-3);
-	border-radius: var(--np-radius-md);
-	cursor: pointer;
-	transition:
-		background 0.15s ease,
-		border-color 0.15s ease;
-
-	&:hover {
-		background: var(--paper-2);
-		border-color: var(--ink-3);
-	}
-}
-
-// Dark theme button
-@mixin dark-button {
-	background: var(--paper-2);
-	border: 1px solid var(--paper-shadow);
-	color: var(--ink);
-	padding: 0 $space-sm;
-	border-radius: $border-radius;
-	cursor: pointer;
-	font-size: 12px;
-	height: $control-height;
-	min-height: $control-height;
-	max-height: $control-height;
-	box-sizing: border-box;
-	vertical-align: middle;
-	transition: all 0.2s;
-
-	&:hover {
-		background: var(--hover);
-		color: var(--ink);
-	}
-
-	&.active {
-		background: var(--cyan-subtle);
-		color: var(--cyan);
-		border-color: var(--cyan);
-	}
-}
-
-// Dark theme column picker
-@mixin dark-column-picker {
-	background: var(--paper-2);
-	border: 1px solid var(--paper-shadow);
-	border-radius: $border-radius;
-	padding: $space-sm $space-md;
-	margin-bottom: $space-md;
-	display: flex;
-	flex-wrap: wrap;
-	gap: $space-sm;
-	font-size: 12px;
-	color: var(--ink);
-
-	label {
-		display: flex;
-		align-items: center;
-		gap: $space-xs;
-		color: var(--ink-3);
-		cursor: pointer;
-
-		&:hover {
-			color: var(--ink);
-		}
-	}
-
-	input[type="checkbox"] {
-		margin: 0;
-	}
-}
-
-// Dark theme stats display (count + RPS)
-@mixin dark-stats {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	white-space: nowrap;
-}
-
-@mixin dark-stats-count {
-	font-family: $mono-font;
-	font-size: 12px;
-	color: var(--ink-3);
-}
-
-@mixin dark-stats-rps {
-	font-family: $mono-font;
-	font-size: 12px;
-	color: var(--sage);
-	font-weight: 700;
-}
-
-// Dark theme search input
-@mixin dark-search-input {
-	-webkit-appearance: none;
-	-moz-appearance: none;
-	appearance: none;
-	background: var(--paper) !important;
-	border: 1px solid var(--paper-shadow) !important;
-	color: var(--ink) !important;
-	padding: 0 $space-md !important;
-	border-radius: $border-radius !important;
-	font-size: 13px !important;
-	height: $control-height !important;
-	min-height: $control-height !important;
-	max-height: $control-height !important;
-	box-sizing: border-box !important;
-	line-height: normal !important;
-	transition:
-		border-color 0.2s,
-		box-shadow 0.2s;
-
-	&:focus {
-		outline: none;
-		border-color: var(--cyan) !important;
-		background: var(--paper) !important;
-		color: var(--ink) !important;
-		box-shadow: $focus-shadow;
-	}
-
-	&::placeholder {
-		color: var(--ink-3) !important;
-	}
 }
 
 // =============================================================================

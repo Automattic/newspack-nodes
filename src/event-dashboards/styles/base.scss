@@ -5,9 +5,13 @@
  * and shared component classes that used to live inline here were extracted to
  * `@newspack-nodes/shared/styles/{tokens,mixins,components}` (pure dedup — same
  * values, one source). This file re-exports the tokens + mixins under the
- * `base` namespace so the sibling stylesheets keep resolving `var(--ink)`,
- * `@include base.dark-search-input`, etc., and pulls in the shared component
- * CSS via `@use`.
+ * `base` namespace so the sibling stylesheets keep resolving `var(--ink)`, etc.,
+ * and pulls in the shared component CSS via `@use`. It also `@use`s the shared
+ * `inputs` module so this bundle (a separate esbuild entry from
+ * topology-console) gets its OWN copy of the canonical toolbar-control classes
+ * (`.newspack-nodes-toolbar`, `.newspack-nodes-search-input`, etc.) and applies
+ * `wp-reskin` at `.topology-app` — the DOM root every event-dashboard tab
+ * (Raw Logs et al.) renders inside — mirroring ELN's ThemedRoot.scss.
  *
  * The chrome here was reskinned dark→light Newspack (the chrome cards/tables/
  * controls are the light Cobalt-on-white product look on the canonical --np-*
@@ -19,3 +23,8 @@
 @forward "@newspack-nodes/shared/styles/tokens";
 @forward "@newspack-nodes/shared/styles/mixins";
 @use "@newspack-nodes/shared/styles/components";
+@use "@newspack-nodes/shared/styles/inputs";
+
+.topology-app {
+	@include inputs.wp-reskin;
+}
