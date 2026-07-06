@@ -1655,6 +1655,10 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
+	// Match the taller "+ add target" select so a chips-only row lines up with a
+	// row that includes it (flex only equalizes within a shared row).
+	min-height: 30px;
+	box-sizing: border-box;
 	background: var(--paper-2);
 	border: 2px solid var(--ink-3);
 	padding: 2px 4px 2px 7px;
