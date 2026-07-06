@@ -12,6 +12,7 @@ import ConsoleShell from '../../topology-console/components/ConsoleShell';
 import { NewNodeModal } from '../../topology-console/components/Modal';
 import { useJsCatalog } from '../../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../../topology-console/hooks/useClassCatalog';
+import { useVaults } from '../../topology-console/hooks/useVaults';
 import { ShellNode } from '../../runtime/shell-node';
 import { useNodeState } from '../../runtime/react';
 import { useCompletion } from '../../topology-console/hooks/useCompletion';
@@ -173,6 +174,7 @@ export default function InspectorTab( {
 	const jsCatalog = useJsCatalog();
 	const phpCatalog = useClassCatalog( { enabled: !! cwd } );
 	const catalog = cwd ? phpCatalog : jsCatalog;
+	const vaultCatalog = useVaults( { enabled: !! cwd } );
 	const {
 		graph,
 		ready: graphHasNodes,
@@ -361,6 +363,7 @@ export default function InspectorTab( {
 						classCatalog: schemasByShellName,
 						catalog: catalog.classes,
 						formatters: catalog.formatters,
+						vaults: vaultCatalog.vaults,
 						positionOverrides: positions,
 						onPositionChange,
 						viewport,

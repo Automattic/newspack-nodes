@@ -56,6 +56,7 @@ export function CtorField( {
 	onChange,
 	nodeNames = [],
 	formatters = [],
+	vaults = [],
 } ) {
 	const meta = inputForType( spec.type );
 	const id = `topology-ctor-${ spec.name }`;
@@ -100,6 +101,61 @@ export function CtorField( {
 					{ formatters.map( ( name ) => (
 						<option key={ name } value={ name }>
 							{ name }
+						</option>
+					) ) }
+				</select>
+			</div>
+		);
+	}
+	if ( 'vault_id' === spec.type ) {
+		// Pick from registered Vault entries; empty list falls back to free
+		// text so a `<config:...>` token or not-yet-created id can be typed.
+		if ( vaults.length === 0 ) {
+			return (
+				<div className="topology-edit-row">
+					<label htmlFor={ id } className="topology-edit-row__label">
+						{ spec.name }
+						{ spec.required ? ' *' : '' }
+					</label>
+					<input
+						id={ id }
+						type="text"
+						className="topology-edit-row__input"
+						value={ value ?? '' }
+						placeholder={ __(
+							'(no vault entries)',
+							'newspack-nodes'
+						) }
+						onChange={ ( e ) => onChange( e.target.value ) }
+					/>
+				</div>
+			);
+		}
+		// Preserve a stored value that isn't in the fetched list (config-file
+		// entry or a hand-typed token) so editing never silently blanks it.
+		const current = value ?? '';
+		const known = vaults.some( ( v ) => v.id === current );
+		return (
+			<div className="topology-edit-row">
+				<label htmlFor={ id } className="topology-edit-row__label">
+					{ spec.name }
+					{ spec.required ? ' *' : '' }
+				</label>
+				<select
+					id={ id }
+					className="topology-edit-row__input"
+					value={ current }
+					onChange={ ( e ) => onChange( e.target.value ) }
+				>
+					<option value="">
+						{ __( '(pick a vault)', 'newspack-nodes' ) }
+					</option>
+					{ '' !== current && ! known && (
+						<option value={ current }>{ current }</option>
+					) }
+					{ vaults.map( ( v ) => (
+						<option key={ v.id } value={ v.id }>
+							{ v.url ? `${ v.id } — ${ v.url }` : v.id }
 						</option>
 					) ) }
 				</select>

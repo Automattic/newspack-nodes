@@ -274,6 +274,12 @@ jest.mock( '../hooks/useClassCatalog', () => ( {
 		error: null,
 	} ),
 } ) );
+// vault.list goes through the same real commandClient mock as the activate
+// flow above (which resolves `null`), so stub the hook rather than let it
+// hit unwrapCommandResponse's malformed-message throw.
+jest.mock( '../hooks/useVaults', () => ( {
+	useVaults: () => ( { vaults: [], loading: false, error: null } ),
+} ) );
 jest.mock( '../hooks/useLayout', () => ( {
 	useLayout: () => ( {
 		fetchLayout: globalThis.__hooks.fetchLayout,

@@ -428,6 +428,29 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'sink' ] );
 	} );
 
+	it( 'CtorField vault_id: threads the vaults prop through to render a select', () => {
+		const onUpdateArgs = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				arguments: [ { name: 'vault_id', type: 'vault_id' } ],
+				commands: [],
+			},
+		];
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				catalog={ catalog }
+				vaults={ [ { id: 'aspen', url: '' } ] }
+				onUpdateArgs={ onUpdateArgs }
+			/>
+		);
+		const select = container.querySelector( '#topology-ctor-vault_id' );
+		expect( select.tagName ).toBe( 'SELECT' );
+		fireEvent.change( select, { target: { value: 'aspen' } } );
+		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'aspen' ] );
+	} );
+
 	it( 'CtorField bool defaults render as editable true/false strings', () => {
 		const catalog = [
 			{

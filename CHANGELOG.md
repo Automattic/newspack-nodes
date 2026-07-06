@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`vault_id` field type — Vault-reference node args render as a dropdown.** A node_schema arg (or verb arg) typed `vault_id` now renders in the topology console (and the debug overlay) as a `<select>` of registered Vault entries sourced from the `vault.list` verb — labelled `id — url` when a url is present — instead of a free-text field. Empty vault list falls back to free text (so `<config:…>` tokens still work), and a stored value not in the fetched list is preserved as a selected option. `Remote_Link`/`Remote_Source` (`vault_id`) and `HTTP_Out` (its `server_id` arg renamed to `vault_id`) now use this type, so both speak one vocabulary for a Vault reference.
 - **Compose modal: full addressable "To" list + TM_RESPONSE/TM_ERROR reply-flag checkboxes.** The no-node message composer's target list now includes `_command_interpreter` (first) plus every node's `:config` sidecar — previously only `parsed.nodes`' bare ids were offered, so the interpreter and per-node command targets weren't reachable. The list is derived from the VIEWED graph (`parsed.nodes` / the debug overlay's local graph), never `Core.nodes`, so it stays correct when the hub console is viewing a remote worker. Two new checkboxes OR `TM_RESPONSE`/`TM_ERROR` onto the dispatched message's `TYPE` at the `shell.parse()` dispatch chokepoint (`useDebugGraph.sendVerb`, `TopologyConsole.dispatchStatement`), via the new `Message.applyReplyFlags()` helper.
 
 ### Changed

@@ -25,6 +25,7 @@ import '../styles/graph-view.scss';
  * @param {Object}           props.classCatalog        shell_name → schema (ports).
  * @param {Array}            props.catalog             Class list (Inspector verbs).
  * @param {Array}            props.formatters          Formatter list (Inspector).
+ * @param {Array}            props.vaults              Vault catalog (Inspector, vault_id args).
  * @param {string}           props.streamStatus        For Inspector display.
  * @param {Object}           props.positionOverrides   Layout positions (consumer-owned).
  * @param {Function}         props.onPositionChange    (id, pos)
@@ -64,6 +65,7 @@ export default function GraphView( {
 	classCatalog = {},
 	catalog = [],
 	formatters = [],
+	vaults = [],
 	streamStatus,
 	positionOverrides = {},
 	onPositionChange,
@@ -269,6 +271,7 @@ export default function GraphView( {
 							editMode={ editMode }
 							catalog={ catalog }
 							formatters={ formatters }
+							vaults={ vaults }
 							onUpdateArgs={ onUpdateArgs }
 							onUpdateVerbs={ onUpdateVerbs }
 							onRemoveNode={ handleRemoveNode }
