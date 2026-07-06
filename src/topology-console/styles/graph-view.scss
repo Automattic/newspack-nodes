@@ -27,6 +27,11 @@
 	--paper-2: #e8dcc4;
 	--paper-3: #dbcdb1;
 	--paper-shadow: #c8b998;
+	// Graph background. The one token that mirrors per mode: the lightest paper
+	// in light skins (the exception to "inner is lighter"), the darkest tone in
+	// dark skins. Every .theme-* block redefines it.
+	--canvas: var(--paper);
+	--hover: var(--paper-3);
 	--ink: #18222e;
 	--ink-2: #2e3f4f;
 	--ink-3: #5a6f7f;
@@ -130,7 +135,7 @@
 	font-size: 13px;
 	line-height: 1.45;
 	color: var(--ink);
-	background: var(--paper);
+	background: var(--paper-3);
 	-webkit-font-smoothing: antialiased;
 	overflow: hidden;
 
@@ -443,7 +448,7 @@
 	grid-area: canvas;
 	position: relative;
 	overflow: hidden;
-	background: var(--paper);
+	background: var(--canvas);
 
 	&__meta {
 		position: absolute;
@@ -557,7 +562,7 @@
 		border: 2px solid var(--oxide);
 		border-radius: 50%;
 		transform: translate(-50%, -50%);
-		background: var(--paper);
+		background: var(--canvas);
 	}
 
 	&--tl {
@@ -783,7 +788,7 @@
 	}
 
 	&:hover &__bg {
-		fill: var(--paper);
+		fill: var(--canvas);
 	}
 
 	&.is-selected &__bg {
@@ -793,7 +798,7 @@
 }
 
 .topology-port {
-	fill: var(--paper);
+	fill: var(--canvas);
 	stroke: var(--ink);
 	stroke-width: 1;
 
@@ -1319,7 +1324,7 @@
 	cursor: pointer;
 
 	&:hover:not(:disabled) {
-		background: var(--paper-3);
+		background: var(--hover);
 		color: var(--ink-1, var(--ink-2));
 	}
 
@@ -2019,6 +2024,8 @@
 	--paper-2: var(--np-surface-subtle);
 	--paper-3: var(--np-surface-muted);
 	--paper-shadow: var(--np-border);
+	--canvas: var(--paper);
+	--hover: var(--paper-3);
 	--ink: var(--np-text);
 	--ink-2: #3e3e3e;
 	--ink-3: var(--np-text-secondary);
@@ -2097,6 +2104,8 @@
 	--paper-2: #f7f7f7;
 	--paper-3: #f0f0f0;
 	--paper-shadow: #ddd;
+	--canvas: var(--paper);
+	--hover: var(--paper-3);
 	--ink: #1e1e1e;
 	--ink-2: #3e3e3e;
 	--ink-3: #6c6c6c;
@@ -2167,7 +2176,7 @@
 				rgba(252, 155, 179, 0.1),
 				transparent 60%
 			),
-			var(--paper);
+			var(--canvas);
 	}
 }
 
@@ -2176,7 +2185,7 @@
 .topology-app.theme-newspack,
 .topology-app.theme-newspack-brand {
 	.topology-node__bg {
-		fill: var(--paper);
+		fill: var(--canvas);
 		stroke: var(--paper-shadow);
 		rx: 7px;
 		ry: 7px;
@@ -2240,6 +2249,8 @@
 	--paper-2: #0c2f53;
 	--paper-3: #0a2746;
 	--paper-shadow: #2f5f8c;
+	--canvas: var(--paper-3);
+	--hover: var(--paper);
 	--ink: #eaf4ff;
 	--ink-2: #cfe4fb;
 	--ink-3: #9cc3e8;
@@ -2267,10 +2278,14 @@
 
 // 02 — CRT Phosphor Terminal
 .topology-app.theme-crt {
-	--paper: #020a05;
-	--paper-2: #03110a;
-	--paper-3: #04140a;
+	// Widened from the old near-identical trio (#020a05/#03110a/#04140a) so the
+	// elevation actually reads: card/input --paper clearly lighter than the panel.
+	--paper: #05200e;
+	--paper-2: #031409;
+	--paper-3: #010a05;
 	--paper-shadow: #1d4a2c;
+	--canvas: var(--paper-3);
+	--hover: var(--paper);
 	--ink: #7dffa0;
 	--ink-2: #5fcf85;
 	--ink-3: #3aa05f;
@@ -2329,6 +2344,8 @@
 	--paper-2: #fff;
 	--paper-3: #f2f2f2;
 	--paper-shadow: #000;
+	--canvas: var(--paper);
+	--hover: var(--paper-3);
 	--ink: #0a0a0a;
 	--ink-2: #0a0a0a;
 	--ink-3: #6b6b6b;
@@ -2359,10 +2376,12 @@
 
 // 04 — Synthwave Outrun
 .topology-app.theme-synthwave {
-	--paper: #1a0b2e;
-	--paper-2: #2a0f3e;
-	--paper-3: #200a33;
+	--paper: #2a0f3e;
+	--paper-2: #200a33;
+	--paper-3: #1a0b2e;
 	--paper-shadow: #ff4da6;
+	--canvas: var(--paper-3);
+	--hover: var(--paper);
 	--ink: #ffe7fb;
 	--ink-2: #e6b8e0;
 	--ink-3: #b98ad6;
@@ -2402,10 +2421,12 @@
 
 // 05 — Nord Frost
 .topology-app.theme-nord {
-	--paper: #2e3440;
+	--paper: #434c5e;
 	--paper-2: #3b4252;
-	--paper-3: #434c5e;
+	--paper-3: #2e3440;
 	--paper-shadow: #4c566a;
+	--canvas: var(--paper-3);
+	--hover: var(--paper);
 	--ink: #eceff4;
 	--ink-2: #d8dee9;
 	--ink-3: #81a1c1;
@@ -2428,10 +2449,12 @@
 
 // 06 — Aurora Glass
 .topology-app.theme-aurora {
-	--paper: #0b1020;
-	--paper-2: rgba(255, 255, 255, 0.07);
-	--paper-3: rgba(255, 255, 255, 0.05);
+	--paper: rgba(255, 255, 255, 0.09);
+	--paper-2: rgba(255, 255, 255, 0.06);
+	--paper-3: #0b1020;
 	--paper-shadow: rgba(255, 255, 255, 0.16);
+	--canvas: var(--paper-3);
+	--hover: var(--paper);
 	--ink: #eef2ff;
 	--ink-2: #cdd5ee;
 	--ink-3: #9aa6c8;
@@ -2467,7 +2490,7 @@
 				rgba(94, 180, 255, 0.18),
 				transparent 70%
 			),
-			#0b1020;
+			var(--canvas);
 	}
 
 	.topology-header,
@@ -2484,6 +2507,8 @@
 	--paper-2: #eee8d5;
 	--paper-3: #e3ddc8;
 	--paper-shadow: #93a1a1;
+	--canvas: var(--paper);
+	--hover: var(--paper-3);
 	--ink: #073642;
 	--ink-2: #586e75;
 	--ink-3: #657b83;
@@ -2510,6 +2535,8 @@
 	--paper-2: #ece4d2;
 	--paper-3: #e3d9c2;
 	--paper-shadow: #b3a589;
+	--canvas: var(--paper);
+	--hover: var(--paper-3);
 	--ink: #3a3327;
 	--ink-2: #5c5240;
 	--ink-3: #7d7058;
@@ -2538,10 +2565,12 @@
 
 // 09 — Bauhaus Constructivist
 .topology-app.theme-bauhaus {
-	--paper: #f3f0e9;
-	--paper-2: #fff;
+	--paper: #fff;
+	--paper-2: #f3f0e9;
 	--paper-3: #eceae3;
 	--paper-shadow: #111;
+	--canvas: var(--paper);
+	--hover: var(--paper-3);
 	--ink: #111;
 	--ink-2: #111;
 	--ink-3: #555;
@@ -2595,10 +2624,12 @@
 
 // 10 — Neo-Tokyo HUD
 .topology-app.theme-neotokyo {
-	--paper: #0d0d10;
+	--paper: #1a1a1f;
 	--paper-2: #141418;
-	--paper-3: #1a1a1f;
+	--paper-3: #0d0d10;
 	--paper-shadow: #3a3a30;
+	--canvas: var(--paper-3);
+	--hover: var(--paper);
 	--ink: #f2f2e9;
 	--ink-2: #c8c8b8;
 	--ink-3: #8a8a78;
@@ -2655,10 +2686,12 @@
 
 // 11 — Pastel Toy
 .topology-app.theme-pastel {
-	--paper: #f6f0fb;
-	--paper-2: #fff;
+	--paper: #fff;
+	--paper-2: #f6f0fb;
 	--paper-3: #f0e8f8;
 	--paper-shadow: #b8a6d8;
+	--canvas: var(--paper-2);
+	--hover: var(--paper-3);
 	--ink: #5b4b73;
 	--ink-2: #7a6a92;
 	--ink-3: #8272a0;
@@ -2690,10 +2723,12 @@
 
 // 12 — Control-Room SCADA
 .topology-app.theme-scada {
-	--paper: #1a1f23;
+	--paper: #262d33;
 	--paper-2: #20262b;
-	--paper-3: #262d33;
+	--paper-3: #1a1f23;
 	--paper-shadow: #3a444b;
+	--canvas: var(--paper-3);
+	--hover: var(--paper);
 	--ink: #dfe6ea;
 	--ink-2: #b8c2c8;
 	--ink-3: #8b969d;
@@ -3008,7 +3043,7 @@
 }
 
 .topology-modal {
-	background: var(--paper);
+	background: var(--paper-2);
 	border: 2px solid var(--paper-shadow);
 	min-width: 360px;
 	max-width: 560px;
@@ -3020,9 +3055,9 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	background: var(--paper-3);
+	background: var(--paper-2);
 	color: var(--ink);
-	border-bottom: 2px solid var(--oxide);
+	border-bottom: 1px solid var(--paper-shadow);
 	padding: 8px 8px 8px 14px;
 	font-family: var(--font-display-stencil);
 	letter-spacing: 0.05em;
@@ -3147,7 +3182,7 @@
 }
 
 .topology-modal__btn:hover {
-	background: var(--paper-3);
+	background: var(--hover);
 }
 
 .topology-modal__btn:disabled {

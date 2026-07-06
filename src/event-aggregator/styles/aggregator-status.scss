@@ -11,7 +11,7 @@
 // =============================================================================
 
 .aggregator-status-dashboard {
-	background: base.$dark-bg;
+	background: var(--paper-3);
 	color: base.$dark-text;
 	font-family: base.$system-font;
 	min-height: 100%;

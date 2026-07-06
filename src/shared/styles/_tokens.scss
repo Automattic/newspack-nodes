@@ -11,12 +11,12 @@
 
 // Chrome surfaces (light) — `$dark-bg*` now carry the light Newspack neutrals.
 $dark-bg: var(--paper-2);
-$dark-bg-secondary: var(--paper); // card surface
+$dark-bg-secondary: var(--paper-2); // card/panel surface — one step up from the --paper-3 content bg
 $dark-bg-tertiary: var(--paper-2); // control surface
-$dark-bg-hover: var(--paper-3); // control hover
+$dark-bg-hover: var(--hover); // control hover
 $dark-bg-active: var(--cyan-subtle); // active/selected control
 $dark-bg-row-even: var(--paper-2);
-$dark-bg-row-hover: var(--paper-3);
+$dark-bg-row-hover: var(--hover);
 $dark-bg-deep: var(--paper-2);
 $dark-bg-deepest: var(--paper-3);
 $dark-header-border: var(--paper-shadow);
@@ -44,7 +44,7 @@ $light-text-secondary: var(--ink-3);
 $light-text-muted: var(--ink-3);
 $light-surface: var(--paper-2);
 $light-surface-alt: var(--paper-2);
-$light-surface-hover: var(--paper-3);
+$light-surface-hover: var(--hover);
 $light-selected: var(--cyan-subtle);
 $light-border: var(--ink-3);
 $light-border-light: var(--paper-shadow);

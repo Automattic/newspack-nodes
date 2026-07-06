@@ -130,7 +130,6 @@ export default function OverviewTab( { publishHeader } ) {
 				flex: 1,
 				minHeight: 0,
 				overflowY: 'auto',
-				background: 'var(--paper-2, #fff)',
 			} }
 		>
 			<div className="nodes-cards">
