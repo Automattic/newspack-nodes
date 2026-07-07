@@ -28,6 +28,8 @@ final class Node_Names {
 	public const ROUTER              = '_router';
 	public const SETTINGS_LOG        = '_settings:log';
 	public const SSE                 = '_sse';
+	public const STDIN               = '_stdin';
+	public const STDOUT              = '_stdout';
 	public const TOPICPROBE          = '_topicprobe';
 	public const TOPICPROBE_LOG      = '_topicprobe:log';
 	public const UPTIME              = '_uptime';
