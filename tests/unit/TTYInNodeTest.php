@@ -87,6 +87,7 @@ class TTYInNodeTest extends TestCase {
 
 		$stream = $this->memory_stream( "ls\ntell foo hi\n" );
 		$reader = new TTY_In_Node( $shell, $this->out(), false, $stream );
+		$reader->sink( $shell ); // the reader drains into the Shell
 
 		$reader->fire();
 		$this->assertCount( 1, $cap->captured );
@@ -154,6 +155,7 @@ class TTYInNodeTest extends TestCase {
 
 		$stream = $this->memory_stream( '' ); // empty -> immediate EOF
 		$reader = new TTY_In_Node( $shell, $this->out(), false, $stream, false );
+		$reader->sink( $shell ); // the reader drains into the Shell
 
 		$reader->fire();
 		$this->assertCount( 1, $cap->captured );
@@ -180,7 +182,7 @@ class TTYInNodeTest extends TestCase {
 		$reader->fire_cb();
 		$this->assertCount( 0, $cap->captured, 'a sink-less reader ignores input via fire_cb()' );
 
-		$reader->sink( new Capture_Sink_Node() );
+		$reader->sink( $shell ); // wire the sink -> now fire_cb reaches fire() and drains into the Shell
 		$reader->fire_cb();
 		$this->assertCount( 1, $cap->captured, 'a sunk reader drains the queued line via fire_cb()' );
 		$this->assertSame( Message::TM_COMMAND, $cap->captured[0][ Message::TYPE ] );
@@ -204,6 +206,7 @@ class TTYInNodeTest extends TestCase {
 		};
 
 		$reader = new TTY_In_Node( $shell, $out, true, $stream );
+		$reader->sink( $shell ); // the reader drains into the Shell
 		$this->assertSame( 1, $install_calls, 'constructor installs the handler once' );
 		$this->assertTrue( $out->prompt_displayed, 'install marks the prompt displayed' );
 
@@ -229,6 +232,7 @@ class TTYInNodeTest extends TestCase {
 		$stream = $this->memory_stream( '' );
 
 		$reader = new TTY_In_Node( $shell, $this->out(), true, $stream );
+		$reader->sink( $shell ); // the reader drains into the Shell
 		$reader->handle_readline_line( null );
 		$reader->fire();
 
@@ -260,6 +264,7 @@ class TTYInNodeTest extends TestCase {
 		$cap   = new Capture_Sink_Node();
 		$shell->sink( $cap );
 		$reader = new TTY_In_Node( $shell, $this->out(), false, $this->memory_stream( '' ) );
+		$reader->sink( $shell ); // completion queries go out through the sink (the Shell)
 
 		$reader->send_completion_queries();
 
