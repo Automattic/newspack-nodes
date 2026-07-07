@@ -1,4 +1,46 @@
-import { resizeViewportTrackingAutofit } from '../viewportResize';
+import {
+	resizeViewportTrackingAutofit,
+	maxInsetBeforeLOD,
+} from '../viewportResize';
+
+describe( 'maxInsetBeforeLOD', () => {
+	// autofit scale (height-bound) = fill × (canvasH − inset) / bboxH; the floor
+	// is the inset where that scale === detailScale, i.e. the graph is right at LOD.
+	it( 'is the inset that leaves the graph exactly at the LOD scale', () => {
+		// canvasH 1000, bboxH 500, detail 0.35, fill 0.9 → minUsableH 194.4
+		const inset = maxInsetBeforeLOD( {
+			canvasH: 1000,
+			bboxH: 500,
+			detailScale: 0.35,
+			fill: 0.9,
+		} );
+		expect( inset ).toBeCloseTo( 1000 - ( 0.35 * 500 ) / 0.9, 1 );
+		// at that inset, the height-bound autofit scale is exactly detailScale
+		const usableH = 1000 - inset;
+		expect( ( 0.9 * usableH ) / 500 ).toBeCloseTo( 0.35 );
+	} );
+
+	it( 'never returns negative (tall graph that already needs the whole canvas)', () => {
+		const inset = maxInsetBeforeLOD( {
+			canvasH: 300,
+			bboxH: 5000,
+			detailScale: 0.35,
+			fill: 0.9,
+		} );
+		expect( inset ).toBe( 0 );
+	} );
+
+	it( 'returns Infinity (no clamp) when the bbox is unknown', () => {
+		expect(
+			maxInsetBeforeLOD( {
+				canvasH: 1000,
+				bboxH: 0,
+				detailScale: 0.35,
+				fill: 0.9,
+			} )
+		).toBe( Infinity );
+	} );
+} );
 
 // The displayed scale of a viewport at a given canvas px (preserveAspectRatio
 // "meet") is min( px.w / vp.w, px.h / vp.h ). These tests assert the reconciled
@@ -76,6 +118,35 @@ describe( 'resizeViewportTrackingAutofit', () => {
 			fitNew: 1,
 		} );
 		expect( 700 / out.w ).toBeCloseTo( 1 );
+	} );
+
+	it( 'reflows to follow the autofit center when it shifts (transcript opens)', () => {
+		// vp centered on the old autofit center; band center moves down 150.
+		const out = resizeViewportTrackingAutofit( {
+			viewport: vp, // center (500,250)
+			oldPx: { w: 1000, h: 500 },
+			newPx: { w: 1000, h: 500 },
+			fitOld: 1,
+			fitNew: 1,
+			oldCenter: { x: 500, y: 250 },
+			newCenter: { x: 500, y: 400 },
+		} );
+		expect( out.x + out.w / 2 ).toBeCloseTo( 500 );
+		expect( out.y + out.h / 2 ).toBeCloseTo( 400 ); // followed the band
+	} );
+
+	it( 'preserves the pan offset relative to the autofit center', () => {
+		// User panned 50 below the old autofit center; band center then moves to 400.
+		const out = resizeViewportTrackingAutofit( {
+			viewport: { x: 0, y: 50, w: 1000, h: 500 }, // center (500,300)
+			oldPx: { w: 1000, h: 500 },
+			newPx: { w: 1000, h: 500 },
+			fitOld: 1,
+			fitNew: 1,
+			oldCenter: { x: 500, y: 250 },
+			newCenter: { x: 500, y: 400 },
+		} );
+		expect( out.y + out.h / 2 ).toBeCloseTo( 450 ); // 400 + preserved offset 50
 	} );
 
 	it( 'returns the viewport unchanged on invalid inputs', () => {

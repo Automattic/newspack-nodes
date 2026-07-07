@@ -15,19 +15,50 @@
  * a fit view stays exactly fit).
  *
  * @param {Object}                                 args
- * @param {?{x:number,y:number,w:number,h:number}} args.viewport Current viewport (world units); `null` = uncontrolled (returned as-is).
- * @param {{w:number,h:number}}                    args.oldPx    Canvas px the current viewport was reconciled for.
- * @param {{w:number,h:number}}                    args.newPx    Canvas px after the resize.
- * @param {number}                                 args.fitOld   Autofit scale (px/world) at `oldPx`.
- * @param {number}                                 args.fitNew   Autofit scale (px/world) at `newPx`.
+ * @param {?{x:number,y:number,w:number,h:number}} args.viewport  Current viewport (world units); `null` = uncontrolled (returned as-is).
+ * @param {{w:number,h:number}}                    args.oldPx     Canvas px the current viewport was reconciled for.
+ * @param {{w:number,h:number}}                    args.newPx     Canvas px after the resize.
+ * @param {number}                                 args.fitOld    Autofit scale (px/world) at `oldPx`.
+ * @param {number}                                 args.fitNew    Autofit scale (px/world) at `newPx`.
+ * @param {?{x:number,y:number}}                   args.oldCenter Autofit viewBox center at oldPx/oldInset; omit to hold the raw center (window/sidebar resize).
+ * @param {?{x:number,y:number}}                   args.newCenter Autofit viewBox center at newPx/newInset; when it differs from oldCenter the framing follows it (transcript reflow).
  * @return {?{x:number,y:number,w:number,h:number}} Reconciled viewport, or the input unchanged when inputs are unusable.
  */
+/**
+ * The largest bottom inset (transcript height) that still leaves the graph's
+ * height-bound autofit scale at or above the LOD threshold — i.e. the point
+ * "right above where the nodes drop to bare rects". The reconcile clamps the
+ * effective inset to this so the transcript can't shrink the graph below LOD;
+ * beyond it the transcript just overlays.
+ *
+ * @param {Object} args
+ * @param {number} args.canvasH     Canvas height in px.
+ * @param {number} args.bboxH       Node bounding-box height in world units.
+ * @param {number} args.detailScale LOD scale (px/world) — must match viewportCull's `detailScale`.
+ * @param {number} args.fill        Autofit fill fraction (AUTOFIT_FILL).
+ * @return {number} Max inset px, or Infinity when the bbox/inputs are unknown (no clamp).
+ */
+export function maxInsetBeforeLOD( { canvasH, bboxH, detailScale, fill } ) {
+	if (
+		! ( bboxH > 0 ) ||
+		! ( canvasH > 0 ) ||
+		! ( detailScale > 0 ) ||
+		! ( fill > 0 )
+	) {
+		return Infinity;
+	}
+	const minUsableH = ( detailScale * bboxH ) / fill;
+	return Math.max( 0, canvasH - minUsableH );
+}
+
 export function resizeViewportTrackingAutofit( {
 	viewport,
 	oldPx,
 	newPx,
 	fitOld,
 	fitNew,
+	oldCenter,
+	newCenter,
 } ) {
 	if ( ! viewport || ! ( viewport.w > 0 ) || ! ( viewport.h > 0 ) ) {
 		return viewport;
@@ -44,7 +75,15 @@ export function resizeViewportTrackingAutofit( {
 	const targetScale = fitNew * ratio;
 	const w = newPx.w / targetScale;
 	const h = newPx.h / targetScale;
+	// Preserve the pan offset relative to the AUTOFIT center, not the raw center:
+	// a pure resize leaves the autofit center put (→ raw center held), but when
+	// the autofit center shifts (the transcript opening moves it up into the band)
+	// the framing rides that shift. Omitting the centers keeps the raw center.
 	const cx = viewport.x + viewport.w / 2;
 	const cy = viewport.y + viewport.h / 2;
-	return { x: cx - w / 2, y: cy - h / 2, w, h };
+	const oc = oldCenter ?? { x: cx, y: cy };
+	const nc = newCenter ?? { x: cx, y: cy };
+	const centerX = nc.x + ( cx - oc.x );
+	const centerY = nc.y + ( cy - oc.y );
+	return { x: centerX - w / 2, y: centerY - h / 2, w, h };
 }

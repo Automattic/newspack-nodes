@@ -16,7 +16,10 @@ import {
 	isEdgeVisible,
 	clipSegmentExit,
 } from '../utils/viewportCull';
-import { resizeViewportTrackingAutofit } from '../utils/viewportResize';
+import {
+	resizeViewportTrackingAutofit,
+	maxInsetBeforeLOD,
+} from '../utils/viewportResize';
 
 // Exported so the palette drag ghost can render the same node-card geometry.
 export const NODE_W = 196;
@@ -72,11 +75,12 @@ const AUTOFIT_MAX_SCALE = 2;
 // AUTOFIT_MAX_SCALE so a one-node graph doesn't balloon. `bottomInsetPx` marks
 // canvas px obstructed at the BOTTOM (the expanded REPL transcript) — the graph
 // is fit + centered into the unobstructed band above it.
-function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
-	const minW = canvasSize?.w || AUTOFIT_FALLBACK_W;
-	const minH = canvasSize?.h || AUTOFIT_FALLBACK_H;
+// World-unit bounding box of the nodes (each node is NODE_W×NODE_H from its
+// position). `null` for an empty graph. The `|| NODE_*` guards a zero-span box
+// (a single node / a perfect row or column).
+function nodesBBox( nodes ) {
 	if ( ! nodes.length ) {
-		return `0 0 ${ minW } ${ minH }`;
+		return null;
 	}
 	let minX = Infinity;
 	let minY = Infinity;
@@ -88,8 +92,23 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 		maxX = Math.max( maxX, n.position.x + NODE_W );
 		maxY = Math.max( maxY, n.position.y + NODE_H );
 	}
-	const bboxW = maxX - minX || NODE_W;
-	const bboxH = maxY - minY || NODE_H;
+	return {
+		minX,
+		minY,
+		maxX,
+		maxY,
+		w: maxX - minX || NODE_W,
+		h: maxY - minY || NODE_H,
+	};
+}
+
+function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
+	const minW = canvasSize?.w || AUTOFIT_FALLBACK_W;
+	const minH = canvasSize?.h || AUTOFIT_FALLBACK_H;
+	const bbox = nodesBBox( nodes );
+	if ( ! bbox ) {
+		return `0 0 ${ minW } ${ minH }`;
+	}
 	// Usable height = canvas minus the bottom obstruction; the graph fits into
 	// (and centers within) that top band so it never hides behind the transcript.
 	const usableH = Math.max( 1, minH - Math.max( 0, bottomInsetPx ) );
@@ -97,12 +116,12 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	// don't balloon. The viewBox then spans the full canvas at that scale.
 	const scale = Math.min(
 		AUTOFIT_MAX_SCALE,
-		AUTOFIT_FILL * Math.min( minW / bboxW, usableH / bboxH )
+		AUTOFIT_FILL * Math.min( minW / bbox.w, usableH / bbox.h )
 	);
 	const w = minW / scale;
 	const h = minH / scale;
-	const centerX = ( minX + maxX ) / 2;
-	const centerY = ( minY + maxY ) / 2;
+	const centerX = ( bbox.minX + bbox.maxX ) / 2;
+	const centerY = ( bbox.minY + bbox.maxY ) / 2;
 	const x = centerX - w / 2;
 	// Center the bbox in the top usable band (half the band's world-height above
 	// the center); with no obstruction this reduces to the full-canvas center.
@@ -125,6 +144,10 @@ const MIN_NODE_PX = 2;
 // Render this fraction of a viewport of off-screen nodes on each side so panning
 // scrolls smoothly and a narrow column doesn't blink out when nudged sideways.
 const NODE_OVERSCAN = 0.5;
+// LOD scale (px/world) below which node cards drop to bare rects — MUST match
+// viewportCull's `detailScale` default. The transcript reflow floors the graph
+// right above this so it can't shrink the nodes into unreadable rects.
+const LOD_DETAIL_SCALE = 0.35;
 
 // Arrow-key pan: fraction of the viewport shifted per keypress (hold to repeat),
 // and the faster shift+arrow step. Keyed by arrow → [dx, dy] sign.
@@ -507,57 +530,87 @@ export default function SchematicCanvas( {
 		}
 	}, [ viewport, nodes.length, setViewport, bottomObstructionPx ] );
 
-	// On resize, keep the displayed scale tracking autofit WITHOUT re-framing:
-	// rewrite the controlled viewport to hold its center but take the new canvas
-	// aspect + a scale of `autofit(newPx) × (currentScale / autofit(oldPx))`. So the
-	// scale only shrinks when autofit shrinks (no `meet` letterbox under-shrink),
-	// grows in step with autofit when the panel grows, and a manual zoom survives
-	// (ratio preserved). Refs feed the latest viewport/nodes so the effect binds to
-	// canvasPx alone — pan/zoom (which don't change canvasPx) never trigger it.
-	const resizeRef = useRef( null );
-	resizeRef.current = { viewport, bottomObstructionPx };
-	const prevCanvasPxRef = useRef( null );
+	// On resize — or when the transcript overlay opens/resizes — keep the displayed
+	// scale tracking autofit WITHOUT triggering a full autofit: rewrite the
+	// controlled viewport to hold its pan (relative to the autofit center) and take
+	// the new canvas aspect + a scale of `autofit(new) × (currentScale/autofit(old))`.
+	// So the scale only shrinks when autofit shrinks (no `meet` letterbox
+	// under-shrink), grows in step with autofit when the panel grows, a manual zoom
+	// survives (ratio preserved), and the transcript opening slides the graph up into
+	// the band above it (the autofit center shifts, and the framing follows). Refs
+	// feed the latest viewport so pan/zoom (which change neither canvasPx nor the
+	// inset) never trigger it.
+	const viewportRef = useRef( viewport );
+	viewportRef.current = viewport;
+	const prevSurfaceRef = useRef( null );
 	useEffect( () => {
-		const prev = prevCanvasPxRef.current;
-		prevCanvasPxRef.current = canvasPx;
+		const prev = prevSurfaceRef.current;
+		prevSurfaceRef.current = { px: canvasPx, inset: bottomObstructionPx };
 		if (
 			! canvasPx.w ||
 			! canvasPx.h ||
-			! prev?.w ||
-			! prev?.h ||
-			( prev.w === canvasPx.w && prev.h === canvasPx.h )
+			! prev?.px?.w ||
+			! prev?.px?.h ||
+			( prev.px.w === canvasPx.w &&
+				prev.px.h === canvasPx.h &&
+				prev.inset === bottomObstructionPx )
 		) {
 			return;
 		}
-		const { viewport: vp, bottomObstructionPx: inset } = resizeRef.current;
+		const vp = viewportRef.current;
 		if ( ! vp ) {
 			// Uncontrolled (or not yet frozen): the null-viewport path already
-			// re-fits from defaultViewBox on every canvasPx change.
+			// re-fits from defaultViewBox on every canvasPx/inset change.
 			return;
 		}
 		// Committed nodes (like the freeze effect) so a resize mid-node-drag fits
 		// the settled layout, not the drag's transient bbox.
 		const currentNodes = nodesRef.current;
-		// autofit px-per-world scale at a canvas size: the fit box spans the canvas
-		// at that scale, so scale = px.w / box.w.
-		const fitScaleFor = ( px ) => {
+		// Floor the transcript reflow right above LOD: clamp the inset so the
+		// remaining band never shrinks the graph past the readable scale. Beyond
+		// this the transcript overlays instead of shrinking the graph further.
+		const bboxH = nodesBBox( currentNodes )?.h ?? 0;
+		const clampInset = ( inset, pxH ) =>
+			Math.min(
+				inset,
+				maxInsetBeforeLOD( {
+					canvasH: pxH,
+					bboxH,
+					detailScale: LOD_DETAIL_SCALE,
+					fill: AUTOFIT_FILL,
+				} )
+			);
+		// The autofit box at a canvas size + bottom inset: it spans the canvas at
+		// its scale, so scale = px.w / box.w; its center is where a full autofit
+		// would frame the graph (shifted up into the band when inset > 0).
+		const fitFor = ( px, inset ) => {
 			const box = parseViewBox(
 				tightViewBoxFor( currentNodes, px, inset )
 			);
-			return box.w > 0 ? px.w / box.w : 0;
+			return {
+				scale: box.w > 0 ? px.w / box.w : 0,
+				center: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+			};
 		};
+		const oldFit = fitFor( prev.px, clampInset( prev.inset, prev.px.h ) );
+		const newFit = fitFor(
+			canvasPx,
+			clampInset( bottomObstructionPx, canvasPx.h )
+		);
 		const next = resizeViewportTrackingAutofit( {
 			viewport: vp,
-			oldPx: prev,
+			oldPx: prev.px,
 			newPx: canvasPx,
-			fitOld: fitScaleFor( prev ),
-			fitNew: fitScaleFor( canvasPx ),
+			fitOld: oldFit.scale,
+			fitNew: newFit.scale,
+			oldCenter: oldFit.center,
+			newCenter: newFit.center,
 		} );
 		if ( next !== vp ) {
 			setViewport( next );
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ canvasPx ] );
+	}, [ canvasPx, bottomObstructionPx ] );
 
 	// hoveredId is lifted so the Inspector can drive the same highlight.
 	const setHovered = ( id ) => {
