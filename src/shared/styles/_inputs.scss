@@ -25,7 +25,7 @@
 // Primary / confirm — the skin accent.
 @mixin primary {
 	background: var(--cyan);
-	color: var(--paper);
+	color: var(--on-accent);
 	border-color: var(--cyan);
 	@include disabled;
 
@@ -53,7 +53,7 @@
 // Danger / destructive.
 @mixin danger {
 	background: var(--oxide);
-	color: var(--paper);
+	color: var(--on-accent);
 	border-color: var(--oxide-dark);
 	@include disabled;
 
@@ -65,12 +65,12 @@
 // Toggle "in effect" pressed state (console verb buttons: Trace on, Tail on).
 @mixin toggle-active {
 	background: var(--oxide);
-	color: var(--paper);
+	color: var(--on-accent);
 	border-color: var(--oxide-dark);
 
 	&:hover:not(:disabled):not([disabled]) {
 		background: var(--oxide-dark);
-		color: var(--paper);
+		color: var(--on-accent);
 	}
 }
 
@@ -97,7 +97,7 @@
 
 		&:hover:not(:disabled):not([disabled]) {
 			background: var(--brass-dark);
-			color: var(--paper);
+			color: var(--on-accent);
 		}
 	}
 
@@ -116,7 +116,7 @@
 
 	.components-button.is-primary {
 		background: var(--cyan);
-		color: var(--paper);
+		color: var(--on-accent);
 	}
 }
 
@@ -133,7 +133,7 @@
 		.button.button-primary {
 			background: var(--cyan);
 			border: 1.5px solid var(--cyan);
-			color: var(--paper);
+			color: var(--on-accent);
 			border-radius: var(--control-radius, 0);
 			box-shadow: none;
 			text-shadow: none;
@@ -142,7 +142,7 @@
 			&:focus {
 				background: var(--cyan-dark);
 				border-color: var(--cyan-dark);
-				color: var(--paper);
+				color: var(--on-accent);
 			}
 		}
 
