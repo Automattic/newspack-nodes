@@ -12,8 +12,12 @@
  * tab declaring `fullBleed: true` (the Topology Console, which owns its own
  * full-height canvas) opts out via `.is-full-bleed`.
  */
-import { useEffect, useState } from '@wordpress/element';
-import { getDevtoolsTabs } from './tabRegistry';
+import { useEffect, useState, useSyncExternalStore } from '@wordpress/element';
+import {
+	getDevtoolsTabs,
+	subscribeDevtoolsTabs,
+	getDevtoolsTabsVersion,
+} from './tabRegistry';
 import { getQueryParam, setQueryParam } from '../utils/queryParams';
 import './DevtoolsTabHost.scss';
 
@@ -33,6 +37,16 @@ export default function DevtoolsTabHost( {
 	onActiveTabChange,
 	syncUrl = false,
 } ) {
+	// Re-render when the registry changes so a tab bundle that registers AFTER
+	// this host first rendered still appears — the common case when a backgrounded
+	// tab throttles script loading past the hub's initial render. Stable module
+	// refs so the subscription isn't churned each render; the version return is
+	// unused (the read below is the source of truth).
+	useSyncExternalStore(
+		subscribeDevtoolsTabs,
+		getDevtoolsTabsVersion,
+		getDevtoolsTabsVersion
+	);
 	const tabs = getDevtoolsTabs( host );
 	// Compute the initial tab in the initializer so the right tab mounts on the
 	// FIRST render (matters for a fullBleed tab that builds before it paints):
