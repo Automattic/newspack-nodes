@@ -11,44 +11,9 @@ namespace Newspack_Nodes;
 
 class Dumper_Node extends Node {
 
-	private const ANSI_SAVE_CURSOR    = "\033[s";
-	private const ANSI_RESTORE_CURSOR = "\033[u";
-	private const ANSI_CR_CLEAR_LINE  = "\r\033[2K";
-
-	/** @var resource */
-	private $stdout;
-
 	private ?Shell_Node $shell = null;
 
-	/** Whether a prompt is on screen; public so the Cli readline loop can flip it per iteration. */
-	public bool $prompt_displayed = false;
-
-	/** Whether stdout is a real terminal, cached at construction; false → plain writes. */
-	private bool $stdout_is_tty;
-
-	/** Readline path skips readline_redisplay in the async redraw to keep it in sync. */
-	private bool $readline_mode = false;
-
-	/**
-	 * @param resource|null $stdout    Defaults to STDOUT. Pass php://memory for tests.
-	 * @param bool|null     $force_tty If non-null, override the posix_isatty() detection.
-	 */
-	public function __construct( $stdout = null, ?bool $force_tty = null ) {
-		parent::__construct();
-		$this->stdout = $stdout ?? \STDOUT;
-
-		if ( null !== $force_tty ) {
-			$this->stdout_is_tty = $force_tty;
-		} else {
-			$this->stdout_is_tty = \is_resource( $this->stdout )
-				&& \function_exists( 'posix_isatty' )
-				&& @\posix_isatty( $this->stdout );
-		}
-	}
-
 	public function fill( array &$message ): void {
-		++$this->counter;
-
 		// Drop messages addressed to a different cli session; empty TO always renders.
 		if ( '' !== $this->to_filter ) {
 			$to = self::coerce_string( $message[ Message::TO ] );
@@ -68,13 +33,13 @@ class Dumper_Node extends Node {
 		$type = self::coerce_int( $message[ Message::TYPE ] );
 
 		if ( $this->debug_level >= 2 ) {
-			$this->write_async( $this->format_envelope_dump( $message ) );
+			$this->emit( $this->format_envelope_dump( $message ) );
 			return;
 		}
 		if ( $this->debug_level >= 1 ) {
 			$flags = self::format_type_flags( $type );
 			$from  = self::coerce_string( $message[ Message::FROM ] ?? '' );
-			$this->write_async( $flags . ' from ' . $from . ':' );
+			$this->emit( $flags . ' from ' . $from . ':' );
 		}
 
 		// TM_EOF: drain marker — fire the callback, render nothing.
@@ -97,13 +62,13 @@ class Dumper_Node extends Node {
 						return;
 					}
 
-					$this->write_async( $payload );
+					$this->emit( $payload );
 					return;
 				}
 			} elseif ( $type & Message::TM_ERROR ) {
 				$cmd     = $message[ Message::VALUE ];
 				$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : self::coerce_string( $cmd );
-				$this->write_async( $payload );
+				$this->emit( $payload );
 				return;
 			}
 		}
@@ -112,26 +77,38 @@ class Dumper_Node extends Node {
 		if ( $type & Message::TM_PING ) {
 			$sent = self::coerce_float( $message[ Message::VALUE ] );
 			$rtt  = ( Core::$now - $sent ) * 1000.0;
-			$this->write_async( \sprintf( 'round trip time: %.2f ms', $rtt ) );
+			$this->emit( \sprintf( 'round trip time: %.2f ms', $rtt ) );
 			return;
 		}
 
 		if ( $type & Message::TM_STRUCT || $type & Message::TM_COMMAND ) {
 			$value = $message[ Message::VALUE ];
 			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
-			$this->write_async( (string) $line );
+			$this->emit( (string) $line );
 			return;
 		}
 
-		$this->write_async( self::coerce_string( $message[ Message::VALUE ] ) );
+		$this->emit( self::coerce_string( $message[ Message::VALUE ] ) );
 	}
 
 	public function set_shell( Shell_Node $shell ): void {
 		$this->shell = $shell;
 	}
 
-	public function set_readline_mode( bool $on ): void {
-		$this->readline_mode = $on;
+	/**
+	 * Forward one rendered line to the terminal as a fresh TM_BYTESTREAM.
+	 *
+	 * Mints a NEW message (TO='') so Node::fill() stamps TO=$this->target
+	 * (_stdout) — the inbound reply's TO=_output/$pid never leaks here.
+	 *
+	 * NB: parent::fill() is what bumps $this->counter — so counter tracks lines
+	 * emitted (a debug_level>=1 message emits two), not inbound messages.
+	 */
+	private function emit( string $text ): void {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $text;
+		parent::fill( $message );
 	}
 
 	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
@@ -356,70 +333,6 @@ class Dumper_Node extends Node {
 			return $text;
 		}
 		return $lines[0] . "\n" . \implode( "\n", \array_map( static fn ( $l ) => $prefix . $l, \array_slice( $lines, 1 ) ) );
-	}
-
-	/**
-	 * Mark that a prompt is on screen so the next async write wipes-and-redraws.
-	 */
-	public function mark_prompt_displayed(): void {
-		$this->prompt_displayed = true;
-	}
-
-	/**
-	 * Write the cli prompt onto our owned stdout stream and flip the flag.
-	 */
-	public function write_prompt( string $prompt ): void {
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( $this->stdout, $prompt );
-		$this->prompt_displayed = true;
-	}
-
-	/**
-	 * Async-output path: on a TTY with a prompt up, wipe-and-redraw; otherwise plain write.
-	 */
-	private function write_async( string $text ): void {
-		if ( ! $this->stdout_is_tty || ! $this->prompt_displayed || null === $this->shell ) {
-			$this->write( $this->stdout, $text, true );
-			return;
-		}
-
-		if ( ! \str_ends_with( $text, "\n" ) ) {
-			$text .= "\n";
-		}
-
-		// stdout/stderr are the cli's own terminal streams — not WP-Filesystem paths.
-		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		if ( $this->readline_mode ) {
-			// Readline runs with an empty prompt; never call readline_redisplay (flips into incremental-search).
-			\fwrite(
-				$this->stdout,
-				self::ANSI_CR_CLEAR_LINE . $text . $this->shell->prompt
-			);
-			return;
-		}
-
-		\fwrite(
-			$this->stdout,
-			self::ANSI_SAVE_CURSOR
-				. self::ANSI_CR_CLEAR_LINE
-				. $text
-				. $this->shell->prompt
-				. self::ANSI_RESTORE_CURSOR
-		);
-		// phpcs:enable
-	}
-
-	/**
-	 * Write to a stream; $ensure_newline appends "\n" only if absent. stderr is left raw.
-	 *
-	 * @param resource $stream Destination stream.
-	 */
-	private function write( $stream, string $text, bool $ensure_newline ): void {
-		if ( $ensure_newline && ! \str_ends_with( $text, "\n" ) ) {
-			$text .= "\n";
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( $stream, $text );
 	}
 
 	public static function node_schema(): array {

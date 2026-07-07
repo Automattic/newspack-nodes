@@ -525,11 +525,11 @@ require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
 // put the terminal into callback mode; `read_char` would then block on
 // stdin. Both seams default to the real libcurl/readline calls in
 // production and are no-op'd here for the test process.
-\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
-\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char       = static function (): void {};
+\Newspack_Nodes\TTY_In_Node::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+\Newspack_Nodes\TTY_In_Node::$readline_read_char       = static function (): void {};
 // Tab-completion registration would call readline_completion_function (needs a
 // real TTY); no-op it for the test process.
-\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register = static function ( callable $cb ): void {};
+\Newspack_Nodes\TTY_In_Node::$readline_completion_register = static function ( callable $cb ): void {};
 
 \Newspack_Nodes\Core::$curl_exec = static function ( $ch, array $body ) {
 	$url  = (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL );

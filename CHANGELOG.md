@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`TTY_In_Node`** — the readline/completion/prompt stdin reader for `wp nodes cli`, now a `Stdin_Node` subclass. `Stdin_Node::fire()` is split into an overridable `drain_once()` scaffold, and `send_eof()` into an overridable `emit_eof()`, so `TTY_In_Node` can layer readline reads, tab-completion candidate caching, and prompt display on top while inheriting the busy/EOF/idle re-arm cadence and the self-exit deadline. Its emit primitives drive the Shell (cli semantics: the Shell stamps `FROM=_output/$pid`, which the TM_EOF round-trip drain depends on) rather than a plain sink. Extracted from the old `CLI_Stdin_Reader_Node`.
+
+### Changed
+
+- **`wp nodes cli` is now wired through the terminal-I/O nodes.** `build_repl_graph` adds a `_stdout` (`TTY_Out_Node`) writer that owns the prompt/ANSI-redraw + readline-mode state (moved off the Dumper); the `_output` `Dumper_Node` renders each reply and forwards it to `_stdout` by `target`/TO routing (not a direct sink), and `run_repl` drives stdin with a `TTY_In_Node` reader whose completion replies are fed back through the Dumper's completion sink. This completes the substrate peel — the REPL now composes the same `Stdin_Node`/`Stdout_Node` primitives any consumer can use.
+
+### Removed
+
+- **`CLI_Stdin_Reader_Node`** — its stdin-driver, readline, tab-completion, and TM_EOF-round-trip behavior now live entirely in `TTY_In_Node`.
+
 ### Fixed
 
 - **`dmesg` and the live stderr/debug.log output now carry the same process-identity tag.** The `hostname argv0[pid]: ` midfix was applied inside the stderr handler, but `Core::stderr()` pushed only a date-prefixed (un-midfixed) line to the `recent_log` ring — so `dmesg` showed lines *without* the `host pid:` tag that live output and `debug.log` had. `Core::stderr()` now applies the midfix once, centrally, before both the ring and the handler; the handler adds only the timestamp prefix. The two `/^\d{4}-\d\d-\d\d/` "already-dated, write verbatim" band-aid guards (in `Core::stderr` and `Node::stderr`) are removed — with the midfix applied exactly once there is no re-prefix path for them to defend against.
