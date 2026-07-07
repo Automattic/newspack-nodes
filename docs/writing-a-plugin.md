@@ -128,7 +128,7 @@ class Releases_Source_Node extends Node {
 
 **Sources are fire-and-forget.** The TICK handler emits and returns — it sends **no reply**. Triggering `request_node releases TICK` drives the emit; you won't see a `{ emitted }` echo back. (A node *can* reply along the breadcrumb — `TO = $message[FROM]`, `TM_STRUCT | TM_RESPONSE` — and the substrate's own readers do, e.g. `Consumer_Node::handle_request`'s `GET_LAG`. But a source has nothing to report, so it doesn't.)
 
-**Where does `TICK` come from?** It's a **runtime trigger**, so it's a `TM_REQUEST` you handle in `fill()` — *not* a `TM_COMMAND` verb on a sibling interpreter. (Reserve `TM_COMMAND` / `node_schema()['commands']` for *admin/config* that runs at build time; see the convention box in §0.) `fill()` branches on the `TM_REQUEST` flag and does the work. A request handler *may* reply `TM_STRUCT | TM_RESPONSE` back along the FROM breadcrumb — the substrate's own readers do (see `Consumer_Node::handle_request`'s `GET_LAG` / `GET_OFFSET`) — but this source doesn't: it emits and returns.
+**Where does `TICK` come from?** It's a **runtime trigger**, so it's a `TM_REQUEST` you handle in `fill()` — *not* a `TM_COMMAND` verb on a sibling interpreter. (Reserve `TM_COMMAND` / `node_schema()['commands']` for *admin/config* that runs at build time; see the convention box in §0.) `fill()` branches on the `TM_REQUEST` flag and does the work. A request handler *may* reply `TM_STRUCT | TM_RESPONSE` back along the FROM breadcrumb — the substrate's own readers do (see `Consumer_Node::handle_request`'s `GET_LAG`) — but this source doesn't: it emits and returns.
 
 You still document the verb in `node_schema()`, under a **`requests`** key (the runtime counterpart to `commands`) so the console palette and per-node Inspector list it:
 
@@ -511,6 +511,7 @@ And the same contract is what makes each node testable in isolation: the example
 
 ## Where to go next
 
+- **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — the production deep dive: picks up where §7 stops and walks the real `newspack-ai-newsletter` plugin — a `Source` interface, real connectors (GitHub, Linear, RSS), a credential settings page, and a network test seam.
 - **[getting-started.md](getting-started.md)** — the five-minute tour (if you skipped it).
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[API.md](API.md)** — the REST endpoints.

@@ -111,12 +111,13 @@ renumber.
 | 9 | Two-tier safety net — worker → supervisor → WP-Cron | [ADR-9](docs/architecture-decisions.md#adr-9-two-tier-safety-net) |
 | 10 | `Word_Word` / `_Node` naming + `register_namespace` resolution (no `class_map`) | [ADR-10](docs/architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution) |
 | 11 | `make_node` construction sequence; `arguments()` defaults/required centralized in `parse_schema_args()` | [ADR-11](docs/architecture-decisions.md#adr-11-make_node-construction-sequence) |
+| 12 | Dead-letter poison / crash lifecycle — bounded-retry then `:deadletter` quarantine on caught-throw poison; crawl-checkpoint on uncatchable death | [ADR-12](docs/architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle) |
 
 ## Layout
 
 | Path | What |
 |------|------|
-| `newspack-nodes.php` | Plugin entry point; registers the substrate namespace prefixes via `Command_Interpreter_Node::register_namespace()` so `make_node($type)` resolves `{$prefix}{$type}_Node`; registers the `<config:key>` TSL token namespace (`Config::register_token_namespace()`), the stock `topologies/` dir (`Topology_Registry::register_stock_dir`), builds `Core::$memd` (`Bootstrap::init_memcached`), and mounts the substrate service CIs on `newspack_nodes/request_graph_ready` (`newspack_nodes_mount_substrate_cis`) |
+| `newspack-nodes.php` | Plugin entry point; registers the substrate namespace prefixes via `Command_Interpreter_Node::register_namespace()` so `make_node($type)` resolves `{$prefix}{$type}_Node`; registers the `<config:key>` TSL token namespace (`Config::register_token_namespace()`), the stock `topologies/` dir (`Topology_Registry::register_builtin_dir`), builds `Core::$memd` (`Bootstrap::init_memcached`), and mounts the substrate service CIs on `newspack_nodes/request_graph_ready` (`newspack_nodes_mount_substrate_cis`) |
 | `includes/class-core.php` | Per-process registries, clock (`Core::$now`), shutdown flag, deferred-cleanup queue, rate-limited stderr |
 | `includes/class-config.php` | Substrate option storage + per-request config overlay; derives its key-list and worker-restart classification from `Settings_Schema` (see `config-system/`) |
 | `includes/class-message.php` | 7-field array constants, type flags, positional `packed()` / `unpacked()` JSON wire |
@@ -180,6 +181,8 @@ These are mistakes that have actually happened. Pay attention.
 ## References
 
 - **Architecture**: `docs/architecture-guide.md` (full substrate design — message format, node contracts, drain loop, REPL)
+- **Architecture decisions**: `docs/architecture-decisions.md` (the load-bearing ADRs — context, alternatives, reopen conditions)
+- **Tutorial track**: `docs/getting-started.md` → `docs/writing-a-plugin.md` → `docs/writing-a-real-plugin.md` → `docs/writing-a-dashboard.md` → `docs/writing-a-real-dashboard.md` → `docs/writing-a-view-node.md`
 - **API**: `docs/API.md` (REST endpoint reference)
 - **Application example**: `../newspack-event-logger-nodes/` — first plugin built on this runtime
 - **Walkthrough example (in-repo)**: `examples/example-ai-newsletter/` — a self-contained digest pipeline (`includes/`, `topologies/example-ai-newsletter.tsl`, PHPUnit suite) to learn the substrate from

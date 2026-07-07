@@ -1,6 +1,6 @@
 # Writing a *Real* Nodes Plugin
 
-You've finished [writing-a-plugin.md](writing-a-plugin.md). You built the toy AI-newsletter — two canned sources, a template summarizer, a markdown digest — watched items flow through `fill()`, turned the by-hand session into a topology, and stood it up as a live worker. That guide ended at **§7, "Make it real — the short hop"**, where it promised the production version is just two method bodies away:
+You've finished [writing-a-plugin.md](writing-a-plugin.md). You built the toy AI-newsletter — two canned sources, a template summarizer, a markdown digest — watched items flow through `fill()`, turned the by-hand session into a topology, and stood it up as a live worker. That guide's **§7, "Make it real — the short hop"**, promised the production version is just two method bodies away:
 
 ```php
 // toy
@@ -91,7 +91,7 @@ $decoded = \json_decode( \wp_remote_retrieve_body( $response ), true );
 return \is_array( $decoded ) ? $decoded : [];
 ```
 
-**Why a closure property and not a `protected function http_get()` you override in a test subclass?** This is the rule from [`~/.claude/rules/test-seams.md`](../../../../.claude/rules/test-seams.md): always use the static `\Closure` property form, never the protected-helper-with-subclass-override form. The difference is coverage. A test reassigns `Github_Source_Node::$http_get = fn( $url, $args ) => [ 'response' => [ 'code' => 200 ], 'body' => $canned_json ];` and substitutes *only* the one transport call — header assembly, the `is_wp_error` branch, the non-200 branch, `json_decode`, and the whole per-endpoint normalization all run as **real production code under coverage**. A subclass override would mark `http_get()` "covered" while the production body — the part where the actual bugs live — never executes in any test. The seam substitutes the side effect and exercises everything around it.
+**Why a closure property and not a `protected function http_get()` you override in a test subclass?** This is the rule from `~/.claude/rules/test-seams.md`: always use the static `\Closure` property form, never the protected-helper-with-subclass-override form. The difference is coverage. A test reassigns `Github_Source_Node::$http_get = fn( $url, $args ) => [ 'response' => [ 'code' => 200 ], 'body' => $canned_json ];` and substitutes *only* the one transport call — header assembly, the `is_wp_error` branch, the non-200 branch, `json_decode`, and the whole per-endpoint normalization all run as **real production code under coverage**. A subclass override would mark `http_get()` "covered" while the production body — the part where the actual bugs live — never executes in any test. The seam substitutes the side effect and exercises everything around it.
 
 > **Fetches block — and that's fine.** `wp_remote_get` with a 15-second timeout is a synchronous, blocking call; so is the Linear GraphQL POST. In a web request that would be unacceptable. But connector fetches don't run in a web request — they run inside a background **worker** process (that's why the file carries `phpcs:ignore` notes for the VIP remote-request rules: *"connector fetches run in a background worker, not a VIP web request"*). The same reasoning licenses the LLM calls downstream. Blocking is acceptable here precisely because the worker is the isolation boundary — exactly the [Tachikoma](https://github.com/datapoke/tachikoma) "process isolation for blocking ops" pattern, ported to WordPress workers.
 
@@ -531,5 +531,5 @@ That was the short hop the toy guide promised — `items()` → `fetch()`. It tu
 - **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — this guide's sibling: the production console/dashboard surfaces (palette vs inspector, measured transcript ceilings, the icons build gotcha) and the *insights out* half §4 deferred.
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the original toy Publisher Insights React dashboard walkthrough.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
-- **[architecture-decisions.md](architecture-decisions.md)** — the load-bearing ADRs (fire-and-forget §2, PIPE_BUF §3, lazy init §5).
+- **[architecture-decisions.md](architecture-decisions.md)** — the load-bearing ADRs (fire-and-forget §3, PIPE_BUF §4, lazy init §5).
 - **[`../../newspack-ai-newsletter/`](../../newspack-ai-newsletter/)** — the complete production plugin: `includes/`, `topologies/newspack-ai-newsletter.tsl`, the PHPUnit suite.

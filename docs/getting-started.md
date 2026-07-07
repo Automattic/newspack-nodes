@@ -28,11 +28,12 @@ For the full model — the drain loop, workers, partitions, the REPL — see [ar
 The repo ships a runnable example: `examples/example-ai-newsletter/`, a scored, durable digest pipeline built from small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources (`releases`, `community`) emit canned items into a `summarizer` that condenses each, then a `scorer` adds a notional priority and appends each item to the durable `example-scored` partition. A `Consumer` tails that log into the `digest` builder, which assembles a markdown draft and fans it through a `Tee` to the built-in `Log` (which writes it to a file).
 
 ```bash
-# 1. Build the example's autoloader and activate it. The example is its own
-#    plugin (own composer.json + vendor/autoload) and loads after the substrate,
-#    so newspack-nodes must be active first — it no-ops if the substrate is absent.
-cd examples/example-ai-newsletter && composer dump-autoload -o && cd -
-wp plugin activate newspack-nodes example-ai-newsletter
+# 1. Install and activate the example from its release asset. The example is its
+#    own plugin (own composer.json + vendor/autoload) and loads after the
+#    substrate, so newspack-nodes must be active first — it no-ops if the
+#    substrate is absent.
+wp plugin activate newspack-nodes
+wp plugin install https://github.com/Automattic/newspack-nodes/releases/latest/download/example-ai-newsletter.zip --activate
 
 # 2. Where the digest gets written (Log appends here).
 mkdir -p /tmp/example-ai-newsletter
@@ -40,9 +41,9 @@ mkdir -p /tmp/example-ai-newsletter
 # 3. Activate the topology, then see the worker. Activating the example
 #    *registers* its `example-ai-newsletter` topology, but the shipped default
 #    active set is empty — nothing spawns by surprise. Activate it either from
-#    the Topology Manager (Nodes → Hub → Topologies) or from the REPL:
-#        wp nodes cli   →   topologies activate example-ai-newsletter
-#    Now the supervisor spawns it:
+#    the Topology Manager (Nodes → Hub → Topologies) or from the CLI:
+wp nodes activate example-ai-newsletter
+#    Now the supervisor has spawned it:
 wp nodes ls
 #   ... example-ai-newsletter.p0   [live]
 ```

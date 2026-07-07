@@ -2,13 +2,13 @@
 
 [writing-a-plugin.md](writing-a-plugin.md) stopped at a fully-working, fully-tested **headless** node plugin: the AI-newsletter digest pipeline. This walkthrough adds the other half — a **React admin dashboard** that reads the pipeline's live state and renders it in wp-admin. We'll end with **Publisher Insights**: a page that shows per-source counts, a score-ranked table of items, and a one-click "Draft newsletter" button.
 
-The finished code is in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/) — the same plugin the first guide built, now with a `src/dashboard/` tree and a scored, durable topology. Read along, or build it yourself and diff.
+The finished code is in [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/) — the same plugin the first guide built, now with a `src/dashboard/` tree and a scored, durable topology. Read along, or build it yourself and diff.
 
 > **The one thing to hold onto:** a dashboard is *not* a new mechanism, and it is *not* one big React component fed by one big command. It is a **real node graph** — the same `fill(message)` contract you already know, expressed in JavaScript — with **message traffic at every edge**. Every edge is something you can drop a `Tee` into, watch in the debug overlay, and reuse on the next dashboard. You build a dashboard by *composing nodes*, exactly like a worker pipeline.
 
 Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guide assumes the digest pipeline (sources → summarizer → digest) and the `fill`/`sink`/`target`/`node_schema` vocabulary.
 
-> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted server CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted service CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
 
 > **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `Fetcher`, `read_latest_value_at`, `useBatchedPoll`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** §4's poll/batch wiring was the last seam this guide still showed hand-wired; it became `useBatchedPoll` + `addSliceFetcher` the moment a third caller copied it. Where a step is one call today, this guide says what it replaced, so you can see the seam.
 
@@ -40,7 +40,7 @@ A dashboard's data flow is a node graph, so here is the whole graph — server s
        accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
 ```
 
-Read that top to bottom. **One `Timer`** ticks; **one `Tee`** fans the tick to **three `Fetcher`s**; each Fetcher emits *its own* configured command through `_shell/_http/insights-demo`; the server CI answers each with a *small slice*; each reply pivots back to *its own* receiver `Tee`, which fans to *its own* thin view node, which feeds *its own* React widget. **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card.
+Read that top to bottom. **One `Timer`** ticks; **one `Tee`** fans the tick to **three `Fetcher`s**; each Fetcher emits *its own* configured command through `_shell/_http/insights-demo`; the service CI answers each with a *small slice*; each reply pivots back to *its own* receiver `Tee`, which fans to *its own* thin view node, which feeds *its own* React widget. **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card.
 
 That decomposition is the entire point, and it's the anti-pattern we're deliberately **not** building:
 
@@ -141,7 +141,7 @@ Three new ideas, all using nodes the substrate ships:
 
 - **`<config:...>` and `<partition>` tokens.** The `Partition`/`Consumer` arguments interpolate runtime config (the substrate's `logs_dir`, `segment_size`, …) and the worker's partition index, so the same `.tsl` works for any partition count. They're substrate-registered token namespaces — you just use them.
 - **`scorer → scored:partition` writes the durable log;** `scored:consumer → digest` tails it straight back into the digest. The Consumer reads each scored record and `fill()`s it into the digest, exactly as a `connect_node` would.
-- **`cmd scored:consumer:config set_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog **under the record's `cache` key** — so a web request reads it straight back as `$value['cache']` (that's the `cache['items']` §2's reader pulls; your `save_state()` shape *is* the dashboard's read contract). On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](docs/architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
+- **`cmd scored:consumer:config set_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog **under the record's `cache` key** — so a web request reads it straight back as `$value['cache']` (that's the `cache['items']` §2's reader pulls; your `save_state()` shape *is* the dashboard's read contract). On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
 
 **The durable-snapshot recipe — lift these four lines.** This is the reusable pattern for *any* "make a worker's in-memory state readable from a web request" need; rename `scored` → your log name and `digest` → your state node:
 
@@ -407,7 +407,7 @@ Read `fill()` carefully — it **ignores its trigger message entirely**. Any mes
 
 ### c. The receiver pivot — why a `counts` reply only touches the counts view
 
-Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=countsIn`). The server CI replies **`TO = FROM`** — the universal reply pivot — so the `counts` reply routes back to `countsIn`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `topIn → top-table:view`; the `accumulated` reply on `accIn → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
+Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=countsIn`). The service CI replies **`TO = FROM`** — the universal reply pivot — so the `counts` reply routes back to `countsIn`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `topIn → top-table:view`; the `accumulated` reply on `accIn → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
 
 ### d. The thin view node
 
@@ -527,7 +527,7 @@ Two ideas still carry the whole hook — they're just owned by the toolkit now i
 
 > **← a substrate refinement.** The `_shell`-Tap + the `_http` `lock`/`flush` batching wiring — and the Timer/Tee/page-visibility plumbing around it — used to be **hand-wired here**, ~50 lines of `useEffect` + `mountExospine` copy-pasted across this example, the topology console's poll dashboards, and the performance hook. The batching *is* a primitive now: it became **`useBatchedPoll(build)`** (the mount + `_shell`/`_http` + Timer/Tee + lock/flush bracket + page-visibility gate) and **`addSliceFetcher()`** (the per-slice Fetcher → receiver-Tee → view block, with an optional transform slot). The hook collapsed to its slices (175 lines → 76, the plumbing gone). That's the dogfooding rule this guide runs on, fulfilled: the moment a third caller copied the wiring, it moved into the substrate — so §4 is now one call, exactly like §6/§7.
 
-The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=countsIn`. The server CI's `counts` verb replies `TO=FROM=countsIn`, the router delivers it to the `countsIn` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side — the only browser-specific nodes are `_http` (the egress) and `_shell` (the observe Tap in front of it).
+The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=countsIn`. The service CI's `counts` verb replies `TO=FROM=countsIn`, the router delivers it to the `countsIn` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side — the only browser-specific nodes are `_http` (the egress) and `_shell` (the observe Tap in front of it).
 
 ---
 
@@ -619,7 +619,7 @@ export function draftNewsletter( items = [] ) {
 }
 ```
 
-`PublisherInsightsPage` reads `import './styles/insights.scss'` — create that file. Style it to the **Newspack in-product design system** ([`docs/DESIGN.product.md`](DESIGN.product.md)): Cobalt (`#003DA5`) for the primary action, neutral surfaces (`#fff` / `#f7f7f7`) and borders (`#ddd`), `#1e1e1e` / `#6c6c6c` text, Inter, the 4/8/16/24 spacing scale, and functional colors (error `#B32D2E` on subtle `#FCF0F1`) only for status. The example's `insights.scss` is the reference. **Lay it out in flow** — a normal block in the admin content column — *not* `position: fixed` / full-bleed: that overlay pattern belongs to the Topology Console and the DevTools hub (which deliberately take over the viewport), and on a standalone admin page it just hides the WP admin bar and menu.
+`PublisherInsightsPage` reads `import './styles/insights.scss'` — create that file. Style it to the **Newspack in-product design system**: Cobalt (`#003DA5`) for the primary action, neutral surfaces (`#fff` / `#f7f7f7`) and borders (`#ddd`), `#1e1e1e` / `#6c6c6c` text, Inter, the 4/8/16/24 spacing scale, and functional colors (error `#B32D2E` on subtle `#FCF0F1`) only for status. The example's `insights.scss` is the reference. **Lay it out in flow** — a normal block in the admin content column — *not* `position: fixed` / full-bleed: that overlay pattern belongs to the Topology Console and the DevTools hub (which deliberately take over the viewport), and on a standalone admin page it just hides the WP admin bar and menu.
 
 The bundle entry mounts the page into the div the PHP enqueue will render, `src/dashboard/index.js`:
 
@@ -750,7 +750,7 @@ if ( \is_admin() ) {
 }
 ```
 
-A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's "Nodes" menu, which is for Nodes' own tools (the Console, the DevTools hub). If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab (the hub's tab API) rather than an `add_submenu_page` under `Admin::TOPOLOGY_MENU_SLUG`. Either way, the gate above (`current_user_allowed()`) keeps visibility consistent with the substrate.
+A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's "Nodes" menu, which is for Nodes' own tools (the Console, the DevTools hub). If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab (the hub's tab API) rather than an `add_submenu_page` under `Admin::MENU_SLUG`. Either way, the gate above (`current_user_allowed()`) keeps visibility consistent with the substrate.
 
 > **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS `CommandClient` reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
 
@@ -841,8 +841,9 @@ That table *is* the lesson, and it's the same one the first guide ends on, lifte
 ## Where to go next
 
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the headless pipeline this dashboard reads from.
+- **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — the next step: take these primitives to a production dashboard.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, the REPL, and the JS runtime.
-- **[`examples/example-ai-newsletter/`](examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node, hook, and widget tested with a fake `CommandClient`, no browser).
+- **[`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node, hook, and widget tested with a fake `CommandClient`, no browser).
 - **`newspack-event-logger-nodes`** — the production application: real dashboards (performance, gyroscope, request stream, aggregator) built on these same primitives, including the SSE ones this guide's poll shape deliberately doesn't cover.
 </content>
 </invoke>
