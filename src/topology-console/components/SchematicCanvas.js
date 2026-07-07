@@ -16,10 +16,8 @@ import {
 	isEdgeVisible,
 	clipSegmentExit,
 } from '../utils/viewportCull';
-import {
-	resizeViewportTrackingAutofit,
-	maxInsetBeforeLOD,
-} from '../utils/viewportResize';
+import { maxInsetBeforeLOD } from '../utils/viewportResize';
+import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
 
 // Exported so the palette drag ghost can render the same node-card geometry.
 export const NODE_W = 196;
@@ -256,6 +254,7 @@ export default function SchematicCanvas( {
 	rateRef,
 	// (parent bumps a changing prop to force a re-render; not read here)
 	viewport,
+	viewportDelta,
 	onViewportChange,
 	// onConnect fires on OUT-port → IN-port drag. `interactive` gates the gesture
 	// machinery (true in both live + edit); `editMode` gates only draft-specific
@@ -313,11 +312,27 @@ export default function SchematicCanvas( {
 		displayNodes.forEach( ( n ) => map.set( n.id, n ) );
 		return map;
 	}, [ displayNodes ] );
-	// Parent-controlled viewport; `null` = autofit to the tight bbox.
-	// Memoized so it's a stable dep for the freeze effect (a no-op when the
-	// parent doesn't supply onViewportChange).
-	const setViewport = useMemo(
-		() => onViewportChange || ( () => {} ),
+	// The autofit viewBox for the CURRENT nodes+canvas, refreshed each render
+	// (below, once canvasSize is defined). Both setViewport (to persist the
+	// viewport as a delta FROM autofit) and the freeze (to re-derive a stored
+	// delta) read it, so they share one basis and reloads round-trip exactly.
+	const autofitBoxRef = useRef( null );
+	// Parent-controlled viewport; `null` = autofit to the tight bbox. Persisted
+	// as a DELTA from autofit (`{0,0,1}` = autofit) so a reload re-derives against
+	// the CURRENT canvas — a never-touched view stays autofit through any dimension
+	// change. The pan/zoom/resize/freeze call sites still pass a viewBox; this
+	// wrapper converts + persists. Stable identity (a freeze-effect dep).
+	const setViewport = useCallback(
+		( vp ) => {
+			if ( ! onViewportChange ) {
+				return;
+			}
+			const autofit = autofitBoxRef.current;
+			onViewportChange(
+				vp,
+				vp && autofit ? deltaFromAutofit( vp, autofit ) : null
+			);
+		},
 		[ onViewportChange ]
 	);
 	// Active pan drag on the empty canvas (stable start origin per move).
@@ -520,24 +535,42 @@ export default function SchematicCanvas( {
 		Number.isFinite( scale ) && scale > 0 ? MIN_NODE_PX / scale : 0;
 	const nodeRenderW = Math.max( NODE_W, minNodeWorld );
 	const nodeRenderH = Math.max( NODE_H, minNodeWorld );
-	// Freeze the autofit on first render so node drags don't live-shift
-	// the whole canvas (viewport=null otherwise re-fits every render).
-	// Keyed on nodes.length, reading nodesRef (not displayNodes) so an
-	// in-flight drag doesn't commit and identity churn doesn't re-fit.
+	// Cache the autofit box (committed nodes + LIVE canvas size + raw inset) so
+	// setViewport's delta persist and the freeze re-derive share ONE basis (→ a
+	// reload round-trips exactly). canvasSize() reads live because canvasPx state
+	// lags the mount measure by a render, and the first freeze must frame at real
+	// dims. Reading nodesRef (not displayNodes) keeps an in-flight drag out of it.
+	useEffect( () => {
+		autofitBoxRef.current = parseViewBox(
+			tightViewBoxFor(
+				nodesRef.current,
+				canvasSize(),
+				bottomObstructionPx
+			)
+		);
+	}, [ nodes, canvasPx, bottomObstructionPx ] );
+	// Freeze the autofit on first render so node drags don't live-shift the whole
+	// canvas (viewport=null otherwise re-fits every render). On load, apply any
+	// stored delta to the current autofit — a zero delta stays autofit, a saved
+	// pan/zoom re-derives against THIS session's canvas (so a resize can't strand
+	// the frame). Keyed on nodes.length, reading nodesRef so a drag doesn't re-fit.
 	useEffect( () => {
 		const currentNodes = nodesRef.current;
-		if ( ! viewport && currentNodes.length > 0 ) {
+		const autofit = autofitBoxRef.current;
+		if ( ! viewport && currentNodes.length > 0 && autofit ) {
 			setViewport(
-				parseViewBox(
-					tightViewBoxFor(
-						currentNodes,
-						canvasSize(),
-						bottomObstructionPx
-					)
-				)
+				viewportDelta
+					? viewportFromDelta( viewportDelta, autofit )
+					: autofit
 			);
 		}
-	}, [ viewport, nodes.length, setViewport, bottomObstructionPx ] );
+	}, [
+		viewport,
+		viewportDelta,
+		nodes.length,
+		setViewport,
+		bottomObstructionPx,
+	] );
 
 	// On resize — or when the transcript overlay opens/resizes — keep the displayed
 	// scale tracking autofit WITHOUT triggering a full autofit: rewrite the
@@ -600,29 +633,27 @@ export default function SchematicCanvas( {
 					fill: AUTOFIT_FILL,
 				} )
 			);
-		// The autofit box at a canvas size + bottom inset: it spans the canvas at
-		// its scale, so scale = px.w / box.w; its center is where a full autofit
-		// would frame the graph (shifted up into the band when inset > 0).
-		const fitFor = ( px, inset ) => {
-			const box = parseViewBox(
-				tightViewBoxFor( currentNodes, px, inset )
-			);
-			return {
-				scale: box.w > 0 ? px.w / box.w : 0,
-				center: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
-			};
-		};
-		const oldFit = fitFor( prev.px, clampInset( prev.inset, prev.px.h ) );
-		const newFit = fitFor( canvasPx, clampInset( effInset, canvasPx.h ) );
-		const next = resizeViewportTrackingAutofit( {
-			viewport: vp,
-			oldPx: prev.px,
-			newPx: canvasPx,
-			fitOld: oldFit.scale,
-			fitNew: newFit.scale,
-			oldCenter: oldFit.center,
-			newCenter: newFit.center,
-		} );
+		// Re-derive the viewport against the autofit at the NEW canvas/inset while
+		// holding its offset + zoom RELATIVE to autofit: take the delta from the
+		// old autofit box, re-apply it to the new one. (This is exactly the old
+		// resizeViewportTrackingAutofit math — pan relative to the autofit center,
+		// scale = fitNew × the current fit-ratio — expressed via the delta helpers.)
+		const oldBox = parseViewBox(
+			tightViewBoxFor(
+				currentNodes,
+				prev.px,
+				clampInset( prev.inset, prev.px.h )
+			)
+		);
+		const newBox = parseViewBox(
+			tightViewBoxFor(
+				currentNodes,
+				canvasPx,
+				clampInset( effInset, canvasPx.h )
+			)
+		);
+		const delta = deltaFromAutofit( vp, oldBox );
+		const next = delta ? viewportFromDelta( delta, newBox ) : vp;
 		if ( next !== vp ) {
 			setViewport( next );
 		}

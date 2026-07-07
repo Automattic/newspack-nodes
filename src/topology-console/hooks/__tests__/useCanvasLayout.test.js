@@ -195,16 +195,50 @@ describe( 'useCanvasLayout', () => {
 		expect( result.current.canReset ).toBe( false );
 	} );
 
-	it( 'debounces viewport writes (200ms)', () => {
+	it( 'debounces viewport writes (200ms): persists the delta, keeps the live viewBox in memory', () => {
 		const { result } = render();
-		act( () =>
-			result.current.onViewportChange( { x: 1, y: 2, w: 3, h: 4 } )
-		);
-		expect( result.current.viewport ).toEqual( { x: 1, y: 2, w: 3, h: 4 } );
+		const vp = { x: 1, y: 2, w: 3, h: 4 };
+		const delta = { dcx: 5, dcy: 6, zoom: 2 };
+		act( () => result.current.onViewportChange( vp, delta ) );
+		expect( result.current.viewport ).toEqual( vp );
+		expect( result.current.viewportDelta ).toEqual( delta );
 		act( () => jest.advanceTimersByTime( 200 ) );
-		expect(
-			JSON.parse( window.localStorage.getItem( KEY ) ).viewport
-		).toEqual( { x: 1, y: 2, w: 3, h: 4 } );
+		const stored = JSON.parse( window.localStorage.getItem( KEY ) );
+		// Only the delta persists; the live viewBox is re-derived from it each session.
+		expect( stored.viewportDelta ).toEqual( delta );
+		expect( stored.viewport ).toBeUndefined();
+	} );
+
+	it( 'loads a stored viewportDelta and defers the viewBox to the freeze (viewport null)', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( {
+				positions: { a: { x: 0, y: 0 } },
+				viewportDelta: { dcx: 1, dcy: 2, zoom: 1.5 },
+				modified: false,
+			} )
+		);
+		const { result } = render();
+		expect( result.current.viewportDelta ).toEqual( {
+			dcx: 1,
+			dcy: 2,
+			zoom: 1.5,
+		} );
+		expect( result.current.viewport ).toBeNull();
+	} );
+
+	it( 'migrates an old stored viewBox (no delta) by re-fitting: both null', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( {
+				positions: { a: { x: 0, y: 0 } },
+				viewport: { x: 0, y: 0, w: 100, h: 100 },
+				modified: false,
+			} )
+		);
+		const { result } = render();
+		expect( result.current.viewportDelta ).toBeNull();
+		expect( result.current.viewport ).toBeNull();
 	} );
 
 	it( 'reloads when storageKey changes (scope switch)', () => {

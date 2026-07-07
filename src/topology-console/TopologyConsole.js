@@ -558,6 +558,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const {
 		positions: positionOverrides,
 		viewport,
+		viewportDelta,
 		canReset,
 		onPositionChange: handlePositionChange,
 		onViewportChange: handleViewportChange,
@@ -1612,6 +1613,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					positionOverrides,
 					onPositionChange: handlePositionChange,
 					viewport,
+					viewportDelta,
 					onViewportChange: handleViewportChange,
 					onConnect: handleConnect,
 					onRemoveNode: handleRemoveNode,
