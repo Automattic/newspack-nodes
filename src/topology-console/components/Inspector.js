@@ -1198,16 +1198,12 @@ function VerbArgModal( {
 				) ) }
 			</div>
 			<div className="topology-modal__actions">
-				<button
-					type="button"
-					className="topology-modal__btn"
-					onClick={ onDismiss }
-				>
+				<button type="button" className="button" onClick={ onDismiss }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
-					className="topology-modal__btn topology-modal__btn--primary"
+					className="button button-primary"
 					onClick={ run }
 					disabled={ missingRequired }
 				>
@@ -1237,7 +1233,7 @@ function VerbButton( {
 		<>
 			<button
 				type="button"
-				className="topology-insp__actions-full"
+				className="button is-compact topology-insp__actions-full"
 				onClick={ () => {
 					if ( ! onAction ) {
 						return;
@@ -1360,16 +1356,12 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 				</label>
 			</div>
 			<div className="topology-modal__actions">
-				<button
-					type="button"
-					className="topology-modal__btn"
-					onClick={ onCancel }
-				>
+				<button type="button" className="button" onClick={ onCancel }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
-					className="topology-modal__btn topology-modal__btn--primary"
+					className="button button-primary"
 					disabled={ ! event || ! target }
 					onClick={ () => onConfirm( target, event ) }
 				>
@@ -1498,16 +1490,12 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 				) }
 			</div>
 			<div className="topology-modal__actions">
-				<button
-					type="button"
-					className="topology-modal__btn"
-					onClick={ onCancel }
-				>
+				<button type="button" className="button" onClick={ onCancel }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
-					className="topology-modal__btn topology-modal__btn--primary"
+					className="button button-primary"
 					disabled={ ! to }
 					onClick={ () =>
 						onConfirm( action, to, value, {
@@ -1601,9 +1589,9 @@ export default function Inspector( {
 						<button
 							key={ cmd }
 							type="button"
-							className={
+							className={ `button is-compact${
 								label === 'trace' && traceOn ? ' is-active' : ''
-							}
+							}` }
 							onClick={ () =>
 								onAction && onAction( 'command', null, cmd )
 							}
@@ -1613,6 +1601,7 @@ export default function Inspector( {
 					) ) }
 					<button
 						type="button"
+						className="button is-compact"
 						onClick={ () => setComposeOpen( true ) }
 						title={ __(
 							'Compose a message — pick a target, type, and value (full CLI equivalence)',
@@ -1943,6 +1932,7 @@ export default function Inspector( {
 			<div className="topology-insp__actions">
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () => onAction && onAction( 'dump', node.id ) }
 					title={ __(
 						'Send `dump_node <name>` to the worker',
@@ -1953,6 +1943,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () =>
 						onAction && onAction( 'dump_config', node.id )
 					}
@@ -1965,6 +1956,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () => setPromptVerb( 'cmd' ) }
 					title={ __(
 						'Send a TM_COMMAND payload to this node via `cmd <name> <phrase>`',
@@ -1975,6 +1967,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () => setPromptVerb( 'send' ) }
 					title={ __(
 						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
@@ -1985,6 +1978,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () => setPromptVerb( 'request' ) }
 					title={ __(
 						'Send a TM_REQUEST payload — `request_node <name> <payload>`',
@@ -1995,6 +1989,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () => setPromptVerb( 'tell' ) }
 					title={ __(
 						'Send a TM_INFO payload — `tell_node <name> <info>`',
@@ -2005,6 +2000,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () => setPromptVerb( 'send_struct' ) }
 					title={ __(
 						'Send a TM_STRUCT JSON payload — `send_struct <name> <json>`',
@@ -2015,6 +2011,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
+					className="button is-compact"
 					onClick={ () =>
 						onAction && onAction( 'send_eof', node.id )
 					}
@@ -2028,6 +2025,7 @@ export default function Inspector( {
 				{ regEvents.length > 0 && (
 					<button
 						type="button"
+						className="button is-compact"
 						onClick={ () => setRegisterOpen( true ) }
 						title={ __(
 							'Register a listener for one of this node’s events — `register <source> <target> <event>`',
@@ -2039,7 +2037,9 @@ export default function Inspector( {
 				) }
 				<button
 					type="button"
-					className={ traceOn ? ' is-active' : '' }
+					className={ `button is-compact${
+						traceOn ? ' is-active' : ''
+					}` }
 					onClick={ () =>
 						onAction &&
 						onAction( 'trace', node.id, traceOn ? 0 : 1 )
@@ -2063,7 +2063,7 @@ export default function Inspector( {
 				{ isTee && (
 					<button
 						type="button"
-						className={ `topology-insp__actions-full${
+						className={ `button is-compact topology-insp__actions-full${
 							tailOn ? ' is-active' : ''
 						}` }
 						onClick={ () =>

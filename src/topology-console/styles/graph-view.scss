@@ -1341,31 +1341,35 @@
 	grid-template-columns: 1fr 1fr;
 	gap: 6px;
 	margin-top: 18px;
-
-	button {
-		border: 1px solid;
-		padding: 8px 10px;
-		font: 700 10px var(--font-mono);
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		text-align: left;
-		cursor: pointer;
-		transition: all 100ms ease;
-		border-radius: 0;
-		@include inputs.secondary;
-
-		// Inverted/pressed state for toggles whose action is currently
-		// "in effect" (Trace = debug_state on, Tail = our session is
-		// in the Tee's target list). Mirrors the substrate state so
-		// the visual is authoritative.
-		&.is-active {
-			@include inputs.toggle-active;
-		}
-	}
 }
 
 .topology-insp__actions-full {
 	grid-column: span 2;
+}
+
+// Compact button — the dense inspector action/verb grids. Native `.button`
+// base (wp-admin) + the terminal-mono compact form; states via the shared
+// color-role mixins (the console doesn't wp-reskin).
+.topology-app .button.is-compact {
+	// Override wp-admin `.button`'s min-height / tall line-height so the padding
+	// alone sets the (compact) height — otherwise it stays ~30px tall.
+	min-height: 0;
+	height: auto;
+	padding: 8px 10px;
+	font: 700 10px/1.2 var(--font-mono);
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	text-align: left;
+	border-radius: 0;
+	width: 100%;
+}
+
+.topology-app .button.is-active {
+	@include inputs.toggle-active;
+}
+
+.topology-app .button.is-danger {
+	@include inputs.danger;
 }
 
 // Current registrations list (event → listener, with × to unregister).
@@ -2217,8 +2221,7 @@
 	}
 
 	.topology-insp__actions button,
-	.topology-insp__commands button,
-	.topology-modal__btn {
+	.topology-insp__commands button {
 		border-width: 1px;
 	}
 }
@@ -3149,21 +3152,4 @@
 	gap: 8px;
 	padding: 10px 14px;
 	border-top: 1px solid var(--paper-shadow);
-}
-
-.topology-modal__btn {
-	font-family: var(--font-mono);
-	font-size: 12px;
-	padding: 6px 14px;
-	border: 1px solid;
-	cursor: pointer;
-	@include inputs.secondary;
-}
-
-.topology-modal__btn--primary {
-	@include inputs.primary;
-}
-
-.topology-modal__btn--danger {
-	@include inputs.danger;
 }
