@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef, useState } from '@wordpress/element';
 import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import Header from '../topology-console/components/Header';
-import { getStoredTheme } from '../topology-console/themes';
+import { useThemeValue } from '@newspack-nodes/shared/useTheme';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useDebugFrame } from './useDebugFrame';
 
@@ -48,9 +48,10 @@ export default function DebugPanel( {
 	// selector; the Overview nothing). Merged into the one shared Header below.
 	const [ headerExtras, setHeaderExtras ] = useState( null );
 	// Theme drives the whole panel's token context (the chrome reads --paper /
-	// --ink, NOT fixed --np-* tokens). Seed from storage, but let the Console
-	// publish its live theme so a `set_skin` re-skins the chrome too.
-	const [ theme, setTheme ] = useState( getStoredTheme );
+	// --ink, NOT fixed --np-* tokens). Read from the shared reactive store, so a
+	// `set_skin` (from this panel's Console, or anywhere) re-skins the panel
+	// chrome AND the console body in the SAME commit — no lagging publish-up.
+	const theme = useThemeValue();
 
 	// Eat wheel scrolls inside the panel so they don't scroll the page behind the
 	// overlay. preventDefault needs a non-passive listener — attach one directly.
@@ -153,7 +154,6 @@ export default function DebugPanel( {
 						storageKey,
 						frame,
 						publishHeader: setHeaderExtras,
-						publishTheme: setTheme,
 						buildRepl,
 					} }
 				/>

@@ -7,6 +7,7 @@ import {
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 	INSPECTOR_COLLAPSED_STORAGE_KEY,
 } from '../../themes';
+import { resetThemeStore } from '@newspack-nodes/shared/theme';
 
 const LIVE = PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
 const EDIT = PALETTE_COLLAPSED_STORAGE_KEY_EDIT;
@@ -19,7 +20,10 @@ function render( props ) {
 }
 
 describe( 'usePanelChrome', () => {
-	beforeEach( () => window.localStorage.clear() );
+	beforeEach( () => {
+		resetThemeStore();
+		window.localStorage.clear();
+	} );
 
 	describe( 'theme', () => {
 		it( 'defaults to DEFAULT_THEME when storage is empty', () => {
