@@ -19,6 +19,7 @@ import { useCompletion } from '../../topology-console/hooks/useCompletion';
 import { useGraphSurface } from '../../topology-console/hooks/useGraphSurface';
 import names from '../../runtime/reserved-node-names.json';
 import { PALETTE_COLLAPSED_STORAGE_KEY_LIVE } from '../../topology-console/themes';
+import { applySkin } from '@newspack-nodes/shared/theme';
 import { useDebugGraph } from '../useDebugGraph';
 import { buildComposeTargets } from '../../topology-console/utils/composeTargets';
 import { useCanvasLayout } from '../../topology-console/hooks/useCanvasLayout';
@@ -87,8 +88,6 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
  * @param {string}   props.storageKey    Layout persistence key (per dashboard).
  * @param {Object}   props.frame         Frame geometry { w, h } from the host.
  * @param {Function} props.publishHeader Publish header extras (the PATH selector) to the panel's shared Header.
- * @param {string}   props.theme         Live skin slug (owned top-down by DebugPanel).
- * @param {Function} props.onThemeChange Change the skin (updates DebugPanel's state → panel + tab re-skin together).
  * @param {boolean}  [props.buildRepl]   When false (Console tab), build no infra — Overview-only.
  * @return {import('react').ReactElement} The inspector body.
  */
@@ -96,10 +95,6 @@ export default function InspectorTab( {
 	storageKey,
 	frame,
 	publishHeader,
-	// Skin flows top-down from DebugPanel (it owns the useState); the tab uses
-	// these for its wrapper class + set_skin, so panel + tab re-skin in ONE commit.
-	theme: panelTheme,
-	onThemeChange: panelOnThemeChange,
 	// false on the hub Console tab: the overlay rides it ONLY for the Overview tab
 	// (browser I/O). Its own graph+REPL would duplicate the Console's AND collide
 	// on the shared `_output` infra, so the inspector body builds nothing there
@@ -132,12 +127,11 @@ export default function InspectorTab( {
 		ro.observe( bar );
 		return () => ro.disconnect();
 	}, [ measureTabBar ] );
-	// Theme + palette are shared with the topology console so a preference picked
-	// in either surface applies in both. The overlay is always live (no edit
-	// mode), so it uses the live palette key (default collapsed).
+	// Palette is shared with the topology console so a preference picked in either
+	// surface applies in both. The overlay is always live (no edit mode), so it
+	// uses the live palette key (default collapsed). The skin is global (the
+	// `<html>` class), so there's no theme value to thread here.
 	const {
-		theme: graphTheme,
-		onThemeChange: graphOnThemeChange,
 		paletteCollapsed,
 		inspectorCollapsed,
 		openInspectorOnSelect,
@@ -145,10 +139,6 @@ export default function InspectorTab( {
 		replChromeProps,
 		setReplExpanded,
 	} = useGraphSurface( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
-	// DebugPanel owns the skin top-down; fall back to the shared chrome's own only
-	// if (defensively) not provided.
-	const theme = panelTheme ?? graphTheme;
-	const onThemeChange = panelOnThemeChange ?? graphOnThemeChange;
 	// One Shell instance per panel mount, shared by useDebugGraph (handler
 	// dispatch) and useDebugRepl (typed-line dispatch). cwd is empty: the overlay
 	// is local-only. useDebugRepl binds shell.sink to the page's interpreter
@@ -170,7 +160,7 @@ export default function InspectorTab( {
 		cwd,
 		setPath,
 		ready: replReady,
-	} = useDebugRepl( buildRepl, shell, onThemeChange );
+	} = useDebugRepl( buildRepl, shell, applySkin );
 	// Layout storage scoped by cwd. useDebugGraph runs first (it needs only
 	// `onPositionChange`, threaded via a ref to break the hoist cycle); then
 	// useCanvasLayout consumes `graph`/`ready` from it and one-shot autoLayouts
@@ -334,7 +324,7 @@ export default function InspectorTab( {
 			data-testid="inspector-tab"
 		>
 			<div
-				className={ `topology-app newspack-nodes-theme theme-${ theme } is-inspector-open${
+				className={ `topology-app newspack-nodes-theme is-inspector-open${
 					inspectorCollapsed ? ' is-inspector-collapsed' : ''
 				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 			>
@@ -427,7 +417,7 @@ export default function InspectorTab( {
 				// display:contents themed host so the sibling-rendered modal
 				// inherits .topology-app's --paper/--ink tokens.
 				<div
-					className={ `topology-app newspack-nodes-theme theme-${ theme }` }
+					className="topology-app newspack-nodes-theme"
 					style={ { display: 'contents' } }
 				>
 					<NewNodeModal

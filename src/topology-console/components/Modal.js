@@ -5,7 +5,6 @@
 
 import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { getStoredTheme } from '../themes';
 import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/serializeTsl';
 
@@ -42,7 +41,7 @@ export function ModalShell( { title, onDismiss, children } ) {
 		: undefined;
 	return createPortal(
 		<div
-			className={ `topology-app newspack-nodes-theme theme-${ getStoredTheme() }` }
+			className="topology-app newspack-nodes-theme"
 			style={ { display: 'contents' } }
 		>
 			<div

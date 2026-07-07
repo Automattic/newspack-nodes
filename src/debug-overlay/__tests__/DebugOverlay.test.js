@@ -170,13 +170,13 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		// Default theme is "newspack".
 		expect(
-			container.querySelector( '.topology-app.theme-newspack' )
-		).not.toBeNull();
+			document.documentElement.classList.contains( 'theme-newspack' )
+		).toBe( true );
 		// set_skin via the shared REPL flips the class.
 		submitRepl( container, 'set_skin blueprint' );
 		expect(
-			container.querySelector( '.topology-app.theme-blueprint' )
-		).not.toBeNull();
+			document.documentElement.classList.contains( 'theme-blueprint' )
+		).toBe( true );
 	} );
 
 	it( 'mounts the topology Header above the themed app shell', () => {
@@ -279,8 +279,8 @@ describe( 'DebugOverlay', () => {
 			);
 			fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 			expect(
-				container.querySelector( '.topology-app.theme-newspack' )
-			).not.toBeNull();
+				document.documentElement.classList.contains( 'theme-newspack' )
+			).toBe( true );
 			// Palette init also caught its throw — defaults to collapsed=true.
 			expect(
 				container.querySelector( '.topology-app.is-palette-collapsed' )
@@ -293,25 +293,25 @@ describe( 'DebugOverlay', () => {
 	it( 'rehydrates a previously-persisted theme from localStorage', () => {
 		window.localStorage.setItem( 'newspack-nodes:theme', 'blueprint' );
 		mountExospine();
-		const { getByRole, container } = render(
+		const { getByRole } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		expect(
-			container.querySelector( '.topology-app.theme-blueprint' )
-		).not.toBeNull();
+			document.documentElement.classList.contains( 'theme-blueprint' )
+		).toBe( true );
 	} );
 
 	it( 'invalid theme slug from localStorage falls back to the default', () => {
 		window.localStorage.setItem( 'newspack-nodes:theme', 'not-a-theme' );
 		mountExospine();
-		const { getByRole, container } = render(
+		const { getByRole } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		expect(
-			container.querySelector( '.topology-app.theme-newspack' )
-		).not.toBeNull();
+			document.documentElement.classList.contains( 'theme-newspack' )
+		).toBe( true );
 	} );
 
 	it( 'palette starts collapsed by default; the toggle expands and persists', () => {
@@ -406,8 +406,8 @@ describe( 'DebugOverlay', () => {
 			submitRepl( container, 'set_skin blueprint' );
 			// Theme flipped despite the throw.
 			expect(
-				container.querySelector( '.topology-app.theme-blueprint' )
-			).not.toBeNull();
+				document.documentElement.classList.contains( 'theme-blueprint' )
+			).toBe( true );
 		} finally {
 			window.Storage.prototype.setItem = originalSet;
 		}
@@ -422,8 +422,8 @@ describe( 'DebugOverlay', () => {
 		// Unrecognized name → resolveSkin returns null → no skin applied.
 		submitRepl( container, 'set_skin not-a-theme' );
 		expect(
-			container.querySelector( '.topology-app.theme-newspack' )
-		).not.toBeNull();
+			document.documentElement.classList.contains( 'theme-newspack' )
+		).toBe( true );
 		expect(
 			window.localStorage.getItem( 'newspack-nodes:theme' )
 		).toBeNull();

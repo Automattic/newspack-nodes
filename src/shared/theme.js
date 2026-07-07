@@ -1,22 +1,23 @@
 /**
- * Shared theme-storage helpers. The canonical source for "which skin is live"
- * — the persisted slug, the skin catalog, and the validation/read helpers.
+ * Shared skin storage + application. ONE `theme-<slug>` class on `<html>` is the
+ * single source of truth for every surface (topology console, debug overlay,
+ * sibling dashboards). Switching re-skins the WHOLE page at once, atomically —
+ * there is no React state for the skin, no per-surface wrapper class to desync,
+ * no store to tear, and no way for a page-behind an overlay to hold a different
+ * skin (there is only ever ONE skin, on the root).
  *
- * Lives in src/shared so sibling consumers (event-logger-nodes, pyrobase) can
- * import the SAME storage contract via the `@newspack-nodes/shared/theme`
- * alias, applying a console-selected skin to their standalone dashboards. The
+ * The CSS lives in `styles/graph-view.scss` scoped `.theme-<slug> .topology-app`,
+ * so a `.topology-app` anywhere on the page resolves the live skin's tokens from
+ * this root class.
+ *
+ * Consumers import this via the `@newspack-nodes/shared/theme` alias; the
  * topology-console's `themes.js` re-exports everything here and adds its own
- * console-only collapse-state keys; it does NOT import back into this module
- * (no circular dependency).
- *
- * Each skin maps to a `.topology-app.theme-<slug>` override block in the
- * topology-console's styles/graph-view.scss, except `current` (the identity
- * skin), which renders from the base token values.
+ * console-only collapse-state keys.
  */
 import { __ } from '@wordpress/i18n';
 
-// Global storage key shared by topology-console + debug-overlay + sibling
-// dashboards so a preference picked in any surface applies in all of them.
+// Global storage key shared by every surface so a skin picked anywhere applies
+// everywhere.
 export const THEME_STORAGE_KEY = 'newspack-nodes:theme';
 
 export const DEFAULT_THEME = 'newspack';
@@ -64,10 +65,9 @@ export function isValidTheme( slug ) {
 }
 
 /**
- * Read the persisted skin slug. The single source of truth for "which skin is
- * live" — unknown/absent/disabled storage falls back to the default. Reading it
- * fresh at call time (rather than threading the reactive `theme`) lets the
- * `list_skins` builtin mark the current skin without closure staleness.
+ * Read the persisted skin slug — unknown/absent/disabled storage falls back to
+ * the default. This is the restore/read source; the LIVE skin is the `<html>`
+ * class, which `applySkin` keeps in lockstep with this value.
  *
  * @return {string} The persisted skin slug, or DEFAULT_THEME.
  */
@@ -78,4 +78,95 @@ export function getStoredTheme() {
 	} catch ( _err ) {
 		return DEFAULT_THEME;
 	}
+}
+
+// Strip any `theme-*` class off the given root element.
+function clearRootThemeClass( root ) {
+	[ ...root.classList ]
+		.filter( ( c ) => c.startsWith( 'theme-' ) )
+		.forEach( ( c ) => root.classList.remove( c ) );
+}
+
+// Set the single `theme-<slug>` class on <html> (dropping any prior one). Pure
+// DOM — no persistence, no event; the callers layer those on.
+function setRootThemeClass( slug ) {
+	if ( typeof document !== 'undefined' ) {
+		const root = document.documentElement;
+		clearRootThemeClass( root );
+		root.classList.add( `theme-${ slug }` );
+	}
+}
+
+/**
+ * Make `slug` the live skin: set the single `theme-<slug>` class on `<html>`
+ * (dropping any prior one) and persist it. This is the ONLY operation that
+ * changes a skin — every surface re-skins from this one class via CSS, no React
+ * re-render required. Unknown slugs coerce to the default.
+ *
+ * @param {string} slug Skin slug to make live.
+ * @return {string} The applied slug (after validation).
+ */
+/**
+ * Fired on `window` after every skin change, `detail` = the applied slug. Lets
+ * imperative side-effects (e.g. a dashboard painting the WP-admin gutters to the
+ * skin surface) re-run without React state — same-tab, unlike the `storage`
+ * event, which only reaches OTHER tabs.
+ */
+export const SKIN_EVENT = 'newspack-nodes:skin';
+
+export function applySkin( slug ) {
+	const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
+	setRootThemeClass( next );
+	try {
+		window.localStorage.setItem( THEME_STORAGE_KEY, next );
+	} catch ( _err ) {
+		// Persistence unavailable (private mode / quota); the class still applied.
+	}
+	if ( typeof window !== 'undefined' && window.dispatchEvent ) {
+		window.dispatchEvent( new CustomEvent( SKIN_EVENT, { detail: next } ) );
+	}
+	return next;
+}
+
+/**
+ * Apply the PERSISTED skin's class to `<html>` — a READ, so it does NOT
+ * re-persist (an empty preference stays empty until the user picks a skin) and
+ * fires no event (a mounting surface paints itself directly). Each bundle calls
+ * this at load/mount so the root carries the right skin before first paint.
+ *
+ * @return {string} The applied slug.
+ */
+export function initSkin() {
+	const slug = getStoredTheme();
+	setRootThemeClass( slug );
+	return slug;
+}
+
+/**
+ * Test seam: strip any `theme-*` class off `<html>` so a suite starts clean.
+ * Not used in production.
+ */
+export function resetSkin() {
+	if ( typeof document !== 'undefined' ) {
+		clearRootThemeClass( document.documentElement );
+	}
+}
+
+// Cross-tab: another tab persisting a skin fires `storage` here (never in the
+// origin tab). Re-apply so every open surface stays in sync. Same-tab writes
+// already went through applySkin.
+if ( typeof window !== 'undefined' && window.addEventListener ) {
+	window.addEventListener( 'storage', ( e ) => {
+		if ( e.key && e.key !== THEME_STORAGE_KEY ) {
+			return;
+		}
+		applySkin( getStoredTheme() );
+	} );
+}
+
+// Apply the persisted skin to <html> as soon as this module loads. Every bundle
+// imports it before rendering a surface, so the root carries the right skin at
+// first paint — no unstyled flash, no per-surface init to wire.
+if ( typeof document !== 'undefined' ) {
+	initSkin();
 }

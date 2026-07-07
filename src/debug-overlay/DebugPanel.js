@@ -1,19 +1,6 @@
-import {
-	flushSync,
-	useEffect,
-	useCallback,
-	useRef,
-	useState,
-} from '@wordpress/element';
+import { useEffect, useCallback, useRef, useState } from '@wordpress/element';
 import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import Header from '../topology-console/components/Header';
-import {
-	DEFAULT_THEME,
-	isValidTheme,
-	getStoredTheme,
-	THEME_STORAGE_KEY,
-} from '../topology-console/themes';
-import withViewTransition from '../topology-console/withViewTransition';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useDebugFrame } from './useDebugFrame';
 
@@ -59,24 +46,6 @@ export default function DebugPanel( {
 	// The active tab publishes the header controls it owns (the Console its PATH
 	// selector; the Overview nothing). Merged into the one shared Header below.
 	const [ headerExtras, setHeaderExtras ] = useState( null );
-	// Theme drives the whole panel's token context (the chrome reads --paper /
-	// --ink, NOT fixed --np-* tokens). The panel OWNS the skin and hands it to the
-	// tabs top-down (props below), so a tab's `set_skin` updates THIS state and
-	// re-renders the panel + tab in one commit — the outer chrome (header glow) and
-	// the inner canvas (scanlines) never desync (no publish-up mirror to lag).
-	const [ theme, setTheme ] = useState( getStoredTheme );
-	const onThemeChange = useCallback( ( slug ) => {
-		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
-		// Crossfade the swap; flushSync commits the new class before the transition
-		// snapshots the "after" frame. Top-down useState, so the whole subtree
-		// (panel + tab) commits together — no ancestor is left on the old skin.
-		withViewTransition( () => flushSync( () => setTheme( next ) ) );
-		try {
-			window.localStorage.setItem( THEME_STORAGE_KEY, next );
-		} catch ( _err ) {
-			// localStorage disabled/quota'd; in-session only.
-		}
-	}, [] );
 
 	// Eat wheel scrolls inside the panel so they don't scroll the page behind the
 	// overlay. preventDefault needs a non-passive listener — attach one directly.
@@ -126,12 +95,13 @@ export default function DebugPanel( {
 	}, [] );
 
 	return (
-		// display:contents themed token-provider wrapping the WHOLE panel: the
-		// panel + header + tab bar become descendants of `.topology-app.theme-<x>`
-		// so every chrome rule resolves the theme's --paper/--ink/etc. (not fixed
-		// --np-* tokens). No box, so the panel's own fixed positioning is intact.
+		// display:contents token-provider wrapping the WHOLE panel: the panel +
+		// header + tab bar become descendants of `.topology-app`, so every chrome
+		// rule resolves the live skin's --paper/--ink/etc. from the global
+		// `<html>.theme-<slug>` scope. No box, so the panel's fixed positioning is
+		// intact.
 		<div
-			className={ `topology-app newspack-nodes-theme theme-${ theme }` }
+			className="topology-app newspack-nodes-theme"
 			style={ { display: 'contents' } }
 		>
 			<div
@@ -179,8 +149,6 @@ export default function DebugPanel( {
 						storageKey,
 						frame,
 						publishHeader: setHeaderExtras,
-						theme,
-						onThemeChange,
 						buildRepl,
 					} }
 				/>

@@ -7,17 +7,16 @@
  * Console's path/edit/LIVE cluster) stay inside that tab. Empty state until a
  * plugin registers a hub tab. Capability-gating is the admin page's concern.
  *
- * Themed like the debug overlay: the hub is wrapped in a reactive
- * `.topology-app.theme-<slug>` token context, so its chrome reads --paper /
- * --ink (and a Console `set_skin` re-skins the hub via `publishTheme`) instead
- * of fixed --np-* tokens.
+ * Themed via the global skin: the hub is wrapped in a `.topology-app` token
+ * context, and the live skin is the single `theme-<slug>` class on `<html>`
+ * (see shared/theme.js), so its chrome reads --paper / --ink from the CSS
+ * `.theme-<slug> .topology-app` scope — a `set_skin` on ANY surface re-skins it.
  */
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
 import Header from '../topology-console/components/Header';
-import { getStoredTheme } from '../topology-console/themes';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './devtools-hub.scss';
 
@@ -31,18 +30,16 @@ const CONSOLE_TAB_ID = 'topology-console';
 export default function DevToolsHub() {
 	const menuWidth = useAdminMenuWidth();
 	const [ activeTabId, setActiveTabId ] = useState( null );
-	// Theme drives the hub's token context; the Console publishes its live theme
-	// up so a set_skin re-skins the whole hub, not just the canvas.
-	const [ theme, setTheme ] = useState( getStoredTheme );
 	// The active tab portals its own controls into this slot on the right of the
 	// shared header (setState-as-callback-ref re-renders once the node mounts).
 	const [ controlsSlot, setControlsSlot ] = useState( null );
 
 	return (
-		// display:contents themed token-provider so the hub + its chrome resolve
-		// the active skin's --paper/--ink (no box, so the fixed layout is intact).
+		// display:contents token-provider so the hub + its chrome resolve the live
+		// skin's --paper/--ink (from the global `<html>.theme-<slug>` scope); no
+		// box, so the fixed layout is intact.
 		<div
-			className={ `topology-app newspack-nodes-theme theme-${ theme }` }
+			className="topology-app newspack-nodes-theme"
 			style={ { display: 'contents' } }
 		>
 			<div
@@ -80,7 +77,6 @@ export default function DevToolsHub() {
 					syncUrl
 					onActiveTabChange={ setActiveTabId }
 					tabProps={ {
-						publishTheme: setTheme,
 						headerControlsSlot: controlsSlot,
 					} }
 					emptyState={

@@ -3929,8 +3929,8 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	describe( 'skin theme', () => {
-		const rootClass = ( container ) =>
-			container.querySelector( '.topology-app' ).className;
+		// The skin is the global `<html>.theme-<slug>` class now, not per-wrapper.
+		const rootClass = () => document.documentElement.className;
 
 		it( 'defaults to theme-newspack when localStorage is empty', () => {
 			const { container } = render( <TopologyConsole /> );

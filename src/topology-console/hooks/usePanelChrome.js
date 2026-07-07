@@ -1,17 +1,5 @@
-import {
-	flushSync,
-	useCallback,
-	useEffect,
-	useState,
-} from '@wordpress/element';
-import {
-	DEFAULT_THEME,
-	isValidTheme,
-	getStoredTheme,
-	THEME_STORAGE_KEY,
-	INSPECTOR_COLLAPSED_STORAGE_KEY,
-} from '../themes';
-import withViewTransition from '../withViewTransition';
+import { useCallback, useEffect, useState } from '@wordpress/element';
+import { INSPECTOR_COLLAPSED_STORAGE_KEY } from '../themes';
 
 // Stored '0' = open, '1' = collapsed; absent/disabled storage uses the default.
 function readStoredPaletteCollapsed( key, def ) {
@@ -50,29 +38,18 @@ function usePersistedCollapse( key, def ) {
 }
 
 /**
- * Shared panel chrome for the debug overlay and topology console: the persisted
- * theme (always the global `THEME_STORAGE_KEY`, shared across both surfaces) plus
- * the palette-collapsed toggle. The palette key is injected so the console can
- * pick the LIVE vs EDIT key by mode; the overlay (live-only) passes the LIVE key.
+ * Shared panel chrome for the debug overlay and topology console: the
+ * palette-collapsed toggle + the inspector-collapsed toggle. The palette key is
+ * injected so the console can pick the LIVE vs EDIT key by mode; the overlay
+ * (live-only) passes the LIVE key. (The skin is NOT here — it's the global
+ * `<html>.theme-<slug>` class, see shared/theme.js `applySkin`.)
  *
  * @param {Object}  opts                    Options.
  * @param {string}  opts.paletteKey         localStorage key for palette-collapsed.
  * @param {boolean} [opts.defaultCollapsed] Palette default when storage is empty (live: collapsed; edit: open).
- * @return {{ theme: string, onThemeChange: Function, paletteCollapsed: boolean, togglePaletteCollapsed: Function, inspectorCollapsed: boolean, toggleInspectorCollapsed: Function }} Theme + palette + inspector chrome.
+ * @return {{ paletteCollapsed: boolean, togglePaletteCollapsed: Function, inspectorCollapsed: boolean, setInspectorCollapsed: Function, toggleInspectorCollapsed: Function }} Palette + inspector chrome.
  */
 export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
-	const [ theme, setTheme ] = useState( getStoredTheme );
-	const onThemeChange = useCallback( ( slug ) => {
-		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
-		// Crossfade the skin swap; flushSync commits the new theme class
-		// before the transition snapshots the "after" frame.
-		withViewTransition( () => flushSync( () => setTheme( next ) ) );
-		try {
-			window.localStorage.setItem( THEME_STORAGE_KEY, next );
-		} catch ( _err ) {
-			// localStorage disabled/quota'd; in-session only.
-		}
-	}, [] );
 	const [ paletteCollapsed, setPaletteCollapsed, togglePaletteCollapsed ] =
 		usePersistedCollapse( paletteKey, defaultCollapsed );
 	// Reload persisted state when the key changes (console mode switch).
@@ -93,8 +70,6 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 	] = usePersistedCollapse( INSPECTOR_COLLAPSED_STORAGE_KEY, true );
 
 	return {
-		theme,
-		onThemeChange,
 		paletteCollapsed,
 		togglePaletteCollapsed,
 		inspectorCollapsed,

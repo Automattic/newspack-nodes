@@ -127,7 +127,7 @@
 // `.newspack-nodes-theme` (also set on inner wrappers without a theme class, so a
 // `:not(.theme-newspack)` keyed off it wrongly matches under the Newspack skin).
 // `@include` at a stylesheet's top level in every bundle that renders under
-// `.topology-app.theme-<slug>` — the devtools hub AND each event-logger dashboard.
+// `.theme-<slug> .topology-app` — the devtools hub AND each event-logger dashboard.
 @mixin skin-adaptive-buttons {
 	.topology-app:not(.theme-newspack):not(.theme-newspack-brand) {
 		.button.button-primary {
