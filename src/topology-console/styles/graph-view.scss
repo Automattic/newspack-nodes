@@ -33,6 +33,11 @@
 	// dark skins. Every .theme-* block redefines it.
 	--canvas: var(--paper);
 	--hover: var(--paper-3);
+	// Text color for on-accent button fills (brass/oxide/cyan/ink buttons). It's
+	// the base surface tone (= --paper) so it reads as inverted ink on the fill —
+	// EXCEPT skins whose --paper is translucent (aurora) must override it to an
+	// opaque tone, or the text vanishes on the button. Every skin inherits this.
+	--on-accent: var(--paper);
 	--ink: #18222e;
 	--ink-2: #2e3f4f;
 	--ink-3: #5a6f7f;
@@ -1840,7 +1845,7 @@
 
 			&:hover {
 				background: var(--oxide);
-				color: var(--paper);
+				color: var(--on-accent);
 			}
 		}
 	}
@@ -1869,12 +1874,12 @@
 
 		&.is-active {
 			background: var(--ink);
-			color: var(--paper);
+			color: var(--on-accent);
 		}
 
 		&--live.is-active {
 			background: var(--oxide);
-			color: var(--paper);
+			color: var(--on-accent);
 		}
 
 		&--close {
@@ -1887,13 +1892,13 @@
 
 			&:hover {
 				background: var(--oxide);
-				color: var(--paper);
+				color: var(--on-accent);
 			}
 		}
 
 		&--save {
 			background: var(--sage);
-			color: var(--paper);
+			color: var(--on-accent);
 			border-right: 1px solid var(--ink);
 
 			&:hover {
@@ -1903,7 +1908,7 @@
 
 		&--open {
 			background: var(--cyan);
-			color: var(--paper);
+			color: var(--on-accent);
 			border-right: 1px solid var(--ink);
 
 			&:hover {
@@ -1913,7 +1918,7 @@
 
 		&--new {
 			background: var(--brass);
-			color: var(--paper);
+			color: var(--on-accent);
 			border-right: 1px solid var(--ink);
 
 			&:hover {
@@ -1927,7 +1932,7 @@
 		// destructive intent obvious without a new color in the palette.
 		&--delete {
 			background: var(--oxide);
-			color: var(--paper);
+			color: var(--on-accent);
 			border-right: 1px solid var(--ink);
 
 			&:hover {
@@ -2438,6 +2443,9 @@
 	--paper-shadow: rgba(255, 255, 255, 0.16);
 	--canvas: var(--paper-3);
 	--hover: color-mix(in srgb, var(--paper) 80%, white);
+	// --paper is translucent in this skin, so it can't serve as on-accent text
+	// (it vanishes on the button fill); use the opaque base tone instead.
+	--on-accent: var(--paper-3);
 	--ink: #eef2ff;
 	--ink-2: #cdd5ee;
 	--ink-3: #9aa6c8;
@@ -3082,7 +3090,7 @@
 }
 
 .topology-app .topology-modal__close:hover {
-	color: var(--paper);
+	color: var(--on-accent);
 	background: var(--oxide);
 	border-color: var(--oxide);
 }
