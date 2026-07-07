@@ -176,7 +176,7 @@ describe( 'ConfirmModal', () => {
 				onCancel={ () => {} }
 			/>
 		);
-		expect( getByText( 'Confirm' ).className ).toContain( '--danger' );
+		expect( getByText( 'Confirm' ).className ).toContain( 'is-danger' );
 	} );
 
 	it( 'honors custom confirmLabel/cancelLabel', () => {

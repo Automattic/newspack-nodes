@@ -209,7 +209,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-modal__actions .topology-modal__btn--primary'
+				'.topology-modal__actions .button-primary'
 			)
 		);
 		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi', {
@@ -236,7 +236,7 @@ describe( 'Inspector (view mode)', () => {
 		).not.toBeNull();
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-modal__actions .topology-modal__btn:not(.topology-modal__btn--primary)'
+				'.topology-modal__actions .button:not(.button-primary)'
 			)
 		);
 		expect(
@@ -317,7 +317,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-modal__actions .topology-modal__btn--primary'
+				'.topology-modal__actions .button-primary'
 			)
 		);
 		expect( onAction ).toHaveBeenCalledWith( 'cmd', 'echo', 'hi', {
@@ -342,7 +342,7 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-modal__actions .topology-modal__btn--primary'
+				'.topology-modal__actions .button-primary'
 			)
 		);
 		// Re-open: a fresh ComposeModal mount resets both checkboxes.
@@ -353,7 +353,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-modal__actions .topology-modal__btn--primary'
+				'.topology-modal__actions .button-primary'
 			)
 		);
 		expect( onAction ).toHaveBeenLastCalledWith( 'cmd', 'echo', 'again', {
@@ -406,7 +406,7 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click(
 			getByDisplayValue( 'ping' )
 				.closest( '.topology-modal' )
-				.querySelector( '.topology-modal__btn--primary' )
+				.querySelector( '.button-primary' )
 		);
 		expect( onAction ).toHaveBeenCalledWith( 'request', 'echo', 'ping' );
 		fireEvent.click( getByText( 'EOF' ) );
@@ -785,7 +785,7 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click(
 			getByDisplayValue( 'hello' )
 				.closest( '.topology-modal' )
-				.querySelector( '.topology-modal__btn--primary' )
+				.querySelector( '.button-primary' )
 		);
 		expect( onAction ).toHaveBeenCalledWith( 'send', 'echo', 'hello' );
 		// Modal closes after confirm.
@@ -814,7 +814,7 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click(
 			getByDisplayValue( 'heads up' )
 				.closest( '.topology-modal' )
-				.querySelector( '.topology-modal__btn--primary' )
+				.querySelector( '.button-primary' )
 		);
 		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'heads up' );
 	} );
@@ -829,7 +829,7 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click(
 			getByDisplayValue( '{"k":1}' )
 				.closest( '.topology-modal' )
-				.querySelector( '.topology-modal__btn--primary' )
+				.querySelector( '.button-primary' )
 		);
 		expect( onAction ).toHaveBeenCalledWith(
 			'send_struct',
@@ -852,7 +852,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( selects ).toHaveLength( 2 );
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-modal__actions .topology-modal__btn--primary'
+				'.topology-modal__actions .button-primary'
 			)
 		);
 		expect( onAction ).toHaveBeenCalledWith(
@@ -874,7 +874,7 @@ describe( 'Inspector (view mode)', () => {
 		).not.toBeNull();
 		fireEvent.click(
 			document.body.querySelector(
-				'.topology-modal__actions .topology-modal__btn:not(.topology-modal__btn--primary)'
+				'.topology-modal__actions .button:not(.button-primary)'
 			)
 		);
 		expect(

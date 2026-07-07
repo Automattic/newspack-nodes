@@ -99,18 +99,14 @@ export function ConfirmModal( {
 		<ModalShell title={ title } onDismiss={ onCancel }>
 			<div className="topology-modal__body">{ body }</div>
 			<div className="topology-modal__actions">
-				<button
-					type="button"
-					className="topology-modal__btn"
-					onClick={ onCancel }
-				>
+				<button type="button" className="button" onClick={ onCancel }>
 					{ cancelLabel }
 				</button>
 				<button
 					type="button"
 					ref={ primaryRef }
-					className={ `topology-modal__btn topology-modal__btn--primary${
-						danger ? ' topology-modal__btn--danger' : ''
+					className={ `button button-primary${
+						danger ? ' is-danger' : ''
 					}` }
 					onClick={ onConfirm }
 				>
@@ -177,16 +173,12 @@ export function PromptModal( {
 				) }
 			</div>
 			<div className="topology-modal__actions">
-				<button
-					type="button"
-					className="topology-modal__btn"
-					onClick={ onCancel }
-				>
+				<button type="button" className="button" onClick={ onCancel }>
 					{ cancelLabel }
 				</button>
 				<button
 					type="button"
-					className="topology-modal__btn topology-modal__btn--primary"
+					className="button button-primary"
 					onClick={ submit }
 					disabled={ ! valid || '' === value }
 				>
@@ -300,16 +292,12 @@ export function NewNodeModal( {
 				) }
 			</div>
 			<div className="topology-modal__actions">
-				<button
-					type="button"
-					className="topology-modal__btn"
-					onClick={ onCancel }
-				>
+				<button type="button" className="button" onClick={ onCancel }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
-					className="topology-modal__btn topology-modal__btn--primary"
+					className="button button-primary"
 					onClick={ submit }
 					disabled={ ! valid }
 				>

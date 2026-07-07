@@ -123,7 +123,7 @@ export default function OpenTopologyModal( {
 				<button
 					ref={ cancelRef }
 					type="button"
-					className="topology-modal__btn"
+					className="button"
 					onClick={ onCancel }
 				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
