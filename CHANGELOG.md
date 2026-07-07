@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-07-07
+
 ### Added
 
 - **`Stdin_Node` / `Stdout_Node` + `TTY_In_Node` / `TTY_Out_Node`** — reusable terminal-I/O substrate nodes peeled out of the REPL. `Stdin_Node`/`Stdout_Node` are the bare fgets-source / fwrite-sink; the `TTY_*` subclasses add readline/completion (input) and prompt/ANSI-redraw (output). Any consumer can now read/write a terminal via the substrate.
@@ -15,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`fill()` now takes the message by value (`array $message`), not by reference (`array &$message`).** The Contract is a value handoff: a node owns the message it is given, mutates its own copy, and forwards THAT to its sink — it never reaches back into the caller's message, and no caller observes what a callee did with the message it handed off. Downstream visibility comes from forwarding, not shared references. **Breaking for external Node subclasses:** drop the `&` from your `fill()` signature. Transform nodes (Callback, Hook) mutate their copy and fill their sink.
+- **The `wp nodes cli` stdin reader sinks into the Shell.** `TTY_In_Node`'s drained lines/EOF fill its sink (the Shell), which parses and forwards them on; its bespoke `emit_line`/`emit_eof` overrides are gone (the base `Stdin_Node`'s sink-fill already drives the Shell).
 - **`wp nodes cli` is now wired through the terminal-I/O nodes.** `build_repl_graph` adds a `_stdout` (`TTY_Out_Node`) writer that owns the prompt/ANSI-redraw + readline-mode state (moved off the Dumper); the `_output` `Dumper_Node` renders each reply and forwards it to `_stdout` by `target`/TO routing (not a direct sink), and `run_repl` drives stdin with a `TTY_In_Node` reader whose completion replies are fed back through the Dumper's completion sink. This completes the substrate peel — the REPL now composes the same `Stdin_Node`/`Stdout_Node` primitives any consumer can use.
 
 ### Removed
@@ -23,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`_stdout` and the `_shell` console tap are reserved session scaffolding.** `dump_config` no longer emits `make_node` lines for them, and `remove_node` refuses to destroy them — matching `_output`/`_router`/`_command_interpreter`. The reserved set is now a single `Node_Names::SESSION_SCAFFOLDING` source of truth (was two duplicated hardcoded lists).
 - **`dmesg` and the live stderr/debug.log output now carry the same process-identity tag.** The `hostname argv0[pid]: ` midfix was applied inside the stderr handler, but `Core::stderr()` pushed only a date-prefixed (un-midfixed) line to the `recent_log` ring — so `dmesg` showed lines *without* the `host pid:` tag that live output and `debug.log` had. `Core::stderr()` now applies the midfix once, centrally, before both the ring and the handler; the handler adds only the timestamp prefix. The two `/^\d{4}-\d\d-\d\d/` "already-dated, write verbatim" band-aid guards (in `Core::stderr` and `Node::stderr`) are removed — with the midfix applied exactly once there is no re-prefix path for them to defend against.
 - **Free-text verb/ctor args with spaces show their whole value in the topology editor, not just the first word.** A `cmd node:config add_profile <free text>` line (or a make_node with a free-text trailing ctor arg) is whitespace-split by `parseTsl` into a token array with no schema knowledge; EDIT mode then bound each declared arg to `args[i]` positionally, so a one-arg verb like `add_profile` displayed only the FIRST token and dropped the rest — the reported "Summarizer/Digest add_profile shows only the first word" round-trip bug. The read-only view already collapsed the tail into the last declared slot via `positionalArgs()`; EDIT mode now applies the same absorb-last rule (new `absorbTrailingArgs()`) at the verb + ctor bind sites, so the field shows the full line and an edit re-serializes it as one quoted, round-trippable token.
 
