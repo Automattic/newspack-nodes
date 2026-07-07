@@ -9,15 +9,15 @@
  *
  * Themed like the debug overlay: the hub is wrapped in a reactive
  * `.topology-app.theme-<slug>` token context, so its chrome reads --paper /
- * --ink (and a Console `set_skin` re-skins the hub via `publishTheme`) instead
- * of fixed --np-* tokens.
+ * --ink (and a `set_skin` on any surface re-skins the hub via the shared
+ * reactive theme store) instead of fixed --np-* tokens.
  */
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
 import Header from '../topology-console/components/Header';
-import { getStoredTheme } from '../topology-console/themes';
+import { useThemeValue } from '@newspack-nodes/shared/useTheme';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './devtools-hub.scss';
 
@@ -31,9 +31,10 @@ const CONSOLE_TAB_ID = 'topology-console';
 export default function DevToolsHub() {
 	const menuWidth = useAdminMenuWidth();
 	const [ activeTabId, setActiveTabId ] = useState( null );
-	// Theme drives the hub's token context; the Console publishes its live theme
-	// up so a set_skin re-skins the whole hub, not just the canvas.
-	const [ theme, setTheme ] = useState( getStoredTheme );
+	// Theme drives the hub's token context. Read from the shared reactive store,
+	// so a `set_skin` on ANY surface (this hub's Console, or the floating overlay
+	// riding on top) re-skins the whole hub in the same commit — no publish-up.
+	const theme = useThemeValue();
 	// The active tab portals its own controls into this slot on the right of the
 	// shared header (setState-as-callback-ref re-renders once the node mounts).
 	const [ controlsSlot, setControlsSlot ] = useState( null );
@@ -80,7 +81,6 @@ export default function DevToolsHub() {
 					syncUrl
 					onActiveTabChange={ setActiveTabId }
 					tabProps={ {
-						publishTheme: setTheme,
 						headerControlsSlot: controlsSlot,
 					} }
 					emptyState={

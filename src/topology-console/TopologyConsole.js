@@ -272,10 +272,7 @@ function paletteKeyFor( mode ) {
 		: PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
 }
 
-export default function TopologyConsole( {
-	publishTheme,
-	headerControlsSlot,
-} ) {
+export default function TopologyConsole( { headerControlsSlot } ) {
 	const [ topology, setTopology ] = useState( () =>
 		initialTopologyFromUrl( TOPOLOGIES[ 0 ] )
 	);
@@ -336,9 +333,6 @@ export default function TopologyConsole( {
 		paletteKey: paletteKeyFor( mode ),
 		defaultCollapsed: 'edit' !== mode,
 	} );
-	// Keep the hub's token context on the Console's live theme (a set_skin
-	// re-skins the whole hub chrome, not just the canvas body).
-	useEffect( () => publishTheme?.( theme ), [ publishTheme, theme ] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();

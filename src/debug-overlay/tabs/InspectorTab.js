@@ -87,7 +87,6 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
  * @param {string}   props.storageKey    Layout persistence key (per dashboard).
  * @param {Object}   props.frame         Frame geometry { w, h } from the host.
  * @param {Function} props.publishHeader Publish header extras (the PATH selector) to the panel's shared Header.
- * @param {Function} props.publishTheme  Publish the live theme slug to the panel's token context.
  * @param {boolean}  [props.buildRepl]   When false (Console tab), build no infra — Overview-only.
  * @return {import('react').ReactElement} The inspector body.
  */
@@ -95,7 +94,6 @@ export default function InspectorTab( {
 	storageKey,
 	frame,
 	publishHeader,
-	publishTheme,
 	// false on the hub Console tab: the overlay rides it ONLY for the Overview tab
 	// (browser I/O). Its own graph+REPL would duplicate the Console's AND collide
 	// on the shared `_output` infra, so the inspector body builds nothing there
@@ -263,9 +261,6 @@ export default function InspectorTab( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ publishHeader, pathOptionsKey, cwd, stableOnPathChange ] );
 	useEffect( () => () => publishHeader?.( null ), [ publishHeader ] );
-	// Keep the panel's token context on the Console's live theme (a REPL set_skin
-	// re-skins the whole overlay chrome, not just the canvas body).
-	useEffect( () => publishTheme?.( theme ), [ publishTheme, theme ] );
 
 	// Tab-completion: subscribe to _completion's published candidates and expose
 	// requestCompletion/handleShowCandidates via the shared useCompletion hook.

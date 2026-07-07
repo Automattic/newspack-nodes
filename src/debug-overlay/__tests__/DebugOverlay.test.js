@@ -7,6 +7,7 @@ import {
 	registerDevtoolsTab,
 	resetDevtoolsTabs,
 } from '@newspack-nodes/shared/devtools/tabRegistry';
+import { resetThemeStore } from '@newspack-nodes/shared/theme';
 import DebugOverlay from '../DebugOverlay';
 
 // Type a line into the overlay's real ReplFooter and submit it on Enter.
@@ -21,6 +22,7 @@ function submitRepl( container, line ) {
 describe( 'DebugOverlay', () => {
 	beforeEach( () => {
 		Core.reset();
+		resetThemeStore();
 		window.localStorage.clear();
 		// The registry's import-side-effect registration runs once and is then
 		// module-cached, so re-registering explicitly here makes every test
@@ -390,6 +392,34 @@ describe( 'DebugOverlay', () => {
 		} finally {
 			window.Storage.prototype.setItem = originalSet;
 		}
+	} );
+
+	it( 'set_skin flips every themed wrapper together — no stale ancestor (the bleed)', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const wrappers = () => [
+			...container.querySelectorAll( '.topology-app' ),
+		];
+		submitRepl( container, 'set_skin crt' );
+		// The panel's outer wrapper AND the console's inner wrapper are both on crt.
+		expect( wrappers().length ).toBeGreaterThan( 1 );
+		expect(
+			wrappers().every( ( w ) => w.classList.contains( 'theme-crt' ) )
+		).toBe( true );
+		submitRepl( container, 'set_skin newspack' );
+		// After the switch NOT ONE wrapper is left on crt — a lagging outer
+		// ancestor is exactly what let CRT's glow/scanline selectors keep matching.
+		expect(
+			wrappers().every( ( w ) =>
+				w.classList.contains( 'theme-newspack' )
+			)
+		).toBe( true );
+		expect(
+			wrappers().some( ( w ) => w.classList.contains( 'theme-crt' ) )
+		).toBe( false );
 	} );
 
 	it( 'set_skin swallows a localStorage.setItem throw (in-session only)', () => {
