@@ -189,6 +189,43 @@ describe( 'Inspector (edit mode)', () => {
 			expect( argBlocks.length ).toBe( 3 );
 		} );
 
+		it( 'editing one arg of an over-long invocation keeps the other declared args', () => {
+			// 4 raw tokens against a 3-arg schema: absorb fuses the tail into
+			// remote_option, and editing `to` must NOT drop local_option or the
+			// fused remote_option.
+			const onUpdateVerbs = jest.fn();
+			const overlongProps = {
+				...multiProps,
+				parsed: {
+					nodes: [
+						{
+							id: 'ss',
+							class: 'Settings_Sync',
+							verbInvocations: [
+								{
+									verb: 'add_setting',
+									args: [ 'a', 'settings', 'x', 'extra' ],
+								},
+							],
+						},
+					],
+					edges: [],
+				},
+			};
+			const { container } = render(
+				<Inspector
+					{ ...overlongProps }
+					onUpdateVerbs={ onUpdateVerbs }
+				/>
+			);
+			fireEvent.change( container.querySelector( '#topology-ctor-to' ), {
+				target: { value: 'S' },
+			} );
+			expect( onUpdateVerbs ).toHaveBeenCalledWith( 'ss', [
+				{ verb: 'add_setting', args: [ 'a', 'S', 'x extra' ] },
+			] );
+		} );
+
 		it( 'Add appends a fresh invocation; remove drops the chosen one', () => {
 			const onUpdateVerbs = jest.fn();
 			const { getByText, container } = render(
@@ -213,6 +250,71 @@ describe( 'Inspector (edit mode)', () => {
 			expect( onUpdateVerbs ).toHaveBeenCalledWith( 'ss', [
 				{ verb: 'add_setting', args: [ 'a', 'settings', 'x' ] },
 				{ verb: 'add_setting', args: [ 'c', 'settings', 'z' ] },
+			] );
+		} );
+	} );
+
+	describe( 'free-text verb arg (spaces) absorbs trailing tokens', () => {
+		// parseTsl whitespace-splits a `cmd node:config add_profile <free text>`
+		// line into a token array; a single free-text arg must show the WHOLE
+		// line, not just the first token — mirroring how view mode's
+		// positionalArgs() lets the last declared arg absorb the tail.
+		const freeTextProps = {
+			...baseProps,
+			selectedId: 'summarizer',
+			parsed: {
+				nodes: [
+					{
+						id: 'summarizer',
+						class: 'Summarizer',
+						verbInvocations: [
+							{
+								verb: 'add_profile',
+								args: [ 'Engineers', 'building', 'tools' ],
+							},
+						],
+					},
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'Summarizer',
+					arguments: [],
+					commands: [
+						{
+							name: 'add_profile',
+							multiple: true,
+							args: [ { name: 'text', type: 'string' } ],
+						},
+					],
+				},
+			],
+		};
+
+		it( 'shows the full multi-token value in the input, not just the first token', () => {
+			const { container } = render( <Inspector { ...freeTextProps } /> );
+			const input = container.querySelector( '#topology-ctor-text' );
+			expect( input.value ).toBe( 'Engineers building tools' );
+		} );
+
+		it( 'editing collapses the tail so onUpdateVerbs gets a single-slot args array', () => {
+			const onUpdateVerbs = jest.fn();
+			const { container } = render(
+				<Inspector
+					{ ...freeTextProps }
+					onUpdateVerbs={ onUpdateVerbs }
+				/>
+			);
+			fireEvent.change(
+				container.querySelector( '#topology-ctor-text' ),
+				{ target: { value: 'Engineers building great tools' } }
+			);
+			expect( onUpdateVerbs ).toHaveBeenCalledWith( 'summarizer', [
+				{
+					verb: 'add_profile',
+					args: [ 'Engineers building great tools' ],
+				},
 			] );
 		} );
 	} );
