@@ -49,4 +49,9 @@ class NodeNamesTest extends TestCase {
 			$this->assertSame( $value, $json[ $name ], "reserved-node-names.json['{$name}'] must equal Node_Names::{$name}" );
 		}
 	}
+
+	public function test_stdin_stdout_reserved_names(): void {
+		$this->assertSame( '_stdin', \Newspack_Nodes\Node_Names::STDIN );
+		$this->assertSame( '_stdout', \Newspack_Nodes\Node_Names::STDOUT );
+	}
 }

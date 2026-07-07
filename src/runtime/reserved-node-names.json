@@ -12,6 +12,8 @@
 	"ROUTER": "_router",
 	"SETTINGS_LOG": "_settings:log",
 	"SSE": "_sse",
+	"STDIN": "_stdin",
+	"STDOUT": "_stdout",
 	"TOPICPROBE": "_topicprobe",
 	"TOPICPROBE_LOG": "_topicprobe:log",
 	"UPTIME": "_uptime"
