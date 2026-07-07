@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Stdin_Node` / `Stdout_Node` + `TTY_In_Node` / `TTY_Out_Node`** — reusable terminal-I/O substrate nodes peeled out of the REPL. `Stdin_Node`/`Stdout_Node` are the bare fgets-source / fwrite-sink; the `TTY_*` subclasses add readline/completion (input) and prompt/ANSI-redraw (output). Any consumer can now read/write a terminal via the substrate.
+- **`wp nodes ingest <topic>` reads packed records from stdin** when no `<file>...` args are given (e.g. `wp nodes reqgrep … | wp nodes ingest firehose`), via a bare `Stdin_Node`.
 - **`TTY_In_Node`** — the readline/completion/prompt stdin reader for `wp nodes cli`, now a `Stdin_Node` subclass. `Stdin_Node::fire()` is split into an overridable `drain_once()` scaffold, and `send_eof()` into an overridable `emit_eof()`, so `TTY_In_Node` can layer readline reads, tab-completion candidate caching, and prompt display on top while inheriting the busy/EOF/idle re-arm cadence and the self-exit deadline. Its emit primitives drive the Shell (cli semantics: the Shell stamps `FROM=_output/$pid`, which the TM_EOF round-trip drain depends on) rather than a plain sink. Extracted from the old `CLI_Stdin_Reader_Node`.
 
 ### Changed
