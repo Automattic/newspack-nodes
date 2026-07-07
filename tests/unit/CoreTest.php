@@ -432,27 +432,30 @@ class CoreTest extends TestCase {
 		$this->assertStringEndsWith( "trailing\n", $line );
 	}
 
-	public function test_stderr_passes_text_to_the_handler_verbatim(): void {
-		// Core::stderr writes the text through as-is — the timestamp/identity prefixing is the
-		// stderr HANDLER's job now (log_prefix + log_midfix), not Core::stderr's. The full
-		// composition is covered by test_log_prefix_and_midfix_compose_the_full_line.
+	public function test_stderr_midfixes_text_before_the_handler(): void {
+		// Core::stderr now applies the process-identity midfix (host argv0[pid]:)
+		// ONCE, centrally, before handing to the stderr handler — the handler adds
+		// only the timestamp prefix (log_prefix). Previously the midfix lived in
+		// the handler, which diverged the dmesg ring (recent_log) from live output.
+		// The full composition is covered by test_log_prefix_and_midfix_compose_the_full_line.
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::stderr( 'a warning' );
-		$this->assertSame( 'a warning', $buf );
+		$this->assertSame( Core::log_midfix( 'a warning' ), $buf );
 	}
 
-	public function test_stderr_passes_through_already_dated_message(): void {
-		// Tachikoma: if a message already begins with YYYY-MM-DD it is assumed
-		// pre-prefixed and written verbatim (no double prefix). Otherwise it
-		// would prefix twice on re-log paths (cleanup_all_nodes → stderr).
+	public function test_stderr_midfixes_even_already_dated_text(): void {
+		// The old Tachikoma date-guard (write already-YYYY-MM-DD text verbatim) is
+		// gone: the midfix is applied once in Core::stderr for EVERY line, so text
+		// that happens to start with a date is midfixed like anything else — the
+		// host/pid midfix leads, the embedded date trails in the body.
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
-		Core::stderr( '2026-05-22 00:00:00 UTC host /x[1]: already prefixed' );
-		// Exactly one date at the very start — not prefixed again.
-		$this->assertSame( 1, \preg_match( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC host/', $buf ) );
-		$this->assertStringEndsWith( "already prefixed\n", $buf );
-		$this->assertStringNotContainsString( '[1]: 2026', $buf );
+		Core::stderr( '2026-05-22 00:00:00 UTC already dated' );
+		$this->assertSame( Core::log_midfix( '2026-05-22 00:00:00 UTC already dated' ), $buf );
+		// Not special-cased: the line leads with the midfix, not the embedded date.
+		$this->assertSame( 0, \preg_match( '/^\d{4}-\d\d-\d\d/', $buf ) );
+		$this->assertStringStartsWith( Core::log_midfix(), $buf );
 	}
 
 	public function test_print_less_often_routes_through_stderr(): void {

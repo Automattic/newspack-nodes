@@ -1794,11 +1794,13 @@ class CommandInterpreterTest extends TestCase {
 			$out = $interpreter->dispatch( 'log', 'hello from log verb' );
 			$this->assertSame( '', $out, 'log returns empty string — caller suppresses response' );
 			$this->assertCount( 1, $captured );
-			// log routes through the interpreter NODE's stderr (per "$this->stderr() when a
-			// $this is handy"), so the captured line carries the node's "<name>: " midfix tag.
-			// The dated identity prefix is the real handler's job, bypassed by this capture.
-			$this->assertMatchesRegularExpression(
-				'/^_command_interpreter: hello from log verb\n$/',
+			// log routes through the interpreter NODE's stderr, which tags the line
+			// with the node's "<name>: " midfix, then hands it to Core::stderr, which
+			// applies the process-identity midfix (host argv0[pid]:) centrally. The
+			// captured line carries both; the dated prefix is the real handler's job,
+			// bypassed by this capture.
+			$this->assertSame(
+				Core::log_midfix( $interpreter->log_midfix( 'hello from log verb' ) ),
 				$captured[0]
 			);
 		} finally {
