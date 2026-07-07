@@ -39,7 +39,7 @@ class Lock_Node extends Node {
 	 *
 	 * @param array<int, mixed> $message Reference; not mutated by the heartbeat path.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( 'heartbeat' === $message[ Message::KEY ] ) {
 			++$this->counter;
 			if ( $this->is_held ) {

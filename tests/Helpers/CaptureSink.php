@@ -12,7 +12,7 @@ class Capture_Sink_Node extends Dumper_Node {
 	/** @var array<int,array> */
 	public array $captured = [];
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		$size = Message::packed_size( $message );
 		if ( $size > $this->largest_msg_sent ) {

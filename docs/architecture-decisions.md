@@ -35,7 +35,7 @@ node without knowing its type. The moment one node exposes `write()` and another
 `process()`, callers have to special-case which method to call, and a node can no longer be
 swapped for another without touching its callers.
 
-**Decision:** Every node has exactly one entry point: `fill( array &$message )`. There is no
+**Decision:** Every node has exactly one entry point: `fill( array $message )`. There is no
 parallel `write()` / `read()` / `process()` API and no convenience wrappers. Callers build
 the Message inline and call `fill()` directly.
 

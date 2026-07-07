@@ -19,7 +19,7 @@ class Callback_Node extends Node {
 		$this->cb = $cb;
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		( $this->cb )( $message );
 	}

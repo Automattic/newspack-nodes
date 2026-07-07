@@ -112,7 +112,7 @@ class SSE_In_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 	}
 

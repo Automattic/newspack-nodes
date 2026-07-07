@@ -16,7 +16,7 @@ A few things this runtime assumes. It's WordPress-internal — there is no stand
 A **node** is a small object with exactly one entry point:
 
 ```php
-public function fill( array &$message ): void
+public function fill( array $message ): void
 ```
 
 That's the contract. Every node — a data source, a transform, a file writer, the router itself — receives work the same way: a message arrives at `fill()`. A node does its job and forwards the message to the next node. There is no other API to learn.

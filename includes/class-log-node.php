@@ -30,7 +30,7 @@ class Log_Node extends Partition_Node {
 	 *
 	 * @param array<int, mixed> $message
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
 

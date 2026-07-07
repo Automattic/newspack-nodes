@@ -78,7 +78,7 @@ class Node {
 	 *
 	 * @param array<int, mixed> $message Message reference.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
@@ -473,7 +473,7 @@ class Node {
 	 *
 	 * @param array<int, mixed> $message Message reference.
 	 */
-	public function drop_message( array &$message, string $error ): void {
+	public function drop_message( array $message, string $error ): void {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
 		$labels   = [];

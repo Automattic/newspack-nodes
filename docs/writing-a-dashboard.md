@@ -89,7 +89,7 @@ class Scorer_Node extends Node {
 		return $score;
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( 0 === ( ( $message[ Message::TYPE ] ?? 0 ) & Message::TM_STRUCT ) ) {
 			return;
 		}

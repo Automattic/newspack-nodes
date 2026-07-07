@@ -190,7 +190,7 @@ class Consumer_Node extends Timer_Node {
 	/**
 	 * Handle TM_REQUEST introspection verbs (reply TO=FROM); else defer to Timer.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
 		if ( $type & Message::TM_REQUEST ) {

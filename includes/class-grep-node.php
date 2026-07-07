@@ -23,7 +23,7 @@ class Grep_Node extends Node {
 		return $this->arguments;
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		$value   = $message[ Message::VALUE ];
 		$subject = \is_string( $value ) ? $value : (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES );
 		if ( 1 === \preg_match( $this->pattern, $subject ) ) {

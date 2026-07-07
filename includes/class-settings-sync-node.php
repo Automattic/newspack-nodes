@@ -67,7 +67,7 @@ class Settings_Sync_Node extends Timer_Node {
 	 *
 	 * @param array<int, mixed> $message Message reference.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		$type = \is_int( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : 0;
 		if ( ! ( $type & Message::TM_STRUCT ) ) {

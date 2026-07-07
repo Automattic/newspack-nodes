@@ -24,7 +24,7 @@ A WordPress-internal node-graph runtime — a message-passing node graph built o
 
 Three core ideas:
 
-1. **Nodes** — processing units. Every node has `fill( array &$message )` as its only entry point.
+1. **Nodes** — processing units. Every node has `fill( array $message )` as its only entry point.
 2. **Messages** — 7-field arrays carrying a type bitmask, a routable path (TO/FROM), an ID, a KEY, and a VALUE.
 3. **Drain loop** — Event_Framework picks the soonest pending timer's deadline as its wait timeout, then sleeps on `curl_multi_select` (when cURL handles are registered) or `usleep` (otherwise), fires expired timers, and runs deferred cleanup.
 
@@ -145,7 +145,7 @@ class Node {
     protected int $counter = 0;
     protected array $registrations = [];   // pre-declared events
 
-    public function fill( array &$message ): void;
+    public function fill( array $message ): void;
     public function sink( ?Node $node = null ): ?Node;
     public function target( $value = null );
     public function connect_node( string $target ): void;     // sets target (Tee appends)
@@ -154,7 +154,7 @@ class Node {
     public function counter(): int;
 
     public function stamp_message( array &$message, string $name ): bool;
-    public function drop_message( array &$message, string $error ): void;
+    public function drop_message( array $message, string $error ): void;
 
     public function dump_node(): array;       // state snapshot for `dump_node` verb
     public function dump_config(): string;    // round-trippable make_node line
@@ -169,7 +169,7 @@ class Node {
 **Default `fill()`** stamps TO from `target` (only when TO is empty), counts, then forwards:
 
 ```php
-public function fill( array &$message ): void {
+public function fill( array $message ): void {
     if ( null === $this->sink ) {
         throw new \RuntimeException( 'fill requires a wired sink' );
     }
@@ -202,7 +202,7 @@ Returns false (drops) if FROM would exceed `MAX_FROM_SIZE = 1024` — prevents p
 `Router::fill()` (PHP) drops an unaddressed message first, then peels the head segment and dispatches:
 
 ```php
-public function fill( array &$message ): void {
+public function fill( array $message ): void {
     ++$this->counter;
     if ( '' === $message[ Message::TO ] ) {
         $this->drop_message( $message, 'message not addressed' );

@@ -4,7 +4,7 @@ This walkthrough builds a real pipeline from an empty directory: an AI-newslette
 
 The finished code is in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/) — read along, or build it yourself and diff.
 
-> **The one thing to hold onto:** every node has a single entry point, `fill( array &$message ): void`. A node does its job and forwards the message to its **sink**. Nodes never call each other's methods; they pass messages. Keep that contract and your node drops into any graph.
+> **The one thing to hold onto:** every node has a single entry point, `fill( array $message ): void`. A node does its job and forwards the message to its **sink**. Nodes never call each other's methods; they pass messages. Keep that contract and your node drops into any graph.
 
 If you haven't run the example yet, do [getting-started.md](getting-started.md) first — it's the same pipeline, five minutes, no building.
 
@@ -105,7 +105,7 @@ class Releases_Source_Node extends Node {
 	}
 
 	/** TICK is a runtime trigger: a TM_REQUEST handled here in fill(). */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 		}
@@ -187,7 +187,7 @@ class Summarizer_Node extends Node {
 		return $title . ' — ' . \mb_substr( $body, 0, 80 );
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
 			return;   // only handle struct items
 		}
@@ -243,7 +243,7 @@ class Digest_Builder_Node extends Node {
 		] );
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
 			$this->handle_request( $message );   // FLUSH
 			return;
@@ -380,7 +380,7 @@ class Community_Source_Node extends Node {
 		];
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 		}

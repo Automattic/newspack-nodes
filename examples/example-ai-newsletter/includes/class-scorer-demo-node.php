@@ -45,7 +45,7 @@ class Scorer_Demo_Node extends Node {
 		return \round( $base + $bump, 1 );
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		/** @var int $type */
 		$type = $message[ Message::TYPE ];
 		if ( ! ( $type & Message::TM_STRUCT ) ) {

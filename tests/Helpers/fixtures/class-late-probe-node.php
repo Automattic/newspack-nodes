@@ -16,7 +16,7 @@ use Newspack_Nodes\Node;
 
 class Late_Node extends Node {
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		$this->sink?->fill( $message );
 	}

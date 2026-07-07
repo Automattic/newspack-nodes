@@ -11,7 +11,7 @@ namespace Newspack_Nodes;
 
 class Tap_Node extends Tee_Node {
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}

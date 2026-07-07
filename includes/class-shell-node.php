@@ -46,7 +46,7 @@ class Shell_Node extends Node {
 	 * Shell is signed here so it carries an HMAC envelope across the IPC boundary
 	 * to a worker (Command_Auth::sign is a no-op on non-command types).
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}

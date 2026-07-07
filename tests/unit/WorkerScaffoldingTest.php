@@ -158,7 +158,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
 		$c->name( 'firehose:consumer' ); // registers in Core::$nodes_by_name.
 		$c->sink( new class() extends \Newspack_Nodes\Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \Newspack_Nodes\Worker_Should_Stop();
 			}
 		} );

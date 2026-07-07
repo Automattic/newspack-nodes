@@ -304,7 +304,7 @@ class TimerTest extends TestCase {
 		$interpreter = new class extends \Newspack_Nodes\Command_Interpreter_Node {
 			/** @var array<int,array> */
 			public array $filled = [];
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				$this->filled[] = $message;
 			}
 		};
