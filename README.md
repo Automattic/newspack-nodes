@@ -8,13 +8,25 @@ The traditional WordPress plugin shape — singletons, hooks-as-coupling, monoli
 
 Newspack Nodes is a different bet. The substrate gives you one contract — every node receives messages via `fill( array &$message )`, every node sinks into another node — and that's it. With that uniformity, composition just works: any node connects to any other node, fan-out is a Tee, transforms are Hooks, file I/O is a Tail or Log. New behavior is a new Node class with a new `fill()` body.
 
-The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific — the lone stock topology, `topologies/job-worker.tsl`, drives the generic Job_Worker_Node, and its application context arrives through `before_job` / `after_job` hooks. But the lifecycle underneath is all WordPress: config lives in the options table, the supervisor's safety net runs on WP-Cron, workers spawn and take commands over the REST API behind HMAC + nonce auth, and live position/stats ride in memcache. So "application-independent" is the honest claim; "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
+The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific — the stock topologies are `topologies/job-worker.tsl`, which drives the generic Job_Worker_Node (its application context arriving through `before_job` / `after_job` hooks), and `topologies/hub-control.tsl`, the single-instance settings-sync / discovery control plane. But the lifecycle underneath is all WordPress: config lives in the options table, the supervisor's safety net runs on WP-Cron, workers spawn and take commands over the REST API behind HMAC + nonce auth, and live position/stats ride in memcache. So "application-independent" is the honest claim; "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
 
 This is an early implementation of an idea pitched at the team meetup: the Lego-bricks architecture, brought to PHP/WordPress, without giving up production fitness on Atomic / WP-Cloud.
 
 ## Learn it
 
-New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then **[writing-a-plugin.md](docs/writing-a-plugin.md)** builds that example from an empty directory, one node at a time, and shows why the shape pays off. The complete code lives in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/).
+New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then work through the `docs/` set:
+
+- **[getting-started.md](docs/getting-started.md)** — zero to a running pipeline you can poke at by hand.
+- **[writing-a-plugin.md](docs/writing-a-plugin.md)** — build the AI-newsletter example from an empty directory, one node at a time.
+- **[writing-a-real-plugin.md](docs/writing-a-real-plugin.md)** — take that toy to the production version, two method bodies away.
+- **[writing-a-dashboard.md](docs/writing-a-dashboard.md)** — add a React admin dashboard that reads the pipeline's live state.
+- **[writing-a-real-dashboard.md](docs/writing-a-real-dashboard.md)** — the production realities of shipping a dashboard (console, DevTools overlay, release).
+- **[writing-a-view-node.md](docs/writing-a-view-node.md)** — the one-page contract for a dashboard slice's terminal view node.
+- **[architecture-guide.md](docs/architecture-guide.md)** — full substrate design: message format, node contracts, drain loop, REPL.
+- **[architecture-decisions.md](docs/architecture-decisions.md)** — the load-bearing ADRs and the conditions that would reopen them.
+- **[API.md](docs/API.md)** — REST endpoint reference.
+
+The complete code lives in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/).
 
 ## Quick Start
 

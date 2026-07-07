@@ -42,7 +42,7 @@ The endpoint acknowledges synchronously, then detaches from FPM via `fastcgi_fin
 2. `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` and `$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']` are populated for sub-actions / logging.
 3. For topology workers, the `newspack_nodes/spawn_worker` action fires with `( string $type, int $partition )`. For `type=supervisor`, the controller instantiates and runs the supervisor synchronously inside the request — no separate fork.
 
-Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the right worker class for the given `$type` and call `->execute()`. The runtime ships one stock topology — `job-worker` (the substrate's `Job_Worker_Node`, registered from `topologies/job-worker.tsl` via `Topology_Registry::register_stock_dir`, with `Topology_Registry::spawn_worker` hooked onto `newspack_nodes/spawn_worker`) — and application plugins (e.g., `newspack-event-logger-nodes`) register the rest.
+Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the right worker class for the given `$type` and call `->execute()`. The runtime ships one stock topology — `job-worker` (the substrate's `Job_Worker_Node`, registered from `topologies/job-worker.tsl` via `Topology_Registry::register_builtin_dir`, with `Topology_Registry::spawn_worker` hooked onto `newspack_nodes/spawn_worker`) — and application plugins (e.g., `newspack-event-logger-nodes`) register the rest.
 
 `Job_Worker_Node` is generic async-job dispatch: applications register local/remote handlers via the `newspack_nodes/{job,remote_job}_handlers` filters, and the worker fires `newspack_nodes/job_worker/{before,after}_job` actions around each job so apps can establish/tear down per-job request context.
 
@@ -67,7 +67,7 @@ The spawn endpoint uses dual-mode auth (`Spawn_Controller::check_permission`):
 
 Both paths require the `nonce` field; only the validator differs. There is no env-var bypass — `NEWSPACK_NODES_WORKER_TYPE` / `_PARTITION` are written to `$_SERVER` *after* auth passes (see [Worker Identity Tags](#worker-identity-tags)) and are not consulted during permission checks.
 
-Application plugins that add their own REST endpoints typically use `current_user_can( 'manage_options' )` for human-facing endpoints and a separate HMAC scheme (or capability + nonce combo) for machine-facing endpoints. See `newspack-event-logger-nodes/API.md` for the application-side auth patterns.
+Application plugins that add their own REST endpoints typically use `current_user_can( 'manage_options' )` for human-facing endpoints and a separate HMAC scheme (or capability + nonce combo) for machine-facing endpoints. See `newspack-event-logger-nodes/docs/API.md` for the application-side auth patterns.
 
 ## Worker Identity Tags
 
@@ -173,7 +173,7 @@ Beyond the service CIs, the root (empty-TO) base `Command_Interpreter_Node` answ
 
 Application plugins layer additional CIs onto the same endpoint (the first being `newspack-event-logger-nodes` with its application-side CIs). The `to` field on the dispatch envelope distinguishes targets — there is no substrate-vs-application namespacing at the endpoint layer.
 
-**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }` plus an optional `default` (e.g. `workers restart`'s `partition`/`ttl` args carry one). This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
+**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }` plus an optional `default` (e.g. `workers restart`'s `partition` and `workers heartbeat`'s `ttl` args carry one). This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
 
 **Every verb reads from the `arguments` string.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), `raw-logs log_status` (a log key), `workers heartbeat` (an SSE slot) — read it straight from the inner envelope's `arguments` string, so they're typeable in the REPL (e.g. `command_node topologies get Home`). Structured verbs read from the same string: `topologies save` / `layouts save` take `<name> <rest-of-line>` via `Service_CI_Node::split_first_token` (the rest-of-line carries the TSL body or positions JSON, newlines included); option-flag verbs like `workers restart` parse `<type>… [--partition=<n>]` via `Command_Args::parse`. There is no `payload` input slot.
 
@@ -202,7 +202,7 @@ Server-sent-events drain endpoint backed by `SSE_Out_Node` (which is both the `_
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `subscribe` | string | yes | CSV of subscription names. Two shapes per name: `{type}.p{N}` (worker IPC reader, resolved via `CLI::attach_to_worker`) or a bare `[a-z0-9_-]+` log-feed identifier (one Consumer per partition under `{base}/logs/{name}.log`). The `{type}.p{N}` form has two cascading fallbacks if there's no live lock dir: (a) tail the IPC `output/` dir if it still exists on disk (down-but-restarting worker — recovers when it respawns); (b) fall through to `logs/{type}.log/p{N}` (the aggregator-hub case: a name like `firehose.p0` with no worker but a log dir). Anything else throws `InvalidArgumentException` (path-traversal guard). Blank entries between commas are dropped. |
-| `positions` | string | no | Optional resume positions. JSON object keyed by subscription name (one entry per name in `subscribe`); each value is itself a per-partition map (partition index → cursor), where a cursor is a `{seg, off}` object or one of the `start`/`recent`/`end` string forms `Consumer::next_offset` accepts. (A single-partition subscription still nests under its partition index.) Decoded by `SSE_Out_Node::parse_positions()`; malformed JSON / non-object → treated as omitted (tail-seek all). Omit to start at `end` (live tail). |
+| `positions` | string | no | Optional resume positions. JSON object keyed by subscription name (one entry per name in `subscribe`); each value is itself a per-partition map (partition index → cursor), where a cursor is a `{segment, offset}` object or one of the `start`/`recent`/`end` string forms `Consumer::next_offset` accepts. (A single-partition subscription still nests under its partition index.) Decoded by `SSE_Out_Node::parse_positions()`; malformed JSON / non-object → treated as omitted (tail-seek all). Omit to start at `end` (live tail). |
 
 ### Response
 
@@ -241,4 +241,4 @@ Skipping `make_node()` — by constructing and `name()`-ing the node by hand —
 
 The hook fires on every `/command` request after lazy-build; it's idempotent on the CI side because `make_node()` overwrites prior registrations under the same name. Applications can re-mount the same CI on every request without leaking state across requests as long as their CIs aren't holding stateful per-request data (the typical pattern: CIs are pure verb dispatchers, dependencies injected via constructor).
 
-For the application-side build-out, see the per-CI `node_schema()` declarations under `newspack-event-logger-nodes/includes/rest/` (the `*_CI_Node` classes mounted via `newspack_nodes/request_graph_ready`).
+For the application-side build-out, see the per-CI `node_schema()` declarations under `newspack-event-logger-nodes/includes/app/` (the `*_CI_Node` classes mounted via `newspack_nodes/request_graph_ready`).

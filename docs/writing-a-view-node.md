@@ -25,8 +25,10 @@ export class SourceCountsViewNode extends SliceViewNode {
 }
 ```
 
-Register the class (`CommandInterpreterNode.registerNodeClasses`) and React
-reads it with `useNodeState( 'source-counts:view', 'view' )`.
+Register the class — `CommandInterpreterNode.registerNodeClasses( {
+SourceCountsView: SourceCountsViewNode } )` (import `CommandInterpreterNode`
+from `@newspack-nodes/runtime`) — and React reads it with
+`useNodeState( 'source-counts:view', 'view' )`.
 
 ## 3 routing facts
 
@@ -36,7 +38,7 @@ reads it with `useNodeState( 'source-counts:view', 'view' )`.
 
 2. **You never fetch your own data; a reply is *delivered* to you by the
    `TO = FROM` pivot.** Upstream, a `Timer → Tee → Fetcher` poll sends your slice
-   verb to the server CI, stamping **`FROM = your receiver`**. The server replies
+   verb to the service CI, stamping **`FROM = your receiver`**. The server replies
    **`TO = FROM`** — the universal reply pivot — so the reply routes back to your
    receiver `Tee`, which fans it to your view. Your `fill()` only ever *handles
    the arriving reply*; it never sends the request.

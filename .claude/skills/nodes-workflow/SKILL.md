@@ -34,7 +34,7 @@ For a new Node subclass:
 1. Create `includes/class-{name}.php` with `class Foo_Node extends Node` — every node class ends in `_Node` (the shell-name in `make_node <type> <name>` is the class minus `_Node`, so callers type `make_node Foo my_foo`). Override `fill( array &$message ): void` — that's the contract. Bump `$this->counter` and forward via `$this->sink?->fill( $message )` unless you have a specific reason not to.
 2. **v0.6.0 [Tachikoma](https://github.com/datapoke/tachikoma) sequence**: ctor must be parameter-less. Declare positional config in `node_schema()['arguments']` as `[{name, type, default?, required?}]` — `make_node` will instantiate with `new $fqcn()`, then call `name()`, then `arguments( implode( ' ', array_filter( $args, '\is_scalar' ) ) )`, then `sink( $this )`. The default `arguments()` walks the schema and assigns each positional arg onto `$this->{$name}`, so config round-trips through `dump_config()`.
 3. Override `arguments()` only when you need derived state (e.g. `Partition_Node`'s `partition_dir`). The override MUST short-circuit on empty args: `if ( '' === $args ) return $result;` — otherwise `make_node Foo` (no args) re-derives against declaration-default props and writes filesystem-root junk like `/p0`. Side effects (`set_timer`, `mkdir`, `fopen`) belong in the override gated on non-empty args, NOT in the ctor (substrate Decision #5: ctor must be event-loop-free).
-4. Programmatic dependencies (objects, callables, streams) are public properties the caller assigns AFTER `make_node` returns — NOT ctor params. Object args passed positionally to `make_node` are silently filtered out by `is_scalar` because they aren't round-trippable. Reference: `Workers_CI_Node::$cli` / `$cache`.
+4. Programmatic dependencies (objects, callables, streams) are public properties the caller assigns AFTER `make_node` returns — NOT ctor params. Object args passed positionally to `make_node` are silently filtered out by `is_scalar` because they aren't round-trippable. Reference: `Workers_CI_Node::$cli`.
 5. **No registration needed** — `make_node Foo` resolves `\Newspack_Nodes\Foo_Node` via the registered namespace prefix (composer classmap autoloads it), and the palette catalog scans the classmap for `*_Node` Node subclasses with a `node_schema()` category. Just put the class under `Newspack_Nodes\` (the prefix the plugin registers via `Command_Interpreter_Node::register_namespace`) and run `composer dump-autoload -o`.
 6. Add a row to AGENTS.md's `## Layout` table for the new file. If the change shifts an architecture decision (e.g. new lifecycle ordering, new ctor restriction), add or amend a decision under `## Architecture Decisions`.
 
@@ -55,9 +55,9 @@ cd tests && ../vendor/bin/phpunit --enforce-time-limit
 
 # Restart workers so they pick up the new code (otherwise the old class lives
 # in the running PHP process for ~10 more minutes). Run `wp nodes types`
-# first to see what topologies are actually live — the substrate ships only
-# the generic `job-worker` stock topology (registered via
-# `Topology_Registry::register_stock_dir`); the rest come from application
+# first to see what topologies are actually live — the substrate ships two
+# builtin topologies (`job-worker` and `hub-control`, registered via
+# `Topology_Registry::register_builtin_dir`); the rest come from application
 # plugins and are deployment-specific — `wp nodes types` / `wp nodes ls` is
 # the source of truth.
 wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
@@ -74,7 +74,7 @@ For changes affecting the firehose pipeline, hit the dashboard or a real URL. Th
 
 ```bash
 curl -sk "<site>/" -o /dev/null
-wp nodes reqgrep --recent | head -10   # ELN-side; falls back to wp nodes cli for substrate-only envs
+wp nodes reqgrep --recent | head -10   # ELN-side; unregistered (not available) in substrate-only envs — use wp nodes cli there instead
 ```
 
 Match what you see against your expectations. If something's off, the `nodes-debugging` skill walks through `wp nodes cli` for live introspection.

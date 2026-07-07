@@ -40,7 +40,7 @@ list_nodes [-clst] [<node>]         # nodes sinking INTO <node>; -c count -l cou
 list_nodes -a [-clst] [<glob>]      # all nodes filtered by anchored regex
 dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
-dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments/lgst_msg/bytes_read/bytes_written/accepts_fill/has_target (the last two are port flags read from the node schema) — one round-trip gives a visualizer the graph. Patron-linked (`{node}:config`) CIs are filtered out. NOT the same verb as `Workers_CI`'s `dump_metadata` over REST (that returns `{workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp}`).
+dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments/lgst_msg/bytes_read/bytes_written/accepts_fill/has_target/has_config, plus `registrations` when non-empty (accepts_fill and has_target are port flags read from the node schema; has_config flags whether the node has a `:config` command sidecar) — one round-trip gives a visualizer the graph. Patron-linked (`{node}:config`) CIs are filtered out. NOT the same verb as `Workers_CI`'s `dump_graph` over REST (that returns `{workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp}`).
 debug_state [<node>] [<level>]      # toggle/set node's debug_state level (0/1/N). No args toggles the interpreter's own.
 uptime                              # clock-time + days+HH:MM:SS since Core::reset() (worker spawn)
 stats [-a] [<regex>]                # NAME COUNT LGST_MSG READ WRITTEN columns; default scope is siblings, -a all
@@ -100,9 +100,9 @@ wp nodes status --format=json
 wp nodes run <type> [--partition=<N>] [--quiet]
 
 # Force-restart (sends a restart flag-file via Lock). Run `wp nodes types`
-# first to discover what's live: the substrate ships ONE stock topology
-# (`job-worker`, registered via `Topology_Registry::register_stock_dir` from
-# its own `topologies/` dir); the rest come from application plugins and are
+# first to discover what's live: the substrate ships two builtin topologies
+# (`job-worker` and `hub-control`, registered via `Topology_Registry::register_builtin_dir`
+# from its own `topologies/` dir); the rest come from application plugins and are
 # deployment-specific. `wp nodes types` / `wp nodes ls` is the source of truth.
 wp nodes restart all --all-partitions          # every type, every partition
 wp nodes restart <type> --partition=<N>         # one type, one partition

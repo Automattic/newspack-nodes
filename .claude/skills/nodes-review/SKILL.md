@@ -82,7 +82,7 @@ Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM
 - Schema `default` must be a real typed value (real ints, floats, class constants). Placeholder strings (`'<config:foo>'`) against typed properties crash the schema walker.
 - `arguments()` overrides MUST short-circuit on `'' === $args` — otherwise `make_node Foo` (no args) re-derives against declaration-default props and writes filesystem-root junk like `/p0`. `Partition_Node` is the reference template.
 - Side effects (`set_timer`, `mkdir`, `fopen`, `Partition_Node` materialization) belong in the `arguments()` override gated on non-empty args, not in the constructor (AGENTS decision 5).
-- Programmatic dependencies (objects, callables, streams) are public properties the caller sets after construction, NOT ctor params. `Workers_CI_Node::$cli` / `$cache` is the reference.
+- Programmatic dependencies (objects, callables, streams) are public properties the caller sets after construction, NOT ctor params. `Workers_CI_Node::$cli` is the reference.
 - Schema field names are `'arguments'` and `'commands'`. A diff that reads or writes `'ctor'` or `'verbs'` is a regression (renamed in v0.6.0).
 - Schema `default`s are applied **only per-position when token list runs short**, NOT on `'' === $args` (the empty-args short-circuit returns before the schema walk). If you want a default that's visible both via `make_node Foo bar baz` *and* `make_node Foo` (no args), set it as the class property default too — not only on the schema entry.
 

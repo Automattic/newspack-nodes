@@ -242,7 +242,8 @@ Routing is path-based (`a/b/c` → "find node `a`, pass remaining path `b/c`"), 
 One file-segmented append-only log, with an optional `.idx` companion. Storage primitive AND Node. Lift-adapt of event-logger's `Firehose`.
 
 ```php
-$p = new Partition( $base_dir, $partition_id, $segment_size, $num_segments, $max_lifespan );
+$p = new Partition_Node();                              // no-arg ctor; config is positional via arguments()
+$p->arguments( "$partition_dir $segment_size $num_segments $max_lifespan" );
 $p->fill( $message );                                   // ONLY ingress — no write()/produce()
 $p->flush();                                            // land the in-memory batch now
 $p->read_at( $segment_id, $offset, $length );           // read bytes
@@ -265,7 +266,7 @@ $p->with_index( $formatter );                           // opt in: JSONL .idx li
 - No `Core::node()` lookup during construct.
 - No `scandir` in constructor (eager scandir × N partitions × every request burns syscalls).
 - No `$this->name()` from constructor (`Command_Interpreter_Node::make_node` owns naming).
-- File handles open lazily on first `write()` / `fill()` / `read_at()`.
+- File handles open lazily on first `fill()` / `read_at()`.
 
 **`hash_to_partition`** is the canonical partition-routing function:
 
@@ -295,7 +296,8 @@ Messages larger than 4KB (only reachable on `allow_large_writes` partitions) byp
 Multi-Partition wrapper. Hashes KEY to partition, falls back to round-robin when KEY is empty.
 
 ```php
-$t = new Topic( $base_dir, $num_partitions, $segment_size, $num_segments, $max_lifespan );
+$t = new Topic_Node();                                 // no-arg ctor; config is positional via arguments()
+$t->arguments( "$dir_template $num_partitions $segment_size $num_segments $max_lifespan" );
 $t->fill( $message );    // ONLY ingress — KEY -> partition routing; no write()
 $t->flush();             // flush every materialized partition's batch
 ```
@@ -314,20 +316,21 @@ $t->flush();             // flush every materialized partition's batch
 
 ### Offsetlog
 
-Just another Partition under `offsets/{reader}/`. Each checkpoint is a `TM_STRUCT` Message whose VALUE is `{seg, off, ts, name, target, targets, worker_type}`, routed through `Partition::fill` (so it lands as the canonical packed wire format, not raw JSONL) and `flush`ed immediately. On restart `load_offsetlog()` reads the newest segment's last line, `Message::unpacked`s it, and decodes VALUE to seed the cursor. An empty `$offsetlog_dir` disables the offsetlog entirely (ephemeral readers like the cli's `reply-in`). No special class.
+Just another Partition under `offsets/{reader}/`. Each checkpoint is a `TM_STRUCT` Message whose VALUE is `{segment, offset, attempts, reason, first_crash_ts, name, target, targets, worker_type, source_log}`, routed through `Partition::fill` (so it lands as the canonical packed wire format, not raw JSONL) and `flush`ed immediately. On restart `load_offsetlog()` reads the newest segment's last line, `Message::unpacked`s it, and decodes VALUE to seed the cursor. An empty `$offsetlog_dir` disables the offsetlog entirely (ephemeral readers like the cli's `reply-in`). No special class.
 
 ## Consumer + Tail
 
-**Consumer** generalizes existing `LogReader`. Tails a source Partition; commits cursor `{seg, off, ts, ...}` to its offsetlog (itself a single-partition Partition). On restart, reads the newest offsetlog entry to seed the cursor.
+**Consumer** generalizes existing `LogReader`. Tails a source Partition; commits cursor `{segment, offset, attempts, reason, first_crash_ts, ...}` to its offsetlog (itself a single-partition Partition). On restart, reads the newest offsetlog entry to seed the cursor.
 
 ```php
-$c = new Consumer( $source_dir, $offsetlog_dir = '' );
-$c->next_offset( 'start' | 'recent' | 'end' | ['seg'=>, 'off'=>] );  // seek
+$c = new Consumer_Node();                              // no-arg ctor; config is positional via arguments()
+$c->arguments( "$source_dir $offsetlog_dir $deadletter_dir" );
+$c->next_offset( 'start' | 'recent' | 'end' | ['segment'=>, 'offset'=>] );  // seek
 $c->poll();         // read new bytes, re-emit each line's Message, advance cursor
-$c->checkpoint();   // append a {seg, off, ts, ...} TM_STRUCT to offsetlog
+$c->checkpoint();   // append a {segment, offset, attempts, reason, first_crash_ts, ...} TM_STRUCT to offsetlog
 ```
 
-`poll()` reads new bytes since the cursor, splits on `\n`, drops the trailing partial, and for each complete line `Message::unpacked`s it (Partition wrote a packed Message per line), stamps its own name onto FROM, and forwards via `parent::fill`. The position breadcrumb goes in **ID** as `"{seg}:{offset}"` — **NOT KEY**. The code comment is explicit: overwriting KEY would destroy the producer's partition-routing key (rid / handler) and silently break multi-partition queues and RequestBuilder's rid grouping. Corrupt/unparseable lines are skipped (cursor already advanced) rather than aborting the poll.
+`poll()` reads new bytes since the cursor, splits on `\n`, drops the trailing partial, and for each complete line `Message::unpacked`s it (Partition wrote a packed Message per line), stamps its own name onto FROM, and forwards via `parent::fill`. The position breadcrumb goes in **ID** as `"{segment}:{offset}:{length}"` — **NOT KEY**. The code comment is explicit: overwriting KEY would destroy the producer's partition-routing key (rid / handler) and silently break multi-partition queues and RequestBuilder's rid grouping. Corrupt/unparseable lines are skipped (cursor already advanced) rather than aborting the poll.
 
 **Tail** is a subclass of **Consumer** (`Tail extends Consumer`). It reads a **Log**'s `{file}.{seg}` segments (a file layout, via a `Log_Node` source) and emits one complete line per poll as raw `TM_BYTESTREAM` bytes (newline restored, FROM-stamped at this I/O boundary) — instead of unpacking packed Messages. Tail overrides only the single per-line emit seam, `forward_line()`; the buffer/cursor scan that hands it each line stays in Consumer's `drain_buffer()`, so Tail gets line_mode (one line per poll) for free. It **inherits** the durable offsetlog cursor, snapshot co-commit, live-position publish, behind/ETA, checkpoint cadence, and segment-roll follow. A fresh Tail with no durable cursor defaults to **end-of-file** (`default_offset` → `'end'`) — only bytes appended after start — and resumes from its offsetlog checkpoint on restart, which fixes the old every-restart full re-read. `make_node Tail <name> <source_file> [offsetlog_dir]`.
 
@@ -395,8 +398,15 @@ Deferred cleanup runs **inside** the loop (so node-removal callbacks fire while 
 Registration API:
 
 ```php
-$ef->set_timer( $node, $interval_ms, $oneshot = false );
-$ef->stop_timer( $node );
+// Timers: subclass Timer_Node and arm the timer FROM the node — never call
+// Event_Framework's timer method directly. Timer_Node::set_timer() reads the
+// node's own interval and hands $this to Event_Framework under the hood.
+class My_Timer_Node extends Timer_Node {
+    protected function fire(): void { /* periodic work */ }
+}
+$node->set_timer( $interval_ms, $oneshot = false );   // Timer_Node::set_timer
+$node->stop_timer();                                  // Timer_Node::stop_timer
+
 $ef->register_curl_handle( $node, $multi_handle );
 $ef->unregister_curl_handle( $node );
 $ef->install_signal_handlers();   // SIGTERM/SIGINT -> Core::$shutting_down
@@ -428,8 +438,6 @@ class Lock_Node extends Node {
     public function verify_ownership(): bool;     // read PID, compare to getmypid(); flips is_held on mismatch
     public function is_held(): bool;
     public function should_restart(): bool;       // restart flag present, OR heartbeat gone / PID-mismatch
-    public function request_restart(): bool;      // drop the restart flag (caller need not hold the lock)
-    public function path(): string;
 
     public static function force_release_at( string $lock_dir ): void;   // UNCONDITIONAL clear
     public static function request_restart_at( string $lock_dir ): bool;
@@ -673,6 +681,6 @@ Shipped substrate events (as of 0.14.0): Topic `READY` (set_state on first parti
 
 ## See also
 
-- [AGENTS.md](AGENTS.md) — substrate contracts and invariants (anchored in real bugs).
+- [AGENTS.md](../AGENTS.md) — substrate contracts and invariants (anchored in real bugs).
 - [API.md](API.md) — REST endpoint reference.
 - `examples/example-ai-newsletter/` — bundled walkthrough example: a self-contained deterministic digest pipeline built from Nodes (its own `includes/`, `topologies/example-ai-newsletter.tsl`, and PHPUnit suite) to learn the substrate from.

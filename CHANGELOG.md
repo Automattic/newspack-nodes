@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Docs accuracy pass (audit quick-wins).** A 14-agent audit of the `docs/` set + AGENTS/README/skills against the code turned up load-bearing drift, now corrected: getting-started installs the example from its release zip and activates via `wp nodes activate` (the old `wp plugin activate`/REPL `topologies activate` paths didn't work); the architecture-guide arms timers via a `Timer_Node` subclass (`$node->set_timer($ms, $oneshot)`) not the raw Event_Framework call, builds Partition/Topic/Consumer via no-arg ctor + `arguments()`, and uses the real offsetlog/cursor keys (`{segment, offset, …}`, ID breadcrumb `segment:offset:length`); `register_stock_dir`→`register_builtin_dir`, Workers_CI `dump_metadata`→`dump_graph`, `Admin::TOPOLOGY_MENU_SLUG`→`MENU_SLUG`, ELN `includes/rest/`→`includes/app/`; ADR-12 added to the AGENTS decision table; "lone stock topology"→two builtin (`job-worker` + `hub-control`); dead cross-links fixed; forward links + a full docs list added to README/AGENTS. The remaining rewrites (topology-as-settings, the ingest-layer diagram, the FLUSH/DONE control flow, a `docs/README.md` map, errors-as-docs) are tracked in `dndocker/notes/devex.md`.
+
 ### Changed
 
 - **Topology console buttons use the native `.button` too.** The modal actions (compose / send-bytes / live-drop Add / run-verb / register / open-topology) and the inspector action + verb grids drop the skin-adaptive `inputs.secondary`/`primary` classes (`.topology-modal__btn`, bespoke grid buttons) for the native WordPress `.button` / `.button-primary`, matching the dashboards. New console-scoped `.button.is-compact` variant (the dense inspector grids — compact mono form, left-aligned, `1fr 1fr` columns), plus `.button.is-active` (toggle "on") and `.button.is-danger` (destructive-confirm) built on the shared color-role mixins.
