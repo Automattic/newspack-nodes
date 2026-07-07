@@ -555,7 +555,7 @@ class Command_Interpreter_Node extends Node {
 
 		$removed   = [];
 		$errors    = [];
-		$protected = [ Node_Names::COMMAND_INTERPRETER, Node_Names::ROUTER, Node_Names::OUTPUT ];
+		$protected = Node_Names::SESSION_SCAFFOLDING;
 		foreach ( $names as $name ) {
 			if ( '' === $name ) {
 				continue;
@@ -784,7 +784,7 @@ class Command_Interpreter_Node extends Node {
 		// warning (phpcs forbids @ / set_error_handler).
 		$out = '';
 		foreach ( \array_keys( Core::$nodes_by_name ) as $name ) {
-			if ( Node_Names::COMMAND_INTERPRETER === $name || Node_Names::ROUTER === $name || Node_Names::OUTPUT === $name ) {
+			if ( \in_array( $name, Node_Names::SESSION_SCAFFOLDING, true ) ) {
 				continue; // Skip baseline scaffolding.
 			}
 			if ( '' !== $glob && 1 !== \preg_match( '{' . $glob . '}', $name ) ) {

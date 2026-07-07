@@ -638,6 +638,49 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertNotNull( Core::node( '_router' ) );
 	}
 
+	public function test_remove_node_refuses_stdout_session_scaffolding(): void {
+		// _stdout is auto-mounted REPL session infra, like _output; remove_node must refuse it.
+		$stdout = new \Newspack_Nodes\Stdout_Node();
+		$stdout->name( \Newspack_Nodes\Node_Names::STDOUT );
+
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( 'helper-interpreter' );
+
+		$out = $interpreter->dispatch( 'remove_node', \Newspack_Nodes\Node_Names::STDOUT );
+		$this->assertStringContainsString( 'refusing to destroy baseline', $out );
+		$this->assertNotNull( Core::node( \Newspack_Nodes\Node_Names::STDOUT ) );
+	}
+
+	public function test_dump_config_omits_stdout_session_scaffolding(): void {
+		// _stdout is auto-mounted session infra (like _output) — dump_config must skip it,
+		// so a session's config dump doesn't try to reconstruct REPL plumbing.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$stdout = new \Newspack_Nodes\Stdout_Node();
+		$stdout->name( \Newspack_Nodes\Node_Names::STDOUT );
+
+		$dump = $interpreter->dispatch( 'dump_config' );
+		$this->assertStringContainsString( 'make_node Capture_Sink alice', $dump );
+		$this->assertStringNotContainsString( '_stdout', $dump );
+	}
+
+	public function test_dump_config_omits_shell_tap_scaffolding(): void {
+		// The `_shell` console Tap is REPL plumbing (build_repl_graph), not a
+		// user node — dump_config must skip it too.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$tap = new \Newspack_Nodes\Tap_Node();
+		$tap->name( \Newspack_Nodes\Node_Names::CONSOLE_TAP );
+
+		$dump = $interpreter->dispatch( 'dump_config' );
+		$this->assertStringContainsString( 'make_node Capture_Sink alice', $dump );
+		$this->assertStringNotContainsString( '_shell', $dump );
+	}
+
 	public function test_remove_node_empty_args_returns_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
