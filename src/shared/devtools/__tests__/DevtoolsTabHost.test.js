@@ -288,6 +288,68 @@ describe( 'DevtoolsTabHost', () => {
 				expect( getByTestId( 'console' ) ).not.toBeNull();
 			} );
 
+			describe( 'deep-link whose tab registers after first render', () => {
+				const registerConsole = () =>
+					registerDevtoolsTab( {
+						id: 'console',
+						label: 'Console',
+						host: 'hub',
+						slug: 'console',
+						order: 0,
+						component: () => <div data-testid="console" />,
+					} );
+				const registerTopologies = () =>
+					registerDevtoolsTab( {
+						id: 'topologies',
+						label: 'Topologies',
+						host: 'hub',
+						slug: 'topologies',
+						order: 10,
+						component: () => <div data-testid="manager" />,
+					} );
+
+				it( 'activates the deep-linked tab once it registers', () => {
+					window.history.replaceState( {}, '', '/?tab=topologies' );
+					registerConsole(); // deep-link target not here yet
+					const { queryByTestId } = render(
+						<DevtoolsTabHost host="hub" syncUrl />
+					);
+					expect( queryByTestId( 'console' ) ).not.toBeNull();
+					act( registerTopologies );
+					expect( queryByTestId( 'manager' ) ).not.toBeNull();
+				} );
+
+				it( 'keeps the ?tab= deep-link in the URL until its tab registers', () => {
+					window.history.replaceState( {}, '', '/?tab=topologies' );
+					registerConsole();
+					render( <DevtoolsTabHost host="hub" syncUrl /> );
+					// Must NOT rewrite ?tab=topologies → ?tab=console while pending.
+					expect( tabParam() ).toBe( 'topologies' );
+					act( registerTopologies );
+					expect( tabParam() ).toBe( 'topologies' );
+				} );
+
+				it( 'does not override a tab the user manually picked', () => {
+					window.history.replaceState( {}, '', '/?tab=topologies' );
+					registerConsole();
+					registerDevtoolsTab( {
+						id: 'raw',
+						label: 'Raw Logs',
+						host: 'hub',
+						slug: 'raw',
+						order: 5,
+						component: () => <div data-testid="raw" />,
+					} );
+					const { getByRole, queryByTestId } = render(
+						<DevtoolsTabHost host="hub" syncUrl />
+					);
+					fireEvent.click( getByRole( 'tab', { name: 'Raw Logs' } ) );
+					act( registerTopologies );
+					expect( queryByTestId( 'raw' ) ).not.toBeNull();
+					expect( queryByTestId( 'manager' ) ).toBeNull();
+				} );
+			} );
+
 			it( 'canonicalizes a bare URL to the resolved tab slug on mount', () => {
 				registerThree();
 				render( <DevtoolsTabHost host="hub" syncUrl /> );
