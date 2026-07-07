@@ -247,6 +247,24 @@ class LockTest extends TestCase {
 		);
 	}
 
+	public function test_acquire_does_not_steal_orphan_at_the_grace_boundary(): void {
+		// Integer-second mtime granularity: a truly-fresh orphan (owner mid-acquire,
+		// heartbeat pending) reads as ORPHAN_GRACE_S seconds old the instant the wall
+		// clock ticks past a second boundary between its mkdir and this acquire's
+		// time() read — that boundary straddle is the flaky-steal window (a rare
+		// double-lock race in production). A dir whose MEASURED age is exactly the
+		// grace must still be protected, since its true age can be as little as 0s.
+		mkdir( "{$this->tmp}/orphan.lock.d", 0755, true );
+		touch( "{$this->tmp}/orphan.lock.d", time() - Lock_Node::ORPHAN_GRACE_S );
+
+		$lock = new Lock_Node( "{$this->tmp}/orphan.lock.d" );
+
+		$this->assertFalse(
+			$lock->acquire(),
+			'An orphan at exactly the grace boundary must not be stolen.'
+		);
+	}
+
 	public function test_acquire_steals_aged_orphan_dir_without_blocking(): void {
 		// Lock dir exists but no heartbeat file (crash during creation), and it
 		// has sat heartbeat-less past the grace window — the owner died
