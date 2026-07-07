@@ -94,6 +94,9 @@
 	cursor: pointer;
 	user-select: none;
 	text-align: left;
+	// A bare <button> doesn't inherit colour (UA ButtonText), so set it to the
+	// skin ink explicitly — otherwise the header reads black on a dark surface.
+	color: var(--ink);
 
 	&:hover {
 		color: $wp-link;
