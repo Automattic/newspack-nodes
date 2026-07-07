@@ -411,6 +411,8 @@ Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=coun
 
 ### d. The thin view node
 
+> **One-pager:** [writing-a-view-node.md](writing-a-view-node.md) distills this section into the view-node contract — the 3 routing facts, `setState('view')`, and why `fill()` must never throw.
+
 Each view node is a `SliceViewNode` subclass that parses *its own* slice reply and publishes it. The base ships in the substrate — `@newspack-nodes/shared/nodes/slice-view-node` (shown here so you know the contract; it was a per-dashboard copy until it became a shared primitive):
 
 ```js
