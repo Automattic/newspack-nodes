@@ -7,12 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.28.1] - 2026-07-07
+## [0.28.2] - 2026-07-07
 
-### Fixed
+### Changed
 
-- **Reverted the reactive-store skin change from 0.28.0 — it regressed the topology-console hub.** A `set_skin` from the console REPL re-rendered the initiating console subtree but left the OUTER hub chrome (`DevToolsHub` header/tab bar) on the old skin, so CRT glow/scanlines bled and the header/tab bar never switched. A direct store notify re-renders every root, but the REPL-originated one lost a race with the command's own re-render cascade (three store variants — flushSync, plain, deferred — all stranded the outer). Restored the `useState` + `publishTheme` mirror, which re-skins the hub cleanly in both directions (verified in-browser).
-- **The debug overlay re-skins its own chrome atomically.** `DebugPanel` now owns the skin in `useState` and hands it to its tabs **top-down** (props) instead of receiving it up via a lagging `publishTheme` mirror, so a `set_skin` re-renders the panel + tab in ONE commit — the overlay header glow and canvas scanlines no longer bleed onto the new skin (verified in-browser on a live dashboard). The dashboard page BEHIND the floating overlay is a separate React root and still needs its own subscription to live-re-skin — a follow-up.
+- **Skins are one global `theme-<slug>` class on `<html>`, not per-surface React state.** The skin used to be a `theme-<slug>` class on every `.topology-app` wrapper, kept in sync by React state — which is where all the pain lived. The hub has nested wrappers, so a `set_skin` from the REPL stranded the OUTER hub chrome on the old skin (CRT glow/scanlines bled, the header/tab bar didn't switch); and the debug overlay, being a DOM descendant of a differently-skinned dashboard, inherited that dashboard's additive effects (`.theme-crt .topology-canvas::after` scanlines) regardless of its own skin. Both are structural — the skin lived in multiple places. Now `set_skin` swaps ONE class on `<html>` (`shared/theme.js` `applySkin` / `initSkin`) and the CSS scopes shifted `.topology-app.theme-<slug>` → `.theme-<slug> .topology-app`, so the hub, the overlay, AND the page behind it all read the same global skin: switching re-skins the whole page atomically, with no wrapper to desync and no "other" skin to bleed. Verified in-browser — overlay + dashboard + WP-admin gutters flip together with zero CRT residue, both directions. This DELETES the reactive `useSyncExternalStore` skin store, `useTheme`, the `publishTheme` mirror, the console/overlay `theme` + `onThemeChange` plumbing, and the View Transition (a footgun that froze a stale snapshot over the heavy graph canvas on a rapid `set_skin`). A new `SKIN_EVENT` fires on skin change so imperative side-effects (the dashboard's WP-admin gutter paint) re-skin live. Supersedes — and completes the fix for — the reverted 0.28.0 reactive-store skin regression.
 
 ## [0.28.0] - 2026-07-07
 

@@ -11,6 +11,9 @@ export {
 	THEMES,
 	isValidTheme,
 	getStoredTheme,
+	applySkin,
+	initSkin,
+	resetSkin,
 } from '../shared/theme';
 
 // Palette collapse state is stored per-mode (live vs edit) because the

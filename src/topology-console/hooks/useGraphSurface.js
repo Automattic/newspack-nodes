@@ -25,8 +25,6 @@ import { usePanelChrome } from './usePanelChrome';
  */
 export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 	const {
-		theme,
-		onThemeChange,
 		paletteCollapsed,
 		togglePaletteCollapsed,
 		inspectorCollapsed,
@@ -84,8 +82,6 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 	);
 
 	return {
-		theme,
-		onThemeChange,
 		paletteCollapsed,
 		togglePaletteCollapsed,
 		inspectorCollapsed,

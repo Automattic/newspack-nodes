@@ -1,5 +1,6 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { initSkin } from '@newspack-nodes/shared/theme';
 import { isDebugEnabled } from './isDebugEnabled';
 import DebugPanel from './DebugPanel';
 import { startOverviewSampler, stopOverviewSampler } from './overviewSampler';
@@ -41,6 +42,16 @@ export default function DebugOverlay( {
 } ) {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
+
+	// Apply the persisted skin to <html> when the overlay mounts, so this surface
+	// (and the page behind it) shows the console-selected skin — even on a fresh
+	// dashboard load or a skin picked in another tab. The skin is the global
+	// `<html>.theme-<slug>` class (see shared/theme.js); set_skin re-applies it.
+	useEffect( () => {
+		if ( enabled ) {
+			initSkin();
+		}
+	}, [ enabled ] );
 
 	// Ctrl+` toggles the panel while enabled.
 	useEffect( () => {

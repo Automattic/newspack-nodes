@@ -3,7 +3,7 @@
  * surface rendered by <GraphView>. Imported by GraphView.js so it rides into
  * every bundle that renders the graph (the topology console AND the debug
  * overlay). Holds the .topology-app CSS-custom-property / theme tokens, the
- * per-skin .topology-app.theme-<slug> overrides, and all graph-surface
+ * per-skin .theme-<slug> .topology-app overrides, and all graph-surface
  * component rules. The console SHELL (header, REPL, modals) stays in
  * topology-console.scss.
  */
@@ -22,7 +22,7 @@
 
 .topology-app {
 	// Skin tokens. Defaults = the drafting-plotter look. Alternative skins
-	// override these under `.topology-app.theme-<slug>` (end of file). Dark
+	// override these under `.theme-<slug> .topology-app` (end of file). Dark
 	// skins also set --repl-bg/--repl-fg so the REPL bar doesn't invert.
 	--paper: #f0e7d6;
 	--paper-2: #e8dcc4;
@@ -1991,19 +1991,19 @@
 
 // Dark-skin select chevron: the default chevron data-URI bakes in a dark
 // fill that vanishes on dark surfaces, so repaint it light for dark skins.
-.topology-app.theme-blueprint .topology-select,
-.topology-app.theme-crt .topology-select,
-.topology-app.theme-synthwave .topology-select,
-.topology-app.theme-nord .topology-select,
-.topology-app.theme-aurora .topology-select,
-.topology-app.theme-neotokyo .topology-select,
-.topology-app.theme-scada .topology-select {
+.theme-blueprint .topology-app .topology-select,
+.theme-crt .topology-app .topology-select,
+.theme-synthwave .topology-app .topology-select,
+.theme-nord .topology-app .topology-select,
+.theme-aurora .topology-app .topology-select,
+.theme-neotokyo .topology-app .topology-select,
+.theme-scada .topology-app .topology-select {
 	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E");
 }
 
 // 00 — Newspack (Product · default). DESIGN.product.md: Cobalt + neutrals,
 // status colors only. Light surface, dark REPL (Swiss precedent).
-.topology-app.theme-newspack {
+.theme-newspack .topology-app {
 	// Mapped onto the canonical --np-* tokens (src/theme/newspack-theme.scss,
 	// @use'd above) so the console's Newspack skin and every dashboard share one
 	// source. The --ink-2/-4, *-dark, repl, and grid values have no product
@@ -2087,7 +2087,7 @@
 
 // 00b — Newspack Brand (expressive). Same neutral structure; status LEDs
 // pull from the brand ramp (Emerald / Amber / Morganite). DESIGN.brand.md.
-.topology-app.theme-newspack-brand {
+.theme-newspack-brand .topology-app {
 	--paper: #fff;
 	--paper-2: #f7f7f7;
 	--paper-3: #f0f0f0;
@@ -2170,8 +2170,8 @@
 
 // Newspack skins — shared product chrome: clean white rounded node cards with a
 // shaded title band and a neutral rate readout. Per-skin accent color below.
-.topology-app.theme-newspack,
-.topology-app.theme-newspack-brand {
+.theme-newspack .topology-app,
+.theme-newspack-brand .topology-app {
 	.topology-node__bg {
 		fill: var(--canvas);
 		stroke: var(--paper-shadow);
@@ -2232,7 +2232,7 @@
 }
 
 // 01 — Cyanotype Blueprint
-.topology-app.theme-blueprint {
+.theme-blueprint .topology-app {
 	--paper: #103a63;
 	--paper-2: #0c2f53;
 	--paper-3: #0a2746;
@@ -2265,7 +2265,7 @@
 }
 
 // 02 — CRT Phosphor Terminal
-.topology-app.theme-crt {
+.theme-crt .topology-app {
 	// Widened from the old near-identical trio (#020a05/#03110a/#04140a) so the
 	// elevation actually reads: card/input --paper clearly lighter than the panel.
 	--paper: #05200e;
@@ -2327,7 +2327,7 @@
 }
 
 // 03 — Swiss Brutalist
-.topology-app.theme-swiss {
+.theme-swiss .topology-app {
 	--paper: #fff;
 	--paper-2: #fff;
 	--paper-3: #f2f2f2;
@@ -2363,7 +2363,7 @@
 }
 
 // 04 — Synthwave Outrun
-.topology-app.theme-synthwave {
+.theme-synthwave .topology-app {
 	--paper: #2a0f3e;
 	--paper-2: #200a33;
 	--paper-3: #1a0b2e;
@@ -2408,7 +2408,7 @@
 }
 
 // 05 — Nord Frost
-.topology-app.theme-nord {
+.theme-nord .topology-app {
 	--paper: #434c5e;
 	--paper-2: #3b4252;
 	--paper-3: #2e3440;
@@ -2436,7 +2436,7 @@
 }
 
 // 06 — Aurora Glass
-.topology-app.theme-aurora {
+.theme-aurora .topology-app {
 	--paper: rgba(255, 255, 255, 0.09);
 	--paper-2: rgba(255, 255, 255, 0.06);
 	--paper-3: #0b1020;
@@ -2493,7 +2493,7 @@
 }
 
 // 07 — Solarized Workshop
-.topology-app.theme-solarized {
+.theme-solarized .topology-app {
 	--paper: #fdf6e3;
 	--paper-2: #eee8d5;
 	--paper-3: #e3ddc8;
@@ -2521,7 +2521,7 @@
 }
 
 // 08 — Botanical Naturalist
-.topology-app.theme-botanical {
+.theme-botanical .topology-app {
 	--paper: #f4efe3;
 	--paper-2: #ece4d2;
 	--paper-3: #e3d9c2;
@@ -2557,7 +2557,7 @@
 }
 
 // 09 — Bauhaus Constructivist
-.topology-app.theme-bauhaus {
+.theme-bauhaus .topology-app {
 	--paper: #fff;
 	--paper-2: #f3f0e9;
 	--paper-3: #eceae3;
@@ -2616,7 +2616,7 @@
 }
 
 // 10 — Neo-Tokyo HUD
-.topology-app.theme-neotokyo {
+.theme-neotokyo .topology-app {
 	--paper: #1a1a1f;
 	--paper-2: #141418;
 	--paper-3: #0d0d10;
@@ -2678,7 +2678,7 @@
 }
 
 // 11 — Pastel Toy
-.topology-app.theme-pastel {
+.theme-pastel .topology-app {
 	--paper: #fff;
 	--paper-2: #f6f0fb;
 	--paper-3: #f0e8f8;
@@ -2717,7 +2717,7 @@
 }
 
 // 12 — Control-Room SCADA
-.topology-app.theme-scada {
+.theme-scada .topology-app {
 	--paper: #262d33;
 	--paper-2: #20262b;
 	--paper-3: #1a1f23;

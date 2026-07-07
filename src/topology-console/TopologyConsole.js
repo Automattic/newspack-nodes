@@ -64,6 +64,8 @@ import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
 	getStoredTheme,
+	applySkin,
+	initSkin,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
@@ -272,10 +274,7 @@ function paletteKeyFor( mode ) {
 		: PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
 }
 
-export default function TopologyConsole( {
-	publishTheme,
-	headerControlsSlot,
-} ) {
+export default function TopologyConsole( { headerControlsSlot } ) {
 	const [ topology, setTopology ] = useState( () =>
 		initialTopologyFromUrl( TOPOLOGIES[ 0 ] )
 	);
@@ -319,12 +318,11 @@ export default function TopologyConsole( {
 	const [ openModalShown, setOpenModalShown ] = useState( false );
 	const [ settingsOpen, setSettingsOpen ] = useState( false );
 	const [ toast, setToast ] = useState( null );
-	// Theme + palette chrome shared with the debug overlay. The console picks
-	// the palette key by mode (live vs edit, with per-mode defaults); the hook
-	// reloads palette state whenever the key/default change on a mode switch.
+	// Palette chrome shared with the debug overlay. The console picks the palette
+	// key by mode (live vs edit, with per-mode defaults); the hook reloads palette
+	// state whenever the key/default change on a mode switch. The skin is global
+	// (the `<html>` class), so there's no theme value to thread or publish up.
 	const {
-		theme,
-		onThemeChange,
 		paletteCollapsed,
 		inspectorCollapsed,
 		openInspectorOnSelect,
@@ -336,9 +334,11 @@ export default function TopologyConsole( {
 		paletteKey: paletteKeyFor( mode ),
 		defaultCollapsed: 'edit' !== mode,
 	} );
-	// Keep the hub's token context on the Console's live theme (a set_skin
-	// re-skins the whole hub chrome, not just the canvas body).
-	useEffect( () => publishTheme?.( theme ), [ publishTheme, theme ] );
+	// Apply the persisted skin to <html> on mount so a standalone console shows
+	// it; a set_skin re-applies it. The skin is the global root class (theme.js).
+	useEffect( () => {
+		initSkin();
+	}, [] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
@@ -848,21 +848,13 @@ export default function TopologyConsole( {
 				append: appendTranscript,
 				clear: clearTranscript,
 				debugLevelRef,
-				setSkin: onThemeChange,
+				setSkin: applySkin,
 				skins: THEMES,
-				// Read fresh (not the reactive `theme`) so list_skins marks the
-				// live skin regardless of this callback's stale closure.
+				// Read fresh so list_skins marks the live skin.
 				currentSkin: getStoredTheme(),
 			} );
 		},
-		[
-			shell,
-			ssePid,
-			appendTranscript,
-			clearTranscript,
-			handlePathChange,
-			onThemeChange,
-		]
+		[ shell, ssePid, appendTranscript, clearTranscript, handlePathChange ]
 	);
 
 	// Live-canvas poll gating (WIRING-PLAN §4/§5). The Router TIMER in
@@ -1559,7 +1551,7 @@ export default function TopologyConsole( {
 	return (
 		<div
 			ref={ appRef }
-			className={ `topology-app newspack-nodes-theme theme-${ theme } is-inspector-open${
+			className={ `topology-app newspack-nodes-theme is-inspector-open${
 				mode === 'edit' ? ' is-edit-mode' : ''
 			}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
 				inspectorCollapsed ? ' is-inspector-collapsed' : ''
