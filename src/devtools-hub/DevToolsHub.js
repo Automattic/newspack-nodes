@@ -57,7 +57,11 @@ export default function DevToolsHub() {
 					// Theme tokens, independent of the WP admin color scheme — the
 					// hub is a themed product surface; the tab bar's
 					// `--nodes-devtools-fg` follows the ink so labels read on it.
-					background: 'var(--paper)',
+					// `--paper-3` (the OPAQUE base) not `--paper`: the parent
+					// `.topology-app` is `display:contents` (no box), so this is the
+					// only backdrop — under a translucent skin (aurora's `--paper` is
+					// rgba alpha) `--paper` would let the wp-admin white bleed through.
+					background: 'var(--paper-3)',
 					'--nodes-devtools-fg': 'var(--ink)',
 					transition: 'left 0.1s ease-in-out',
 					margin: 0,
