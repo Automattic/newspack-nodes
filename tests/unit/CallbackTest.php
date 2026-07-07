@@ -24,14 +24,17 @@ class CallbackTest extends TestCase {
 		$this->assertSame( 'hello', $received );
 	}
 
-	public function test_closure_can_mutate_message_in_place(): void {
-		$cb = new Callback_Node( function ( array &$m ) {
+	public function test_callback_mutation_does_not_escape_to_the_caller(): void {
+		// fill() is by-value: whatever a callback does to its message stays in the
+		// callback's copy — the caller's message is untouched (to transform-and-
+		// forward, a callback mutates its copy then fills its own sink).
+		$cb = new Callback_Node( function ( array $m ) {
 			$m[ Message::VALUE ] = 'transformed';
 		} );
 		$message = Message::new_message();
 		$message[ Message::VALUE ] = 'orig';
 		$cb->fill( $message );
-		$this->assertSame( 'transformed', $message[ Message::VALUE ] );
+		$this->assertSame( 'orig', $message[ Message::VALUE ] );
 	}
 
 	public function test_counter_increments_per_fill(): void {

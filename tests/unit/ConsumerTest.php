@@ -732,7 +732,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'handler boom' );
 			}
 		} );
@@ -755,7 +755,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \Newspack_Nodes\Worker_Should_Stop();
 			}
 		} );
@@ -782,7 +782,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'boom' );
 			}
 		} );
@@ -808,7 +808,7 @@ class ConsumerTest extends TestCase {
 		$interpreter->sink( $router );
 
 		$boom = new class() extends Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'downstream boom' );
 			}
 		};
@@ -841,7 +841,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'handler boom' );
 			}
 		} );
@@ -849,7 +849,7 @@ class ConsumerTest extends TestCase {
 		// Swap the DLQ sibling for one whose write itself fails.
 		$ref  = new \ReflectionProperty( Consumer_Node::class, 'deadletter' );
 		$ref->setValue( $c, new class() extends Partition_Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'disk full' );
 			}
 		} );
@@ -992,7 +992,7 @@ class ConsumerTest extends TestCase {
 	private function stop_on_value( Consumer_Node $c, string $value ): void {
 		$c->sink( new class( $value ) extends Node {
 			public function __construct( private string $stop_at ) {}
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				if ( $this->stop_at === $message[ Message::VALUE ] ) {
 					throw new \Newspack_Nodes\Worker_Should_Stop();
 				}
@@ -1084,7 +1084,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
 		$c->name( 'jobs:consumer' );
 		$c->sink( new class() extends Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'handler boom' );
 			}
 		} );

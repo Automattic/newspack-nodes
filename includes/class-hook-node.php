@@ -29,7 +29,7 @@ class Hook_Node extends Node {
 		return $args;
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}

@@ -16,7 +16,7 @@ class Tee_Node extends Node {
 		$this->target = [];
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}

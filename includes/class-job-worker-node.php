@@ -112,7 +112,7 @@ class Job_Worker_Node extends Node {
 		return $args;
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		/** @var int $type */
 		$type = $message[ Message::TYPE ];

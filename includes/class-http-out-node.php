@@ -90,7 +90,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 
 		// Preserve the caller's FROM (a heartbeat minted with FROM=<remote-source>

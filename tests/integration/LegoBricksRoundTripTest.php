@@ -52,15 +52,17 @@ class LegoBricksRoundTripTest extends TestCase {
 	}
 
 	public function test_callback_can_filter_in_a_chain(): void {
-		$capture = new Capture_Sink_Node();
-		$transformer = new Callback_Node( function ( array &$m ) {
+		// The Contract: each node owns its message — it mutates its OWN copy and
+		// forwards THAT to its sink. A transformer prepends 'X-' and hands the
+		// result on; the caller never sees (or cares about) the mutation.
+		$capture     = new Capture_Sink_Node();
+		$transformer = new Callback_Node( function ( array $m ) use ( $capture ) {
 			$m[ Message::VALUE ] = 'X-' . $m[ Message::VALUE ];
+			$capture->fill( $m );
 		} );
-		$transformer->sink( $capture );
 
-		$chain = new Callback_Node( function ( array &$m ) use ( $transformer ) {
+		$chain = new Callback_Node( function ( array $m ) use ( $transformer ) {
 			$transformer->fill( $m );
-			$transformer->sink()->fill( $m );
 		} );
 
 		$message = Message::new_message();

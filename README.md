@@ -6,7 +6,7 @@ A node-graph runtime for composable services, built as WordPress plugin infrastr
 
 The traditional WordPress plugin shape — singletons, hooks-as-coupling, monolithic worker classes — makes composition hard. Each plugin grows its own private bus, its own private worker lifecycle, its own private read/write paths. Sharing pieces between plugins means cut-paste-modify, not Lego.
 
-Newspack Nodes is a different bet. The substrate gives you one contract — every node receives messages via `fill( array &$message )`, every node sinks into another node — and that's it. With that uniformity, composition just works: any node connects to any other node, fan-out is a Tee, transforms are Hooks, file I/O is a Tail or Log. New behavior is a new Node class with a new `fill()` body.
+Newspack Nodes is a different bet. The substrate gives you one contract — every node receives messages via `fill( array $message )`, every node sinks into another node — and that's it. With that uniformity, composition just works: any node connects to any other node, fan-out is a Tee, transforms are Hooks, file I/O is a Tail or Log. New behavior is a new Node class with a new `fill()` body.
 
 The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific — the stock topologies are `topologies/job-worker.tsl`, which drives the generic Job_Worker_Node (its application context arriving through `before_job` / `after_job` hooks), and `topologies/hub-control.tsl`, the single-instance settings-sync / discovery control plane. But the lifecycle underneath is all WordPress: config lives in the options table, the supervisor's safety net runs on WP-Cron, workers spawn and take commands over the REST API behind HMAC + nonce auth, and live position/stats ride in memcache. So "application-independent" is the honest claim; "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
 
@@ -47,7 +47,7 @@ To get workers running, install an application plugin that registers a topology 
 
 ## Concepts
 
-- **Node** — base class. Subclasses override `fill( array &$message )`.
+- **Node** — base class. Subclasses override `fill( array $message )`.
 - **Message** — 7-field indexed array: TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE.
 - **Router** — path-based dispatch. Splits TO on `/`, looks up the leading segment, forwards remainder.
 - **Topic** — multi-Partition wrapper, KEY-routed via CRC32.

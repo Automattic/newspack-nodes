@@ -23,7 +23,7 @@ class Router_Node extends Timer_Node {
 		parent::__construct();
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 
 		// Perl Router::fill drops before routing, in this order: an unaddressed
@@ -60,7 +60,7 @@ class Router_Node extends Timer_Node {
 	}
 
 	/** @param array<int, mixed> $message Message that failed to route. */
-	public function send_error( array &$message, string $error ): void {
+	public function send_error( array $message, string $error ): void {
 		if ( $this->handling_error ) {
 			$this->drop_message( $message, 'breaking recursion' );
 			return;

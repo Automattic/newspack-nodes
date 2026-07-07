@@ -26,7 +26,7 @@ class Relay_Sink_Spy extends Node {
 	public array $captured = [];
 	public int $fill_count = 0;
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->fill_count;
 		$key = Core::as_string( $message[ Message::KEY ] );
 		if ( 'boom' === $key ) {

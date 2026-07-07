@@ -63,7 +63,7 @@ class Topic_Node extends Node {
 	 *
 	 * @param array<int, mixed> $message Reference; not mutated.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.

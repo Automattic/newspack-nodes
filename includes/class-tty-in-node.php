@@ -212,10 +212,8 @@ class TTY_In_Node extends Stdin_Node {
 		if ( null === $this->sink ) {
 			return;
 		}
-		$help = $this->build_completion_query( 'help' ); // fill() takes &$message — needs a variable, not a temp.
-		$this->sink->fill( $help );
-		$ls = $this->build_completion_query( 'ls' );
-		$this->sink->fill( $ls );
+		$this->sink->fill( $this->build_completion_query( 'help' ) );
+		$this->sink->fill( $this->build_completion_query( 'ls' ) );
 	}
 
 	/**

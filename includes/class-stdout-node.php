@@ -22,7 +22,7 @@ class Stdout_Node extends Node {
 		$this->stdout = $stdout ?? \STDOUT;
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		$this->write( self::coerce_string( $message[ Message::VALUE ] ) );
 	}

@@ -220,7 +220,7 @@ class TeeTest extends TestCase {
 		$alive->name( 'alive' );
 
 		$throwing = new class() extends \Newspack_Nodes\Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'simulated failure' );
 			}
 		};

@@ -157,7 +157,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * removed in favor of the canonical packed wire format contract.
 	 *
 	 * Returned via a local variable so callers can pass it straight into
-	 * `fill( array &$message )` without tripping PHP's "Only variables should
+	 * `fill( array $message )` without tripping PHP's "Only variables should
 	 * be passed by reference" notice.
 	 */
 	protected function produce( string $value, string $key = '' ): array {
@@ -171,13 +171,12 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	/**
 	 * Build + fill in one call. Avoids the by-ref notice that fires when a
-	 * function-call result is passed directly into a `fill( &$message )` parameter.
+	 * function-call result is passed directly into a `fill( $message )` parameter.
 	 *
 	 * @param object $node Anything with a fill() method (Partition, Topic, etc.).
 	 */
 	protected function produce_into( object $node, string $value, string $key = '' ): void {
-		$message = $this->produce( $value, $key );
-		$node->fill( $message );
+		$node->fill( $this->produce( $value, $key ) );
 		// Tests assert on disk state immediately after — force the Partition
 		// to drain its in-memory batch so the next file_get_contents/read_at
 		// call sees the bytes. Production callers rely on size-threshold +

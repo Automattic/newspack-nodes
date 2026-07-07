@@ -91,7 +91,7 @@ class SSE_Out_Node extends Node {
 	public static ?\Closure $check_slot   = null;
 
 	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		$this->send_sse_event( 'msg', $message );
 	}

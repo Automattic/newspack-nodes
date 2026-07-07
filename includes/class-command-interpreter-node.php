@@ -74,7 +74,7 @@ class Command_Interpreter_Node extends Node {
 	 */
 	public ?\Closure $authorize = null;
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
@@ -99,7 +99,7 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/** @param array<int, mixed> $message Incoming command Message to interpret. */
-	private function interpret( array &$message ): void {
+	private function interpret( array $message ): void {
 		$cmd = $message[ Message::VALUE ];
 		if ( ! \is_array( $cmd ) || ! isset( $cmd['name'] ) ) {
 			$this->drop_message( $message, 'invalid command struct' );

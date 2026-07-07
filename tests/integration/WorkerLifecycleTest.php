@@ -157,7 +157,7 @@ class Lifecycle_Stopper_Node extends Capture_Sink_Node {
 	public string $restart_lock_path = '';
 	public int $stop_after           = 1;
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		parent::fill( $message );
 		if ( \count( $this->captured ) >= $this->stop_after && '' !== $this->restart_lock_path ) {
 			Lock_Node::request_restart_at( $this->restart_lock_path );

@@ -26,7 +26,7 @@ class Summarizer_Demo_Node extends Node {
 		return $title . ' — ' . \mb_substr( $body, 0, 80 );
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		/** @var int $type */
 		$type = $message[ Message::TYPE ];
 		if ( ! ( $type & Message::TM_STRUCT ) ) {

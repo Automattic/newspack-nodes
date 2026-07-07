@@ -14,7 +14,7 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 class Dead_Letter_Queue_Double extends Node {
 	use Dead_Letter_Queue;
 
-	public function fill( array &$message ): void {}
+	public function fill( array $message ): void {}
 
 	public function build_dlq( string $dir ): ?Partition_Node {
 		return $this->ensure_deadletter( $dir, 'double:deadletter' );
@@ -118,7 +118,7 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_dead_letter_rethrows_worker_should_stop(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->set_dlq( new class() extends Partition_Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new Worker_Should_Stop();
 			}
 		} );
@@ -131,7 +131,7 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_dead_letter_swallows_write_failure(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->set_dlq( new class() extends Partition_Node {
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				throw new \RuntimeException( 'disk full' );
 			}
 		} );

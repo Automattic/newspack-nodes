@@ -127,7 +127,7 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param array<int, mixed> $message Reference; not mutated.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 
 		// Debounced mode: grab the lock for this write burst (re-syncing from disk, since

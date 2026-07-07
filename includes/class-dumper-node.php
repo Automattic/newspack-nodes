@@ -13,7 +13,7 @@ class Dumper_Node extends Node {
 
 	private ?Shell_Node $shell = null;
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		// Drop messages addressed to a different cli session; empty TO always renders.
 		if ( '' !== $this->to_filter ) {
 			$to = self::coerce_string( $message[ Message::TO ] );

@@ -44,7 +44,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 	 *
 	 * @param array<int, mixed> $message Positional Message; TO is the remainder past this node's name.
 	 */
-	protected function send( array &$message ): void {
+	protected function send( array $message ): void {
 		$this->connect();
 		if ( null === $this->http_out ) {
 			return;
@@ -52,12 +52,11 @@ class Remote_IPC_Node extends Remote_Link_Node {
 
 		$reader    = $this->remote_partition;
 		$remainder = Core::as_string( $message[ Message::TO ] );
-		$command   = $message;
-		$from      = Core::as_string( $command[ Message::FROM ] );
+		$from      = Core::as_string( $message[ Message::FROM ] );
 		if ( '' !== $from ) {
-			$command[ Message::FROM ] = Node_Names::SSE . ':' . $this->sse_in?->pid() . '/' . $from;
+			$message[ Message::FROM ] = Node_Names::SSE . ':' . $this->sse_in?->pid() . '/' . $from;
 		}
-		$command[ Message::TO ] = '' === $remainder ? $reader : "{$reader}/{$remainder}";
+		$message[ Message::TO ] = '' === $remainder ? $reader : "{$reader}/{$remainder}";
 
 		$connect                   = Message::new_message();
 		$connect[ Message::TYPE ]  = Message::TM_COMMAND;
@@ -67,7 +66,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 		// Both ride the HTTP_Out per-tick batch → one POST, so the request-scope
 		// mount and the command land in the same server process.
 		$this->http_out->fill( $connect );
-		$this->http_out->fill( $command );
+		$this->http_out->fill( $message );
 	}
 
 	/**

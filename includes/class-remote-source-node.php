@@ -87,7 +87,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @api Dynamic entrypoint.
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		$type       = \is_int( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : 0;
 		$is_command = 0 !== ( $type & Message::TM_COMMAND );
 		if ( ! $is_command && 0 !== ( $type & ( Message::TM_BYTESTREAM | Message::TM_STRUCT ) ) ) {
@@ -107,7 +107,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
-	private function relay_stream_message( array &$message ): void {
+	private function relay_stream_message( array $message ): void {
 		$sink = $this->sink;
 		if ( null === $sink ) {
 			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );

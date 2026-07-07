@@ -30,7 +30,7 @@ class HookNodeTest extends TestCase {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
 		$node->arguments( 'eln_hook_list 1' ); // filter mode on.
-		$node->sink( new Capture_Sink_Node() );
+		$node->sink( $sink = new Capture_Sink_Node() );
 
 		// The filter receives the VALUE ('payload') and returns a list.
 		\add_filter( 'eln_hook_list', static fn( $value ) => [ 'a', 'b', 'c' ] );
@@ -41,16 +41,18 @@ class HookNodeTest extends TestCase {
 		$message[ Message::VALUE ] = 'payload';
 		$node->fill( $message );
 
-		$this->assertSame( [ 'a', 'b', 'c' ], $message[ Message::VALUE ], 'A list return becomes the new VALUE.' );
-		$this->assertSame( Message::TM_STRUCT, $message[ Message::TYPE ], 'A list return marks the message TM_STRUCT.' );
-		$this->assertSame( 'from', $message[ Message::FROM ], 'Envelope fields are preserved.' );
+		// fill() is by-value: the adoption is visible on the forwarded message, not the caller's.
+		$out = $sink->captured[0];
+		$this->assertSame( [ 'a', 'b', 'c' ], $out[ Message::VALUE ], 'A list return becomes the new VALUE.' );
+		$this->assertSame( Message::TM_STRUCT, $out[ Message::TYPE ], 'A list return marks the message TM_STRUCT.' );
+		$this->assertSame( 'from', $out[ Message::FROM ], 'Envelope fields are preserved.' );
 	}
 
 	public function test_filter_scalar_return_is_adopted_as_bytestream(): void {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
 		$node->arguments( 'eln_hook_scalar 1' );
-		$node->sink( new Capture_Sink_Node() );
+		$node->sink( $sink = new Capture_Sink_Node() );
 
 		\add_filter( 'eln_hook_scalar', static fn( $value ) => 'transformed' );
 
@@ -60,15 +62,16 @@ class HookNodeTest extends TestCase {
 		$message[ Message::VALUE ] = [ 'k' => 'v' ];
 		$node->fill( $message );
 
-		$this->assertSame( 'transformed', $message[ Message::VALUE ], 'A scalar return becomes the new VALUE.' );
-		$this->assertSame( Message::TM_BYTESTREAM, $message[ Message::TYPE ], 'A non-list return marks the message TM_BYTESTREAM.' );
+		$out = $sink->captured[0];
+		$this->assertSame( 'transformed', $out[ Message::VALUE ], 'A scalar return becomes the new VALUE.' );
+		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ], 'A non-list return marks the message TM_BYTESTREAM.' );
 	}
 
 	public function test_filter_non_list_array_return_is_bytestream(): void {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
 		$node->arguments( 'eln_hook_assoc 1' );
-		$node->sink( new Capture_Sink_Node() );
+		$node->sink( $sink = new Capture_Sink_Node() );
 
 		// An associative (non-list) array is not structured-list data.
 		\add_filter( 'eln_hook_assoc', static fn( $value ) => [ 'not' => 'a list' ] );
@@ -79,7 +82,8 @@ class HookNodeTest extends TestCase {
 		$message[ Message::VALUE ] = 'payload';
 		$node->fill( $message );
 
-		$this->assertSame( [ 'not' => 'a list' ], $message[ Message::VALUE ] );
-		$this->assertSame( Message::TM_BYTESTREAM, $message[ Message::TYPE ], 'An associative-array return is not a list, so TM_BYTESTREAM.' );
+		$out = $sink->captured[0];
+		$this->assertSame( [ 'not' => 'a list' ], $out[ Message::VALUE ] );
+		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ], 'An associative-array return is not a list, so TM_BYTESTREAM.' );
 	}
 }

@@ -14,7 +14,7 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 class Offsetlog_Cursor_Double extends Node {
 	use Offsetlog_Cursor;
 
-	public function fill( array &$message ): void {}
+	public function fill( array $message ): void {}
 
 	public function build( string $dir, int $segment_size = 1, int $num_segments = 10 ): ?Partition_Node {
 		return $this->ensure_offsetlog( $dir, 'double:offsetlog', $segment_size, $num_segments );

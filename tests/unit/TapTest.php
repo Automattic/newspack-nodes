@@ -73,7 +73,7 @@ class TapTest extends TestCase {
 		$sink = new class() extends \Newspack_Nodes\Node {
 			/** @var array<int,array<int,mixed>> */
 			public array $passed = [];
-			public function fill( array &$message ): void {
+			public function fill( array $message ): void {
 				if ( 'boom/x' === $message[ Message::TO ] ) {
 					throw new \RuntimeException( 'delivery failed' );
 				}

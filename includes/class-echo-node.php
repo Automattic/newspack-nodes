@@ -11,7 +11,7 @@ namespace Newspack_Nodes;
 
 class Echo_Node extends Node {
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		$raw_type = $message[ Message::TYPE ];
 		$type     = \is_int( $raw_type ) ? $raw_type : 0;
 		$to       = Core::as_string( $message[ Message::TO ] );

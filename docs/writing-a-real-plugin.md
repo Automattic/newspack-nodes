@@ -13,7 +13,7 @@ That promise is true at the level of the *contract* — the summarizer and diges
 
 The shape is unchanged — three sources fan into a durable `ingest` partition, a consumer paces them through a summarizer, a scorer, and a second durable partition, and a final consumer feeds a digest builder. What changed is everything around the seam: a `Source` interface, a shared abstract base that owns the connector plumbing, three real connectors (GitHub, Linear, RSS/Atom), credentials kept in the substrate's **Vault** and referenced from the topology, and a test seam that lets all of it run under coverage without touching the network.
 
-> **The one thing to hold onto (still):** every node has one entry point, `fill( array &$message ): void`. Nothing below changes that. The real connectors are *more code* than the toy, but they're the same node — they still mint a `TM_STRUCT` per item and forward to their sink. Everything new lives behind `fetch()`, which `fill()` calls and the graph never sees.
+> **The one thing to hold onto (still):** every node has one entry point, `fill( array $message ): void`. Nothing below changes that. The real connectors are *more code* than the toy, but they're the same node — they still mint a `TM_STRUCT` per item and forward to their sink. Everything new lives behind `fetch()`, which `fill()` calls and the graph never sees.
 
 The finished code is in the sibling [`newspack-ai-newsletter/`](../../newspack-ai-newsletter/) repo. Read along, or diff it against the toy.
 
@@ -118,7 +118,7 @@ abstract class Source_Node extends Node implements Source {
 	abstract protected function config(): array;
 
 	/** TICK is a runtime trigger: a TM_REQUEST handled here in fill(). */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
 		if ( $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );

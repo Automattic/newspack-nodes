@@ -96,7 +96,7 @@ class HTTP_In_Node extends Node {
 	}
 
 	/** Node egress (terminal, not forwarded): writes the `/command` HTTP response. */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		if ( ! $this->sent_headers ) {
 			( $this->send_header )( 200 );

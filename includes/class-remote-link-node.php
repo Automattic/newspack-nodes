@@ -79,7 +79,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * @api Dynamic entrypoint.
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		++$this->counter;
 		$type = \is_int( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : 0;
 		if ( ( Message::TM_COMMAND | Message::TM_RESPONSE ) === $type
@@ -119,7 +119,7 @@ class Remote_Link_Node extends Timer_Node {
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
-	protected function send( array &$message ): void {
+	protected function send( array $message ): void {
 		$this->ensure_patrons();
 		$this->http_out?->fill( $message );
 	}

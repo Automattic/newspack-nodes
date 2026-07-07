@@ -28,7 +28,7 @@ class HTTP_Filter_Node extends Node {
 		$this->own_pid = $own_pid;
 	}
 
-	public function fill( array &$message ): void {
+	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
