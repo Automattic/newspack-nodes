@@ -55,6 +55,11 @@ class TopologiesActivateTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$GLOBALS['_wp_actions']           = [];
 		$GLOBALS['_test_outbound_posts']  = [];
+
+		// Start from clean Config + active-set state so a prior test FILE that left
+		// a topology active can't skew this suite. Mirrors tearDown.
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		Config::reset();
 	}
 
 	protected function tearDown(): void {

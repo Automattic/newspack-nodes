@@ -284,7 +284,13 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( 'some-topology', $result['name'] );
 		$this->assertSame( 'stock', $result['source'] );
-		$this->assertSame( "make_node Echo e\n", $result['tsl'] );
+		// cmd_get appends the reserved `_repl` partition so the loaded editor
+		// graph paints the REPL node; serializeTsl skips reserved nodes on save,
+		// so it never round-trips back into a persisted .tsl.
+		$this->assertSame(
+			"make_node Echo e\n\nmake_node Partition _repl\n",
+			$result['tsl']
+		);
 	}
 
 	public function test_get_returns_user_body_when_user_shadows_stock(): void {
@@ -299,7 +305,10 @@ class TopologiesCITest extends TestCase {
 		);
 
 		$this->assertSame( 'both', $result['source'] );
-		$this->assertSame( "make_node Echo user\n", $result['tsl'] );
+		$this->assertSame(
+			"make_node Echo user\n\nmake_node Partition _repl\n",
+			$result['tsl']
+		);
 	}
 
 	public function test_get_rejects_unknown_topology(): void {
@@ -364,7 +373,10 @@ class TopologiesCITest extends TestCase {
 		);
 
 		$this->assertSame( 'user', $result['source'] );
-		$this->assertSame( "make_node Tee t\nmake_node Echo e\n", $result['tsl'] );
+		$this->assertSame(
+			"make_node Tee t\nmake_node Echo e\n\nmake_node Partition _repl\n",
+			$result['tsl']
+		);
 	}
 
 	public function test_save_reports_shadows_stock_when_stock_copy_exists(): void {

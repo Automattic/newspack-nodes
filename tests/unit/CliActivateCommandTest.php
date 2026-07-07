@@ -48,6 +48,12 @@ class CliActivateCommandTest extends TestCase {
 		$GLOBALS['_test_wp_cli_warns']   = [];
 		$GLOBALS['_test_wp_cli_errors']  = [];
 		$GLOBALS['_test_wp_cli_success'] = [];
+
+		// Start from clean Config + active-set state so a prior test FILE that left
+		// a topology active (or a non-default num_partitions) can't skew how many
+		// partitions deactivate drains here. Mirrors tearDown.
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		Config::reset();
 	}
 
 	protected function tearDown(): void {
