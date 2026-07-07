@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Active/paused toggle buttons invert their colors again** — `connect`/`trace` in the console inspector, `show errors` in the dashboards. The skin-adaptive `.button` base fill (`--paper` background) out-specified the `.button.is-active` `toggle-active` invert (0,6,0 vs 0,3,0), so the active state stopped showing. The base fill now excludes `.is-active`/`.is-paused`, letting `toggle-active`/`toggle-paused` win. And the "not Newspack" gate moved from `.topology-app:not(.theme-newspack)` to `:root:not(.theme-newspack) .topology-app`: after 0.28.2 moved the skin class to `<html>`, `.topology-app` no longer carries it, so keying the exclusion off it was always-true and wrongly token-themed the Newspack skin's buttons (regression from 0.28.2).
+
 ## [0.28.2] - 2026-07-07
 
 ### Changed

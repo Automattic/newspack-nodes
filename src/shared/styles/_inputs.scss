@@ -122,14 +122,16 @@
 
 // Skin-adaptive `.button` theming — stock WordPress `.button` under the Newspack
 // skins (where the admin/Newspack styling is correct), token-themed under the
-// decorative skins (crt/nord/…) where admin colors would clash. Gate on
-// `.topology-app` (the ONE root that carries `theme-<slug>`), NOT
-// `.newspack-nodes-theme` (also set on inner wrappers without a theme class, so a
-// `:not(.theme-newspack)` keyed off it wrongly matches under the Newspack skin).
+// decorative skins (crt/nord/…) where admin colors would clash. The skin lives on
+// `:root` (`<html>.theme-<slug>`), so gate the "not Newspack" exclusion THERE —
+// NOT on `.topology-app`, which no longer carries the theme class (keying
+// `:not(.theme-newspack)` off it would be always-true and wrongly theme the
+// Newspack skin). Toggle states (`.is-active`/`.is-paused`) are excluded so their
+// inverted `toggle-active`/`toggle-paused` win instead of this base fill.
 // `@include` at a stylesheet's top level in every bundle that renders under
 // `.theme-<slug> .topology-app` — the devtools hub AND each event-logger dashboard.
 @mixin skin-adaptive-buttons {
-	.topology-app:not(.theme-newspack):not(.theme-newspack-brand) {
+	:root:not(.theme-newspack):not(.theme-newspack-brand) .topology-app {
 		.button.button-primary {
 			background: var(--cyan);
 			border: 1.5px solid var(--cyan);
@@ -146,7 +148,7 @@
 			}
 		}
 
-		.button:not(.button-primary):not(.button-link-delete) {
+		.button:not(.button-primary):not(.button-link-delete):not(.is-active):not(.is-paused) {
 			background: var(--paper);
 			border: 1.5px solid var(--ink-3);
 			color: var(--ink);
