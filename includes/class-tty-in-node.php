@@ -148,16 +148,6 @@ class TTY_In_Node extends Stdin_Node {
 	}
 
 	/**
-	 * Stdin closed: emit a TM_EOF marker through the Shell. Overrides the base
-	 * sink-emit; the deadline-arming stays in the inherited send_eof().
-	 */
-	protected function emit_eof(): void {
-		$message                  = Message::new_message();
-		$message[ Message::TYPE ] = Message::TM_EOF;
-		$this->shell->fill( $message );
-	}
-
-	/**
 	 * (Re-)install the readline callback handler with the real prompt.
 	 *
 	 * PHP auto-removes the handler per delivered line; the real-prompt width stops
@@ -255,6 +245,36 @@ class TTY_In_Node extends Stdin_Node {
 	}
 
 	/**
+	 * Return cached candidates whose prefix matches $word. The FIRST token on the
+	 * line (index 0) completes against command verbs; later tokens (arguments)
+	 * complete against node names. readline does the LCP + listing from the array
+	 * we return here.
+	 *
+	 * @param string $word  The word being completed.
+	 * @param int    $index Token position on the line (0 = first token).
+	 * @return array<int,string>
+	 */
+	public function complete( string $word, int $index ): array {
+		$pool = ( 0 === $index ) ? $this->command_candidates : $this->node_candidates;
+		if ( '' === $word ) {
+			return \array_values( $pool );
+		}
+		return \array_values(
+			\array_filter( $pool, static fn ( string $c ): bool => \str_starts_with( $c, $word ) )
+		);
+	}
+
+	/**
+	 * Stdin closed: emit a TM_EOF marker through the Shell. Overrides the base
+	 * sink-emit; the deadline-arming stays in the inherited send_eof().
+	 */
+	protected function emit_eof(): void {
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF;
+		$this->shell->fill( $message );
+	}
+
+	/**
 	 * Ingest a completion reply into the cache. Returns true (consumed) only for
 	 * KEY='completion' command responses; the Dumper drops consumed replies so
 	 * they don't print. `help` fills the command cache; `ls`/`list_nodes` the
@@ -284,26 +304,6 @@ class TTY_In_Node extends Stdin_Node {
 			$this->node_candidates = $list;
 		}
 		return true;
-	}
-
-	/**
-	 * Return cached candidates whose prefix matches $word. The FIRST token on the
-	 * line (index 0) completes against command verbs; later tokens (arguments)
-	 * complete against node names. readline does the LCP + listing from the array
-	 * we return here.
-	 *
-	 * @param string $word  The word being completed.
-	 * @param int    $index Token position on the line (0 = first token).
-	 * @return array<int,string>
-	 */
-	public function complete( string $word, int $index ): array {
-		$pool = ( 0 === $index ) ? $this->command_candidates : $this->node_candidates;
-		if ( '' === $word ) {
-			return \array_values( $pool );
-		}
-		return \array_values(
-			\array_filter( $pool, static fn ( string $c ): bool => \str_starts_with( $c, $word ) )
-		);
 	}
 
 	/**
