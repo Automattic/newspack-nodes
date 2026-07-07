@@ -130,7 +130,8 @@ renumber.
 | `includes/class-lock-node.php`, `includes/class-{worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle (`Lock_Node` is a Node subclass; the rest are non-node helpers) |
 | `includes/class-{shell,command-interpreter,dumper}-node.php` | REPL components |
 | `includes/class-cli.php` | Worker-discovery + pivoted-cli IPC helpers (used by both `wp nodes ls` and `wp nodes cli`) |
-| `includes/class-cli-command.php` | `wp nodes {ls,cli}` (bare + pivoted modes); `CLI_Stdin_Reader_Node` extends `Timer_Node` and self-schedules each fire (0ms busy / 10ms post-EOF / 100ms idle) to drain stdin via readline or fgets — no FD registration |
+| `includes/class-cli-command.php` | `wp nodes {ls,cli}` (bare + pivoted modes); wires the REPL graph — `_stdout` (`TTY_Out_Node`) writer, `_output` (`Dumper_Node`, `target=_stdout`) renderer, and a `TTY_In_Node` stdin reader — then drains via `Event_Framework` |
+| `includes/class-{stdin,stdout,tty-in,tty-out}-node.php` | Terminal-I/O primitives: `Stdin_Node`/`Stdout_Node` (bare stream drain/sink; self-scheduling 0ms busy / 10ms post-EOF / 100ms idle re-arm) and their `TTY_In_Node`/`TTY_Out_Node` readline/completion/prompt-aware subclasses used by `wp nodes cli` |
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status}` |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
 | `includes/rest/class-http-in-node.php` | `POST /newspack-nodes/v1/command` controller + the `_http` egress Node (double-duty) |
