@@ -2520,6 +2520,8 @@
 	--paper-shadow: #b3a589;
 	--canvas: var(--paper);
 	--hover: var(--paper-3);
+	// Rounded node cards (rx 12) → rounded buttons + inputs to match.
+	--control-radius: 8px;
 	--ink: #3a3327;
 	--ink-2: #5c5240;
 	--ink-3: #7d7058;
@@ -2675,6 +2677,8 @@
 	--paper-shadow: #b8a6d8;
 	--canvas: var(--paper-2);
 	--hover: var(--paper-3);
+	// Rounded node cards (rx 13) → rounded buttons + inputs to match.
+	--control-radius: 8px;
 	--ink: #5b4b73;
 	--ink-2: #7a6a92;
 	--ink-3: #8272a0;
