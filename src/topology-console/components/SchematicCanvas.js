@@ -153,8 +153,9 @@ const LOD_DETAIL_SCALE = 0.35;
 // a slightly-zoomed-out ratio tips it into LOD. The margin keeps cards detailed.
 const LOD_FLOOR_SCALE = LOD_DETAIL_SCALE * 1.2;
 // A transcript this close to covering the canvas counts as "full" (e.g. the
-// double-click maximize): the reflow is skipped so the graph holds its framing
-// (covered) instead of collapsing to a sliver, and resumes when it comes down.
+// double-click maximize): the graph is framed as though the transcript were
+// CLOSED (full + centered, covered) instead of reflowed into a sliver, and
+// reflows back down once the transcript comes off full.
 const TRANSCRIPT_FULL_FRACTION = 0.9;
 
 // Arrow-key pan: fraction of the viewport shifted per keypress (hold to repeat),
@@ -553,15 +554,23 @@ export default function SchematicCanvas( {
 	const prevSurfaceRef = useRef( null );
 	useEffect( () => {
 		const prev = prevSurfaceRef.current;
-		const cur = { px: canvasPx, inset: bottomObstructionPx };
+		if ( ! canvasPx.w || ! canvasPx.h ) {
+			return; // unmeasured — keep the baseline for the first real measure
+		}
+		// A (near) full transcript — e.g. the double-click maximize — is framed as
+		// though the transcript were CLOSED (inset 0): the graph sits at its full
+		// centered autofit (covered), and un-maximizing reflows from there.
+		const effInset =
+			bottomObstructionPx >= canvasPx.h * TRANSCRIPT_FULL_FRACTION
+				? 0
+				: bottomObstructionPx;
+		const cur = { px: canvasPx, inset: effInset };
 		if (
-			! canvasPx.w ||
-			! canvasPx.h ||
 			! prev?.px?.w ||
 			! prev?.px?.h ||
 			( prev.px.w === canvasPx.w &&
 				prev.px.h === canvasPx.h &&
-				prev.inset === bottomObstructionPx )
+				prev.inset === effInset )
 		) {
 			prevSurfaceRef.current = cur;
 			return;
@@ -571,13 +580,6 @@ export default function SchematicCanvas( {
 			// Uncontrolled (or not yet frozen): the null-viewport path already
 			// re-fits from defaultViewBox on every canvasPx/inset change.
 			prevSurfaceRef.current = cur;
-			return;
-		}
-		// Skip the reflow while the transcript is (near) full — e.g. double-click
-		// maximize: hold the graph's framing (covered) instead of collapsing it to
-		// a sliver. Leave the baseline UNADVANCED so the reflow on the way back is
-		// measured from the pre-full state.
-		if ( bottomObstructionPx >= canvasPx.h * TRANSCRIPT_FULL_FRACTION ) {
 			return;
 		}
 		prevSurfaceRef.current = cur;
@@ -611,10 +613,7 @@ export default function SchematicCanvas( {
 			};
 		};
 		const oldFit = fitFor( prev.px, clampInset( prev.inset, prev.px.h ) );
-		const newFit = fitFor(
-			canvasPx,
-			clampInset( bottomObstructionPx, canvasPx.h )
-		);
+		const newFit = fitFor( canvasPx, clampInset( effInset, canvasPx.h ) );
 		const next = resizeViewportTrackingAutofit( {
 			viewport: vp,
 			oldPx: prev.px,
