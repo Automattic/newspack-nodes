@@ -4,9 +4,13 @@ import {
 	useEffect,
 	useState,
 } from '@wordpress/element';
-import { INSPECTOR_COLLAPSED_STORAGE_KEY } from '../themes';
-import { useThemeValue } from '@newspack-nodes/shared/useTheme';
-import { setTheme } from '@newspack-nodes/shared/theme';
+import {
+	DEFAULT_THEME,
+	isValidTheme,
+	getStoredTheme,
+	THEME_STORAGE_KEY,
+	INSPECTOR_COLLAPSED_STORAGE_KEY,
+} from '../themes';
 import withViewTransition from '../withViewTransition';
 
 // Stored '0' = open, '1' = collapsed; absent/disabled storage uses the default.
@@ -57,12 +61,17 @@ function usePersistedCollapse( key, def ) {
  * @return {{ theme: string, onThemeChange: Function, paletteCollapsed: boolean, togglePaletteCollapsed: Function, inspectorCollapsed: boolean, toggleInspectorCollapsed: Function }} Theme + palette + inspector chrome.
  */
 export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
-	const theme = useThemeValue();
+	const [ theme, setTheme ] = useState( getStoredTheme );
 	const onThemeChange = useCallback( ( slug ) => {
-		// Crossfade the swap; flushSync commits the store notify (EVERY themed
-		// root re-renders in this commit) before the transition snapshots the
-		// "after" frame. setTheme validates + persists + notifies.
-		withViewTransition( () => flushSync( () => setTheme( slug ) ) );
+		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
+		// Crossfade the skin swap; flushSync commits the new theme class
+		// before the transition snapshots the "after" frame.
+		withViewTransition( () => flushSync( () => setTheme( next ) ) );
+		try {
+			window.localStorage.setItem( THEME_STORAGE_KEY, next );
+		} catch ( _err ) {
+			// localStorage disabled/quota'd; in-session only.
+		}
 	}, [] );
 	const [ paletteCollapsed, setPaletteCollapsed, togglePaletteCollapsed ] =
 		usePersistedCollapse( paletteKey, defaultCollapsed );

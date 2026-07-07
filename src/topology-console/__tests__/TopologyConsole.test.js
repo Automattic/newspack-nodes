@@ -10,7 +10,6 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
-import { resetThemeStore } from '@newspack-nodes/shared/theme';
 import {
 	newMessage,
 	TYPE,
@@ -698,7 +697,6 @@ describe( 'TopologyConsole boot', () => {
 	beforeEach( () => {
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
-		resetThemeStore();
 		Core.reset();
 		globalThis.__graphKey = null;
 		globalThis.__shell = null;
