@@ -137,7 +137,12 @@ class Lock_Node extends Node {
 			// at mkdir time or this breaks.
 			\clearstatcache( true, $this->lock_path );
 			$dir_mtime = @\filemtime( $this->lock_path );
-			if ( false === $dir_mtime || ( \time() - $dir_mtime ) < self::ORPHAN_GRACE_S ) {
+			// `<=`, not `<`: both clocks are integer seconds, so a truly-fresh dir
+			// reads as ORPHAN_GRACE_S old the instant the wall clock ticks past a
+			// second boundary between its mkdir and this read. Treat measured-age ==
+			// grace as still-fresh so that boundary straddle can't false-steal a
+			// mid-acquire owner (steal needs a genuine >grace measured age).
+			if ( false === $dir_mtime || ( \time() - $dir_mtime ) <= self::ORPHAN_GRACE_S ) {
 				return false; // Too fresh — assume the owner is mid-acquire.
 			}
 			// Past grace, still no heartbeat — owner died mid-acquire. Steal.
