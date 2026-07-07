@@ -272,12 +272,48 @@ class IngestCliCommandTest extends TestCase {
 	// validation — don't suppress errors
 	// -------------------------------------------------------------------------
 
-	public function test_ingest_requires_at_least_one_file(): void {
-		$this->expectException( \RuntimeException::class );
-		( new Ingest_CLI_Command() )->ingest(
-			[ "{$this->tmp}/dest/firehose.p{partition}" ],
-			[ 'num_partitions' => 1 ]
-		);
+	public function test_ingest_with_no_files_reads_zero_records_from_empty_stdin(): void {
+		// Omitting <file>... no longer errors outright — it falls back to reading
+		// packed records from stdin. An empty, non-tty stdin stream yields zero
+		// records and no error (the interactive-terminal guard is a separate path).
+		$mem = \fopen( 'php://memory', 'r+' );
+		\rewind( $mem );
+		Ingest_CLI_Command::$stdin_provider = static fn () => $mem;
+		try {
+			( new Ingest_CLI_Command() )->ingest(
+				[ "{$this->tmp}/dest/firehose.p{partition}" ],
+				[ 'num_partitions' => 1 ]
+			);
+		} finally {
+			Ingest_CLI_Command::$stdin_provider = null;
+		}
+
+		$this->assertStringContainsString( 'Ingested 0 record(s)', \implode( "\n", $GLOBALS['_test_wp_cli_success'] ) );
+	}
+
+	public function test_ingest_with_no_files_replays_packed_records_piped_on_stdin(): void {
+		$mem = \fopen( 'php://memory', 'r+' );
+		foreach ( [ [ 'k1', 'first' ], [ 'k2', 'second' ] ] as [ $key, $value ] ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::KEY ]   = $key;
+			$message[ Message::VALUE ] = $value;
+			\fwrite( $mem, Message::packed( $message ) . "\n" );
+		}
+		\rewind( $mem );
+		Ingest_CLI_Command::$stdin_provider = static fn () => $mem;
+		try {
+			( new Ingest_CLI_Command() )->ingest(
+				[ "{$this->tmp}/dest/firehose.p{partition}" ],
+				[ 'num_partitions' => 2 ]
+			);
+		} finally {
+			Ingest_CLI_Command::$stdin_provider = null;
+		}
+
+		$values = $this->collect_destination_values( "{$this->tmp}/dest", 'firehose', 2 );
+		\sort( $values );
+		$this->assertSame( [ 'first', 'second' ], $values );
 	}
 
 	public function test_ingest_errors_on_unreadable_file(): void {

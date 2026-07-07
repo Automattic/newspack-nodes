@@ -13,6 +13,15 @@ namespace Newspack_Nodes;
 class Ingest_CLI_Command {
 
 	/**
+	 * STDIN-resource seam. Defaults to the real \STDIN; tests reassign to a
+	 * php://memory stream of packed records to exercise the piped-ingest branch
+	 * without a real pipe.
+	 *
+	 * @var (\Closure(): resource)|null
+	 */
+	public static ?\Closure $stdin_provider = null;
+
+	/**
 	 * Replay packed segment records back through a Topic onto disk.
 	 *
 	 * Reads each file line-by-line, unpacks every packed record, and runs it through
@@ -26,8 +35,9 @@ class Ingest_CLI_Command {
 	 *   (e.g. <config:logs_dir>/firehose.p<partition>), used verbatim; or a bare log
 	 *   name (e.g. firehose), expanded to <config:logs_dir>/<name>.p<partition>.
 	 *
-	 * <file>...
-	 * : One or more packed segment files to replay.
+	 * [<file>...]
+	 * : One or more packed segment files to replay. Omit to read packed records from
+	 *   stdin instead (e.g. piping a filtered `wp nodes reqgrep` or `zcat` output).
 	 *
 	 * [--num_partitions=<n>]
 	 * : Destination partition count. Defaults to the global config num_partitions
@@ -74,15 +84,20 @@ class Ingest_CLI_Command {
 			\WP_CLI::error( 'Pass at most one of --allow_large_writes or --void_warranty.' );
 		}
 		if ( '' === $topic_arg ) {
-			\WP_CLI::error( 'Usage: wp nodes ingest <topic> <file>...' );
+			\WP_CLI::error( 'Usage: wp nodes ingest <topic> [<file>...]' );
 		}
-		if ( empty( $files ) ) {
-			\WP_CLI::error( 'At least one segment file is required.' );
+
+		$stdin_mode = empty( $files );
+		$stdin      = ( self::$stdin_provider ?? static fn () => \STDIN )();
+		if ( $stdin_mode && \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin ) ) {
+			\WP_CLI::error( 'Provide <file>... or pipe packed records on stdin.' );
 		}
-		foreach ( $files as $file ) {
-			// is_file rejects a partition DIR mistakenly passed as a file (fopen would succeed, then read nothing).
-			if ( ! \is_file( $file ) || ! \is_readable( $file ) ) {
-				\WP_CLI::error( "Cannot read file: {$file}" );
+		if ( ! $stdin_mode ) {
+			foreach ( $files as $file ) {
+				// is_file rejects a partition DIR mistakenly passed as a file (fopen would succeed, then read nothing).
+				if ( ! \is_file( $file ) || ! \is_readable( $file ) ) {
+					\WP_CLI::error( "Cannot read file: {$file}" );
+				}
 			}
 		}
 
@@ -116,41 +131,37 @@ class Ingest_CLI_Command {
 			}
 		}
 
-		$ingested    = 0;
-		$unparseable = 0;
-		$oversize    = 0;
-		$max_size    = 0;
-		foreach ( $files as $file ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-			$fh = \fopen( $file, 'r' );
-			if ( false === $fh ) {
-				\WP_CLI::error( "Cannot open file: {$file}" );
-				continue; // WP_CLI::error exits in production; unreachable, but narrows $fh for the rest of the loop.
+		$stats = [
+			'ingested'    => 0,
+			'unparseable' => 0,
+			'oversize'    => 0,
+			'max_size'    => 0,
+		];
+		if ( $stdin_mode ) {
+			// Batch replay: eof_deadline 0 → the reader self-exits the moment stdin closes.
+			$src = new Stdin_Node( $stdin, 0.0 );
+			$src->sink( new Callback_Node(
+				function ( array $message ) use ( $topic, $cap, &$stats ): void {
+					$this->ingest_record( Core::as_string( $message[ Message::VALUE ] ), $topic, $cap, $stats );
+				}
+			) );
+			while ( ! $src->exit ) {
+				$src->fire();
 			}
-			while ( false !== ( $line = \fgets( $fh ) ) ) {
-				$line = \rtrim( $line, "\n" );
-				if ( '' === $line ) {
-					continue;
+		} else {
+			foreach ( $files as $file ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+				$fh = \fopen( $file, 'r' );
+				if ( false === $fh ) {
+					\WP_CLI::error( "Cannot open file: {$file}" );
+					continue; // WP_CLI::error exits in production; unreachable, but narrows $fh for the rest of the loop.
 				}
-				try {
-					$message = Message::unpacked( $line );
-				} catch ( \InvalidArgumentException $e ) {
-					++$unparseable;
-					continue;
+				while ( false !== ( $line = \fgets( $fh ) ) ) {
+					$this->ingest_record( $line, $topic, $cap, $stats );
 				}
-				$size     = \strlen( Message::packed( $message ) ) + 1;
-				$max_size = \max( $max_size, $size );
-				if ( $size > $cap ) {
-					++$oversize;
-					continue;
-				}
-				if ( null !== $topic ) {
-					$topic->fill( $message );
-				}
-				++$ingested;
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+				\fclose( $fh );
 			}
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
-			\fclose( $fh );
 		}
 		if ( null !== $topic ) {
 			// Flush the batch, then remove_node() to close handles AND release any
@@ -159,13 +170,35 @@ class Ingest_CLI_Command {
 			$topic->remove_node();
 		}
 
-		$stats = [
-			'ingested'    => $ingested,
-			'unparseable' => $unparseable,
-			'oversize'    => $oversize,
-			'max_size'    => $max_size,
-		];
 		$this->report( $dry_run, $stats, $lock || $void );
+	}
+
+	/**
+	 * Unpack, size-check, and (unless dry-run) fill one packed line into the destination topic.
+	 *
+	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts, updated in place.
+	 */
+	private function ingest_record( string $line, ?Topic_Node $topic, int $cap, array &$stats ): void {
+		$line = \rtrim( $line, "\n" );
+		if ( '' === $line ) {
+			return;
+		}
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			++$stats['unparseable'];
+			return;
+		}
+		$size              = \strlen( Message::packed( $message ) ) + 1;
+		$stats['max_size'] = \max( $stats['max_size'], $size );
+		if ( $size > $cap ) {
+			++$stats['oversize'];
+			return;
+		}
+		if ( null !== $topic ) {
+			$topic->fill( $message );
+		}
+		++$stats['ingested'];
 	}
 
 	/**
