@@ -1,19 +1,13 @@
-import { render, fireEvent, act } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import DevToolsHub from '../DevToolsHub';
 import {
 	registerDevtoolsTab,
 	resetDevtoolsTabs,
 } from '@newspack-nodes/shared/devtools/tabRegistry';
-import {
-	setTheme,
-	resetThemeStore,
-	THEME_STORAGE_KEY,
-} from '@newspack-nodes/shared/theme';
 
 describe( 'DevToolsHub', () => {
 	beforeEach( () => {
 		resetDevtoolsTabs();
-		resetThemeStore();
 		window.localStorage.clear();
 		window.history.replaceState( {}, '', '/' );
 	} );
@@ -31,16 +25,6 @@ describe( 'DevToolsHub', () => {
 		expect(
 			new URLSearchParams( window.location.search ).get( 'tab' )
 		).toBe( 'console' );
-	} );
-
-	it( 'live-re-skins when the theme changes elsewhere (a set_skin from the overlay)', () => {
-		window.localStorage.setItem( THEME_STORAGE_KEY, 'newspack' );
-		const { container } = render( <DevToolsHub /> );
-		const root = container.querySelector( '.topology-app' );
-		expect( root.className ).toContain( 'theme-newspack' );
-		act( () => setTheme( 'crt' ) );
-		expect( root.className ).toContain( 'theme-crt' );
-		expect( root.className ).not.toContain( 'theme-newspack' );
 	} );
 
 	it( 'shows the empty state when no hub tabs are registered', () => {

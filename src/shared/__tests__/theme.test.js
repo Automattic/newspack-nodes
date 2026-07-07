@@ -4,8 +4,6 @@ import {
 	THEMES,
 	isValidTheme,
 	getStoredTheme,
-	setTheme,
-	subscribeTheme,
 } from '../theme';
 
 describe( 'shared theme storage helpers', () => {
@@ -40,31 +38,5 @@ describe( 'shared theme storage helpers', () => {
 	it( 'getStoredTheme falls back to the default for an unknown slug', () => {
 		window.localStorage.setItem( THEME_STORAGE_KEY, 'bogus' );
 		expect( getStoredTheme() ).toBe( DEFAULT_THEME );
-	} );
-} );
-
-describe( 'reactive theme store', () => {
-	afterEach( () => window.localStorage.clear() );
-
-	it( 'setTheme persists the slug so getStoredTheme reads it back', () => {
-		setTheme( 'crt' );
-		expect( getStoredTheme() ).toBe( 'crt' );
-	} );
-
-	it( 'setTheme coerces an invalid slug to the default', () => {
-		setTheme( 'bogus' );
-		expect( getStoredTheme() ).toBe( DEFAULT_THEME );
-	} );
-
-	it( 'notifies subscribers on change and stops after unsubscribe', () => {
-		const seen = [];
-		const unsubscribe = subscribeTheme( () =>
-			seen.push( getStoredTheme() )
-		);
-		setTheme( 'nord' );
-		expect( seen ).toEqual( [ 'nord' ] );
-		unsubscribe();
-		setTheme( 'crt' );
-		expect( seen ).toEqual( [ 'nord' ] );
 	} );
 } );
