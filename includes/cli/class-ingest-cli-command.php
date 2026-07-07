@@ -174,34 +174,6 @@ class Ingest_CLI_Command {
 	}
 
 	/**
-	 * Unpack, size-check, and (unless dry-run) fill one packed line into the destination topic.
-	 *
-	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts, updated in place.
-	 */
-	private function ingest_record( string $line, ?Topic_Node $topic, int $cap, array &$stats ): void {
-		$line = \rtrim( $line, "\n" );
-		if ( '' === $line ) {
-			return;
-		}
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			++$stats['unparseable'];
-			return;
-		}
-		$size              = \strlen( Message::packed( $message ) ) + 1;
-		$stats['max_size'] = \max( $stats['max_size'], $size );
-		if ( $size > $cap ) {
-			++$stats['oversize'];
-			return;
-		}
-		if ( null !== $topic ) {
-			$topic->fill( $message );
-		}
-		++$stats['ingested'];
-	}
-
-	/**
 	 * Resolve the <topic> argument to [dir_template, num_partitions].
 	 *
 	 * Explicit form (carries a {partition}/<partition> token): trust the operator —
@@ -245,6 +217,34 @@ class Ingest_CLI_Command {
 		}
 		// is_scalar narrows for the cast; the is_numeric guard above already rejected non-numbers.
 		return (int) ( \is_scalar( $raw ) ? $raw : 0 );
+	}
+
+	/**
+	 * Unpack, size-check, and (unless dry-run) fill one packed line into the destination topic.
+	 *
+	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts, updated in place.
+	 */
+	private function ingest_record( string $line, ?Topic_Node $topic, int $cap, array &$stats ): void {
+		$line = \rtrim( $line, "\n" );
+		if ( '' === $line ) {
+			return;
+		}
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			++$stats['unparseable'];
+			return;
+		}
+		$size              = \strlen( Message::packed( $message ) ) + 1;
+		$stats['max_size'] = \max( $stats['max_size'], $size );
+		if ( $size > $cap ) {
+			++$stats['oversize'];
+			return;
+		}
+		if ( null !== $topic ) {
+			$topic->fill( $message );
+		}
+		++$stats['ingested'];
 	}
 
 	/**
