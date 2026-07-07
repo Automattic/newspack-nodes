@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-07-07
+
 ### Changed
 
 - **The console canvas persists pan/zoom as a delta from autofit, so a resized reload stays put.** The viewport is stored as `{ dcx, dcy, zoom }` — the pan offset from the autofit center (world units) and the zoom RATIO to autofit, where `{0,0,1}` IS autofit — instead of absolute viewBox coordinates. On load the canvas re-derives the viewBox against the CURRENT autofit, so a never-touched view stays exactly autofit through any window/overlay/transcript dimension change, and a panned view keeps its offset + zoom relative to the new fit. New pure helper `utils/autofitDelta.js` (`deltaFromAutofit`/`viewportFromDelta`); `useCanvasLayout` persists a `viewportDelta` (old stored viewBoxes migrate by re-fitting once). This unifies the model: the resize reconcile is now the same delta re-derive (`viewportFromDelta(deltaFromAutofit(vp, oldFit), newFit)`), so the standalone `resizeViewportTrackingAutofit` was removed.
