@@ -104,14 +104,7 @@ class Core {
 		if ( '' === $text ) {
 			return;
 		}
-		// Already-dated lines are assumed pre-prefixed (Tachikoma's
-		// /^\d{4}-\d\d-\d\d/ guard) — write verbatim to avoid double
-		// prefixing on re-log paths. Otherwise apply prefix.
-		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
-			$line = \rtrim( $text, "\n" ) . "\n";
-		} else {
-			$line = $text;
-		}
+		$line = self::log_midfix( $text );
 		self::$recent_log[] = self::log_prefix( $line );
 		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
 		while ( \count( self::$recent_log ) > 100 ) {
@@ -123,38 +116,38 @@ class Core {
 	/**
 	 * Per-line timestamp prefix.
 	 *
-	 * With no message, returns the bare prefix. With a message, chomps a
+	 * With no text, returns the bare prefix. With text, chomps a
 	 * trailing newline, prepends the prefix to every line, and appends one
 	 * trailing newline.
 	 */
-	public static function log_prefix( ?string $message = null ): string {
+	public static function log_prefix( ?string $text = null ): string {
 		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
-		if ( null === $message ) {
+		if ( null === $text ) {
 			return $prefix;
 		}
-		$message = \rtrim( $message, "\n" );
+		$text = \rtrim( $text, "\n" );
 		// Prepend the prefix to the start of every line (Perl m///mg).
-		$message = $prefix . \str_replace( "\n", "\n" . $prefix, $message );
-		return $message . "\n";
+		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
+		return $text . "\n";
 	}
 
 	/**
 	 * Per-line process-identity midfix.
 	 *
-	 * With no message, returns the bare midfix. With a message, chomps a
+	 * With no text, returns the bare midfix. With text, chomps a
 	 * trailing newline, prepends the midfix to every line, and appends one
 	 * trailing newline.
 	 */
-	public static function log_midfix( ?string $message = null ): string {
+	public static function log_midfix( ?string $text = null ): string {
 		$midfix = ( \gethostname() ?: 'unknown' ) . ' '
 			. self::argv0() . '[' . \getmypid() . ']: ';
-		if ( null === $message ) {
+		if ( null === $text ) {
 			return $midfix;
 		}
-		$message = \rtrim( $message, "\n" );
+		$text = \rtrim( $text, "\n" );
 		// Prepend the midfix to the start of every line (Perl m///mg).
-		$message = $midfix . \str_replace( "\n", "\n" . $midfix, $message );
-		return $message . "\n";
+		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
+		return $text . "\n";
 	}
 
 	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
@@ -208,16 +201,15 @@ class Core {
 				?? self::$nodes_by_name[ Node_Names::SSE ]
 				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
 				?? null;
-			$line = self::log_midfix( $text );
 			if ( null !== $sink ) {
 				$message                       = Message::new_message();
 				$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 				$message[ Message::TIMESTAMP ] = self::$now;
-				$message[ Message::VALUE ]     = self::log_prefix( $line );
+				$message[ Message::VALUE ]     = self::log_prefix( $text );
 				$sink->fill( $message );
 			}
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \rtrim( $line ) );
+			\error_log( \rtrim( $text ) );
 		} );
 		self::$now       = \microtime( true );
 		self::$init_time = self::$now;

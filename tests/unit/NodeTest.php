@@ -947,15 +947,17 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_stderr_emits_name_tagged_message_through_core_seam(): void {
-		// Node::stderr routes through Core::stderr carrying its "<name>: " midfix tag. The dated
-		// process prefix (log_prefix/log_midfix) is the real handler's job; this capture handler
-		// bypasses it, so it sees the name-tagged text verbatim.
+		// Node::stderr applies its own "<name>: " tag, then routes through
+		// Core::stderr, which applies the process-identity midfix (host argv0[pid]:)
+		// centrally. So the handler sees both: the core midfix wrapping the
+		// node-tagged text. The dated prefix (log_prefix) is added after, by the
+		// real handler; this capture handler bypasses it.
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$n = new \Newspack_Nodes\Node();
 		$n->name( 'alice' );
 		$n->stderr( 'a warning' );
-		$this->assertSame( "alice: a warning\n", $buf );
+		$this->assertSame( Core::log_midfix( $n->log_midfix( 'a warning' ) ), $buf );
 	}
 
 	public function test_stderr_empty_message_emits_nothing(): void {

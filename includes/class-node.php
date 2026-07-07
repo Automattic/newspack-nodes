@@ -517,35 +517,30 @@ class Node {
 	 * Per-node mid-line tag: "<name>: " prepended to every line. Empty when
 	 * the node is unnamed, or when the process identity ($0 / Core::argv0())
 	 * already starts with the node name (so the tag would be redundant). With
-	 * a message, chomps a trailing newline, prepends the tag to every line,
+	 * text, chomps a trailing newline, prepends the tag to every line,
 	 * and appends one trailing newline.
 	 */
-	public function log_midfix( ?string $message = null ): string {
+	public function log_midfix( ?string $text = null ): string {
 		$midfix = '';
 		if ( '' !== $this->name
 			&& 1 !== \preg_match( '/^' . \preg_quote( $this->name, '/' ) . '\b/', Core::argv0() ) ) {
 			$midfix = $this->name . ': ';
 		}
-		if ( null === $message ) {
+		if ( null === $text ) {
 			return $midfix;
 		}
-		$message = \rtrim( $message, "\n" );
-		$message = $midfix . \str_replace( "\n", "\n" . $midfix, $message );
-		return $message . "\n";
+		$text = \rtrim( $text, "\n" );
+		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
+		return $text . "\n";
 	}
 
 	/**
 	 * Emit a stderr line tagged with this node's midfix, via Core's stderr
-	 * pipeline. Already-dated lines pass through Core verbatim (its
-	 * /^\d{4}-\d\d-\d\d/ guard), so the line this method midfixes isn't
-	 * double-prefixed. Empty text is a no-op (Tachikoma Node::stderr).
+	 * pipeline (which adds the process-identity midfix and timestamp prefix once).
+	 * Empty text is a no-op (Tachikoma Node::stderr).
 	 */
 	public function stderr( string $text ): void {
 		if ( '' === $text ) {
-			return;
-		}
-		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
-			Core::stderr( $text );
 			return;
 		}
 		Core::stderr( $this->log_midfix( $text ) );
@@ -553,15 +548,15 @@ class Node {
 
 	/** Emit text on first sight; suppress identical text thereafter. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
 	public function print_less_often( string $text ): void {
-		$key = $this->log_midfix( $text );
-		$row = Core::$recent_log_timers[ $key ] ?? null;
+		$line = $this->log_midfix( $text );
+		$row = Core::$recent_log_timers[ $line ] ?? null;
 		if ( null !== $row ) {
 			++$row['count'];
 		} else {
-			$this->stderr( $text );
+			Core::stderr( $line );
 			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
 		}
-		Core::$recent_log_timers[ $key ] = $row;
+		Core::$recent_log_timers[ $line ] = $row;
 	}
 
 	/**
