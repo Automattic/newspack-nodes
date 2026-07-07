@@ -2,10 +2,12 @@
 /**
  * TTY_In: readline/completion/prompt stdin reader for `wp nodes cli`, atop Stdin_Node.
  *
- * Drives the Shell (not a plain sink): typed lines parse into commands, stdin EOF
- * round-trips a TM_EOF through the shell, and tab-completion candidates are cached
- * from `help`/`ls` completion replies. Non-readline mode falls back to the base
- * fgets drain (which, via the overridden emit primitives, still drives the shell).
+ * Sinks into the Shell: typed lines parse into commands, stdin EOF round-trips a
+ * TM_EOF through the shell, and tab-completion candidates are cached from
+ * `help`/`ls` completion replies. It reuses the base Stdin_Node fgets/readline
+ * drain as-is; because its sink IS the Shell, the base's `$this->sink->fill()`
+ * already drives the shell — no emit overrides needed. The `$shell` ref is kept
+ * only to read the live prompt.
  *
  * @package Newspack_Nodes
  */
@@ -85,8 +87,8 @@ class TTY_In_Node extends Stdin_Node {
 
 	/**
 	 * Drain one cycle: readline mode reads a char + drains the delivered queue;
-	 * otherwise the base fgets drain (whose emit primitives are overridden below
-	 * to drive the shell). Returns true if a line was delivered.
+	 * otherwise the base fgets drain. Either way the base emit primitives fill the
+	 * sink (the Shell). Returns true if a line was delivered.
 	 */
 	protected function drain_once(): bool {
 		if ( ! $this->has_readline ) {
@@ -134,17 +136,6 @@ class TTY_In_Node extends Stdin_Node {
 		}
 
 		return true;
-	}
-
-	/**
-	 * Parse one input line through the Shell graph (split into statements).
-	 * Overrides the base sink-emit: cli lines drive the Shell (which stamps FROM).
-	 */
-	protected function emit_line( string $line ): void {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = $line;
-		$this->shell->fill( $message );
 	}
 
 	/**
@@ -212,16 +203,19 @@ class TTY_In_Node extends Stdin_Node {
 	}
 
 	/**
-	 * Send both completion queries through the Shell so they ride the same
-	 * CommandInterpreter path as any typed command. The replies land
+	 * Send both completion queries through the sink (the Shell) so they ride the
+	 * same CommandInterpreter path as any typed command. The replies land
 	 * asynchronously and update the cache for the NEXT Tab — completion is
 	 * thus one keystroke stale, which is acceptable for an interactive REPL.
 	 */
 	public function send_completion_queries(): void {
-		$help = $this->build_completion_query( 'help' );
-		$this->shell->fill( $help );
+		if ( null === $this->sink ) {
+			return;
+		}
+		$help = $this->build_completion_query( 'help' ); // fill() takes &$message — needs a variable, not a temp.
+		$this->sink->fill( $help );
 		$ls = $this->build_completion_query( 'ls' );
-		$this->shell->fill( $ls );
+		$this->sink->fill( $ls );
 	}
 
 	/**
@@ -262,16 +256,6 @@ class TTY_In_Node extends Stdin_Node {
 		return \array_values(
 			\array_filter( $pool, static fn ( string $c ): bool => \str_starts_with( $c, $word ) )
 		);
-	}
-
-	/**
-	 * Stdin closed: emit a TM_EOF marker through the Shell. Overrides the base
-	 * sink-emit; the deadline-arming stays in the inherited send_eof().
-	 */
-	protected function emit_eof(): void {
-		$message                  = Message::new_message();
-		$message[ Message::TYPE ] = Message::TM_EOF;
-		$this->shell->fill( $message );
 	}
 
 	/**

@@ -202,10 +202,11 @@ class CLI_Command {
 		// Skip prompts when stdin is piped — they break `... | grep` consumers.
 		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, null, $is_tty );
 
-		// Every node sinks into the interpreter (only Router has none). The reader is
-		// a Timer_Node, and Timer_Node::fire_cb() skips fire() when sink is null — so
-		// without this its stdin drain never runs and the REPL ignores all input.
-		$reader->sink( Core::node( Node_Names::COMMAND_INTERPRETER ) );
+		// The reader sinks into the Shell: its drained lines/EOF fill the sink, and
+		// the Shell parses + forwards them on into the interpreter/router. The sink
+		// also satisfies Timer_Node::fire_cb()'s no-sink guard (a sink-less reader
+		// never reaches fire(), so its stdin drain would never run).
+		$reader->sink( $shell );
 
 		// Completion replies (KEY='completion') are intercepted at the renderer and fed
 		// to the reader's candidate cache instead of being printed. Readline-only.
