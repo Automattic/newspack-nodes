@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Free-text verb/ctor args with spaces show their whole value in the topology editor, not just the first word.** A `cmd node:config add_profile <free text>` line (or a make_node with a free-text trailing ctor arg) is whitespace-split by `parseTsl` into a token array with no schema knowledge; EDIT mode then bound each declared arg to `args[i]` positionally, so a one-arg verb like `add_profile` displayed only the FIRST token and dropped the rest — the reported "Summarizer/Digest add_profile shows only the first word" round-trip bug. The read-only view already collapsed the tail into the last declared slot via `positionalArgs()`; EDIT mode now applies the same absorb-last rule (new `absorbTrailingArgs()`) at the verb + ctor bind sites, so the field shows the full line and an edit re-serializes it as one quoted, round-trippable token.
+
 ## [0.28.4] - 2026-07-07
 
 ### Fixed

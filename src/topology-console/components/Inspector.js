@@ -157,13 +157,30 @@ function positionalArgs( raw, count ) {
 	if ( ! trimmed || count <= 0 ) {
 		return [];
 	}
-	const tokens = trimmed.split( /\s+/ );
-	if ( tokens.length <= count ) {
-		return tokens;
+	return absorbTrailingArgs( trimmed.split( /\s+/ ), count );
+}
+
+/**
+ * Shared absorb-last core (positionalArgs is the string-input front door). parseTsl
+ * whitespace-splits a `make_node`/`cmd` line's tail into a token array with no schema
+ * knowledge, so a free-text arg with spaces (e.g. add_profile's `text`) arrives as many
+ * tokens. Collapse the tail into the LAST declared slot so a one-arg verb binds the whole
+ * value, not just the first token — and so serializeArg quotes it back into one
+ * round-trippable token. Idempotent: an already-collapsed list (length <= count) is
+ * returned unchanged, so applying it on edit-writeback never re-splits.
+ *
+ * @param {string[]} args  Token array from parseTsl (invocation.args / ctorArgs).
+ * @param {number}   count Number of positional args the schema declares.
+ * @return {string[]} Args of length <= count, last slot absorbing the tail.
+ */
+function absorbTrailingArgs( args, count ) {
+	const list = Array.isArray( args ) ? args : [];
+	if ( count <= 0 || list.length <= count ) {
+		return list;
 	}
 	return [
-		...tokens.slice( 0, count - 1 ),
-		tokens.slice( count - 1 ).join( ' ' ),
+		...list.slice( 0, count - 1 ),
+		list.slice( count - 1 ).join( ' ' ),
 	];
 }
 
@@ -909,8 +926,22 @@ function EditForm( {
 	const commandSpecs = ( schema?.commands || [] ).filter(
 		( spec ) => ! spec.hidden
 	);
-	const ctorArgs = node.ctorArgs || [];
-	const verbInvocations = node.verbInvocations || [];
+	// Collapse each free-text trailing arg's tail into its declared slot once,
+	// the same absorb-last rule the read-only view applies via positionalArgs —
+	// so display, edit-writeback, and serialize all read one normalized form.
+	const ctorArgs = absorbTrailingArgs(
+		node.ctorArgs || [],
+		argumentSpecs.length
+	);
+	const verbInvocations = ( node.verbInvocations || [] ).map( ( inv ) => {
+		const cspec = ( schema?.commands || [] ).find(
+			( c ) => c.name === inv.verb
+		);
+		return {
+			...inv,
+			args: absorbTrailingArgs( inv.args, ( cspec?.args || [] ).length ),
+		};
+	} );
 	// Names of every other draft node, for node_name verb-arg selects.
 	const nodeNames = ( parsed?.nodes || [] )
 		.map( ( n ) => n.name || n.id )
