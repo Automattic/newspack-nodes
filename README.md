@@ -14,7 +14,7 @@ This is an early implementation of an idea pitched at the team meetup: the Lego-
 
 ## Learn it
 
-New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then work through the `docs/` set:
+New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then work through the `docs/` set (mapped by reading order in **[docs/README.md](docs/README.md)**):
 
 - **[getting-started.md](docs/getting-started.md)** — zero to a running pipeline you can poke at by hand.
 - **[writing-a-plugin.md](docs/writing-a-plugin.md)** — build the AI-newsletter example from an empty directory, one node at a time.
