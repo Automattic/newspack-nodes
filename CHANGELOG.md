@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Direct-access guard on the first-party PHP files that lacked it.** Added `\defined( '''ABSPATH''' ) || exit;` so no plugin PHP file runs on a direct web hit. (`uninstall.php` keeps its stricter `WP_UNINSTALL_PLUGIN` guard.)
+
 ### Fixed
 
 - **Docs accuracy pass (audit quick-wins).** A 14-agent audit of the `docs/` set + AGENTS/README/skills against the code turned up load-bearing drift, now corrected: getting-started installs the example from its release zip and activates via `wp nodes activate` (the old `wp plugin activate`/REPL `topologies activate` paths didn't work); the architecture-guide arms timers via a `Timer_Node` subclass (`$node->set_timer($ms, $oneshot)`) not the raw Event_Framework call, builds Partition/Topic/Consumer via no-arg ctor + `arguments()`, and uses the real offsetlog/cursor keys (`{segment, offset, …}`, ID breadcrumb `segment:offset:length`); `register_stock_dir`→`register_builtin_dir`, Workers_CI `dump_metadata`→`dump_graph`, `Admin::TOPOLOGY_MENU_SLUG`→`MENU_SLUG`, ELN `includes/rest/`→`includes/app/`; ADR-12 added to the AGENTS decision table; "lone stock topology"→two builtin (`job-worker` + `hub-control`); dead cross-links fixed; forward links + a full docs list added to README/AGENTS. The remaining rewrites (topology-as-settings, the ingest-layer diagram, the FLUSH/DONE control flow, a `docs/README.md` map, errors-as-docs) are tracked in `dndocker/notes/devex.md`.
