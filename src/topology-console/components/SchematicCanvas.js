@@ -16,6 +16,7 @@ import {
 	isEdgeVisible,
 	clipSegmentExit,
 } from '../utils/viewportCull';
+import { resizeViewportTrackingAutofit } from '../utils/viewportResize';
 
 // Exported so the palette drag ghost can render the same node-card geometry.
 export const NODE_W = 196;
@@ -505,6 +506,58 @@ export default function SchematicCanvas( {
 			);
 		}
 	}, [ viewport, nodes.length, setViewport, bottomObstructionPx ] );
+
+	// On resize, keep the displayed scale tracking autofit WITHOUT re-framing:
+	// rewrite the controlled viewport to hold its center but take the new canvas
+	// aspect + a scale of `autofit(newPx) × (currentScale / autofit(oldPx))`. So the
+	// scale only shrinks when autofit shrinks (no `meet` letterbox under-shrink),
+	// grows in step with autofit when the panel grows, and a manual zoom survives
+	// (ratio preserved). Refs feed the latest viewport/nodes so the effect binds to
+	// canvasPx alone — pan/zoom (which don't change canvasPx) never trigger it.
+	const resizeRef = useRef( null );
+	resizeRef.current = { viewport, bottomObstructionPx };
+	const prevCanvasPxRef = useRef( null );
+	useEffect( () => {
+		const prev = prevCanvasPxRef.current;
+		prevCanvasPxRef.current = canvasPx;
+		if (
+			! canvasPx.w ||
+			! canvasPx.h ||
+			! prev?.w ||
+			! prev?.h ||
+			( prev.w === canvasPx.w && prev.h === canvasPx.h )
+		) {
+			return;
+		}
+		const { viewport: vp, bottomObstructionPx: inset } = resizeRef.current;
+		if ( ! vp ) {
+			// Uncontrolled (or not yet frozen): the null-viewport path already
+			// re-fits from defaultViewBox on every canvasPx change.
+			return;
+		}
+		// Committed nodes (like the freeze effect) so a resize mid-node-drag fits
+		// the settled layout, not the drag's transient bbox.
+		const currentNodes = nodesRef.current;
+		// autofit px-per-world scale at a canvas size: the fit box spans the canvas
+		// at that scale, so scale = px.w / box.w.
+		const fitScaleFor = ( px ) => {
+			const box = parseViewBox(
+				tightViewBoxFor( currentNodes, px, inset )
+			);
+			return box.w > 0 ? px.w / box.w : 0;
+		};
+		const next = resizeViewportTrackingAutofit( {
+			viewport: vp,
+			oldPx: prev,
+			newPx: canvasPx,
+			fitOld: fitScaleFor( prev ),
+			fitNew: fitScaleFor( canvasPx ),
+		} );
+		if ( next !== vp ) {
+			setViewport( next );
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ canvasPx ] );
 
 	// hoveredId is lifted so the Inspector can drive the same highlight.
 	const setHovered = ( id ) => {
