@@ -253,11 +253,13 @@ describe( 'SchematicCanvas', () => {
 		hoverCanvas( container );
 		fireEvent.keyDown( document, { key: 'ArrowRight' } );
 		expect( onViewportChange ).toHaveBeenLastCalledWith(
-			expect.objectContaining( { x: 80, y: 0, w: 1000, h: 700 } )
+			expect.objectContaining( { x: 80, y: 0, w: 1000, h: 700 } ),
+			expect.anything()
 		);
 		fireEvent.keyDown( document, { key: 'ArrowDown' } );
 		expect( onViewportChange ).toHaveBeenLastCalledWith(
-			expect.objectContaining( { y: 56 } )
+			expect.objectContaining( { y: 56 } ),
+			expect.anything()
 		);
 	} );
 
@@ -273,7 +275,8 @@ describe( 'SchematicCanvas', () => {
 		hoverCanvas( container );
 		fireEvent.keyDown( document, { key: 'ArrowLeft', shiftKey: true } );
 		expect( onViewportChange ).toHaveBeenLastCalledWith(
-			expect.objectContaining( { x: -250 } )
+			expect.objectContaining( { x: -250 } ),
+			expect.anything()
 		);
 	} );
 

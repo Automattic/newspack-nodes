@@ -189,6 +189,7 @@ export default function InspectorTab( {
 	const {
 		positions,
 		viewport,
+		viewportDelta,
 		canReset: isLayoutDirty,
 		onPositionChange,
 		onViewportChange,
@@ -362,6 +363,7 @@ export default function InspectorTab( {
 						positionOverrides: positions,
 						onPositionChange,
 						viewport,
+						viewportDelta,
 						onViewportChange,
 						onConnect: handlers.onConnect,
 						onRemoveEdge: handlers.onRemoveEdge,

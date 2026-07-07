@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { autoLayout, placeBelow } from '../utils/autoLayout';
 
-const EMPTY = { positions: null, viewport: null, modified: false };
+const EMPTY = {
+	positions: null,
+	viewport: null,
+	viewportDelta: null,
+	modified: false,
+};
 
 function load( key ) {
 	// A null key (e.g. an untitled draft) is in-memory only — never touch storage.
@@ -19,7 +24,12 @@ function load( key ) {
 				p && typeof p.positions === 'object' && p.positions
 					? p.positions
 					: null,
-			viewport: p && p.viewport !== undefined ? p.viewport : null,
+			// The live viewBox is always re-derived from the delta by the canvas
+			// freeze — so start null. An old pre-delta `p.viewport` viewBox is
+			// intentionally ignored (a one-time re-fit on upgrade).
+			viewport: null,
+			viewportDelta:
+				p && p.viewportDelta !== undefined ? p.viewportDelta : null,
 			modified: !! ( p && p.modified ),
 			key,
 		};
@@ -38,7 +48,7 @@ function persist( key, s ) {
 			key,
 			JSON.stringify( {
 				positions: s.positions,
-				viewport: s.viewport,
+				viewportDelta: s.viewportDelta,
 				modified: s.modified,
 			} )
 		);
@@ -134,6 +144,7 @@ export function useCanvasLayout( {
 				const next = {
 					positions,
 					viewport: prev.viewport,
+					viewportDelta: prev.viewportDelta,
 					modified: false,
 					key: storageKey,
 				};
@@ -159,6 +170,7 @@ export function useCanvasLayout( {
 				const next = {
 					positions,
 					viewport: prev.viewport,
+					viewportDelta: prev.viewportDelta,
 					modified: false,
 					key: storageKey,
 				};
@@ -204,6 +216,7 @@ export function useCanvasLayout( {
 			const next = {
 				positions,
 				viewport: prev.viewport,
+				viewportDelta: prev.viewportDelta,
 				modified: prev.modified,
 				key: prev.key,
 			};
@@ -221,6 +234,7 @@ export function useCanvasLayout( {
 						[ id ]: { x: pos.x, y: pos.y },
 					},
 					viewport: prev.viewport,
+					viewportDelta: prev.viewportDelta,
 					modified: true,
 					key: prev.key,
 				};
@@ -232,8 +246,12 @@ export function useCanvasLayout( {
 	);
 
 	const onViewportChange = useCallback(
-		( vp ) => {
-			setState( ( prev ) => ( { ...prev, viewport: vp } ) );
+		( vp, delta ) => {
+			setState( ( prev ) => ( {
+				...prev,
+				viewport: vp,
+				viewportDelta: delta,
+			} ) );
 			if ( vpTimer.current ) {
 				clearTimeout( vpTimer.current );
 			}
@@ -301,6 +319,7 @@ export function useCanvasLayout( {
 	return {
 		positions: state.positions || {},
 		viewport: state.viewport,
+		viewportDelta: state.viewportDelta,
 		canReset: state.modified,
 		onPositionChange,
 		onViewportChange,

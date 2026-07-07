@@ -337,12 +337,15 @@ function mockCanvasMarkup( props ) {
 			<button
 				onClick={ () =>
 					props.onViewportChange &&
-					props.onViewportChange( {
-						x: 10,
-						y: 20,
-						w: 800,
-						h: 600,
-					} )
+					props.onViewportChange(
+						{
+							x: 10,
+							y: 20,
+							w: 800,
+							h: 600,
+						},
+						{ dcx: 5, dcy: 6, zoom: 2 }
+					)
 				}
 			>
 				vp-change
@@ -1509,11 +1512,11 @@ describe( 'TopologyConsole boot', () => {
 			const stored = JSON.parse(
 				window.localStorage.getItem( keys[ 0 ] ) || '{}'
 			);
-			expect( stored.viewport ).toEqual( {
-				x: 10,
-				y: 20,
-				w: 800,
-				h: 600,
+			// Persistence stores the delta from autofit, not the raw viewBox.
+			expect( stored.viewportDelta ).toEqual( {
+				dcx: 5,
+				dcy: 6,
+				zoom: 2,
 			} );
 			// Pan/zoom is not a layout modification — modified stays false.
 			expect( stored.modified ).toBe( false );
