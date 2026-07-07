@@ -12,6 +12,8 @@ declare( strict_types = 1 );
 
 namespace Newspack_Nodes;
 
+\defined( 'ABSPATH' ) || exit;
+
 /**
  * Delete every option row for a prefix, plus its transient variants (all are
  * option rows, so this stays options-only). Prefix-based so it stays complete

@@ -13,6 +13,8 @@
 
 namespace Newspack_Nodes;
 
+\defined( 'ABSPATH' ) || exit;
+
 /**
  * Appends option-name-only events to settings.p0 on watched option changes.
  */
