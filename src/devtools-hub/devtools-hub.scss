@@ -8,6 +8,8 @@
  * fill the remaining flex space instead of overflowing.
  */
 
+@use "@newspack-nodes/shared/styles/inputs";
+
 .nodes-devtools-hub {
 	// The ONE shared brand header on top — give it the console's row height so it
 	// breathes, with the same soft theme-token divider as the tab bar below it.
@@ -34,50 +36,4 @@
 // `theme-<slug>` class) — NOT `.newspack-nodes-theme`, which is also set on
 // inner wrappers (e.g. `.nodes-devtools-hub`) without a theme class, so a
 // `:not(.theme-newspack)` keyed off it wrongly matches under the Newspack skin.
-.topology-app:not(.theme-newspack):not(.theme-newspack-brand) {
-	.button.button-primary {
-		background: var(--cyan);
-		border: 1.5px solid var(--cyan);
-		color: var(--paper);
-		border-radius: var(--np-radius-md);
-		box-shadow: none;
-		text-shadow: none;
-
-		&:hover,
-		&:focus {
-			background: var(--cyan-dark);
-			border-color: var(--cyan-dark);
-			color: var(--paper);
-		}
-	}
-
-	.button:not(.button-primary):not(.button-link-delete) {
-		background: var(--paper);
-		border: 1.5px solid var(--ink-3);
-		color: var(--ink);
-		border-radius: var(--np-radius-md);
-		box-shadow: none;
-
-		&:hover {
-			background: var(--paper-2);
-			border-color: var(--ink);
-			color: var(--ink);
-		}
-	}
-
-	.button.button-link-delete {
-		background: var(--paper);
-		border: 1.5px solid var(--oxide);
-		color: var(--oxide);
-		border-radius: var(--np-radius-md);
-		box-shadow: none;
-		text-shadow: none;
-
-		&:hover,
-		&:focus {
-			background: color-mix(in srgb, var(--oxide) 12%, transparent);
-			border-color: var(--oxide);
-			color: var(--oxide);
-		}
-	}
-}
+@include inputs.skin-adaptive-buttons;

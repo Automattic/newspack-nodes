@@ -120,6 +120,64 @@
 	}
 }
 
+// Skin-adaptive `.button` theming — stock WordPress `.button` under the Newspack
+// skins (where the admin/Newspack styling is correct), token-themed under the
+// decorative skins (crt/nord/…) where admin colors would clash. Gate on
+// `.topology-app` (the ONE root that carries `theme-<slug>`), NOT
+// `.newspack-nodes-theme` (also set on inner wrappers without a theme class, so a
+// `:not(.theme-newspack)` keyed off it wrongly matches under the Newspack skin).
+// `@include` at a stylesheet's top level in every bundle that renders under
+// `.topology-app.theme-<slug>` — the devtools hub AND each event-logger dashboard.
+@mixin skin-adaptive-buttons {
+	.topology-app:not(.theme-newspack):not(.theme-newspack-brand) {
+		.button.button-primary {
+			background: var(--cyan);
+			border: 1.5px solid var(--cyan);
+			color: var(--paper);
+			border-radius: var(--np-radius-md);
+			box-shadow: none;
+			text-shadow: none;
+
+			&:hover,
+			&:focus {
+				background: var(--cyan-dark);
+				border-color: var(--cyan-dark);
+				color: var(--paper);
+			}
+		}
+
+		.button:not(.button-primary):not(.button-link-delete) {
+			background: var(--paper);
+			border: 1.5px solid var(--ink-3);
+			color: var(--ink);
+			border-radius: var(--np-radius-md);
+			box-shadow: none;
+
+			&:hover {
+				background: var(--paper-2);
+				border-color: var(--ink);
+				color: var(--ink);
+			}
+		}
+
+		.button.button-link-delete {
+			background: var(--paper);
+			border: 1.5px solid var(--oxide);
+			color: var(--oxide);
+			border-radius: var(--np-radius-md);
+			box-shadow: none;
+			text-shadow: none;
+
+			&:hover,
+			&:focus {
+				background: color-mix(in srgb, var(--oxide) 12%, transparent);
+				border-color: var(--oxide);
+				color: var(--oxide);
+			}
+		}
+	}
+}
+
 // =============================================================================
 // Canonical toolbar control classes — real classes (not mixins), so a toolbar
 // adds one className and gets the look with zero local CSS. Color/border/font
