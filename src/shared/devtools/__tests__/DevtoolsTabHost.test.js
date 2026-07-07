@@ -304,9 +304,26 @@ describe( 'DevtoolsTabHost', () => {
 						label: 'Topologies',
 						host: 'hub',
 						slug: 'topologies',
+						param: 'topology',
 						order: 10,
 						component: () => <div data-testid="manager" />,
 					} );
+
+				it( "preserves the target tab's own param across the late switch", () => {
+					window.history.replaceState(
+						{},
+						'',
+						'/?tab=topologies&topology=aggregator'
+					);
+					registerConsole();
+					render( <DevtoolsTabHost host="hub" syncUrl /> );
+					act( registerTopologies );
+					expect(
+						new URLSearchParams( window.location.search ).get(
+							'topology'
+						)
+					).toBe( 'aggregator' );
+				} );
 
 				it( 'activates the deep-linked tab once it registers', () => {
 					window.history.replaceState( {}, '', '/?tab=topologies' );

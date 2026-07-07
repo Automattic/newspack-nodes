@@ -76,13 +76,16 @@ export default function DevtoolsTabHost( {
 	// Set once the user picks a tab — after that we never auto-switch to the
 	// deep-link target.
 	const pickedRef = useRef( false );
-	// The deep-link is "pending" while its tab hasn't registered yet: we hold the
-	// URL (don't canonicalize to the fallback) and keep watching for its arrival.
+	// The deep-link is "pending" until the ACTIVE tab is actually the target — not
+	// merely until the target registers. The gap matters: on the render where the
+	// target has registered but the switch effect hasn't run yet, the fallback tab
+	// is still active, and letting the URL sync fire there would clear the target's
+	// own param (e.g. `?topology=`) before the target mounts and reads it.
 	const deepLinkPending =
 		syncUrl &&
 		! pickedRef.current &&
 		!! initialSlugRef.current &&
-		! tabs.some( ( t ) => t.slug === initialSlugRef.current );
+		active?.slug !== initialSlugRef.current;
 
 	// When the deep-linked tab finally registers, switch to it — unless the user
 	// already picked a tab. Keyed on the registry version so it re-checks on each
