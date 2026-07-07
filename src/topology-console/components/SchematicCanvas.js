@@ -148,6 +148,14 @@ const NODE_OVERSCAN = 0.5;
 // viewportCull's `detailScale` default. The transcript reflow floors the graph
 // right above this so it can't shrink the nodes into unreadable rects.
 const LOD_DETAIL_SCALE = 0.35;
+// Floor a hair ABOVE the LOD threshold, not exactly on it: landing on
+// `detailScale` sits on the `scale >= detailScale` boundary, so any rounding or
+// a slightly-zoomed-out ratio tips it into LOD. The margin keeps cards detailed.
+const LOD_FLOOR_SCALE = LOD_DETAIL_SCALE * 1.2;
+// A transcript this close to covering the canvas counts as "full" (e.g. the
+// double-click maximize): the reflow is skipped so the graph holds its framing
+// (covered) instead of collapsing to a sliver, and resumes when it comes down.
+const TRANSCRIPT_FULL_FRACTION = 0.9;
 
 // Arrow-key pan: fraction of the viewport shifted per keypress (hold to repeat),
 // and the faster shift+arrow step. Keyed by arrow → [dx, dy] sign.
@@ -545,7 +553,7 @@ export default function SchematicCanvas( {
 	const prevSurfaceRef = useRef( null );
 	useEffect( () => {
 		const prev = prevSurfaceRef.current;
-		prevSurfaceRef.current = { px: canvasPx, inset: bottomObstructionPx };
+		const cur = { px: canvasPx, inset: bottomObstructionPx };
 		if (
 			! canvasPx.w ||
 			! canvasPx.h ||
@@ -555,14 +563,24 @@ export default function SchematicCanvas( {
 				prev.px.h === canvasPx.h &&
 				prev.inset === bottomObstructionPx )
 		) {
+			prevSurfaceRef.current = cur;
 			return;
 		}
 		const vp = viewportRef.current;
 		if ( ! vp ) {
 			// Uncontrolled (or not yet frozen): the null-viewport path already
 			// re-fits from defaultViewBox on every canvasPx/inset change.
+			prevSurfaceRef.current = cur;
 			return;
 		}
+		// Skip the reflow while the transcript is (near) full — e.g. double-click
+		// maximize: hold the graph's framing (covered) instead of collapsing it to
+		// a sliver. Leave the baseline UNADVANCED so the reflow on the way back is
+		// measured from the pre-full state.
+		if ( bottomObstructionPx >= canvasPx.h * TRANSCRIPT_FULL_FRACTION ) {
+			return;
+		}
+		prevSurfaceRef.current = cur;
 		// Committed nodes (like the freeze effect) so a resize mid-node-drag fits
 		// the settled layout, not the drag's transient bbox.
 		const currentNodes = nodesRef.current;
@@ -576,7 +594,7 @@ export default function SchematicCanvas( {
 				maxInsetBeforeLOD( {
 					canvasH: pxH,
 					bboxH,
-					detailScale: LOD_DETAIL_SCALE,
+					detailScale: LOD_FLOOR_SCALE,
 					fill: AUTOFIT_FILL,
 				} )
 			);
