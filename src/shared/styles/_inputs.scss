@@ -134,7 +134,7 @@
 			background: var(--cyan);
 			border: 1.5px solid var(--cyan);
 			color: var(--paper);
-			border-radius: var(--np-radius-md);
+			border-radius: var(--control-radius, 0);
 			box-shadow: none;
 			text-shadow: none;
 
@@ -150,7 +150,7 @@
 			background: var(--paper);
 			border: 1.5px solid var(--ink-3);
 			color: var(--ink);
-			border-radius: var(--np-radius-md);
+			border-radius: var(--control-radius, 0);
 			box-shadow: none;
 
 			&:hover {
@@ -164,7 +164,7 @@
 			background: var(--paper);
 			border: 1.5px solid var(--oxide);
 			color: var(--oxide);
-			border-radius: var(--np-radius-md);
+			border-radius: var(--control-radius, 0);
 			box-shadow: none;
 			text-shadow: none;
 
