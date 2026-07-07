@@ -33,4 +33,19 @@ final class Node_Names {
 	public const TOPICPROBE          = '_topicprobe';
 	public const TOPICPROBE_LOG      = '_topicprobe:log';
 	public const UPTIME              = '_uptime';
+
+	/**
+	 * Auto-mounted framework/session infrastructure: dump_config skips these (they
+	 * aren't user-configured graph nodes) and remove_node refuses to destroy them.
+	 *
+	 * @var array<int,string>
+	 */
+	public const SESSION_SCAFFOLDING = [
+		self::COMMAND_INTERPRETER,
+		self::ROUTER,
+		self::OUTPUT,
+		self::CONSOLE_TAP,
+		self::STDIN,
+		self::STDOUT,
+	];
 }
