@@ -27,9 +27,26 @@ function store() {
 	// These IIFE bundles only ever run in the browser (jest provides window
 	// too), matching the bare-window convention in src/shared/utils.
 	if ( ! window[ GLOBAL_KEY ] ) {
-		window[ GLOBAL_KEY ] = { tabs: new Map(), sorted: null };
+		window[ GLOBAL_KEY ] = {
+			tabs: new Map(),
+			sorted: null,
+			// Bumped on every register/reset; the host reads it via
+			// useSyncExternalStore so a LATE-registering bundle (common when a
+			// backgrounded tab throttles script loading past the host's first
+			// render) re-renders the tab bar instead of being dropped.
+			version: 0,
+			listeners: new Set(),
+		};
 	}
 	return window[ GLOBAL_KEY ];
+}
+
+// Bump the version + fire subscribers after any registry mutation.
+function notify( s ) {
+	s.version++;
+	for ( const listener of s.listeners ) {
+		listener();
+	}
 }
 
 const HOSTS = [ 'overlay', 'hub', 'both' ];
@@ -70,6 +87,25 @@ export function registerDevtoolsTab( descriptor ) {
 	const s = store();
 	s.tabs.set( id, { ...descriptor, order, slug } );
 	s.sorted = null;
+	notify( s );
+}
+
+/**
+ * Subscribe to registry changes (register/reset). The host re-renders on a
+ * change so late-registered tabs appear.
+ *
+ * @param {Function} listener Called on each change.
+ * @return {Function} Unsubscribe.
+ */
+export function subscribeDevtoolsTabs( listener ) {
+	const s = store();
+	s.listeners.add( listener );
+	return () => s.listeners.delete( listener );
+}
+
+/** @return {number} A version that changes on every register/reset — the useSyncExternalStore snapshot. */
+export function getDevtoolsTabsVersion() {
+	return store().version;
 }
 
 /**
@@ -97,4 +133,5 @@ export function resetDevtoolsTabs() {
 	const s = store();
 	s.tabs.clear();
 	s.sorted = null;
+	notify( s );
 }

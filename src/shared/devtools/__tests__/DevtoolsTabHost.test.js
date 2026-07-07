@@ -1,4 +1,4 @@
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import DevtoolsTabHost from '../DevtoolsTabHost';
 import { registerDevtoolsTab, resetDevtoolsTabs } from '../tabRegistry';
 import fs from 'fs';
@@ -32,6 +32,34 @@ describe( 'DevtoolsTabHost', () => {
 		);
 		expect( queryByRole( 'tablist' ) ).toBeNull();
 		expect( getByTestId( 'tab' ).textContent ).toBe( 'hub:X' );
+	} );
+
+	it( 'shows a tab whose bundle registers AFTER the host first rendered', () => {
+		registerDevtoolsTab( {
+			id: 'a',
+			label: 'A',
+			host: 'hub',
+			order: 0,
+			component: () => <div data-testid="a" />,
+		} );
+		const { queryByRole, queryByText } = render(
+			<DevtoolsTabHost host="hub" />
+		);
+		// One tab so far → no bar, and no "B".
+		expect( queryByRole( 'tablist' ) ).toBeNull();
+		expect( queryByText( 'B' ) ).toBeNull();
+		// A late bundle registers a second tab — the host must re-render and show it.
+		act( () => {
+			registerDevtoolsTab( {
+				id: 'b',
+				label: 'B',
+				host: 'hub',
+				order: 1,
+				component: () => <div data-testid="b" />,
+			} );
+		} );
+		expect( queryByRole( 'tablist' ) ).not.toBeNull();
+		expect( queryByText( 'B' ) ).not.toBeNull();
 	} );
 
 	it( 'shows the bar with >1 tab and lazy-mounts only the selected one', () => {

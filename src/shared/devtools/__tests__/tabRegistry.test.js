@@ -2,12 +2,50 @@ import {
 	registerDevtoolsTab,
 	getDevtoolsTabs,
 	resetDevtoolsTabs,
+	subscribeDevtoolsTabs,
+	getDevtoolsTabsVersion,
 } from '../tabRegistry';
 
 describe( 'devtools tab registry', () => {
 	beforeEach( resetDevtoolsTabs );
 
 	const Comp = () => null;
+
+	describe( 'subscription (so a host re-renders when a late bundle registers)', () => {
+		it( 'notifies subscribers on register, and stops after unsubscribe', () => {
+			const listener = jest.fn();
+			const unsubscribe = subscribeDevtoolsTabs( listener );
+			registerDevtoolsTab( {
+				id: 'x',
+				label: 'X',
+				host: 'hub',
+				component: Comp,
+			} );
+			expect( listener ).toHaveBeenCalledTimes( 1 );
+			unsubscribe();
+			registerDevtoolsTab( {
+				id: 'y',
+				label: 'Y',
+				host: 'hub',
+				component: Comp,
+			} );
+			expect( listener ).toHaveBeenCalledTimes( 1 );
+		} );
+
+		it( 'changes the version snapshot on register and reset', () => {
+			const v0 = getDevtoolsTabsVersion();
+			registerDevtoolsTab( {
+				id: 'x',
+				label: 'X',
+				host: 'hub',
+				component: Comp,
+			} );
+			const v1 = getDevtoolsTabsVersion();
+			expect( v1 ).not.toBe( v0 );
+			resetDevtoolsTabs();
+			expect( getDevtoolsTabsVersion() ).not.toBe( v1 );
+		} );
+	} );
 
 	it( 'returns tabs whose host matches, plus both', () => {
 		registerDevtoolsTab( {
