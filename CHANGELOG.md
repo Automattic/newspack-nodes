@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-07-07
+
+### Fixed
+
+- **Reverted the reactive-store skin change from 0.28.0 — it regressed the topology-console hub.** A `set_skin` from the console REPL re-rendered the initiating console subtree but left the OUTER hub chrome (`DevToolsHub` header/tab bar) on the old skin, so CRT glow/scanlines bled and the header/tab bar never switched. A direct store notify re-renders every root, but the REPL-originated one lost a race with the command's own re-render cascade (three store variants — flushSync, plain, deferred — all stranded the outer). Restored the `useState` + `publishTheme` mirror, which re-skins the hub cleanly in both directions (verified in-browser).
+- **The debug overlay re-skins its own chrome atomically.** `DebugPanel` now owns the skin in `useState` and hands it to its tabs **top-down** (props) instead of receiving it up via a lagging `publishTheme` mirror, so a `set_skin` re-renders the panel + tab in ONE commit — the overlay header glow and canvas scanlines no longer bleed onto the new skin (verified in-browser on a live dashboard). The dashboard page BEHIND the floating overlay is a separate React root and still needs its own subscription to live-re-skin — a follow-up.
+
 ## [0.28.0] - 2026-07-07
 
 ### Changed

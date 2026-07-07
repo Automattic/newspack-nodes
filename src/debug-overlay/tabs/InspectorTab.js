@@ -87,7 +87,8 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
  * @param {string}   props.storageKey    Layout persistence key (per dashboard).
  * @param {Object}   props.frame         Frame geometry { w, h } from the host.
  * @param {Function} props.publishHeader Publish header extras (the PATH selector) to the panel's shared Header.
- * @param {Function} props.publishTheme  Publish the live theme slug to the panel's token context.
+ * @param {string}   props.theme         Live skin slug (owned top-down by DebugPanel).
+ * @param {Function} props.onThemeChange Change the skin (updates DebugPanel's state → panel + tab re-skin together).
  * @param {boolean}  [props.buildRepl]   When false (Console tab), build no infra — Overview-only.
  * @return {import('react').ReactElement} The inspector body.
  */
@@ -95,7 +96,10 @@ export default function InspectorTab( {
 	storageKey,
 	frame,
 	publishHeader,
-	publishTheme,
+	// Skin flows top-down from DebugPanel (it owns the useState); the tab uses
+	// these for its wrapper class + set_skin, so panel + tab re-skin in ONE commit.
+	theme: panelTheme,
+	onThemeChange: panelOnThemeChange,
 	// false on the hub Console tab: the overlay rides it ONLY for the Overview tab
 	// (browser I/O). Its own graph+REPL would duplicate the Console's AND collide
 	// on the shared `_output` infra, so the inspector body builds nothing there
@@ -132,8 +136,8 @@ export default function InspectorTab( {
 	// in either surface applies in both. The overlay is always live (no edit
 	// mode), so it uses the live palette key (default collapsed).
 	const {
-		theme,
-		onThemeChange,
+		theme: graphTheme,
+		onThemeChange: graphOnThemeChange,
 		paletteCollapsed,
 		inspectorCollapsed,
 		openInspectorOnSelect,
@@ -141,6 +145,10 @@ export default function InspectorTab( {
 		replChromeProps,
 		setReplExpanded,
 	} = useGraphSurface( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
+	// DebugPanel owns the skin top-down; fall back to the shared chrome's own only
+	// if (defensively) not provided.
+	const theme = panelTheme ?? graphTheme;
+	const onThemeChange = panelOnThemeChange ?? graphOnThemeChange;
 	// One Shell instance per panel mount, shared by useDebugGraph (handler
 	// dispatch) and useDebugRepl (typed-line dispatch). cwd is empty: the overlay
 	// is local-only. useDebugRepl binds shell.sink to the page's interpreter
@@ -264,9 +272,6 @@ export default function InspectorTab( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ publishHeader, pathOptionsKey, cwd, stableOnPathChange ] );
 	useEffect( () => () => publishHeader?.( null ), [ publishHeader ] );
-	// Keep the panel's token context on the Console's live theme (a REPL set_skin
-	// re-skins the whole overlay chrome, not just the canvas body).
-	useEffect( () => publishTheme?.( theme ), [ publishTheme, theme ] );
 
 	// Tab-completion: subscribe to _completion's published candidates and expose
 	// requestCompletion/handleShowCandidates via the shared useCompletion hook.
