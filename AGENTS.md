@@ -180,6 +180,7 @@ These are mistakes that have actually happened. Pay attention.
 
 ## References
 
+- **Doc map**: `docs/README.md` — the 3-bucket reading-order index for the whole `docs/` set (start here → production → reference)
 - **Architecture**: `docs/architecture-guide.md` (full substrate design — message format, node contracts, drain loop, REPL)
 - **Architecture decisions**: `docs/architecture-decisions.md` (the load-bearing ADRs — context, alternatives, reopen conditions)
 - **Tutorial track**: `docs/getting-started.md` → `docs/writing-a-plugin.md` → `docs/writing-a-real-plugin.md` → `docs/writing-a-dashboard.md` → `docs/writing-a-real-dashboard.md` → `docs/writing-a-view-node.md`

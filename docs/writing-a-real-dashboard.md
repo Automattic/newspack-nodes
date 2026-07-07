@@ -33,19 +33,21 @@ The catalog feeds two surfaces. The overlay nests your console inside a tab bar.
 
 The toy's `Insights_CI` declared `'category' => 'Service'` and you moved on. Here's what that one string actually does.
 
-`Classes_CI_Node::list` is the single catalog builder. It scans the composer classmap for concrete `*_Node` classes under a registered namespace, inlines each `node_schema()`, and — the line that matters — **drops two categories** (`includes/rest/class-classes-ci-node.php:113`):
+`Classes_CI_Node::list` is the single catalog builder. It scans the composer classmap for concrete `*_Node` classes under a registered namespace, inlines each `node_schema()`, and — the line that matters — **drops a class on any of three conditions** (the category guard in `Classes_CI_Node::list`):
 
 ```php
-$cat = $schema['category'] ?? '';
+$cat    = $schema['category'] ?? '';
 // (e) not Hidden, and has a real category — a class that
 // inherits Node's empty-category default (e.g. SSE_Out_Node,
 // a pure HTTP response writer) isn't a palette participant.
-if ( 'Hidden' === $cat || '' === $cat ) {
+// A node may also opt out of the palette while keeping a
+// functional category (SSE_In_Node: I/O but patron-configured).
+if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
 	continue;
 }
 ```
 
-So `category: 'Hidden'` (or no category at all) removes a class from the catalog **entirely**. And "entirely" is the gotcha, because `GraphView` feeds that *same array* to two children (`src/topology-console/components/GraphView.js:187` and `:254`):
+`category: 'Hidden'`, no category at all, **or** an explicit `'hidden' => true` schema flag (the escape hatch for a node that wants a real functional category yet still opts out of the palette, like `SSE_In_Node`) — any one removes the class from the catalog **entirely**. And "entirely" is the gotcha, because `GraphView` feeds that *same array* to two children (`src/topology-console/components/GraphView.js:187` and `:254`):
 
 ```jsx
 { showPalette && (
@@ -71,19 +73,21 @@ One array, two consumers. That coupling is the whole section: **`category: 'Hidd
 
 A Service CI like `Insights_CI` is **mounted** into every request graph (`make_node( 'Insights_CI', 'insights' )` on `request_graph_ready` — toy guide §2). It is *never* `make_node`'d from the canvas. Dragging it from the palette would mint a stray second `insights` node that nobody routes to — a duplicate with no purpose. So you want it gone from the palette. But you still want its verb buttons in the inspector: select the mounted `insights` node, see an `insights` button, fire it. Dropping it from the catalog kills both.
 
-The substrate's answer is a **palette-only** filter, not a catalog drop. `Palette` keeps a category denylist (`src/topology-console/components/Palette.js:15`):
+The substrate's answer is a **palette-only** filter, not a catalog drop. `Palette` keeps a `NON_DRAGGABLE_CATEGORIES` denylist:
 
 ```js
 // Categories that stay in the catalog (so the inspector still resolves their
 // command/request buttons via catalog.find) but are NOT draggable in the palette.
 // Service CIs are mounted into the request graph, never make_node'd, so dragging
 // one would only mint a stray duplicate.
-const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service' ] );
+const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
 …
 const draggable = classes.filter(
 	( c ) => ! NON_DRAGGABLE_CATEGORIES.has( c.category )
 );
 ```
+
+`'Remote'` rides the same rule for the same reason: a `Remote`-category node is wired in by the topology, not drag-minted from the canvas, so it stays catalog-resolvable but palette-undraggable.
 
 The filter runs *inside the Palette*, on the way to rendering tiles. The catalog array the Inspector reads is untouched. So `category: 'Service'` is the correct declaration for a mounted CI: it stays in the catalog (inspector verbs resolve), but `NON_DRAGGABLE_CATEGORIES` strips it from the palette (no stray-duplicate drag). `category: 'Hidden'` is for nodes that should be invisible to *both* surfaces — spine plumbing like `SSE_Out_Node`, which is a pure HTTP response writer with no user-facing verbs at all.
 
@@ -176,7 +180,7 @@ const FIXED_CHROME_PX = 174; // 32 (WP admin bar) + 64 (header) + 40 (hub tab ba
 
 It's correct *only* on a full-page console with exactly that chrome above it. The two hosts that actually mount a REPL each compute their own ceiling and pass it in.
 
-**Host A — the full-page Topology Console.** It measures its `.topology-app` grid with a `ResizeObserver` rather than trusting the viewport (`src/topology-console/TopologyConsole.js:361`):
+**Host A — the full-page Topology Console.** It measures its `.topology-app` grid with a `ResizeObserver` rather than trusting the viewport (the `appRef` measure effect in `TopologyConsole.js`):
 
 ```js
 const measure = () => setAppHeight( el.offsetHeight );
@@ -186,23 +190,23 @@ const ro = new window.ResizeObserver( measure );
 ro.observe( el );
 ```
 
-and derives the ceiling from the *measured* app height, subtracting the grid's own rows (`TopologyConsole.js:220`):
+and derives the ceiling from the *measured* app height, subtracting only the grid's own rows (`replCeilingFromAppHeight` in `TopologyConsole.js`):
 
 ```js
-const CONSOLE_HEADER_PX = 64;
 const CONSOLE_REPL_BAR_PX = 38;
+const CONSOLE_RESIZE_HANDLE_PX = 0;
 export function replCeilingFromAppHeight( appHeight ) {
 	if ( ! appHeight || appHeight <= 0 ) {
-		return null;   // before layout — let ReplFooter keep its fallback
+		return null;
 	}
 	return Math.max(
 		REPL_MIN_HEIGHT_PX,
-		appHeight - CONSOLE_HEADER_PX - CONSOLE_REPL_BAR_PX
+		appHeight - CONSOLE_REPL_BAR_PX - CONSOLE_RESIZE_HANDLE_PX
 	);
 }
 ```
 
-The comment at `:351` names the exact reason a viewport constant drifts here: the console now renders **inside the DevtoolsTabHost tab bar**, "whose height the old `window.innerHeight − FIXED_CHROME_PX` math never subtracted." The tab bar is real chrome the constant can't see. Measure the container and the drift can't happen.
+Note what it *doesn't* subtract: there's no header term. The console grid is `0 1fr 38px` — the console's own header moved up to the shared hub header above the tabs, so the canvas frame no longer reserves a header row. The ceiling is just `appHeight − repl-bar − a resize-handle reserve`, and that reserve is **`0`** here (not the overlay's `4`): because `appHeight` is measured exactly and the transcript bottom is exactly the repl-bar top, `0` lands the transcript top precisely at the canvas top. The `appRef` measure-effect comment names why the old viewport math drifted: the console now renders **inside the DevtoolsTabHost tab bar**, which the `window.innerHeight − FIXED_CHROME_PX` fallback can't see. Measure the container and the drift can't happen.
 
 **Host B — the debug overlay's Inspector tab.** Same disease, different frame. It measures *its own* tab bar instead of hardcoding it (`src/debug-overlay/tabs/InspectorTab.js:35`):
 
@@ -217,15 +221,19 @@ export function measureTabBarHeight( rootEl ) {
 }
 ```
 
-and folds that measurement into its ceiling (`InspectorTab.js:56`):
+and folds that measurement into its ceiling (`replMaxHeight` in `InspectorTab.js`):
 
 ```js
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
-	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight );
+	// -4 reserves the resize handle so it isn't clipped at full height. Unlike the
+	// console (which measures its frame exactly and needs 0 — see
+	// replCeilingFromAppHeight), this path HARDCODES the header (64) and bar (38)
+	// instead of measuring them, and those are ~4px off the panel's real chrome.
+	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight - 4 );
 }
 ```
 
-Two nuances are worth lifting out of those comments. First, **content-box vs border-box**: the overlay panel is content-box, so `frame.h` already excludes its border — no extra reserve needed (`InspectorTab.js:49`). And the prompt bar it subtracts is `38` because the transcript's CSS anchor sits at `bottom: 38px` — the bar's *actual* rendered height, not the round `40` you'd guess (the `bottom: 38px` anchor is visible in `ReplFooter.js:484`). Get that number from the CSS, not from intuition. Second, **a `ResizeObserver` on the bar** keeps the measurement honest if the tab bar wraps to two rows (`InspectorTab.js:106`).
+Two nuances are worth lifting out of that body. First, the `- 4` **resize-handle reserve** — the opposite of the console's `0`. Because this path *hardcodes* the header (64) and prompt bar (38) rather than measuring them (the panel itself is content-box, so `frame.h` already excludes its border), those constants land ~4px off the panel's real chrome; the `- 4` absorbs that slop so the transcript top lands at the same spot the measured console gets for free. Second, the prompt bar it subtracts is `38` because the transcript's CSS anchor sits at `bottom: 38px` — the bar's *actual* rendered height, not the round `40` you'd guess (the `bottom: 38px` anchor is visible in `ReplFooter`'s resize-handle `style`). Get that number from the CSS, not from intuition. Third, `measureTabBarHeight` (also in `InspectorTab.js`) measures the tab bar rather than hardcoding it, so the ceiling stays honest if the bar wraps to two rows.
 
 The pattern, stated once: `ReplFooter` is a pure consumer of `maxHeightPx`; **each host measures its own frame and hands the floor in.** A floating panel never knows its own bounds from the viewport — it knows them from the box it's mounted in. If you build a third REPL surface, you measure, you don't guess `window.innerHeight − 174`.
 
@@ -280,47 +288,29 @@ You register a tab by filtering into the registry via the **`newspack_nodes/devt
 
 ---
 
-## 6. When you *don't* need React — the classic Settings-API page
+## 6. Where the API credentials go — the Vault, not a page you build
 
-Not every "dashboard" is a React graph. The most production-real surface of all — **where do the API credentials go?** — is best served by a plain WordPress settings form, no bundle, no node graph.
+The most production-real surface of all — **where do the API credentials go?** — is one you *don't* write. The substrate already ships it: the **Vault**, a built-in DevTools-hub tab at `admin.php?page=newspack-nodes-hub&tab=vault`, not a WordPress Settings-API page and not a React tree you have to author.
 
-The real plugin does exactly this. Its React Publisher Insights page handles *display*; a separate, classic Settings-API submenu handles *credentials entry* (`newspack-ai-newsletter/newspack-ai-newsletter.php:123`):
+The Vault is a real hub tab (`src/vault/`, registered `host: 'hub'` / `slug: 'vault'` via the `newspack_nodes/devtools_tab_bundles` filter) — a thin `VaultAdmin` view over the `Vault_CI_Node` credential store (`includes/rest/class-vault-ci-node.php`). Secrets persist server-side in the `newspack_nodes_vault` option and are **never** returned to the browser: `list`/`get` hand back `{ id, url, has_credentials, is_config }`, never the credential itself.
 
-```php
-function render_settings_page(): void {
-	if ( ! \current_user_can( 'manage_options' ) ) {
-		return;
-	}
-	echo '<div class="wrap"><h1>' . \esc_html__( 'AI Newsletter Settings', 'newspack-ai-newsletter' ) . '</h1>';
-	echo '<form method="post" action="options.php">';
-	\settings_fields( SETTINGS_GROUP );
-	\do_settings_sections( SETTINGS_MENU_SLUG );
-	\submit_button();
-	echo '</form></div>';
-}
-```
+Your topology only *references* an entry. A source node carries a `set_vault_id <id>` verb — a `vault_id`-typed `node_schema` arg, which the console renders as a Vault dropdown — and resolves that id to the raw secret at `config()` time via the `Vault_Secret` trait (`newspack-ai-newsletter/includes/class-github-source-node.php`: `cmd_set_vault_id` → `resolve_vault_secret`). Non-secret per-source config rides sibling verbs on the same node (`add_repo <owner/name>`, `add_url <feed>`), never the Vault.
 
-The fields aren't hand-rolled — they ride the substrate's `Config_System\Schema` (one `Field` per setting, `render`/`sanitize` derived), registered with stock WordPress hooks (`newspack-ai-newsletter.php:91`):
-
-```php
-$schema = Settings::schema();
-$schema->register_options( SETTINGS_GROUP );        // register_setting() per Field
-$schema->register_sections_and_fields( SETTINGS_MENU_SLUG );  // add_settings_field() per Field
-```
-
-That's the whole point of the section: when the right surface is a credentials form, reach for `settings_fields()` + `do_settings_sections()` and let `Config_System` render the fields — not a React tree. The depth of *how* `Config_System` declares and sanitizes fields belongs in [writing-a-real-plugin.md](writing-a-real-plugin.md) §4; here it's one paragraph and a reminder that "dashboard" sometimes means "an HTML form."
+So the split is: **the operator enters the secret in the Vault tab; the topology points at it.** When the right surface is credentials, reach for the Vault entry + a `set_vault_id` reference — not a hand-rolled settings form and not a React page. The full credentials-in-the-Vault / config-in-the-topology model is [writing-a-real-plugin.md](writing-a-real-plugin.md) §4; here it's the reminder that the credential surface is a tab you already have.
 
 ---
 
 ## 7. Build & deploy realities
 
-The toy ran `npm run build` and `wp nodes ls` and called it done. Shipping for real has four sharp edges around that.
+The toy ran `npm run build` and `wp nodes ls` and called it done. Shipping for real has a handful of sharp edges around that.
 
 **`release:archive` bundles `build/`, not `src/`, with an optimized autoloader.** The release zip carries the *built* `build/dashboard/index.js` (and its `.asset.php` / `.css` / `-rtl.css`), composer's `--no-dev` autoloader, and none of `src/` or `tests/`. So your `npm run build` output is the artifact — if you didn't build, the zip ships stale JS.
 
 **The setup scripts install a PREBUILT zip — they don't build.** This is the one that silently runs old code. `newspack-nodes.sh` / `newspack-ai-newsletter.sh` install the existing `release/*.zip`; they do not run esbuild. So the deploy loop is **`npm run release:archive` first, then the setup script** — otherwise `wp nodes` runs the previous build and your PHPUnit (which runs from `/services`) won't catch it because the source on disk *is* current; only the deployed copy is stale.
 
 **A shared-source edit fans out to every consumer bundle.** Anything under `src/shared`, `src/debug-overlay`, or `src/build-kit` is *inlined* into each consumer's bundle at build time via the `@newspack-nodes/*` aliases — there is no shared runtime script. So editing, say, `ReplFooter`'s ceiling logic or `WP_EXTERNALS` means rebuilding **and redeploying every consumer** (newspack-nodes, event-logger-nodes, ai-newsletter), or the un-rebuilt ones ship the old inline copy. The toy's single bundle hid this; a real change to the shared kit doesn't get that luxury.
+
+**Mounting the debug overlay needs more jest config than the toy showed.** [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you a 2-key `createJestConfig` (`aliasBase` + `pinReactFrom`) — enough for the toy's thin view. But the moment you follow its §9 and actually mount `<DebugOverlay>` in your dashboard, jest has to resolve what the overlay drags in: `@wordpress/api-fetch` (the build externalizes it to `window.wp.apiFetch`, so it isn't a plugin dependency jest can find on its own) and `d3` (ESM-only, pulled transitively by the overlay's `OverviewTab` → `TopicsChart`). The 2-key config resolves neither. Add an `extraMappers` entry for each and a `transformIgnorePatterns` that opts d3's ESM packages out of the transform skip — copy the exact shape from `examples/example-ai-newsletter/jest.config.js` (which maps both `@wordpress/api-fetch` and `d3`) or `newspack-ai-newsletter/jest.config.js`.
 
 **Restart workers after deploy.** New PHP class code lives in the running worker process for up to ~10 more minutes otherwise — `wp nodes restart …` (per the env's restart verbs) makes the new node code live.
 
@@ -330,7 +320,7 @@ The toy ran `npm run build` and `wp nodes ls` and called it done. Shipping for r
 
 ## 8. Recap — what you wrote vs. what the substrate gave you
 
-**You wrote:** a `category` string on your CI (`'Service'`, not `'Hidden'`), a `requests` entry or two for your runtime triggers, a `host`-scoped tab descriptor if your tool belongs in the hub, a classic settings form for credentials, and a build/deploy sequence that rebuilds before it deploys.
+**You wrote:** a `category` string on your CI (`'Service'`, not `'Hidden'`), a `requests` entry or two for your runtime triggers, a `host`-scoped tab descriptor if your tool belongs in the hub, a `set_vault_id` reference to a Vault credential entry (not a settings form), and a build/deploy sequence that rebuilds before it deploys.
 
 **The substrate gave you — and these are the contracts, not conveniences:**
 
@@ -341,7 +331,7 @@ The toy ran `npm run build` and `wp nodes ls` and called it done. Shipping for r
 | `ReplFooter` `maxHeightPx` | each host MEASURES its own frame + tab bar; viewport math drifts |
 | `WP_EXTERNALS` | externalize ONLY packages WP registers as runtime scripts (icons → bundle) |
 | `DevtoolsTabHost` + the tab registry | one host, `host`-scoped tabs, lazy-keyed mount, `fullBleed` for canvas tabs |
-| `Config_System\Schema` + Settings API | credentials are a form, not a React tree |
+| the Vault hub tab + `set_vault_id` | credentials live in the Vault; the topology only references an entry |
 | `release:archive` / setup zip / shared-alias inlining | rebuild before deploy; a shared edit rebuilds every consumer |
 
 The first guide's lesson was that you add a dashboard by composing primitives. The real-world lesson is the corollary: **the moment your dashboard touches a shared surface, you inherit its contract.** A `category` you set wrong blanks your verb buttons. A ceiling you hardcode drifts behind a tab bar. A package you externalize without checking ships an undefined global to production. None of these are bugs in your code — they're contracts in the substrate's surfaces that your code has to honor. Honor them, and the dashboard that works on your page works in the console, in the overlay, in the hub, and after the next `release:archive`.
@@ -351,7 +341,7 @@ The first guide's lesson was that you add a dashboard by composing primitives. T
 ## Where to go next
 
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the toy this guide hardens; the poll loop, the view node, the enqueue.
-- **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — this guide's sibling: the real headless pipeline (connectors, the `Source` seam) and the full `Config_System` field model §6 only gestures at.
+- **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — this guide's sibling: the real headless pipeline (connectors, the `Source` seam) and the full credentials-in-the-Vault / config-in-the-topology model §6 only gestures at.
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the original toy pipeline walkthrough, if you skipped it.
 - **[architecture-guide.md](architecture-guide.md)** — the substrate model behind the catalog, the tab host, and the build kit.
 - **`newspack-event-logger-nodes`** — the production application: six real dashboards on these surfaces, including the SSE ones, and the second consumer that proves the shared-alias rebuild rule.

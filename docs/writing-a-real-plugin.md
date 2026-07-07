@@ -9,9 +9,9 @@ protected function items(): array { return [ /* canned */ ]; }
 protected function items(): array { return My_Github_Source::recent_releases(); }
 ```
 
-That promise is true at the level of the *contract* — the summarizer and digest never learn the items stopped being canned. But "swap one method body" hand-waves a lot: real fetches block on the network, fail halfway, return duplicate items every tick, and need credentials a user types into a settings page. This guide is the deep dive. It walks the actual production plugin, **`newspack-ai-newsletter`** (the sibling repo, not the bundled `examples/example-ai-newsletter` toy), and shows everything we built *on top of* the toy to take it live.
+That promise is true at the level of the *contract* — the summarizer and digest never learn the items stopped being canned. But "swap one method body" hand-waves a lot: real fetches block on the network, fail halfway, return duplicate items every tick, and need credentials an operator stores in the substrate's Vault. This guide is the deep dive. It walks the actual production plugin, **`newspack-ai-newsletter`** (the sibling repo, not the bundled `examples/example-ai-newsletter` toy), and shows everything we built *on top of* the toy to take it live.
 
-The shape is unchanged — three sources fan into a summarizer, which feeds a scorer, a durable partition, a consumer, and a digest builder. What changed is everything around the seam: a `Source` interface, a shared abstract base that owns the connector plumbing, three real connectors (GitHub, Linear, RSS/Atom), a credential settings page, and a test seam that lets all of it run under coverage without touching the network.
+The shape is unchanged — three sources fan into a durable `ingest` partition, a consumer paces them through a summarizer, a scorer, and a second durable partition, and a final consumer feeds a digest builder. What changed is everything around the seam: a `Source` interface, a shared abstract base that owns the connector plumbing, three real connectors (GitHub, Linear, RSS/Atom), credentials kept in the substrate's **Vault** and referenced from the topology, and a test seam that lets all of it run under coverage without touching the network.
 
 > **The one thing to hold onto (still):** every node has one entry point, `fill( array &$message ): void`. Nothing below changes that. The real connectors are *more code* than the toy, but they're the same node — they still mint a `TM_STRUCT` per item and forward to their sink. Everything new lives behind `fetch()`, which `fill()` calls and the graph never sees.
 
@@ -21,21 +21,23 @@ The finished code is in the sibling [`newspack-ai-newsletter/`](../../newspack-a
 
 ## 0. What changed — the same graph, real ends
 
-The toy graph and the real graph are the same boxes and arrows. Here's the production topology (`topologies/newspack-ai-newsletter.tsl`):
+The toy graph and the real graph are the same boxes and arrows, plus a durable **ingest** layer the toy didn't need. Here's the production topology (`topologies/newspack-ai-newsletter.tsl`):
 
 ```
 github ┐
-linear ┼─ summarizer ─ scorer ─ scored:partition      (durable `scored` log)
+linear ┼─ ingest:partition                                 (durable raw-item log)
 feed   ┘
+ingest:consumer ─ summarizer ─ scorer ─ scored:partition   (durable `scored` log)
 scored:consumer ─ digest ─ digest:tee ─ digest:log
 ```
 
-Three connector **sources** fan into the summarizer (fan-in, exactly as Ben's community source did in the toy). What's genuinely new from the toy's perspective is concentrated at the two ends:
+Three connector **sources** fan into the `ingest` partition (fan-in, exactly as Ben's community source fanned into the summarizer in the toy — the target is a partition now, not the summarizer). What's genuinely new from the toy's perspective is concentrated at the two ends, plus that new partition in the middle:
 
 - **The source end.** The toy's `items()` returned a literal array. The real sources `fetch()` over HTTP, normalize wildly different payloads (GitHub REST, Linear GraphQL, RSS/Atom XML) into one item shape, dedup against what they've already emitted, and need credentials.
-- **The credentials.** A real source is useless without a token. We added a settings page built on the substrate's `Config_System`, and learned the hard way that a `Field` without a `render`/`sanitize` callback silently never appears.
+- **The credentials.** A real source is useless without a token. The secret lives in the substrate's **Vault** (the devtools-hub's *Vault* tab), and the topology carries only a *pointer* to it — a `set_vault_id <id>` verb on the node's `.tsl` line, resolved to the raw secret at `config()`. The rest of a source's config is topology verbs too (`add_repo`, `add_url`, `set_model`, …). No WordPress Settings page, no per-plugin options.
+- **The ingest partition.** A source TICK writes raw items to a durable log — a *fast* append, no per-item LLM work — so the worker keeps heartbeating during a collect. The `ingest:consumer` then paces those items through the blocking summarizer/scorer LLM calls one read-block per drain, spreading the enrich across drain cycles. The partition is the buffer between the bursty sources and the slow enrich.
 
-The middle — summarizer, scorer, partition, consumer, digest — is its own story (the LLM seam, the durable `scored` log, the snapshot co-commit); this guide stays at the source end and the settings, because that's the part the toy guide explicitly deferred. We'll write it in the order you'd discover it: the contract first, then the base that implements it, then the three connectors, then the credentials that feed them, then wiring and ship.
+The middle — summarizer, scorer, the two partitions, consumers, digest — is its own story (the LLM seam, the durable `scored` log, the snapshot co-commit); this guide stays at the source end, the ingest buffer, and the credentials, because that's the part the toy guide explicitly deferred. We'll write it in the order you'd discover it: the contract first, then the base that implements it, then the three connectors, then the credentials that feed them, then wiring and ship.
 
 ---
 
@@ -126,24 +128,34 @@ abstract class Source_Node extends Node implements Source {
 
 The base owns four things the toy duplicated:
 
-**TICK handling.** `fill()` branches on `TM_REQUEST` and calls `handle_request()` — once, in the base. (Note: unlike the toy, the production source does *not* send a `{ emitted }` reply; emit is pure fire-and-forget. See below.)
+**TICK handling.** `fill()` branches on `TM_REQUEST` and calls `handle_request()` — once, in the base. (Note: unlike the toy, the production source does *not* send a `{ emitted }` reply; per-item emit is pure fire-and-forget. But it *does* close every TICK with one terminal `DONE` — see below.)
 
-**Dedup by item `id`.** A real source is polled on a timer; each TICK re-fetches the same window and would re-emit items the digest already has. So the base keeps a bounded `$seen` set and drops anything it's emitted before:
+**Dedup by item `id`, then a terminal `DONE`.** A real source is polled on a timer; each TICK re-fetches the same window and would re-emit items the digest already has. So the base keeps a bounded `$seen` set and drops anything it's emitted before — then, in a `finally`, emits one `TM_INFO` `DONE` so the digest can count collection progress (§5 spells out the auto-compose it drives):
 
 ```php
 private function handle_request( array $message ): void {
-	foreach ( $this->fetch( $this->config() ) as $item ) {
-		$id = isset( $item['id'] ) && \is_string( $item['id'] ) ? $item['id'] : '';
-		if ( '' === $id || isset( $this->seen[ $id ] ) ) {
-			continue;
+	try {
+		foreach ( $this->fetch( $this->config() ) as $item ) {
+			$id = isset( $item['id'] ) && \is_string( $item['id'] ) ? $item['id'] : '';
+			if ( '' === $id || isset( $this->seen[ $id ] ) ) {
+				continue;
+			}
+			$this->remember( $id );
+			$response                   = Message::new_message();
+			$response[ Message::TYPE ]  = Message::TM_STRUCT;
+			$response[ Message::FROM ]  = $this->name;
+			$response[ Message::VALUE ] = $item;
+			// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
+			parent::fill( $response );
 		}
-		$this->remember( $id );
-		$response                   = Message::new_message();
-		$response[ Message::TYPE ]  = Message::TM_STRUCT;
-		$response[ Message::FROM ]  = $this->name;
-		$response[ Message::VALUE ] = $item;
-		// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
-		parent::fill( $response );
+	} finally {
+		// DONE always fires (even if fetch() throws) so one failing source can't stall collection.
+		// FROM (the source name) is the digest's distinct-source key; VALUE is the marker.
+		$done                   = Message::new_message();
+		$done[ Message::TYPE ]  = Message::TM_INFO;
+		$done[ Message::FROM ]  = $this->name;
+		$done[ Message::VALUE ] = 'DONE';
+		parent::fill( $done );
 	}
 }
 
@@ -155,6 +167,8 @@ private function remember( string $id ): void {
 	}
 }
 ```
+
+`fetch()` is synchronous, so the `DONE` is minted *after* every item this TICK produced — and because it's a normal message it rides the same `ingest → … → scored → digest` path in order, reaching the digest after all the items it follows. The `finally` guarantees a `DONE` even when `fetch()` throws, so a single failing source can never stall the collect. The digest counts distinct `DONE` sources and auto-composes once all of them have reported ([§5](#5-wiring-real-sources-into-the-topology)) — there is no manual flush.
 
 An item with no string `id` is skipped — no id means no dedup key, and the contract requires one. The set is capped at `MAX_SEEN = 2000` and evicts oldest-first with `array_slice`, so a worker that lives ten minutes and ticks repeatedly never grows the set without bound. (This is the Tachikoma "sliding-window expiration / bounded state" discipline: constant memory regardless of message rate.)
 
@@ -204,7 +218,7 @@ Three APIs, three payload shapes, three auth schemes. Each subclass is small pre
 
 ### GitHub — three endpoints, per-endpoint isolation
 
-`Github_Source_Node` pulls **Releases**, **Merged PRs**, and **Issues** across every repo in `github_repos`. `config()` reads the repo list and token; `fetch()` loops the repos:
+`Github_Source_Node` pulls **Releases**, **Merged PRs**, and **Issues** across every repo registered via `add_repo`. `config()` returns the repo list plus the token it resolves from the node's `vault_id`; `fetch()` loops the repos:
 
 ```php
 public function fetch( array $config ): array {
@@ -259,7 +273,7 @@ The crucial robustness property: **a failed repo or endpoint contributes nothing
 
 ### Linear — GraphQL, raw-token auth
 
-`Linear_Source_Node` is a single GraphQL **POST**, behind a `$http_post` seam. `config()` reads just `linear_token`; `fetch()` short-circuits to `[]` when there's no token (no creds, nothing to do), then posts a fixed query:
+`Linear_Source_Node` is a single GraphQL **POST**, behind a `$http_post` seam. `config()` returns just the token it resolves from the node's `vault_id`; `fetch()` short-circuits to `[]` when there's no token (no creds, nothing to do), then posts a fixed query:
 
 ```php
 private const QUERY = '{ issues(first: 30, orderBy: updatedAt) { nodes { identifier title url description updatedAt } } }';
@@ -334,142 +348,170 @@ All three connectors hand the base the same `{ source, id, title, url, body, tim
 
 ---
 
-## 4. Credentials & the settings page
+## 4. Credentials in the Vault, config in the topology
 
-A real source needs a token, a repo list, a feed list — values a user types in. The substrate ships the machinery for this: `Config_System`. You declare one `Field` per setting and the `Schema` derives every consumer (the overlay key-list, the `register_setting` loop, the reset surface, restart classification). The plugin's declaration is `Settings::schema()`.
+A real source needs a token, a repo list, a feed list. There is **no per-plugin WordPress Settings page** for these — the substrate already owns the credential surface (the **Vault**), and the topology already owns node config (the `:config` verbs). The split is deliberate:
 
-### Every Field needs a `render` and a `sanitize` — or it silently vanishes
+- **The secret lives in the Vault** — server-side, entered once by an operator, never written into the topology or any plugin option in plaintext.
+- **The topology holds only a *pointer* to it** — a `set_vault_id <id>` verb on the source's `.tsl` line. The node resolves that id to the raw secret at `config()` time.
+- **Everything non-secret is a `:config` verb too** — `add_repo`, `add_url`, `set_api_url`, `set_model`, `set_feature`, `add_profile`. Ordered, round-trippable, no options table.
 
-This is the bug we hit, so it leads. The substrate's `Schema` **skips any field without a `render` and `sanitize` callback** — no error, no warning, the field just never appears in the UI. So each `Field` carries factory-built closures. The text/password render factory:
+### The Vault — where the operator enters the token
+
+The Vault is a real tab in the devtools hub (`admin.php?page=newspack-nodes-hub&tab=vault`), a React surface under `newspack-nodes/src/vault/` backed by `Vault_CI_Node` and the `newspack_nodes_vault` option. An operator adds one entry per credential — an `id`, a `url`, and a Basic-Auth `auth_username` / `auth_password` pair; the token goes in `auth_password`. The store is write-and-forget: the `list`/`get` verbs return only the **public shape** — `{ id, url, has_credentials, is_config }` — so the secret itself never leaves the server, not even to the dashboard that manages it:
 
 ```php
-private static function text_render( string $key, bool $secret = false ): \Closure {
-	return static function () use ( $key, $secret ): void {
-		\printf(
-			'<input type="%s" name="%s" value="%s" class="regular-text" autocomplete="off" />',
-			$secret ? 'password' : 'text',
-			\esc_attr( self::PREFIX . $key ),
-			\esc_attr( self::get_string( $key ) )
-		);
-	};
+// Vault_CI_Node::public_shape() — credentials are computed away, never returned.
+return [
+	'id'              => $id,
+	'url'             => (string) $raw_url,
+	'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
+	'is_config'       => $registry->is_config_server( $id ),
+];
+```
+
+So the topology never sees a token; it sees a Vault entry **id** like `github`, `linear`, or `AI-proxy`.
+
+### The topology references the entry; the node resolves it at `config()`
+
+The seam on the node side is one verb, `set_vault_id`, that stashes the id, and a shared `Vault_Secret` trait that resolves it. From `Github_Source_Node`:
+
+```php
+/** `set_vault_id` verb handler — last-write-wins. */
+public function set_vault_id( string $args ): string {
+	$this->vault_id = \trim( $args );
+	return 'ok';
+}
+
+/** @return array{repos:array<int,string>,token:string} */
+protected function config(): array {
+	return [
+		'repos' => $this->repos,
+		'token' => $this->resolve_vault_secret( $this->vault_id ),   // id → raw secret, at fetch time
+	];
 }
 ```
 
-List fields (the repo list, the feed list) render as a one-entry-per-line textarea:
+`resolve_vault_secret()` (the `Vault_Secret` trait, shared by both token-bearing sources and the LLM-config trait) is the entire resolution — and it fails *soft*, returning `''` whenever the id is blank, unknown, or the substrate Vault class isn't even loaded:
 
 ```php
-private static function list_render( string $key ): \Closure {
-	return static function () use ( $key ): void {
-		\printf(
-			'<textarea name="%s" rows="4" class="large-text code">%s</textarea>',
-			\esc_attr( self::PREFIX . $key ),
-			\esc_textarea( \implode( "\n", self::get_array( $key ) ) )
-		);
-	};
-}
-```
-
-And the matching sanitizers — text is trim + strip-tags; the list splits on newlines and drops blanks:
-
-```php
-private static function list_sanitize(): \Closure {
-	return static function ( $value ): array {
-		$lines = \is_array( $value )
-			? $value
-			: \preg_split( '/\r\n|\r|\n/', \is_scalar( $value ) ? (string) $value : '' );
-		$out = [];
-		foreach ( (array) $lines as $line ) {
-			if ( \is_scalar( $line ) && '' !== ( $clean = \sanitize_text_field( (string) $line ) ) ) {
-				$out[] = $clean;
-			}
-		}
-		return $out;
-	};
-}
-```
-
-### Secrets are password inputs, not autoloaded
-
-The three credentials — `ai_proxy_token`, `github_token`, `linear_token` — render as `password` inputs (the `$secret` flag) and carry `register_args: [ 'secret' => true, 'autoload' => false ]`. `secret` is the substrate's free-form per-field metadata seam (the `Field` has no native secret flag) — sub-projects read it to render the password input and keep the value out of any config dump. `autoload: false` keeps the token out of WordPress's autoloaded options bundle on every page load. A representative declaration:
-
-```php
-new Field(
-	key: 'github_token',
-	type: 'text',
-	label: static fn(): string => \__( 'GitHub Token', 'newspack-ai-newsletter' ),
-	section: self::CONNECTORS_SECTION,
-	sanitize: self::text_sanitize(),
-	render: self::text_render( 'github_token', true ),   // secret = password input
-	register_args: [ 'secret' => true, 'autoload' => false ],
-),
-```
-
-Labels are lazy `fn(): string` thunks wrapping `__()` so building the schema (a frontend request does this via `overlay_keys()`) never calls `__()` at load time.
-
-### The classic Settings-API page
-
-The admin page is plain WordPress Settings API — no React. `register_settings()` (on `admin_init`) hands the substrate Schema the two halves it needs:
-
-```php
-function register_settings(): void {
-	if ( ! \class_exists( '\Newspack_Nodes\Config_System\Schema' ) ) {
-		return;
+protected function resolve_vault_secret( string $vault_id ): string {
+	if ( '' === $vault_id || ! \class_exists( '\\Newspack_Nodes\\Vault' ) ) {
+		return '';
 	}
-	$schema = Settings::schema();
-	$schema->register_options( SETTINGS_GROUP );                   // register_setting() per field
-	$schema->register_sections_and_fields( SETTINGS_MENU_SLUG );   // add_settings_field() per field
+	$entry    = \Newspack_Nodes\Vault::get_instance()->get( $vault_id );
+	$password = ( null !== $entry ) ? ( $entry['auth_password'] ?? null ) : null;
+	return ( \is_string( $password ) && '' !== $password ) ? $password : '';
 }
 ```
 
-`register_options( SETTINGS_GROUP )` wires `register_setting()` for every sanitized field under the group; `register_sections_and_fields( SETTINGS_MENU_SLUG )` adds the rendered fields to the page. The page callback is the textbook form:
+That soft failure is the whole no-creds-no-emit story: a source whose `vault_id` resolves to `''` fetches with no token and returns `[]` — the TICK is a silent no-op, which is the correct default for a freshly-activated topology (§5).
+
+The verb also carries a typed schema arg, `type: 'vault_id'` — that type is what makes the topology console render a **Vault-entry dropdown** for the field instead of a free-text box, so an operator picks an existing entry rather than typing a raw id:
 
 ```php
-function render_settings_page(): void {
-	if ( ! \current_user_can( 'manage_options' ) ) {
-		return;
+[
+	'name'        => 'set_vault_id',
+	'description' => 'Set the Vault entry ID to resolve the GitHub token from: <vault_id>.',
+	'args'        => [
+		[ 'name' => 'vault_id', 'type' => 'vault_id', 'required' => true ],
+	],
+	'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_vault_id( $interpreter, $args ),
+],
+```
+
+### Repos and feeds are ordered verbs, not options
+
+The non-secret config follows the same pattern — each value is an append-only `:config` verb, stored on the node and dumped back out round-trippably. GitHub's repo list is `add_repo` (`multiple: true`), read straight off the node in `config()`; the Feed source's URLs are `add_url`; the LLM nodes take `set_api_url` / `set_model` / `set_feature` / `add_profile`. There is no `github_repos` or `linear_token` option anywhere — the repos come from repeated `add_repo` verbs, and the Linear token is a Vault entry reached via `set_vault_id`:
+
+```php
+public function add_repo( string $args ): string {
+	$repo = \trim( $args );
+	if ( '' === $repo ) {
+		return 'error: add_repo requires <owner/name>';
 	}
-	echo '<div class="wrap"><h1>' . \esc_html__( 'AI Newsletter Settings', 'newspack-ai-newsletter' ) . '</h1>';
-	echo '<form method="post" action="options.php">';
-	\settings_fields( SETTINGS_GROUP );          // nonce + group, must match register_options()
-	\do_settings_sections( SETTINGS_MENU_SLUG ); // the rendered fields, must match register_sections_and_fields()
-	\submit_button();
-	echo '</form></div>';
+	$this->repos[] = $repo;
+	return 'ok';
 }
 ```
 
-The contract that ties it together: the input's `name` attribute (`PREFIX . $key`, e.g. `newspack_ai_newsletter_github_token`) **must equal** the option `register_setting` registered, or the value posts into the void and never saves. The render factory and `register_options()` both derive that name from the same `PREFIX . $key`, which is why they stay in lockstep.
+You set these in the topology console (or as `cmd <node>:config …` lines in the `.tsl`, shown in §5). Because every verb also round-trips through `dump_config()`, the console can serialize a live graph back to a topology that re-applies each verb in order.
 
-> **The React dashboard is separate.** This Settings page is *credentials in*. The **Publisher Insights** dashboard (the React mount on its own admin menu, served by `Insights_CI`) is *insights out* — and it's a whole other build story (the `@newspack-nodes/shared` alias, esbuild, jest). That's [writing-a-real-dashboard.md](writing-a-real-dashboard.md), not this guide. This guide stops at a headless, credential-fed pipeline.
+> **The React dashboard is separate.** The Vault tab is *credentials in*. The **Publisher Insights** dashboard (the React mount on its own admin menu, served by `Insights_CI`) is *insights out* — and it's a whole other build story (the `@newspack-nodes/shared` alias, esbuild, jest). That's [writing-a-real-dashboard.md](writing-a-real-dashboard.md), not this guide. This guide stops at a headless, Vault-fed pipeline.
 
 ---
 
 ## 5. Wiring real sources into the topology
 
-The production `.tsl` is the toy topology with real source nodes swapped in and the scored/durable middle added. The fan-in is unchanged — three sources point their `target` at the summarizer:
+The production `.tsl` is the toy topology with real source nodes swapped in, the durable **ingest** buffer added at the front, and the scored/durable middle behind it. The sources fan into the `ingest` partition (not the summarizer); a consumer paces `ingest` through the enrich; each source also carries its `:config` verbs inline. Trimmed to the shape:
 
 ```
 make_node Github_Source  github
+cmd github:config set_vault_id github
+cmd github:config add_repo Automattic/newspack-plugin
+
 make_node Linear_Source  linear
+cmd linear:config set_vault_id linear
+
 make_node Feed_Source    feed
+cmd feed:config add_url https://wordpress.org/news/feed/
+
+# ingest: raw fetched items buffer between the bursty sources and the LLM summarizer,
+# so a TICK's fetch+write is fast and the per-item enrich is paced by the consumer.
+make_node Partition ingest:partition <config:logs_dir>/ingest.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+cmd ingest:partition:config void_warranty
+make_node Consumer  ingest:consumer  <config:logs_dir>/ingest.p<partition> <config:offsets_dir>/ingest.p<partition>
+cmd ingest:consumer:config set_line_mode true
+
 make_node Summarizer     summarizer
-...
-connect_node github          summarizer
-connect_node linear          summarizer
-connect_node feed            summarizer
+make_node Scorer         scorer
+make_node Partition      scored:partition ...
+make_node Consumer       scored:consumer  ...
+# The digest's sole arg is the progress denominator (done/total) — it MUST equal the
+# source count (count(Insights_CI_Node::SOURCE_NODES) === 3).
+make_node Digest_Builder digest scored:partition 3
+
+connect_node github          ingest:partition
+connect_node linear          ingest:partition
+connect_node feed            ingest:partition
+connect_node ingest:consumer summarizer
+connect_node summarizer      scorer
+connect_node scorer          scored:partition
+connect_node scored:consumer digest
 ```
 
-Three sources, one summarizer, one wire each — fan-in needs no special node, just like Ben's community source. The only new substrate trick at the source end is that the sources **emit nothing until credentials are set**: a `Linear_Source` with no `linear_token` returns `[]` from `fetch()` and the TICK is a no-op. So a freshly-activated topology is live but silent, and stays silent until you fill in the settings page — which is the correct default.
+Three sources, one partition, one wire each — fan-in needs no special node, just like Ben's community source, except the shared target is now a durable log. **Why the partition sits between the sources and the summarizer:** a source TICK's job is a fast *fetch-and-append*, with no per-item LLM call on the hot path, so the worker keeps heartbeating while it collects; the `ingest:consumer` then tails one read-block per drain into the blocking summarizer → scorer, spreading the enrich across drain cycles instead of stalling the whole collect on the network. `void_warranty` lifts the partition's 4 KB PIPE_BUF write cap ([ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes)) because a raw item can exceed it.
 
-Driving it by hand is identical to the toy: TICK each source, then FLUSH the digest.
+The other new substrate behaviour at the source end is that the sources **emit nothing until configured**: a `Linear_Source` whose `set_vault_id` resolves to no token returns `[]` from `fetch()` and the TICK is a silent no-op. So a freshly-activated topology is live but silent, and stays silent until you add the Vault entry and the `:config` verbs — which is the correct default.
+
+### There is no manual FLUSH — the digest auto-composes on `DONE`
+
+Unlike the toy, the real digest is **not** flushed by hand. Each source ends its TICK with a terminal `DONE` (§2); the digest counts the *distinct* sources that have reported and composes + writes `digest:log` automatically once every source is in:
+
+```php
+// Digest_Builder_Node::handle_info() — a DONE from each distinct source; compose when all in.
+if ( 'DONE' === $value ) {
+	$from                    = \is_string( $message[ Message::FROM ] ?? null ) ? $message[ Message::FROM ] : '';
+	$this->reported[ $from ] = true;
+	if ( \count( $this->reported ) >= $this->total ) {
+		$this->compose_draft();
+	}
+}
+```
+
+`$total` is the `make_node Digest_Builder digest scored:partition 3` argument — the source count. Counting *distinct* `FROM` names (not raw signals) keeps it idempotent across re-ticks and replays, so a stale `DONE` can't overshoot. Because `DONE` rides the `ingest → scored → digest` path in order, it lands after every item it follows, so the compose sees a complete cycle.
+
+So driving it by hand is a **RESET, then a TICK per source** — the dashboard's *Collect* button does exactly this:
 
 ```
+> request_node digest RESET        # zero the per-cycle DONE tally (and empty the accumulator)
 > request_node github TICK
 > request_node linear TICK
 > request_node feed   TICK
-> request_node digest FLUSH
+# …the third DONE reaches the digest and it composes + writes digest:log automatically.
 ```
 
-(With no creds, the TICKs emit nothing and the FLUSH writes an empty draft — set a `github_token` + a `github_repos` entry and re-TICK to see items flow.)
+The only manual compose verb is `REGENERATE`, which recomposes a draft from the items *already* collected (no re-fetch). With no creds the TICKs emit nothing, the three `DONE`s still arrive, and the digest composes an empty draft — add a Vault entry + an `add_repo` and re-collect to see items flow.
 
 ---
 
@@ -517,11 +559,11 @@ Lint to the same bar as the substrate — `npm run lint:php` (phpcs, VIP Go) and
 
 The toy guide's punchline was *Ana and Ben never met* — capability added by wiring a node, not editing a system. Going real didn't change that bet; it cashed it in.
 
-You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Feed_Source_Node` — and each one is only `config()` + `fetch()` + a one-line `node_schema()`, because the new **`Source_Node`** base absorbed every connector concern the toy used to copy per source: the TICK trigger, the bounded dedup set, the fire-and-forget emit, and the shared `normalize_item()` that flattens three wildly different payloads into one item shape. You added a `Source` interface to name the seam, a closure-HTTP seam per connector so the network-touching code runs under coverage, and a `Config_System` settings page so the connectors have credentials to fetch with.
+You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Feed_Source_Node` — and each one is only `config()` + `fetch()` + a one-line `node_schema()`, because the new **`Source_Node`** base absorbed every connector concern the toy used to copy per source: the TICK trigger, the bounded dedup set, the fire-and-forget emit, and the shared `normalize_item()` that flattens three wildly different payloads into one item shape. You added a `Source` interface to name the seam, a closure-HTTP seam per connector so the network-touching code runs under coverage, and a `set_vault_id` pointer into the substrate's Vault so the connectors have credentials to fetch with.
 
-And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body }` exactly as before. The router, the worker lifecycle, the supervisor, the topology console, the Settings-API plumbing behind `register_options()`, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
+And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body }` exactly as before. The router, the worker lifecycle, the supervisor, the topology console, the Vault credential store, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
 
-That was the short hop the toy guide promised — `items()` → `fetch()`. It turned out to be two method bodies of *intent* wrapped in a base class of *plumbing*, a settings page, and a test seam. The intent really was small. The plumbing is what the substrate lets you write once and stop thinking about.
+That was the short hop the toy guide promised — `items()` → `fetch()`. It turned out to be two method bodies of *intent* wrapped in a base class of *plumbing*, a Vault-backed credential pointer, and a test seam. The intent really was small. The plumbing is what the substrate lets you write once and stop thinking about.
 
 ---
 
