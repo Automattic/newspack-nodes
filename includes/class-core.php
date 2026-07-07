@@ -112,7 +112,7 @@ class Core {
 		} else {
 			$line = $text;
 		}
-		self::$recent_log[] = $line;
+		self::$recent_log[] = self::log_prefix( $line );
 		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
 		while ( \count( self::$recent_log ) > 100 ) {
 			\array_shift( self::$recent_log );
