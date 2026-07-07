@@ -12,7 +12,12 @@
  * tab declaring `fullBleed: true` (the Topology Console, which owns its own
  * full-height canvas) opts out via `.is-full-bleed`.
  */
-import { useEffect, useState, useSyncExternalStore } from '@wordpress/element';
+import {
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from '@wordpress/element';
 import {
 	getDevtoolsTabs,
 	subscribeDevtoolsTabs,
@@ -42,7 +47,7 @@ export default function DevtoolsTabHost( {
 	// tab throttles script loading past the hub's initial render. Stable module
 	// refs so the subscription isn't churned each render; the version return is
 	// unused (the read below is the source of truth).
-	useSyncExternalStore(
+	const registryVersion = useSyncExternalStore(
 		subscribeDevtoolsTabs,
 		getDevtoolsTabsVersion,
 		getDevtoolsTabsVersion
@@ -64,11 +69,43 @@ export default function DevtoolsTabHost( {
 	const active = tabs.find( ( t ) => t.id === activeId ) || tabs[ 0 ];
 	const Active = active?.component;
 
+	// Deep-link resolution across LATE tab registration (the background-tab load):
+	// capture the initial `?tab=` slug ONCE (before the URL-sync effect can rewrite
+	// it) so we can still honor it after its bundle registers.
+	const initialSlugRef = useRef( syncUrl ? getQueryParam( 'tab' ) : null );
+	// Set once the user picks a tab — after that we never auto-switch to the
+	// deep-link target.
+	const pickedRef = useRef( false );
+	// The deep-link is "pending" while its tab hasn't registered yet: we hold the
+	// URL (don't canonicalize to the fallback) and keep watching for its arrival.
+	const deepLinkPending =
+		syncUrl &&
+		! pickedRef.current &&
+		!! initialSlugRef.current &&
+		! tabs.some( ( t ) => t.slug === initialSlugRef.current );
+
+	// When the deep-linked tab finally registers, switch to it — unless the user
+	// already picked a tab. Keyed on the registry version so it re-checks on each
+	// registration rather than every render.
+	useEffect( () => {
+		if ( ! syncUrl || pickedRef.current || ! initialSlugRef.current ) {
+			return;
+		}
+		const match = getDevtoolsTabs( host ).find(
+			( t ) => t.slug === initialSlugRef.current
+		);
+		if ( match && match.id !== activeId ) {
+			setActiveId( match.id );
+		}
+	}, [ syncUrl, host, activeId, registryVersion ] );
+
 	// Canonicalize the URL to the resolved tab's slug on mount and on a switch,
 	// dropping other tabs' deep-link params so only the active tab's remains.
 	const resolvedSlug = active?.slug;
 	useEffect( () => {
-		if ( ! syncUrl || ! resolvedSlug ) {
+		// Hold off while a deep-link is pending so we don't rewrite `?tab=<target>`
+		// to the fallback tab's slug before the target registers.
+		if ( ! syncUrl || ! resolvedSlug || deepLinkPending ) {
 			return;
 		}
 		setQueryParam( 'tab', resolvedSlug );
@@ -77,7 +114,7 @@ export default function DevtoolsTabHost( {
 				setQueryParam( t.param, null );
 			}
 		}
-	}, [ syncUrl, resolvedSlug, host ] );
+	}, [ syncUrl, resolvedSlug, host, deepLinkPending ] );
 
 	// Report the RESOLVED active id (which may differ from activeId when the
 	// stored id no longer matches a tab) so the host always learns the real tab.
@@ -104,6 +141,7 @@ export default function DevtoolsTabHost( {
 								t.id === active.id ? ' is-active' : ''
 							}` }
 							onClick={ () => {
+								pickedRef.current = true;
 								setActiveId( t.id );
 								onActiveTabChange?.( t.id );
 							} }
