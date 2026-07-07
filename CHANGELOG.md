@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.4] - 2026-07-07
+
 ### Fixed
 
 - **A fresh lock orphan can no longer be false-stolen at a second boundary.** `Lock_Node`'s orphan-grace check compared integer-second `time()` against integer-second `filemtime`, so a truly-fresh heartbeat-less dir (owner mid-acquire) read as exactly `ORPHAN_GRACE_S` seconds old the instant the wall clock ticked past a second between its `mkdir` and the check — and the `< ORPHAN_GRACE_S` test then stole it, a rare double-lock race in production (and a ~7%-per-run flake in `LockTest::test_acquire_does_not_steal_fresh_orphan`). The check is now `<= ORPHAN_GRACE_S`, so a steal needs a genuine *greater-than*-grace measured age; a dir measured at exactly the grace stays protected.
