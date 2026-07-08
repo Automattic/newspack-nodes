@@ -275,4 +275,131 @@ class TTYInNodeTest extends TestCase {
 			$this->assertSame( 'completion', $m[ Message::KEY ] );
 		}
 	}
+
+	public function test_send_completion_queries_is_a_noop_without_a_sink(): void {
+		// The null-sink guard: a reader whose sink is unwired must swallow the
+		// completion queries rather than fatal. Wiring the sink afterwards shows
+		// the same call now dispatches — proving the first call was suppressed.
+		$shell = new Shell_Node();
+		$cap   = new Capture_Sink_Node();
+		$shell->sink( $cap );
+		$reader = new TTY_In_Node( $shell, $this->out(), false, $this->memory_stream( '' ) );
+
+		$reader->send_completion_queries(); // no sink yet -> guarded no-op
+		$this->assertCount( 0, $cap->captured );
+
+		$reader->sink( $shell );
+		$reader->send_completion_queries(); // now dispatches help + ls
+		$this->assertCount( 2, $cap->captured );
+	}
+
+	public function test_registered_completion_callback_refreshes_cache_and_returns_matches(): void {
+		// install_completion() registers a closure with readline; capture it via the
+		// seam and invoke it directly. The closure re-sends the completion queries
+		// (through the sink) and returns the prefix-filtered candidate list.
+		$captured_cb = null;
+		TTY_In_Node::$readline_completion_register = static function ( callable $cb ) use ( &$captured_cb ): void {
+			$captured_cb = $cb;
+		};
+
+		$shell = new Shell_Node();
+		$cap   = new Capture_Sink_Node();
+		$shell->sink( $cap );
+		$reader = new TTY_In_Node( $shell, $this->out(), true, $this->memory_stream( '' ) );
+		$reader->sink( $shell );
+
+		$this->assertIsCallable( $captured_cb );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::KEY ]   = 'completion';
+		$reply[ Message::VALUE ] = [ 'name' => 'help', 'payload' => "help\nls\nlist_nodes" ];
+		$reader->ingest_completion_reply( $reply );
+
+		$result = $captured_cb( 'l', 0 );
+
+		$this->assertSame( [ 'ls', 'list_nodes' ], $result, 'closure returns prefix-filtered command candidates' );
+		$verbs = \array_map( static fn ( $m ) => $m[ Message::VALUE ]['name'], $cap->captured );
+		$this->assertContains( 'help', $verbs, 'closure refreshed the cache via send_completion_queries' );
+		$this->assertContains( 'ls', $verbs );
+	}
+
+	public function test_readline_drain_returns_false_when_stream_has_no_data(): void {
+		// Readline mode gates rl_getc behind stream_select so an idle TTY doesn't
+		// spin the drain loop. A selectable-but-empty socket makes stream_select
+		// report 0 ready -> drain_once returns false and nothing dispatches.
+		$pair = \stream_socket_pair( \STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP );
+		$this->assertIsArray( $pair, 'stream_socket_pair must be available for this test' );
+
+		$read_calls = 0;
+		TTY_In_Node::$readline_read_char = static function () use ( &$read_calls ): void {
+			++$read_calls;
+		};
+
+		$shell = new Shell_Node();
+		$cap   = new Capture_Sink_Node();
+		$shell->sink( $cap );
+		$reader = new TTY_In_Node( $shell, $this->out(), true, $pair[0] );
+		$reader->sink( $shell );
+
+		$reader->fire();
+
+		$this->assertSame( 0, $read_calls, 'no readline read on an empty stream' );
+		$this->assertCount( 0, self::non_completion( $cap->captured ), 'nothing dispatched when stream is not ready' );
+		$this->assertFalse( $reader->exit );
+
+		\fclose( $pair[0] );
+		\fclose( $pair[1] );
+	}
+
+	public function test_complete_with_empty_word_returns_the_whole_pool(): void {
+		$shell  = new Shell_Node();
+		$reader = new TTY_In_Node( $shell, $this->out(), false, $this->memory_stream( '' ) );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::KEY ]   = 'completion';
+		$reply[ Message::VALUE ] = [ 'name' => 'help', 'payload' => "cd\nhelp\nls" ];
+		$reader->ingest_completion_reply( $reply );
+
+		$this->assertSame( [ 'cd', 'help', 'ls' ], $reader->complete( '', 0 ) );
+	}
+
+	public function test_ls_completion_reply_fills_node_cache_and_argument_position_completes_against_it(): void {
+		// A `ls`/`list_nodes` reply fills the NODE cache (not the command cache);
+		// complete() at a non-zero token index completes against node names.
+		$shell  = new Shell_Node();
+		$reader = new TTY_In_Node( $shell, $this->out(), false, $this->memory_stream( '' ) );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::KEY ]   = 'completion';
+		$reply[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => "firehose\nfirehose-workers\nrequest-builder" ];
+
+		$this->assertTrue( $reader->ingest_completion_reply( $reply ) );
+		$this->assertSame( [ 'firehose', 'firehose-workers', 'request-builder' ], $reader->node_candidates() );
+		$this->assertSame( [ 'firehose', 'firehose-workers' ], $reader->complete( 'fire', 1 ) );
+		$this->assertSame( [], $reader->command_candidates(), 'an ls reply must not touch the command cache' );
+	}
+
+	public function test_ingest_ignores_a_non_completion_reply(): void {
+		$shell  = new Shell_Node();
+		$reader = new TTY_In_Node( $shell, $this->out(), false, $this->memory_stream( '' ) );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::KEY ]   = 'not-completion';
+		$reply[ Message::VALUE ] = [ 'name' => 'help', 'payload' => "cd\nls" ];
+
+		$this->assertFalse( $reader->ingest_completion_reply( $reply ) );
+		$this->assertSame( [], $reader->command_candidates() );
+	}
+
+	public function test_ingest_ignores_a_completion_reply_whose_value_is_not_an_array(): void {
+		$shell  = new Shell_Node();
+		$reader = new TTY_In_Node( $shell, $this->out(), false, $this->memory_stream( '' ) );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::KEY ]   = 'completion';
+		$reply[ Message::VALUE ] = 'not-an-array';
+
+		$this->assertFalse( $reader->ingest_completion_reply( $reply ) );
+		$this->assertSame( [], $reader->command_candidates() );
+	}
 }

@@ -58,4 +58,54 @@ class StdoutNodeTest extends TestCase {
 		\rewind( $mem );
 		$this->assertSame( "plain\n", \stream_get_contents( $mem ) );
 	}
+
+	/**
+	 * Fill a message whose VALUE is $value and return the bytes written.
+	 *
+	 * @param mixed $value Raw Message VALUE to coerce and write.
+	 */
+	private function fill_value( $value ): string {
+		$mem  = \fopen( 'php://memory', 'r+' );
+		$node = new Stdout_Node( $mem );
+		$m    = Message::new_message();
+		$m[ Message::VALUE ] = $value;
+		$node->fill( $m );
+		\rewind( $mem );
+		return \stream_get_contents( $mem );
+	}
+
+	public function test_fill_coerces_null_value_to_a_bare_newline(): void {
+		$this->assertSame( "\n", $this->fill_value( null ) );
+	}
+
+	public function test_fill_coerces_array_value_to_the_word_Array(): void {
+		$this->assertSame( "Array\n", $this->fill_value( [ 'a', 'b' ] ) );
+	}
+
+	public function test_fill_coerces_stringable_object_via_to_string(): void {
+		$obj = new class() implements \Stringable {
+			public function __toString(): string {
+				return 'stringy';
+			}
+		};
+		$this->assertSame( "stringy\n", $this->fill_value( $obj ) );
+	}
+
+	public function test_fill_coerces_non_stringable_object_to_empty(): void {
+		$this->assertSame( "\n", $this->fill_value( new \stdClass() ) );
+	}
+
+	public function test_fill_coerces_scalar_int_to_its_string_form(): void {
+		$this->assertSame( "42\n", $this->fill_value( 42 ) );
+	}
+
+	public function test_fill_coerces_scalar_bool_true_to_one(): void {
+		$this->assertSame( "1\n", $this->fill_value( true ) );
+	}
+
+	public function test_fill_coerces_non_scalar_resource_to_empty(): void {
+		$res = \fopen( 'php://memory', 'r' );
+		$this->assertSame( "\n", $this->fill_value( $res ) );
+		\fclose( $res );
+	}
 }
