@@ -16,6 +16,34 @@ class Dumper_Node extends Node {
 
 	private ?Shell_Node $shell = null;
 
+	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
+	private string $to_filter = '';
+
+	/**
+	 * Fired when a TM_EOF echo matching to_filter arrives (stdin-close drain marker).
+	 *
+	 * @var callable|null
+	 */
+	private $on_eof = null;
+
+	/**
+	 * Tab-completion intercept. Gets first crack at every inbound message; if it
+	 * returns true the message is consumed (a completion reply) and rendered as
+	 * nothing. Null → no interception.
+	 *
+	 * Signature: `function ( array $message ): bool` (true = consumed).
+	 *
+	 * @var callable|null
+	 */
+	private $completion_sink = null;
+
+	/**
+	 * Render-verbosity dial: 0 = curated, 1 = + per-message header, 2 = + full envelope dump.
+	 *
+	 * @var int 0, 1, or 2.
+	 */
+	private int $debug_level = 0;
+
 	public function fill( array $message ): void {
 		// Drop messages addressed to a different cli session; empty TO always renders.
 		if ( '' !== $this->to_filter ) {
@@ -86,16 +114,12 @@ class Dumper_Node extends Node {
 
 		if ( $type & Message::TM_STRUCT || $type & Message::TM_COMMAND ) {
 			$value = $message[ Message::VALUE ];
-			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
-			$this->emit( (string) $line );
+			$line  = \is_string( $value ) ? $value : self::stringify_value( $value );
+			$this->emit( $line );
 			return;
 		}
 
 		$this->emit( self::coerce_string( $message[ Message::VALUE ] ) );
-	}
-
-	public function set_shell( Shell_Node $shell ): void {
-		$this->shell = $shell;
 	}
 
 	/**
@@ -112,83 +136,6 @@ class Dumper_Node extends Node {
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::VALUE ] = $text;
 		parent::fill( $message );
-	}
-
-	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
-	private string $to_filter = '';
-
-	/**
-	 * Fired when a TM_EOF echo matching to_filter arrives (stdin-close drain marker).
-	 *
-	 * @var callable|null
-	 */
-	private $on_eof = null;
-
-	public function on_eof( ?callable $cb ): void {
-		$this->on_eof = $cb;
-	}
-
-	/**
-	 * Tab-completion intercept. Gets first crack at every inbound message; if it
-	 * returns true the message is consumed (a completion reply) and rendered as
-	 * nothing. Null → no interception.
-	 *
-	 * Signature: `function ( array $message ): bool` (true = consumed).
-	 *
-	 * @var callable|null
-	 */
-	private $completion_sink = null;
-
-	public function set_completion_sink( ?callable $cb ): void {
-		$this->completion_sink = $cb;
-	}
-
-	public function set_to_filter( string $pid ): void {
-		$this->to_filter = $pid;
-	}
-
-	/**
-	 * Render-verbosity dial: 0 = curated, 1 = + per-message header, 2 = + full envelope dump.
-	 *
-	 * @var int 0, 1, or 2.
-	 */
-	private int $debug_level = 0;
-
-	/**
-	 * Set the debug-render level (clamped to [0, 2]); returns the applied value.
-	 */
-	public function set_debug_level( int $level ): int {
-		$this->debug_level = \max( 0, \min( 2, $level ) );
-		return $this->debug_level;
-	}
-
-	public function debug_level(): int {
-		return $this->debug_level;
-	}
-
-	/**
-	 * Coerce a mixed Message field to string, reproducing PHP's `(string)` cast
-	 * (null→'', scalar→its string form, array→'Array') without a mixed-cast.
-	 *
-	 * @param mixed $v Raw Message field.
-	 */
-	private static function coerce_string( $v ): string {
-		if ( \is_string( $v ) ) {
-			return $v;
-		}
-		if ( null === $v ) {
-			return '';
-		}
-		if ( \is_array( $v ) ) {
-			return 'Array';
-		}
-		if ( \is_object( $v ) ) {
-			return $v instanceof \Stringable ? (string) $v : '';
-		}
-		if ( \is_scalar( $v ) ) {
-			return (string) $v;
-		}
-		return '';
 	}
 
 	/**
@@ -211,6 +158,34 @@ class Dumper_Node extends Node {
 			return (float) $v;
 		}
 		return 0.0;
+	}
+
+	/**
+	 * Level-2 dump: full envelope as a structural multi-line render.
+	 *
+	 * @param array<int, mixed> $message The Message to render.
+	 */
+	private function format_envelope_dump( array $message ): string {
+		$type     = self::coerce_int( $message[ Message::TYPE ] ?? 0 );
+		$flags    = self::format_type_flags( $type );
+		$ts       = self::coerce_string( $message[ Message::TIMESTAMP ] ?? '' );
+		$ts_human = '' !== $ts && \is_numeric( $ts )
+			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
+			: '';
+		$value    = self::stringify_value( $message[ Message::VALUE ] ?? '' );
+
+		$lines = [
+			'Message {',
+			'    type:      ' . $flags,
+			'    from:      ' . self::coerce_string( $message[ Message::FROM ] ?? '' ),
+			'    to:        ' . self::coerce_string( $message[ Message::TO ] ?? '' ),
+			'    id:        ' . self::coerce_string( $message[ Message::ID ] ?? '' ),
+			'    key:       ' . self::coerce_string( $message[ Message::KEY ] ?? '' ),
+			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
+			'    value:     ' . self::indent_following_lines( $value, '               ' ),
+			'}',
+		];
+		return \implode( "\n", $lines );
 	}
 
 	/**
@@ -261,31 +236,15 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Level-2 dump: full envelope as a structural multi-line render.
+	 * Stringify a Message::VALUE for the level-2 envelope dump (arrays/JSON-strings → JSON).
 	 *
-	 * @param array<int, mixed> $message The Message to render.
+	 * @param mixed $value      Raw VALUE.
 	 */
-	private function format_envelope_dump( array $message ): string {
-		$type      = self::coerce_int( $message[ Message::TYPE ] ?? 0 );
-		$flags     = self::format_type_flags( $type );
-		$ts        = self::coerce_string( $message[ Message::TIMESTAMP ] ?? '' );
-		$ts_human  = '' !== $ts && \is_numeric( $ts )
-			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
-			: '';
-		$value     = self::stringify_value( $message[ Message::VALUE ] ?? '', true );
-
-		$lines = [
-			'Message {',
-			'    type:      ' . $flags,
-			'    from:      ' . self::coerce_string( $message[ Message::FROM ] ?? '' ),
-			'    to:        ' . self::coerce_string( $message[ Message::TO ] ?? '' ),
-			'    id:        ' . self::coerce_string( $message[ Message::ID ] ?? '' ),
-			'    key:       ' . self::coerce_string( $message[ Message::KEY ] ?? '' ),
-			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
-			'    value:     ' . self::indent_following_lines( $value, '               ' ),
-			'}',
-		];
-		return \implode( "\n", $lines );
+	private static function stringify_value( $value ): string {
+		if ( \is_string( $value ) && '' !== $value && ( '{' === $value[0] || '[' === $value[0] ) ) {
+			$value = \json_decode( $value, true );
+		}
+		return self::render_payload( $value );
 	}
 
 	/**
@@ -295,36 +254,34 @@ class Dumper_Node extends Node {
 	 */
 	private static function render_payload( $payload ): string {
 		if ( \is_array( $payload ) ) {
-			return (string) \wp_json_encode( $payload, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
+			return (string) \wp_json_encode( $payload, \JSON_UNESCAPED_SLASHES | \JSON_PRETTY_PRINT ) . "\n";
 		}
 		return self::coerce_string( $payload );
 	}
 
 	/**
-	 * Stringify a Message::VALUE for the level-2 envelope dump (arrays/JSON-strings → JSON).
+	 * Coerce a mixed Message field to string, reproducing PHP's `(string)` cast
+	 * (null→'', scalar→its string form, array→'Array') without a mixed-cast.
 	 *
-	 * @param mixed $value      Raw VALUE.
-	 * @param bool  $structured Whether to use JSON_PRETTY_PRINT for arrays.
+	 * @param mixed $v Raw Message field.
 	 */
-	private static function stringify_value( $value, bool $structured ): string {
-		if ( \is_array( $value ) ) {
-			$flags = JSON_UNESCAPED_SLASHES;
-			if ( $structured ) {
-				$flags |= JSON_PRETTY_PRINT;
-			}
-			return (string) \wp_json_encode( $value, $flags );
+	private static function coerce_string( $v ): string {
+		if ( \is_string( $v ) ) {
+			return $v;
 		}
-		if ( \is_string( $value ) && '' !== $value && ( '{' === $value[0] || '[' === $value[0] ) ) {
-			$decoded = \json_decode( $value, true );
-			if ( \is_array( $decoded ) ) {
-				$flags = JSON_UNESCAPED_SLASHES;
-				if ( $structured ) {
-					$flags |= JSON_PRETTY_PRINT;
-				}
-				return (string) \wp_json_encode( $decoded, $flags );
-			}
+		if ( null === $v ) {
+			return '';
 		}
-		return self::coerce_string( $value );
+		if ( \is_array( $v ) ) {
+			return 'Array';
+		}
+		if ( \is_object( $v ) ) {
+			return $v instanceof \Stringable ? (string) $v : '';
+		}
+		if ( \is_scalar( $v ) ) {
+			return (string) $v;
+		}
+		return '';
 	}
 
 	/**
@@ -336,6 +293,34 @@ class Dumper_Node extends Node {
 			return $text;
 		}
 		return $lines[0] . "\n" . \implode( "\n", \array_map( static fn ( $l ) => $prefix . $l, \array_slice( $lines, 1 ) ) );
+	}
+
+	public function set_shell( Shell_Node $shell ): void {
+		$this->shell = $shell;
+	}
+
+	public function on_eof( ?callable $cb ): void {
+		$this->on_eof = $cb;
+	}
+
+	public function set_completion_sink( ?callable $cb ): void {
+		$this->completion_sink = $cb;
+	}
+
+	public function set_to_filter( string $pid ): void {
+		$this->to_filter = $pid;
+	}
+
+	/**
+	 * Set the debug-render level (clamped to [0, 2]); returns the applied value.
+	 */
+	public function set_debug_level( int $level ): int {
+		$this->debug_level = \max( 0, \min( 2, $level ) );
+		return $this->debug_level;
+	}
+
+	public function debug_level(): int {
+		return $this->debug_level;
 	}
 
 	public static function node_schema(): array {
