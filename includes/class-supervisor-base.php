@@ -13,14 +13,14 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Supervisor_Base {
 
-	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
-	public const MIN_SPAWN_INTERVAL_S = 15;
+	/** Symlink-loop defense. */
+	public const MAX_DEPTH = 5;
 
 	/** Upper bound on partitions per topology; expand_workers clamps the spawn count to it. */
 	public const MAX_PARTITIONS = 16;
 
-	/** Symlink-loop defense. */
-	public const MAX_DEPTH = 5;
+	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
+	public const MIN_SPAWN_INTERVAL_S = 15;
 
 	public const SPAWN_TS_CACHE_KEY = 'newspack_nodes:last_spawn:';
 

@@ -10,21 +10,21 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class TTY_Out_Node extends Stdout_Node {
+	private const ANSI_CR_CLEAR_LINE  = "\r\033[2K";
+	private const ANSI_RESTORE_CURSOR = "\033[u";
 
 	private const ANSI_SAVE_CURSOR    = "\033[s";
-	private const ANSI_RESTORE_CURSOR = "\033[u";
-	private const ANSI_CR_CLEAR_LINE  = "\r\033[2K";
-
-	private ?Shell_Node $shell = null;
 
 	/** Whether a prompt is on screen; public so the Cli readline loop can flip it per iteration. */
 	public bool $prompt_displayed = false;
 
-	/** Whether stdout is a real terminal, cached at construction; false → plain writes. */
-	private bool $stdout_is_tty;
-
 	/** Readline path skips readline_redisplay in the async redraw to keep it in sync. */
 	private bool $readline_mode = false;
+
+	private ?Shell_Node $shell = null;
+
+	/** Whether stdout is a real terminal, cached at construction; false → plain writes. */
+	private bool $stdout_is_tty;
 
 	/**
 	 * @param resource|null $stdout    Defaults to STDOUT. Pass php://memory for tests.

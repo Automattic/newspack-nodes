@@ -26,6 +26,12 @@ use Newspack_Nodes\Core;
 
 class Field {
 
+	/** @var callable|null add_settings_field render callback (required for rendered fields). */
+	public readonly mixed $render;
+
+	/** @var callable|null register_setting sanitize_callback (required for option fields). */
+	public readonly mixed $sanitize;
+
 	/**
 	 * Display label, stored unresolved. A plugin passes either a plain string OR
 	 * a `fn(): string` thunk — the thunk defers `__()` to render time so building
@@ -35,12 +41,6 @@ class Field {
 	 * @var string|callable
 	 */
 	private readonly mixed $label_source;
-
-	/** @var callable|null register_setting sanitize_callback (required for option fields). */
-	public readonly mixed $sanitize;
-
-	/** @var callable|null add_settings_field render callback (required for rendered fields). */
-	public readonly mixed $render;
 
 	/**
 	 * @param string                   $key            Unprefixed option key; '' for a display-only field.

@@ -48,36 +48,36 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Job_Worker_Node extends Node {
 	use Schema_Reflection;
 
-	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
-	public const MAX_JOB_SIZE         = 33554432;
-
 
 	/** Default cache-flush interval in jobs. */
 	public const CACHE_FLUSH_INTERVAL = 50;
 
+	/** Default max-runtime hint (matches DEFAULT_STALE_TIMEOUT for symmetry). */
+	public const DEFAULT_MAX_RUNTIME = 600;
+
 	/** Default stale-timeout hint for long-running JobWorker pipelines. */
 	public const DEFAULT_STALE_TIMEOUT = 600;
 
-	/** Default max-runtime hint (matches DEFAULT_STALE_TIMEOUT for symmetry). */
-	public const DEFAULT_MAX_RUNTIME = 600;
+	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
+	public const MAX_JOB_SIZE         = 33554432;
 
 	/** Memory watermark — request restart when memory_get_usage crosses this fraction. */
 	public const MEMORY_WATERMARK_PCT = 0.80;
 
-	/** @var array<string,callable> */
-	private array $local_handlers = [];
-	/** @var array<string,callable> */
-	private array $remote_handlers = [];
+	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
+	protected int $max_runtime          = self::DEFAULT_MAX_RUNTIME;
+	protected int $stale_timeout        = self::DEFAULT_STALE_TIMEOUT;
 	/** @api Used by unit tests. */
 	private int $jobs_executed = 0;
 	private int $jobs_since_cache_flush = 0;
 
+	/** @var array<string,callable> */
+	private array $local_handlers = [];
+
 	/** Latched true when a per-job memory check crossed the watermark. */
 	private bool $memory_pressure = false;
-
-	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
-	protected int $stale_timeout        = self::DEFAULT_STALE_TIMEOUT;
-	protected int $max_runtime          = self::DEFAULT_MAX_RUNTIME;
+	/** @var array<string,callable> */
+	private array $remote_handlers = [];
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {

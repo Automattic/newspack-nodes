@@ -15,39 +15,39 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Supervisor extends Supervisor_Base {
 
-	/** Endpoint accepts current + previous for race tolerance. */
-	public const TOKEN_WINDOW_S = 10;
+	/** Also the plugin (de)activation latency. */
+	public const CONFIG_CHECK_INTERVAL = 15;
 
 	/** 10 min minus 5s margin, sized for Atomic's ~15-min cap. */
 	public const MAX_SUPERVISOR_RUNTIME_S = 595;
-
-	/** Also the plugin (de)activation latency. */
-	public const CONFIG_CHECK_INTERVAL = 15;
 
 	/** Defer first spawn of a newly-appeared type so a still-exiting predecessor can flush. */
 	public const NEW_TYPE_SPAWN_DELAY_S = 5;
 
 	public const SUPERVISOR_STALE_TIMEOUT = 60;
 
+	/** Endpoint accepts current + previous for race tolerance. */
+	public const TOKEN_WINDOW_S = 10;
+
+	/** @var array<string,int> type ⇒ max-partition-count, rebuilt each check_config tick (active fleet). */
+	private array $active_types = [];
+
+	private float $last_config_check = 0.0;
+
+	private float $last_heartbeat = 0.0;
+
 	private string $nonce_salt;
 
 	/** @var Lock_Node|null Supervisor's own lock; singleton-globally per host. */
 	private ?Lock_Node $own_lock = null;
 
+	/** @var array<string,float> type => earliest unix timestamp at which spawn is allowed. */
+	private array $spawn_after = [];
+
 	private float $start_time = 0.0;
-
-	private float $last_heartbeat = 0.0;
-
-	private float $last_config_check = 0.0;
 
 	/** @var array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}> Worker descriptors built from expand_workers(). */
 	private array $worker_locks = [];
-
-	/** @var array<string,int> type ⇒ max-partition-count, rebuilt each check_config tick (active fleet). */
-	private array $active_types = [];
-
-	/** @var array<string,float> type => earliest unix timestamp at which spawn is allowed. */
-	private array $spawn_after = [];
 
 	public function __construct( string $base_dir, string $nonce_salt ) {
 		parent::__construct( $base_dir );

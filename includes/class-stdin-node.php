@@ -11,17 +11,17 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Stdin_Node extends Timer_Node {
+	private const BUSY_POLL_MS = 0;   // Bytes pending — drain ASAP next tick.
+	private const EOF_POLL_MS  = 10;  // After TM_EOF emit — check deadline + watch for drain.
+
+	private const IDLE_POLL_MS = 100; // No bytes pending — back off.
+	public bool $exit = false;
 
 	/** @var resource */
 	public $stream;
-	public bool $exit = false;
-	private bool $eof_sent = false;
 	private float $eof_deadline_at = 0.0;
 	private float $eof_deadline_s;
-
-	private const IDLE_POLL_MS = 100; // No bytes pending — back off.
-	private const BUSY_POLL_MS = 0;   // Bytes pending — drain ASAP next tick.
-	private const EOF_POLL_MS  = 10;  // After TM_EOF emit — check deadline + watch for drain.
+	private bool $eof_sent = false;
 
 	/**
 	 * @param resource|null $stream         Input stream (defaults to STDIN); set non-blocking.

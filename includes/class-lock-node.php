@@ -15,18 +15,18 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Lock_Node extends Node {
-
-	public const STALE_TIMEOUT  = 60;
-	public const RESTART_FLAG   = 'restart';
 	public const HEARTBEAT_FILE = 'heartbeat';
-	public const STARTED_FILE   = 'started';
 
 	/** Grace period (s) before stealing an orphan dir (no heartbeat) — holder may be mid-acquire. */
 	public const ORPHAN_GRACE_S = 1;
+	public const RESTART_FLAG   = 'restart';
+
+	public const STALE_TIMEOUT  = 60;
+	public const STARTED_FILE   = 'started';
+	private bool $is_held = false;
 
 	private string $lock_path;
 	private int $stale_timeout;
-	private bool $is_held = false;
 
 	public function __construct( string $lock_path, int $stale_timeout = self::STALE_TIMEOUT ) {
 		parent::__construct();

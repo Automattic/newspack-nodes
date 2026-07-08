@@ -40,17 +40,6 @@ use Newspack_Nodes\Router_Node;
 
 class HTTP_In_Node extends Node {
 
-	public const REST_NAMESPACE = 'newspack-nodes/v1';
-	public const ROUTE          = '/command';
-
-	/**
-	 * Rate-limit window for the `/command` endpoint, in seconds. One-second
-	 * buckets are tight enough to bound a runaway script and generous enough
-	 * that a normal dashboard burst (mount-time fan-out + a few user clicks)
-	 * never grazes the cap.
-	 */
-	public const RATE_LIMIT_WINDOW_S = 1;
-
 	/**
 	 * Default per-user burst budget per RATE_LIMIT_WINDOW_S. The topology
 	 * console fans out a handful of `list` requests on mount (classes,
@@ -62,7 +51,16 @@ class HTTP_In_Node extends Node {
 	 */
 	public const RATE_LIMIT_BURST = 30;
 
-	public bool $sent_headers = false;
+	/**
+	 * Rate-limit window for the `/command` endpoint, in seconds. One-second
+	 * buckets are tight enough to bound a runaway script and generous enough
+	 * that a normal dashboard burst (mount-time fan-out + a few user clicks)
+	 * never grazes the cap.
+	 */
+	public const RATE_LIMIT_WINDOW_S = 1;
+
+	public const REST_NAMESPACE = 'newspack-nodes/v1';
+	public const ROUTE          = '/command';
 
 	/**
 	 * Clock seam for the rate limit. The PHPUnit suite assigns a fake
@@ -80,6 +78,8 @@ class HTTP_In_Node extends Node {
 	 * one second isn't throttled mid-suite. Production never flips it.
 	 */
 	public static bool $rate_limit_disabled = false;
+
+	public bool $sent_headers = false;
 
 	/** @var \Closure status-header seam */
 	private \Closure $send_header;

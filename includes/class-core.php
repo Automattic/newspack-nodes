@@ -11,19 +11,13 @@ namespace Newspack_Nodes;
 
 class Core {
 
-	/** @var array<string,Node> Registered nodes keyed by name; every entry is a Node ($this from Node::name()). */
-	public static array $nodes_by_name = [];
-
-	/** @var float Microsecond-resolution timestamp; updated by the event loop or in tests. */
-	public static float $now = 0.0;
-
-	/** Process start time, stamped each Core::reset(); the `uptime` verb subtracts it from $now. */
-	public static float $init_time = 0.0;
-
-	public static bool $shutting_down = false;
-
-	/** @var array<string,string> Process-global Shell variable map. */
-	public static array $var = [];
+	/**
+	 * Property-name substrings whose value is a credential. dump_node() reflects
+	 * EVERY property, so any node holding one of these would otherwise print the
+	 * raw secret to the REPL / logs — redacted here for every node by default.
+	 * Deliberately excludes bare `auth` so `auth_username` / `authorize` survive.
+	 */
+	private const SECRET_NAME_PATTERNS = [ 'password', 'passwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'private_key' ];
 
 	/**
 	 * Topology `<ns:key>` token resolvers, registered at boot.
@@ -35,24 +29,6 @@ class Core {
 	 * @var array<string,callable(string):mixed> ns => callable(string $key): mixed
 	 */
 	public static array $config_resolvers = [];
-
-	/** Process-global shared Memcached handle; set once by the application bootstrap, null when unconfigured. */
-	public static ?\Memcached $memd = null;
-
-	/** @var array<string> */
-	public static array $recent_log = [];
-
-	/** @var array<string,array{timestamp:float,count:int}> */
-	public static array $recent_log_timers = [];
-
-	/** @var float Seconds before a rate-limiter entry is eligible for pruning. */
-	public static float $log_timeout = 60;
-
-	/** @var callable */
-	private static $stderr_handler;
-
-	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
-	private static bool $in_stderr = false;
 
 	/**
 	 * libcurl-call seam. Lazily-defaulted at the call site to a closure wrapping
@@ -68,13 +44,37 @@ class Core {
 	 */
 	public static ?\Closure $curl_exec = null;
 
-	/**
-	 * Property-name substrings whose value is a credential. dump_node() reflects
-	 * EVERY property, so any node holding one of these would otherwise print the
-	 * raw secret to the REPL / logs — redacted here for every node by default.
-	 * Deliberately excludes bare `auth` so `auth_username` / `authorize` survive.
-	 */
-	private const SECRET_NAME_PATTERNS = [ 'password', 'passwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'private_key' ];
+	/** Process start time, stamped each Core::reset(); the `uptime` verb subtracts it from $now. */
+	public static float $init_time = 0.0;
+
+	/** @var float Seconds before a rate-limiter entry is eligible for pruning. */
+	public static float $log_timeout = 60;
+
+	/** Process-global shared Memcached handle; set once by the application bootstrap, null when unconfigured. */
+	public static ?\Memcached $memd = null;
+
+	/** @var array<string,Node> Registered nodes keyed by name; every entry is a Node ($this from Node::name()). */
+	public static array $nodes_by_name = [];
+
+	/** @var float Microsecond-resolution timestamp; updated by the event loop or in tests. */
+	public static float $now = 0.0;
+
+	/** @var array<string> */
+	public static array $recent_log = [];
+
+	/** @var array<string,array{timestamp:float,count:int}> */
+	public static array $recent_log_timers = [];
+
+	public static bool $shutting_down = false;
+
+	/** @var array<string,string> Process-global Shell variable map. */
+	public static array $var = [];
+
+	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
+	private static bool $in_stderr = false;
+
+	/** @var callable */
+	private static $stderr_handler;
 
 	public static function resolve_partition_template( string $template, int $p ): string {
 		return self::resolve_config_tokens(

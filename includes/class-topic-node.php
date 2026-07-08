@@ -22,19 +22,19 @@ namespace Newspack_Nodes;
 class Topic_Node extends Node {
 	use Schema_Reflection;
 
-	protected string $dir_template  = '';
-	protected int $num_partitions   = 1;
-	protected int $segment_size     = Partition_Node::DEFAULT_SEGMENT_SIZE;
-	protected int $num_segments     = Partition_Node::DEFAULT_NUM_SEGMENTS;
-	protected int $max_lifespan     = Partition_Node::DEFAULT_MAX_LIFESPAN;
+	protected static int $rr_counter = 0;
 
-	/** @var array<int,Partition_Node> Lazy. */
-	protected array $partitions = [];
+	protected string $dir_template  = '';
 
 	/** Large-write opt-in propagated to every partition: '' none, 'lock' (allow_large_writes), 'void' (void_warranty). */
 	protected string $large_write_mode = '';
+	protected int $max_lifespan     = Partition_Node::DEFAULT_MAX_LIFESPAN;
+	protected int $num_partitions   = 1;
+	protected int $num_segments     = Partition_Node::DEFAULT_NUM_SEGMENTS;
 
-	protected static int $rr_counter = 0;
+	/** @var array<int,Partition_Node> Lazy. */
+	protected array $partitions = [];
+	protected int $segment_size     = Partition_Node::DEFAULT_SEGMENT_SIZE;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {

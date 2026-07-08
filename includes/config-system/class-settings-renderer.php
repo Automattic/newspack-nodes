@@ -22,6 +22,47 @@ use Newspack_Nodes\Core;
 
 class Settings_Renderer {
 
+	/** Small arrays render in full; larger ones collapse so a 400-entry hook list can't dominate the row. */
+	private const ARRAY_SAMPLE = 6;
+
+	/**
+	 * Render the read-only "Effective Configuration" table below a settings form.
+	 * Each plugin hooks this to its own `settings_after_form` action.
+	 *
+	 * @param Schema               $schema    The plugin's settings schema.
+	 * @param string               $prefix    WP-option name prefix.
+	 * @param array<string,mixed>  $effective Already-loaded effective config.
+	 */
+	public static function render_effective_config_section( Schema $schema, string $prefix, array $effective ): void {
+		$rows = self::effective_config_rows( $schema, $prefix, $effective );
+		?>
+		<h2><?php \esc_html_e( 'Effective Configuration', 'newspack-nodes' ); ?></h2>
+		<p class="description"><?php \esc_html_e( 'What the next worker will load, and which topologies a save restarts.', 'newspack-nodes' ); ?></p>
+		<table class="widefat">
+			<thead>
+				<tr>
+					<th scope="col"><?php \esc_html_e( 'Setting', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Stored', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Effective', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Overlay override', 'newspack-nodes' ); ?></th>
+					<th scope="col"><?php \esc_html_e( 'Restart impact', 'newspack-nodes' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $rows as $row ) : ?>
+					<tr>
+						<td><?php echo \esc_html( $row['label'] ); ?></td>
+						<td><?php echo \esc_html( $row['stored'] ); ?></td>
+						<td><?php echo \esc_html( $row['effective'] ); ?></td>
+						<td><?php echo \esc_html( null === $row['overlay'] ? '—' : $row['overlay'] ); ?></td>
+						<td><?php echo \esc_html( $row['restart'] ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
 	/**
 	 * Pure data for the "Effective Configuration" panel: one row per rendered
 	 * setting, reporting the stored value, the value the next worker will load,
@@ -74,70 +115,6 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * Render the read-only "Effective Configuration" table below a settings form.
-	 * Each plugin hooks this to its own `settings_after_form` action.
-	 *
-	 * @param Schema               $schema    The plugin's settings schema.
-	 * @param string               $prefix    WP-option name prefix.
-	 * @param array<string,mixed>  $effective Already-loaded effective config.
-	 */
-	public static function render_effective_config_section( Schema $schema, string $prefix, array $effective ): void {
-		$rows = self::effective_config_rows( $schema, $prefix, $effective );
-		?>
-		<h2><?php \esc_html_e( 'Effective Configuration', 'newspack-nodes' ); ?></h2>
-		<p class="description"><?php \esc_html_e( 'What the next worker will load, and which topologies a save restarts.', 'newspack-nodes' ); ?></p>
-		<table class="widefat">
-			<thead>
-				<tr>
-					<th scope="col"><?php \esc_html_e( 'Setting', 'newspack-nodes' ); ?></th>
-					<th scope="col"><?php \esc_html_e( 'Stored', 'newspack-nodes' ); ?></th>
-					<th scope="col"><?php \esc_html_e( 'Effective', 'newspack-nodes' ); ?></th>
-					<th scope="col"><?php \esc_html_e( 'Overlay override', 'newspack-nodes' ); ?></th>
-					<th scope="col"><?php \esc_html_e( 'Restart impact', 'newspack-nodes' ); ?></th>
-				</tr>
-			</thead>
-			<tbody>
-				<?php foreach ( $rows as $row ) : ?>
-					<tr>
-						<td><?php echo \esc_html( $row['label'] ); ?></td>
-						<td><?php echo \esc_html( $row['stored'] ); ?></td>
-						<td><?php echo \esc_html( $row['effective'] ); ?></td>
-						<td><?php echo \esc_html( null === $row['overlay'] ? '—' : $row['overlay'] ); ?></td>
-						<td><?php echo \esc_html( $row['restart'] ); ?></td>
-					</tr>
-				<?php endforeach; ?>
-			</tbody>
-		</table>
-		<?php
-	}
-
-	/**
-	 * Human-readable restart impact for a Field's restart classification.
-	 *
-	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
-	 */
-	private static function restart_impact( array|string $restart ): string {
-		if ( 'supervisor_only' === $restart ) {
-			return \__( 'Applies on next supervisor tick', 'newspack-nodes' );
-		}
-		if ( [] === $restart ) {
-			return \__( 'Takes effect immediately', 'newspack-nodes' );
-		}
-		$topologies = Restart_Planner::topologies_for( $restart );
-		if ( [] === $topologies ) {
-			return \__( 'Restarts: (no active consumer)', 'newspack-nodes' );
-		}
-		return \sprintf(
-			/* translators: %s: comma-separated topology names. */
-			\__( 'Restarts: %s', 'newspack-nodes' ),
-			\implode( ', ', $topologies )
-		);
-	}
-
-	/** Small arrays render in full; larger ones collapse so a 400-entry hook list can't dominate the row. */
-	private const ARRAY_SAMPLE = 6;
-
-	/**
 	 * Display a config value: empty array → "(none)", small array joined with ', ',
 	 * large array summarized as "<n> values: <first 6>, … (+<rest> more)", scalars
 	 * cast, everything else ''.
@@ -163,6 +140,29 @@ class Settings_Renderer {
 			);
 		}
 		return Core::as_string( $value );
+	}
+
+	/**
+	 * Human-readable restart impact for a Field's restart classification.
+	 *
+	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
+	 */
+	private static function restart_impact( array|string $restart ): string {
+		if ( 'supervisor_only' === $restart ) {
+			return \__( 'Applies on next supervisor tick', 'newspack-nodes' );
+		}
+		if ( [] === $restart ) {
+			return \__( 'Takes effect immediately', 'newspack-nodes' );
+		}
+		$topologies = Restart_Planner::topologies_for( $restart );
+		if ( [] === $topologies ) {
+			return \__( 'Restarts: (no active consumer)', 'newspack-nodes' );
+		}
+		return \sprintf(
+			/* translators: %s: comma-separated topology names. */
+			\__( 'Restarts: %s', 'newspack-nodes' ),
+			\implode( ', ', $topologies )
+		);
 	}
 
 	/**

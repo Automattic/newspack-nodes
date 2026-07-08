@@ -14,74 +14,19 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Partition_Node extends Timer_Node {
 	use Schema_Reflection;
 	use File_Writer;
+	public const DEFAULT_MAX_LIFESPAN = 0;
+	public const DEFAULT_NUM_SEGMENTS = 4;
 
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
-	public const DEFAULT_NUM_SEGMENTS = 4;
-	public const DEFAULT_MAX_LIFESPAN = 0;
-	public const MAX_LINE_SIZE        = 4096;
+
+	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 	public const MAX_LARGE_LINE_SIZE  = 33554432;
-	public const SEGMENT_CACHE_TTL    = 0.25;
-	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/';
+	public const MAX_LINE_SIZE        = 4096;
 
 	/** Inter-process rotation lock TTL: anything older counts as stale. */
 	public const ROTATE_LOCK_TTL_SECONDS = 5;
-
-	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
-
-	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
-	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
-	protected int $max_lifespan     = self::DEFAULT_MAX_LIFESPAN;
-
-	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
-	protected string $partition_dir = '';
-
-	protected ?int $current_segment_id = null;
-	protected int $current_size = 0;
-	protected ?string $current_log_path = null;
-	protected ?string $current_idx_path = null;
-
-	/** @var resource|null */
-	protected $fh = null;
-	protected int $fh_segment_id = -1;
-	/** @var resource|null */
-	protected $idx_fh = null;
-
-	/** @var array<int, array{id:int, size:int}>|null Cached on-disk segment list (id + byte size), sorted by id. */
-	protected ?array $segments_cache = null;
-	protected float $segments_cache_time = 0.0;
-
-	protected bool $allow_large_writes = false;
-	/** True when the large-write cap was lifted via void_warranty() (no lock) rather than allow_large_writes() (held lock) — drives which verb dump_config round-trips. */
-	private bool $warranty_voided = false;
-	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
-	protected ?string $index_formatter_name = null;
-	protected ?Lock_Node $write_lock = null;
-	protected ?Timer_Node $heartbeat_timer = null;
-	protected int $lock_stale_timeout = 0;
-	protected float $last_lock_heartbeat = 0.0;
-
-	/**
-	 * Debounced-lock mode ([65]): when > 0, allow_large_writes acquires the write lock
-	 * lazily on the first write of a burst and releases it after this many ms of idle
-	 * (fire() debounces the release), so other processes can write between bursts. 0 =
-	 * the default acquire-and-hold-for-life mode. $lock_held tracks current ownership;
-	 * $last_write_at (Core::$now seconds) is the idle reference the debounce measures from.
-	 */
-	protected int $debounce_lock_ms = 0;
-	protected int $lock_max_wait_ms = 0;
-	protected bool $lock_held = false;
-	protected float $last_write_at = 0.0;
-
-	protected float $last_segment_check = 0.0;
-
-	/** @var (callable(array<int, mixed>, array<string, int>): (string|null))|null fn(array $message, array $position) => string|null */
-	protected $index_callback = null;
-
-	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
-	protected string $batch = '';
-
-	/** @var list<array{message:array<int, mixed>,size:int}> Flushed in lockstep with $batch. */
-	protected array $batch_index_args = [];
+	public const SEGMENT_CACHE_TTL    = 0.25;
+	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/';
 
 	/**
 	 * get_segments() directory-scan seam. Lazily-defaulted at the call site to a
@@ -95,6 +40,61 @@ class Partition_Node extends Timer_Node {
 	 * @var (\Closure(string): (list<string>|false))|null
 	 */
 	public static ?\Closure $scandir = null;
+
+	protected bool $allow_large_writes = false;
+
+	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
+	protected string $batch = '';
+
+	/** @var list<array{message:array<int, mixed>,size:int}> Flushed in lockstep with $batch. */
+	protected array $batch_index_args = [];
+	protected ?string $current_idx_path = null;
+	protected ?string $current_log_path = null;
+
+	protected ?int $current_segment_id = null;
+	protected int $current_size = 0;
+
+	/**
+	 * Debounced-lock mode ([65]): when > 0, allow_large_writes acquires the write lock
+	 * lazily on the first write of a burst and releases it after this many ms of idle
+	 * (fire() debounces the release), so other processes can write between bursts. 0 =
+	 * the default acquire-and-hold-for-life mode. $lock_held tracks current ownership;
+	 * $last_write_at (Core::$now seconds) is the idle reference the debounce measures from.
+	 */
+	protected int $debounce_lock_ms = 0;
+
+	/** @var resource|null */
+	protected $fh = null;
+	protected int $fh_segment_id = -1;
+	protected ?Timer_Node $heartbeat_timer = null;
+	/** @var resource|null */
+	protected $idx_fh = null;
+
+	/** @var (callable(array<int, mixed>, array<string, int>): (string|null))|null fn(array $message, array $position) => string|null */
+	protected $index_callback = null;
+	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
+	protected ?string $index_formatter_name = null;
+	protected float $last_lock_heartbeat = 0.0;
+
+	protected float $last_segment_check = 0.0;
+	protected float $last_write_at = 0.0;
+	protected bool $lock_held = false;
+	protected int $lock_max_wait_ms = 0;
+	protected int $lock_stale_timeout = 0;
+	protected int $max_lifespan     = self::DEFAULT_MAX_LIFESPAN;
+	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
+
+	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
+	protected string $partition_dir = '';
+
+	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
+
+	/** @var array<int, array{id:int, size:int}>|null Cached on-disk segment list (id + byte size), sorted by id. */
+	protected ?array $segments_cache = null;
+	protected float $segments_cache_time = 0.0;
+	protected ?Lock_Node $write_lock = null;
+	/** True when the large-write cap was lifted via void_warranty() (no lock) rather than allow_large_writes() (held lock) — drives which verb dump_config round-trips. */
+	private bool $warranty_voided = false;
 
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
 	public function __construct() {

@@ -14,18 +14,6 @@ namespace Newspack_Nodes;
 
 class Dumper_Node extends Node {
 
-	private ?Shell_Node $shell = null;
-
-	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
-	private string $to_filter = '';
-
-	/**
-	 * Fired when a TM_EOF echo matching to_filter arrives (stdin-close drain marker).
-	 *
-	 * @var callable|null
-	 */
-	private $on_eof = null;
-
 	/**
 	 * Tab-completion intercept. Gets first crack at every inbound message; if it
 	 * returns true the message is consumed (a completion reply) and rendered as
@@ -43,6 +31,18 @@ class Dumper_Node extends Node {
 	 * @var int 0, 1, or 2.
 	 */
 	private int $debug_level = 0;
+
+	/**
+	 * Fired when a TM_EOF echo matching to_filter arrives (stdin-close drain marker).
+	 *
+	 * @var callable|null
+	 */
+	private $on_eof = null;
+
+	private ?Shell_Node $shell = null;
+
+	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
+	private string $to_filter = '';
 
 	public function fill( array $message ): void {
 		// Drop messages addressed to a different cli session; empty TO always renders.

@@ -14,17 +14,17 @@ namespace Newspack_Nodes;
 class Timer_Node extends Node {
 
 	public int $interval_ms = 0;
-	public bool $oneshot    = false;
 	public float $next_fire = 0.0;
+	public bool $oneshot    = false;
+
+	/** Tag stamped onto each emitted message's KEY (Tachikoma uses STREAM; we have no STREAM slot). Empty = unset. */
+	protected string $key = '';
 
 	/** Throttle clock (Core::$now seconds) for hitchhike timers with interval_ms > 1000: fire_cb() only fires once interval_ms has elapsed since this. */
 	protected float $last_fire_time = 0.0;
 
 	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
 	protected string $mode = 'inactive';
-
-	/** Tag stamped onto each emitted message's KEY (Tachikoma uses STREAM; we have no STREAM slot). Empty = unset. */
-	protected string $key = '';
 
 	public function __construct() {
 		parent::__construct();
