@@ -154,7 +154,7 @@ private function handle_request( array $message ): void {
 		$done                   = Message::new_message();
 		$done[ Message::TYPE ]  = Message::TM_INFO;
 		$done[ Message::FROM ]  = $this->name;
-		$done[ Message::VALUE ] = 'DONE';
+		$done[ Message::VALUE ] = "DONE\n";
 		parent::fill( $done );
 	}
 }
@@ -490,7 +490,7 @@ Unlike the toy, the real digest is **not** flushed by hand. Each source ends its
 
 ```php
 // Digest_Builder_Node::handle_info() — a DONE from each distinct source; compose when all in.
-if ( 'DONE' === $value ) {
+if ( "DONE\n" === $value ) {
 	$from                    = \is_string( $message[ Message::FROM ] ?? null ) ? $message[ Message::FROM ] : '';
 	$this->reported[ $from ] = true;
 	if ( \count( $this->reported ) >= $this->total ) {
