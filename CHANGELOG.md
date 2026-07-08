@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-07-07
+
 ### Added
 
 - **`Struct_To_JSON_Node` / `JSON_To_Struct_Node`** — a lossless serialize/deserialize Transform pair (the Tachikoma `StorableToJSON` / `JSONtoStorable` slot). Splice `Struct_To_JSON` in front of a `Log`/terminal so a `TM_STRUCT` producer's array VALUE gets written as a JSON `TM_BYTESTREAM` line, and its inverse on the read side reconstructs the struct. Only the `TM_STRUCT`/`TM_BYTESTREAM` bit is swapped, so co-existing flags (e.g. `TM_RESPONSE`) survive the round-trip; a failed `wp_json_encode` leaves the struct visible rather than blanking it.
