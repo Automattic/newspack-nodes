@@ -54,6 +54,28 @@ class Core {
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
+	/**
+	 * libcurl-call seam. Lazily-defaulted at the call site to a closure wrapping
+	 * the real libcurl call. Tests reassign in bootstrap to capture POST bodies
+	 * without short-circuiting the curl_init / curl_setopt_array / errno-
+	 * classification path — that lets the suite cover the real setopt + error-
+	 * classification logic. Shared by Supervisor (spawn fan-out) and Worker_Base
+	 * (self-respawn): one helper, one seam, single source of truth.
+	 *
+	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
+	 *
+	 * @var \Closure(\CurlHandle, array<string, mixed>): mixed|null
+	 */
+	public static ?\Closure $curl_exec = null;
+
+	/**
+	 * Property-name substrings whose value is a credential. dump_node() reflects
+	 * EVERY property, so any node holding one of these would otherwise print the
+	 * raw secret to the REPL / logs — redacted here for every node by default.
+	 * Deliberately excludes bare `auth` so `auth_username` / `authorize` survive.
+	 */
+	private const SECRET_NAME_PATTERNS = [ 'password', 'passwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'private_key' ];
+
 	public static function resolve_partition_template( string $template, int $p ): string {
 		return self::resolve_config_tokens(
 			\str_replace( [ '<partition>', '{partition}' ], (string) $p, $template )
@@ -114,24 +136,6 @@ class Core {
 	}
 
 	/**
-	 * Per-line timestamp prefix.
-	 *
-	 * With no text, returns the bare prefix. With text, chomps a
-	 * trailing newline, prepends the prefix to every line, and appends one
-	 * trailing newline.
-	 */
-	public static function log_prefix( ?string $text = null ): string {
-		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
-		if ( null === $text ) {
-			return $prefix;
-		}
-		$text = \rtrim( $text, "\n" );
-		// Prepend the prefix to the start of every line (Perl m///mg).
-		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
-		return $text . "\n";
-	}
-
-	/**
 	 * Per-line process-identity midfix.
 	 *
 	 * With no text, returns the bare midfix. With text, chomps a
@@ -157,6 +161,24 @@ class Core {
 			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
 		}
 		return \PHP_SAPI;
+	}
+
+	/**
+	 * Per-line timestamp prefix.
+	 *
+	 * With no text, returns the bare prefix. With text, chomps a
+	 * trailing newline, prepends the prefix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_prefix( ?string $text = null ): string {
+		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
+		if ( null === $text ) {
+			return $prefix;
+		}
+		$text = \rtrim( $text, "\n" );
+		// Prepend the prefix to the start of every line (Perl m///mg).
+		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
+		return $text . "\n";
 	}
 
 	public static function _stderr( string $text ): void {
@@ -251,20 +273,6 @@ class Core {
 	}
 
 	/**
-	 * libcurl-call seam. Lazily-defaulted at the call site to a closure wrapping
-	 * the real libcurl call. Tests reassign in bootstrap to capture POST bodies
-	 * without short-circuiting the curl_init / curl_setopt_array / errno-
-	 * classification path — that lets the suite cover the real setopt + error-
-	 * classification logic. Shared by Supervisor (spawn fan-out) and Worker_Base
-	 * (self-respawn): one helper, one seam, single source of truth.
-	 *
-	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
-	 *
-	 * @var \Closure(\CurlHandle, array<string, mixed>): mixed|null
-	 */
-	public static ?\Closure $curl_exec = null;
-
-	/**
 	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
 	 * CURLOPT_NOSIGNAL + TIMEOUT_MS=10 means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
 	 *
@@ -312,6 +320,17 @@ class Core {
 				unset( self::$recent_log_timers[ $key ] );
 			}
 		}
+	}
+
+	/** True if the property name reads as a credential (see SECRET_NAME_PATTERNS). */
+	public static function is_secret_property( string $name ): bool {
+		$lower = \strtolower( $name );
+		foreach ( self::SECRET_NAME_PATTERNS as $needle ) {
+			if ( false !== \strpos( $lower, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 }
 

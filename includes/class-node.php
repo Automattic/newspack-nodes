@@ -44,6 +44,29 @@ class Node {
 	/** @var array<string,string> */
 	protected array $set_state = [];
 
+	/** Message types whose payload is included in the drop_message() audit line. */
+	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
+
+	public const MAX_FROM_SIZE = 1024;
+
+	/**
+	 * Human-readable message-type labels.
+	 *
+	 * @var array<int, string>
+	 */
+	private static array $type_names = [
+		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
+		Message::TM_EOF        => 'TM_EOF',
+		Message::TM_PING       => 'TM_PING',
+		Message::TM_COMMAND    => 'TM_COMMAND',
+		Message::TM_RESPONSE   => 'TM_RESPONSE',
+		Message::TM_ERROR      => 'TM_ERROR',
+		Message::TM_INFO       => 'TM_INFO',
+		Message::TM_STRUCT     => 'TM_STRUCT',
+		Message::TM_REQUEST    => 'TM_REQUEST',
+		Message::TM_NOREPLY    => 'TM_NOREPLY',
+	];
+
 	/**
 	 * No-op chain anchor: a node only acquires schema-reflection behavior (positional
 	 * arg parsing, the `{name}:config` interpreter auto-wire) by `use`-ing the
@@ -89,31 +112,6 @@ class Node {
 		$this->sink->fill( $message );
 	}
 
-	/** Patron getter/setter. */
-	public function patron( ?Node $node = null ): ?Node {
-		if ( null !== $node ) {
-			$this->patron = $node;
-			// A sidecar (patron-managed) doesn't need its own `{name}:config`: the
-			// patron configures it directly, and dump_config skips patron-owned
-			// nodes. Drop the ctor-auto-wired interpreter so we don't register a
-			// config node nobody routes to.
-			if ( null !== $this->interpreter ) {
-				if ( '' !== $this->interpreter->name() ) {
-					$this->interpreter->remove_node();
-				}
-				$this->interpreter = null;
-			}
-		}
-		return $this->patron;
-	}
-
-	public function debug_state( ?int $level = null ): int {
-		if ( null !== $level ) {
-			$this->debug_state = \max( 0, $level );
-		}
-		return $this->debug_state;
-	}
-
 	public function name( ?string $name = null ): string {
 		if ( \func_num_args() > 0 ) {
 			// A node is committed to a name once set: name(null)/name('') is not
@@ -157,6 +155,226 @@ class Node {
 		$this->interpreter?->name( "{$name}:config" );
 	}
 
+	/**
+	 * Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE.
+	 *
+	 * @param array<int, mixed> $message Message reference.
+	 */
+	public function stamp_message( array &$message, string $name ): bool {
+		if ( '' === $name ) {
+			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
+			return false;
+		}
+		$from = Core::as_string( $message[ Message::FROM ] );
+		$new  = '' === $from ? $name : ( $name . '/' . $from );
+		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
+			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
+			return false;
+		}
+		$message[ Message::FROM ] = $new;
+		return true;
+	}
+
+	/**
+	 * Multi-modal listener: store either a closure (with callable) or a Node name string.
+	 *
+	 * @param string        $event    Must be pre-declared in registrations.
+	 * @param string        $listener Identity (closure ID or Node name).
+	 * @param callable|null $cb       Closure. If null, $listener is a Node name.
+	 */
+	public function register( string $event, string $listener, ?callable $cb = null ): void {
+		if ( ! isset( $this->registrations[ $event ] ) ) {
+			throw new \RuntimeException( \esc_html( "no such event: $event" ) );
+		}
+		$this->registrations[ $event ][ $listener ] = $cb; // null means "Node-name dispatch".
+
+		if ( \array_key_exists( $event, $this->set_state ) ) {
+			$this->_notify_registered( $event, $listener, $this->set_state[ $event ] );
+		}
+	}
+
+	/**
+	  * Notify + cache so new registrants get the payload at register-time.
+	  * With debug_state on, emit a flat Tachikoma-style `DEBUG: <event> <payload>`
+	  */
+	protected function set_state( string $event, string $payload = '' ): void {
+		$this->set_state[ $event ] = $payload;
+		if ( $this->debug_state > 0 ) {
+			$router = Core::node( Node_Names::ROUTER );
+			if ( null !== $router ) {
+				$detail = Core::as_string( $payload );
+				$this->stderr( 'DEBUG: ' . $event . ( '' !== $detail ? ' ' . $detail : '' ) );
+			}
+		}
+		$this->notify( $event, $payload );
+	}
+
+	/** Fire the event to all currently-registered listeners. */
+	public function notify( string $event, mixed $payload = null ): void {
+		if ( ! isset( $this->registrations[ $event ] ) ) {
+			return;
+		}
+		foreach ( $this->registrations[ $event ] as $listener => $cb ) {
+			$keep = $this->_notify_registered( $event, $listener, $payload );
+			if ( false === $keep ) {
+				unset( $this->registrations[ $event ][ $listener ] );
+			}
+		}
+	}
+
+	/** Dispatch a single listener: closure (return value gates keep/unregister) or Node-name (TM_INFO). */
+	private function _notify_registered( string $event, string $listener, mixed $payload ): mixed {
+		$cb = $this->registrations[ $event ][ $listener ] ?? null;
+		if ( null !== $cb && \is_callable( $cb ) ) {
+			return $cb( $payload );
+		}
+		$target = Core::node( $listener );
+		if ( null === $target ) {
+			$this->print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
+			return false; // Drop the dead registration.
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = $this->name;
+		$message[ Message::KEY ]   = $event;
+		$message[ Message::VALUE ] = $payload;
+		$target->fill( $message );
+		return true;
+	}
+
+	/**
+	 * Drop a message with an audit trail.
+	 *
+	 * @param array<int, mixed> $message Message reference.
+	 */
+	public function drop_message( array $message, string $error ): void {
+		$type_raw = $message[ Message::TYPE ];
+		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
+		$labels   = [];
+		foreach ( self::$type_names as $bit => $label ) {
+			if ( $type & $bit ) {
+				$labels[] = $label;
+			}
+		}
+		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
+
+		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
+		$prefix   = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
+		$parts    = [ "$prefix$type_str" ];
+		$from     = Core::as_string( $message[ Message::FROM ] );
+		if ( '' !== $from ) {
+			$parts[] = 'from: ' . $from;
+		}
+		$to = Core::as_string( $message[ Message::TO ] );
+		if ( '' !== $to ) {
+			$parts[] = 'to: ' . $to;
+		}
+		$value = $message[ Message::VALUE ];
+		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
+			// json-encode array VALUEs for the audit line; (string) would emit "Array" and warn.
+			$value_str = \is_array( $value )
+				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
+				: Core::as_string( $value );
+			$parts[] = 'payload: ' . $value_str;
+		}
+
+		$line = \implode( ' ', $parts );
+
+		if ( 'NOT_AVAILABLE' === $error && Core::$now - Core::$init_time < 300.0 ) {
+			$this->print_less_often( $line );
+			return;
+		}
+		$this->print_less_often( $line );
+	}
+
+	/**
+	 * Emit a stderr line tagged with this node's midfix, via Core's stderr
+	 * pipeline (which adds the process-identity midfix and timestamp prefix once).
+	 * Empty text is a no-op (Tachikoma Node::stderr).
+	 */
+	public function stderr( string $text ): void {
+		if ( '' === $text ) {
+			return;
+		}
+		Core::stderr( $this->log_midfix( $text ) );
+	}
+
+	/** Emit text on first sight; suppress identical text thereafter. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
+	public function print_less_often( string $text ): void {
+		$line = $this->log_midfix( $text );
+		$row = Core::$recent_log_timers[ $line ] ?? null;
+		if ( null !== $row ) {
+			++$row['count'];
+		} else {
+			Core::stderr( $line );
+			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
+		}
+		Core::$recent_log_timers[ $line ] = $row;
+	}
+
+	/**
+	 * Per-node mid-line tag: "<name>: " prepended to every line. Empty when
+	 * the node is unnamed, or when the process identity ($0 / Core::argv0())
+	 * already starts with the node name (so the tag would be redundant). With
+	 * text, chomps a trailing newline, prepends the tag to every line,
+	 * and appends one trailing newline.
+	 */
+	public function log_midfix( ?string $text = null ): string {
+		$midfix = '';
+		if ( '' !== $this->name
+			&& 1 !== \preg_match( '/^' . \preg_quote( $this->name, '/' ) . '\b/', Core::argv0() ) ) {
+			$midfix = $this->name . ': ';
+		}
+		if ( null === $text ) {
+			return $midfix;
+		}
+		$text = \rtrim( $text, "\n" );
+		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
+		return $text . "\n";
+	}
+
+	/**
+	 * Seed the runtime registration allow-list from node_schema()['registrations']
+	 * — the single source of valid events. A registration-capable node calls this
+	 * in its constructor instead of hand-assigning $this->registrations.
+	 */
+	protected function seed_registrations(): void {
+		$events = static::node_schema()['registrations'] ?? [];
+		if ( ! \is_array( $events ) ) {
+			return;
+		}
+		foreach ( $events as $event ) {
+			if ( \is_string( $event ) ) {
+				$this->registrations[ $event ] = [];
+			}
+		}
+	}
+
+	/** Patron getter/setter. */
+	public function patron( ?Node $node = null ): ?Node {
+		if ( null !== $node ) {
+			$this->patron = $node;
+			// A sidecar (patron-managed) doesn't need its own `{name}:config`: the
+			// patron configures it directly, and dump_config skips patron-owned
+			// nodes. Drop the ctor-auto-wired interpreter so we don't register a
+			// config node nobody routes to.
+			if ( null !== $this->interpreter ) {
+				if ( '' !== $this->interpreter->name() ) {
+					$this->interpreter->remove_node();
+				}
+				$this->interpreter = null;
+			}
+		}
+		return $this->patron;
+	}
+
+	public function debug_state( ?int $level = null ): int {
+		if ( null !== $level ) {
+			$this->debug_state = \max( 0, $level );
+		}
+		return $this->debug_state;
+	}
+
 	public function sink( ?Node $node = null ): ?Node {
 		if ( \func_num_args() > 0 ) {
 			$this->sink = $node;
@@ -196,97 +414,8 @@ class Node {
 		return $this->bytes_written;
 	}
 
-	public const MAX_FROM_SIZE = 1024;
-
-	/**
-	 * Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE.
-	 *
-	 * @param array<int, mixed> $message Message reference.
-	 */
-	public function stamp_message( array &$message, string $name ): bool {
-		if ( '' === $name ) {
-			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
-			return false;
-		}
-		$from = Core::as_string( $message[ Message::FROM ] );
-		$new  = '' === $from ? $name : ( $name . '/' . $from );
-		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
-			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
-			return false;
-		}
-		$message[ Message::FROM ] = $new;
-		return true;
-	}
-
-	/**
-	 * Multi-modal listener: store either a closure (with callable) or a Node name string.
-	 *
-	 * @param string        $event    Must be pre-declared in registrations.
-	 * @param string        $listener Identity (closure ID or Node name).
-	 * @param callable|null $cb       Closure. If null, $listener is a Node name.
-	 */
-	public function register( string $event, string $listener, ?callable $cb = null ): void {
-		if ( ! isset( $this->registrations[ $event ] ) ) {
-			throw new \RuntimeException( \esc_html( "no such event: $event" ) );
-		}
-		$this->registrations[ $event ][ $listener ] = $cb; // null means "Node-name dispatch".
-
-		if ( \array_key_exists( $event, $this->set_state ) ) {
-			$this->_notify_registered( $event, $listener, $this->set_state[ $event ] );
-		}
-	}
-
 	public function unregister( string $event, string $listener ): void {
 		unset( $this->registrations[ $event ][ $listener ] );
-	}
-
-	/** Fire the event to all currently-registered listeners. */
-	public function notify( string $event, mixed $payload = null ): void {
-		if ( ! isset( $this->registrations[ $event ] ) ) {
-			return;
-		}
-		foreach ( $this->registrations[ $event ] as $listener => $cb ) {
-			$keep = $this->_notify_registered( $event, $listener, $payload );
-			if ( false === $keep ) {
-				unset( $this->registrations[ $event ][ $listener ] );
-			}
-		}
-	}
-
-	/** Dispatch a single listener: closure (return value gates keep/unregister) or Node-name (TM_INFO). */
-	private function _notify_registered( string $event, string $listener, mixed $payload ): mixed {
-		$cb = $this->registrations[ $event ][ $listener ] ?? null;
-		if ( null !== $cb && \is_callable( $cb ) ) {
-			return $cb( $payload );
-		}
-		$target = Core::node( $listener );
-		if ( null === $target ) {
-			$this->print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
-			return false; // Drop the dead registration.
-		}
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_INFO;
-		$message[ Message::FROM ]  = $this->name;
-		$message[ Message::KEY ]   = $event;
-		$message[ Message::VALUE ] = $payload;
-		$target->fill( $message );
-		return true;
-	}
-
-	/**
-	  * Notify + cache so new registrants get the payload at register-time.
-	  * With debug_state on, emit a flat Tachikoma-style `DEBUG: <event> <payload>`
-	  */
-	protected function set_state( string $event, string $payload = '' ): void {
-		$this->set_state[ $event ] = $payload;
-		if ( $this->debug_state > 0 ) {
-			$router = Core::node( Node_Names::ROUTER );
-			if ( null !== $router ) {
-				$detail = Core::as_string( $payload );
-				$this->stderr( 'DEBUG: ' . $event . ( '' !== $detail ? ' ' . $detail : '' ) );
-			}
-		}
-		$this->notify( $event, $payload );
 	}
 
 	/**
@@ -347,14 +476,6 @@ class Node {
 	}
 
 	/**
-	 * Property-name substrings whose value is a credential. dump_node() reflects
-	 * EVERY property, so any node holding one of these would otherwise print the
-	 * raw secret to the REPL / logs — redacted here for every node by default.
-	 * Deliberately excludes bare `auth` so `auth_username` / `authorize` survive.
-	 */
-	private const SECRET_NAME_PATTERNS = [ 'password', 'passwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'private_key' ];
-
-	/**
 	 * Snapshot of this node's state for the REPL `dump_node` verb. Secret-named
 	 * properties are redacted for every node (see SECRET_NAME_PATTERNS).
 	 *
@@ -375,7 +496,7 @@ class Node {
 			}
 			// Redact a non-empty credential (string token or array of secrets);
 			// an empty one stays visible so the operator can tell it's unset.
-			if ( self::_is_secret_property( $key )
+			if ( Core::is_secret_property( $key )
 				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
 				$value = '[REDACTED]';
 			}
@@ -404,17 +525,6 @@ class Node {
 	 */
 	public function dump_metadata(): array {
 		return [];
-	}
-
-	/** True if the property name reads as a credential (see SECRET_NAME_PATTERNS). */
-	private static function _is_secret_property( string $name ): bool {
-		$lower = \strtolower( $name );
-		foreach ( self::SECRET_NAME_PATTERNS as $needle ) {
-			if ( false !== \strpos( $lower, $needle ) ) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 	/** Round-trippable graph snippet: make_node + optional set_sink + connect_node lines (suppresses set_sink for the default _command_interpreter). */
@@ -448,118 +558,6 @@ class Node {
 	}
 
 	/**
-	 * Human-readable message-type labels.
-	 *
-	 * @var array<int, string>
-	 */
-	private static array $type_names = [
-		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
-		Message::TM_EOF        => 'TM_EOF',
-		Message::TM_PING       => 'TM_PING',
-		Message::TM_COMMAND    => 'TM_COMMAND',
-		Message::TM_RESPONSE   => 'TM_RESPONSE',
-		Message::TM_ERROR      => 'TM_ERROR',
-		Message::TM_INFO       => 'TM_INFO',
-		Message::TM_STRUCT     => 'TM_STRUCT',
-		Message::TM_REQUEST    => 'TM_REQUEST',
-		Message::TM_NOREPLY    => 'TM_NOREPLY',
-	];
-
-	/** Message types whose payload is included in the drop_message() audit line. */
-	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
-
-	/**
-	 * Drop a message with an audit trail.
-	 *
-	 * @param array<int, mixed> $message Message reference.
-	 */
-	public function drop_message( array $message, string $error ): void {
-		$type_raw = $message[ Message::TYPE ];
-		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
-		$labels   = [];
-		foreach ( self::$type_names as $bit => $label ) {
-			if ( $type & $bit ) {
-				$labels[] = $label;
-			}
-		}
-		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
-
-		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
-		$prefix   = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
-		$parts    = [ "$prefix$type_str" ];
-		$from     = Core::as_string( $message[ Message::FROM ] );
-		if ( '' !== $from ) {
-			$parts[] = 'from: ' . $from;
-		}
-		$to = Core::as_string( $message[ Message::TO ] );
-		if ( '' !== $to ) {
-			$parts[] = 'to: ' . $to;
-		}
-		$value = $message[ Message::VALUE ];
-		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
-			// json-encode array VALUEs for the audit line; (string) would emit "Array" and warn.
-			$value_str = \is_array( $value )
-				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
-				: Core::as_string( $value );
-			$parts[] = 'payload: ' . $value_str;
-		}
-
-		$line = \implode( ' ', $parts );
-
-		if ( 'NOT_AVAILABLE' === $error && Core::$now - Core::$init_time < 300.0 ) {
-			$this->print_less_often( $line );
-			return;
-		}
-		$this->print_less_often( $line );
-	}
-
-	/**
-	 * Per-node mid-line tag: "<name>: " prepended to every line. Empty when
-	 * the node is unnamed, or when the process identity ($0 / Core::argv0())
-	 * already starts with the node name (so the tag would be redundant). With
-	 * text, chomps a trailing newline, prepends the tag to every line,
-	 * and appends one trailing newline.
-	 */
-	public function log_midfix( ?string $text = null ): string {
-		$midfix = '';
-		if ( '' !== $this->name
-			&& 1 !== \preg_match( '/^' . \preg_quote( $this->name, '/' ) . '\b/', Core::argv0() ) ) {
-			$midfix = $this->name . ': ';
-		}
-		if ( null === $text ) {
-			return $midfix;
-		}
-		$text = \rtrim( $text, "\n" );
-		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
-		return $text . "\n";
-	}
-
-	/**
-	 * Emit a stderr line tagged with this node's midfix, via Core's stderr
-	 * pipeline (which adds the process-identity midfix and timestamp prefix once).
-	 * Empty text is a no-op (Tachikoma Node::stderr).
-	 */
-	public function stderr( string $text ): void {
-		if ( '' === $text ) {
-			return;
-		}
-		Core::stderr( $this->log_midfix( $text ) );
-	}
-
-	/** Emit text on first sight; suppress identical text thereafter. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
-	public function print_less_often( string $text ): void {
-		$line = $this->log_midfix( $text );
-		$row = Core::$recent_log_timers[ $line ] ?? null;
-		if ( null !== $row ) {
-			++$row['count'];
-		} else {
-			Core::stderr( $line );
-			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
-		}
-		Core::$recent_log_timers[ $line ] = $row;
-	}
-
-	/**
 	 * Topology console manifest: palette entry + node configuration form. Subclasses override to declare ctor params, verbs, category, description.
 	 *
 	 * @return array<string, mixed>
@@ -574,22 +572,5 @@ class Node {
 			'accepts_fill'  => true,
 			'has_target'    => true,
 		];
-	}
-
-	/**
-	 * Seed the runtime registration allow-list from node_schema()['registrations']
-	 * — the single source of valid events. A registration-capable node calls this
-	 * in its constructor instead of hand-assigning $this->registrations.
-	 */
-	protected function seed_registrations(): void {
-		$events = static::node_schema()['registrations'] ?? [];
-		if ( ! \is_array( $events ) ) {
-			return;
-		}
-		foreach ( $events as $event ) {
-			if ( \is_string( $event ) ) {
-				$this->registrations[ $event ] = [];
-			}
-		}
 	}
 }
