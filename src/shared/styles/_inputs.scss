@@ -148,7 +148,9 @@
 			}
 		}
 
-		.button:not(.button-primary):not(.button-link-delete):not(.is-active):not(.is-paused) {
+		.button:not(.button-primary):not(.button-link-delete):not(
+				.is-active
+			):not(.is-paused) {
 			background: var(--paper);
 			border: 1.5px solid var(--ink-3);
 			color: var(--ink);
