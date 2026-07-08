@@ -120,7 +120,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		height: 16px;
 		margin: 0;
 		background: transparent;
-		border: 1px solid var( --paper-shadow );
+		border: 1px solid var(--paper-shadow);
 		border-radius: 1px;
 		box-shadow: none;
 		position: relative;
@@ -132,8 +132,8 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 
 		&:checked,
 		&:indeterminate {
-			background: var( --cyan );
-			border-color: var( --cyan );
+			background: var(--cyan);
+			border-color: var(--cyan);
 		}
 
 		// Drawn checkmark (tick), --paper so it contrasts the accent fill.
@@ -144,9 +144,9 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			left: 5px;
 			width: 4px;
 			height: 8px;
-			border: solid var( --paper );
+			border: solid var(--paper);
 			border-width: 0 2.5px 2.5px 0;
-			transform: rotate( 45deg );
+			transform: rotate(45deg);
 		}
 
 		// Drawn dash for the indeterminate (partial-selection) state.
@@ -157,12 +157,12 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			left: 3px;
 			width: 8px;
 			height: 2.5px;
-			background: var( --paper );
+			background: var(--paper);
 		}
 	}
 
 	input[type="radio"] {
-		accent-color: var( --cyan );
+		accent-color: var(--cyan);
 	}
 
 	// @wordpress CheckboxControl draws its own check/dash SVG; hide it so the
