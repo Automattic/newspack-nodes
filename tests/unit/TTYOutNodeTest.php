@@ -60,4 +60,32 @@ class TTYOutNodeTest extends TestCase {
 		\rewind( $mem );
 		$this->assertSame( "\033[s\r\033[2Kasync line\n/x> \033[u", \stream_get_contents( $mem ) );
 	}
+
+	public function test_constructor_falls_back_to_posix_detection_when_force_tty_is_null(): void {
+		// force_tty=null exercises the posix_isatty() detection branch. A memory
+		// stream is never a TTY, so async writes must fall back to the plain parent
+		// write (no ANSI save/redraw) even with a prompt up and a shell set.
+		$mem   = \fopen( 'php://memory', 'r+' );
+		$node  = new TTY_Out_Node( $mem, null );
+		$shell = new Shell_Node();
+		$shell->prompt = '/x> ';
+		$node->set_shell( $shell );
+		$node->mark_prompt_displayed();
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'plain line';
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame( "plain line\n", \stream_get_contents( $mem ) );
+	}
+
+	public function test_write_prompt_writes_the_prompt_and_marks_it_displayed(): void {
+		$mem  = \fopen( 'php://memory', 'r+' );
+		$node = new TTY_Out_Node( $mem, false );
+		$this->assertFalse( $node->prompt_displayed );
+		$node->write_prompt( '/x> ' );
+		\rewind( $mem );
+		$this->assertSame( '/x> ', \stream_get_contents( $mem ) );
+		$this->assertTrue( $node->prompt_displayed );
+	}
 }
