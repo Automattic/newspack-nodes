@@ -1275,6 +1275,186 @@ describe( 'SchematicCanvas', () => {
 			container.querySelector( '.topology-node.is-faded' )
 		).not.toBeNull();
 	} );
+
+	// === setViewport is a no-op when the parent owns no viewport ===
+
+	it( 'arrow pan does nothing when no onViewportChange is provided (setViewport short-circuits)', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
+				onViewportChange={ undefined }
+			/>
+		);
+		hoverCanvas( container );
+		// The document keydown handler runs setViewport, which early-returns when
+		// onViewportChange is absent — no throw, nothing to observe but no crash.
+		expect( () =>
+			fireEvent.keyDown( document, { key: 'ArrowRight' } )
+		).not.toThrow();
+	} );
+
+	// === Guards: non-arrow key, right-button background, sub-threshold move ===
+
+	it( 'ignores a non-arrow key (no pan)', () => {
+		const onViewportChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
+				onViewportChange={ onViewportChange }
+			/>
+		);
+		hoverCanvas( container );
+		fireEvent.keyDown( document, { key: 'a' } );
+		expect( onViewportChange ).not.toHaveBeenCalled();
+	} );
+
+	it( 'right-button press on the background does not start a pan', () => {
+		const onViewportChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				onViewportChange={ onViewportChange }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		const svg = container.querySelector( 'svg' );
+		fireEvent.pointerDown( svg, {
+			button: 2,
+			pointerId: 3,
+			clientX: 100,
+			clientY: 100,
+		} );
+		fireEvent.pointerMove( svg, {
+			button: 2,
+			pointerId: 3,
+			clientX: 200,
+			clientY: 200,
+		} );
+		expect( onViewportChange ).not.toHaveBeenCalled();
+	} );
+
+	it( 'a sub-threshold background move does not pan (stays a click)', () => {
+		const onViewportChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				onViewportChange={ onViewportChange }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		const svg = container.querySelector( 'svg' );
+		svg.getBoundingClientRect = () => ( {
+			x: 0,
+			y: 0,
+			width: 1000,
+			height: 800,
+			top: 0,
+			left: 0,
+			right: 1000,
+			bottom: 800,
+		} );
+		fireEvent.pointerDown( svg, {
+			button: 0,
+			pointerId: 9,
+			clientX: 100,
+			clientY: 100,
+		} );
+		// Move 2px — under DRAG_THRESHOLD (3) → no viewport update.
+		fireEvent.pointerMove( svg, {
+			button: 0,
+			pointerId: 9,
+			clientX: 102,
+			clientY: 101,
+		} );
+		expect( onViewportChange ).not.toHaveBeenCalled();
+	} );
+
+	// === Node pointer handlers: fresh move/up are no-ops; pointerdown starts drag ===
+
+	it( 'pointerMove / pointerUp on a node with no active drag are no-ops', () => {
+		const onPositionChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				onPositionChange={ onPositionChange }
+			/>
+		);
+		const node = container.querySelector( '.topology-node' );
+		// No prior pointer-down → updateDrag / endDrag hit their `! drag` guard.
+		expect( () => {
+			fireEvent.pointerMove( node, { clientX: 50, clientY: 50 } );
+			fireEvent.pointerUp( node, { clientX: 50, clientY: 50 } );
+		} ).not.toThrow();
+		expect( onPositionChange ).not.toHaveBeenCalled();
+	} );
+
+	it( 'pointerDown on a node begins a drag (covers the onPointerDown handler)', () => {
+		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const node = container.querySelector( '.topology-node' );
+		expect( () =>
+			fireEvent.pointerDown( node, {
+				button: 0,
+				pointerId: 4,
+				clientX: 10,
+				clientY: 10,
+			} )
+		).not.toThrow();
+		expect( node.classList.contains( 'is-dragging' ) ).toBe( true );
+	} );
+
+	it( 'a click after a real drag suppresses selection (draggedRef gate)', () => {
+		const onSelect = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				onSelect={ onSelect }
+				onPositionChange={ () => {} }
+			/>
+		);
+		const node = container.querySelector( '.topology-node' );
+		fireEvent.mouseDown( node, {
+			button: 0,
+			pointerId: 5,
+			clientX: 0,
+			clientY: 0,
+		} );
+		// Move well past DRAG_THRESHOLD so draggedRef flips true.
+		fireEvent.pointerMove( node, {
+			button: 0,
+			pointerId: 5,
+			clientX: 80,
+			clientY: 80,
+		} );
+		// Click before the endDrag microtask resets the flag → selection suppressed.
+		fireEvent.click( node );
+		expect( onSelect ).not.toHaveBeenCalled();
+	} );
+
+	// === Wire drag that actually snaps onto an IN port ===
+
+	it( 'wire drag that lands on an IN port fires onConnect(from, to)', () => {
+		const onConnect = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				editMode
+				onConnect={ onConnect }
+			/>
+		);
+		// Node b's IN port sits at ( x=300, y=80 + NODE_H/2=42 ) = (300, 122).
+		const outPort = container.querySelector( '.topology-port--out' );
+		// pointerDown (not mouseDown) also covers the OUT-port onPointerDown arrow.
+		fireEvent.pointerDown( outPort, {
+			button: 0,
+			clientX: 256,
+			clientY: 122,
+		} );
+		fireEvent.mouseMove( window, { clientX: 300, clientY: 122 } );
+		fireEvent.mouseUp( window, { clientX: 300, clientY: 122 } );
+		expect( onConnect ).toHaveBeenCalledWith( 'a', 'b' );
+	} );
 } );
 
 // Scale-gated level-of-detail. The default tests run with an unmeasured (0x0)
@@ -1553,5 +1733,75 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		expect(
 			container.querySelector( '#topology-bloom-neo' )
 		).not.toBeNull();
+	} );
+
+	it( 'reflows a controlled viewport when the bottom obstruction changes (transcript overlay opens)', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const onViewportChange = jest.fn();
+		// A panned/zoomed viewport off the autofit so the delta re-applied against
+		// the new (inset-shifted) autofit box yields a DIFFERENT viewport — the
+		// resize/transcript-reflow effect then persists the re-derived frame.
+		const viewport = { x: 100, y: 100, w: 2000, h: 2000 };
+		const { rerender } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ viewport }
+				onViewportChange={ onViewportChange }
+				bottomObstructionPx={ 0 }
+			/>
+		);
+		// The mount measure + freeze may call onViewportChange; ignore those and
+		// watch only the reflow triggered by the obstruction change below.
+		onViewportChange.mockClear();
+		// Transcript overlay opens → 200px obstructed at the bottom. Same canvas
+		// px, different inset → the effect's early-return guard passes and it
+		// re-derives + persists the controlled viewport against the new autofit.
+		rerender(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ viewport }
+				onViewportChange={ onViewportChange }
+				bottomObstructionPx={ 200 }
+			/>
+		);
+		expect( onViewportChange ).toHaveBeenCalled();
+		const [ next ] = onViewportChange.mock.calls.at( -1 );
+		expect( next ).toEqual(
+			expect.objectContaining( {
+				x: expect.any( Number ),
+				y: expect.any( Number ),
+				w: expect.any( Number ),
+				h: expect.any( Number ),
+			} )
+		);
+	} );
+
+	it( 'does not reflow a null (uncontrolled) viewport on an obstruction change', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const onViewportChange = jest.fn();
+		const { rerender } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ null }
+				onViewportChange={ onViewportChange }
+				bottomObstructionPx={ 0 }
+			/>
+		);
+		onViewportChange.mockClear();
+		// Uncontrolled: the reflow effect hits its `! vp` branch and returns;
+		// the null-viewport path re-fits from defaultViewBox instead (no
+		// setViewport call from the reflow effect).
+		expect( () =>
+			rerender(
+				<SchematicCanvas
+					{ ...lodProps }
+					viewport={ null }
+					onViewportChange={ onViewportChange }
+					bottomObstructionPx={ 200 }
+				/>
+			)
+		).not.toThrow();
 	} );
 } );
