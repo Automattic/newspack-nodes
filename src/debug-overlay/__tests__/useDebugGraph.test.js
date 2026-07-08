@@ -8,6 +8,8 @@ import names from '../../runtime/reserved-node-names.json';
 import {
 	TYPE,
 	TO,
+	FROM,
+	LOCAL,
 	VALUE,
 	TM_PING,
 	TM_BYTESTREAM,
@@ -833,6 +835,69 @@ describe( 'useDebugGraph', () => {
 		);
 		expect( captured ).toHaveLength( 1 );
 		expect( captured[ 0 ][ TO ] ).toBe( '_http/my-node:config' );
+		teardown();
+	} );
+
+	it( 'sendVerb stamps FROM=_output and LOCAL=true on a parsed message that lacks them', () => {
+		// When shell.parse yields a Message array missing FROM / LOCAL (e.g. a
+		// bare positional array), sendVerb backfills FROM=`_output` (so the reply
+		// routes to the transcript) and LOCAL=true (local-only provenance) before
+		// dispatching — the two conditional backfills the normal ShellNode path
+		// pre-stamps and so never exercises.
+		const { teardown } = mountExospine();
+		const dispatched = [];
+		const shell = {
+			path: '',
+			parse: () => [],
+			dispatch: ( m ) => dispatched.push( m ),
+			prefix: ( t ) => t,
+			replyFrom: ( n ) => n,
+		};
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
+		expect( dispatched ).toHaveLength( 1 );
+		expect( dispatched[ 0 ][ FROM ] ).toBe( names.OUTPUT );
+		expect( dispatched[ 0 ][ LOCAL ] ).toBe( true );
+		teardown();
+	} );
+
+	it( 'falls back to shell.sendCommand when the parsed line is NOT a Message array (a local/error signal)', () => {
+		// shell.parse can return a `{ kind: 'error' | 'local' }` signal object
+		// instead of a Message array (e.g. an unsupported/builtin verb). sendVerb
+		// then routes through shell.sendCommand( path, name, args ) rather than
+		// shell.dispatch — the else branch.
+		const { teardown } = mountExospine();
+		const calls = [];
+		const shell = {
+			path: '',
+			parse: () => ( { kind: 'error', text: 'nope' } ),
+			sendCommand: ( path, name, args ) =>
+				calls.push( { path, name, args } ),
+			prefix: ( t ) => t,
+			replyFrom: ( n ) => n,
+		};
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () => result.current.handlers.onRemoveNode( 'a' ) );
+		expect( calls ).toEqual( [
+			{ path: '', name: 'remove_node', args: 'a' },
+		] );
+		teardown();
+	} );
+
+	it( 'commitDrop with no staged pendingDrop is a no-op (early return, no dispatch)', () => {
+		// The modal "OK" can only fire after a drop stages pendingDrop; calling
+		// commitDrop with nothing staged must early-return without dispatching
+		// make_node (guards the ref-mirror read).
+		const { teardown } = mountExospine();
+		const shell = new ShellNode();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'dispatch' );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		expect( result.current.pendingDrop ).toBeNull();
+		act( () =>
+			result.current.commitDrop( { name: 'whatever', args: '' } )
+		);
+		expect( spy ).not.toHaveBeenCalled();
 		teardown();
 	} );
 
