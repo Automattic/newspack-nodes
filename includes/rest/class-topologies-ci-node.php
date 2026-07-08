@@ -108,8 +108,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( "failed to read topology file: $path" )
 			);
 		}
-		$tsl .= "\nmake_node Partition _repl\n";
-
 		$sources = Topology_Registry::describe()[ $name ] ?? [
 			'user'  => null,
 			'stock' => [],

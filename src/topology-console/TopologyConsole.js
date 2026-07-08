@@ -1282,7 +1282,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			setOpenModalShown( false );
 			try {
 				const resp = await fetchTopology( name );
-				const next = parseTsl( resp.tsl || '' );
+				const next = withReplAnchor( parseTsl( resp.tsl || '' ) );
 				// Replace draft AND baseline so the load starts clean.
 				setDraft( next );
 				setBaseline( next );
