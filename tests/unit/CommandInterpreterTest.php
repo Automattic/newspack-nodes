@@ -2295,17 +2295,17 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_metadata_emits_per_node_port_flags_from_schema(): void {
-		// Dumper_Node declares has_target=false (pure sink) and omits accepts_fill,
-		// so accepts_fill must default true. The canvas reads these per-node.
+		// Stdout_Node declares has_target=false (a true terminal sink) and omits
+		// accepts_fill, so accepts_fill must default true. The canvas reads these per-node.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$dumper = new \Newspack_Nodes\Dumper_Node();
-		$dumper->name( '_output' );
+		$stdout = new \Newspack_Nodes\Stdout_Node();
+		$stdout->name( '_stdout' );
 
 		$decoded = $interpreter->dispatch( 'dump_metadata' );
-		$this->assertFalse( $decoded['_output']['has_target'] );
-		$this->assertTrue( $decoded['_output']['accepts_fill'] );
+		$this->assertFalse( $decoded['_stdout']['has_target'] );
+		$this->assertTrue( $decoded['_stdout']['accepts_fill'] );
 	}
 
 	public function test_dump_metadata_defaults_port_flags_true_for_plain_node(): void {

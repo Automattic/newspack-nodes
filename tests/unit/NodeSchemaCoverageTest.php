@@ -88,10 +88,11 @@ class NodeSchemaCoverageTest extends TestCase {
 		$this->assertFalse( $schema['has_target'] ?? true );
 	}
 
-	public function test_dumper_has_no_target(): void {
-		// Dumper is the REPL `_output` terminal — writes to its stream, never forwards.
+	public function test_dumper_forwards_via_target(): void {
+		// Post-peel the Dumper renders and FORWARDS the rendered line to its target
+		// (_stdout in the REPL, a Log/terminal when placed) — so has_target=true.
 		$schema = \Newspack_Nodes\Dumper_Node::node_schema();
-		$this->assertFalse( $schema['has_target'] );
+		$this->assertTrue( $schema['has_target'] );
 	}
 
 	public function test_http_in_has_no_target(): void {
