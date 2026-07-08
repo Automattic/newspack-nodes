@@ -30,7 +30,7 @@ class StructToJsonNodeTest extends TestCase {
 
 		$out = $sink->captured[0];
 		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ], 'struct is re-typed as a bytestream' );
-		$this->assertSame( '{"repo":"newspack-nodes","stars":7}', $out[ Message::VALUE ], 'array VALUE is json-encoded' );
+		$this->assertSame( "{\"repo\":\"newspack-nodes\",\"stars\":7}\n", $out[ Message::VALUE ], 'array VALUE is json-encoded' );
 	}
 
 	public function test_struct_with_string_value_is_forwarded_as_a_bytestream_verbatim(): void {
@@ -46,7 +46,7 @@ class StructToJsonNodeTest extends TestCase {
 
 		$out = $sink->captured[0];
 		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ] );
-		$this->assertSame( 'already a string', $out[ Message::VALUE ], 'a string VALUE is not JSON-quoted' );
+		$this->assertSame( "already a string\n", $out[ Message::VALUE ], 'a string VALUE is not JSON-quoted' );
 	}
 
 	public function test_non_struct_message_passes_through_unchanged(): void {
