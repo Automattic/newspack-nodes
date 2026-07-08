@@ -24,7 +24,7 @@ class Struct_To_JSON_Node extends Node {
 			// a real string, so a failed encode leaves the struct visible, not blanked.
 			$encoded = \is_string( $value ) ? $value : \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES );
 			if ( \is_string( $encoded ) ) {
-				$message[ Message::VALUE ] = $encoded;
+				$message[ Message::VALUE ] = \rtrim( $encoded, "\n" ) . "\n";
 				// Swap only the STRUCT bit for BYTESTREAM; preserve co-existing flags (e.g. TM_RESPONSE).
 				$message[ Message::TYPE ] = ( $type & ~Message::TM_STRUCT ) | Message::TM_BYTESTREAM;
 			}
