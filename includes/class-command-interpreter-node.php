@@ -16,6 +16,27 @@ namespace Newspack_Nodes;
 class Command_Interpreter_Node extends Node {
 
 	/**
+	 * Process-wide default command-authorization policy. A verifier process
+	 * (worker, /command request) sets this ONCE at bootstrap so EVERY interpreter in the
+	 * process — the main `_command_interpreter` plus the patron interpreters embedded in
+	 * Partitions and other config-bearing nodes — inherits it without per-instance
+	 * wiring. Null → the built-in LOCAL-provenance check (client tier).
+	 * Signature: `function ( array $message ): bool` (true = allow).
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $default_authorize = null;
+
+	/**
+	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
+	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
+	 * (Classes_CI) scans the composer classmap for FQCNs under these prefixes.
+	 *
+	 * @var array<string,bool> Prefix → true (set semantics).
+	 */
+	protected static array $namespaces = [];
+
+	/**
 	 * Shared default verb table the bare `_command_interpreter` starts from.
 	 *
 	 * @var array<string,callable>|null Verb → handler. Initialized lazily.
@@ -30,15 +51,6 @@ class Command_Interpreter_Node extends Node {
 	private static ?array $H = null;
 
 	/**
-	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
-	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
-	 * (Classes_CI) scans the composer classmap for FQCNs under these prefixes.
-	 *
-	 * @var array<string,bool> Prefix → true (set semantics).
-	 */
-	protected static array $namespaces = [];
-
-	/**
 	 * Memoized `resolve_class()` SUCCESSES: shell type → resolved FQCN. Misses are
 	 * never stored (so a type resolvable only after a later register_namespace()
 	 * still resolves), so the value is never null.
@@ -48,31 +60,19 @@ class Command_Interpreter_Node extends Node {
 	private static array $resolve_cache = [];
 
 	/**
-	 * Per-instance verb table; defaults to self::$C, siblings install their own via commands().
-	 *
-	 * @var array<string,callable>|null
-	 */
-	protected ?array $commands = null;
-
-	/**
-	 * Process-wide default command-authorization policy. A verifier process
-	 * (worker, /command request) sets this ONCE at bootstrap so EVERY interpreter in the
-	 * process — the main `_command_interpreter` plus the patron interpreters embedded in
-	 * Partitions and other config-bearing nodes — inherits it without per-instance
-	 * wiring. Null → the built-in LOCAL-provenance check (client tier).
-	 * Signature: `function ( array $message ): bool` (true = allow).
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $default_authorize = null;
-
-	/**
 	 * Per-instance override of $default_authorize (tests / special cases). Null →
 	 * fall back to the static default. Same signature.
 	 *
 	 * @var \Closure|null
 	 */
 	public ?\Closure $authorize = null;
+
+	/**
+	 * Per-instance verb table; defaults to self::$C, siblings install their own via commands().
+	 *
+	 * @var array<string,callable>|null
+	 */
+	protected ?array $commands = null;
 
 	public function fill( array $message ): void {
 		if ( null === $this->sink ) {

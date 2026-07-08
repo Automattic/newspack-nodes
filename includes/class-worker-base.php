@@ -14,43 +14,45 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Worker_Base {
-
-	public const DEFAULT_MAX_RUNTIME    = 595;
-	public const MEMORY_WATERMARK_PCT   = 0.80;
 	// A fresh post-reset baseline already at/above this fraction of the memory limit is
 	// "near the watermark" — a leak / undersized limit, not a single poison message. A
 	// memory stop on such a baseline alerts instead of striking the message ([42]).
 	public const BASELINE_WATERMARK_PCT = 0.50;
-	public const HEARTBEAT_INTERVAL_S   = 10;
 	public const DB_CHECK_INTERVAL_S    = 30;
 	public const DB_CHECK_MAX_FAILURES  = 3;
-	public const LOCK_CHECK_GRACE_S     = 0.25;
-	public const IPC_SEGMENT_SIZE       = 1048576;
+
+	public const DEFAULT_MAX_RUNTIME    = 595;
+	public const HEARTBEAT_INTERVAL_S   = 10;
 	public const IPC_NUM_SEGMENTS       = 2;
+	public const IPC_SEGMENT_SIZE       = 1048576;
+	public const LOCK_CHECK_GRACE_S     = 0.25;
+	public const MEMORY_WATERMARK_PCT   = 0.80;
+	public const TOPICPROBE_INTERVAL_S   = 15;
 
 	// Shared topicprobe log: 1 MiB segments × 2, aged out at 24h — a day of
 	// consumer-stats snapshots for the dashboards' rate + backlog graphs. Single
 	// fixed partition (.p0); every worker process appends to this one dir, so
 	// Log_Cleaner must whitelist it (it's declared by no .tsl).
 	public const TOPICPROBE_LOG_DIR      = 'topicprobe.p0';
-	public const TOPICPROBE_SEGMENT_SIZE = 1048576;
-	public const TOPICPROBE_NUM_SEGMENTS = 2;
 	public const TOPICPROBE_MAX_LIFESPAN = 86400;
-	public const TOPICPROBE_INTERVAL_S   = 15;
+	public const TOPICPROBE_NUM_SEGMENTS = 2;
+	public const TOPICPROBE_SEGMENT_SIZE = 1048576;
 
 	protected string $base_dir;
-	protected string $worker_type;
-	protected int $partition;
-	protected int $max_runtime;
-	protected int $stale_timeout;
-	protected ?Lock_Node $lock = null;
-	protected float $start_time = 0.0;
-	protected float $last_heartbeat = 0.0;
-	protected float $last_db_check = 0.0;
+
+	/** Fresh post-reset memory baseline, captured before the drain — the memory-guard reference point. */
+	protected int $baseline_memory = 0;
 	protected int $db_failures = 0;
-	protected bool $shutdown_handled = false;
 	/** This worker's IPC-input Consumer — checkpointed at shutdown so a clean recycle doesn't replay consumed commands. */
 	protected ?Consumer_Node $ipc_input_consumer = null;
+	protected float $last_db_check = 0.0;
+	protected float $last_heartbeat = 0.0;
+	protected ?Lock_Node $lock = null;
+	protected int $max_runtime;
+	protected int $partition;
+	protected bool $shutdown_handled = false;
+	protected int $stale_timeout;
+	protected float $start_time = 0.0;
 
 	/**
 	 * Why the worker stopped, categorized for the shutdown handoff ([42]): 'timeout'
@@ -58,9 +60,7 @@ class Worker_Base {
 	 * consumers; '' is operational (lock loss / restart / db) — a clean graceful handoff.
 	 */
 	protected string $stop_reason = '';
-
-	/** Fresh post-reset memory baseline, captured before the drain — the memory-guard reference point. */
-	protected int $baseline_memory = 0;
+	protected string $worker_type;
 
 	public function __construct(
 		string $base_dir,

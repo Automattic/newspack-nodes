@@ -19,17 +19,17 @@ class Consumer_Node extends Timer_Node {
 
 	public const MAX_LINE_BUFFER_SIZE = 33554432;
 
+	/** 0 = next event-loop iteration. */
+	public const POLL_INTERVAL_BUSY_MS = 0;
+
+	public const POLL_INTERVAL_EOF_MS = 100;
+
 	/**
 	 * Bytes read per poll — one block, then yield the event loop (Tachikoma's
 	 * BUFSIZ in Partition::process_get). A poll drains the buffer it already
 	 * holds, reads ONE more block, and returns so other nodes get a turn.
 	 */
 	public const READ_BLOCK_BYTES = 65536;
-
-	public const POLL_INTERVAL_EOF_MS = 100;
-
-	/** 0 = next event-loop iteration. */
-	public const POLL_INTERVAL_BUSY_MS = 0;
 
 	/**
 	 * Multi-writer seal-grace: seconds a segment's size must hold steady before,
@@ -43,13 +43,11 @@ class Consumer_Node extends Timer_Node {
 	 */
 	public const SEAL_GRACE_SECONDS = 2.0;
 
-	/**
-	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
-	 * points this at poll_init; the first poll loads the durable cursor + restores
-	 * the snapshot — by which time the whole topology is built — then swaps to
-	 * poll_active. Keeps construction free of I/O and forward-reference order.
-	 */
-	protected ?\Closure $poll_cb = null;
+	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
+	public const STATE_WIPE_AFTER_S = 900;
+
+	protected bool $at_eof = true;
+	protected int $boot_cursor_offset = 0;
 
 	/**
 	 * The cursor this process booted on (seeded by load_offsetlog). Advancing past it
@@ -57,10 +55,9 @@ class Consumer_Node extends Timer_Node {
 	 * healthy baseline. Also the fair-shot proxy for cooperative-stop strikes ([42]).
 	 */
 	protected int $boot_cursor_segment = 0;
-	protected int $boot_cursor_offset = 0;
 
-	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
-	public const STATE_WIPE_AFTER_S = 900;
+	/** Bytes read past cursor_offset but not yet emitted (read-ahead + trailing partial). Tachikoma's buffer. */
+	protected string $buffer = '';
 
 	/**
 	 * One-shot crawl-entry flag: DLQ the boot-cursor head (the in-flight-at-crash
@@ -69,13 +66,11 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected bool $crawl_skip_head = false;
 
-	protected string $source_dir = '';
-	/**
-	 * Raw token assigned by parse_schema_args() — the override normalizes it
-	 * (rtrim '/') into the derived $offsetlog_dir below.
-	 */
-	protected string $offsetlog_dir      = '';
-	protected ?Partition_Node $source    = null;
+	/** Durable read offset for cursor_segment; always a line boundary (last fully-emitted line). */
+	protected int $cursor_offset = 0;
+
+	/** Cursor segment. cursor_offset + buffer length is the next read position. */
+	protected int $cursor_segment = 0;
 
 	/**
 	 * Multi-writer source: apply the seal-grace (see SEAL_GRACE_SECONDS) before
@@ -85,13 +80,47 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected bool $multi_writer = false;
 
+	/** True once next_offset() was called explicitly — suppresses the default_offset() seek. */
+	protected bool $offset_set = false;
+	/**
+	 * Raw token assigned by parse_schema_args() — the override normalizes it
+	 * (rtrim '/') into the derived $offsetlog_dir below.
+	 */
+	protected string $offsetlog_dir      = '';
+
+	/**
+	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
+	 * points this at poll_init; the first poll loads the durable cursor + restores
+	 * the snapshot — by which time the whole topology is built — then swaps to
+	 * poll_active. Keeps construction free of I/O and forward-reference order.
+	 */
+	protected ?\Closure $poll_cb = null;
+
+	/**
+	 * True once poll_init has seeded the durable cursor. A shutdown handoff before this
+	 * (worker stopped on its first should_continue, before the first poll) must NOT write
+	 * the 0:0 construction-default cursor — it would clobber the real durable position.
+	 */
+	protected bool $poll_initialized = false;
+
 	/** Seal-grace bookkeeping: the segment + size last seen caught-up, and when that size last changed. */
 	protected int $seal_segment     = -1;
-	protected int $seal_size    = -1;
 	protected float $seal_since = 0.0;
+	protected int $seal_size    = -1;
+	protected ?Partition_Node $source    = null;
+
+	protected string $source_dir = '';
 
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
+
+	/**
+	 * True once a downstream fill() raised Worker_Should_Stop through forward_line — the
+	 * worker was actively DISPATCHING a message when the cooperative stop hit. The
+	 * fair-shot strike requires this: a merely-buffered (never-dispatched) head is a
+	 * message that just arrived, not one that consumed a lifetime ([42]).
+	 */
+	protected bool $stopped_in_fill = false;
 
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
@@ -101,35 +130,6 @@ class Consumer_Node extends Timer_Node {
 	 * @var array<array-key, mixed>|null
 	 */
 	private ?array $loaded_cache = null;
-
-	/** Cursor segment. cursor_offset + buffer length is the next read position. */
-	protected int $cursor_segment = 0;
-
-	/** Durable read offset for cursor_segment; always a line boundary (last fully-emitted line). */
-	protected int $cursor_offset = 0;
-
-	/** Bytes read past cursor_offset but not yet emitted (read-ahead + trailing partial). Tachikoma's buffer. */
-	protected string $buffer = '';
-
-	protected bool $at_eof = true;
-
-	/** True once next_offset() was called explicitly — suppresses the default_offset() seek. */
-	protected bool $offset_set = false;
-
-	/**
-	 * True once poll_init has seeded the durable cursor. A shutdown handoff before this
-	 * (worker stopped on its first should_continue, before the first poll) must NOT write
-	 * the 0:0 construction-default cursor — it would clobber the real durable position.
-	 */
-	protected bool $poll_initialized = false;
-
-	/**
-	 * True once a downstream fill() raised Worker_Should_Stop through forward_line — the
-	 * worker was actively DISPATCHING a message when the cooperative stop hit. The
-	 * fair-shot strike requires this: a merely-buffered (never-dispatched) head is a
-	 * message that just arrived, not one that consumed a lifetime ([42]).
-	 */
-	protected bool $stopped_in_fill = false;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {

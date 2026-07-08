@@ -29,20 +29,20 @@ namespace Newspack_Nodes;
 class Remote_Link_Node extends Timer_Node {
 	use Schema_Reflection;
 
-	// Protected so Remote_Source's time-travel PLAY can re-arm the same tick cadence.
-	protected const TICK_INTERVAL_MS = 1000;
-
 	/** Slot-keepalive heartbeat cadence (seconds). */
 	public const HEARTBEAT_INTERVAL = 10;
 
-	protected string $vault_id         = '';
+	// Protected so Remote_Source's time-travel PLAY can re-arm the same tick cadence.
+	protected const TICK_INTERVAL_MS = 1000;
+
+	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
+	protected ?HTTP_Out_Node $http_out = null;
 	protected string $remote_partition = '';
 
 	/** Patron SSE_In sibling (`<name>:sse-in`); null until first connect / Vault-resolved. */
 	protected ?SSE_In_Node $sse_in = null;
 
-	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
-	protected ?HTTP_Out_Node $http_out = null;
+	protected string $vault_id         = '';
 
 	private int $last_heartbeat = 0;
 

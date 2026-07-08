@@ -11,9 +11,9 @@ namespace Newspack_Nodes;
 
 class Hook_Node extends Node {
 	use Schema_Reflection;
+	protected bool $filter      = false;
 
 	protected string $hook_name = '';
-	protected bool $filter      = false;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {

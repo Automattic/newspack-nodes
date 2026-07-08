@@ -39,13 +39,6 @@ use Newspack_Nodes\Service_CI_Node;
 class Settings_CI_Node extends Service_CI_Node {
 
 	/**
-	 * Upper bound for all four integer settings (2^30 = 1 GiB). Matches
-	 * legacy SettingsController::sanitize_value to keep the validator
-	 * value-equivalent.
-	 */
-	private const MAX_INT_VALUE = 1073741824;
-
-	/**
 	 * Whitelist of {short-name => min} for the verbs. The WP option key is
 	 * the short-name prefixed with `newspack_nodes_`. Three settings have
 	 * min=1; max_lifespan accepts 0 (per legacy). The upper bound is
@@ -59,6 +52,13 @@ class Settings_CI_Node extends Service_CI_Node {
 		'segment_size'   => 1,
 		'max_lifespan'   => 0,
 	];
+
+	/**
+	 * Upper bound for all four integer settings (2^30 = 1 GiB). Matches
+	 * legacy SettingsController::sanitize_value to keep the validator
+	 * value-equivalent.
+	 */
+	private const MAX_INT_VALUE = 1073741824;
 	/**
 	 * `get` verb handler — the current substrate-settings snapshot.
 	 *

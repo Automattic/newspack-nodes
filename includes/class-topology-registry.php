@@ -14,27 +14,6 @@ namespace Newspack_Nodes;
 
 class Topology_Registry {
 
-	/** @var array<int,string> Plugin-registered stock dirs (first wins). */
-	private static array $stock_dirs = [];
-
-	/** @var string Writable per-deployment user dir. */
-	private static string $user_dir = '';
-
-	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
-	private static array $segment_size_overrides_cache = [];
-
-	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
-	private static array $write_set_cache = [];
-
-	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
-	private static array $graph_cache = [];
-
-	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name; cleared by reset_basename_cache(). */
-	private static array $frontmatter_cache = [];
-
-	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
-	private static array $registered_plugins = [];
-
 	/**
 	 * Worker-spawn seam for spawn_worker's default handler. Lazily defaulted
 	 * to a closure that builds + executes the real Worker_Base. Tests reassign in
@@ -45,6 +24,27 @@ class Topology_Registry {
 	 * @var \Closure|null
 	 */
 	public static ?\Closure $spawn_runner = null;
+
+	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name; cleared by reset_basename_cache(). */
+	private static array $frontmatter_cache = [];
+
+	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
+	private static array $graph_cache = [];
+
+	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
+	private static array $registered_plugins = [];
+
+	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
+	private static array $segment_size_overrides_cache = [];
+
+	/** @var array<int,string> Plugin-registered stock dirs (first wins). */
+	private static array $stock_dirs = [];
+
+	/** @var string Writable per-deployment user dir. */
+	private static string $user_dir = '';
+
+	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
+	private static array $write_set_cache = [];
 
 	/**
 	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every

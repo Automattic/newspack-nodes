@@ -11,43 +11,10 @@ namespace Newspack_Nodes;
 
 class Node {
 
-	protected string $name = '';
-	protected ?Node  $sink = null;
-	/** @var string|array<int, string> */
-	protected $target = '';
-
-	protected int $counter = 0;
-
-	protected int $largest_msg_sent = 0;
-
-	/** Only I/O nodes (Partition, Consumer) populate these; logic nodes stay at zero. */
-	protected int $bytes_read    = 0;
-	protected int $bytes_written = 0;
-
-	/** Cached config string; dump_config round-trips it back into the make_node line. */
-	protected string $arguments = '';
-
-	/**
-	 * @var array<string,array<string,callable|string|null>> Pre-declared events keyed by event name. Null listener value = Node-name dispatch.
-	 */
-	protected array $registrations = [];
-
-	/** Per-node state-tracing dial: 0 = quiet, 1+ = also emit TM_STRUCT to _repl. */
-	protected int $debug_state = 0;
-
-	/** Sibling CommandInterpreter (`:config`) for nodes with runtime config verbs; else null. */
-	protected ?Command_Interpreter_Node $interpreter = null;
-
-	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
-	protected ?Node $patron = null;
-
-	/** @var array<string,string> */
-	protected array $set_state = [];
+	public const MAX_FROM_SIZE = 1024;
 
 	/** Message types whose payload is included in the drop_message() audit line. */
 	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
-
-	public const MAX_FROM_SIZE = 1024;
 
 	/**
 	 * Human-readable message-type labels.
@@ -66,6 +33,39 @@ class Node {
 		Message::TM_REQUEST    => 'TM_REQUEST',
 		Message::TM_NOREPLY    => 'TM_NOREPLY',
 	];
+
+	/** Cached config string; dump_config round-trips it back into the make_node line. */
+	protected string $arguments = '';
+
+	/** Only I/O nodes (Partition, Consumer) populate these; logic nodes stay at zero. */
+	protected int $bytes_read    = 0;
+	protected int $bytes_written = 0;
+
+	protected int $counter = 0;
+
+	/** Per-node state-tracing dial: 0 = quiet, 1+ = also emit TM_STRUCT to _repl. */
+	protected int $debug_state = 0;
+
+	/** Sibling CommandInterpreter (`:config`) for nodes with runtime config verbs; else null. */
+	protected ?Command_Interpreter_Node $interpreter = null;
+
+	protected int $largest_msg_sent = 0;
+
+	protected string $name = '';
+
+	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
+	protected ?Node $patron = null;
+
+	/**
+	 * @var array<string,array<string,callable|string|null>> Pre-declared events keyed by event name. Null listener value = Node-name dispatch.
+	 */
+	protected array $registrations = [];
+
+	/** @var array<string,string> */
+	protected array $set_state = [];
+	protected ?Node  $sink = null;
+	/** @var string|array<int, string> */
+	protected $target = '';
 
 	/**
 	 * No-op chain anchor: a node only acquires schema-reflection behavior (positional

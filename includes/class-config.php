@@ -13,26 +13,38 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Config {
 
-	/** Action fired from reset() so dependent Configs can invalidate their caches. */
-	public const RESET_ACTION = 'newspack_nodes/config_reset';
-
 	/** One-time marker so `correct_option_autoload()` sweeps once per install. */
 	public const AUTOLOAD_FIXED_OPTION = 'newspack_nodes_autoload_fixed';
 
-	/** One-time sweep flipping every schema key to autoloaded (admin_init; no-op on WP < 6.6). */
-	public static function correct_option_autoload(): void {
-		if ( ! \function_exists( 'wp_set_option_autoload' ) ) {
-			return;
-		}
-		if ( ! empty( \get_option( self::AUTOLOAD_FIXED_OPTION ) ) ) {
-			return;
-		}
-		$schema = Settings_Schema::get();
-		foreach ( $schema->overlay_keys() as $key ) {
-			\wp_set_option_autoload( $schema->prefix() . $key, true );
-		}
-		\update_option( self::AUTOLOAD_FIXED_OPTION, '1', false );
-	}
+	/** Action fired from reset() so dependent Configs can invalidate their caches. */
+	public const RESET_ACTION = 'newspack_nodes/config_reset';
+
+	/**
+	 * Allowed directories (or subdirectories) for local config override files.
+	 *
+	 * @var array<int, string>
+	 */
+	private static $allowed_config_dirs = [
+		'/usr/src',
+	];
+
+	/** @var array<string, mixed>|null Cached config (file defaults + WordPress options). */
+	private static $config = null;
+
+	/** @var array<string, mixed>|null Cached config defaults from files. */
+	private static $config_defaults = null;
+
+	/** @var string|null */
+	private static ?string $validated_base_directory = null;
+
+	/** @var string|null */
+	private static ?string $validated_locks_directory = null;
+
+	/** @var string|null */
+	private static ?string $validated_logs_directory = null;
+
+	/** @var string|null */
+	private static ?string $validated_offsets_directory = null;
 
 	/**
 	 * Register the substrate's `config` topology-token namespace.
@@ -60,32 +72,26 @@ class Config {
 		);
 	}
 
-	/** @var array<string, mixed>|null Cached config (file defaults + WordPress options). */
-	private static $config = null;
-
-	/** @var array<string, mixed>|null Cached config defaults from files. */
-	private static $config_defaults = null;
-
-	/** @var string|null */
-	private static ?string $validated_base_directory = null;
-
-	/** @var string|null */
-	private static ?string $validated_logs_directory = null;
-
-	/** @var string|null */
-	private static ?string $validated_locks_directory = null;
-
-	/** @var string|null */
-	private static ?string $validated_offsets_directory = null;
-
 	/**
-	 * Allowed directories (or subdirectories) for local config override files.
+	 * Get the validated base directory path (created + realpath-checked).
 	 *
-	 * @var array<int, string>
+	 * @return string
+	 * @throws \RuntimeException If directory cannot be created or realpath doesn't match.
 	 */
-	private static $allowed_config_dirs = [
-		'/usr/src',
-	];
+	public static function get_base_directory(): string {
+		if ( null !== self::$validated_base_directory ) {
+			return self::$validated_base_directory;
+		}
+
+		$config   = self::load_config();
+		$base_dir = $config['base_directory'] ?? null;
+		if ( empty( $base_dir ) || ! \is_scalar( $base_dir ) ) {
+			throw new \RuntimeException( 'base_directory not configured' );
+		}
+
+		self::$validated_base_directory = self::ensure_path( (string) $base_dir );
+		return self::$validated_base_directory;
+	}
 
 	/**
 	 * Load configuration from disk + WordPress options.
@@ -150,27 +156,6 @@ class Config {
 		return Config_Utils::validate_config_path( $path, $dirs, 'Newspack_Nodes\\Config' );
 	}
 
-	/** Reset cached config; fires `newspack_nodes/config_reset` so dependent Configs invalidate too. */
-	public static function reset(): void {
-		self::$config                      = null;
-		self::$config_defaults             = null;
-		self::$validated_base_directory    = null;
-		self::$validated_logs_directory    = null;
-		self::$validated_locks_directory   = null;
-		self::$validated_offsets_directory = null;
-		if ( \function_exists( 'do_action' ) ) {
-			\do_action( self::RESET_ACTION );
-		}
-	}
-
-	/** Drop WP's per-process option snapshots so workers see fresh writes. Pair with (and run before) Config::reset(), which reads through get_option. */
-	public static function invalidate_options_cache(): void {
-		if ( \function_exists( 'wp_cache_delete' ) ) {
-			\wp_cache_delete( 'alloptions', 'options' );
-			\wp_cache_delete( 'notoptions', 'options' );
-		}
-	}
-
 	/**
 	 * Ensure a directory path exists and is canonical (realpath must match input — detects symlink attacks).
 	 *
@@ -209,27 +194,6 @@ class Config {
 		}
 
 		return $real;
-	}
-
-	/**
-	 * Get the validated base directory path (created + realpath-checked).
-	 *
-	 * @return string
-	 * @throws \RuntimeException If directory cannot be created or realpath doesn't match.
-	 */
-	public static function get_base_directory(): string {
-		if ( null !== self::$validated_base_directory ) {
-			return self::$validated_base_directory;
-		}
-
-		$config   = self::load_config();
-		$base_dir = $config['base_directory'] ?? null;
-		if ( empty( $base_dir ) || ! \is_scalar( $base_dir ) ) {
-			throw new \RuntimeException( 'base_directory not configured' );
-		}
-
-		self::$validated_base_directory = self::ensure_path( (string) $base_dir );
-		return self::$validated_base_directory;
 	}
 
 	/**
@@ -273,5 +237,41 @@ class Config {
 		}
 		self::$validated_offsets_directory = self::ensure_path( self::get_base_directory() . '/offsets' );
 		return self::$validated_offsets_directory;
+	}
+
+	/** One-time sweep flipping every schema key to autoloaded (admin_init; no-op on WP < 6.6). */
+	public static function correct_option_autoload(): void {
+		if ( ! \function_exists( 'wp_set_option_autoload' ) ) {
+			return;
+		}
+		if ( ! empty( \get_option( self::AUTOLOAD_FIXED_OPTION ) ) ) {
+			return;
+		}
+		$schema = Settings_Schema::get();
+		foreach ( $schema->overlay_keys() as $key ) {
+			\wp_set_option_autoload( $schema->prefix() . $key, true );
+		}
+		\update_option( self::AUTOLOAD_FIXED_OPTION, '1', false );
+	}
+
+	/** Reset cached config; fires `newspack_nodes/config_reset` so dependent Configs invalidate too. */
+	public static function reset(): void {
+		self::$config                      = null;
+		self::$config_defaults             = null;
+		self::$validated_base_directory    = null;
+		self::$validated_logs_directory    = null;
+		self::$validated_locks_directory   = null;
+		self::$validated_offsets_directory = null;
+		if ( \function_exists( 'do_action' ) ) {
+			\do_action( self::RESET_ACTION );
+		}
+	}
+
+	/** Drop WP's per-process option snapshots so workers see fresh writes. Pair with (and run before) Config::reset(), which reads through get_option. */
+	public static function invalidate_options_cache(): void {
+		if ( \function_exists( 'wp_cache_delete' ) ) {
+			\wp_cache_delete( 'alloptions', 'options' );
+			\wp_cache_delete( 'notoptions', 'options' );
+		}
 	}
 }

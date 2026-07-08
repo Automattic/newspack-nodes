@@ -33,15 +33,15 @@ use Newspack_Nodes\Router_Node;
 
 class SSE_Out_Node extends Node {
 
-	public const REST_NAMESPACE = 'newspack-nodes/v1';
-	public const ROUTE          = '/messages/stream';
+	/** Flush-comment total byte size. Must stay under PIPE_BUF (4096 on Linux). */
+	public const FLUSH_SIZE = 4096;
 
 	// Idle-keepalive heartbeat cadence (ms). Data flushes every drain tick regardless;
 	// this only paces the idle heartbeat. 2s matches the dashboards' refresh.
 	public const HEARTBEAT_MS = 2000;
 
-	/** Flush-comment total byte size. Must stay under PIPE_BUF (4096 on Linux). */
-	public const FLUSH_SIZE = 4096;
+	public const REST_NAMESPACE = 'newspack-nodes/v1';
+	public const ROUTE          = '/messages/stream';
 
 	/**
 	 * Allow-list of event names emitted without sanitization (O(1) hot-path).
@@ -56,15 +56,6 @@ class SSE_Out_Node extends Node {
 		'timeout'   => 1,
 	];
 
-	/** Has anything been emitted since the last flush? */
-	protected bool $needs_flush = false;
-
-	/** Test seam: overrides `Bootstrap::base_dir()`. */
-	private ?string $base_dir = null;
-
-	/** Test seam: overrides `Config::load_config()['num_partitions']`. */
-	private ?int $num_partitions = null;
-
 	/**
 	 * SSE slot-pool seams. The application wires these in to gate concurrent
 	 * SSE connections; unset → acquire returns slot 1, release/check are no-ops.
@@ -77,18 +68,27 @@ class SSE_Out_Node extends Node {
 	public static ?\Closure $acquire_slot = null;
 
 	/**
+	 * check: `function ( int $slot, int $partition ): bool` (false aborts).
+	 *
+	 * @var \Closure(int, int): bool|null
+	 */
+	public static ?\Closure $check_slot   = null;
+
+	/**
 	 * release: `function ( int $slot, int $partition ): void` (drain `finally`).
 	 *
 	 * @var \Closure(int, int): void|null
 	 */
 	public static ?\Closure $release_slot = null;
 
-	/**
-	 * check: `function ( int $slot, int $partition ): bool` (false aborts).
-	 *
-	 * @var \Closure(int, int): bool|null
-	 */
-	public static ?\Closure $check_slot   = null;
+	/** Has anything been emitted since the last flush? */
+	protected bool $needs_flush = false;
+
+	/** Test seam: overrides `Bootstrap::base_dir()`. */
+	private ?string $base_dir = null;
+
+	/** Test seam: overrides `Config::load_config()['num_partitions']`. */
+	private ?int $num_partitions = null;
 
 	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
 	public function fill( array $message ): void {

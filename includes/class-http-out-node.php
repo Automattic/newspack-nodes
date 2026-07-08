@@ -54,20 +54,20 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	public static ?\Closure $curl_result = null;
 
-	/** Vault id whose url + credentials this node POSTs to. */
-	protected string $vault_id = '';
-
-	/** @var \CurlMultiHandle|null Owned multi handle; created + registered lazily on first fill(). */
-	protected ?\CurlMultiHandle $multi = null;
-
-	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
-	protected array $inflight = [];
-
 	/** @var array<int,array<int,mixed>> Packed TM_COMMAND envelopes buffered between fill() and the next fire(). */
 	protected array $batch = [];
 
 	/** Whether the one-shot flush timer is already armed; gates re-arming without coupling to Timer_Node internals. */
 	protected bool $batch_timer_armed = false;
+
+	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
+	protected array $inflight = [];
+
+	/** @var \CurlMultiHandle|null Owned multi handle; created + registered lazily on first fill(). */
+	protected ?\CurlMultiHandle $multi = null;
+
+	/** Vault id whose url + credentials this node POSTs to. */
+	protected string $vault_id = '';
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {

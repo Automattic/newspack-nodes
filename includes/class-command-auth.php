@@ -24,11 +24,11 @@ namespace Newspack_Nodes;
 
 class Command_Auth {
 
-	/** Max accepted age of a signature (two 10s windows of straddle tolerance). */
-	public const MAX_PAST_S = 20;
-
 	/** Max accepted future skew (verifier clock behind the signer). */
 	public const MAX_FUTURE_S = 10;
+
+	/** Max accepted age of a signature (two 10s windows of straddle tolerance). */
+	public const MAX_PAST_S = 20;
 
 	/**
 	 * Single-use nonce TTL. Must comfortably outlive the FULL acceptance span

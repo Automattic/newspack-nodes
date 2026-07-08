@@ -20,9 +20,9 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Vault {
 
 	/**
-	 * WP option name for storing server configurations.
+	 * Prefix marking encrypted values (distinguishes from legacy plaintext).
 	 */
-	public const OPTION_KEY = 'newspack_nodes_vault';
+	public const ENCRYPTED_PREFIX = '$enc$';
 
 	/**
 	 * Maximum number of servers in the registry.
@@ -30,9 +30,9 @@ class Vault {
 	public const MAX_SERVERS = 100;
 
 	/**
-	 * Prefix marking encrypted values (distinguishes from legacy plaintext).
+	 * WP option name for storing server configurations.
 	 */
-	public const ENCRYPTED_PREFIX = '$enc$';
+	public const OPTION_KEY = 'newspack_nodes_vault';
 
 	/**
 	 * Whitelisted config keys for partial-update merge.

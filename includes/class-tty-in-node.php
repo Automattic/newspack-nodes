@@ -17,6 +17,18 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class TTY_In_Node extends Stdin_Node {
+
+	/**
+	 * `readline_completion_function` seam. Lazily-defaulted to a closure that
+	 * wraps the real libreadline call. Tests reassign in bootstrap to capture the
+	 * registration without invoking libreadline (which needs a real TTY) — that
+	 * lets the suite still cover install_completion()'s surrounding logic.
+	 *
+	 * Signature: `function ( callable $completion_cb ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $readline_completion_register = null;
 	/**
 	 * `readline_callback_handler_install` seam. Tests reassign to a no-op.
 	 *
@@ -35,32 +47,20 @@ class TTY_In_Node extends Stdin_Node {
 	 */
 	public static ?\Closure $readline_read_char = null;
 
-	/**
-	 * `readline_completion_function` seam. Lazily-defaulted to a closure that
-	 * wraps the real libreadline call. Tests reassign in bootstrap to capture the
-	 * registration without invoking libreadline (which needs a real TTY) — that
-	 * lets the suite still cover install_completion()'s surrounding logic.
-	 *
-	 * Signature: `function ( callable $completion_cb ): void`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $readline_completion_register = null;
-
 	/** @var array<int,string> Cached command-verb candidates (from `help` KEY=completion). */
 	private array $command_candidates = [];
+	private bool $has_readline;
 
 	/** @var array<int,string> Cached node-name candidates (from `ls` KEY=completion). */
 	private array $node_candidates = [];
-
-	private Shell_Node $shell;
 	private TTY_Out_Node $out;
-	private bool $has_readline;
-	private bool $show_prompts;
 	private bool $prompt_displayed = false;
 	/** @var array<int,string> Lines delivered by the readline callback, drained per fire(). */
 	private array $queue = [];
 	private bool $readline_eof = false;
+
+	private Shell_Node $shell;
+	private bool $show_prompts;
 
 	/**
 	 * @param resource|null $stream         Input stream (defaults to STDIN); set non-blocking.

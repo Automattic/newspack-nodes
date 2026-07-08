@@ -11,10 +11,10 @@ namespace Newspack_Nodes;
 
 class Shell_Node extends Node {
 
-	public string $prompt = '/> ';
-
 	/** Current cwd — the node-path non-builtin commands route to by default; empty = local interpreter. */
 	public string $path = '';
+
+	public string $prompt = '/> ';
 
 	/**
 	 * Lines printed by the local `status` builtin on demand; empty = silent no-op.

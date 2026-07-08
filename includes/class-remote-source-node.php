@@ -25,6 +25,25 @@ class Remote_Source_Node extends Remote_Link_Node {
 	use Dead_Letter_Queue;
 	use Time_Travel;
 
+	/** Memcache TTL for the status snapshot (seconds). */
+	public const STATUS_TTL = 300;
+	protected int $boot_cursor_offset = 0;
+
+	/**
+	 * The cursor this process booted on (seeded by restore_position). Advancing past it is
+	 * "forward progress" — the fair-shot proxy for a cooperative-stop strike ([42]), EXACTLY
+	 * like Consumer's boot_cursor.
+	 */
+	protected int $boot_cursor_segment = 0;
+
+	/**
+	 * True once restore_position has run (the cursor is real, not the 0:0 construction default).
+	 * A shutdown handoff before this must NOT commit — it would clobber the durable position.
+	 * Mirrors Consumer's poll_initialized.
+	 */
+	protected bool $cursor_established = false;
+	protected int $cursor_offset = 0;
+
 	/**
 	 * The node-owned durable read cursor: the start of the next unforwarded message (=
 	 * the last forwarded message's END, or the restored boot position). Advanced AFTER a
@@ -33,22 +52,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * compares against is the trait's checkpoint_*.
 	 */
 	protected int $cursor_segment = 0;
-	protected int $cursor_offset = 0;
+	private int $last_heartbeat_response = 0;
 
-	/**
-	 * The cursor this process booted on (seeded by restore_position). Advancing past it is
-	 * "forward progress" — the fair-shot proxy for a cooperative-stop strike ([42]), EXACTLY
-	 * like Consumer's boot_cursor.
-	 */
-	protected int $boot_cursor_segment = 0;
-	protected int $boot_cursor_offset = 0;
-
-	/**
-	 * True once restore_position has run (the cursor is real, not the 0:0 construction default).
-	 * A shutdown handoff before this must NOT commit — it would clobber the durable position.
-	 * Mirrors Consumer's poll_initialized.
-	 */
-	protected bool $cursor_established = false;
+	private int $last_heartbeat_sent     = 0;
 
 	/**
 	 * The message in flight when the cooperative stop hit (null = none — an idle worker, not
@@ -60,21 +66,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	private ?array $stopped_message = null;
 	/** @var array{segment:int,offset:int}|null */
-	private ?array $stopped_message_start = null;
-	/** @var array{segment:int,offset:int}|null */
 	private ?array $stopped_message_end = null;
+	/** @var array{segment:int,offset:int}|null */
+	private ?array $stopped_message_start = null;
 
 	/** Tachikoma-parity: no-arg ctor. Auto-wire the {name}:config interpreter for the time-travel verbs. */
 	public function __construct() {
 		parent::__construct();
 		$this->auto_wire_interpreter();
 	}
-
-	/** Memcache TTL for the status snapshot (seconds). */
-	public const STATUS_TTL = 300;
-
-	private int $last_heartbeat_sent     = 0;
-	private int $last_heartbeat_response = 0;
 
 	/**
 	 * Stream data relayed from our own SSE_In patron — quarantine-guarded — vs the base
@@ -221,22 +221,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Final cursor handoff at worker shutdown (bug C) — Remote_Source isn't a
-	 * Consumer_Node, so the worker's checkpoint_durable_consumers() reaches it here.
-	 * Healthy → a clean graceful commit (attempts=0) so progress survives the recycle;
-	 * a hard-crash lineage in flight → preserve its climbing/pinned frame.
-	 *
-	 * @api Invoked by Worker_Base::checkpoint_durable_consumers().
-	 */
-	public function checkpoint_shutdown(): void {
-		if ( null === $this->ensure_offsetlog_partition() || ! $this->cursor_established ) {
-			return;
-		}
-		$graceful = $this->attempts <= 1 && ! $this->crawl;
-		$this->commit_position( $this->cursor_segment, $this->cursor_offset, $graceful );
-	}
-
-	/**
 	 * Cooperative-stop fair-shot ([42]) — EXACTLY Consumer's rule, adapted to the push arrival
 	 * seam. Called at worker shutdown INSTEAD of checkpoint_shutdown when the stop was
 	 * cooperative (timeout/memory). A strike counts ONLY when the worker stopped mid-forward on
@@ -282,6 +266,22 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->commit_position( $start['segment'], $start['offset'], false );
 	}
 
+	/**
+	 * Final cursor handoff at worker shutdown (bug C) — Remote_Source isn't a
+	 * Consumer_Node, so the worker's checkpoint_durable_consumers() reaches it here.
+	 * Healthy → a clean graceful commit (attempts=0) so progress survives the recycle;
+	 * a hard-crash lineage in flight → preserve its climbing/pinned frame.
+	 *
+	 * @api Invoked by Worker_Base::checkpoint_durable_consumers().
+	 */
+	public function checkpoint_shutdown(): void {
+		if ( null === $this->ensure_offsetlog_partition() || ! $this->cursor_established ) {
+			return;
+		}
+		$graceful = $this->attempts <= 1 && ! $this->crawl;
+		$this->commit_position( $this->cursor_segment, $this->cursor_offset, $graceful );
+	}
+
 	/** True once the read cursor has moved past the cursor this process booted on (Consumer-parallel). */
 	private function cursor_advanced_since_boot(): bool {
 		return $this->cursor_segment > $this->boot_cursor_segment
@@ -318,16 +318,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->commit_checkpoint_frame( $segment, $offset, $graceful );
 	}
 
-	/**
-	 * Remote_Source's frame extra beyond the shared base: the commit wall-clock, carried on
-	 * every frame so an idle-vs-fresh cursor is distinguishable in the durable record.
-	 *
-	 * @return array<array-key, mixed>
-	 */
-	protected function checkpoint_frame_extra(): array {
-		return [ '_ts' => (int) Core::$now ];
-	}
-
 	// =========================================================================
 	// Durable offsetlog — per-node, keyed by NODE NAME.
 	// =========================================================================
@@ -361,32 +351,28 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return $offsetlog;
 	}
 
-	// =========================================================================
-	// Dead-letter sibling — per-node quarantine for poison stream messages.
-	// =========================================================================
-
 	/**
-	 * Ensure the per-node deadletter Partition exists. Derives the dir
-	 * (`<base>/deadletter/<name>.<remote_partition>`), delegates the build to the
-	 * Dead_Letter_Queue trait, and routes its sink to the command interpreter.
+	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the
+	 * current stream. Seeking only ever happens while paused (the transport bar
+	 * gates rewind/forward on PAUSE), so the reconnect is deferred to PLAY's tick —
+	 * which replays the remote partition from the reseeded offset.
+	 *
+	 * @param string|array<array-key, mixed> $position Explicit {segment,offset} from seek_frame().
 	 */
-	private function ensure_deadletter_sibling(): ?Partition_Node {
-		if ( null !== $this->deadletter ) {
-			return $this->deadletter;
+	public function next_offset( $position ): void {
+		if ( ! \is_array( $position ) ) {
+			return;
 		}
-		if ( '' === $this->name ) {
-			return null;
+		$segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;
+		$offset = \is_numeric( $position['offset'] ?? null ) ? (int) $position['offset'] : 0;
+		$sse = $this->ensure_patrons();
+		if ( null === $sse ) {
+			return;
 		}
-		$base       = \rtrim( Config::get_base_directory(), '/' );
-		$deadletter = $this->ensure_deadletter(
-			"{$base}/deadletter/{$this->name}.{$this->remote_partition}",
-			"{$this->name}:{$this->remote_partition}:deadletter"
-		);
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null !== $deadletter && null === $deadletter->sink() && null !== $ci ) {
-			$deadletter->sink( $ci );
-		}
-		return $deadletter;
+		$sse->disconnect();
+		$sse->restore_position( $segment, $offset );
+		$this->cursor_segment = $segment;
+		$this->cursor_offset = $offset;
 	}
 
 	// =========================================================================
@@ -415,64 +401,31 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	// =========================================================================
-	// Time-travel transport (Time_Travel trait) — mapped onto the SSE pull.
+	// Dead-letter sibling — per-node quarantine for poison stream messages.
 	// =========================================================================
 
 	/**
-	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload.
-	 * The reported cursor is the node-owned after-forward cursor (cursor_segment/off) — the
-	 * single source of truth now — so no SSE_In sync is needed.
-	 *
-	 * @api Dynamic entrypoint.
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * Ensure the per-node deadletter Partition exists. Derives the dir
+	 * (`<base>/deadletter/<name>.<remote_partition>`), delegates the build to the
+	 * Dead_Letter_Queue trait, and routes its sink to the command interpreter.
 	 */
-	public function dump_metadata(): array {
-		return $this->time_travel_metadata();
-	}
-
-	/**
-	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the
-	 * current stream. Seeking only ever happens while paused (the transport bar
-	 * gates rewind/forward on PAUSE), so the reconnect is deferred to PLAY's tick —
-	 * which replays the remote partition from the reseeded offset.
-	 *
-	 * @param string|array<array-key, mixed> $position Explicit {segment,offset} from seek_frame().
-	 */
-	public function next_offset( $position ): void {
-		if ( ! \is_array( $position ) ) {
-			return;
+	private function ensure_deadletter_sibling(): ?Partition_Node {
+		if ( null !== $this->deadletter ) {
+			return $this->deadletter;
 		}
-		$segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;
-		$offset = \is_numeric( $position['offset'] ?? null ) ? (int) $position['offset'] : 0;
-		$sse = $this->ensure_patrons();
-		if ( null === $sse ) {
-			return;
+		if ( '' === $this->name ) {
+			return null;
 		}
-		$sse->disconnect();
-		$sse->restore_position( $segment, $offset );
-		$this->cursor_segment = $segment;
-		$this->cursor_offset = $offset;
-	}
-
-	/**
-	 * STEP is a no-op for a push-driven source: SSE_In is fed by the event loop, not
-	 * pulled one message at a time, so there is nothing to single-step. Report the
-	 * current position (nothing advanced) rather than fake a step.
-	 *
-	 * @return array{segment:int, offset:int, at_eof:bool}
-	 */
-	protected function advance_one_message(): array {
-		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => true ];
-	}
-
-	/** PLAY re-arm: resume the recurring tick, which reconnects from the current position. */
-	protected function time_travel_resume(): void {
-		$this->set_timer( self::TICK_INTERVAL_MS );
-	}
-
-	/** PAUSE also stops the pull: drop the live SSE stream so no data flows while paused. */
-	protected function time_travel_on_pause(): void {
-		$this->sse_in?->disconnect();
+		$base       = \rtrim( Config::get_base_directory(), '/' );
+		$deadletter = $this->ensure_deadletter(
+			"{$base}/deadletter/{$this->name}.{$this->remote_partition}",
+			"{$this->name}:{$this->remote_partition}:deadletter"
+		);
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null !== $deadletter && null === $deadletter->sink() && null !== $ci ) {
+			$deadletter->sink( $ci );
+		}
+		return $deadletter;
 	}
 
 	// =========================================================================
@@ -552,6 +505,53 @@ class Remote_Source_Node extends Remote_Link_Node {
 	// (e.g. firehose.p0) don't collide; Aggregator_CI reads the identical key.
 	private function status_key(): string {
 		return "np:remote:{$this->name}:{$this->remote_partition}";
+	}
+
+	/**
+	 * Remote_Source's frame extra beyond the shared base: the commit wall-clock, carried on
+	 * every frame so an idle-vs-fresh cursor is distinguishable in the durable record.
+	 *
+	 * @return array<array-key, mixed>
+	 */
+	protected function checkpoint_frame_extra(): array {
+		return [ '_ts' => (int) Core::$now ];
+	}
+
+	// =========================================================================
+	// Time-travel transport (Time_Travel trait) — mapped onto the SSE pull.
+	// =========================================================================
+
+	/**
+	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload.
+	 * The reported cursor is the node-owned after-forward cursor (cursor_segment/off) — the
+	 * single source of truth now — so no SSE_In sync is needed.
+	 *
+	 * @api Dynamic entrypoint.
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 */
+	public function dump_metadata(): array {
+		return $this->time_travel_metadata();
+	}
+
+	/**
+	 * STEP is a no-op for a push-driven source: SSE_In is fed by the event loop, not
+	 * pulled one message at a time, so there is nothing to single-step. Report the
+	 * current position (nothing advanced) rather than fake a step.
+	 *
+	 * @return array{segment:int, offset:int, at_eof:bool}
+	 */
+	protected function advance_one_message(): array {
+		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => true ];
+	}
+
+	/** PLAY re-arm: resume the recurring tick, which reconnects from the current position. */
+	protected function time_travel_resume(): void {
+		$this->set_timer( self::TICK_INTERVAL_MS );
+	}
+
+	/** PAUSE also stops the pull: drop the live SSE stream so no data flows while paused. */
+	protected function time_travel_on_pause(): void {
+		$this->sse_in?->disconnect();
 	}
 
 	/**

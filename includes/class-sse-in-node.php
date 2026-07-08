@@ -35,13 +35,13 @@ namespace Newspack_Nodes;
 // Note: cURL is required for SSE multiplexing — wp_remote_get() doesn't support it.
 
 class SSE_In_Node extends Node {
+	public const CONNECT_TIMEOUT    = 5;
+	public const HEARTBEAT_TIMEOUT  = 45;
+	public const INITIAL_BACKOFF    = 1;
 
 	// ----- Reconnect / liveness tuning (mirrors the old Remote_Source). -----
 
 	public const MAX_BACKOFF        = 30;
-	public const INITIAL_BACKOFF    = 1;
-	public const CONNECT_TIMEOUT    = 5;
-	public const HEARTBEAT_TIMEOUT  = 45;
 
 	// ----- Memory / size guards. -----
 
@@ -60,37 +60,6 @@ class SSE_In_Node extends Node {
 	 */
 	public static ?\Closure $curl_dispatch = null;
 
-	protected string $url           = '';
-	protected string $auth_username = '';
-	protected string $auth_password = '';
-	protected string $auth_token    = '';
-	protected string $subscribe     = '';
-
-	private bool $verify_ssl   = true;
-	private bool $require_ssl  = false;
-
-	/** Owned multi handle, registered with the Event_Framework. */
-	private ?\CurlMultiHandle $multi = null;
-
-	/** Active easy handle when connected, null otherwise. */
-	private ?\CurlHandle $handle = null;
-
-	private string $buffer = '';
-	/** @var array{event:string, data:string} Current SSE event accumulator. */
-	private array $current_event   = [ 'event' => '', 'data' => '' ];
-	private ?int  $slot            = null;
-	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM pivot). */
-	private ?int  $session_pid    = null;
-	/** @var array{segment:int, offset:int} Read cursor. */
-	private array $position        = [ 'segment' => 0, 'offset' => 0 ];
-	private float $last_event_time = 0.0;
-	private int   $current_backoff = self::INITIAL_BACKOFF;
-	private float $last_attempt    = 0.0;
-	private bool  $connected       = false;
-	private ?string $last_error    = null;
-	private ?int  $last_http_code  = null;
-	private ?int  $last_sse_heartbeat = null;
-
 	/**
 	 * Poison hook. The patron (Remote_Source) sets this to route an unparseable
 	 * frame's raw bytes into its DLQ. Signature: `function ( string $raw ): void`.
@@ -98,6 +67,37 @@ class SSE_In_Node extends Node {
 	 * @var \Closure|null
 	 */
 	public ?\Closure $on_poison = null;
+	protected string $auth_password = '';
+	protected string $auth_token    = '';
+	protected string $auth_username = '';
+	protected string $subscribe     = '';
+
+	protected string $url           = '';
+
+	private string $buffer = '';
+	private bool  $connected       = false;
+	private int   $current_backoff = self::INITIAL_BACKOFF;
+	/** @var array{event:string, data:string} Current SSE event accumulator. */
+	private array $current_event   = [ 'event' => '', 'data' => '' ];
+
+	/** Active easy handle when connected, null otherwise. */
+	private ?\CurlHandle $handle = null;
+	private float $last_attempt    = 0.0;
+	private ?string $last_error    = null;
+	private float $last_event_time = 0.0;
+	private ?int  $last_http_code  = null;
+	private ?int  $last_sse_heartbeat = null;
+
+	/** Owned multi handle, registered with the Event_Framework. */
+	private ?\CurlMultiHandle $multi = null;
+	/** @var array{segment:int, offset:int} Read cursor. */
+	private array $position        = [ 'segment' => 0, 'offset' => 0 ];
+	private bool $require_ssl  = false;
+	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM pivot). */
+	private ?int  $session_pid    = null;
+	private ?int  $slot            = null;
+
+	private bool $verify_ssl   = true;
 
 	/** Tachikoma-parity: no-arg ctor. Config arrives via configure(); no I/O here (ADR-5). */
 	public function __construct() {
