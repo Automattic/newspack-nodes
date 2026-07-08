@@ -539,4 +539,12 @@ class DumperTest extends TestCase {
 		$this->assertSame( 1, $dumper->set_debug_level( 1 ),  'middle preserved' );
 	}
 
+	public function test_node_schema_is_a_placeable_transform(): void {
+		// The Dumper renders a message to human-readable text — the lossy display
+		// counterpart to the lossless Struct_To_JSON / JSON_To_Struct pair. It
+		// belongs in the palette's Transform group, not Hidden.
+		$schema = \Newspack_Nodes\Dumper_Node::node_schema();
+		$this->assertSame( 'Transform', $schema['category'] );
+	}
+
 }

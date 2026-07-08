@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Struct_To_JSON_Node` / `JSON_To_Struct_Node`** — a lossless serialize/deserialize Transform pair (the Tachikoma `StorableToJSON` / `JSONtoStorable` slot). Splice `Struct_To_JSON` in front of a `Log`/terminal so a `TM_STRUCT` producer's array VALUE gets written as a JSON `TM_BYTESTREAM` line, and its inverse on the read side reconstructs the struct. Only the `TM_STRUCT`/`TM_BYTESTREAM` bit is swapped, so co-existing flags (e.g. `TM_RESPONSE`) survive the round-trip; a failed `wp_json_encode` leaves the struct visible rather than blanking it.
+- **`Stderr_Node`** — a diagnostic I/O sink: routes a `TM_BYTESTREAM` VALUE through the node stderr chain (node-tagged midfix → dmesg / debug.log / stderr), so a `Tee → Dumper → Grep → Stderr` debug tap lands in the logs without polluting the STDOUT data path.
+
+### Changed
+
+- **`Dumper_Node` is now a placeable Transform node** (was `Hidden`). It renders any message to a human-readable text line and forwards it to its target (`has_target` is now `true`) — the lossy, display-oriented counterpart to the lossless `Struct_To_JSON` / `JSON_To_Struct` pair.
+
 ## [0.29.0] - 2026-07-07
 
 ### Added

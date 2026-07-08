@@ -1,6 +1,9 @@
 <?php
 /**
- * Dumper: terminal output node for the REPL.
+ * Dumper: renders any message to a human-readable text line (TM_BYTESTREAM) and
+ * forwards it to its target. The cli wires it as `_output` (rendering to
+ * `_stdout`), but it's a placeable Transform node — the lossy, display-oriented
+ * counterpart to the lossless Struct_To_JSON / JSON_To_Struct pair.
  *
  * @package Newspack_Nodes
  */
@@ -337,11 +340,11 @@ class Dumper_Node extends Node {
 
 	public static function node_schema(): array {
 		return [
-			'category'    => 'Hidden',
-			'description' => 'REPL output — printed to stream, not user-placeable in topology graphs.',
+			'category'    => 'Transform',
+			'description' => 'Render any message to a human-readable text line (TM_BYTESTREAM) and forward it — the lossy display counterpart to the Struct_To_JSON / JSON_To_Struct pair.',
 			'arguments'   => [],
 			'commands'    => [],
-			'has_target'  => false,
+			'has_target'  => true,
 		];
 	}
 }
