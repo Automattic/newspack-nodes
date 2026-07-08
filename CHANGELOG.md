@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-07-07
+
+### Fixed
+
+- **`_repl` no longer leaks into saved topologies (the `67108864` phantom).** `Topologies_CI::cmd_get` used to bake `make_node Partition _repl` into every `get` response; on save `serializeTsl` re-emitted it with expanded defaults (`67108864` = Partition `DEFAULT_SEGMENT_SIZE`), accumulating duplicate lines and a canvas phantom. The reserved `_repl` anchor is now injected editor-side (`withReplAnchor`) at every canvas-seeding path — including the live-canvas seed and the OPEN-menu load — so it paints from the first frame and never persists to `.tsl`; connections *to* `_repl` still round-trip.
+- **`Struct_To_JSON_Node` emits a trailing newline** so each serialized record lands as its own line when written to a `Log`/terminal downstream.
+
 ## [0.30.0] - 2026-07-07
 
 ### Added
