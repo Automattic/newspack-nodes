@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-07-08
+
 ### Changed
 
 - **REPL dumps of structured / command payloads now pretty-print.** `Dumper_Node`'s value rendering is consolidated into a single `render_payload` path: `fill()`'s TM_STRUCT / TM_COMMAND branch used to emit compact single-line JSON via an inline `wp_json_encode` that bypassed the formatter; it now routes through `stringify_value` → `render_payload`, so command responses and structured VALUEs print as pretty JSON (with a trailing newline) like every other dump. Four `wp_json_encode` call sites collapse to one, and the unused `$structured` flag is dropped. `is_secret_property()` / `SECRET_NAME_PATTERNS` also move from `Node` (private) to `Core` (public); redaction behavior is unchanged.
