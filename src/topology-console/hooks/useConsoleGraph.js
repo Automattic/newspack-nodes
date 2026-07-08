@@ -26,6 +26,7 @@ import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { getCommandClient } from '../utils/commandClient';
 import { useTopology } from './useTopologyList';
 import { parseTsl } from '../utils/parseTsl';
+import { withReplAnchor } from '../utils/draftGraph';
 import { scopeFromCwd } from '../utils/scope';
 import {
 	loadHubTranscript,
@@ -235,7 +236,13 @@ export function useConsoleGraph( {
 		if ( topology ) {
 			fetchTopologyTsl( topology )
 				.then( ( resp ) => {
-					const seeded = parseTsl( resp?.tsl || '' );
+					// Anchor `_repl` in the seed so it's on the canvas from the first
+					// paint — otherwise autofit runs without it and the later
+					// dump_metadata (which carries the worker's live `_repl`) shifts
+					// the graph. Reserved → serializeTsl never persists it.
+					const seeded = withReplAnchor(
+						parseTsl( resp?.tsl || '' )
+					);
 					// Resolve the LIVE metadata node by name (not the closed-over
 					// build instance): a rebuild may have replaced it while this was
 					// in flight. Skip if a dump_metadata reply already populated the

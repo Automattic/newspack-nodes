@@ -284,11 +284,11 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( 'some-topology', $result['name'] );
 		$this->assertSame( 'stock', $result['source'] );
-		// cmd_get appends the reserved `_repl` partition so the loaded editor
-		// graph paints the REPL node; serializeTsl skips reserved nodes on save,
-		// so it never round-trips back into a persisted .tsl.
+		// cmd_get returns the topology body verbatim — the reserved `_repl` anchor
+		// is injected editor-side (withReplAnchor), never baked into the response,
+		// so it can't round-trip into a persisted .tsl.
 		$this->assertSame(
-			"make_node Echo e\n\nmake_node Partition _repl\n",
+			"make_node Echo e\n",
 			$result['tsl']
 		);
 	}
@@ -306,7 +306,7 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( 'both', $result['source'] );
 		$this->assertSame(
-			"make_node Echo user\n\nmake_node Partition _repl\n",
+			"make_node Echo user\n",
 			$result['tsl']
 		);
 	}
@@ -374,7 +374,7 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( 'user', $result['source'] );
 		$this->assertSame(
-			"make_node Tee t\nmake_node Echo e\n\nmake_node Partition _repl\n",
+			"make_node Tee t\nmake_node Echo e\n",
 			$result['tsl']
 		);
 	}
