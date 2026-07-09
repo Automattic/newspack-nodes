@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-07-09
+
+### Fixed
+
+- **Relocate the per-message counter to the delivery point.** The 0.32.0 convergence moved SSE `msg` delivery out of `Remote_Source_Node::forward_line` into `SSE_In_Node`'s `on_message` seam but left the `++$this->counter` on `Remote_Source_Node` — a field the per-node dashboard stat never reads (it re-exports `SSE_In_Node`'s counter via `Remote_Link_Node`), while `SSE_In_Node`'s own counter stopped advancing. Increment `SSE_In_Node`'s counter per `msg` event and drop the now-dead `Remote_Source_Node` increment, so the dashboard message count tracks again.
+
 ## [0.32.0] - 2026-07-09
 
 ### Changed
