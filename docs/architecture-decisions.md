@@ -107,8 +107,9 @@ single-threaded drain already IS the backpressure (a slow node slows the drain s
 **Consequences:** No at-least-once guarantee at the message layer; durability comes from the
 log/offsetlog tier. (TM_PERSIST is not a rival to that tier — in Tachikoma the ack IS the
 tier's advance/discard signal, needed because consumption is asynchronous from delivery. Here
-the cursor advances in the same call frame the downstream `fill()` returns or the message is
-quarantined, so "delivered" and "safe to advance" coincide and an ack has nothing to signal.)
+the reader owns its cursor entirely — Consumer's chop, Remote_Source's commit-on-arrival at
+each message's start — so "safe to resume" is always local knowledge, in the same
+synchronous drain that dispatched the message, and an ack has nothing to signal.)
 A slow handler stalls its worker's drain — intended; that is the flow control. Future
 slot-based flow control lives at the producer that needs it, never graph-wide.
 
@@ -395,30 +396,44 @@ data; never advancing wedges the stream.
 
 **Decision:** Per-cursor attempt accounting in the offsetlog frame (`attempts`, `reason`,
 `first_crash_ts`); a respawn resumes at `attempts+1`; a graceful shutdown stamps `attempts=0`,
-so only a stuck cursor climbs.
+so only a stuck cursor climbs. Cursor discipline is **advance-on-next**: Consumer measures
+its own buffered bytes (the chop); Remote_Source pins each message's crumb START on arrival,
+pre-dispatch, and moves off it only when the next message arrives — no computed exclusive
+end, no trust in a remote-stamped length. A message dead-lettered while the cursor still
+sits on it gets a **`quarantined` marker** on the frame at its position ("fate sealed —
+already in the DLQ; on re-encounter, drop"); the marker is written wherever a quarantine
+does not advance past in the same act, is preserved by every frame committed at that
+position (`sealed_quarantine`), and is NEVER written on a below-threshold strike or a
+graceful handoff (misreading a strike as quarantined would silently drop a message that
+still had fair shots left).
 
 - **Caught-throw poison: quarantined ON SIGHT, identically in both readers.** The throw is
   caught at the relay point (`Consumer::forward_line`, `Remote_Source::relay_stream_message`),
   the message is `dead_letter()`ed to the `:deadletter` sibling (replayable via
-  `wp nodes ingest`), and the cursor advances past it — the ID breadcrumb carries
-  `segment:offset:length`, so both readers know where "past" is. No retry, no head-block: a
-  transient downstream failure is recovered by operator replay, not by automatic retry.
-  Unparseable lines are quarantined the same way (raw bytes preserved).
+  `wp nodes ingest`). Consumer's chop advances past it locally; Remote_Source stays pinned
+  at its start with the marker, so an idle tail's re-pull on the next recycle drops silently
+  instead of duplicating the DLQ entry. No retry, no head-block: a transient downstream
+  failure is recovered by operator replay, not by automatic retry. Unparseable lines are
+  quarantined the same way (raw bytes preserved; the re-encounter drop matches on stream
+  position, since the condemned line has no parseable crumb). A quarantine is not forward
+  progress — it never clears a live crash streak.
 - **Cooperative stop (timeout / memory): the fair-shot path.** At shutdown,
   `cooperative_stop()` strikes the in-flight message only when the worker stopped ON the
   message it booted on (cursor never advanced, `Worker_Should_Stop` escaped its `fill()`); at
-  `COOP_MAX_ATTEMPTS` strikes it is quarantined and the cursor advances at the virgin
-  baseline. A memory stop whose fresh baseline was already near the watermark is a leak
-  (alert), not poison.
+  `COOP_MAX_ATTEMPTS` strikes it is quarantined and the shutdown frame lands at the head's
+  START — virgin baseline plus the marker — so the successor boots onto it, drops it, and
+  advances off the next arrival. A memory stop whose fresh baseline was already near the
+  watermark is a leak (alert), not poison.
 - **Uncatchable death: crawl.** Booting into an elevated attempt count with NO reason (and
   `>= CRASH_MAX_ATTEMPTS`) enters crawl: checkpoint after EVERY message so a re-crash pins the
   culprit, attempts pinned at the threshold. Surviving `CHECKPOINT_INTERVAL_S` crash-free
   exits to the healthy baseline. Below the threshold, the first successful forward clears the
   streak. Both readers also sacrifice the boot-pinned suspect on crawl entry — quarantined
-  to the DLQ (reason `'crash'`) instead of forwarded, cursor advancing past it: Consumer
-  takes the first buffered line at the boot cursor; Remote_Source matches the relayed
-  message's crumb start against the boot pin (a suspect the stream resumed past — GC'd —
-  disarms without sacrificing). Crawl won't exit while the sacrifice is still armed, or an
+  to the DLQ (reason `'crash'`) with the marker sealing its position (a re-boot in the
+  crash window drops instead of duplicating the entry): Consumer takes the first buffered
+  line at the boot cursor and chops past it; Remote_Source matches the relayed message's
+  crumb start against the boot pin and moves on with the next arrival (a suspect the stream
+  resumed past — GC'd — disarms without sacrificing). Crawl won't exit while the sacrifice is still armed, or an
   un-sacrificed poison re-arms the crash loop next boot. One accepted false positive: the
   entry-transition head (the crash may have been deeper in the checkpoint window; crawl's
   per-message frames pin the true culprit for the next boot).
@@ -426,8 +441,11 @@ so only a stuck cursor climbs.
 The reusable core (`attempts` accounting, `record_poison_strike`,
 `resume_attempts_from_frame`, `crawl_interval_elapsed` / `exit_crawl`, `dead_letter`, the
 `CRASH_MAX_ATTEMPTS` / `COOP_MAX_ATTEMPTS` / `CHECKPOINT_INTERVAL_S` thresholds) lives in
-`Dead_Letter_Queue`; each reader keeps its own read-loop shape, both advancing via the
-`segment:offset:length` breadcrumb.
+`Dead_Letter_Queue` (plus the `quarantined` seal and the boot skip's drop/DLQ disposition);
+each reader keeps its own read-loop shape — Consumer's byte-measured chop, Remote_Source's
+commit-on-arrival at crumb starts. The crumb still STAMPS `segment:offset:length` for wire
+compatibility (SSE_In's eager reconnect reads it), but cursor management consumes only the
+start; readers accept a two-part `segment:offset` crumb.
 
 **Worker shutdown checkpoints both readers** (`Worker_Base::checkpoint_durable_consumers()`),
 and the graceful `attempts=0` stamp is half the crash detector, not just a progress save:

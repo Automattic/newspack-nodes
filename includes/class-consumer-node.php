@@ -442,11 +442,15 @@ class Consumer_Node extends Timer_Node {
 		$this->cursor_offset      = \is_numeric( $offset ) ? (int) $offset : 0;
 		$this->boot_cursor_segment = $this->cursor_segment;
 		$this->boot_cursor_offset = $this->cursor_offset;
-		// Resume the shared attempt accounting (climb at attempts+1, carry the streak,
-		// detect a hard-crash lineage → crawl). On crawl entry the per-line drain model
-		// also sacrifices the boot-cursor head — the message in flight at the uncatchable death.
-		if ( $this->resume_attempts_from_frame( $entry ) ) {
-			$this->crawl_skip_head = true;
+		// Resume the shared attempt accounting (climb at attempts+1, carry the streak, detect a
+		// hard-crash lineage → crawl) AND arm the boot head-skip from the frame: a quarantine
+		// marker → DROP the already-DLQ'd head; a hard-crash lineage → sacrifice the boot-cursor
+		// head (the message in flight at the uncatchable death) to the DLQ ('crash').
+		$this->arm_skip_head_from_frame( $entry );
+		if ( 'drop' === $this->skip_head_disposition ) {
+			// Booted onto a quarantine marker: seal the boot position so the stateless boot frame
+			// (and any pre-drop commit) keeps the marker until the drop advances the cursor past it.
+			$this->sealed_quarantine = [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 		}
 		// Offset + cache come from ONE record, so the resumed cursor and the
 		// restored state are always aligned.
@@ -590,11 +594,20 @@ class Consumer_Node extends Timer_Node {
 				}
 				$line = \substr( $this->buffer, $pos, $nl - $pos );
 				if ( $this->crawl_skip_head ) {
-					// Crawl entry: sacrifice the boot-cursor head (the crash suspect) — one-shot.
-					// Lives here, not forward_line, so the Tail subclass (which overrides
-					// forward_line) inherits it.
+					// Boot head-skip (one-shot). Lives here, not forward_line, so the Tail subclass
+					// (which overrides forward_line) inherits it. crawl_skip_head fires on the first
+					// line, so $pos is 0 → the head start is the current cursor.
 					$this->crawl_skip_head = false;
-					$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset + $pos ), 'crash' );
+					if ( 'drop' === $this->skip_head_disposition ) {
+						// Quarantine marker: the head is already in the DLQ — drop it silently, no second entry.
+						$this->print_less_often( "DROP [quarantined] {$this->name} at {$this->cursor_segment}:{$this->cursor_offset} — already dead-lettered" );
+					} else {
+						// Crash-crawl entry: sacrifice the boot-cursor head (the crash suspect) to the DLQ,
+						// then write a quarantine marker AT its start so a re-boot in the sacrifice→checkpoint
+						// crash window DROPS it instead of producing a second DLQ entry (dead_letter runs first).
+						$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset + $pos ), 'crash' );
+						$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
+					}
 				} else {
 					$this->forward_line( $line, $this->cursor_offset + $pos );
 				}
@@ -693,11 +706,11 @@ class Consumer_Node extends Timer_Node {
 		}
 		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
 		if ( $this->record_poison_strike( $reason ) ) {
-			// Fair shots exhausted: quarantine first, advance past it, hand off at the virgin baseline.
+			// Fair shots exhausted: quarantine the head, then hand off a MARKER frame AT its start
+			// (attempts=0, quarantined) — no local advance. The successor boots onto it, DROPS it
+			// (already in the DLQ), and advances off the next line. dead_letter runs first.
 			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_segment, $this->cursor_offset ), $reason );
-			$this->cursor_offset += \strlen( $head ) + 1; // Past the line + its consumed \n.
-			$this->buffer      = '';
-			$this->checkpoint( true );
+			$this->write_checkpoint_frame( true, true, [ 'quarantined' => true ] );
 			return;
 		}
 		// Below threshold: record the strike (reason + live attempt count) at the
@@ -743,13 +756,13 @@ class Consumer_Node extends Timer_Node {
 	 * shared base frame + Consumer's static extra ride commit_checkpoint_frame(); the
 	 * only per-call variation is the snapshot cache.
 	 *
-	 * @param bool $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
-	 * @param bool $with_state Co-commit the snapshot node's save_state(). False for the
-	 *                         stateless boot frame written BEFORE restore — reading the
-	 *                         un-restored node there would clobber the good cache.
+	 * @param bool                    $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
+	 * @param bool                    $with_state Co-commit the snapshot node's save_state(). False for the
+	 *                                            stateless boot frame written BEFORE restore — reading the
+	 *                                            un-restored node there would clobber the good cache.
+	 * @param array<array-key, mixed> $extra      Per-call frame additions (the quarantine marker).
 	 */
-	private function write_checkpoint_frame( bool $graceful, bool $with_state ): void {
-		$extra = [];
+	private function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		// Co-commit the snapshot node's state with the offset, as ONE record, so a
 		// respawn restores the cache and resumes the cursor in lockstep.
 		if ( $with_state && '' !== $this->snapshot_node ) {
