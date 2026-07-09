@@ -155,7 +155,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		try {
 			$sink->fill( $message );
-			++$this->counter;
 			// Drive SSE_In's resume position to THIS line's exclusive end, computed LOCALLY (cursor
 			// start + on-disk line length, +1 for the newline) — never the remote-stamped crumb
 			// length. A reconnect (stale / SSE_Out recycle) then resumes AFTER the last delivered

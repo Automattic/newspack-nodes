@@ -429,6 +429,7 @@ class SSE_In_Node extends Node {
 		// type is ignored.
 		if ( 'msg' === $type ) {
 			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
+			$this->counter++;
 			if ( null !== $this->on_message ) {
 				( $this->on_message )( $raw_data );
 			}
