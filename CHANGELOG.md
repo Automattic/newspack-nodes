@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-07-09
+
 ### Changed
 
 - **The "pivot" misnomer is retired substrate-wide.** Tachikoma's `pivot`/`pivot_client` is a physical rewire (re-sink the Shell into a remote socket, remove the local interpreter); what this codebase called "pivot" is the opposite mechanism, so the vocabulary now matches: cd'ing into a worker is described with `cd`/cwd terms, the transport attachment is "attached" (`wp nodes cli` status says "Attached-cli mode", the console says "attached worker: X" / "no attached worker (local graph)", `$pivoted` → `$attached`), and the TO=FROM reply direction drops the word entirely (JS export `canonicalReplyPivot()` → `canonicalReverseCwd()`; no sibling plugin imports the old name). Consumer bundles that inline the topology console pick up the new strings on their next rebuild.
