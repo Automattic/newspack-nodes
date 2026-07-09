@@ -628,7 +628,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertCount( 1, $spy->captured, 'the reconnect itself re-forwards nothing' );
 	}
 
-	public function test_parse_breadcrumb_accepts_a_two_part_crumb(): void {
+	public function test_crumb_from_line_accepts_a_two_part_crumb(): void {
 		// Wire-compat: after the crumb shrinks from seg:off:len to seg:off, the reader must still
 		// pin the cursor from a two-part crumb (nothing reads the retired length anymore).
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
@@ -1052,7 +1052,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_fire_commits_node_cursor(): void {
-		// The throttled per-tick persist_cursor commits the node-owned after-forward cursor
+		// The throttled per-tick checkpoint commits the node-owned after-forward cursor
 		// (a forwarded message's END), not SSE_In's connection position.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
@@ -1071,7 +1071,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 99, $value['offset'] );
 	}
 
-	public function test_persist_cursor_does_not_recommit_an_unchanged_position(): void {
+	public function test_throttled_checkpoint_does_not_recommit_an_unchanged_position(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote_spy( 'remote-austin' );

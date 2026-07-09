@@ -408,7 +408,7 @@ graceful handoff (misreading a strike as quarantined would silently drop a messa
 still had fair shots left).
 
 - **Caught-throw poison: quarantined ON SIGHT, identically in both readers.** The throw is
-  caught at the relay point (`Consumer::forward_line`, `Remote_Source::relay_stream_message`),
+  caught at the emit seam (`Consumer::forward_line`, `Remote_Source::forward_line`),
   the message is `dead_letter()`ed to the `:deadletter` sibling (replayable via
   `wp nodes ingest`). Consumer's chop advances past it locally; Remote_Source stays pinned
   at its start with the marker, so an idle tail's re-pull on the next recycle drops silently
