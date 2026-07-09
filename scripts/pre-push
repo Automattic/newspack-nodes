@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Pre-push gate. Smart-scoped by file type touched in the push range:
+# Pre-push gate.
+#
+# JS tests (npm run test:js) run on EVERY push — they're fast, and they can break
+# from a sibling-repo shared-runtime change this push never touched (the
+# @newspack-nodes/* alias resolves to the nodes source), which a file-type-scoped
+# gate misses on a PHP-only or docs-only push.
+#
+# Everything else is smart-scoped by file type touched in the push range:
 #
 #   PHP changed  → npm run lint:php  + deploy to container + phpunit in container
 #   JS changed   → npm run lint:js   + npm run build
 #   SCSS changed → npm run lint:scss + npm run build
 #
-# Skips entirely when the push contains only docs / CHANGELOG / config-only
-# tweaks. Skip the whole gate with `git push --no-verify` when you know it's
-# fine (in-flight WIP branches, etc.).
+# Skips the SCOPED gates when the push is only docs / CHANGELOG / config-only
+# tweaks (the JS tests still run). Skip the whole gate with `git push
+# --no-verify` when you know it's fine (in-flight WIP branches, etc.).
 #
 # Wired via composer.json `extra.hooks.pre-push`; cghooks installs to
 # .git/hooks/pre-push on `composer install`.
@@ -59,6 +66,13 @@ fi
 
 step "checking $(dim "$range")"
 
+# JS tests are fast and can break from a sibling-repo shared-runtime change this
+# push never touched (the @newspack-nodes/* alias resolves to the nodes source),
+# so run the FULL suite on every push — before the scoped, file-type gates.
+step "test:js"
+npm run test:js --silent || fail "test:js failed — fix or push --no-verify"
+ok "test:js clean"
+
 # Classify the diff by file type. Exclude generated / vendored paths.
 changed="$(git diff --name-only "$range" 2>/dev/null || true)"
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"
@@ -83,9 +97,6 @@ if [[ -n "$js_changed" ]]; then
 	step "lint:js ($(echo "$js_changed" | wc -l | tr -d ' ') file(s) changed)"
 	npm run lint:js --silent || fail "lint:js failed — fix or push --no-verify"
 	ok "lint:js clean"
-	step "test:js"
-	npm run test:js --silent || fail "test:js failed — fix or push --no-verify"
-	ok "test:js clean"
 fi
 if [[ -n "$scss_changed" ]]; then
 	step "lint:scss ($(echo "$scss_changed" | wc -l | tr -d ' ') file(s) changed)"
