@@ -48,6 +48,15 @@ class SseInTest extends TestCase {
 		return "event: msg\ndata: " . Message::packed( $m ) . "\n\n";
 	}
 
+	/** Build a `connected` SSE frame (its own event type, mirroring `heartbeat`). */
+	private function connected_frame( $value ): string {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_INFO;
+		$m[ Message::KEY ]   = 'connected';
+		$m[ Message::VALUE ] = $value;
+		return "event: connected\ndata: " . Message::packed( $m ) . "\n\n";
+	}
+
 	public function test_bytes_read_accumulates_received_wire_bytes(): void {
 		[ $node ] = $this->configured_node();
 		$chunk1   = "event: heartbeat\ndata: {}\n\n";
@@ -133,7 +142,7 @@ class SseInTest extends TestCase {
 	public function test_connected_handshake_consumed_and_captures_slot(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->msg_frame( '', 'connected', 'PID 9 SLOT 7' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9 SLOT 7' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertSame( 7, $node->slot() );
@@ -143,7 +152,7 @@ class SseInTest extends TestCase {
 	public function test_connected_handshake_without_pid_is_error_not_connected(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->msg_frame( '', 'connected', 'SLOT 7' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertNull( $node->pid() );
@@ -289,7 +298,7 @@ class SseInTest extends TestCase {
 		[ $node ] = $this->configured_node();
 		$this->assertNull( $node->pid() );
 
-		$node->process_sse_chunk( $this->msg_frame( '', 'connected', 'PID 4242 SLOT 7' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 4242 SLOT 7' ) );
 
 		$this->assertSame( 4242, $node->pid() );
 	}

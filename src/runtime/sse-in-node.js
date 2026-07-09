@@ -23,17 +23,7 @@
 import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
-import {
-	TYPE,
-	FROM,
-	TO,
-	ID,
-	KEY,
-	VALUE,
-	TM_INFO,
-	TM_ERROR,
-	unpack,
-} from './message';
+import { TYPE, FROM, TO, ID, VALUE, TM_ERROR, unpack } from './message';
 
 // A record's ID is the Consumer's `segment:offset:length` breadcrumb; FROM carries the
 // producer path `<sub>.p<partition>/…`. Parsing both lets the client resume a
@@ -156,6 +146,16 @@ export class SseInNode extends Node {
 			}
 			this.lastEventTime = Date.now();
 		} );
+		// The `connected` handshake is its own SSE event type (like heartbeat):
+		// snoop it for pid/slot + the CONNECTED state, don't route it. Discriminated
+		// by `event:` rather than by unpacking every `msg` to peek KEY.
+		es.addEventListener( 'connected', ( e ) => {
+			if ( stale() ) {
+				return;
+			}
+			this.lastEventTime = Date.now();
+			this._applyConnected( unpack( e.data )[ VALUE ] );
+		} );
 		es.addEventListener( 'msg', ( e ) => {
 			if ( stale() ) {
 				return;
@@ -173,12 +173,6 @@ export class SseInNode extends Node {
 				Core.printLessOften(
 					'ERROR: SseInNode: dropped a malformed typeless SSE frame'
 				);
-				return;
-			}
-			if ( message[ TYPE ] & TM_INFO && 'connected' === message[ KEY ] ) {
-				// Snoop-only handshake: parse it into fields + the CONNECTED state;
-				// metadata, not a graph message — don't route it (the transcript).
-				this._applyConnected( message[ VALUE ] );
 				return;
 			}
 			// A log/topic SUBSCRIPTION (RemoteLink, homeToTarget) re-homes every

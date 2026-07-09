@@ -188,7 +188,9 @@ class SSE_Out_Node extends Node {
 	 */
 	public function run_stream_loop( array $subs, ?array $positions, int $interval, int $slot = 1, int $partition = -1 ): void {
 		// `connected` emits before the graph is built (registers no nodes), so it stays outside try.
-		$this->send_sse_event( 'msg', $this->build_connected_msg( $slot, $subs, $interval ) );
+		// Its own SSE event type (like `heartbeat`): the client discriminates the handshake by
+		// `event:` rather than unpacking every `msg` to peek KEY.
+		$this->send_sse_event( 'connected', $this->build_connected_msg( $slot, $subs, $interval ) );
 		// A bare flush() doesn't clear fastcgi/nginx buffers; the FLUSH_SIZE padding does.
 		$this->flush_if_needed();
 

@@ -146,7 +146,7 @@ test( 'a connected handshake records the SSE connect time in IoTelemetry', () =>
 	IoTelemetry.markSseDisconnected();
 	const { sse } = makeSseIn();
 	sse.start();
-	FakeEventSource.last.dispatch( 'msg', connectedFrame() );
+	FakeEventSource.last.dispatch( 'connected', connectedFrame() );
 	expect( IoTelemetry.snapshot().sseConnectedAt ).not.toBeNull();
 } );
 
@@ -156,7 +156,7 @@ test( 'an EventSource-closed disconnect clears the SSE connect time', () => {
 		.mockImplementation( () => {} );
 	const { sse } = makeSseIn();
 	sse.start();
-	FakeEventSource.last.dispatch( 'msg', connectedFrame() );
+	FakeEventSource.last.dispatch( 'connected', connectedFrame() );
 	expect( IoTelemetry.snapshot().sseConnectedAt ).not.toBeNull();
 	FakeEventSource.last.dispatchError( FakeEventSource.CLOSED );
 	expect( IoTelemetry.snapshot().sseConnectedAt ).toBeNull();
@@ -167,7 +167,7 @@ test( 'a connected envelope parses pid + slot into plain fields', () => {
 	const { sse } = makeSseIn();
 	sse.start();
 	FakeEventSource.last.dispatch(
-		'msg',
+		'connected',
 		connectedFrame( { pid: 7777, slot: 3 } )
 	);
 	expect( sse.pid() ).toBe( 7777 );
@@ -179,7 +179,7 @@ test( 'the connected envelope is cached as the raw CONNECTED state string', () =
 	sse.start();
 	const raw = connectedRaw( { pid: 7777, slot: 3 } );
 	FakeEventSource.last.dispatch(
-		'msg',
+		'connected',
 		connectedFrame( { pid: 7777, slot: 3 } )
 	);
 	expect( sse.setStateCache.CONNECTED ).toBe( raw );
@@ -195,7 +195,7 @@ test( 'a connected envelope with no PID sets ERROR state and warns', () => {
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
 	m[ VALUE ] = 'SLOT 1 SUBSCRIPTIONS x INTERVAL 2000';
-	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+	FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
 	expect( sse.pid() ).toBeNull();
 	expect( sse.setStateCache.ERROR ).toContain( 'missing PID' );
 	// A malformed handshake must NOT report CONNECTED (don't clobber the ERROR).
@@ -319,7 +319,7 @@ test( 'close() forgets the session pid so a reopen does not report a stale one',
 	const { sse } = makeSseIn();
 	sse.start();
 	FakeEventSource.last.dispatch(
-		'msg',
+		'connected',
 		connectedFrame( { pid: 4242, slot: 1 } )
 	);
 	expect( sse.pid() ).toBe( 4242 );

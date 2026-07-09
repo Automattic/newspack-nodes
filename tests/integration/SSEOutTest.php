@@ -98,8 +98,8 @@ class SSEOutTest extends TestCase {
 		// connected + line-one + line-two = at least 3 events.
 		$this->assertGreaterThanOrEqual( 3, \count( $events ) );
 
-		// First event should be connected.
-		$this->assertSame( 'msg', $events[0]['event'] );
+		// First event should be the `connected` handshake — now its own event type.
+		$this->assertSame( 'connected', $events[0]['event'] );
 		$first = \json_decode( $events[0]['data'], true );
 		$this->assertSame( 'connected', $first[ Message::KEY ] );
 		// The connected envelope is a flat `KEY VALUE` string (TM_INFO values are

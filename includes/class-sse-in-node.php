@@ -417,6 +417,12 @@ class SSE_In_Node extends Node {
 			return true;
 		}
 
+		// The substrate's bookkeeping handshake is its own event type (like `heartbeat`):
+		// capture slot/pid, don't forward. Discriminated by `event:`, not by peeking KEY.
+		if ( 'connected' === $type ) {
+			return $this->handle_connected( $message );
+		}
+
 		// `/messages/stream` data lines are `msg` events carrying a 7-field Message
 		// (unpacked() guaranteed the shape above); any other event type is ignored.
 		if ( 'msg' === $type ) {
@@ -428,22 +434,54 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Dispatch a parsed message (7-field array).
+	 * Handle the substrate's bookkeeping `connected` handshake — its own SSE event
+	 * type (mirrors `heartbeat`). Capture slot + session pid from the flat
+	 * `KEY VALUE` envelope, mark connected, and do NOT forward. A missing PID or a
+	 * non-string VALUE is a malformed handshake: report it and stay disconnected.
 	 *
-	 * The only message inspected is the substrate's bookkeeping `connected` frame
-	 * (KEY = 'connected', VALUE = `{slot, ...}`), which feeds local slot/connection
-	 * state and is NOT forwarded. Everything else is forwarded. Per-message resume
-	 * position rides `ID = "segment:offset:length"` (the remote Consumer stamps it at emit).
+	 * @param array<int,mixed> $message 7-field Message array.
+	 * @return bool
+	 */
+	private function handle_connected( array $message ): bool {
+		$value = $message[ Message::VALUE ];
+		if ( ! \is_string( $value ) ) {
+			// TM_INFO values are strings; a non-string VALUE is malformed. Report for visibility.
+			$this->last_error = 'malformed connected envelope (non-string value)';
+			$this->set_state( 'ERROR', $this->last_error );
+			$this->print_less_often( 'ERROR: ' . $this->last_error );
+			return true;
+		}
+		$pairs             = \array_chunk( \explode( ' ', $value ), 2 );
+		$info              = \array_column( $pairs, 1, 0 );
+		$slot_raw          = $info['SLOT'] ?? null;
+		$this->slot        = \is_scalar( $slot_raw ) ? (int) $slot_raw : null;
+		$pid_raw           = $info['PID'] ?? null;
+		$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
+		// A handshake with no PID is malformed — report it and DON'T mark
+		// connected (mirrors the JS SseIn; the reply-FROM needs the pid).
+		if ( null === $this->session_pid ) {
+			$this->last_error = 'connected envelope missing PID';
+			$this->set_state( 'ERROR', $this->last_error );
+			$this->print_less_often( 'ERROR: ' . $this->last_error );
+			return true;
+		}
+		$this->connected = true;
+		$this->set_state( 'CONNECTED', $value );
+		return true;
+	}
+
+	/**
+	 * Dispatch a parsed data message (7-field array): advance the resume cursor
+	 * from the ID breadcrumb, then forward. The `connected` handshake is its own
+	 * SSE event type (see handle_connected) and never reaches here. Per-message
+	 * resume position rides `ID = "segment:offset:length"` (the remote Consumer
+	 * stamps it at emit).
 	 *
 	 * @param array<int,mixed> $message 7-field Message array.
 	 * @return bool
 	 */
 	private function dispatch_message( array $message ): bool {
-		$id_raw  = $message[ Message::ID ];
-		$key_raw = $message[ Message::KEY ];
-		$id      = Core::as_string( $id_raw );
-		$key     = Core::as_string( $key_raw );
-		$value   = $message[ Message::VALUE ];
+		$id = Core::as_string( $message[ Message::ID ] );
 
 		// Resume at the exclusive next-read offset+length: the remote stamped the on-disk
 		// length in the breadcrumb, so this is the exact next-record boundary (the client
@@ -456,36 +494,6 @@ class SSE_In_Node extends Node {
 					'offset'     => (int) $parts[1] + (int) $parts[2],
 				];
 			}
-		}
-
-		// `connected` message is the substrate's bookkeeping handshake — capture
-		// slot, mark connected, do NOT forward.
-		if ( 'connected' === $key && \is_string( $value ) ) {
-			$pairs             = \array_chunk( \explode( ' ', $value ), 2 );
-			$info              = \array_column( $pairs, 1, 0 );
-			$slot_raw          = $info['SLOT'] ?? null;
-			$this->slot        = \is_scalar( $slot_raw ) ? (int) $slot_raw : null;
-			$pid_raw           = $info['PID'] ?? null;
-			$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
-			// A handshake with no PID is malformed — report it and DON'T mark
-			// connected (mirrors the JS SseIn; the reply-FROM needs the pid).
-			if ( null === $this->session_pid ) {
-				$this->last_error = 'connected envelope missing PID';
-				$this->set_state( 'ERROR', $this->last_error );
-				$this->print_less_often( 'ERROR: ' . $this->last_error );
-				return true;
-			}
-			$this->connected   = true;
-			$this->set_state( 'CONNECTED', $value );
-			return true;
-		}
-		if ( 'connected' === $key ) {
-			// Malformed handshake: `connected` key but a non-string VALUE (TM_INFO
-			// values are strings). Don't forward it; report for visibility.
-			$this->last_error = 'malformed connected envelope (non-string value)';
-			$this->set_state( 'ERROR', $this->last_error );
-			$this->print_less_often( 'ERROR: ' . $this->last_error );
-			return true;
 		}
 
 		$this->forward( $message );

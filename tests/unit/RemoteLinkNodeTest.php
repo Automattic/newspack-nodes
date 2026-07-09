@@ -58,7 +58,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::KEY ]   = 'connected';
 		$m[ Message::VALUE ] = "PID 1 SLOT {$slot}";
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 
 	/** Build a named base Remote_Link wired to a capture sink + downstream target. */

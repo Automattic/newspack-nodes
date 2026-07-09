@@ -78,7 +78,9 @@ function dispatchConnected( link, opts ) {
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
 	m[ VALUE ] = connectedRaw( opts );
-	FakeEventSource.last.listeners.msg[ 0 ]( { data: JSON.stringify( m ) } );
+	FakeEventSource.last.listeners.connected[ 0 ]( {
+		data: JSON.stringify( m ),
+	} );
 }
 
 describe( 'RemoteLinkNode', () => {

@@ -1144,6 +1144,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$m[ Message::ID ]    = '';
 		$m[ Message::KEY ]   = 'connected';
 		$m[ Message::VALUE ] = "PID 1 SLOT {$slot}";
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 }
