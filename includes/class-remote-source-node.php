@@ -113,18 +113,20 @@ class Remote_Source_Node extends Remote_Link_Node {
 			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
 		}
 		$crumb = $this->parse_breadcrumb( $message );
-		try {
-			$sink->fill( $message );
-		} catch ( Worker_Should_Stop $e ) {
-			// Cooperative deadline mid-forward of THIS message: record it for the fair-shot rule, then escape.
-			$this->stopped_message       = $message;
-			$this->stopped_message_start = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] ];
-			$this->stopped_message_end   = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] + $crumb['length'] ];
-			throw $e;
-		} catch ( \Throwable $e ) {
-			// Consumer's model: a downstream throw dead-letters on sight (no block, no climb); the cursor advances below.
-			$this->ensure_deadletter_sibling();
-			$this->dead_letter( $message, 'throw', $e );
+		if ( ! ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_head( $message, $crumb ) ) ) {
+			try {
+				$sink->fill( $message );
+			} catch ( Worker_Should_Stop $e ) {
+				// Cooperative deadline mid-forward of THIS message: record it for the fair-shot rule, then escape.
+				$this->stopped_message       = $message;
+				$this->stopped_message_start = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] ];
+				$this->stopped_message_end   = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] + $crumb['length'] ];
+				throw $e;
+			} catch ( \Throwable $e ) {
+				// Consumer's model: a downstream throw dead-letters on sight (no block, no climb); the cursor advances below.
+				$this->ensure_deadletter_sibling();
+				$this->dead_letter( $message, 'throw', $e );
+			}
 		}
 		// Advance to this message's exclusive next-read (offset+length) from its own breadcrumb — the remote stamped the on-disk length.
 		if ( null !== $crumb ) {
@@ -132,6 +134,35 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->cursor_offset = $crumb['offset'] + $crumb['length'];
 		}
 		$this->after_forward();
+	}
+
+	/**
+	 * Crawl-entry head sacrifice (Consumer-parity [42]): decide the fate of the first relayed
+	 * message under an armed head-sacrifice. Only an EXACT crumb-start match on the boot pin is
+	 * the in-flight-at-crash suspect — dead-lettered with reason 'crash' (return true → skip the
+	 * forward; the caller still advances the cursor past it via the crumb). A start PAST the pin
+	 * means the suspect was GC'd or the stream resumed beyond it — disarm without sacrificing and
+	 * forward normally (return false). Anything earlier keeps the flag armed for the real suspect.
+	 * One-shot either way once resolved.
+	 *
+	 * @param array<int, mixed>                       $message The relayed stream message.
+	 * @param array{segment:int, offset:int, length:int} $crumb Its parsed ID breadcrumb.
+	 * @return bool True when the message was dead-lettered as the suspect (skip the forward).
+	 */
+	private function sacrifice_head( array $message, array $crumb ): bool {
+		// Lexicographic (segment, offset) compare against the boot pin: 0 = the suspect, >0 = past it.
+		$cmp = [ $crumb['segment'], $crumb['offset'] ] <=> [ $this->boot_cursor_segment, $this->boot_cursor_offset ];
+		if ( 0 === $cmp ) {
+			$this->crawl_skip_head = false;
+			$this->ensure_deadletter_sibling();
+			$this->dead_letter( $message, 'crash' );
+			return true;
+		}
+		if ( 0 < $cmp ) {
+			$this->crawl_skip_head = false;
+			$this->print_less_often( "{$this->name} crawl head-sacrifice: suspect at {$this->boot_cursor_segment}:{$this->boot_cursor_offset} is gone (stream resumed past it) — not sacrificing" );
+		}
+		return false;
 	}
 
 	/**
@@ -145,8 +176,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( $this->crawl ) {
 			// Survived a full interval crash-free → drop back to the baseline; either way
 			// checkpoint per message (pinned attempts while crawling, baseline once exited)
-			// so an uncatchable re-crash pins the exact culprit.
-			if ( $this->crawl_interval_elapsed() ) {
+			// so an uncatchable re-crash pins the exact culprit. Don't exit while the head
+			// sacrifice is still armed (mirrors Consumer): an un-sacrificed suspect would
+			// re-arm the crash loop next boot.
+			if ( ! $this->crawl_skip_head && $this->crawl_interval_elapsed() ) {
 				$this->exit_crawl();
 			}
 			$this->commit_position( $segment, $offset, false );
@@ -184,8 +217,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$segment = \is_scalar( $segment ) ? (int) $segment : 0;
 		$offset = \is_scalar( $offset ) ? (int) $offset : 0;
 		// Resume the shared attempt accounting (climb at attempts+1, carry the streak, detect a
-		// hard-crash lineage → crawl). A cooperative-stop lineage climbs here too.
-		$this->resume_attempts_from_frame( $value );
+		// hard-crash lineage → crawl). A cooperative-stop lineage climbs here too. On crawl entry
+		// arm the head sacrifice: the boot pin (frozen just below) is the crash suspect's start —
+		// the first relayed message matching it is dead-lettered instead of forwarded.
+		if ( $this->resume_attempts_from_frame( $value ) ) {
+			$this->crawl_skip_head = true;
+		}
 		// Seed the node-owned cursor + freeze the boot cursor at the restored position (so
 		// cursor_advanced_since_boot() is honest); forwards advance the cursor past boot.
 		$this->cursor_segment      = $segment;
