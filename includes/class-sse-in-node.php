@@ -61,12 +61,15 @@ class SSE_In_Node extends Node {
 	public static ?\Closure $curl_dispatch = null;
 
 	/**
-	 * Poison hook. The patron (Remote_Source) sets this to route an unparseable
-	 * frame's raw bytes into its DLQ. Signature: `function ( string $raw ): void`.
+	 * Delivery seam. The owner (patron) sets this; every `msg` SSE event hands its RAW
+	 * `data:` payload (the packed line, byte-identical to the remote's on-disk encoding)
+	 * to it. Remote_IPC implements it as unpack + forward downstream; Remote_Source appends
+	 * the raw line to its Buffered_Pump buffer. A null seam drops the event.
+	 * Signature: `function ( string $raw ): void`.
 	 *
 	 * @var \Closure|null
 	 */
-	public ?\Closure $on_poison = null;
+	public ?\Closure $on_message = null;
 	protected string $auth_password = '';
 	protected string $auth_token    = '';
 	protected string $auth_username = '';
@@ -242,6 +245,31 @@ class SSE_In_Node extends Node {
 		return $multi;
 	}
 
+	/**
+	 * Backpressure valve — ARM: (re-)register the owned multi with the event loop so its
+	 * socket is serviced again. No-op until connected (no multi yet). The dual of disarm();
+	 * a buffering owner (Remote_Source) calls this when its buffer runs dry of complete lines.
+	 *
+	 * @api Support for the Remote_Source Buffered_Pump valve.
+	 */
+	public function arm(): void {
+		if ( null !== $this->multi ) {
+			Event_Framework::instance()->register_curl_handle( $this, $this->multi );
+		}
+	}
+
+	/**
+	 * Backpressure valve — DISARM: unregister from the event loop. The socket stops being
+	 * serviced (a pure select-set toggle — the easy handle stays open), so the kernel recv
+	 * buffer fills, the TCP window closes, and the remote SSE server blocks on write. Real
+	 * end-to-end backpressure. A buffering owner calls this once its buffer holds a line.
+	 *
+	 * @api Support for the Remote_Source Buffered_Pump valve.
+	 */
+	public function disarm(): void {
+		Event_Framework::instance()->unregister_curl_handle( $this );
+	}
+
 	// =========================================================================
 	// Event_Framework callbacks (cURL multi)
 	// =========================================================================
@@ -405,29 +433,31 @@ class SSE_In_Node extends Node {
 			return true;
 		}
 
-		try {
-			$message = Message::unpacked( $raw_data );
-		} catch ( \InvalidArgumentException $e ) {
-			// A torn frame won't unpack — quarantine the raw bytes via the patron's DLQ, keep draining.
-			if ( null !== $this->on_poison ) {
-				( $this->on_poison )( $raw_data );
-			}
-			$this->last_error = 'unparseable SSE frame';
-			$this->print_less_often( 'ERROR: ' . $this->last_error );
-			return true;
-		}
-
 		// The substrate's bookkeeping handshake is its own event type (like `heartbeat`):
-		// capture slot/pid, don't forward. Discriminated by `event:`, not by peeking KEY.
+		// unpack, capture slot/pid, don't forward. Discriminated by `event:`, not by peeking KEY.
 		if ( 'connected' === $type ) {
+			try {
+				$message = Message::unpacked( $raw_data );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->last_error = 'unparseable connected frame';
+				$this->set_state( 'ERROR', $this->last_error );
+				$this->print_less_often( 'ERROR: ' . $this->last_error );
+				return true;
+			}
 			return $this->handle_connected( $message );
 		}
 
-		// `/messages/stream` data lines are `msg` events carrying a 7-field Message
-		// (unpacked() guaranteed the shape above); any other event type is ignored.
+		// `/messages/stream` data lines are `msg` events carrying a packed 7-field Message.
+		// SSE_In no longer unpacks them — it hands the RAW payload to the owner's delivery
+		// seam (Remote_IPC unpacks + forwards; Remote_Source buffers). A torn frame therefore
+		// reaches the owner unparsed; its forward_line owns the unparse/DLQ. Any other event
+		// type is ignored.
 		if ( 'msg' === $type ) {
 			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
-			return $this->dispatch_message( $message );
+			if ( null !== $this->on_message ) {
+				( $this->on_message )( $raw_data );
+			}
+			return true;
 		}
 
 		return true;
@@ -468,61 +498,6 @@ class SSE_In_Node extends Node {
 		$this->connected = true;
 		$this->set_state( 'CONNECTED', $value );
 		return true;
-	}
-
-	/**
-	 * Dispatch a parsed data message (7-field array): advance the resume cursor
-	 * from the ID breadcrumb, then forward. The `connected` handshake is its own
-	 * SSE event type (see handle_connected) and never reaches here. Per-message
-	 * resume position rides `ID = "segment:offset:length"` (the remote Consumer
-	 * stamps it at emit).
-	 *
-	 * @param array<int,mixed> $message 7-field Message array.
-	 * @return bool
-	 */
-	private function dispatch_message( array $message ): bool {
-		$id = Core::as_string( $message[ Message::ID ] );
-
-		// Resume at the exclusive next-read offset+length: the remote stamped the on-disk
-		// length in the breadcrumb, so this is the exact next-record boundary (the client
-		// cannot derive it from the re-stamped wire bytes). Empty/non-breadcrumb ID = no-op.
-		if ( '' !== $id ) {
-			$parts = \explode( ':', $id );
-			if ( 3 === \count( $parts ) && \ctype_digit( $parts[0] ) && \ctype_digit( $parts[1] ) && \ctype_digit( $parts[2] ) ) {
-				$this->position = [
-					'segment' => (int) $parts[0],
-					'offset'     => (int) $parts[1] + (int) $parts[2],
-				];
-			}
-		}
-
-		$this->forward( $message );
-		return true;
-	}
-
-	/**
-	 * Forward a parsed message to the sink with TO=target.
-	 *
-	 * @param array<int,mixed> $message 7-field Message array.
-	 */
-	private function forward( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'SSE_In::forward requires a wired sink' );
-		}
-
-		if ( $this->target ) {
-			$message[ Message::TO ] = Core::as_string( $this->target );
-		}
-		// Honor a false stamp (FROM over MAX_FROM_SIZE / empty name): DROP the message
-		// rather than forward an unstamped one the downstream would then misroute. The
-		// cursor breadcrumb already advanced, so one bad record can't wedge the stream.
-		if ( ! $this->stamp_message( $message, $this->name ) ) {
-			$this->print_less_often( 'dropping stream message: FROM exceeded MAX_FROM_SIZE' );
-			return;
-		}
-
-		++$this->counter;
-		$this->sink->fill( $message );
 	}
 
 	// =========================================================================
