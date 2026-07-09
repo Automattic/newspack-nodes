@@ -268,53 +268,6 @@ class Consumer_Node extends Timer_Node {
 		];
 	}
 
-	// ============================================================================
-	// Time-travel transport hooks. The shared machinery (pause/step/play/seek, the
-	// read surface, verbs + command handlers) lives in the Time_Travel trait; these
-	// are Consumer's file-tail-specific moves the trait calls.
-	// ============================================================================
-
-	/**
-	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is
-	 * reached. poll_init's first tick only loads the buffer (emits nothing in line
-	 * mode), so always tick at least once, then keep going until one message lands
-	 * or a poll leaves us genuinely at EOF with nothing buffered.
-	 *
-	 * @return array{segment:int, offset:int, at_eof:bool}
-	 */
-	protected function advance_one_message(): array {
-		$before = $this->counter;
-		do {
-			$this->poll();
-		} while ( $this->counter === $before && ! $this->at_eof );
-		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => $this->at_eof ];
-	}
-
-	/**
-	 * Synchronous read-to-EOF — the messaging interface a CLI (reqgrep) drives instead
-	 * of hand-rolling read_bytes_at + decode. This is Tachikoma v2.0's drain(): poll the
-	 * source until it is genuinely at EOF with no buffered complete line, fill()ing each
-	 * unpacked Message into the sink as poll() does, then emit one terminal TM_EOF (its
-	 * drain tail). The Consumer's fire_cb is the async event-loop wrapper of the same path.
-	 *
-	 * @api Cross-plugin CLI entrypoint — reqgrep (event-logger-nodes) drives it.
-	 */
-	public function drain(): void {
-		do {
-			$this->poll();
-		} while ( ! $this->at_eof || false !== \strpos( $this->buffer, "\n" ) );
-		$eof                  = Message::new_message();
-		$eof[ Message::TYPE ] = Message::TM_EOF;
-		$stamp                = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		if ( '' !== $stamp ) {
-			$this->stamp_message( $eof, $stamp );
-		}
-		if ( \is_string( $this->target ) && '' !== $this->target ) {
-			$eof[ Message::TO ] = $this->target;
-		}
-		$this->sink?->fill( $eof );
-	}
-
 	/**
 	 * Buffered_Pump boot seam: Consumer's "where do I start" is a durable seek. Seed
 	 * the cursor from the offsetlog, restore the snapshot node's state (the whole
@@ -697,6 +650,53 @@ class Consumer_Node extends Timer_Node {
 			$this->cursor_offset = 0;
 			$this->buffer     = '';
 		}
+	}
+
+	// ============================================================================
+	// Time-travel transport hooks. The shared machinery (pause/step/play/seek, the
+	// read surface, verbs + command handlers) lives in the Time_Travel trait; these
+	// are Consumer's file-tail-specific moves the trait calls.
+	// ============================================================================
+
+	/**
+	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is
+	 * reached. poll_init's first tick only loads the buffer (emits nothing in line
+	 * mode), so always tick at least once, then keep going until one message lands
+	 * or a poll leaves us genuinely at EOF with nothing buffered.
+	 *
+	 * @return array{segment:int, offset:int, at_eof:bool}
+	 */
+	protected function advance_one_message(): array {
+		$before = $this->counter;
+		do {
+			$this->poll();
+		} while ( $this->counter === $before && ! $this->at_eof );
+		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => $this->at_eof ];
+	}
+
+	/**
+	 * Synchronous read-to-EOF — the messaging interface a CLI (reqgrep) drives instead
+	 * of hand-rolling read_bytes_at + decode. This is Tachikoma v2.0's drain(): poll the
+	 * source until it is genuinely at EOF with no buffered complete line, fill()ing each
+	 * unpacked Message into the sink as poll() does, then emit one terminal TM_EOF (its
+	 * drain tail). The Consumer's fire_cb is the async event-loop wrapper of the same path.
+	 *
+	 * @api Cross-plugin CLI entrypoint — reqgrep (event-logger-nodes) drives it.
+	 */
+	public function drain(): void {
+		do {
+			$this->poll();
+		} while ( ! $this->at_eof || false !== \strpos( $this->buffer, "\n" ) );
+		$eof                  = Message::new_message();
+		$eof[ Message::TYPE ] = Message::TM_EOF;
+		$stamp                = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		if ( '' !== $stamp ) {
+			$this->stamp_message( $eof, $stamp );
+		}
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			$eof[ Message::TO ] = $this->target;
+		}
+		$this->sink?->fill( $eof );
 	}
 
 	/** Enable/disable the multi-writer seal-grace. Set true only for a shared log (the firehose). */

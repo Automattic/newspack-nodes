@@ -84,29 +84,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Refill seam: the async backpressure VALVE (the dual of Consumer's synchronous disk read).
-	 * Arm the curl handle only while the buffer is dry of complete lines; bytes then flow in via
-	 * on_curl_data → the delivery seam, which disarms once a line lands. While a line is still
-	 * buffered, hold the valve closed so the TCP window backpressures the remote. In unit tests
-	 * (no event loop) the register/unregister toggles are inert — the harness drives poll()
-	 * directly against an already-buffered line.
-	 */
-	protected function get_batch(): void {
-		$sse = $this->sse_in;
-		if ( null === $sse ) {
-			$this->at_eof = true;
-			return;
-		}
-		if ( $this->buffer_has_line() ) {
-			$sse->disarm();
-			$this->at_eof = false;
-			return;
-		}
-		$sse->arm();
-		$this->at_eof = '' === $this->buffer;
-	}
-
-	/**
 	 * Drain seam override: dispatch ONE buffered line the push way. Read the record's own START
 	 * from its breadcrumb and pin the cursor there (advance-on-next — a push cursor is
 	 * breadcrumb-derived, NOT chop-derived); then, if the boot head-skip is armed, run the
@@ -210,13 +187,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Consume-cursor advance seam: NO-OP. Consumer bumps cursor_offset by the local buffer chop;
-	 * a push source pins its cursor from each line's breadcrumb in drain_line/forward_line, so the
-	 * chop index (a local-buffer position) is not a remote seg:offset and must not touch the cursor.
-	 */
-	protected function advance_consume_cursor( int $pos ): void {}
-
-	/**
 	 * Durable-commit seam: commit the node-owned cursor as an offsetlog frame. Mirrors Consumer's
 	 * checkpoint() — advance-guard (skip a redundant same-cursor write), forward-progress streak
 	 * reset past the boot cursor (not in crawl, where attempts stay pinned), then write the frame.
@@ -234,21 +204,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->poison_reason  = '';
 		}
 		$this->write_checkpoint_frame( $graceful, true );
-	}
-
-	/**
-	 * Durable-commit seam: write one frame at the current cursor UNCONDITIONALLY (no advance-guard;
-	 * the boot/crawl sequences re-commit the same cursor on purpose). Ensures the lazy per-node
-	 * offsetlog exists first. Remote_Source has no snapshot cache to co-commit, so $with_state is
-	 * unused; the _ts wall-clock rides via checkpoint_frame_extra().
-	 *
-	 * @param array<array-key, mixed> $extra Per-call frame additions (the quarantine marker).
-	 */
-	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
-		if ( null === $this->ensure_offsetlog_partition() ) {
-			return;
-		}
-		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
 	}
 
 	// =========================================================================
@@ -393,6 +348,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$graceful = $this->attempts <= 1 && ! $this->crawl;
 		$this->write_checkpoint_frame( $graceful, true );
+	}
+
+	/**
+	 * Durable-commit seam: write one frame at the current cursor UNCONDITIONALLY (no advance-guard;
+	 * the boot/crawl sequences re-commit the same cursor on purpose). Ensures the lazy per-node
+	 * offsetlog exists first. Remote_Source has no snapshot cache to co-commit, so $with_state is
+	 * unused; the _ts wall-clock rides via checkpoint_frame_extra().
+	 *
+	 * @param array<array-key, mixed> $extra Per-call frame additions (the quarantine marker).
+	 */
+	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
+		if ( null === $this->ensure_offsetlog_partition() ) {
+			return;
+		}
+		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
 	}
 
 	/**
@@ -579,6 +549,36 @@ class Remote_Source_Node extends Remote_Link_Node {
 	private function status_key(): string {
 		return "np:remote:{$this->name}:{$this->remote_partition}";
 	}
+
+	/**
+	 * Refill seam: the async backpressure VALVE (the dual of Consumer's synchronous disk read).
+	 * Arm the curl handle only while the buffer is dry of complete lines; bytes then flow in via
+	 * on_curl_data → the delivery seam, which disarms once a line lands. While a line is still
+	 * buffered, hold the valve closed so the TCP window backpressures the remote. In unit tests
+	 * (no event loop) the register/unregister toggles are inert — the harness drives poll()
+	 * directly against an already-buffered line.
+	 */
+	protected function get_batch(): void {
+		$sse = $this->sse_in;
+		if ( null === $sse ) {
+			$this->at_eof = true;
+			return;
+		}
+		if ( $this->buffer_has_line() ) {
+			$sse->disarm();
+			$this->at_eof = false;
+			return;
+		}
+		$sse->arm();
+		$this->at_eof = '' === $this->buffer;
+	}
+
+	/**
+	 * Consume-cursor advance seam: NO-OP. Consumer bumps cursor_offset by the local buffer chop;
+	 * a push source pins its cursor from each line's breadcrumb in drain_line/forward_line, so the
+	 * chop index (a local-buffer position) is not a remote seg:offset and must not touch the cursor.
+	 */
+	protected function advance_consume_cursor( int $pos ): void {}
 
 	/**
 	 * Remote_Source's frame extra beyond the shared base: the commit wall-clock, carried on
