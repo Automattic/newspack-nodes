@@ -89,12 +89,10 @@ trait Buffered_Pump {
 	/** Timer-driven: poll, periodically checkpoint the cursor, then re-arm (busy/EOF cadence). */
 	protected function fire(): void {
 		$this->poll();
-		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
+		// poll() moves the cursor in memory; checkpoint() makes it durable.
 		if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
 			$this->checkpoint();
-			// A committing checkpoint() already bumped the floor; this covers its skip
-			// paths (advance-guard / unestablished cursor) so an idle cursor re-tests the
-			// throttle once per interval, not every tick.
+			// checkpoint()'s skip paths let an idle cursor re-throttle each interval.
 			$this->last_checkpoint = Core::$now;
 		}
 		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
@@ -115,13 +113,12 @@ trait Buffered_Pump {
 	 */
 	protected function poll_init(): void {
 		$this->init_position();
-		// Freeze the boot cursor at the real start (resume or first-spawn seek) so cursor_advanced_since_boot() is honest.
+		// Freeze the boot cursor so cursor_advanced_since_boot() stays honest.
 		$this->boot_cursor_segment = $this->cursor_segment;
 		$this->boot_cursor_offset  = $this->cursor_offset;
 		$this->poll_initialized    = true;
 		$this->set_state( 'READY', $this->name );
-		// Boot already knows if this is a hard-crash lineage (load_offsetlog entered
-		// crawl); crawl never re-enters mid-process, so this one choice is complete.
+		// crawl is set once at boot (hard-crash lineage), never re-entered mid-process.
 		$this->poll_cb = $this->crawl ? $this->poll_crawl( ... ) : $this->poll_active( ... );
 		( $this->poll_cb )();
 	}
@@ -143,14 +140,9 @@ trait Buffered_Pump {
 	 */
 	protected function poll_crawl(): void {
 		$drained = $this->drain_buffer();
-		// Don't exit until the head has actually been sacrificed — if it's a partial
-		// line that never completed within the interval, exiting now would re-arm the
-		// crash loop (next boot forwards the un-sacrificed poison head normally).
+		// Don't exit crawl until the head is sacrificed, else the crash loop re-arms.
 		if ( ! $this->crawl_skip_head && $this->crawl_interval_elapsed() ) {
-			// Survived a full interval crawling without an uncatchable crash → the
-			// poison is behind us. Return to coarse mode at the healthy baseline,
-			// force-writing the reset even at an unchanged cursor (the guard would
-			// otherwise suppress it, leaving attempts pinned at the threshold).
+			// Force-write the reset even at an unchanged cursor, else attempts stay pinned.
 			$this->exit_crawl();
 			$this->poll_cb = $this->poll_active( ... );
 			$this->write_checkpoint_frame( false, true );
@@ -181,11 +173,11 @@ trait Buffered_Pump {
 	 * lines too, so a single bad record can't wedge the stream.
 	 */
 	private function drain_buffer(): int {
-		// Crawl forces one line per drain (like line_mode) so poll_active can checkpoint per message.
+		// Crawl forces one line per drain so poll_crawl can checkpoint per message.
 		$max     = ( $this->line_mode || $this->crawl ) ? 1 : \PHP_INT_MAX;
 		$emitted = 0;
 		$pos     = 0;
-		// finally: a propagated Worker_Should_Stop still advances past the already-forwarded lines (single chop preserved).
+		// finally: a propagated Worker_Should_Stop still advances past forwarded lines.
 		try {
 			while ( $emitted < $max ) {
 				$nl = \strpos( $this->buffer, "\n", $pos );
@@ -203,8 +195,7 @@ trait Buffered_Pump {
 				$this->advance_consume_cursor( $pos );
 			}
 		}
-		// Ran the buffer dry of complete lines (not just hit the cap) — the remainder is a
-		// trailing partial; guard it against unbounded growth.
+		// Buffer dry of complete lines: the remainder is a partial — guard its growth.
 		if ( $emitted < $max ) {
 			$this->discard_oversized_partial();
 		}
@@ -221,16 +212,13 @@ trait Buffered_Pump {
 	 */
 	protected function drain_line( string $line, int $abs_offset ): void {
 		if ( $this->crawl_skip_head ) {
-			// Boot head-skip (one-shot). crawl_skip_head fires on the first line, so $abs_offset is
-			// the current cursor (the head start).
+			// One-shot boot head-skip on the first line; $abs_offset is the head start.
 			$this->crawl_skip_head = false;
 			if ( 'drop' === $this->skip_head_disposition ) {
-				// Quarantine marker: the head is already in the DLQ — drop it silently, no second entry.
+				// Quarantine marker: head already in the DLQ — drop silently, no second entry.
 				$this->print_less_often( "DROP [quarantined] {$this->name} at {$this->cursor_segment}:{$this->cursor_offset} — already dead-lettered" );
 			} else {
-				// Crash-crawl entry: sacrifice the boot-cursor head (the crash suspect) to the DLQ,
-				// then write a quarantine marker AT its start so a re-boot in the sacrifice→checkpoint
-				// crash window DROPS it instead of producing a second DLQ entry (dead_letter runs first).
+				// Sacrifice head to DLQ, then quarantine-mark its start for the crash window.
 				$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'crash' );
 				$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
 			}
@@ -267,7 +255,7 @@ trait Buffered_Pump {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			// Won't unpack → never will: quarantine (no retry) for inspection; the cursor still advances.
+			// Won't unpack → never will: quarantine (no retry); the cursor still advances.
 			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'unparseable', $e );
 			return;
 		}
@@ -275,18 +263,17 @@ trait Buffered_Pump {
 		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
 			return; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 		}
-		// Breadcrumb goes in ID as segment:offset:length. Cursor management consumes only the
-		// START (advance-on-next; readers accept a two-part crumb) — length is still stamped
-		// for SSE_In's eager reconnect and fleet compat. KEY stays the producer's routing key.
+		// ID breadcrumb = seg:offset:length; length is for SSE_In's eager reconnect.
 		$message[ Message::ID ] = "{$this->cursor_segment}:{$abs_offset}:{$line_size}";
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
 		try {
 			$this->sink?->fill( $message );
-			++$this->counter; // Count only a successful forward — not a re-delivered stop or a quarantined throw.
+			// Count only a successful forward, not a re-delivered stop or a throw.
+			++$this->counter;
 		} catch ( Worker_Should_Stop $e ) {
-			// Control flow, not poison: record the mid-dispatch stop for the fair-shot rule, then escape.
+			// Control flow, not poison: record the mid-dispatch stop, then escape.
 			$this->stopped_in_fill = true;
 			throw $e;
 		} catch ( \Throwable $e ) {
@@ -338,9 +325,9 @@ trait Buffered_Pump {
 	 */
 	public function cooperative_stop( string $reason, bool $baseline_near_watermark ): void {
 		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
-			return; // Ephemeral reader, or an unestablished 0:0 cursor (stopped before first poll) — nothing to strike.
+			return; // Ephemeral reader / unestablished 0:0 cursor — nothing to strike.
 		}
-		// Strike only a still-buffered boot-cursor message the worker stopped mid-dispatch; else clean handoff.
+		// Strike only a still-buffered boot-cursor message stopped mid-dispatch.
 		$head = $this->buffer_head_line();
 		if ( null === $head || ! $this->stopped_in_fill || $this->cursor_advanced_since_boot() ) {
 			$this->checkpoint( true );
@@ -351,17 +338,14 @@ trait Buffered_Pump {
 			$this->checkpoint( true );
 			return;
 		}
-		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
+		// The boot-cursor message got a full lifetime and we stopped on it: a strike.
 		if ( $this->record_poison_strike( $reason ) ) {
-			// Fair shots exhausted: quarantine the head, then hand off a MARKER frame AT its start
-			// (attempts=0, quarantined) — no local advance. The successor boots onto it, DROPS it
-			// (already in the DLQ), and advances off the next line. dead_letter runs first.
+			// Quarantine head, hand off a MARKER at its start; the successor drops it.
 			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_segment, $this->cursor_offset ), $reason );
 			$this->write_checkpoint_frame( true, true, [ 'quarantined' => true ] );
 			return;
 		}
-		// Below threshold: record the strike (reason + live attempt count) at the
-		// unchanged boot cursor, so the respawn boots on it again and climbs.
+		// Record the strike at the unchanged cursor; the respawn climbs from it.
 		$this->write_checkpoint_frame( false, true );
 	}
 

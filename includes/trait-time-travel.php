@@ -121,8 +121,7 @@ trait Time_Travel {
 			}
 		}
 		$this->next_offset( [ 'segment' => $entry['segment'], 'offset' => $entry['offset'] ] );
-		// Record the rewind point: PLAY truncates the offsetlog after it before
-		// re-arming, so the re-written forward timeline stays monotonic.
+		// Record the rewind point: PLAY truncates after it to stay monotonic.
 		$this->rewound_to         = $segment;
 		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
 		return 'ok';
@@ -186,9 +185,7 @@ trait Time_Travel {
 	 * @return array{segment:int, offset:int, at_eof:bool} The resulting cursor + EOF flag.
 	 */
 	public function step(): array {
-		// Stepping always leaves the reader paused: an un-paused self-rearming fire()
-		// loop would interleave full-batch polls between steps (leaping the cursor past
-		// messages) and an abandoned session would stay in line_mode. PLAY re-arms.
+		// Stepping stays paused: a self-rearming fire() would leap past messages.
 		$this->stop_timer();
 		$this->set_state( 'POLLING', 'PAUSED' );
 		if ( null === $this->saved_line_mode ) {
@@ -296,13 +293,7 @@ trait Time_Travel {
 		$this->set_state( 'POLLING', 'ACTIVE' );
 	}
 
-	// =========================================================================
-	// Shared checkpoint writer. Both nodes commit the SAME base frame — {segment,offset}
-	// plus the graceful-gated attempt accounting; each layers only its own extra
-	// fields via checkpoint_frame_extra() (Consumer: name/target/…/cache;
-	// Remote_Source: _ts) and any per-call $extra (Consumer's snapshot cache,
-	// Remote_Source's dlq marker).
-	// =========================================================================
+	// --- Shared checkpoint writer (both nodes commit the same base frame) ---
 
 	/**
 	 * True once CHECKPOINT_INTERVAL_S has elapsed since the last durable commit — the
@@ -336,12 +327,7 @@ trait Time_Travel {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
-		// Preserve a sealed quarantine marker (see Dead_Letter_Queue::$sealed_quarantine): while the
-		// cursor still sits on an already-DLQ'd message (a boot 'drop' head, or an advance-on-next
-		// on-sight quarantine that lingers until the next arrival), every frame AT that position
-		// keeps `quarantined` set — so no boot/persist/shutdown frame clobbers the marker and makes
-		// the reader re-forward a message that is already in the DLQ. A frame strictly PAST it
-		// releases the seal (normal frames resume).
+		// Keep 'quarantined' while on an already-DLQ'd message; past it drops the seal.
 		if ( null !== $this->sealed_quarantine ) {
 			$sealed = $this->sealed_quarantine;
 			if ( $segment === $sealed['segment'] && $offset === $sealed['offset'] ) {
@@ -375,9 +361,7 @@ trait Time_Travel {
 	/** React to a committed frame (Consumer publishes its CHECKPOINT state). Base no-op. */
 	protected function on_checkpoint_committed(): void {}
 
-	// =========================================================================
-	// Node-specific hooks.
-	// =========================================================================
+	// --- Node-specific hooks ---
 
 	/**
 	 * Reposition the read cursor to `{segment,offset}` (seek_frame's landing).
@@ -400,9 +384,7 @@ trait Time_Travel {
 	/** Extra halt on PAUSE beyond stopping the timer. Base no-op; override to also stop the pull. */
 	protected function time_travel_on_pause(): void {}
 
-	// =========================================================================
-	// {name}:config verb handlers + the shared verb table.
-	// =========================================================================
+	// --- {name}:config verb handlers + the shared verb table ---
 
 	/**
 	 * `set_snapshot_node` verb handler — set the patron's snapshot-target node.
@@ -507,8 +489,7 @@ trait Time_Travel {
 			[
 				'name'        => 'SEEK_FRAME',
 				'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
-				// Driven by the Inspector's Time Travel transport bar; hide the
-				// redundant standalone verb button.
+				// Driven by the Inspector's transport bar; hide the standalone verb button.
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'segment', 'type' => 'int', 'required' => true ],
@@ -530,9 +511,7 @@ trait Time_Travel {
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_play( $interpreter ),
 			],
 			[
-				// A COMMAND, not a request: STEP mutates (emits a message + advances the
-				// durable cursor), so it must ride the auth-gated interpreter path —
-				// the TM_REQUEST path bypasses interpret()'s auth gate.
+				// STEP mutates, so it must ride the auth-gated command path, not TM_REQUEST.
 				'name'        => 'STEP',
 				'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
 				'hidden'      => true,

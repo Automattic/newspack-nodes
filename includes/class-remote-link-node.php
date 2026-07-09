@@ -32,7 +32,7 @@ class Remote_Link_Node extends Timer_Node {
 	/** Slot-keepalive heartbeat cadence (seconds). */
 	public const HEARTBEAT_INTERVAL = 10;
 
-	// Protected so Remote_Source's time-travel PLAY can re-arm the same tick cadence.
+	// Protected so Remote_Source's PLAY can re-arm the same tick cadence.
 	protected const TICK_INTERVAL_MS = 1000;
 
 	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
@@ -46,8 +46,7 @@ class Remote_Link_Node extends Timer_Node {
 
 	private int $last_heartbeat = 0;
 
-	// The dashboard status snapshot is Remote_Source-only; the base exposes it as the
-	// no-op seams below (see the "Dashboard status snapshot" section for why).
+	// Status snapshot is Remote_Source-only; the base exposes no-op seams.
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
@@ -97,8 +96,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * Remote_Source always pulls; Remote_IPC only while it holds the live stream.
 	 */
 	public function fire(): void {
-		// Only the link actively managing the stream ticks (a stolen Remote_IPC is
-		// dormant — no stale slot keepalive, no status churn). Remote_Source always manages.
+		// Only the link managing the stream ticks; a stolen Remote_IPC stays dormant.
 		if ( ! $this->should_connect() ) {
 			return;
 		}
@@ -132,9 +130,7 @@ class Remote_Link_Node extends Timer_Node {
 	/** Per-tick cursor persistence. Base no-op; Remote_Source commits its offsetlog. */
 	protected function persist_cursor(): void {}
 
-	// =========================================================================
-	// Heartbeat — minted as a workers.heartbeat command, routed through HTTP_Out.
-	// =========================================================================
+	// --- Heartbeat: minted as a workers.heartbeat command via HTTP_Out ---
 
 	/**
 	 * Every ~HEARTBEAT_INTERVAL seconds, mint a `workers.heartbeat` TM_COMMAND
@@ -171,11 +167,7 @@ class Remote_Link_Node extends Timer_Node {
 		$this->record_heartbeat_sent( $now );
 	}
 
-	// =========================================================================
-	// Dashboard status snapshot — Remote_Source-only seams (no-op in the base).
-	// The Aggregator reads only Remote_Source keys, so a Remote_IPC status write is
-	// dead output; Remote_Source overrides these to publish its per-node snapshot.
-	// =========================================================================
+	// --- Dashboard status snapshot: Remote_Source-only (IPC writes are dead) ---
 
 	/** Per-tick connection-state snapshot (Remote_Source overrides; base no-op). */
 	protected function publish_status(): void {}
@@ -196,9 +188,7 @@ class Remote_Link_Node extends Timer_Node {
 		$sse?->maybe_connect();
 	}
 
-	// =========================================================================
-	// Patron lifecycle — SSE_In + HTTP_Out siblings.
-	// =========================================================================
+	// --- Patron lifecycle — SSE_In + HTTP_Out siblings ---
 
 	/**
 	 * Create + register the two hidden patron siblings on first call, configuring
@@ -230,7 +220,7 @@ class Remote_Link_Node extends Timer_Node {
 		$verify_ssl  = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
 		$require_ssl = ! empty( $cfg['vault_require_ssl'] );
 
-		// Restore the cursor before connect so it seeds SSE_In (Remote_Source's offsetlog).
+		// Restore the cursor before connect so it seeds SSE_In.
 		$restored = $this->restore_position();
 
 		$sse = new SSE_In_Node();
@@ -243,9 +233,7 @@ class Remote_Link_Node extends Timer_Node {
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$sse->target( $this->target );
 		}
-		// Delivery seam: a channel link (Remote_IPC) unpacks each raw `msg` payload and
-		// forwards it straight downstream — it never buffers. Remote_Source overrides this
-		// to append the raw line to its Buffered_Pump buffer instead.
+		// Delivery seam: channel links forward downstream; Remote_Source buffers.
 		$sse->on_message = function ( string $raw ): void {
 			$this->deliver_downstream( $raw );
 		};
@@ -288,8 +276,7 @@ class Remote_Link_Node extends Timer_Node {
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
-		// Stamp with the SSE_In sibling's name (`<link>:sse-in`), NOT the link's own name, so
-		// the spoke's TO=FROM reply breadcrumb is unchanged.
+		// Stamp the SSE_In sibling's name, not the link's, to keep reply breadcrumb.
 		$stamp = null !== $this->sse_in ? $this->sse_in->name() : $this->name;
 		if ( ! $this->stamp_message( $message, $stamp ) ) {
 			$this->print_less_often( 'dropping stream message: FROM exceeded MAX_FROM_SIZE' );
@@ -299,9 +286,7 @@ class Remote_Link_Node extends Timer_Node {
 		$this->sink?->fill( $message );
 	}
 
-	// =========================================================================
-	// Subclass seams.
-	// =========================================================================
+	// --- Subclass seams ---
 
 	/**
 	 * Initial SSE_In cursor. Base seeds none; Remote_Source restores its offsetlog.
@@ -312,9 +297,7 @@ class Remote_Link_Node extends Timer_Node {
 		return [];
 	}
 
-	// Composite-node stat delegation (like Topic→Partition): this link does no
-	// wire I/O itself — its SSE_In child reads the stream and its HTTP_Out child
-	// POSTs — so report THEIR counters/byte tallies, not the link's own zeros.
+	// Composite stat delegation: report the children's tallies, not zeros.
 	public function counter(): int {
 		return null !== $this->sse_in ? $this->sse_in->counter() : parent::counter();
 	}

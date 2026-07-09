@@ -61,16 +61,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 			return;
 		}
 		$this->poll();
-		// poll() advances the in-memory cursor as it drains; checkpoint() makes it durable.
+		// poll() advances the cursor in memory; checkpoint() makes it durable.
 		if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
 			$this->checkpoint();
 			$this->last_checkpoint = Core::$now;
 		}
 	}
 
-	// =========================================================================
-	// Buffered_Pump seams — the five push-specific overrides.
-	// =========================================================================
+	// --- Buffered_Pump seams — the five push-specific overrides ---
 
 	/**
 	 * Boot seam: seed the durable read position on the first poll. Delegates to the idempotent
@@ -126,11 +124,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			// A torn frame carries no crumb, so the node cursor can't have advanced to it; its
-			// position is SSE_In's next-read position (Fix #2 keeps it at the last delivered line's
-			// exclusive end). Only the already-quarantined boot head re-delivered AT that position
-			// (drop disposition, still armed) is dropped silently; anything past it is genuinely
-			// new poison. Otherwise quarantine on sight at that position (advance-on-next marker).
+			// Torn frame: no crumb, use SSE_In's next-read position; quarantine on sight.
 			$pos = $this->sse_in?->position() ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 			if ( $this->crawl_skip_head && 'drop' === $this->skip_head_disposition
 				&& $pos['segment'] === $this->boot_cursor_segment && $pos['offset'] === $this->boot_cursor_offset ) {
@@ -146,24 +140,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$message[ Message::TO ] = $this->target;
 		}
 		if ( $this->crawl ) {
-			// Pre-dispatch pin: FORCE-commit THIS line's own start (the cursor drain_line just pinned
-			// from the crumb) BEFORE the fill, so an uncatchable crash mid-dispatch re-resumes at
-			// exactly it. Forced (no advance-guard) so the first crawl line where cursor==boot==
-			// last-committed still commits.
+			// Pre-dispatch pin: force-commit this start before fill (a crash resumes here).
 			$this->write_checkpoint_frame( false, true );
 		}
 		try {
 			$sink->fill( $message );
-			// Drive SSE_In's resume position to THIS line's exclusive end, computed LOCALLY (cursor
-			// start + on-disk line length, +1 for the newline) — never the remote-stamped crumb
-			// length. A reconnect (stale / SSE_Out recycle) then resumes AFTER the last delivered
-			// line (exactly-once), not from the frozen boot cursor.
+			// SSE_In resume = this line's local exclusive end, not the remote crumb len.
 			$this->sse_in?->restore_position( $this->cursor_segment, $this->cursor_offset + \strlen( $line ) + 1 );
-			// Forward progress past a poison lineage clears the streak. Unlike Consumer's chop
-			// cursor, advance-on-next pins the in-hand message's OWN start, so a successful forward
-			// of the boot message leaves the cursor AT boot (not "advanced") — the streak must
-			// still clear on the successful forward itself, not on a cursor advance. Not in crawl
-			// (attempts stay pinned until poll_crawl exits).
+			// Clear the streak on the forward itself (cursor stays AT boot); not in crawl.
 			if ( ! $this->crawl && $this->attempts > 1 ) {
 				$this->attempts       = 1;
 				$this->first_crash_ts = null;
@@ -171,13 +155,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 				$this->write_checkpoint_frame( true, true );
 			}
 		} catch ( Worker_Should_Stop $e ) {
-			// Cooperative deadline mid-forward: record the mid-dispatch stop for the fair-shot rule, then escape.
+			// Cooperative deadline mid-forward: record the mid-dispatch stop, then escape.
 			$this->stopped_in_fill = true;
 			throw $e;
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
-			// Only a crumb-bearing message pins its own start; a crumb-less one leaves the cursor on
-			// the prior healthy line, so sealing a marker there would falsely quarantine a good line.
+			// Only a crumb-bearing message pins its start; else a marker hits a good line.
 			if ( $has_crumb ) {
 				$this->mark_quarantined_at( $this->cursor_segment, $this->cursor_offset );
 			}
@@ -204,9 +187,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->write_checkpoint_frame( $graceful, true );
 	}
 
-	// =========================================================================
-	// Push-specific poison helpers.
-	// =========================================================================
+	// --- Push-specific poison helpers ---
 
 	/**
 	 * Crawl-entry head sacrifice (the surviving sacrifice_head 3-way compare): decide the fate of
@@ -220,17 +201,16 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @return bool True when the head is condemned (sacrificed / dropped) so the caller skips the forward.
 	 */
 	private function sacrifice_boot_head( string $line, array $crumb ): bool {
-		// Lexicographic (segment, offset) compare against the boot pin: 0 = the suspect, >0 = past it.
+		// Lexicographic (segment,offset) vs boot pin: 0 = suspect, >0 = past it.
 		$cmp = [ $crumb['segment'], $crumb['offset'] ] <=> [ $this->boot_cursor_segment, $this->boot_cursor_offset ];
 		if ( 0 === $cmp ) {
 			$this->crawl_skip_head = false;
 			if ( 'drop' === $this->skip_head_disposition ) {
-				// Quarantine marker: the head is already in the DLQ — drop silently, no second entry.
+				// Quarantine marker: head already in the DLQ — drop silently, no second entry.
 				$this->print_less_often( "{$this->name} boot head-drop: message at {$this->boot_cursor_segment}:{$this->boot_cursor_offset} is already quarantined — dropping" );
 				return true;
 			}
-			// Crash suspect: dead-letter ('crash') then write a quarantine marker AT its start,
-			// closing the sacrifice→next-arrival crash window (dead_letter runs first).
+			// Crash suspect: dead-letter, then quarantine-mark its start (crash window).
 			$this->dead_letter( $this->poison_from_line( $line, $crumb['segment'], $crumb['offset'] ), 'crash' );
 			$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
 			$this->sealed_quarantine = [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] ];
@@ -282,9 +262,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1] ];
 	}
 
-	// =========================================================================
-	// Durable position restore + shutdown handoff.
-	// =========================================================================
+	// --- Durable position restore + shutdown handoff ---
 
 	/**
 	 * Read the latest committed frame, seed the node cursor + boot pin, resume the shared
@@ -311,16 +289,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$offset  = $value['offset'] ?? 0;
 		$segment = \is_scalar( $segment ) ? (int) $segment : 0;
 		$offset  = \is_scalar( $offset ) ? (int) $offset : 0;
-		// Resume the shared attempt accounting AND arm the boot head-skip from the frame: a
-		// quarantine marker → DROP the already-DLQ'd head; a hard-crash lineage → sacrifice it.
+		// Arm the head-skip from the frame: marker → DROP head, crash → sacrifice.
 		$this->arm_skip_head_from_frame( $value );
 		$this->cursor_segment      = $segment;
 		$this->cursor_offset       = $offset;
 		$this->boot_cursor_segment = $segment;
 		$this->boot_cursor_offset  = $offset;
 		if ( 'drop' === $this->skip_head_disposition ) {
-			// Booted onto a quarantine marker: seal the boot position so a shutdown/persist frame
-			// keeps the marker until the drop advances the cursor past it.
+			// Booted onto a marker: seal the boot position until the drop advances past it.
 			$this->sealed_quarantine = [ 'segment' => $segment, 'offset' => $offset ];
 		}
 		return [
@@ -339,8 +315,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @api Invoked by Worker_Base::checkpoint_durable_consumers().
 	 */
 	public function checkpoint_shutdown(): void {
-		// Guard parity with checkpoint() / cooperative_stop: a paused SEEK sets offset_set without
-		// poll_initialized, and its seeked position must survive the shutdown handoff.
+		// A paused SEEK sets offset_set w/o poll_initialized; it must survive shutdown.
 		if ( null === $this->ensure_offsetlog_partition() || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
 			return;
 		}
@@ -387,9 +362,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->buffer         = '';
 	}
 
-	// =========================================================================
-	// Patron wiring — SSE_In's raw payload feeds the pump buffer.
-	// =========================================================================
+	// --- Patron wiring — SSE_In's raw payload feeds the pump buffer ---
 
 	/**
 	 * Build the base patrons, then override SSE_In's delivery seam: each raw `msg` payload is
@@ -409,9 +382,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return $sse;
 	}
 
-	// =========================================================================
-	// Durable offsetlog — per-node, keyed by NODE NAME.
-	// =========================================================================
+	// --- Durable offsetlog — per-node, keyed by NODE NAME ---
 
 	/**
 	 * Ensure the per-node offsetlog Partition exists + is registered. Derives the dir
@@ -442,9 +413,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return $offsetlog;
 	}
 
-	// =========================================================================
-	// Dead-letter sibling — per-node quarantine for poison stream messages.
-	// =========================================================================
+	// --- Dead-letter sibling — per-node quarantine for poison messages ---
 
 	/**
 	 * Ensure the per-node deadletter Partition exists. Derives the dir
@@ -470,11 +439,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return $deadletter;
 	}
 
-	// =========================================================================
-	// Dashboard status snapshot — a per-node memcache key the Aggregator reads.
-	// These override the Remote_Link no-op seams; only aggregated spokes publish
-	// status (a Remote_IPC channel isn't aggregated, so it stays a no-op there).
-	// =========================================================================
+	// --- Status snapshot: only aggregated spokes publish (IPC = no-op) ---
 
 	/** Stamp the heartbeat send-time so record_heartbeat_reply() can compute the round-trip. */
 	protected function record_heartbeat_sent( int $now ): void {
@@ -542,8 +507,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
 	}
 
-	// Keyed by NODE NAME first so two spokes pulling the same remote_partition
-	// (e.g. firehose.p0) don't collide; Aggregator_CI reads the identical key.
+	// Keyed by NODE NAME first so two spokes on the same partition don't collide.
 	private function status_key(): string {
 		return "np:remote:{$this->name}:{$this->remote_partition}";
 	}
@@ -588,9 +552,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return [ '_ts' => (int) Core::$now ];
 	}
 
-	// =========================================================================
-	// Time-travel transport (Time_Travel trait) — mapped onto the SSE pull.
-	// =========================================================================
+	// --- Time-travel transport (Time_Travel trait) — mapped onto the SSE pull ---
 
 	/**
 	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload. The
@@ -651,12 +613,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			// Explicit — the parent Remote_Link_Node is 'Hidden' (never used
-			// directly), so pin this palette-droppable subclass to I/O.
+			// Parent Remote_Link_Node is 'Hidden'; pin this droppable subclass to I/O.
 			'category'    => 'I/O',
 			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
-			// The time-travel verbs (set_snapshot_node, set_line_mode, SEEK_FRAME,
-			// PAUSE, PLAY, STEP) are shared with Consumer via the Time_Travel trait.
+			// Time-travel verbs are shared with Consumer via the Time_Travel trait.
 			'commands'    => self::time_travel_verbs(),
 		] );
 	}
