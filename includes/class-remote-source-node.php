@@ -58,15 +58,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * The message in flight when the cooperative stop hit (null = none — an idle worker, not
-	 * poison), plus its source start {segment,offset} (from its ID breadcrumb) and its exclusive
-	 * next-read {segment,offset} — captured at the throw because, unlike Consumer's buffered
-	 * head, a push source holds no line to re-read at cooperative_stop time.
+	 * poison), plus its source start {segment,offset} (from its ID breadcrumb) — captured at the
+	 * throw because, unlike Consumer's buffered head, a push source holds no line to re-read at
+	 * cooperative_stop time. Under advance-on-next the start also coincides with the live cursor,
+	 * but the capture is retained: it is the crumb-null-safe start the strike frame commits at.
 	 *
 	 * @var array<int, mixed>|null
 	 */
 	private ?array $stopped_message = null;
-	/** @var array{segment:int,offset:int}|null */
-	private ?array $stopped_message_end = null;
 	/** @var array{segment:int,offset:int}|null */
 	private ?array $stopped_message_start = null;
 
@@ -113,27 +112,59 @@ class Remote_Source_Node extends Remote_Link_Node {
 			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
 		}
 		$crumb = $this->parse_breadcrumb( $message );
-		if ( ! ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_head( $message, $crumb ) ) ) {
+		// Advance-on-next (commit-on-arrival): pin THIS message's own START, learned from its
+		// crumb, BEFORE dispatch — no computed exclusive end, no remote-length trust. The cursor
+		// moves off it only when the NEXT message arrives. A crash mid-forward pins exactly it.
+		if ( null !== $crumb ) {
+			$this->cursor_segment = $crumb['segment'];
+			$this->cursor_offset = $crumb['offset'];
+		}
+		$condemned = $this->crawl_skip_head && null !== $crumb && $this->sacrifice_head( $message, $crumb );
+		if ( $condemned ) {
+			// The head is in the DLQ ($condemned implies a non-null crumb); seal its position so the
+			// marker survives until we advance past it.
+			$this->sealed_quarantine = [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] ];
+		}
+		if ( $this->crawl ) {
+			// Crawl pins the in-flight message per message at the on-arrival cursor (pre-dispatch),
+			// so a re-crash pins exactly it (parity with the retired length-frame). A condemned
+			// (sacrificed/dropped) head carries the quarantine marker: a re-boot in the crash
+			// window DROPS it instead of producing a second DLQ entry.
+			$this->commit_position( $this->cursor_segment, $this->cursor_offset, false, $condemned ? [ 'quarantined' => true ] : [] );
+		}
+		$forwarded = false;
+		if ( ! $condemned ) {
 			try {
 				$sink->fill( $message );
+				$forwarded = true;
 			} catch ( Worker_Should_Stop $e ) {
 				// Cooperative deadline mid-forward of THIS message: record it for the fair-shot rule, then escape.
 				$this->stopped_message       = $message;
 				$this->stopped_message_start = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] ];
-				$this->stopped_message_end   = null === $crumb ? null : [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] + $crumb['length'] ];
 				throw $e;
 			} catch ( \Throwable $e ) {
-				// Consumer's model: a downstream throw dead-letters on sight (no block, no climb); the cursor advances below.
+				// Consumer's model: a downstream throw dead-letters on sight (no block, no climb). The
+				// cursor already pins its start above; write a quarantine marker there too so an idle
+				// tail's re-pull on the next recycle is a silent DROP, not a duplicate DLQ entry.
 				$this->ensure_deadletter_sibling();
 				$this->dead_letter( $message, 'throw', $e );
+				if ( null !== $crumb ) {
+					$this->mark_quarantined_at( $this->cursor_segment, $this->cursor_offset );
+				}
 			}
 		}
-		// Advance to this message's exclusive next-read (offset+length) from its own breadcrumb — the remote stamped the on-disk length.
-		if ( null !== $crumb ) {
-			$this->cursor_segment = $crumb['segment'];
-			$this->cursor_offset = $crumb['offset'] + $crumb['length'];
-		}
-		$this->after_forward();
+		$this->after_forward( $forwarded );
+	}
+
+	/**
+	 * Seal an on-sight quarantine at `{segment,offset}` and commit a marker frame there (dead_letter
+	 * must have run first). The frame PRESERVES the live attempt accounting (never graceful) so a
+	 * throw during a climbing crash lineage doesn't reset the streak. The cursor still advances only
+	 * on the next arrival; the marker makes any re-encounter of this position a silent drop.
+	 */
+	private function mark_quarantined_at( int $segment, int $offset ): void {
+		$this->sealed_quarantine = [ 'segment' => $segment, 'offset' => $offset ];
+		$this->commit_position( $segment, $offset, false, [ 'quarantined' => true ] );
 	}
 
 	/**
@@ -145,15 +176,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * forward normally (return false). Anything earlier keeps the flag armed for the real suspect.
 	 * One-shot either way once resolved.
 	 *
-	 * @param array<int, mixed>                       $message The relayed stream message.
-	 * @param array{segment:int, offset:int, length:int} $crumb Its parsed ID breadcrumb.
-	 * @return bool True when the message was dead-lettered as the suspect (skip the forward).
+	 * @param array<int, mixed>              $message The relayed stream message.
+	 * @param array{segment:int, offset:int} $crumb   Its parsed ID breadcrumb (segment:offset start).
+	 * @return bool True when the head is condemned — sacrificed ('crash') or dropped ('drop') — so
+	 *              the caller skips the forward. The pre-dispatch commit stamps the marker either way.
 	 */
 	private function sacrifice_head( array $message, array $crumb ): bool {
 		// Lexicographic (segment, offset) compare against the boot pin: 0 = the suspect, >0 = past it.
 		$cmp = [ $crumb['segment'], $crumb['offset'] ] <=> [ $this->boot_cursor_segment, $this->boot_cursor_offset ];
 		if ( 0 === $cmp ) {
 			$this->crawl_skip_head = false;
+			if ( 'drop' === $this->skip_head_disposition ) {
+				// Quarantine marker: the head is already in the DLQ — drop silently, no second entry.
+				$this->print_less_often( "{$this->name} boot head-drop: message at {$this->boot_cursor_segment}:{$this->boot_cursor_offset} is already quarantined — dropping" );
+				return true;
+			}
 			$this->ensure_deadletter_sibling();
 			$this->dead_letter( $message, 'crash' );
 			return true;
@@ -166,31 +203,32 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Post-forward bookkeeping ([42]): the crawl per-message checkpoint (+ exit), or a
-	 * forward-progress streak reset after a hard-crash lineage cleared. The healthy steady
-	 * state commits via the throttled persist_cursor, not here (matching Consumer).
+	 * Post-forward bookkeeping ([42]): crawl exit, or a forward-progress streak reset after a
+	 * hard-crash lineage cleared. The per-message crawl pin already committed pre-dispatch (relay),
+	 * so only a STATE change lands a fresh frame here. The healthy steady state commits via the
+	 * throttled persist_cursor, not here (matching Consumer). Values are unchanged pre/post dispatch.
+	 *
+	 * @param bool $forwarded True only when the sink accepted the message (a clean forward). A
+	 *                        quarantined-on-sight throw / a condemned head is NOT progress and must
+	 *                        NOT clear a live crash lineage.
 	 */
-	private function after_forward(): void {
-		$segment = $this->cursor_segment;
-		$offset = $this->cursor_offset;
+	private function after_forward( bool $forwarded ): void {
 		if ( $this->crawl ) {
-			// Survived a full interval crash-free → drop back to the baseline; either way
-			// checkpoint per message (pinned attempts while crawling, baseline once exited)
-			// so an uncatchable re-crash pins the exact culprit. Don't exit while the head
-			// sacrifice is still armed (mirrors Consumer): an un-sacrificed suspect would
-			// re-arm the crash loop next boot.
+			// Survived a full interval crash-free → drop back to the baseline and commit the reset.
+			// Don't exit while the head sacrifice is still armed (mirrors Consumer): an
+			// un-sacrificed suspect would re-arm the crash loop next boot.
 			if ( ! $this->crawl_skip_head && $this->crawl_interval_elapsed() ) {
 				$this->exit_crawl();
+				$this->commit_position( $this->cursor_segment, $this->cursor_offset, false );
 			}
-			$this->commit_position( $segment, $offset, false );
 			return;
 		}
-		if ( $this->attempts > 1 ) {
+		if ( $forwarded && $this->attempts > 1 ) {
 			// Forward progress past a poison lineage: the poison was transient → clear the streak.
 			$this->attempts       = 1;
 			$this->first_crash_ts = null;
 			$this->poison_reason  = '';
-			$this->commit_position( $segment, $offset, true );
+			$this->commit_position( $this->cursor_segment, $this->cursor_offset, true );
 		}
 	}
 
@@ -217,18 +255,22 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$segment = \is_scalar( $segment ) ? (int) $segment : 0;
 		$offset = \is_scalar( $offset ) ? (int) $offset : 0;
 		// Resume the shared attempt accounting (climb at attempts+1, carry the streak, detect a
-		// hard-crash lineage → crawl). A cooperative-stop lineage climbs here too. On crawl entry
-		// arm the head sacrifice: the boot pin (frozen just below) is the crash suspect's start —
-		// the first relayed message matching it is dead-lettered instead of forwarded.
-		if ( $this->resume_attempts_from_frame( $value ) ) {
-			$this->crawl_skip_head = true;
-		}
+		// hard-crash lineage → crawl) AND arm the boot head-skip from the frame: a quarantine
+		// marker → DROP the already-DLQ'd head; a hard-crash lineage → sacrifice it ('crash'). The
+		// boot pin (frozen just below) is the head's start — the first relayed message matching it
+		// is dropped/sacrificed instead of forwarded.
+		$this->arm_skip_head_from_frame( $value );
 		// Seed the node-owned cursor + freeze the boot cursor at the restored position (so
 		// cursor_advanced_since_boot() is honest); forwards advance the cursor past boot.
 		$this->cursor_segment      = $segment;
 		$this->cursor_offset      = $offset;
 		$this->boot_cursor_segment = $segment;
 		$this->boot_cursor_offset = $offset;
+		if ( 'drop' === $this->skip_head_disposition ) {
+			// Booted onto a quarantine marker: seal the boot position so a shutdown/persist frame
+			// keeps the marker until the drop advances the cursor past it.
+			$this->sealed_quarantine = [ 'segment' => $segment, 'offset' => $offset ];
+		}
 		return [
 			'segment' => $segment,
 			'offset'     => $offset,
@@ -289,16 +331,17 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
 		if ( $this->record_poison_strike( $reason ) ) {
-			// Fair shots exhausted: quarantine, advance PAST it (its exclusive next-read), hand
-			// off at the virgin baseline.
+			// Fair shots exhausted: quarantine, then hand off a MARKER at the message's own START
+			// (advance-on-next — no computed end) at the virgin baseline. The successor boots onto
+			// it, DROPS it (already in the DLQ), and advances off the next arrival.
 			$this->ensure_deadletter_sibling();
 			$this->dead_letter( $this->stopped_message, $reason );
-			$end = $this->stopped_message_end ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
-			$this->commit_position( $end['segment'], $end['offset'], true );
+			$start = $this->stopped_message_start ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
+			$this->commit_position( $start['segment'], $start['offset'], true, [ 'quarantined' => true ] );
 			return;
 		}
 		// Below threshold: record the strike at the message's OWN start with the climbing
-		// attempts/reason so the respawn re-pulls exactly it and climbs.
+		// attempts/reason (NO marker) so the respawn re-pulls exactly it and climbs.
 		$start = $this->stopped_message_start ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 		$this->commit_position( $start['segment'], $start['offset'], false );
 	}
@@ -326,20 +369,26 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Parse the record's ID breadcrumb "segment:offset:length" into its parts, or null when the
-	 * ID isn't a well-formed breadcrumb. offset is the record's own on-disk start; offset+length
-	 * is its exclusive next-read (the next record's boundary).
+	 * Parse the record's ID breadcrumb into `{segment, offset}`, or null when the ID isn't a
+	 * well-formed breadcrumb. Accepts BOTH the legacy `segment:offset:length` and the shrunk
+	 * `segment:offset` (advance-on-next retired the length read; producers may still stamp it
+	 * during the wire transition, so a third field is tolerated but never consumed). offset is
+	 * the record's own on-disk start — the only thing the cursor needs.
 	 *
 	 * @param array<int, mixed> $message
-	 * @return array{segment:int, offset:int, length:int}|null
+	 * @return array{segment:int, offset:int}|null
 	 */
 	private function parse_breadcrumb( array $message ): ?array {
 		$id    = Core::as_string( $message[ Message::ID ] ?? '' );
 		$parts = \explode( ':', $id );
-		if ( 3 !== \count( $parts ) || ! \ctype_digit( $parts[0] ) || ! \ctype_digit( $parts[1] ) || ! \ctype_digit( $parts[2] ) ) {
+		$count = \count( $parts );
+		if ( ( 2 !== $count && 3 !== $count ) || ! \ctype_digit( $parts[0] ) || ! \ctype_digit( $parts[1] ) ) {
 			return null;
 		}
-		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => (int) $parts[2] ];
+		if ( 3 === $count && ! \ctype_digit( $parts[2] ) ) {
+			return null;
+		}
+		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1] ];
 	}
 
 	/**
@@ -347,12 +396,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * a clean handoff (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful
 	 * frame carries the live attempt accounting (a climbing hard-crash lineage / pinned crawl).
 	 * Ensures the lazy per-node offsetlog exists first (Consumer builds its in arguments()).
+	 *
+	 * @param array<array-key, mixed> $extra Per-call frame additions (the quarantine marker).
 	 */
-	private function commit_position( int $segment, int $offset, bool $graceful ): void {
+	private function commit_position( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
 		if ( null === $this->ensure_offsetlog_partition() ) {
 			return;
 		}
-		$this->commit_checkpoint_frame( $segment, $offset, $graceful );
+		$this->commit_checkpoint_frame( $segment, $offset, $graceful, $extra );
 	}
 
 	// =========================================================================
@@ -426,12 +477,22 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$sse = parent::ensure_patrons();
 		$sse?->sink( $this );
 		if ( null !== $sse ) {
-			// Route an unparseable frame into this node's DLQ at its last known
-			// position — same quarantine the Consumer gives a torn on-disk line.
+			// Route an unparseable frame into this node's DLQ at its last known position — same
+			// quarantine the Consumer gives a torn on-disk line. A torn frame carries no parseable
+			// crumb, so sacrifice_head (which matches on the crumb) can't see it: the boot 'drop'
+			// re-encounter is caught HERE, by the SSE position matching the boot cursor.
 			$sse->on_poison = function ( string $raw ): void {
-				$this->ensure_deadletter_sibling();
 				$pos = $this->sse_in?->position() ?? [ 'segment' => 0, 'offset' => 0 ];
+				if ( $this->crawl_skip_head && 'drop' === $this->skip_head_disposition
+					&& $pos['segment'] === $this->boot_cursor_segment && $pos['offset'] === $this->boot_cursor_offset ) {
+					// Already-quarantined re-delivery: drop silently (one-shot), no second DLQ entry.
+					$this->crawl_skip_head = false;
+					$this->print_less_often( "{$this->name} boot head-drop (unparseable) at {$pos['segment']}:{$pos['offset']} — already quarantined, dropping" );
+					return;
+				}
+				$this->ensure_deadletter_sibling();
 				$this->dead_letter( $this->poison_from_line( $raw, $pos['segment'], $pos['offset'] ), 'unparseable' );
+				$this->mark_quarantined_at( $pos['segment'], $pos['offset'] );
 			};
 		}
 		return $sse;

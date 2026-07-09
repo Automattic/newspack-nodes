@@ -575,13 +575,37 @@ class ConsumerTest extends TestCase {
 	 * Write a single offsetlog keyframe with a chosen cursor + attempt state, to
 	 * simulate the durable frame a respawning worker boots on (crash-simulation).
 	 */
-	private function seed_offsetlog_frame( string $dir, int $segment, int $offset, int $attempts, string $reason = '' ): void {
+	private function seed_offsetlog_frame( string $dir, int $segment, int $offset, int $attempts, string $reason = '', bool $quarantined = false ): void {
 		\mkdir( $dir, 0755, true );
+		$value = [ 'segment' => $segment, 'offset' => $offset, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
+		if ( $quarantined ) {
+			$value['quarantined'] = true;
+		}
 		$m                       = Message::new_message();
 		$m[ Message::TYPE ]      = Message::TM_STRUCT;
 		$m[ Message::FROM ]      = 'seed';
-		$m[ Message::VALUE ]     = [ 'segment' => $segment, 'offset' => $offset, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null ];
+		$m[ Message::VALUE ]     = $value;
 		\file_put_contents( "{$dir}/0.log", Message::packed( $m ) . "\n" );
+	}
+
+	/**
+	 * Find the newest committed offsetlog frame at a given source {segment,offset}, or null.
+	 *
+	 * @return array<array-key, mixed>|null
+	 */
+	private function offsetlog_frame_at( string $dir, int $segment, int $offset ): ?array {
+		$paths = \glob( "{$dir}/*.log" );
+		\usort( $paths, static fn ( $x, $y ): int => (int) \basename( $x, '.log' ) <=> (int) \basename( $y, '.log' ) );
+		$found = null;
+		foreach ( $paths as $path ) {
+			foreach ( \array_filter( \explode( "\n", (string) \file_get_contents( (string) $path ) ) ) as $line ) {
+				$value = Message::unpacked( (string) $line )[ Message::VALUE ];
+				if ( \is_array( $value ) && ( $value['segment'] ?? null ) === $segment && ( $value['offset'] ?? null ) === $offset ) {
+					$found = $value;
+				}
+			}
+		}
+		return $found;
 	}
 
 	public function test_checkpoint_resets_attempts_to_baseline_on_forward_progress(): void {
@@ -1177,11 +1201,11 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThan( 0, $this->read_private( $c, 'boot_cursor_offset' ), 'the end seek moved boot_cursor off 0:0' );
 	}
 
-	public function test_cooperative_timeout_dead_letters_after_the_strike_threshold(): void {
+	public function test_cooperative_timeout_dead_letters_and_writes_marker_at_head_start(): void {
 		// The boot-cursor message has now consumed COOP_MAX_ATTEMPTS full lifetimes
 		// (a prior frame records the first strike). The second strike exhausts the
-		// budget: quarantine the message, advance past it, and hand off at the virgin
-		// baseline so the next message gets a fresh first attempt.
+		// budget: quarantine the message, then hand off a MARKER frame AT the head's start
+		// (attempts=0, quarantined) so the successor boots onto it, DROPS it, and advances.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
 		$this->produce_line( $source, 'poison' );
@@ -1204,8 +1228,143 @@ class ConsumerTest extends TestCase {
 
 		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'the message is quarantined after exhausting its fair shots' );
 		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
-		$this->assertSame( 0, $entry['attempts'], 'after the dead-letter the advanced cursor hands off at the virgin baseline' );
-		$this->assertGreaterThan( 0, $entry['offset'], 'the cursor advanced past the quarantined message' );
+		$this->assertSame( 0, $entry['attempts'], 'the strike-out frame hands off at the virgin baseline' );
+		$this->assertSame( 0, $entry['offset'], 'the marker sits at the head START, not advanced past it' );
+		$this->assertTrue( $entry['quarantined'] ?? false, 'the strike-out frame is a quarantine marker' );
+	}
+
+	public function test_boot_from_quarantine_marker_drops_head_silently_and_advances(): void {
+		// Booting onto a quarantine marker (graceful attempts=0 + quarantined): the head is
+		// already in the DLQ, so the successor DROPS it silently (no second DLQ entry, not
+		// forwarded) and advances onto the next line.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'condemned' );
+		$this->produce_line( $source, 'next' );
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 0, '', true ); // marker at {0,0}.
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 0, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'the already-quarantined head is NOT re-dead-lettered' );
+		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
+		$this->assertNotContains( 'condemned', $values, 'the condemned head is dropped, not forwarded' );
+		$this->assertContains( 'next', $values, 'the worker advances onto the next line' );
+	}
+
+	public function test_crash_sacrifice_writes_a_quarantine_marker_frame(): void {
+		// The crash-crawl head sacrifice dead-letters the head AND writes a quarantine marker at
+		// its start, closing the sacrifice→checkpoint crash window (a re-boot in it DROPS instead
+		// of producing a second DLQ entry).
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'head' );
+		$this->produce_line( $source, 'next' );
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ), 'the head is dead-lettered' );
+		$marker = $this->offsetlog_frame_at( "{$this->tmp}/offsets.p0", 0, 0 );
+		$this->assertNotNull( $marker, 'a frame exists at the sacrificed head start' );
+		$this->assertTrue( $marker['quarantined'] ?? false, 'the sacrifice writes a quarantine marker frame' );
+	}
+
+	public function test_below_threshold_strike_frame_carries_no_quarantine_marker(): void {
+		// New-hazard guard: a below-threshold strike frame (still had fair shots left) must carry
+		// NO quarantine marker, or the successor would silently drop a message that still had
+		// shots (data loss). The successor boots ONTO it and re-forwards it.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'poison' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$this->stop_on_value( $c, 'poison' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$c->cooperative_stop( 'timeout', false );
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 1, $entry['attempts'], 'a first strike is below COOP_MAX' );
+		$this->assertArrayNotHasKey( 'quarantined', $entry, 'a below-threshold strike is NOT a quarantine marker' );
+	}
+
+	public function test_routine_cooperative_stop_advanced_cursor_writes_no_marker(): void {
+		// Fair-shot absence: a routine cooperative stop after the cursor advanced is a clean
+		// handoff (attempts=0) and NEVER a quarantine marker — the successor re-forwards.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'A' );
+		$this->produce_line( $source, 'B' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'jobs:consumer' );
+		$c->set_line_mode( true );
+		$this->stop_on_value( $c, 'B' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$c->cooperative_stop( 'timeout', false );
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'a clean handoff' );
+		$this->assertArrayNotHasKey( 'quarantined', $entry, 'a routine cooperative stop writes no marker' );
+	}
+
+	public function test_crash_sacrifice_writes_dead_letter_before_the_marker_frame(): void {
+		// Write order is normative: the DLQ write runs BEFORE the marker frame, so a marker never
+		// falsely claims a message is quarantined before it is on disk. A subclass records the
+		// state at the dead_letter call: no quarantine marker frame may exist yet.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'head' );
+		$this->produce_line( $source, 'next' );
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		$c = new class() extends Consumer_Node {
+			public bool $marker_present_at_dead_letter = true;
+			protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
+				$marker = false;
+				foreach ( ( $this->offsetlog?->get_segments( true ) ?? [] ) as $s ) {
+					foreach ( \explode( "\n", (string) $this->offsetlog?->read_at( $s['id'], 0, $s['size'] ) ) as $l ) {
+						if ( '' !== $l && ( Message::unpacked( $l )[ Message::VALUE ]['quarantined'] ?? false ) ) {
+							$marker = true;
+						}
+					}
+				}
+				$this->marker_present_at_dead_letter = $marker;
+				parent::dead_letter( $message, $reason, $error );
+			}
+		};
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$this->assertFalse( $c->marker_present_at_dead_letter, 'no marker frame exists yet when dead_letter runs' );
+		$marker = $this->offsetlog_frame_at( "{$this->tmp}/offsets.p0", 0, 0 );
+		$this->assertTrue( $marker['quarantined'] ?? false, 'the marker frame is written after the DLQ entry' );
 	}
 
 	public function test_cooperative_memory_does_not_strike_when_baseline_near_watermark(): void {

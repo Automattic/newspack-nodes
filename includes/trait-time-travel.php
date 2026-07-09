@@ -23,7 +23,8 @@
  *
  * REQUIRES the using class to also `use Offsetlog_Cursor` (the $offsetlog Partition +
  * commit_offsetlog_frame()) and `use Dead_Letter_Queue` (attempts / poison_reason /
- * first_crash_ts / CHECKPOINT_INTERVAL_S, the accounting the base frame stamps).
+ * first_crash_ts / CHECKPOINT_INTERVAL_S / sealed_quarantine, the accounting the base frame
+ * stamps and the quarantine-marker preservation guard in commit_checkpoint_frame reads).
  *
  * @package Newspack_Nodes
  */
@@ -335,6 +336,20 @@ trait Time_Travel {
 	protected function commit_checkpoint_frame( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
 		if ( null === $this->offsetlog ) {
 			return;
+		}
+		// Preserve a sealed quarantine marker (see Dead_Letter_Queue::$sealed_quarantine): while the
+		// cursor still sits on an already-DLQ'd message (a boot 'drop' head, or an advance-on-next
+		// on-sight quarantine that lingers until the next arrival), every frame AT that position
+		// keeps `quarantined` set — so no boot/persist/shutdown frame clobbers the marker and makes
+		// the reader re-forward a message that is already in the DLQ. A frame strictly PAST it
+		// releases the seal (normal frames resume).
+		if ( null !== $this->sealed_quarantine ) {
+			$sealed = $this->sealed_quarantine;
+			if ( $segment === $sealed['segment'] && $offset === $sealed['offset'] ) {
+				$extra['quarantined'] = true;
+			} elseif ( [ $segment, $offset ] > [ $sealed['segment'], $sealed['offset'] ] ) {
+				$this->sealed_quarantine = null;
+			}
 		}
 		$frame = [
 			'segment'            => $segment,
