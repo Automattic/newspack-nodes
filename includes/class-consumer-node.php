@@ -653,8 +653,9 @@ class Consumer_Node extends Timer_Node {
 		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
 			return; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 		}
-		// Breadcrumb goes in ID as segment:offset:length (length = the on-disk span, so a hub
-		// resumes at offset+length); KEY stays the producer's routing key.
+		// Breadcrumb goes in ID as segment:offset:length. Cursor management consumes only the
+		// START (advance-on-next; readers accept a two-part crumb) — length is still stamped
+		// for SSE_In's eager reconnect and fleet compat. KEY stays the producer's routing key.
 		$message[ Message::ID ] = "{$this->cursor_segment}:{$abs_offset}:{$line_size}";
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
