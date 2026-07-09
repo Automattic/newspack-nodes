@@ -81,6 +81,26 @@ class SseInTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 1000, $node->largest_msg_sent() );
 	}
 
+	public function test_counter_advances_once_per_delivered_msg_event(): void {
+		// The per-node dashboard stat re-exports SSE_In's counter (via Remote_Link_Node), so the
+		// increment belongs at the delivery point here — NOT on Remote_Source_Node, whose counter
+		// nothing reads. Each `msg` event must bump it exactly once.
+		[ $node ] = $this->configured_node();
+		$this->assertSame( 0, $node->counter() );
+		$node->process_sse_chunk( $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );
+		$node->process_sse_chunk( $this->msg_frame( '2:0', 'k', [ 'b' => 2 ] ) );
+		$this->assertSame( 2, $node->counter(), 'counter advances once per delivered msg event' );
+	}
+
+	public function test_counter_ignores_non_msg_events(): void {
+		// Liveness (`heartbeat`) and the bookkeeping `connected` handshake both return before the
+		// `msg` branch, so neither may inflate the message counter.
+		[ $node ] = $this->configured_node();
+		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9 SLOT 7' ) );
+		$this->assertSame( 0, $node->counter(), 'heartbeat/connected frames do not bump the message counter' );
+	}
+
 	public function test_msg_frame_handed_raw_to_delivery_seam(): void {
 		// SSE_In no longer unpacks or forwards a `msg` — it hands the RAW `data:` payload (the
 		// packed line, byte-identical to the remote's on-disk encoding) to the owner's on_message
