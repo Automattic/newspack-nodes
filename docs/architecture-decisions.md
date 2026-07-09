@@ -67,14 +67,13 @@ shapes in PHP / JS / wire / memory needs a translation layer at every boundary.
 **Decision:** One shape everywhere: `[TYPE=0, TIMESTAMP=1, FROM=2, TO=3, ID=4, KEY=5,
 VALUE=6]`, always indexed via the `Message::*` constants. `packed()` / `unpacked()` are JSON
 of the array — the wire shape IS the memory shape. There is **no** object form; if you see
-one it is a bug to delete (it shipped once in the topology-console GUI and broke the canvas).
-Deliberate Tachikoma divergences: KEY not STREAM, VALUE not PAYLOAD, TIMESTAMP at index 1.
+one it is a bug to delete. Deliberate Tachikoma divergences: KEY not STREAM, VALUE not PAYLOAD, TIMESTAMP at index 1.
 `TM_BYTESTREAM` (string VALUE) and `TM_STRUCT` (array VALUE) are mutually exclusive;
 array-VALUE consumers gate on TM_STRUCT.
 
-**Alternatives considered:** Associative array / value object — rejected twice over:
-`$message['type']` silently coerces to index 0 and corrupts TYPE with no error, and the
-object form already shipped once and broke the canvas.
+**Alternatives considered:** Associative array / value object — rejected:
+`$message['type']` silently coerces to index 0 and corrupts TYPE with no error, and an
+object form reintroduces the per-boundary translation layer.
 
 **Consequences:** Indexing without the constants is a silent-corruption footgun. The
 positional shape is the divergence budget against Tachikoma — anything further must be
@@ -95,8 +94,8 @@ earns its keep when producer and consumer are decoupled by a queue that can fill
 substrate has no such queue: every boundary is synchronous, and the whole graph drains on one
 CPU.
 
-**Decision:** No producer/consumer ack handshake; TM_PERSIST / `answer()` / `cancel()`
-removed. The one kept reply-control flag is `TM_NOREPLY`: a Shell with `want_reply(false)`
+**Decision:** No producer/consumer ack handshake — no TM_PERSIST, no `answer()` /
+`cancel()`. The one reply-control flag is `TM_NOREPLY`: a Shell with `want_reply(false)`
 (topology load / script mode) ORs it onto commands and the interpreter suppresses the reply —
 otherwise a worker's boot-topology replies route to `_output/<pid>` (absent in a worker) and
 bounce a dropped `NOT_AVAILABLE` every startup.
@@ -106,7 +105,7 @@ single-threaded drain already IS the backpressure (a slow node slows the drain s
 `poll()`), and there is no queue to overflow.
 
 **Consequences:** No at-least-once guarantee at the message layer; durability comes from the
-log/offsetlog tier. (TM_PERSIST was never a rival to that tier — in Tachikoma the ack IS the
+log/offsetlog tier. (TM_PERSIST is not a rival to that tier — in Tachikoma the ack IS the
 tier's advance/discard signal, needed because consumption is asynchronous from delivery. Here
 the cursor advances in the same call frame the downstream `fill()` returns or the message is
 quarantined, so "delivered" and "safe to advance" coincide and an ack has nothing to signal.)
@@ -209,18 +208,25 @@ key family is required — then a *new, named* routing function, not a quiet sec
 **Status:** Accepted
 
 **Decision:** `sink` is the **physical** next node `fill()` forwards to. `target` is the
-**logical** destination — a path string stamped into `message[TO]` *only when TO is empty*
-(Tachikoma's `owner`; Tee's `target` is an array for fan-out). `_router` resolves a non-empty
-TO by peeling the head segment. Replies set `TO=$message[FROM]` to walk the breadcrumb back.
+**logical** destination (Tachikoma's `owner`). The base `Node::fill` stamps it into
+`message[TO]` only when TO is empty; the routing nodes go further — Tee (array target,
+fan-out) sets TO per target, the target itself or `target/TO` prepended so the remainder
+routes onward after the Router peels the head, and Echo completes the re-addressing matrix
+(prepend when both set, bounce `TO=FROM` when both empty, fall through to the base stamp
+otherwise). `_router` resolves a non-empty TO by peeling the head segment. Replies set
+`TO=$message[FROM]` to walk the breadcrumb back.
 
 **Observed benefits:**
 
 - **A TO path is a serializable address** — it rides inside the message across process and
   wire boundaries (IPC partitions, SSE, HTTP, the browser) where an object reference cannot.
-  The cd into a worker and `_output/<pid>` cross-process replies depend on it.
+  cd'ing into a worker and the `_output/<pid>` cross-process replies depend on it. The
+  contrast with Tachikoma is instructive: its `pivot_client` physically re-sinks the Shell
+  into a remote socket and removes the local interpreter; here nothing rewires — the graph
+  stays put and only the address changes.
 - **TO=FROM replies need no correlation table.** The breadcrumb is the return address.
 - **Late binding.** Targets resolve at fill-time: any construction order, cyclic graphs
-  wireable. Eager reference-binding is a known bug family here.
+  wireable. Eager reference-binding breaks reordered and cyclic graphs.
 - **In practice, targets route everything — data included.** The discipline in both realms
   (PHP workers and the JS console) is: every node sinks into `_command_interpreter` →
   `_router`, and TARGET links carry the flow (request-builder's whole hot pipeline is target
@@ -260,23 +266,26 @@ is compelling and proven to be more efficient.
 **Status:** Accepted
 
 **Context:** The target platform (Atomic) caps a request at 15 minutes and offers no resident
-process. A long-running worker must be a detached request that outlives its HTTP caller and
-respawns a successor before its clock runs out.
+process. A long-running worker is therefore an HTTP request that finishes its response
+immediately and keeps executing, respawning a successor before its clock runs out.
 
-**Decision:** Workers spawn via HTTP POST to an HMAC-validated `/spawn` endpoint, then detach
-with `ignore_user_abort(true)` + `fastcgi_finish_request()` + `set_time_limit(0)`. Lifetime
-~595s. Self-respawn fires in `finally`, with `release()` **before** `self_respawn()` so the
-successor can acquire the lock immediately.
+**Decision:** Workers spawn via HTTP POST to an HMAC-validated `/spawn` endpoint and finish
+the HTTP response up front (`fastcgi_finish_request()` + `ignore_user_abort(true)` +
+`set_time_limit(0)` — the process keeps running inside FPM; nothing detaches from the process
+group). Lifetime ~595s. Self-respawn fires in `finally`, with `release()` **before**
+`self_respawn()` so the successor can acquire the lock immediately.
 
-**Alternatives considered:** A resident daemon — unavailable on the platform. Respawn before
-release — rejected: leaves a 15-second slot gap.
+**Alternatives considered:** A resident daemon — unavailable on the platform. No self-respawn
+(supervisor-only restart) — rejected: every ~10-minute recycle would idle the slot until the
+supervisor's stale-lock rescue; self-respawn hands off immediately and leaves the supervisor
+as the safety net (ADR-9), not the scheduler.
 
-**Consequences:** Correctness depends on flawless offsetlog resume across thousands of
-respawns/day and on the release-before-respawn ordering. The lifetime is a platform-shaped
+**Consequences:** Correctness depends on flawless offsetlog resume across ~144 respawns/day
+per worker and on the release-before-respawn ordering. The lifetime is a platform-shaped
 constant, not a tuning knob.
 
-**Revisit if:** the platform lifts the time cap or offers resident workers — the
-detach-and-respawn dance collapses into a normal loop.
+**Revisit if:** the platform lifts the time cap or offers resident workers — the respawn
+dance collapses into a normal long-lived loop.
 
 ---
 
@@ -292,13 +301,16 @@ workers (heartbeat > `stale_timeout`) and force-spawns. The supervisor self-resp
 **WP-Cron** catches a dead supervisor at minute cadence.
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
-before it can respawn. An external supervisor — unavailable.
+before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
+unavailable; the substrate's own Supervisor is itself a capped request under the same 15-minute
+rule, which is exactly why it needs a tier above it (WP-Cron).
 
 **Consequences:** Three independent spawners (worker `finally`, supervisor tick, cron),
 bounded against respawn storms by the 15s `is_recently_spawned` throttle (persisted via
 memcache). Worst-case revival latency is cron cadence.
 
-**Revisit if:** a real process supervisor becomes available.
+**Revisit if:** an OS-level process supervisor becomes available — the tiered self-revival
+collapses into it.
 
 ---
 
@@ -333,8 +345,7 @@ tiebreak rule or an explicit registry after all.
 
 ## ADR-11: `make_node` construction sequence
 
-**Status:** Accepted (revised: the empty-string short-circuit was replaced by a centralized
-default/required ladder in `parse_schema_args()`)
+**Status:** Accepted
 
 **Context:** Config must round-trip: a live graph emits `make_node <type> <name> <args>`
 lines (`dump_config()`) that reconstruct the same graph. That requires a fixed construction
@@ -359,21 +370,21 @@ they can't round-trip.
 round-trippable single-string config and diverges from the Tachikoma sequence. Object args
 through `make_node` — filtered deliberately.
 
-**Consequences:** The centralized ladder retired the recurring per-override
-`if ( '' === $args ) return;` footgun. Trade: a bare `make_node` of a node with a `required`
-arg throws at construction — intended, fail loud. Nodes configured via post-`make_node`
-public properties declare no required positionals and still construct bare.
+**Consequences:** Defaults and required-arg enforcement live in one place — no per-override
+`if ( '' === $args ) return;` guards. A bare `make_node` of a node with a `required` arg
+throws at construction — intended, fail loud. Nodes configured via post-`make_node` public
+properties declare no required positionals and construct bare.
 
-**Revisit if:** *(Acted on — the short-circuit's cost triggered this revision.)* Revisit
-again only if throw-on-required proves too strict for a legitimate deferred-config flow.
+**Revisit if:** throw-on-required proves too strict for a legitimate deferred-config flow
+that must build a bare node before configuring it.
 
 ---
 
 ## ADR-12: Dead-letter poison / crash lifecycle
 
-**Status:** Accepted (extended: the fair-shot + crawl machinery is shared by `Consumer_Node`
-and `Remote_Source_Node` via the `Dead_Letter_Queue` / `Offsetlog_Cursor` traits). Resolves
-roadmap item [42] — the "(dead-letter [42])" CHANGELOG tags refer to the same item.
+**Status:** Accepted. Shared by `Consumer_Node` and `Remote_Source_Node` via the
+`Dead_Letter_Queue` / `Offsetlog_Cursor` traits. Roadmap item [42] (the "(dead-letter [42])"
+CHANGELOG tags).
 
 **Context:** A durable reader (Consumer tailing a Partition; Remote_Source relaying a remote
 SSE stream) can hit a *poison* message that always fails downstream. Two failure shapes: a
@@ -424,11 +435,10 @@ progress from re-delivery each recycle.)
 **Alternatives considered:** Drop-on-first-failure — rejected (loses data, no audit trail).
 Unbounded retry — rejected (wedges the stream). A single shared read loop — rejected: the
 buffer/line and SSE-push models genuinely differ; only the accounting/decision logic is
-shared. Fair-shot block-and-climb for Remote_Source caught-throws — the ORIGINAL design (head
-blocked behind a `dlq` marker frame, because Remote_Source couldn't compute the poison's byte
-END); superseded once the ID breadcrumb carried `length` — caught-throw is now one-shot in
-both readers. Its rationale had also conflated planes: a recycling spoke is an UPSTREAM
-transient that drops the SSE stream (the reconnect path's problem); it never made a
+shared. Automatic retry (fair-shot block-and-climb) for caught-throws — rejected: a caught
+throw is deterministic per message and the quarantined original is replayable, so retries
+only risk wedging the stream; and the transient failures retries would target are UPSTREAM
+(a recycling spoke drops the SSE stream — the reconnect path's problem), which never makes a
 downstream `fill()` throw.
 
 **Consequences:** Poison can't wedge a stream and is never silently lost — every give-up
