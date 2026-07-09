@@ -109,8 +109,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * catches and wraps as TM_COMMAND|TM_ERROR.
 	 *
 	 * The `function_exists` guard keeps the helper usable in request-scope
-	 * unit tests where the cap stub may not be loaded — same shape as the
-	 * legacy per-interpreter copies it replaces.
+	 * unit tests where the cap stub may not be loaded.
 	 */
 	protected static function require_manage_options(): void {
 		if ( \function_exists( 'current_user_can' ) && ! \current_user_can( 'manage_options' ) ) {

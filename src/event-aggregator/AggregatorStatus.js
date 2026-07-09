@@ -134,7 +134,7 @@ function PartitionStatus( { partition, status, now } ) {
 	const connectionStatus = connected ? 'connected' : 'disconnected';
 	// Gate on `connected`: last_heartbeat_response is a sticky timestamp (never
 	// cleared once set), so a dead spoke would otherwise latch 'success' forever.
-	// Disconnected → pending, mirroring the old clear-heartbeat-on-disconnect.
+	// Disconnected → pending, clearing the sticky heartbeat state on disconnect.
 	const heartbeatStatus =
 		connected && status.last_heartbeat_response ? 'success' : 'pending';
 	// Rolled-up health drives the card's left status rail: green when the

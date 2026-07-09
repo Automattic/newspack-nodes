@@ -96,7 +96,7 @@ class Job_Worker_Node extends Node {
 	/**
 	 * Store the raw string, parse positional tokens via parse_schema_args()
 	 * (cache_flush_interval / stale_timeout / max_runtime), then clamp each knob
-	 * to >= 1 to match the legacy ctor's `max(1, ...)`.
+	 * to a minimum of 1.
 	 *
 	 * @param string|null $args
 	 * @return string

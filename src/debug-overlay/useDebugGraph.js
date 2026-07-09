@@ -93,9 +93,9 @@ export function useDebugGraph(
 	);
 
 	// Shared handlers. Inject the Shell's prefix/replyFrom so invoke honors the
-	// cwd at a non-root scope (the Path menu can `cd /_http`); the old overlay
-	// got this free by routing invoke through shell.sendCommand. sseGuard stays
-	// default (the overlay never blocks invoke — no attached worker).
+	// cwd at a non-root scope (the Path menu can `cd /_http`); invoke here
+	// doesn't route through shell.sendCommand, so it must carry them explicitly.
+	// sseGuard stays default (the overlay never blocks invoke — no attached worker).
 	const handlers = useGraphHandlers( {
 		shell,
 		graph,

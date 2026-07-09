@@ -14,9 +14,8 @@
  *         Enough for an admin dashboard to render a "is this thing alive?"
  *         surface without making a dozen separate calls.
  *
- * The substrate Config is a global accessed directly, matching the legacy
- * controller. `cache_available` reflects whether the shared `Core::$memd`
- * handle is configured.
+ * The substrate Config is a global accessed directly. `cache_available`
+ * reflects whether the shared `Core::$memd` handle is configured.
  *
  * @package Newspack_Nodes
  */

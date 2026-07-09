@@ -18,7 +18,7 @@ import './debug-overlay.scss';
  *
  * The panel (DebugPanel) mounts ONLY while open, so it builds its graph BEFORE
  * its first render (useState lazy-initializer in the graph hooks) — never in a
- * render-effect. That build-before-render is what dissolves the old open-and-type
+ * render-effect. That build-before-render is what prevents an open-and-type
  * shell.sink race: shell.sink is bound during the build, before any typed line
  * can dispatch, so there is no dispatch-time resolve.
  *

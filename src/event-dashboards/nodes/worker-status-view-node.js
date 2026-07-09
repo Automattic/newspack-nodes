@@ -2,11 +2,12 @@ import { Node } from '../../runtime/node';
 import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
 
-// Segment slide-out animation window — matches the old WorkerStatus 400ms timer.
+// Segment slide-out animation window (ms) — how long a removing row lingers before it clears.
 const REMOVING_CLEAR_MS = 400;
 
 // Empty model so an error arriving before any poll still publishes a render-able
-// (loading-cleared) view. Mirrors WorkerStatus's initial state shape.
+// (loading-cleared) view. Carries the same shape a normal poll publishes, so
+// React never sees a partial model.
 const emptyModel = () => ( {
 	workers: [],
 	supervisor: null,

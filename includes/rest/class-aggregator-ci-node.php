@@ -2,16 +2,10 @@
 /**
  * Aggregator_CI: command-dispatch for the hub-side aggregator dashboards.
  *
- * Canonical implementation of the three hub-side aggregator endpoints
- * that the legacy `newspack-nodes-aggregator/v1` namespace exposed:
- * `status`, `servers`, `health`. The dashboard cutover (commit 1350303)
- * migrated `AggregatorStatus.js` from `apiFetch('.../v1/status')` to
- * `commandClient.send('aggregator', 'status')`. The legacy
- * `AggregatorController` REST shim is preserved for any non-dashboard
- * caller and holds its `/status` body in parity with the `status` verb
- * here; the dedicated `AggregatorStatusController` (which the shim used
- * to delegate to) was deleted in the M4 cutover. Mounts at priority 11
- * alongside the rest of the M2 service CIs.
+ * Command-dispatch for the hub-side aggregator verbs — `status`, `servers`,
+ * `health`, plus the de-god slices `summary` / `servers_status`. The dashboard
+ * reaches them via `commandClient.send('aggregator', <verb>)`. Mounts at
+ * priority 11 alongside the rest of the M2 service CIs.
  *
  * Verbs:
  *   status  — per-node partition snapshot keyed by the wired Remote_Source
@@ -34,20 +28,18 @@
  *             re-indexed as a SEQUENTIAL ARRAY (the React card list maps over
  *             it). Both slice verbs return a JSON STRING (the substrate
  *             SliceViewNode contract) via Service_CI_Node::slice_verb().
- *   health  — cache reachability + wall-clock timestamp. Mirrors the
- *             legacy {healthy, cache, timestamp} shape. Cache probe is
+ *   health  — cache reachability + wall-clock timestamp. Returns the stable
+ *             {healthy, cache, timestamp} shape. Cache probe is
  *             wrapped in a Throwable catch so the endpoint never fails
  *             — a cache outage reports `cache=false`, not 500.
  *   servers — sequential array of registered servers with public-safe
  *             shape (id, url, has_credentials, is_config),
  *             matching the substrate Vault_CI public shape, but RETURNED
- *             AS A SEQUENTIAL ARRAY rather than a map keyed by id. Legacy
- *             contract — the React aggregator tree relies on the array
- *             shape; don't switch to a keyed map here.
+ *             AS A SEQUENTIAL ARRAY rather than a map keyed by id. The
+ *             React aggregator tree relies on the array shape; don't switch
+ *             to a keyed map here.
  *
- * Auth: all three verbs require `manage_options`. Legacy parity — both
- * controllers gated every route through `read_permissions_check()`,
- * which enforces the capability.
+ * Auth: every verb requires `manage_options`.
  *
  * Memcache reads go through the shared `Core::$memd` handle: the `status`
  * verb reads `np:remote:<node-name>:<remote_partition>` per partition; the
@@ -83,8 +75,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	/**
 	 * Build the per-node partition snapshot, keyed by the wired Remote_Source
 	 * NODE NAME. The single source of truth the `status`, `summary`, and
-	 * `servers_status` verbs share — so the legacy `status` shim and the de-god
-	 * dashboard slices can never disagree about what they saw.
+	 * `servers_status` verbs share — so the full-snapshot `status` verb and the
+	 * de-god dashboard slices can never disagree about what they saw.
 	 *
 	 * Discovers each Remote_Source wired into the active `aggregator` topology
 	 * graph, then for every configured partition reads that node's substrate
@@ -152,7 +144,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `servers` verb handler — registered servers as a sequential array (legacy contract).
+	 * `servers` verb handler — registered servers as a sequential array (the shape the aggregator tree relies on).
 	 *
 	 * @return array<int, mixed>
 	 */
@@ -170,7 +162,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				'is_config'       => $registry->is_config_server( $id ),
 			];
 		}
-		// Sequential array, NOT a map keyed by id — legacy contract the
+		// Sequential array, NOT a map keyed by id — the shape the
 		// React aggregator tree relies on.
 		return $out;
 	}
