@@ -245,31 +245,6 @@ class SSE_In_Node extends Node {
 		return $multi;
 	}
 
-	/**
-	 * Backpressure valve — ARM: (re-)register the owned multi with the event loop so its
-	 * socket is serviced again. No-op until connected (no multi yet). The dual of disarm();
-	 * a buffering owner (Remote_Source) calls this when its buffer runs dry of complete lines.
-	 *
-	 * @api Support for the Remote_Source Buffered_Pump valve.
-	 */
-	public function arm(): void {
-		if ( null !== $this->multi ) {
-			Event_Framework::instance()->register_curl_handle( $this, $this->multi );
-		}
-	}
-
-	/**
-	 * Backpressure valve — DISARM: unregister from the event loop. The socket stops being
-	 * serviced (a pure select-set toggle — the easy handle stays open), so the kernel recv
-	 * buffer fills, the TCP window closes, and the remote SSE server blocks on write. Real
-	 * end-to-end backpressure. A buffering owner calls this once its buffer holds a line.
-	 *
-	 * @api Support for the Remote_Source Buffered_Pump valve.
-	 */
-	public function disarm(): void {
-		Event_Framework::instance()->unregister_curl_handle( $this );
-	}
-
 	// =========================================================================
 	// Event_Framework callbacks (cURL multi)
 	// =========================================================================
@@ -571,6 +546,31 @@ class SSE_In_Node extends Node {
 		@\curl_close( $this->handle );
 		$this->handle    = null;
 		$this->connected = false;
+	}
+
+	/**
+	 * Backpressure valve — ARM: (re-)register the owned multi with the event loop so its
+	 * socket is serviced again. No-op until connected (no multi yet). The dual of disarm();
+	 * a buffering owner (Remote_Source) calls this when its buffer runs dry of complete lines.
+	 *
+	 * @api Support for the Remote_Source Buffered_Pump valve.
+	 */
+	public function arm(): void {
+		if ( null !== $this->multi ) {
+			Event_Framework::instance()->register_curl_handle( $this, $this->multi );
+		}
+	}
+
+	/**
+	 * Backpressure valve — DISARM: unregister from the event loop. The socket stops being
+	 * serviced (a pure select-set toggle — the easy handle stays open), so the kernel recv
+	 * buffer fills, the TCP window closes, and the remote SSE server blocks on write. Real
+	 * end-to-end backpressure. A buffering owner calls this once its buffer holds a line.
+	 *
+	 * @api Support for the Remote_Source Buffered_Pump valve.
+	 */
+	public function disarm(): void {
+		Event_Framework::instance()->unregister_curl_handle( $this );
 	}
 
 	/**
