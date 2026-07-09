@@ -8,20 +8,18 @@
  * of bytes is in the buffer, the drain → forward → crawl → checkpoint path is one
  * shared spine.
  *
- * Seams (extracted for Consumer_Node in P1; Remote_Source_Node adopts them in P2):
+ * The declared seam surface (the trait's whole contract with its using class):
  *   - `get_batch()` — the REFILL seam (abstract). Consumer: a synchronous disk-block
  *     read; a push source (Remote_Source): an async "arm the curl valve," bytes
  *     arriving later via the drain loop.
+ *   - `init_position()` — the BOOT seam (abstract). The source-specific "where do I
+ *     start": Consumer seeds from the offsetlog + a default seek; a push source (P2)
+ *     will restore its position + arm its valve (no seek).
  *   - `forward_line()` — the EMIT seam (concrete default; Tail already overrides it).
+ *   - `checkpoint()` / `write_checkpoint_frame()` — the DURABLE-COMMIT seams (abstract).
+ *     Consumer commits an offsetlog frame; a push source overrides to commit its cursor.
  *
- * NOT YET formalized as seams (P1 scope was Consumer): the trait still composes the
- * using class's durable-position boot + checkpoint methods (`load_offsetlog`,
- * `has_checkpoint`, `default_offset`, `checkpoint`, `write_checkpoint_frame`) and
- * spine properties (`loaded_cache`, `offset_set`, `stamp_override`) directly — these
- * are Consumer-shaped ("seek to a segment:offset"). P2 formalizes them as explicit
- * seams and decomposes `poll_init`'s boot into an `init_position()` seam, driven by
- * Remote_Source's real (push, no-seek) requirements rather than speculation. Poison/
- * offsetlog machinery is read from the sibling traits (Offsetlog_Cursor,
+ * Poison/offsetlog machinery is read from the sibling traits (Offsetlog_Cursor,
  * Dead_Letter_Queue, Time_Travel) — same `$this`, composed at runtime.
  *
  * @package Newspack_Nodes
@@ -74,6 +72,9 @@ trait Buffered_Pump {
 	 */
 	protected bool $poll_initialized = false;
 
+	/** FROM-stamp override read by forward_line(); defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
+	protected string $stamp_override = '';
+
 	/**
 	 * True once a downstream fill() raised Worker_Should_Stop through forward_line — the
 	 * worker was actively DISPATCHING a message when the cooperative stop hit. The
@@ -103,33 +104,14 @@ trait Buffered_Pump {
 	}
 
 	/**
-	 * INIT phase (Tachikoma's status INIT → ACTIVE): seed the durable cursor from
-	 * the offsetlog and restore the snapshot node's state. Runs on the first poll —
-	 * inside the drain loop, after the whole topology is built — so the snapshot
-	 * node exists no matter what order the topology declared it. A durable
-	 * checkpoint OVERRIDES any pre-poll next_offset() the caller set (resume wins);
-	 * with no checkpoint, that seek stands. Then become the steady-state poller and
-	 * fall through to it so this tick still does work.
+	 * INIT phase (Tachikoma's status INIT → ACTIVE): boot the durable position via the
+	 * source-specific init_position() seam. Runs on the first poll — inside the drain
+	 * loop, after the whole topology is built — so a snapshot node the seam restores
+	 * exists no matter what order the topology declared it. Then freeze the boot cursor,
+	 * become the steady-state poller, and fall through to it so this tick still does work.
 	 */
 	protected function poll_init(): void {
-		$this->load_offsetlog();
-		if ( null !== $this->loaded_cache && '' !== $this->snapshot_node ) {
-			$node = Core::node( $this->snapshot_node );
-			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
-				$node->restore_state( $this->loaded_cache );
-				// Restore survived: re-commit the cache statefully (the boot frame was stateless).
-				$this->write_checkpoint_frame( false, true );
-			} else {
-				$this->print_less_often( "WARNING: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
-			}
-		}
-		$this->loaded_cache = null;
-		if ( ! $this->has_checkpoint() && ! $this->offset_set ) {
-			$default = $this->default_offset();
-			if ( null !== $default ) {
-				$this->next_offset( $default );
-			}
-		}
+		$this->init_position();
 		// Freeze the boot cursor at the real start (resume or first-spawn seek) so cursor_advanced_since_boot() is honest.
 		$this->boot_cursor_segment = $this->cursor_segment;
 		$this->boot_cursor_offset  = $this->cursor_offset;
@@ -320,4 +302,17 @@ trait Buffered_Pump {
 	 * this tick (the at_eof cadence), so "armed, nothing arrived yet" needs no case.
 	 */
 	abstract protected function get_batch(): void;
+
+	/**
+	 * Boot seam: seed the durable read position on the first poll — Consumer seeds from
+	 * the offsetlog + a default seek; a push source (Remote_Source) restores its position
+	 * and arms its valve. poll_init freezes the boot cursor at whatever this leaves.
+	 */
+	abstract protected function init_position(): void;
+
+	/** Durable-commit seam: commit the current cursor as an offsetlog checkpoint frame. */
+	abstract protected function checkpoint( bool $graceful = false ): void;
+
+	/** Durable-commit seam: write one offsetlog frame at the current cursor (unconditional; no advance-guard). */
+	abstract protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void;
 }
