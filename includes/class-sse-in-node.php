@@ -31,7 +31,7 @@ namespace Newspack_Nodes;
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_remove_handle
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_close
-// Note: cURL is required for SSE multiplexing — wp_remote_get() doesn't support it.
+// cURL is required for SSE multiplexing — wp_remote_get() can't do it.
 
 class SSE_In_Node extends Node {
 	public const CONNECT_TIMEOUT    = 5;
@@ -149,10 +149,7 @@ class SSE_In_Node extends Node {
 			'subscribe' => $this->subscribe,
 		];
 		if ( $this->position['segment'] > 0 || $this->position['offset'] > 0 ) {
-			// Positions are a FLAT `{ <concrete-dir>: {segment,offset} }` map keyed by the
-			// partition's directory name. `$subscribe` IS that dir name
-			// (`<topic>.p<N>`, one connection per partition), so key by it directly —
-			// `open_subscription` seeds `$positions[$dir]`.
+			// Positions map is keyed by the partition dir = $subscribe (<topic>.p<N>).
 			$params['positions'] = (string) \wp_json_encode(
 				[
 					$this->subscribe => [
@@ -223,15 +220,12 @@ class SSE_In_Node extends Node {
 		$this->handle             = $ch;
 		$this->last_attempt       = $now;
 		$this->slot               = null;
-		// Stream opened; awaiting the `connected` handshake. CONNECTED replaces
-		// this when it arrives, DISCONNECTED / RECONNECTING / ERROR on trouble.
+		// Stream opened; awaiting the 'connected' handshake (CONNECTED replaces this).
 		$this->set_state( 'CONNECTING', $this->subscribe );
 		return true;
 	}
 
-	// =========================================================================
-	// cURL lifecycle
-	// =========================================================================
+	// --- cURL lifecycle ---
 
 	/** Ensure the owned multi handle exists and is registered. Idempotent. */
 	private function ensure_multi(): \CurlMultiHandle {
@@ -244,9 +238,7 @@ class SSE_In_Node extends Node {
 		return $multi;
 	}
 
-	// =========================================================================
-	// Event_Framework callbacks (cURL multi)
-	// =========================================================================
+	// --- Event_Framework callbacks (cURL multi) ---
 
 	/**
 	 * CURLOPT_WRITEFUNCTION callback. Returns bytes-consumed or 0 to abort.
@@ -313,9 +305,7 @@ class SSE_In_Node extends Node {
 		$this->increase_backoff();
 	}
 
-	// =========================================================================
-	// SSE parsing
-	// =========================================================================
+	// --- SSE parsing ---
 
 	/**
 	 * Parse a chunk of SSE bytes off the buffer. Returns false on overflow.
@@ -324,10 +314,7 @@ class SSE_In_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function process_sse_chunk( string $bytes ): bool {
-		// Read boundary: every wire byte consumed off the stream (framing + data +
-		// heartbeat/connected events). The JS SSE_In can only count `msg` event DATA
-		// (EventSource hides framing + non-msg events), so its bytes_read is smaller —
-		// an inherent transport gap, not a parity bug.
+		// bytes_read counts all wire bytes; JS counts only msg data — not a parity bug.
 		$this->bytes_read += \strlen( $bytes );
 		$this->buffer     .= $bytes;
 
@@ -401,14 +388,13 @@ class SSE_In_Node extends Node {
 		$this->current_backoff = self::INITIAL_BACKOFF;
 		$this->last_event_time = Core::$now ?: \microtime( true );
 
-		// Heartbeats prove liveness only — record receipt and return BEFORE unpack (not routed).
+		// Heartbeats prove liveness only — record receipt and return before unpack.
 		if ( 'heartbeat' === $type ) {
 			$this->last_sse_heartbeat = (int) ( Core::$now ?: \microtime( true ) );
 			return true;
 		}
 
-		// The substrate's bookkeeping handshake is its own event type (like `heartbeat`):
-		// unpack, capture slot/pid, don't forward. Discriminated by `event:`, not by peeking KEY.
+		// 'connected' handshake: unpack, capture slot/pid, don't forward.
 		if ( 'connected' === $type ) {
 			try {
 				$message = Message::unpacked( $raw_data );
@@ -421,10 +407,7 @@ class SSE_In_Node extends Node {
 			return $this->handle_connected( $message );
 		}
 
-		// `/messages/stream` data lines are `msg` events carrying a packed 7-field Message.
-		// SSE_In hands the RAW payload to the owner's delivery seam. A torn frame therefore
-		// reaches the owner unparsed; its forward_line owns the unparse/DLQ. Any other event
-		// type is ignored.
+		// 'msg' hands the RAW payload to the owner; its forward_line owns unparse/DLQ.
 		if ( 'msg' === $type ) {
 			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
 			$this->counter++;
@@ -449,7 +432,7 @@ class SSE_In_Node extends Node {
 	private function handle_connected( array $message ): bool {
 		$value = $message[ Message::VALUE ];
 		if ( ! \is_string( $value ) ) {
-			// TM_INFO values are strings; a non-string VALUE is malformed. Report for visibility.
+			// TM_INFO values are strings; a non-string VALUE is malformed — report it.
 			$this->last_error = 'malformed connected envelope (non-string value)';
 			$this->set_state( 'ERROR', $this->last_error );
 			$this->print_less_often( 'ERROR: ' . $this->last_error );
@@ -461,8 +444,7 @@ class SSE_In_Node extends Node {
 		$this->slot        = \is_scalar( $slot_raw ) ? (int) $slot_raw : null;
 		$pid_raw           = $info['PID'] ?? null;
 		$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
-		// A handshake with no PID is malformed — report it and DON'T mark
-		// connected (mirrors the JS SseIn; the reply-FROM needs the pid).
+		// No PID = malformed handshake; don't mark connected (reply-FROM needs pid).
 		if ( null === $this->session_pid ) {
 			$this->last_error = 'connected envelope missing PID';
 			$this->set_state( 'ERROR', $this->last_error );
@@ -474,9 +456,7 @@ class SSE_In_Node extends Node {
 		return true;
 	}
 
-	// =========================================================================
-	// Stale check
-	// =========================================================================
+	// --- Stale check ---
 
 	/**
 	 * Reconnect-on-stale check. Driven by the patron (no timer here).
