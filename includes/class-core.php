@@ -235,6 +235,10 @@ class Core {
 		} );
 		self::$now       = \microtime( true );
 		self::$init_time = self::$now;
+		// Clearing the node world must drop the event loop's timer set too — else a
+		// prior worker's (or test's) armed timer survives on a now-orphaned node and a
+		// later drain fires it. At worker spawn the framework is empty, so this no-ops.
+		Event_Framework::reset();
 	}
 
 	public static function set_stderr_handler( callable $h ): void {

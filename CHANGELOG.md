@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`Consumer_Node`'s message-path spine extracted into a reusable `Buffered_Pump` trait** (`includes/trait-buffered-pump.php`; spec `2026-07-09-remote-source-consumer-convergence` P1). The buffer + read cursor, the `poll_cb` INIT→ACTIVE/CRAWL function-pointer state machine (`poll`/`poll_init`/`poll_active`/`poll_crawl`), `drain_buffer`, the `forward_line` emit seam, `refill`, the `fire()` tick, and the buffer/partial helpers now live in the shared trait alongside the existing durable-reader traits (Offsetlog_Cursor, Dead_Letter_Queue, Time_Travel). The trait declares five seams: `get_batch()` (refill — Consumer: a synchronous disk-block read; a future push source (Remote_Source, P2): an async curl-valve arm), `init_position()` (the source-specific durable-cursor boot), `forward_line()` (overridable emit; Tail overrides it), and `checkpoint()` / `write_checkpoint_frame()` (durable-commit). Behaviour-preserving pure refactor (no observable change); the existing Consumer/Tail/time-travel/dead-letter suites are the ratchet.
 
+### Fixed
+
+- **`Core::reset()` now drops the event loop's timer set.** Clearing the node world left `Event_Framework`'s armed timers referencing now-orphaned nodes, so a later drain could fire a dead worker's (or a prior test's) timer — a cross-test leak that surfaced as a stray `Worker_Should_Stop` in an unrelated drain under the `depends,defects` execution order. `Core::reset()` now calls `Event_Framework::reset()`: a no-op at worker spawn (empty framework), and it restores test isolation.
+
 ## [0.31.0] - 2026-07-09
 
 ### Changed
