@@ -53,9 +53,9 @@ export class HeartbeatNode extends TimerNode {
 	}
 
 	// Build the poke TM_COMMAND, addressed to this.target — the REST `workers` CI
-	// via the session boundary (`_sse` wraps FROM into the private reply pivot;
+	// via the session boundary (`_sse` wraps FROM into the private reply address;
 	// the slot pool's heartbeat verb lives on `workers`, not on the per-worker IPC
-	// interpreter). FROM = own name is the reply pivot; LOCAL taints it so the browser interpreter
+	// interpreter). FROM = own name is the reply path; LOCAL taints it so the browser interpreter
 	// authorizes it.
 	_pollMessage() {
 		const m = newMessage();

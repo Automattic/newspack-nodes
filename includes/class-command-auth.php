@@ -5,7 +5,7 @@
  * The browser's trusted origin IS its process (see Message::LOCAL); the server
  * legitimately receives commands over the wire, so it can't strip — it must tell
  * an authorized wire-command from an injected one with an unforgeable marker.
- * Issuers (HTTP_In after WP auth; pivoted `wp nodes cli`) `sign()` the command
+ * Issuers (HTTP_In after WP auth; attached `wp nodes cli`) `sign()` the command
  * semantics; verifier processes (workers, /command request scope) install
  * `verifier()` as CommandInterpreter's authorize policy and refuse anything that
  * doesn't verify.

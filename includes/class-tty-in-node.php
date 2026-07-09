@@ -218,7 +218,7 @@ class TTY_In_Node extends Stdin_Node {
 
 	/**
 	 * Build a completion-query Message (`help` for verbs, `ls` for node names),
-	 * routed to the current pivot (cwd) so candidates come from the right graph.
+	 * routed to the current cwd so candidates come from the right graph.
 	 *
 	 * KEY='completion' makes the interpreter's help / list_nodes verbs emit a bare
 	 * newline-separated candidate list (no headers, no column flags). FROM is the

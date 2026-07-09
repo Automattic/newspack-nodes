@@ -14,7 +14,7 @@ import { generateNodeName } from '../utils/draftGraph';
 import { quoteToken } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
-import { canonicalReplyPivot } from '../../runtime/metadata-node';
+import { canonicalReverseCwd } from '../../runtime/metadata-node';
 
 /**
  * Shared canvas/Inspector command handlers for the debug overlay and topology
@@ -27,8 +27,8 @@ import { canonicalReplyPivot } from '../../runtime/metadata-node';
  *
  * `prefix`/`replyFrom` default to identity (the overlay is local: cwd '' makes the
  * Shell's own prefix identity anyway); the console injects `shell.prefix` /
- * `shell.replyFrom` so an invoke routes to the worker-pivot cwd. `sseGuard(to)`
- * returns false to block a worker-pivot invoke before a live stream exists
+ * `shell.replyFrom` so an invoke routes to the attached worker's cwd. `sseGuard(to)`
+ * returns false to block an attached-worker invoke before a live stream exists
  * (the overlay leaves it at the always-allow default). `onDropStage` stages the
  * NewNodeModal payload; the consumer's commit dispatches the make_node.
  *
@@ -148,7 +148,7 @@ export function useGraphHandlers( {
 					dispatch( line, verb, args );
 				} else if ( 'tail' === action ) {
 					// connect_node with NO target appends the issuing FROM — this
-					// session's reply pivot, reported authoritatively as the _header
+					// session's reply path, reported authoritatively as the _header
 					// pwd. Append it to the Tee's fan-out array (don't replace, or the
 					// other edges vanish until the next poll); the bare value also
 					// covers the in-browser tee (pwd === `_output`).
@@ -158,7 +158,7 @@ export function useGraphHandlers( {
 						nodeId
 					);
 					const meta = Core.node( names.METADATA )?.rawMap;
-					const pwd = canonicalReplyPivot( meta?._header?.pwd );
+					const pwd = canonicalReverseCwd( meta?._header?.pwd );
 					if ( pwd ) {
 						const current = meta?.[ nodeId ]?.target;
 						let next = [ pwd ];
@@ -171,7 +171,7 @@ export function useGraphHandlers( {
 					}
 				} else if ( 'disconnect' === action ) {
 					// disconnect_node with NO target resolves to the issuing FROM and
-					// value-filters JUST that pivot — so optimistically remove only
+					// value-filters JUST that reply path — so optimistically remove only
 					// this session's pwd, preserving the Tee's other fan-out edges.
 					dispatch(
 						`disconnect_node ${ nodeId }`,
@@ -179,7 +179,7 @@ export function useGraphHandlers( {
 						nodeId
 					);
 					const meta = Core.node( names.METADATA )?.rawMap;
-					const pwd = canonicalReplyPivot( meta?._header?.pwd );
+					const pwd = canonicalReverseCwd( meta?._header?.pwd );
 					const current = meta?.[ nodeId ]?.target;
 					if ( pwd && Array.isArray( current ) ) {
 						patch( nodeId, {
@@ -282,7 +282,7 @@ export function useGraphHandlers( {
 					m[ TO ] = prefix( commandTarget );
 					m[ FROM ] = replyFrom( names.OUTPUT );
 					m[ LOCAL ] = true;
-					// Only a worker-pivot target's reply rides the async stream; a
+					// Only an attached-worker target's reply rides the async stream; a
 					// local-graph invocation interprets in-browser without a pid.
 					if ( ! sseGuard( m[ TO ] ) ) {
 						append( {

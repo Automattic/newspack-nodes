@@ -323,7 +323,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_connect_worker_input( string $args ): string {
 		// Mount the named worker's input Partition into THIS request's graph so a
-		// pivoted command in the same batch can route TO={reader}.pN. Returns '' (no reply).
+		// attached command in the same batch can route TO={reader}.pN. Returns '' (no reply).
 		Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
 		return '';
 	}

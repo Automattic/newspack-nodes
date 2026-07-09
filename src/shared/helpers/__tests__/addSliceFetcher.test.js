@@ -5,7 +5,7 @@
  *
  * The graph it builds, per slice:
  *   tee ─> fetch-x (Fetcher) ─> <target>            (the tick fans out to it)
- *   xIn (Tee) ─> [transform ─>] x:view (viewClass)  (the reply pivots back here)
+ *   xIn (Tee) ─> [transform ─>] x:view (viewClass)  (the reply routes back here)
  */
 
 import {

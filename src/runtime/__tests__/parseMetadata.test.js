@@ -19,7 +19,7 @@ describe( 'parseMetadata', () => {
 		} );
 	} );
 
-	it( 'extracts the reply pivot from the _header section and excludes it from nodes', () => {
+	it( 'extracts the reply path from the _header section and excludes it from nodes', () => {
 		const { nodes, pwd } = parseMetadata( {
 			_header: { pwd: '_repl/_output/_sse:346/_output' },
 			alpha: { class: 'Echo', counter: 1, target: '' },
@@ -88,7 +88,7 @@ describe( 'parseMetadata', () => {
 	it( "preserves each node's FULL target list even though edges collapse to the head", () => {
 		// The canvas edge collapses `_repl/_output/_sse:123/_output` to its head
 		// `_repl`, but the Inspector's Connect/Disconnect toggle must still tell
-		// WHICH session's reply pivot is wired — so the node keeps the full paths.
+		// WHICH session's reply path is wired — so the node keeps the full paths.
 		const { nodes, edges } = parseMetadata( {
 			tee: {
 				class: 'Tee',

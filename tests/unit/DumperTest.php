@@ -118,10 +118,10 @@ class DumperTest extends TestCase {
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$message[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'pivot> ' ];
+		$message[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'repl> ' ];
 		$dumper->fill( $message );
 
-		$this->assertSame( 'pivot> ', $shell->prompt );
+		$this->assertSame( 'repl> ', $shell->prompt );
 		$this->assertSame( '', $this->rendered( $cap ), 'prompt-update must NOT print to stdout' );
 	}
 

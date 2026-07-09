@@ -2,7 +2,7 @@ import { resolveSkin, formatSkinList } from './skinCommands';
 
 /**
  * Apply a `parsed.kind === 'local'` REPL builtin (clear/echo/status/debug_level/
- * show_parse/set_skin/list_skins) — the no-SSE, no-worker-pivot dispatch shared
+ * show_parse/set_skin/list_skins) — the no-SSE, no-attached-worker dispatch shared
  * by the debug overlay and the topology console. Pure: effects flow through the
  * injected `append` (one transcript entry) / `clear` (wipe transcript) /
  * `debugLevelRef` (mutable) / `setSkin` (apply a skin slug).

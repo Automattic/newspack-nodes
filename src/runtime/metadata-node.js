@@ -64,9 +64,9 @@ export function dumpMetadataPayload( only = '' ) {
 			out[ name ].registrations = registrations;
 		}
 	}
-	// Reserved header carrying THIS session's reply pivot (reverse_cwd) — only on a
+	// Reserved header carrying THIS session's reverse_cwd — only on a
 	// FULL snapshot, not a single-node refresh delta. For the in-browser interpreter
-	// that pivot is the bare Dumper `_output` (the exact FROM a local
+	// that reply path is the bare Dumper `_output` (the exact FROM a local
 	// `connect_node <tee>` stores), which the Inspector matches to toggle
 	// Connect/Disconnect. The worker tier stamps its own (`_repl/…/_sse:{pid}/…`).
 	if ( '' === only ) {
@@ -76,17 +76,17 @@ export function dumpMetadataPayload( only = '' ) {
 }
 
 /**
- * Canonicalize a reply-pivot path to the SHELL's tail (`…/_output`). The
+ * Canonicalize a reply path to the SHELL's tail (`…/_output`). The
  * `_header.pwd` arrives ending in the POLLING node's reply segment
  * (`…/_sse:{pid}/_metadata`), but a Tee tail target (from a shell `connect_node`)
  * ends in `_output` — so the Connect/Disconnect toggle and its optimistic patch
- * must both compare on this canonical form. A bare (slash-less) or empty pivot is
- * returned unchanged.
+ * must both compare on this canonical form. A bare (slash-less) or empty reply
+ * path is returned unchanged.
  *
- * @param {string} rawPwd The raw reply pivot from `_header.pwd`.
- * @return {string} The pivot with its final reply-node segment forced to `_output`.
+ * @param {string} rawPwd The raw reply path from `_header.pwd`.
+ * @return {string} The reply path with its final reply-node segment forced to `_output`.
  */
-export function canonicalReplyPivot( rawPwd ) {
+export function canonicalReverseCwd( rawPwd ) {
 	return ( rawPwd || '' ).replace( /\/[^/]+$/, `/${ reservedNames.OUTPUT }` );
 }
 
@@ -126,7 +126,7 @@ export function parseMetadata( payload ) {
 	}
 
 	// `_header` is the one reserved (non-node) key: the producer (worker or local
-	// Core) stamps `pwd` = THIS session's reply pivot. It arrives ending in the
+	// Core) stamps `pwd` = THIS session's reply path. It arrives ending in the
 	// POLLING node's reply segment (`…/_sse:{pid}/_metadata`, since the canvas
 	// polls FROM `_metadata`), but a Tee tail target — what the toggle matches —
 	// ends in the SHELL's reply node `_output` (`connect_node` uses the shell's
@@ -136,7 +136,7 @@ export function parseMetadata( payload ) {
 		raw._header && typeof raw._header.pwd === 'string'
 			? raw._header.pwd
 			: '';
-	const pwd = canonicalReplyPivot( rawPwd );
+	const pwd = canonicalReverseCwd( rawPwd );
 
 	const nodes = [];
 	const edges = [];
@@ -145,9 +145,9 @@ export function parseMetadata( payload ) {
 			continue;
 		}
 		// Full target paths, before the edge head-collapse below. The Inspector's
-		// Connect/Disconnect toggle matches THIS session's reply pivot (`pwd`)
+		// Connect/Disconnect toggle matches THIS session's reply path (`pwd`)
 		// against these, since the head-collapsed edges flatten every session's
-		// pivot to a single shared `_repl` and can no longer distinguish them.
+		// reply path to a single shared `_repl` and can no longer distinguish them.
 		let targets = [];
 		if ( Array.isArray( meta.target ) ) {
 			targets = meta.target.filter(
@@ -285,7 +285,7 @@ export class MetadataNode extends TimerNode {
 		super();
 		this.registrations.metadata = {};
 		// Self-throttle state: lastFired in Core.now() seconds; lastPath is the
-		// pivot we last polled (a cd re-polls immediately). pollIntervalMs is set
+		// cwd we last polled (a cd re-polls immediately). pollIntervalMs is set
 		// from the graph size on each response (computePollIntervalMs). It is a
 		// DEDICATED field, NOT the base interval_ms: a cd must re-poll the SAME tick
 		// even mid-interval, which the base fireCb() throttle can't express — so the
@@ -324,7 +324,7 @@ export class MetadataNode extends TimerNode {
 
 	// Router TIMER subscriber (the _router calls fireCb -> fire each second).
 	// Self-throttle: poll only once interval_ms has elapsed, or immediately when
-	// the pivot path changed (the user cd'd) — staying on the shared TIMER so the
+	// the cwd path changed (the user cd'd) — staying on the shared TIMER so the
 	// poll batches with the tick's other requests.
 	fire() {
 		if ( ! this.sink ) {
@@ -332,7 +332,7 @@ export class MetadataNode extends TimerNode {
 		}
 		const now = Core.now();
 		// The poll routes through `_cwd` (this.target); its `.target` is the live
-		// pivot path, swapped by a cd without remounting us.
+		// cwd path, swapped by a cd without remounting us.
 		const cwd = Core.node( this.target );
 		const path = cwd && typeof cwd.target === 'string' ? cwd.target : '';
 		const intervalMs = this.pollIntervalMs || 1000;
@@ -348,7 +348,7 @@ export class MetadataNode extends TimerNode {
 	}
 
 	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
-	// re-stamps the live cwd). FROM = own name is the reply pivot; LOCAL taints
+	// re-stamps the live cwd). FROM = own name is the reply path; LOCAL taints
 	// it so the browser interpreter authorizes a local poll.
 	_pollMessage( verb, args = '' ) {
 		const m = newMessage();

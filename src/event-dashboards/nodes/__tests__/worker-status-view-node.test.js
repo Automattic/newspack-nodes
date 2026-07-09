@@ -6,7 +6,7 @@
  * serversView pattern:
  *   - awaited verbs (restart) stash a `{ resolve, reject }` in the view's
  *     `pending` Map keyed by `message[ID]`; the reply lands at the view
- *     (FROM=view → reply pivots TO=view) and the view settles the Promise.
+ *     (FROM=view → reply routes TO=view) and the view settles the Promise.
  *   - pending-matched TM_ERROR rejects the Promise but does NOT pollute the
  *     view-model's global `error` field — that surface is for un-correlated
  *     errors (e.g. broadcasts).

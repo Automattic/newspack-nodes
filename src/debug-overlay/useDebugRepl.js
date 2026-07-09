@@ -195,7 +195,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	}, [] );
 
 	// Run one statement through the Shell and act on the three return shapes the
-	// console's local-scope dispatch handles (no worker pivot, no SSE).
+	// console's local-scope dispatch handles (no attached worker, no SSE).
 	const dispatchStatement = useCallback( ( statement ) => {
 		const s = shellRef.current;
 		const dumper = dumperRef.current;

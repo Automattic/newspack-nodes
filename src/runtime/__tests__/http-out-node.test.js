@@ -1,7 +1,7 @@
 /**
  * HttpOut tests — the outbound `/command` POST boundary. `_router` (or the link
  * that owns it) delivers a single positional Message with TO already routed; HttpOut
- * POSTs it verbatim. The worker-pivot `connect_worker_input` bundling moved up into
+ * POSTs it verbatim. The worker-attach `connect_worker_input` bundling moved up into
  * RemoteIpc (which owns its own HttpOut), so HttpOut itself is dumb: POST what it's
  * given, route every synchronous reply back into its sink (replies route by TO now —
  * there is no `_sse` convergence node).
@@ -118,7 +118,7 @@ describe( 'HttpOut', () => {
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'heartbeat' );
 	} );
 
-	it( 'leaves the reply-pivot FROM untouched', () => {
+	it( 'leaves the reply FROM untouched', () => {
 		const { node, postBatch } = makeNode();
 		node.fill( routed( { to: 'demo.p0', from: '_http/555/_metadata' } ) );
 		const batch = batchOf( postBatch );

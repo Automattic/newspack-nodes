@@ -337,7 +337,7 @@ connect_node tee        _repl
 A few things this file adds that the by-hand session didn't:
 
 - `var num_partitions = 1` is a topology **variable** — frontmatter the supervisor reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology still defaults to one partition, but copy the line so the example partitions the way the shipped file does.)
-- A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`. The `_repl` tap is what lets the topology console (and a pivoted `wp nodes cli`) actually *see* the emitted draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node introduced in step 6.)
+- A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`. The `_repl` tap is what lets the topology console (and an attached `wp nodes cli`) actually *see* the emitted draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node introduced in step 6.)
 - `Log log <file> 1 7` passes the file's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `num_segments` (`7` → keep the last 7 segments `{file}.0`…`{file}.6`). The by-hand version omitted them and took the defaults (one large growing segment).
 
 `register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate it — `wp nodes activate` adds the topology to the active set and spawns its fleet immediately (the shipped active set is empty by default — nothing spawns until you activate it; you can also toggle it under **Settings → Nodes Runtime → Topologies**):
@@ -351,7 +351,7 @@ wp nodes ls
 
 Open the **topology console**. There's your graph — the same boxes and arrows you drew above — now live, with a message count on every edge. This is the payoff of the uniform contract: because every node speaks `fill()` and announces itself via `node_schema()`, the dashboard can render and drive a graph it has never seen. You didn't build any of this observability.
 
-`cd` into the worker and drive it from the console's REPL — or pivot a terminal in:
+`cd` into the worker and drive it from the console's REPL — or attach a terminal in:
 
 ```bash
 wp nodes cli example-ai-newsletter.p0

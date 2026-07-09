@@ -1,6 +1,6 @@
 /**
  * toNeedsSseSession — the send gate's "needs a live SSE session (pid)" test.
- * Only a command pivoted to a worker partition (`{topology}.pN`) gets its reply
+ * Only a command addressed to a worker partition (`{topology}.pN`) gets its reply
  * demuxed back ASYNC over the SSE stream (RemoteIpc wraps FROM with the pid for
  * the server's HTTP_Filter), so only that form must wait on a connected session.
  * A local-root command (`''`) interprets in-browser; the direct `_http` boundary
@@ -16,13 +16,13 @@ describe( 'toNeedsSseSession', () => {
 		expect( toNeedsSseSession( '' ) ).toBe( false );
 	} );
 
-	it( 'a worker pivot ({topology}.pN) needs a session', () => {
+	it( 'an attached worker ({topology}.pN) needs a session', () => {
 		expect( toNeedsSseSession( 'firehose-workers-and-jobs.p0' ) ).toBe(
 			true
 		);
 	} );
 
-	it( 'a sub-node under a worker pivot needs a session', () => {
+	it( 'a sub-node under an attached worker needs a session', () => {
 		expect( toNeedsSseSession( 'demo.p1/firehose-in' ) ).toBe( true );
 	} );
 

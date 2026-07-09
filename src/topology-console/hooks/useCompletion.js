@@ -17,7 +17,7 @@ import names from '../../runtime/reserved-node-names.json';
  * `requestCompletion(line)` that builds the cwd-addressed `help` (first token) or
  * `ls` (later tokens) query, and a `handleShowCandidates` that tabulates the
  * candidate set into the transcript. The `skip` predicate gates the request —
- * the console passes `() => toNeedsSseSession( cwd ) && ! ssePid` so a worker-pivot
+ * the console passes `() => toNeedsSseSession( cwd ) && ! ssePid` so an attached-worker
  * cwd without a live stream stays quiet; the overlay leaves it at the never-skip
  * default. `fill` is the interpreter-fill fn (console: `fillCommandInterpreter`;
  * overlay: `Core.node( COMMAND_INTERPRETER )?.fill`).
@@ -31,7 +31,7 @@ import names from '../../runtime/reserved-node-names.json';
  */
 export function useCompletion( { cwd, fill, append, skip = () => false } ) {
 	// Tab-completion query: KEY='completion' tells the interpreter to emit a bare
-	// candidate list; FROM pivots the reply to the silent `_completion` node.
+	// candidate list; FROM routes the reply to the silent `_completion` node.
 	const requestCompletion = useCallback(
 		( line ) => {
 			if ( skip() ) {

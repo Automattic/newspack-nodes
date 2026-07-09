@@ -117,7 +117,7 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( '', $result, 'connect_worker_input must not emit a reply' );
 		// The named worker's input Partition is now a node in the request graph,
-		// so a pivoted command (TO=`firehose-workers.p0`) in the same /command
+		// so an attached command (TO=`firehose-workers.p0`) in the same /command
 		// batch resolves and writes to the worker — instead of NOT_AVAILABLE.
 		$this->assertInstanceOf(
 			\Newspack_Nodes\Partition_Node::class,

@@ -6,7 +6,7 @@ import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
  * `servers:view` — owns the de-god SERVER-CARDS slice of the Aggregator Status
  * dashboard: the per-server partition snapshot the cards render. Fed by its own
  * `servers_status` slice verb, whose reply lands here via the server's TO=FROM
- * pivot — an inspectable reply path independent of the summary slice.
+ * reply — an inspectable reply path independent of the summary slice.
  *
  * The verb returns a SEQUENTIAL ARRAY of server snapshots; this view wraps it as
  * `{ servers }` and clears loading/error for the <AggregatorServers> widget. A

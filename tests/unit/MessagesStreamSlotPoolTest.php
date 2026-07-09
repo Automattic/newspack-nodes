@@ -148,7 +148,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		// The direct_sink Callback's else-branch: when an incoming message
 		// carries a non-empty TO, the SSE writer doesn't emit it directly —
 		// it forwards through _router so HTTP_Filter can gate per-session
-		// pivoted replies. Seed a log partition with a TO-stamped packed
+		// attached replies. Seed a log partition with a TO-stamped packed
 		// Message and prove the Callback routes it via Router instead of
 		// emitting it on the wire.
 		SSE_Out_Node::$acquire_slot = static fn (): int|false => 1;
@@ -166,7 +166,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$message[ \Newspack_Nodes\Message::FROM ]  = 'firehose';
 		$message[ \Newspack_Nodes\Message::TO ]    = 'some-target';
-		$message[ \Newspack_Nodes\Message::VALUE ] = 'pivoted-payload';
+		$message[ \Newspack_Nodes\Message::VALUE ] = 'attached-payload';
 		\file_put_contents( "{$pdir}/0.log", \Newspack_Nodes\Message::packed( $message ) . "\n" );
 
 		$ctrl = new SSE_Out_Node();
@@ -198,6 +198,6 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		\ob_get_clean();
 
 		$this->assertNotEmpty( $routed, 'Callback else-branch must have routed the TO-stamped message through Router' );
-		$this->assertSame( 'pivoted-payload', $routed[0][ \Newspack_Nodes\Message::VALUE ] );
+		$this->assertSame( 'attached-payload', $routed[0][ \Newspack_Nodes\Message::VALUE ] );
 	}
 }

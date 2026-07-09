@@ -271,7 +271,7 @@ class SseInTest extends TestCase {
 		[ $node, $sink ] = $this->configured_node();
 		$node->target( '' );
 
-		// A pivoted worker reply carries its own TO (the TO=FROM breadcrumb); IPC
+		// An attached worker reply carries its own TO (the TO=FROM breadcrumb); IPC
 		// mode must route by that, not overwrite it with the link's target.
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;

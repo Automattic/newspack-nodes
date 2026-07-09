@@ -16,7 +16,7 @@
  * Every incoming message is stamped with the `_output` boundary name (the client
  * sends a bare reply path — `_output`, `_sse:{pid}/…`, or '' — and never
  * hardcodes `_output`), so a reply's TO=FROM walks `_output/…` back here; a
- * pivoted `_sse:{pid}` reply is demuxed to the SSE process by HTTP_Filter.
+ * session-scoped `_sse:{pid}` reply is demuxed to the SSE process by HTTP_Filter.
  * test_mode returns instead of exit().
  *
  * The `$send_header` constructor argument is a test seam — production passes a

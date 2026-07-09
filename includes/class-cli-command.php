@@ -46,7 +46,7 @@ class CLI_Command {
 	public static ?\Closure $uid_provider = null;
 
 	/**
-	 * Open an interactive REPL — bare mode (local graph) or pivoted mode (IPC to a worker).
+	 * Open an interactive REPL — bare mode (local graph) or attached mode (IPC to a worker).
 	 *
 	 * ## OPTIONS
 	 *
@@ -82,10 +82,10 @@ class CLI_Command {
 
 		$cli = new CLI( $this->base_dir() );
 
-		$pivoted = ! empty( $args );
+		$attached = ! empty( $args );
 		$ipc     = null;
 
-		if ( $pivoted ) {
+		if ( $attached ) {
 			$worker_id = $args[0];
 			try {
 				$ipc = $cli->attach_to_worker( $worker_id );
@@ -94,12 +94,12 @@ class CLI_Command {
 			}
 		}
 
-		[ $shell, $dumper, $stdout ] = $this->build_repl_graph( $pivoted, $ipc );
+		[ $shell, $dumper, $stdout ] = $this->build_repl_graph( $attached, $ipc );
 
 		// Stash the mode summary; the `status` builtin renders it on demand.
-		if ( $pivoted && null !== $ipc ) {
+		if ( $attached && null !== $ipc ) {
 			$shell->status_lines = [
-				"Pivoted-cli mode for {$args[0]}",
+				"Attached-cli mode for {$args[0]}",
 				"  input  partition: {$ipc['input']}",
 				"  output partition: {$ipc['output']}",
 			];
@@ -117,12 +117,12 @@ class CLI_Command {
 	}
 
 	/**
-	 * Build the REPL node graph (bare: _shell → interpreter → _router → _output; pivoted adds IPC nodes).
+	 * Build the REPL node graph (bare: _shell → interpreter → _router → _output; attached adds IPC nodes).
 	 *
 	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc
 	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node}
 	 */
-	private function build_repl_graph( bool $pivoted, ?array $ipc ): array {
+	private function build_repl_graph( bool $attached, ?array $ipc ): array {
 		$pid = (string) \getmypid();
 
 		$router = new Router_Node();
@@ -154,9 +154,9 @@ class CLI_Command {
 		$shell->sink( $console_tap );
 
 		// Defined unconditionally (empty in bare mode) so it's in scope for both
-		// pivoted blocks below; the blocks themselves are guarded.
-		$worker_id = ( $pivoted && null !== $ipc ) ? "{$ipc['type']}.p{$ipc['partition']}" : '';
-		if ( $pivoted && null !== $ipc ) {
+		// attached blocks below; the blocks themselves are guarded.
+		$worker_id = ( $attached && null !== $ipc ) ? "{$ipc['type']}.p{$ipc['partition']}" : '';
+		if ( $attached && null !== $ipc ) {
 			$shell->prompt = "/{$worker_id}> ";
 		}
 
@@ -166,7 +166,7 @@ class CLI_Command {
 		$is_tty = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
 		$stdout->set_readline_mode( $is_tty && \function_exists( 'readline_callback_handler_install' ) );
 
-		if ( $pivoted && null !== $ipc ) {
+		if ( $attached && null !== $ipc ) {
 			// IPC topics are single-partition; skip allow_large_writes so sessions append concurrently.
 			// 1 MiB segment_size + 2 segments — matches the worker/server IPC mounts.
 			$ipc_out = new Partition_Node();

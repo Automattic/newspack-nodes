@@ -1,7 +1,7 @@
 /**
  * RemoteLinkNode — the full-duplex "be the browser" SSE+HTTP channel, as one
  * node. It composes the three children every SSE dashboard and the console
- * worker-pivot used to wire by hand:
+ * worker attachment used to wire by hand:
  *
  *   {name}:sse-in     SseIn     — inbound EventSource stream (frames → link sink/target)
  *   {name}:http       HttpOut   — outbound /command POST boundary
@@ -35,7 +35,7 @@ export class RemoteLinkNode extends Node {
 		this.heartbeat = null;
 		// A RemoteLink is a log/topic SUBSCRIPTION: every received record goes to
 		// the link's target, so its SseIn re-homes any server-side TO the records
-		// carry (PARTITION replays do). RemoteIpc (pivoted IPC) overrides this to
+		// carry (PARTITION replays do). RemoteIpc (attached IPC) overrides this to
 		// false so worker reply frames keep their TO=FROM breadcrumb routing.
 		this.rehomeReceived = true;
 		// Optional consumer hook fired with the SseIn's `connected` payload (after

@@ -208,21 +208,16 @@ key family is required — then a *new, named* routing function, not a quiet sec
 
 **Status:** Accepted
 
-**Context:** Inherited from Tachikoma's earliest design (~20 years old); never re-derived
-from first principles, and no single-mechanism alternative has been seriously tried. Long
-justified only empirically; one first-principles argument has since surfaced (below).
-
 **Decision:** `sink` is the **physical** next node `fill()` forwards to. `target` is the
 **logical** destination — a path string stamped into `message[TO]` *only when TO is empty*
 (Tachikoma's `owner`; Tee's `target` is an array for fan-out). `_router` resolves a non-empty
 TO by peeling the head segment. Replies set `TO=$message[FROM]` to walk the breadcrumb back.
-Pivoting to another worker is just a TO prefix (the Shell's `path`).
 
 **Observed benefits:**
 
 - **A TO path is a serializable address** — it rides inside the message across process and
   wire boundaries (IPC partitions, SSE, HTTP, the browser) where an object reference cannot.
-  The pivot and `_output/<pid>` cross-process replies depend on it.
+  The cd into a worker and `_output/<pid>` cross-process replies depend on it.
 - **TO=FROM replies need no correlation table.** The breadcrumb is the return address.
 - **Late binding.** Targets resolve at fill-time: any construction order, cyclic graphs
   wireable. Eager reference-binding is a known bug family here.
@@ -232,8 +227,7 @@ Pivoting to another worker is just a TO prefix (the Shell's `path`).
   links). The router hop is paid on the hot path and is fine; sink-chains as a fast path
   exist but are not what the split is used for.
 - **One chokepoint.** Everything passes the Router — one place for NOT_AVAILABLE and the
-  routing counter. (Not taps: Router routes and gets out; you tap an *edge* by wiring a Tee
-  into it.)
+  routing counter.
 - **Unaddressability is a security boundary — the one property only the physical plane can
   express.** `Stdin_Node` and `Shell_Node` (`wp nodes cli`, and the JS `Shell_Node`) are
   deliberately UNNAMED: absent from the registry, unreachable by any TO path. The Shell is
@@ -244,9 +238,9 @@ Pivoting to another worker is just a TO prefix (the Shell's `path`).
 
 **The two-properties argument:** each plane expresses a property the other cannot.
 All-logical routing loses structural unaddressability (every node must have an address to
-receive anything). All-physical routing loses the serializable address (no pivot, no
-cross-process TO=FROM). Both properties are load-bearing in production, so the split is not
-two ways to do one job; it is the minimal design that carries both.
+receive anything). All-physical routing loses the serializable address (no cd into a remote
+worker, no cross-process TO=FROM). Both properties are load-bearing in production, so the
+split is not two ways to do one job; it is the minimal design that carries both.
 
 **Alternatives considered:** A single combined "next" pointer — never attempted as a port;
 rejected on the two-properties argument. A second physical `edge` output (as in some

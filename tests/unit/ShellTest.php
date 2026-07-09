@@ -215,12 +215,12 @@ class ShellTest extends TestCase {
 	public function test_parse_status_writes_status_lines_to_output_returns_null(): void {
 		// `status` is a local-only builtin: it routes the shell's pre-populated
 		// $status_lines through the `_output` Dumper and returns null (no command
-		// sent to the worker). This is how pivoted-cli prints "Pivoted-cli mode
+		// sent to the worker). This is how attached-cli prints "Attached-cli mode
 		// for X" + IPC paths on demand instead of auto-printing them at startup.
 		$capture              = $this->register_output_capture();
 		$shell                = new Shell_Node();
 		$shell->status_lines  = [
-			'Pivoted-cli mode for firehose-workers.p0',
+			'Attached-cli mode for firehose-workers.p0',
 			'  input  partition: /tmp/in',
 			'  output partition: /tmp/out',
 		];
@@ -229,7 +229,7 @@ class ShellTest extends TestCase {
 
 		$this->assertSame(
 			[
-				"Pivoted-cli mode for firehose-workers.p0\n",
+				"Attached-cli mode for firehose-workers.p0\n",
 				"  input  partition: /tmp/in\n",
 				"  output partition: /tmp/out\n",
 			],
@@ -393,7 +393,7 @@ class ShellTest extends TestCase {
 	public function test_fill_tm_eof_restamps_from_to_session_identity_and_forwards(): void {
 		// On TM_EOF the Shell stamps FROM to its own `_output/$pid` reply
 		// identity (the PHP analog of Tachikoma's _stdin → _responder rewrite)
-		// and TO to its pivot path, then forwards to the sink for the drain
+		// and TO to its cwd path, then forwards to the sink for the drain
 		// round-trip.
 		$shell       = new Shell_Node();
 		$shell->path = 'firehose-workers.p0';
@@ -441,9 +441,9 @@ class ShellTest extends TestCase {
 
 	public function test_parse_from_is_pid(): void {
 		// Shell stamps FROM=`_output/$pid` so replies route uniformly in
-		// both bare and pivoted modes (interpreter's response uses TO=$message->from,
+		// both bare and attached modes (interpreter's response uses TO=$message->from,
 		// _router peels _output, _output dispatches by ID through the
-		// shell-callback registry). In pivoted mode the worker's input-Consumer
+		// shell-callback registry). In attached mode the worker's input-Consumer
 		// prepends stamp_as=_repl, so server-side FROM=_repl/_output/$pid;
 		// the worker's _router peels _repl, the _repl Partition writes to disk
 		// with TO=_output/$pid, and the cli's reply-in Consumer reads it

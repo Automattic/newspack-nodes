@@ -21,7 +21,7 @@ export class CommandClient {
 	}
 
 	/**
-	 * Send a single TM_COMMAND (local sync reply; 202 ack when pivoted).
+	 * Send a single TM_COMMAND (local sync reply; 202 ack when attached).
 	 *
 	 * @param {Object} params See buildMessage().
 	 * @return {Promise<Array>} Parsed response.
@@ -37,7 +37,7 @@ export class CommandClient {
 	/**
 	 * Build a TM_COMMAND as a 7-element positional Message array. FROM is left
 	 * empty: the server's HTTP_In stamps the `_http` boundary onto every incoming
-	 * message, and the per-session reply pivot is applied by the `_sse` node — the
+	 * message, and the per-session reply path is applied by the `_sse` node — the
 	 * client never hardcodes the `_http` prefix.
 	 *
 	 * @param {Object} params

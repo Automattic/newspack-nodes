@@ -5,10 +5,10 @@
  * commands straight to it (the worker's name IS the address — no `_sse/` prefix).
  *
  * It EXTENDS RemoteLink — composing the same SseIn + HttpOut + Heartbeat children
- * and the connected→slot bridge — and adds the two halves of the worker-pivot send
+ * and the connected→slot bridge — and adds the two halves of the worker-attach send
  * path that used to live in SseIn + HttpOut:
  *  - The outgoing reply-FROM wrap: a command minted by a reply node
- *    (`_output`/`_metadata`/…) gets FROM rewritten to the private pivot
+ *    (`_output`/`_metadata`/…) gets FROM rewritten to the private reply address
  *    `_sse:{pid}/{node}` so the server's HTTP_Filter can demux its ASYNC reply
  *    back to THIS session's stream. The `_sse` head is the server's wire
  *    contract (unchanged on the PHP side), not this node's name.
@@ -36,7 +36,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 	constructor() {
 		super();
-		// Pivoted IPC, NOT a log subscription: worker reply frames carry a real
+		// Attached IPC, NOT a log subscription: worker reply frames carry a real
 		// TO (the TO=FROM breadcrumb) the browser router must honor, so DON'T
 		// re-home received frames to the target (that's RemoteLink's behavior).
 		this.rehomeReceived = false;

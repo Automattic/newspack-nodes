@@ -428,7 +428,7 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Build the `connected` Message envelope the SSE client expects first:
-	 * session pid (pivoted-command FROM stamp), slot index, the opened
+	 * session pid (attached-command FROM stamp), slot index, the opened
 	 * subscriptions (echoed back), and the heartbeat/flush interval.
 	 *
 	 * @param array<int,string> $subs

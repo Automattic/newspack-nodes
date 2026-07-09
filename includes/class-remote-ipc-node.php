@@ -1,7 +1,7 @@
 <?php
 /**
  * Remote_IPC: a per-worker interactive command channel, as distinct from
- * Remote_Source (durable aggregation). Modelled after the browser console's pivot
+ * Remote_Source (durable aggregation). Modelled after the browser console's cd
  * into a topology worker (JS RemoteIpcNode): `cd /{worker}` routes commands straight
  * to it — the worker's name IS the address.
  *
@@ -9,9 +9,9 @@
  * (but NOT the dashboard status snapshot: that's Remote_Source-only, since the Aggregator
  * reads only Remote_Source keys) — and specializes the base via the seams plus a `send()`
  * override that carries the two
- * halves of the worker-pivot that used to live in SSE_In + HTTP_Out:
+ * halves of the worker attachment that used to live in SSE_In + HTTP_Out:
  *  - The reply-FROM wrap: a command minted by a reply node (`_metadata`/`_output`/…)
- *    gets FROM rewritten to the private pivot `_sse:{pid}/{node}` so the spoke's
+ *    gets FROM rewritten to the private reply address `_sse:{pid}/{node}` so the spoke's
  *    HTTP_Filter can demux its ASYNC reply back to THIS session's stream. The `_sse`
  *    head is the server's wire contract, not this node's name.
  *  - The `connect_worker_input` bundling: each send rides a leading
@@ -39,7 +39,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 	public static ?Remote_IPC_Node $active = null;
 
 	/**
-	 * Worker-pivot send: boot/steal the live connection, then route the bundled
+	 * Worker-attach send: boot/steal the live connection, then route the bundled
 	 * `[connect_worker_input, command]` pair through the patron HTTP_Out (one POST).
 	 *
 	 * @param array<int, mixed> $message Positional Message; TO is the remainder past this node's name.

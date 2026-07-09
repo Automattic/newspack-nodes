@@ -86,7 +86,7 @@ export function useDebugGraph(
 	);
 
 	// Append straight to the `_output` Dumper (invoke echo + sse error). The
-	// overlay never blocks invoke (no worker pivot), so sseGuard stays default.
+	// overlay never blocks invoke (no attached worker), so sseGuard stays default.
 	const append = useCallback(
 		( entry ) => Core.node( names.OUTPUT )?.append( entry ),
 		[]
@@ -95,7 +95,7 @@ export function useDebugGraph(
 	// Shared handlers. Inject the Shell's prefix/replyFrom so invoke honors the
 	// cwd at a non-root scope (the Path menu can `cd /_http`); the old overlay
 	// got this free by routing invoke through shell.sendCommand. sseGuard stays
-	// default (the overlay never blocks invoke — no worker pivot).
+	// default (the overlay never blocks invoke — no attached worker).
 	const handlers = useGraphHandlers( {
 		shell,
 		graph,

@@ -180,7 +180,7 @@ describe( 'RemoteIpcNode', () => {
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
 	} );
 
-	it( 'wraps a reply-node FROM into the private _sse:{pid} pivot (pid from its SseIn)', () => {
+	it( 'wraps a reply-node FROM into the private _sse:{pid} address (pid from its SseIn)', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
@@ -207,7 +207,7 @@ describe( 'RemoteIpcNode', () => {
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0/request-builder' );
 	} );
 
-	it( 'wraps ANY non-empty FROM into the pivot (every worker reply needs demux)', () => {
+	it( 'wraps ANY non-empty FROM into the reply address (every worker reply needs demux)', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
@@ -219,7 +219,7 @@ describe( 'RemoteIpcNode', () => {
 		);
 	} );
 
-	it( 'leaves an empty FROM unwrapped (no trailing-slash pivot)', () => {
+	it( 'leaves an empty FROM unwrapped (no trailing-slash address)', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command( { from: '' } ) );

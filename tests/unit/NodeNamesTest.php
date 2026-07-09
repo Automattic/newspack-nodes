@@ -2,7 +2,7 @@
 /**
  * No-drift guard: PHP `Node_Names` consts and the canonical
  * `src/runtime/reserved-node-names.json` must stay byte-identical so the
- * reply pivot routes the same reserved names on both sides.
+ * reply path routes the same reserved names on both sides.
  *
  * @package Newspack_Nodes
  */

@@ -115,7 +115,7 @@ class RemoteIpcNodeTest extends TestCase {
 		$this->assertSame( 'combined.p0', $batch[1][ Message::TO ] );
 	}
 
-	public function test_command_from_wrapped_with_session_pid_pivot(): void {
+	public function test_command_from_wrapped_with_session_pid(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_ipc( 'combined.p0' );

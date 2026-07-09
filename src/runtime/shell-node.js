@@ -6,7 +6,7 @@
  *
  * Mirrors the verb vocabulary of PHP `class-shell.php` + the prior utils/shell.js
  * (ping / tell / send / send_eof / request / cmd + a bare-verb default). The
- * reply pivot is FROM=`_http/<ssePid>/<reply-node>`; typed input replies route
+ * reply path is FROM=`_http/<ssePid>/<reply-node>`; typed input replies route
  * to `_output` (the Dumper). TO=`prefix(path)` (path defaults to `_http/{reader}`).
  */
 
@@ -491,7 +491,7 @@ export class ShellNode extends Node {
 	}
 
 	// FROM = the bare reply node. When the cwd routes through `_sse:{pid}` that
-	// session node wraps it into the private pivot `_http/_sse:{pid}/<reply-node>`;
+	// session node wraps it into the private reply address `_http/_sse:{pid}/<reply-node>`;
 	// otherwise (`_http/…`) it stays bare and replies broadcast.
 	replyFrom( replyNode ) {
 		return replyNode;

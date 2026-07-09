@@ -935,8 +935,8 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'flips Connect → Disconnect when parsed.pwd is in the node FULL targets (edges head-collapse to _repl)', () => {
-		// parseMetadata collapses the reply-pivot edge to its head `_repl`, so the
-		// toggle matches this session's pivot (parsed.pwd) against node.targets.
+		// parseMetadata collapses the reply-path edge to its head `_repl`, so the
+		// toggle matches this session's reply path (parsed.pwd) against node.targets.
 		const teeNode = {
 			id: 'tee_a',
 			class: 'Tee',
@@ -985,8 +985,8 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Disconnect' ) ).not.toBeNull();
 	} );
 
-	it( 'stays Connect when only ANOTHER session pivot is wired (collapsed _repl edge is shared)', () => {
-		// A different browser's pivot also collapses to `_repl`; the toggle must
+	it( 'stays Connect when only ANOTHER session reply path is wired (collapsed _repl edge is shared)', () => {
+		// A different browser's reply path also collapses to `_repl`; the toggle must
 		// not falsely read as connected for this session (parsed.pwd ≠ that target).
 		const teeNode = {
 			id: 'tee_a',
