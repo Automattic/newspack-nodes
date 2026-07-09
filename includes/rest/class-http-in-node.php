@@ -156,9 +156,7 @@ class HTTP_In_Node extends Node {
 		$user_id = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 		// Bucket by floor(microtime) — each clock-second is an independent
 		// counter, so a steady stream at <BURST/sec stays at count=1 in each
-		// bucket forever instead of accumulating in a single transient that
-		// the old code kept refreshing on every write (the implementation
-		// before this gave a 429 to a 1 req/sec client after ~30 seconds).
+		// bucket forever instead of accumulating in a single transient.
 		$now     = self::$clock_now_seam ?? \microtime( true );
 		$bucket  = (int) \floor( $now );
 		$key     = "newspack_nodes_cmd_rl:{$user_id}:{$bucket}";

@@ -12,7 +12,7 @@ import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
  * settles the caller's Promise AND files the result into a published
  * `{ results: { [id]: { ok, payload | error } } }` model — so the test concern
  * has its own inspectable, per-concern reply state (a Tee-able edge in the debug
- * overlay), instead of being swallowed by the old god view.
+ * overlay).
  *
  * Only probes this node actually awaited are recorded; an un-correlated reply is
  * ignored (the test view never paints a table-wide banner — per-row failures are

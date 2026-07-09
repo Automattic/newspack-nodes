@@ -24,7 +24,7 @@ const PARTITION_RE = /\.p(\d+)$/;
  *   the dropdown + pause button + selected value + reconnect banner, consumed by
  *   `useNodeState('rawlogs:view','view')`.
  *
- * Post-migration to substrate `_http`, `fill()` ALSO handles the canonical
+ * `fill()` ALSO handles the canonical
  * command-reply shape (VALUE = `{ name, payload }`) using a pending-Map gate
  * (mirrors serversView): the hook stashes `{ resolve, reject }` keyed by
  * `message[ID]` to await a verb's reply (list_logs / future CRUD). A

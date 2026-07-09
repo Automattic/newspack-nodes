@@ -13,8 +13,8 @@
  *     read; a push source (Remote_Source): an async "arm the curl valve," bytes
  *     arriving later via the drain loop.
  *   - `init_position()` — the BOOT seam (abstract). The source-specific "where do I
- *     start": Consumer seeds from the offsetlog + a default seek; a push source (P2)
- *     will restore its position + arm its valve (no seek).
+ *     start": Consumer seeds from the offsetlog + a default seek; a push source
+ *     (Remote_Source) restores its position + arms its valve (no seek).
  *   - `forward_line()` — the EMIT seam (concrete default; Tail already overrides it).
  *   - `checkpoint()` / `write_checkpoint_frame()` — the DURABLE-COMMIT seams (abstract).
  *     Consumer commits an offsetlog frame; a push source overrides to commit its cursor.
@@ -174,8 +174,7 @@ trait Buffered_Pump {
 	 * different cap — no second code path to keep in sync.
 	 *
 	 * Scans by offset and chops the buffer ONCE at the end, so batch stays a single O(n)
-	 * pass (no substr-per-line) and an empty line is consumed cleanly (the old rtrim+explode
-	 * silently dropped a trailing empty line's byte). Advancing cursor_offset in lockstep with
+	 * pass (no substr-per-line) and an empty line is consumed cleanly. Advancing cursor_offset in lockstep with
 	 * the chop is load-bearing: get_batch reads at `cursor_offset + strlen(buffer)`, so a chop
 	 * without the matching cursor bump re-reads the gap and mis-aligns the next line into
 	 * unparseable garbage. The cursor advances past skipped (unparseable / over-long-FROM)
@@ -215,7 +214,7 @@ trait Buffered_Pump {
 	/**
 	 * Per-line drain seam: dispatch ONE complete line. The default handles the one-shot boot
 	 * head-skip (crash-crawl sacrifice / quarantine-marker drop) then delegates to forward_line
-	 * — lifted verbatim from drain_buffer so a forward_line-overriding subclass (Tail) still
+	 * — so a forward_line-overriding subclass (Tail) still
 	 * inherits the skip-head handling. A push source (Remote_Source) overrides this to run the
 	 * crumb-vs-boot-pin 3-way compare (its stream can resume PAST a GC'd suspect, so an armed head
 	 * is not unconditionally the first drained line).
@@ -374,7 +373,7 @@ trait Buffered_Pump {
 
 	/**
 	 * Refill seam: ensure the buffer is topped up from the source. Consumer_Node
-	 * implements it as a synchronous READ_BLOCK_BYTES disk read; a future push node
+	 * implements it as a synchronous READ_BLOCK_BYTES disk read; a push node
 	 * (Remote_Source_Node) implements it as an async "arm the curl valve" — bytes
 	 * arrive later via the drain loop. The pump already tolerates an empty buffer
 	 * this tick (the at_eof cadence), so "armed, nothing arrived yet" needs no case.

@@ -27,7 +27,7 @@ const emptyModel = () => ( {
  * `workerstatus:view` — owns the Worker Status view model, the single surface
  * React reads via useNodeState('workerstatus:view','view').
  *
- * Post-migration to substrate `_http`, the view follows the canonical
+ * The view follows the canonical
  * serversView pattern:
  *  - awaited verbs (restart) stash a `{ resolve, reject }` in `pending` keyed
  *    by message[ID]; the matching reply (TO=view) settles the Promise.

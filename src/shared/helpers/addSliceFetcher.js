@@ -1,6 +1,5 @@
 /**
- * addSliceFetcher — wire ONE dashboard slice in one call: the per-slice block
- * that used to be the `SLICES.forEach` body of every poll dashboard hook.
+ * addSliceFetcher — wire ONE dashboard slice in one call.
  *
  *   tee ─> <fetcher> (Fetcher) ─> <target>            the tick fans out to it
  *   <receiver> (Tee) ─> [<transform> ─>] <view>       the reply routes back here

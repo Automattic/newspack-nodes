@@ -17,7 +17,7 @@ class SseInTest extends TestCase {
 	}
 
 	/** Build a configured SSE_In node wired to a capture sink with a target. */
-	private function configured_node( string $source = 'austin', array $positions = [] ): array {
+	private function configured_node( array $positions = [] ): array {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$sink = new Capture_Sink_Node();
@@ -31,7 +31,6 @@ class SseInTest extends TestCase {
 			'',
 			'firehose.p0',
 			$positions,
-			$source,
 			true,
 			false
 		);
@@ -105,7 +104,7 @@ class SseInTest extends TestCase {
 		// SSE_In no longer unpacks or forwards a `msg` — it hands the RAW `data:` payload (the
 		// packed line, byte-identical to the remote's on-disk encoding) to the owner's on_message
 		// seam. It no longer tracks a per-message cursor; the owner owns the durable position.
-		[ $node ] = $this->configured_node( 'austin' );
+		[ $node ] = $this->configured_node();
 		$captured = [];
 		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
 			$captured[] = $raw;
@@ -127,7 +126,7 @@ class SseInTest extends TestCase {
 	public function test_msg_with_large_from_still_handed_raw(): void {
 		// SSE_In hands the raw payload regardless of the message's FROM. The FROM-overflow drop is
 		// now the owner's deliver_downstream / forward_line concern, not SSE_In's.
-		[ $node ] = $this->configured_node( 'austin' );
+		[ $node ] = $this->configured_node();
 		$captured = [];
 		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
 			$captured[] = $raw;
@@ -253,7 +252,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_restore_position_then_connect_carries_positions_and_subscribe(): void {
-		[ $node ] = $this->configured_node( 'austin' );
+		[ $node ] = $this->configured_node();
 		$node->restore_position( 5, 10 );
 
 		$captured = [];
@@ -279,7 +278,7 @@ class SseInTest extends TestCase {
 		$node->name( 'sse-in' );
 		$sink = new Capture_Sink_Node();
 		$node->sink( $sink );
-		$node->configure( 'http://austin.example', 'u', 'p', '', 'firehose.p0', [], 'austin', true, true );
+		$node->configure( 'http://austin.example', 'u', 'p', '', 'firehose.p0', [], true, true );
 
 		$captured = [];
 		SSE_In_Node::$curl_dispatch = function ( \CurlMultiHandle $multi, array $opts ) use ( &$captured ): \CurlHandle {

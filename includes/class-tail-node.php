@@ -8,8 +8,7 @@
  * forward_line(). Everything else — the buffer/cursor scan, the durable offsetlog
  * cursor (resume-after-restart), snapshot co-commit, live-position publish, behind/ETA,
  * checkpoint cadence, and segment-roll follow — is inherited from Consumer_Node. A fresh
- * Tail with no durable cursor defaults to END (only bytes appended after start), the fix
- * for the old every-restart full re-read.
+ * Tail with no durable cursor defaults to END (only bytes appended after start).
  *
  * @package Newspack_Nodes
  */

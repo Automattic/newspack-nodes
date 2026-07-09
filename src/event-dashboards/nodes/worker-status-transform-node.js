@@ -20,22 +20,21 @@ const GAP_INTERVALS = 6;
  * `workerstatus:transform` — turn a `dump_graph` reply into the enriched
  * render model.
  *
- * Post-migration to substrate `_http`, the transform receives the reply
+ * The transform receives the reply
  * directly from HttpOut (TO=transform, FROM=workers): VALUE = `{ name, payload }`
  * where `payload` is the workers/logs metadata snapshot. Anything other than a
  * `dump_graph` reply is ignored — the view is the receiver for restart /
  * error replies (FROM=view).
  *
- * The dump_graph payload is now LEAN and POSITIONAL — PHP no longer pre-joins
- * worker attribution. This transform REBUILDS the old rich `workers[]` array
+ * The dump_graph payload is LEAN and POSITIONAL — PHP does not pre-join
+ * worker attribution. This transform REBUILDS the rich `workers[]` array
  * (the shape `topologyGraph.buildTopologySections` / `TreeEntity` / `SegmentBar`
  * read) by joining the four inputs: `graph` (.tsl structure), `workers`
  * (liveness only), `consumers` (per-reader probe STATE), and `logs` (live
  * segment lists) — see `reconstructWorkers`. The join lives entirely here so
  * everything downstream stays unchanged.
  *
- * Read/write byte rates are CLIENT-SIDE deltas across two polls (the probe no
- * longer rides a rate on each descriptor): read_rate = Δ(absolute cursor byte
+ * Read/write byte rates are CLIENT-SIDE deltas across two polls: read_rate = Δ(absolute cursor byte
  * position)/Δts, write_rate = Δ(partition total live bytes)/Δts, both keyed as
  * the downstream already reads them. Stateful for the rate deltas (per-reader
  * prior cursor position, per-source prior total bytes) and the segment
@@ -62,7 +61,7 @@ export class WorkerStatusTransformNode extends Node {
 		this._lastSampleTs = null;
 		// Sticky scalars: a poll that OMITS segment_size / timestamp retains the
 		// last good value (matches WorkerStatus's `if (data.x) setX(...)`). Seeds
-		// match the old useState seeds — 64MB and the client clock.
+		// are 64MB and the client clock.
 		this._segmentSize = 64 * 1024 * 1024;
 		this._currentTime = Math.floor( Date.now() / 1000 );
 		// Worker_Base::HEARTBEAT_INTERVAL_S — the stall-pad denominator.

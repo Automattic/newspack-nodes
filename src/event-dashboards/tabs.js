@@ -1,7 +1,7 @@
 /**
  * Register the hub DevTools tabs the event-dashboards bundle owns: the Overview
  * landing (order 0 — the default first paint, ahead of the Console at order 15;
- * it now folds in the per-topology detail tree the old Topologies tab carried)
+ * it folds in the per-topology detail tree)
  * and Raw Logs (order 20). Imported (for its side effect) by the event-dashboards
  * bundle entry so the tabs register wherever the bundle loads (the Hub page
  * enqueues it via the `newspack_nodes/devtools_tab_bundles` filter). Raw Logs is

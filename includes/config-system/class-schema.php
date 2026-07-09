@@ -3,11 +3,10 @@
  * Schema: the declarative config registry — a list of Fields plus the section
  * metadata they render under, and the single place every consumer derives from.
  *
- * One Schema per plugin replaces the 4-6 parallel arrays (option_schema keys,
- * $option_names, $delete_on_blank_options, the register_setting loop, the
- * add_settings_field loop, the reset list, the restart classification) that
- * used to be hand-maintained in lockstep in Config + Admin. Add a setting once
- * as a Field; every view of it follows.
+ * One Schema per plugin is the single source of truth for its settings: the
+ * Options_Overlay key-list, the register_setting loop, the add_settings_field
+ * loop, the reset list, and the restart classification all derive from it. Add
+ * a setting once as a Field; every view of it follows.
  *
  * @package Newspack_Nodes
  */
