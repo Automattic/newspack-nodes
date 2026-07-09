@@ -129,9 +129,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			// A torn frame carries no crumb, so the node cursor can't have advanced to it; its
 			// position is SSE_In's next-read position (Fix #2 keeps it at the last delivered line's
 			// exclusive end). Only the already-quarantined boot head re-delivered AT that position
-			// (drop disposition, still armed) is dropped silently — the SSE-position match the old
-			// on_poison hook did; anything past it is genuinely new poison. Otherwise quarantine on
-			// sight at that position (advance-on-next marker).
+			// (drop disposition, still armed) is dropped silently; anything past it is genuinely
+			// new poison. Otherwise quarantine on sight at that position (advance-on-next marker).
 			$pos = $this->sse_in?->position() ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 			if ( $this->crawl_skip_head && 'drop' === $this->skip_head_disposition
 				&& $pos['segment'] === $this->boot_cursor_segment && $pos['offset'] === $this->boot_cursor_offset ) {
@@ -150,7 +149,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			// Pre-dispatch pin: FORCE-commit THIS line's own start (the cursor drain_line just pinned
 			// from the crumb) BEFORE the fill, so an uncatchable crash mid-dispatch re-resumes at
 			// exactly it. Forced (no advance-guard) so the first crawl line where cursor==boot==
-			// last-committed still commits. Parity with the retired relay's pre-dispatch commit_position.
+			// last-committed still commits.
 			$this->write_checkpoint_frame( false, true );
 		}
 		try {

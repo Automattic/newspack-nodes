@@ -268,7 +268,7 @@ function buildMutation( ci, verb, args, from, id ) {
 /**
  * Dispatch an awaited mutation on-demand and graph-visible: an ID-correlated
  * TM_COMMAND routed through `_shell/_http/<ci>` so the debug overlay's
- * `connect _shell` sees it (unlike the old hidden `_http`-only fill). FROM=<view>
+ * `connect _shell` sees it. FROM=<view>
  * routes the reply back to that view, where the matching ID settles the Promise on
  * its PendingReplies. Rejects if the graph or view isn't mounted yet. `_http` is
  * flushed immediately — this is an event-driven mutation, not part of the batched

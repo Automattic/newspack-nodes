@@ -32,7 +32,7 @@ class SseInCoverageTest extends TestCase {
 		$sink->name( 'merger' );
 		$node->sink( $sink );
 		$node->target( 'merger' );
-		$node->configure( 'https://aspen.example', 'u', 'p', '', 'firehose.p0', [], 'aspen', true, false );
+		$node->configure( 'https://aspen.example', 'u', 'p', '', 'firehose.p0', [], true, false );
 		return [ $node, $sink ];
 	}
 
@@ -118,7 +118,7 @@ class SseInCoverageTest extends TestCase {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->configure( 'https://aspen.example', '', '', 'tok-123', 'firehose.p0', [], 'aspen', true, false );
+		$node->configure( 'https://aspen.example', '', '', 'tok-123', 'firehose.p0', [], true, false );
 
 		$captured = [];
 		SSE_In_Node::$curl_dispatch = function ( \CurlMultiHandle $m, array $o ) use ( &$captured ): \CurlHandle {
@@ -289,7 +289,7 @@ class SseInCoverageTest extends TestCase {
 		// silent drop — never a throw (the null-sink fail-loud now lives in the owner's forward_line).
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
-		$node->configure( 'https://aspen.example', '', '', '', 'firehose.p0', [], 'aspen', true, false );
+		$node->configure( 'https://aspen.example', '', '', '', 'firehose.p0', [], true, false );
 
 		$this->assertTrue( $node->process_sse_chunk( $this->msg_frame( '1:0', 'req', [ 'x' => 1 ] ) ) );
 	}

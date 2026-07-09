@@ -6,7 +6,7 @@
  *
  * It EXTENDS RemoteLink — composing the same SseIn + HttpOut + Heartbeat children
  * and the connected→slot bridge — and adds the two halves of the worker-attach send
- * path that used to live in SseIn + HttpOut:
+ * path:
  *  - The outgoing reply-FROM wrap: a command minted by a reply node
  *    (`_output`/`_metadata`/…) gets FROM rewritten to the private reply address
  *    `_sse:{pid}/{node}` so the server's HTTP_Filter can demux its ASYNC reply

@@ -4,11 +4,10 @@
  *
  * One home for the per-field reset wrapper (`data-nn-reset` flex row + the `↺`
  * toggle) and the generic controls (number / directory / textarea / checkbox
- * list) that the three plugins used to copy-paste into every field callback.
- * Each method RETURNS escaped HTML (pure + testable); the caller echoes it.
+ * list). Each method RETURNS escaped HTML (pure + testable); the caller echoes it.
  *
- * The checkbox list emits the previously-missing `data-nn-reset-default` hint
- * per box, so the field-reset JS restores the SHIPPED default set on ↺ instead
+ * The checkbox list emits a `data-nn-reset-default` hint per box, so the
+ * field-reset JS restores the SHIPPED default set on ↺ instead
  * of clearing every box (see src/admin-field-reset/index.js `clear()`).
  *
  * @package Newspack_Nodes

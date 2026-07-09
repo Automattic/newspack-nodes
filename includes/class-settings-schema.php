@@ -4,8 +4,7 @@
  *
  * The single source both Config (overlay key-list + autoload sweep) and Admin
  * (register_setting + add_settings_field loops, option_names, delete-on-blank
- * set, reset list, worker-restart classification) derive from. Replaces the
- * five parallel arrays those two classes used to hand-maintain in lockstep.
+ * set, reset list, worker-restart classification) derive from.
  *
  * The Field render/sanitize callables point at Admin's static methods; building
  * the Schema only references them as `[Admin::class, '…']` callables (never

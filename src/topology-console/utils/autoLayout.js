@@ -127,8 +127,8 @@ export function autoLayout( parsed ) {
 	} );
 	const nodeSet = new Set( ids );
 	for ( const e of edges ) {
-		// Skip edges whose endpoints aren't real nodes (the old Map-based layout
-		// tolerated these via `|| []`; the plain-object adjacency would throw).
+		// Skip edges whose endpoints aren't real nodes (the plain-object
+		// adjacency would throw on a dangling endpoint).
 		if ( ! nodeSet.has( e.from ) || ! nodeSet.has( e.to ) ) {
 			continue;
 		}

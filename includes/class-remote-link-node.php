@@ -256,7 +256,6 @@ class Remote_Link_Node extends Timer_Node {
 			Core::as_string( $entry['token'] ?? '' ),
 			"{$this->remote_partition}",
 			$restored,
-			$this->vault_id,
 			$verify_ssl,
 			$require_ssl
 		);
@@ -273,8 +272,8 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Unpack one raw `msg` payload and forward it straight downstream (the moved SSE_In
-	 * `forward()` logic). Honors an empty target (an attached worker reply carries its own
+	 * Unpack one raw `msg` payload and forward it straight downstream. Honors an empty
+	 * target (an attached worker reply carries its own
 	 * TO — the TO=FROM breadcrumb — so don't overwrite it). A false FROM stamp (over
 	 * MAX_FROM_SIZE) or an unparseable frame is dropped, never forwarded. Remote_Source
 	 * overrides the delivery seam entirely (it buffers), so this is the channel path only.
@@ -289,8 +288,8 @@ class Remote_Link_Node extends Timer_Node {
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
-		// Stamp with the SSE_In sibling's name (`<link>:sse-in`), NOT the link's own name — parity
-		// with the retired SSE_In::forward, so the spoke's TO=FROM reply breadcrumb is unchanged.
+		// Stamp with the SSE_In sibling's name (`<link>:sse-in`), NOT the link's own name, so
+		// the spoke's TO=FROM reply breadcrumb is unchanged.
 		$stamp = null !== $this->sse_in ? $this->sse_in->name() : $this->name;
 		if ( ! $this->stamp_message( $message, $stamp ) ) {
 			$this->print_less_often( 'dropping stream message: FROM exceeded MAX_FROM_SIZE' );

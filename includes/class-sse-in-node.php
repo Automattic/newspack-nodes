@@ -1,8 +1,7 @@
 <?php
 /**
  * SSE_In: generic inbound SSE pull. A passive, hidden, programmatically-configured
- * source node — the substrate counterpart of the old ELN Remote_Source SSE
- * internals, minus the durable/aggregator concerns.
+ * source node.
  *
  * It owns one cURL multi handle (registered with the Event_Framework), one easy
  * handle (the SSE GET), one in-memory `{segment, offset}` cursor, and one SSE
@@ -39,7 +38,7 @@ class SSE_In_Node extends Node {
 	public const HEARTBEAT_TIMEOUT  = 45;
 	public const INITIAL_BACKOFF    = 1;
 
-	// ----- Reconnect / liveness tuning (mirrors the old Remote_Source). -----
+	// ----- Reconnect / liveness tuning. -----
 
 	public const MAX_BACKOFF        = 30;
 
@@ -423,8 +422,7 @@ class SSE_In_Node extends Node {
 		}
 
 		// `/messages/stream` data lines are `msg` events carrying a packed 7-field Message.
-		// SSE_In no longer unpacks them — it hands the RAW payload to the owner's delivery
-		// seam (Remote_IPC unpacks + forwards; Remote_Source buffers). A torn frame therefore
+		// SSE_In hands the RAW payload to the owner's delivery seam. A torn frame therefore
 		// reaches the owner unparsed; its forward_line owns the unparse/DLQ. Any other event
 		// type is ignored.
 		if ( 'msg' === $type ) {
@@ -577,8 +575,6 @@ class SSE_In_Node extends Node {
 	/**
 	 * Programmatic configuration entry point for the patron. Sets every field
 	 * directly. `$subscribe` is the full `<remote_topic>.p<partition>` string.
-	 * `$source` is currently unused — reserved (the _source provenance stamping it
-	 * once fed was dropped in the SSE rework); kept positional for call-site stability.
 	 *
 	 * @param string             $url           Base URL (no trailing slash).
 	 * @param string             $auth_username Application-Password user (Basic auth).
@@ -586,7 +582,6 @@ class SSE_In_Node extends Node {
 	 * @param string             $auth_token    Optional Bearer token fallback.
 	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
 	 * @param array{segment?:int,offset?:int} $positions Initial cursor.
-	 * @param string             $source        Unused/reserved (formerly the _source server id).
 	 * @param bool               $verify_ssl    Verify the remote SSL cert.
 	 * @param bool               $require_ssl   Refuse non-HTTPS remote URLs.
 	 */
@@ -597,7 +592,6 @@ class SSE_In_Node extends Node {
 		string $auth_token    = '',
 		string $subscribe     = '',
 		array $positions      = [],
-		string $source        = '',
 		bool $verify_ssl      = true,
 		bool $require_ssl     = false
 	): void {
