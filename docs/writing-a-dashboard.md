@@ -241,17 +241,7 @@ class Insights_CI_Node extends Service_CI_Node {
 
 	/** Read every `example-scored.p*` offset dir's latest snapshot, flatten the digest caches. */
 	public static function read_snapshot_items( string $offsets_dir ): array {
-		$dirs = \glob( \rtrim( $offsets_dir, '/' ) . '/example-scored.p*', \GLOB_ONLYDIR );
-		if ( false === $dirs || [] === $dirs ) {
-			return [];
-		}
-		$items = [];
-		foreach ( $dirs as $dir ) {
-			foreach ( self::read_cache_items( $dir ) as $item ) {
-				$items[] = $item;
-			}
-		}
-		return $items;
+		return \Newspack_Nodes\Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*' );
 	}
 
 	/** Count items per source → { source: count }. */
@@ -281,26 +271,10 @@ class Insights_CI_Node extends Service_CI_Node {
 		return $top;
 	}
 
-	/** Read one offset dir's newest snapshot, return its cache['items']. */
-	private static function read_cache_items( string $offsetlog_dir ): array {
-		$value = \Newspack_Nodes\Partition_Node::read_latest_value_at( $offsetlog_dir );
-		$cache = \is_array( $value ) && \is_array( $value['cache'] ?? null ) ? $value['cache'] : [];
-		$items = $cache['items'] ?? null;
-		if ( ! \is_array( $items ) ) {
-			return [];
-		}
-		$out = [];
-		foreach ( $items as $item ) {
-			if ( \is_array( $item ) ) {
-				$out[] = $item;
-			}
-		}
-		return $out;
-	}
 }
 ```
 
-> **← a substrate refinement.** `read_cache_items` used to be a 20-line walk: `new Partition_Node`, `arguments`, `get_segments(true)`, find the newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE` — guarded and try/caught. The substrate's `CLI::read_offsetlog_entry()` had a byte-identical copy. Reading "the newest committed record's VALUE from an offsetlog" is a substrate concern, so it became **`Partition_Node::read_latest_value_at( $offsetlog_dir )`**, and both callers collapsed to one line. You don't walk segments; you ask the Partition for its latest value.
+> **← two substrate refinements, in sequence.** Reading "the newest committed record's VALUE from an offsetlog" used to be a 20-line walk (`new Partition_Node`, `arguments`, `get_segments(true)`, newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE`) duplicated byte-for-byte in the substrate's `CLI::read_offsetlog_entry()` — that became **`Partition_Node::read_latest_value_at( $offsetlog_dir )`**. Then the *remaining* boilerplate (glob the `p*` snapshot dirs, descend into each `cache['items']`, flatten) turned out to be the same in every dashboard, so it too moved down: **`Partition_Node::read_latest_snapshot_cache( $offsets_dir, $glob )`** does the whole descent, and `read_snapshot_items()` collapsed to the one-liner above. You don't walk segments; you ask the Partition for its latest snapshot.
 
 Now the three verbs. Each is a one-line `handler` that shapes one slice off the **memoized** `items()` and JSON-encodes it. Because a `Service_CI` verb runs *on the CI itself*, the interpreter handed to each handler **is** this node — so `$ci->items()` shares the per-request memo across all three:
 
@@ -309,11 +283,8 @@ public static function node_schema(): array {
 	// A Service_CI verb runs ON the CI — the interpreter IS this node, so $ci->items()
 	// is the shared per-request memo. Service_CI_Node wraps every handler with
 	// require_manage_options(), so the admin gate is centralized — no per-slice gate.
-	$slice = static fn ( callable $shape ): \Closure => static function ( Command_Interpreter_Node $interpreter, string $args ) use ( $shape ): string {
-		/** @var self $ci */
-		$ci = $interpreter;
-		return (string) \wp_json_encode( $shape( $ci ) );
-	};
+	// slice_verb() is the base-class helper: it wraps a shape callable into a verb
+	// handler that json-encodes the shaped slice.
 	return \array_merge( parent::node_schema(), [
 		'category'    => 'Service',
 		'description' => 'Reads the scored-pipeline offsetlog snapshot; serves the dashboard insights slices.',
@@ -322,19 +293,19 @@ public static function node_schema(): array {
 				'name'        => 'counts',
 				'description' => 'Return per-source item counts: { sources: { source: count } }.',
 				'args'        => [],
-				'handler'     => $slice( static fn ( self $ci ): array => [ 'sources' => self::shape_sources( $ci->items() ) ] ),
+				'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'sources' => self::shape_sources( $ci->items() ) ] ),
 			],
 			[
 				'name'        => 'top',
 				'description' => 'Return the top-10 items by score: { top: [ { source, title, score } ] }.',
 				'args'        => [],
-				'handler'     => $slice( static fn ( self $ci ): array => [ 'top' => self::shape_top( $ci->items() ) ] ),
+				'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'top' => self::shape_top( $ci->items() ) ] ),
 			],
 			[
 				'name'        => 'accumulated',
 				'description' => 'Return the total accumulated item count: { accumulated: N }.',
 				'args'        => [],
-				'handler'     => $slice( static fn ( self $ci ): array => [ 'accumulated' => \count( $ci->items() ) ] ),
+				'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'accumulated' => \count( $ci->items() ) ] ),
 			],
 		],
 	] );
