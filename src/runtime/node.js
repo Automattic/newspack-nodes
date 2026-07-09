@@ -146,7 +146,7 @@ export class Node {
 			return cb( payload );
 		}
 		// Node-name mode: deliver TM_INFO directly to the resolved node. No TO —
-		// stamping it re-routes through _router (across an SSE pivot it lands where
+		// stamping it re-routes through _router (across an SSE session boundary it lands where
 		// neither listener nor emitter exist, logging a spurious NOT_AVAILABLE).
 		const target = Core.node( listener );
 		if ( ! target ) {

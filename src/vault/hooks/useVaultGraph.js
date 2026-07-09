@@ -20,8 +20,8 @@
  * (FROM = the concern's receiver Tee, TO = `_http/vault`, verb in VALUE.name)
  * with a correlator in `message[ID]`, stashes a `{ resolve, reject }` resolver in
  * the matching view's `replies` map under that ID, and fills the message into the
- * interpreter. The router peels `_http`, HttpOutNode POSTs, the server pivots the
- * reply TO=FROM, the router peels the receiver Tee, the Tee fans to its view, and
+ * interpreter. The router peels `_http`, HttpOutNode POSTs, the server replies
+ * TO=FROM, the router peels the receiver Tee, the Tee fans to its view, and
  * the view settles the Promise (and updates its own render model).
  *
  * list / add / update / delete are the LIST concern (FROM=vault:listIn). test is
@@ -70,7 +70,7 @@ function makeOpId() {
 
 /**
  * Build a TM_COMMAND addressed at the `vault` CI. FROM = the concern's receiver
- * Tee so the server's reply pivot lands on that concern; TO=`_http/vault` so the
+ * Tee so the server's reply path lands on that concern; TO=`_http/vault` so the
  * router peels `_http` and HttpOutNode POSTs the bare command. `id` is the
  * correlator the receiving view uses to settle the hook's Promise.
  *

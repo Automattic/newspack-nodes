@@ -1722,13 +1722,13 @@ export default function Inspector( {
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
 	// A tail (`connect_node <node>` with no target) defaults the Tee target to
-	// the issuing command's FROM — THIS session's reply pivot. The metadata
-	// producer reports that exact pivot as `parsed.pwd` (the reverse_cwd), so the
+	// the issuing command's FROM — THIS session's reply path. The metadata
+	// producer reports that exact reply path as `parsed.pwd` (the reverse_cwd), so the
 	// toggle is a precise match against the node's FULL targets — no reconstructing
-	// the runtime-renamed path, and it works for the worker pivot AND the in-browser
+	// the runtime-renamed path, and it works for the attached worker AND the in-browser
 	// JS tee (where pwd is the bare `_output`). parseMetadata collapses every edge
-	// to its head, flattening all sessions' pivots to one shared `_repl`, so the
-	// full target list is the only place the per-session pivot survives.
+	// to its head, flattening all sessions' reply paths to one shared `_repl`, so the
+	// full target list is the only place the per-session reply path survives.
 	const tailOn =
 		!! parsed.pwd && ( node.targets || [] ).includes( parsed.pwd );
 	// Read-only Constructor view: the class's declared positional args paired

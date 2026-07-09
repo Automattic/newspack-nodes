@@ -810,7 +810,7 @@ class Command_Interpreter_Node extends Node {
 	 * refresh is a one-node round-trip; bare = the full map.
 	 *
 	 * @param string $only Optional single node name to return.
-	 * @param string $pwd  Requesting session's reply pivot (inbound FROM == reverse_cwd); stamped into `_header` on a full snapshot.
+	 * @param string $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
 	 * @return array<string,array<string,mixed>>
 	 */
 	private static function cmd_dump_metadata( string $only = '', string $pwd = '' ): array {
@@ -860,8 +860,8 @@ class Command_Interpreter_Node extends Node {
 				$out[ $name ] += $extra;
 			}
 		}
-		// Reserved header on a FULL snapshot: this session's reply pivot (the
-		// reverse_cwd) so the GUI can match it against a Tee target to toggle
+		// Reserved header on a FULL snapshot: this session's reverse_cwd
+		// so the GUI can match it against a Tee target to toggle
 		// Connect/Disconnect without reconstructing the runtime-renamed path. A
 		// single-node refresh ('' !== $only) is a delta and carries no header.
 		if ( '' === $only && '' !== $pwd ) {

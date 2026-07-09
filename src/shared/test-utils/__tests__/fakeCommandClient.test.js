@@ -1,7 +1,7 @@
 /**
  * makeFakeCommandClient tests — the shared HttpOut-seam double the dashboard
  * hook tests duplicate: buildMessage mints a TM_COMMAND, postBatch echoes a
- * reply pivoted back along FROM carrying replyFor()'s payload + the correlation ID.
+ * reply routed back along FROM carrying replyFor()'s payload + the correlation ID.
  */
 
 import {
@@ -34,7 +34,7 @@ describe( 'makeFakeCommandClient', () => {
 		} );
 	} );
 
-	test( "postBatch echoes a reply carrying replyFor()'s payload + correlation ID, pivoted along FROM", async () => {
+	test( "postBatch echoes a reply carrying replyFor()'s payload + correlation ID, routed along FROM", async () => {
 		const replyFor = ( msg ) => ( { echoed: msg[ VALUE ].name } );
 		const client = makeFakeCommandClient( replyFor );
 		const m = client.buildMessage( { to: '_http/list', verb: 'list' } );

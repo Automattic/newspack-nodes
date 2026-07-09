@@ -59,7 +59,7 @@ wp nodes ls
 
 Open the **topology console** (the Nodes admin page): you'll see the `example-ai-newsletter` graph — `releases` and `community` both feeding `summarizer`, then `scorer` appending to the durable `scored:partition`, a `scored:consumer` tailing that log into `digest`, then a `digest:tee` that fans to the built-in `digest:log` — with live message counts on every edge.
 
-Now drive it by hand. Pivot a REPL into the running worker and fire the runtime triggers — `TICK`/`FLUSH` are `TM_REQUEST`s (sent with `request_node`), not admin commands. The sources are fire-and-forget: a `TICK` emits items but sends no reply, so watch the edge counts climb in the topology console rather than expecting REPL output:
+Now drive it by hand. Attach a REPL to the running worker and fire the runtime triggers — `TICK`/`FLUSH` are `TM_REQUEST`s (sent with `request_node`), not admin commands. The sources are fire-and-forget: a `TICK` emits items but sends no reply, so watch the edge counts climb in the topology console rather than expecting REPL output:
 
 ```bash
 wp nodes cli example-ai-newsletter.p0

@@ -3,7 +3,7 @@
  * that used to be the `SLICES.forEach` body of every poll dashboard hook.
  *
  *   tee ─> <fetcher> (Fetcher) ─> <target>            the tick fans out to it
- *   <receiver> (Tee) ─> [<transform> ─>] <view>       the reply pivots back here
+ *   <receiver> (Tee) ─> [<transform> ─>] <view>       the reply routes back here
  *
  * A Fetcher emits its ONE configured command (`<receiver> <command>`) toward
  * `target` (`_shell/_http/<ci>`); the server CI replies `TO = FROM = receiver`,
@@ -18,7 +18,7 @@
  * @param {Object}   interpreter       The mounted CommandInterpreter node.
  * @param {Object}   slice
  * @param {string}   slice.fetcher     Fetcher node name (e.g. `fetch-counts`).
- * @param {string}   slice.receiver    Receiver Tee name; the reply pivots back here (Fetcher FROM).
+ * @param {string}   slice.receiver    Receiver Tee name; the reply routes back here (Fetcher FROM).
  * @param {string}   slice.command     The verb the Fetcher sends.
  * @param {string}   slice.view        View node name.
  * @param {string}   slice.viewClass   Registered class name for the view node.
@@ -57,7 +57,7 @@ export function addSliceFetcher(
 	f.connectNode( target );
 	tee.connectNode( fetcher );
 
-	// Receiver Tee: the reply pivots back here, then fans to the view (or, when a
+	// Receiver Tee: the reply routes back here, then fans to the view (or, when a
 	// transform is supplied, to the transform which forwards to the view).
 	const recv = interpreter.makeNode( 'Tee', receiver );
 	if ( transform ) {

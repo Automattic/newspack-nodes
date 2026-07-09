@@ -246,12 +246,12 @@ export function deriveConnected( {
  * TO=`_shell/_http/<ci>` so the router peels `_shell` (the observe-only Tap the
  * toolkit owns) — making the command visible to the debug overlay's
  * `connect _shell` — then `_http` POSTs the bare command. FROM=<view> is the
- * reply pivot; ID is the correlator the view's PendingReplies settles on.
+ * reply path; ID is the correlator the view's PendingReplies settles on.
  *
  * @param {string} ci   Server CI target (`workers` | `topologies`).
  * @param {string} verb Verb name.
  * @param {string} args Argument tail the verb parses (empty for nullary verbs).
- * @param {string} from Reply-pivot FROM (which view the reply lands at).
+ * @param {string} from Reply FROM (which view the reply lands at).
  * @param {string} id   Correlator stamped into message[ID].
  * @return {Array} A 7-field positional Message.
  */
@@ -269,7 +269,7 @@ function buildMutation( ci, verb, args, from, id ) {
  * Dispatch an awaited mutation on-demand and graph-visible: an ID-correlated
  * TM_COMMAND routed through `_shell/_http/<ci>` so the debug overlay's
  * `connect _shell` sees it (unlike the old hidden `_http`-only fill). FROM=<view>
- * pivots the reply back to that view, where the matching ID settles the Promise on
+ * routes the reply back to that view, where the matching ID settles the Promise on
  * its PendingReplies. Rejects if the graph or view isn't mounted yet. `_http` is
  * flushed immediately — this is an event-driven mutation, not part of the batched
  * poll tick.

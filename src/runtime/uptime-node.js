@@ -55,7 +55,7 @@ export class UptimeNode extends TimerNode {
 	}
 
 	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
-	// re-stamps the live cwd). FROM = own name is the reply pivot (the reply comes
+	// re-stamps the live cwd). FROM = own name is the reply path (the reply comes
 	// back here); LOCAL taints it so the browser interpreter authorizes a local poll.
 	_pollMessage( verb ) {
 		const m = newMessage();

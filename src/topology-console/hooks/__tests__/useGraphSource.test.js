@@ -22,7 +22,7 @@ describe( 'useGraphSource', () => {
 		);
 		expect( result.current.hasNodes ).toBe( false );
 		// The lone visible nodes are the backbone fixtures; coreToGraph stamps the
-		// local reply pivot into pwd (the in-browser tail target is `_output`).
+		// local reply path into pwd (the in-browser tail target is `_output`).
 		expect(
 			result.current.graph.nodes.map( ( n ) => n.id ).sort()
 		).toEqual( [ '_heartbeat', '_http', '_shell' ] );

@@ -47,7 +47,7 @@ const TEST_VIEW = 'vault:test';
 const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, TEST_RECV, TEST_VIEW ];
 
 // A fake CommandClient matching HttpOutNode's seam: postBatch returns reply
-// Messages addressed back along FROM (the server's reply pivot). The payload can
+// Messages addressed back along FROM (the server's reply path). The payload can
 // be looked up by verb so a list reply yields a server map while a probe reply
 // yields a probe object.
 function makeFakeClient( payloadByVerb = {}, opts = {} ) {

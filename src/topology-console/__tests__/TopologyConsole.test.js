@@ -147,7 +147,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				// composes a SseIn (receive) + an HttpOut (POST) + a Heartbeat; its
 				// composed HttpOut's client captures the routed batch instead of
 				// POSTing. The RemoteIpc wraps a reply-node FROM into `_sse:{pid}` and
-				// bundles connect_worker_input — the worker-pivot send path.
+				// bundles connect_worker_input — the worker-attach send path.
 				const remote = interpreter.makeNode(
 					'RemoteIpc',
 					reader,
@@ -796,7 +796,7 @@ describe( 'TopologyConsole boot', () => {
 		] );
 	} );
 
-	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply pivots to _metadata/_uptime)', async () => {
+	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply routes to _metadata/_uptime)', async () => {
 		jest.useFakeTimers();
 		try {
 			globalThis.__httpPosts = [];
@@ -826,7 +826,7 @@ describe( 'TopologyConsole boot', () => {
 			// Immediate paint: one of each.
 			expect( dumps().length ).toBeGreaterThanOrEqual( 1 );
 			expect( uptimes().length ).toBeGreaterThanOrEqual( 1 );
-			// RemoteIpc wrapped each poll's bare reply-node FROM into the private pivot.
+			// RemoteIpc wrapped each poll's bare reply-node FROM into the private reply address.
 			expect( fromOf( dumps()[ 0 ] ) ).toBe(
 				`${ names.SSE }:1234/${ names.METADATA }`
 			);
@@ -856,7 +856,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {} );
 	} );
 
-	it( 'onComplete on the FIRST token dispatches a `help` completion query (KEY=completion, FROM pivots to _completion)', async () => {
+	it( 'onComplete on the FIRST token dispatches a `help` completion query (KEY=completion, FROM routes to _completion)', async () => {
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
@@ -869,7 +869,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( completions.length ).toBe( 1 );
 		const m = completions[ 0 ];
 		expect( m[ VALUE ].name ).toBe( 'help' );
-		// RemoteIpc wrapped the bare _completion reply-node FROM into the private pivot.
+		// RemoteIpc wrapped the bare _completion reply-node FROM into the private reply address.
 		expect( m[ FROM ] ).toBe( `${ names.SSE }:1234/${ names.COMPLETION }` );
 		expect( m[ TO ] ).toBe( 'demo.p0' );
 		// Minted in-process → LOCAL taint set (the wire pack() strips it later).
@@ -2111,7 +2111,7 @@ describe( 'TopologyConsole boot', () => {
 			},
 		} );
 		expect( await findByText( 'reset-graph' ) ).not.toBeNull();
-		// The _http broadcast boundary is also a pivoted (worker) view, not the
+		// The _http broadcast boundary is also an attached (worker) view, not the
 		// local graph — even though scopeFromCwd buckets it as 'local' — so the
 		// chip stays hidden there too.
 		act( () => {
@@ -2877,7 +2877,7 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TO ] ).toBe( 'demo.p0' );
-		// RemoteIpc wrapped the bare `_output` FROM into the private reply pivot.
+		// RemoteIpc wrapped the bare `_output` FROM into the private reply address.
 		expect( posted[ FROM ] ).toBe(
 			`${ names.SSE }:1234/${ names.OUTPUT }`
 		);
@@ -3504,7 +3504,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText, queryByText } = render( <TopologyConsole /> );
-		// Pivot to the topology's worker — scope.key = `demo.p0`, which is
+		// cd into the topology's worker — scope.key = `demo.p0`, which is
 		// what the server-saved layout is for.
 		act( () => {
 			lastReplProps.onSubmit( 'cd /demo.p0' );

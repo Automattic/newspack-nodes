@@ -3,7 +3,7 @@
  * owns it (a RemoteLink/RemoteIpc, or the console spine via `_router`) delivers a
  * single positional Message with TO already routed; `fill()` POSTs it verbatim
  * (or buffers it while locked, so a Router TIMER tick's emissions ride in ONE
- * request). The worker-pivot `connect_worker_input` bundling lives in RemoteIpc
+ * request). The worker-attach `connect_worker_input` bundling lives in RemoteIpc
  * (which owns its own HttpOut) — HttpOut is dumb: POST what it's given.
  *
  * Intake: a synchronous reply comes back as a packed Message in the POST body

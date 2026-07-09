@@ -3,7 +3,7 @@
  * Reserved node names — canonical map shared with the JS wiring.
  *
  * Mirror of `src/runtime/reserved-node-names.json`; the NodeNamesTest no-drift
- * guard fails if the two diverge. The reply pivot routes by these exact
+ * guard fails if the two diverge. The reply path routes by these exact
  * strings, so a typo on either side silently misroutes.
  *
  * @package Newspack_Nodes

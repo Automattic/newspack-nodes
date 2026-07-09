@@ -5,7 +5,7 @@ import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
 /**
  * `summary:view` — owns the de-god HEADER slice of the Aggregator Status
  * dashboard: connected/total counts + the snapshot clock. Fed by its own
- * `summary` slice verb, whose reply lands here via the server's TO=FROM pivot —
+ * `summary` slice verb, whose reply lands here via the server's TO=FROM reply —
  * an inspectable reply path independent of the servers slice.
  *
  * The `summary` verb computes the connected rollup SERVER-side, so this view

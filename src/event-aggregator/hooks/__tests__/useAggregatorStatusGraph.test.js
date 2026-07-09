@@ -39,7 +39,7 @@ const SLICE_VIEWS = [ SUMMARY_VIEW, SERVERS_VIEW ];
 
 // A fake CommandClient: records each batch its postBatch is given, and mints one
 // reply per outbound message addressed back along FROM (the server's TO=FROM
-// pivot), choosing the payload by the command name so each slice gets its shape.
+// reply), choosing the payload by the command name so each slice gets its shape.
 function makeFakeClient( { summary = {}, servers = [] } = {} ) {
 	const client = {
 		batches: [],
@@ -48,7 +48,7 @@ function makeFakeClient( { summary = {}, servers = [] } = {} ) {
 			const replies = messages.map( ( m ) => {
 				const reply = newMessage();
 				reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ]; // server's TO=FROM reply pivot
+				reply[ TO ] = m[ FROM ]; // server's TO=FROM reply
 				const name = m[ VALUE ]?.name;
 				const payload =
 					'summary' === name
@@ -126,7 +126,7 @@ describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', (
 			.map( ( m ) => m[ VALUE ].name )
 			.sort();
 		expect( verbs ).toEqual( [ 'servers_status', 'summary' ] );
-		// Each command's FROM is its own receiver Tee, the reply-pivot target.
+		// Each command's FROM is its own receiver Tee, the reply target.
 		const froms = client.batches[ 0 ].map( ( m ) => m[ FROM ] ).sort();
 		expect( froms ).toEqual( [ 'serversIn', 'summaryIn' ] );
 	} );

@@ -71,7 +71,7 @@ test( 'rename collision throws', () => {
 test( 'command stamps FROM with the node name', () => {
 	// Mirrors PHP Node::command — a node minting a command tags it with its own
 	// name so the issuer is visible. Shell.sendCommand overwrites FROM with the
-	// session reply pivot; an overlay node issuing a command keeps its name.
+	// session reply path; an overlay node issuing a command keeps its name.
 	const n = new Node();
 	n.name = 'alice';
 	const m = n.command( 'connect_node', 'a b' );
@@ -222,7 +222,7 @@ test( 'node-name listener mode forwards a TM_INFO to the named node', () => {
 	expect( got[ 0 ][ VALUE ] ).toBe( 'payload-string' );
 	expect( got[ 0 ][ FROM ] ).toBe( 'producer' );
 	// Delivered directly to the resolved node with empty TO; stamping TO=listener
-	// re-routes through _router — across an SSE pivot it lands where neither the
+	// re-routes through _router — across an SSE session boundary it lands where neither the
 	// listener nor the emitter exist, logging a spurious NOT_AVAILABLE.
 	expect( got[ 0 ][ TO ] ).toBe( '' );
 } );

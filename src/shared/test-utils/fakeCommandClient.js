@@ -2,7 +2,7 @@
  * makeFakeCommandClient — a shared HttpOut-seam double for dashboard hook tests.
  *
  * Matches the seam HttpOut drives: `buildMessage` mints a TM_COMMAND, `postBatch`
- * resolves to replies pivoted back along FROM (the server's reply pivot) carrying
+ * resolves to replies routed back along FROM (the server's reply path) carrying
  * the correlation ID and a per-message payload from `replyFor`. Test-only helper;
  * sibling plugins consume it via the `@newspack-nodes/shared` alias, not a copy.
  */

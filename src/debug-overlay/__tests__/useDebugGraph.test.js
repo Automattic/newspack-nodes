@@ -65,7 +65,7 @@ describe( 'useDebugGraph', () => {
 		expect( result.current.ready ).toBe( false );
 		// The visible, always-present backbone fixtures (_shell/_http/_heartbeat) are
 		// the only nodes and are excluded from readiness. coreToGraph stamps the
-		// local reply pivot into pwd (the in-browser tail target is `_output`).
+		// local reply path into pwd (the in-browser tail target is `_output`).
 		expect(
 			result.current.graph.nodes.map( ( n ) => n.id ).sort()
 		).toEqual( [ '_heartbeat', '_http', '_shell' ] );

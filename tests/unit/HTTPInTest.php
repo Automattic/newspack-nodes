@@ -254,7 +254,7 @@ class HTTPInTest extends TestCase {
 		// A request body that is a LIST of packed Messages (not a single one)
 		// dispatches each in order through the one request graph. This is what
 		// lets the topology dashboard send `connect_worker_input` immediately
-		// before its real pivoted command in the SAME request.
+		// before its real attached command in the SAME request.
 		$base_interpreter = $this->build_graph();
 		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
@@ -491,7 +491,7 @@ class HTTPInTest extends TestCase {
 			[
 				'type'  => Message::TM_COMMAND,
 				'to'    => 'firehose-workers.p0/_command_interpreter',
-				'from'  => '_http/4242',  // pivoted: SSE process pid
+				'from'  => '_http/4242',  // attached: SSE process pid
 				'id'    => 'cmd-xyz',
 				'value' => [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ],
 			]

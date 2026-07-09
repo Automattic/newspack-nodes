@@ -9,7 +9,7 @@
  *  - root-uid guard for `cli`
  *  - `base_dir()` filter resolution
  *  - `ls` output for empty / live / stale lock dirs
- *  - `build_repl_graph` (private) — bare and pivoted graph topology, incl. the
+ *  - `build_repl_graph` (private) — bare and attached graph topology, incl. the
  *    `_output` (Dumper) → `_stdout` (TTY_Out) output wiring
  *  - the reply → render → `_stdout` write path end-to-end
  *
@@ -143,7 +143,7 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
-	public function test_prepare_repl_pivoted_mode_attaches_worker_and_sets_status_lines(): void {
+	public function test_prepare_repl_attached_mode_attaches_worker_and_sets_status_lines(): void {
 		CLI_Command::$uid_provider = static fn (): int => 1000;
 		\mkdir( "{$this->tmp}/locks/jobs.p2.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/jobs.p2/input", 0755, true );
@@ -154,7 +154,7 @@ class CliCommandTest extends TestCase {
 
 		$this->assertSame(
 			[
-				'Pivoted-cli mode for jobs.p2',
+				'Attached-cli mode for jobs.p2',
 				"  input  partition: {$this->tmp}/ipc/jobs.p2/input",
 				"  output partition: {$this->tmp}/ipc/jobs.p2/output",
 			],
@@ -164,7 +164,7 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
-	public function test_prepare_repl_reports_unknown_pivot_worker(): void {
+	public function test_prepare_repl_reports_unknown_attached_worker(): void {
 		CLI_Command::$uid_provider = static fn (): int => 1000;
 		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
 
@@ -190,7 +190,7 @@ class CliCommandTest extends TestCase {
 		$this->assertStringContainsString( 'test-worker.p0', $haystack );
 	}
 
-	// ── build_repl_graph: bare and pivoted ───────────────────────────────────
+	// ── build_repl_graph: bare and attached ───────────────────────────────────
 
 	public function test_build_repl_graph_bare_constructs_local_pipeline(): void {
 		// Bare mode: _shell → _command_interpreter → _router → _output (Dumper),
@@ -229,8 +229,8 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
-	public function test_build_repl_graph_pivoted_mounts_worker_partition_and_reply_in(): void {
-		// Pivoted mode: the IPC input Partition is mounted under the WORKER id (the
+	public function test_build_repl_graph_attached_mounts_worker_partition_and_reply_in(): void {
+		// Attached mode: the IPC input Partition is mounted under the WORKER id (the
 		// mount point routing peels to), plus an unnamed `reply-in` Consumer.
 		$ipc = [
 			'input'     => "{$this->tmp}/ipc/firehose-workers.p0/input",
@@ -256,7 +256,7 @@ class CliCommandTest extends TestCase {
 		$this->assertSame( '/firehose-workers.p0> ', $shell->prompt );
 		$this->assertSame( 'firehose-workers.p0', $shell->path );
 
-		// Shell → Tap: pivoted commands are HMAC-signed,
+		// Shell → Tap: attached commands are HMAC-signed,
 		// then routed by TO (the Router peels the worker id to the mounted Partition).
 		$this->assertSame(
 			Core::node( \Newspack_Nodes\Node_Names::CONSOLE_TAP ),
@@ -266,7 +266,7 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
-	public function test_build_repl_graph_pivoted_sets_dumper_to_filter(): void {
+	public function test_build_repl_graph_attached_sets_dumper_to_filter(): void {
 		// Dumper TO filter must be set to the cli session's $pid so other
 		// sessions' replies drop silently. We can't easily read the private
 		// to_filter field — we verify behavior: a message addressed to "$pid"

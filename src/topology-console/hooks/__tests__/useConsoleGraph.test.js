@@ -5,7 +5,7 @@
  * fake SseIn + a real HttpOut + Heartbeat), and the anonymous Shell are real.
  * Reserved node names come from runtime/reserved-node-names.json.
  *
- * The worker-pivot is now one RemoteIpc per active worker (named `{topology}.p{N}`);
+ * The worker attachment is now one RemoteIpc per active worker (named `{topology}.p{N}`);
  * the session's own worker is always present. The active RemoteIpc owns the single
  * live SseIn — `lastConnector` is its composed SseIn child (`{reader}:sse-in`).
  */
@@ -605,7 +605,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
-		// RemoteIpc wrapped the bare `_output` FROM into the private reply pivot.
+		// RemoteIpc wrapped the bare `_output` FROM into the private reply address.
 		expect( batch[ 1 ][ FROM ] ).toBe( `${ names.SSE }:4242/_output` );
 	} );
 
@@ -687,7 +687,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		expect( routed ).toBeTruthy();
 		expect( routed[ TO ] ).toBe( 'demo.p0' );
 		// FROM survived the `_cwd` hop (a plain Node doesn't stamp FROM); RemoteIpc
-		// wrapped the reply pivot with the live pid.
+		// wrapped the reply address with the live pid.
 		expect( routed[ FROM ] ).toBe(
 			`${ names.SSE }:4242/${ names.METADATA }`
 		);

@@ -1,6 +1,6 @@
 /**
  * statusLines — the browser console's `status` builtin summary (the JS analogue
- * of the PHP cli's `$shell->status_lines`): SSE session + cwd + worker pivot.
+ * of the PHP cli's `$shell->status_lines`): SSE session + cwd + attached worker.
  */
 
 import { statusLines } from '../TopologyConsole';
@@ -12,17 +12,17 @@ describe( 'statusLines', () => {
 		).toEqual( [ 'Browser console — no SSE session (not connected).' ] );
 	} );
 
-	it( 'connected at the local graph root → session + root cwd + no worker pivot', () => {
+	it( 'connected at the local graph root → session + root cwd + no attached worker', () => {
 		expect(
 			statusLines( { ssePid: '1247', cwd: '', worker: null } )
 		).toEqual( [
 			'Browser console — SSE session 1247',
 			'  cwd: /',
-			'  no worker pivot (local graph).',
+			'  no attached worker (local graph).',
 		] );
 	} );
 
-	it( 'pivoted into a worker → worker pivot line with topology.pN', () => {
+	it( 'cd into a worker → attached worker line with topology.pN', () => {
 		expect(
 			statusLines( {
 				ssePid: '1247',
@@ -35,7 +35,7 @@ describe( 'statusLines', () => {
 		).toEqual( [
 			'Browser console — SSE session 1247',
 			'  cwd: firehose-workers-and-jobs.p0',
-			'  worker pivot: firehose-workers-and-jobs.p0',
+			'  attached worker: firehose-workers-and-jobs.p0',
 		] );
 	} );
 } );

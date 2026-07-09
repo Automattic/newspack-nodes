@@ -17,7 +17,7 @@
  * dashboard status snapshot (`publish_status`, `record_heartbeat_sent`,
  * `record_heartbeat_reply` — all no-ops here, so only `Remote_Source_Node` publishes).
  * `Remote_Source_Node` adds the durable aggregation offsetlog + that status snapshot;
- * `Remote_IPC_Node` adds the worker-pivot send + single-connection steal.
+ * `Remote_IPC_Node` adds the worker-attach send + single-connection steal.
  *
  * @package Newspack_Nodes
  */
@@ -115,7 +115,7 @@ class Remote_Link_Node extends Timer_Node {
 
 	/**
 	 * Default send: relay the message out through the patron HTTP_Out. Remote_IPC
-	 * overrides this to wrap the reply-FROM pivot + bundle a `connect_worker_input`.
+	 * overrides this to wrap the reply-FROM + bundle a `connect_worker_input`.
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */

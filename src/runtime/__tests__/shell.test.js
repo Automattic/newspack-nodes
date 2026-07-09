@@ -165,7 +165,7 @@ describe( 'Shell node — local builtins', () => {
 	} );
 } );
 
-describe( 'Shell node — fill() reply pivot + TO', () => {
+describe( 'Shell node — fill() reply path + TO', () => {
 	it( 'fill() of a typed line stamps the bare reply-node FROM and TO=prefix(path)', () => {
 		const { shell, filled } = makeShell( { path: 'demo.p0' } );
 		const signal = shell.fill( 'ls -al' );

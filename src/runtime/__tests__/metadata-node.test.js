@@ -137,7 +137,7 @@ describe( 'Metadata node', () => {
 			expect( sent ).toHaveLength( 2 );
 		} );
 
-		it( 're-polls immediately when the pivot path changes (within pollIntervalMs)', () => {
+		it( 're-polls immediately when the cwd path changes (within pollIntervalMs)', () => {
 			const cwd = new Node();
 			cwd.name = '_cwd';
 			cwd.target = '_sse/a';

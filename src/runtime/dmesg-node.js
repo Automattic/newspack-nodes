@@ -81,7 +81,7 @@ export class DmesgNode extends TimerNode {
 	}
 
 	// Build a poll TM_COMMAND addressed to this.target. FROM = own name is the
-	// reply pivot; LOCAL taints it so the browser interpreter authorizes a local poll.
+	// reply path; LOCAL taints it so the browser interpreter authorizes a local poll.
 	_pollMessage( verb ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;

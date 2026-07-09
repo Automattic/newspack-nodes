@@ -8,7 +8,7 @@ import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
  *
  * The hook awaits each `test` dispatch via this node's `replies` registry,
  * stashing `{ resolve, reject }` under the SERVER ID (the outbound `message[ID]`).
- * When the probe reply pivots back (router peels TO = `vault:test`), `fill()`
+ * When the probe reply routes back (router peels TO = `vault:test`), `fill()`
  * settles the caller's Promise AND files the result into a published
  * `{ results: { [id]: { ok, payload | error } } }` model — so the test concern
  * has its own inspectable, per-concern reply state (a Tee-able edge in the debug

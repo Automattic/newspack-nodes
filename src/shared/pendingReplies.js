@@ -2,7 +2,7 @@
  * Shared request/reply correlation for dashboard view nodes.
  *
  * Several view nodes await a verb's reply by stashing a `{ resolve, reject }`
- * keyed by `message[ID]`, then settling it when the matching reply pivots back
+ * keyed by `message[ID]`, then settling it when the matching reply routes back
  * (TO=FROM). `PendingReplies` owns that Map; `errorMessage` is the TM_ERROR
  * payload coercion they all share. Canonical shared module; sibling plugins
  * consume it via the `@newspack-nodes/shared` alias (esbuild + jest), not a copy.

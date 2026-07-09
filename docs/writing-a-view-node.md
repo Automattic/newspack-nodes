@@ -37,9 +37,9 @@ from `@newspack-nodes/runtime`) — and React reads it with
    of a view, it isn't a view — it's a `Tee` or a transform.
 
 2. **You never fetch your own data; a reply is *delivered* to you by the
-   `TO = FROM` pivot.** Upstream, a `Timer → Tee → Fetcher` poll sends your slice
+   `TO = FROM` reply.** Upstream, a `Timer → Tee → Fetcher` poll sends your slice
    verb to the service CI, stamping **`FROM = your receiver`**. The server replies
-   **`TO = FROM`** — the universal reply pivot — so the reply routes back to your
+   **`TO = FROM`** — the universal TO=FROM reply — so the reply routes back to your
    receiver `Tee`, which fans it to your view. Your `fill()` only ever *handles
    the arriving reply*; it never sends the request.
 

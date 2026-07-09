@@ -33,14 +33,14 @@ A dashboard's data flow is a node graph, so here is the whole graph — server s
                           reads offsets/example-scored.p0 ONCE per request, then:
                           counts ─> {sources}   top ─> {top}   accumulated ─> {accumulated}
                                                                 ▲ │
-                                  each reply pivots TO = the fetcher's receiver Tee
+                                  each reply routes TO = the fetcher's receiver Tee
                                                                 │ ▼
        countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>
        topIn    (Tee) ─> top-table:view     ─> <TopTable/>
        accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
 ```
 
-Read that top to bottom. **One `Timer`** ticks; **one `Tee`** fans the tick to **three `Fetcher`s**; each Fetcher emits *its own* configured command through `_shell/_http/insights-demo`; the service CI answers each with a *small slice*; each reply pivots back to *its own* receiver `Tee`, which fans to *its own* thin view node, which feeds *its own* React widget. **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card.
+Read that top to bottom. **One `Timer`** ticks; **one `Tee`** fans the tick to **three `Fetcher`s**; each Fetcher emits *its own* configured command through `_shell/_http/insights-demo`; the service CI answers each with a *small slice*; each reply routes back to *its own* receiver `Tee`, which fans to *its own* thin view node, which feeds *its own* React widget. **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card.
 
 That decomposition is the entire point, and it's the anti-pattern we're deliberately **not** building:
 
@@ -358,7 +358,7 @@ export class FetcherNode extends Node {
 	fill( _message ) {
 		const m = newMessage();
 		m[ TYPE ]  = TM_COMMAND;
-		m[ FROM ]  = this.receiver;                                    // reply pivots back here
+		m[ FROM ]  = this.receiver;                                    // reply routes back here
 		m[ VALUE ] = { name: this.command, arguments: this.command_args };
 		super.fill( m );   // TO stamped from target, forwarded to sink
 	}
@@ -376,9 +376,9 @@ Read `fill()` carefully — it **ignores its trigger message entirely**. Any mes
 - **`_http`** is the substrate's `HttpOut` egress — the boundary that POSTs the command batch to `/command`.
 - **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. (`TO = _shell/_http/insights-demo` means: the router peels `_shell` → the Tap forwards to `_http` → `HttpOut` peels itself and POSTs to `insights-demo`.)
 
-### c. The receiver pivot — why a `counts` reply only touches the counts view
+### c. The receiver reply path — why a `counts` reply only touches the counts view
 
-Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=countsIn`). The service CI replies **`TO = FROM`** — the universal reply pivot — so the `counts` reply routes back to `countsIn`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `topIn → top-table:view`; the `accumulated` reply on `accIn → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
+Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=countsIn`). The service CI replies **`TO = FROM`** — the universal TO=FROM reply — so the `counts` reply routes back to `countsIn`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `topIn → top-table:view`; the `accumulated` reply on `accIn → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
 
 ### d. The thin view node
 

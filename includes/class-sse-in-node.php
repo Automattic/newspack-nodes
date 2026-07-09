@@ -93,7 +93,7 @@ class SSE_In_Node extends Node {
 	/** @var array{segment:int, offset:int} Read cursor. */
 	private array $position        = [ 'segment' => 0, 'offset' => 0 ];
 	private bool $require_ssl  = false;
-	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM pivot). */
+	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM). */
 	private ?int  $session_pid    = null;
 	private ?int  $slot            = null;
 
@@ -468,7 +468,7 @@ class SSE_In_Node extends Node {
 			$pid_raw           = $info['PID'] ?? null;
 			$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
 			// A handshake with no PID is malformed — report it and DON'T mark
-			// connected (mirrors the JS SseIn; the pivot reply-FROM needs the pid).
+			// connected (mirrors the JS SseIn; the reply-FROM needs the pid).
 			if ( null === $this->session_pid ) {
 				$this->last_error = 'connected envelope missing PID';
 				$this->set_state( 'ERROR', $this->last_error );
@@ -663,7 +663,7 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Session pid captured from the `connected` handshake. Null until connected.
-	 * Remote_IPC stamps it into the reply-FROM pivot (`_sse:{pid}/{node}`).
+	 * Remote_IPC stamps it into the reply-FROM (`_sse:{pid}/{node}`).
 	 *
 	 * @api Dynamic entrypoint.
 	 */

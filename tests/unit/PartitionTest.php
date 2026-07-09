@@ -568,7 +568,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_fill_packs_TM_REQUEST_TM_ERROR_TM_EOF(): void {
-		// Pivoted-mode IPC uses Partition as a generic message transport: cli
+		// Attached-mode IPC uses Partition as a generic message transport: cli
 		// → cmd-out (Partition) → worker; worker → _repl (Partition) → cli.
 		// Control messages (TM_REQUEST for introspection requests, TM_ERROR
 		// for failed verb responses, TM_EOF for stdin-close drain markers)

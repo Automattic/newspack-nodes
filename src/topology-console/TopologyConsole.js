@@ -147,7 +147,7 @@ export function layoutStorageKey( { mode, editingName, scopeKey } ) {
 
 // The browser console's `status` builtin summary — the JS analogue of the PHP
 // cli's `$shell->status_lines`. Reports the SSE session, the cwd, and which
-// worker (if any) the cwd is pivoted into. `worker` is a longestWorkerPrefix()
+// worker (if any) the cwd is cd'd into. `worker` is a longestWorkerPrefix()
 // result ({ topology, partition } | null).
 export function statusLines( { ssePid, cwd, worker } ) {
 	if ( ! ssePid ) {
@@ -157,8 +157,8 @@ export function statusLines( { ssePid, cwd, worker } ) {
 		`Browser console — SSE session ${ ssePid }`,
 		`  cwd: ${ cwd || '/' }`,
 		worker
-			? `  worker pivot: ${ worker.topology }.p${ worker.partition }`
-			: '  no worker pivot (local graph).',
+			? `  attached worker: ${ worker.topology }.p${ worker.partition }`
+			: '  no attached worker (local graph).',
 	];
 }
 
@@ -193,7 +193,7 @@ export function workerPollPath( cwd, pathOptions ) {
 	return worker ? `${ worker.topology }.p${ worker.partition }` : null;
 }
 
-// Whether a send TO requires a live SSE session (pid). ONLY a worker pivot
+// Whether a send TO requires a live SSE session (pid). ONLY an attached-worker target
 // (`{topology}.pN[/…]`) does: SseInNode wraps its reply FROM with `_sse:{pid}`
 // so the server's HTTP_Filter can demux the worker's ASYNC reply back to this
 // client's stream. A local-root command (empty TO) interprets in-browser; a
@@ -819,7 +819,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 
 			if ( Array.isArray( parsedLine ) ) {
-				// Only a worker pivot's reply arrives async over the SSE stream, so
+				// Only an attached worker's reply arrives async over the SSE stream, so
 				// only that send waits on a session pid; local/request-scope sends
 				// reply in-browser or synchronously in the POST body.
 				if ( toNeedsSseSession( parsedLine[ TO ] ) && ! ssePid ) {
@@ -863,7 +863,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// line: point `_cwd.target` at the current cwd. Router peels `_cwd`, the base
 	// Node.fill re-stamps the live cwd into TO (empty TO for the local root → the
 	// interpreter interprets locally), then forwards to the interpreter. One indirection routes a
-	// worker pivot (reply async over the stream), the local graph (in-browser interpreter),
+	// attached worker (reply async over the stream), the local graph (in-browser interpreter),
 	// and request scope (synchronous POST) alike.
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
@@ -890,7 +890,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). Shared with
 	// the debug overlay via useCompletion; the console gates the request on a live
-	// SSE session for a worker-pivot cwd.
+	// SSE session for an attached-worker cwd.
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
 		cwd,
 		fill: fillCommandInterpreter,
@@ -914,7 +914,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Shared live-mode handlers (connect/remove/disconnect/send/trace/invoke/drop).
 	// Verb lines route through sendLine (which echoes + dispatches through the
 	// useGraphReset tap); invoke builds its raw TM_COMMAND / TM_REQUEST with the
-	// worker-pivot prefix/replyFrom + an SSE-session guard. The console adds its
+	// attached-worker prefix/replyFrom + an SSE-session guard. The console adds its
 	// own edit-mode branches on top (handleConnect / handleRemoveNode /
 	// handleDropNode below) and its repl-expand/focus side-effect on inspector.
 	const liveHandlers = useGraphHandlers( {
@@ -1579,7 +1579,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 						? handleSaveLayout
 						: null,
 					// Only the local in-browser graph (cwd root) is ephemeral;
-					// any pivoted view — a worker RemoteIpc OR the _http
+					// any attached view — a worker RemoteIpc OR the _http
 					// broadcast boundary — self-heals on respawn, so a reset is
 					// meaningless. canResetGraph already gates on local scope +
 					// live mode + (a mutating edit OR a surviving user node).
@@ -1595,7 +1595,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					...canvasChromeProps,
 					resetKey: `${ scope.key }|${ mode }|${ editingName }`,
 					// Empty cwd = the browser's own (local) graph → the no-node
-					// header reads wire-accurate IoTelemetry; a pivoted worker cwd
+					// header reads wire-accurate IoTelemetry; an attached worker cwd
 					// stays on the dump_metadata roll-up.
 					local: '' === cwd,
 					interactive: true,

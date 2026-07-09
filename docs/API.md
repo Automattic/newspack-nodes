@@ -123,7 +123,7 @@ Per-slot semantics (named here for documentation only — the wire is positional
 | `KEY` (index 5) | string | Routing/correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help`/`ls`). |
 | `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; every verb (scalar and structured alike) reads its data from the `arguments` string. (The request-side `payload` slot was removed in 0.6.0.) |
 
-The browser's `CommandClient` and the pivoted `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
+The browser's `CommandClient` and the attached `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
 
 ### Response
 
