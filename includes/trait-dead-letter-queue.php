@@ -230,10 +230,9 @@ trait Dead_Letter_Queue {
 		$this->attempts = $prior_attempts + 1;
 		$entered_crawl  = false;
 		if ( '' === $reason && $this->attempts >= self::CRASH_MAX_ATTEMPTS ) {
-			$this->attempts      = self::CRASH_MAX_ATTEMPTS;
-			$this->crawl         = true;
-			$this->crawl_started = Core::$now;
-			$entered_crawl       = true;
+			$this->attempts = self::CRASH_MAX_ATTEMPTS;
+			$this->enter_crawl();
+			$entered_crawl  = true;
 		}
 		if ( $this->attempts > 1 ) {
 			$prior_ts             = $entry['first_crash_ts'] ?? null;
@@ -268,6 +267,12 @@ trait Dead_Letter_Queue {
 	/** True once a crawling node has run crash-free for one full checkpoint interval. */
 	protected function crawl_interval_elapsed(): bool {
 		return $this->crawl && ( Core::$now - $this->crawl_started ) >= self::CHECKPOINT_INTERVAL_S;
+	}
+
+	/** Enter crawl: one line per tick with a per-message checkpoint (hard-crash lineage). */
+	protected function enter_crawl(): void {
+		$this->crawl         = true;
+		$this->crawl_started = Core::$now;
 	}
 
 	/** Leave crawl at the healthy baseline: the poison region is behind us. */
