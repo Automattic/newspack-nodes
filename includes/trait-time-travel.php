@@ -306,8 +306,7 @@ trait Time_Travel {
 
 	/**
 	 * True once CHECKPOINT_INTERVAL_S has elapsed since the last durable commit — the
-	 * shared throttle both nodes gate their per-tick healthy commit on (Consumer in fire(),
-	 * Remote_Source in persist_cursor()).
+	 * shared throttle both nodes gate their per-tick healthy commit on (both in fire()).
 	 */
 	protected function checkpoint_due(): bool {
 		return ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S;
