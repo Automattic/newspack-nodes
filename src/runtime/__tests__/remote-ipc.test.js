@@ -85,7 +85,7 @@ function dispatchConnected( node, { pid, slot } ) {
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
 	m[ VALUE ] = `PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS x INTERVAL 2000`;
-	node.sseIn._es.dispatch( 'msg', JSON.stringify( m ) );
+	node.sseIn._es.dispatch( 'connected', JSON.stringify( m ) );
 }
 
 function command( { from = '', to = '' } = {} ) {

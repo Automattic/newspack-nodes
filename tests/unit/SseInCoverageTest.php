@@ -63,6 +63,15 @@ class SseInCoverageTest extends TestCase {
 		return "event: msg\ndata: " . Message::packed( $m ) . "\n\n";
 	}
 
+	/** A `connected` SSE frame (its own event type, mirroring `heartbeat`). */
+	private function connected_frame( $value ): string {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_INFO;
+		$m[ Message::KEY ]   = 'connected';
+		$m[ Message::VALUE ] = $value;
+		return "event: connected\ndata: " . Message::packed( $m ) . "\n\n";
+	}
+
 	// ----- fill -----
 
 	public function test_fill_is_source_noop_but_increments_counter(): void {
@@ -257,7 +266,7 @@ class SseInCoverageTest extends TestCase {
 
 	public function test_connected_envelope_with_non_string_value_is_error_not_forwarded(): void {
 		[ $node, $sink ] = $this->configured_node();
-		$node->process_sse_chunk( $this->msg_frame( '', 'connected', [ 'SLOT' => 7 ] ) );
+		$node->process_sse_chunk( $this->connected_frame( [ 'SLOT' => 7 ] ) );
 		$this->assertCount( 0, $sink->captured );
 		$this->assertFalse( $node->connection()['connected'] );
 		$this->assertStringContainsString( 'malformed connected envelope', (string) $node->connection()['last_error'] );

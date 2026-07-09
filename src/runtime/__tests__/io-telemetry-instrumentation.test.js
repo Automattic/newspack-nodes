@@ -75,7 +75,7 @@ describe( 'SseIn feeds IoTelemetry "in"', () => {
 		env[ TYPE ] = TM_INFO;
 		env[ KEY ] = 'connected';
 		env[ VALUE ] = 'PID 7 SLOT 0 SUBSCRIPTIONS x INTERVAL 2000';
-		FakeEventSource.last.dispatch( 'msg', pack( env ) );
+		FakeEventSource.last.dispatch( 'connected', pack( env ) );
 		expect( IoTelemetry.snapshot().msgsIn ).toBe( 0 );
 	} );
 

@@ -69,7 +69,7 @@ class RemoteIpcNodeTest extends TestCase {
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::KEY ]   = 'connected';
 		$m[ Message::VALUE ] = "PID {$pid} SLOT {$slot}";
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 
 	private function command( string $from, string $to ): array {

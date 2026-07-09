@@ -189,7 +189,10 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 	test( 'a delivered log envelope still reaches the view through the Tee', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		FakeEventSource.last.dispatch( 'msg', pack( connectedEnvelope() ) );
+		FakeEventSource.last.dispatch(
+			'connected',
+			pack( connectedEnvelope() )
+		);
 		const env = newMessage();
 		env[ TYPE ] = TM_BYTESTREAM;
 		env[ KEY ] = 'p0';
@@ -211,7 +214,10 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		watcher.fill = ( m ) => seen.push( m[ VALUE ] );
 		Core.node( TEE ).connectNode( 'watcher' );
 
-		FakeEventSource.last.dispatch( 'msg', pack( connectedEnvelope() ) );
+		FakeEventSource.last.dispatch(
+			'connected',
+			pack( connectedEnvelope() )
+		);
 		const env = newMessage();
 		env[ TYPE ] = TM_BYTESTREAM;
 		env[ KEY ] = 'p0';
@@ -267,7 +273,10 @@ describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		// Drive a `connected` envelope so the heartbeat has a slot to poke.
-		FakeEventSource.last.dispatch( 'msg', pack( connectedEnvelope() ) );
+		FakeEventSource.last.dispatch(
+			'connected',
+			pack( connectedEnvelope() )
+		);
 		// Drive a real log line — a Consumer-unpacked firehose entry carries the
 		// producer's type (a string VALUE is TM_BYTESTREAM); a typeless frame would
 		// (correctly) be dropped at the SSE ingress boundary.
@@ -288,7 +297,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		FakeEventSource.last.dispatch(
-			'msg',
+			'connected',
 			pack( connectedEnvelope( { pid: 7, slot: 5 } ) )
 		);
 		expect( Core.node( HEARTBEAT ).slot ).toBe( 5 );
@@ -298,7 +307,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		FakeEventSource.last.dispatch(
-			'msg',
+			'connected',
 			pack( connectedEnvelope( { pid: 7, slot: -1 } ) )
 		);
 		expect( Core.node( HEARTBEAT ).slot ).toBeNull();
@@ -312,7 +321,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 			await act( async () => {} ); // settle list_logs → EventSource opens
 			act( () => {
 				FakeEventSource.last.dispatch(
-					'msg',
+					'connected',
 					pack( connectedEnvelope( { pid: 7, slot: 5 } ) )
 				);
 			} );
