@@ -157,17 +157,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Seal an on-sight quarantine at `{segment,offset}` and commit a marker frame there (dead_letter
-	 * must have run first). The frame PRESERVES the live attempt accounting (never graceful) so a
-	 * throw during a climbing crash lineage doesn't reset the streak. The cursor still advances only
-	 * on the next arrival; the marker makes any re-encounter of this position a silent drop.
-	 */
-	private function mark_quarantined_at( int $segment, int $offset ): void {
-		$this->sealed_quarantine = [ 'segment' => $segment, 'offset' => $offset ];
-		$this->commit_position( $segment, $offset, false, [ 'quarantined' => true ] );
-	}
-
-	/**
 	 * Crawl-entry head sacrifice (Consumer-parity [42]): decide the fate of the first relayed
 	 * message under an armed head-sacrifice. Only an EXACT crumb-start match on the boot pin is
 	 * the in-flight-at-crash suspect — dead-lettered with reason 'crash' (return true → skip the
@@ -392,54 +381,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Commit one offsetlog frame at `{segment,offset}` via the shared writer. A graceful frame is
-	 * a clean handoff (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful
-	 * frame carries the live attempt accounting (a climbing hard-crash lineage / pinned crawl).
-	 * Ensures the lazy per-node offsetlog exists first (Consumer builds its in arguments()).
-	 *
-	 * @param array<array-key, mixed> $extra Per-call frame additions (the quarantine marker).
-	 */
-	private function commit_position( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
-		if ( null === $this->ensure_offsetlog_partition() ) {
-			return;
-		}
-		$this->commit_checkpoint_frame( $segment, $offset, $graceful, $extra );
-	}
-
-	// =========================================================================
-	// Durable offsetlog — per-node, keyed by NODE NAME.
-	// =========================================================================
-
-	/**
-	 * Ensure the per-node offsetlog Partition exists + is registered. Derives the
-	 * dir (`<offsets_dir>/<name>.<remote_partition>`), delegates the build to the
-	 * Offsetlog_Cursor trait, and routes its sink to the command interpreter.
-	 */
-	private function ensure_offsetlog_partition(): ?Partition_Node {
-		if ( null !== $this->offsetlog ) {
-			return $this->offsetlog;
-		}
-		if ( '' === $this->name ) {
-			return null;
-		}
-		$offsets_dir = Config::get_offsets_directory();
-		if ( '' === $offsets_dir ) {
-			return null;
-		}
-		$offsetlog = $this->ensure_offsetlog(
-			"{$offsets_dir}/{$this->name}.{$this->remote_partition}",
-			"{$this->name}:{$this->remote_partition}:offsetlog",
-			self::OFFSETLOG_SEGMENT_SIZE,
-			self::OFFSETLOG_NUM_SEGMENTS
-		);
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null !== $offsetlog && null === $offsetlog->sink() && null !== $ci ) {
-			$offsetlog->sink( $ci );
-		}
-		return $offsetlog;
-	}
-
-	/**
 	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the
 	 * current stream. Seeking only ever happens while paused (the transport bar
 	 * gates rewind/forward on PAUSE), so the reconnect is deferred to PLAY's tick —
@@ -496,6 +437,65 @@ class Remote_Source_Node extends Remote_Link_Node {
 			};
 		}
 		return $sse;
+	}
+
+	/**
+	 * Seal an on-sight quarantine at `{segment,offset}` and commit a marker frame there (dead_letter
+	 * must have run first). The frame PRESERVES the live attempt accounting (never graceful) so a
+	 * throw during a climbing crash lineage doesn't reset the streak. The cursor still advances only
+	 * on the next arrival; the marker makes any re-encounter of this position a silent drop.
+	 */
+	private function mark_quarantined_at( int $segment, int $offset ): void {
+		$this->sealed_quarantine = [ 'segment' => $segment, 'offset' => $offset ];
+		$this->commit_position( $segment, $offset, false, [ 'quarantined' => true ] );
+	}
+
+	/**
+	 * Commit one offsetlog frame at `{segment,offset}` via the shared writer. A graceful frame is
+	 * a clean handoff (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful
+	 * frame carries the live attempt accounting (a climbing hard-crash lineage / pinned crawl).
+	 * Ensures the lazy per-node offsetlog exists first (Consumer builds its in arguments()).
+	 *
+	 * @param array<array-key, mixed> $extra Per-call frame additions (the quarantine marker).
+	 */
+	private function commit_position( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
+		if ( null === $this->ensure_offsetlog_partition() ) {
+			return;
+		}
+		$this->commit_checkpoint_frame( $segment, $offset, $graceful, $extra );
+	}
+
+	// =========================================================================
+	// Durable offsetlog — per-node, keyed by NODE NAME.
+	// =========================================================================
+
+	/**
+	 * Ensure the per-node offsetlog Partition exists + is registered. Derives the
+	 * dir (`<offsets_dir>/<name>.<remote_partition>`), delegates the build to the
+	 * Offsetlog_Cursor trait, and routes its sink to the command interpreter.
+	 */
+	private function ensure_offsetlog_partition(): ?Partition_Node {
+		if ( null !== $this->offsetlog ) {
+			return $this->offsetlog;
+		}
+		if ( '' === $this->name ) {
+			return null;
+		}
+		$offsets_dir = Config::get_offsets_directory();
+		if ( '' === $offsets_dir ) {
+			return null;
+		}
+		$offsetlog = $this->ensure_offsetlog(
+			"{$offsets_dir}/{$this->name}.{$this->remote_partition}",
+			"{$this->name}:{$this->remote_partition}:offsetlog",
+			self::OFFSETLOG_SEGMENT_SIZE,
+			self::OFFSETLOG_NUM_SEGMENTS
+		);
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null !== $offsetlog && null === $offsetlog->sink() && null !== $ci ) {
+			$offsetlog->sink( $ci );
+		}
+		return $offsetlog;
 	}
 
 	// =========================================================================
