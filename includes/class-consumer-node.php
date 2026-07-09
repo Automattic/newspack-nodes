@@ -64,9 +64,6 @@ class Consumer_Node extends Timer_Node {
 
 	protected string $source_dir = '';
 
-	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
-	protected string $stamp_override = '';
-
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
 	 * snapshot node usually doesn't exist yet when load_offsetlog() runs, so we
@@ -321,6 +318,35 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
+	 * Buffered_Pump boot seam: Consumer's "where do I start" is a durable seek. Seed
+	 * the cursor from the offsetlog, restore the snapshot node's state (the whole
+	 * topology exists by the first poll), then apply the default_offset() seek when
+	 * there's no checkpoint and no explicit next_offset(). A durable checkpoint
+	 * OVERRIDES a pre-poll next_offset() (resume wins); with no checkpoint, that seek
+	 * stands.
+	 */
+	protected function init_position(): void {
+		$this->load_offsetlog();
+		if ( null !== $this->loaded_cache && '' !== $this->snapshot_node ) {
+			$node = Core::node( $this->snapshot_node );
+			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
+				$node->restore_state( $this->loaded_cache );
+				// Restore survived: re-commit the cache statefully (the boot frame was stateless).
+				$this->write_checkpoint_frame( false, true );
+			} else {
+				$this->print_less_often( "WARNING: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
+			}
+		}
+		$this->loaded_cache = null;
+		if ( ! $this->has_checkpoint() && ! $this->offset_set ) {
+			$default = $this->default_offset();
+			if ( null !== $default ) {
+				$this->next_offset( $default );
+			}
+		}
+	}
+
+	/**
 	 * Seed the cursor from the newest offsetlog entry and stash any co-committed
 	 * snapshot cache. When a durable checkpoint is found it resumes the cursor from
 	 * it — overriding any pre-poll next_offset() seek (resume wins); otherwise the
@@ -523,7 +549,7 @@ class Consumer_Node extends Timer_Node {
 	 *                                            un-restored node there would clobber the good cache.
 	 * @param array<array-key, mixed> $extra      Per-call frame additions (the quarantine marker).
 	 */
-	private function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
+	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		// Co-commit the snapshot node's state with the offset, as ONE record, so a
 		// respawn restores the cache and resumes the cursor in lockstep.
 		if ( $with_state && '' !== $this->snapshot_node ) {

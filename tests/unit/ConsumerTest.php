@@ -101,6 +101,30 @@ class ConsumerTest extends TestCase {
 	}
 
 	/**
+	 * poll_init delegates its source-specific boot ("where do I start") to the
+	 * init_position() seam, then freezes the boot cursor at whatever position that
+	 * seam left. A subclass overriding init_position() therefore controls the boot
+	 * position — the seam a push source (Remote_Source) will use to restore its
+	 * position instead of Consumer's offsetlog seek.
+	 */
+	public function test_poll_init_boots_position_through_the_init_position_seam(): void {
+		$c = new class() extends Consumer_Node {
+			protected function init_position(): void {
+				$this->cursor_segment = 7;
+				$this->cursor_offset  = 13;
+			}
+		};
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->sink( new Capture_Sink_Node() );
+		$c->poll();
+
+		$ref = new \ReflectionClass( Consumer_Node::class );
+		$this->assertSame( 7, $ref->getProperty( 'boot_cursor_segment' )->getValue( $c ), 'poll_init froze the boot cursor from the init_position() seam' );
+		$this->assertSame( 13, $ref->getProperty( 'boot_cursor_offset' )->getValue( $c ) );
+		$this->assertTrue( $ref->getProperty( 'poll_initialized' )->getValue( $c ), 'poll_init still completes its tail after the seam' );
+	}
+
+	/**
 	 * Empty `offsetlog_dir` token leaves the offsetlog Partition null
 	 * (ephemeral readers skip durable cursors).
 	 */
