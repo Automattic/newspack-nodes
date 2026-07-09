@@ -59,13 +59,6 @@ class Consumer_Node extends Timer_Node {
 	/** Bytes read past cursor_offset but not yet emitted (read-ahead + trailing partial). Tachikoma's buffer. */
 	protected string $buffer = '';
 
-	/**
-	 * One-shot crawl-entry flag: DLQ the boot-cursor head (the in-flight-at-crash
-	 * suspect) on the first crawled drain. Consumer-only — the per-line drain model's
-	 * head-sacrifice; Remote_Source's per-relayed-message crawl has no head to sacrifice.
-	 */
-	protected bool $crawl_skip_head = false;
-
 	/** Durable read offset for cursor_segment; always a line boundary (last fully-emitted line). */
 	protected int $cursor_offset = 0;
 

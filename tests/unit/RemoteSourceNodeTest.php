@@ -238,6 +238,83 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1, $this->newest_offsetlog_frame( $node )['attempts'], 'crawl exits to the healthy baseline' );
 	}
 
+	public function test_crawl_entry_sacrifices_matching_head_to_dlq_then_forwards(): void {
+		// Consumer-parity head-sacrifice: booting into a hard-crash lineage (crawl) pins the
+		// boot cursor and arms a one-shot head-sacrifice. The first relayed message whose crumb
+		// START matches the pin is the in-flight-at-crash suspect — dead-lettered with reason
+		// 'crash' (NOT forwarded, even though it is otherwise healthy), the local cursor advances
+		// PAST it (offset+length), the flag clears, and the next message forwards normally.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		Core::$now = 1000.0;
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore → crawl, boot pinned at {7,128}, head-sacrifice armed.
+		$this->assertTrue( $this->read_private( $node, 'crawl' ) );
+		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ), 'crawl entry arms the head sacrifice' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:128:44', '' ); // matches the pin → sacrificed even though healthy.
+
+		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
+		$this->assertSame( 1, $this->count_log_records( $dlq ), 'suspect head dead-lettered' );
+		$this->assertCount( 0, $spy->captured, 'suspect head is NOT forwarded downstream' );
+		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ), 'head sacrifice is one-shot' );
+		$this->assertSame( 7, $this->read_private( $node, 'cursor_segment' ) );
+		$this->assertSame( 128 + 44, $this->read_private( $node, 'cursor_offset' ), 'cursor advances past the sacrificed head' );
+
+		$this->deliver( $sse, '7:172:40', '' ); // past the pin, flag cleared → forwards normally.
+		$this->assertCount( 1, $spy->captured, 'the next message forwards normally' );
+		$this->assertSame( 1, $this->count_log_records( $dlq ), 'only the head was dead-lettered' );
+	}
+
+	public function test_crawl_entry_disarms_without_sacrifice_when_first_message_past_pin(): void {
+		// Stale suspect: the remote GC'd the suspect's segment (or the stream resumed beyond it),
+		// so the first relayed crumb START is PAST the boot pin. The suspect no longer exists —
+		// disarm WITHOUT sacrificing and forward the message normally. Only an exact match sacrifices.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		Core::$now = 1000.0;
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ) );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:500:40', '' ); // start PAST the {7,128} pin → stale suspect.
+
+		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
+		$this->assertSame( 0, $this->count_log_records( $dlq ), 'a past-the-pin message is not sacrificed' );
+		$this->assertCount( 1, $spy->captured, 'and it forwards normally' );
+		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ), 'a stale suspect disarms the head sacrifice' );
+	}
+
+	public function test_crawl_does_not_exit_while_head_sacrifice_armed(): void {
+		// The crawl-exit guard mirrors Consumer: an elapsed interval must NOT exit crawl while the
+		// head sacrifice is still armed, or an un-sacrificed poison re-arms the crash loop next boot.
+		// Only after the suspect is sacrificed (flag cleared) may an elapsed interval exit crawl.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		Core::$now = 1000.0;
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore → crawl, crawl_started = 1000, head-sacrifice armed.
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		// Interval elapsed, but a message with no usable breadcrumb keeps the flag armed.
+		Core::$now = 1000.0 + Remote_Source_Node::CHECKPOINT_INTERVAL_S + 1.0;
+		$this->deliver( $sse, '', '' ); // null crumb → flag stays armed, cursor un-advanced.
+		$this->assertTrue( $this->read_private( $node, 'crawl' ), 'does not exit crawl while the head sacrifice is armed' );
+
+		// Now the suspect arrives and is sacrificed → flag clears → the elapsed interval exits crawl.
+		$this->deliver( $sse, '7:128:44', '' );
+		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ) );
+		$this->assertFalse( $this->read_private( $node, 'crawl' ), 'exits crawl after the sacrifice once the interval has elapsed' );
+	}
+
 	public function test_cooperative_stop_below_threshold_freezes_at_message_start(): void {
 		// EXACTLY Consumer's fair-shot: a timeout on the BOOT message (cursor never advanced this
 		// lifetime) below COOP_MAX records a strike at the message's OWN start with the climbing

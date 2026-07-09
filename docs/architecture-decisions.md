@@ -414,8 +414,14 @@ so only a stuck cursor climbs.
   `>= CRASH_MAX_ATTEMPTS`) enters crawl: checkpoint after EVERY message so a re-crash pins the
   culprit, attempts pinned at the threshold. Surviving `CHECKPOINT_INTERVAL_S` crash-free
   exits to the healthy baseline. Below the threshold, the first successful forward clears the
-  streak. Consumer additionally sacrifices its boot-cursor head on crawl entry (its per-line
-  drain model has an in-flight head to blame); Remote_Source has none and only isolates.
+  streak. Both readers also sacrifice the boot-pinned suspect on crawl entry — quarantined
+  to the DLQ (reason `'crash'`) instead of forwarded, cursor advancing past it: Consumer
+  takes the first buffered line at the boot cursor; Remote_Source matches the relayed
+  message's crumb start against the boot pin (a suspect the stream resumed past — GC'd —
+  disarms without sacrificing). Crawl won't exit while the sacrifice is still armed, or an
+  un-sacrificed poison re-arms the crash loop next boot. One accepted false positive: the
+  entry-transition head (the crash may have been deeper in the checkpoint window; crawl's
+  per-message frames pin the true culprit for the next boot).
 
 The reusable core (`attempts` accounting, `record_poison_strike`,
 `resume_attempts_from_frame`, `crawl_interval_elapsed` / `exit_crawl`, `dead_letter`, the
@@ -444,8 +450,9 @@ downstream `fill()` throw.
 **Consequences:** Poison can't wedge a stream and is never silently lost — every give-up
 emits a rate-limited alert and (when configured) a replayable `:deadletter` entry. Cost:
 per-cursor offsetlog bookkeeping and, in crawl, per-message checkpoint I/O, bounded by the
-interval-survival exit. Caught-throw handling is symmetric across readers; the one remaining
-asymmetry is crawl entry's boot-head sacrifice.
+interval-survival exit. Poison handling is symmetric across both readers — caught-throw
+quarantine-on-sight and crawl-entry head sacrifice alike; both self-heal from a
+deterministic fatal-poison without operator intervention.
 
 **Revisit if:** the shared trait surface starts carrying read-loop specifics (the wrong thing
 was extracted), or a third durable reader appears whose model fits neither shape.

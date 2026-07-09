@@ -80,6 +80,15 @@ trait Dead_Letter_Queue {
 	protected float $crawl_started = 0.0;
 
 	/**
+	 * One-shot crawl-entry flag: on the first crawled drain, dead-letter the boot-cursor head —
+	 * the message the reader was on when the uncatchable death struck (the crash suspect) — with
+	 * reason 'crash' and advance past it. Lineage accounting, not read-loop machinery, so it lives
+	 * here and both readers arm it on crawl entry: Consumer sacrifices its buffered head line
+	 * (per-line drain), Remote_Source the relayed message whose crumb START matches the boot pin.
+	 */
+	protected bool $crawl_skip_head = false;
+
+	/**
 	 * Quarantine dir for poison messages (dead-letter [42]); '' = no DLQ (log + drop).
 	 * The using node is the sole writer of its DLQ sibling, so it lifts the PIPE_BUF cap.
 	 */
