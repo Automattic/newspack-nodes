@@ -48,8 +48,6 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected bool $multi_writer = false;
 
-	/** True once next_offset() was called explicitly — suppresses the default_offset() seek. */
-	protected bool $offset_set = false;
 	/**
 	 * Raw token assigned by parse_schema_args() — the override normalizes it
 	 * (rtrim '/') into the derived $offsetlog_dir below.
@@ -459,53 +457,6 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Cooperative-stop checkpoint ([42]): the fair-shot rule for a timeout / memory
-	 * stop. Called at worker shutdown INSTEAD of the graceful checkpoint() when the
-	 * stop was cooperative — it decides whether the in-flight message earned a strike.
-	 *
-	 * Fair-shot proxy: a strike counts ONLY when the worker stopped on the message it
-	 * BOOTED on (the cursor never advanced this lifetime) with that message still
-	 * buffered (un-forwarded). An advanced cursor is a late "sliver" / a normal
-	 * memory-recycle, and an empty buffer is an idle worker — neither is poison, so
-	 * both hand off cleanly (attempts=0). At COOP_MAX_ATTEMPTS strikes the message is
-	 * quarantined and the cursor advances past it, handing off at the virgin baseline.
-	 *
-	 * @param string $reason                 'timeout' | 'memory'.
-	 * @param bool   $baseline_near_watermark Memory-only: the fresh post-reset baseline
-	 *                                        was already near the watermark, so a leak /
-	 *                                        undersized memory_limit — not this message —
-	 *                                        is to blame. Alert, do not strike.
-	 */
-	public function cooperative_stop( string $reason, bool $baseline_near_watermark ): void {
-		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
-			return; // Ephemeral reader, or an unestablished 0:0 cursor (stopped before first poll) — nothing to strike.
-		}
-		// Strike only a still-buffered boot-cursor message the worker stopped mid-dispatch; else clean handoff.
-		$head = $this->buffer_head_line();
-		if ( null === $head || ! $this->stopped_in_fill || $this->cursor_advanced_since_boot() ) {
-			$this->checkpoint( true );
-			return;
-		}
-		if ( 'memory' === $reason && $baseline_near_watermark ) {
-			$this->print_less_often( "WARNING: {$this->name} baseline memory near the watermark at a cooperative stop — raise memory_limit or investigate a leak; not striking the in-flight message" );
-			$this->checkpoint( true );
-			return;
-		}
-		// The boot-cursor message got a full worker lifetime and we stopped on it: a strike.
-		if ( $this->record_poison_strike( $reason ) ) {
-			// Fair shots exhausted: quarantine the head, then hand off a MARKER frame AT its start
-			// (attempts=0, quarantined) — no local advance. The successor boots onto it, DROPS it
-			// (already in the DLQ), and advances off the next line. dead_letter runs first.
-			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_segment, $this->cursor_offset ), $reason );
-			$this->write_checkpoint_frame( true, true, [ 'quarantined' => true ] );
-			return;
-		}
-		// Below threshold: record the strike (reason + live attempt count) at the
-		// unchanged boot cursor, so the respawn boots on it again and climbs.
-		$this->write_checkpoint_frame( false, true );
-	}
-
-	/**
 	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
 	 *                       (the cursor sits at an un-attempted message), so a respawn
 	 *                       resumes at a virgin first attempt rather than counting a strike.
@@ -529,12 +480,6 @@ class Consumer_Node extends Timer_Node {
 			$this->poison_reason  = '';
 		}
 		$this->write_checkpoint_frame( $graceful, true );
-	}
-
-	/** True once the read cursor has moved past the cursor this process booted on. */
-	private function cursor_advanced_since_boot(): bool {
-		return $this->cursor_segment > $this->boot_cursor_segment
-			|| ( $this->cursor_segment === $this->boot_cursor_segment && $this->cursor_offset > $this->boot_cursor_offset );
 	}
 
 	/**
