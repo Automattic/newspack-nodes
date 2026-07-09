@@ -2,8 +2,8 @@
 /**
  * Settings_CI: command-dispatch for the substrate-level integer settings.
  *
- * Replaces legacy class-settings-controller.php with a CommandInterpreter
- * that mounts at priority 11 alongside the rest of the M2 service CIs.
+ * A CommandInterpreter that mounts at priority 11 alongside the rest of the
+ * M2 service CIs.
  *
  * Verbs:
  *   get — returns the four substrate-owned integer settings as a snapshot
@@ -21,8 +21,8 @@
  * CommandInterpreter::interpret() wraps as TM_COMMAND|TM_ERROR.
  *
  * Configuration-only verb; no service dependencies. The substrate Config
- * is a global accessed directly, matching the legacy controller and the
- * pattern in Status_CI / Discovery_CI.
+ * is a global accessed directly, matching the pattern in Status_CI /
+ * Discovery_CI.
  *
  * @package Newspack_Nodes
  */
@@ -41,7 +41,7 @@ class Settings_CI_Node extends Service_CI_Node {
 	/**
 	 * Whitelist of {short-name => min} for the verbs. The WP option key is
 	 * the short-name prefixed with `newspack_nodes_`. Three settings have
-	 * min=1; max_lifespan accepts 0 (per legacy). The upper bound is
+	 * min=1; max_lifespan accepts 0. The upper bound is
 	 * shared (MAX_INT_VALUE).
 	 *
 	 * @var array<string,int>
@@ -54,9 +54,8 @@ class Settings_CI_Node extends Service_CI_Node {
 	];
 
 	/**
-	 * Upper bound for all four integer settings (2^30 = 1 GiB). Matches
-	 * legacy SettingsController::sanitize_value to keep the validator
-	 * value-equivalent.
+	 * Upper bound for all four integer settings (2^30 = 1 GiB), enforced by
+	 * the validator.
 	 */
 	private const MAX_INT_VALUE = 1073741824;
 	/**
@@ -123,9 +122,8 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Type-coerce + bounds-check. Value-equivalent with legacy
-	 * SettingsController::sanitize_value (int branch only — the legacy
-	 * whitelist is int-only).
+	 * Type-coerce + bounds-check. Int-only: the settings whitelist is
+	 * entirely integer-valued.
 	 *
 	 * @param mixed $value Raw input.
 	 * @param int   $min   Per-key minimum (inclusive).

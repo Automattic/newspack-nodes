@@ -137,8 +137,8 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		$cfg = Config::load_config();
-		// Refuse a plaintext spoke when the operator requires HTTPS (mirrors the
-		// legacy heartbeat HTTPS guard): drop the batch, no POST.
+		// Refuse a plaintext spoke when the operator requires HTTPS:
+		// drop the batch, no POST.
 		if ( ( $cfg['vault_require_ssl'] ?? false ) && ! \str_starts_with( $url, 'https://' ) ) {
 			$dropped = \count( $batch );
 			$this->print_less_often( "vault_require_ssl set but url is not https; dropping {$dropped} message(s)" );

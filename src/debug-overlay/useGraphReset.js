@@ -6,8 +6,8 @@
  * graph-mutating command (make_node / connect_node / disconnect_node /
  * remove_node, + aliases) flips it — whether it came from a canvas gesture, an
  * Inspector action, or a typed REPL line. That uniformity is what keeps the
- * Reset Graph chip in sync where the old per-handler dirtying missed REPL
- * rewires.
+ * Reset Graph chip in sync: tapping the single dispatch point catches REPL
+ * rewires that per-handler dirtying would miss.
  *
  * resetGraph mirrors the overlay's proven sequence: tear down every node, bump
  * the graph generation so each builder rebuilds off the canonical wiring, clear

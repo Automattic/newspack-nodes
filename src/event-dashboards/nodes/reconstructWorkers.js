@@ -42,7 +42,7 @@ const readerIsHandler = ( reader, name ) =>
  * → direct-edge contraction as `topologyGraph.collapseGraph`). A consumer that
  * fans through a tee to several processors (firehose → request-builder AND
  * job-router) yields one handler EACH, so each processor's collapsed-graph
- * vertex gets its own worker row (matching the old one-row-per-target data) —
+ * vertex gets its own worker row (one row per target) —
  * picking only the first would silently drop the other processors' tree rows.
  * A consumer feeding a log directly (no logic node) falls back to its own name.
  *
@@ -207,8 +207,8 @@ export function reconstructWorkers( data, prior ) {
 	// topologies/readers) whose end snapshots differ and whose row order in
 	// `consumers[]` is unstable across polls; collapse them per concrete source to
 	// the MAX end (the reader closest to the head) so steppedRate sees ONE
-	// monotonic series. Keying per-row by source instead (the old bug) let the two
-	// readers clobber each other non-monotonically and stranded fanned partitions
+	// monotonic series. Keying per-row by source instead would let the two
+	// readers clobber each other non-monotonically and strand fanned partitions
 	// at 0 B/s. Computed once here, reader-count- and order-independent.
 	const writeTotals = new Map();
 	consumers.forEach( ( row ) => {
@@ -309,8 +309,8 @@ export function reconstructWorkers( data, prior ) {
 
 			// One worker row PER downstream handler so a fanned-out consumer
 			// (firehose → request-builder AND job-router) lands a row on EACH
-			// processor's collapsed-graph vertex, exactly as the old one-row-per-
-			// target data did. They share the reader's cursor/end/segments. The bar
+			// processor's collapsed-graph vertex — one row per target. They share
+			// the reader's cursor/end/segments. The bar
 			// carries the FULL live segments plus the reader's recorded (end_segment,
 			// end_size) so it can paint the green/red/gray regions itself.
 			const inputsStatus = {

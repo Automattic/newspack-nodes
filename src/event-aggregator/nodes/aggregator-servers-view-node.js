@@ -11,7 +11,7 @@ import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
  * The verb returns a SEQUENTIAL ARRAY of server snapshots; this view wraps it as
  * `{ servers }` and clears loading/error for the <AggregatorServers> widget. A
  * TM_ERROR reply surfaces the error and clears loading but KEEPS the prior
- * servers (parity with the old view, whose catch never cleared servers) — so the
+ * servers (a transient error shouldn't blank the server list) — so the
  * base SliceViewNode's reset-to-empty error path is overridden here.
  */
 export class AggregatorServersViewNode extends SliceViewNode {

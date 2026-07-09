@@ -75,11 +75,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	// -------------------------------------------------------------------------
-	// dump_graph helpers — the full operator-grade payload, ported wholesale
-	// from the legacy WorkersController::get_workers + its private helpers.
-	// Kept as static helpers on this class (rather than calling the legacy
-	// controller directly) so the legacy file can be deleted without orphaning
-	// the verb's behavior.
+	// dump_graph helpers — build the full operator-grade worker payload as
+	// self-contained static helpers on this class, so the verb owns its
+	// behavior with no external dependency.
 	// -------------------------------------------------------------------------
 
 	/**

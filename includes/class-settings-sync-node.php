@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
 class Settings_Sync_Node extends Timer_Node {
 	use Schema_Reflection;
 
-	/** Legacy sweep cadence (seconds) used when arguments() is armed without an explicit interval. */
+	/** Default sweep cadence (seconds) used when arguments() is armed without an explicit interval. */
 	private const DEFAULT_INTERVAL_SECONDS = 300;
 
 	/**
@@ -43,7 +43,7 @@ class Settings_Sync_Node extends Timer_Node {
 	/**
 	 * Arm the recurring re-push timer. A Timer_Node subclass does not
 	 * self-schedule, so we explicitly call set_timer() here. A blank/absent
-	 * interval falls back to the legacy 300s sweep cadence.
+	 * interval falls back to the default 300s sweep cadence.
 	 *
 	 * @param string|null $args Interval in seconds (digits), '' for the default, or null to read back.
 	 * @return string Last-set raw arguments string.

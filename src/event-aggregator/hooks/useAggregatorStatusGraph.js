@@ -18,9 +18,8 @@
  * decomposition is the whole point of the de-god.
  *
  * Each slice verb (`summary`, `servers_status`) is read-only and cheap; both poll
- * unconditionally on the user-chosen interval (the old AggregatorStatus polled
- * unconditionally, and useBatchedPoll's page-visibility gate only pauses a HIDDEN
- * tab — the same effect the old code never opted out of).
+ * unconditionally on the user-chosen interval. The only pause is useBatchedPoll's
+ * page-visibility gate, which suspends polling on a HIDDEN tab.
  *
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
  * to `_http.client`); production lazily defaults to the shared CommandClient.
@@ -118,7 +117,7 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		intervalMs: parseInt( refreshInterval, 10 ) || 0,
 	} );
 
-	// Persist the refresh choice (matches the old save-to-localStorage effect).
+	// Persist the refresh choice to localStorage.
 	useEffect( () => {
 		localStorage.setItem( REFRESH_KEY, refreshInterval );
 	}, [ refreshInterval ] );
