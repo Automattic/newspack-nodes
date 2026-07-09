@@ -54,7 +54,7 @@ mkdir -p /tmp/example-ai-newsletter
 wp nodes activate example-ai-newsletter
 #    Now the supervisor has spawned it:
 wp nodes ls
-#   ... example-ai-newsletter.p0   [live]
+#   [live]  example-ai-newsletter.p0   heartbeat 3s ago
 ```
 
 Open the **topology console** (the Nodes admin page): you'll see the `example-ai-newsletter` graph — `releases` and `community` both feeding `summarizer`, then `scorer` appending to the durable `scored:partition`, a `scored:consumer` tailing that log into `digest`, then a `digest:tee` that fans to the built-in `digest:log` — with live message counts on every edge.

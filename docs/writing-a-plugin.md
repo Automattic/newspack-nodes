@@ -262,16 +262,17 @@ class Digest_Builder_Node extends Node {
 		}
 		$draft = \implode( "\n", $lines ) . "\n";
 
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;   // a string payload, not a struct
-		$message[ Message::FROM ]  = $this->name;
-		$message[ Message::VALUE ] = $draft;
-		parent::fill( $message );
+		$response                   = Message::new_message();
+		$response[ Message::TYPE ]  = Message::TM_BYTESTREAM;   // a string payload, not a struct
+		$response[ Message::FROM ]  = $this->name;
+		$response[ Message::VALUE ] = $draft;
+		parent::fill( $response );
 
 		$n           = \count( $this->items );
 		$this->items = [];
 
-		// Reply to the caller along the breadcrumb.
+		// Reply to the caller along the breadcrumb — read FROM/ID off the
+		// untouched request (never reassign $message before this point).
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
 		$reply[ Message::FROM ]  = $this->name;
@@ -294,8 +295,11 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 > request_node digest FLUSH
 { "verb": "FLUSH", "data": { "flushed": 2 } }
 ```
+
+(The reply line is produced by the reply block above; the shipped `_Demo` node omits that block — it renders the draft and returns without replying, so diffing against it you'll see the draft path only.)
+
 ```bash
-cat /tmp/example-ai-newsletter/digest.md
+cat /tmp/example-ai-newsletter/digest.md.0     # Log lays segments out as {file}.0, {file}.1, … — there is no bare {file}
 # # Newsletter draft
 #
 # - Roundup Block ships — AI summarizes selected posts into a draft.

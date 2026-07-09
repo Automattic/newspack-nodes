@@ -197,11 +197,12 @@ That's the **item contract**: `{ source, id, title, url, body, timestamp }`. The
 ```php
 protected static function source_schema( string $description, string $tick_description ): array {
 	return \array_merge( parent::node_schema(), [
-		'category'    => 'Source',
-		'description' => $description,
-		'requests'    => [
+		'category'     => 'Source',
+		'description'  => $description,
+		'requests'     => [
 			[ 'name' => 'TICK', 'description' => $tick_description ],
 		],
+		'accepts_fill' => false,
 	] );
 }
 ```
@@ -223,7 +224,7 @@ Three APIs, three payload shapes, three auth schemes. Each subclass is small pre
 ```php
 public function fetch( array $config ): array {
 	$repos = \is_array( $config['repos'] ?? null ) ? $config['repos'] : [];
-	$token = Core::as_string( $config['token'] ?? null );
+	$token = \is_string( $config['token'] ?? null ) ? $config['token'] : '';
 	$items = [];
 	foreach ( $repos as $repo ) {
 		if ( ! \is_string( $repo ) || '' === $repo ) {

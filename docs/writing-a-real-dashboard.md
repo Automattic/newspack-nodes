@@ -47,7 +47,7 @@ if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
 }
 ```
 
-`category: 'Hidden'`, no category at all, **or** an explicit `'hidden' => true` schema flag (the escape hatch for a node that wants a real functional category yet still opts out of the palette, like `SSE_In_Node`) — any one removes the class from the catalog **entirely**. And "entirely" is the gotcha, because `GraphView` feeds that *same array* to two children (`src/topology-console/components/GraphView.js:187` and `:254`):
+`category: 'Hidden'`, no category at all, **or** an explicit `'hidden' => true` schema flag (the escape hatch for a node that wants a real functional category yet still opts out of the palette, like `SSE_In_Node`) — any one removes the class from the catalog **entirely**. And "entirely" is the gotcha, because `GraphView` feeds that *same array* to two children (`src/topology-console/components/GraphView.js:193` and `:272`):
 
 ```jsx
 { showPalette && (
@@ -59,7 +59,7 @@ if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
 ) }
 ```
 
-The Palette renders draggable class tiles from it. The Inspector renders a selected node's verb buttons by looking the node's class up in it (`src/topology-console/components/Inspector.js:2016`):
+The Palette renders draggable class tiles from it. The Inspector renders a selected node's verb buttons by looking the node's class up in it (`src/topology-console/components/Inspector.js:2125`):
 
 ```jsx
 const schema = catalog.find( ( c ) => c.shell_name === type );
@@ -107,7 +107,7 @@ When your real dashboard's CI doesn't show its verb buttons, this is the first t
 
 The toy's `Insights_CI` declared a `commands` array and got command buttons. A real pipeline also has **runtime triggers** — the fire-and-forget `TM_REQUEST` verbs that drive the graph (the toy's §8 `TICK`). Those live under a *different* schema key, `requests`, and the Inspector renders them as a distinct button kind.
 
-The real plugin's source nodes declare a `TICK` request (`newspack-ai-newsletter/includes/class-source-node.php:133`):
+The real plugin's source nodes declare a `TICK` request (`newspack-ai-newsletter/includes/class-source-node.php:140`):
 
 ```php
 return \array_merge( parent::node_schema(), [
@@ -122,7 +122,7 @@ return \array_merge( parent::node_schema(), [
 ] );
 ```
 
-and the digest its `RESET` / `REGENERATE` requests (`newspack-ai-newsletter/includes/class-digest-builder-node.php:250`):
+and the digest its `RESET` / `REGENERATE` requests (`newspack-ai-newsletter/includes/class-digest-builder-node.php:260`):
 
 ```php
 'requests'     => [
@@ -137,7 +137,7 @@ and the digest its `RESET` / `REGENERATE` requests (`newspack-ai-newsletter/incl
 ],
 ```
 
-None of these is a `TM_COMMAND` verb dispatched through the interpreter's verb table — they're `TM_REQUEST` triggers handled directly in the node's own `fill()` (`if ( $type & Message::TM_REQUEST )`). The schema split mirrors the wire split, and the Inspector keeps them visually distinct (`src/topology-console/components/Inspector.js:2030`):
+None of these is a `TM_COMMAND` verb dispatched through the interpreter's verb table — they're `TM_REQUEST` triggers handled directly in the node's own `fill()` (`if ( $type & Message::TM_REQUEST )`). The schema split mirrors the wire split, and the Inspector keeps them visually distinct (`src/topology-console/components/Inspector.js:2139`):
 
 ```jsx
 return [
@@ -150,7 +150,7 @@ return [
 ];
 ```
 
-`VerbButton` labels a request `TM_REQUEST <name>` and dispatches it as a `TM_REQUEST` rather than a `TM_COMMAND` (`Inspector.js:1219`). So select your `releases` source in the console, hit the **TICK** button, and you've driven the pipeline from the canvas — the same trigger the toy guide typed as `request_node releases TICK` at the REPL, now a button. Declaring a `requests` entry is all it takes; the inspector wiring is free.
+`VerbButton` labels a request `TM_REQUEST <name>` and dispatches it as a `TM_REQUEST` rather than a `TM_COMMAND` (`Inspector.js:1262`). So select your `releases` source in the console, hit the **TICK** button, and you've driven the pipeline from the canvas — the same trigger the toy guide typed as `request_node releases TICK` at the REPL, now a button. Declaring a `requests` entry is all it takes; the inspector wiring is free.
 
 The takeaway for a real dashboard: your operator-facing **actions** (admin commands the CI answers) go in `commands`; your pipeline **triggers** (the runtime pokes that make data flow) go in `requests`. Both render; they just render as different kinds, because they *are* different kinds on the wire.
 
@@ -271,18 +271,18 @@ The general rule, and the one to internalize for any package you're tempted to a
 
 Sections 1–3 kept referring to "the overlay" and "the hub." Here's the shared machinery, kept tight — the files carry the detail.
 
-The center of it is **`DevtoolsTabHost`** (`src/shared/devtools/DevtoolsTabHost.js`) — one component, two hosts. It reads the tab registry for a given `host`, renders a tab bar (hidden when ≤1 tab), and **lazily mounts only the selected tab**, keyed on the active id so each tab's build-before-render runs fresh on switch (`DevtoolsTabHost.js:109`):
+The center of it is **`DevtoolsTabHost`** (`src/shared/devtools/DevtoolsTabHost.js`) — one component, two hosts. It reads the tab registry for a given `host`, renders a tab bar (hidden when ≤1 tab), and **lazily mounts only the selected tab**, keyed on the active id so each tab's build-before-render runs fresh on switch (`DevtoolsTabHost.js:164`):
 
 ```jsx
 <Active key={ active.id } { ...tabProps } host={ host } />
 ```
 
-A tab declares which host(s) it belongs to (`host ∈ overlay | hub | both`) and whether it's full-bleed. A list-style tab scrolls inside `.nodes-devtools__tab-content`; a tab that owns its own full-height canvas (the Topology Console) sets `fullBleed: true` to opt out via `.is-full-bleed` (`DevtoolsTabHost.js:105`). That `fullBleed` flag is exactly why §3's console-in-the-hub needs the measured ceiling — it fills the frame.
+A tab declares which host(s) it belongs to (`host ∈ overlay | hub | both`) and whether it's full-bleed. A list-style tab scrolls inside `.nodes-devtools__tab-content`; a tab that owns its own full-height canvas (the Topology Console) sets `fullBleed: true` to opt out via `.is-full-bleed` (`DevtoolsTabHost.js:160`). That `fullBleed` flag is exactly why §3's console-in-the-hub needs the measured ceiling — it fills the frame.
 
 The two hosts are thin wrappers around it:
 
 - **The floating overlay** mounts tabs with `host="overlay"` (the Inspector tab from §3 is one of them).
-- **The full-page hub** (`src/devtools-hub/DevToolsHub.js`) mounts `host="hub"` inside a `position: fixed`, full-height admin container so a full-screen canvas tab gets usable height (`DevToolsHub.js:51`). It also gates the floating overlay's REPL off the Console tab — a second overlay REPL there would collide on the shared `_output` infra (`DevToolsHub.js:24`).
+- **The full-page hub** (`src/devtools-hub/DevToolsHub.js`) mounts `host="hub"` inside a `position: fixed`, full-height admin container so a full-screen canvas tab gets usable height (`DevToolsHub.js:48`). It also gates the floating overlay's REPL off the Console tab — a second overlay REPL there would collide on the shared `_output` infra (`DevToolsHub.js:24`).
 
 You register a tab by filtering into the registry via the **`newspack_nodes/devtools_tab_bundles`** filter (the PHP analogue of the toy's CI mount). Your bundle exports a tab descriptor; the host picks it up by `host`. If your real dashboard genuinely *is* a Nodes-internal tool rather than a standalone page, this is where it belongs — a `host: 'hub'` tab — instead of the toy guide's standalone `add_menu_page`. Read `DevtoolsTabHost.js` and `DevToolsHub.js` once; the contract is small.
 
@@ -310,7 +310,7 @@ The toy ran `npm run build` and `wp nodes ls` and called it done. Shipping for r
 
 **A shared-source edit fans out to every consumer bundle.** Anything under `src/shared`, `src/debug-overlay`, or `src/build-kit` is *inlined* into each consumer's bundle at build time via the `@newspack-nodes/*` aliases — there is no shared runtime script. So editing, say, `ReplFooter`'s ceiling logic or `WP_EXTERNALS` means rebuilding **and redeploying every consumer** (newspack-nodes, event-logger-nodes, ai-newsletter), or the un-rebuilt ones ship the old inline copy. The toy's single bundle hid this; a real change to the shared kit doesn't get that luxury.
 
-**Mounting the debug overlay needs more jest config than the toy showed.** [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you a 2-key `createJestConfig` (`aliasBase` + `pinReactFrom`) — enough for the toy's thin view. But the moment you follow its §9 and actually mount `<DebugOverlay>` in your dashboard, jest has to resolve what the overlay drags in: `@wordpress/api-fetch` (the build externalizes it to `window.wp.apiFetch`, so it isn't a plugin dependency jest can find on its own) and `d3` (ESM-only, pulled transitively by the overlay's `OverviewTab` → `TopicsChart`). The 2-key config resolves neither. Add an `extraMappers` entry for each and a `transformIgnorePatterns` that opts d3's ESM packages out of the transform skip — copy the exact shape from `examples/example-ai-newsletter/jest.config.js` (which maps both `@wordpress/api-fetch` and `d3`) or `newspack-ai-newsletter/jest.config.js`.
+**Mounting the debug overlay needs more jest config than the toy showed.** [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you a 2-key `createJestConfig` (`aliasBase` + `pinReactFrom`) — enough for the toy's thin view. But the moment you follow its §9 and actually mount `<DebugOverlay>` in your dashboard, jest has to resolve what the overlay drags in: `@wordpress/api-fetch` (the build externalizes it to `window.wp.apiFetch`) and `d3` (ESM-only, pulled transitively by the overlay's `OverviewTab` → `TopicsChart`). Whether each needs an `extraMappers` entry depends on your plugin's own `package.json`: `newspack-ai-newsletter` lists `@wordpress/api-fetch` as a real dependency, so jest resolves it natively and its `jest.config.js` maps only `d3`; the in-repo `examples/example-ai-newsletter/jest.config.js` has no such dependency and maps both. Copy whichever shape matches your dependency situation, plus a `transformIgnorePatterns` that opts d3's ESM packages out of the transform skip.
 
 **Restart workers after deploy.** New PHP class code lives in the running worker process for up to ~10 more minutes otherwise — `wp nodes restart …` (per the env's restart verbs) makes the new node code live.
 
