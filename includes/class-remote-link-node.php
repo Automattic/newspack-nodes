@@ -243,6 +243,12 @@ class Remote_Link_Node extends Timer_Node {
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$sse->target( $this->target );
 		}
+		// Delivery seam: a channel link (Remote_IPC) unpacks each raw `msg` payload and
+		// forwards it straight downstream — it never buffers. Remote_Source overrides this
+		// to append the raw line to its Buffered_Pump buffer instead.
+		$sse->on_message = function ( string $raw ): void {
+			$this->deliver_downstream( $raw );
+		};
 		$sse->configure(
 			$url,
 			Core::as_string( $entry['auth_username'] ?? '' ),
@@ -264,6 +270,34 @@ class Remote_Link_Node extends Timer_Node {
 		$this->http_out = $http;
 
 		return $sse;
+	}
+
+	/**
+	 * Unpack one raw `msg` payload and forward it straight downstream (the moved SSE_In
+	 * `forward()` logic). Honors an empty target (an attached worker reply carries its own
+	 * TO — the TO=FROM breadcrumb — so don't overwrite it). A false FROM stamp (over
+	 * MAX_FROM_SIZE) or an unparseable frame is dropped, never forwarded. Remote_Source
+	 * overrides the delivery seam entirely (it buffers), so this is the channel path only.
+	 */
+	protected function deliver_downstream( string $raw ): void {
+		try {
+			$message = Message::unpacked( $raw );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->print_less_often( 'dropping unparseable SSE frame' );
+			return;
+		}
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			$message[ Message::TO ] = $this->target;
+		}
+		// Stamp with the SSE_In sibling's name (`<link>:sse-in`), NOT the link's own name — parity
+		// with the retired SSE_In::forward, so the spoke's TO=FROM reply breadcrumb is unchanged.
+		$stamp = null !== $this->sse_in ? $this->sse_in->name() : $this->name;
+		if ( ! $this->stamp_message( $message, $stamp ) ) {
+			$this->print_less_often( 'dropping stream message: FROM exceeded MAX_FROM_SIZE' );
+			return;
+		}
+		++$this->counter;
+		$this->sink?->fill( $message );
 	}
 
 	// =========================================================================

@@ -165,13 +165,17 @@ class SseInCoverageTest extends TestCase {
 		$this->assertSame( 0, $node->on_curl_data( $handle, '' ) );
 	}
 
-	public function test_on_curl_data_processes_chunk_and_forwards(): void {
-		[ $node, $sink ] = $this->configured_node();
-		$handle          = $this->connect( $node );
-		$frame           = $this->msg_frame( '1:0', 'req', [ 'rid' => 'abc' ] );
+	public function test_on_curl_data_processes_chunk_and_delivers_raw(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$captured = [];
+		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
+			$captured[] = $raw;
+		};
+		$frame = $this->msg_frame( '1:0', 'req', [ 'rid' => 'abc' ] );
 
 		$this->assertSame( \strlen( $frame ), $node->on_curl_data( $handle, $frame ) );
-		$this->assertCount( 1, $sink->captured );
+		$this->assertCount( 1, $captured );
 	}
 
 	// ----- on_curl_message -----
@@ -249,19 +253,25 @@ class SseInCoverageTest extends TestCase {
 		$this->assertFalse( $node->connection()['connected'] );
 	}
 
-	// ----- dispatch_message -----
+	// ----- msg delivery (raw seam) -----
 
-	public function test_message_id_without_colon_leaves_position_unchanged(): void {
-		[ $node, $sink ] = $this->configured_node();
+	public function test_msg_delivered_raw_regardless_of_id_shape(): void {
+		// SSE_In no longer parses the ID or tracks a per-message cursor — any msg is handed raw to
+		// the delivery seam and the connect position stays put (the owner owns the durable cursor).
+		[ $node ] = $this->configured_node();
+		$captured = [];
+		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
+			$captured[] = $raw;
+		};
 		$node->process_sse_chunk( $this->msg_frame( 'plainid', 'req', [ 'x' => 1 ] ) );
+		$this->assertCount( 1, $captured );
 		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position() );
-		$this->assertCount( 1, $sink->captured );
 	}
 
-	public function test_message_id_with_non_digit_parts_leaves_position_unchanged(): void {
+	public function test_msg_with_null_delivery_seam_is_dropped(): void {
+		// No owner wired the seam → the msg is silently dropped (no throw), the stream keeps draining.
 		[ $node ] = $this->configured_node();
-		$node->process_sse_chunk( $this->msg_frame( 'a:b', 'req', [ 'x' => 1 ] ) );
-		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position() );
+		$this->assertTrue( $node->process_sse_chunk( $this->msg_frame( 'a:b', 'req', [ 'x' => 1 ] ) ) );
 	}
 
 	public function test_connected_envelope_with_non_string_value_is_error_not_forwarded(): void {
@@ -272,15 +282,16 @@ class SseInCoverageTest extends TestCase {
 		$this->assertStringContainsString( 'malformed connected envelope', (string) $node->connection()['last_error'] );
 	}
 
-	// ----- forward -----
+	// ----- delivery seam -----
 
-	public function test_forward_without_sink_throws(): void {
+	public function test_msg_without_delivery_seam_does_not_throw(): void {
+		// SSE_In no longer forwards to a sink, so a msg with no owner-wired delivery seam is a
+		// silent drop — never a throw (the null-sink fail-loud now lives in the owner's forward_line).
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->configure( 'https://austin.example', '', '', '', 'firehose.p0', [], 'austin', true, false );
 
-		$this->expectException( \RuntimeException::class );
-		$node->process_sse_chunk( $this->msg_frame( '1:0', 'req', [ 'x' => 1 ] ) );
+		$this->assertTrue( $node->process_sse_chunk( $this->msg_frame( '1:0', 'req', [ 'x' => 1 ] ) ) );
 	}
 
 	// ----- check_stale -----

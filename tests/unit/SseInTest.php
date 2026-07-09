@@ -81,8 +81,15 @@ class SseInTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 1000, $node->largest_msg_sent() );
 	}
 
-	public function test_msg_frame_forwarded_to_target_with_position_update(): void {
-		[ $node, $sink ] = $this->configured_node( 'austin' );
+	public function test_msg_frame_handed_raw_to_delivery_seam(): void {
+		// SSE_In no longer unpacks or forwards a `msg` — it hands the RAW `data:` payload (the
+		// packed line, byte-identical to the remote's on-disk encoding) to the owner's on_message
+		// seam. It no longer tracks a per-message cursor; the owner owns the durable position.
+		[ $node ] = $this->configured_node( 'austin' );
+		$captured = [];
+		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
+			$captured[] = $raw;
+		};
 
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -93,50 +100,44 @@ class SseInTest extends TestCase {
 
 		$node->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
 
-		$this->assertCount( 1, $sink->captured );
-		$fwd = $sink->captured[0];
-		$this->assertSame( 'merger', $fwd[ Message::TO ] );
-		$this->assertIsArray( $fwd[ Message::VALUE ] );
-		$this->assertSame( 'abc', $fwd[ Message::VALUE ]['rid'] );
-		// Exclusive next-read cursor from the breadcrumb: offset (128) + length (50).
-		$this->assertSame( [ 'segment' => 3, 'offset' => 128 + 50 ], $node->position() );
+		$this->assertSame( [ $packed ], $captured, 'the raw packed payload is handed to the owner unparsed' );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position(), 'the per-message cursor no longer advances in SSE_In' );
 	}
 
-	public function test_forward_drops_message_whose_from_overflows_max(): void {
-		// Bug A(i): a relayed message whose FROM is already at MAX_FROM_SIZE overflows
-		// when stamped — stamp_message() returns false. forward() must honor that and
-		// DROP the message, never forward an unstamped one (which the downstream
-		// Remote_Source would then misroute). The cursor still advances (position set).
-		[ $node, $sink ] = $this->configured_node( 'austin' );
+	public function test_msg_with_large_from_still_handed_raw(): void {
+		// SSE_In hands the raw payload regardless of the message's FROM. The FROM-overflow drop is
+		// now the owner's deliver_downstream / forward_line concern, not SSE_In's.
+		[ $node ] = $this->configured_node( 'austin' );
+		$captured = [];
+		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
+			$captured[] = $raw;
+		};
 
-		$m                  = Message::new_message();
-		$m[ Message::TYPE ] = Message::TM_STRUCT;
-		$m[ Message::FROM ] = \str_repeat( 'a', \Newspack_Nodes\Node::MAX_FROM_SIZE );
-		$m[ Message::ID ]   = '5:64:50';
-		$m[ Message::KEY ]  = 'k';
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::FROM ]  = \str_repeat( 'a', \Newspack_Nodes\Node::MAX_FROM_SIZE );
+		$m[ Message::ID ]    = '5:64:50';
+		$m[ Message::KEY ]   = 'k';
 		$m[ Message::VALUE ] = [ 'p' => 1 ];
+		$packed              = Message::packed( $m );
 
-		$packed = Message::packed( $m );
 		$node->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
 
-		$this->assertCount( 0, $sink->captured, 'an over-MAX_FROM_SIZE message must be dropped, not forwarded' );
-		// The position breadcrumb still advanced (exclusive) — a single bad record can't wedge the stream.
-		$this->assertSame( [ 'segment' => 5, 'offset' => 64 + 50 ], $node->position() );
+		$this->assertSame( [ $packed ], $captured, 'the raw payload is handed to the owner regardless of FROM size' );
 	}
 
-	public function test_unparseable_frame_routes_to_on_poison_and_keeps_draining(): void {
-		// A torn/non-envelope frame must NOT crash the reader — it goes to the patron's
-		// DLQ hook (the raw bytes), nothing is forwarded, and the stream keeps draining.
-		[ $node, $sink ] = $this->configured_node();
-		$captured        = null;
-		$node->on_poison = static function ( string $raw ) use ( &$captured ): void {
+	public function test_unparseable_frame_handed_raw_to_delivery_seam(): void {
+		// A torn/non-envelope `msg` frame is handed to the owner as raw bytes (SSE_In no longer
+		// unpacks it); the owner's forward_line owns the unparse/DLQ. Nothing is dropped here.
+		[ $node ] = $this->configured_node();
+		$captured = null;
+		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
 			$captured = $raw;
 		};
 
 		$node->process_sse_chunk( "event: msg\ndata: {not a message}\n\n" );
 
-		$this->assertSame( '{not a message}', $captured, 'raw frame handed to the DLQ hook' );
-		$this->assertCount( 0, $sink->captured, 'nothing forwarded downstream on an unparseable frame' );
+		$this->assertSame( '{not a message}', $captured, 'raw torn frame handed to the delivery seam' );
 	}
 
 	public function test_connected_handshake_consumed_and_captures_slot(): void {
@@ -216,15 +217,19 @@ class SseInTest extends TestCase {
 		$this->assertSame( 1748960000, $node->connection()['last_attempt'] );
 	}
 
-	public function test_oversized_message_is_forwarded_no_size_gate(): void {
-		// SSE_In no longer enforces the Partition PIPE_BUF cap on forward — the
-		// downstream Partition owns size policy. An oversized frame flows through.
-		[ $node, $sink ] = $this->configured_node();
+	public function test_oversized_message_handed_raw_no_size_gate(): void {
+		// SSE_In enforces no PIPE_BUF cap on delivery — the downstream Partition owns size policy.
+		// An oversized frame is handed raw to the delivery seam.
+		[ $node ] = $this->configured_node();
+		$captured = [];
+		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
+			$captured[] = $raw;
+		};
 		$huge = \str_repeat( 'x', 8000 );
 
 		$node->process_sse_chunk( $this->msg_frame( '1:0', 'big', [ 'blob' => $huge ] ) );
 
-		$this->assertCount( 1, $sink->captured );
+		$this->assertCount( 1, $captured );
 	}
 
 	public function test_restore_position_then_connect_carries_positions_and_subscribe(): void {
@@ -266,32 +271,6 @@ class SseInTest extends TestCase {
 		$this->assertFalse( $node->maybe_connect() );
 		$this->assertCount( 0, $captured );
 		$this->assertNull( $node->test_get_handle() );
-	}
-
-	public function test_target_is_a_thing(): void {
-		[ $node, $sink ] = $this->configured_node();
-
-		$node->process_sse_chunk( $this->msg_frame( '1:0', 'k', [ 'x' => 1 ] ) );
-
-		$this->assertSame( 'merger', $sink->captured[0][ Message::TO ] );
-	}
-
-	public function test_no_target_is_also_a_thing(): void {
-		[ $node, $sink ] = $this->configured_node();
-		$node->target( '' );
-
-		// An attached worker reply carries its own TO (the TO=FROM breadcrumb); IPC
-		// mode must route by that, not overwrite it with the link's target.
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = '2:64';
-		$m[ Message::TO ]    = '_metadata';
-		$m[ Message::KEY ]   = 'meta';
-		$m[ Message::VALUE ] = [ 'x' => 1 ];
-		$node->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
-
-		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( '_metadata', $sink->captured[0][ Message::TO ] );
 	}
 
 	public function test_connected_handshake_captures_session_pid(): void {

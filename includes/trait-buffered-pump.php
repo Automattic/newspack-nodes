@@ -194,31 +194,14 @@ trait Buffered_Pump {
 					break;
 				}
 				$line = \substr( $this->buffer, $pos, $nl - $pos );
-				if ( $this->crawl_skip_head ) {
-					// Boot head-skip (one-shot). Lives here, not forward_line, so the Tail subclass
-					// (which overrides forward_line) inherits it. crawl_skip_head fires on the first
-					// line, so $pos is 0 → the head start is the current cursor.
-					$this->crawl_skip_head = false;
-					if ( 'drop' === $this->skip_head_disposition ) {
-						// Quarantine marker: the head is already in the DLQ — drop it silently, no second entry.
-						$this->print_less_often( "DROP [quarantined] {$this->name} at {$this->cursor_segment}:{$this->cursor_offset} — already dead-lettered" );
-					} else {
-						// Crash-crawl entry: sacrifice the boot-cursor head (the crash suspect) to the DLQ,
-						// then write a quarantine marker AT its start so a re-boot in the sacrifice→checkpoint
-						// crash window DROPS it instead of producing a second DLQ entry (dead_letter runs first).
-						$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset + $pos ), 'crash' );
-						$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
-					}
-				} else {
-					$this->forward_line( $line, $this->cursor_offset + $pos );
-				}
+				$this->drain_line( $line, $this->cursor_offset + $pos );
 				$pos = $nl + 1; // past the consumed \n.
 				++$emitted;
 			}
 		} finally {
 			if ( $pos > 0 ) {
-				$this->buffer      = \substr( $this->buffer, $pos );
-				$this->cursor_offset += $pos;
+				$this->buffer = \substr( $this->buffer, $pos );
+				$this->advance_consume_cursor( $pos );
 			}
 		}
 		// Ran the buffer dry of complete lines (not just hit the cap) — the remainder is a
@@ -227,6 +210,45 @@ trait Buffered_Pump {
 			$this->discard_oversized_partial();
 		}
 		return $emitted;
+	}
+
+	/**
+	 * Per-line drain seam: dispatch ONE complete line. The default handles the one-shot boot
+	 * head-skip (crash-crawl sacrifice / quarantine-marker drop) then delegates to forward_line
+	 * — lifted verbatim from drain_buffer so a forward_line-overriding subclass (Tail) still
+	 * inherits the skip-head handling. A push source (Remote_Source) overrides this to run the
+	 * crumb-vs-boot-pin 3-way compare (its stream can resume PAST a GC'd suspect, so an armed head
+	 * is not unconditionally the first drained line).
+	 */
+	protected function drain_line( string $line, int $abs_offset ): void {
+		if ( $this->crawl_skip_head ) {
+			// Boot head-skip (one-shot). crawl_skip_head fires on the first line, so $abs_offset is
+			// the current cursor (the head start).
+			$this->crawl_skip_head = false;
+			if ( 'drop' === $this->skip_head_disposition ) {
+				// Quarantine marker: the head is already in the DLQ — drop it silently, no second entry.
+				$this->print_less_often( "DROP [quarantined] {$this->name} at {$this->cursor_segment}:{$this->cursor_offset} — already dead-lettered" );
+			} else {
+				// Crash-crawl entry: sacrifice the boot-cursor head (the crash suspect) to the DLQ,
+				// then write a quarantine marker AT its start so a re-boot in the sacrifice→checkpoint
+				// crash window DROPS it instead of producing a second DLQ entry (dead_letter runs first).
+				$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'crash' );
+				$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
+			}
+			return;
+		}
+		$this->forward_line( $line, $abs_offset );
+	}
+
+	/**
+	 * Consume-cursor advance seam: after drain_buffer chops the emitted lines off the buffer,
+	 * advance the durable read offset by the chopped byte count. Consumer's cursor IS the disk
+	 * read position, so it bumps by the chop; a push source (Remote_Source) derives its cursor
+	 * from each line's own breadcrumb in forward_line, so it overrides this to a no-op (the local
+	 * buffer chop index is not a remote seg:offset).
+	 */
+	protected function advance_consume_cursor( int $pos ): void {
+		$this->cursor_offset += $pos;
 	}
 
 	/**

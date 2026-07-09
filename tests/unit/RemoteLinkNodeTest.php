@@ -357,4 +357,104 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'link-austin:sse-in' ) );
 		$this->assertNull( Core::node( 'link-austin:http-out' ) );
 	}
+
+	// ---------------------------------------------------------------------
+	// deliver_downstream — SSE_In's raw `msg` payload is unpacked + forwarded
+	// straight downstream (the channel path; Remote_Source overrides to buffer).
+	// This is the moved SSE_In forward() logic.
+	// ---------------------------------------------------------------------
+
+	public function test_delivery_seam_unpacks_and_forwards_to_target(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node, $sink ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$sse = Core::node( 'link-austin:sse-in' );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = '1:0';
+		$m[ Message::KEY ]   = 'req';
+		$m[ Message::VALUE ] = [ 'rid' => 'abc' ];
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( 'downstream', $sink->captured[0][ Message::TO ], 'a set target forces TO' );
+		$this->assertSame( 'abc', $sink->captured[0][ Message::VALUE ]['rid'] );
+	}
+
+	public function test_delivery_seam_stamps_from_with_sse_in_patron_name(): void {
+		// Parity with the retired SSE_In::forward: the breadcrumb FROM on a relayed message is the
+		// SSE_In patron's name (`<link>:sse-in`), NOT the link's own name — so the spoke's TO=FROM
+		// reply breadcrumb routes back through the same sibling, unchanged.
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node, $sink ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$sse = Core::node( 'link-austin:sse-in' );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::FROM ]  = '_output/5';
+		$m[ Message::VALUE ] = [ 'x' => 1 ];
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( 'link-austin:sse-in/_output/5', $sink->captured[0][ Message::FROM ], 'FROM is prepended with the SSE_In sibling name' );
+	}
+
+	public function test_delivery_seam_preserves_message_to_when_no_target(): void {
+		// An attached worker reply carries its own TO (the TO=FROM breadcrumb); with no link target
+		// deliver_downstream must route by that, not overwrite it.
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		$node = new Remote_Link_Node();
+		$node->name( 'link-austin' );
+		$sink = new Capture_Sink_Node();
+		$sink->name( 'downstream' );
+		$node->sink( $sink );
+		$node->arguments( 'austin firehose.p0' ); // no target.
+		$node->fire();
+		$sse = Core::node( 'link-austin:sse-in' );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::TO ]    = '_metadata';
+		$m[ Message::VALUE ] = [ 'x' => 1 ];
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( '_metadata', $sink->captured[0][ Message::TO ] );
+	}
+
+	public function test_delivery_seam_drops_over_max_from_message(): void {
+		// A message whose FROM is already at MAX_FROM_SIZE overflows when stamped — deliver_downstream
+		// must DROP it rather than forward an unstamped message the downstream would misroute.
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node, $sink ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$sse = Core::node( 'link-austin:sse-in' );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::FROM ]  = \str_repeat( 'a', \Newspack_Nodes\Node::MAX_FROM_SIZE );
+		$m[ Message::VALUE ] = [ 'x' => 1 ];
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+
+		$this->assertCount( 0, $sink->captured, 'an over-MAX_FROM_SIZE message is dropped, not forwarded' );
+	}
+
+	public function test_delivery_seam_drops_unparseable_frame(): void {
+		// A torn frame handed to a channel link (which never buffers) is dropped — nothing forwarded.
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node, $sink ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$sse = Core::node( 'link-austin:sse-in' );
+
+		$sse->process_sse_chunk( "event: msg\ndata: {not a message}\n\n" );
+
+		$this->assertCount( 0, $sink->captured );
+	}
 }

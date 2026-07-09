@@ -111,9 +111,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'https://austin.example', $this->read_private( $sse, 'url' ) );
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
 		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
-		// SSE_In relays the stream THROUGH the Remote_Source's own fill() (so a poison
-		// message can be quarantined), keeping its downstream target.
-		$this->assertSame( $node, $sse->sink() );
+		// SSE_In hands each raw `msg` payload to the Remote_Source's delivery seam, which
+		// appends it to the Buffered_Pump buffer (a poison line is quarantined on drain), and
+		// keeps its downstream target for forward_line's TO.
+		$this->assertInstanceOf( \Closure::class, $sse->on_message, 'the raw-delivery seam is wired' );
 		$this->assertSame( 'downstream', $sse->target() );
 	}
 
@@ -145,6 +146,29 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 7, $frame['segment'] );
 		$this->assertSame( 300, $frame['offset'] );
 		$this->assertSame( 0, $frame['attempts'], 'no fair-shot climb — a clean handoff' );
+	}
+
+	public function test_crumbless_throw_dead_letters_without_marking_prior_cursor(): void {
+		// Fix #4: a crumb-less throwing message (no parseable ID) has no position of its own — the
+		// cursor still pins the PRIOR healthy line. Marking a quarantine at the cursor would falsely
+		// seal that good line. So it is dead-lettered but writes NO quarantine marker (parity with
+		// the retired relay's `if ( null !== $crumb )` guard).
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor pins {7,100}.
+		$this->assertSame( 100, $this->read_private( $node, 'cursor_offset' ) );
+		$baseline = $this->count_offsetlog_records( $node );
+
+		$this->deliver( $sse, '', 'boom' ); // crumb-less, downstream throws.
+
+		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
+		$this->assertSame( 1, $this->count_log_records( $dlq ), 'the crumb-less throw IS dead-lettered' );
+		$this->assertSame( $baseline, $this->count_offsetlog_records( $node ), 'but writes NO quarantine marker frame at the prior healthy cursor' );
+		$this->assertFalse( $this->newest_offsetlog_frame( $node )['quarantined'] ?? false, 'the prior healthy cursor is not falsely sealed' );
 	}
 
 	public function test_caught_throw_last_message_marks_quarantine_and_reboot_drops(): void {
@@ -213,7 +237,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$sse->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" ); // torn frame → on_poison.
+		$sse->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" ); // torn frame buffered.
+		$node->poll(); // drain: forward_line owns the torn-line DLQ (SSE_In no longer unpacks).
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'the unparseable frame is quarantined once' );
 		$frame = $this->newest_offsetlog_frame( $node );
@@ -230,7 +255,30 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'drop', $this->read_private( $node2, 'skip_head_disposition' ) );
 		$sse2 = Core::node( 'remote-austin:sse-in' );
 		$sse2->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" );
+		$node2->poll(); // drain: the re-delivered torn line hits the boot 'drop' head-skip.
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'no second DLQ entry on the reboot' );
+	}
+
+	public function test_unparseable_past_boot_head_under_drop_is_dead_lettered_not_dropped(): void {
+		// Fix #3: the boot 'drop' silent-drop is guarded on POSITION (parity with the old on_poison
+		// hook) — only a torn frame AT the boot head (SSE next-read position == boot pin, the
+		// already-quarantined suspect) is dropped. A torn frame PAST the boot head (the stream
+		// resumed past a GC'd suspect) is genuinely new poison → dead-lettered, not silently dropped.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 128, 0, '', 'remote-austin', true ); // marker → boot='drop', boot={7,128}.
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$this->assertSame( 'drop', $this->read_private( $node, 'skip_head_disposition' ) );
+		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ) );
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->restore_position( 7, 500 ); // the stream resumed PAST the boot head (suspect GC'd).
+
+		$sse->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" );
+		$node->poll();
+
+		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
+		$this->assertSame( 1, $this->count_log_records( $dlq ), 'a torn frame PAST the boot head is DLQ\'d, not silently dropped' );
 	}
 
 	public function test_hard_crash_lineage_climbs_attempts_across_respawn(): void {
@@ -291,6 +339,55 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->deliver( $sse, '7:300:40', '' );
 		$this->assertFalse( $this->read_private( $node, 'crawl' ) );
 		$this->assertSame( 1, $this->newest_offsetlog_frame( $node )['attempts'], 'crawl exits to the healthy baseline' );
+	}
+
+	public function test_crawl_pre_dispatch_commit_pins_line_before_fill(): void {
+		// Fix #1: in crawl, forward_line writes a FORCED checkpoint at the in-hand line's OWN start
+		// BEFORE $sink->fill — so an uncatchable crash mid-dispatch re-resumes at exactly it (the
+		// advance-on-next cursor pins the in-hand line, unlike Consumer's chop cursor). Prove the
+		// ordering: a sink that reads the newest committed frame at fill() time already sees THIS
+		// line's start committed. (The trait's poll_crawl checkpoint runs only AFTER the fill.)
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 0, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' ); // boot into crawl at {7,0}.
+
+		Core::$now = 1000.0;
+		$node = new Remote_Source_Node();
+		$node->name( 'remote-austin' );
+		$probe = new class() extends Node {
+			public ?Partition_Node $offsetlog = null;
+			/** @var array<int,array{segment:int,offset:int}> */
+			public array $committed_at_fill = [];
+			public function fill( array $message ): void {
+				$segments = $this->offsetlog?->get_segments( true ) ?? [];
+				$last     = \end( $segments );
+				if ( false === $last ) {
+					$this->committed_at_fill[] = [ 'segment' => -1, 'offset' => -1 ];
+					return;
+				}
+				$content = (string) $this->offsetlog?->read_at( $last['id'], 0, $last['size'] );
+				$lines   = \array_values( \array_filter( \explode( "\n", $content ), static fn ( $l ) => '' !== $l ) );
+				$v       = Message::unpacked( \end( $lines ) )[ Message::VALUE ];
+				$this->committed_at_fill[] = [ 'segment' => (int) $v['segment'], 'offset' => (int) $v['offset'] ];
+			}
+		};
+		$probe->name( 'downstream' );
+		$node->sink( $probe );
+		$node->target( 'downstream' );
+		$node->arguments( 'austin firehose.p0' );
+		$node->fire(); // enter crawl; offsetlog materialized (newest frame is the boot seed {7,0}).
+		$probe->offsetlog = $this->read_private( $node, 'offsetlog' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		// A line PAST the boot pin: sacrifice_boot_head disarms (stream resumed past the GC'd
+		// suspect) and forwards it in crawl — exercising the crawl FORWARD path (not the sacrifice).
+		$this->deliver( $sse, '7:100:40', '' );
+
+		$this->assertSame(
+			[ [ 'segment' => 7, 'offset' => 100 ] ],
+			$probe->committed_at_fill,
+			'the pinned cursor is committed BEFORE the fill in crawl'
+		);
 	}
 
 	public function test_crawl_entry_sacrifices_matching_head_to_dlq_then_forwards(): void {
@@ -488,6 +585,49 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertCount( 2, $spy->captured );
 	}
 
+	public function test_reconnect_resumes_from_last_delivered_exclusive_end(): void {
+		// Fix #2: after a successful forward, the node drives SSE_In's resume position to the
+		// delivered line's exclusive end computed LOCALLY (cursor start + strlen(line) + 1), NOT
+		// the remote-stamped length. A reconnect (stale / SSE_Out recycle) then resumes AFTER the
+		// last delivered line — exactly-once — instead of replaying from the boot cursor.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured_urls = [];
+		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ) use ( &$captured_urls ): \CurlHandle {
+			$captured_urls[] = Core::as_string( $opts[ \CURLOPT_URL ] );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // first connect: position is boot (0:0) → no `positions` param.
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		// Deliver a line whose stamped length (999) is a LIE — the local computation must ignore it.
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = '7:200:999';
+		$m[ Message::VALUE ] = [ 'p' => 1 ];
+		$packed              = Message::packed( $m );
+		$sse->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
+		$node->poll();
+		$this->assertCount( 1, $spy->captured );
+
+		// A reconnect: drop the handle, clear backoff, tick → maybe_connect rebuilds `positions`.
+		$sse->disconnect();
+		Core::$now = \microtime( true ) + 100;
+		$node->fire();
+
+		$last_url = (string) \end( $captured_urls );
+		\parse_str( (string) \parse_url( $last_url, \PHP_URL_QUERY ), $query );
+		$positions = \json_decode( (string) ( $query['positions'] ?? '' ), true );
+		$this->assertIsArray( $positions, 'the reconnect carries a positions param (not a boot replay)' );
+		$this->assertSame(
+			[ 'segment' => 7, 'offset' => 200 + \strlen( $packed ) + 1 ],
+			$positions['firehose.p0'] ?? null,
+			'resume from the last delivered line exclusive END computed LOCALLY (not the remote-stamped 999)'
+		);
+		$this->assertCount( 1, $spy->captured, 'the reconnect itself re-forwards nothing' );
+	}
+
 	public function test_parse_breadcrumb_accepts_a_two_part_crumb(): void {
 		// Wire-compat: after the crumb shrinks from seg:off:len to seg:off, the reader must still
 		// pin the cursor from a two-part crumb (nothing reads the retired length anymore).
@@ -596,38 +736,41 @@ class RemoteSourceNodeTest extends TestCase {
 
 	public function test_relay_with_null_sink_fails_loud(): void {
 		// Bug D: a null/unwired downstream must FAIL LOUD — never silently no-op while the
-		// stream is consumed (which would advance the cursor past undelivered messages).
+		// stream is consumed (which would advance the cursor past undelivered messages). The
+		// stream now arrives via the SSE_In buffer; forward_line throws on the null sink at drain.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
 		$node = new Remote_Source_Node();
 		$node->name( 'remote-austin' );
 		$node->arguments( 'austin firehose.p0' ); // no sink wired.
-
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = '7:1:20';
-		$m[ Message::VALUE ] = [ 'p' => 1 ];
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$this->expectException( \RuntimeException::class );
-		$node->fill( $m );
+		$this->deliver( $sse, '7:1:20', '' ); // drain with a null sink → fail loud.
 	}
 
-	public function test_stream_data_routed_by_type_not_from_prefix(): void {
-		// Bug A(ii): the relay discriminator is structural (by TYPE), not a FROM-prefix
-		// match. A TM_STRUCT whose FROM does NOT match the SSE_In name is still relayed
-		// downstream — never misrouted to the outbound send()/HTTP_Out path.
+	public function test_stream_data_relayed_downstream_not_to_http_out(): void {
+		// Stream data flows via the SSE_In buffer → forward_line → downstream; it never touches
+		// the outbound send()/HTTP_Out path (that carries commands + the heartbeat only). A message
+		// whose FROM does not match the SSE_In name still relays — routing is by the buffer path,
+		// not a FROM-prefix match.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
 		$http = Core::node( 'remote-austin:http-out' );
+		$sse  = Core::node( 'remote-austin:sse-in' );
 
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::FROM ]  = 'some-unrelated-node';
 		$m[ Message::ID ]    = '7:1:20';
 		$m[ Message::VALUE ] = [ 'p' => 1 ];
-		$node->fill( $m );
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$node->poll();
 
-		$this->assertCount( 1, $spy->captured, 'stream data is relayed by TYPE regardless of FROM' );
+		$this->assertCount( 1, $spy->captured, 'stream data is relayed downstream regardless of FROM' );
 		$this->assertCount( 0, $this->read_private( $http, 'batch' ), 'stream data must NOT be misrouted to HTTP_Out' );
 	}
 
@@ -649,6 +792,27 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 9, $frame['segment'] );
 		$this->assertSame( 512, $frame['offset'] );
 		$this->assertSame( 0, $frame['attempts'], 'a healthy shutdown is a clean handoff (attempts=0)' );
+	}
+
+	public function test_checkpoint_shutdown_commits_a_paused_seek_position(): void {
+		// Fix #6: a paused time-travel SEEK sets the cursor + offset_set but leaves poll_initialized
+		// false (no poll runs while paused). checkpoint_shutdown must still commit the seeked
+		// position — guarding on poll_initialized ALONE silently drops it. Aligns the guard with
+		// checkpoint() / cooperative_stop (both: ! poll_initialized && ! offset_set).
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		// No fire() — a SEEK issued while paused, before the first tick, so poll_initialized stays false.
+		$node->next_offset( [ 'segment' => 3, 'offset' => 256 ] );
+		$this->assertFalse( $this->read_private( $node, 'poll_initialized' ), 'no poll ran' );
+		$this->assertTrue( $this->read_private( $node, 'offset_set' ), 'the SEEK set the cursor explicitly' );
+
+		$node->checkpoint_shutdown();
+
+		$this->assertSame( 1, $this->count_offsetlog_records( $node ), 'the seeked position is committed at shutdown' );
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 3, $frame['segment'] );
+		$this->assertSame( 256, $frame['offset'] );
 	}
 
 	public function test_durable_cursor_is_node_owned_not_sse_in_position(): void {
@@ -685,7 +849,12 @@ class RemoteSourceNodeTest extends TestCase {
 		return [ $node, $spy ];
 	}
 
-	/** Push one TM_STRUCT stream message through the SSE_In parser (keyed `boom` to poison the relay). */
+	/**
+	 * Push one TM_STRUCT stream message through the SSE_In parser (keyed `boom` to poison the
+	 * relay), then drive one pump tick to drain it. Under the Buffered_Pump model SSE_In's raw
+	 * `msg` payload only lands in the owner's buffer; the production tick drains it, so this makes
+	 * that tick explicit (crawl caps drain at one line per poll — one poll per delivered line).
+	 */
 	private function deliver( SSE_In_Node $sse, string $id, string $key = '', array $value = [ 'p' => 1 ] ): void {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -693,15 +862,26 @@ class RemoteSourceNodeTest extends TestCase {
 		$m[ Message::KEY ]   = $key;
 		$m[ Message::VALUE ] = $value;
 		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$patron = $sse->patron();
+		if ( $patron instanceof Remote_Source_Node ) {
+			$patron->poll();
+		}
 	}
 
-	/** Deliver a pre-built message, swallowing the Worker_Should_Stop a `stop`-keyed one raises. */
+	/**
+	 * Deliver a pre-built message, then drive one pump tick — swallowing the Worker_Should_Stop a
+	 * `stop`-keyed one raises when the tick dispatches it (it propagates up like the real drain
+	 * loop; the worker then routes to cooperative_stop).
+	 */
 	private function deliver_built( SSE_In_Node $sse, array $m ): void {
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$patron = $sse->patron();
 		try {
-			$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+			if ( $patron instanceof Remote_Source_Node ) {
+				$patron->poll();
+			}
 		} catch ( Worker_Should_Stop $e ) {
-			// Expected for a `stop`-keyed message: it propagates up like the real drain loop; the
-			// worker then routes to cooperative_stop.
+			// Expected for a `stop`-keyed message.
 		}
 	}
 
