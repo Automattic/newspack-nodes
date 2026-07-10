@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Job_Worker_Node`'s redundant memory watermark removed.** The memory-pressure restart is `Worker_Base`'s cooperative stop (same 0.80 threshold, checked every drain tick, stderr-logged with usage/limit/percent); Job_Worker's per-job latch, `MEMORY_PRESSURE` state event, and GET_HEALTH `memory_pressure` field had no consumers, and the latch was only observable for the sub-tick between `after_job()` and the next `should_continue()`. GET_HEALTH keeps `memory_used_mb` / `memory_limit_mb`.
 - **SSE slot-pool memcache keys moved to the substrate namespace** — `evlog:sse:…` → `newspack_nodes:sse:…`. The old prefix was a leftover from the pool's event-logger origin; the substrate now owns its own key space. Live slots keyed under the old prefix orphan on upgrade and age out by TTL.
 
 ### Fixed
