@@ -1062,21 +1062,10 @@ class Command_Interpreter_Node extends Node {
 		if ( '' === $topic ) {
 			$names = \array_keys( self::$H ?? [] );
 			\sort( $names );
-			$rows = [];
-			$row  = [];
-			foreach ( $names as $i => $n ) {
-				$row[] = $n;
-				if ( ( $i + 1 ) % 4 === 0 ) {
-					$rows[] = $row;
-					$row    = [];
-				}
-			}
-			if ( ! empty( $row ) ) {
-				$rows[] = $row;
-			}
-			return implode( "\n", [
-				"### COMMANDS ###",
-				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows )
+			$rows = \array_chunk( $names, 4 );
+			return \implode( "\n", [
+				'### COMMANDS ###',
+				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows ),
 			] );
 		}
 		// Keep aliases in lockstep with $C entries and Shell builtin dispatch.

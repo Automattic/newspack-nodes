@@ -67,11 +67,11 @@ class Router_Node extends Timer_Node {
 			'NOT_AVAILABLE',
 			\implode( ' ', [
 				'NODE', $node_name,
-				'TYPE', \is_scalar( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : '',
-				'FROM', \is_scalar( $message[ Message::FROM ] ) ? $message[ Message::FROM ] : '',
-				'TO',   \is_scalar( $message[ Message::TO   ] ) ? $message[ Message::TO   ] : '',
-				'ID',   \is_scalar( $message[ Message::ID   ] ) ? $message[ Message::ID   ] : '',
-				'KEY',  \is_scalar( $message[ Message::KEY  ] ) ? $message[ Message::KEY  ] : '',
+				'TYPE', Core::as_string( $message[ Message::TYPE ] ),
+				'FROM', Core::as_string( $message[ Message::FROM ] ),
+				'TO',   Core::as_string( $message[ Message::TO ] ),
+				'ID',   Core::as_string( $message[ Message::ID ] ),
+				'KEY',  Core::as_string( $message[ Message::KEY ] ),
 			] )
 		);
 		$type = $message[ Message::TYPE ];
@@ -90,7 +90,6 @@ class Router_Node extends Timer_Node {
 			$this->fill( $err );
 		}
 		$this->handling_error = false;
-		return;
 	}
 
 	// Call each TIMER node's fire_cb; array_keys snapshot = safe unset.

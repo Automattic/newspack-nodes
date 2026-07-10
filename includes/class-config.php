@@ -37,14 +37,8 @@ class Config {
 	/** @var string|null */
 	private static ?string $validated_base_directory = null;
 
-	/** @var string|null */
-	private static ?string $validated_locks_directory = null;
-
-	/** @var string|null */
-	private static ?string $validated_logs_directory = null;
-
-	/** @var string|null */
-	private static ?string $validated_offsets_directory = null;
+	/** @var array<string,string> Memoized base-relative subdirs (logs/locks/offsets); cleared by reset(). */
+	private static array $validated_subdirs = [];
 
 	/**
 	 * Register the substrate's `config` topology-token namespace.
@@ -57,14 +51,14 @@ class Config {
 		Core::register_config_namespace(
 			'config',
 			static function ( string $key ) {
-				if ( 'logs_dir' === $key ) {
-					return \rtrim( self::get_base_directory(), '/' ) . '/logs';
-				}
-				if ( 'offsets_dir' === $key ) {
-					return \rtrim( self::get_base_directory(), '/' ) . '/offsets';
-				}
-				if ( 'deadletter_dir' === $key ) {
-					return \rtrim( self::get_base_directory(), '/' ) . '/deadletter';
+				// Directories derived from the base dir; every other key reads config.
+				$derived = [
+					'logs_dir'       => 'logs',
+					'offsets_dir'    => 'offsets',
+					'deadletter_dir' => 'deadletter',
+				];
+				if ( isset( $derived[ $key ] ) ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
 				}
 				$cfg = self::load_config();
 				return $cfg[ $key ] ?? null;
@@ -199,42 +193,39 @@ class Config {
 	 *
 	 * @api
 	 * @return string
-	 * @throws \RuntimeException If base directory cannot be created or realpath doesn't match, or if logs directory cannot be created or realpath doesn't match.
+	 * @throws \RuntimeException If base or logs directory cannot be created or realpath doesn't match.
 	 */
 	public static function get_logs_directory(): string {
-		if ( null !== self::$validated_logs_directory ) {
-			return self::$validated_logs_directory;
-		}
-		self::$validated_logs_directory = self::ensure_path( self::get_base_directory() . '/logs' );
-		return self::$validated_logs_directory;
+		return self::validated_subdir( 'logs' );
 	}
 
 	/**
 	 * Get the locks directory path ({base}/locks).
 	 *
 	 * @return string
-	 * @throws \RuntimeException If base directory cannot be created or realpath doesn't match, or if locks directory cannot be created or realpath doesn't match.
+	 * @throws \RuntimeException If base or locks directory cannot be created or realpath doesn't match.
 	 */
 	public static function get_locks_directory(): string {
-		if ( null !== self::$validated_locks_directory ) {
-			return self::$validated_locks_directory;
-		}
-		self::$validated_locks_directory = self::ensure_path( self::get_base_directory() . '/locks' );
-		return self::$validated_locks_directory;
+		return self::validated_subdir( 'locks' );
 	}
 
 	/**
 	 * Get the offsets directory path ({base}/offsets).
 	 *
 	 * @return string
-	 * @throws \RuntimeException If base directory cannot be created or realpath doesn't match, or if offsets directory cannot be created or realpath doesn't match.
+	 * @throws \RuntimeException If base or offsets directory cannot be created or realpath doesn't match.
 	 */
 	public static function get_offsets_directory(): string {
-		if ( null !== self::$validated_offsets_directory ) {
-			return self::$validated_offsets_directory;
-		}
-		self::$validated_offsets_directory = self::ensure_path( self::get_base_directory() . '/offsets' );
-		return self::$validated_offsets_directory;
+		return self::validated_subdir( 'offsets' );
+	}
+
+	/**
+	 * Memoized `{base}/{sub}` path (created + realpath-checked via ensure_path).
+	 *
+	 * @throws \RuntimeException If base or the subdir cannot be created or realpath doesn't match.
+	 */
+	private static function validated_subdir( string $sub ): string {
+		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
 	}
 
 	/** One-time sweep flipping every schema key to autoloaded (admin_init; no-op on WP < 6.6). */
@@ -254,12 +245,10 @@ class Config {
 
 	/** Reset cached config; fires `newspack_nodes/config_reset` so dependent Configs invalidate too. */
 	public static function reset(): void {
-		self::$config                      = null;
-		self::$config_defaults             = null;
-		self::$validated_base_directory    = null;
-		self::$validated_logs_directory    = null;
-		self::$validated_locks_directory   = null;
-		self::$validated_offsets_directory = null;
+		self::$config                   = null;
+		self::$config_defaults          = null;
+		self::$validated_base_directory = null;
+		self::$validated_subdirs        = [];
 		if ( \function_exists( 'do_action' ) ) {
 			\do_action( self::RESET_ACTION );
 		}

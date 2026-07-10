@@ -1028,6 +1028,33 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'debug_level', $out );
 	}
 
+	public function test_help_grid_chunks_names_four_per_row(): void {
+		// The empty-topic help lays the sorted command names out four per row,
+		// top-to-bottom, with only the final row allowed to be short.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$lines = \explode( "\n", $interpreter->dispatch( 'help' ) );
+		$this->assertSame( '### COMMANDS ###', $lines[0] );
+
+		$grid  = \array_slice( $lines, 1 );
+		$names = [];
+		foreach ( $grid as $i => $line ) {
+			$cols = \preg_split( '/\s+/', \trim( $line ) );
+			if ( $i < \count( $grid ) - 1 ) {
+				$this->assertCount( 4, $cols, 'every full row holds exactly four names' );
+			} else {
+				$this->assertGreaterThanOrEqual( 1, \count( $cols ) );
+				$this->assertLessThanOrEqual( 4, \count( $cols ) );
+			}
+			$names = \array_merge( $names, $cols );
+		}
+
+		$sorted = $names;
+		\sort( $sorted );
+		$this->assertSame( $sorted, $names, 'names read left-to-right, top-to-bottom in sorted order' );
+	}
+
 	public function test_custom_command_table_gets_default_help_listing_its_verbs(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( 'svc' );

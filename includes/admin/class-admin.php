@@ -85,8 +85,8 @@ class Admin {
 			[
 				'handle'   => 'newspack-nodes-event-dashboards',
 				'page'     => self::HUB_MENU_SLUG,
-				'dir'      => \NEWSPACK_NODES_DIR . 'build/event-dashboards',
-				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
+				'dir'      => self::build_dir( 'event-dashboards' ),
+				'url'      => self::build_url( 'event-dashboards' ),
 				'localize' => [
 					'tree'    => 'event-dashboards',
 					'version' => \NEWSPACK_NODES_VERSION,
@@ -186,6 +186,40 @@ class Admin {
 		return \md5_file( $css_path ) ?: $fallback;
 	}
 
+	/** Filesystem path to a build subdir (e.g. 'vault' → '{plugin}/build/vault'). */
+	private static function build_dir( string $subdir ): string {
+		return \NEWSPACK_NODES_DIR . 'build/' . $subdir;
+	}
+
+	/** Public URL of a build subdir; the URL constant may be absent in CLI/test contexts. */
+	private static function build_url( string $subdir ): string {
+		return ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/' . $subdir;
+	}
+
+	/**
+	 * Append one DevTools tab bundle (the shared `{handle, dir, url[, localize]}`
+	 * shape) to the running list. Each `register_*_tab_bundle` filter callback
+	 * delegates the append here; topology-console also builds a localize payload.
+	 *
+	 * @param array<int,mixed>     $bundles  Existing tab bundles.
+	 * @param string               $handle   Script handle.
+	 * @param string               $subdir   Build subdir under `build/`.
+	 * @param array<string,mixed>  $localize Optional localize payload.
+	 * @return array<int,mixed>
+	 */
+	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [] ): array {
+		$bundle = [
+			'handle' => $handle,
+			'dir'    => self::build_dir( $subdir ),
+			'url'    => self::build_url( $subdir ),
+		];
+		if ( [] !== $localize ) {
+			$bundle['localize'] = $localize;
+		}
+		$bundles[] = $bundle;
+		return $bundles;
+	}
+
 	/**
 	 * Enqueue the DevTools hub bundle on the top-level "Nodes" page.
 	 */
@@ -194,8 +228,8 @@ class Admin {
 			[
 				'handle'   => 'newspack-nodes-devtools-hub',
 				'page'     => self::HUB_MENU_SLUG,
-				'dir'      => \NEWSPACK_NODES_DIR . 'build/devtools-hub',
-				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/devtools-hub',
+				'dir'      => self::build_dir( 'devtools-hub' ),
+				'url'      => self::build_url( 'devtools-hub' ),
 				'localize' => [
 					'tree'    => 'devtools-hub',
 					'version' => \NEWSPACK_NODES_VERSION,
@@ -580,8 +614,8 @@ class Admin {
 		) {
 			return;
 		}
-		$dir = \NEWSPACK_NODES_DIR . 'build/theme';
-		$url = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/theme';
+		$dir = self::build_dir( 'theme' );
+		$url = self::build_url( 'theme' );
 		$css = "{$dir}/index.css";
 		if ( ! \file_exists( $css ) ) {
 			return;
@@ -604,12 +638,7 @@ class Admin {
 	 * @return array<int,mixed> Bundles with the event-dashboards bundle appended.
 	 */
 	public function register_event_dashboards_tab_bundle( array $bundles ): array {
-		$bundles[] = [
-			'handle' => 'newspack-nodes-event-dashboards',
-			'dir'    => \NEWSPACK_NODES_DIR . 'build/event-dashboards',
-			'url'    => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
-		];
-		return $bundles;
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-event-dashboards', 'event-dashboards' );
 	}
 
 	/**
@@ -620,12 +649,7 @@ class Admin {
 	 * @return array<int,mixed> Bundles with the vault bundle appended.
 	 */
 	public function register_vault_tab_bundle( array $bundles ): array {
-		$bundles[] = [
-			'handle' => 'newspack-nodes-vault',
-			'dir'    => \NEWSPACK_NODES_DIR . 'build/vault',
-			'url'    => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/vault',
-		];
-		return $bundles;
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-vault', 'vault' );
 	}
 
 	/**
@@ -636,12 +660,7 @@ class Admin {
 	 * @return array<int,mixed> Bundles with the aggregator bundle appended.
 	 */
 	public function register_aggregator_tab_bundle( array $bundles ): array {
-		$bundles[] = [
-			'handle' => 'newspack-nodes-aggregator-tab',
-			'dir'    => \NEWSPACK_NODES_DIR . 'build/event-aggregator',
-			'url'    => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-aggregator',
-		];
-		return $bundles;
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-aggregator-tab', 'event-aggregator' );
 	}
 
 	/**
@@ -673,19 +692,18 @@ class Admin {
 		$config_np  = Config::load_config()['num_partitions'] ?? 1;
 		$default_np = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
 
-		$bundles[] = [
-			'handle'   => 'newspack-nodes-topology-console',
-			'dir'      => \NEWSPACK_NODES_DIR . 'build/topology-console',
-			'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console',
-			'localize' => [
+		return self::append_tab_bundle(
+			$bundles,
+			'newspack-nodes-topology-console',
+			'topology-console',
+			[
 				'tree'                => 'topology-console',
 				'version'             => \NEWSPACK_NODES_VERSION,
-				'topologyWorkers'  => $topology_workers,
+				'topologyWorkers'     => $topology_workers,
 				'activeTopologies'    => $active_topologies,
 				'configNumPartitions' => $default_np,
-			],
-		];
-		return $bundles;
+			]
+		);
 	}
 
 	/**

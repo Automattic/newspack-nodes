@@ -31,11 +31,7 @@ final class Log_Discovery {
 			return self::$cached = [];
 		}
 		\sort( $matches );
-		$out = [];
-		foreach ( $matches as $path ) {
-			$out[] = \basename( $path );
-		}
-		return self::$cached = $out;
+		return self::$cached = \array_map( '\basename', $matches );
 	}
 
 	/** Drop the memoized result; wired to Config::RESET_ACTION so workers pick up new log dirs after a config reload. */

@@ -103,6 +103,29 @@ class RouterTest extends TestCase {
 		$this->assertStringContainsString( 'nonexistent', $state['NOT_AVAILABLE'] );
 	}
 
+	public function test_send_error_NOT_AVAILABLE_state_is_flat_key_value_string(): void {
+		// Pins the exact flat "KEY VALUE ..." NOT_AVAILABLE state payload so the
+		// scalar->string rendering of every field stays byte-stable.
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_INFO;
+		$message[ Message::TO ]   = 'ghost/sub';
+		$message[ Message::FROM ] = 'producer';
+		$message[ Message::ID ]   = 'req1';
+		$message[ Message::KEY ]  = 'ev';
+
+		$router->fill( $message );
+
+		$ref   = new \ReflectionProperty( $router, 'set_state' );
+		$state = $ref->getValue( $router );
+		$this->assertSame(
+			'NODE ghost TYPE 64 FROM producer TO ghost/sub ID req1 KEY ev',
+			$state['NOT_AVAILABLE']
+		);
+	}
+
 	public function test_unknown_target_drops_TM_ERROR_messages_silently(): void {
 		// Don't bounce errors-on-errors: a TM_ERROR to an unknown target is dropped,
 		// not walked back to FROM. (Verified via the FROM node, since the Router

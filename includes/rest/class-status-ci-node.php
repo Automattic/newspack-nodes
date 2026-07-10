@@ -32,7 +32,6 @@ use Newspack_Nodes\Service_CI_Node;
 
 class Status_CI_Node extends Service_CI_Node {
 
-	/** @api Used by the substrate to provide UI etc. */
 	/**
 	 * `get` verb handler — a single-shot health/version snapshot for the admin panel.
 	 *

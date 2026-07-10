@@ -73,6 +73,19 @@ class OffsetlogCursorTest extends TestCase {
 		$this->assertSame( 'bar', $value['foo'] );
 	}
 
+	public function test_read_returns_newest_frame_when_segment_holds_many_lines(): void {
+		$d = new Offsetlog_Cursor_Double();
+		// A big segment so both frames append as two lines in the same segment.
+		$d->build( "{$this->tmp}/offsets.p0", 64 * 1024, 4 );
+		$d->commit( [ 'segment' => 1, 'offset' => 10 ] );
+		$d->commit( [ 'segment' => 2, 'offset' => 20 ] );
+
+		$value = $d->read();
+		$this->assertIsArray( $value );
+		$this->assertSame( 2, $value['segment'] );
+		$this->assertSame( 20, $value['offset'] );
+	}
+
 	public function test_read_returns_null_when_no_offsetlog(): void {
 		$d = new Offsetlog_Cursor_Double();
 		$this->assertNull( $d->read() );

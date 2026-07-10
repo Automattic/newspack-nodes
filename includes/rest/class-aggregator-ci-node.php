@@ -86,8 +86,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * @return array<string, array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>
 	 */
 	private static function build_snapshot(): array {
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
+		$registry = Vault::fresh();
 
 		// remote_partition has a <partition> token; fan across num_partitions.
 		$num_partitions = Bootstrap::num_partitions_for( 'aggregator' );
@@ -150,8 +149,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_servers(): array {
 		self::require_manage_options();
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
+		$registry = Vault::fresh();
 		$out = [];
 		foreach ( $registry->get_all() as $id => $cfg ) {
 			$url_v   = $cfg['url'] ?? '';

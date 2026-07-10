@@ -157,7 +157,7 @@ class Topic_Node extends Node {
 	public function largest_msg_sent(): int {
 		$max = 0;
 		foreach ( $this->partitions as $p ) {
-			$max = max( $max, $p->largest_msg_sent() );
+			$max = \max( $max, $p->largest_msg_sent() );
 		}
 		return $max;
 	}

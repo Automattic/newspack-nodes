@@ -283,6 +283,20 @@ class ShellTest extends TestCase {
 		$this->assertStringContainsString( '"tell"', $dump );
 	}
 
+	public function test_parse_show_parse_toggling_off_reports_off(): void {
+		// Toggling the flag a second time turns it back off and reports "off".
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$this->assertNull( $shell->parse( 'show_parse' ) );
+		$this->assertSame( "show_parse: on\n", $capture->captured[0][ Message::VALUE ] );
+
+		// Second toggle: show_parse is still on, so parse diagnostics emit first,
+		// then the state line reports the new "off" state.
+		$this->assertNull( $shell->parse( 'show_parse' ) );
+		$this->assertSame( "show_parse: off\n", $capture->captured[2][ Message::VALUE ] );
+	}
+
 	public function test_parse_status_with_no_status_lines_writes_nothing(): void {
 		// Empty $status_lines (e.g. shell wasn't configured by the cli) →
 		// status is a no-op; no garbage output, no errors.
