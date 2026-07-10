@@ -52,6 +52,15 @@ class SseSlotPoolTest extends TestCase {
 		$this->assertFalse( SSE_Slot_Pool::acquire( 'host', 1, 'abc', 2, 30 ) );
 	}
 
+	public function test_slot_keys_use_the_substrate_prefix(): void {
+		// The pool is substrate infrastructure; its keys must live in the
+		// newspack_nodes namespace, not a consumer application's.
+		SSE_Slot_Pool::acquire( 'host', 1, 'abc', 1, 30 );
+		/** @var InMemoryMemcached $memd */
+		$memd = Core::$memd;
+		$this->assertSame( [ 'newspack_nodes:sse:host:1:abc:0' ], $memd->keys() );
+	}
+
 	public function test_slots_are_namespaced_per_hostname(): void {
 		// Same user + ip on two hosts get independent pools (shared memcache).
 		$this->assertSame( 0, SSE_Slot_Pool::acquire( 'hostA', 1, 'abc', 1, 30 ) );
