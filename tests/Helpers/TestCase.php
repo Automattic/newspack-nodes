@@ -64,6 +64,14 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Command_Interpreter_Node' ) ) {
 			\Newspack_Nodes\Command_Interpreter_Node::$default_authorize = null;
 		}
+
+		// Bootstrap seams a class may set and not clear: a leaked supervisor_factory
+		// (BootstrapTest binds one to /tmp) misdirects kill_readers' restart-flag
+		// drops; a leaked supervisor_enabled_override=false disables the supervisor.
+		if ( \class_exists( '\Newspack_Nodes\Bootstrap' ) ) {
+			\Newspack_Nodes\Bootstrap::$supervisor_factory          = null;
+			\Newspack_Nodes\Bootstrap::$supervisor_enabled_override = null;
+		}
 	}
 
 	/** Remove every temp dir make_temp_dir() handed out — a temp dir is only temporary if someone deletes it. */
