@@ -122,19 +122,17 @@ class Event_Framework {
 	private function drain_curl_multi(): void {
 		// Raw cURL: wp_remote_get is one-shot; SSE pulls need curl_multi_*.
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_exec, WordPress.WP.AlternativeFunctions.curl_curl_multi_info_read
-		foreach ( $this->curl_handles as $id => $entry ) {
+		foreach ( $this->curl_handles as &$entry ) {
 			$still_running = 0;
 			\curl_multi_exec( $entry['multi'], $still_running );
 			while ( $info = \curl_multi_info_read( $entry['multi'] ) ) {
 				if ( \method_exists( $entry['node'], 'on_curl_message' ) ) {
-					// Stored counter (by-value foreach); on_curl_message may unregister $id.
-					if ( isset( $this->curl_handles[ $id ] ) ) {
-						++$this->curl_handles[ $id ]['counter'];
-					}
+					++$entry['counter']; // ref writes the live entry; on_curl_message may unregister it after
 					$entry['node']->on_curl_message( $info );
 				}
 			}
 		}
+		unset( $entry );
 		// phpcs:enable
 	}
 

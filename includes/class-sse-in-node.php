@@ -519,15 +519,16 @@ class SSE_In_Node extends Node {
 	 * Order matters: curl_multi_remove_handle() MUST run before curl_close().
 	 */
 	private function detach_handle(): void {
-		if ( ! ( $this->handle instanceof \CurlHandle ) ) {
+		$handle = $this->handle;
+		if ( ! ( $handle instanceof \CurlHandle ) ) {
 			return;
 		}
 		if ( null !== $this->multi ) {
-			@\curl_multi_remove_handle( $this->multi, $this->handle );
+			@\curl_multi_remove_handle( $this->multi, $handle );
 			// Unregister: no easy handle left, so the drain loop won't spin on a fd-less multi.
 			Event_Framework::instance()->unregister_curl_handle( $this );
 		}
-		@\curl_close( $this->handle );
+		@\curl_close( $handle );
 		$this->handle    = null;
 		$this->connected = false;
 	}
