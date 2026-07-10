@@ -115,7 +115,7 @@ class Spawn_Controller {
 		$raw_type      = $req->get_param( 'type' );
 		$raw_partition = $req->get_param( 'partition' );
 		$type          = Core::as_string( $raw_type );
-		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
+		$partition     = Core::as_int( $raw_partition );
 
 		if ( ! $this->validate_partition( $type, $partition ) ) {
 			return new \WP_Error(
@@ -263,7 +263,7 @@ class Spawn_Controller {
 					],
 					'partition' => [
 						'required'          => true,
-						'sanitize_callback' => static fn ( $v ): int => \is_scalar( $v ) ? (int) $v : 0,
+						'sanitize_callback' => static fn ( $v ): int => Core::as_int( $v ),
 					],
 					'nonce'     => [
 						'required'          => true,

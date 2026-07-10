@@ -60,7 +60,7 @@ class Topology_Registry {
 	public static function publish_catalog( array $topologies ): array {
 		$cfg        = \Newspack_Nodes\Config::load_config();
 		$cfg_np     = $cfg['num_partitions'] ?? 1;
-		$default_np = \max( 1, \min( 16, (int) ( \is_scalar( $cfg_np ) ? $cfg_np : 1 ) ) );
+		$default_np = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
 		foreach ( self::list() as $name ) {
 			if ( isset( $topologies[ $name ] ) ) {
 				continue;
@@ -666,7 +666,7 @@ class Topology_Registry {
 				$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $supervisor->generate_spawn_token( \time() ) );
 			};
 			$w_topology = Core::as_string( $w['topology'] );
-			$w_stale    = \is_scalar( $w['stale_timeout'] ) ? (int) $w['stale_timeout'] : 0;
+			$w_stale    = Core::as_int( $w['stale_timeout'] );
 			$runner( $w['type'], $w['partition'], $w_topology, $w_stale );
 			break;
 		}

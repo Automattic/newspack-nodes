@@ -6,51 +6,11 @@
  * index.js existence gate, manifest-vs-fallback deps/version, the CSS
  * sidecar (+ RTL activation), and the NewspackNodesData localize merge.
  *
- * Recording stubs mirror AdminTest's — guarded by function_exists so the two
- * files coexist regardless of load order; assertions read the same globals.
+ * The enqueue/localize/style/nonce recorder stubs are shared from
+ * tests/bootstrap.php; assertions read the same globals.
  */
 
 namespace {
-	if ( ! \function_exists( 'wp_enqueue_script' ) ) {
-		function wp_enqueue_script( string $handle, string $src = '', array $deps = [], $ver = false, bool $in_footer = false ): void {
-			$GLOBALS['_enqueued_scripts'][ $handle ] = [
-				'src'       => $src,
-				'deps'      => $deps,
-				'version'   => $ver,
-				'in_footer' => $in_footer,
-			];
-		}
-	}
-	if ( ! \function_exists( 'wp_enqueue_style' ) ) {
-		function wp_enqueue_style( string $handle, string $src = '', array $deps = [], $ver = false ): void {
-			$GLOBALS['_enqueued_styles'][ $handle ] = [
-				'src'     => $src,
-				'deps'    => $deps,
-				'version' => $ver,
-			];
-		}
-	}
-	if ( ! \function_exists( 'wp_localize_script' ) ) {
-		function wp_localize_script( string $handle, string $object_name, array $data ): bool {
-			$GLOBALS['_localized_scripts'][ $handle ] = [
-				'object_name' => $object_name,
-				'data'        => $data,
-			];
-			return true;
-		}
-	}
-	if ( ! \function_exists( 'wp_style_add_data' ) ) {
-		function wp_style_add_data( string $handle, string $key, $value ): bool {
-			$GLOBALS['_style_data'][ $handle ][ $key ] = $value;
-			return true;
-		}
-	}
-	if ( ! \function_exists( 'wp_create_nonce' ) ) {
-		function wp_create_nonce( string $action ): string {
-			return 'nonce_' . \substr( \md5( $action ), 0, 10 );
-		}
-	}
-
 	require_once \dirname( __DIR__, 3 ) . '/includes/admin/class-admin.php';
 }
 

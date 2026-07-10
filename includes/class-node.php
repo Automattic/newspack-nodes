@@ -245,7 +245,7 @@ class Node {
 	 */
 	public function drop_message( array $message, string $error ): void {
 		$type_raw = $message[ Message::TYPE ];
-		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
+		$type     = Core::num_int( $type_raw );
 		$labels   = [];
 		foreach ( self::$type_names as $bit => $label ) {
 			if ( $type & $bit ) {

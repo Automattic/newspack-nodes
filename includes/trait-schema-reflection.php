@@ -39,7 +39,7 @@ trait Schema_Reflection {
 			}
 			$name     = Core::as_string( $arg_spec['name'] ?? '' );
 			$type_raw = $arg_spec['type'] ?? 'string';
-			$type     = \is_string( $type_raw ) ? $type_raw : 'string';
+			$type     = Core::str( $type_raw, 'string' );
 			if ( '' === $name ) {
 				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: missing name at position {$i}" ) );
 			}

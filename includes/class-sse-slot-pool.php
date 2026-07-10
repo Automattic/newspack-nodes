@@ -95,7 +95,7 @@ class SSE_Slot_Pool {
 	public static function ip_hash(): string {
 		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-		return \substr( \md5( \is_scalar( $ip ) ? (string) $ip : 'unknown' ), 0, 8 );
+		return \substr( \md5( Core::as_string( $ip, 'unknown' ) ), 0, 8 );
 	}
 
 	/** Release a slot. Fail-OPEN (slots auto-expire via TTL). */

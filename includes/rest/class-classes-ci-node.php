@@ -81,7 +81,7 @@ class Classes_CI_Node extends Service_CI_Node {
 					'description'  => $schema['description'] ?? '',
 					'arguments'    => $schema['arguments']   ?? [],
 					// Strip non-serializable handler; keep palette fields.
-					'commands'        => self::strip_commands( \is_array( $schema_commands ) ? $schema_commands : [] ),
+					'commands'        => self::strip_commands( Core::arr( $schema_commands ) ),
 					'requests'     => $schema['requests'] ?? [],
 					// Valid register events; inspector UI lists them per node.
 					'registrations' => $schema['registrations'] ?? [],

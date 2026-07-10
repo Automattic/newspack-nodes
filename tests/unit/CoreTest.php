@@ -38,6 +38,72 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::node( 'nonexistent' ) );
 	}
 
+	public function test_as_int_casts_scalars_and_zeroes_non_scalars(): void {
+		$this->assertSame( 42, Core::as_int( '42' ) );
+		$this->assertSame( 42, Core::as_int( 42.9 ) );
+		$this->assertSame( 1, Core::as_int( true ) );
+		$this->assertSame( 0, Core::as_int( 'abc' ) );
+		$this->assertSame( 0, Core::as_int( null ) );
+		$this->assertSame( 0, Core::as_int( [ 3 ] ) );
+	}
+
+	public function test_as_float_casts_scalars_and_zeroes_non_scalars(): void {
+		$this->assertSame( 1.5, Core::as_float( '1.5' ) );
+		$this->assertSame( 3.0, Core::as_float( 3 ) );
+		$this->assertSame( 0.0, Core::as_float( null ) );
+		$this->assertSame( 0.0, Core::as_float( [ 1.5 ] ) );
+	}
+
+	public function test_num_int_zeroes_everything_non_numeric(): void {
+		$this->assertSame( 42, Core::num_int( '42' ) );
+		$this->assertSame( 42, Core::num_int( 42.9 ) );
+		$this->assertSame( 0, Core::num_int( true ), 'bool is corrupt data on a math path' );
+		$this->assertSame( 0, Core::num_int( '12abc' ), 'partial-numeric string must not partially parse' );
+		$this->assertSame( 0, Core::num_int( null ) );
+		$this->assertSame( 0, Core::num_int( [ 3 ] ) );
+	}
+
+	public function test_coercion_helpers_take_an_optional_default_for_the_miss_case(): void {
+		$this->assertSame( 7, Core::as_int( null, 7 ) );
+		$this->assertSame( 42, Core::as_int( '42', 7 ), 'default only applies on a miss' );
+		$this->assertSame( 1.5, Core::as_float( [], 1.5 ) );
+		$this->assertSame( 'localhost', Core::as_string( null, 'localhost' ) );
+		$this->assertSame( 86400, Core::num_int( 'abc', 86400 ) );
+		$this->assertSame( 9.9, Core::num_float( true, 9.9 ) );
+	}
+
+	public function test_str_passes_strings_through_and_defaults_everything_else(): void {
+		$this->assertSame( 'abc', Core::str( 'abc' ) );
+		$this->assertSame( '', Core::str( 5 ), 'no casting — an int is not a string' );
+		$this->assertSame( '', Core::str( true ) );
+		$this->assertSame( '', Core::str( null ) );
+		$this->assertSame( 'GET', Core::str( null, 'GET' ) );
+		$this->assertSame( 'abc', Core::str( 'abc', 'GET' ), 'default only applies on a miss' );
+	}
+
+	public function test_arr_passes_arrays_through_and_defaults_everything_else(): void {
+		$this->assertSame( [ 1, 2 ], Core::arr( [ 1, 2 ] ) );
+		$this->assertSame( [], Core::arr( 'abc' ) );
+		$this->assertSame( [], Core::arr( null ) );
+		$this->assertSame( [ 'x' => 1 ], Core::arr( 5, [ 'x' => 1 ] ) );
+	}
+
+	public function test_int_passes_ints_through_and_defaults_everything_else(): void {
+		$this->assertSame( 64, Core::int( 64 ) );
+		$this->assertSame( 0, Core::int( '64' ), 'no coercion — a numeric string is not an int' );
+		$this->assertSame( 0, Core::int( 6.4 ) );
+		$this->assertSame( 0, Core::int( null ) );
+		$this->assertSame( 1, Core::int( 'x', 1 ) );
+	}
+
+	public function test_num_float_zeroes_everything_non_numeric(): void {
+		$this->assertSame( 1.5, Core::num_float( '1.5' ) );
+		$this->assertSame( 3.0, Core::num_float( 3 ) );
+		$this->assertSame( 0.0, Core::num_float( true ) );
+		$this->assertSame( 0.0, Core::num_float( 'abc' ) );
+		$this->assertSame( 0.0, Core::num_float( null ) );
+	}
+
 	public function test_unregister_removes_node(): void {
 		Core::register_node( 'foo', new \Newspack_Nodes\Node() );
 		Core::unregister_node( 'foo' );

@@ -167,9 +167,9 @@ class Bootstrap {
 		$topologies = self::get_topologies();
 		$workers    = [];
 		foreach ( $topologies as $type => $config ) {
-			$config   = \is_array( $config ) ? $config : [];
+			$config   = Core::arr( $config );
 			$np_raw   = $config['num_partitions'] ?? 1;
-			$count    = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
+			$count    = Core::num_int( $np_raw, 1 );
 			$count    = \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
 			for ( $p = 0; $p < $count; ++$p ) {
 				$workers[] = [
@@ -199,7 +199,7 @@ class Bootstrap {
 			$active_names = [];
 		}
 		$np_raw     = $config['num_partitions'] ?? 1;
-		$default_np = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
+		$default_np = Core::num_int( $np_raw, 1 );
 		$active     = [];
 		foreach ( $active_names as $name ) {
 			if ( ! \is_string( $name ) || '' === $name ) {
@@ -281,7 +281,7 @@ class Bootstrap {
 	 */
 	public static function num_partitions_for( string $name ): int {
 		$np_raw     = Config::load_config()['num_partitions'] ?? 1;
-		$default_np = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
+		$default_np = Core::num_int( $np_raw, 1 );
 		$count      = $default_np;
 
 		$catalog_entry = self::get_topology_catalog()[ $name ] ?? null;
@@ -381,7 +381,7 @@ class Bootstrap {
 		}
 		if ( \is_array( $function ) && 2 === \count( $function ) ) {
 			$class  = \is_object( $function[0] ) ? self::describe_class_name( \get_class( $function[0] ) ) : ( \is_string( $function[0] ) ? self::describe_class_name( $function[0] ) : '{unknown}' );
-			$method = \is_string( $function[1] ) ? $function[1] : '{unknown}';
+			$method = Core::str( $function[1], '{unknown}' );
 			return "{$class}::{$method}";
 		}
 		if ( $function instanceof \Closure ) {

@@ -81,7 +81,7 @@ class Command_Interpreter_Node extends Node {
 		++$this->counter;
 
 		$type_raw = $message[ Message::TYPE ];
-		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
+		$type     = Core::num_int( $type_raw );
 
 		// TM_PING / TM_EOF with empty TO: bounce back along FROM (drain marker).
 		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
@@ -141,7 +141,7 @@ class Command_Interpreter_Node extends Node {
 
 		// TM_NOREPLY: suppress the reply, but still surface errors via stderr.
 		$in_type = $message[ Message::TYPE ];
-		if ( ( \is_int( $in_type ) ? $in_type : 0 ) & Message::TM_NOREPLY ) {
+		if ( Core::int( $in_type ) & Message::TM_NOREPLY ) {
 			if ( ( $resp_type & Message::TM_ERROR ) && '' !== $result ) {
 				$this->stderr( 'error from TM_NOREPLY command: ' . ( Core::as_string( $result ) ) );
 			}

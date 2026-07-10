@@ -86,7 +86,7 @@ class Field {
 		if ( \is_callable( $label ) ) {
 			$label = $label();
 		}
-		return \is_string( $label ) ? $label : '';
+		return Core::str( $label );
 	}
 
 	/** A rendered option (register_setting, option_names, reset set, restart class). */

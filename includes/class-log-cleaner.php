@@ -128,7 +128,7 @@ class Log_Cleaner {
 	private static function config_num_partitions(): int {
 		$cfg = Config::load_config();
 		$raw = $cfg['num_partitions'] ?? 1;
-		return \max( 1, \min( Supervisor_Base::MAX_PARTITIONS, (int) ( \is_scalar( $raw ) ? $raw : 1 ) ) );
+		return \max( 1, \min( Supervisor_Base::MAX_PARTITIONS, Core::as_int( $raw, 1 ) ) );
 	}
 
 	/**

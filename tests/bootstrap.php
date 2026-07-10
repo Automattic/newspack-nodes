@@ -247,8 +247,15 @@ if ( ! function_exists( 'rest_authorization_required_code' ) ) {
 }
 
 if ( ! function_exists( 'sanitize_text_field' ) ) {
-	function sanitize_text_field( $str ) {
-		return is_string( $str ) ? trim( strip_tags( $str ) ) : '';
+	// Body kept in lockstep with ELN's stub (its tests/bootstrap.php).
+	function sanitize_text_field( mixed $v ): string {
+		if ( ! is_string( $v ) ) {
+			return '';
+		}
+		$v = \strip_tags( $v );
+		$v = \preg_replace( '/[\x00-\x1F\x7F]/', '', $v ) ?? $v;
+		$v = \preg_replace( '/\s+/', ' ', $v ) ?? $v;
+		return \trim( $v );
 	}
 }
 
@@ -484,6 +491,250 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	}
 }
 
+// WP Settings-API / admin-form / escaping / i18n stubs shared by every suite.
+// The recorder stubs write their arguments into globals; assertions read those
+// globals. Per-file stub copies are forbidden going forward — a local copy hides
+// a missing-stub failure from sibling suites (a suite run in isolation would
+// fatal on a stub that only another file happened to define).
+if ( ! function_exists( 'register_setting' ) ) {
+	function register_setting( string $group, string $option, array $args = [] ): void {
+		$GLOBALS['_registered_settings'][ $option ] = [
+			'group' => $group,
+			'args'  => $args,
+		];
+	}
+}
+if ( ! function_exists( 'add_settings_section' ) ) {
+	function add_settings_section( string $id, string $title, callable $cb, string $page ): void {
+		$GLOBALS['_registered_sections'][ $id ] = [
+			'title'    => $title,
+			'callback' => $cb,
+			'page'     => $page,
+		];
+	}
+}
+if ( ! function_exists( 'add_settings_field' ) ) {
+	function add_settings_field( string $id, string $title, callable $cb, string $page, string $section ): void {
+		$GLOBALS['_registered_fields'][ $id ] = [
+			'title'    => $title,
+			'callback' => $cb,
+			'page'     => $page,
+			'section'  => $section,
+		];
+	}
+}
+if ( ! function_exists( 'add_settings_error' ) ) {
+	function add_settings_error( string $setting, string $code, string $message, string $type = 'error' ): void {
+		$GLOBALS['_settings_errors'][] = [
+			'setting' => $setting,
+			'code'    => $code,
+			'message' => $message,
+			'type'    => $type,
+		];
+	}
+}
+if ( ! function_exists( 'settings_fields' ) ) {
+	function settings_fields( string $group ): void {
+		echo '<input type="hidden" name="option_page" value="' . \htmlspecialchars( $group, ENT_QUOTES ) . '" />';
+	}
+}
+if ( ! function_exists( 'do_settings_sections' ) ) {
+	function do_settings_sections( string $page ): void {
+		echo '<!-- do_settings_sections:' . \htmlspecialchars( $page, ENT_QUOTES ) . ' -->';
+	}
+}
+if ( ! function_exists( 'submit_button' ) ) {
+	function submit_button( string $text = 'Save', string $type = 'primary', string $name = 'submit', bool $wrap = true ): void {
+		echo '<input type="submit" />';
+	}
+}
+if ( ! function_exists( 'wp_nonce_field' ) ) {
+	function wp_nonce_field( string $action, string $name ): void {
+		echo '<input type="hidden" name="' . \htmlspecialchars( $name, ENT_QUOTES ) . '" value="' . \htmlspecialchars( ( $GLOBALS['_wp_test_valid_nonces'][ $action ] ?? '' ), ENT_QUOTES ) . '" />';
+	}
+}
+if ( ! function_exists( 'admin_url' ) ) {
+	function admin_url( string $path = '' ): string {
+		return 'http://localhost/wp-admin/' . \ltrim( $path, '/' );
+	}
+}
+if ( ! function_exists( 'add_query_arg' ) ) {
+	function add_query_arg( array $args, string $url ): string {
+		$sep = false === \strpos( $url, '?' ) ? '?' : '&';
+		$kv  = [];
+		foreach ( $args as $k => $v ) {
+			$kv[] = \rawurlencode( (string) $k ) . '=' . \rawurlencode( (string) $v );
+		}
+		return $url . $sep . \implode( '&', $kv );
+	}
+}
+if ( ! function_exists( 'wp_safe_redirect' ) ) {
+	// Redirect-then-exit short-circuits the test runner. Throw a sentinel
+	// exception instead so each test can catch it explicitly.
+	function wp_safe_redirect( string $url ): void {
+		$GLOBALS['_last_redirect'] = $url;
+		throw new \Newspack_Nodes\Tests\Helpers\RedirectException( $url );
+	}
+}
+if ( ! function_exists( 'wp_die' ) ) {
+	function wp_die( string $message ): void {
+		throw new \RuntimeException( 'wp_die: ' . $message );
+	}
+}
+if ( ! function_exists( 'add_options_page' ) ) {
+	function add_options_page( string $page_title, string $menu_title, string $cap, string $slug, callable $cb ): string {
+		$GLOBALS['_options_pages'][ $slug ] = [
+			'page_title' => $page_title,
+			'menu_title' => $menu_title,
+			'capability' => $cap,
+			'callback'   => $cb,
+		];
+		return 'settings_page_' . $slug;
+	}
+}
+if ( ! function_exists( 'add_menu_page' ) ) {
+	function add_menu_page(
+		string $page_title,
+		string $menu_title,
+		string $cap,
+		string $slug,
+		callable $cb,
+		string $icon = '',
+		?int $position = null
+	): string {
+		$GLOBALS['_admin_menu_pages'][ $slug ] = [
+			'page_title' => $page_title,
+			'menu_title' => $menu_title,
+			'capability' => $cap,
+			'callback'   => $cb,
+			'icon'       => $icon,
+			'position'   => $position,
+		];
+		return 'toplevel_page_' . $slug;
+	}
+}
+if ( ! function_exists( 'add_submenu_page' ) ) {
+	function add_submenu_page(
+		string $parent_slug,
+		string $page_title,
+		string $menu_title,
+		string $cap,
+		string $slug,
+		callable $cb
+	): string {
+		$GLOBALS['_admin_submenu_pages'][ $slug ] = [
+			'parent_slug' => $parent_slug,
+			'page_title'  => $page_title,
+			'menu_title'  => $menu_title,
+			'capability'  => $cap,
+			'callback'    => $cb,
+		];
+		return $parent_slug . '_page_' . $slug;
+	}
+}
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+	function wp_enqueue_script(
+		string $handle,
+		string $src = '',
+		array $deps = [],
+		$ver = false,
+		bool $in_footer = false
+	): void {
+		$GLOBALS['_enqueued_scripts'][ $handle ] = [
+			'src'       => $src,
+			'deps'      => $deps,
+			'version'   => $ver,
+			'in_footer' => $in_footer,
+		];
+	}
+}
+if ( ! function_exists( 'wp_enqueue_style' ) ) {
+	function wp_enqueue_style(
+		string $handle,
+		string $src = '',
+		array $deps = [],
+		$ver = false
+	): void {
+		$GLOBALS['_enqueued_styles'][ $handle ] = [
+			'src'     => $src,
+			'deps'    => $deps,
+			'version' => $ver,
+		];
+	}
+}
+if ( ! function_exists( 'wp_localize_script' ) ) {
+	function wp_localize_script( string $handle, string $object_name, array $data ): bool {
+		$GLOBALS['_localized_scripts'][ $handle ] = [
+			'object_name' => $object_name,
+			'data'        => $data,
+		];
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_style_add_data' ) ) {
+	function wp_style_add_data( string $handle, string $key, $value ): bool {
+		$GLOBALS['_style_data'][ $handle ][ $key ] = $value;
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_create_nonce' ) ) {
+	function wp_create_nonce( string $action ): string {
+		return 'nonce_' . \substr( \md5( $action ), 0, 10 );
+	}
+}
+if ( ! function_exists( 'esc_textarea' ) ) {
+	function esc_textarea( $v ): string {
+		return \htmlspecialchars( (string) $v, ENT_QUOTES, 'UTF-8' );
+	}
+}
+if ( ! function_exists( 'esc_attr' ) ) {
+	function esc_attr( $v ): string {
+		return \htmlspecialchars( (string) $v, ENT_QUOTES, 'UTF-8' );
+	}
+}
+if ( ! function_exists( 'esc_html__' ) ) {
+	function esc_html__( string $v, string $domain = '' ): string {
+		return \htmlspecialchars( $v, ENT_QUOTES, 'UTF-8' );
+	}
+}
+if ( ! function_exists( 'esc_html_e' ) ) {
+	function esc_html_e( string $v, string $domain = '' ): void {
+		echo \htmlspecialchars( $v, ENT_QUOTES, 'UTF-8' );
+	}
+}
+if ( ! function_exists( 'esc_attr__' ) ) {
+	function esc_attr__( string $v, string $domain = '' ): string {
+		return \htmlspecialchars( $v, ENT_QUOTES, 'UTF-8' );
+	}
+}
+if ( ! function_exists( 'esc_attr_e' ) ) {
+	function esc_attr_e( string $v, string $domain = '' ): void {
+		echo \htmlspecialchars( $v, ENT_QUOTES, 'UTF-8' );
+	}
+}
+if ( ! function_exists( 'esc_url' ) ) {
+	function esc_url( string $v ): string {
+		return $v;
+	}
+}
+if ( ! function_exists( 'esc_js' ) ) {
+	function esc_js( string $v ): string {
+		return \str_replace( [ "'", '"', '<', '>' ], [ "\\'", '\\"', '\\u003c', '\\u003e' ], $v );
+	}
+}
+if ( ! function_exists( 'checked' ) ) {
+	function checked( $checked, $current = true ): string {
+		$out = (string) $checked === (string) $current ? ' checked="checked"' : '';
+		echo $out;
+		return $out;
+	}
+}
+if ( ! function_exists( 'absint' ) ) {
+	function absint( $v ): int {
+		return \abs( (int) $v );
+	}
+}
+
 // Load the plugin (which require_once's the class files and calls
 // register_namespace('Newspack_Nodes\\')) with registration recording on, then
 // freeze the load-time snapshot and stop recording.
@@ -504,6 +755,7 @@ unset( $GLOBALS['_wp_record_registrations'] );
 
 // Load test helpers. (CaptureSink.php defines Capture_Sink_Node.)
 require_once __DIR__ . '/Helpers/TestCase.php';
+require_once __DIR__ . '/Helpers/RedirectException.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';
 require_once __DIR__ . '/Helpers/BoundedTicks.php';
 require_once __DIR__ . '/Helpers/VerbHarness.php';

@@ -305,7 +305,7 @@ class Admin {
 	 */
 	private static function default_int( array $defaults, string $key, int $fallback ): int {
 		$value = $defaults[ $key ] ?? $fallback;
-		return \is_scalar( $value ) ? (int) $value : $fallback;
+		return Core::as_int( $value, $fallback );
 	}
 
 	/** Hidden-input name that flags $field for per-field reset (deleted on Save). */
@@ -504,7 +504,7 @@ class Admin {
 		$default_servers = \array_map( static fn ( $server ): string => Core::as_string( $server ), $default_servers );
 		// Stored as the typed array shape; the textarea joins entries with newlines.
 		$value = \get_option( 'newspack_nodes_memcache_servers', [] );
-		$value = \is_array( $value ) ? $value : [];
+		$value = Core::arr( $value );
 		$value = \array_map( static fn ( $server ): string => Core::as_string( $server ), $value );
 		$html  = Settings_Renderer::textarea(
 			'memcache_servers',
@@ -530,8 +530,8 @@ class Admin {
 		$num_segments = \get_option( 'newspack_nodes_num_segments', '' );
 
 		// Use config defaults for empty values.
-		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : ( \is_scalar( $segment_size ) ? (int) $segment_size : 0 );
-		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 4 ) : ( \is_scalar( $num_segments ) ? (int) $num_segments : 0 );
+		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : Core::as_int( $segment_size );
+		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 4 ) : Core::as_int( $num_segments );
 
 		// on_disk() is already per-partition; don't multiply by num_partitions.
 		$num_log_dirs = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
@@ -690,7 +690,7 @@ class Admin {
 
 		// Client fallback when a topology's list entry omits num_partitions.
 		$config_np  = Config::load_config()['num_partitions'] ?? 1;
-		$default_np = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
+		$default_np = Core::as_int( $config_np, 1 );
 
 		return self::append_tab_bundle(
 			$bundles,

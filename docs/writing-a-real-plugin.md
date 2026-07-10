@@ -90,7 +90,7 @@ if ( 200 !== (int) \wp_remote_retrieve_response_code( $response ) ) {
 	return [];
 }
 $decoded = \json_decode( \wp_remote_retrieve_body( $response ), true );
-return \is_array( $decoded ) ? $decoded : [];
+return Core::arr( $decoded );
 ```
 
 **Why a closure property and not a `protected function http_get()` you override in a test subclass?** This is the rule from `~/.claude/rules/test-seams.md`: always use the static `\Closure` property form, never the protected-helper-with-subclass-override form. The difference is coverage. A test reassigns `Github_Source_Node::$http_get = fn( $url, $args ) => [ 'response' => [ 'code' => 200 ], 'body' => $canned_json ];` and substitutes *only* the one transport call — header assembly, the `is_wp_error` branch, the non-200 branch, `json_decode`, and the whole per-endpoint normalization all run as **real production code under coverage**. A subclass override would mark `http_get()` "covered" while the production body — the part where the actual bugs live — never executes in any test. The seam substitutes the side effect and exercises everything around it.
@@ -119,7 +119,7 @@ abstract class Source_Node extends Node implements Source {
 
 	/** TICK is a runtime trigger: a TM_REQUEST handled here in fill(). */
 	public function fill( array $message ): void {
-		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
+		$type = Core::num_int( $message[ Message::TYPE ] );
 		if ( $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 		}
@@ -136,7 +136,7 @@ The base owns four things the toy duplicated:
 private function handle_request( array $message ): void {
 	try {
 		foreach ( $this->fetch( $this->config() ) as $item ) {
-			$id = isset( $item['id'] ) && \is_string( $item['id'] ) ? $item['id'] : '';
+			$id = Core::str( $item['id'] ?? null );
 			if ( '' === $id || isset( $this->seen[ $id ] ) ) {
 				continue;
 			}
@@ -182,9 +182,9 @@ protected function normalize_item( string $source, string $id, mixed $title, mix
 	return [
 		'source'    => $source,
 		'id'        => "$source:$id",
-		'title'     => \is_string( $title ) ? $title : '',
-		'url'       => \is_string( $url ) ? $url : '',
-		'body'      => \is_string( $body ) ? $body : '',
+		'title'     => Core::str( $title ),
+		'url'       => Core::str( $url ),
+		'body'      => Core::str( $body ),
 		'timestamp' => false !== $ts ? $ts : 0,
 	];
 }

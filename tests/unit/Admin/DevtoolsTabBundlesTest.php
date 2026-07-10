@@ -2,26 +2,11 @@
 /**
  * DevtoolsTabBundlesTest: the devtools_tab_bundles registrar enqueues every
  * filter-registered contributor bundle on the hub + overlay-bearing pages.
+ *
+ * The enqueue/localize/nonce recorder stubs are shared from tests/bootstrap.php.
  */
 
 namespace {
-	if ( ! \function_exists( 'wp_enqueue_script' ) ) {
-		function wp_enqueue_script( string $handle, string $src = '', array $deps = [], $ver = false, bool $in_footer = false ): void {
-			$GLOBALS['_enqueued_scripts'][ $handle ] = [ 'src' => $src ];
-		}
-	}
-	if ( ! \function_exists( 'wp_enqueue_style' ) ) {
-		function wp_enqueue_style( string $handle, string $src = '', array $deps = [], $ver = false ): void {}
-	}
-	if ( ! \function_exists( 'wp_localize_script' ) ) {
-		function wp_localize_script( string $handle, string $object_name, array $data ): bool {
-			$GLOBALS['_localized_scripts'][ $handle ] = [ 'data' => $data ];
-			return true;
-		}
-	}
-	if ( ! \function_exists( 'wp_create_nonce' ) ) {
-		function wp_create_nonce( string $action ): string { return 'n'; }
-	}
 	require_once \dirname( __DIR__, 3 ) . '/includes/admin/class-admin.php';
 }
 

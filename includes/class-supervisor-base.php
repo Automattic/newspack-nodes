@@ -149,7 +149,7 @@ class Supervisor_Base {
 		$raw_type      = $worker['type'];
 		$raw_partition = $worker['partition'];
 		$type          = Core::as_string( $raw_type );
-		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
+		$partition     = Core::as_int( $raw_partition );
 		$stale         = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
 
 		$dir = $this->lock_path( $type, $partition );

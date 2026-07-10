@@ -80,7 +80,7 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
-		$type = \is_int( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : 0;
+		$type = Core::int( $message[ Message::TYPE ] );
 		if ( ( Message::TM_COMMAND | Message::TM_RESPONSE ) === $type
 				|| ( Message::TM_COMMAND | Message::TM_ERROR ) === $type ) {
 			$this->record_heartbeat_reply();
