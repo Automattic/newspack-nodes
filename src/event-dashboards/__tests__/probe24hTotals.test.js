@@ -1,8 +1,6 @@
 import { probe24hTotals } from '../probe24hTotals';
 
-// A topicprobe:view consumer: a source it tails + a rate series. The view's
-// msgRate/byteRate are per-PARTITION production rates (Δ MSGS / Δ ts), so they
-// are identical across readers of one source.
+// A topicprobe:view consumer: a source it tails + a per-partition rate series.
 const consumer = ( source, series ) => ( { source, series } );
 const pt = ( ts, msgRate, byteRate ) => ( {
 	ts,
@@ -44,9 +42,7 @@ it( 'sums DISTINCT sources', () => {
 } );
 
 it( 'merges readers of one source by ts so a newer-but-shorter reader is not dropped', () => {
-	// r1 covers ts 0–15, r2 covers ts 15–45 (longer span, more samples). Picking
-	// only the longest would miss r1's 0–15 window; the union is the full 0–45 at
-	// 2 msg/s = 90 msgs, 100 B/s = 4500 B.
+	// Union of r1 (0-15) + r2 (15-45): full 0-45 at 2 msg/s = 90 msgs, 4500 B.
 	const t = probe24hTotals( {
 		r1: consumer( 's', [ pt( 0, 0, 0 ), pt( 15, 2, 100 ) ] ),
 		r2: consumer( 's', [

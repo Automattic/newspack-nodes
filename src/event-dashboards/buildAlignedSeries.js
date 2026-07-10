@@ -61,9 +61,7 @@ export function buildAlignedSeries(
 		} )
 	);
 
-	// Widen the bucket past 15s only when the window's 15s grid would overflow the
-	// cap; `maxPoints - 2` reserves for the inclusive endpoint plus grid-alignment
-	// slop, guaranteeing the emitted grid never exceeds `maxPoints`.
+	// Widen the bucket past 15s only if the 15s grid would overflow maxPoints.
 	const windowSec = maxTs - minTs;
 	let bucketSec = BUCKET_BASE_S;
 	if ( maxPoints > 0 ) {
@@ -84,7 +82,7 @@ export function buildAlignedSeries(
 	const hold = 'hold' === fill;
 	const last = 'last' === agg;
 	const aligned = ranked.map( ( s ) => {
-		// Per bucket, keep either the latest-ts sample (LEVEL) or the peak (RATE).
+		// Per bucket, keep the latest-ts sample (LEVEL) or the peak (RATE).
 		const acc = new Map();
 		for ( const p of s.points ) {
 			const b = bucketOf( p.ts );
@@ -105,8 +103,7 @@ export function buildAlignedSeries(
 					carried = acc.get( b ).value;
 					return { date: dates[ i ], value: carried };
 				}
-				// Empty bucket: HOLD carries the last known value forward (0 before
-				// the first sample); ZERO reads a gap as no value.
+				// Empty bucket: HOLD carries last value forward; ZERO reads 0.
 				return { date: dates[ i ], value: hold ? carried : 0 };
 			} ),
 		};

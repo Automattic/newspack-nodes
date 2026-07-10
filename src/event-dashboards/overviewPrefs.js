@@ -9,8 +9,7 @@ export const ORDER_KEY = 'newspack-nodes:overview:order';
 export const EXPANDED_KEY = 'newspack-nodes:overview:expanded';
 export const COLLAPSED_KEY = 'newspack-nodes:overview:collapsed';
 
-// Read a JSON string-array from localStorage; anything that isn't a clean array
-// (absent, corrupt JSON, wrong shape, disabled storage) degrades to [].
+// Read a JSON string-array from localStorage; anything not a clean array → [].
 function readStringArray( key ) {
 	try {
 		const raw = window.localStorage.getItem( key );

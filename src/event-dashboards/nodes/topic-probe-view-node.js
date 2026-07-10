@@ -9,30 +9,13 @@ import {
 	CACHE_SIZE,
 } from '../../runtime/probe-record';
 
-// The chart is a fixed 24h live window: records older than this are dropped on
-// arrival and existing samples are pruned as wall-clock advances past them, so
-// the axis never widens beyond 24h (the durable topicprobe log replays further
-// back than the chart shows). Seconds — probe ts is epoch seconds.
+// Fixed 24h live window; older records dropped/pruned. Seconds (epoch).
 const RETENTION_S = 86400;
-// Per-consumer ring cap — a hard memory ceiling held ABOVE the 24h window so the
-// wall-clock prune (_pruneExpired), not the ring, is the boundary authority. A
-// 24h span at the 15s sweep cadence is 5760 intervals = 5761 samples (N intervals
-// need N+1 points); capping at exactly 5760 would evict the boundary sample ~15s
-// early. A faster-than-15s flood still hits the ceiling and caps memory.
+// Per-consumer ring cap ABOVE the 24h window (N+1=5761); prune is boundary.
 const MAX_SAMPLES = RETENTION_S / 15 + 1; // 5761
-// Throttle the React-facing publish: a 'start' replay delivers thousands of
-// records in a burst, so publishing per record would thrash. Each frame is a
-// separate EventSource callback (wall-clock advances between them), so a
-// time-throttle collapses a replay burst to a handful of publishes. It is
-// leading-edge WITH a trailing flush so a burst's final sample (the newest —
-// what 'history' is for) always lands, instead of waiting for the next live
-// record ~15s later.
+// Throttle publish (replay bursts thrash): leading-edge + trailing flush.
 const PUBLISH_THROTTLE_MS = 500;
-// Drop a consumer not seen (a fresh frame) within this wall-clock window — a
-// stopped/renamed worker stops appending, so its reader would otherwise linger
-// forever. Generous vs the 15s sweep so a brief gap never evicts a live one;
-// measured against arrival time (Date.now()), NOT the record's ts, so a 24h
-// replay (all records old) never self-evicts mid-stream.
+// Evict a consumer unseen this long; measured by arrival, not record ts.
 const CONSUMER_TTL_MS = 300000; // 5 min
 
 /**
@@ -63,7 +46,7 @@ export class TopicProbeViewNode extends Node {
 		super();
 		this.maxSamples = maxSamples || MAX_SAMPLES;
 		this.ttlMs = ttlMs || CONSUMER_TTL_MS;
-		// reader → { source, series:[{ts,rate,backlog}], _lastMsgs, _lastTs, _lastSeen }.
+		// reader → { source, series, _lastMsgs, _lastTs, _lastSeen }.
 		this.consumers = {};
 		this._lastPublish = 0;
 		this._flushTimer = null;
@@ -71,8 +54,7 @@ export class TopicProbeViewNode extends Node {
 	}
 
 	fill( message ) {
-		// Terminal node (no sink) — count here so the overlay's per-node
-		// throughput stays honest.
+		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
 
 		const value = message[ VALUE ];
@@ -85,12 +67,7 @@ export class TopicProbeViewNode extends Node {
 		}
 
 		const now = Date.now();
-		// A gap larger than the eviction window means the stream was closed/hidden
-		// (Overview tab backgrounded) — NOT consumers dying. SHIFT every lease forward
-		// by the outage so the burst doesn't wipe consumers that resume in it, WITHOUT
-		// granting a fresh full TTL: a consumer already silent before the outage keeps
-		// its real remaining lease and still evicts on schedule. The resumed ones get a
-		// fresh `now` lease as their frames land in _accumulate.
+		// Big gap = stream hidden, not dying: shift leases by the outage.
 		if ( this._lastFill && now - this._lastFill > this.ttlMs ) {
 			const outage = now - this._lastFill;
 			for ( const c of Object.values( this.consumers ) ) {
@@ -105,8 +82,7 @@ export class TopicProbeViewNode extends Node {
 	}
 
 	_accumulate( reader, value, ts ) {
-		// Drop a record already older than the live window — the replay tail
-		// reaches past 24h, and a stale sample is not plottable on a 24h axis.
+		// Drop a record older than the live window (replay tail is longer).
 		if ( ts < Date.now() / 1000 - RETENTION_S ) {
 			return;
 		}
@@ -129,10 +105,7 @@ export class TopicProbeViewNode extends Node {
 		const endBytes = Number( value[ END_BYTES ] ) || 0;
 		const backlog = Number( value[ DISTANCE ] ) || 0;
 		const cacheSize = Number( value[ CACHE_SIZE ] ) || 0;
-		// msgRate (messages/sec) + byteRate (bytes/sec) derived from consecutive
-		// probe records (Δ / Δ ts) — each replayed record IS a distinct 15s sweep,
-		// so the gap is the real probe interval. First sample, or a counter reset
-		// (worker restart drops msgs / segment GC drops end_bytes) → 0, never negative.
+		// msgRate/byteRate from consecutive records (Δ/Δts); reset → 0.
 		const dt = ts > c._lastTs ? ts - c._lastTs : 0;
 		const msgRate =
 			null !== c._lastMsgs && dt > 0 && msgs >= c._lastMsgs
@@ -152,9 +125,7 @@ export class TopicProbeViewNode extends Node {
 		}
 	}
 
-	// Drop consumers whose last frame is older than the TTL (stopped/renamed
-	// workers) so neither this.consumers nor the published model grows without
-	// bound. O(consumers) — trivially small.
+	// Drop consumers whose last frame is older than the TTL (stopped/renamed).
 	_evictStale() {
 		const cutoff = Date.now() - this.ttlMs;
 		for ( const [ reader, c ] of Object.entries( this.consumers ) ) {
@@ -164,10 +135,7 @@ export class TopicProbeViewNode extends Node {
 		}
 	}
 
-	// Leading-edge throttle WITH a trailing flush: publish immediately when the
-	// window has elapsed, else schedule one flush at the window's end so a burst's
-	// newest sample is never swallowed (a replay's final point, or records 2..N of
-	// a live sweep that all arrive within one window).
+	// Leading-edge throttle + trailing flush so a burst's newest sample lands.
 	_maybePublish() {
 		const now = Date.now();
 		if ( now - this._lastPublish < PUBLISH_THROTTLE_MS ) {
@@ -194,11 +162,7 @@ export class TopicProbeViewNode extends Node {
 		this.setState( 'view', { consumers: this.snapshot() } );
 	}
 
-	// Drop samples that have aged out of the 24h window. The chart is live, so a
-	// sample crosses the horizon by wall-clock TIME — not only when a newer record
-	// for its consumer arrives — so this runs at every publish (the single choke
-	// point for what React renders), across ALL consumers, not just the last one
-	// touched. O(expired) amortized: each sample is shifted at most once.
+	// Drop samples aged out of the 24h window; every publish, all consumers.
 	_pruneExpired( now ) {
 		const cutoff = now / 1000 - RETENTION_S;
 		for ( const c of Object.values( this.consumers ) ) {
@@ -225,9 +189,7 @@ export class TopicProbeViewNode extends Node {
 			const latest = c.series[ c.series.length - 1 ];
 			out[ reader ] = {
 				source: c.source,
-				// Copies, not the live mutating refs: each publish must hand React
-				// a fresh identity (push/shift mutate c.series in place, so a shared
-				// ref would freeze memoized consumers + tear mid-burst).
+				// Copies, not live refs (else memo freezes + tears mid-burst).
 				latest: { ...latest },
 				series: c.series.slice(),
 			};

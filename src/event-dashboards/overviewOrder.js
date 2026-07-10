@@ -49,8 +49,7 @@ export function dragReorder( names, draggedName, rects, y ) {
 			slot++;
 		}
 	}
-	// `slot` counts over the full list (incl. the dragged row); once the dragged
-	// row is removed, a slot past its old index shifts left by one.
+	// `slot` counts the full list; removing the dragged row shifts slots -1.
 	const insertAt = slot > cur ? slot - 1 : slot;
 	const without = names.filter( ( name ) => name !== draggedName );
 	const at = Math.max( 0, Math.min( without.length, insertAt ) );
@@ -82,8 +81,7 @@ export function dragGapTransforms( rects, fromIndex, dy, y ) {
 		0,
 		Math.min( rects.length - 1, slot > fromIndex ? slot - 1 : slot )
 	);
-	// How far a displaced row travels = the dragged row's slot pitch (its height
-	// plus the inter-row gap), read off whichever neighbour exists.
+	// Displaced rows travel one slot pitch (row height + inter-row gap).
 	let pitch = 0;
 	if ( rects.length > 1 ) {
 		const lo = fromIndex < rects.length - 1 ? fromIndex : fromIndex - 1;

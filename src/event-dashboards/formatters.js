@@ -44,8 +44,7 @@ export function formatByteRate( bytesPerSec ) {
 	}
 	const k = 1024;
 	const sizes = [ 'B/s', 'KB/s', 'MB/s', 'GB/s' ];
-	// Clamp into [0, sizes-1]: a sub-1 B/s rate floors to a negative index and a
-	// >GB/s rate overflows — both would index `sizes` to `undefined` → "NaN".
+	// Clamp to [0, sizes-1]: out-of-range rates would index undefined → "NaN".
 	const i = Math.max(
 		0,
 		Math.min(
@@ -67,8 +66,7 @@ export function formatMsgRate( perSec ) {
 		return '0/s';
 	}
 	const units = [ '', 'K', 'M', 'B' ];
-	// Clamp the low end too: a fractional per-second rate (the overlay's In/Out)
-	// floors to a negative index → units[-1] is undefined → "NaN/s".
+	// Clamp low end too: a fractional rate → units[-1] undefined → "NaN/s".
 	const i = Math.max(
 		0,
 		Math.min(
@@ -98,8 +96,7 @@ export function formatCount( n ) {
 		Math.floor( Math.log( n ) / Math.log( 1000 ) )
 	);
 	let value = compactFixed( n / Math.pow( 1000, i ) );
-	// Rounding can push the value to 1000 (e.g. 999999 → "1000.0"); promote to the
-	// next unit so it reads "1M", not "1000K".
+	// Rounding can push value to 1000 (999999); promote to the next unit.
 	if ( value >= 1000 && i < units.length - 1 ) {
 		i++;
 		value = compactFixed( n / Math.pow( 1000, i ) );

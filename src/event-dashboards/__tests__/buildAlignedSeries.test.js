@@ -50,7 +50,7 @@ describe( 'buildAlignedSeries', () => {
 		expect( out.dates.map( ( d ) => d.getTime() / 1000 ) ).toEqual( [
 			0, 15, 30,
 		] );
-		// Each topic has ONE value per bucket, no 0 dips, monotonically declining.
+		// Each topic has ONE value per bucket, no 0 dips, monotone decline.
 		out.series.forEach( ( s ) => {
 			expect( s.values.map( ( v ) => v.value ) ).toEqual( [
 				300, 200, 100,
@@ -81,7 +81,7 @@ describe( 'buildAlignedSeries', () => {
 	it( 'a LEVEL topic reads 0 for buckets before its first sample', () => {
 		const out = buildAlignedSeries(
 			{
-				// `wide` spans the grid 0..30; `late` first appears at bucket 30.
+				// `wide` spans grid 0..30; `late` appears at bucket 30.
 				wide: {
 					points: [
 						{ ts: 0, value: 100 },
@@ -157,8 +157,7 @@ describe( 'buildAlignedSeries', () => {
 	} );
 
 	it( 'never emits more than maxPoints buckets for a window that would exceed it', () => {
-		// 5001 samples one probe-interval apart → a ~75000s window; at 15s buckets
-		// that is ~5000 slots, far past the cap.
+		// 5001 samples ~15s apart → ~5000 slots, far past the maxPoints cap.
 		const points = Array.from( { length: 5001 }, ( _, i ) => ( {
 			ts: i * 15,
 			value: i,

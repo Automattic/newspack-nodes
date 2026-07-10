@@ -32,8 +32,7 @@ import { WorkerStatusViewNode } from '../worker-status-view-node';
 
 beforeEach( () => Core.reset() );
 
-// Construct the node directly (production wires it via interpreter.makeNode;
-// bare-newing the class is fine inside a test).
+// Construct the node directly (bare-new is fine in a test).
 function makeView( name ) {
 	const node = new WorkerStatusViewNode();
 	node.name = name;
@@ -172,7 +171,7 @@ describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
 	test( 'an un-correlated TM_ERROR (no matching pending) surfaces into view.error', () => {
 		const v = makeView( 'workerstatus:view' );
 		v.fill( modelMsg( baseModel() ) );
-		// No pending entry for this id → falls through to the global error path.
+		// No pending entry for this id → falls to the global error path.
 		v.fill( restartErrorReply( 'never-stashed', 'broadcast failure' ) );
 		expect( v.setStateCache.view.error ).toBe( 'broadcast failure' );
 		expect( v.setStateCache.view.loading ).toBe( false );

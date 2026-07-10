@@ -32,12 +32,7 @@ test( 'stderr classifies into IoTelemetry debug/warning/error by prefix, with te
 } );
 
 describe( 'cross-bundle singleton', () => {
-	// The hub renders the active tab's component (event-dashboards bundle) but its
-	// own DebugOverlay (devtools-hub bundle); each bundle inlines its own copy of
-	// runtime/core. A module-local Core would give them SEPARATE node graphs, so
-	// the overlay would only ever see its own bundle's nodes (just _output). Core
-	// is therefore backed by a process-wide window singleton, exactly like the
-	// devtools tab registry — so every separately-built copy shares ONE graph.
+	// Core is a window-global singleton so separate bundles share ONE graph.
 	test( 'the exported Core IS the window-global singleton', () => {
 		expect( window.__newspackNodesCore ).toBe( Core );
 	} );
@@ -221,6 +216,6 @@ describe( 'graphGeneration — full-rebuild signal', () => {
 		Core.reset();
 		expect( Core.graphGeneration ).toBe( 0 );
 		Core.bumpGraphGeneration();
-		expect( calls ).toBe( 1 ); // the pre-reset bump only; post-reset has no subscribers
+		expect( calls ).toBe( 1 ); // pre-reset bump only; post-reset has none
 	} );
 } );

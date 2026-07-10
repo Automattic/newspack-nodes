@@ -47,8 +47,7 @@ test( 're-renders when the themed ancestor class changes in-window (set_skin)', 
 		<Probe onValue={ ( v ) => values.push( v ) } />
 	);
 	const root = container.querySelector( '.topology-app' );
-	// set_skin updates storage then swaps the ancestor theme-* class; the
-	// MutationObserver fires on a microtask, so flush it inside act.
+	// set_skin swaps the theme-* class; MutationObserver fires on a microtask.
 	await act( async () => {
 		window.localStorage.setItem( THEME_STORAGE_KEY, 'synthwave' );
 		root.className = 'topology-app theme-synthwave';

@@ -1,9 +1,7 @@
 import { render, fireEvent } from '@testing-library/react';
 import TreeEntity from '../TreeEntity';
 
-// Count SegmentBar renders so a test can prove a stable subtree is NOT
-// re-rendered when an unrelated sibling's prop identity changes on a poll. The
-// stub still emits `.worker-segment-h` so the structural tests keep matching.
+// Count SegmentBar renders to prove a stable subtree is NOT re-rendered.
 let mockSegmentBarRenders = 0;
 jest.mock( '../SegmentBar', () => ( {
 	SegmentBar: () => {
@@ -12,8 +10,7 @@ jest.mock( '../SegmentBar', () => ( {
 	},
 } ) );
 
-// Grouped layout: a log entity is ONE logical log (`requests`) carrying its
-// concrete partitions as sub-rows.
+// Grouped layout: a log entity is ONE logical log carrying its partitions.
 const logEntity = {
 	kind: 'log',
 	name: 'requests',
@@ -101,8 +98,7 @@ it( 'a source log that feeds a subtree keeps its group label and renders the sub
 } );
 
 it( 'keys each partition write/read rate on the CONCRETE partition name', () => {
-	// The rate key MUST stay byte-identical to workerStatusTransform's recordLog
-	// key (the concrete per-partition name), so the W/R rate animations line up.
+	// Rate key MUST match workerStatusTransform's recordLog key byte-for-byte.
 	const { container } = render(
 		<TreeEntity
 			entity={ logEntity }
@@ -119,8 +115,7 @@ it( 'keys each partition write/read rate on the CONCRETE partition name', () => 
 } );
 
 it( 'a consumed (hasCursor) log still shows its WRITE rate, labeled W', () => {
-	// A log being read by a Consumer must still surface how fast it is WRITTEN —
-	// the consumer's read rate already shows on its own node row.
+	// A consumed log must still surface how fast it is WRITTEN, labeled W.
 	const consumed = {
 		...logEntity,
 		hasCursor: true,
@@ -287,9 +282,7 @@ it( 'a node row shows a status-colored partition pill and R rate', () => {
 } );
 
 it( 'folds only the instance whose position key is collapsed, not its twin', () => {
-	// Same log appears under two different parents, but position-based keys make
-	// the two instances DISTINCT (a>x.log vs b>x.log). Collapsing one instance's
-	// key folds only that instance; the other keeps its segment bar.
+	// Position-based keys make the two same-log instances DISTINCT.
 	const logUnder = ( key ) => ( {
 		kind: 'log',
 		name: 'x.log',
@@ -355,17 +348,14 @@ it( 'folds only the instance whose position key is collapsed, not its twin', () 
 			collapsed={ new Set( [ 'p>a>x.log' ] ) }
 		/>
 	);
-	// Collapsing only the 'a' instance leaves exactly one segment bar (the 'b' twin).
+	// Collapsing only 'a' leaves exactly one segment bar (the 'b' twin).
 	expect(
 		folded.container.querySelectorAll( '.worker-segment-h' )
 	).toHaveLength( 1 );
 } );
 
 it( 'a stable subtree does not re-render when an unrelated sibling prop identity changes', () => {
-	// The Overview polls every 4s; the parent mints fresh byteRates/writeRates/
-	// prevSegments/removingSegments object identities each poll even when a given
-	// subtree's data is unchanged. TreeEntity must not propagate that churn into
-	// subtrees whose relevant inputs are referentially stable.
+	// Each poll mints fresh identities; stable subtrees must NOT re-render.
 	const stable = {
 		byteRates: {},
 		writeRates: {},
@@ -379,8 +369,7 @@ it( 'a stable subtree does not re-render when an unrelated sibling prop identity
 		<TreeEntity entity={ logEntity } depth={ 0 } { ...stable } />
 	);
 	const afterFirst = mockSegmentBarRenders;
-	// A poll that changes nothing relevant to this subtree, but mints a fresh
-	// unrelated identity (currentTime) — the subtree must NOT re-render.
+	// A fresh unrelated currentTime must NOT re-render this subtree.
 	rerender(
 		<TreeEntity
 			entity={ logEntity }

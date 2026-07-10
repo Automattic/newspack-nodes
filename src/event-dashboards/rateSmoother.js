@@ -24,16 +24,13 @@ export class RateSmoother {
 	}
 
 	reset() {
-		// Per-second `{ sec, count }` buckets within the window, a running total
-		// of their counts, and the current EMA-smoothed rate.
+		// Per-second `{ sec, count }` buckets, a running total, the EMA rate.
 		this.buckets = [];
 		this.windowTotal = 0;
 		this.smoothed = 0;
 	}
 
-	// Fold `count` events observed at `nowMs` into the window and return the new
-	// smoothed rate. A negative count (a cumulative source that reset/rebaselined)
-	// is clamped to zero so it never emits a negative spike.
+	// Fold `count` at `nowMs` into the window; a negative count clamps to 0.
 	add( count, nowMs ) {
 		const n = count > 0 ? count : 0;
 		const sec = Math.floor( nowMs / 1000 );

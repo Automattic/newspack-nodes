@@ -10,10 +10,7 @@ import {
 } from '../../runtime/message';
 import { reconstructWorkers } from './reconstructWorkers';
 
-// A sample gap (Δ`data.timestamp`) beyond this many heartbeat intervals means
-// the dashboard was paused (hidden tab) and resumed — the next sample's delta
-// would span the whole gap, so rebaseline instead of dividing a huge Δvalue by a
-// huge Δts and flashing a one-frame spike.
+// A gap beyond GAP_INTERVALS heartbeats = paused/resumed; rebaseline.
 const GAP_INTERVALS = 6;
 
 /**
@@ -52,38 +49,29 @@ export class WorkerStatusTransformNode extends Node {
 		super();
 		this._prevSegments = {}; // logKey → Set of segment ids
 		this._prevSegmentData = {}; // logKey → Map id → segment
-		// Probe-cadence rate state: reader/source → { value, ts, rate }. Held
-		// across polls so a rate only changes when new probe data advances.
+		// Probe-cadence rate state: reader/source → { value, ts, rate }.
 		this._prevRead = {};
 		this._prevWrite = {};
-		// `data.timestamp` of the last processed snapshot — used to detect a long
-		// hidden-tab gap and rebaseline the rate/segment state (see GAP_INTERVALS).
+		// Last snapshot's data.timestamp; detects a hidden-tab gap.
 		this._lastSampleTs = null;
-		// Sticky scalars: a poll that OMITS segment_size / timestamp retains the
-		// last good value (matches WorkerStatus's `if (data.x) setX(...)`). Seeds
-		// are 64MB and the client clock.
+		// Sticky scalars: a poll omitting a field retains the last good value.
 		this._segmentSize = 64 * 1024 * 1024;
 		this._currentTime = Math.floor( Date.now() / 1000 );
 		// Worker_Base::HEARTBEAT_INTERVAL_S — the stall-pad denominator.
 		this._heartbeatIntervalS = 10;
-		// On-disk log-partition count (the summary card); sticky like the scalars above.
+		// On-disk log-partition count (summary card); sticky like above.
 		this._logPartitions = 0;
 	}
 
 	fill( message ) {
-		// Overrides base Node.fill() (it builds a fresh out-message rather than
-		// forwarding this one), so count here to keep the overlay's per-node
-		// throughput honest.
+		// Overrides base fill() (mints a new message); count here for overlay.
 		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
 			return;
 		}
 		const type = message[ TYPE ] || 0;
-		// A TM_ERROR reply for our verb (poll failure) re-routes straight to
-		// the view — the view's un-correlated-error path surfaces the disconnect
-		// banner globally. The pending-Map path is irrelevant here (the hook
-		// doesn't stash a resolver for the fire-and-forget poll).
+		// A TM_ERROR (poll failure) re-routes to the view's error path.
 		if ( 0 !== ( type & TM_ERROR ) ) {
 			if ( this.sink ) {
 				message[ TO ] = this.target;
@@ -91,27 +79,20 @@ export class WorkerStatusTransformNode extends Node {
 			}
 			return;
 		}
-		// Only act on dump_graph replies — the view is the receiver for
-		// restart / error replies (FROM=view).
+		// Only act on dump_graph replies; the view handles restart/error.
 		if ( 'dump_graph' !== value.name ) {
 			return;
 		}
 		this._emitModel( value.payload || {} );
 	}
 
-	// Rebuild the rich render model from the LEAN dump_graph payload: join the
-	// four inputs into rich `workers[]` + rate maps (reconstructWorkers), then
-	// advance the node's prev-state and emit.
+	// Rebuild the rich render model from the lean dump_graph payload.
 	_emitModel( data ) {
 		const newPrevSegments = {};
 		const newPrevSegmentData = {};
 		const newRemoving = {};
 
-		// Hidden-tab gap detection: if this snapshot's timestamp jumped more than
-		// GAP_INTERVALS heartbeat intervals past the last one, the dashboard was
-		// paused and resumed. Drop the prev rate + segment state so this sample is
-		// a fresh baseline (rate 0, no spurious segment removals) instead of a
-		// gap-spanning one-frame spike.
+		// Hidden-tab gap (> GAP_INTERVALS): drop prev state, fresh baseline.
 		const ts = data.timestamp;
 		const maxGapS = this._heartbeatIntervalS * GAP_INTERVALS;
 		if (
@@ -126,25 +107,18 @@ export class WorkerStatusTransformNode extends Node {
 		}
 		this._lastSampleTs = ts !== undefined ? ts : this._lastSampleTs;
 
-		// Join graph + liveness + probe state + live segments into the rich
-		// `workers[]` shape the downstream reads, plus the client-side rate
-		// PROBE-cadence rate deltas (read = Δcursor-bytes, write = Δend-bytes,
-		// each over the elapsed time since the probe last advanced — held between).
+		// Join graph + liveness + probe state + live segments → rich workers[].
 		const rebuilt = reconstructWorkers( data, {
 			read: this._prevRead,
 			write: this._prevWrite,
 		} );
 		const richWorkers = rebuilt.workers;
-		// FULL live per-partition segments (the canonical logs[] the bar renders);
-		// the bar derives its green/red/gray regions per tree from the consumer's
-		// recorded end, so there is no global trim here.
+		// FULL live per-partition segments; the bar derives regions itself.
 		const liveLogs = rebuilt.logs;
 		const newByteRates = rebuilt.byteRates;
 		const newWriteRates = rebuilt.writeRates;
 
-		// Segment tracking by concrete partition for the slide-in/out animation —
-		// sourced from the live inputs_status (matching the bar that renders),
-		// union the segment ids across the workers reading/writing it.
+		// Segment tracking per partition for the slide-in/out animation.
 		const logSnapshots = new Map();
 		const recordLog = ( log ) => {
 			if ( ! log || ! log.name ) {
@@ -185,13 +159,10 @@ export class WorkerStatusTransformNode extends Node {
 			}
 		} );
 
-		// The model's prevSegments is the PRIOR snapshot (held before this
-		// fill), so the render path flags this snapshot's new segments. The
-		// node's own state then advances to the new snapshot for the next delta.
+		// model.prevSegments = the PRIOR snapshot (flags this one's new segs).
 		const modelPrevSegments = this._prevSegments;
 
-		// Sticky scalars: update only when present; a field-less poll keeps the
-		// last good value instead of snapping back to a default.
+		// Sticky scalars: update only when present (else keep last good).
 		if ( data.segment_size ) {
 			this._segmentSize = data.segment_size;
 		}
@@ -222,7 +193,7 @@ export class WorkerStatusTransformNode extends Node {
 			loading: false,
 		};
 
-		// Advance the segment-animation + rate-delta prev-state for the next snapshot.
+		// Advance the segment + rate-delta prev-state for the next snapshot.
 		this._prevSegments = newPrevSegments;
 		this._prevSegmentData = newPrevSegmentData;
 		this._prevRead = rebuilt.nextRead;
@@ -233,8 +204,7 @@ export class WorkerStatusTransformNode extends Node {
 		}
 		const out = newMessage();
 		out[ TYPE ] = TM_STRUCT;
-		// Mint → stamp FROM with our own name; TO=target so the exospine router
-		// routes it (→ view).
+		// Mint: stamp FROM = our name; TO=target so the router routes it.
 		out[ FROM ] = this.name;
 		out[ TO ] = this.target;
 		out[ VALUE ] = { action: 'model', model };

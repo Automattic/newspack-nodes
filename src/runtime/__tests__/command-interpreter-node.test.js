@@ -70,7 +70,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	m[ FROM ] = 'caller';
 	m[ ID ] = 'cmd-1';
 	m[ KEY ] = 'gui:typed';
-	// VALUE carries the structured command object directly — no inner JSON layer.
+	// VALUE carries the command object directly — no inner JSON layer.
 	m[ VALUE ] = {
 		name: 'echo',
 		arguments: 'hi',
@@ -83,9 +83,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	expect( got[ 0 ][ TO ] ).toBe( 'caller' );
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-1' );
 	expect( got[ 0 ][ KEY ] ).toBe( 'gui:typed' );
-	// Response VALUE is the { name, arguments, payload } object itself, not a JSON
-	// string. `arguments` echoes the request so a targeted reply (e.g.
-	// `dump_metadata <node>`) can be distinguished from a full one.
+	// Response VALUE is the { name, arguments, payload } object, not JSON.
 	expect( got[ 0 ][ VALUE ] ).toEqual( {
 		name: 'echo',
 		arguments: 'hi',
@@ -317,7 +315,7 @@ test( 'malformed command struct (non-object VALUE) drops the message silently', 
 
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
-	// VALUE must be a { name, ... } object; a bare string is not a command struct.
+	// VALUE must be a { name, ... } object; a bare string is not a struct.
 	m[ VALUE ] = 'not a command struct';
 	interpreter.fill( m );
 	expect( got ).toHaveLength( 0 );
@@ -337,7 +335,7 @@ test( 'TM_PING with empty TO bounces back to FROM via sink', () => {
 	const m = newMessage();
 	m[ TYPE ] = TM_PING;
 	m[ FROM ] = 'caller';
-	m[ VALUE ] = '1700000000.5'; // originating timestamp the caller will diff against
+	m[ VALUE ] = '1700000000.5'; // originating timestamp the caller diffs
 	interpreter.fill( m );
 
 	expect( got ).toHaveLength( 1 );
@@ -386,10 +384,7 @@ test( 'TM_PING with non-empty TO is forwarded as in-transit (no bounce)', () => 
 	expect( got[ 0 ][ TO ] ).toBe( 'somewhere/else' ); // TO unchanged
 } );
 
-// ---------------------------------------------------------------------------
-// Built-in verb table (1:1 parity with PHP CommandInterpreter $C). Each verb is
-// dispatched directly (no envelope plumbing) and asserted on its return value.
-// ---------------------------------------------------------------------------
+// Built-in verb table — 1:1 parity with PHP $C, dispatched + asserted directly.
 
 import { TeeNode } from '../tee-node';
 
@@ -514,8 +509,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 		} );
 		it( 'connects a non-Tee node by setting its string target (no crash)', () => {
-			// Base Node::connectNode sets a single string target (Tee overrides to a
-			// fan-out array) — the verb dispatches it uniformly, no type branch.
+			// Base connectNode sets a string target; Tee overrides to array.
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'plain';
@@ -864,10 +858,10 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( out.startsWith( 'Node ' ) ).toBe( true );
 			const body = JSON.parse( out.slice( 'Node '.length ) );
 			expect( body.name ).toBe( 'd' );
-			expect( body.class ).toBeUndefined(); // class is the header, not a body key
+			expect( body.class ).toBeUndefined(); // header, not a body key
 		} );
 		it( 'includes the sink as the sink node name, and `dump <node> sink` works', () => {
-			// PHP keeps `sink` (coerced to the sink's name); requesting it must not error.
+			// PHP keeps `sink` as sink's name; requesting it must not error.
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'd';
@@ -894,9 +888,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 		} );
 		it( 'masks the interpreter verb table and auth closure (non-node internals)', () => {
-			// instanceof-Node filtering covers node refs; the interpreter's own machinery
-			// (_commands map, authorize closure) isn't a node, so the class overrides
-			// dumpNode to mask it — the general "a node filters its own internals" hook [96].
+			// Interpreter masks its non-node internals (_commands, authorize).
 			const interpreter = makeInterpreter();
 			interpreter.name = 'ci';
 			const out = dispatch( interpreter, 'dump_node', 'ci' );
@@ -1111,7 +1103,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'help WITHOUT the completion key returns the full tabulated help, one section', () => {
 			const interpreter = makeInterpreter();
 			const out = dispatch( interpreter, 'help', '' );
-			// One unified section; the former separate SHELL BUILTINS list is folded in.
+			// One unified section; the old SHELL BUILTINS list is folded in.
 			expect( out ).toContain( '### COMMANDS ###' );
 			expect( out ).not.toContain( '### SHELL BUILTINS ###' );
 			// Shell builtins now appear in the single command table.
@@ -1158,10 +1150,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	} );
 
 	describe( 'make_node (constructs in-browser, mirrors PHP)', () => {
-		// Mirrors PHP Command_Interpreter_Node::make_node: split args on
-		// whitespace, spread the trailing tokens into the constructor as
-		// positional args, name(), sink($self). includeNodes (a flat name→class
-		// table) stands in for PHP's namespace-prefix resolution.
+		// Mirrors PHP make_node: split args, spread trailing tokens to ctor.
 		it( 'constructs a registered type, names it, and sinks it into the interpreter', () => {
 			const interpreter = makeInterpreter();
 			expect( dispatch( interpreter, 'make_node', 'Tee mytee' ) ).toBe(
@@ -1187,7 +1176,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 
 		it( 'feeds trailing tokens to the arguments setter as a raw string (no implicit walk)', () => {
-			// A plain node that never opts into parseSchemaArgs gets the raw string but NO walk.
+			// A node that skips parseSchemaArgs gets the raw string, no walk.
 			const interpreter = makeInterpreter();
 			CommandInterpreterNode.includeNodes.ArgSpy = class extends Node {
 				constructor() {
@@ -1209,7 +1198,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 
 		it( 'a node that opts into parseSchemaArgs gets its positional config walked', () => {
-			// The Schema_Reflection path: an opt-in setter assigns the declared props.
+			// Schema_Reflection path: opt-in setter assigns declared props.
 			const interpreter = makeInterpreter();
 			CommandInterpreterNode.includeNodes.ArgWalk = class extends Node {
 				constructor() {
@@ -1359,7 +1348,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			dispatch( interpreter, 'set_sink', 'a b' );
 			const out = dispatch( interpreter, 'dump_config' );
 			expect( out ).toContain( 'set_sink a b' );
-			// `b` sinks into the interpreter by default → no set_sink line for it.
+			// `b` sinks into the interpreter by default → no set_sink line.
 			expect( out ).not.toContain( 'set_sink b' );
 		} );
 

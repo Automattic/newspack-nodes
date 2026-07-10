@@ -2,12 +2,10 @@ import { Node } from '../../runtime/node';
 import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
 
-// Segment slide-out animation window (ms) — how long a removing row lingers before it clears.
+// Segment slide-out window (ms): how long a removing row lingers.
 const REMOVING_CLEAR_MS = 400;
 
-// Empty model so an error arriving before any poll still publishes a render-able
-// (loading-cleared) view. Carries the same shape a normal poll publishes, so
-// React never sees a partial model.
+// Empty model so a pre-poll error still publishes a render-able view.
 const emptyModel = () => ( {
 	workers: [],
 	supervisor: null,
@@ -49,14 +47,12 @@ export class WorkerStatusViewNode extends Node {
 		super();
 		this.model = emptyModel();
 		this._clearTimer = null;
-		// Hook-stamped ID → { resolve, reject }; resolved/rejected when the
-		// matching reply lands here. Cleared on resolution.
+		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
 		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
-		// Terminal node (no sink) — base Node.fill() can't run, so count here
-		// to keep the overlay's per-node throughput honest.
+		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
@@ -65,13 +61,10 @@ export class WorkerStatusViewNode extends Node {
 		const type = message[ TYPE ] || 0;
 		const isError = 0 !== ( type & TM_ERROR );
 
-		// Pending-Map gating: settle any Promise the hook stashed under this ID.
-		// pendingMatched gates the global-error path below — caller owns the
-		// error surface for awaited verbs (per-row restart, etc.).
+		// Settle any Promise stashed under this ID; caller owns its error.
 		const pendingMatched = this.replies.settle( message );
 
-		// Un-correlated errors (broadcasts, initial poll) surface globally;
-		// pending-matched ones are owned by the caller's catch.
+		// Un-correlated errors surface globally; pending ones by the caller.
 		if ( isError && ! pendingMatched ) {
 			this.model = {
 				...this.model,
@@ -115,7 +108,7 @@ export class WorkerStatusViewNode extends Node {
 		this.setState( 'view', this.model );
 	}
 
-	// Tear down: cancel the slide-out clear timer so it can't setState post-unmount.
+	// Tear down: cancel the slide-out timer so it can't setState later.
 	close() {
 		if ( this._clearTimer ) {
 			clearTimeout( this._clearTimer );
@@ -128,7 +121,7 @@ export class WorkerStatusViewNode extends Node {
 			category: 'Hidden',
 			description:
 				'Worker Status render-model sink (the React view node).',
-			// Terminal receiver: settles replies, never sets target → no out-port.
+			// Terminal receiver: settles replies, no target → no out-port.
 			has_target: false,
 			arguments: [],
 			commands: [],

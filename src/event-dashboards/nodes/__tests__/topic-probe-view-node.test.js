@@ -19,14 +19,10 @@ import {
 	CACHE_SIZE,
 } from '../../../runtime/probe-record';
 
-// Anchor the synthetic probe timestamps inside the live 24h window: the node
-// drops any record older than 24h by wall clock, so a `ts` passed here is an
-// OFFSET from a recent epoch base (a few hours ago). Tests that need an absolute
-// instant (the drop/prune tests) pass `absTs` to bypass the base.
+// Probe ts here is an OFFSET from a recent epoch base; absTs bypasses it.
 const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
 
-// Build a probe record TM_STRUCT message: a lean POSITIONAL Probe_Record VALUE,
-// with the snapshot instant carried in the Message TIMESTAMP (not in VALUE).
+// Build a probe TM_STRUCT: positional VALUE, instant in TIMESTAMP.
 function probeMsg( {
 	ts = 1000,
 	absTs = null,
@@ -71,21 +67,21 @@ describe( 'TopicProbeViewNode', () => {
 	it( 'computes msgs-rate from consecutive msgs deltas over the ts gap', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { msgs: 1000, ts: 100 } ) );
-		v.fill( probeMsg( { msgs: 4000, ts: 103 } ) ); // +3000 over 3s = 1000 msg/s
+		v.fill( probeMsg( { msgs: 4000, ts: 103 } ) ); // 1000 msg/s
 		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 );
 	} );
 
 	it( 'computes byte-rate from consecutive END_BYTES deltas over the ts gap', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { endBytes: 1000, ts: 100 } ) );
-		v.fill( probeMsg( { endBytes: 4000, ts: 103 } ) ); // +3000 over 3s = 1000 B/s
+		v.fill( probeMsg( { endBytes: 4000, ts: 103 } ) ); // 1000 B/s
 		expect( v.snapshot()[ 'firehose.p0' ].latest.byteRate ).toBe( 1000 );
 	} );
 
 	it( 'treats an END_BYTES drop (segment GC) as byte-rate 0, never negative', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { endBytes: 9000, ts: 100 } ) );
-		v.fill( probeMsg( { endBytes: 200, ts: 115 } ) ); // GC dropped old segments
+		v.fill( probeMsg( { endBytes: 200, ts: 115 } ) ); // GC dropped segments
 		expect( v.snapshot()[ 'firehose.p0' ].latest.byteRate ).toBe( 0 );
 	} );
 
@@ -106,7 +102,7 @@ describe( 'TopicProbeViewNode', () => {
 	it( 'treats a msgs DROP (worker restart resets the counter) as rate 0, never negative', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { msgs: 9000, ts: 100 } ) );
-		v.fill( probeMsg( { msgs: 200, ts: 115 } ) ); // per-process counter reset
+		v.fill( probeMsg( { msgs: 200, ts: 115 } ) ); // counter reset
 		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 0 );
 	} );
 
@@ -130,7 +126,7 @@ describe( 'TopicProbeViewNode', () => {
 		const staleTs = Math.floor( Date.now() / 1000 ) - 25 * 3600; // 25h ago
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { absTs: staleTs } ) );
-		// Never accumulated — a record past the live window can't widen the axis.
+		// Never accumulated: a record past the window can't widen the axis.
 		expect( v.snapshot()[ 'firehose.p0' ] ).toBeUndefined();
 	} );
 
@@ -138,7 +134,7 @@ describe( 'TopicProbeViewNode', () => {
 		jest.useFakeTimers();
 		try {
 			const v = new TopicProbeViewNode();
-			const oldTs = Math.floor( Date.now() / 1000 ); // fresh when it lands
+			const oldTs = Math.floor( Date.now() / 1000 ); // fresh on arrival
 			v.fill(
 				probeMsg( {
 					reader: 'idle.p0',
@@ -146,10 +142,7 @@ describe( 'TopicProbeViewNode', () => {
 					absTs: oldTs,
 				} )
 			);
-			// 25h passes; idle.p0 NEVER produces again — its sample crosses the 24h
-			// horizon purely by wall-clock TIME. A DIFFERENT consumer's frame drives
-			// the publish, and the prune must sweep ALL consumers, not just the one
-			// just touched — else idle.p0's stale tail lingers on the 24h chart.
+			// 25h passes; the prune must sweep ALL consumers, not just idle.p0.
 			jest.advanceTimersByTime( 25 * 3600 * 1000 );
 			const freshTs = Math.floor( Date.now() / 1000 );
 			v.fill(
@@ -160,7 +153,7 @@ describe( 'TopicProbeViewNode', () => {
 				} )
 			);
 			const snap = v.snapshot();
-			expect( snap[ 'idle.p0' ] ).toBeUndefined(); // aged out → empty → skipped
+			expect( snap[ 'idle.p0' ] ).toBeUndefined(); // aged out → skipped
 			expect( snap[ 'live.p0' ].series.map( ( s ) => s.ts ) ).toEqual( [
 				freshTs,
 			] );
@@ -184,9 +177,9 @@ describe( 'TopicProbeViewNode', () => {
 			const v = new TopicProbeViewNode();
 			const published = [];
 			v.setState = ( key, value ) => published.push( value );
-			v.fill( probeMsg( { distance: 100, ts: 100 } ) ); // leading edge → publishes
+			v.fill( probeMsg( { distance: 100, ts: 100 } ) ); // publishes now
 			expect( published.length ).toBe( 1 );
-			v.fill( probeMsg( { distance: 999, ts: 101 } ) ); // within window → deferred
+			v.fill( probeMsg( { distance: 999, ts: 101 } ) ); // deferred
 			expect( published.length ).toBe( 1 );
 			jest.advanceTimersByTime( 500 );
 			expect( published.length ).toBe( 2 ); // trailing flush fired
@@ -203,7 +196,7 @@ describe( 'TopicProbeViewNode', () => {
 		v.fill( probeMsg( { ts: 100 } ) );
 		const a = v.snapshot()[ 'firehose.p0' ].series;
 		const b = v.snapshot()[ 'firehose.p0' ].series;
-		expect( a ).not.toBe( b ); // distinct identities → React memo sees a change
+		expect( a ).not.toBe( b ); // distinct identities → memo sees a change
 		expect( a ).toEqual( b ); // same contents
 	} );
 
@@ -213,9 +206,7 @@ describe( 'TopicProbeViewNode', () => {
 			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
 			v.fill( probeMsg( { reader: 'gone.p0', ts: 100 } ) );
 			expect( v.snapshot()[ 'gone.p0' ] ).toBeTruthy();
-			// LIVE stream: alive.p0 keeps arriving at small gaps while gone.p0 goes
-			// silent. The small inter-fill gaps (< ttlMs) keep the stream "live", so
-			// the outage re-baseline never triggers and gone.p0 evicts on its own TTL.
+			// LIVE stream: no outage re-baseline; gone.p0 evicts on own TTL.
 			for ( let t = 200; t <= 2000; t += 500 ) {
 				jest.advanceTimersByTime( 500 );
 				v.fill( probeMsg( { reader: 'alive.p0', ts: t } ) );
@@ -233,9 +224,7 @@ describe( 'TopicProbeViewNode', () => {
 			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
 			v.fill( probeMsg( { reader: 'a.p0', ts: 100 } ) );
 			v.fill( probeMsg( { reader: 'b.p0', ts: 100 } ) );
-			// Overview tab hidden > TTL: the stream was closed, no frames arrived,
-			// every consumer's _lastSeen froze. The FIRST frame on reconnect must
-			// NOT wipe the pre-existing consumers — the outage is not their death.
+			// Tab hidden > TTL: first reconnect frame must NOT wipe consumers.
 			jest.advanceTimersByTime( 5000 ); // gap >> ttlMs
 			v.fill( probeMsg( { reader: 'a.p0', ts: 200 } ) );
 			expect( v.snapshot()[ 'a.p0' ] ).toBeTruthy();
@@ -251,18 +240,15 @@ describe( 'TopicProbeViewNode', () => {
 			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
 			// dead.p0 produces once, then goes silent for good.
 			v.fill( probeMsg( { reader: 'dead.p0', ts: 100 } ) ); // real-time 0
-			// keepalive.p0 advances _lastFill 500ms later (no outage, gap < ttl), so
-			// when the outage hits, dead.p0's last activity is OLDER than _lastFill.
+			// keepalive.p0 advances _lastFill so dead.p0 predates the outage.
 			jest.advanceTimersByTime( 500 );
-			v.fill( probeMsg( { reader: 'keepalive.p0', ts: 105 } ) ); // real-time 500
-			// Outage: gap 1500 > ttl. A blanket re-baseline would hand dead.p0 a fresh
-			// full lease here; the refine must only shift it by the outage, not reset it.
+			v.fill( probeMsg( { reader: 'keepalive.p0', ts: 105 } ) ); // rt=500
+			// Outage (gap>ttl): shift the lease by the outage, don't reset it.
 			jest.advanceTimersByTime( 1500 );
-			v.fill( probeMsg( { reader: 'live.p0', ts: 110 } ) ); // real-time 2000
-			// One more outage-free fill 600ms later: dead.p0 (silent since real-time 0,
-			// ~2600ms — way past ttl) must now be gone; the still-producing ones stay.
+			v.fill( probeMsg( { reader: 'live.p0', ts: 110 } ) ); // rt=2000
+			// Another outage-free fill: dead.p0 (past ttl) is now gone.
 			jest.advanceTimersByTime( 600 );
-			v.fill( probeMsg( { reader: 'live.p0', ts: 111 } ) ); // real-time 2600
+			v.fill( probeMsg( { reader: 'live.p0', ts: 111 } ) ); // rt=2600
 			const snap = v.snapshot();
 			expect( snap[ 'dead.p0' ] ).toBeUndefined();
 			expect( snap[ 'keepalive.p0' ] ).toBeTruthy();
@@ -282,7 +268,7 @@ describe( 'TopicProbeViewNode', () => {
 			v.fill( probeMsg( { ts: 101 } ) ); // schedules a trailing flush
 			v.removeNode();
 			jest.advanceTimersByTime( 1000 );
-			expect( published.length ).toBe( 1 ); // trailing flush was cancelled
+			expect( published.length ).toBe( 1 ); // trailing flush cancelled
 		} finally {
 			jest.useRealTimers();
 		}

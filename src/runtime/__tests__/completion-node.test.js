@@ -144,9 +144,7 @@ describe( 'tabulateCandidates', () => {
 	} );
 
 	it( 'pads each candidate to the longest width so columns align', () => {
-		// Longest is `make_node` (9); each column starts at a multiple of
-		// width + a 2-space gap (= 11), so the transcript reflows into an
-		// aligned grid instead of wrapping mid-word.
+		// Columns pad to the longest candidate + a 2-space gap (= 11) to align.
 		const out = tabulateCandidates( [ 'ls', 'make_node', 'rm' ] );
 		expect( out.indexOf( 'make_node' ) ).toBe( 11 );
 		expect( out.indexOf( 'rm' ) ).toBe( 22 );

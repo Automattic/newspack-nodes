@@ -66,17 +66,13 @@ import { globalRates } from '../globalRates';
 import { etaSeconds } from '../formatters';
 import '../nodes/register';
 
-// A partition is stalled when its heartbeat age exceeds interval × STALL_PAD;
-// the pad tolerates a couple of missed beats without flicker.
+// Partition stalled when heartbeat age exceeds interval x STALL_PAD.
 export const STALL_PAD = 3;
 
-// The connection is "stale" once the last successful poll is older than this many
-// poll intervals — a wedged/paused channel that returns no error still stops the
-// freshness clock, which is what flips `connected` false.
+// Stale once the last successful poll is older than this many poll intervals.
 export const STALE_POLL_INTERVALS = 3;
 
-// A consumer is "behind" only once its catch-up ETA reaches this many seconds —
-// a sub-minute backlog drains on its own and isn't worth flagging.
+// A consumer is "behind" only once its catch-up ETA reaches this many seconds.
 const BEHIND_ETA_S = 60;
 
 const WORKER_VIEW = 'workerstatus:view';
@@ -86,9 +82,7 @@ const TOPOLOGY_VIEW = 'topologymanager:view';
 const WORKERS_CI = 'workers';
 const TOPOLOGIES_CI = 'topologies';
 
-// The two polled slices: the worker-status slice rides the H4 `transform` slot
-// (the WorkerStatusTransform enrich-join on the workerstatus:in → view edge), and the
-// topology-list slice fires straight into its view.
+// Two slices: worker-status rides the transform slot; topology-list its view.
 const SLICES = [
 	{
 		fetcher: 'fetch-workers',
@@ -172,8 +166,7 @@ export function deriveHealth( section ) {
 	let anyBehind = false;
 	let worstEta = 0;
 	for ( const wk of workers ) {
-		// A consumer counts as "behind" only if its ETA to catch up is >= 1 min;
-		// a sub-minute backlog drains on its own and isn't worth flagging.
+		// A consumer counts as "behind" only if its catch-up ETA is >= 1 min.
 		const eta = etaSeconds( wk.behind, wk.read_rate );
 		if ( eta >= BEHIND_ETA_S ) {
 			anyBehind = true;
@@ -295,7 +288,7 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
 		view.replies.add( id, resolve, reject );
 	} );
 	interpreter.fill( buildMutation( ci, verb, args, viewName, id ) );
-	// Event-driven, not the batched tick: flush the just-buffered command now.
+	// Event-driven, not the batched tick: flush the buffered command now.
 	Core.node( '_http' )?.flush();
 	return promise;
 }
@@ -333,11 +326,7 @@ export function useTopologyManager( opts = {} ) {
 	const workerModel = useNodeState( WORKER_VIEW, 'view' );
 	const topologyModel = useNodeState( TOPOLOGY_VIEW, 'view' );
 
-	// Memoized on the two view models so the topologies array (and every topology
-	// object) keeps a STABLE identity between renders that don't change the data —
-	// e.g. an Overview drag-reorder, which re-renders every frame. Without this, a
-	// fresh array each render breaks `memo` on every consumer (SummaryCards, each
-	// TopologyRow), forcing a full re-render storm mid-drag.
+	// Memoized so the topologies array keeps STABLE identity across renders.
 	const topologies = useMemo( () => {
 		const rows = topologyModel?.topologies || [];
 		const byName = sectionsByName( workerModel );
@@ -364,12 +353,7 @@ export function useTopologyManager( opts = {} ) {
 	const supervisor = workerModel?.supervisor ?? null;
 	const currentTime = workerModel?.currentTime;
 
-	// Last SUCCESSFUL poll: a reply landing replaces the view model reference, so
-	// a fresh model identity is our success signal. A wedged/silently-stalled
-	// channel returns no error and produces no new model, so this clock stops —
-	// which is exactly what flips `connected` false (the last-error-flag-only
-	// check would stay true forever). Stamped from a ref so an unchanged model
-	// (re-render with no new reply) keeps the prior success time.
+	// Last SUCCESSFUL poll: a fresh model identity is the success signal.
 	const lastSuccessRef = useRef( 0 );
 	useEffect( () => {
 		if ( workerModel || topologyModel ) {
@@ -377,10 +361,7 @@ export function useTopologyManager( opts = {} ) {
 		}
 	}, [ workerModel, topologyModel ] );
 
-	// Re-evaluate `connected` on a heartbeat even when no reply arrives — a
-	// stalled channel produces no model update, so nothing else would re-render
-	// us. Only while visible: a hidden tab pauses polling on purpose, so its stale
-	// clock is expected. `bumpFreshness` exists solely to force that re-render.
+	// Re-evaluate connected on a heartbeat even with no reply (visible only).
 	const pageVisible = usePageVisibility();
 	const [ , bumpFreshness ] = useState( 0 );
 	useEffect( () => {
@@ -403,16 +384,14 @@ export function useTopologyManager( opts = {} ) {
 		refreshMs: parseInt( refreshMs, 10 ),
 		pageVisible,
 	} );
-	// Fleet-global byte rates (Σ the live per-reader / per-log rate maps) and the
-	// on-disk log-partition count — the SummaryCards' R / W / partitions numbers.
+	// Fleet-global byte rates + on-disk log-partition count for SummaryCards.
 	const { readRate, writeRate } = globalRates(
 		workerModel?.byteRates,
 		workerModel?.writeRates
 	);
 	const logPartitions = workerModel?.logPartitions ?? 0;
 
-	// Request a graceful restart for a worker type (FROM=workerstatus:view so the
-	// reply settles the worker view's pending-Map).
+	// Request a graceful restart (FROM=workerstatus:view settles the reply).
 	const restart = useCallback(
 		( name, partition = -1 ) =>
 			dispatchAwaited(

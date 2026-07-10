@@ -27,9 +27,7 @@ import '../nodes/register';
 const LINK = 'topicprobe:link';
 const TEE = 'topicprobe:stream';
 const VIEW = 'topicprobe:view';
-// Explicit `.p0` so the server's `{type}.p{N}` branch routes through its
-// no-worker → log-feed fallback to `logs/topicprobe.p0` (the probe is always
-// single-partition, regardless of the global num_partitions).
+// Explicit .p0 hits the server's no-worker log-feed fallback (probe is 1-part).
 const SUBSCRIBE = 'topicprobe.p0';
 
 function positionsForMode( mode ) {
@@ -45,12 +43,7 @@ function positionsForMode( mode ) {
 export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 	const isPageVisible = usePageVisibility();
 
-	// The shared lifecycle owns close-while-hidden + resume-on-refocus, and it
-	// always invokes the latest mountNodes/onConnect — so `mode` / `commandClient`
-	// are captured directly (no ref-wrapping needed). Here we only supply the graph
-	// and the seek: the FIRST connect uses the mode's seek ('history' → 24h replay,
-	// 'follow' → tail); a RECONNECT resumes from the last seen offset so the chart
-	// fills the hidden gap without re-replaying the 24h.
+	// Shared lifecycle owns close-while-hidden + resume-on-refocus.
 	useVisibilityGatedLink( {
 		mountNodes: ( interpreter ) => {
 			const data =
@@ -64,9 +57,7 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 				LINK,
 				`${ SUBSCRIBE } ${ baseUrl } ${ nonce }`
 			);
-			// A pure pass-through Tee on the stream edge: the link re-homes received
-			// frames to it, it copies each to the view. `connect topicprobe:stream` in
-			// the debug overlay appends a second target to inspect the live stream.
+			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
 			link.client =
 				commandClient || new CommandClient( { baseUrl, nonce } );
