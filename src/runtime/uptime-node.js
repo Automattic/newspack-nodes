@@ -43,9 +43,7 @@ export class UptimeNode extends TimerNode {
 		}
 	}
 
-	// Router TIMER subscriber: the base fireCb() throttles to 5s, so fire() just
-	// emits an uptime poll. `_cwd` handles every scope, so there's no per-scope
-	// gate — emit whenever a sink exists.
+	// Router TIMER subscriber: fire() emits an uptime poll if a sink exists.
 	fire() {
 		if ( ! this.sink ) {
 			return;
@@ -54,9 +52,7 @@ export class UptimeNode extends TimerNode {
 		this.sink.fill( this._pollMessage( 'uptime' ) );
 	}
 
-	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
-	// re-stamps the live cwd). FROM = own name is the reply path (the reply comes
-	// back here); LOCAL taints it so the browser interpreter authorizes a local poll.
+	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
 	_pollMessage( verb ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;

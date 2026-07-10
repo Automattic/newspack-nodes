@@ -14,7 +14,7 @@ test( 'builds the graph before first render and tears down on unmount', () => {
 		useNodeGraph( () => {} );
 		sawInterpreterDuringRender = !! Core.node( names.COMMAND_INTERPRETER );
 	} );
-	expect( sawInterpreterDuringRender ).toBe( true ); // built during render, not in an effect
+	expect( sawInterpreterDuringRender ).toBe( true ); // built during render
 	unmount();
 	expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
 } );
@@ -40,9 +40,7 @@ test( 'runs the build callback with the spine before render', () => {
 } );
 
 test( 'survives StrictMode double-invoked initializer without a name collision', () => {
-	// React StrictMode double-invokes useState initializers in development, so
-	// mountExospine runs twice during render; the second must reuse the backbone
-	// rather than throw a name collision on the reserved interpreter name.
+	// StrictMode double-invokes init, so the second mountExospine must reuse.
 	expect( () => {
 		renderHook( () => useNodeGraph( () => {} ), {
 			wrapper: StrictMode,
@@ -51,8 +49,7 @@ test( 'survives StrictMode double-invoked initializer without a name collision',
 } );
 
 test( 'mountExospine reuses the existing backbone instead of recreating it (StrictMode guard)', () => {
-	// Direct check of the mountBackbone idempotency guard: a second mount with the
-	// interpreter already registered reuses it rather than colliding on the name.
+	// mountBackbone idempotency: a second mount reuses, doesn't collide.
 	const first = mountExospine();
 	const firstInterpreter = Core.node( names.COMMAND_INTERPRETER );
 	const second = mountExospine();

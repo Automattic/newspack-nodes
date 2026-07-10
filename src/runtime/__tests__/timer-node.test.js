@@ -8,9 +8,7 @@ jest.useFakeTimers();
 
 beforeEach( () => Core.reset() );
 
-// A live _router whose self-started interval is stopped, so tests drive the
-// TIMER tick explicitly via notifyTimer() — Perl Router::notify_timer, a DIRECT
-// fire_cb dispatch to each registered node (no routed message, no fill()).
+// A live _router with interval stopped; tests drive ticks via notifyTimer().
 function makeRouter() {
 	const r = new RouterNode();
 	r.name = names.ROUTER;
@@ -48,9 +46,7 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 	} );
 
 	test( 'same-mode re-arm clears the prior interval (no leak; PHP-parity)', () => {
-		// PHP set_timer guards on mode; Event_Framework dedups by node. JS setInterval
-		// does NOT dedup, so re-arming event mode must clear the old handle or it leaks
-		// and BOTH intervals fire each tick.
+		// JS setInterval doesn't dedup, so re-arming must clear the old handle.
 		const t = new TimerNode();
 		const sent = [];
 		t.name = 't-rearm';
@@ -63,8 +59,7 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 	} );
 
 	test( 'fire() increments counter per emit (Perl parity: counter++ inside the owner/CI guard)', () => {
-		// Perl Timer::fire does $self->{counter}++ when it emits. A plain-object sink
-		// (not the CommandInterpreter) trips the guard, so each tick emits + counts.
+		// Perl Timer::fire counts on emit; a plain-object sink trips the guard.
 		const t = new TimerNode();
 		t.name = 't-counter-own';
 		t.sink = { fill: () => {} };
@@ -90,8 +85,7 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 	test( 'notify("FIRE") fires registered subscribers each tick', () => {
 		const t = new TimerNode();
 		t.name = 't4';
-		// fire_cb returns early without a sink (Perl parity), and notify('FIRE')
-		// lives in fire(), so FIRE only reaches subscribers when a sink is present.
+		// No sink: fire_cb returns early, so notify('FIRE') never fires.
 		t.sink = { fill: () => {} };
 		const ticks = [];
 		t.register( 'FIRE', 'sub', ( now ) => {
@@ -105,8 +99,7 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 	} );
 
 	test( 'fire_cb returns early when there is no sink (Perl parity: return if not sink)', () => {
-		// No sink → fire_cb advances fire_count but returns BEFORE fire(), so neither
-		// the egress emit nor notify('FIRE') runs.
+		// No sink: fire_cb bumps fire_count but returns before fire().
 		const t = new TimerNode();
 		t.name = 't-nosink';
 		const ticks = [];
@@ -206,8 +199,7 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 	} );
 
 	test( 'the _router itself owns a slot at 1000ms (cannot hitchhike its own TIMER)', () => {
-		// The router can't subscribe to its own TIMER — at the >=1000 boundary it
-		// must still own an event-framework slot so the drain loop ticks it.
+		// Router can't subscribe to its own TIMER but still owns an EF slot.
 		const r = makeRouter();
 		r.setTimer( 1000 );
 		expect( r.mode ).toBe( 'event_framework' );

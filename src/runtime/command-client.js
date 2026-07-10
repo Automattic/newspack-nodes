@@ -27,9 +27,7 @@ export class CommandClient {
 	 * @return {Promise<Array>} Parsed response.
 	 */
 	async send( params ) {
-		// The body is JSONL (a verb may emit a stderr/log line AND its response);
-		// the verb response is emitted last, so return the final message. Callers
-		// (dashboards, unwrapCommandResponse) want the single response Message.
+		// JSONL body; verb response comes last, so return that message.
 		const msgs = await this.#post( pack( this.buildMessage( params ) ), 1 );
 		return msgs.length ? msgs[ msgs.length - 1 ] : null;
 	}
@@ -75,23 +73,19 @@ export class CommandClient {
 	}
 
 	async #post( body, outCount ) {
-		// Outbound boundary accounting for the debug overlay: request bytes + the
-		// message count (the caller knows it — one packed Message per JSONL line).
+		// Outbound boundary accounting: request bytes + message count.
 		IoTelemetry.recordOut( byteLength( body ), outCount );
 
 		const r = await fetch( `${ this.baseUrl }newspack-nodes/v1/command`, {
 			method: 'POST',
 			headers: {
-				// Non-JSON type so WP's REST dispatcher doesn't reject the
-				// JSONL newlines with rest_invalid_json before our handler runs.
+				// Non-JSON type so WP doesn't reject the JSONL newlines.
 				'Content-Type': COMMAND_CONTENT_TYPE,
 				'X-WP-Nonce': this.nonce,
 			},
 			body,
 		} );
-		// JSONL: zero or more packed Messages, one per line (a routed-onward command
-		// gets a bare 202 with no body). Split + unpack each — NEVER JSON.parse the
-		// whole body, since a command can emit multiple messages (stderr/log + reply).
+		// JSONL: unpack each line — NEVER JSON.parse the multi-message body.
 		const text = await r.text();
 		const messages = text
 			? text
@@ -99,8 +93,7 @@ export class CommandClient {
 					.filter( ( line ) => '' !== line.trim() )
 					.map( ( line ) => unpack( line ) )
 			: [];
-		// Inbound boundary accounting: response bytes, the reply count, and an
-		// error tally for any TM_ERROR replies.
+		// Inbound boundary accounting: response bytes, replies, error tally.
 		IoTelemetry.recordIn( byteLength( text ), messages.length );
 		for ( const message of messages ) {
 			if ( message[ TYPE ] & TM_ERROR ) {

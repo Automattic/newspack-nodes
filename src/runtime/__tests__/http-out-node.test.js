@@ -23,8 +23,7 @@ import {
 
 function makeNode() {
 	const real = new CommandClient( { baseUrl: '/wp-json/', nonce: 'NONCE' } );
-	// Default: a bare 202 with no synchronous reply Messages (the routed-onward
-	// case). Reply-forwarding tests override with a proper array of Messages.
+	// Default: bare 202, no sync replies (routed-onward); tests override.
 	const postBatch = jest.fn().mockResolvedValue( [] );
 	const client = {
 		buildMessage: real.buildMessage.bind( real ),
@@ -41,7 +40,7 @@ const batchOf = ( postBatch ) => {
 	return postBatch.mock.calls[ 0 ][ 0 ];
 };
 
-// Build the positional Message the router would hand HttpOut (TO already routed).
+// Build the positional Message the router hands HttpOut (TO already routed).
 function routed( {
 	to,
 	from = '_http/777/_output',
@@ -165,7 +164,7 @@ describe( 'HttpOut', () => {
 
 		const reply = newMessage();
 		reply[ VALUE ] = 'sync-reply';
-		postBatch.mockResolvedValueOnce( [ reply ] ); // JSONL → array of Messages
+		postBatch.mockResolvedValueOnce( [ reply ] ); // JSONL → Message array
 
 		await node.fill( routed( { to: '' } ) ); // bare POST
 		await Promise.resolve(); // flush the intake microtask
@@ -247,7 +246,7 @@ describe( 'HttpOut', () => {
 		const { node, postBatch } = makeNode();
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
-		m[ TO ] = ''; // _router peeled _http, nothing follows → the HTTP boundary itself
+		m[ TO ] = ''; // _router peeled _http, nothing follows → the boundary
 		m[ VALUE ] = { name: 'ls', arguments: '' };
 		node.fill( m );
 		const batch = batchOf( postBatch );

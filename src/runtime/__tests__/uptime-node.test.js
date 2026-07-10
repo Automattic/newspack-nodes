@@ -101,8 +101,7 @@ describe( 'Uptime node', () => {
 		} );
 
 		it( 'throttles: two fireCb() ticks <5s apart emit once', () => {
-			// The 5s cadence is now the base Timer throttle (interval_ms = 5000) in
-			// fireCb(); fire() itself is the unthrottled per-due emit.
+			// 5s cadence = base Timer throttle in fireCb(); fire() unthrottled.
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_cwd';

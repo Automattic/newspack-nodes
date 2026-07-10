@@ -8,9 +8,7 @@ export const VALUE = 6;
 
 export const LAST_VALUE_INDEX = VALUE;
 
-// LOCAL: provenance taint appended after the 7 canonical fields. Set only by a
-// Shell on a command it mints in-process; pack() strips it so it never crosses
-// the wire. The client authorization default gates on m[ LOCAL ] !== undefined.
+// LOCAL: provenance taint after the 7 fields; pack() strips it off the wire.
 export const LOCAL = 7;
 
 export const TM_BYTESTREAM = 1;
@@ -29,8 +27,7 @@ export function newMessage() {
 }
 
 export function pack( m ) {
-	// Emit the canonical 7 fields only; slicing drops any appended LOCAL taint so
-	// it never crosses the wire.
+	// Emit the canonical 7 fields only; slicing drops any LOCAL taint.
 	return JSON.stringify( m.slice( 0, LAST_VALUE_INDEX + 1 ) );
 }
 
@@ -42,15 +39,13 @@ export function unpack( s ) {
 		return newMessage();
 	}
 	if ( Array.isArray( d ) && d.length >= 7 ) {
-		// Drop any trailing field (e.g. a tampered-in LOCAL) — canonical 7 only.
+		// Drop any trailing field (e.g. a tampered LOCAL) — canonical 7 only.
 		return d.slice( 0, LAST_VALUE_INDEX + 1 );
 	}
 	return newMessage();
 }
 
-// UTF-8 byte length of a string (Blob, since jsdom lacks TextEncoder) to match
-// PHP strlen(). Nullish/empty → 0. The single source of truth for byte counting
-// across the runtime (valueSize here, and IoTelemetry's wire accounting).
+// UTF-8 byte length (Blob, jsdom lacks TextEncoder) to match PHP strlen().
 export function byteLength( str ) {
 	if ( str === null || str === undefined || str === '' ) {
 		return 0;
@@ -58,9 +53,7 @@ export function byteLength( str ) {
 	return new Blob( [ str ] ).size;
 }
 
-// Composer reply-flag checkboxes → TYPE bits. `flags` is `{ response, error }`
-// (either key optional); a falsy `flags` is a no-op. Mutates `m` in place and
-// returns it so callers can chain `shell.dispatch( applyReplyFlags( parsed, flags ) )`.
+// Composer reply-flag checkboxes → TYPE bits; mutates `m` in place, returns it.
 export function applyReplyFlags( m, flags ) {
 	if ( ! flags ) {
 		return m;

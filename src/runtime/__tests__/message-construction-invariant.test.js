@@ -21,7 +21,7 @@
 import fs from 'fs';
 import path from 'path';
 
-// `[ TM_*, <number | Date.now> ` — a message literal, not a type-set or a bitmask (`TM_A | TM_B` has no comma).
+// A message literal: [ TM_*, <number|Date.now> — not a bitmask (no comma).
 const TM_MESSAGE = /\[\s*TM_[A-Z_]+\s*,\s*(?:[0-9]|Date\.now)/;
 
 const SRC = path.resolve( process.cwd(), 'src' );
@@ -33,7 +33,7 @@ const EXEMPT = new Set( [
 function jsFiles( dir ) {
 	const out = [];
 	for ( const entry of fs.readdirSync( dir, { withFileTypes: true } ) ) {
-		// Skip dependencies and test fixtures (round-trip tests build literal frames on purpose).
+		// Skip deps + test fixtures (round-trip tests build literal frames).
 		if ( 'node_modules' === entry.name || '__tests__' === entry.name ) {
 			continue;
 		}

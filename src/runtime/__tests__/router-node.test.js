@@ -121,8 +121,7 @@ test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no lo
 	expectConsoleWarn( '_router: WARNING: message not addressed - TM_ERROR' );
 	const r = new RouterNode();
 	r.name = '_router';
-	// No FROM -> the NOT_AVAILABLE error has empty TO -> empty head -> re-fills as
-	// TM_ERROR and drops on the TM_ERROR branch; no loop, no sink.
+	// No FROM → NOT_AVAILABLE has empty TO → drops on the TM_ERROR branch.
 	const m = newMessage();
 	m[ TO ] = 'missing/path';
 	expect( () => r.fill( m ) ).not.toThrow();
@@ -141,7 +140,7 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 				fires += 1;
 			};
 			r.register( 'TIMER', 'sub' );
-			// No immediate fire (Perl/PHP parity); first tick after one interval.
+			// No immediate fire (Perl parity); first tick after one interval.
 			expect( fires ).toBe( 0 );
 			jest.advanceTimersByTime( 1000 );
 			expect( fires ).toBe( 1 );

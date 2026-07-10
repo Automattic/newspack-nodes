@@ -27,21 +27,18 @@ export class TimerNode extends Node {
 	constructor() {
 		super();
 		this._handle = null;
-		// Predeclared so the schema setter walker (gated on `name in this`)
-		// assigns it from `arguments=`.
+		// Predeclared so the schema setter walker assigns it from `arguments=`.
 		this.interval_ms = 0;
 		// 'inactive' | 'event_framework' (own slot) | 'router' (hitchhike).
 		this.mode = 'inactive';
 		this.fire_count = 0;
 		this.active = false;
 		this.oneshot = false;
-		// The router can't hitchhike its own TIMER; RouterNode flips this so its
-		// >=1000 self-arm owns a slot instead. Plain timers leave it false.
+		// Router can't hitchhike its own TIMER; RouterNode self-arms instead.
 		this.isRouter = false;
-		// Throttle clock (Core.now() seconds) for hitchhike timers with interval_ms
-		// > 1000: fireCb() only fires once interval_ms has elapsed since this.
+		// Throttle clock for hitchhike timers with interval_ms > 1000.
 		this.lastFireTime = 0;
-		// Stamped onto each emitted message's KEY (Tachikoma's STREAM). '' = unset.
+		// Stamped onto each message's KEY (Tachikoma STREAM); '' = unset.
 		this.key = '';
 	}
 
@@ -49,7 +46,7 @@ export class TimerNode extends Node {
 		return super.arguments;
 	}
 
-	// Only the BASE Timer auto-arms; interval_ms comes from setTimer(), not a schema walk.
+	// Only the BASE Timer auto-arms; interval_ms comes from setTimer().
 	set arguments( value ) {
 		super.arguments = value;
 		if ( TimerNode !== this.constructor ) {
@@ -66,10 +63,7 @@ export class TimerNode extends Node {
 		}
 	}
 
-	// fire_cb (Perl Timer::fire_cb): deactivate a non-'forever' (oneshot) timer,
-	// then return WITHOUT firing if there is no sink — so a sink-less Timer never
-	// emits and never notifies 'FIRE'. The _router's notify_timer calls this
-	// directly for hitchhikers; the Event_Framework calls it for own-slot timers.
+	// fireCb (Timer::fire_cb): deactivate a oneshot, then no-op without a sink.
 	fireCb() {
 		this.fire_count += 1;
 		if ( this.oneshot ) {
@@ -79,10 +73,7 @@ export class TimerNode extends Node {
 		if ( ! this.sink ) {
 			return;
 		}
-		// A hitchhike timer with interval_ms > 1000 rides the per-second router tick
-		// but only fires once interval_ms has elapsed (Core.now() is in seconds, so
-		// convert). interval_ms <= 1000 (own-slot setInterval already paces it) and
-		// interval_ms === 0 (no-ms hitchhike fires every tick) skip the throttle.
+		// A hitchhike timer with interval_ms > 1000 throttles to that interval.
 		if ( this.interval_ms > 1000 ) {
 			const now = Core.now();
 			if ( now - this.lastFireTime < this.interval_ms / 1000 ) {
@@ -93,12 +84,7 @@ export class TimerNode extends Node {
 		this.fire();
 	}
 
-	// One tick (Perl Timer::fire). Emit a TM_BYTESTREAM heartbeat carrying the
-	// timestamp ONLY when this timer has a target, or its sink isn't the
-	// CommandInterpreter (the owner/CI guard — a target-less timer sinking into the
-	// interpreter would just spam it); counter++ on emit. Always notify 'FIRE'.
-	// (instanceof would cycle through command-interpreter-node's make_node map, so
-	// the CI is matched by its build-preserved constructor name.)
+	// One tick (Timer::fire): emit a TM_BYTESTREAM heartbeat, notify 'FIRE'.
 	fire() {
 		if (
 			'' !== this.target ||
@@ -119,18 +105,11 @@ export class TimerNode extends Node {
 		this.notify( 'FIRE', Core.now() );
 	}
 
-	// No ms (or ms > 1000) => Router-hitchhike (register 'TIMER' on _router);
-	// fireCb() throttles a >1000 interval against lastFireTime so the per-second
-	// router tick is enough. ms <= 1000 => own setInterval slot (the router tick is
-	// ~1s, too coarse to pace a sub-second timer).
+	// No ms or ms > 1000 → Router-hitchhike; ms <= 1000 → own setInterval slot.
 	setTimer( ms = null, oneshot = false ) {
 		this.oneshot = oneshot;
 		this.active = true;
-		// A >=1000ms timer hitchhikes the per-tick router notify — EXCEPT the router
-		// itself (isRouter), which can't subscribe to its own TIMER; it owns a
-		// setInterval slot so the drain ticks it (everything else rides that tick).
-		// Mirrors PHP Timer_Node::set_timer (PHP guards via `$router !== $this`; the
-		// JS router self-arms in its ctor before naming, so it flags isRouter).
+		// A >=1000ms timer hitchhikes the router notify; except isRouter.
 		if ( ( null === ms || ms >= 1000 ) && ! this.isRouter ) {
 			if ( '' === this.name ) {
 				throw new Error(
@@ -152,15 +131,12 @@ export class TimerNode extends Node {
 			this.mode = 'router';
 			return;
 		}
-		// Clear any live slot before re-arming: router→own switches mode, and an
-		// own→own re-arm must drop the prior setInterval (JS setInterval, unlike
-		// PHP's node-deduped Event_Framework, would otherwise leak it).
+		// Clear any live slot before re-arming, else a setInterval leaks.
 		if ( 'router' === this.mode || null !== this._handle ) {
 			this.stopTimer();
 		}
 		if ( null === ms ) {
-			// Own-slot needs a concrete interval. Only isRouter reaches here with a
-			// null ms (it can't hitchhike itself) — fail loud like PHP set_timer.
+			// Own-slot needs a concrete interval; only isRouter reaches null.
 			throw new Error( 'Own-slot timer requires an interval (ms)' );
 		}
 		this._handle = setInterval( () => this.fireCb(), ms );
@@ -173,8 +149,7 @@ export class TimerNode extends Node {
 		super.removeNode();
 	}
 
-	// Unregister the active slot. Router mode unregisters immediately — notify()
-	// iterates an Object.keys() snapshot, so a mid-notify self-stop is safe.
+	// Unregister the active slot; a mid-notify self-stop is safe.
 	stopTimer() {
 		const mode = this.mode;
 		this.active = false;

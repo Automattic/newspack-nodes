@@ -34,12 +34,9 @@ export function dumpMetadataPayload( only = '' ) {
 		if ( node.patron !== null && node.patron !== undefined ) {
 			continue;
 		}
-		// Per-node port flags from the node's own schema; default true so the
-		// canvas draws both ports when the class declares no static schema.
+		// Per-node port flags from the node's schema; default true if none.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
-		// Shell name (strip the `_Node` suffix) so the in-browser tier reports the
-		// SAME `class` the worker does (`Tee`, not `TeeNode`) — the Inspector's
-		// `type === 'Tee'` checks and the catalog keying both depend on it.
+		// Shell name (strip `_Node`) so `class` matches the worker's.
 		const ctorName = node.constructor?.name ?? 'Node';
 		out[ name ] = {
 			class: ctorName.replace( /Node$/, '' ) || ctorName,
@@ -53,22 +50,16 @@ export function dumpMetadataPayload( only = '' ) {
 			bytes_written: node.bytesWritten ?? 0,
 			accepts_fill: schema?.accepts_fill ?? true,
 			has_target: schema?.has_target ?? true,
-			// A node has a `:config` command sidecar iff that sibling node is
-			// registered (matches the PHP producer's isset check).
+			// Has a `:config` sidecar iff that sibling node is registered.
 			has_config: Core.nodes.has( `${ name }:config` ),
 		};
-		// Emit registrations only when non-empty, keeping this producer byte-identical
-		// with the PHP one (PHP `[]` vs JS `{}` would diverge if always emitted).
+		// Emit registrations only when non-empty (PHP-parity: `[]` vs `{}`).
 		const registrations = node.registeredListeners();
 		if ( Object.keys( registrations ).length ) {
 			out[ name ].registrations = registrations;
 		}
 	}
-	// Reserved header carrying THIS session's reverse_cwd — only on a
-	// FULL snapshot, not a single-node refresh delta. For the in-browser interpreter
-	// that reply path is the bare Dumper `_output` (the exact FROM a local
-	// `connect_node <tee>` stores), which the Inspector matches to toggle
-	// Connect/Disconnect. The worker tier stamps its own (`_repl/…/_sse:{pid}/…`).
+	// Reserved header with THIS session's reverse_cwd — FULL snapshot only.
 	if ( '' === only ) {
 		out._header = { pwd: reservedNames.OUTPUT };
 	}
@@ -90,12 +81,7 @@ export function canonicalReverseCwd( rawPwd ) {
 	return ( rawPwd || '' ).replace( /\/[^/]+$/, `/${ reservedNames.OUTPUT }` );
 }
 
-// Process plumbing hidden from the canvas: the rule-#2 backbone every node sinks
-// through (`_command_interpreter` → `_router`), plus the per-worker TopicProbe +
-// its shared log (auto-mounted by Worker_Base, present in every worker's
-// dump_metadata but not part of any topology the operator authored). NOTE: the
-// `_shell` command Tap is deliberately NOT hidden — it's a visible, meaningful
-// node (the command-observation point, `connect _shell`), shown like `_http`.
+// Process plumbing hidden from the canvas: backbone + per-worker TopicProbe.
 const SCAFFOLDING = new Set( [
 	reservedNames.COMMAND_INTERPRETER,
 	reservedNames.ROUTER,
@@ -125,13 +111,7 @@ export function parseMetadata( payload ) {
 		return { nodes: [], edges: [], pwd: '' };
 	}
 
-	// `_header` is the one reserved (non-node) key: the producer (worker or local
-	// Core) stamps `pwd` = THIS session's reply path. It arrives ending in the
-	// POLLING node's reply segment (`…/_sse:{pid}/_metadata`, since the canvas
-	// polls FROM `_metadata`), but a Tee tail target — what the toggle matches —
-	// ends in the SHELL's reply node `_output` (`connect_node` uses the shell's
-	// reply path). Canonicalize the final segment to `_output` so the two agree.
-	// Skipped in the node loop so it never renders as a phantom node.
+	// `_header` is the reserved key: `pwd` = THIS session's reply path.
 	const rawPwd =
 		raw._header && typeof raw._header.pwd === 'string'
 			? raw._header.pwd
@@ -144,10 +124,7 @@ export function parseMetadata( payload ) {
 		if ( SCAFFOLDING.has( name ) || '_header' === name ) {
 			continue;
 		}
-		// Full target paths, before the edge head-collapse below. The Inspector's
-		// Connect/Disconnect toggle matches THIS session's reply path (`pwd`)
-		// against these, since the head-collapsed edges flatten every session's
-		// reply path to a single shared `_repl` and can no longer distinguish them.
+		// Full target paths, pre head-collapse; the toggle matches `pwd`.
 		let targets = [];
 		if ( Array.isArray( meta.target ) ) {
 			targets = meta.target.filter(
@@ -169,48 +146,32 @@ export function parseMetadata( payload ) {
 				typeof meta.bytes_read === 'number' ? meta.bytes_read : 0,
 			bytesWritten:
 				typeof meta.bytes_written === 'number' ? meta.bytes_written : 0,
-			// Per-node port flags; default true so the canvas draws both ports
-			// when the payload omits them (drafts, legacy workers).
+			// Per-node port flags; default true (canvas draws both ports).
 			accepts_fill:
 				typeof meta.accepts_fill === 'boolean'
 					? meta.accepts_fill
 					: true,
 			has_target:
 				typeof meta.has_target === 'boolean' ? meta.has_target : true,
-			// Whether the node has a `:config` command sidecar (the compose
-			// target). Default false — only offer `<id>:config` when the producer
-			// says it exists; not every node has one.
+			// Whether the node has a `:config` sidecar; default false.
 			has_config: meta.has_config === true,
 			targets,
-			// Raw target as reported: an array for a Tee-family fan-out node, a
-			// string otherwise. The Inspector keys its multi-target editor and
-			// tail/tap button off Array.isArray( target ) — subclass-proof.
+			// Raw target: array for a Tee fan-out, else string.
 			target: meta.target ?? '',
 		} );
 		const node = nodes[ nodes.length - 1 ];
-		// A Consumer's read surface (dump_metadata): the offsetlog keyframe
-		// frames + the live cursor. Threaded through only when present so a
-		// non-consumer node carries no extra keys — that's the Inspector's
-		// consumer signal (node.frames + node.cursor), no class-name list.
+		// Consumer read surface: offsetlog frames + cursor, when present.
 		if ( Array.isArray( meta.frames ) ) {
 			node.frames = meta.frames;
 		}
 		if ( meta.cursor && typeof meta.cursor === 'object' ) {
 			node.cursor = meta.cursor;
 		}
-		// The Consumer's poll state (`INIT` | `ACTIVE` | `PAUSED`). Threaded only
-		// when present so a non-consumer node carries no extra key; `PAUSED` is
-		// the canvas/panel paused signal.
+		// Consumer poll state (`INIT`|`ACTIVE`|`PAUSED`); only when present.
 		if ( typeof meta.polling === 'string' ) {
 			node.polling = meta.polling;
 		}
-		// The Consumer's cursor POSITION relative to the offsetlog keyframes, used for
-		// BOTH live status and time-travel: `at_frame` is the keyframe the cursor is
-		// at-or-just-past (null = no frames yet) and `on_frame` whether it sits exactly
-		// on that frame's committed position. `null` is a meaningful present value, so
-		// test presence with `in`, not a truthiness/type check that would drop it.
-		// Threaded only when present so a non-consumer node carries no extra keys — the
-		// panel reads them to restore its position across a remount.
+		// Cursor position; `null` is meaningful — test presence with `in`.
 		if ( 'at_frame' in meta ) {
 			node.at_frame =
 				typeof meta.at_frame === 'number' ? meta.at_frame : null;
@@ -218,8 +179,7 @@ export function parseMetadata( payload ) {
 		if ( 'on_frame' in meta ) {
 			node.on_frame = !! meta.on_frame;
 		}
-		// An edge connects to the HEAD of the target path — `_router` peels the
-		// first `/`-segment and delivers there (`_sse/workers` → `_sse`).
+		// Edge connects to the HEAD of the target path (`_router` peels).
 		const headOf = ( t ) => {
 			const slash = t.indexOf( '/' );
 			return -1 === slash ? t : t.slice( 0, slash );
@@ -234,8 +194,7 @@ export function parseMetadata( payload ) {
 		} else if ( typeof target === 'string' && target !== '' ) {
 			edges.push( { from: name, to: headOf( target ) } );
 		}
-		// Registration edges: emitter -> each listener of each event. Dashed
-		// (registration:true) + event-tooltip'd downstream in SchematicCanvas.
+		// Registration edges: emitter → each event listener (dashed).
 		const regs = meta.registrations;
 		if ( regs && typeof regs === 'object' ) {
 			for ( const [ event, listeners ] of Object.entries( regs ) ) {
@@ -284,12 +243,7 @@ export class MetadataNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.metadata = {};
-		// Self-throttle state: lastFired in Core.now() seconds; lastPath is the
-		// cwd we last polled (a cd re-polls immediately). pollIntervalMs is set
-		// from the graph size on each response (computePollIntervalMs). It is a
-		// DEDICATED field, NOT the base interval_ms: a cd must re-poll the SAME tick
-		// even mid-interval, which the base fireCb() throttle can't express — so the
-		// base stays at interval_ms 0 (fire every tick) and fire() gates itself.
+		// Self-throttle state: lastFired (s), lastPath, pollIntervalMs.
 		this.pollIntervalMs = 1000;
 		this.lastFired = 0;
 		this.lastPath = null;
@@ -303,7 +257,7 @@ export class MetadataNode extends TimerNode {
 		if ( meta === null || meta === undefined || meta === '' ) {
 			return;
 		}
-		// Coerce to the raw name->meta object so we can keep it for future merges.
+		// Coerce to the raw name->meta object; keep it for future merges.
 		let incoming = meta;
 		if ( typeof meta === 'string' ) {
 			try {
@@ -322,17 +276,13 @@ export class MetadataNode extends TimerNode {
 		this.setState( 'metadata', parsed );
 	}
 
-	// Router TIMER subscriber (the _router calls fireCb -> fire each second).
-	// Self-throttle: poll only once interval_ms has elapsed, or immediately when
-	// the cwd path changed (the user cd'd) — staying on the shared TIMER so the
-	// poll batches with the tick's other requests.
+	// Router TIMER subscriber; self-throttle: poll on interval or a cwd change.
 	fire() {
 		if ( ! this.sink ) {
 			return;
 		}
 		const now = Core.now();
-		// The poll routes through `_cwd` (this.target); its `.target` is the live
-		// cwd path, swapped by a cd without remounting us.
+		// Poll routes through `_cwd` (this.target); `.target` is the live cwd.
 		const cwd = Core.node( this.target );
 		const path = cwd && typeof cwd.target === 'string' ? cwd.target : '';
 		const intervalMs = this.pollIntervalMs || 1000;
@@ -347,9 +297,7 @@ export class MetadataNode extends TimerNode {
 		}
 	}
 
-	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
-	// re-stamps the live cwd). FROM = own name is the reply path; LOCAL taints
-	// it so the browser interpreter authorizes a local poll.
+	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
 	_pollMessage( verb, args = '' ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
@@ -360,13 +308,7 @@ export class MetadataNode extends TimerNode {
 		return m;
 	}
 
-	// Optimistic local edit after a gesture (drop / remove / connect / disconnect):
-	// mutate the kept raw map and re-publish so the canvas updates AT ONCE, with no
-	// dump_metadata round-trip (which races the gesture command to a worker and can
-	// read stale state). `patch === null` removes the node; otherwise it
-	// shallow-merges into the existing entry (seeding a new one for a drop). The
-	// next full poll overwrites rawMap with authoritative state, reconciling any
-	// approximation here (e.g. a Tee's full fan-out).
+	// Optimistic local edit: patch the raw map + re-publish, no round-trip.
 	optimisticPatch( name, patch ) {
 		if ( ! name ) {
 			return;

@@ -69,9 +69,7 @@ test( 'rename collision throws', () => {
 } );
 
 test( 'command stamps FROM with the node name', () => {
-	// Mirrors PHP Node::command — a node minting a command tags it with its own
-	// name so the issuer is visible. Shell.sendCommand overwrites FROM with the
-	// session reply path; an overlay node issuing a command keeps its name.
+	// Mirrors PHP Node::command — the minter tags FROM with its own name.
 	const n = new Node();
 	n.name = 'alice';
 	const m = n.command( 'connect_node', 'a b' );
@@ -221,9 +219,7 @@ test( 'node-name listener mode forwards a TM_INFO to the named node', () => {
 	expect( got[ 0 ][ KEY ] ).toBe( 'HELLO' );
 	expect( got[ 0 ][ VALUE ] ).toBe( 'payload-string' );
 	expect( got[ 0 ][ FROM ] ).toBe( 'producer' );
-	// Delivered directly to the resolved node with empty TO; stamping TO=listener
-	// re-routes through _router — across an SSE session boundary it lands where neither the
-	// listener nor the emitter exist, logging a spurious NOT_AVAILABLE.
+	// Delivered directly with empty TO; a TO=listener stamp would misroute.
 	expect( got[ 0 ][ TO ] ).toBe( '' );
 } );
 
@@ -291,7 +287,7 @@ describe( 'Node.registeredListeners', () => {
 		const n = new Node();
 		n.registrations = { EVT: {}, OTHER: {} };
 		n.register( 'EVT', 'node_listener' ); // cb null => node-name
-		n.register( 'EVT', 'closure_listener', () => {} ); // closure => excluded
+		n.register( 'EVT', 'closure_listener', () => {} ); // closure => skip
 		expect( n.registeredListeners() ).toEqual( {
 			EVT: [ 'node_listener' ],
 		} );
@@ -358,8 +354,7 @@ test( 'removeNode unregisters its OWN name LAST (Core.node sees null, not a half
 	n.interpreter = interpreter;
 
 	let selfWhenInterpreterGone = 'unset';
-	// At the moment the interpreter is removed, the parent must still be looked
-	// up by name — proving the parent's own unregister happens after the cascade.
+	// When the interpreter is removed the parent must still resolve by name.
 	const orig = Core.unregisterNode.bind( Core );
 	const spy = jest
 		.spyOn( Core, 'unregisterNode' )
@@ -418,7 +413,7 @@ test( 'dumpNode snapshots scalar state, renders the sink as a name, and masks in
 	expect( snap.name ).toBe( 'd' );
 	expect( snap.arguments ).toBe( 'a b' );
 	expect( snap.counter ).toBe( 5 );
-	expect( snap.sink ).toBe( 'downstream' ); // live ref rendered as the sink's name
+	expect( snap.sink ).toBe( 'downstream' ); // live ref → sink's name
 	expect( snap.registrations ).toBe( '{...}' ); // internal structure masked
 	expect( snap.setStateCache ).toBe( '{...}' );
 	// Private backing fields don't leak — the public surface is name/arguments.
@@ -427,9 +422,7 @@ test( 'dumpNode snapshots scalar state, renders the sink as a name, and masks in
 } );
 
 test( 'dumpNode filters out ANY reference to another node, generically', () => {
-	// The mechanism is general (not a per-class allow-list): any field holding a node
-	// instance is excluded as '{...}', so a composite node never leaks/circular-JSONs
-	// its internal sub-nodes — [96]. patron is the built-in case; an arbitrary field too.
+	// Any field holding a node is masked as '{...}', not a per-class list.
 	const n = new Node();
 	n.name = 'composite';
 	const inner = new Node();

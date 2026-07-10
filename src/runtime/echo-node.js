@@ -4,8 +4,7 @@ import { TYPE, FROM, TO, TM_ERROR } from './message';
 export class EchoNode extends Node {
 	fill( message ) {
 		const to = message[ TO ];
-		// Symlink (this.target/to) + loopback (TO=FROM); only a pathless pure
-		// TM_ERROR is dropped (Tachikoma Echo.pm).
+		// Symlink (target/to) + loopback (TO=FROM); pathless TM_ERROR dropped.
 		if ( message[ TYPE ] === TM_ERROR && '' === to ) {
 			return;
 		}

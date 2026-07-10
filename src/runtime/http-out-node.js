@@ -26,12 +26,9 @@ export class HttpOutNode extends Node {
 	 */
 	constructor() {
 		super();
-		// Safe default — callers MUST assign before fill(); a no-client fill()
-		// throws when buildMessage is invoked, surfacing the wiring bug loudly.
+		// Safe default — callers MUST assign before fill(); else fill() throws.
 		this.client = null;
-		// When locked, fill() buffers its message instead of POSTing; flush()
-		// drains the buffer as ONE postBatch so a Router TIMER tick's emissions
-		// (dump_metadata every tick + uptime on the 5s tick) ride in one request.
+		// When locked, fill() buffers; flush() drains it as ONE postBatch.
 		this.locked = false;
 		this.buffer = [];
 	}
@@ -51,8 +48,7 @@ export class HttpOutNode extends Node {
 		this._post( [ message ] );
 	}
 
-	// Release the lock and POST everything buffered during the locked window as
-	// ONE batch. An empty buffer posts nothing.
+	// Release the lock and POST everything buffered as ONE batch.
 	flush() {
 		this.locked = false;
 		if ( 0 === this.buffer.length ) {
@@ -63,16 +59,11 @@ export class HttpOutNode extends Node {
 		this._post( batch );
 	}
 
-	// POST the entries; feed every synchronous reply back into the sink — replies
-	// route by TO. JSONL body → zero or more reply Messages (verb response plus any
-	// stderr/log lines); a routed-onward command yields [] (bare 202) — its reply
-	// arrives over the SSE stream.
+	// POST the entries; feed each sync reply into the sink (routes by TO).
 	_post( entries ) {
-		// Pack ONCE: the wire size for the byte tally AND the body the client POSTs.
-		// Hand the packed lines to postBatch so it doesn't re-serialize them.
+		// Pack ONCE: byte tally AND the POST body; postBatch reuses them.
 		const packed = entries.map( ( m ) => pack( m ) );
-		// Write boundary: tally the packed wire size of what we POST (mirrors PHP's
-		// file-writer bytes_written + Partition largest_msg_sent).
+		// Write boundary: tally the packed wire size of what we POST.
 		for ( const line of packed ) {
 			const size = byteLength( line );
 			this.bytesWritten += size;
@@ -81,17 +72,14 @@ export class HttpOutNode extends Node {
 		Promise.resolve( this.client.postBatch( entries, packed ) )
 			.then( ( messages ) => {
 				for ( const message of messages ) {
-					// Read boundary: tally the wire size of each reply received
-					// (mirrors the bytesWritten tally on the POST above).
+					// Read boundary: tally the wire size of each reply.
 					this.bytesRead += byteLength( pack( message ) );
 					this.counter += 1;
 					this.sink?.fill( message );
 				}
 			} )
 			.catch( ( err ) => {
-				// Surface so the user gets feedback when /command fails
-				// (network drop, 5xx, HMAC mismatch). Rate-limited so a
-				// degraded server doesn't flood the console.
+				// Surface /command failures, rate-limited to avoid flood.
 				this.printLessOften(
 					`ERROR: HttpOut POST failed: ${ err?.message ?? err }`
 				);
@@ -102,13 +90,12 @@ export class HttpOutNode extends Node {
 		this.locked = true;
 	}
 
-	// Programmatic-deps node: no positional config to round-trip via arguments=.
+	// Programmatic-deps node: no positional config to round-trip.
 	static nodeSchema() {
 		return {
 			category: 'Remote',
 			description: 'Browser → /command HTTP boundary (the `_http` node).',
-			// POSTs commands out and routes replies back to their FROM node; it
-			// never sets a graph `target`, so it has no out-port on the canvas.
+			// POSTs out, routes replies to FROM; no `target`, no out-port.
 			has_target: false,
 			arguments: [],
 			commands: [],

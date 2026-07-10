@@ -6,7 +6,7 @@ export class TapNode extends TeeNode {
 	fill( message ) {
 		this.counter += 1;
 		const targets = Array.isArray( this.target ) ? this.target : [];
-		// Prune targets whose HEAD node is dead; a live head means the sink can route it.
+		// Prune targets whose HEAD node is dead (a live head can be routed).
 		const alive = targets.filter(
 			( t ) => null !== Core.node( t.split( '/' )[ 0 ] )
 		);

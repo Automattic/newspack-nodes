@@ -68,9 +68,7 @@ function makeLink( subscribe = 'raw-logs' ) {
 	return { link, posted };
 }
 
-// The `connected` envelope is now the flat string the server sends (TM_INFO
-// values are strings); SseIn splits it into sessionPid / sessionSlot. The slot
-// bridge keys on (user, ip, slot) — no partition.
+// SseIn splits the flat `connected` string into sessionPid / sessionSlot.
 const connectedRaw = ( { pid = 4242, slot = 3 } = {} ) =>
 	`PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS raw-logs INTERVAL 2000`;
 function dispatchConnected( link, opts ) {
@@ -103,12 +101,10 @@ describe( 'RemoteLinkNode', () => {
 		link.sseIn.bytesRead = 500;
 		link.sseIn.largestMsgSent = 120;
 		link.httpOut.bytesWritten = 80;
-		// SseIn is anonymous (unlisted), so the link surfaces its read tally —
-		// otherwise those bytes would be counted by no node at all.
+		// SseIn is unlisted, so the link surfaces its reads (else uncounted).
 		expect( link.bytesRead ).toBe( 500 );
 		expect( link.largestMsgSent ).toBe( 120 );
-		// HttpOut is the shared `_http` singleton, already a listed node; the link
-		// must NOT also surface its writes or a graph roll-up double-counts them.
+		// _http is already listed; the link must NOT re-surface its writes.
 		expect( link.bytesWritten ).toBe( 0 );
 	} );
 
@@ -270,8 +266,7 @@ describe( 'RemoteLinkNode', () => {
 		link.connect();
 		link.removeNode();
 		expect( link.sseIn ).toBe( null );
-		// _http/_heartbeat are backbone singletons (mountExospine owns them); the
-		// link leaves them for the graph teardown.
+		// _http/_heartbeat are backbone singletons; the link leaves them.
 		expect( Core.node( names.HTTP ) ).not.toBe( null );
 		expect( Core.node( names.HEARTBEAT ) ).not.toBe( null );
 	} );
@@ -301,15 +296,12 @@ describe( 'RemoteLinkNode', () => {
 		link.onConnected = ( payload ) => seen.push( payload );
 		link.connect();
 		dispatchConnected( link, { pid: 4242, slot: 3 } );
-		// The bridge fires the hook with the CONNECTED set_state payload (the raw
-		// envelope string the substrate now sends).
+		// Bridge fires the hook with the CONNECTED payload (raw envelope).
 		expect( seen ).toEqual( [ connectedRaw( { pid: 4242, slot: 3 } ) ] );
 	} );
 
 	it( 'dumpNode filters out its internal sub-node refs (sseIn/httpOut/heartbeat)', () => {
-		// [96]: a RemoteLink composes three internal nodes; dumpNode must not serialize
-		// them (live refs / circular). The base instanceof-Node filter handles it — no
-		// per-class allow-list — so the snapshot is safe to JSON-encode.
+		// RemoteLink composes 3 nodes; dumpNode masks them, not serialized.
 		const { link } = makeLink();
 		link.connect(); // wires sseIn + the shared _http/_heartbeat singletons.
 

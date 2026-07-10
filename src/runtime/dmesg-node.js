@@ -17,9 +17,7 @@ import {
 	TM_COMMAND,
 } from './message';
 
-// Poll cadence (ms) — slow: counts shift slowly and each reply is a ~100-line
-// tail, so there's no need to re-pull it every tick. The base Timer throttle
-// paces it (interval_ms > 1000).
+// Poll cadence (ms) — slow; counts shift slowly, reply is a ~100-line tail.
 const POLL_INTERVAL_MS = 10000;
 
 /**
@@ -69,9 +67,7 @@ export class DmesgNode extends TimerNode {
 		this.setState( 'dmesg', countLevels( text ) );
 	}
 
-	// Router TIMER subscriber: the base fireCb() throttles, so fire() just emits a
-	// dmesg poll to `_cwd` (which re-stamps the live cwd, so the counts track the
-	// scope being viewed).
+	// Router TIMER subscriber: fire() emits a dmesg poll to `_cwd` (live cwd).
 	fire() {
 		if ( ! this.sink ) {
 			return;
@@ -80,8 +76,7 @@ export class DmesgNode extends TimerNode {
 		this.sink.fill( this._pollMessage( 'dmesg' ) );
 	}
 
-	// Build a poll TM_COMMAND addressed to this.target. FROM = own name is the
-	// reply path; LOCAL taints it so the browser interpreter authorizes a local poll.
+	// Poll TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
 	_pollMessage( verb ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;

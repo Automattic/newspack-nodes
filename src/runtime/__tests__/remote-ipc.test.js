@@ -60,9 +60,7 @@ beforeEach( () => {
 	posted = [];
 } );
 
-// A RemoteIpc named for `reader`, wired to a shared exospine interpreter. Its
-// sends route through the shared `_http` HttpOut, whose client is a capturing
-// fake — sends land in the shared `posted`.
+// A RemoteIpc on a shared exospine; its sends route through the _http fake.
 function makeRemoteIpc( reader, interpreter ) {
 	const node = new RemoteIpcNode();
 	node.name = reader;
@@ -77,9 +75,7 @@ function makeRemoteIpc( reader, interpreter ) {
 	return node;
 }
 
-// Drive a `connected` handshake frame through a node's own composed SseIn. The
-// envelope is now the flat string the server sends (TM_INFO values are strings);
-// SseIn splits it into sessionPid / sessionSlot and fires the CONNECTED bridge.
+// Drive a flat `connected` frame through a composed SseIn → CONNECTED bridge.
 function dispatchConnected( node, { pid, slot } ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
@@ -123,7 +119,7 @@ describe( 'RemoteIpcNode', () => {
 		b.fill( command() );
 		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
 		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
-		// No per-worker child nodes (the churn the unnamed/shared design removes).
+		// No per-worker child nodes (churn the shared design removes).
 		expect( Core.node( 'aggregator.p0:http' ) ).toBe( null );
 		expect( Core.node( 'combined.p0:heartbeat' ) ).toBe( null );
 		expect( a.httpOut ).toBe( b.httpOut );
@@ -166,7 +162,7 @@ describe( 'RemoteIpcNode', () => {
 			arguments: 'aggregator.p0',
 		} );
 		expect( posted[ 0 ][ TO ] ).toBe( 'topologies' );
-		// The mount command is minted by this node → stamps its own name as FROM.
+		// The mount command is minted here → stamps its own name as FROM.
 		expect( posted[ 0 ][ FROM ] ).toBe( 'aggregator.p0' );
 		expect( posted[ 1 ][ VALUE ] ).toEqual( { name: 'ls', arguments: '' } );
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0' );

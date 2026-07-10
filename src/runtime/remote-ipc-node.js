@@ -30,15 +30,12 @@ import { newMessage, TYPE, FROM, TO, VALUE, TM_COMMAND } from './message';
 import names from './reserved-node-names.json';
 
 export class RemoteIpcNode extends RemoteLinkNode {
-	// The single RemoteIpc currently holding the live SseIn (one stream per
-	// browser session; a send swaps it). Static so siblings can hand it off.
+	// The RemoteIpc holding the live SseIn (one/session; a send swaps it).
 	static active = null;
 
 	constructor() {
 		super();
-		// Attached IPC, NOT a log subscription: worker reply frames carry a real
-		// TO (the TO=FROM breadcrumb) the browser router must honor, so DON'T
-		// re-home received frames to the target (that's RemoteLink's behavior).
+		// Attached IPC, not a subscription: keep worker TO=FROM, don't re-home.
 		this.rehomeReceived = false;
 	}
 
@@ -71,9 +68,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		connect[ TO ] = 'topologies';
 		connect[ VALUE ] = { name: 'connect_worker_input', arguments: reader };
 
-		// One POST: ride a pre-existing lock (the console's TIMER batch) or open
-		// our own around just this pair so the mount + command share a server
-		// process.
+		// One POST: ride a pre-existing lock, else open one around this pair.
 		const h = this.httpOut;
 		const pre = h.locked;
 		if ( ! pre ) {
@@ -86,8 +81,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		}
 	}
 
-	// Make this link's SseIn the live stream, replacing whichever RemoteIpc held
-	// it. Idempotent while already live (a steady poll stream doesn't reconnect).
+	// Make this link's SseIn the live stream, replacing the prior holder.
 	connect() {
 		const current = RemoteIpcNode.active;
 		if ( current === this && this.sseIn?._es ) {
@@ -125,8 +119,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		this.sseIn = null;
 		this.httpOut = null;
 		this.heartbeat = null;
-		// Skip RemoteLink.removeNode (it tears down the children) — the shared
-		// singletons are the graph's; Node.removeNode just unregisters this node.
+		// Skip RemoteLink.removeNode (tears down children); just unregister.
 		Node.prototype.removeNode.call( this );
 	}
 

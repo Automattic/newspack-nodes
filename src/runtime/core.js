@@ -18,14 +18,10 @@ class CoreImpl {
 		this._countSince = new Map(); // message → count since last print
 		this.recentLog = []; // bounded stderr tail for the dmesg verb
 		this._inStderr = false; // re-entry guard for the stderr reply-sink emit
-		this.initTime = this.now(); // uptime baseline (mirrors PHP Core::$init_time)
-		this.reinit = null; // current page graph's rebuild handle (set by mountExospine, cleared on teardown)
-		this.reinitNames = null; // names mountExospine's build registered (the reinit-managed set)
-		// Full-graph rebuild signal: bumping it re-runs every graph-building React
-		// effect (each dashboard hook's mountExospine + the overlay's useDebugRepl),
-		// so its cleanup tears down its nodes and its effect rebuilds them — a
-		// page-reload-in-place. The overlay's "Reset Graph" removes every node then
-		// bumps this to reconstruct the entire graph.
+		this.initTime = this.now(); // uptime baseline (PHP Core::$init_time)
+		this.reinit = null; // page-graph rebuild handle; mountExospine sets it
+		this.reinitNames = null; // names mountExospine's build registered
+		// Full-graph rebuild signal: bumping re-runs every graph effect.
 		this.graphGeneration = 0;
 		this._generationListeners = new Set();
 	}
@@ -45,10 +41,7 @@ class CoreImpl {
 		this.stderr( msg );
 	}
 
-	// stderr = the JS console (warn, not error, to skip devtools' error counter) +
-	// the bounded recentLog tail the dmesg verb reads. A line already starting with
-	// a date is passed through verbatim (no double-prefix on a re-log); otherwise
-	// apply prefix like PHP Core::stderr.
+	// stderr → JS console (warn) + the bounded recentLog tail dmesg reads.
 	stderr( text ) {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
@@ -60,10 +53,7 @@ class CoreImpl {
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
 		}
-		// Feed the debug overlay's tallies + message list off the Tachikoma log
-		// convention: a line opening WARNING: / ERROR: is that level, anything
-		// else is debug. WARNING wins so a "WARNING: …" never also trips ERROR.
-		// The trimmed line is the message text shown under the Overview charts.
+		// Classify by log convention: WARNING:/ERROR:/else-debug; WARNING wins.
 		const trimmed = line.replace( /\n$/, '' );
 		if ( /\bWARNING:/.test( line ) ) {
 			IoTelemetry.recordWarning( trimmed );
@@ -73,9 +63,7 @@ class CoreImpl {
 			IoTelemetry.recordDebug( trimmed );
 		}
 		console.warn( line.replace( /\n$/, '' ) );
-		// Also surface at the REPL: fan the formatted line to whichever reply sink
-		// this graph wired — `_repl` (worker output partition) else `_output` (the
-		// Dumper). Guarded so a fault inside the sink's fill can't recurse forever.
+		// Also fan the line to the REPL sink (`_repl` else `_output`); guarded.
 		if ( ! this._inStderr ) {
 			const sink = this.node( names.REPL ) ?? this.node( names.OUTPUT );
 			if ( sink ) {
@@ -93,9 +81,7 @@ class CoreImpl {
 		}
 	}
 
-	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line — mirrors
-	// PHP Core::log_prefix minus hostname + pid (neither is available in-browser).
-	// null → the bare prefix; a message → each line prefixed, chomped, + one newline.
+	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line.
 	log_prefix( msg = null ) {
 		const ts = new Date( this.now() * 1000 )
 			.toISOString()
@@ -109,8 +95,7 @@ class CoreImpl {
 		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
 	}
 
-	// Per-process identity for log_prefix (Perl $0 / PHP SAPI). The browser has
-	// no SAPI; a fixed label keeps dmesg lines attributable.
+	// Per-process identity for log_prefix (Perl $0 / PHP SAPI); fixed label.
 	argv0() {
 		return 'browser';
 	}
@@ -119,8 +104,7 @@ class CoreImpl {
 		return this.nodes.get( name ) ?? null;
 	}
 
-	// Bump the full-rebuild signal: increment + notify every subscriber so each
-	// graph-building effect re-runs (tears down + rebuilds its nodes).
+	// Bump full-rebuild signal: increment + notify every subscriber.
 	bumpGraphGeneration() {
 		this.graphGeneration += 1;
 		for ( const listener of this._generationListeners ) {
@@ -128,8 +112,7 @@ class CoreImpl {
 		}
 	}
 
-	// Subscribe to graphGeneration bumps (used by useGraphGeneration). Returns an
-	// unsubscribe function.
+	// Subscribe to graphGeneration bumps; returns an unsubscribe function.
 	subscribeGraphGeneration( listener ) {
 		this._generationListeners.add( listener );
 		return () => this._generationListeners.delete( listener );
@@ -154,15 +137,7 @@ class CoreImpl {
 	}
 }
 
-// The build emits each dashboard (event-dashboards, devtools-hub, topology-console)
-// as its own IIFE inlining its own copy of this module. The hub renders the active
-// tab's component (event-dashboards bundle) but its own DebugOverlay (devtools-hub
-// bundle); a module-local Core would give each a SEPARATE node graph, so the overlay
-// would see only its own bundle's nodes (just _output) instead of the tab's graph.
-// Back the instance with a process-wide window singleton — like the devtools tab
-// registry — so every separately-built copy shares ONE Core (one graph per page).
-// Bare `window` is safe: these IIFE bundles only ever run in the browser (jest
-// provides window too), matching the tabRegistry convention.
+// Back Core with a window singleton so every inlined bundle shares ONE graph.
 const GLOBAL_KEY = '__newspackNodesCore';
 if ( ! window[ GLOBAL_KEY ] ) {
 	window[ GLOBAL_KEY ] = new CoreImpl();

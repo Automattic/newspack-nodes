@@ -53,9 +53,7 @@ describe( 'ConnectionBanner', () => {
 	} );
 
 	it( 'fully reskins off universal tokens (--oxide fill + --paper text), no fixed --np-*', () => {
-		// Both the error fill AND the text must reskin: a fixed light text is
-		// unreadable on bright-oxide skins (CRT lime, blueprint orange). --paper is
-		// the surface colour, so it contrasts with --oxide on every skin.
+		// Error fill AND text reskin; --paper contrasts --oxide on every skin.
 		const scss = fs.readFileSync(
 			path.join( __dirname, '..', 'ConnectionBanner.scss' ),
 			'utf8'

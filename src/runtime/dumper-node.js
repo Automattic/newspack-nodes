@@ -115,7 +115,7 @@ export function renderMessage( message ) {
 	if ( has( type, TM_EOF ) ) {
 		return null;
 	}
-	// A command reply's VALUE is `{ name, payload }`; payload may be structured.
+	// Command reply's VALUE is `{name, payload}`; payload may be structured.
 	if ( has( type, TM_COMMAND ) ) {
 		const unwrap = () =>
 			value && typeof value === 'object'
@@ -158,8 +158,7 @@ export class DumperNode extends Node {
 	 */
 	constructor() {
 		super();
-		// Safe default — a fresh ref reading as `verbosity 0`. Callers assign
-		// their own ref after construction to wire up the live debug-level dial.
+		// Safe default: a fresh ref reading `verbosity 0`; callers assign one.
 		this.debugLevelRef = { current: 0 };
 		this._transcript = [];
 		// React subscribes to this via useNodeState( '_output', 'transcript' ).
@@ -205,9 +204,7 @@ export class DumperNode extends Node {
 		this.setState( 'transcript', this._transcript );
 	}
 
-	// Seed the transcript from a persisted snapshot [87] — caps to the most-recent
-	// TRANSCRIPT_MAX and notifies subscribers, so a reopened console shows recent
-	// history and later appends build on it.
+	// Seed the transcript from a persisted snapshot; caps to TRANSCRIPT_MAX.
 	restore( entries ) {
 		const list = Array.isArray( entries ) ? entries : [];
 		this._transcript =
@@ -223,12 +220,12 @@ export class DumperNode extends Node {
 		this.setState( 'transcript', [] );
 	}
 
-	// Programmatic-deps node: no positional config to round-trip via arguments=.
+	// Programmatic-deps node: no positional config to round-trip.
 	static nodeSchema() {
 		return {
 			category: 'Hidden',
 			description: 'REPL transcript renderer (the `_output` node).',
-			// The `_output` terminal renders to the transcript; it never forwards.
+			// The `_output` terminal renders to the transcript; never forwards.
 			has_target: false,
 			arguments: [],
 			commands: [],

@@ -21,8 +21,7 @@ import names from './reserved-node-names.json';
 
 export const MAX_FROM_SIZE = 1024;
 
-// Human-readable message-type labels for the dropMessage audit line (Perl/PHP
-// Node type_names).
+// Human-readable type labels for the dropMessage audit (PHP type_names).
 const TYPE_NAMES = [
 	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
 	[ TM_EOF, 'TM_EOF' ],
@@ -145,9 +144,7 @@ export class Node {
 		if ( 'function' === typeof cb ) {
 			return cb( payload );
 		}
-		// Node-name mode: deliver TM_INFO directly to the resolved node. No TO —
-		// stamping it re-routes through _router (across an SSE session boundary it lands where
-		// neither listener nor emitter exist, logging a spurious NOT_AVAILABLE).
+		// Node-name mode: deliver TM_INFO directly to the resolved node, no TO.
 		const target = Core.node( listener );
 		if ( ! target ) {
 			// Stale listener could fire on every notify — rate-limit.
@@ -186,11 +183,7 @@ export class Node {
 		return true;
 	}
 
-	// Drop a message with a rate-limited audit line (Perl/PHP Node::drop_message):
-	// "WARNING: <error> - <types> [from: …] [to: …] [payload: …]". A NOT_AVAILABLE
-	// drop uses printLessOften. NOT_AVAILABLE keeps no "WARNING:" prefix (matches
-	// Perl). VALUE is included only for payload-bearing types; an object VALUE is
-	// JSON-rendered (the substrate's structured-VALUE analogue of Perl's string PAYLOAD).
+	// Drop a message with a rate-limited audit line (PHP Node::drop_message).
 	dropMessage( message, error ) {
 		const type = message[ TYPE ];
 		const labels = [];
@@ -225,8 +218,7 @@ export class Node {
 		this.printLessOften( line );
 	}
 
-	// Emit a stderr line tagged with this node's midfix, via Core's stderr sink.
-	// An already-dated line passes through Core verbatim (no double prefix).
+	// Emit a stderr line tagged with this node's midfix, via Core's stderr.
 	stderr( text ) {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
@@ -238,15 +230,12 @@ export class Node {
 		Core.stderr( Core.log_prefix( this.log_midfix( text ) ) );
 	}
 
-	// Node-keyed rate-limited logging (per-node via log_midfix), routed through
-	// Core's limiters so the dedup key + emitted line both carry this node's tag.
+	// Node-keyed rate-limited logging (per-node via log_midfix).
 	printLessOften( text ) {
 		Core.printLessOften( this.log_midfix( text ) );
 	}
 
-	// Per-node mid-line tag (Tachikoma Node::log_midfix): `{name}: ` on each line,
-	// unless argv0 already starts with this node's name. null → the bare tag; a
-	// message → tagged, chomped, + one trailing newline.
+	// Per-node mid-line tag (Node::log_midfix): `{name}: ` on each line.
 	log_midfix( msg = null ) {
 		let midfix = '';
 		if (
@@ -264,9 +253,7 @@ export class Node {
 		return midfix + chomped.split( '\n' ).join( '\n' + midfix ) + '\n';
 	}
 
-	// Byte/size stats (mirror PHP Node's bytes_read()/bytes_written()/
-	// largest_msg_sent()). Leaf I/O nodes (SseIn read, HttpOut write) bump these;
-	// composite nodes override the getters to aggregate from their children.
+	// Byte/size stats; leaf I/O nodes bump these, composites aggregate.
 	get counter() {
 		return this._counter;
 	}
@@ -315,7 +302,7 @@ export class Node {
 		}
 	}
 
-	// Node-name listeners (null-callback registrations) keyed by event; closures excluded, empty events omitted. Mirrors PHP registered_listeners() for dump_metadata.
+	// Node-name listeners keyed by event; closures excluded, empty omitted.
 	registeredListeners() {
 		const out = {};
 		for ( const [ event, listeners ] of Object.entries(
@@ -334,24 +321,17 @@ export class Node {
 		return out;
 	}
 
-	// Set the single string target (matches PHP Node::connect_node). The override
-	// point for connection: Tee overrides to append to a fan-out array, RemoteLink
-	// to point its composed SseIn — so `connect_node` can call this uniformly
-	// instead of branching on the node type.
+	// Set the single string target (PHP Node::connect_node); override point.
 	connectNode( target ) {
 		this.target = target;
 	}
 
-	// Clear target (matches PHP Node::disconnect_node). Tee overrides to prune
-	// one entry from its fan-out array (hence the parity param the base ignores).
+	// Clear target (PHP Node::disconnect_node); Tee overrides to prune one.
 	disconnectNode( _target = '' ) {
 		this.target = '';
 	}
 
-	// Emit the round-trippable config for this node — `make_node <Type> <name>
-	// [<arguments>]`, a `set_sink` line when the sink isn't the default interpreter, and a
-	// `connect_node` per target. Mirrors PHP Node::dump_config (the JS runtime
-	// doesn't track invoked verbs, so there's no `cmd` replay line).
+	// Emit round-trippable config: make_node + set_sink? + connect_node lines.
 	dumpConfig() {
 		// Subclasses carry a `Node` suffix; the shell name strips it.
 		const shellName =
@@ -381,13 +361,7 @@ export class Node {
 		return out;
 	}
 
-	// Build a serializable state snapshot (class header + scalar state) for `dump_node`.
-	// References to OTHER nodes are filtered out generically — any field holding a node
-	// instance serializes as '{...}', never the live object — so a composite node (e.g.
-	// Remote_Link's sseIn/httpOut/heartbeat) never leaks or circular-JSONs its plumbing,
-	// with no per-class allow-list. The sink is the one ref kept, rendered as its name
-	// (the meaningful wiring). A subclass with non-node internals (e.g. the interpreter's
-	// verb table) overrides this and masks them. [96]
+	// Serializable state snapshot for `dump_node`; node refs render as '{...}'.
 	dumpNode() {
 		const snapshot = { class: this.constructor?.name ?? 'Node' };
 		for ( const key of Object.keys( this ) ) {
@@ -396,15 +370,12 @@ export class Node {
 				snapshot.sink = val && val.name ? val.name : '';
 				continue;
 			}
-			// A `_foo` backing field with a public `foo` accessor (name, arguments,
-			// counter, the byte tallies): snapshot the PUBLIC name + accessor value —
-			// so a composite override (Remote_Link's counter from its sseIn) surfaces —
-			// and drop the private backing key.
+			// `_foo` field with a public `foo` accessor: snapshot the public.
 			if ( '_' === key[ 0 ] && key.slice( 1 ) in this ) {
 				snapshot[ key.slice( 1 ) ] = this[ key.slice( 1 ) ];
 				continue;
 			}
-			// Any reference to another node (patron, interpreter, a subclass's sub-nodes).
+			// Any reference to another node (patron, interpreter, sub-nodes).
 			if ( val instanceof Node ) {
 				snapshot[ key ] = '{...}';
 				continue;
@@ -422,16 +393,14 @@ export class Node {
 		return snapshot;
 	}
 
-	// Teardown. Order matters: own name LAST, so in-flight Core.node() lookups
-	// see null not a half-torn-down self. Mirrors PHP Node::remove_node.
+	// Teardown. Order matters: own name LAST (in-flight lookups see null).
 	removeNode() {
 		this.registrations = {};
 		this.setStateCache = {};
 		this.sink = null;
 		this.target = '';
 		this.patron = null;
-		// Cascade-unregister the sibling interpreter so a name-recycle doesn't collide
-		// with an orphan.
+		// Cascade-unregister the sibling interpreter; avoids recycle collision.
 		if ( this.interpreter && '' !== this.interpreter.name ) {
 			Core.unregisterNode( this.interpreter.name );
 		}
@@ -460,7 +429,7 @@ export class Node {
 	}
 }
 
-// Coerce a raw string token to its declared schema type; unknown types pass through.
+// Coerce a raw token to its declared schema type; unknown types pass through.
 function coerceArgument( token, type ) {
 	switch ( type ) {
 		case 'int':
