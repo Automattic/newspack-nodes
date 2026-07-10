@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Vault;
@@ -50,6 +51,33 @@ class HttpOutTest extends TestCase {
 		$m[ Message::TO ]    = $to;
 		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $value_args ];
 		return $m;
+	}
+
+	public function test_multi_registered_with_drain_only_while_a_transfer_is_in_flight(): void {
+		// An idle registered multi (no in-flight transfer) makes curl_multi_select
+		// spin. HTTP_Out registers with the drain loop only while a POST is in
+		// flight and unregisters when the last completes.
+		Event_Framework::reset();
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => '' ];
+		$node = $this->make_node( 'austin' );
+
+		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'idle: not registered' );
+
+		$node->fill( $this->command_message( 'settings', 'set', 'x y' ) );
+		$node->fire();
+		$this->assertArrayHasKey(
+			\spl_object_id( $node ),
+			Event_Framework::instance()->curl_handles(),
+			'in flight: registered'
+		);
+
+		foreach ( $this->read_private( $node, 'inflight' ) as $entry ) {
+			$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $entry['handle'], 'result' => \CURLE_OK ] );
+		}
+		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'idle again: unregistered' );
 	}
 
 	public function test_fill_buffers_without_posting_and_arms_timer(): void {

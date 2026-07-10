@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Drain-loop busy-spin on idle egress cURL handles (~30% CPU on aggregator/hub workers).** `HTTP_Out` registered its cURL multi with the drain loop eagerly and kept it registered while idle between POSTs; a disconnected `SSE_In` (reconnect backoff) likewise left its multi registered. An fd-less registered multi makes `curl_multi_select` return immediately without waiting, so the loop spins between timer ticks. Both egress nodes now register with the drain loop **on-demand** — `HTTP_Out` only while a transfer is in flight, `SSE_In` only while connected (`detach_handle()` unregisters on disconnect; `arm()` refuses to register without a live handle). No event-loop sleep patch needed; the residual sub-tick race at the reconnect handoff is inherent. Diagnosed with the new `list_timers` / `list_handles` verbs.
 - **Cooperative stop now propagates on every drain path (ADR-14).** A `Worker_Should_Stop` raised mid-job by `Event_Framework::pump()` was swallowed by `Command_Interpreter_Node`'s broad `catch (\Throwable)` (wrapped as `TM_ERROR`) and could be lost in Tee/Tap fan-out, so a mid-job stop was only guaranteed on the direct firehose write. Broad drain-path catches now re-throw `Worker_Should_Stop` before handling, with deliberate carve-outs for Tee/Tap fan-out (a target throw can't starve its siblings) and the post-success `Job_Worker::after_job` finally (propagating there would false-poison a completed job).
 
 ## [0.32.1] - 2026-07-09
