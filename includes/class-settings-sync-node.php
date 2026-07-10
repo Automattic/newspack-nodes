@@ -2,9 +2,11 @@
 /**
  * Settings_Sync: pushes registered WP-option changes to connected spokes.
  *
- * This is the skeleton — the `add_setting` registry, its round-trippable
- * dump_config, and node_schema. The event-push fill() and periodic fire()
- * land in later tasks.
+ * A worker Consumer tails the settings log and fills this node with option-NAME
+ * events; fill() reads each named option's CURRENT value and fans out one `set`
+ * command per registered spoke mapping. The recurring fire() re-pushes every
+ * registered option so a freshly-connected spoke converges. Mappings are declared
+ * via add_setting() and round-trip through dump_config().
  *
  * @package Newspack_Nodes
  */

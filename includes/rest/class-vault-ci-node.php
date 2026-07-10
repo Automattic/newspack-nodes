@@ -55,8 +55,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<int|string, mixed>
 	 */
 	public static function cmd_list(): array {
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
+		$registry = Vault::fresh();
 		$out = [];
 		/** @var array<string, mixed> $config */
 		foreach ( $registry->get_all() as $id => $config ) {
@@ -73,10 +72,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<int|string, mixed>
 	 */
 	public static function cmd_get( string $args ): array {
-		$registry = Vault::get_instance();
+		$registry = Vault::fresh();
 		$id       = self::positional_id( $args );
-		$registry->reset_cache();
-		$server = $registry->get( $id );
+		$server   = $registry->get( $id );
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
@@ -117,8 +115,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( ! Vault::is_valid_id( $id ) ) {
 			throw new \RuntimeException( 'invalid server id' );
 		}
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
+		$registry = Vault::fresh();
 		if ( null !== $registry->get( $id ) ) {
 			throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
 		}
@@ -159,8 +156,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( '' === $id ) {
 			throw new \RuntimeException( 'id required' );
 		}
-		$registry = Vault::get_instance();
-		$registry->reset_cache();
+		$registry = Vault::fresh();
 		$existing = $registry->get( $id );
 		if ( null === $existing ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
@@ -200,9 +196,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_delete( string $args ): array {
-		$registry = Vault::get_instance();
+		$registry = Vault::fresh();
 		$id       = self::positional_id( $args );
-		$registry->reset_cache();
 		if ( null === $registry->get( $id ) ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
@@ -235,10 +230,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<int|string, mixed>
 	 */
 	public static function cmd_test( string $args ): array {
-		$registry = Vault::get_instance();
+		$registry = Vault::fresh();
 		$id       = self::positional_id( $args );
-		$registry->reset_cache();
-		$server = $registry->get( $id );
+		$server   = $registry->get( $id );
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}

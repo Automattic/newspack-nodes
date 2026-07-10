@@ -275,11 +275,6 @@ class Node {
 		}
 
 		$line = \implode( ' ', $parts );
-
-		if ( 'NOT_AVAILABLE' === $error && Core::$now - Core::$init_time < 300.0 ) {
-			$this->print_less_often( $line );
-			return;
-		}
 		$this->print_less_often( $line );
 	}
 

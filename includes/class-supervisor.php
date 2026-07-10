@@ -292,26 +292,39 @@ class Supervisor extends Supervisor_Base {
 				}
 			}
 
-			foreach ( $this->worker_locks as $worker ) {
-				if ( ! $this->worker_needs_spawn( $worker, $now ) ) {
-					continue;
-				}
-				if ( $this->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
-					continue;
-				}
-				// New type: honor post-detect delay so predecessor can flush.
-				$deferred_until = $this->spawn_after[ $worker['type'] ] ?? 0;
-				if ( $deferred_until > 0 ) {
-					if ( $now < $deferred_until ) {
-						continue;
-					}
-					unset( $this->spawn_after[ $worker['type'] ] );
-				}
-				$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
-				$this->record_spawn( $worker['type'], $worker['partition'], $now );
-			}
+			$this->spawn_due_workers( $spawn_url, $token, $now );
 
 			\sleep( 1 );
+		}
+	}
+
+	/**
+	 * Spawn every active-fleet worker that's due this tick: missing/stale lock,
+	 * past the rate-limit window, and past any new-type spawn deferral. The single
+	 * spawn-decision loop shared by the production tick_loop() and the tick_for_test() harness.
+	 *
+	 * @param string $spawn_url Fully-qualified spawn endpoint URL.
+	 * @param string $token     Current HMAC spawn token.
+	 * @param float  $now       Loop clock for this tick.
+	 */
+	private function spawn_due_workers( string $spawn_url, string $token, float $now ): void {
+		foreach ( $this->worker_locks as $worker ) {
+			if ( ! $this->worker_needs_spawn( $worker, $now ) ) {
+				continue;
+			}
+			if ( $this->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
+				continue;
+			}
+			// New type: honor post-detect delay so predecessor can flush.
+			$deferred_until = $this->spawn_after[ $worker['type'] ] ?? 0;
+			if ( $deferred_until > 0 ) {
+				if ( $now < $deferred_until ) {
+					continue;
+				}
+				unset( $this->spawn_after[ $worker['type'] ] );
+			}
+			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
+			$this->record_spawn( $worker['type'], $worker['partition'], $now );
 		}
 	}
 
@@ -383,23 +396,7 @@ class Supervisor extends Supervisor_Base {
 		}
 
 		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
-		foreach ( $this->worker_locks as $worker ) {
-			if ( ! $this->worker_needs_spawn( $worker, $now ) ) {
-				continue;
-			}
-			if ( $this->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
-				continue;
-			}
-			$deferred_until = $this->spawn_after[ $worker['type'] ] ?? 0;
-			if ( $deferred_until > 0 ) {
-				if ( $now < $deferred_until ) {
-					continue;
-				}
-				unset( $this->spawn_after[ $worker['type'] ] );
-			}
-			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
-			$this->record_spawn( $worker['type'], $worker['partition'], $now );
-		}
+		$this->spawn_due_workers( $spawn_url, $token, $now );
 
 		if ( null !== $this->own_lock && $this->own_lock->should_restart() ) {
 			return false;

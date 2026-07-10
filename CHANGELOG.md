@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two `'off'` string literals clobbered by the segment/offset/length whole-word rename (`9240c816`).** The Shell's `show_parse` toggle-off confirmation printed `show_parse: offset` instead of `show_parse: off`, and `SSE_Out_Node::init_sse_headers()` passed the invalid value `'offset'` to `ini_set( 'output_buffering', … )` (behaviorally inert — the directive is `PHP_INI_PERDIR` — but wrong on its face). Audited the full rename commit across PHP and JS: these were the only two damaged literals.
+
+### Changed
+
+- **Behavior-preserving elegance pass over the substrate (writing-elegant-code forces), verified against the ADRs.** Highlights: `Supervisor`'s spawn-decision loop deduplicated into `spawn_due_workers()` so `tick_for_test()` provably exercises the production path; `Vault::fresh()` is the new single fresh-read accessor (replaces open-coded `get_instance()` + `reset_cache()` pairs in the vault and aggregator CIs); `Config`'s three memoized directory getters collapsed into one `validated_subdir()` map; `Admin` gained `build_dir()`/`build_url()`/`append_tab_bundle()` over seven repeated build-path concats; `Command_Auth`'s sign/verify share one `is_request_command()` predicate; `cmd_help` uses `array_chunk`; a dead byte-identical branch removed from `Node::drop_message()`; `Router_Node::send_error()` uses `Core::as_string()`. New pinning tests cover the router error payload, help-grid chunking, offsetlog last-frame semantics, and `Vault::fresh()`.
+
 ## [0.33.1] - 2026-07-09
 
 ### Changed

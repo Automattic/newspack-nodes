@@ -158,14 +158,6 @@ class Worker_Base {
 	}
 
 	/**
-	 * Graceful clean-shutdown handoff for every durable consumer this process owns:
-	 * the registered work consumers (Core::$nodes_by_name) plus the anonymous IPC
-	 * consumer. A graceful checkpoint stamps attempts=0 at the current cursor, so the
-	 * respawn resumes at the virgin baseline rather than counting the clean recycle as
-	 * a crash (dead-letter [42]). Only a hard crash skips this path, so only crashes
-	 * climb the attempt counter.
-	 */
-	/**
 	 * Shutdown cursor handoff. On a clean stop (cooperative or operational) every durable
 	 * consumer is graceful/fair-shot checkpointed. On a FATAL (OOM / uncaught error that
 	 * aborted the run before the finally), the handoff is SKIPPED: leaving the boot frame's
@@ -195,6 +187,14 @@ class Worker_Base {
 		return \error_get_last();
 	}
 
+	/**
+	 * Graceful clean-shutdown handoff for every durable consumer this process owns:
+	 * the registered work consumers (Core::$nodes_by_name) plus the anonymous IPC
+	 * consumer. A graceful checkpoint stamps attempts=0 at the current cursor, so the
+	 * respawn resumes at the virgin baseline rather than counting the clean recycle as
+	 * a crash (dead-letter [42]). Only a hard crash skips this path, so only crashes
+	 * climb the attempt counter.
+	 */
 	public function checkpoint_durable_consumers(): void {
 		foreach ( Core::$nodes_by_name as $node ) {
 			if ( $node instanceof Consumer_Node ) {

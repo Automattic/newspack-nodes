@@ -504,6 +504,19 @@ class Vault {
 	}
 
 	/**
+	 * The singleton with its in-process cache dropped — for request-scope
+	 * readers (service CIs) that must see writes from earlier in the same
+	 * request.
+	 *
+	 * @api
+	 */
+	public static function fresh(): Vault {
+		$instance = self::get_instance();
+		$instance->reset_cache();
+		return $instance;
+	}
+
+	/**
 	 * Reset the in-process cache so the next read rebuilds from disk + option.
 	 *
 	 * Long-running workers (JobWorker) call this between jobs so post-admin

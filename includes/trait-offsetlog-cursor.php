@@ -75,7 +75,7 @@ trait Offsetlog_Cursor {
 		if ( '' === $content ) {
 			return null;
 		}
-		$lines = \array_values( \array_filter( \explode( "\n", $content ), static fn ( $l ) => '' !== $l ) );
+		$lines = \array_filter( \explode( "\n", $content ), static fn ( $l ) => '' !== $l );
 		if ( empty( $lines ) ) {
 			return null;
 		}

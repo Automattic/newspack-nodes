@@ -76,6 +76,16 @@ final class VaultTest extends TestCase {
 		$this->assertSame( 'https://pinned.example', $vault->get( 'cfg' )['url'] );
 	}
 
+	public function test_fresh_returns_singleton_with_cache_dropped(): void {
+		$vault = Vault::get_instance();
+		$this->assertTrue( $vault->add( 'spoke1', [ 'url' => 'https://a.example' ] ) );
+		$this->assertNotNull( $vault->get( 'spoke1' ) );
+		\delete_option( Vault::OPTION_KEY );
+		$fresh = Vault::fresh();
+		$this->assertSame( $vault, $fresh );
+		$this->assertNull( $fresh->get( 'spoke1' ) );
+	}
+
 	// ---------------------------------------------------------------------
 	// get_all — defensive normalization of malformed config / option data.
 	// ---------------------------------------------------------------------

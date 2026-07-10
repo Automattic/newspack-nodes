@@ -204,7 +204,7 @@ class Shell_Node extends Node {
 
 		if ( 'show_parse' === $verb ) {
 			$this->show_parse = ! $this->show_parse;
-			$this->stdout( 'show_parse: ' . ( $this->show_parse ? 'on' : 'offset' ) . "\n" );
+			$this->stdout( 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
 			return null;
 		}
 
