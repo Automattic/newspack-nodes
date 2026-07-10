@@ -15,8 +15,7 @@ describe( 'debug-overlay tab registration', () => {
 		const overlayTabs = getDevtoolsTabs( 'overlay' );
 		const console = overlayTabs.find( ( t ) => t.id === 'console' );
 		expect( console ).toBeDefined();
-		// The Console is a self-managed full-height graph canvas — it must opt
-		// out of the host's default scroll container.
+		// Console is a self-managed full-height canvas; it opts out of scroll.
 		expect( console.fullBleed ).toBe( true );
 	} );
 
@@ -34,9 +33,7 @@ describe( 'debug-overlay tab registration', () => {
 	} );
 
 	it( 'does NOT collide with the hub Overview tab id in the shared registry', () => {
-		// Both bundles load on the hub page; the registry is keyed by id and
-		// shadows across hosts, so the overlay Overview must NOT reuse the hub
-		// Overview's `overview` id (that would clobber one of them).
+		// Registry is keyed by id; overlay Overview must not reuse 'overview'.
 		require( '../../event-dashboards/tabs' ); // hub Overview, id 'overview'
 		require( '../tabs/index.js' ); // overlay tabs
 		const hubOverview = getDevtoolsTabs( 'hub' ).find(

@@ -6,8 +6,7 @@
 
 import { __ } from '@wordpress/i18n';
 
-// AggregatorStatus pulls in the whole aggregator node graph; the registry only
-// stores the component reference, so a stub keeps this a pure registry test.
+// Stub AggregatorStatus so this stays a pure registry test (ref only).
 jest.mock( '../AggregatorStatus', () => () => null );
 
 test( 'importing tabs registers the aggregator tab on the hub host at order 40', () => {

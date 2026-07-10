@@ -22,9 +22,7 @@ describe( 'DebugOverlay', () => {
 	beforeEach( () => {
 		Core.reset();
 		window.localStorage.clear();
-		// The registry's import-side-effect registration runs once and is then
-		// module-cached, so re-registering explicitly here makes every test
-		// deterministic regardless of cache timing.
+		// Re-register explicitly; the import registration is module-cached.
 		resetDevtoolsTabs();
 		registerDevtoolsTab( {
 			id: 'inspector',
@@ -57,9 +55,7 @@ describe( 'DebugOverlay', () => {
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		const panel = getByTestId( 'debug-panel' );
-		// fireEvent returns false when a listener called preventDefault — i.e. the
-		// wheel was consumed and won't scroll the page behind the overlay. (No inner
-		// element is scrollable in jsdom, so the panel eats it.)
+		// fireEvent returns false = panel ate the wheel; page won't scroll.
 		const notCancelled = fireEvent.wheel( panel, {
 			deltaY: 100,
 			cancelable: true,
@@ -99,8 +95,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'locks the page scroll while the pointer is inside the panel', () => {
-		// Safari ignores the canvas wheel's preventDefault, so the page is pinned
-		// physically while the pointer is over the overlay panel.
+		// Safari ignores the wheel preventDefault, so pin the page physically.
 		mountExospine();
 		const { getByRole, getByTestId } = render(
 			<DebugOverlay search="?nodes-debug=1" />
@@ -116,8 +111,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'releases the page-scroll lock when the panel unmounts while locked', () => {
-		// onPointerLeave never fires on unmount, so the panel's callback ref must
-		// release the lock — otherwise the page is stuck unscrollable.
+		// onPointerLeave never fires on unmount; callback ref frees lock.
 		mountExospine();
 		const { getByRole, getByTestId, unmount } = render(
 			<DebugOverlay search="?nodes-debug=1" />
@@ -147,19 +141,11 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		// SchematicCanvas calls onViewportChange when pan/zoom moves. The hook
-		// debounces writes; persistence under a key keyed off storageKey is what
-		// makes the canvas survive a reload (today the overlay returns null/no-op
-		// and the canvas snaps back each render). The overlay's storageKey
-		// defaults to 'newspack-nodes:debug'.
+		// Viewport persists under a storageKey-derived key; still null here.
 		expect(
 			window.localStorage.getItem( 'newspack-nodes:debug:viewport' )
 		).toBeNull();
-		// We can't fire a real pan; assert the panel rendered with a viewport
-		// prop wired (the failure case today: the canvas never receives a
-		// non-default viewport because nothing threads state back).
-		// The narrowest meaningful invariant: there's a viewport storage key.
-		// Skip the round-trip assertion; coverage rides on the hook's own test.
+		// Can't fire a real pan; round-trip coverage rides on the hook's test.
 	} );
 
 	it( 'set_skin REPL builtin applies the selected theme class to the overlay shell', () => {
@@ -189,7 +175,7 @@ describe( 'DebugOverlay', () => {
 		expect(
 			container.querySelector( '.topology-header .topology-brand' )
 		).not.toBeNull();
-		// Hidden in view mode: Open/Save/Delete/New + EDIT button (canEdit=false).
+		// Hidden in view mode: Open/Save/Delete/New + EDIT (canEdit=false).
 		expect(
 			container.querySelector( '.topology-mode__btn--open' )
 		).toBeNull();
@@ -228,8 +214,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'Ctrl+` does nothing when debug is disabled (no panel ever appears)', () => {
-		// Sanity: the keydown listener is gated on `enabled`; without ?nodes-debug=1
-		// the hook returns null before mounting any listener.
+		// Sanity: the keydown listener is gated on `enabled` (null when off).
 		const { queryByTestId } = render( <DebugOverlay search="" /> );
 		act( () => {
 			fireEvent.keyDown( document, { key: '`', ctrlKey: true } );
@@ -257,17 +242,14 @@ describe( 'DebugOverlay', () => {
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		submitRepl( container, 'set_skin blueprint' );
-		// THEME_STORAGE_KEY is shared with topology-console; the overlay writes it.
+		// THEME_STORAGE_KEY is shared with topology-console; overlay writes it.
 		expect( window.localStorage.getItem( 'newspack-nodes:theme' ) ).toBe(
 			'blueprint'
 		);
 	} );
 
 	it( 'falls back to the default theme when localStorage.getItem throws', () => {
-		// Storage-disabled path: readStoredTheme catches and returns DEFAULT_THEME.
-		// Use window.Storage.prototype to ensure the throw propagates through both
-		// the theme read AND the palette init read (both happen in useState
-		// lazy initializers during the first DebugOverlay render).
+		// Storage-disabled: patch Storage.prototype so both lazy reads throw.
 		const originalGet = window.Storage.prototype.getItem;
 		window.Storage.prototype.getItem = jest.fn( () => {
 			throw new Error( 'storage disabled' );
@@ -320,7 +302,7 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		// GraphView (which hosts the palette) renders only once metadata arrives.
+		// GraphView (hosts the palette) renders only once metadata arrives.
 		act( () => {
 			Core.node( '_metadata' ).setState( 'metadata', {
 				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
@@ -362,14 +344,13 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'togglePaletteCollapsed survives a localStorage.setItem throw', () => {
-		// Cover the setItem-catch branch in togglePaletteCollapsed: state still
-		// flips and re-renders without the persisted value, in-session only.
+		// setItem-catch branch: state flips in-session without persisting.
 		mountExospine();
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		// GraphView (which hosts the palette) renders only once metadata arrives.
+		// GraphView (hosts the palette) renders only once metadata arrives.
 		act( () => {
 			Core.node( '_metadata' ).setState( 'metadata', {
 				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
@@ -383,7 +364,7 @@ describe( 'DebugOverlay', () => {
 		} );
 		try {
 			fireEvent.click( toggle );
-			// State flipped (the catch swallowed the throw), so the class is gone.
+			// State flipped (catch swallowed the throw); class is gone.
 			expect(
 				container.querySelector( '.topology-app.is-palette-collapsed' )
 			).toBeNull();
@@ -468,15 +449,13 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		// useDebugFrame exposes 8 resize handlers (corners + edges); each renders
-		// as a div with the key in its className.
+		// useDebugFrame exposes 8 resize handlers, each a div with the key.
 		const handles = container.querySelectorAll( '.nodes-debug__resize' );
 		expect( handles.length ).toBeGreaterThanOrEqual( 4 );
 	} );
 
 	it( 'pathOptions includes substrate top-level nodes whose names start with `_`', () => {
-		// _http is mounted by the dashboard exospine; the overlay's path menu
-		// should surface it as a `cd` target.
+		// _http is mounted by the exospine; path menu surfaces it as a `cd`.
 		mountExospine();
 		const httpish = new Node();
 		httpish.name = '_my_service';
@@ -484,8 +463,7 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		// Path selector — first .topology-select (NOT --skin), surfaced when
-		// pathOptions.length > 1. Test mounts _my_service to expand the menu.
+		// Path selector: first .topology-select (NOT --skin); shown when >1.
 		const selects = container.querySelectorAll( '.topology-select' );
 		const pathSelect = [ ...selects ].find(
 			( s ) => ! s.classList.contains( 'topology-select--skin' )
@@ -500,9 +478,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'excludes the _shell console Tap from the path menu (routing plumbing, not a cd target)', () => {
-		// `_shell` (names.CONSOLE_TAP) is the observe-only command Tap the exospine
-		// backbone always mounts in front of the interpreter — it's routing, not a
-		// navigable scope. `_http` (the I/O egress) stays a legitimate `cd` target.
+		// `_shell` (CONSOLE_TAP) is routing plumbing, not a `cd` scope.
 		mountExospine();
 		const svc = new Node();
 		svc.name = '_my_service'; // a real navigable node so the menu expands
@@ -522,10 +498,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'keeps the local navigable scopes in the path menu at a remote cwd', () => {
-		// Navigating into `/_http` makes the polled `_metadata` graph reflect the
-		// REMOTE scope (none of the local `_` nodes). The path menu must still
-		// offer the local `cd` targets — they come from the local Core registry,
-		// not the scope-dependent poll. (Before the fix the menu collapsed.)
+		// Remote cwd: path menu still offers local `cd` targets from Core.
 		mountExospine();
 		const svc = new Node();
 		svc.name = '_my_service'; // a local navigable node, always in Core
@@ -534,7 +507,7 @@ describe( 'DebugOverlay', () => {
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 
-		// Remote-scope poll: the published metadata has NONE of the local nodes.
+		// Remote-scope poll: published metadata has NONE of the local nodes.
 		act( () => {
 			Core.node( '_metadata' ).setState( 'metadata', {
 				nodes: [ { id: 'remoteThing', class: 'Echo', target: '' } ],
@@ -554,11 +527,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'inspector action through GraphView pops the transcript footer (setReplExpanded=true)', async () => {
-		// Drive an inspector-action through the rendered subtree: select a node
-		// (clicking the SVG <g class=topology-node>), then click the Inspector's
-		// dump button. The inline closure in DebugOverlay's <GraphView
-		// onInspectorAction> wraps handlers.onInspectorAction with a
-		// setReplExpanded(true) — covering lines 417-418.
+		// Select a node + dump: the onInspectorAction closure sets expanded.
 		mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -566,8 +535,7 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		// GraphView renders only once metadata arrives (the canvas reads the
-		// published _metadata graph, not Core directly — no coreToGraph fallback).
+		// GraphView renders once metadata arrives (reads the published graph).
 		act( () => {
 			Core.node( '_metadata' ).setState( 'metadata', {
 				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
@@ -583,8 +551,7 @@ describe( 'DebugOverlay', () => {
 		// At least one node element (the published 'a') must render.
 		expect( nodeEls.length ).toBeGreaterThan( 0 );
 		fireEvent.click( nodeEls[ 0 ] );
-		// Inspector renders once a node is selected; the dump button is in the
-		// action toolbar. Look for any button labelled dump.
+		// Inspector renders once a node is selected; find its dump button.
 		const dumpBtn = [
 			...container.querySelectorAll(
 				'.topology-insp button, .topology-inspector button'
@@ -592,8 +559,7 @@ describe( 'DebugOverlay', () => {
 		].find( ( b ) =>
 			( b.textContent || '' ).toLowerCase().includes( 'dump' )
 		);
-		// Inspector must render once a node is selected; the dump action is what
-		// fires DebugOverlay's inline onInspectorAction closure (lines 417-418).
+		// The dump action fires DebugOverlay's onInspectorAction closure.
 		expect( dumpBtn ).toBeTruthy();
 		act( () => fireEvent.click( dumpBtn ) );
 		// Transcript footer expanded — ReplFooter root gains `.is-expanded`.
@@ -609,15 +575,13 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		const input = container.querySelector( '.topology-repl__input' );
 		expect( input ).not.toBeNull();
-		// Type a first-token-only fragment and press Tab — onComplete fires
-		// requestCompletion('help'), which builds the message and fills it.
+		// First-token fragment + Tab fires requestCompletion('help').
 		fireEvent.change( input, { target: { value: 'hel' } } );
 		const interpreter = Core.node( '_command_interpreter' );
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		fireEvent.keyDown( input, { key: 'Tab' } );
 		expect( fillSpy ).toHaveBeenCalled();
-		// The dispatched message has KEY === 'completion' and its VALUE.name
-		// is either 'help' (first-token-only) or 'ls' (later tokens).
+		// Dispatched message: KEY 'completion', VALUE.name 'help' or 'ls'.
 		const m = fillSpy.mock.calls[ 0 ][ 0 ];
 		// Positional [TYPE=0, TIMESTAMP=1, FROM=2, TO=3, ID=4, KEY=5, VALUE=6].
 		expect( m[ 5 ] ).toBe( 'completion' );
@@ -647,15 +611,11 @@ describe( 'DebugOverlay', () => {
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		const input = container.querySelector( '.topology-repl__input' );
-		// `dump` is ambiguous (dump / dump_config / dump_metadata / dump_node); the
-		// LCP can't extend the token, so the first Tab bells and the second lists.
+		// `dump` is ambiguous; LCP can't extend, so 1st Tab bells, 2nd lists.
 		act( () => fireEvent.change( input, { target: { value: 'dump' } } ) );
-		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 1st Tab: bell
-		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 2nd Tab: list
-		// The candidate set is printed into the `_output` transcript (a `recv`
-		// entry) — the second Tab's `onShowCandidates` listing the overlay never
-		// wired before. (The footer only renders the transcript DOM when expanded,
-		// so assert on the transcript data, not container.textContent.)
+		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 1st: bell
+		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 2nd: list
+		// Candidates land in the `_output` transcript; assert data, not text.
 		const listed = Core.node( '_output' )._transcript.some(
 			( e ) =>
 				e.kind === 'recv' &&
@@ -676,11 +636,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'paints the local graph instantly on open via coreToGraph, without waiting for a metadata poll', async () => {
-		// F3: the overlay must render GraphView from the in-process graph the
-		// instant its own infra mounts — no ~1-tick wait for the first
-		// dump_metadata poll. With a local visible node in Core and NO metadata
-		// published, opening the panel mounts the infra (replReady) and
-		// coreToGraph yields the node (graphHasNodes) → GraphView renders now.
+		// Overlay paints GraphView from coreToGraph the instant infra mounts.
 		mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -702,11 +658,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'fresh open with empty localStorage lays the COMPLETE graph out once (isolated nodes on the right)', async () => {
-		// Graph: s->t connected; iso isolated. autoLayout puts s col0, t+iso at maxDepth(col1).
-		// The bug placed iso in the LEFT column via incremental placeNewNode.
-		// Local-scope reality: the graph's nodes live in Core, so coreToGraph
-		// surfaces the COMPLETE graph the instant the overlay's infra mounts
-		// (replReady) — the one-shot autoLayout runs over s/t/iso together.
+		// s->t + iso isolated; iso must land right, not left (was the bug).
 		window.localStorage.clear();
 		mountExospine();
 		const s = new Node();

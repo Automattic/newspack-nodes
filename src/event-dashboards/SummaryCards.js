@@ -144,6 +144,5 @@ function SummaryCards( {
 	);
 }
 
-// Memoized: its 24h derives (probe24hTotals etc.) are heavy, and the Overview
-// re-renders on every drag-reorder frame with otherwise-unchanged card props.
+// Memoized: its 24h derives are heavy; Overview re-renders every drag frame.
 export default memo( SummaryCards );

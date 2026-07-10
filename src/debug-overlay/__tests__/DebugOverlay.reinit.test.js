@@ -76,9 +76,7 @@ import DebugOverlay from '../DebugOverlay';
 beforeEach( () => {
 	Core.reset();
 	window.localStorage.clear();
-	// These tests drive the Inspector tab's canvas; register ONLY it so the panel
-	// opens straight to the Inspector (the real registry also has the default
-	// Overview tab, which would otherwise win as tabs[0]).
+	// Register ONLY the Inspector tab so the panel skips the Overview default.
 	resetDevtoolsTabs();
 	registerDevtoolsTab( {
 		id: 'inspector',
@@ -90,8 +88,7 @@ beforeEach( () => {
 	} );
 } );
 
-// Mount the exospine with a build that registers one dashboard-managed node, so
-// its name lands in Core.reinitNames. Returns that node's name.
+// Mount with a build registering one dashboard-managed node; returns its name.
 function mountWithManagedNode() {
 	const managedName = 'dashboard:view';
 	mountExospine( () => {
@@ -102,11 +99,7 @@ function mountWithManagedNode() {
 	return managedName;
 }
 
-// Render the overlay (debug-enabled) and open the panel. Opening mounts the
-// overlay's own infra (_output/_completion/_metadata/_cwd), so coreToGraph()
-// yields a non-empty (reserved-only) graph and the readiness gate renders
-// GraphView immediately — no metadata poll needed, and the reserved infra
-// nodes never count as user-added (so Reset Graph stays hidden until a gesture).
+// Render the overlay and open the panel (mounts infra; gate renders GraphView).
 function openOverlay() {
 	const utils = render( <DebugOverlay search="?nodes-debug=1" /> );
 	act( () => {
@@ -132,8 +125,7 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 			fireEvent.click( screen.getByTestId( 'chip-reset-graph' ) )
 		);
 
-		// Bumped the full-rebuild signal; the user node is gone; the dashboard's
-		// build node rebuilt fresh (a fresh instance, not the original).
+		// Full-rebuild bumped; user node gone; dashboard node rebuilt fresh.
 		expect( bumpSpy ).toHaveBeenCalledTimes( 1 );
 		expect( Core.node( 'user-added' ) ).toBeNull();
 		expect( Core.node( managedName ) ).not.toBeNull();
@@ -165,9 +157,7 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 	} );
 
 	it( 'drops a user node added BEFORE the overlay opened (no first-open snapshot)', () => {
-		// Build-delegated mount (production overlays are dashboard-mounted): Reset
-		// Graph's fullRebuild recreates _router synchronously, so useDebugRepl re-arms
-		// metadata on the fresh router with no missing-_router transient.
+		// Build-delegated mount: Reset Graph recreates _router synchronously.
 		mountExospine( () => {} );
 		Core.reinit = jest.fn();
 		// User node exists BEFORE the panel opens.
@@ -186,11 +176,10 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 
 describe( 'DebugOverlay — dirty-on-rewire', () => {
 	it( 'a connect gesture surfaces the Reset Layout chip (a structural change offers a fresh auto-fit)', async () => {
-		// A drop / connect / disconnect / remove changes the structure, so the
-		// canvas offers a fresh auto-fit (Reset Layout) alongside Reset Graph.
+		// A drop/connect/disconnect/remove offers a fresh auto-fit.
 		mountExospine();
 		openOverlay();
-		// The Reset Layout chip needs an initialized layout; let the settle fire.
+		// Reset Layout chip needs an initialized layout; let the settle fire.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
@@ -220,7 +209,7 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 		mountExospine();
 		Core.reinit = jest.fn();
 		openOverlay();
-		// The Reset Layout chip needs an initialized layout; let the settle fire.
+		// Reset Layout chip needs an initialized layout; let the settle fire.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
@@ -245,12 +234,11 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 		mountExospine( () => {} );
 		Core.reinit = jest.fn();
 		openOverlay();
-		// The Reset Layout chip needs an initialized layout; let the settle fire.
+		// Reset Layout chip needs an initialized layout; let the settle fire.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
-		// A connect surfaces both chips; Reset Graph keeps the layout but still
-		// offers a fresh auto-fit (Reset Layout) after the rebuild.
+		// A connect surfaces both chips; Reset Graph still offers a fresh fit.
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).not.toBeNull();
 		act( () =>

@@ -13,8 +13,7 @@ import Overview from '../Overview';
 jest.mock( '../hooks/useTopologyManager', () => ( {
 	useTopologyManager: jest.fn(),
 } ) );
-// Persistence is its own suite; here it's mocked so the tab's read-on-init +
-// write-through wiring can be asserted without touching real localStorage.
+// Persistence is its own suite; mocked to assert read-on-init + write-through.
 jest.mock( '../overviewPrefs', () => ( {
 	readOrder: jest.fn( () => [] ),
 	writeOrder: jest.fn(),
@@ -23,8 +22,7 @@ jest.mock( '../overviewPrefs', () => ( {
 	readCollapsed: jest.fn( () => new Set() ),
 	writeCollapsed: jest.fn(),
 } ) );
-// The probe stream is its own suite; here the link is a no-op and the view model
-// is fed directly via useNodeState.
+// Probe stream is its own suite; link no-op, view model fed via useNodeState.
 jest.mock( '../hooks/useTopicProbeStream', () => ( {
 	useTopicProbeStream: jest.fn(),
 } ) );
@@ -32,8 +30,7 @@ jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
 	useNodeState: jest.fn(),
 } ) );
-// TopicsChart is d3-driven (its own suite); here it's a prop-capturing stub so
-// the Overview suite stays free of d3 and can assert what each panel was fed.
+// TopicsChart (d3, own suite) stubbed to capture the props each panel is fed.
 jest.mock( '../TopicsChart', () => {
 	const el = require( '@wordpress/element' );
 	return {
@@ -51,9 +48,7 @@ jest.mock( '../TopicsChart', () => {
 		},
 	};
 } );
-// SummaryCards has its OWN suite (the fleet-card math + the "+ New Topology"
-// link live there). Here it's a prop-capturing stub: the tab is only on the hook
-// for handing it the right inputs, so assert against the captured props.
+// SummaryCards has its own suite; stubbed to capture the props the tab feeds.
 jest.mock( '../SummaryCards', () => {
 	const el = require( '@wordpress/element' );
 	return ( props ) => {
@@ -61,10 +56,7 @@ jest.mock( '../SummaryCards', () => {
 		return el.createElement( 'div', { className: 'nodes-cards-stub' } );
 	};
 } );
-// TopologyControls has its OWN suite (the toggle/restart/edit DOM + the
-// click→activate/deactivate/restart behavior + onError on rejection live there).
-// Here it's a prop-capturing stub so the tab only proves it wired the right
-// handlers + active flag + editHref per topology.
+// TopologyControls has its own suite; stubbed to capture its wired props.
 jest.mock( '../TopologyControls', () => {
 	const el = require( '@wordpress/element' );
 	return ( props ) => {
@@ -72,10 +64,7 @@ jest.mock( '../TopologyControls', () => {
 		return el.createElement( 'span', { className: 'nodes-ctl-stub' } );
 	};
 } );
-// TopologyRow renders the real d3/TopologySection tree (its OWN suite). Here it's
-// a prop-capturing stub so the Overview suite stays free of that tree and can
-// assert that the merged tab unfolds the right topology with the right handlers.
-// consoleHref is a real (non-component) re-export the tab imports, so keep it.
+// Prop-capturing stub (its own suite owns the tree); keep real consoleHref.
 jest.mock( '../TopologyRow', () => {
 	const el = require( '@wordpress/element' );
 	const actual = jest.requireActual( '../TopologyRow' );
@@ -158,7 +147,7 @@ afterEach( () => {
 	useNodeState.mockReset();
 } );
 
-// Active rows are TopologyRow stubs (data-name / data-folded); DOM order = display order.
+// Active rows are TopologyRow stubs; DOM order = display order.
 function rowNames( container ) {
 	return [ ...container.querySelectorAll( '.nodes-tm__topology-stub' ) ].map(
 		( n ) => n.dataset.name
@@ -240,7 +229,7 @@ describe( 'Overview fleet board', () => {
 			} )
 		);
 		const { container } = render( <Overview /> );
-		// Alphabetical — the stalled one stays put at the bottom (no float-to-top).
+		// Alphabetical — the stalled one stays put (no float-to-top).
 		expect( rowNames( container ) ).toEqual( [ 'aaa-ok', 'zzz-stalled' ] );
 	} );
 
@@ -774,9 +763,7 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 			} )
 		);
 		act( () => rowProps( 'alpha' ).onGripPointerMove( { clientY: 160 } ) );
-		// Mid-drag: the dragged row floats to the cursor (dy = 160−50) and beta
-		// shifts UP one pitch to open the gap — all via transform, and the LIST
-		// itself does NOT re-render/reorder (the whole point).
+		// Mid-drag moves via transform only; the list itself does NOT reorder.
 		expect( rowEl( 'alpha' ).style.transform ).toBe( 'translateY(110px)' );
 		expect( rowEl( 'beta' ).style.transform ).toBe( 'translateY(-100px)' );
 		expect( rowNames( container ) ).toEqual( [ 'alpha', 'beta' ] );

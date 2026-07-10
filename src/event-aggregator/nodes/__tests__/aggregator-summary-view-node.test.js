@@ -26,8 +26,7 @@ function makeView() {
 	return node;
 }
 
-// A reply Message as the slice verb emits one: VALUE.payload is a JSON STRING
-// (the substrate SliceViewNode contract).
+// A reply Message as the slice verb emits: VALUE.payload = JSON string.
 function reply( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;

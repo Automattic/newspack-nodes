@@ -82,19 +82,14 @@ const LogRows = memo( function LogRows( {
 	prevSegments,
 	removingSegments,
 } ) {
-	// Grouped layout: the entity is ONE logical log; render one sub-row per
-	// concrete partition. The rate key is the partition's CONCRETE catalog name —
-	// byte-identical to workerStatusTransform's recordLog key (which keys on the
-	// worker-status log.name verbatim) — so the W/R rate and segment animations
-	// line up regardless of where the partition token sits.
+	// One sub-row per partition; rate key = partition's CONCRETE catalog name.
 	const sorted = [ ...entity.partitions ].sort(
 		( a, b ) => a.partition - b.partition
 	);
 	return sorted.map( ( p ) => {
 		const rateKey = p.name;
 		const segs = p.segments || [];
-		// cursor + recorded end arrive together (this tree's own consumer); a tree
-		// with no consumer of the log has neither → SegmentBar paints all-gray.
+		// cursor + end arrive together; no consumer → SegmentBar paints gray.
 		const cursor =
 			entity.hasCursor &&
 			p.cursor_segment !== undefined &&
@@ -116,9 +111,8 @@ const LogRows = memo( function LogRows( {
 						P{ p.partition }
 					</span>
 					<span className="log-write-rate">
-						{ /* A log always shows its WRITE rate; a consumer's read
-						     rate shows on its own node row. */ }
-						W { formatByteRate( writeRates[ rateKey ] ) }
+						{ /* A log shows its WRITE rate, not read rate. */ }W{ ' ' }
+						{ formatByteRate( writeRates[ rateKey ] ) }
 					</span>
 				</div>
 				<div className="partition-segments">

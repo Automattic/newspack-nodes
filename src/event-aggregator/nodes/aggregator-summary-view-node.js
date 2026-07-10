@@ -17,8 +17,7 @@ import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
  */
 export class AggregatorSummaryViewNode extends SliceViewNode {
 	fill( message ) {
-		// Override the TM_ERROR path: surface the error + clear loading. The base
-		// resets to emptySlice() (loading:true), which would leave the header stuck.
+		// TM_ERROR: surface error, clear loading; base leaves header stuck.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			const value = message[ VALUE ];
 			const payload =
@@ -44,9 +43,7 @@ export class AggregatorSummaryViewNode extends SliceViewNode {
 		};
 	}
 
-	// Map the parsed `{ connected, total, server_now }` payload onto the render
-	// model (rename server_now, stamp lastRefresh, clear loading/error). Returning
-	// null keeps the prior slice — the base treats a non-string/garbage payload so.
+	// Map parsed payload to render model; null keeps prior slice.
 	_parse( payload ) {
 		const summary = super._parse( payload );
 		if ( null === summary ) {

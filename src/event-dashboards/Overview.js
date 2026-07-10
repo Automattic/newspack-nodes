@@ -66,9 +66,7 @@ import {
 } from './overviewPrefs';
 import './styles/overview.scss';
 
-// Read the rendered active-row vertical bounds (in display order) for the live
-// pointer-drag reorder. Native DnD proved too browser-finicky (esp. Firefox), so
-// reordering is pointer-events based and geometry-driven.
+// Rendered active-row vertical bounds (display order) for pointer-drag reorder.
 function activeRowRects() {
 	return [
 		...document.querySelectorAll(
@@ -92,20 +90,13 @@ function activeRowRects() {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function Overview( { headerControlsSlot } ) {
-	// Pointer-drag reorder state, declared FIRST so it can pause everything else
-	// while a drag is in flight. `dragName` = the row being dragged. The drag is a
-	// FLOAT: the dragged row follows the cursor via a compositor transform set
-	// imperatively in the rAF handler — NO React render per move — and the reorder
-	// commits to `order` once on pointer-up. (Re-rendering the list every frame is
-	// what made the row lag the cursor and build GC pressure the longer you held.)
+	// Drag state (FIRST, to pause all else); float = no React render per move.
 	const [ dragName, setDragName ] = useState( null );
 	const dragNameRef = useRef( null );
-	// rAF-coalesce pointer moves: store the latest Y, apply at most once per frame.
+	// rAF-coalesce pointer moves: store latest Y, apply once per frame.
 	const dragRafRef = useRef( null );
 	const dragYRef = useRef( 0 );
-	// Drag geometry, cached at pointer-down (transforms don't change layout, so
-	// these stay valid for the whole gesture): the grab Y, all row elements + their
-	// bounds + names in display order, and the dragged row's index.
+	// Drag geometry cached at pointer-down (transforms don't change layout).
 	const dragStartYRef = useRef( 0 );
 	const dragElsRef = useRef( [] );
 	const dragRectsRef = useRef( [] );
@@ -113,10 +104,7 @@ export default function Overview( { headerControlsSlot } ) {
 	const dragFromRef = useRef( -1 );
 	const dragging = null !== dragName;
 
-	// PAUSE all background updates while dragging: the 4s poll is suspended (so it
-	// can't fire reconstructWorkers mid-drag) and the SSE-fed probe view is frozen
-	// (so the live topicprobe stream doesn't recompute/redraw the Topics charts
-	// under the drag). Everything resumes on drop.
+	// PAUSE all background updates while dragging (poll + probe view).
 	const {
 		topologies,
 		supervisor,
@@ -130,11 +118,9 @@ export default function Overview( { headerControlsSlot } ) {
 		connected,
 	} = useTopologyManager( { paused: dragging } );
 
-	// A rejected activate/deactivate/restart ({ name, message }) raises this alert.
+	// Rejected activate/deactivate/restart ({name,message}) raises this alert.
 	const [ alert, setAlert ] = useState( null );
-	// Active topology names currently UNFOLDED — restored from localStorage
-	// (empty = all folded). Within-tree node-fold set + the user's drag order are
-	// likewise persisted; write-through effects keep all three sticky on reload.
+	// Active topology names currently UNFOLDED, restored from localStorage.
 	const [ expanded, setExpanded ] = useState( readExpanded );
 	const [ order, setOrder ] = useState( readOrder );
 	const [ collapsed, setCollapsed ] = useState( readCollapsed );
@@ -152,8 +138,7 @@ export default function Overview( { headerControlsSlot } ) {
 		[]
 	);
 
-	// Second link: replay the durable topicprobe.p0 log (24h from `start`) into
-	// `topicprobe:view`, the source for the Topics panels. Frozen during a drag.
+	// Replay topicprobe.p0 (24h) into topicprobe:view; frozen during a drag.
 	useTopicProbeStream( { mode: 'history' } );
 	const probeLive = useNodeState( 'topicprobe:view', 'view' );
 	const frozenProbeRef = useRef( probeLive );
@@ -167,9 +152,7 @@ export default function Overview( { headerControlsSlot } ) {
 		.filter( ( t ) => ! t.active )
 		.sort( ( a, b ) => a.name.localeCompare( b.name ) );
 
-	// Display order is the user's drag order (stored names first, new ones
-	// appended alphabetically) — never health, so badges flapping doesn't reorder.
-	// The dragged row floats over this order; it only changes on drop.
+	// Display order = user's drag order, never health (no flap-reorder).
 	const displayedNames = orderTopologies(
 		actives.map( ( t ) => t.name ),
 		order
@@ -178,9 +161,7 @@ export default function Overview( { headerControlsSlot } ) {
 		.map( ( name ) => actives.find( ( t ) => t.name === name ) )
 		.filter( Boolean );
 
-	// Mirror the current display order into a ref so the (stable, useCallback [])
-	// drag handlers can read it without re-subscribing — stable handler props are
-	// what let `memo(TopologyRow)` skip re-renders.
+	// Mirror display order into a ref so stable handlers let memo(Row) skip.
 	const displayedRef = useRef( displayedNames );
 	displayedRef.current = displayedNames;
 
@@ -210,16 +191,10 @@ export default function Overview( { headerControlsSlot } ) {
 		} );
 	}, [] );
 
-	// Pointer-drag reorder (cross-browser; native HTML5 DnD was too flaky). The
-	// grip captures the pointer, so move/up keep firing even over other rows. The
-	// gesture is a FLOAT: cache the geometry once, then per frame translate the
-	// dragged row to the cursor AND shift the rows it passes to open the drop gap —
-	// all compositor transforms, NO React render — committing the reorder once on
-	// drop. The handlers are stable (state via refs) so they don't bust row memo.
+	// Pointer-drag reorder: grip captures pointer; float commits once on drop.
 	const onGripPointerDown = useCallback( ( name, e ) => {
 		e.preventDefault();
-		// Capture so move/up keep firing as the cursor leaves the grip. A throw
-		// (e.g. no active pointer) must not abort the rest of the gesture setup.
+		// Capture so move/up keep firing off-grip; throw must not abort setup.
 		try {
 			e.currentTarget.setPointerCapture?.( e.pointerId );
 		} catch {
@@ -238,8 +213,7 @@ export default function Overview( { headerControlsSlot } ) {
 		dragFromRef.current = els.findIndex(
 			( el ) => el.getAttribute( 'data-topology-row' ) === name
 		);
-		// The passed-over rows animate their shift; the dragged row tracks the
-		// cursor 1:1 (no transition) and lifts above its siblings.
+		// Passed-over rows animate their shift; dragged row tracks cursor 1:1.
 		els.forEach( ( el, i ) => {
 			el.style.transition =
 				i === dragFromRef.current ? '' : 'transform 0.15s ease';
@@ -250,8 +224,7 @@ export default function Overview( { headerControlsSlot } ) {
 		if ( ! dragNameRef.current ) {
 			return;
 		}
-		// Coalesce to one transform pass per animation frame using the latest
-		// pointer Y — pointermove fires far faster than the display refreshes.
+		// One transform pass per frame; pointermove > refresh rate.
 		dragYRef.current = e.clientY;
 		if ( null !== dragRafRef.current ) {
 			return;
@@ -287,7 +260,7 @@ export default function Overview( { headerControlsSlot } ) {
 			window.cancelAnimationFrame( dragRafRef.current );
 			dragRafRef.current = null;
 		}
-		// Reset every row's inline drag styling; React re-renders into the new order.
+		// Reset rows' inline drag styling; React re-renders in new order.
 		dragElsRef.current.forEach( ( el ) => {
 			el.style.transform = '';
 			el.style.transition = '';
@@ -295,8 +268,7 @@ export default function Overview( { headerControlsSlot } ) {
 			el.style.position = '';
 		} );
 		dragElsRef.current = [];
-		// Commit ONCE: where the cursor ended vs the cached row geometry, folded
-		// back over the full persisted order (carrying inactive names).
+		// Commit ONCE: cursor-end vs cached geometry, over the persisted order.
 		const reordered = dragReorder(
 			dragNamesRef.current,
 			name,
@@ -307,13 +279,7 @@ export default function Overview( { headerControlsSlot } ) {
 		setDragName( null );
 	}, [] );
 
-	// Per-topic (source) 24h series for the three Topics panels — message rate,
-	// byte rate, backlog. The probe consumers feed the heavy 24h rollups + d3
-	// chart redraws (~100ms each); deferring them keeps that work OFF the
-	// interaction's critical path. When a probe publish lands (or a drag commits
-	// and unfreezes), the urgent render paints with the prior series — memoized,
-	// so the charts skip — and React catches the charts up in a follow-up
-	// low-priority render. That is what holds grip-drag INP down.
+	// Per-topic 24h series, deferred so heavy rollups/redraws stay off INP.
 	const consumers = useDeferredValue( probeView?.consumers );
 	const msgRateSeries = useMemo(
 		() => topicChartSeries( consumers, 'msgRate' ),
@@ -332,10 +298,7 @@ export default function Overview( { headerControlsSlot } ) {
 		[ consumers ]
 	);
 
-	// "+ New Topology" lives on the right of the hub's ONE shared header —
-	// portaled into its slot, matching Vault's "+ Add Server". A node = the hub
-	// slot (portal); `null` = slot pending (render nothing); `undefined` =
-	// standalone (tests) → inline.
+	// "+ New Topology" portals into the hub header slot; undefined = inline.
 	const newTopologyControl = (
 		<a
 			className="nodes-cards__new button"

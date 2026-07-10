@@ -7,8 +7,7 @@ import { ShellNode } from '../../runtime/shell-node';
 import { VALUE } from '../../runtime/message';
 import { useDebugRepl } from '../useDebugRepl';
 
-// Build a Shell configured the same way DebugOverlay does — empty cwd, sinks
-// into the page's CommandInterpreter. Shared by every test that mounts the hook.
+// Build a Shell like DebugOverlay does: empty cwd, sinks into the page CI.
 function makeShell() {
 	const shell = new ShellNode();
 	shell.path = '';
@@ -45,7 +44,7 @@ describe( 'useDebugRepl', () => {
 		);
 		// debug_state restored onto the browser interpreter.
 		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 1 );
-		// debug_level restored (2): a no-arg debug_level toggles >0 → 0 and persists.
+		// debug_level restored (2): no-arg toggles >0 → 0, then persists.
 		act( () => result.current.sendLine( 'debug_level' ) );
 		expect(
 			window.localStorage.getItem( 'newspack-nodes:console:debug-level' )
@@ -58,7 +57,8 @@ describe( 'useDebugRepl', () => {
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 
-		act( () => result.current.sendLine( 'debug_state' ) ); // toggles interpreter 0 → 1
+		// toggles the interpreter 0 → 1
+		act( () => result.current.sendLine( 'debug_state' ) );
 		expect(
 			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
 		).toBe( '1' );
@@ -83,7 +83,7 @@ describe( 'useDebugRepl', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		// After the commit-phase effect mounts _output/_completion/_metadata/_cwd.
+		// After commit-phase effect mounts _output/_completion/_metadata/_cwd.
 		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
 		expect( result.current.ready ).toBe( true );
 		teardown();
@@ -121,12 +121,7 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'binds shell.sink to the _shell Tap at build time, before render — so dispatch never null-resolves', () => {
-		// Build-before-render: the hook constructs its infra in a useState
-		// initializer (render-phase, before the canvas paints) and binds
-		// shell.sink to the always-present `_shell` Tap (an exospine-backbone
-		// fixture that forwards to the interpreter) as part of that build. A fast
-		// open-and-type can't hit a null shell.sink, so there is no dispatch-time
-		// resolve. shell.sink is bound on the very first render.
+		// Build-before-render: useState initializer binds shell.sink now.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.path = '';
@@ -143,10 +138,7 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'survives StrictMode double-invoked initializer without a name collision', () => {
-		// React StrictMode double-invokes useState initializers in development, so
-		// the build-before-render runs twice during render; the second must reuse
-		// the already-registered infra rather than throw a name collision on
-		// _output/_completion/_metadata/_cwd.
+		// StrictMode double-invoke reuses infra, no name collision.
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		expect( () => {
@@ -168,8 +160,7 @@ describe( 'useDebugRepl', () => {
 
 		act( () => Core.bumpGraphGeneration() );
 
-		// Fresh instances under the same names — the overlay's own nodes rebuild
-		// off the same signal the dashboard graph does.
+		// Fresh instances, same names — rebuilt off the same signal.
 		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
 		expect( Core.node( names.OUTPUT ) ).not.toBe( firstOutput );
 		expect( Core.node( names.METADATA ) ).not.toBe( firstMetadata );
@@ -186,18 +177,13 @@ describe( 'useDebugRepl', () => {
 
 		unmount();
 
-		// metadata.removeNode() -> stop_timer -> unregister: the router (a
-		// sibling-owned backbone node) survives a panel close, so a leaked
-		// registration would poll a dead _metadata forever.
+		// removeNode → stop_timer → unregister: a leak polls _metadata.
 		expect( names.METADATA in router.registrations.TIMER ).toBe( false );
 		teardown();
 	} );
 
 	it( 'after a bump, _metadata re-registers its TIMER on the FRESH router (the critical ordering)', () => {
-		// Build-delegated mount → mountExospine subscribes, so the bump rebuilds the
-		// backbone. This is the production case the bare-mount test above can't cover:
-		// the fresh _router must exist (sync fullRebuild) BEFORE useDebugRepl's async
-		// effect re-registers _metadata's TIMER onto it — else the canvas freezes.
+		// Fresh _router must exist BEFORE async re-register, else freeze.
 		const { teardown } = mountExospine( () => {} );
 		const shell = makeShell();
 		renderHook( () => useDebugRepl( true, shell ) );
@@ -263,8 +249,7 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'routes a typed wire command through shell.dispatch so the onDispatch tap fires', () => {
-		// Bug 3: a REPL rewire must dirty the graph like a GUI rewire. Both now
-		// funnel through Shell.dispatch, where useGraphReset taps onDispatch.
+		// Bug 3: REPL and GUI rewires both funnel through Shell.dispatch.
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const seen = [];
@@ -287,18 +272,13 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'sendLine of a wire command surfaces a stderr warning naming the dropped verb when there is NO command interpreter', () => {
-		// The build binds shell.sink to the `_shell` Tap (else the interpreter) —
-		// but when the page genuinely has neither there is nothing to bind, so
-		// shell.sink stays null and the command can't be routed. Surface the drop
-		// via Core.stderr (the canary) instead of silently no-op'ing. This is the
-		// genuine-absence case the build-before-render guarantee can't cover.
+		// No Tap/interpreter → shell.sink null; surface via Core.stderr.
 		mountExospine();
 		const shell = new ShellNode();
 		shell.path = '';
 		shell.sink = null;
 		const stderrSpy = jest.spyOn( Core, 'stderr' ).mockImplementation();
-		// Remove both bind targets (keep _router for the metadata timer) so the
-		// build has nothing to bind shell.sink to.
+		// Remove both bind targets (keep _router for the metadata timer).
 		Core.nodes.delete( names.CONSOLE_TAP );
 		Core.nodes.delete( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
@@ -315,8 +295,7 @@ describe( 'useDebugRepl', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		// Shell rejects out-of-range with `{kind:'error', text:'usage: ...'}`,
-		// which the hook appends as an `error` transcript entry.
+		// Shell rejects out-of-range → an `error` transcript entry.
 		act( () => result.current.sendLine( 'debug_level 9' ) );
 		const errEntry = result.current.transcript.find(
 			( e ) => e.kind === 'error'

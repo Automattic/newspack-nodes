@@ -48,8 +48,7 @@ describe( 'useGraphReset', () => {
 		expect( result.current.canResetGraph ).toBe( false );
 	} );
 
-	// Every mutating verb AND its interpreter alias must flip the chip — a REPL
-	// `make foo` / `rm x` is as much a graph edit as `make_node` / `remove_node`.
+	// Every mutating verb AND its REPL alias (make/rm) flips the chip.
 	it.each( [
 		'make_node',
 		'make',
@@ -67,8 +66,7 @@ describe( 'useGraphReset', () => {
 		expect( result.current.structureDirty ).toBe( true );
 	} );
 
-	// Exact match only: a poll verb, or a verb that merely CONTAINS a mutating
-	// word (connect_worker_input), must NOT dirty.
+	// Exact match only — merely CONTAINING a mutating word won't dirty.
 	it.each( [
 		'dump_metadata',
 		'uptime',
@@ -127,9 +125,7 @@ describe( 'useGraphReset', () => {
 	} );
 
 	it( 'a view-model node (class isSystemNode) does not count as a user node', () => {
-		// A dashboard view-model node (e.g. the hub's workerstatus:view) leaks into
-		// the shared Core; it must NOT be mistaken for a user-added node by the
-		// overlay's reset-graph, no matter which builder created it.
+		// A view-model node (workerstatus:view) must not read as a user node.
 		class SystemViewNode {}
 		SystemViewNode.isSystemNode = true;
 		Core.nodes.set( 'workerstatus:view', new SystemViewNode() );
@@ -144,9 +140,7 @@ describe( 'useGraphReset', () => {
 	} );
 
 	it( 'a node registered in Core.reinitNames (build/console infra) does not count as a user node', () => {
-		// Build-delegated dashboards snapshot their nodes into reinitNames; the bare
-		// console mount registers its RemoteIpc channels there by hand. Either way an
-		// infra node in reinitNames must NOT keep the Reset Graph chip stuck.
+		// An infra node in reinitNames must not keep Reset Graph chip stuck.
 		Core.reinitNames = [ 'combined.p0' ];
 		const { result } = renderHook( () =>
 			useGraphReset(
@@ -175,8 +169,7 @@ describe( 'useGraphReset', () => {
 		} );
 		act( () => shell.dispatch( commandMsg( 'connect_node', 'a b' ) ) );
 		expect( result.current.structureDirty ).toBe( true );
-		// The console recreates its Shell on every rebuild — the fresh graph is
-		// canonical, so dirty must clear (else a stale chip survives the reset).
+		// A fresh Shell each rebuild is canonical, so dirty must clear.
 		shell = makeShell();
 		rerender( opts( shell ) );
 		expect( result.current.structureDirty ).toBe( false );

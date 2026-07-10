@@ -1,8 +1,4 @@
-// Tests createJestConfig — the shared jest config factory every dashboard
-// consumer's jest.config.js calls. The load-bearing invariant is mapper
-// ORDER: the @newspack-nodes/shared subpath mapper MUST precede the css/scss
-// style-mock (first-match wins, so an aliased style import has to resolve to
-// the real file, not the mock — the documented AGENTS trap).
+// Tests createJestConfig; invariant: shared mapper precedes css/scss mock.
 
 const path = require( 'node:path' );
 const { createJestConfig } = require( '../jest.cjs' );

@@ -26,8 +26,7 @@ import {
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import './styles/aggregator-status.scss';
 
-// The slice models before each slice's first poll publishes — drive the loading
-// gates. summary owns the header counts + clock; servers owns the card data.
+// Slice-model defaults before first poll — drive the loading gates.
 const EMPTY_SUMMARY = {
 	connected: 0,
 	total: 0,
@@ -55,11 +54,7 @@ const formatTime = ( timestamp, now ) => {
 		return '-';
 	}
 
-	// `now` is the server's clock at the moment it built this status snapshot
-	// (the response Message's TIMESTAMP). Computing "ago" against it — not the
-	// browser clock — means the value reflects what the aggregator itself saw
-	// and stays fixed between dashboard refreshes (no client-side drift). Falls
-	// back to the browser clock only for callers without a server time (header).
+	// "ago" vs the server snapshot clock, not browser — no client drift.
 	const ref = now ?? Date.now() / 1000;
 	const diff = ref - timestamp;
 
@@ -132,14 +127,10 @@ const getRttClass = ( rtt ) => {
 function PartitionStatus( { partition, status, now } ) {
 	const connected = !! status.connected;
 	const connectionStatus = connected ? 'connected' : 'disconnected';
-	// Gate on `connected`: last_heartbeat_response is a sticky timestamp (never
-	// cleared once set), so a dead spoke would otherwise latch 'success' forever.
-	// Disconnected → pending, clearing the sticky heartbeat state on disconnect.
+	// Gate on connected: heartbeat ts is sticky, else dead spoke latches OK.
 	const heartbeatStatus =
 		connected && status.last_heartbeat_response ? 'success' : 'pending';
-	// Rolled-up health drives the card's left status rail: green when the
-	// connection is live AND heartbeating, amber when connected but not yet
-	// heartbeating (degraded), red when down.
+	// Rolled-up health drives the card's left rail: ok / degraded / down.
 	let health = 'down';
 	if ( connected ) {
 		health = heartbeatStatus === 'success' ? 'ok' : 'degraded';
@@ -206,8 +197,7 @@ function PartitionStatus( { partition, status, now } ) {
 						>
 							{ heartbeatStatus.replace( /_/g, ' ' ) }
 						</span>
-						{ /* HTTP code rides the Status line as a muted caption —
-						     informative on errors, unobtrusive on a 200. */ }
+						{ /* HTTP code as a muted caption on Status line. */ }
 						{ status.last_http_code && (
 							<span className="aggregator-http-code">
 								HTTP { status.last_http_code }
@@ -289,8 +279,7 @@ function ServerCard( { server, now } ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
-	// Mount the node graph; it owns the two per-concern poll slices + the interval.
-	// It returns the thin refresh control + the current interval.
+	// Mount the graph (owns the 2 poll slices + interval); returns the control.
 	const { setRefreshInterval, refreshInterval } = useAggregatorStatusGraph();
 
 	// Two independent read surfaces — one per slice the graph publishes.
@@ -310,10 +299,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 		return () => clearInterval( timer );
 	}, [] );
 
-	// The status/refresh strip (Updated… / X/Y connected / interval) lives on the
-	// right of the hub's ONE shared header — portaled into its slot. A node = the
-	// hub slot (portal); `null` = slot pending (render nothing); `undefined` =
-	// standalone (tests) → render inline.
+	// Refresh strip: node=portal→slot, null=pending, undefined=inline.
 	const controls = (
 		<div className="aggregator-status-meta">
 			<div className="aggregator-status-refresh-indicator">

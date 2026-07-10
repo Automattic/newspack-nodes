@@ -51,8 +51,7 @@ describe( 'DevToolsHub', () => {
 			component: () => <div data-testid="demo" />,
 		} );
 		const { container } = render( <DevToolsHub /> );
-		// firstChild is the display:contents theme token-provider; the fixed
-		// admin-page container is `.nodes-devtools-hub` inside it.
+		// firstChild is the token host; .nodes-devtools-hub is the fixed box.
 		const page = container.querySelector( '.nodes-devtools-hub' );
 		expect( page.style.position ).toBe( 'fixed' );
 		expect( page.style.top ).toBe( '32px' );
@@ -86,8 +85,7 @@ describe( 'DevToolsHub', () => {
 	} );
 
 	describe( 'debug overlay gating', () => {
-		// The overlay's FAB is gated on isDebugEnabled, which (absent the
-		// ?nodes-debug query param) reads the sticky localStorage flag.
+		// FAB gates on isDebugEnabled; sans ?nodes-debug, reads localStorage.
 		const enableDebug = () =>
 			window.localStorage.setItem( 'newspack-nodes:debug', '1' );
 
@@ -112,8 +110,7 @@ describe( 'DevToolsHub', () => {
 			enableDebug();
 			registerConsoleAndManager();
 			const { getByRole } = render( <DevToolsHub /> );
-			// Console (order 0) is selected first → the overlay now rides it too
-			// (its Overview shows browser I/O; its REPL body is Overview-only).
+			// Console selected first; overlay rides it, REPL Overview-only.
 			expect(
 				getByRole( 'button', { name: /node debugger/i } )
 			).not.toBeNull();
@@ -133,7 +130,7 @@ describe( 'DevToolsHub', () => {
 		} );
 
 		it( 'does not mount the overlay when debug is disabled, even on a non-console tab', () => {
-			// No enableDebug() — sticky flag absent, so isDebugEnabled is false.
+			// No enableDebug() — sticky flag absent, isDebugEnabled false.
 			registerConsoleAndManager();
 			const { getByRole, queryByRole } = render( <DevToolsHub /> );
 			fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );

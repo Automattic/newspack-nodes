@@ -25,9 +25,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import path from 'node:path';
 
-// Map import path → { global, handle }.
-//   global: runtime JS expression (read from `window`)
-//   handle: WordPress enqueue handle for *.asset.php
+// Map import path → { global: window expr, handle: enqueue handle }.
 export const WP_EXTERNALS = {
 	'@wordpress/element': {
 		global: 'window.wp.element',
@@ -41,14 +39,12 @@ export const WP_EXTERNALS = {
 		global: 'window.wp.components',
 		handle: 'wp-components',
 	},
-	// Block model + the editor's markdown-paste engine (pasteHandler/serialize).
+	// Block model + editor markdown-paste (pasteHandler/serialize).
 	'@wordpress/blocks': {
 		global: 'window.wp.blocks',
 		handle: 'wp-blocks',
 	},
-	// Core block registry (registerCoreBlocks). Large, but a real runtime WP
-	// script — externalize so WP enqueues it and the dashboard reuses the same
-	// registry the editor does, instead of bundling a duplicate.
+	// Core block registry: externalize so WP enqueues it (no duplicate).
 	'@wordpress/block-library': {
 		global: 'window.wp.blockLibrary',
 		handle: 'wp-block-library',
@@ -57,10 +53,7 @@ export const WP_EXTERNALS = {
 		global: 'window.wp.i18n',
 		handle: 'wp-i18n',
 	},
-	// NOT @wordpress/icons: it is a build-time package (SVG-as-React-components),
-	// not a runtime script — WP exposes no `window.wp.icons` global and registers
-	// no `wp-icons` handle (WP 6.9.1 warns on the unmet dep). Externalizing it left
-	// the icon undefined at runtime; bundle it from node_modules instead.
+	// NOT @wordpress/icons: build-time (no runtime global) — bundle it.
 	'@wordpress/data': {
 		global: 'window.wp.data',
 		handle: 'wp-data',
@@ -251,9 +244,7 @@ export async function buildDashboards( {
 	watch = false,
 	logLevel = 'warning',
 } ) {
-	// Output basename mirrors the entry filename (settings.js → settings.js in
-	// outDir, index.js → index.js). Several WP-side enqueue paths look up
-	// `build/<dir>/<entry-basename>.css` directly.
+	// Output basename mirrors the entry filename; WP enqueue paths need it.
 	const makeContext = ( entry, outDir ) => {
 		const usedHandles = new Set();
 		const base = path.basename( entry, '.js' );
@@ -262,8 +253,7 @@ export async function buildDashboards( {
 			bundle: true,
 			nodePaths,
 			minify: true,
-			// dump_metadata reads node.constructor.name to label classes on the
-			// canvas — without keepNames, minify mangles them to two-letter ids.
+			// keepNames protects constructor.name for dump_metadata labels.
 			keepNames: true,
 			format: 'iife',
 			target: [ 'es2020' ],

@@ -1,11 +1,5 @@
 /* @jest-environment node */
-// Runs in the node env (not jsdom): the integration test drives the real
-// esbuild, which refuses to run under jsdom's patched Buffer/Uint8Array. None
-// of these tests touch the DOM.
-//
-// Tests the pure pieces of the shared esbuild build-kit. The kit is ESM
-// (.mjs) build tooling injected with esbuild/sass/rtlcss; here we only
-// exercise the dependency-free exports, so a dynamic import is enough.
+// Node env (not jsdom): esbuild won't run under jsdom; tests pure exports.
 
 describe( 'build-kit pure exports', () => {
 	let kit;
@@ -63,11 +57,7 @@ describe( 'build-kit pure exports', () => {
 	} );
 } );
 
-// Integration: drive buildDashboards end-to-end with the REAL esbuild/sass/
-// rtlcss (the injected deps) over a throwaway fixture entry, and assert the
-// emitted artifacts. This exercises the load-bearing core the smoke test above
-// can't: the DI threading, the alias/outfile wiring, wpExternalsPlugin handle
-// collection, scssPlugin(sass), and postBuildPlugin's asset.php + RTL emission.
+// Integration: drive buildDashboards end-to-end with real esbuild/sass/rtlcss.
 describe( 'buildDashboards (integration, real esbuild)', () => {
 	const fs = require( 'node:fs/promises' );
 	const os = require( 'node:os' );
@@ -88,8 +78,7 @@ describe( 'buildDashboards (integration, real esbuild)', () => {
 
 		root = await fs.mkdtemp( path.join( os.tmpdir(), 'buildkit-it-' ) );
 		outDir = path.join( root, 'build/widget' );
-		// A fixture entry that pulls in an externalized WP package (so a handle
-		// is recorded) AND a stylesheet (so CSS + RTL are emitted).
+		// Fixture entry: externalized WP package + a stylesheet (CSS+RTL).
 		await fs.writeFile(
 			path.join( root, 'style.scss' ),
 			'.box { margin-left: 4px; }'

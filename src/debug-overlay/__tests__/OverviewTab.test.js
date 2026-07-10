@@ -69,8 +69,7 @@ test( 'the SSE uptime card shows an age once the stream is connected', () => {
 
 test( 'in/out card values render each number in its own right-aligned io cell', () => {
 	const { getByTestId } = renderTab();
-	// The byte-rate card shows ↓ in / ↑ out, each in a min-width right-aligned
-	// cell so the arrows don't bounce as digit counts change.
+	// byte-rate shows ↓in/↑out in min-width cells so arrows don't shift.
 	expect(
 		getByTestId( 'overview-card-byte-rate' ).querySelectorAll(
 			'.nodes-card__io'

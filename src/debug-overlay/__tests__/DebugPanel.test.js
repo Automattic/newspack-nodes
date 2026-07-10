@@ -50,8 +50,7 @@ test( 'pointer-down on the shared header starts a panel drag', () => {
 	const { getByTestId } = render(
 		<DebugPanel storageKey="k" onClose={ () => {} } />
 	);
-	// beginDrag attaches a pointermove listener on window; a drag move then runs
-	// without throwing (the header is the drag handle).
+	// beginDrag adds a window pointermove listener; the move must not throw.
 	fireEvent.pointerDown( getByTestId( 'overlay-header' ) );
 	expect( () =>
 		fireEvent.pointerMove( window, { clientX: 10, clientY: 10 } )

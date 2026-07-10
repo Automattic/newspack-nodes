@@ -37,9 +37,7 @@ const SUMMARY_VIEW = 'summary:view';
 const SERVERS_VIEW = 'servers:view';
 const SLICE_VIEWS = [ SUMMARY_VIEW, SERVERS_VIEW ];
 
-// A fake CommandClient: records each batch its postBatch is given, and mints one
-// reply per outbound message addressed back along FROM (the server's TO=FROM
-// reply), choosing the payload by the command name so each slice gets its shape.
+// Fake CommandClient: records batches, mints one TO=FROM reply per message.
 function makeFakeClient( { summary = {}, servers = [] } = {} ) {
 	const client = {
 		batches: [],

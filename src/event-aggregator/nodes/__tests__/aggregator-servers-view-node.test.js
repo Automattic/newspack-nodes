@@ -26,8 +26,7 @@ function makeView() {
 	return node;
 }
 
-// A reply Message as the slice verb emits one: VALUE.payload is a JSON STRING
-// of a sequential array of server snapshots.
+// A reply Message as the slice verb emits: VALUE.payload = JSON array string.
 function reply( serversArray ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
@@ -90,8 +89,7 @@ describe( 'AggregatorServersViewNode', () => {
 		const model = v.setStateCache.view;
 		expect( model.error ).toBe( 'aggregator down' );
 		expect( model.loading ).toBe( false );
-		// Prior servers preserved across a transient error (parity with the old
-		// view, whose error path never cleared servers).
+		// Prior servers kept on transient error (parity with old view).
 		expect( model.servers ).toHaveLength( 2 );
 	} );
 

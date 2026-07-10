@@ -4,10 +4,7 @@ import { IoTelemetry, OVERVIEW_STORAGE_KEY } from '../../runtime/io-telemetry';
 
 beforeEach( () => {
 	IoTelemetry.reset();
-	// The hook runs a 20Hz interval; fake timers keep it from firing (and
-	// leaking) except where a test advances it explicitly. Pin the clock to 0 so
-	// the rate's `Date.now()/1000` deltas stay exact (subtracting two real-epoch
-	// seconds loses sub-ms precision).
+	// Fake timers, clock pinned to 0: no 20Hz leak + exact rate deltas.
 	jest.useFakeTimers();
 	jest.setSystemTime( 0 );
 	try {
@@ -58,8 +55,7 @@ test( 'feeds per-tick deltas into the shared RateSmoother (10s window + EMA)', (
 		IoTelemetry.recordIn( 1000, 10 );
 		jest.advanceTimersByTime( 50 ); // tick 2: delta 1000 B / 10 msgs
 	} );
-	// RateSmoother: 1000 B / 10s window = 100 B/s, EMA 0 + (100-0)*0.1 = 10.
-	// msgs: 10 / 10 = 1, EMA 0.1. (Heavily smoothed — same as Raw Logs lps.)
+	// EMA: 1000B/10s=100 ->10; 10msg/10s=1 ->0.1 (heavily smoothed).
 	expect( result.current.rates.byteIn ).toBeCloseTo( 10 );
 	expect( result.current.rates.msgIn ).toBeCloseTo( 0.1 );
 } );

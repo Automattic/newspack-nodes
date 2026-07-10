@@ -11,7 +11,7 @@
 import { render } from '@testing-library/react';
 import { SegmentBar } from '../SegmentBar';
 
-// Pull the three fills out of the rendered bar in DOM order, as { className, width }.
+// Pull the three fills out in DOM order, as { className, width }.
 function fills( container ) {
 	return [ ...container.querySelectorAll( '.segment-fill-h' ) ].map(
 		( el ) => ( {
@@ -23,7 +23,7 @@ function fills( container ) {
 
 describe( 'SegmentBar — three regions', () => {
 	it( 'a lag within the current segment is green → YELLOW → gray', () => {
-		// cursor at 40, recorded end at 80, live head at 100 — all in segment 0.
+		// cursor at 40, recorded end at 80, live head at 100 — all in seg 0.
 		const { container } = render(
 			<SegmentBar
 				segment={ { id: 0, size: 100 } }
@@ -59,7 +59,8 @@ describe( 'SegmentBar — three regions', () => {
 		);
 		const f = fills( container );
 		expect( f[ 0 ].width ).toBe( '20%' );
-		expect( f[ 1 ].className ).toContain( 'pending' ); // yellow, within-segment lag
+		// yellow, within-segment lag
+		expect( f[ 1 ].className ).toContain( 'pending' );
 		expect( f[ 1 ].width ).toBe( '40%' );
 		expect( f[ 2 ].className ).toContain( 'beyond' );
 		expect( f[ 2 ].width ).toBe( '40%' );
@@ -91,7 +92,7 @@ describe( 'SegmentBar — three regions', () => {
 			endSegment: 1,
 			endSize: 50,
 		};
-		// Segment 0: green read + RED remainder (lag continues into seg 1), no gray.
+		// Segment 0: green read + RED remainder (lag into seg 1), no gray.
 		const seg0 = fills(
 			render(
 				<SegmentBar
@@ -102,7 +103,8 @@ describe( 'SegmentBar — three regions', () => {
 			).container
 		);
 		expect( seg0[ 0 ].width ).toBe( '40%' ); // green
-		expect( seg0[ 1 ].className ).toBe( 'segment-fill-h ' ); // RED, not pending
+		// RED, not pending
+		expect( seg0[ 1 ].className ).toBe( 'segment-fill-h ' );
 		expect( seg0[ 1 ].width ).toBe( '60%' );
 		expect( seg0[ 2 ].width ).toBe( '0%' );
 		// Segment 1 (ahead): red backlog up to the recorded end, gray beyond.
@@ -122,8 +124,7 @@ describe( 'SegmentBar — three regions', () => {
 	} );
 
 	it( 'staggers the fill/offset transition left-to-right by segment index', () => {
-		// index 2 → its fills wait 2 bar-durations so it starts as bar 1 finishes
-		// (the slide-left keyframe is separate and stays simultaneous).
+		// index 2 → fills wait 2 bar-durations, starting as bar 1 finishes.
 		const { container } = render(
 			<SegmentBar
 				segment={ { id: 2, size: 100 } }
@@ -140,8 +141,7 @@ describe( 'SegmentBar — three regions', () => {
 	} );
 
 	it( 'a newly-arrived segment (isNew) mounts with empty fills so they animate in', () => {
-		// CSS transitions do not fire on mount, so a new segment must render at
-		// 0-width first and flip to its real widths on the next frame.
+		// CSS transitions skip mount; render 0-width first, then real widths.
 		const { container } = render(
 			<SegmentBar
 				segment={ { id: 3, size: 100 } }

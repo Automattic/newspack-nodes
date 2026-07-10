@@ -6,8 +6,7 @@
  */
 
 jest.mock( 'd3', () => {
-	// The chain is itself CALLABLE so a d3 scale (`x = scaleTime()…`) can be
-	// invoked as `x( d.date )` inside an area/axis accessor without throwing.
+	// The chain is CALLABLE so a d3 scale invokes as x(d.date) in accessors.
 	const chain = Object.assign(
 		jest.fn( () => chain ),
 		{}
@@ -42,9 +41,7 @@ jest.mock( 'd3', () => {
 	].forEach( ( fn ) => {
 		chain[ fn ] = jest.fn( () => chain );
 	} );
-	// Real `d3.max( arr, accessor )` invokes the accessor per element; the
-	// default `() => chain` stub would leave those accessors uncovered, so run
-	// them and return the numeric max (callers only use it for the y domain).
+	// d3.max(arr, acc) runs acc per element; return numeric max for y domain.
 	chain.max = jest.fn( ( arr, acc ) => {
 		if ( ! Array.isArray( arr ) ) {
 			return chain;
@@ -77,10 +74,7 @@ jest.mock( 'd3', () => {
 	return new Proxy( {}, handler );
 } );
 
-// The mock stashes the last renderFn here so a test can re-invoke it with a
-// null container (React always re-populates the JSX ref, so the unmounted-ref
-// guard can't be reached through a normal render). `mock`-prefixed so the
-// jest.mock factory below may close over it.
+// Stashes the last renderFn so a test can re-invoke it with a null container.
 const mockTimeChart = { lastRenderFn: null };
 
 jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
@@ -93,8 +87,7 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
 		...actual,
 		setupTooltip: jest.fn(),
 		drawLegend: jest.fn(),
-		// Mirror the real hook's timing: run renderFn in an effect AFTER commit
-		// so the JSX refs (including TopicsChart's themeRef) are populated.
+		// Mirror the hook: run renderFn after commit so refs are populated.
 		useTimeChart: ( renderFn ) => {
 			mockTimeChart.lastRenderFn = renderFn;
 			const containerRef = {
@@ -253,8 +246,7 @@ describe( 'TopicsChart', () => {
 		);
 		drawLegend.mockClear();
 		setupTooltip.mockClear();
-		// Re-invoke the captured renderFn with a null container (an unmounted /
-		// not-yet-attached ref): it must return before drawing anything.
+		// Re-invoke renderFn with a null container: must return before drawing.
 		mockTimeChart.lastRenderFn( {
 			containerRef: { current: null },
 			tooltipRef: { current: { style: {} } },
@@ -282,19 +274,13 @@ describe( 'TopicsChart', () => {
 		render(
 			<TopicsChart title="Rate" series={ series } formatValue={ fmt } />
 		);
-		// The area x/y1 accessors and the y-axis tickFormat are passed to the
-		// (mocked) d3 builders; invoke the captured callbacks so their bodies run.
+		// Invoke the captured area x/y1 + tickFormat callbacks so bodies run.
 		const areaX = d3.x.mock.calls[ 0 ][ 0 ];
 		const areaY1 = d3.y1.mock.calls[ 0 ][ 0 ];
-		// Each accessor must route its point field THROUGH the d3 scale and return the
-		// scale's output (the mocked chainable scale), not the raw field or undefined —
-		// `( d ) => x( d.date )` / `( d ) => y( d.value )`. A bare not.toThrow would
-		// pass even if the accessor forgot to scale; asserting the scale's return value
-		// catches that.
+		// Each accessor must route its field through the scale, not raw/undef.
 		expect( areaX( { date: new Date( 1000 ) } ) ).toBe( d3.__chain );
 		expect( areaY1( { value: 5 } ) ).toBe( d3.__chain );
-		// tickFormat is called for both axes; the second call is the y-axis
-		// value formatter `( v ) => formatValue( v )`.
+		// tickFormat called for both axes; 2nd call is the y-axis formatter.
 		const yTickFormat = d3.tickFormat.mock.calls[ 1 ][ 0 ];
 		expect( yTickFormat( 42 ) ).toBe( '42' );
 	} );
