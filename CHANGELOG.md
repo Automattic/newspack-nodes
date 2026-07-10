@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.33.0] - 2026-07-09
+## [0.33.1] - 2026-07-09
+
+### Changed
+
+- **Internal, behavior-neutral cleanups (no runtime change from 0.33.0).** `Event_Framework::drain_curl_multi()` bumps the per-handle completion counter through a by-reference `foreach` (dropping a redundant `isset`); `SSE_In_Node::detach_handle()` captures the handle in a local so the `CurlHandle` type narrows across the unregister call. Clears two phpstan-strict errors that the pre-commit gate had been bypassed on. Also hardens the PHPUnit harness against an order-dependent flake — `TestCase::setUp()` now resets the `Bootstrap::$supervisor_factory` / `$supervisor_enabled_override` static seams a prior test class could leave set.
 
 ### Added
 
