@@ -114,7 +114,7 @@ class Node {
 
 	public function name( ?string $name = null ): string {
 		if ( \func_num_args() > 0 ) {
-			// name(null)/name('') is not an unregister path; use remove_node().
+			// A null or empty name is not an unregister path; use remove_node() for that.
 			if ( ! Core::has_value( $name ) ) {
 				throw new \RuntimeException( 'name() requires a non-empty name; use remove_node() to unregister' );
 			}
