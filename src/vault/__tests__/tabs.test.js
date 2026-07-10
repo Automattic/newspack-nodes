@@ -5,8 +5,7 @@
 
 import { __ } from '@wordpress/i18n';
 
-// VaultAdmin pulls in the whole vault node graph; the registry only stores the
-// component reference, so a stub keeps this a pure registry test.
+// Stub VaultAdmin — the registry only stores the component reference.
 jest.mock( '../VaultAdmin', () => () => null );
 
 test( 'importing tabs registers the vault tab on the hub host at order 30', () => {

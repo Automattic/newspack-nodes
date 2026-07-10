@@ -1,9 +1,6 @@
 import { augmentWithVirtualEdges } from '../virtualEdges';
 
-// A node's verb args of type 'node_name' (e.g. request-builder's
-// set_errors_target) are routing targets the runtime's target() exposes as
-// edges — but parseTsl only emits connect_node edges, so the edit-mode draft
-// graph fed to autoLayout would orphan them. This helper re-derives them.
+// Re-derives edges from 'node_name' verb args that parseTsl doesn't emit.
 const CLASSES = [
 	{
 		shell_name: 'Request_Builder',

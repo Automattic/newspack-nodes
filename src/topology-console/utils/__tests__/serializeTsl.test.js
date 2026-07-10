@@ -272,7 +272,7 @@ describe( 'serializeTsl', () => {
 		};
 
 		it( 'fills empty trailing ctor slots from schema defaults', () => {
-			// Operator types only base_dir; saved TSL must keep the substitution-token defaults.
+			// Operator types only base_dir; TSL keeps the token defaults.
 			const g = {
 				nodes: [
 					{
@@ -428,8 +428,7 @@ describe( 'serializeTsl', () => {
 		};
 
 		it( 'serializes an interpreter node verb to a bare `cmd <name> <verb>`', () => {
-			// A Command_Interpreter_Node subclass handles its verbs directly —
-			// there is no `<name>:config` sibling, so the verb targets the bare node.
+			// Interpreter nodes take verbs on the bare node, no :config.
 			const g = {
 				nodes: [
 					{

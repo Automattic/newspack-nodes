@@ -37,7 +37,7 @@ export class VaultTestViewNode extends Node {
 		const payload =
 			value && 'object' === typeof value ? value.payload : value;
 		this._record( id, isError, payload );
-		// Settle the caller's Promise (resolve with payload / reject with Error).
+		// Settle the caller's Promise (resolve payload / reject Error).
 		this.replies.settle( message );
 	}
 
@@ -54,16 +54,13 @@ export class VaultTestViewNode extends Node {
 		this.setState( 'view', this.model );
 	}
 
-	// Reject every in-flight probe before the node is removed so a graph
-	// teardown / Reset-Graph reinit doesn't strand a caller awaiting a reply
-	// that will now never land on this (removed) node.
+	// Reject in-flight probes on removal so teardown strands no caller.
 	removeNode() {
 		this.replies.rejectAll( 'View removed before reply' );
 		super.removeNode();
 	}
 
-	// Consume-and-publish terminal: fill() settles + records + publishes, never
-	// forwards — no output port.
+	// Consume-and-publish terminal: fill() settles/records, never forwards.
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

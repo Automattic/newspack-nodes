@@ -1,8 +1,7 @@
 import { maxInsetBeforeLOD } from '../viewportResize';
 
 describe( 'maxInsetBeforeLOD', () => {
-	// autofit scale (height-bound) = fill × (canvasH − inset) / bboxH; the floor
-	// is the inset where that scale === detailScale, i.e. the graph is right at LOD.
+	// The floor is the inset where the autofit scale hits detailScale (LOD).
 	it( 'is the inset that leaves the graph exactly at the LOD scale', () => {
 		// canvasH 1000, bboxH 500, detail 0.35, fill 0.9 → minUsableH 194.4
 		const inset = maxInsetBeforeLOD( {

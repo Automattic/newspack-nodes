@@ -15,7 +15,7 @@
 
 import { autoLayout, X_STEP, Y_STEP } from '../autoLayout';
 
-// Ideal layout (top-left positions), from the live console's hand-verified graph.
+// Ideal layout (top-left positions) from the hand-verified live console.
 const GOLDEN = {
 	'requests:partition': [ 1020, 300 ],
 	'errors:partition': [ 1020, 190 ],
@@ -55,11 +55,11 @@ const EDGES = [
 
 const IDS = Object.keys( GOLDEN );
 
-// The two interchangeable rows (independent chains that may trade vertical slots).
+// The two interchangeable rows (chains that may trade vertical slots).
 const SWAP_A = [ 'jobs:consumer', 'job-worker' ];
 const SWAP_B = [ 'requests:consumer', 'flame-builder', 'flames:partition' ];
 
-// {id:[x,y]} → {id:{col,row}}, offset-normalized so the topmost-leftmost is (0,0).
+// {id:[x,y]} → {id:{col,row}}, offset-normalized to topmost-leftmost (0,0).
 function toGrid( positions ) {
 	const xs = Object.values( positions ).map( ( p ) => p[ 0 ] );
 	const ys = Object.values( positions ).map( ( p ) => p[ 1 ] );

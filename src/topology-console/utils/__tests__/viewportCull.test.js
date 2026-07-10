@@ -18,8 +18,7 @@ describe( 'clipSegmentExit', () => {
 	} );
 
 	it( 'exits diagonally (whichever boundary it reaches first)', () => {
-		// From centre toward the bottom-right far corner: dx=dy, so it exits the
-		// corner at (100,100).
+		// Toward the bottom-right corner: dx=dy, so it exits at (100,100).
 		expect( clipSegmentExit( 50, 50, 1050, 1050, region ) ).toEqual( {
 			x: 100,
 			y: 100,
@@ -61,8 +60,7 @@ describe( 'isEdgeVisible', () => {
 	} );
 
 	it( 'renders an edge whose target is on-screen (source off)', () => {
-		// The bug: an edge to an in-view node was culled because its source
-		// scrolled off — now one visible endpoint is enough.
+		// Bug: an edge to an in-view node was culled when its source left.
 		expect( isEdgeVisible( 'c', 'a', vis ) ).toBe( true );
 	} );
 
@@ -117,8 +115,7 @@ describe( 'viewportCull', () => {
 	} );
 
 	it( 'keeps a node within the overscan band (fraction of the viewBox)', () => {
-		// overscan 0.5 of a 1000-wide viewBox = 500 world units of margin per side,
-		// so a node 300 past the right edge still renders (panning won't blank it).
+		// overscan 0.5 of a 1000-wide viewBox = 500 units margin per side.
 		const nodes = [ { id: 'near', position: { x: 1300, y: 0 } } ];
 		const vb = { x: 0, y: 0, w: 1000, h: 1000 };
 		const { visibleIds } = viewportCull(
@@ -143,16 +140,16 @@ describe( 'viewportCull', () => {
 	} );
 
 	it( 'overscans per-axis (a tall-narrow viewBox gets a small X / large Y band)', () => {
-		// viewBox 400 wide x 4000 tall; overscan 0.5 -> 200 X-margin, 2000 Y-margin.
+		// viewBox 400x4000; overscan 0.5 -> 200 X-margin, 2000 Y-margin.
 		const vb = { x: 0, y: 0, w: 400, h: 4000 };
 		const within = viewportCull(
-			[ { id: 'y', position: { x: 0, y: 5500 } } ], // 1500 below, < 2000 Y-band
+			[ { id: 'y', position: { x: 0, y: 5500 } } ], // 1500 < 2000 Y-band
 			vb,
 			{ w: 400, h: 4000 },
 			{ overscan: 0.5 }
 		);
 		const beyond = viewportCull(
-			[ { id: 'x', position: { x: 700, y: 0 } } ], // 300 right, > 200 X-band
+			[ { id: 'x', position: { x: 700, y: 0 } } ], // 300 > 200 X-band
 			vb,
 			{ w: 400, h: 4000 },
 			{ overscan: 0.5 }
@@ -162,11 +159,7 @@ describe( 'viewportCull', () => {
 	} );
 
 	it( 'culls against the meet-expanded (letterbox) region, not the raw viewBox', () => {
-		// A tall-narrow viewBox (400 wide x 4000 tall) in a WIDE canvas (2000x1000)
-		// letterboxes: meet scale = min(2000/400, 1000/4000) = 0.25 (height-bound),
-		// so the on-screen world width is 2000/0.25 = 8000 — far wider than the 400
-		// viewBox. A node 1000 world-units right of the viewBox is still ON SCREEN
-		// in the letterbox margin, so it must NOT be culled (no overscan needed).
+		// Letterbox (meet) widens the on-screen world, so a side node stays.
 		const vb = { x: 0, y: 0, w: 400, h: 4000 };
 		const nodes = [ { id: 'side', position: { x: 1400, y: 0 } } ];
 		const { visibleIds } = viewportCull( nodes, vb, { w: 2000, h: 1000 } );
@@ -181,9 +174,7 @@ describe( 'viewportCull', () => {
 	} );
 
 	it( 'drops detail for a tall-narrow graph constrained by HEIGHT', () => {
-		// 400 wide × 50000 tall in a 1300×1900 canvas. Width-scale (1300/400 =
-		// 3.25) looks zoomed-in, but preserveAspectRatio="meet" is height-bound:
-		// 1900/50000 = 0.038 px/unit — unreadable. Must use the min (meet) scale.
+		// Tall-narrow: meet uses the tiny height scale, not the wide width.
 		const vb = { x: 0, y: 0, w: 400, h: 50000 };
 		const { showDetail } = viewportCull( [], vb, { w: 1300, h: 1900 } );
 		expect( showDetail ).toBe( false );
@@ -196,7 +187,7 @@ describe( 'viewportCull', () => {
 	} );
 
 	it( 'keeps detail when the canvas size is unmeasured (0)', () => {
-		// First render / jsdom: clientWidth is 0 — show detail rather than hide it.
+		// First render / jsdom: clientWidth is 0 — show detail, not hide.
 		const vb = { x: 0, y: 0, w: 50000, h: 50000 };
 		const { showDetail } = viewportCull( [], vb, { w: 0, h: 0 } );
 		expect( showDetail ).toBe( true );
@@ -204,9 +195,7 @@ describe( 'viewportCull', () => {
 } );
 
 describe( 'viewportCull visibleRegion (bloom filter region)', () => {
-	// The bloom filter pins its region to the strict viewport (userSpaceOnUse) so
-	// the blur buffer is exactly the visible rect — not the overscan-expanded
-	// `region`, and not a degenerate group bbox.
+	// The bloom filter pins its region to the strict viewport rect.
 	it( 'returns the strict on-screen rect, excluding the overscan margin', () => {
 		const { region, visibleRegion } = viewportCull(
 			[],
@@ -215,13 +204,12 @@ describe( 'viewportCull visibleRegion (bloom filter region)', () => {
 			{ overscan: 0.5 }
 		);
 		expect( visibleRegion ).toEqual( { x: 0, y: 0, w: 1000, h: 1000 } );
-		// region carries the 500-unit overscan margin per side; visibleRegion doesn't.
+		// region carries the 500-unit overscan margin; visibleRegion doesn't.
 		expect( region.w ).toBeGreaterThan( visibleRegion.w );
 	} );
 
 	it( 'expands visibleRegion to the meet-letterbox in a wide canvas', () => {
-		// Tall-narrow viewBox (400x4000) in a wide canvas (2000x1000): meet scale
-		// 0.25 (height-bound), so the on-screen world width is 2000/0.25 = 8000.
+		// Tall-narrow in a wide canvas: meet 0.25 → world width 8000.
 		const { visibleRegion } = viewportCull(
 			[],
 			{ x: 0, y: 0, w: 400, h: 4000 },

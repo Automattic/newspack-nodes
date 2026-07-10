@@ -27,11 +27,7 @@ export class VaultListViewNode extends SliceViewNode {
 		this.replies = new PendingReplies();
 	}
 
-	// A `list` reply refreshes the table even when the settle path already
-	// consumed it (a mutation's awaited re-list resolves AND repaints). Every
-	// other successful verb reply is owned by the caller's Promise — no model
-	// change. An un-correlated error surfaces as the table banner (prior servers
-	// preserved); a pending-matched error is owned by the caller's catch.
+	// A `list` reply always refreshes the model; other replies just settle.
 	fill( message ) {
 		const settled = this.replies && this.replies.settle( message );
 		if ( ! settled && 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
@@ -55,8 +51,7 @@ export class VaultListViewNode extends SliceViewNode {
 		};
 	}
 
-	// Surface an un-correlated failure as the table banner: keep prior servers
-	// (a transient mutation/list failure must not blank the table), clear loading.
+	// Surface an un-correlated failure as the banner; keep prior servers.
 	_applyError( value ) {
 		const payload =
 			value && 'object' === typeof value ? value.payload : value;
@@ -72,9 +67,7 @@ export class VaultListViewNode extends SliceViewNode {
 		return { servers: null, loading: true, error: null };
 	}
 
-	// Reject every in-flight pending promise before the node is removed so a
-	// graph teardown / Reset-Graph reinit doesn't strand a caller awaiting a
-	// reply that will now never land on this (removed) node.
+	// Reject in-flight pendings on removal so teardown strands no caller.
 	removeNode() {
 		this.replies.rejectAll( 'View removed before reply' );
 		super.removeNode();

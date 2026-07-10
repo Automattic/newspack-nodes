@@ -128,8 +128,7 @@ describe( 'useTopologyCatalog', () => {
 	it( 'keeps the last-good catalog when a successful refetch returns a malformed payload', async () => {
 		const { result } = renderHook( () => useTopologyCatalog() );
 		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ) );
-		// A 200 reply that isn't shaped like a list (no `topologies` array) must
-		// NOT overwrite the good catalog — only a thrown error blanked it before.
+		// A malformed 200 (no `topologies` array) must NOT overwrite catalog.
 		unwrapCommandResponse.mockReturnValue( { user_dir: '/d' } );
 		await act( async () => {
 			result.current.reload();
@@ -157,7 +156,7 @@ describe( 'useTopologyCatalog', () => {
 			await act( async () => {
 				jest.advanceTimersByTime( 5000 );
 			} );
-			// Identical poll result must not churn the reference (no consumer re-render).
+			// Identical poll must not churn the reference (no re-render).
 			expect( result.current.partitions ).toBe( afterFirst );
 		} finally {
 			jest.useRealTimers();

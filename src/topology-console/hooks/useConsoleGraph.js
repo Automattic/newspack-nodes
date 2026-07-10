@@ -62,7 +62,7 @@ export function useConsoleGraph( {
 	// Hidden tab throttles the heartbeat → slot TTLs out; gate on visibility.
 	const isPageVisible = usePageVisibility();
 
-	// Reset Graph bumps generation → re-runs the effect, rebuilding a broken graph.
+	// Reset Graph bumps generation → re-runs the effect, rebuilding the graph.
 	const generation = useGraphGeneration();
 
 	// Direct `topologies get` for the mount TSL seed; stable identity.
@@ -72,7 +72,7 @@ export function useConsoleGraph( {
 	const debugLevelRefRef = useRef( debugLevelRef );
 	debugLevelRefRef.current = debugLevelRef;
 
-	// Stable key over the worker list so the effect rebuilds RemoteIpc on change.
+	// Stable key over the worker list; the effect rebuilds RemoteIpc on change.
 	const workersKey = workers.join( ',' );
 
 	useEffect( () => {
@@ -95,31 +95,31 @@ export function useConsoleGraph( {
 			shell: shellTap,
 			teardown: teardownSpine,
 		} = mountExospine();
-		// Interpreter ships the full PHP verb set as built-ins (no local overrides).
+		// Interpreter ships the PHP verb set as built-ins (no overrides).
 
 		// Reply nodes sink into the interpreter (rule #2); Dumper stays bare.
 		const dumper = new DumperNode();
 		dumper.debugLevelRef = debugLevelRefRef.current;
 		dumper.name = names.OUTPUT;
 		dumper.sink = interpreter;
-		// Persist+restore the transcript, else teardown drops it on switch/reload.
+		// Persist/restore transcript; teardown drops it on switch/reload.
 		const transcriptListenerId = 'useConsoleGraph/transcript';
 		dumper.register( 'transcript', transcriptListenerId, ( next ) => {
 			saveHubTranscript( next || EMPTY_TRANSCRIPT );
 			return true;
 		} );
 		dumper.restore( loadHubTranscript() );
-		// Substrate soft-nodes via make_node: name + sink=interpreter + args in one.
+		// Substrate soft-nodes via make_node: name + sink + args in one.
 		const metadata = interpreter.makeNode( 'Metadata', names.METADATA );
 		const uptime = interpreter.makeNode( 'Uptime', names.UPTIME );
-		// `_dmesg` publishes error/warn/debug counts for the process-stats header.
+		// `_dmesg` publishes error/warn/debug counts for the stats header.
 		const dmesg = interpreter.makeNode( 'Dmesg', names.DMESG );
 		const completion = interpreter.makeNode(
 			'Completion',
 			names.COMPLETION
 		);
 
-		// One RemoteIpc per worker (SseIn+HttpOut+Heartbeat); one stream at a time.
+		// One RemoteIpc per worker (SseIn+HttpOut+Heartbeat); one live stream.
 		const readers = new Set( [ reader, ...workers ] );
 		const remotes = [];
 		for ( const wr of readers ) {
@@ -130,27 +130,27 @@ export function useConsoleGraph( {
 			);
 			remote.target = names.OUTPUT;
 			remote.client = getCommandClient();
-			// The active worker's connect handshake drives the session pid display.
+			// The active worker's connect handshake drives the pid display.
 			remote.onConnected = () => setSsePid( remote.pid() );
-			// Reset pid on a steal so a send doesn't wrap the old link's stale pid.
+			// Reset pid on a steal so a send won't wrap the stale pid.
 			remote.onClose = () => setSsePid( null );
 			remotes.push( remote );
 		}
 
-		// Bare mount: list RemoteIpc channels in reinitNames (else Reset sticks).
+		// Bare mount: list RemoteIpc in reinitNames (else Reset sticks).
 		Core.reinitNames = [
 			...( Core.reinitNames || [] ),
 			...remotes.map( ( r ) => r.name ),
 		];
 
-		// `_cwd`.target IS the cwd; polls address `_cwd`, Router re-stamps into TO.
+		// `_cwd`.target IS the cwd; polls to `_cwd`, Router stamps TO.
 		const cwdNode = new Node();
 		cwdNode.name = names.CWD;
 		cwdNode.sink = interpreter;
-		// Seed cwd to the default path so polls route before the gate effect runs.
+		// Seed cwd to the default path so polls route before the gate runs.
 		cwdNode.target = reader;
 
-		// Anonymous React Shell; sinks into the backbone `_shell` Tap → interpreter.
+		// Anonymous React Shell; sinks into the `_shell` Tap → interpreter.
 		const consoleShell = new ShellNode();
 		consoleShell.path = reader;
 		consoleShell.sink = shellTap;
@@ -179,19 +179,19 @@ export function useConsoleGraph( {
 		uptime.setTimer();
 		dmesg.setTimer();
 
-		// Paint the declared topology at once, before SSE/dump_metadata arrives.
+		// Paint the declared topology before SSE/dump_metadata arrives.
 		if ( topology ) {
 			fetchTopologyTsl( topology )
 				.then( ( resp ) => {
-					// Anchor `_repl` in the seed so autofit includes it from first paint.
+					// Anchor `_repl` in the seed so autofit includes it.
 					const seeded = withReplAnchor(
 						parseTsl( resp?.tsl || '' )
 					);
-					// Resolve LIVE metadata by name; skip if a reply already filled it.
+					// Resolve LIVE metadata; skip if a reply already filled it.
 					const node = Core.node( names.METADATA );
 					const live =
 						node?.rawMap && Object.keys( node.rawMap ).length > 0;
-					// Seed only at a worker scope (else it paints the wrong graph).
+					// Seed only at a worker scope (else wrong graph).
 					const onWorker = scopeFromCwd(
 						Core.node( names.CWD )?.target ?? ''
 					).isWorker;
@@ -200,7 +200,7 @@ export function useConsoleGraph( {
 					}
 				} )
 				.catch( () => {
-					// Best-effort seed; the live poll fills the canvas regardless.
+					// Best-effort seed; the live poll fills the canvas.
 				} );
 		}
 
@@ -208,7 +208,7 @@ export function useConsoleGraph( {
 		// The stream-gating effect owns the EventSource; cd-off can quiet it.
 
 		return () => {
-			// Each node owns teardown; unregister before removeNode/teardownSpine.
+			// Each node owns teardown; unregister before removeNode.
 			dumper.unregister( 'transcript', transcriptListenerId );
 			dumper.removeNode();
 			metadata.removeNode();
@@ -219,12 +219,12 @@ export function useConsoleGraph( {
 				remote.removeNode();
 			}
 			cwdNode.removeNode();
-			// Backbone last: stops the router TIMER, removes interpreter/router/_shell.
+			// Backbone last: stops router TIMER, removes interpreter/router.
 			teardownSpine();
 			setSsePid( null );
 			setShell( null );
 		};
-		// `workersKey` is the stable projection of `workers` (id churn otherwise).
+		// `workersKey` is the stable projection of `workers` (id churn).
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ topology, partition, enabled, workersKey, generation ] );
 

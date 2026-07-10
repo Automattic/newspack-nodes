@@ -46,10 +46,7 @@ const TEST_RECV = 'vault:testIn';
 const TEST_VIEW = 'vault:test';
 const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, TEST_RECV, TEST_VIEW ];
 
-// A fake CommandClient matching HttpOutNode's seam: postBatch returns reply
-// Messages addressed back along FROM (the server's reply path). The payload can
-// be looked up by verb so a list reply yields a server map while a probe reply
-// yields a probe object.
+// Fake CommandClient: postBatch replies back along FROM, payload by verb.
 function makeFakeClient( payloadByVerb = {}, opts = {} ) {
 	const client = {
 		batches: [],
@@ -94,8 +91,7 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 	test( 'routes Vault commands through the _shell Tap so they are observable via `connect _shell`', () => {
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
-		// The mount-time list dispatches through `_shell` → interpreter (not
-		// straight at the interpreter), so the Tap's counter records it.
+		// The mount-time list goes through _shell, so the Tap counts it.
 		expect( Core.node( CONSOLE_TAP ).counter ).toBeGreaterThan( 0 );
 	} );
 
@@ -310,13 +306,12 @@ describe( 'useVaultGraph — test probe lands in the test view', () => {
 		);
 		expect( returned ).toEqual( probe );
 
-		// The probe is recorded in the TEST view's own model — its inspectable
-		// per-concern reply state.
+		// The probe is recorded in the TEST view's own model.
 		expect(
 			Core.node( TEST_VIEW ).setStateCache.view.results[ 'spoke-01' ]
 		).toEqual( { ok: true, payload: probe } );
 
-		// The test verb is read-only — no re-list, and the list view never saw it.
+		// test is read-only — no re-list, and the list view never saw it.
 		expect( countVerbs( client.batches, 'list' ) ).toBe( listsBefore );
 	} );
 } );
@@ -428,8 +423,7 @@ describe( 'useVaultGraph — Core.reinit (Reset Graph)', () => {
 
 		expect( Core.node( LIST_VIEW ) ).not.toBe( firstList );
 		expect( Core.node( TEST_VIEW ) ).not.toBe( firstTest );
-		// `_http` is a backbone singleton now — preserved across the fine-grained
-		// reinit (not rebuilt), and the rebuilt graph re-assigns its client.
+		// _http is a backbone singleton: kept across reinit, client reset.
 		expect( Core.node( HTTP ) ).toBe( firstHttp );
 		expect( Core.node( HTTP ).client ).toBe( client );
 		expect( Core.node( LIST_VIEW ).sink ).toBe( Core.node( INTERPRETER ) );

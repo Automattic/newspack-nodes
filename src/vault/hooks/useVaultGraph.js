@@ -58,10 +58,7 @@ const LIST_VIEW = 'vault:list';
 const TEST_RECV = 'vault:testIn';
 const TEST_VIEW = 'vault:test';
 
-// Monotonic per-hook-instance ID counter for LIST-concern ops — message[ID] is
-// what the list view uses to match a reply back to a pending Promise resolver.
-// (The test concern correlates by server id instead, so a probe's result files
-// under the row it belongs to.)
+// Monotonic op-id for LIST ops; the list view matches replies by message[ID].
 let nextOpId = 0;
 function makeOpId() {
 	nextOpId += 1;
@@ -105,24 +102,20 @@ export function useVaultGraph( opts = {} ) {
 
 	// Live interpreter handle for the CRUD callbacks.
 	const interpreterRef = useRef( null );
-	// The backbone `_shell` command Tap — CRUD dispatches enter HERE (not straight
-	// at the interpreter) so every Vault command is observable via `connect _shell`.
+	// _shell Tap: CRUD enters here, observable via connect _shell.
 	const shellRef = useRef( null );
 
-	// Bumped on every (re)build so a consumer's useNodeState re-subscribes to the
-	// freshly-registered view nodes. A monotonic counter, not a boolean latch —
-	// reinit()'s second build must still force a render.
+	// Bumped per (re)build; a counter (not a latch) so reinit re-renders.
 	const [ , bumpBuild ] = useState( 0 );
 
-	// Mount the graph once: clip it onto the exospine, then fire one immediate list.
+	// Mount the graph once: clip onto the exospine, then fire a list.
 	useEffect( () => {
 		const build = ( { interpreter, shell, http } ) => {
 			const data =
 				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
 				{};
 
-			// I/O boundary node — the backbone's shared `_http` singleton (mountExospine
-			// owns it); just assign this dashboard's command boundary.
+			// Shared _http singleton (mountExospine owns it); set its client.
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {
@@ -130,10 +123,7 @@ export function useVaultGraph( opts = {} ) {
 					nonce: data.nonce || '',
 				} );
 
-			// Per-concern reply edges: a receiver Tee in front of each view so the
-			// debug overlay shows traffic per concern, and a slice's reply never
-			// touches its sibling. The LIST concern (list/add/update/delete) feeds
-			// vault:list; the probe concern (test) feeds vault:test.
+			// Per-concern reply edges: a receiver Tee fronts each view.
 			const listIn = interpreter.makeNode( 'Tee', LIST_RECV );
 			interpreter.makeNode( 'VaultListView', LIST_VIEW );
 			listIn.connectNode( LIST_VIEW );
@@ -145,12 +135,10 @@ export function useVaultGraph( opts = {} ) {
 			interpreterRef.current = interpreter;
 			shellRef.current = shell;
 
-			// Re-render so useNodeState re-subscribes to the freshly-mounted views.
+			// Re-render so useNodeState re-subscribes to the fresh views.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire one immediate list through `_shell` → interpreter (so the command
-			// is observable at `_shell`). Fire-and-forget: the list view updates
-			// render state on the reply.
+			// Fire one immediate list via _shell (fire-and-forget).
 			shell.fill( buildCommand( LIST_RECV, 'list', '', makeOpId() ) );
 
 			// Non-node side effects undone before the nodes are removed.
@@ -163,10 +151,7 @@ export function useVaultGraph( opts = {} ) {
 		return teardown;
 	}, [] );
 
-	// Dispatch a verb on a concern (FROM its receiver Tee) and return a Promise
-	// the concern's view settles by matching `message[ID]` against its `replies`
-	// map. `id` defaults to a monotonic op-id; the test concern passes the server
-	// id so the probe result files under the right row.
+	// Dispatch a verb FROM a concern's Tee; its view settles by message[ID].
 	const dispatch = useCallback(
 		( recv, view, verb, args = '', id = null ) => {
 			const shell = shellRef.current;
@@ -181,17 +166,14 @@ export function useVaultGraph( opts = {} ) {
 			const promise = new Promise( ( resolve, reject ) => {
 				node.replies.add( opId, resolve, reject );
 			} );
-			// Enter at `_shell` (forwards to the interpreter) so the command is
-			// observable via `connect _shell`.
+			// Enter at _shell so the command is observable there.
 			shell.fill( buildCommand( recv, verb, args, opId ) );
 			return promise;
 		},
 		[]
 	);
 
-	// Run a registry-mutating verb on the LIST concern, then re-list to refresh
-	// the table. A failure rejects to the caller; the list view leaves its banner
-	// clean for a pending-matched error (no extra control fill needed).
+	// Run a mutating verb on the LIST concern, then re-list the table.
 	const runMutation = useCallback(
 		async ( verb, args ) => {
 			const result = await dispatch( LIST_RECV, LIST_VIEW, verb, args );
@@ -202,8 +184,7 @@ export function useVaultGraph( opts = {} ) {
 		[ dispatch ]
 	);
 
-	// id is the positional token; the credentials are named args. A spoke is
-	// "enabled" by being wired into the graph — there is no enabled flag.
+	// id is positional; credentials are named args (no enabled flag).
 	const addServer = useCallback(
 		( fields ) =>
 			runMutation(
@@ -217,8 +198,7 @@ export function useVaultGraph( opts = {} ) {
 		[ runMutation ]
 	);
 
-	// id is positional (so a `partial` carrying its own `id` key can't retarget
-	// the row); only the changed fields ride as named args.
+	// id is positional so a partial's id key can't retarget the row.
 	const updateServer = useCallback(
 		( id, partial ) =>
 			runMutation( 'update', formatCommandArgs( [ id ], partial ) ),
@@ -230,9 +210,7 @@ export function useVaultGraph( opts = {} ) {
 		[ runMutation ]
 	);
 
-	// test() is the probe concern — read-only, FROM the test receiver, correlated
-	// by server id so vault:test files the result under the right row. Returns the
-	// probe result to the caller for per-row status; no re-list.
+	// test() is the probe concern: read-only, by server id, no re-list.
 	const testServer = useCallback(
 		( id ) =>
 			dispatch(
