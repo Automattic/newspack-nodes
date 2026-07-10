@@ -202,25 +202,6 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 51, $this->jobs_executed( $jw ) );
 	}
 
-	// --- Memory pressure ----------------------------------------------------
-
-	public function test_memory_pressure_starts_false(): void {
-		$jw = new Job_Worker_Node();
-		$this->assertFalse( $this->read_private( $jw, 'memory_pressure' ) );
-	}
-
-	public function test_is_memory_high_returns_false_when_limit_unlimited(): void {
-		$prev = ini_set( 'memory_limit', '-1' );
-		try {
-			$jw = new Job_Worker_Node();
-			$this->assertFalse( $jw->is_memory_high() );
-		} finally {
-			if ( false !== $prev ) {
-				ini_set( 'memory_limit', $prev );
-			}
-		}
-	}
-
 	// --- Kind validation ----------------------------------------------------
 
 	public function test_non_job_lines_are_skipped(): void {
@@ -508,13 +489,13 @@ class JobWorkerTest extends TestCase {
 		$this->assertIsArray( $payload );
 		$this->assertArrayHasKey( 'memory_used_mb', $payload );
 		$this->assertArrayHasKey( 'memory_limit_mb', $payload );
-		$this->assertArrayHasKey( 'memory_pressure', $payload );
 		$this->assertArrayHasKey( 'jobs_since_cache_flush', $payload );
 		$this->assertArrayHasKey( 'cache_flush_interval', $payload );
 		$this->assertSame( 2, $payload['local_handler_count'] );
 		$this->assertSame( 1, $payload['remote_handler_count'] );
 		$this->assertGreaterThanOrEqual( 1, $payload['counter'] );
-		$this->assertFalse( $payload['memory_pressure'] );
+		// Watermark stop/report is Worker_Base's job; no memory_pressure here.
+		$this->assertArrayNotHasKey( 'memory_pressure', $payload );
 	}
 
 	public function test_handle_request_unknown_verb_returns_error_payload(): void {
@@ -612,40 +593,6 @@ class JobWorkerTest extends TestCase {
 			$jw  = new Job_Worker_Node();
 			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
 			$this->assertSame( -1, $ref->invoke( $jw ) );
-		} finally {
-			if ( false !== $prev ) {
-				\ini_set( 'memory_limit', $prev );
-			}
-		}
-	}
-
-	// --- is_memory_high branches ----------------------------------------------
-
-	public function test_is_memory_high_returns_false_below_watermark(): void {
-		$prev = \ini_set( 'memory_limit', '16G' );
-		try {
-			$jw = new Job_Worker_Node();
-			$this->assertFalse( $jw->is_memory_high() );
-		} finally {
-			if ( false !== $prev ) {
-				\ini_set( 'memory_limit', $prev );
-			}
-		}
-	}
-
-	public function test_memory_pressure_does_not_latch_when_below_watermark(): void {
-		$prev = \ini_set( 'memory_limit', '16G' );
-		try {
-			$jw = new Job_Worker_Node();
-			$this->register_job_handler( $jw, 'noop', fn () => null );
-			$this->assertFalse( $this->read_private( $jw, 'memory_pressure' ) );
-
-			$message = $this->job_message( 'noop' );
-			$jw->fill( $message );
-			$message = $this->job_message( 'noop' );
-			$jw->fill( $message );
-
-			$this->assertFalse( $this->read_private( $jw, 'memory_pressure' ) );
 		} finally {
 			if ( false !== $prev ) {
 				\ini_set( 'memory_limit', $prev );

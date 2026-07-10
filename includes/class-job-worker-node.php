@@ -61,9 +61,6 @@ class Job_Worker_Node extends Node {
 	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
 	public const MAX_JOB_SIZE         = 33554432;
 
-	/** Memory watermark — request restart when memory_get_usage crosses this fraction. */
-	public const MEMORY_WATERMARK_PCT = 0.80;
-
 	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
 	protected int $max_runtime          = self::DEFAULT_MAX_RUNTIME;
 	protected int $stale_timeout        = self::DEFAULT_STALE_TIMEOUT;
@@ -74,8 +71,6 @@ class Job_Worker_Node extends Node {
 	/** @var array<string,callable> */
 	private array $local_handlers = [];
 
-	/** Latched true when a per-job memory check crossed the watermark. */
-	private bool $memory_pressure = false;
 	/** @var array<string,callable> */
 	private array $remote_handlers = [];
 
@@ -183,12 +178,6 @@ class Job_Worker_Node extends Node {
 			$this->set_state( 'CACHE_FLUSH', (string) $this->cache_flush_interval );
 			$this->jobs_since_cache_flush = 0;
 		}
-
-		// At 80% memory_limit, latch + emit MEMORY_PRESSURE for respawn.
-		if ( $this->is_memory_high() && ! $this->memory_pressure ) {
-			$this->set_state( 'MEMORY_PRESSURE', \implode( ' ', [ 'USAGE', \memory_get_usage( true ) ] ) );
-			$this->memory_pressure = true;
-		}
 	}
 
 	/**
@@ -209,7 +198,6 @@ class Job_Worker_Node extends Node {
 			$payload   = [
 				'memory_used_mb'           => (int) \round( $mem_used / 1048576, 1 ),
 				'memory_limit_mb'          => $mem_limit > 0 ? (int) \round( $mem_limit / 1048576, 1 ) : -1,
-				'memory_pressure'          => $this->memory_pressure,
 				'jobs_since_cache_flush'   => $this->jobs_since_cache_flush,
 				'cache_flush_interval'     => $this->cache_flush_interval,
 				'local_handler_count'      => \count( $this->local_handlers ),
@@ -228,18 +216,6 @@ class Job_Worker_Node extends Node {
 		$reply[ Message::KEY ]   = $message[ Message::KEY ];
 		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
 		$this->sink->fill( $reply );
-	}
-
-	/**
-	 * Whether memory_get_usage(true) has crossed MEMORY_WATERMARK_PCT of
-	 * memory_limit. Returns false if memory_limit is unlimited (-1).
-	 */
-	public function is_memory_high(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
 	}
 
 	private function memory_limit_bytes(): int {
@@ -302,8 +278,8 @@ class Job_Worker_Node extends Node {
 			'requests'    => [
 				[
 					'name'        => 'GET_HEALTH',
-					'description' => 'Memory pressure + handler counts + cache-flush progress.',
-					'reply_shape' => '{ memory_used_mb, memory_limit_mb, memory_pressure, jobs_since_cache_flush, cache_flush_interval, local_handler_count, remote_handler_count, counter }',
+					'description' => 'Memory usage + handler counts + cache-flush progress.',
+					'reply_shape' => '{ memory_used_mb, memory_limit_mb, jobs_since_cache_flush, cache_flush_interval, local_handler_count, remote_handler_count, counter }',
 				],
 			],
 			'has_target'  => false,
