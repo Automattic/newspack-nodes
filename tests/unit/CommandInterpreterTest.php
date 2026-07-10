@@ -129,9 +129,14 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_list_timers_lists_registered_timers(): void {
 		Event_Framework::reset();
+		$router = new \Newspack_Nodes\Router_Node(); // real _router declares the TIMER event
+		$router->name( '_router' );
 		$timer = new Timer_Node();
 		$timer->name( 'tick0' );
-		$timer->set_timer( 250 );
+		$timer->set_timer( 250 ); // own-slot: NEXT is ms-to-fire
+		$hitch = new Timer_Node();
+		$hitch->name( 'hitch0' );
+		$hitch->set_timer( 15000 ); // >= 1000 -> router-hitchhike: NEXT is _router
 		$idle = new Timer_Node(); // never armed -> inactive
 		$idle->name( 'idle0' );
 
@@ -141,6 +146,13 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'FIRES', $out, 'has a FIRES (fire count) column' );
 		$this->assertStringContainsString( 'tick0', $out, 'names the active timer' );
 		$this->assertStringContainsString( '250', $out, 'shows the interval_ms' );
+		$hitch_row = '';
+		foreach ( \explode( "\n", $out ) as $line ) {
+			if ( \str_contains( $line, 'hitch0' ) ) {
+				$hitch_row = $line;
+			}
+		}
+		$this->assertStringContainsString( '_router', $hitch_row, 'a hitchhiking timer shows _router in its NEXT cell' );
 		$this->assertStringContainsString( 'idle0', $out, 'lists inactive timers too' );
 		$this->assertStringContainsString( 'no', $out, 'the never-armed timer reads ACTIVE=no' );
 	}
