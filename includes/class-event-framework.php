@@ -149,10 +149,9 @@ class Event_Framework {
 	 * Throttle reads the wall clock directly, not Core::$now — that clock is
 	 * frozen for the whole blocking job, so it can't gate this.
 	 *
-	 * A Worker_Should_Stop raised here is swallowed by an intervening Tee /
-	 * Command_Interpreter catch(\Throwable), so the mid-job stop is guaranteed
-	 * only on the direct Log_Manager->Topic->Partition firehose path; elsewhere
-	 * the worker still stops at the next drain tick.
+	 * A Worker_Should_Stop raised here unwinds the whole fill() stack: broad
+	 * drain-path catches re-throw it before handling (ADR-14), so the mid-job
+	 * stop reaches Worker_Base on every path, not just the direct firehose write.
 	 */
 	public function pump(): void {
 		if ( null === $this->continue_predicate ) {

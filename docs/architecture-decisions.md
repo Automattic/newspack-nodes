@@ -23,6 +23,7 @@ Don't renumber — supersede.
 | [11](#adr-11-make_node-construction-sequence) | `make_node` construction sequence |
 | [12](#adr-12-dead-letter-poison--crash-lifecycle) | Dead-letter poison / crash lifecycle |
 | [13](#adr-13-fill-returns-nothing) | `fill()` returns nothing |
+| [14](#adr-14-cooperative-stop-propagates-through-broad-catches) | Cooperative-stop propagates through broad catches |
 
 ---
 
@@ -514,3 +515,44 @@ call `fill()`, inspect the *sink*" — never "inspect `fill()`'s return."
 
 **Revisit if:** a node genuinely needs a synchronous in-process answer from its sink that
 cannot be expressed as a routed reply — none has; the reply channel has absorbed every case.
+
+---
+
+## ADR-14: Cooperative-stop propagates through broad catches
+
+**Status:** Accepted
+
+**Context:** `Event_Framework::pump()` raises `Worker_Should_Stop` from inside a long in-process
+job to unwind the worker's `fill()` stack and stop cooperatively (timeout / memory / shutdown).
+It extends `\RuntimeException`, so any broad `catch (\Throwable|\Exception)` on the drain path
+catches it — and if that catch treats it as an error (logs it, wraps it `TM_ERROR`, defers it),
+the stop is swallowed: the worker runs past its deadline until the next drain tick re-checks
+the predicate. That was a live bug — a mid-job stop was guaranteed only on the direct
+`Log_Manager → Topic → Partition` firehose path; an intervening Tee / Command_Interpreter ate it.
+
+**Decision:** A broad catch on the message/drain path re-throws `Worker_Should_Stop` before
+handling anything else — it's cooperative-stop signalling, not an error. Catch it explicitly
+first (`catch (Worker_Should_Stop $e) { throw $e; }`). Three deliberate carve-outs, documented
+at each site:
+
+- **Tee (fan-out).** A target throwing says nothing about its siblings, so Tee attempts *every*
+  target — one branch's failure can't silently starve the others (a skipped healthy target is
+  a permanent loss once the poison path dead-letters the message and advances the cursor). The
+  first throwable is deferred and re-thrown only after the full fan-out; a `Worker_Should_Stop`
+  overrides the deferred slot so a co-occurring stop beats a poison-DLQ (the poison would
+  advance the cursor, but a stop must re-play, not advance).
+- **Tap (observability fan-out).** A regular target throw is non-fatal — swallow + log — so a
+  broken tap can't break the pipeline; but `Worker_Should_Stop` re-throws.
+- **Post-success `finally` (`Job_Worker::after_job`).** Swallows everything, WSS included: the
+  handler already succeeded, so propagating anything from post-success cleanup would false-poison
+  a completed job (the drain would quarantine an already-processed message — see ADR-12).
+
+**Alternatives considered:** A marker interface / `Control_Flow` exception base caught separately
+— premature: `Worker_Should_Stop` is the only control-flow exception today. A second one can
+share the explicit-first-catch pattern, or introduce the base then.
+
+**Consequences:** Cooperative stop is guaranteed on every drain path, not just the direct
+firehose write. Broad catches stay legal for real errors but must front the WSS re-throw.
+
+**Revisit if:** a second control-flow exception appears (introduce a shared base and catch it),
+or a carve-out's rationale stops holding.

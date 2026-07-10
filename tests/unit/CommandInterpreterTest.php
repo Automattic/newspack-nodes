@@ -6,6 +6,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
+use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -103,6 +104,25 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertCount( 0, $sink->captured );
 		$this->assertStringContainsString( 'error from TM_NOREPLY command', $buf );
 		$this->assertStringContainsString( 'no_such_verb', $buf );
+	}
+
+	public function test_worker_should_stop_from_a_verb_propagates(): void {
+		// Cooperative-stop is control flow, not a verb error: a verb raising
+		// Worker_Should_Stop must propagate so the worker stops, not be wrapped
+		// into a TM_ERROR response (ADR-14).
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
+		$interpreter->commands(
+			[
+				'stopme' => function (): void {
+					throw new Worker_Should_Stop( 'cooperative stop' );
+				},
+			]
+		);
+
+		$this->expectException( Worker_Should_Stop::class );
+		$interpreter->fill( $this->command_message( 'stopme', '', true ) );
 	}
 
 	public function test_interpret_refuses_command_without_local_provenance(): void {
