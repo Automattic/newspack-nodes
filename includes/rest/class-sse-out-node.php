@@ -363,7 +363,7 @@ class SSE_Out_Node extends Node {
 
 		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
 			$np_raw     = Config::load_config()['num_partitions'] ?? 1;
-			$partitions = $this->num_partitions ?? ( \is_numeric( $np_raw ) ? (int) $np_raw : 1 );
+			$partitions = $this->num_partitions ?? Core::num_int( $np_raw, 1 );
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				// Fixed {name}.p{N} layout; stamp + resume-key by the dir name.
@@ -398,7 +398,7 @@ class SSE_Out_Node extends Node {
 		if ( \is_array( $position ) ) {
 			return $position;
 		}
-		return \is_scalar( $position ) ? (string) $position : 'start';
+		return Core::as_string( $position, 'start' );
 	}
 
 	/**
@@ -447,7 +447,6 @@ class SSE_Out_Node extends Node {
 	 */
 	protected function init_sse_headers(): void {
 		// phpcs:disable WordPress.PHP.IniSet.Risky
-		@\ini_set( 'output_buffering', 'off' );
 		@\ini_set( 'zlib.output_compression', false );
 		@\ini_set( 'implicit_flush', true );
 		// phpcs:enable

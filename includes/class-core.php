@@ -258,8 +258,77 @@ class Core {
 	}
 
 	/** Canonical scalar→string read of a mixed Message field; '' for non-scalars (arrays/objects/null). */
-	public static function as_string( mixed $value ): string {
-		return \is_scalar( $value ) ? (string) $value : '';
+	public static function as_string( mixed $value, string $default = '' ): string {
+		return \is_scalar( $value ) ? (string) $value : $default;
+	}
+
+	/** Canonical scalar→int read of a mixed field; 0 for non-scalars (arrays/objects/null). */
+	public static function as_int( mixed $value, int $default = 0 ): int {
+		return \is_scalar( $value ) ? (int) $value : $default;
+	}
+
+	/**
+	 * Canonical scalar→float read of a mixed field; 0.0 for non-scalars.
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 */
+	public static function as_float( mixed $value, float $default = 0.0 ): float {
+		return \is_scalar( $value ) ? (float) $value : $default;
+	}
+
+	/**
+	 * String passthrough: the value itself when it IS a string, $default
+	 * otherwise. No casting — unlike as_string(), an int/bool never
+	 * stringifies (the rejection is load-bearing at pattern/keyword reads).
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 */
+	public static function str( mixed $value, string $default = '' ): string {
+		return \is_string( $value ) ? $value : $default;
+	}
+
+	/**
+	 * Array passthrough: the value itself when it IS an array, $default
+	 * otherwise.
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 *
+	 * @param array<array-key, mixed> $default
+	 * @return array<array-key, mixed>
+	 */
+	public static function arr( mixed $value, array $default = [] ): array {
+		return \is_array( $value ) ? $value : $default;
+	}
+
+	/**
+	 * Int passthrough: the value itself when it IS an int, $default otherwise.
+	 * No coercion — unlike num_int(), a numeric string or float never
+	 * converts (exact-int is the right strictness for wire TYPE fields).
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 */
+	public static function int( mixed $value, int $default = 0 ): int {
+		return \is_int( $value ) ? $value : $default;
+	}
+
+	/**
+	 * Strict numeric→int read for ARITHMETIC paths: anything non-numeric
+	 * (bool, 'abc', '12abc', null, array) contributes exactly 0, so corrupt
+	 * data can never inflate a sum. Use as_int() for lenient cast-style reads.
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 */
+	public static function num_int( mixed $value, int $default = 0 ): int {
+		return \is_numeric( $value ) ? (int) $value : $default;
+	}
+
+	/**
+	 * Strict numeric→float read for ARITHMETIC paths; see num_int().
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 */
+	public static function num_float( mixed $value, float $default = 0.0 ): float {
+		return \is_numeric( $value ) ? (float) $value : $default;
 	}
 
 	public static function register_node( string $name, Node $node ): void {

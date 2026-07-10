@@ -287,8 +287,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$segment = $value['segment'] ?? 0;
 		$offset  = $value['offset'] ?? 0;
-		$segment = \is_scalar( $segment ) ? (int) $segment : 0;
-		$offset  = \is_scalar( $offset ) ? (int) $offset : 0;
+		$segment = Core::as_int( $segment );
+		$offset  = Core::as_int( $offset );
 		// Arm the head-skip from frame: marker → DROP head, crash → sacrifice.
 		$this->arm_skip_head_from_frame( $value );
 		$this->cursor_segment      = $segment;

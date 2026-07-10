@@ -322,7 +322,7 @@ class Vault {
 	 */
 	private function get_wp_servers(): array {
 		$option = \get_option( self::OPTION_KEY, [] );
-		return \is_array( $option ) ? $option : [];
+		return Core::arr( $option );
 	}
 
 	/**

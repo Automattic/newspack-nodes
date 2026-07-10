@@ -59,7 +59,7 @@ class ConsumerSealGraceTest extends TestCase {
 	private function captured_values( Consumer_Node $c ): array {
 		$ref     = new \ReflectionProperty( $c->sink(), 'captured' );
 		$msgs    = $ref->getValue( $c->sink() );
-		return \array_map( static fn ( array $m ): mixed => $m[ Message::VALUE ], \is_array( $msgs ) ? $msgs : [] );
+		return \array_map( static fn ( array $m ): mixed => $m[ Message::VALUE ], Core::arr( $msgs ) );
 	}
 
 	private function cursor_segment( Consumer_Node $c ): int {

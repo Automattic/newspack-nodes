@@ -75,7 +75,7 @@ class Router_Node extends Timer_Node {
 			] )
 		);
 		$type = $message[ Message::TYPE ];
-		if ( ( \is_int( $type ) ? $type : 0 ) & Message::TM_ERROR ) {
+		if ( Core::int( $type ) & Message::TM_ERROR ) {
 			$this->handling_error = false;
 			return;
 		}

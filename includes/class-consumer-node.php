@@ -130,7 +130,7 @@ class Consumer_Node extends Timer_Node {
 	 */
 	public function fill( array $message ): void {
 		$type_raw = $message[ Message::TYPE ];
-		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
+		$type     = Core::num_int( $type_raw );
 		if ( $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 			return;
@@ -304,8 +304,8 @@ class Consumer_Node extends Timer_Node {
 		}
 		$segment                   = $entry['segment'];
 		$offset                    = $entry['offset'];
-		$this->cursor_segment      = \is_numeric( $segment ) ? (int) $segment : 0;
-		$this->cursor_offset       = \is_numeric( $offset ) ? (int) $offset : 0;
+		$this->cursor_segment      = Core::num_int( $segment );
+		$this->cursor_offset       = Core::num_int( $offset );
 		$this->boot_cursor_segment = $this->cursor_segment;
 		$this->boot_cursor_offset  = $this->cursor_offset;
 		// Resume attempt accounting and arm the boot head-skip (ADR-12).
@@ -362,8 +362,8 @@ class Consumer_Node extends Timer_Node {
 		if ( \is_array( $position ) ) {
 			$segment = $position['segment'] ?? 0;
 			$offset  = $position['offset'] ?? 0;
-			$this->cursor_segment = \is_numeric( $segment ) ? (int) $segment : 0;
-			$this->cursor_offset = \max( 0, \is_numeric( $offset ) ? (int) $offset : 0 );
+			$this->cursor_segment = Core::num_int( $segment );
+			$this->cursor_offset = \max( 0, Core::num_int( $offset ) );
 			return;
 		}
 
@@ -455,7 +455,7 @@ class Consumer_Node extends Timer_Node {
 	protected function checkpoint_frame_extra(): array {
 		return [
 			'name'        => $this->name,
-			'target'      => \is_string( $this->target ) ? $this->target : '',
+			'target'      => Core::str( $this->target ),
 			'targets'     => $this->resolve_downstream_targets(),
 			'worker_type' => self::worker_type_env(),
 			'source_log'  => \basename( $this->source_dir ),

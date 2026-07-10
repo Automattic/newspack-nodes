@@ -224,7 +224,7 @@ trait Dead_Letter_Queue {
 	 */
 	protected function resume_attempts_from_frame( array $entry ): bool {
 		$prior          = $entry['attempts'] ?? 0;
-		$prior_attempts = \is_numeric( $prior ) ? (int) $prior : 0;
+		$prior_attempts = Core::num_int( $prior );
 		$reason         = Core::as_string( $entry['reason'] ?? '' );
 		$this->attempts = $prior_attempts + 1;
 		$entered_crawl  = false;
@@ -235,7 +235,7 @@ trait Dead_Letter_Queue {
 		}
 		if ( $this->attempts > 1 ) {
 			$prior_ts             = $entry['first_crash_ts'] ?? null;
-			$this->first_crash_ts = \is_numeric( $prior_ts ) ? (float) $prior_ts : Core::$now;
+			$this->first_crash_ts = Core::num_float( $prior_ts, Core::$now );
 		}
 		return $entered_crawl;
 	}

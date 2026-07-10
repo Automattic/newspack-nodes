@@ -7,17 +7,11 @@
  * owned by SettingsRendererEffectiveConfigTest against the shared renderer; this
  * file only proves the public Admin entry — `render_effective_config_section()`,
  * hooked to `newspack_nodes/settings_after_form` — drives that shared renderer
- * and echoes the `widefat` table. WP-Settings-API + esc stubs live in
- * AdminTest.php's global-namespace block; this file only adds `esc_attr`
- * defensively.
+ * and echoes the `widefat` table. WP-Settings-API + escaping stubs are shared
+ * from tests/bootstrap.php.
  */
 
 namespace {
-	if ( ! \function_exists( 'esc_attr' ) ) {
-		function esc_attr( $v ): string {
-			return \htmlspecialchars( (string) $v, ENT_QUOTES, 'UTF-8' );
-		}
-	}
 	require_once \dirname( __DIR__, 3 ) . '/includes/admin/class-admin.php';
 }
 

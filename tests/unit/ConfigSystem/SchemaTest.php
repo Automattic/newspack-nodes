@@ -6,29 +6,11 @@
  * from. Replaces the parallel hand-listed arrays each plugin's Config + Admin
  * used to keep in lockstep.
  *
- * Owns its own WP-Settings-API stubs (global namespace) so a Schema can register
- * settings/sections/fields without the runtime bootstrap.
+ * The WP-Settings-API stubs a Schema registers into (register_setting /
+ * add_settings_section / add_settings_field) are shared from tests/bootstrap.php.
  *
  * @package Newspack_Nodes
  */
-
-namespace {
-	if ( ! \function_exists( 'register_setting' ) ) {
-		function register_setting( string $group, string $option, array $args = [] ): void {
-			$GLOBALS['_registered_settings'][ $option ] = [ 'group' => $group, 'args' => $args ];
-		}
-	}
-	if ( ! \function_exists( 'add_settings_section' ) ) {
-		function add_settings_section( string $id, string $title, callable $cb, string $page ): void {
-			$GLOBALS['_registered_sections'][ $id ] = [ 'title' => $title, 'callback' => $cb, 'page' => $page ];
-		}
-	}
-	if ( ! \function_exists( 'add_settings_field' ) ) {
-		function add_settings_field( string $id, string $title, callable $cb, string $page, string $section ): void {
-			$GLOBALS['_registered_fields'][ $id ] = [ 'title' => $title, 'callback' => $cb, 'page' => $page, 'section' => $section ];
-		}
-	}
-}
 
 namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 

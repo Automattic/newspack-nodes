@@ -11,6 +11,7 @@
 
 namespace Example_AI_Newsletter;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Config;
@@ -39,11 +40,6 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	 */
 	private ?array $items_cache = null;
 
-	/** Coerce an untrusted (JSON-sourced) score to float; non-numeric → 0.0. */
-	private static function to_float( mixed $value ): float {
-		return \is_numeric( $value ) ? (float) $value : 0.0;
-	}
-
 	/**
 	 * Read the offsetlog snapshot ONCE per request and memoize the flattened items, so the
 	 * three batched slice verbs share a single read instead of globbing + unpacking thrice.
@@ -57,7 +53,7 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 		$read = self::$read_items ?? static fn ( string $dir ): array => self::read_snapshot_items( $dir );
 		$raw  = $read( Config::get_offsets_directory() );
 		$items = [];
-		foreach ( \is_array( $raw ) ? $raw : [] as $item ) {
+		foreach ( Core::arr( $raw ) as $item ) {
 			if ( \is_array( $item ) ) {
 				$items[] = $item;
 			}
@@ -102,14 +98,14 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	private static function shape_top( array $items ): array {
 		\usort(
 			$items,
-			static fn ( array $a, array $b ): int => self::to_float( $b['score'] ?? null ) <=> self::to_float( $a['score'] ?? null )
+			static fn ( array $a, array $b ): int => Core::num_float( $b['score'] ?? null ) <=> Core::num_float( $a['score'] ?? null )
 		);
 		$top = [];
 		foreach ( \array_slice( $items, 0, self::TOP_N ) as $item ) {
 			$top[] = [
 				'source' => $item['source'] ?? '?',
 				'title'  => $item['title'] ?? '',
-				'score'  => self::to_float( $item['score'] ?? null ),
+				'score'  => Core::num_float( $item['score'] ?? null ),
 			];
 		}
 		return $top;

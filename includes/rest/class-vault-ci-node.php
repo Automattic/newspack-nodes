@@ -29,6 +29,7 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Service_CI_Node;
@@ -301,7 +302,7 @@ class Vault_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( 'server returned malformed command envelope' );
 		}
 		$raw_type = $envelope[ Message::TYPE ] ?? 0;
-		if ( ( \is_numeric( $raw_type ) ? (int) $raw_type : 0 ) & Message::TM_ERROR ) {
+		if ( Core::num_int( $raw_type ) & Message::TM_ERROR ) {
 			throw new \RuntimeException( 'server returned TM_ERROR for discovery probe' );
 		}
 		$value = $envelope[ Message::VALUE ];

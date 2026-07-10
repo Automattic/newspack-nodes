@@ -85,14 +85,14 @@ class CLI {
 			}
 			$rows[] = [
 				'reader'     => $reader,
-				'source'     => self::scalar_string( $record[ Probe_Record::SOURCE ] ?? '' ),
+				'source'     => Core::as_string( $record[ Probe_Record::SOURCE ] ?? '' ),
 				'partition'  => (int) $m[2],
-				'cursor_segment' => self::scalar_int( $record[ Probe_Record::CURSOR_SEGMENT ] ?? 0 ),
-				'cursor_offset' => self::scalar_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
-				'end_segment'    => self::scalar_int( $record[ Probe_Record::END_SEGMENT ] ?? 0 ),
-				'end_size'   => self::scalar_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
-				'distance'   => self::scalar_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
-				'msgs'       => self::scalar_int( $record[ Probe_Record::MSGS ] ?? 0 ),
+				'cursor_segment' => Core::as_int( $record[ Probe_Record::CURSOR_SEGMENT ] ?? 0 ),
+				'cursor_offset' => Core::as_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
+				'end_segment'    => Core::as_int( $record[ Probe_Record::END_SEGMENT ] ?? 0 ),
+				'end_size'   => Core::as_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
+				'distance'   => Core::as_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
+				'msgs'       => Core::as_int( $record[ Probe_Record::MSGS ] ?? 0 ),
 			];
 		}
 		return $rows;
@@ -114,25 +114,6 @@ class CLI {
 			Probe_Record::READER
 		);
 	}
-
-	/**
-	 * Coerce a mixed value to string (non-scalar → '').
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function scalar_string( $v ): string {
-		return Core::as_string( $v );
-	}
-
-	/**
-	 * Coerce a mixed value to int (non-scalar → 0).
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function scalar_int( $v ): int {
-		return \is_scalar( $v ) ? (int) $v : 0;
-	}
-
 
 	/**
 	 * Enumerate worker lock dirs and report each one's staleness.
@@ -184,7 +165,7 @@ class CLI {
 			$type_raw = $w['type'] ?? '';
 			$type     = Core::as_string( $type_raw );
 			$p_raw    = $w['partition'] ?? 0;
-			$p        = \is_numeric( $p_raw ) ? (int) $p_raw : 0;
+			$p        = Core::num_int( $p_raw );
 			if ( '' === $type ) {
 				continue;
 			}

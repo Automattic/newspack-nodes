@@ -77,10 +77,10 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	private function positions_from_opts( array $opts ): array {
 		$url = (string) ( $opts[ \CURLOPT_URL ] ?? '' );
 		$qs  = \parse_url( $url, \PHP_URL_QUERY );
-		\parse_str( \is_string( $qs ) ? $qs : '', $params );
+		\parse_str( Core::str( $qs ), $params );
 		$raw = $params['positions'] ?? '';
-		$dec = \json_decode( \is_string( $raw ) ? $raw : '', true );
-		return \is_array( $dec ) ? $dec : [];
+		$dec = \json_decode( Core::str( $raw ), true );
+		return Core::arr( $dec );
 	}
 
 	// =========================================================================

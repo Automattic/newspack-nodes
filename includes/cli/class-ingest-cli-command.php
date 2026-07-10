@@ -195,7 +195,7 @@ class Ingest_CLI_Command {
 	/** Global config num_partitions (the operator default), clamped to >= 1. */
 	private static function config_num_partitions(): int {
 		$raw = Config::load_config()['num_partitions'] ?? 1;
-		return \max( 1, (int) ( \is_scalar( $raw ) ? $raw : 1 ) );
+		return \max( 1, Core::as_int( $raw, 1 ) );
 	}
 
 	/**
@@ -212,7 +212,7 @@ class Ingest_CLI_Command {
 			\WP_CLI::error( "--{$key} must be an integer." );
 		}
 		// is_scalar narrows the cast; is_numeric already rejected non-nums.
-		return (int) ( \is_scalar( $raw ) ? $raw : 0 );
+		return Core::as_int( $raw );
 	}
 
 	/**

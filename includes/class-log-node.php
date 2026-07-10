@@ -32,7 +32,7 @@ class Log_Node extends Partition_Node {
 	 */
 	public function fill( array $message ): void {
 		$type_raw = $message[ Message::TYPE ];
-		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
+		$type     = Core::num_int( $type_raw );
 
 		if ( $type & ( Message::TM_ERROR | Message::TM_EOF | Message::TM_REQUEST ) ) {
 			++$this->counter;

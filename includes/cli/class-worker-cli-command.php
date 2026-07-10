@@ -86,7 +86,7 @@ class Worker_CLI_Command {
 	 */
 	private static function entry_int( $entry, string $key, int $fallback ): int {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
-		return \is_scalar( $value ) ? (int) $value : $fallback;
+		return Core::as_int( $value, $fallback );
 	}
 
 	/**

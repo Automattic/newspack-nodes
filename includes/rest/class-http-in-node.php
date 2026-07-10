@@ -154,7 +154,7 @@ class HTTP_In_Node extends Node {
 		$bucket  = (int) \floor( $now );
 		$key     = "newspack_nodes_cmd_rl:{$user_id}:{$bucket}";
 		$raw_count = \get_transient( $key );
-		$count     = \is_scalar( $raw_count ) ? (int) $raw_count : 0;
+		$count     = Core::as_int( $raw_count );
 		if ( $count >= $burst ) {
 			return new \WP_Error(
 				'rate_limited',

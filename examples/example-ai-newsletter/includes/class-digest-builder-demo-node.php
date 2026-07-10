@@ -7,6 +7,7 @@
 
 namespace Example_AI_Newsletter;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
 
@@ -51,7 +52,7 @@ class Digest_Builder_Demo_Node extends Node {
 		$lines = [ '# Newsletter draft', '' ];
 		foreach ( $this->items as $item ) {
 			$summary = $item['summary'] ?? '';
-			$lines[] = '- ' . ( \is_string( $summary ) ? $summary : '' );
+			$lines[] = '- ' . Core::str( $summary );
 		}
 		$draft = \implode( "\n", $lines ) . "\n";
 
