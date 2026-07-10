@@ -914,8 +914,14 @@ class Command_Interpreter_Node extends Node {
 			if ( ! $node instanceof Timer_Node ) {
 				continue;
 			}
-			$active  = $node->timer_is_active();
-			$next_ms = $active ? (string) (int) \round( ( $node->next_fire - Core::$now ) * 1000 ) : '-';
+			$active = $node->timer_is_active();
+			if ( ! $active ) {
+				$next_ms = '-';
+			} elseif ( $node->next_fire <= 0.0 ) {
+				$next_ms = '_router'; // router-hitchhike: rides the router tick, no own next_fire
+			} else {
+				$next_ms = (string) (int) \round( ( $node->next_fire - Core::$now ) * 1000 );
+			}
 			$rows[]  = [
 				(string) \spl_object_id( $node ),
 				$active ? 'yes' : 'no',
