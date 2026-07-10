@@ -30,6 +30,11 @@ class Timer_Node extends Node {
 		parent::__construct();
 	}
 
+	/** @api Timer introspection (list_timers): whether the timer is currently armed. */
+	public function timer_is_active(): bool {
+		return 'inactive' !== $this->mode;
+	}
+
 	public function arguments( ?string $args = null ): string {
 		$ref = new \ReflectionObject( $this );
 		if ( 'Timer_Node' !== $ref->getShortName() ) {

@@ -201,15 +201,6 @@ class Event_Framework {
 	}
 
 	/**
-	 * Registered timers, keyed by spl_object_id. Introspection for `list_timers`.
-	 *
-	 * @return array<int, Timer_Node>
-	 */
-	public function timers(): array {
-		return $this->timers;
-	}
-
-	/**
 	 * Registered curl handles, keyed by spl_object_id. Introspection for `list_handles`.
 	 *
 	 * @return array<int, array{node: object, multi: \CurlMultiHandle}>

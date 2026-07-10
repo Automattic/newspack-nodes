@@ -910,21 +910,26 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_list_timers(): string {
 		$rows = [];
-		foreach ( Event_Framework::instance()->timers() as $id => $node ) {
-			$next_ms = (int) \round( ( $node->next_fire - Core::$now ) * 1000 );
+		foreach ( Core::$nodes_by_name as $name => $node ) {
+			if ( ! $node instanceof Timer_Node ) {
+				continue;
+			}
+			$active  = $node->timer_is_active();
+			$next_ms = $active ? (string) (int) \round( ( $node->next_fire - Core::$now ) * 1000 ) : '-';
 			$rows[]  = [
-				(string) $id,
+				(string) \spl_object_id( $node ),
+				$active ? 'yes' : 'no',
 				(string) $node->interval_ms,
-				(string) $next_ms,
+				$next_ms,
 				$node->oneshot ? 'yes' : 'no',
 				( new \ReflectionClass( $node ) )->getShortName(),
-				$node->name(),
+				$name,
 			];
 		}
-		\usort( $rows, static fn ( array $a, array $b ): int => $a[5] <=> $b[5] );
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[6] <=> $b[6] );
 		return self::tabulate(
-			[ 'right', 'right', 'right', 'right', 'right', 'left' ],
-			[ 'ID', 'INTERVAL', 'NEXT', 'ONESHOT', 'TYPE', 'NAME' ],
+			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'ID', 'ACTIVE', 'INTERVAL', 'NEXT', 'ONESHOT', 'TYPE', 'NAME' ],
 			$rows
 		);
 	}
