@@ -258,6 +258,30 @@ class SseInTest extends TestCase {
 		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'disconnected: unregistered' );
 	}
 
+	public function test_reconnect_reregisters_the_multi(): void {
+		// After detach_handle unregisters, a reconnect must re-register — else a
+		// base Remote_Link / Remote_IPC channel reconnects but is never serviced.
+		Event_Framework::reset();
+		[ $node ] = $this->configured_node();
+		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		Core::$now = 1000.0;
+		$node->maybe_connect();
+		$node->disconnect();
+		$this->assertSame( [], Event_Framework::instance()->curl_handles() );
+
+		Core::$now = 1100.0; // past reconnect backoff
+		$this->assertTrue( $node->maybe_connect(), 'reconnect opens' );
+		$this->assertArrayHasKey(
+			\spl_object_id( $node ),
+			Event_Framework::instance()->curl_handles(),
+			'reconnect re-registers the multi'
+		);
+	}
+
 	public function test_oversized_message_handed_raw_no_size_gate(): void {
 		// SSE_In enforces no PIPE_BUF cap on delivery — the downstream Partition owns size policy.
 		// An oversized frame is handed raw to the delivery seam.

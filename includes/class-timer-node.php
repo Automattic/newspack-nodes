@@ -118,6 +118,7 @@ class Timer_Node extends Node {
 			$this->mode           = 'router';
 			$this->interval_ms    = null === $ms ? $router->interval_ms : $ms;
 			$this->last_fire_time = 0.0;
+			$this->next_fire      = 0.0; // clear a stale own-slot next_fire (list_timers reads it)
 			$this->oneshot        = false;
 			return;
 		}
