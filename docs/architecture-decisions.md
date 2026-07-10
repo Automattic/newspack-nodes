@@ -22,6 +22,7 @@ Don't renumber — supersede.
 | [10](#adr-10-class-naming--make_node-namespace-resolution) | Class naming + `make_node` namespace resolution |
 | [11](#adr-11-make_node-construction-sequence) | `make_node` construction sequence |
 | [12](#adr-12-dead-letter-poison--crash-lifecycle) | Dead-letter poison / crash lifecycle |
+| [13](#adr-13-fill-returns-nothing) | `fill()` returns nothing |
 
 ---
 
@@ -474,3 +475,42 @@ deterministic fatal-poison without operator intervention.
 
 **Revisit if:** the shared trait surface starts carrying read-loop specifics (the wrong thing
 was extracted), or a third durable reader appears whose model fits neither shape.
+
+---
+
+## ADR-13: `fill()` returns nothing
+
+**Status:** Accepted
+
+**Context:** ADR-1 makes the *forward* direction an ownership boundary — a message handed to a
+sink belongs to the downstream; the caller holds no reference and expects nothing preserved.
+The return direction is that same boundary seen from the other side. If a node could read
+what its `fill()` call returned, it would couple to the downstream's *disposition* of the
+message — delivered, dropped, queued, transformed — and swapping that downstream would change
+the caller. That is exactly the callee-coupling the uniform contract exists to remove. A
+`Tee` filling N targets has no single disposition to hand back anyway, and flow control is the
+single-threaded drain (ADR-3), not a return code the caller inspects.
+
+Perl Tachikoma's `fill` *did* return values (`return $self->SUPER::fill(...)`,
+`return $self->cancel(...)`) — an artifact of Perl having no way to declare a `void` return,
+so every sub yields its last expression whether or not anyone is meant to read it. Nothing
+downstream was; the returns were internal bookkeeping that leaked into the signature.
+
+**Decision:** `fill( array $message ): void`. A node emits into its sink and learns nothing
+about what happens next: it does not care what other nodes do with its messages, and is not
+permitted to care. No node's `fill()` produces a value; no caller reads, assigns, or branches
+on a `fill()` return. PHP enforces this with the `: void` return type; JS keeps it by
+convention — `fill()` bodies use a bare `return;` for early-exit only, never `return <expr>`.
+
+**Alternatives considered:** Return a delivery status/ack from `fill()` — rejected: it
+reintroduces callee-coupling, has no meaning at a fan-out node, and duplicates a reply channel
+that already exists. A node that must know an outcome *receives it as a message* — a `TO=FROM`
+reply (ADR-7) or a `TM_ERROR` (ADR-3) routed back through the graph, observable and loggable
+like any other traffic — not a hidden return value.
+
+**Consequences:** Outcomes are always messages, never return values; errors flow as
+`TM_ERROR`, not an error code the caller reads. Testing a node stays "construct a message,
+call `fill()`, inspect the *sink*" — never "inspect `fill()`'s return."
+
+**Revisit if:** a node genuinely needs a synchronous in-process answer from its sink that
+cannot be expressed as a routed reply — none has; the reply channel has absorbed every case.
