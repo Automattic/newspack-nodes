@@ -76,9 +76,7 @@ class Settings_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_set( string $args ): array {
 		self::require_manage_options();
-		// Normalized positional receiver: `set <option> <value>`, one setting
-		// per command — the grammar Settings_Sync_Node emits to fan a synced
-		// setting out to spokes. `<option>` is the FULL `newspack_nodes_*` key.
+		// Positional: set <option> <value>; <option> is the full option key.
 		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
 
 		$short = \is_string( $option ) && \str_starts_with( $option, 'newspack_nodes_' )

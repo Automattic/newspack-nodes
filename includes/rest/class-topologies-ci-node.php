@@ -58,7 +58,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @return array<int|string, mixed>
 	 */
 	public static function cmd_list(): array {
-		// Active = whatever the supervisor would spawn (merged catalog + operator overlay).
+		// Active = what the supervisor would spawn (catalog + overlay).
 		$resolved = Bootstrap::get_topologies();
 		$active   = [];
 		foreach ( $resolved as $name => $_def ) {
@@ -150,23 +150,20 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( 'body too large: topology arguments exceed 1 MiB' )
 			);
 		}
-		// `save <name> <tsl…>`: name is the first token, the rest-of-line (may contain newlines) is the .tsl body.
+		// `save <name> <tsl…>`: name is first token, rest-of-line is the body.
 		[ $name_raw, $tsl ] = self::split_first_token( $args );
 		$name = self::require_valid_name( $name_raw );
 		if ( '' === $tsl ) {
 			throw new \RuntimeException( 'invalid arguments: tsl (topology body) is required' );
 		}
 
-		// Dry-run validation: each statement passes Shell's syntax check.
-		// Report the 1-based offending line so the editor can position its cursor.
+		// Dry-run validation; report the 1-based offending line for the editor.
 		$shell = new Shell_Node();
 		foreach ( $shell->split_statements( $tsl ) as $i => $stmt ) {
 			try {
 				$shell->validate_line( $stmt );
 			} catch ( \RuntimeException $e ) {
-				// validate_line throws only a fixed-string structural error
-				// (unterminated backslash continuation) — no user text, so no
-				// escaping needed.
+				// validate_line throws a fixed error; no escaping needed.
 				$line_no = $i + 1;
 				$message     = $e->getMessage();
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $message is a fixed Shell::validate_line string.
@@ -190,7 +187,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		// shadows_stock determined BEFORE writing so it reflects pre-existing stock state.
+		// shadows_stock determined BEFORE writing (pre-existing stock state).
 		$pre_sources = Topology_Registry::describe()[ $name ] ?? [ 'stock' => [] ];
 		$shadows     = ! empty( $pre_sources['stock'] );
 
@@ -203,8 +200,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			);
 		}
 
-		// Restart any active fleet running this topology, keyed off the raw
-		// catalog filter (what might be running) not the operator overlay.
+		// Restart the active fleet, keyed off the catalog filter (not overlay).
 		$resolved  = \function_exists( 'apply_filters' )
 			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
 			: [];
@@ -250,12 +246,10 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( "failed to unlink topology file: $path" )
 			);
 		}
-		// After unlink, resolve() returns the stock copy iff one exists — the fallback signal.
+		// After unlink, resolve() returns the stock copy iff one exists.
 		$has_stock_fallback = null !== Topology_Registry::resolve( $name );
 
-		// No stock fallback means the name no longer resolves to any
-		// topology — prune it from the active set so the supervisor
-		// stops trying to spawn a fleet that has nothing to load.
+		// No stock fallback → prune the name from the active set.
 		$pruned = false;
 		if ( ! $has_stock_fallback ) {
 			$active = \array_values( \array_filter( (array) \get_option( 'newspack_nodes_topologies', [] ), '\is_string' ) );
@@ -266,10 +260,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		// Restart any active fleet running this topology (symmetry with save)
-		// so the worker reloads the stock copy now shadowed-no-more — keyed
-		// off the catalog filter (what might be running), evaluated AFTER the
-		// unlink so a now-orphaned user-only name doesn't spuriously restart.
+		// Restart the active fleet (symmetry with save), keyed off the catalog.
 		$resolved  = \function_exists( 'apply_filters' )
 			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
 			: [];
@@ -296,10 +287,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @return array<int|string, mixed>
 	 */
 	public static function cmd_activate( string $args ): array {
-		// Name-validate here (CI-protocol concern); the unknown-name and
-		// write-conflict refusal, option-write, cache-invalidate and immediate
-		// spawn are the shared Topology_Registry::activate primitive the
-		// `wp nodes activate` CLI verb calls too.
+		// Name-validate here; rest is shared Topology_Registry::activate.
 		return Topology_Registry::activate( self::require_valid_name( \trim( $args ) ) );
 	}
 
@@ -322,8 +310,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @return string
 	 */
 	public static function cmd_connect_worker_input( string $args ): string {
-		// Mount the named worker's input Partition into THIS request's graph so a
-		// attached command in the same batch can route TO={reader}.pN. Returns '' (no reply).
+		// Mount the worker's input Partition into this request's graph.
 		Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
 		return '';
 	}

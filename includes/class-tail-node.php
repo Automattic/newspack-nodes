@@ -64,8 +64,7 @@ class Tail_Node extends Consumer_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Tails a Log\'s {file}.{seg} segments; emits each line as raw TM_BYTESTREAM bytes to its sink.',
-			// Override Consumer's source_dir naming (Tail's property is source_file), but
-			// keep the inherited optional deadletter_dir so a Tail can quarantine poison too.
+			// Rename source_dir→source_file; keep inherited deadletter_dir.
 			'arguments'   => [
 				[ 'name' => 'source_file',    'type' => 'string', 'required' => true ],
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '' ],

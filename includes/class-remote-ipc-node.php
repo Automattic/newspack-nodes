@@ -62,8 +62,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 		$connect[ Message::TO ]    = 'topologies';
 		$connect[ Message::VALUE ] = [ 'name' => 'connect_worker_input', 'arguments' => $reader ];
 
-		// Both ride the HTTP_Out per-tick batch → one POST, so the request-scope
-		// mount and the command land in the same server process.
+		// Both ride HTTP_Out's per-tick batch → one POST, same server process.
 		$this->http_out->fill( $connect );
 		$this->http_out->fill( $message );
 	}
@@ -121,8 +120,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			// Explicit — the parent Remote_Link_Node is 'Hidden' (never used
-			// directly), so pin this palette-droppable subclass to I/O.
+			// Parent Remote_Link_Node is 'Hidden'; pin this subclass to I/O.
 			'category'    => 'I/O',
 			'description' => 'Per-worker interactive command channel: cd onto it and commands ride to the remote worker.',
 			'has_target' => false,

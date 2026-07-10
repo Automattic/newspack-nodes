@@ -77,9 +77,7 @@ class TTY_In_Node extends Stdin_Node {
 		if ( $has_readline ) {
 			$this->install_handler();
 			$this->install_completion();
-			// NB: the cache seed (send_completion_queries) is deferred to run_repl, AFTER
-			// the Dumper's completion_sink is wired — else the seed replies round-trip
-			// inline here (fill is synchronous) with no intercept and dump to the terminal.
+			// Cache seed deferred to run_repl; else replies dump to terminal.
 		} elseif ( $show_prompts ) {
 			$this->show_prompt_fallback();
 		}
@@ -94,15 +92,14 @@ class TTY_In_Node extends Stdin_Node {
 		if ( ! $this->has_readline ) {
 			$delivered = parent::drain_once();
 			if ( $delivered && $this->show_prompts ) {
-				// Force a fresh prompt after each processed line (reader parity).
+				// Fresh prompt after each processed line (reader parity).
 				$this->prompt_displayed = false;
 				$this->show_prompt_fallback();
 			}
 			return $delivered;
 		}
 
-		// Gate the readline read on stdin having data — rl_getc blocks on an idle TTY,
-		// stalling the drain loop. Memory streams (tests) throw ValueError → fall through.
+		// Gate readline read on stdin data — rl_getc blocks on an idle TTY.
 		$ready = 1;
 		try {
 			$read   = [ $this->stream ];
@@ -174,7 +171,7 @@ class TTY_In_Node extends Stdin_Node {
 		if ( $this->prompt_displayed ) {
 			return;
 		}
-		// Routed through TTY_Out so a memory-stream out doesn't pollute phpunit's STDOUT.
+		// Via TTY_Out so a memory-stream out won't pollute phpunit STDOUT.
 		$this->out->write_prompt( $this->shell->prompt );
 		$this->prompt_displayed = true;
 	}
@@ -194,8 +191,7 @@ class TTY_In_Node extends Stdin_Node {
 		};
 		$register(
 			function ( string $word, int $index ): array {
-				// Refresh the cache for the NEXT Tab (the reply lands async, so this
-				// keystroke completes against the previous snapshot — one-Tab-stale).
+				// Refresh cache for the NEXT Tab (async reply = one-Tab-stale).
 				$this->send_completion_queries();
 				return $this->complete( $word, $index );
 			}

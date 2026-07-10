@@ -61,7 +61,7 @@ class Supervisor extends Supervisor_Base {
 	public function run(): void {
 		$this->start_time = \microtime( true );
 
-		// Tag this process as a supervisor worker for stats exclusion / log correlation.
+		// Tag process as supervisor worker: stats-exclusion / log correlation.
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
 
@@ -69,14 +69,14 @@ class Supervisor extends Supervisor_Base {
 			return;
 		}
 
-		// Acquire our own lock — singleton globally; defer to any supervisor already running.
+		// Acquire own lock — global singleton; defer to a running supervisor.
 		$lock_dir = "{$this->base_dir}/locks/supervisor.lock.d";
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
 			// base_dir is operator-configured under /tmp/ — not WP-managed.
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
-		// Supervisor is not a Node and runs no interpreter: bare new (no-interpreter exception).
+		// Not a Node, runs no interpreter: bare new (no-interpreter exception).
 		$lock           = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
 		$this->own_lock = $lock;
 		if ( ! $lock->acquire() ) {
@@ -84,7 +84,7 @@ class Supervisor extends Supervisor_Base {
 		}
 		$this->last_heartbeat = $this->start_time;
 
-		// Disable execution timeout so a slow PHP-FPM timeout doesn't kill us mid-tick.
+		// Disable execution timeout so PHP-FPM timeout can't kill us mid-tick.
 		@\set_time_limit( 0 );
 
 		try {
@@ -104,7 +104,7 @@ class Supervisor extends Supervisor_Base {
 	public function check_config( float $now ): bool {
 		$this->last_config_check = $now;
 
-		// Refresh per-process option snapshots so operator changes land on the next 15s tick.
+		// Refresh option snapshots so operator changes land next 15s tick.
 		Config::invalidate_options_cache();
 		Config::reset();
 
@@ -116,17 +116,14 @@ class Supervisor extends Supervisor_Base {
 
 		// No topologies → no work; exit so the cron skips until config changes.
 		if ( empty( $workers ) ) {
-			// Whole fleet deactivated at once: drain running workers so they exit now (reconcile bails on an empty set); cold start drains nothing.
+			// Fleet deactivated: drain running workers (reconcile skips empty).
 			if ( ! empty( $this->active_types ) ) {
 				$this->drain_all_workers();
 			}
 			return false;
 		}
 
-		// Refuse a write-conflicting active set (two topologies writing the same
-		// log/offsetlog). The activate verb rejects conflicts before persisting, but
-		// a config-FILE override bypasses that — better no workers than two fleets
-		// corrupting one partition. Exit loudly; the cron retries each minute.
+		// Refuse write-conflicting set: two fleets would corrupt one partition.
 		$active    = \array_values( \array_unique( \array_column( $workers, 'type' ) ) );
 		$conflicts = Topology_Registry::find_conflicts( $active );
 		if ( ! empty( $conflicts ) ) {
@@ -134,7 +131,7 @@ class Supervisor extends Supervisor_Base {
 			return false;
 		}
 
-		// Active fleet table: type => max-partition-count (per-type sizing from TSL frontmatter).
+		// Active fleet: type => max-partition-count (sized in TSL frontmatter).
 		$new_types = [];
 		foreach ( $workers as $w ) {
 			$new_types[ $w['type'] ] = \max(
@@ -143,7 +140,7 @@ class Supervisor extends Supervisor_Base {
 			);
 		}
 
-		// Defer first spawn of newly-added types so a predecessor can flush. Skipped on cold start.
+		// Defer spawn of new types so predecessor can flush; skip cold start.
 		if ( ! empty( $this->active_types ) ) {
 			$added = \array_diff_key( $new_types, $this->active_types );
 			foreach ( \array_keys( $added ) as $type ) {
@@ -153,7 +150,7 @@ class Supervisor extends Supervisor_Base {
 		$this->active_types = $new_types;
 		$this->worker_locks = $workers;
 
-		// Reconcile on-disk lock dirs against the active fleet (removed topology, shrunk count, orphans).
+		// Reconcile lock dirs vs active fleet (removed/shrunk/orphaned dirs).
 		$this->reconcile_lock_dirs();
 
 		return true;
@@ -178,7 +175,7 @@ class Supervisor extends Supervisor_Base {
 				continue;
 			}
 			if ( \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
-				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
+				// Restart flag already dropped — skip (avoid disk churn).
 				continue;
 			}
 			Lock_Node::request_restart_at( $path );
@@ -192,7 +189,7 @@ class Supervisor extends Supervisor_Base {
 	 */
 	public function reconcile_lock_dirs(): void {
 		if ( empty( $this->active_types ) ) {
-			// Cold start: without a known fleet every dir would be reaped as an orphan.
+			// Cold start: no known fleet → every dir reaped as an orphan.
 			return;
 		}
 		$locks_dir = "{$this->base_dir}/locks";
@@ -217,7 +214,7 @@ class Supervisor extends Supervisor_Base {
 			}
 			$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
 			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
-				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
+				// Restart flag already dropped — skip (avoid disk churn).
 				Lock_Node::request_restart_at( $path );
 			}
 		}
@@ -243,7 +240,7 @@ class Supervisor extends Supervisor_Base {
 			\clearstatcache( true, $path );
 			$mtime = @\filemtime( $path );
 			if ( false === $mtime || $mtime > $cutoff ) {
-				continue; // Unreadable or possibly an in-flight steal — leave it.
+				continue; // Unreadable or an in-flight steal — leave it.
 			}
 			Supervisor_Base::delete_directory_recursive( $path, $locks_dir );
 		}
@@ -251,7 +248,7 @@ class Supervisor extends Supervisor_Base {
 
 	/** The actual 595s tick loop. Extracted for testability + cleaner try/finally. */
 	private function tick_loop(): void {
-		// own_lock is set by run()/init_lock_for_test() before this runs; bail loudly otherwise.
+		// own_lock set by run()/init_lock_for_test() first; else bail loudly.
 		$lock = $this->own_lock;
 		if ( null === $lock ) {
 			throw new \RuntimeException( 'tick_loop requires an acquired own_lock' );
@@ -302,7 +299,7 @@ class Supervisor extends Supervisor_Base {
 				if ( $this->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
 					continue;
 				}
-				// Newly-added type: honor the post-detection delay so a predecessor can flush.
+				// New type: honor post-detect delay so predecessor can flush.
 				$deferred_until = $this->spawn_after[ $worker['type'] ] ?? 0;
 				if ( $deferred_until > 0 ) {
 					if ( $now < $deferred_until ) {
@@ -421,8 +418,7 @@ class Supervisor extends Supervisor_Base {
 	 * @return int Number of partitions spawned.
 	 */
 	public function spawn_fleet( string $name ): int {
-		// Defense-in-depth behind the activate verb: refuse to put a second fleet
-		// on a log/offsetlog a peer already owns. Phrased like check_config.
+		// Defense-in-depth: refuse a second fleet on peer-owned log/offsetlog.
 		$active    = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
 		$conflicts = Topology_Registry::find_conflicts( $active );
 		if ( ! empty( $conflicts ) ) {
@@ -465,13 +461,13 @@ class Supervisor extends Supervisor_Base {
 
 		$locks_dir = "{$this->base_dir}/locks";
 		foreach ( $groups as $name ) {
-			// Fall back to MAX_PARTITIONS for types no longer in topology, to clear orphans.
+			// MAX_PARTITIONS fallback for gone topology types — clears orphans.
 			$count = $counts[ $name ] ?? self::MAX_PARTITIONS;
 			$count = \min( self::MAX_PARTITIONS, \max( 1, $count ) );
 			for ( $p = 0; $p < $count; $p++ ) {
 				$lock_path = "{$locks_dir}/{$name}.p{$p}.lock.d";
 				if ( \is_dir( $lock_path ) ) {
-					// Restart channel, not force_release (which a worker reads as a stolen lock).
+					// Restart channel, not force_release (reads stolen lock).
 					Lock_Node::request_restart_at( $lock_path );
 				}
 			}
@@ -484,7 +480,7 @@ class Supervisor extends Supervisor_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
-		// Lifecycle primitive (see run()): bare new per the no-interpreter exception.
+		// Lifecycle primitive (see run()): bare new (no-interpreter exception).
 		$this->own_lock = new Lock_Node( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );
 		return $this->own_lock->acquire();
 	}

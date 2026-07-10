@@ -74,11 +74,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		return $payload;
 	}
 
-	// -------------------------------------------------------------------------
-	// dump_graph helpers — build the full operator-grade worker payload as
-	// self-contained static helpers on this class, so the verb owns its
-	// behavior with no external dependency.
-	// -------------------------------------------------------------------------
+	// dump_graph helpers: self-contained static builders for the payload.
 
 	/**
 	 * Build the full 7-field operator-grade envelope.
@@ -104,10 +100,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		// `workers[]` is pure per-(type,partition) liveness now — heartbeat status,
-		// nothing per-consumer. The dashboard joins the per-reader STATE
-		// (`consumers[]`, the TopicProbe snapshot) and the live segment lists
-		// (`logs[]`) onto the topology `graph` by reader/source.
+		// workers[] is pure per-(type,partition) liveness; no per-consumer.
 		$workers = [];
 		foreach ( $descriptors as $w ) {
 			$type      = $w['type'];
@@ -125,35 +118,17 @@ class Workers_CI_Node extends Service_CI_Node {
 			);
 		}
 
-		// Per-reader probe STATE (cursor, partition end, distance, msgs), keyed by
-		// reader — the dashboard attaches these to the graph's consumer nodes.
+		// Per-reader probe STATE (cursor, end, distance), keyed by reader.
 		$consumers = self::enumerate_offsetlog_rows( $base_dir );
 
-		// Supervisor status. Singleton — there is exactly one supervisor per
-		// install, at `supervisor.lock.d/` (no partition suffix). The
-		// dashboard renders its own card for this; it isn't grouped with
-		// partitioned workers.
+		// Supervisor status: singleton at supervisor.lock.d/ (no partition).
 		$supervisor = self::build_supervisor_status( "{$locks_base}/supervisor.lock.d", $now );
 
-		// Per-log catalog, resolver-driven: one concrete single-partition entry
-		// per declared partition dir (`requests.p0`), enumerated from each active
-		// topology's resolved resource dirs. No padding, no synthesized empty
-		// slots; on-disk orphans the GC will reap are NOT surfaced (consistent
-		// with the dashboard's don't-show-doomed-logs behavior). Cursor data is
-		// overlaid by the frontend from `workers[]`.
-		//
-		// Build a `{basename => int}` overrides map across every active
-		// topology so each log entry reflects the literal `segment_size`
-		// declared in TSL (e.g. `completed` / `gyroscope` hardcoded to 1 MiB)
-		// instead of the global config default. Token-substituted
-		// (`<config:segment_size>`) Partition lines contribute nothing here;
-		// `enumerate_logs` falls back to `$segment_size` for those.
+		// Per-log catalog, resolver-driven; segment_size honors TSL overrides.
 		$segment_size_overrides = self::collect_segment_size_overrides();
 		$logs                   = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides );
 
-		// On-disk log partitions: the concrete `.pN` dirs under logs/, globbed
-		// fresh (layout-agnostic, like Log_Cleaner::sweep) so the summary card
-		// counts every partition that exists, not just the active topologies'.
+		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
 		$log_partitions = \count( @\glob( "{$log_base}/*", \GLOB_ONLYDIR ) ?: [] );
 
 		return [
@@ -184,9 +159,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		int $now,
 		int $stale_timeout
 	): array {
-		// Pure liveness per (type, partition) from the lock-dir heartbeat. The
-		// per-consumer cursor/distance/segments are NOT here — the dashboard joins
-		// those from `consumers[]` (the probe) + `logs[]` (live segments).
+		// Pure liveness per (type, partition) from the lock-dir heartbeat.
 		$status        = 'dead';
 		$heartbeat_age = null;
 		$heartbeat_at  = 0;
@@ -431,8 +404,7 @@ class Workers_CI_Node extends Service_CI_Node {
 				'segment_size' => self::segment_size_for( $concrete, $segment_size_overrides, $default_segment_size ),
 			];
 		};
-		// Stamp each entry with the REAL enumerated partition (from the resolver),
-		// not a hardcoded 0 — the dashboard joins logs[] to consumers[] on it.
+		// Stamp each entry with the REAL enumerated partition, not 0.
 		foreach ( Log_Cleaner::declared_log_partitions() as $concrete => $partition ) {
 			$add( $concrete, $partition );
 		}
@@ -577,21 +549,16 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_cleanup_status(): array {
-		// Diagnostic: surface what Log_Cleaner reads when deciding which
-		// flat log dirs to delete, so operators can debug orphan-log sweeps.
+		// Diagnostic: what Log_Cleaner reads deciding which dirs to delete.
 		$base_dir = RuntimeConfig::get_base_directory();
 		$logs_dir = $base_dir . '/logs';
 		$on_disk  = [];
-		// Mirror Log_Cleaner::sweep(): glob first-level dirs (GLOB_ONLYDIR,
-		// layout-agnostic — no `.p{N}` regex) so the diagnostic matches
-		// exactly what the GC would delete.
+		// Mirror Log_Cleaner::sweep(): glob first-level dirs (layout-agnostic).
 		foreach ( @\glob( $logs_dir . '/*', \GLOB_ONLYDIR ) ?: [] as $dir ) {
 			$on_disk[] = \basename( $dir );
 		}
 		\sort( $on_disk );
-		// Same code path Log_Cleaner's sweep uses so the diagnostic
-		// matches the actual declared set (topology declarations +
-		// the registered_log_producers filter).
+		// Same path Log_Cleaner's sweep uses (topology + producers filter).
 		$expected = Log_Cleaner::declared_log_dirs();
 		\sort( $expected );
 		$orphans = \array_values( \array_diff( $on_disk, $expected ) );
@@ -620,9 +587,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			$filter[ $t ] = true;
 		}
 		$restarted = 0;
-		// Supervisor lives at `supervisor.lock.d` (no partition
-		// suffix); `restart_workers` only knows the `{type}.p{N}`
-		// shape, so route the supervisor through its own path.
+		// Supervisor at supervisor.lock.d (no partition); route it separately.
 		$cli = $self->cli();
 		if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
 			++$restarted;
@@ -665,9 +630,7 @@ class Workers_CI_Node extends Service_CI_Node {
 					'name'        => 'list',
 					'description' => 'List workers with heartbeat liveness.',
 					'args'        => [],
-					// $self is the dispatching interpreter instance — always a Workers_CI_Node here
-					// (dispatch() passes $this), so it reads the ctor-injected cli off it.
-					// Liveness only; cursor positions live in dump_graph / `wp nodes status`.
+					// $self is the Workers_CI_Node; reads its injected cli.
 					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_list( $self ),
 				],
 				[

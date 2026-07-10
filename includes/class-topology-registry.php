@@ -278,19 +278,15 @@ class Topology_Registry {
 			if ( '' === $line || '#' === $line[0] ) {
 				continue;
 			}
-			// Partition writes one log; Topic appends to the partitions under its
-			// path the same way — both share the `partition:` namespace so a
-			// Topic-vs-Partition collision on the same log is caught.
+			// Partition+Topic share `partition:` (same-log collision).
 			if ( \preg_match( '/^make_node\s+(?:Partition|Topic)\s+\S+\s+(\S+)/', $line, $m ) ) {
 				$seen[ 'partition:' . $m[1] ] = true;
 				continue;
 			}
-			// make_node Consumer <node> <source> <offsetlog> [<deadletter>] — both the
-			// offsetlog (3rd token) and the optional deadletter sibling (4th) are
-			// sole-writer logs the Consumer corrupts if two topologies share one.
+			// offsetlog (3rd) + deadletter (4th): sole-writer logs.
 			if ( \preg_match( '/^make_node\s+Consumer\s+\S+\s+\S+\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
 				$seen[ 'offsetlog:' . $m[1] ] = true;
-				if ( isset( $m[2] ) ) { // 4th token present → deadletter dir (\S+, never empty).
+				if ( isset( $m[2] ) ) { // 4th token: deadletter (\S+).
 					$seen[ 'deadletter:' . $m[2] ] = true;
 				}
 			}
@@ -358,8 +354,7 @@ class Topology_Registry {
 		$offsets      = [];
 		foreach ( self::write_set( $name ) as $entry ) {
 			[ $kind, $token ] = \explode( ':', $entry, 2 );
-			// Explicit kind→(root, bucket) routing so a future non-namespaced
-			// write_set entry can't silently land in the offset bucket.
+			// Explicit kind→root map; a new entry can't hit offsets.
 			$root = match ( $kind ) {
 				'partition' => $logs_root,
 				'offsetlog' => $offsets_root,
@@ -378,8 +373,7 @@ class Topology_Registry {
 				if ( '' === $first ) {
 					continue;
 				}
-				// Keep the FIRST partition seen for this name (a nested layout
-				// collapses several partitions onto one first-level dir).
+				// Keep FIRST partition seen (nested layout → one dir).
 				if ( 'partition' === $kind ) {
 					$logs[ $first ] ??= $p;
 				} else {
@@ -416,8 +410,7 @@ class Topology_Registry {
 			if ( '' === $line || '#' === $line[0] ) {
 				continue;
 			}
-			// Capture basename ($m[1]) + segment_size arg ($m[2]); filter on int after the match.
-			// In the flat layout segment_size is the FIRST arg after the path (the standalone partition arg is gone).
+			// basename + segment_size (flat: 1st arg after path), int-filtered.
 			if ( ! \preg_match(
 				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>\s+(\S+)/',
 				$line,
@@ -461,8 +454,7 @@ class Topology_Registry {
 				'Log'       => 'log',
 				default     => 'logic',
 			};
-			// Exact base names hit the match; an unknown type that resolves to a
-			// Tee subclass (e.g. Tap) gets the same fan-out 'tee' treatment.
+			// An unknown Tee subclass (e.g. Tap) also gets 'tee'.
 			if ( 'logic' === $kind ) {
 				$fqcn = Command_Interpreter_Node::resolve_class( $cls );
 				if ( null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true ) ) {
@@ -485,8 +477,7 @@ class Topology_Registry {
 			}
 			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
 				$kind = $kind_of( $m[1] );
-				// Tokens 3.. are the positional args after the type + node name; carried so
-				// a CI (e.g. Aggregator_CI) can discover a wired custom node's config.
+				// Tokens 3.. = positional args; a CI reads the node's config.
 				$tokens = \preg_split( '/\s+/', $line ) ?: [];
 				$node   = [
 					'name' => $m[2],
@@ -498,15 +489,12 @@ class Topology_Registry {
 					$node['writes'] = $basename( $m[3] );
 				} elseif ( 'consumer' === $kind && isset( $m[3] ) ) {
 					$node['reads'] = $basename( $m[3] );
-					// Consumer args are `<source> <offsetlog>`; the offsetlog basename
-					// (2nd positional, token 4) is the consumer's unique READER id —
-					// disambiguates two topologies tailing the SAME source.
+					// token 4 = consumer's READER id; disambiguates source.
 					if ( isset( $tokens[4] ) ) {
 						$node['reader'] = $basename( $tokens[4] );
 					}
 				} elseif ( 'log' === $kind && isset( $m[3] ) ) {
-					// make_node Log <name> <file> [segment_size] [num_segments].
-					// Carry the raw path + sizes so dump_graph can stat the flat segments.
+					// Carry raw path + sizes so dump_graph stats flat segments.
 					$node['writes']       = $basename( $m[3] );
 					$node['path']         = $m[3];
 					$node['segment_size'] = isset( $tokens[4] ) && \ctype_digit( $tokens[4] ) ? (int) $tokens[4] : 0;

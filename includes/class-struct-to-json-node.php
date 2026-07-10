@@ -20,12 +20,11 @@ class Struct_To_JSON_Node extends Node {
 		$type = $message[ Message::TYPE ];
 		if ( \is_int( $type ) && ( $type & Message::TM_STRUCT ) ) {
 			$value = $message[ Message::VALUE ];
-			// wp_json_encode returns false on failure (e.g. invalid UTF-8); only adopt
-			// a real string, so a failed encode leaves the struct visible, not blanked.
+			// Adopt only a string; failed encode (false) keeps the struct.
 			$encoded = \is_string( $value ) ? $value : \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES );
 			if ( \is_string( $encoded ) ) {
 				$message[ Message::VALUE ] = \rtrim( $encoded, "\n" ) . "\n";
-				// Swap only the STRUCT bit for BYTESTREAM; preserve co-existing flags (e.g. TM_RESPONSE).
+				// Swap STRUCT bit for BYTESTREAM; keep other flags.
 				$message[ Message::TYPE ] = ( $type & ~Message::TM_STRUCT ) | Message::TM_BYTESTREAM;
 			}
 		}

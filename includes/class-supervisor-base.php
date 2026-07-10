@@ -39,7 +39,7 @@ class Supervisor_Base {
 	 * @param int    $stale_age_s  Threshold in seconds.
 	 */
 	public function remove_stale_directory( string $dir, int $stale_age_s ): void {
-		// Symlink: unlink rather than recurse, to prevent escaping the intended directory.
+		// Symlink: unlink rather than recurse, so we can't escape base_dir.
 		if ( \is_link( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- substrate manages its own base_dir tree (default /tmp/newspack-nodes/); the VIP hosted-filesystem rule doesn't apply to a runtime's reserved directory.
 			@\unlink( $dir );
@@ -83,7 +83,7 @@ class Supervisor_Base {
 		if ( ! self::is_within( $path, $base_path ) ) {
 			return;
 		}
-		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe the base itself.
+		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe base.
 		$real_path = \realpath( $path );
 		$real_base = \realpath( $base_path );
 		if ( false === $real_path || false === $real_base
@@ -106,7 +106,7 @@ class Supervisor_Base {
 		if ( false === $real_path || false === $real_base ) {
 			return false;
 		}
-		// Accept equality — this is a containment predicate; callers reject equality if needed.
+		// Accept equality — containment predicate; callers reject it if needed.
 		$real_base_trim = \rtrim( $real_base, '/' );
 		if ( $real_path === $real_base_trim ) {
 			return true;
@@ -201,7 +201,7 @@ class Supervisor_Base {
 		if ( isset( $this->last_spawn_time[ $key ] ) ) {
 			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
 		}
-		// Otherwise consult cross-process state — covers cron-backstop respawns and self-respawn handoffs.
+		// Else consult cross-process state: cron-backstop + self-respawn.
 		$persisted = $this->load_spawn_ts( $key );
 		if ( null !== $persisted ) {
 			$this->last_spawn_time[ $key ] = $persisted;

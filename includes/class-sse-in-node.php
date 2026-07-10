@@ -149,7 +149,7 @@ class SSE_In_Node extends Node {
 			'subscribe' => $this->subscribe,
 		];
 		if ( $this->position['segment'] > 0 || $this->position['offset'] > 0 ) {
-			// Positions map is keyed by the partition dir = $subscribe (<topic>.p<N>).
+			// Positions keyed by partition dir = $subscribe (<topic>.p<N>).
 			$params['positions'] = (string) \wp_json_encode(
 				[
 					$this->subscribe => [
@@ -220,9 +220,9 @@ class SSE_In_Node extends Node {
 		$this->handle             = $ch;
 		$this->last_attempt       = $now;
 		$this->slot               = null;
-		// Register every connect: a reused multi won't self-register on reconnect.
+		// Register each connect: reused multi won't self-register on reconnect.
 		Event_Framework::instance()->register_curl_handle( $this, $multi );
-		// Stream opened; awaiting the 'connected' handshake (CONNECTED replaces this).
+		// Opened; awaiting 'connected' handshake (CONNECTED replaces this).
 		$this->set_state( 'CONNECTING', $this->subscribe );
 		return true;
 	}
@@ -317,7 +317,7 @@ class SSE_In_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function process_sse_chunk( string $bytes ): bool {
-		// bytes_read counts all wire bytes; JS counts only msg data — not a parity bug.
+		// bytes_read counts wire bytes; JS counts only msg data — not a bug.
 		$this->bytes_read += \strlen( $bytes );
 		$this->buffer     .= $bytes;
 
@@ -391,7 +391,7 @@ class SSE_In_Node extends Node {
 		$this->current_backoff = self::INITIAL_BACKOFF;
 		$this->last_event_time = Core::$now ?: \microtime( true );
 
-		// Heartbeats prove liveness only — record receipt and return before unpack.
+		// Heartbeats prove liveness — record receipt, return before unpack.
 		if ( 'heartbeat' === $type ) {
 			$this->last_sse_heartbeat = (int) ( Core::$now ?: \microtime( true ) );
 			return true;
@@ -410,7 +410,7 @@ class SSE_In_Node extends Node {
 			return $this->handle_connected( $message );
 		}
 
-		// 'msg' hands the RAW payload to the owner; its forward_line owns unparse/DLQ.
+		// 'msg' hands RAW payload to owner; its forward_line owns unparse/DLQ.
 		if ( 'msg' === $type ) {
 			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
 			$this->counter++;
@@ -435,7 +435,7 @@ class SSE_In_Node extends Node {
 	private function handle_connected( array $message ): bool {
 		$value = $message[ Message::VALUE ];
 		if ( ! \is_string( $value ) ) {
-			// TM_INFO values are strings; a non-string VALUE is malformed — report it.
+			// TM_INFO VALUEs are strings; non-string = malformed, report it.
 			$this->last_error = 'malformed connected envelope (non-string value)';
 			$this->set_state( 'ERROR', $this->last_error );
 			$this->print_less_often( 'ERROR: ' . $this->last_error );
@@ -447,7 +447,7 @@ class SSE_In_Node extends Node {
 		$this->slot        = \is_scalar( $slot_raw ) ? (int) $slot_raw : null;
 		$pid_raw           = $info['PID'] ?? null;
 		$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
-		// No PID = malformed handshake; don't mark connected (reply-FROM needs pid).
+		// No PID = malformed handshake; don't connect (reply-FROM needs pid).
 		if ( null === $this->session_pid ) {
 			$this->last_error = 'connected envelope missing PID';
 			$this->set_state( 'ERROR', $this->last_error );
@@ -525,7 +525,7 @@ class SSE_In_Node extends Node {
 		}
 		if ( null !== $this->multi ) {
 			@\curl_multi_remove_handle( $this->multi, $handle );
-			// Unregister: no easy handle left, so the drain loop won't spin on a fd-less multi.
+			// Unregister so the drain loop won't spin on a fd-less multi.
 			Event_Framework::instance()->unregister_curl_handle( $this );
 		}
 		@\curl_close( $handle );
@@ -541,7 +541,7 @@ class SSE_In_Node extends Node {
 	 * @api Support for the Remote_Source Buffered_Pump valve.
 	 */
 	public function arm(): void {
-		// Only register with a live handle; arming while disconnected recreates the spin.
+		// Only register with a live handle; arming while disconnected respins.
 		if ( null !== $this->multi && $this->handle instanceof \CurlHandle ) {
 			Event_Framework::instance()->register_curl_handle( $this, $this->multi );
 		}

@@ -124,8 +124,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		}
 		$config = self::extract_server_config( $opts );
 		if ( ! $registry->add( $id, $config ) ) {
-			// Registry rejected on validate_config (non-HTTPS URL,
-			// missing url, etc.) or hit MAX_SERVERS.
+			// Registry rejected (bad/non-HTTPS URL) or hit MAX_SERVERS.
 			throw new \RuntimeException( 'add failed: check URL format (must be HTTPS) and registry capacity' );
 		}
 		self::fire_changed( $id, 'added' );
@@ -166,9 +165,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( null === $existing ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
-		// Partial update: only options actually present in the args
-		// string are applied; an absent --key leaves the stored field
-		// untouched.
+		// Partial update: an absent --key leaves the stored field alone.
 		$partial = self::partial_config( $parsed['options'] );
 		if ( ! $registry->update( $id, $partial ) ) {
 			throw new \RuntimeException( 'update failed' );
@@ -263,15 +260,12 @@ class Vault_CI_Node extends Service_CI_Node {
 		$cfg        = Config::load_config();
 		$verify_ssl = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
 
-		// The discovery surface is a `discovery.get` command dispatched via
-		// `/command`. Build the body through the shared substrate primitive so
-		// the manual Test probe and any periodic health-check probe can't drift.
+		// discovery.get via /command; build the body via the shared primitive.
 		/** @var int|float|string|bool|null $raw_server_url */
 		$raw_server_url = $server['url'];
 		$url            = \rtrim( (string) $raw_server_url, '/' ) . '/wp-json/newspack-nodes/v1/command';
 		$args = [
-			// 5s bound on a synchronous Test-button probe — admin UI blocks on
-			// it. Default 1s misses real spokes on slow links.
+			// 5s bound: UI blocks on the probe; 1s misses slow spokes.
 			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
 			'timeout'             => 5,
 			'sslverify'           => $verify_ssl,
@@ -307,10 +301,7 @@ class Vault_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( \esc_html( "HTTP {$code} response from server" ) );
 		}
 
-		// Response is a packed Message whose VALUE is the structured
-		// `{name, payload}` LIVE array — the whole-Message JSON is the only
-		// serialization boundary, so ONE decode of the body yields a nested
-		// array and `payload` is read directly with NO second decode.
+		// One decode of the whole Message yields payload; NO second decode.
 		$envelope = \json_decode( \wp_remote_retrieve_body( $response ), true, 16 );
 		if ( ! \is_array( $envelope ) || ! \array_key_exists( Message::VALUE, $envelope ) ) {
 			throw new \RuntimeException( 'server returned malformed command envelope' );

@@ -89,14 +89,13 @@ class Settings_Renderer {
 				? \__( '— (file default)', 'newspack-nodes' )
 				: self::format_value( $raw_store );
 
-			// Every setting overlays the config file, so the operative value is the
-			// overlay-resolved load_config() entry.
+			// Every setting overlays the file; operative value = load_config().
 			$effective_value = $effective[ $key ] ?? $raw_store;
 			if ( Options_Overlay::ABSENT === $effective_value ) {
 				$effective_value = $field->register_args['default'] ?? '';
 			}
 
-			// Override active when this key has a stored row (Options_Overlay's presence rule).
+			// Override active when this key has a stored row (presence rule).
 			$overlay = Options_Overlay::ABSENT !== $raw_store
 				? self::format_value( $raw_store )
 				: null;
@@ -123,7 +122,7 @@ class Settings_Renderer {
 			if ( [] === $value ) {
 				return \__( '(none)', 'newspack-nodes' );
 			}
-			// An associative array (e.g. custom_events {event => true}) carries its meaning in the keys; a list, in the values.
+			// Assoc array carries meaning in keys; a list, in values.
 			$source = \array_is_list( $value ) ? $value : \array_keys( $value );
 			$items  = \array_map( [ Core::class, 'as_string' ], $source );
 			$n     = \count( $items );

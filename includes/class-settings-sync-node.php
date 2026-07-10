@@ -102,22 +102,17 @@ class Settings_Sync_Node extends Timer_Node {
 		if ( [] === $specs || null === $this->sink ) {
 			return;
 		}
-		// Long-lived worker: drop the frozen alloptions snapshot so get_option below
-		// reflects a concurrent admin save (reset-to-default, remote_* change) rather
-		// than a stale value the worker cached at first read. Mirrors Discovery_Collector_Node.
+		// Drop the frozen alloptions cache so get_option sees concurrent saves.
 		( self::$invalidate_options_cache ?? static fn () => Config::invalidate_options_cache() )();
-		// App-overridable: ELN resolves a blank remote_* to the file default here.
+		// App-overridable: ELN resolves a blank remote_* to its file default.
 		$value  = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
 		$scalar = self::scalarize( $value );
-		// Unencodable (malformed UTF-8 etc.): skip rather than ship an empty token
-		// that would decode to [] and WIPE the option on the spoke.
+		// Skip unencodable values; an empty token would WIPE the option.
 		if ( null === $scalar ) {
 			$this->print_less_often( "settings-sync: cannot encode value for {$local}; skipping" );
 			return;
 		}
-		// One `set` per registered mapping — a local may target more than one spoke
-		// option (e.g. a remote_* setting seeds the spoke's stripped option AND its
-		// own remote_* copy for onward propagation).
+		// One `set` per mapping — a local may target several spoke options.
 		foreach ( $specs as $spec ) {
 			$this->send_set( $spec['to'], $spec['remote'], $scalar );
 		}
@@ -147,11 +142,7 @@ class Settings_Sync_Node extends Timer_Node {
 		$this->sink->fill( $out );
 	}
 
-	// Flatten a value to one positional token: arrays become JSON (lossless for
-	// associative maps like custom_events, whose keys carry the data — implode()
-	// would drop them); scalars stringify. The receiver json_decodes array options.
-	// null signals an unencodable value (json_encode failed) so push() can skip it
-	// rather than ship an empty token that would wipe the option on the spoke.
+	// Flatten to one token: arrays become JSON, scalars stringify; null if bad.
 	private static function scalarize( mixed $v ): ?string {
 		if ( \is_array( $v ) ) {
 			$json = \wp_json_encode( $v, \JSON_UNESCAPED_SLASHES );

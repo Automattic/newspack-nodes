@@ -24,7 +24,7 @@ class Tee_Node extends Node {
 
 		$to = Core::as_string( $message[ Message::TO ] );
 
-		// Prune dead bare-name targets; pass path-shaped targets (with a slash) through as-is for the sink to route.
+		// Prune dead bare-name targets; pass path-shaped targets through as-is.
 		$targets = \is_array( $this->target ) ? $this->target : [];
 		$alive   = [];
 		foreach ( $targets as $t ) {
@@ -45,7 +45,7 @@ class Tee_Node extends Node {
 				if ( null === $deferred ) {
 					$deferred = $e;
 				} elseif ( $e instanceof Worker_Should_Stop ) {
-					// Worker_Should_Stop is a cooperative-stop signal: it takes priority.
+					// Worker_Should_Stop cooperative-stop: it takes priority.
 					$deferred = $e;
 				}
 			}

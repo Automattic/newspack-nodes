@@ -123,10 +123,7 @@ class Worker_CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function status( array $args, array $assoc_args ): void {
-		// One row per ACTIVE Consumer, straight from the TopicProbe snapshot:
-		// reader id, the partition it tails, and its backlog (`distance`) measured
-		// against the partition end in the SAME snapshot as the cursor (never a
-		// fresh stat vs a stale cursor). Worker liveness is `wp nodes ls`.
+		// One row per active Consumer from the TopicProbe snapshot.
 		$rows = [];
 		foreach ( $this->cli()->consumer_rows() as $cr ) {
 			$rows[] = [
@@ -366,12 +363,12 @@ class Worker_CLI_Command {
 			\WP_CLI::error( \sprintf( 'No worker registered for %s partition %d', $type, $partition ) );
 		}
 
-		// Resolve the TSL topology name and build a closure that runs it via Topology_Loader.
+		// Resolve the TSL topology name; build a closure to run it.
 		$topology_name = self::entry_string( $descriptor, 'topology' );
 		if ( '' === $topology_name || null === Topology_Registry::resolve( $topology_name ) ) {
 			\WP_CLI::error( 'Topology not found in registry: ' . $topology_name );
 		}
-		// `<config:…>` tokens resolve via the substrate's registered namespace resolver.
+		// `<config:…>` tokens resolve via the registered namespace resolver.
 		$topology = static function (
 			Command_Interpreter_Node $interpreter,
 			int $partition_arg
@@ -383,8 +380,7 @@ class Worker_CLI_Command {
 			\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
 		}
 
-		// Bootstrap::supervisor() so the HMAC salt matches the runtime and
-		// CLI-launched respawns are accepted by the real spawn endpoint.
+		// Bootstrap::supervisor() so the HMAC salt matches the runtime.
 		$supervisor = Bootstrap::supervisor();
 
 		$wb = new Worker_Base(

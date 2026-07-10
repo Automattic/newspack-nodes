@@ -34,8 +34,7 @@ class HTTP_Filter_Node extends Node {
 		}
 		++$this->counter;
 		[ $head, $reply_node ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
-		// Match this session's `_sse:<pid>` head; drop silently otherwise — the
-		// reply belongs to a different session's SSE process.
+		// Match this session's `_sse:<pid>` head; drop others silently.
 		if ( Node_Names::SSE . ':' . $this->own_pid !== $head ) {
 			return;
 		}

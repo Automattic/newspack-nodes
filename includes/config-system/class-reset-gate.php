@@ -50,8 +50,7 @@ class Reset_Gate {
 
 	/** The per-field reset toggle marked this option (mark rides the nonce-verified settings POST). */
 	private static function is_reset_marked( string $option, string $mark_field ): bool {
-		// Presence check only — the marker value is never read or stored, and
-		// options.php verifies the settings nonce before any pre_update_option fires.
+		// Presence check only; options.php verified the nonce before this.
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$marks = $_POST[ $mark_field ] ?? null;
 		return \is_array( $marks ) && isset( $marks[ $option ] );

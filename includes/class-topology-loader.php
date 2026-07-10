@@ -38,17 +38,15 @@ class Topology_Loader {
 			);
 		}
 
-		// Bind `<partition>`; `<ns:key>` tokens resolve via registered namespace resolvers.
+		// Bind `<partition>`; `<ns:key>` tokens use registered resolvers.
 		Core::$var['partition'] = (string) $partition;
 
 		$shell = new Shell_Node();
 		$shell->sink( $sink );
-		// No console to reply to at boot: send commands TM_NOREPLY so the
-		// interpreter suppresses replies that would otherwise dead-end on the
-		// absent `_output` and bounce a dropped NOT_AVAILABLE every startup.
+		// No boot console: TM_NOREPLY drops replies dead-ending on _output.
 		$shell->want_reply( false );
 
-		// TSL file content is local-disk only — phpcs's remote-fetch rule doesn't apply.
+		// Local-disk TSL content only — remote-fetch phpcs rule doesn't apply.
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$shell->eval_script( (string) \file_get_contents( $path ) );
 	}

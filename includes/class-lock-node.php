@@ -90,7 +90,7 @@ class Lock_Node extends Node {
 					$this->set_state( 'HELD', $this->lock_path );
 					return true;
 				}
-				// Couldn't write required files; roll back the dir so we don't orphan it.
+				// Write failed; roll back the dir so we don't orphan it.
 				self::force_release_at( $this->lock_path );
 				return false;
 			}
@@ -127,21 +127,10 @@ class Lock_Node extends Node {
 		\clearstatcache( true, $hb );
 
 		if ( ! \file_exists( $hb ) ) {
-			// Orphan dir (no heartbeat): the owner is between mkdir and the
-			// heartbeat write. Judge by the dir's own age instead of sleeping —
-			// only steal once it has sat heartbeat-less past the grace window.
-			// Invariant: nothing is written INTO the dir before the heartbeat
-			// (write_acquire_files is the first child write), so a real orphan's
-			// dir mtime stays at its mkdir creation time and this age test is
-			// exactly "how long has this dir sat empty". Don't drop a marker file
-			// at mkdir time or this breaks.
+			// Orphan steal by dir age; write nothing before heartbeat.
 			\clearstatcache( true, $this->lock_path );
 			$dir_mtime = @\filemtime( $this->lock_path );
-			// `<=`, not `<`: both clocks are integer seconds, so a truly-fresh dir
-			// reads as ORPHAN_GRACE_S old the instant the wall clock ticks past a
-			// second boundary between its mkdir and this read. Treat measured-age ==
-			// grace as still-fresh so that boundary straddle can't false-steal a
-			// mid-acquire owner (steal needs a genuine >grace measured age).
+			// `<=` not `<`: int-second clocks; straddle can false-steal.
 			if ( false === $dir_mtime || ( \time() - $dir_mtime ) <= self::ORPHAN_GRACE_S ) {
 				return false; // Too fresh — assume the owner is mid-acquire.
 			}
@@ -181,7 +170,7 @@ class Lock_Node extends Node {
 		$aside = $this->lock_path . '.stealing.' . \getmypid() . '.' . \uniqid( '', true );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename
 		if ( ! @\rename( $this->lock_path, $aside ) ) {
-			return false; // Lost the steal — another racer renamed/removed it first.
+			return false; // Lost the steal — another racer got it first.
 		}
 		self::force_release_at( $aside ); // Discard the stolen dir + its files.
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -204,7 +193,7 @@ class Lock_Node extends Node {
 		if ( ! $started_ok ) {
 			return false;
 		}
-		// Clear any inherited restart flag so a new holder doesn't immediately exit.
+		// Clear an inherited restart flag so a new holder doesn't exit.
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $this->lock_path . '/' . self::RESTART_FLAG );
 		return true;
@@ -269,16 +258,16 @@ class Lock_Node extends Node {
 			return true;
 		}
 
-		// PID-content theft check: only meaningful if we believe we hold the lock.
+		// PID-content theft check: only meaningful if we believe we hold it.
 		if ( $this->is_held ) {
 			\clearstatcache( true, $this->lock_path . '/' . self::HEARTBEAT_FILE );
 			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 			$content = @\file_get_contents( $this->lock_path . '/' . self::HEARTBEAT_FILE );
 			if ( false === $content ) {
-				return true; // Heartbeat gone — lock dir was deleted out from under us.
+				return true; // Heartbeat gone — lock dir deleted from under us.
 			}
 			if ( (int) $content !== \getmypid() ) {
-				return true; // PID mismatch — another process is now the rightful holder.
+				return true; // PID mismatch — another process now holds it.
 			}
 		}
 		return false;

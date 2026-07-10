@@ -57,7 +57,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		$base_dir = RuntimeConfig::get_base_directory();
 		$log_base = $base_dir . '/logs';
 
-		// Sibling plumbing: name + patron + sink the transient probe, read, then remove.
+		// Sibling plumbing: name + patron + sink the probe, read, remove.
 		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
 		$partition = new Partition_Node();
 		$partition->name( "{$self->name()}:status" );
@@ -67,7 +67,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		}
 		// Flat layout: the concrete dir IS one partition — stat it directly.
 		$partition->arguments( "{$log_base}/{$log_key}" );
-		// finally so a throwing probe/read can't leave the named node registered (it would collide on the next call in a long-lived worker).
+		// finally: a throw can't leave the node registered (would collide).
 		try {
 			if ( null !== self::$on_probe ) {
 				( self::$on_probe )( $partition );
