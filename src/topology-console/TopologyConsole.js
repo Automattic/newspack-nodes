@@ -70,10 +70,7 @@ import {
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
 
-// Pure derivations over a catalog — `partitions` is `{ name: num_partitions }`,
-// `active` is the list of active topology names. Shared by the module-level seed
-// (initial topology from the URL) and the live useTopologyCatalog data, so the
-// menu and the seed compute identically.
+// Pure derivations over a topology catalog, shared by the seed and live menu.
 
 // Active topologies sort to the top of the dropdown, then alphabetical.
 function sortTopologies( partitions, active ) {
@@ -90,9 +87,7 @@ function partitionIndices( partitions, topology ) {
 	return Array.from( { length: n }, ( _, i ) => i );
 }
 
-// Every cwd the Path menu can select: the local graph, the request scope, then
-// one entry per worker — only for ACTIVE topologies (inactive ones have no live
-// workers to reach).
+// Every cwd the Path menu offers: local graph, request scope, active workers.
 function buildPathOptions( partitions, active ) {
 	const activeSet = new Set( active );
 	return [
@@ -108,8 +103,7 @@ function buildPathOptions( partitions, active ) {
 	];
 }
 
-// The page-load snapshot — ONLY the seed for the initial topology pick; the live
-// menu data comes from useTopologyCatalog (which seeds from this same snapshot).
+// Page-load snapshot — seeds the initial topology pick, NOT the live menu.
 const SEED_WORKERS =
 	( window.NewspackNodesData && window.NewspackNodesData.topologyWorkers ) ||
 	{};
@@ -125,17 +119,10 @@ function parseWorker( cwd ) {
 	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
 }
 
-// scopeFromCwd lives in utils/scope (imported above) so useConsoleGraph can gate
-// its seed on it without a hook→component cycle. Re-exported for existing consumers.
+// scopeFromCwd lives in utils/scope to avoid a hook→component cycle.
 export { scopeFromCwd };
 
-// The localStorage key the canvas position map persists under, or null to skip
-// persistence. View mode keys by the cwd scope (each worker / `/` / `_sse` keeps
-// its own layout). Edit mode keys by the TOPOLOGY being edited — an unactivated
-// topology has no worker to `cd` onto, so a cwd-derived key would collide every
-// edited topology onto one slot (and stomp the live local-scope layout). An
-// untitled draft has no identity, so it returns null (in-memory only) rather than
-// share a slot. Cross-mode persistence rides the server-saved layout (layouts CI).
+// localStorage key for the canvas layout: view keys by scope, edit by topology.
 export function layoutStorageKey( { mode, editingName, scopeKey } ) {
 	if ( 'edit' === mode ) {
 		return editingName
@@ -145,10 +132,7 @@ export function layoutStorageKey( { mode, editingName, scopeKey } ) {
 	return `newspack-nodes:topology:${ scopeKey }`;
 }
 
-// The browser console's `status` builtin summary — the JS analogue of the PHP
-// cli's `$shell->status_lines`. Reports the SSE session, the cwd, and which
-// worker (if any) the cwd is cd'd into. `worker` is a longestWorkerPrefix()
-// result ({ topology, partition } | null).
+// Browser console 'status' summary — JS analogue of the PHP cli status_lines.
 export function statusLines( { ssePid, cwd, worker } ) {
 	if ( ! ssePid ) {
 		return [ 'Browser console — no SSE session (not connected).' ];
@@ -162,10 +146,7 @@ export function statusLines( { ssePid, cwd, worker } ) {
 	];
 }
 
-// The longest worker menu item (`{topology}.p{N}`) that is a path-prefix of
-// `path` — the worker whose subtree contains it. `cd`-ing onto a worker OR into
-// any node beneath it resolves to that worker's mount; non-worker paths (roots,
-// `_http`, …) resolve to null. Returns { topology, partition } | null.
+// Longest worker menu item prefixing 'path' (its mount), or null.
 function longestWorkerPrefix( path, options ) {
 	let best = null;
 	for ( const opt of options ) {
@@ -181,43 +162,18 @@ function longestWorkerPrefix( path, options ) {
 	return best ? parseWorker( best ) : null;
 }
 
-// The `{topology}.p{N}` path the cwd resolves to — the longest ACTIVE worker
-// menu item that prefixes it — or null when the cwd isn't (under) a live worker.
-// Active-set aware: a worker-SHAPED path for an inactive topology has no menu
-// entry, so it returns null. This is the SINGLE worker-detection both gates share
-// — the canvas poll target AND the SSE stream gate — so they never disagree (a
-// pure-regex stream gate once opened the EventSource for a path the poll gate
-// couldn't reach, stranding a slot with no keepalive).
+// Active worker the cwd resolves to, or null — the ONE gate poll+SSE share.
 export function workerPollPath( cwd, pathOptions ) {
 	const worker = longestWorkerPrefix( cwd, pathOptions );
 	return worker ? `${ worker.topology }.p${ worker.partition }` : null;
 }
 
-// Whether a send TO requires a live SSE session (pid). ONLY an attached-worker target
-// (`{topology}.pN[/…]`) does: SseInNode wraps its reply FROM with `_sse:{pid}`
-// so the server's HTTP_Filter can demux the worker's ASYNC reply back to this
-// client's stream. A local-root command (empty TO) interprets in-browser; a
-// request-scope command (`_sse`) and the direct `_http/{worker}` boundary form
-// reply synchronously in the POST body — none of those wait on the stream. The
-// send gates use this so a `cd /` (stream closed, pid null) doesn't block local
-// commands with "[no sse_pid yet]".
+// True only for an attached-worker TO — its async reply needs the SSE pid.
 export function toNeedsSseSession( to ) {
 	return /^[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
 }
 
-// REPL transcript ceiling, derived from the MEASURED `.topology-app` height so
-// it can't drift from the chrome above it. The console grid is `0 1fr 38px`
-// (a collapsed header row / canvas / repl-bar — see graph-view.scss): the
-// console's own header moved up to the shared hub header above the tabs, so the
-// canvas frame no longer reserves a header row. The transcript fills the canvas
-// row, so the ceiling is appHeight − repl-bar − a resize-handle reserve.
-// The reserve is 0 here (NOT the overlay's 4): appHeight is measured exactly and
-// the transcript bottom is exactly the repl-bar top, so 0 lands the transcript
-// top precisely at the canvas top — the 6px handle straddles that edge and ~1px
-// peeks below the tab bar (the rest of its hit area extends down, still
-// grabbable). The overlay needs +4 only because it hardcodes its header/bar
-// instead of measuring them. Returns null before layout (height 0) so
-// ReplFooter keeps its own fallback.
+// REPL ceiling from measured appHeight − repl-bar − handle; null pre-layout.
 const CONSOLE_REPL_BAR_PX = 38;
 const CONSOLE_RESIZE_HANDLE_PX = 0;
 const REPL_MIN_HEIGHT_PX = 80;
@@ -243,13 +199,7 @@ export function initialTopologyFromUrl( fallback ) {
 	if ( ! t ) {
 		return fallback;
 	}
-	// Honor the deep link if EITHER the module-load SEED or the live read knows
-	// the topology. The SEED is the reliable source in PRODUCTION: each hub bundle
-	// (event-dashboards, devtools-hub, console, …) localizes its OWN
-	// `NewspackNodesData` global, and the last one to execute clobbers
-	// topologyWorkers — so a render-time live read sees {} and every deep link
-	// fell back to the first topology. The live read is kept as the fallback for
-	// the case the SEED was empty at module import (e.g. a late-landing snapshot).
+	// Honor deep link via SEED or live; SEED wins — bundles clobber live.
 	const live =
 		( window.NewspackNodesData &&
 			window.NewspackNodesData.topologyWorkers ) ||
@@ -281,13 +231,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const [ partition, setPartition ] = useState( () =>
 		initialPartitionFromUrl()
 	);
-	// Display-only mirror of GraphView's authoritative selection, set via
-	// onSelectionChange. Used ONLY for the `is-inspector-open` wrapper class
-	// (and handleInspectorAction's transcript focus side-effect).
+	// Display-only mirror of GraphView's authoritative selection.
 	const [ selectedId, setSelectedId ] = useState( null );
-	// `edit` freezes a draft snapshot so SSE pushes can't clobber it;
-	// `baseline` is the draft at edit-entry, so the dirty check compares
-	// against real edits rather than live SSE counter churn.
+	// edit freezes a draft; baseline is the edit-entry draft (dirty check).
 	const [ mode, setMode ] = useState( 'view' );
 	const [ draft, setDraft ] = useState( {
 		nodes: [],
@@ -300,28 +246,20 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		frontmatter: {},
 	} );
 	const [ editingName, setEditingName ] = useState( '' );
-	// Source ('stock' | 'user' | 'both' | '') of the topology currently loaded
-	// for editing — from the get/save response. Drives the DELETE button without
-	// needing the Open-modal topology list (which isn't loaded until Open shows).
+	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
 	const [ discardModal, setDiscardModal ] = useState( null );
-	// Live-mode palette drop on a class with declared args stages here; the
-	// NewNodeModal renders until commit/cancel.
+	// Live-mode palette drop with declared args stages here (NewNodeModal).
 	const [ pendingDrop, setPendingDrop ] = useState( null );
 	const [ saveModal, setSaveModal ] = useState( null );
-	// `{ name }` while the post-save "Activate now?" prompt is up for a
-	// freshly-created topology, null otherwise. The confirm dispatches activate.
+	// { name } while the post-save "Activate now?" prompt is up, else null.
 	const [ activateModal, setActivateModal ] = useState( null );
-	// Pending topology-delete confirmation: `{ name }` while the ConfirmModal
-	// is up, null otherwise. The actual delete runs in the modal's onConfirm.
+	// Pending delete confirm: { name } while ConfirmModal is up, else null.
 	const [ deleteModal, setDeleteModal ] = useState( null );
 	const [ openModalShown, setOpenModalShown ] = useState( false );
 	const [ settingsOpen, setSettingsOpen ] = useState( false );
 	const [ toast, setToast ] = useState( null );
-	// Palette chrome shared with the debug overlay. The console picks the palette
-	// key by mode (live vs edit, with per-mode defaults); the hook reloads palette
-	// state whenever the key/default change on a mode switch. The skin is global
-	// (the `<html>` class), so there's no theme value to thread or publish up.
+	// Palette chrome shared with the debug overlay; key varies by mode.
 	const {
 		paletteCollapsed,
 		inspectorCollapsed,
@@ -334,8 +272,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		paletteKey: paletteKeyFor( mode ),
 		defaultCollapsed: 'edit' !== mode,
 	} );
-	// Apply the persisted skin to <html> on mount so a standalone console shows
-	// it; a set_skin re-applies it. The skin is the global root class (theme.js).
+	// Apply the persisted skin to <html> on mount (global root class).
 	useEffect( () => {
 		initSkin();
 	}, [] );
@@ -343,17 +280,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
 	const topologyList = useTopologyList( { enabled: openModalShown } );
-	// Two catalogs in play: the PHP one (fetched lazily over HTTP — used when
-	// editing a topology or interacting with a worker) and the JS one (the
-	// browser-side make_node registry, used at cwd '/' where commands run in
-	// this realm). The choice is made below once `scope` is known.
+	// Two catalogs: PHP (HTTP; workers/edit) and JS (browser make_node).
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const jsCatalog = useJsCatalog();
 	const vaultCatalog = useVaults( { enabled: true } );
-	// Measure the `.topology-app` grid so the REPL transcript ceiling tracks the
-	// real available height (the console lives inside the DevtoolsTabHost tab bar,
-	// which the window-based fallback can't see). A ResizeObserver keeps it correct
-	// across window resizes + admin-menu collapse.
+	// Measure .topology-app so the REPL ceiling tracks real height.
 	const appRef = useRef( null );
 	const [ appHeight, setAppHeight ] = useState( 0 );
 	useEffect( () => {
@@ -372,64 +303,43 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [] );
 	const replMaxHeightPx = replCeilingFromAppHeight( appHeight );
 
-	// Dumper verbosity dial (0/1/2), mirroring the substrate Dumper. A ref
-	// so the Dumper reads it per-frame without re-binding the graph.
+	// Dumper verbosity dial (0/1/2); a ref so it's read without re-binding.
 	const debugLevelRef = useRef( 0 );
 
-	// The "reset graph" control stashes the cwd here so the [shell] sync effect can restore
-	// it after useConsoleGraph rehomes Shell.path to the default `{reader}`.
-	// Without this, "reset graph" would yank the user off `/` (or wherever they
-	// were) every time. Null = no restore pending.
+	// "reset graph" stashes the cwd so the shell sync can restore it.
 	const cwdRestoreRef = useRef( null );
 
-	// Shell cwd mirrored into React so the prompt + the canvas poll follow `cd`.
-	// `shell.path` is the source of truth; a graph swap (topology/partition change)
-	// remounts the Shell with a fresh path, so re-sync whenever `shell` changes
-	// (synced by the effect below, after `shell` exists). Declared here so the SSE
-	// stream gate can read it.
+	// Shell cwd mirrored into React; shell.path is the source of truth.
 	const [ cwd, setCwd ] = useState( '' );
 
-	// Live topology catalog: partition counts + active set, refreshed from
-	// `topologies.list` (poll + on save/delete). The page-load snapshot goes
-	// stale the moment a topology is saved/deleted here or a worker is
-	// started/stopped elsewhere — this is what keeps the Path menu reacting
-	// without a full reload.
+	// Live topology catalog (counts + active set) from topologies.list.
 	const {
 		partitions: topologyWorkers,
 		active: activeTopologies,
 		reload: reloadCatalog,
 	} = useTopologyCatalog();
 
-	// Every cwd the Path menu can select. Declared here (above useConsoleGraph) so
-	// the SSE stream gate can resolve the cwd against it; recomputes whenever the
-	// live catalog changes. An off-menu cwd is surfaced by the Header.
+	// Every cwd the Path menu can select; recomputed from the live catalog.
 	const pathOptions = useMemo(
 		() => buildPathOptions( topologyWorkers, activeTopologies ),
 		[ topologyWorkers, activeTopologies ]
 	);
 
-	// SSE off in edit mode so offline authoring doesn't poke the live worker; the
-	// stream also goes quiet when the cwd isn't a (live) worker (nothing to stream),
-	// so a `cd /` or `cd /_http` drops the EventSource without tearing the graph down.
-	// Uses the SAME worker detection as the poll gate (workerPollPath), so the
-	// stream never opens for a path the poll/heartbeat gate can't reach.
+	// SSE off in edit mode / off-worker cwd; same detection as poll gate.
 	const { status, ssePid, shell } = useConsoleGraph( {
 		topology,
 		partition,
 		enabled: mode !== 'edit',
-		// One RemoteIpc per active worker: the path-menu entries that parse as a
-		// worker (`{topology}.p{N}`) ARE the active worker readers.
+		// One RemoteIpc per active worker, keyed by {topology}.p{N}.
 		workers: pathOptions.filter( ( o ) => parseWorker( o ) ),
 		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
 	} );
 
-	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4): the
-	// Dumper (`_output`) is transcript-only; `_metadata` / `_uptime` publish the
-	// silent-poll replies the Router routes to them.
+	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4).
 	const { graph: parsed } = useGraphSource( { coreFallback: false } );
 	const uptime = useNodeState( names.UPTIME, 'uptime' ) ?? null;
-	// Tab-completion candidates from the `_completion` node ( { candidates, seq } ).
+	// Tab-completion candidates from `_completion` ( { candidates, seq } ).
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
 	const transcript =
 		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
@@ -437,9 +347,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// The silent canvas polls fill the CommandInterpreter directly (§5).
 	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
 
-	// Re-sync the mirrored cwd whenever `shell` changes (a graph swap remounts the
-	// Shell with a fresh path). If a reset was the cause of the remount, restore
-	// the pre-reset cwd onto the shell instead of inheriting its default path.
+	// Re-sync mirrored cwd on shell change; restore pre-reset cwd on reset.
 	useEffect( () => {
 		if ( shell ) {
 			if ( cwdRestoreRef.current !== null ) {
@@ -450,22 +358,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 	}, [ shell ] );
 
-	// Derive the display/storage scope from the cwd, not the stale topology/
-	// partition state (which only tracks worker paths). `/` → local, a worker
-	// (or sub-node) → that worker's `${topology}.p${N}`.
+	// Derive the display/storage scope from the cwd, not stale topology state.
 	const scope = scopeFromCwd( cwd );
 
-	// Pick the catalog that matches where make_node will actually run: the JS
-	// `includeNodes` set at cwd '/' (browser-side Core), the PHP one
-	// otherwise (worker SSE or topology editing — both PHP-side). Edit mode
-	// always uses PHP because the topology file configures PHP workers.
+	// Pick the catalog where make_node runs: JS at cwd '/', else PHP.
 	const catalog =
 		mode !== 'edit' && scope.key === 'local' ? jsCatalog : phpCatalog;
 
-	// Server-side saved layout; resolved (via fetchLayout) to either
-	// `{ positions: { id: [x, y], ... } }` or `{ positions: null }`. Used as
-	// the seed source in live mode (and in edit mode when the user opens a
-	// saved topology); the canvas's autoLayout is the final fallback.
+	// Server-saved layout (fetchLayout): seed source, autoLayout is fallback.
 	const [ savedLayout, setSavedLayout ] = useState( null );
 	const { fetchLayout, saveLayout } = useLayout();
 	const effectiveTopologyName =
@@ -476,7 +376,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			setSavedLayout( null );
 			return;
 		}
-		// Null while fetching so the one-shot init can't lock in stale positions.
+		// Null while fetching so init can't lock in stale positions.
 		setSavedLayout( null );
 		fetchLayout( effectiveTopologyName )
 			.then( ( resp ) => {
@@ -506,20 +406,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		return next;
 	}, [] );
 
-	// The server-saved layout describes the TOPOLOGY's nodes (the worker's
-	// graph). It's only the right init source when the canvas is actually
-	// showing that topology — i.e. a worker cwd whose label matches the
-	// topology, or in edit mode (where the user is editing the topology's
-	// spec). At cwd="/" the canvas renders the local browser Shell, which
-	// is unrelated to the topology; adopting the server layout there would
-	// dump worker-shape node ids (`completed:tee`, `jobs:partition`, …) into
-	// the local scope's localStorage.
+	// Server layout fits only a matching-worker or edit scope, not cwd "/".
 	const isServerScope =
 		mode === 'edit' || ( scope.isWorker && scope.label === topology );
 
-	// Edit-mode Reset blocks the server seed for the rest of the session at this
-	// scope/topology so the canvas autoLayouts instead of replaying the saved
-	// layout (live mode still loads saved). Cleared on a fresh scope/topology/mode.
+	// Edit-mode Reset blocks the server seed so the canvas autoLayouts.
 	const [ serverSeedBlocked, setServerSeedBlocked ] = useState( false );
 	useEffect( () => {
 		setServerSeedBlocked( false );
@@ -530,11 +421,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ savedLayout, savedPositionsToOverrides ]
 	);
 
-	// The complete graph the canvas renders for this scope: the frozen draft in
-	// edit mode (SSE is off, so `parsed` is empty there), the live metadata in
-	// view mode. Augmented with verb-arg virtual edges so autoLayout places
-	// verb-targeted nodes (e.g. errors:partition) downstream, not stacked at
-	// column 0; view-mode metadata nodes carry no verbInvocations → no-op there.
+	// Graph canvas renders: frozen draft in edit, live metadata in view.
 	const layoutGraph = useMemo(
 		() =>
 			augmentWithVirtualEdges(
@@ -544,18 +431,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ mode, draft, parsed, catalog.classes ]
 	);
 
-	// Build the graph first: a local scope is ready once the graph has nodes;
-	// a server scope must also wait for the layout fetch to resolve so the
-	// one-shot init can adopt it instead of autoLayout. An untitled draft
-	// (no topology to fetch) counts as resolved, else the canvas waits forever.
-	const serverFetchResolved = ! effectiveTopologyName || savedLayout !== null; // null === in-flight
+	// Ready when the graph has nodes; a server scope also waits for the fetch.
+	const serverFetchResolved = ! effectiveTopologyName || savedLayout !== null;
 	const layoutReady =
 		layoutGraph.nodes.length > 0 &&
 		( ! isServerScope || serverFetchResolved );
 
-	// One layout entry per scope (view) or per edited topology (edit). The key
-	// holds `{ positions, viewport, modified }`; cross-mode persistence rides the
-	// server-saved layout, not this localStorage cache. See layoutStorageKey.
+	// One layout entry per scope (view) or edited topology (edit).
 	const positionStorageKey = layoutStorageKey( {
 		mode,
 		editingName,
@@ -579,11 +461,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			isServerScope && ! serverSeedBlocked ? serverPositionsMap : null,
 	} );
 
-	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay). The
-	// Shell dispatch tap flips structureDirty on any graph-mutating command — drag
-	// gesture OR typed REPL line — and a surviving user node keeps the chip up
-	// across a rebuild. Local-scope only; canRebuild = the live graph is mounted.
-	// resetGraph marks the layout dirty so Reset Layout surfaces after a rebuild.
+	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay).
 	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
 		shell,
 		nodes: parsed.nodes,
@@ -592,14 +470,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		markDirty,
 	} );
 
-	// Comparison the Save Layout chip gates on: only show "save" when the
-	// current positions diverge from what the server has. Reused below by
-	// Reset Layout in live mode so it can flag "your layout doesn't match
-	// the server's — click to restore".
+	// Save Layout chip gate: positions diverge from the server's saved layout.
 	const layoutDivergesFromSaved = useMemo( () => {
 		const saved = ( savedLayout && savedLayout.positions ) || null;
-		// Only consider ids still on the canvas; a deleted node's stale override
-		// must not show false divergence.
+		// Only ids still on the canvas; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const overrideIds = Object.keys( positionOverrides ).filter( ( id ) =>
 			liveIds.has( id )
@@ -624,12 +498,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		return false;
 	}, [ positionOverrides, savedLayout, layoutGraph ] );
 
-	// Reset Layout chip gating differs by mode:
-	// - Edit: show whenever there's a layout to discard, but hide it right after a
-	//   Reset (untouched autoLayout — clicking again re-runs the same autoLayout).
-	// - Live server scope (worker matching the topology): show when the local
-	//   layout diverges from the server-saved one (click restores saved).
-	// - Live local scope (cwd "/"): no server reference; show when modified.
+	// Reset Layout chip gating differs by mode (edit / server / local).
 	const editLayoutIsAutoLayout = serverSeedBlocked && ! canReset;
 	const showResetLayoutChip = ( () => {
 		if ( mode === 'edit' ) {
@@ -663,8 +532,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( ! effectiveTopologyName ) {
 			return;
 		}
-		// Only serialize ids still on the canvas; a deleted node's stale override
-		// must not leak back to the server.
+		// Only serialize canvas ids; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const positions = {};
 		for ( const [ id, p ] of Object.entries( positionOverrides ) ) {
@@ -709,13 +577,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			window.NewspackNodesData.configNumPartitions ) ||
 		1;
 
-	// Path selection — shared by the Path menu and REPL `cd`. Sets the cwd to the
-	// path verbatim (free navigation: ANY path is allowed), then mounts the
-	// deepest worker whose subtree contains it (the largest worker-prefix among
-	// menu items). Mounting a DIFFERENT worker re-keys the graph and re-subscribes
-	// its RemoteIpc (the rebuilt shell remounts at `{worker}`; the
-	// [shell] effect syncs cwd). Staying within the current worker — or any
-	// non-worker path — is a pure cwd move with no rebuild.
+	// Path selection (Path menu + REPL cd): set cwd, mount the deepest worker.
 	const handlePathChange = useCallback(
 		( nextPath ) => {
 			if ( shell ) {
@@ -742,8 +604,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 	}, [ partitions, partition ] );
 
-	// Mirror (topology, partition) into the URL via replaceState (filter
-	// toggles, not navigation); partition=0 stays out to keep links minimal.
+	// Mirror (topology, partition) into the URL via replaceState; skip p0.
 	useEffect( () => {
 		try {
 			const url = new URL( window.location.href );
@@ -763,8 +624,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 	}, [ topology, partition ] );
 
-	// Resolve the Dumper at call time so a graph swap (partition change) targets
-	// the live node, not a torn-down one.
+	// Resolve the Dumper at call time so a graph swap targets the live node.
 	const appendTranscript = useCallback( ( entry ) => {
 		Core.node( names.OUTPUT )?.append( entry );
 	}, [] );
@@ -777,12 +637,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		setSelectedId( null );
 	}, [ topology, partition ] );
 
-	// Clear the METADATA set_state cache on scope change so the canvas doesn't
-	// briefly render the previous scope's nodes (which the canvas's autofit
-	// effect would then lock in via setViewport, causing the "zoom out / bleed"
-	// reported on worker → / transitions). With the cache cleared, parsed.nodes
-	// is empty until the next poll arrives for the new scope; the autofit only
-	// commits against FRESH data.
+	// Clear METADATA cache on scope change so stale nodes don't autofit-lock.
 	useEffect( () => {
 		Core.node( names.METADATA )?.setState( 'metadata', null );
 	}, [ scope.key ] );
@@ -792,21 +647,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			if ( ! shell ) {
 				return;
 			}
-			// Shell.parse → null (empty/comment), a local/error signal, or a
-			// positional Message. We branch BEFORE filling so the ssePid gate
-			// only blocks worker-bound sends, not local builtins.
-			// Capture the prompt the user typed AT before `cd` mutates the path, so
-			// the echoed entry keeps its own prompt instead of re-rendering on cd.
+			// Branch before fill so the ssePid gate blocks only worker sends.
 			const promptAtSend = `/${ shell.path }`;
 			const parsedLine = shell.parse( statement );
-			// `cd` mutates shell.path and returns null; route the new path through
-			// the same handler the Path menu uses so a `cd` onto (or into) a worker
-			// mounts it exactly like a menu pick — prompt, canvas poll, and `_sse`
-			// subscription all follow.
+			// cd mutates shell.path; route the new path like a Path-menu pick.
 			handlePathChange( shell.path );
-			// Echo the user's input verbatim, tagged with the prompt at send time.
-			// Before the null-return so `cd` (which parses to null) still shows in
-			// the transcript like every other builtin; blank lines stay silent.
+			// Echo input verbatim before the null-return; blanks stay silent.
 			if ( '' !== statement.trim() ) {
 				appendTranscript( {
 					kind: 'sent',
@@ -819,9 +665,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 
 			if ( Array.isArray( parsedLine ) ) {
-				// Only an attached worker's reply arrives async over the SSE stream, so
-				// only that send waits on a session pid; local/request-scope sends
-				// reply in-browser or synchronously in the POST body.
+				// Only an attached worker's async reply waits on the SSE pid.
 				if ( toNeedsSseSession( parsedLine[ TO ] ) && ! ssePid ) {
 					appendTranscript( {
 						kind: 'error',
@@ -834,8 +678,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				}
 				// Compose modal's TM_RESPONSE / TM_ERROR checkboxes.
 				applyReplyFlags( parsedLine, flags );
-				// dispatch (not sink.fill) so useGraphReset's onDispatch tap sees
-				// the verb — a canvas/REPL rewire dirties the graph uniformly.
+				// dispatch (not sink.fill) so useGraphReset's tap sees it.
 				shell.dispatch( parsedLine );
 				return;
 			}
@@ -857,28 +700,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ shell, ssePid, appendTranscript, clearTranscript, handlePathChange ]
 	);
 
-	// Live-canvas poll gating (WIRING-PLAN §4/§5). The Router TIMER in
-	// useConsoleGraph drives emission; the poll nodes address `_cwd` (a plain Node
-	// whose `target` IS the cwd), so all the per-scope routing collapses to one
-	// line: point `_cwd.target` at the current cwd. Router peels `_cwd`, the base
-	// Node.fill re-stamps the live cwd into TO (empty TO for the local root → the
-	// interpreter interprets locally), then forwards to the interpreter. One indirection routes a
-	// attached worker (reply async over the stream), the local graph (in-browser interpreter),
-	// and request scope (synchronous POST) alike.
+	// Live-canvas poll gating (WIRING-PLAN §4/§5): point _cwd.target at cwd.
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
 		if ( cwdNode ) {
-			// Track the cwd verbatim. At a worker cwd without a pid, the POST
-			// will fail to round-trip (server has no SSE to demux the reply),
-			// but the request is cheap and silent; the canvas just holds its
-			// last state until the stream connects. The previous "route locally
-			// while connecting" fallback misleadingly displayed the LOCAL graph
-			// at a worker cwd, which is what the user calls out as unintuitive.
+			// Track the cwd verbatim; a pidless worker cwd's POST no-ops.
 			cwdNode.target = cwd;
 		}
-		// Keep the Shell's `status` builtin lines current with the session/cwd so
-		// the carrier it slices at parse time reflects live state (PHP stashes a
-		// static mode summary; the browser cwd moves, so we refresh here).
+		// Keep the Shell's status lines current with the session/cwd.
 		if ( shell ) {
 			shell.statusLines = statusLines( {
 				ssePid,
@@ -888,9 +717,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 	}, [ shell, mode, ssePid, cwd, pathOptions ] );
 
-	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). Shared with
-	// the debug overlay via useCompletion; the console gates the request on a live
-	// SSE session for an attached-worker cwd.
+	// Tab-completion query (WIRING-PLAN §5), shared via useCompletion.
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
 		cwd,
 		fill: fillCommandInterpreter,
@@ -898,10 +725,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		skip: () => toNeedsSseSession( cwd ) && ! ssePid,
 	} );
 
-	// Split on unquoted `;` so `help; ls` dispatches as two commands. `flags`
-	// (Compose modal's TM_RESPONSE / TM_ERROR checkboxes) applies to every
-	// resulting statement — Compose only ever sends a single verb line, so in
-	// practice there's exactly one.
+	// Split on unquoted ';' so 'help; ls' dispatches as two commands.
 	const sendLine = useCallback(
 		( line, flags ) => {
 			for ( const stmt of splitStatements( line ) ) {
@@ -911,12 +735,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ dispatchStatement ]
 	);
 
-	// Shared live-mode handlers (connect/remove/disconnect/send/trace/invoke/drop).
-	// Verb lines route through sendLine (which echoes + dispatches through the
-	// useGraphReset tap); invoke builds its raw TM_COMMAND / TM_REQUEST with the
-	// attached-worker prefix/replyFrom + an SSE-session guard. The console adds its
-	// own edit-mode branches on top (handleConnect / handleRemoveNode /
-	// handleDropNode below) and its repl-expand/focus side-effect on inspector.
+	// Shared live-mode handlers (connect/remove/send/trace/invoke/drop).
 	const liveHandlers = useGraphHandlers( {
 		shell,
 		graph: parsed,
@@ -930,8 +749,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		sseGuard: ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid ),
 	} );
 
-	// Route Inspector actions through the shared handler, then pop the transcript
-	// + focus the prompt so the worker's reply is visible.
+	// Route Inspector actions through the shared handler; focus the prompt.
 	const handleInspectorAction = useCallback(
 		( action, nodeId, payload, flags ) => {
 			liveHandlers.onInspectorAction( action, nodeId, payload, flags );
@@ -941,11 +759,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ liveHandlers, setReplExpanded, replInputRef ]
 	);
 
-	// useCanvasLayout owns positions: it runs autoLayout once (or adopts the
-	// serverLayout at a server scope) when the complete graph is ready, then
-	// only drags/drops/tucks mutate the map. No seed plumbing here.
+	// useCanvasLayout owns positions: autoLayout once, then drags mutate it.
 
-	// Edit-mode toggle. The draft is authoritative; SSE pushes don't clobber it.
+	// Edit-mode toggle. Draft is authoritative; SSE pushes don't clobber it.
 	const handleModeChange = useCallback(
 		( next ) => {
 			if ( next === mode ) {
@@ -983,8 +799,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				}
 				return;
 			}
-			// Dirty = draft diverged from the edit-entry snapshot (comparing
-			// against live `parsed` would flag every session via SSE churn).
+			// Dirty = draft vs the edit-entry snapshot, not live parsed.
 			const dirty =
 				JSON.stringify( draft ) !== JSON.stringify( baseline );
 			if ( ! dirty ) {
@@ -1005,16 +820,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Source of truth: live `parsed` in view mode, frozen draft in edit mode.
 	const baseCanvasGraph = mode === 'edit' ? draft : parsed;
 
-	// Compose modal's "To" list: derived from the VIEWED graph (parsed.nodes),
-	// never Core.nodes — at a remote worker cwd the browser's own Core holds
-	// only its scaffolding, not the worker's graph.
+	// Compose "To" list: the VIEWED graph (parsed.nodes), not Core.nodes.
 	const composeTargets = useMemo(
 		() => buildComposeTargets( parsed.nodes ),
 		[ parsed.nodes ]
 	);
 
-	// Virtual node_name-verb edges are derived (not in draft.edges) and marked
-	// `virtual` so the canvas dims them and skips the click-to-delete target.
+	// Virtual node_name-verb edges are derived; the canvas dims them.
 	const canvasGraph = useMemo( () => {
 		if ( mode !== 'edit' ) {
 			return baseCanvasGraph;
@@ -1022,9 +834,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		return augmentWithVirtualEdges( baseCanvasGraph, catalog.classes );
 	}, [ baseCanvasGraph, mode, catalog.classes ] );
 
-	// Runtime drift (roadmap [49]): live nodes not in the registered .tsl (and not
-	// reserved `_` infra), painted distinctly. Live mode only — in edit mode the
-	// draft IS the source, so "drift" is meaningless.
+	// Runtime drift (roadmap [49]): live nodes not in the registered .tsl.
 	const canonicalNodes = useCanonicalNodes( topology );
 	const driftIds = useMemo(
 		() =>
@@ -1034,14 +844,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ mode, canvasGraph, canonicalNodes ]
 	);
 
-	// snapToGrid is imported from utils/autoLayout — same constants the renderer
-	// uses for the existing nodes.
+	// snapToGrid from utils/autoLayout — same constants the renderer uses.
 
 	const handleDropNode = useCallback(
 		( { shellName, x, y } ) => {
-			// Live canvas: stage the NewNodeModal (commitPendingDrop dispatches the
-			// make_node once the user confirms). Position is cosmetic and not sent
-			// (poll-reflect lays it out).
+			// Live canvas: stage the NewNodeModal; position is cosmetic.
 			if ( mode !== 'edit' ) {
 				liveHandlers.onDropNode( { shellName, x, y } );
 				return;
@@ -1059,8 +866,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				} );
 			} );
 		},
-		// sendLine is consumed by commitPendingDrop (below), not this callback —
-		// live-mode drop just stages pendingDrop now.
+		// sendLine is consumed by commitPendingDrop (below), not this callback.
 		[ mode, liveHandlers, handlePositionChange ]
 	);
 
@@ -1076,8 +882,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				? `make_node ${ shellName } ${ name } ${ trimmed }`
 				: `make_node ${ shellName } ${ name }`;
 			sendLine( line );
-			// Optimistically inject the dropped node so it appears at once (no poll
-			// wait, no dump_metadata round-trip); the next full poll reconciles.
+			// Optimistically inject the dropped node; the next poll reconciles.
 			Core.node( names.METADATA )?.optimisticPatch( name, {
 				class: shellName,
 				target: '',
@@ -1138,9 +943,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ mode, liveHandlers ]
 	);
 
-	// DELETE shows only for a topology with a user-saved copy (stock is protected).
-	// Keyed off the source of the loaded topology (from the get/save response),
-	// so it appears on edit/after-save without first opening the Open modal.
+	// DELETE shows only for a topology with a user-saved copy (stock kept).
 	const canDeleteCurrent = useMemo(
 		() =>
 			mode === 'edit' &&
@@ -1183,8 +986,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					  ),
 			} );
 			topologyList.reload();
-			// A delete restarts (or stock-falls-back) the matching fleet — re-fetch
-			// the live catalog so the Path menu drops/repartitions it without reload.
+			// A delete restarts the matching fleet — re-fetch the live catalog.
 			reloadCatalog();
 			// Drop back to view mode; the file no longer exists.
 			setMode( 'view' );
@@ -1218,8 +1020,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				if ( renamed === g ) {
 					return g;
 				}
-				// Rewrite node_name verb args referencing oldId so virtual
-				// edges stay in lockstep with the rename.
+				// Rewrite verb args on oldId so virtual edges track the rename.
 				const nodes = renamed.nodes.map( ( n ) => {
 					if ( ! n.verbInvocations || ! n.verbInvocations.length ) {
 						return n;
@@ -1250,12 +1051,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					} );
 					return { ...n, verbInvocations: nextInvs };
 				} );
-				// Spread `renamed` so frontmatter (num_partitions, …) + name survive
-				// the verb-rewrite; only the nodes array is replaced.
+				// Spread renamed so frontmatter + name survive the rewrite.
 				return { ...renamed, nodes };
 			} );
-			// Carry the position override onto the new key. Dirty-neutral —
-			// rename isn't a user-driven position change.
+			// Carry the position override onto the new key. Dirty-neutral.
 			renamePosition( oldId, newName );
 			if ( selectedId === oldId ) {
 				setSelectedId( newName );
@@ -1289,12 +1088,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setEditingName( resp.name );
 				setEditingSource( resp.source || '' );
 				setSelectedId( null );
-				// Close settings so the panel reseeds from the loaded frontmatter
-				// (re-opening the same name wouldn't remount it otherwise).
+				// Close settings so the panel reseeds from loaded frontmatter.
 				setSettingsOpen( false );
-				// The storage key includes editingName, so the hook auto-loads
-				// the right positions for the opened topology; the server-seed
-				// effect handles the savedLayout fetch.
+				// Storage key includes editingName, so the hook auto-loads.
 				setToast( {
 					kind: 'success',
 					text: sprintf(
@@ -1325,16 +1121,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [] );
 
 	const handleNew = useCallback( () => {
-		// Carry the _repl anchor like handleModeChange's blank draft — without a
-		// node the layout graph is empty, layoutReady stays false, and the whole
-		// editor body (palette/canvas/inspector) blanks behind the building gate.
+		// Carry the _repl anchor like handleModeChange's blank draft.
 		const blank = withReplAnchor( {
 			nodes: [],
 			edges: [],
 			frontmatter: {},
 		} );
-		// New is a "start a fresh topology" affordance available from live mode
-		// too — land the user in edit mode (no-op when already editing).
+		// New starts a fresh topology from live mode too — lands you in edit.
 		setMode( 'edit' );
 		setDraft( blank );
 		setBaseline( blank );
@@ -1345,12 +1138,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		resetLayout();
 	}, [ resetLayout ] );
 
-	// Honor the Topologies tab's deep-links, then consume the param so a later
-	// LIVE toggle or refresh doesn't snap back into edit. `?new=1` is a DISTINCT
-	// signal (not `?edit=1` with no `?topology`): the `(topology, partition)` URL
-	// sync above writes the default `?topology=TOPOLOGIES[0]` on mount, so by the
-	// time this effect runs a "New" link would already look like an edit of that
-	// default — `?new=1` is sync-proof and always blanks via `handleNew`.
+	// Honor the Topologies tab's ?new / ?edit deep-links, then consume it.
 	useEffect( () => {
 		const isNew = '1' === readUrlParam( 'new' );
 		const isEdit = '1' === readUrlParam( 'edit' );
@@ -1374,18 +1162,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
-	// "Reset graph" — the shared useGraphReset rebuild (removeNode all → bump the
-	// generation so useConsoleGraph rebuilds off the canonical wiring → keep the
-	// layout + surface Reset Layout). cwdRestoreRef carries the user's cwd through
-	// the remount (otherwise the rebuilt Shell snaps path back to `{reader}`
-	// and the [shell] sync effect drags cwd along).
+	// "Reset graph" — shared useGraphReset rebuild; cwdRestoreRef keeps cwd.
 	const handleResetGraph = useCallback( () => {
 		cwdRestoreRef.current = cwd;
 		resetLocalGraphCore();
 	}, [ cwd, resetLocalGraphCore ] );
 
-	// Class-name → schema map so serializeTsl fills empty positional slots
-	// with schema defaults instead of stripping them as trailing empties.
+	// Class-name → schema map so serializeTsl fills empty positional slots.
 	const schemasByShellName = useMemo(
 		() =>
 			Object.fromEntries(
@@ -1397,9 +1180,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const handleSaveConfirm = useCallback(
 		async ( name ) => {
 			setSaveModal( null );
-			// Snapshot "new vs existing" against the catalog the console already
-			// holds, BEFORE the save reloads it: a name not previously known is a
-			// freshly-created topology and earns the post-save "Activate now?" prompt.
+			// Snapshot new-vs-existing before the save reloads the catalog.
 			const isNewTopology = ! Object.prototype.hasOwnProperty.call(
 				topologyWorkers,
 				name
@@ -1428,18 +1209,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					),
 				} );
 				setEditingName( resp.name );
-				// Just-written user copy is now deletable: 'both' when it shadows
-				// a stock copy, else 'user'. Keeps the DELETE button correct after
-				// save without waiting for an Open-modal list refresh.
+				// Written user copy now deletable: 'both' if it shadows stock.
 				setEditingSource( resp.shadows_stock ? 'both' : 'user' );
 				// Refresh the picker so the next Open sees the new topology.
 				topologyList.reload();
-				// A save restarts the matching fleet — re-fetch the live catalog so
-				// the Path menu picks up the new/repartitioned worker without reload.
+				// A save restarts the fleet — re-fetch the live catalog.
 				reloadCatalog();
 				setSettingsOpen( false );
 				setMode( 'view' );
-				// A brand-new topology saves inactive; offer to activate it now.
+				// A brand-new topology saves inactive; offer to activate now.
 				if ( isNewTopology ) {
 					setActivateModal( { name: resp.name } );
 				}
@@ -1470,9 +1248,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		]
 	);
 
-	// "Activate now?" confirm — dispatch `topologies activate <name>` through the
-	// same command client the catalog uses for its verbs. A failed activate
-	// toasts rather than crashing; the topology stays saved-but-inactive.
+	// "Activate now?" confirm — dispatch 'topologies activate <name>'.
 	const confirmActivate = useCallback( async () => {
 		const name = activateModal?.name;
 		setActivateModal( null );
@@ -1513,12 +1289,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		return () => clearTimeout( t );
 	}, [ toast ] );
 
-	// The Console's own controls (PATH / NEW / EDIT / SAVE / LIVE). In the hub
-	// they belong on the right of the ONE shared header, so they're portaled into
-	// its slot (kept live with this tab's state). `headerControlsSlot` distinguishes
-	// the three cases: a node = the hub slot (portal); `null` = the hub slot not
-	// yet mounted (render nothing, no one-frame flash in the body); `undefined` =
-	// rendered standalone, e.g. in tests (render inline so the controls still exist).
+	// Console controls: node=portal, null=nothing, undefined=inline.
 	const headerControls = (
 		<HeaderControls
 			pathOptions={ pathOptions }
@@ -1557,9 +1328,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				inspectorCollapsed ? ' is-inspector-collapsed' : ''
 			}` }
 		>
-			{ /* The Console's own controls (PATH / NEW / EDIT / SAVE / LIVE) live
-			     on the right of the hub's ONE shared header — portaled into its
-			     slot, so they stay live with this tab's state. */ }
+			{ /* Console controls — portaled into the hub header slot. */ }
 			{ renderedHeaderControls }
 			<ConsoleShell
 				ready={ layoutReady }
@@ -1578,25 +1347,18 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					onSaveLayout: layoutDivergesFromSaved
 						? handleSaveLayout
 						: null,
-					// Only the local in-browser graph (cwd root) is ephemeral;
-					// any attached view — a worker RemoteIpc OR the _http
-					// broadcast boundary — self-heals on respawn, so a reset is
-					// meaningless. canResetGraph already gates on local scope +
-					// live mode + (a mutating edit OR a surviving user node).
+					// Only the local (cwd root) graph is resettable.
 					onResetGraph: canResetGraph ? handleResetGraph : null,
 					editMode: mode === 'edit',
 				} }
 				buildingClassName="topology-canvas-building"
 				showRepl={ mode !== 'edit' }
-				// The hub owns the ONE shared brand header above the tabs; the
-				// Console's own controls are portaled into its slot (below).
+				// Hub owns the shared brand header; Console controls portal in.
 				showHeader={ false }
 				canvasProps={ {
 					...canvasChromeProps,
 					resetKey: `${ scope.key }|${ mode }|${ editingName }`,
-					// Empty cwd = the browser's own (local) graph → the no-node
-					// header reads wire-accurate IoTelemetry; an attached worker cwd
-					// stays on the dump_metadata roll-up.
+					// Empty cwd = local graph; worker cwd = dump_metadata.
 					local: '' === cwd,
 					interactive: true,
 					editMode: mode === 'edit',
@@ -1624,11 +1386,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					onUpdateVerbs: handleUpdateVerbs,
 					onSelectionChange: ( id ) => {
 						setSelectedId( id );
-						// Selecting a node auto-opens the inspector (rail → panel).
-						// Deliberately does NOT refocus the REPL: stealing focus into
-						// the transcript input makes the document-level Delete handler
-						// bail (it skips form fields), so you couldn't delete a node
-						// without first minimizing the transcript.
+						// Auto-open inspector; NO refocus (breaks Delete).
 						openInspectorOnSelect( id );
 					},
 					selection: selectedId,
@@ -1637,8 +1395,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					...replChromeProps,
 					prompt: `/${ cwd }`,
 					streamStatus: status,
-					// Input is always enabled: a poll/command for any scope routes
-					// through `_cwd`, so there is no scope where the prompt waits.
+					// Input always enabled: any scope routes via _cwd.
 					canSend: true,
 					onSubmit: sendLine,
 					onClear: clearTranscript,
@@ -1689,9 +1446,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 						'newspack-nodes'
 					) }
 					placeholder={ __( 'my-topology', 'newspack-nodes' ) }
-					// Pre-fill the EDITED topology's name (set on edit-entry / Open), not
-					// the live console's `topology` — save-over-same-name is the common
-					// case, and Open changes what's edited without touching `topology`.
+					// Pre-fill the EDITED topology's name, not the live one.
 					initialValue={ editingName }
 					pattern={ /^[a-zA-Z0-9_-]+$/ }
 					confirmLabel={ __( 'Save', 'newspack-nodes' ) }

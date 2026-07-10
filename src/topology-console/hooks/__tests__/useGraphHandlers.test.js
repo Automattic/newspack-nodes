@@ -12,8 +12,7 @@ import {
 import names from '../../../runtime/reserved-node-names.json';
 import { Core } from '../../../runtime/core';
 
-// A minimal Shell stand-in whose sink captures every filled message and whose
-// prefix/replyFrom can be injected per-test (the console uses cwd-prefixing).
+// A minimal Shell stand-in: sink captures fills; prefix/replyFrom injectable.
 function makeShell( { path = '', prefix, replyFrom } = {} ) {
 	const sink = { fills: [], fill: ( m ) => sink.fills.push( m ) };
 	return {
@@ -62,9 +61,7 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 	} );
 
 	it( 'onConnect APPENDS to a Tee fan-out (array target) instead of replacing it', () => {
-		// A connect appends a target server-side; the optimistic patch must do the
-		// same, or the Tee's other edges vanish from the canvas until the next
-		// dump_metadata reasserts the full array.
+		// Optimistic patch must APPEND server-side, else Tee's edges vanish.
 		Core.node( names.METADATA ).rawMap = { tee: { target: [ 'x', 'y' ] } };
 		const { result } = renderHandlers( {} );
 		result.current.onConnect( 'tee', 'z' );
@@ -113,10 +110,7 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 	} );
 
 	it( 'onInspectorAction tail APPENDS the CANONICAL session pwd to the Tee fan-out', () => {
-		// connect_node with no target appends the issuing FROM server-side, which
-		// ends in the shell's `_output` — but the header pwd arrives ending in the
-		// poll node's `_metadata`. The optimistic append must canonicalize to
-		// `_output` (matching the next poll's target), and append, not replace.
+		// Optimistic append canonicalizes pwd `_metadata` tail to `_output`.
 		Core.node( names.METADATA ).rawMap = {
 			_header: { pwd: '_repl/_output/_sse:9/_metadata' },
 			tee: { target: [ 'request-builder', 'job-router' ] },
@@ -138,8 +132,7 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 	} );
 
 	it( 'onInspectorAction disconnect REMOVES only the CANONICAL session pwd from the Tee fan-out', () => {
-		// Header pwd ends in `_metadata`; the stored tail target ends in `_output`.
-		// The optimistic remove must canonicalize before filtering, or it removes nothing.
+		// Optimistic remove must canonicalize pwd tail before filtering.
 		Core.node( names.METADATA ).rawMap = {
 			_header: { pwd: '_repl/_output/_sse:9/_metadata' },
 			tee: {
@@ -210,8 +203,7 @@ describe( 'useGraphHandlers', () => {
 	it( 'onInspectorAction command dispatches a raw server command with its args (no node)', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'command', null, 'debug_state *' );
-		// The args after the verb (here `*`) must carry through — else
-		// `debug_state *` arrives arg-less and toggles only the interpreter.
+		// Args after verb must carry through, else `debug_state *` is arg-less.
 		expect( dispatch ).toHaveBeenCalledWith(
 			'debug_state *',
 			'debug_state',
@@ -239,8 +231,7 @@ describe( 'useGraphHandlers', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		const json = '{ "foo": "bar" }';
 		result.current.onInspectorAction( 'send_struct', '_output', json );
-		// The composed line wraps the spaced JSON in one quoted token (the
-		// quoteToken↔tokenize round-trip itself is covered in shell.test.js).
+		// The composed line wraps the spaced JSON in one quoted token.
 		expect( dispatch.mock.calls[ 0 ][ 0 ] ).toBe(
 			`send_struct _output '${ json }'`
 		);
@@ -311,7 +302,7 @@ describe( 'useGraphHandlers', () => {
 	it( 'onInspectorAction send_struct dispatches send_struct with the (quoted) JSON payload', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'send_struct', 'a', '{"k":1}' );
-		// The JSON is single-quoted so the tokenizer keeps it as one token [#32].
+		// Single-quoted JSON stays one token for the tokenizer [#32].
 		expect( dispatch ).toHaveBeenCalledWith(
 			`send_struct a '{"k":1}'`,
 			'send_struct',

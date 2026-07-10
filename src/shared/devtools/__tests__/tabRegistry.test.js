@@ -144,11 +144,7 @@ describe( 'devtools tab registry', () => {
 	} );
 
 	it( 'normalizes a non-finite order to 0', () => {
-		// Labels deliberately disagree with the desired order so the NaN
-		// comparator path can't pass by accident: 'z' (non-finite order) must
-		// coerce to 0 and sort before 'a' (order 1) despite 'Zzz' > 'Aaa'.
-		// Without the fix, 'high' - 1 = NaN falls through to localeCompare and
-		// 'a' wins.
+		// Non-finite order must coerce to 0 and sort 'z' before 'a' (order 1).
 		registerDevtoolsTab( {
 			id: 'z',
 			label: 'Zzz',
@@ -208,11 +204,7 @@ describe( 'devtools tab registry', () => {
 	} );
 
 	it( 'shares the registry across separately-loaded module instances', () => {
-		// The build emits each bundle as its own IIFE inlining its own copy of
-		// this module. resetModules() simulates that second copy: a tab
-		// registered through one module instance must be visible to a freshly
-		// required instance — i.e. the store lives on the global, not module
-		// scope. A module-local Map would lose the tab here.
+		// resetModules() simulates a second inlined copy; the store is global.
 		registerDevtoolsTab( {
 			id: 'cross',
 			label: 'Cross',

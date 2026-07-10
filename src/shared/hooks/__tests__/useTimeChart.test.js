@@ -28,8 +28,7 @@ import {
 	useTimeChart,
 } from '../useTimeChart';
 
-// jsdom has no ResizeObserver. Capture the latest observer's callback so a test
-// can fire a synthetic container resize.
+// jsdom has no ResizeObserver; capture its callback to fire a synthetic resize.
 let resizeObserverCb = null;
 global.ResizeObserver = class {
 	constructor( cb ) {

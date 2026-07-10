@@ -16,8 +16,7 @@
  */
 import { __ } from '@wordpress/i18n';
 
-// Global storage key shared by every surface so a skin picked anywhere applies
-// everywhere.
+// Global storage key shared by every surface so a skin applies everywhere.
 export const THEME_STORAGE_KEY = 'newspack-nodes:theme';
 
 export const DEFAULT_THEME = 'newspack';
@@ -87,8 +86,7 @@ function clearRootThemeClass( root ) {
 		.forEach( ( c ) => root.classList.remove( c ) );
 }
 
-// Set the single `theme-<slug>` class on <html> (dropping any prior one). Pure
-// DOM — no persistence, no event; the callers layer those on.
+// Set the single `theme-<slug>` class on <html>. Pure DOM — no persistence.
 function setRootThemeClass( slug ) {
 	if ( typeof document !== 'undefined' ) {
 		const root = document.documentElement;
@@ -120,7 +118,7 @@ export function applySkin( slug ) {
 	try {
 		window.localStorage.setItem( THEME_STORAGE_KEY, next );
 	} catch ( _err ) {
-		// Persistence unavailable (private mode / quota); the class still applied.
+		// Persistence unavailable (private mode/quota); class still applied.
 	}
 	if ( typeof window !== 'undefined' && window.dispatchEvent ) {
 		window.dispatchEvent( new CustomEvent( SKIN_EVENT, { detail: next } ) );
@@ -152,9 +150,7 @@ export function resetSkin() {
 	}
 }
 
-// Cross-tab: another tab persisting a skin fires `storage` here (never in the
-// origin tab). Re-apply so every open surface stays in sync. Same-tab writes
-// already went through applySkin.
+// Cross-tab storage event: re-apply so every open surface stays in sync.
 if ( typeof window !== 'undefined' && window.addEventListener ) {
 	window.addEventListener( 'storage', ( e ) => {
 		if ( e.key && e.key !== THEME_STORAGE_KEY ) {
@@ -164,9 +160,7 @@ if ( typeof window !== 'undefined' && window.addEventListener ) {
 	} );
 }
 
-// Apply the persisted skin to <html> as soon as this module loads. Every bundle
-// imports it before rendering a surface, so the root carries the right skin at
-// first paint — no unstyled flash, no per-surface init to wire.
+// Apply the persisted skin to <html> at module load — no unstyled flash.
 if ( typeof document !== 'undefined' ) {
 	initSkin();
 }

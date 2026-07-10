@@ -47,8 +47,7 @@ globalThis.__graphKey = null;
 globalThis.__shell = null;
 // The reader the current mock RemoteIpc is registered under (for teardown).
 globalThis.__reader = null;
-// A no-op EventSource so the RemoteIpc's composed SseIn can start() without a
-// real network connection.
+// A no-op EventSource so the composed SseIn can start() offline.
 class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
@@ -105,9 +104,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			enabled,
 			debugLevelRef,
 		} ) => {
-			// Mirror the real hook: rebuild on a graphGeneration bump (Reset Graph
-			// bumps it via useGraphReset). Rules of hooks require this unconditional
-			// call before the enabled early-return, hence assigned-before-use.
+			// Rules of hooks: unconditional rebuild before the enabled early-return.
 			// eslint-disable-next-line @wordpress/no-unused-vars-before-return
 			const generation =
 				require( '../../runtime/react' ).useGraphGeneration();
@@ -116,9 +113,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				return { status: 'closed', ssePid: null, shell: null };
 			}
 			const reader = `${ topology }.p${ partition }`;
-			// Tear down + rebuild whenever the reader OR the generation changes —
-			// without the generation here the mock would never re-mount on a
-			// reset-graph click, masking cwd-preservation / wipe bugs.
+			// Rebuild on reader OR generation change (reset-graph re-mount).
 			const key = `${ reader }|${ generation }`;
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
@@ -135,19 +130,14 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const uptime = new UptimeNode();
 				uptime.name = reserved.UPTIME;
 				new CompletionNode().name = reserved.COMPLETION;
-				// Backbone-owned shared singletons (the real mountBackbone creates
-				// these); RemoteIpc.ensureChildren reuses them on connect.
+				// Backbone singletons; RemoteIpc.ensureChildren reuses them.
 				const http = new HttpOutNode();
 				http.name = reserved.HTTP;
 				http.sink = interpreter;
 				const heartbeat = new HeartbeatNode();
 				heartbeat.name = reserved.HEARTBEAT;
 				heartbeat.sink = interpreter;
-				// One RemoteIpc for the session's worker, named `{reader}`. It
-				// composes a SseIn (receive) + an HttpOut (POST) + a Heartbeat; its
-				// composed HttpOut's client captures the routed batch instead of
-				// POSTing. The RemoteIpc wraps a reply-node FROM into `_sse:{pid}` and
-				// bundles connect_worker_input — the worker-attach send path.
+				// One RemoteIpc/worker: SseIn+HttpOut(captures)+Heartbeat.
 				const remote = interpreter.makeNode(
 					'RemoteIpc',
 					reader,
@@ -160,11 +150,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 						return Promise.resolve( [] );
 					},
 				};
-				// Boot its stream + force a connected pid so the FROM-wrap resolves to
-				// the stable 1234 the assertions expect. The connected envelope is
-				// now the flat string the server sends; _applyConnected parses pid +
-				// slot into the SseIn's plain fields (the no-op FakeEventSource here
-				// can't deliver a real `msg` frame).
+				// Boot stream + force connected pid 1234 (fake ES sends none).
 				remote.connect();
 				remote.sseIn._applyConnected(
 					'PID 1234 SLOT 1 SUBSCRIPTIONS demo.p0 INTERVAL 2000'
@@ -172,13 +158,12 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const shell = new ShellNode();
 				shell.path = reader;
 				shell.sink = interpreter;
-				// `_cwd` indirection node: a plain Node whose target IS the cwd.
+				// `_cwd` indirection node: a plain Node whose target IS cwd.
 				const cwdNode = new Node();
 				cwdNode.name = reserved.CWD;
 				cwdNode.sink = interpreter;
 				cwdNode.target = shell.path;
-				// Mirror the real timer wiring so the cadence test exercises the
-				// Router TIMER → notify_timer → Metadata/Uptime fire → … → RemoteIpc path.
+				// Mirror timer wiring: cadence test drives TIMER→…→RemoteIpc.
 				metadata.sink = interpreter;
 				uptime.sink = interpreter;
 				metadata.target = reserved.CWD;
@@ -187,23 +172,16 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 					RemoteIpcNode.active?.httpOut?.lock();
 				router.afterTimerNotify = () =>
 					RemoteIpcNode.active?.httpOut?.flush();
-				// Metadata/Uptime hitchhike the _router TIMER (set_timer() no args):
-				// notify_timer calls their fireCb -> fire each tick.
+				// Metadata/Uptime hitchhike _router TIMER: fire each tick.
 				metadata.setTimer();
 				uptime.setTimer();
-				// Router self-starts a 1s real-timer slot in its constructor
-				// (setTimer(1000), no immediate fire). Stop the recurring interval so
-				// that under heavy parallel-coverage CPU pressure a slow test (>1s)
-				// doesn't see a surprise dump_metadata round-trip overwrite
-				// test-injected metadata state. The cadence test re-installs its own
-				// fake-timer interval below before relying on it.
+				// Stop Router's 1s timer: slow tests must not be overwritten.
 				router.stopTimer();
 				globalThis.__shell = shell;
 				globalThis.__reader = reader;
 				globalThis.__graphKey = key;
 			}
-			// `__connecting` simulates the pre-connect window: enabled (worker cwd)
-			// but no pid yet, so the cwd guard can be exercised.
+			// `__connecting`: pre-connect window (enabled, no pid) guard.
 			return globalThis.__connecting
 				? {
 						status: 'connecting',
@@ -220,15 +198,10 @@ globalThis.__hooks = {
 	fetchTopology: jest.fn().mockResolvedValue( null ),
 	saveTopology: jest.fn().mockResolvedValue( null ),
 	deleteTopology: jest.fn().mockResolvedValue( null ),
-	// Default: never resolves. Tests that need a resolved layout call
-	// `hooks.fetchLayout.mockResolvedValueOnce(...)` in setup. Resolving by
-	// default fires setSavedLayout outside the test's act() boundary,
-	// producing the act()-warning swarm.
+	// Never resolves; resolving fires setSavedLayout outside act().
 	fetchLayout: jest.fn( () => new Promise( () => {} ) ),
 	saveLayout: jest.fn().mockResolvedValue( null ),
-	// Live topology catalog: `catalog` null → mirror the real hook's seed from
-	// window.NewspackNodesData (so the existing pathOptions tests keep driving via
-	// the global); set it to override. reloadCatalog asserts the save/delete refresh.
+	// Live catalog: null → seed from NewspackNodesData; set to override.
 	reloadCatalog: jest.fn(),
 	catalog: null,
 };
@@ -243,8 +216,7 @@ jest.mock( '../hooks/useTopologyList', () => ( {
 	} ),
 	useTopology: () => globalThis.__hooks.fetchTopology,
 } ) );
-// Drift diff (roadmap [49]) has its own suite; here it's a no-op so the hook's
-// `topologies get` fetch doesn't perturb these boot tests' send sequences.
+// Drift diff (roadmap [49]) has its own suite; no-op here.
 jest.mock( '../hooks/useCanonicalNodes', () => ( {
 	useCanonicalNodes: () => new Set(),
 	driftNodeIds: () => null,
@@ -263,8 +235,7 @@ jest.mock( '../hooks/useTopologyCatalog', () => ( {
 		};
 	},
 } ) );
-// Mutable catalog the hoisted mock reads at call time; tests seed
-// classes (with is_interpreter) before rendering to exercise verb routing.
+// Mutable catalog the hoisted mock reads at call time; tests seed classes.
 globalThis.__catalog = { classes: [], formatters: [] };
 jest.mock( '../hooks/useClassCatalog', () => ( {
 	useClassCatalog: () => ( {
@@ -274,9 +245,7 @@ jest.mock( '../hooks/useClassCatalog', () => ( {
 		error: null,
 	} ),
 } ) );
-// vault.list goes through the same real commandClient mock as the activate
-// flow above (which resolves `null`), so stub the hook rather than let it
-// hit unwrapCommandResponse's malformed-message throw.
+// Stub useVaults so vault.list doesn't hit unwrapCommandResponse's throw.
 jest.mock( '../hooks/useVaults', () => ( {
 	useVaults: () => ( { vaults: [], loading: false, error: null } ),
 } ) );
@@ -297,8 +266,7 @@ let lastCanvasProps = null;
 let lastInspectorProps = null;
 let lastHeaderProps = null;
 jest.mock( '../components/SchematicCanvas', () => {
-	// Pure renderer: useCanvasLayout owns positions now, so the mock just
-	// records props and renders the gesture buttons (no seed effect).
+	// Pure renderer: useCanvasLayout owns positions; mock records props.
 	return ( props ) => {
 		lastCanvasProps = props;
 		return mockCanvasMarkup( props );
@@ -471,9 +439,7 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 		</div>
 	);
 } );
-// The Console now portals its controls via the named `HeaderControls` export
-// (the default `Header` is the hub's brand bar, unused here). Capture the
-// control props + render the buttons off HeaderControls.
+// Console portals controls via the named HeaderControls export.
 jest.mock( '../components/Header', () => ( {
 	__esModule: true,
 	default: () => <header data-testid="brand-header" />,
@@ -670,9 +636,7 @@ jest.mock( '../components/Modal', () => ( {
 	},
 } ) );
 
-// Capture the activate dispatch (a brand-new save prompts "Activate now?",
-// confirming routes through the command client). send() resolves so the
-// post-activate toast path runs in act().
+// Capture the activate dispatch; send() resolves so the toast runs in act().
 globalThis.__activateSend = jest.fn().mockResolvedValue( null );
 jest.mock( '../utils/commandClient', () => ( {
 	getCommandClient: () => ( {
@@ -710,10 +674,7 @@ describe( 'TopologyConsole boot', () => {
 		hooks.deleteTopology.mockReset();
 		hooks.deleteTopology.mockResolvedValue( null );
 		hooks.fetchLayout.mockReset();
-		// Resolve to "no saved layout" by default so layoutReady's
-		// serverFetchResolved gate clears (a never-resolving fetch would hold the
-		// canvas behind the building placeholder forever). Tests needing a saved
-		// layout override with mockResolvedValueOnce.
+		// Default-resolve "no layout" so serverFetchResolved gate clears.
 		hooks.fetchLayout.mockResolvedValue( { positions: null } );
 		hooks.saveLayout.mockReset();
 		hooks.saveLayout.mockResolvedValue( null );
@@ -723,12 +684,7 @@ describe( 'TopologyConsole boot', () => {
 		globalThis.__catalog = { classes: [], formatters: [] };
 	} );
 
-	// Simulate an SSE reply: the Router routes a positional Message by TO.
-	// Followed by a second empty act() to drain React's deferred-batch queue —
-	// under `run-coverage`'s parallel fan-out (3 jest --coverage processes
-	// competing for CPU) the post-fill re-render can slip past a single act
-	// boundary, causing `getByText`/`queryByText` assertions to see a stale
-	// pre-render DOM. The second act flushes the next batch deterministically.
+	// Simulate an SSE reply; the 2nd act() drains React's deferred batch.
 	const fireMsg = async ( opts ) => {
 		await act( async () => {
 			Core.node( names.ROUTER ).fill( posMsg( opts ) );
@@ -736,9 +692,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {} );
 	};
 
-	// Publish a dump_metadata snapshot so the canvas's layout graph is ready
-	// (the GraphView only renders once layoutReady, i.e. the graph has ≥1 node).
-	// Defaults to a single Echo `n1` for tests that just need the canvas mounted.
+	// Publish a dump_metadata snapshot so the layout graph is ready (≥1 node).
 	const publishMeta = async (
 		value = { n1: { class: 'Echo', counter: 0, sink: '', target: '' } }
 	) => {
@@ -746,17 +700,13 @@ describe( 'TopologyConsole boot', () => {
 	};
 
 	it( 'renders Header, Palette, Canvas, and ReplFooter on mount (Inspector collapsed to a rail until selected)', async () => {
-		// Palette is always-on per the interactive-live-canvas spec: a drop in
-		// view mode issues `make_node` via sendLine; a drop in edit adds to the
-		// draft. Edit-only gating was a stale Task 3 regression. The canvas
-		// renders once the layout graph is ready (≥1 node published).
+		// Palette always-on: view-drop → make_node, edit-drop → draft.
 		const { getByTestId, queryByTestId } = render( <TopologyConsole /> );
 		await publishMeta();
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 		expect( getByTestId( 'palette' ) ).not.toBeNull();
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
-		// The inspector defaults collapsed (a rail) — its panel content isn't
-		// rendered until a selection (or the chevron) expands it.
+		// Inspector defaults collapsed; panel renders on expand.
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
@@ -769,13 +719,10 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'passes composeTargets derived from the viewed graph (parsed.nodes), not Core.nodes, to the Inspector', async () => {
-		// The hub console viewing a remote worker holds only browser-side
-		// scaffolding in its own Core — the worker's addressable nodes live in
-		// `parsed.nodes` (whatever dump_metadata just published).
+		// Remote-worker view: addressable nodes live in parsed.nodes.
 		const { getByText } = render( <TopologyConsole /> );
 		await publishMeta( {
-			// has_config marks n1 as having a `:config` sidecar (dump_metadata
-			// reports it); without it the composer must not synthesize `n1:config`.
+			// has_config: n1 has a `:config` sidecar (else none synthesized).
 			n1: {
 				class: 'Echo',
 				counter: 0,
@@ -784,8 +731,7 @@ describe( 'TopologyConsole boot', () => {
 				has_config: true,
 			},
 		} );
-		// The Inspector panel only renders (and captures props) once expanded
-		// by a selection — mirrors every other lastInspectorProps assertion.
+		// Inspector panel renders (captures props) only once expanded.
 		await act( async () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
@@ -804,11 +750,7 @@ describe( 'TopologyConsole boot', () => {
 			act( () => {
 				render( <TopologyConsole /> );
 			} );
-			// The useConsoleGraph mock stops the Router's auto-started 1s
-			// timer (real-timer flake mitigation for OTHER tests). Re-install
-			// the 1s cadence here so jest.advanceTimersByTime(1000) below
-			// triggers the next dump_metadata round-trip, then drive one tick
-			// (setTimer doesn't fire immediately) for the initial paint.
+			// Re-install the 1s cadence the mock stopped; drive one tick.
 			act( () => {
 				Core.node( names.ROUTER ).setTimer( 1000 );
 				Core.node( names.ROUTER ).fireCb();
@@ -826,15 +768,14 @@ describe( 'TopologyConsole boot', () => {
 			// Immediate paint: one of each.
 			expect( dumps().length ).toBeGreaterThanOrEqual( 1 );
 			expect( uptimes().length ).toBeGreaterThanOrEqual( 1 );
-			// RemoteIpc wrapped each poll's bare reply-node FROM into the private reply address.
+			// RemoteIpc wrapped each poll's reply FROM into the reply address.
 			expect( fromOf( dumps()[ 0 ] ) ).toBe(
 				`${ names.SSE }:1234/${ names.METADATA }`
 			);
 			expect( fromOf( uptimes()[ 0 ] ) ).toBe(
 				`${ names.SSE }:1234/${ names.UPTIME }`
 			);
-			// The Router peeled _http before delivering to HttpOut, so the
-			// captured TO is the bare reader.
+			// Router peeled _http before HttpOut, so TO is the bare reader.
 			expect( dumps()[ 0 ][ TO ] ).toBe( 'demo.p0' );
 			// One stats tick: a new dump, uptime NOT due.
 			const dumpBefore = dumps().length;
@@ -869,10 +810,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( completions.length ).toBe( 1 );
 		const m = completions[ 0 ];
 		expect( m[ VALUE ].name ).toBe( 'help' );
-		// RemoteIpc wrapped the bare _completion reply-node FROM into the private reply address.
+		// RemoteIpc wrapped the bare _completion FROM into the reply address.
 		expect( m[ FROM ] ).toBe( `${ names.SSE }:1234/${ names.COMPLETION }` );
 		expect( m[ TO ] ).toBe( 'demo.p0' );
-		// Minted in-process → LOCAL taint set (the wire pack() strips it later).
+		// Minted in-process → LOCAL taint set (wire pack() strips it later).
 		expect( m[ LOCAL ] ).toBe( true );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
@@ -917,9 +858,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'new' ) );
 		} );
-		// Regression: handleNew built a raw { nodes: [] } draft (no _repl anchor),
-		// so layoutGraph had 0 nodes → ConsoleShell's ready gate fell to the
-		// building placeholder, blanking palette/canvas/inspector.
+		// Regression: handleNew's { nodes: [] } draft lacked the _repl anchor.
 		expect(
 			document.querySelector( '.topology-canvas-building' )
 		).toBeNull();
@@ -930,8 +869,7 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/?topology=demo&edit=1' );
 		render( <TopologyConsole /> );
 		await act( async () => {} );
-		// The Topologies tab's Edit/New buttons deep-link with ?edit=1; the console
-		// must land in edit mode rather than live view.
+		// Edit/New deep-link with ?edit=1; console lands in edit mode.
 		expect( lastHeaderProps.mode ).toBe( 'edit' );
 	} );
 
@@ -941,8 +879,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'new' ) );
 		} );
-		// New is a "start a fresh topology" affordance — it must switch into edit
-		// mode, not just blank the (unshown) draft while staying in live view.
+		// New must switch into edit mode, not blank the draft in live view.
 		expect( lastHeaderProps.mode ).toBe( 'edit' );
 	} );
 
@@ -957,9 +894,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'edit shows the delete button when the loaded topology has a user copy (no Open needed)', async () => {
-		// canDelete must derive from the get response `source`, NOT the
-		// Open-modal topology list (which is empty until Open is shown). Empty
-		// list + source:user => delete button still appears on edit.
+		// canDelete derives from the get response `source`, not the Open list.
 		globalThis.__hooks.topologies = [];
 		globalThis.__hooks.fetchTopology.mockResolvedValue( {
 			name: 'demo',
@@ -975,9 +910,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'save pre-fills the OPENED topology name, not the live console topology', async () => {
-		// Repro: live on `demo`, edit, Open a different topology, then Save — the
-		// name field must offer the OPENED name (editingName), not `demo` (the live
-		// console topology the editor was entered from).
+		// Save's name field must offer OPENED name (editingName), not demo.
 		globalThis.__hooks.fetchTopology.mockImplementation( ( name ) =>
 			Promise.resolve( {
 				name,
@@ -994,7 +927,7 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'open' ) ); // show the Open picker
 		} );
 		await act( async () => {
-			// onPick('picked') → handleOpenPick → fetch echoes the name → editingName='picked'.
+			// onPick('picked') → handleOpenPick → editingName='picked'.
 			fireEvent.click( getByText( 'pick' ) );
 		} );
 		await act( async () => {
@@ -1476,9 +1409,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch( /disconnect_node n1/ );
 	} );
 
-	// useCanvasLayout stores the whole layout under one key per scope shaped
-	// `{ positions, viewport, modified }`. The `modified` boolean is the single
-	// signal "user touched this" (drag/drop/tuck).
+	// useCanvasLayout stores { positions, viewport, modified } per scope.
 	it( 'position change persists into the single layout entry, flipping modified', async () => {
 		const { getByText } = render( <TopologyConsole /> );
 		await publishMeta();
@@ -1583,9 +1514,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'pathOptions derives from the live catalog hook, not the static global', async () => {
-		// The page-load global still says only `demo`, but the live catalog has
-		// since gained an active `extra` topology. The menu must reflect the live
-		// catalog (the bug: it stayed frozen on the global until a page reload).
+		// Menu must reflect the live catalog, not the frozen page-load global.
 		hooks.catalog = {
 			partitions: { demo: 1, extra: 2 },
 			active: [ 'demo', 'extra' ],
@@ -1686,7 +1615,7 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			lastReplProps.onSubmit( 'cd /demo.p0/firehose-in' );
 		} );
-		// cwd follows the deep path; same worker → no rebuild, no partition URL.
+		// cwd follows deep path; same worker → no rebuild, no partition URL.
 		expect( lastHeaderProps.path ).toBe( 'demo.p0/firehose-in' );
 		expect( window.location.search ).not.toMatch( /partition=/ );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
@@ -1723,18 +1652,14 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			lastReplProps.onSubmit( 'cd /demo.p0/firehose-in' );
 		} );
-		// The poll nodes target `_cwd`; the cwd is re-stamped from `_cwd.target`.
+		// Poll nodes target `_cwd`; cwd re-stamped from `_cwd.target`.
 		expect( Core.node( names.CWD ).target ).toBe( 'demo.p0/firehose-in' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
 	} );
 
 	it( 'a worker cwd during the connecting window keeps _cwd pointed at the worker (not local)', async () => {
-		// Previously the guard pointed _cwd at '' (the local interpreter) during the
-		// connecting window, which made the canvas DISPLAY the local graph at
-		// a worker cwd — misleading. Now _cwd tracks the cwd verbatim; the
-		// POST will fail to round-trip without a pid but is cheap and silent,
-		// and the canvas just holds its last state until the stream connects.
+		// _cwd tracks the cwd verbatim (was '' while connecting — misleading).
 		globalThis.__connecting = true;
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
@@ -1850,8 +1775,7 @@ describe( 'TopologyConsole boot', () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		await publishMeta();
 		fireEvent.click( getByText( 'drop-echo' ) );
-		// Pre-confirm: no make_node yet — the NewNodeModal renders first so
-		// the user can override the auto-generated name.
+		// Pre-confirm: NewNodeModal renders first to override the auto name.
 		const before = Array.from(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 		).find( ( i ) => i.dataset.kind === 'sent' );
@@ -1890,13 +1814,11 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'live canvas: reset-graph control re-mounts the graph without throwing', async () => {
 		const { findByText } = render( <TopologyConsole /> );
-		// The console boots viewing a worker; cd to the local graph (the only
-		// scope where the reset chip shows) before exercising it.
+		// cd to the local graph (the only scope the reset chip shows).
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// Chip only shows when there's a user-added node beyond the canonical
-		// console graph — inject one via the METADATA payload.
+		// Chip shows only with a user-added node; inject via metadata.
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -1904,17 +1826,13 @@ describe( 'TopologyConsole boot', () => {
 				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
 			},
 		} );
-		// findByText polls (up to 1s) so the gate (metadata + cwd) has time
-		// to settle under parallel-coverage CPU pressure.
+		// findByText polls so the metadata+cwd gate can settle.
 		const chip = await findByText( 'reset-graph' );
 		expect( () => fireEvent.click( chip ) ).not.toThrow();
 	} );
 
 	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', async () => {
-		// Boot into a worker, navigate to '/' (local), then reset-graph.
-		// Previously the rebuild snapped Shell.path back to {reader} and
-		// the [shell] sync effect dragged cwd along, taking the user off '/'.
-		// Reset must rebuild AND keep cwd at '/'.
+		// Reset-graph must rebuild AND keep cwd at '/' (was snapped back).
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText } = render( <TopologyConsole /> );
 		act( () => {
@@ -1936,21 +1854,18 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'reset-graph wipes user-added nodes (and leaves the canonical spine + console graph)', async () => {
-		// User-`make_node`'d local nodes survived the canonical-only unregister
-		// loop, so the "reset" didn't feel like a reset. Now any node not in
-		// the canonical console-graph set (or the backbone) is removed.
+		// Reset now removes any node outside the canonical set (or backbone).
 		const { Node } = require( '../../runtime/node' );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText } = render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// Simulate user `make_node Tee my-tee` having survived from a prior session.
+		// Simulate a user `make_node Tee my-tee` surviving a prior session.
 		const userNode = new Node();
 		userNode.name = 'my-user-tee';
 		expect( Core.node( 'my-user-tee' ) ).toBeTruthy();
-		// Surface it in the metadata payload so the chip is visible (the chip
-		// gating reads parsed.nodes, not Core directly).
+		// Surface it in metadata so the chip shows (gating reads parsed.nodes).
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -1975,16 +1890,13 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'reset-graph surfaces Reset Layout (a full rebuild offers a fresh auto-fit)', async () => {
-		// A graph rewire alone does not dirty the LAYOUT, but Reset Graph (a full
-		// teardown + rebuild) marks it dirty so Reset Layout surfaces — the rebuilt
-		// graph can be re-auto-fit. Matches the debug overlay.
+		// Reset Graph marks the layout dirty so Reset Layout can surface.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText, queryByText } = render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// A user node surfaces the reset-graph chip; no layout edits yet → no
-		// reset-layout chip.
+		// User node surfaces the reset-graph chip; no reset-layout chip yet.
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -1992,8 +1904,7 @@ describe( 'TopologyConsole boot', () => {
 				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
 			},
 		} );
-		// Let the initial autoLayout settle so the layout is initialized (Reset
-		// Graph's markDirty is a no-op until positions exist).
+		// Let autoLayout settle first (markDirty no-ops until positions exist).
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
@@ -2015,10 +1926,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'live drag-rewire surfaces the Reset Graph chip with no user node (bug 1)', async () => {
-		// Bug 1: dragging a connection between endpoints on the live canvas issues a
-		// connect_node, which the Shell dispatch tap sees → structureDirty → chip.
-		// Previously the gate was node-only (hasUserAddedLocalNodes), so a pure
-		// rewire produced no chip.
+		// Dragging a connection issues connect_node → structureDirty → chip.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText, queryByText, getByText } = render(
 			<TopologyConsole />
@@ -2026,8 +1934,7 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// Publish a reserved-only graph so the canvas is ready (layoutReady) WITHOUT
-		// surfacing reset-graph — `_output` is a substrate node, not a user node.
+		// Reserved-only graph: canvas ready but no reset-graph chip.
 		await publishMeta( {
 			[ names.OUTPUT ]: {
 				class: 'Dumper',
@@ -2045,10 +1952,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'the palette shows JS classes at the local scope (NOT the PHP catalog)', async () => {
-		// At cwd '/', make_node runs against the browser's Core, so the palette
-		// must list the JS-side CommandInterpreter.includeNodes (Tee, Timer,
-		// Node, CommandInterpreter). The PHP `classes.list` catalog (which the
-		// console fetches via useClassCatalog) is for workers/topology-editing.
+		// At cwd '/', the palette lists the JS CommandInterpreter.includeNodes.
 		globalThis.__catalog = {
 			classes: [ { shell_name: 'PHP_Only_Class', category: 'PHP' } ],
 			formatters: [],
@@ -2070,17 +1974,14 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'the palette shows the PHP catalog when at a worker (or editing a topology)', async () => {
-		// At a worker cwd, make_node runs against the PHP worker via SSE, so
-		// the PHP catalog is what's accurate. Edit mode is the same — the
-		// topology file is a PHP-worker configuration.
+		// At a worker cwd (and edit mode), the PHP catalog is the accurate one.
 		globalThis.__catalog = {
 			classes: [ { shell_name: 'PHP_Only_Class', category: 'PHP' } ],
 			formatters: [],
 		};
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		// Default boot is /demo.p0 (a worker); the palette (in GraphView)
-		// renders once the layout graph is ready.
+		// Default boot is /demo.p0; the palette renders once layout is ready.
 		await publishMeta();
 		const paletteNames = ( lastPaletteProps?.classes || [] ).map(
 			( c ) => c.shell_name
@@ -2091,18 +1992,14 @@ describe( 'TopologyConsole boot', () => {
 	it( 'reset-graph control shows only on the local graph with user-added nodes', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { queryByText, findByText } = render( <TopologyConsole /> );
-		// Boots into a worker view (demo.p0); a worker graph self-heals on
-		// respawn, so resetting the local console graph is meaningless → no chip.
+		// Worker view (demo.p0): self-heals on respawn → no reset chip.
 		expect( queryByText( 'reset-graph' ) ).toBeNull();
-		// cd to the local browser graph; without user-added nodes the chip is
-		// also hidden (nothing to reset — only the canonical console graph).
+		// cd to local graph; no user nodes → chip hidden (canonical only).
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
 		expect( queryByText( 'reset-graph' ) ).toBeNull();
-		// Add a user node via the metadata payload → chip appears. Use
-		// findByText so the metadata->parsed.nodes propagation has time to
-		// settle under parallel-coverage CPU pressure.
+		// Add a user node via metadata → chip appears (findByText settles it).
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -2111,9 +2008,7 @@ describe( 'TopologyConsole boot', () => {
 			},
 		} );
 		expect( await findByText( 'reset-graph' ) ).not.toBeNull();
-		// The _http broadcast boundary is also an attached (worker) view, not the
-		// local graph — even though scopeFromCwd buckets it as 'local' — so the
-		// chip stays hidden there too.
+		// _http is an attached view (scopeFromCwd says 'local') → chip hidden.
 		act( () => {
 			lastReplProps.onSubmit( 'cd /_http/demo.p0' );
 		} );
@@ -2258,8 +2153,7 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'canvas background click does not dismiss the transcript (no consumed handler)', () => {
 		render( <TopologyConsole /> );
-		// The repl-dismiss-on-canvas-click was removed; the canvas only deselects
-		// or autofits (it never touches the transcript).
+		// Canvas only deselects/autofits now; it never touches transcript.
 		expect( lastCanvasProps.onBackgroundClickConsumed ).toBeUndefined();
 		expect( lastCanvasProps.backgroundClickAutofitsOnly ).toBeUndefined();
 	} );
@@ -2379,10 +2273,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Expand the REPL + wire a spy-able input to its ref — the state the old
-		// refocus-on-select path keyed off. If selecting refocuses the REPL, the
-		// document-level Delete handler bails (focus is in an input), which is the
-		// bug: you'd have to minimize the transcript to delete a node.
+		// Spy the REPL input ref; refocus-on-select would break Delete.
 		await act( async () => {
 			lastReplProps.onExpandedChange( true );
 		} );
@@ -2480,8 +2371,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'saving a NEW topology prompts "Activate now?"; confirm dispatches activate', async () => {
-		// Catalog knows only `demo`; the prompt mock saves as `newname` — a name
-		// NOT in the prior known set, i.e. a freshly-created topology.
+		// Prompt saves `newname` — not in the known set (a fresh topology).
 		hooks.catalog = { partitions: { demo: 2 }, active: [] };
 		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
 		hooks.saveTopology.mockResolvedValueOnce( {
@@ -2561,11 +2451,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'confirming "Activate now?" toasts the error (not success) when the verb returns TM_ERROR', async () => {
-		// The activate verb rejects (e.g. a write-conflict with an already-active
-		// topology): the substrate replies TM_COMMAND|TM_RESPONSE|TM_ERROR at HTTP
-		// 200. send() resolves that Message regardless of TYPE — only
-		// unwrapCommandResponse throws on TM_ERROR. confirmActivate must surface
-		// the error toast and NOT falsely claim activation.
+		// activate rejects (TM_ERROR at HTTP 200): surface the error toast.
 		globalThis.__activateSend.mockResolvedValueOnce(
 			posMsg( {
 				type: TM_COMMAND | TM_RESPONSE | TM_ERROR,
@@ -2649,9 +2535,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'edit mode: renaming a node preserves the num_partitions frontmatter on save', async () => {
-		// Regression: the rename handler rebuilt the draft as { nodes, edges } and
-		// dropped frontmatter, so a rename silently unset the partitions setting —
-		// a node DROP didn't, because removeNode spreads the whole graph.
+		// Regression: rename rebuilt { nodes, edges } and dropped frontmatter.
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'var num_partitions = 4\nmake_node Echo n1\n',
 			name: 'demo',
@@ -2870,23 +2754,20 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
-		// `ls` → default TM_COMMAND routed to the worker's RemoteIpc, which POSTs
-		// the bare reader as TO.
+		// `ls` → TM_COMMAND to the RemoteIpc, which POSTs the bare reader TO.
 		const posted = globalThis.__httpPosts.find(
 			( m ) => m[ VALUE ] && m[ VALUE ].name === 'ls'
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TO ] ).toBe( 'demo.p0' );
-		// RemoteIpc wrapped the bare `_output` FROM into the private reply address.
+		// RemoteIpc wrapped the bare `_output` FROM into the reply address.
 		expect( posted[ FROM ] ).toBe(
 			`${ names.SSE }:1234/${ names.OUTPUT }`
 		);
 	} );
 
 	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to the {node}:config sibling interpreter', async () => {
-		// Command verbs live on the node's `{name}:config` CommandInterpreter
-		// sibling, not the bare node (a plain Node ignores TM_COMMAND). Both
-		// the routed TO and the echoed transcript line must carry `:config`.
+		// Verbs live on the `{name}:config` sibling, not the bare node.
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { container, getByText } = render( <TopologyConsole /> );
@@ -2916,8 +2797,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'handleInspectorAction invoke (request) routes a TM_REQUEST string to the bare node (no :config)', async () => {
-		// Requests are answered by the node itself, so they target the bare
-		// nodeId — never the `:config` sibling.
+		// Requests target the bare nodeId, never the `:config` sibling.
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { container, getByText } = render( <TopologyConsole /> );
@@ -3113,12 +2993,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'edit mode reads positions from a per-topology key, NOT the cwd/worker scope key', async () => {
-		// The fix for "unactivated topologies stomping each other": edit mode keys
-		// the layout by the topology being edited (`edit:{name}`), independent of
-		// the cwd. Pre-seed BOTH the worker scope (`demo.p0` — the mock Shell's
-		// cwd) and the per-topology edit key with DIFFERENT positions; entering
-		// edit on `demo` must rehydrate the edit key, proving it ignores the cwd
-		// scope (otherwise two topologies edited from one cwd would collide).
+		// Edit mode keys the layout by `edit:{name}`, independent of the cwd.
 		window.localStorage.setItem(
 			'newspack-nodes:topology:demo.p0',
 			JSON.stringify( {
@@ -3154,10 +3029,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'entering edit on a blank canvas anchors _repl as a Partition (reserved)', async () => {
-		// `_repl` is the worker's auto-mounted substrate spine — not in any
-		// topology .tsl, but the editor renders it on the canvas so users can
-		// draw edges TO it. It's reserved (no rename/delete) and tagged as
-		// Partition (the class the worker actually mounts at that name).
+		// _repl: worker's substrate spine; reserved, rendered as Partition.
 		window.history.replaceState( {}, '', '/' );
 		const { getByText } = render( <TopologyConsole /> );
 		await act( async () => {
@@ -3192,8 +3064,7 @@ describe( 'TopologyConsole boot', () => {
 		expect(
 			lastCanvasProps.parsed.nodes.find( ( n ) => n.id === 'n1' )
 		).toBeDefined();
-		// Leaving without edits must NOT prompt the discard modal — _repl is
-		// in the baseline too, so its presence isn't a change.
+		// _repl is in the baseline too, so its presence isn't a change.
 		await act( async () => {
 			fireEvent.click( getByText( 'view' ) );
 		} );
@@ -3461,12 +3332,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'server-saved layout does NOT seed positions at cwd="/" (local Shell ≠ topology worker)', async () => {
-		// fetchLayout returns the SERVER-saved layout for the chosen topology
-		// — those are the worker's nodes (e.g. `completed:tee`, `jobs:partition`).
-		// At cwd="/" the canvas renders the local browser Shell's spine, which
-		// is unrelated to the topology. Seeding the server layout here would
-		// dump worker positions into the local scope's localStorage entry,
-		// which is the bug Chris reported.
+		// Seeding the server layout at cwd="/" leaks worker positions locally.
 		hooks.fetchLayout.mockResolvedValue( {
 			positions: {
 				'completed:tee': [ 780, 25 ],
@@ -3486,9 +3352,7 @@ describe( 'TopologyConsole boot', () => {
 			window.localStorage.getItem( 'newspack-nodes:topology:local' ) ||
 				'null'
 		);
-		// If the entry exists, it MUST NOT contain the server's worker-shape
-		// node ids. (The canvas's own autoLayout seed of any local Shell
-		// nodes is fine; those are unrelated.)
+		// The entry must not hold the server's worker-shape node ids.
 		const positions = ( stored && stored.positions ) || {};
 		expect( positions ).not.toHaveProperty( 'completed:tee' );
 		expect( positions ).not.toHaveProperty( 'jobs:partition' );
@@ -3496,25 +3360,22 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'handleResetLayout at a topology worker cwd reverts to the saved layout (re-adopts server, modified=false)', async () => {
-		// Server-saved layout applies at WORKER scopes (where the canvas
-		// shows the topology's nodes), not at cwd="/" (local Shell). After a
-		// reset, useCanvasLayout re-inits and adopts the serverLayout again.
+		// Server layout applies at WORKER scopes, not cwd="/" (local Shell).
 		hooks.fetchLayout.mockResolvedValue( {
 			positions: { n1: [ 50, 60 ] },
 		} );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText, queryByText } = render( <TopologyConsole /> );
-		// cd into the topology's worker — scope.key = `demo.p0`, which is
-		// what the server-saved layout is for.
+		// cd into the worker — scope.key `demo.p0` matches the server layout.
 		act( () => {
 			lastReplProps.onSubmit( 'cd /demo.p0' );
 		} );
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// Publish the worker's node so the canvas is ready and adopts the layout.
+		// Publish the worker's node so the canvas adopts the layout.
 		await publishMeta();
-		// User drags a node — positions diverge from saved, Reset Layout appears.
+		// User drags a node — positions diverge, Reset Layout appears.
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
@@ -3534,9 +3395,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'live mode at a server scope shows reset-layout when the stored layout diverges from the server-saved one', async () => {
-		// New model: at a worker scope (server scope), the Reset Layout chip
-		// gates on divergence from the server-saved layout. A stored layout that
-		// no longer matches the server surfaces the chip so the user can restore.
+		// At a worker scope, the chip gates on divergence from server layout.
 		window.localStorage.setItem(
 			'newspack-nodes:topology:demo.p0',
 			JSON.stringify( {
@@ -3559,9 +3418,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'edit mode hides the reset-layout chip after Reset (the layout is now an untouched autoLayout)', async () => {
-		// Edit-mode Reset autoLayouts (serverSeedBlocked). Right after Reset the
-		// layout is an untouched auto-fit, so the chip hides (clicking again would
-		// re-run the same autoLayout); it returns once the user drags a node.
+		// After edit-mode Reset the auto-fit is untouched, so the chip hides.
 		hooks.fetchLayout.mockResolvedValue( {
 			positions: { n1: [ 500, 600 ], _repl: [ 700, 800 ] },
 		} );
@@ -3593,10 +3450,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'edit mode shows the reset-layout chip as soon as the server-saved layout is seeded (dirty=false)', async () => {
-		// In edit mode, "Reset Layout" means "blow away the saved layout and
-		// go to autoLayout". It must be available even when dirty=false (just
-		// loaded the topology) — otherwise the user has no way to discard the
-		// server layout without first dragging a node.
+		// Edit-mode Reset Layout must work even when dirty=false (just loaded).
 		hooks.fetchLayout.mockResolvedValue( {
 			positions: { n1: [ 500, 600 ] },
 		} );
@@ -3616,10 +3470,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'handleResetLayout in edit mode autoLayouts (does NOT re-adopt the server-saved layout)', async () => {
-		// "The way it's been": live mode loads the saved layout, but edit-mode
-		// Reset autoLayouts (serverSeedBlocked blocks the server seed for the rest
-		// of the session at this scope). So after Reset, n1 is at its autoLayout
-		// position, NOT the server-saved {500,600}.
+		// Edit-mode Reset autoLayouts: n1 lands off the server {500,600}.
 		hooks.fetchLayout.mockResolvedValue( {
 			positions: { n1: [ 500, 600 ] },
 		} );
@@ -3633,7 +3484,7 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
 		await act( async () => {
-			await new Promise( ( r ) => setTimeout( r, 300 ) ); // edit-mode autoLayout settles
+			await new Promise( ( r ) => setTimeout( r, 300 ) ); // autoLayout
 		} );
 		// Drag n1 away from the server position so Reset Layout has work to do.
 		await act( async () => {
@@ -3649,11 +3500,9 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'confirm' ) );
 		} );
 		await act( async () => {
-			await new Promise( ( r ) => setTimeout( r, 300 ) ); // post-reset autoLayout settles
+			await new Promise( ( r ) => setTimeout( r, 300 ) ); // post-reset
 		} );
-		// After edit-mode Reset the layout is autoLayout, NOT the server seed —
-		// n1 is NOT at {500,600}, and the map is a fresh (unmodified) auto-fit.
-		// Edit mode persists under the per-topology key (`edit:demo`), not the cwd.
+		// After Reset: n1 off {500,600}, a fresh unmodified auto-fit.
 		const stored = JSON.parse(
 			window.localStorage.getItem(
 				'newspack-nodes:topology:edit:demo'
@@ -3729,16 +3578,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'savedLayout fetch resolving to null takes the .then path, not .catch (defensive null handling)', async () => {
-		// fetchLayout's hook contract permits `null` (no saved layout yet).
-		// The effect's .then handler must treat null cleanly — i.e. extract
-		// positions safely — instead of crashing on `resp.positions` and
-		// falling through to .catch. The .catch path firing on a successful
-		// `null` response generates async setSavedLayout calls outside any
-		// test's act() boundary, producing the act() warning swarm.
-		//
-		// We assert this by handing the effect a Promise whose .then receiver
-		// observes whether it was invoked, AND attaching a sentinel .catch
-		// onto the same chain to detect synchronous throws inside .then.
+		// A null layout's .then must not fall through to .catch.
 		let thenSawNull = false;
 		let catchFired = false;
 		hooks.fetchLayout.mockReset();
@@ -3794,9 +3634,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'layoutDivergesFromSaved ignores a stored position for a node no longer in the graph (no false divergence)', async () => {
-		// A deleted node leaves a stale entry in the stored layout map. The
-		// divergence check must consider only ids in the LIVE graph — a stored
-		// `ghost` that matches nothing on the canvas must NOT surface the chips.
+		// Divergence must ignore stale stored ids absent from the live graph.
 		window.localStorage.setItem(
 			'newspack-nodes:topology:demo.p0',
 			JSON.stringify( {
@@ -3825,8 +3663,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'handleSaveLayout excludes a stored position for a node no longer in the graph', async () => {
-		// The save payload must serialize only live-graph ids — a deleted node's
-		// stale stored position must not leak back to the server.
+		// Save serializes only live-graph ids; no stale positions leak back.
 		window.localStorage.setItem(
 			'newspack-nodes:topology:demo.p0',
 			JSON.stringify( {
@@ -3867,9 +3704,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'local scope, empty storage: one autoLayout over the COMPLETE graph (isolated node on the right)', async () => {
-		// Mirrors the overlay regression: s->t connected; iso isolated.
-		// autoLayout puts s at col0, t + iso at maxDepth (right column). The
-		// old seed model dropped iso into the LEFT column via placeNewNode.
+		// s→t connected, iso isolated; autoLayout: s col0, t+iso rightmost.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -3884,7 +3719,7 @@ describe( 'TopologyConsole boot', () => {
 				iso: { class: 'Echo', counter: 0, sink: '', target: '' },
 			},
 		} );
-		// The local-scope autoLayout is deferred until the streaming node set settles.
+		// Local-scope autoLayout waits for the streaming node set to settle.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
@@ -3899,8 +3734,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'worker scope: adopts the server-saved layout instead of autoLayout', async () => {
-		// At a worker cwd whose label matches the topology, the canvas adopts
-		// the server-saved positions at init (never runs autoLayout there).
+		// Matching worker cwd: canvas adopts server positions, no autoLayout.
 		hooks.fetchLayout.mockResolvedValueOnce( {
 			positions: { n1: [ 700, 800 ] },
 		} );
@@ -3909,7 +3743,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// Publish the worker's node so the graph is ready for the one-shot init.
+		// Publish the worker's node so the graph is ready for init.
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -3929,7 +3763,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	describe( 'skin theme', () => {
-		// The skin is the global `<html>.theme-<slug>` class now, not per-wrapper.
+		// The skin is now the global `<html>.theme-<slug>` class.
 		const rootClass = () => document.documentElement.className;
 
 		it( 'defaults to theme-newspack when localStorage is empty', () => {
@@ -3977,9 +3811,7 @@ describe( 'initialTopologyFromUrl (deep-link validation)', () => {
 
 	it( 'honors a deep link from the module-load SEED even when a sibling hub bundle later clobbers window.NewspackNodesData', () => {
 		jest.isolateModules( () => {
-			// Seed the snapshot BEFORE the module imports so SEED_WORKERS
-			// captures it (mirrors production: the console bundle's localize is
-			// current when its own script executes).
+			// Seed BEFORE import so SEED_WORKERS captures it (as in prod).
 			window.NewspackNodesData = {
 				topologyWorkers: { alpha: 1, demo: 2 },
 				activeTopologies: [],
@@ -3987,9 +3819,7 @@ describe( 'initialTopologyFromUrl (deep-link validation)', () => {
 			// eslint-disable-next-line global-require
 			const mod = require( '../TopologyConsole' );
 			window.history.replaceState( {}, '', '/?topology=demo' );
-			// A sibling hub bundle re-localized NewspackNodesData WITHOUT
-			// topologyWorkers — the real clobber. The SEED must still resolve
-			// the deep link rather than fall back to the first topology.
+			// Sibling re-localized data without topologyWorkers (the clobber).
 			window.NewspackNodesData = { tree: 'event-dashboards' };
 			expect( mod.initialTopologyFromUrl( 'alpha' ) ).toBe( 'demo' );
 		} );

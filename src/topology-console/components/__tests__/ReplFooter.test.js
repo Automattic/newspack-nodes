@@ -38,7 +38,7 @@ describe( 'ReplFooter', () => {
 		).toContain( 'tail firehose' );
 		unmount();
 
-		// A fresh mount loads the persisted history → ArrowUp recalls the last command.
+		// Fresh mount loads persisted history → ArrowUp recalls last command.
 		const { container: c2 } = render( <ReplFooter { ...baseProps } /> );
 		const input2 = findInput( c2 );
 		fireEvent.keyDown( input2, { key: 'ArrowUp' } );
@@ -345,8 +345,7 @@ describe( 'ReplFooter', () => {
 	} );
 
 	describe( 'tab completion', () => {
-		// Render once, then push a new `completion` prop to simulate the async
-		// reply arriving after Tab fired the query.
+		// Push a `completion` prop after Tab to simulate the async reply.
 		const renderWithCompletion = ( extra = {} ) => {
 			const onComplete = jest.fn();
 			const utils = render(
@@ -385,7 +384,7 @@ describe( 'ReplFooter', () => {
 					} }
 				/>
 			);
-			// readline appends a space after a unique completion so the next token starts clean.
+			// readline appends a trailing space after a unique completion.
 			expect( findInput( container ).value ).toBe( 'dump_node ' );
 		} );
 
@@ -448,7 +447,7 @@ describe( 'ReplFooter', () => {
 			} );
 			const input = findInput( container );
 			fireEvent.change( input, { target: { value: 'dum' } } );
-			// First Tab extends 'dum' → 'dump' (the common prefix); no list yet.
+			// First Tab extends 'dum' → 'dump' (common prefix); no list yet.
 			fireEvent.keyDown( input, { key: 'Tab' } );
 			rerender(
 				<ReplFooter
@@ -463,8 +462,7 @@ describe( 'ReplFooter', () => {
 			);
 			expect( findInput( container ).value ).toBe( 'dump' );
 			expect( onShowCandidates ).not.toHaveBeenCalled();
-			// Second consecutive Tab on 'dump' (still ambiguous) lists — two presses
-			// total, even though the first one extended.
+			// Second Tab on ambiguous 'dump' lists (two presses total).
 			fireEvent.keyDown( findInput( container ), { key: 'Tab' } );
 			rerender(
 				<ReplFooter
@@ -506,7 +504,7 @@ describe( 'ReplFooter', () => {
 			);
 			expect( onShowCandidates ).not.toHaveBeenCalled();
 			expect( findInput( container ).value ).toBe( 'connect' );
-			// Second consecutive Tab on the same ambiguous token → list the options.
+			// Second Tab on the same ambiguous token → list the options.
 			fireEvent.keyDown( findInput( container ), { key: 'Tab' } );
 			rerender(
 				<ReplFooter
@@ -545,8 +543,7 @@ describe( 'ReplFooter', () => {
 					} }
 				/>
 			);
-			// User edits the line (type then delete back to the same token); the
-			// next Tab must behave as a fresh first press.
+			// User edits back to the same token; next Tab is a fresh press.
 			fireEvent.change( findInput( container ), {
 				target: { value: 'connectx' },
 			} );
@@ -573,7 +570,7 @@ describe( 'ReplFooter', () => {
 			const input = findInput( container );
 			fireEvent.change( input, { target: { value: 'co' } } );
 			fireEvent.keyDown( input, { key: 'Tab' } );
-			// User keeps typing before the reply lands; input no longer ends with 'co'.
+			// User types more before reply lands; input no longer ends 'co'.
 			fireEvent.change( input, { target: { value: 'connect_node x' } } );
 			rerender(
 				<ReplFooter

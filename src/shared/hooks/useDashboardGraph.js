@@ -37,9 +37,7 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
-// Monotonic per-module ID counter — message[ID] is what a view uses to match a
-// reply back to a pending Promise (awaited verbs). Duplicated in every dashboard
-// hook before this; shared here.
+// Monotonic per-module ID counter — message[ID] matches a reply to its Promise.
 let nextOpId = 0;
 
 /**
@@ -59,26 +57,16 @@ export function useDashboardGraph( opts ) {
 	const interpreterRef = useRef( null );
 	const isPageVisible = usePageVisibility();
 
-	// Wall-clock ms of the most recent poll FIRE (not reply) — it stops advancing
-	// whenever polling pauses (hidden tab, paused drag), so consumers can derive
-	// fire-freshness from it. Reply-success freshness is the consumer's job (it
-	// owns the view nodes the replies land on). Additive, ref-typed so reading it
-	// never forces a re-render. Starts 0 (never polled).
+	// Wall-clock ms of the most recent poll FIRE (not reply); 0 = never polled.
 	const lastPollRef = useRef( 0 );
 
-	// The visibility effect fires an immediate poll whenever it runs while visible,
-	// EXCEPT on the very first effect run (the mount effect's poll already covered
-	// that initial commit). A later become-visible run is a genuine hide→show and
-	// must refresh at once.
+	// Visibility effect polls immediately on each visible run except the first.
 	const visibilityEffectRan = useRef( false );
 
-	// Bumped after build so the consumer re-renders and its useNodeState rebinds
-	// to the freshly-mounted view node(s).
+	// Bumped after build so the consumer's useNodeState rebinds to new views.
 	const [ , bumpBuild ] = useState( 0 );
 
-	// One poll fire: skip while paused (an in-progress drag) or before the graph
-	// is mounted, else poll and stamp the freshness clock. Read live from optsRef
-	// so toggling pause never re-times the interval.
+	// One poll fire: skip while paused or unmounted, else poll and stamp.
 	const pollNow = useCallback( () => {
 		if ( optsRef.current.paused ) {
 			return;
@@ -90,16 +78,14 @@ export function useDashboardGraph( opts ) {
 		}
 	}, [] );
 
-	// Mount the graph once: clip it onto the exospine, then fire one immediate poll.
+	// Mount the graph once: clip it onto the exospine, then poll immediately.
 	useEffect( () => {
 		const build = ( { interpreter, http } ) => {
 			const data =
 				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
 				{};
 
-			// I/O boundary — the backbone's shared `_http` singleton (mountExospine
-			// owns it); just assign the command boundary. Injectable so tests never
-			// touch the network.
+			// I/O boundary — assign the command client; injectable for tests.
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {
@@ -112,16 +98,14 @@ export function useDashboardGraph( opts ) {
 
 			interpreterRef.current = interpreter;
 
-			// Re-render so useNodeState re-subscribes to the freshly-mounted view.
+			// Re-render so useNodeState rebinds to the freshly-mounted view.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire one immediate poll (the canonical mount-time poll) and stamp
-			// the freshness clock.
+			// Fire one immediate mount-time poll and stamp the freshness clock.
 			optsRef.current.poll( interpreter );
 			lastPollRef.current = Date.now();
 
-			// Run the consumer's cleanup before the nodes are removed, then drop
-			// the live ref.
+			// Run the consumer's cleanup before node removal, then drop ref.
 			return () => {
 				interpreterRef.current = null;
 				if ( 'function' === typeof cleanup ) {
@@ -134,13 +118,9 @@ export function useDashboardGraph( opts ) {
 		return teardown;
 	}, [] );
 
-	// Own the poll interval: re-timed on interval change, paused when hidden,
-	// cleared on unmount. Reads the live interpreter ref each tick.
+	// Own the poll interval: re-timed on change, paused when hidden, cleared.
 	useEffect( () => {
-		// The first effect run is the initial-mount commit, whose poll the mount
-		// effect already fired — don't double-poll. Every run after that which is
-		// visible is a genuine become-visible transition: poll immediately so
-		// hide→show shows fresh data without waiting a full interval.
+		// First run = mount commit (already polled); visible runs re-poll.
 		const isFirstRun = ! visibilityEffectRan.current;
 		visibilityEffectRan.current = true;
 

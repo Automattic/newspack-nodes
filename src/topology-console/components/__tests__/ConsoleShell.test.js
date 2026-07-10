@@ -66,9 +66,7 @@ describe( 'ConsoleShell', () => {
 	} );
 
 	it( 'zeroes the canvas obstruction when the REPL is hidden (edit mode), ignoring a stale value', () => {
-		// In edit mode the ReplFooter unmounts, so its last-reported overlay
-		// height goes stale; the canvas must not reserve a band for a transcript
-		// that is not on screen.
+		// Edit mode unmounts the ReplFooter; its stale height reserves no band.
 		render(
 			<ConsoleShell
 				{ ...baseProps }

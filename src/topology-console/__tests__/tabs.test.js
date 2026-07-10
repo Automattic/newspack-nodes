@@ -7,8 +7,7 @@
 
 import { __ } from '@wordpress/i18n';
 
-// The real TopologyConsole pulls in the whole console graph; the registry only
-// stores the component reference, so a stub keeps this a pure registry test.
+// A stub keeps this a pure registry test (the real console pulls the graph).
 jest.mock( '../TopologyConsole', () => () => null );
 
 test( 'importing tabs registers the topology-console tab on the hub host at order 15', () => {

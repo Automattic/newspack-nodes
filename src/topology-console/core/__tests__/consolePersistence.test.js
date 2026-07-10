@@ -38,8 +38,7 @@ describe( 'consolePersistence [87]', () => {
 		expect( loadHubTranscript() ).toEqual( [] ); // empty default
 		saveHubTranscript( [ { kind: 'recv', text: 'worker line' } ] );
 		saveTranscript( [ { kind: 'sent', text: 'overlay line' } ] );
-		// Separate keys: the hub console (worker realm) must not share storage
-		// with the local-only debug overlay, or one would clobber the other.
+		// Separate keys so the hub console and debug overlay don't clobber.
 		expect( loadHubTranscript() ).toEqual( [
 			{ kind: 'recv', text: 'worker line' },
 		] );

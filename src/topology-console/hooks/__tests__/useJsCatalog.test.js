@@ -6,9 +6,7 @@ describe( 'useJsCatalog', () => {
 	it( 'returns real-category classes from CommandInterpreterNode.includeNodes (the JS make_node table)', () => {
 		const { result } = renderHook( () => useJsCatalog() );
 		const names = result.current.classes.map( ( c ) => c.shell_name );
-		// Timer declares category 'Control' in its nodeSchema, so it's a palette
-		// participant. (Schema-less base nodes inherit the empty-category default
-		// and are filtered out — matching PHP Classes_CI's '' === cat skip.)
+		// Timer's 'Control' category = palette entry; empty cat = skipped.
 		expect( names ).toContain( 'Timer' );
 	} );
 
@@ -29,16 +27,14 @@ describe( 'useJsCatalog', () => {
 		const names = result.current.classes.map( ( c ) => c.shell_name );
 		expect( names ).not.toContain( 'Hook' );
 		expect( names ).not.toContain( 'Router' );
-		// CommandInterpreter is genuinely in includeNodes (the base table) but
-		// is never dropped by hand — every graph already has _command_interpreter.
+		// CommandInterpreter is in includeNodes but every graph already has it.
 		expect( names ).not.toContain( 'CommandInterpreter' );
 		CommandInterpreterNode.includeNodes = before;
 	} );
 
 	it( 'propagates arguments[] from nodeSchema so the ADD modal renders ctor fields (PHP parity)', () => {
 		const before = { ...CommandInterpreterNode.includeNodes };
-		// A node that declares a ctor arg — the browser ADD modal must render it,
-		// matching the PHP catalog (classes-ci-node inlines schema.arguments).
+		// Node declares a ctor arg — ADD modal must render it (PHP parity).
 		CommandInterpreterNode.includeNodes.FakeArged = class {
 			static nodeSchema() {
 				return {
@@ -68,8 +64,7 @@ describe( 'useJsCatalog', () => {
 
 	it( "propagates accepts_fill / has_target from each node's nodeSchema()", () => {
 		const before = { ...CommandInterpreterNode.includeNodes };
-		// A source: declares accepts_fill:false (PHP Tail/Consumer pattern).
-		// Needs a real category to survive the Hidden/empty filter.
+		// Source: accepts_fill:false (PHP Tail/Consumer); category required.
 		CommandInterpreterNode.includeNodes.FakeSource = class {
 			static nodeSchema() {
 				return {
@@ -102,7 +97,7 @@ describe( 'useJsCatalog', () => {
 
 	it( "excludes Hidden-category classes (PHP skips 'Hidden' === cat) and includes a real-category one", () => {
 		const before = { ...CommandInterpreterNode.includeNodes };
-		// A Hidden node (DumperNode/CompletionNode pattern) must NOT leak into the palette.
+		// A Hidden node (DumperNode pattern) must NOT leak into the palette.
 		CommandInterpreterNode.includeNodes.FakeHidden = class {
 			static nodeSchema() {
 				return { category: 'Hidden' };
@@ -182,9 +177,7 @@ describe( 'useJsCatalog', () => {
 
 	it( 'defaults both port flags to true when the schema omits them (PHP base default + GUI ?? true)', () => {
 		const before = { ...CommandInterpreterNode.includeNodes };
-		// nodeSchema with a real category but no port flags declared — flags
-		// must default to true. (A schema-less class is excluded entirely; the
-		// empty-category test covers that path.)
+		// Real category, no port flags declared → both flags default to true.
 		CommandInterpreterNode.includeNodes.FakeBare = class {
 			static nodeSchema() {
 				return { category: 'Control' };

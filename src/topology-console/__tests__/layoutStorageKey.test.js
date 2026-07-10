@@ -57,9 +57,7 @@ describe( 'layoutStorageKey', () => {
 	} );
 
 	it( 'edit mode with no topology yet (untitled draft) is not persisted (null key)', () => {
-		// No topology identity to key by — an untitled draft stays in-memory only;
-		// a null key tells useCanvasLayout to skip load/persist (no shared slot to
-		// bleed between distinct drafts).
+		// No topology identity: an untitled draft is in-memory only (null key).
 		expect(
 			layoutStorageKey( {
 				mode: 'edit',

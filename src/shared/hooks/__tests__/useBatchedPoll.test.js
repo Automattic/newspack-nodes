@@ -30,10 +30,7 @@ const ROUTER = '_router';
 const HTTP = '_http';
 const SHELL = '_shell';
 
-// Lightweight registered view classes so makeNode can build the slice views
-// without coupling the substrate test to the example app's node classes. Like a
-// real SliceViewNode, fill() CONSUMES its reply (it's the sink) — it doesn't
-// forward, so a reply doesn't bounce back through the interpreter unaddressed.
+// Lightweight view classes so makeNode builds slice views; fill() consumes.
 class FakeViewNode extends Node {
 	fill( message ) {
 		this.counter += 1;
@@ -46,7 +43,7 @@ CommandInterpreterNode.registerNodeClasses( {
 	AccumulatedView: FakeViewNode,
 } );
 
-// Drive document.visibilityState (matches the example + usePageVisibility tests).
+// Drive document.visibilityState (matches usePageVisibility tests).
 function setVisibility( state ) {
 	Object.defineProperty( document, 'visibilityState', {
 		configurable: true,
@@ -222,9 +219,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 	} );
 
 	test( 'a hidden+paused mount still delivers the first load when the tab becomes visible (deep-link opened in a background tab)', async () => {
-		// The exact spinner-forever repro: mounted hidden (immediate first-paint
-		// tick skipped) while a deep-link sets paused=true — becoming visible must
-		// still fire the ONE-TIME initial load, else the loading gate never clears.
+		// Spinner repro: hidden+paused mount must still fire the first load.
 		Object.defineProperty( document, 'visibilityState', {
 			configurable: true,
 			get: () => 'hidden',
@@ -276,8 +271,7 @@ describe( 'useBatchedPoll — the batching bracket', () => {
 		await act( async () => {} );
 		client.batches.length = 0;
 
-		// Remove the fan-out so the tick produces no commands; the bracket still
-		// runs (lock then flush) but an empty buffer posts nothing.
+		// Remove the fan-out: tick emits no commands, empty buffer posts none.
 		Core.node( 'insights:timer' ).disconnectNode( 'insights:tee' );
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();

@@ -33,14 +33,14 @@ describe( 'useAggregateRateSeries', () => {
 	it( 'emits byte read/write rate series alongside the msg rates', () => {
 		const { result, rerender } = renderHook(
 			( { nodes } ) => useAggregateRateSeries( nodes ),
-			// Seed from a reading WITH data (the baseline must not be a zero one).
+			// Seed from a reading WITH data (baseline must not be a zero one).
 			{ initialProps: { nodes: [ src( 0, 1000, 200 ), snk( 0 ) ] } }
 		);
 		// Synchronous rerenders → dt floors to 1s, so rate == byte delta.
 		rerender( { nodes: [ src( 0, 3048, 712 ), snk( 0 ) ] } );
 		expect( result.current.read ).toEqual( [ 2048 ] );
 		expect( result.current.write ).toEqual( [ 512 ] );
-		// A counter reset (worker respawn) clamps the byte rate to 0, not negative.
+		// A counter reset (worker respawn) clamps byte rate to 0, not negative.
 		rerender( { nodes: [ src( 0, 100, 50 ), snk( 0 ) ] } );
 		expect( result.current.read ).toEqual( [ 2048, 0 ] );
 		expect( result.current.write ).toEqual( [ 512, 0 ] );
@@ -68,9 +68,9 @@ describe( 'useAggregateRateSeries', () => {
 			( { nodes } ) => useAggregateRateSeries( nodes ),
 			{ initialProps: { nodes: [] } } // not-yet-loaded poll
 		);
-		// First REAL poll on an already-running worker: large cumulative counters.
+		// First REAL poll on an already-running worker: cumulative counters.
 		rerender( { nodes: [ src( 500000 ), snk( 3000 ) ] } );
-		// That snapshot only seeds the baseline — no rate (no cumulative-as-spike).
+		// That snapshot only seeds baseline — no rate (no cumulative-as-spike).
 		expect( result.current.in ).toEqual( [] );
 		expect( result.current.out ).toEqual( [] );
 		// The next real poll yields the true delta, not the cumulative.
@@ -92,8 +92,7 @@ describe( 'useAggregateRateSeries', () => {
 		);
 		rerender( { nodes: [ src( 15 ), snk( 6 ) ], resetKey: 'workerA' } );
 		expect( result.current.in ).toEqual( [ 10 ] );
-		// Switch to a different worker carrying its own large cumulative counters:
-		// it must NOT delta against workerA's baseline (totals-as-rates spike).
+		// Switch workers: must NOT delta against workerA's baseline (spike).
 		rerender( {
 			nodes: [ src( 900000 ), snk( 500000 ) ],
 			resetKey: 'workerB',
@@ -112,11 +111,10 @@ describe( 'useAggregateRateSeries', () => {
 	it( 'emits the in/out delta per poll, clamping a counter reset to 0', () => {
 		const { result, rerender } = renderHook(
 			( { nodes } ) => useAggregateRateSeries( nodes ),
-			// Seed from a reading WITH data; rates accrue from the next poll on.
+			// Seed from a reading WITH data; rates accrue on the next poll.
 			{ initialProps: { nodes: [ src( 100 ), snk( 50 ) ] } }
 		);
-		// Synchronous rerenders → dt floors to 1s, so rate == delta. The source
-		// counter feeds `in`, the sink counter feeds `out` (see processStats).
+		// dt floors to 1s (sync rerenders); src→in, sink→out per processStats.
 		rerender( { nodes: [ src( 110 ), snk( 54 ) ] } );
 		expect( result.current.in ).toEqual( [ 10 ] );
 		expect( result.current.out ).toEqual( [ 4 ] );

@@ -99,7 +99,7 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	}
 	// Usable height = canvas minus the bottom obstruction; graph fits above it.
 	const usableH = Math.max( 1, minH - Math.max( 0, bottomInsetPx ) );
-	// Scale to fill AUTOFIT_FILL of the binding dimension, capped for tiny graphs.
+	// Scale to fill AUTOFIT_FILL of the binding dim, capped for tiny graphs.
 	const scale = Math.min(
 		AUTOFIT_MAX_SCALE,
 		AUTOFIT_FILL * Math.min( minW / bbox.w, usableH / bbox.h )
@@ -237,7 +237,7 @@ export default function SchematicCanvas( {
 	driftIds = null,
 } ) {
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
-	// Complete position map; render only positioned nodes (new ones lag a frame).
+	// Complete position map; render only positioned nodes (new ones lag).
 	const nodes = useMemo(
 		() =>
 			( parsed?.nodes ?? [] )
@@ -249,7 +249,7 @@ export default function SchematicCanvas( {
 		[ parsed, positionOverrides ]
 	);
 
-	// Mirror of `nodes` for the freeze effect (keyed on length, reads identity).
+	// Mirror of `nodes` for the freeze effect (keyed on length).
 	const nodesRef = useRef( nodes );
 	nodesRef.current = nodes;
 
@@ -272,7 +272,7 @@ export default function SchematicCanvas( {
 		displayNodes.forEach( ( n ) => map.set( n.id, n ) );
 		return map;
 	}, [ displayNodes ] );
-	// Autofit viewBox for the current nodes+canvas; setViewport + freeze share it.
+	// Autofit viewBox for current nodes+canvas; setViewport + freeze share it.
 	const autofitBoxRef = useRef( null );
 	// Parent viewport; null = autofit. Persisted as a delta from autofit.
 	const setViewport = useCallback(
@@ -323,7 +323,7 @@ export default function SchematicCanvas( {
 				return;
 			}
 			const local = screenToSvg( svg, e.clientX, e.clientY );
-			// Snap to the nearest IN port within PORT_HIT_R (never the source node).
+			// Snap to nearest IN port within PORT_HIT_R (never the source).
 			let snapTargetId = null;
 			let bestDist = PORT_HIT_R;
 			for ( const n of nodes ) {
@@ -371,7 +371,7 @@ export default function SchematicCanvas( {
 				return;
 			}
 			if ( portDownGuardRef.current ) {
-				// Stop the deduped duplicate so it doesn't also start a node drag.
+				// Stop the deduped duplicate; don't also start a node drag.
 				e.stopPropagation();
 				return;
 			}
@@ -384,7 +384,7 @@ export default function SchematicCanvas( {
 			if ( ! svg ) {
 				return;
 			}
-			// Window listeners (not SVG capture): survive the Safari post-drop case.
+			// Window listeners (not SVG capture): survive Safari post-drop.
 			const onMove = ( me ) => handleWindowWireMove( me );
 			const onUp = ( me ) => {
 				handleWindowWireUp( me );
@@ -475,7 +475,7 @@ export default function SchematicCanvas( {
 		Number.isFinite( scale ) && scale > 0 ? MIN_NODE_PX / scale : 0;
 	const nodeRenderW = Math.max( NODE_W, minNodeWorld );
 	const nodeRenderH = Math.max( NODE_H, minNodeWorld );
-	// Cache autofit (live canvas + nodesRef) so persist + freeze share one basis.
+	// Cache autofit so persist + freeze share one basis.
 	useEffect( () => {
 		autofitBoxRef.current = parseViewBox(
 			tightViewBoxFor(
@@ -485,7 +485,7 @@ export default function SchematicCanvas( {
 			)
 		);
 	}, [ nodes, canvasPx, bottomObstructionPx ] );
-	// Freeze autofit on first render so drags don't re-fit; apply any stored delta.
+	// Freeze autofit on first render so drags don't re-fit; apply stored delta.
 	useEffect( () => {
 		const currentNodes = nodesRef.current;
 		const autofit = autofitBoxRef.current;
@@ -513,7 +513,7 @@ export default function SchematicCanvas( {
 		if ( ! canvasPx.w || ! canvasPx.h ) {
 			return; // unmeasured — keep the baseline for the first real measure
 		}
-		// A near-full transcript frames as if CLOSED (inset 0); un-max reflows back.
+		// Near-full transcript frames as CLOSED (inset 0); un-max reflows back.
 		const effInset =
 			bottomObstructionPx >= canvasPx.h * TRANSCRIPT_FULL_FRACTION
 				? 0
@@ -538,7 +538,7 @@ export default function SchematicCanvas( {
 		prevSurfaceRef.current = cur;
 		// Committed nodes so a resize mid-drag fits the settled layout.
 		const currentNodes = nodesRef.current;
-		// Floor the transcript reflow above LOD (band can't shrink past readable).
+		// Floor the reflow above LOD (band can't shrink past readable).
 		const bboxH = nodesBBox( currentNodes )?.h ?? 0;
 		const clampInset = ( inset, pxH ) =>
 			Math.min(
@@ -587,7 +587,7 @@ export default function SchematicCanvas( {
 		const world = screenToSvg( svg, e.clientX, e.clientY );
 		const current = viewport || parseViewBox( defaultViewBox );
 		const measured = canvasSize();
-		// Unmeasured: fall back to the viewBox's own size (keeps aspect + factor).
+		// Unmeasured: fall back to the viewBox size (keeps aspect + factor).
 		const cs =
 			measured && measured.w && measured.h
 				? measured
@@ -606,7 +606,7 @@ export default function SchematicCanvas( {
 		// Zoomed regions take the CANVAS aspect (no letterboxing).
 		const nextW = cs.w / nextScale;
 		const nextH = cs.h / nextScale;
-		// Anchor on the cursor SCREEN fraction, not world (diverge under letterbox).
+		// Anchor on cursor SCREEN fraction, not world (diverges on letterbox).
 		const rect = svg.getBoundingClientRect();
 		const fracX = rect.width ? ( e.clientX - rect.left ) / rect.width : 0.5;
 		const fracY = rect.height
@@ -819,7 +819,7 @@ export default function SchematicCanvas( {
 			} );
 		}
 		setDrag( null );
-		// Reset the click-suppress flag next microtask (click still sees the drag).
+		// Reset click-suppress flag next microtask (click still sees drag).
 		const wasDragged = draggedRef.current;
 		setTimeout( () => {
 			draggedRef.current = wasDragged ? true : false;
@@ -881,12 +881,12 @@ export default function SchematicCanvas( {
 					width={ nodeRenderW }
 					height={ nodeRenderH }
 				/>
-				{ /* Labels/sparkline/ports only when zoomed in enough to read. */ }
+				{ /* Labels/ports/spark only when zoomed in. */ }
 				{ showDetail && (
 					<>
-						{ /* Card-clipped label layer (ports sit on the edge, outside the clip). */ }
+						{ /* Ports on the card edge, outside the clip. */ }
 						<g clipPath="url(#topology-node-clip)">
-							{ /* Title band behind the type/id; filled per-skin. */ }
+							{ /* Title band behind type/id; per-skin fill. */ }
 							<rect
 								className="topology-node__header"
 								width={ NODE_W }
@@ -912,7 +912,7 @@ export default function SchematicCanvas( {
 								cy={ 13 }
 								r={ 3.5 }
 							/>
-							{ /* ⏸ badge when a Consumer holds the cursor (polling PAUSED). */ }
+							{ /* ⏸ badge when a Consumer holds the cursor. */ }
 							{ 'PAUSED' === n.polling && (
 								<text
 									className="topology-node__paused"
@@ -930,7 +930,7 @@ export default function SchematicCanvas( {
 							>
 								{ n.id }
 							</text>
-							{ /* Per-node rate sparkline; hidden under two samples. */ }
+							{ /* Rate sparkline; hidden under two samples. */ }
 							{ rateRef &&
 								( () => {
 									const history = rateRef.current.get(
@@ -947,7 +947,7 @@ export default function SchematicCanvas( {
 										/>
 									);
 								} )() }
-							{ /* Per-node rate, bottom-left; quiet nodes show nothing. */ }
+							{ /* Rate, bottom-left; quiet nodes show none. */ }
 							{ rateRef && (
 								<text
 									className="topology-node__rate"
@@ -1028,7 +1028,7 @@ export default function SchematicCanvas( {
 			} }
 		>
 			<defs>
-				{ /* Half-step grid offset so intersections fall on node centers. */ }
+				{ /* Half-step grid offset; intersections on node centers. */ }
 				<pattern
 					id="topology-grid"
 					x={ X_PAD + NODE_W / 2 }
@@ -1070,12 +1070,12 @@ export default function SchematicCanvas( {
 						className="topology-arrow-head topology-arrow-head--active"
 					/>
 				</marker>
-				{ /* Clip each card label layer to the card rect (userSpace, card-local). */ }
+				{ /* Clip the label layer to the card rect (userSpace). */ }
 				<clipPath
 					id="topology-node-clip"
 					clipPathUnits="userSpaceOnUse"
 				>
-					{ /* rx/ry round the label-clip to the card radius so a shaded title band's top corners follow the rounding (Newspack); harmless for square-card skins. */ }
+					{ /* rx/ry round the clip so title-band corners follow. */ }
 					<rect
 						x={ 0 }
 						y={ 0 }
@@ -1085,7 +1085,7 @@ export default function SchematicCanvas( {
 						ry={ 7 }
 					/>
 				</clipPath>
-				{ /* Group bloom: one screen-blended blur pass; region pinned to viewport. */ }
+				{ /* Group bloom: one blur pass; region pinned to viewport. */ }
 				<filter
 					id="topology-bloom-crt"
 					filterUnits="userSpaceOnUse"
@@ -1138,7 +1138,7 @@ export default function SchematicCanvas( {
 
 			{ showDetail &&
 				( () => {
-					// Bloom only full connections; a stub's glow can't bleed from off-screen.
+					// Bloom only full edges; stub glow can't bleed off-screen.
 					const bloomEdges = [];
 					const plainEdges = [];
 					edges.forEach( ( e, i ) => {
@@ -1151,7 +1151,7 @@ export default function SchematicCanvas( {
 						if ( ! isEdgeVisible( e.from, e.to, visibleIds ) ) {
 							return;
 						}
-						// Animate flow only where both counters moved this dump (rate > 0).
+						// Animate flow where both counters moved (rate > 0).
 						const fromRate =
 							rateRef?.current?.get( e.from )?.rate ?? 0;
 						const toRate = rateRef?.current?.get( e.to )?.rate ?? 0;
@@ -1161,14 +1161,14 @@ export default function SchematicCanvas( {
 						const selectTouches =
 							! hoveredId &&
 							( selectedId === e.from || selectedId === e.to );
-						// Hover dims the rest; selection highlights without dimming.
+						// Hover dims the rest; selection highlights, no dim.
 						const touches = hoverTouches || selectTouches;
 						const dimmed = hoveredId && ! hoverTouches;
 						const isEdgeSelected =
 							selectedEdge &&
 							selectedEdge.from === e.from &&
 							selectedEdge.to === e.to;
-						// One endpoint off-screen: clip a straight stub to the viewport.
+						// One endpoint off-screen: clip a stub to the viewport.
 						const fromVis = visibleIds.has( e.from );
 						const toVis = visibleIds.has( e.to );
 						let d;
@@ -1226,7 +1226,7 @@ export default function SchematicCanvas( {
 											: 'url(#topology-arrow-active)'
 									}
 								/>
-								{ /* Fat hit-target, edit mode only; skip virtual + registration edges. */ }
+								{ /* Edit-only hit-target; no virtual/reg. */ }
 								{ editMode &&
 									onSelectEdge &&
 									! e.virtual &&
@@ -1250,7 +1250,7 @@ export default function SchematicCanvas( {
 						);
 						( stub ? plainEdges : bloomEdges ).push( el );
 					} );
-					// Too many on-screen edges → drop the per-frame flow animation.
+					// Too many on-screen edges → drop flow animation.
 					const still =
 						bloomEdges.length + plainEdges.length > EDGE_FLOW_MAX
 							? ' topology-edges--still'
@@ -1269,14 +1269,14 @@ export default function SchematicCanvas( {
 					);
 				} )() }
 
-			{ /* One stable nodes group so a drag never drops pointer capture. */ }
+			{ /* One stable nodes group; a drag keeps pointer capture. */ }
 			<g
 				className={ `topology-nodes${
 					showDetail ? ' topology-nodes--bloom' : ''
 				}` }
 			>
 				{ displayNodes.map( ( n ) => {
-					// Cull off-viewport nodes (always render the one being dragged).
+					// Cull off-viewport nodes (always render the dragged one).
 					if (
 						! visibleIds.has( n.id ) &&
 						! ( drag && drag.nodeId === n.id )

@@ -67,8 +67,7 @@ describe( 'GraphView', () => {
 		const { getByTestId, getByText } = render(
 			<GraphView graph={ graph } frame={ Frame } resetKey="k" />
 		);
-		// Default-expanded in the unit test → the Inspector renders even before a
-		// selection (its empty state); selecting fills it.
+		// Default-expanded: the Inspector renders before any selection.
 		expect( getByTestId( 'inspector' ) ).not.toBeNull();
 		expect( getByTestId( 'inspector' ).textContent ).not.toContain( 'n1' );
 		fireEvent.click( getByText( 'select-n1' ) );
@@ -113,8 +112,7 @@ describe( 'GraphView', () => {
 				selection={ null }
 			/>
 		);
-		// Internally select n1, then an external re-point to n2 must move the
-		// inspector to n2 — only the re-sync effect can do this.
+		// External re-point n1→n2 moves the inspector via the re-sync effect.
 		fireEvent.click( getByText( 'select-n1' ) );
 		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n1' );
 		rerender(
@@ -126,8 +124,7 @@ describe( 'GraphView', () => {
 			/>
 		);
 		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n2' );
-		// External clear (e.g. console "new"): selection→null clears the content;
-		// the always-present panel stays.
+		// External clear (selection→null) empties content; the panel stays.
 		rerender(
 			<GraphView
 				graph={ twoNodeGraph }
@@ -176,9 +173,7 @@ describe( 'GraphView', () => {
 
 	it( 'external null-clear also clears a selected edge', () => {
 		const onRemoveEdge = jest.fn();
-		// Start self-controlled (selection undefined) so selecting an edge is
-		// the live state, then transition selection → null to force the
-		// re-sync effect (the bug: it left the edge stale on a null clear).
+		// Self-controlled; selection→null forces re-sync (bug: edge stale).
 		const { getByText, rerender } = render(
 			<GraphView
 				graph={ graph }
@@ -218,8 +213,7 @@ describe( 'GraphView', () => {
 	} );
 
 	it( 'forwards paletteLoading to the Palette loading prop (not derived from catalog)', () => {
-		// Non-empty catalog: a `! catalog.length` derivation would yield false,
-		// so a true result proves the explicit prop is wired through.
+		// Non-empty catalog: a true result can't come from ! catalog.length.
 		render(
 			<GraphView
 				graph={ graph }
@@ -282,8 +276,7 @@ describe( 'GraphView', () => {
 			has_target: true,
 			accepts_fill: false,
 		} );
-		// g0 seeds the baseline WITH data (a zero reading no longer seeds), g1 is
-		// the next poll that yields a real In-rate delta.
+		// g0 seeds the baseline WITH data; g1 yields a real In-rate delta.
 		const g0 = { nodes: [ src( 5 ) ], edges: [] };
 		const g1 = { nodes: [ src( 10 ) ], edges: [] };
 		const { rerender } = render(
@@ -293,8 +286,7 @@ describe( 'GraphView', () => {
 		rerender( <GraphView graph={ g1 } frame={ Frame } resetKey="k" /> );
 		const len = global.__inspectorProps.rateSeries.in.length;
 		expect( len ).toBeGreaterThan( 0 );
-		// Collapse (Inspector unmounts) then expand (same graph → no new sample).
-		// The series lives in GraphView, so it must survive the remount intact.
+		// Collapse→expand (same graph) keeps the GraphView-held series intact.
 		rerender(
 			<GraphView
 				graph={ g1 }

@@ -71,7 +71,7 @@ describe( 'useDashboardGraph — mount', () => {
 		const { result } = renderHook( () =>
 			useDashboardGraph( { mountNodes: () => {}, poll: () => {} } )
 		);
-		// The mount poll fired, so the freshness clock is stamped (>= mount time).
+		// The mount poll fired, so the freshness clock is stamped (>= mount).
 		expect( result.current.lastPollRef.current ).toBeGreaterThanOrEqual(
 			before
 		);
@@ -161,11 +161,10 @@ describe( 'useDashboardGraph — poll', () => {
 					refreshMs: 4000,
 				} )
 			);
-			// Hidden: no mount poll fires (mount effect polls, but the visibility
-			// effect is the one under test). Drain any mount poll into the baseline.
+			// Hidden: drain any mount poll into the baseline.
 			const hiddenBaseline = calls.length;
 
-			// Becoming visible must refresh immediately, without waiting a tick.
+			// Becoming visible must refresh immediately, no tick wait.
 			global.__pageVisible = true;
 			act( () => {
 				rerender();
@@ -187,8 +186,7 @@ describe( 'useDashboardGraph — poll', () => {
 					refreshMs: 4000,
 				} )
 			);
-			// Exactly ONE poll on mount — the visibility effect must not add a
-			// second immediate poll on the initial (already-visible) render.
+			// Exactly ONE poll on mount; visibility effect adds no second poll.
 			expect( calls.length ).toBe( 1 );
 		} finally {
 			jest.useRealTimers();

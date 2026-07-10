@@ -45,13 +45,9 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
-// `_http` (HttpOut egress) and `_shell` (observe-only command Tap) are permanent
-// fixtures of the exospine backbone (mountExospine); the build reuses `spine.http`
-// rather than mounting its own.
+// `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
 
-// Arm the owned Timer's router-TIMER hitchhike at the optional intervalMs: > 1000
-// hitchhikes + throttles in fireCb(); omitted/0 fires every router tick. Either
-// way the Timer rides the shared TIMER so the tick's commands batch into ONE POST.
+// Arm the Timer's router-TIMER hitchhike: >1000 throttles, else every tick.
 function armTimer( timer, intervalMs ) {
 	if ( intervalMs > 1000 ) {
 		timer.setTimer( intervalMs );
@@ -61,24 +57,18 @@ function armTimer( timer, intervalMs ) {
 }
 
 export function useBatchedPoll( opts ) {
-	// Read opts live inside build without re-running the once-only mount effect.
+	// Read opts live inside build without re-running once-only mount effect.
 	const optsRef = useRef( opts );
 	optsRef.current = opts;
 
-	// Bumped after each (re)build so widgets re-render and their useNodeState
-	// re-subscribes to the freshly-mounted view nodes — child effects run before
-	// this parent effect, so they bind to null on first commit otherwise.
+	// Bumped after (re)build so widgets' useNodeState rebinds to new views.
 	const [ , bumpBuild ] = useState( 0 );
 
-	// The live interpreter (awaited-verb handle) and the owned Timer, captured
-	// during build so the visibility effect can stop/start its router-TIMER
-	// hitchhike without re-running the mount effect.
+	// Live interpreter + owned Timer, captured during build for visibility.
 	const interpreterRef = useRef( null );
 	const timerRef = useRef( null );
 
-	// Fire ONE batched tick (lock → fire → flush), captured during build so the
-	// visibility effect can deliver the first load without re-running the mount
-	// effect. `firstLoadDone` guards it to exactly once.
+	// Fire ONE batched tick (lock → fire → flush), captured during build.
 	const fireTickRef = useRef( null );
 	const firstLoadDoneRef = useRef( false );
 
@@ -91,9 +81,7 @@ export function useBatchedPoll( opts ) {
 				( 'undefined' !== typeof window && window.NewspackNodesData ) ||
 				{};
 
-			// I/O boundary — the substrate's HttpOut, now a backbone singleton
-			// (mountExospine owns `_http`); just assign the command boundary. It's
-			// injectable so tests never touch the network.
+			// I/O boundary — assign the command client; injectable for tests.
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {
@@ -101,11 +89,9 @@ export function useBatchedPoll( opts ) {
 					nonce: data.nonce || '',
 				} );
 
-			// `_shell` (observe-only Tap; `connect _shell` watches every command
-			// going out) is now a permanent fixture of the exospine backbone — no
-			// need to mount it here.
+			// `_shell` Tap is a backbone fixture; no mounting needed here.
 
-			// The fan-out Tee + the router-hitchhike Timer that fans each tick to it.
+			// The fan-out Tee + the router-hitchhike Timer that fans each tick.
 			const { teeName, timerName } = optsRef.current;
 			const tee = interpreter.makeNode( 'Tee', teeName );
 
@@ -114,20 +100,17 @@ export function useBatchedPoll( opts ) {
 
 			const timer = interpreter.makeNode( 'Timer', timerName );
 			timer.connectNode( teeName );
-			// intervalMs > 1000 hitchhikes the router TIMER and throttles in fireCb()
-			// (the batch still rides one tick's POST); omitted/0 fires every tick.
+			// intervalMs > 1000 throttles in fireCb(); else fires every tick.
 			armTimer( timer, optsRef.current.intervalMs );
 			timerRef.current = timer;
 
 			interpreterRef.current = interpreter;
 
-			// Batch: lock `_http` before the tick's notify, flush after — so the
-			// whole tick's commands ride ONE POST (Tachikoma batching).
+			// Batch: lock `_http` before tick notify, flush after → ONE POST.
 			router.beforeTimerNotify = () => http.lock();
 			router.afterTimerNotify = () => http.flush();
 
-			// One batched tick (lock → fire → flush = ONE POST), reused by the
-			// visibility effect to deliver the first load on a hidden→visible switch.
+			// One batched tick = ONE POST, reused to deliver the first load.
 			const fireTick = () => {
 				http.lock();
 				timer.fire();
@@ -135,23 +118,16 @@ export function useBatchedPoll( opts ) {
 			};
 			fireTickRef.current = fireTick;
 
-			// Immediate first paint: fire ONE batched tick on mount (without this the
-			// dashboard would wait a whole interval for its first data). Gated on
-			// VISIBILITY ONLY — the one-time first load is not suppressed by `paused`
-			// (that only suspends ongoing polling); a hidden mount defers to the
-			// visibility effect, which fires the first load when the tab is shown even
-			// while paused (else a deep-link opened in a background tab — mounted
-			// hidden, then paused by its own selection — would spin forever).
+			// First paint: fire ONE tick on mount, gated on visibility only.
 			if ( 'visible' === document.visibilityState ) {
 				fireTick();
 				firstLoadDoneRef.current = true;
 			}
 
-			// Re-render so each widget's useNodeState re-subscribes to its freshly-
-			// mounted view node (child effects ran before this build).
+			// Re-render so each widget's useNodeState rebinds to the new view.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Undo the non-node hooks before the nodes are removed on teardown/rebuild.
+			// Undo the non-node hooks before the nodes are removed on teardown.
 			return () => {
 				router.beforeTimerNotify = null;
 				router.afterTimerNotify = null;
@@ -168,20 +144,13 @@ export function useBatchedPoll( opts ) {
 		return teardown;
 	}, [] );
 
-	// Toggle the Timer's router-TIMER hitchhike with tab visibility AND the
-	// caller's `paused` flag (e.g. an Overview drag in flight), and re-arm at the
-	// current `intervalMs` (so changing the refresh selector re-paces the poll).
-	// Poll only when visible and not paused; either gate stops the Timer → no
-	// fan-out → no POST. Runs after the mount effect (so the timer exists); a null
-	// ref no-ops.
+	// Poll only when visible and not paused; re-arm at the current intervalMs.
 	useEffect( () => {
 		const timer = timerRef.current;
 		if ( ! timer ) {
 			return;
 		}
-		// Deliver the one-time first load when the tab becomes visible, even while
-		// paused — a hidden mount skipped the immediate tick, and `paused` (a modal
-		// open on a deep-link) must not strand the initial fetch behind its loading gate.
+		// Deliver the one-time load when the tab shows, even while paused.
 		if ( isPageVisible && ! firstLoadDoneRef.current ) {
 			fireTickRef.current?.();
 			firstLoadDoneRef.current = true;

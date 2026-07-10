@@ -30,8 +30,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'no-node panel in EDIT mode shows an edit hint, not the live command palette', () => {
-		// The live `_command_interpreter` + server-command palette is meaningless for
-		// an offline draft — edit mode with nothing selected gets a hint instead.
+		// Offline draft: no live command palette — edit mode shows a hint.
 		const { container, queryByText } = render(
 			<Inspector { ...baseProps } editMode={ true } />
 		);
@@ -97,7 +96,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		const header = getByTestId( 'inspector-process-stats' );
 		const stats = header.textContent;
-		// Activity section: four labeled sparkline rows (msgs in/out + bytes read/written).
+		// Activity: four sparkline rows (msgs in/out + bytes read/written).
 		expect( stats ).toContain( 'messages in /s' );
 		expect( stats ).toContain( 'messages out /s' );
 		expect( stats ).toContain( 'bytes read /s' );
@@ -122,8 +121,7 @@ describe( 'Inspector (view mode)', () => {
 				{ ...baseProps }
 				local
 				parsed={ {
-					// Node counts deliberately differ from IoTelemetry, so a
-					// processStats path would show these instead.
+					// Counts differ from IoTelemetry to prove which path wins.
 					nodes: [
 						{
 							id: 'src',
@@ -146,8 +144,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'shows dmesg error/warning/debug counts + rate sparklines in the header', () => {
 		Core.reset();
-		// The console mounts a `_dmesg` poll node publishing the viewed process's
-		// classified stderr-tail counts; the header reads it via useNodeState.
+		// _dmesg node publishes classified stderr counts; header reads it.
 		const dmesg = new Node();
 		dmesg.name = names.DMESG;
 		dmesg.setStateCache = { dmesg: { errors: 2, warnings: 1, debug: 3 } };
@@ -191,9 +188,7 @@ describe( 'Inspector (view mode)', () => {
 			/>
 		);
 		fireEvent.click( getByText( 'Compose' ) );
-		// selects[0] = To (echo default), selects[1] = Type — pick TM_INFO
-		// (tell_node) by its option label, not a hardcoded index (the type
-		// list's order is an implementation detail).
+		// Pick TM_INFO (tell_node) by its option label, not a fixed index.
 		const selects = document.body.querySelectorAll(
 			'.topology-modal__body select'
 		);
@@ -246,9 +241,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'no-node Compose "To" list uses composeTargets (the full addressable surface), not just parsed.nodes', () => {
-		// composeTargets is the graph-derived list ( _command_interpreter +
-		// every node id + its :config sidecar) — richer than parsed.nodes,
-		// which the connect-edge menu still uses unchanged.
+		// composeTargets is the full addressable surface, richer than nodes.
 		const composeTargets = [
 			'_command_interpreter',
 			'echo',
@@ -272,7 +265,7 @@ describe( 'Inspector (view mode)', () => {
 			( o ) => o.value
 		);
 		expect( optionValues ).toEqual( composeTargets );
-		// _command_interpreter (the list's first entry) is the default selection.
+		// _command_interpreter (first entry) is the default selection.
 		expect( toSelect.value ).toBe( '_command_interpreter' );
 	} );
 
@@ -294,9 +287,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'no-node Compose TM_RESPONSE / TM_ERROR checkboxes pass their flags through onConfirm', () => {
-		// Inspector's job is just to carry the flags out to onAction; the
-		// dispatch-time TYPE OR-ing is covered at the dispatch layer
-		// (useGraphHandlers/useDebugGraph/TopologyConsole tests).
+		// Inspector only carries flags to onAction; OR-ing tested elsewhere.
 		const onAction = jest.fn();
 		const { getByText, getByLabelText } = render(
 			<Inspector
@@ -429,9 +420,7 @@ describe( 'Inspector (view mode)', () => {
 	it( 'live mode renders the targets editor from node.targets; chip × calls onRemoveEdge with the FULL target, dropdown calls onConnect', () => {
 		const onConnect = jest.fn();
 		const onRemoveEdge = jest.fn();
-		// node.targets is the full, uncollapsed runtime target list (NOT the
-		// headOf-collapsed / registration-polluted parsed.edges). A path target
-		// like `_sse/workers` must disconnect by its full value, not its head.
+		// node.targets is the full runtime list; disconnect by full value.
 		const teeParsed = {
 			nodes: [
 				{
@@ -443,7 +432,7 @@ describe( 'Inspector (view mode)', () => {
 				{ id: 'a', class: 'Echo' },
 				{ id: 'b', class: 'Echo' },
 			],
-			// Deliberately includes a registration edge that must NOT become a chip.
+			// A registration edge that must NOT become a chip.
 			edges: [
 				{ from: 'tee', to: '_sse' },
 				{ from: 'tee', to: 'a', registration: true, event: 'EVT' },
@@ -489,8 +478,7 @@ describe( 'Inspector (view mode)', () => {
 				onRemoveEdge={ onRemoveEdge }
 			/>
 		);
-		// A reserved node shows the read-only routing display — no editor combobox
-		// (neither the Tee "+ add target…" dropdown nor the single-target select).
+		// A reserved node shows read-only routing — no editor combobox.
 		expect( queryByRole( 'combobox' ) ).toBeNull();
 	} );
 
@@ -533,10 +521,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'renders LIVE without crashing when streamStatus is undefined (overlay case)', () => {
-		// The debug overlay reads the page's own Core synchronously — there is no
-		// SSE stream to report, so it omits streamStatus. The Inspector used to
-		// crash on `streamStatus.toUpperCase()`; now it treats absent status as
-		// live (the graph it is showing literally is the local in-realm graph).
+		// Overlay omits streamStatus (no SSE); absent must read as live.
 		const { container } = renderNode( { streamStatus: undefined } );
 		expect( container.textContent ).toMatch( /LIVE/ );
 	} );
@@ -747,9 +732,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'shows the tail/tap button for a Tee SUBCLASS driven by the catalog is_tee flag', () => {
-		// The tail button keys off the catalog `is_tee` flag, not the runtime
-		// target shape — so a Tap (class "Tap", is_tee true) gets the button
-		// just like a Tee, even when its target is a bare string.
+		// Tail button keys off catalog is_tee, not the runtime target shape.
 		const tapAction = jest.fn();
 		const tapNode = {
 			id: 'tap_a',
@@ -845,7 +828,7 @@ describe( 'Inspector (view mode)', () => {
 			catalog: [ { shell_name: 'Echo', registrations: [ 'FIRE' ] } ],
 		} );
 		fireEvent.click( getByText( 'Register' ) );
-		// event defaults to FIRE, target defaults to the only other node (tee_a).
+		// event defaults to FIRE, target to the only other node (tee_a).
 		const selects = document.body.querySelectorAll(
 			'.topology-modal__body select'
 		);
@@ -935,8 +918,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'flips Connect → Disconnect when parsed.pwd is in the node FULL targets (edges head-collapse to _repl)', () => {
-		// parseMetadata collapses the reply-path edge to its head `_repl`, so the
-		// toggle matches this session's reply path (parsed.pwd) against node.targets.
+		// Reply-path edge collapses to _repl; toggle matches pwd vs targets.
 		const teeNode = {
 			id: 'tee_a',
 			class: 'Tee',
@@ -986,8 +968,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'stays Connect when only ANOTHER session reply path is wired (collapsed _repl edge is shared)', () => {
-		// A different browser's reply path also collapses to `_repl`; the toggle must
-		// not falsely read as connected for this session (parsed.pwd ≠ that target).
+		// Another session's path also collapses to _repl; must stay Connect.
 		const teeNode = {
 			id: 'tee_a',
 			class: 'Tee',
@@ -1152,11 +1133,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'hides verb buttons (allow_large_writes, with_index, …) for a reserved spine node', () => {
-		// `_repl` is the worker's auto-mounted Partition spine. In live mode,
-		// `parseMetadata` doesn't tag spine nodes — the Inspector recognizes
-		// them by id (matching the reserved-node-names set). The user's
-		// inspection actions (Dump/Send/Trace) still work; only TM_COMMAND /
-		// TM_REQUEST verbs on the worker's owned node are blocked.
+		// Reserved spine node (by id): its verb buttons are blocked.
 		const catalog = [
 			{
 				shell_name: 'Partition',
@@ -1191,9 +1168,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'hides verb buttons flagged hidden:true while keeping normal verbs', () => {
-		// A `hidden: true` command (e.g. Consumer's time-travel PAUSE, driven by
-		// the Time Travel transport bar) renders NO generic verb button; a normal
-		// command still does.
+		// A hidden:true command renders no verb button; normal ones do.
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -1208,10 +1183,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( queryByText( 'set_line_mode' ) ).not.toBeNull();
 	} );
 
-	// A node is a consumer when its dump_metadata carries frames (an array) AND a
-	// cursor — the read surface the inspector already holds, no class-name list.
-	// Frame ids are OFFSETLOG segment ids (monotonic, far past 0); the source
-	// cursor seg is an UNRELATED small number — the panel must not conflate them.
+	// Consumer = frames + cursor; frame ids ≠ cursor seg — don't conflate.
 	const consumerNode = {
 		id: 'firehose-consumer',
 		class: 'Consumer',
@@ -1252,8 +1224,7 @@ describe( 'Inspector (view mode)', () => {
 				nodeIds={ new Set( [ 'firehose-consumer' ] ) }
 			/>
 		);
-		// The signal alone (no client click) gates the transport open: pause is
-		// disabled (already paused) and step is enabled.
+		// The signal alone gates the transport: pause off, step enabled.
 		expect( getByLabelText( /pause/i ).disabled ).toBe( true );
 		expect( getByLabelText( /step/i ).disabled ).toBe( false );
 	} );
@@ -1322,9 +1293,7 @@ describe( 'Inspector (view mode)', () => {
 			'firehose-consumer',
 			{ verb: 'PAUSE', kind: 'command', positional: '', byName: {} }
 		);
-		// First rewind from live lands on the NEWEST keyframe (5344) — not
-		// cursor.segment, and not the one before. SEEK_FRAME maps its positional to
-		// the `segment` byName arg.
+		// First rewind lands on the NEWEST keyframe 5344; positional→segment.
 		fireEvent.click( getByLabelText( /rewind/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
@@ -1473,9 +1442,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 } );
 
-// The "Activity" sparkline shows RATE_HISTORY_MAX (60) samples, one per poll.
-// The poll cadence scales with graph size (computePollIntervalMs), so the real
-// window is 60 * interval — the label must reflect that, not a fixed "~60s".
+// Activity window = 60 samples × poll interval (scales), not a fixed ~60s.
 describe( 'formatActivityWindow', () => {
 	it( 'reads ~5m for a small graph (poll cadence floored at 5s)', () => {
 		// 50 nodes -> floored 5s poll -> 60 * 5s = 300s = 5m.

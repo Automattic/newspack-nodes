@@ -190,9 +190,7 @@ describe( 'Inspector (edit mode)', () => {
 		} );
 
 		it( 'editing one arg of an over-long invocation keeps the other declared args', () => {
-			// 4 raw tokens against a 3-arg schema: absorb fuses the tail into
-			// remote_option, and editing `to` must NOT drop local_option or the
-			// fused remote_option.
+			// 4 tokens vs a 3-arg schema; editing `to` must keep other args.
 			const onUpdateVerbs = jest.fn();
 			const overlongProps = {
 				...multiProps,
@@ -255,10 +253,7 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	describe( 'free-text verb arg (spaces) absorbs trailing tokens', () => {
-		// parseTsl whitespace-splits a `cmd node:config add_profile <free text>`
-		// line into a token array; a single free-text arg must show the WHOLE
-		// line, not just the first token — mirroring how view mode's
-		// positionalArgs() lets the last declared arg absorb the tail.
+		// A free-text arg shows the WHOLE line, not just the first token.
 		const freeTextProps = {
 			...baseProps,
 			selectedId: 'summarizer',
@@ -369,10 +364,7 @@ describe( 'Inspector (edit mode)', () => {
 		} );
 
 		it( 'hides Routing, Constructor, and Verbs sections (no settings on a reserved node)', () => {
-			// The worker owns the auto-mounted spine — its routing, args,
-			// and verbs are fixed. Showing settings here invites the user to
-			// edit values that won't round-trip through TSL (serializeTsl
-			// already skips reserved nodes).
+			// Reserved-node settings are fixed, not round-trippable via TSL.
 			const { container, queryByText } = render(
 				<Inspector { ...reservedProps } />
 			);
@@ -780,9 +772,7 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'TargetsField: a Tee SUBCLASS renders the multi-chip field driven by the catalog is_tee flag (edit-mode string target)', () => {
-		// In edit mode the draft node's `target` is a STRING (parseTsl shape), so
-		// the multi-chip editor must key off the catalog `is_tee` flag, not the
-		// runtime target shape — a Tap (class "Tap", is_tee true) gets the editor.
+		// Edit-mode target is a STRING; multi-chip editor keys off is_tee.
 		const onConnect = jest.fn();
 		const { container } = render(
 			<Inspector

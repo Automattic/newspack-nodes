@@ -41,23 +41,20 @@ export function addSliceFetcher(
 		argsFn,
 	}
 ) {
-	// Fetcher: turns the tick into ONE configured command (FROM=receiver), aimed
-	// at the egress; the fan-out Tee fans the tick to it.
+	// Fetcher: turns the tick into ONE command (FROM=receiver) at the egress.
 	const f = interpreter.makeNode(
 		'Fetcher',
 		fetcher,
 		`${ receiver } ${ command }`
 	);
-	// A getter makes the Fetcher emit live args each tick (the slice carries
-	// per-tick UI state); without one it keeps the static (empty) args.
+	// A getter makes the Fetcher emit live args each tick, else static (empty).
 	if ( argsFn ) {
 		f.command_args = argsFn;
 	}
 	f.connectNode( target );
 	tee.connectNode( fetcher );
 
-	// Receiver Tee: the reply routes back here, then fans to the view (or, when a
-	// transform is supplied, to the transform which forwards to the view).
+	// Receiver Tee: reply routes back here, then fans to view (or transform).
 	const recv = interpreter.makeNode( 'Tee', receiver );
 	if ( transform ) {
 		const t = interpreter.makeNode(
