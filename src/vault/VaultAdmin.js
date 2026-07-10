@@ -292,8 +292,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 				auth_username: username.trim(),
 				auth_password: password,
 			} );
-			// Success: the hook re-lists and the table re-renders (no reload);
-			// onSuccess closes the modal, so the fresh row is the confirmation.
+			// Success: hook re-lists, table re-renders, modal closes.
 			setId( '' );
 			setUrl( '' );
 			setUsername( '' );
@@ -481,21 +480,16 @@ function AddServerModal( { onAdd, onClose } ) {
  * @return {import('react').ReactElement} The rendered admin app.
  */
 export default function VaultAdmin( { headerControlsSlot } ) {
-	// Mount the node graph; it owns the list-on-mount, the CRUD transport, and the
-	// re-list-after-mutation.
+	// Mount the node graph (owns list-on-mount, CRUD, re-list).
 	const { addServer, removeServer, testServer } = useVaultGraph();
 
-	// The table reads the credential-LIST view's own model (de-god split); the
-	// per-server probe results live in the sibling vault:test view, surfaced
-	// per-row inside <ServerRow> via its local Test handler.
+	// The table reads the vault:list view model (probes live in vault:test).
 	const model = useNodeState( 'vault:list', 'view' ) ?? EMPTY_MODEL;
 	const { servers, error } = model;
 
 	const [ isAddOpen, setIsAddOpen ] = useState( false );
 
-	// The "+ Add Server" trigger lives on the right of the hub's ONE shared
-	// header — portaled into its slot. A node = the hub slot (portal); `null` =
-	// slot pending (render nothing); `undefined` = standalone (tests) → inline.
+	// Portal the +Add trigger into the hub header slot (undefined=inline).
 	const controls = (
 		<button
 			type="button"

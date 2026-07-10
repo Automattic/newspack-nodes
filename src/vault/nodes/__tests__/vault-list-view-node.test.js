@@ -104,8 +104,7 @@ describe( 'vault:list — list reply updates the render model', () => {
 		const resolve = jest.fn();
 		v.replies.add( 'op-3', resolve, jest.fn() );
 		v.fill( replyMsg( { id: 'op-3', name: 'list', payload: SAMPLE } ) );
-		// The settle path consumes the reply (resolves the awaited mutation) AND
-		// the list model refreshes — the table must show the fresh rows.
+		// The settle path resolves the mutation AND the list model refreshes.
 		expect( resolve ).toHaveBeenCalledWith( SAMPLE );
 		expect( v.setStateCache.view.servers ).toHaveLength( 2 );
 		expect( v.replies.has( 'op-3' ) ).toBe( false );

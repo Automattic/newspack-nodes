@@ -39,10 +39,7 @@ const SAMPLE_SERVERS = [
 	},
 ];
 
-// A minimal stand-in for the vault:list view node (post de-god split): the model
-// lives in setStateCache.view (what useNodeState subscribes to). setState here
-// notifies subscribers exactly like the real Node.setState. The TEST-result
-// concern (vault:test) is a separate node; VaultAdmin's table reads vault:list.
+// Minimal vault:list view stand-in: setState notifies like the real Node.
 function registerViewFixture( overrides = {} ) {
 	const model = {
 		servers: null,
@@ -95,8 +92,7 @@ function openAddModal( container ) {
 	} );
 }
 
-// The confirm Modal renders into a portal on document.body. Scope to the dialog
-// so a label like "Remove" matches the modal action, not the row's Remove button.
+// The confirm Modal is a body portal; scope button lookups to the dialog.
 function dialogButton( label ) {
 	const dialog = document.querySelector( '[role="dialog"]' ) || document;
 	return Array.from( dialog.querySelectorAll( 'button' ) ).find(
@@ -242,7 +238,7 @@ describe( 'VaultAdmin', () => {
 			'[role="dialog"] .nodes-vault__modal-actions'
 		);
 		expect( footer ).toBeTruthy();
-		// The primary submit lives in the footer, not floating in the form table.
+		// The primary submit lives in the footer, not in the form table.
 		expect(
 			footer.querySelector( '#event-aggregator-add-server' )
 		).toBeTruthy();
@@ -455,8 +451,7 @@ describe( 'VaultAdmin', () => {
 	} );
 
 	it( 'falls back to a loading model when the view node is absent', () => {
-		// No fixture registered — useNodeState yields undefined; the view must
-		// still render (the table chrome + the add-server trigger) without throwing.
+		// No fixture: useNodeState yields undefined; the view still renders.
 		const { container } = mount();
 		expect( container.querySelector( 'table.wp-list-table' ) ).toBeTruthy();
 		expect(

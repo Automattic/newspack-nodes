@@ -48,10 +48,7 @@ describe( 'placeBelow — new-node tuck', () => {
 } );
 
 describe( 'autoLayout — no overlapping nodes', () => {
-	// Smallest vertical gap between any two nodes sharing a column (same x);
-	// Infinity if no column has 2+ nodes. Below NODE_H means their cards overlap.
-	// Half-row midpoint snapping used to leave near-collisions (rows 1.0 and 1.5)
-	// that the exact-match deconflict missed.
+	// Smallest vertical gap between same-column nodes; < NODE_H means overlap.
 	function minColumnGap( nodes ) {
 		const byCol = {};
 		for ( const n of nodes ) {
@@ -71,8 +68,7 @@ describe( 'autoLayout — no overlapping nodes', () => {
 	}
 
 	it( 'spreads same-column producers that share a target so they do not overlap', () => {
-		// `a` fans out to t1+t2 (snaps to the 0.5 midpoint); `b` targets only t2
-		// (row 1). Both are column-0 producers — 0.5 vs 1.0 is a 55px overlap.
+		// a→t1+t2 snaps to 0.5; b→t2 is row 1; 0.5 vs 1.0 is a 55px overlap.
 		const { nodes } = autoLayout( {
 			nodes: [ { id: 'a' }, { id: 'b' }, { id: 't1' }, { id: 't2' } ],
 			edges: [
@@ -85,8 +81,7 @@ describe( 'autoLayout — no overlapping nodes', () => {
 	} );
 
 	it( 'keeps a lone midpoint producer at its half-row (no spurious spreading)', () => {
-		// `a` fans out to t1 (row 0) + t2 (row 1), so it snaps to the 0.5 midpoint
-		// and is alone in its column — de-overlap must leave that half-row intact.
+		// a→t1(0)+t2(1) snaps to 0.5, alone in col — keep the half-row intact.
 		const { nodes } = autoLayout( {
 			nodes: [ { id: 'a' }, { id: 't1' }, { id: 't2' } ],
 			edges: [
@@ -102,8 +97,7 @@ describe( 'autoLayout — no overlapping nodes', () => {
 
 describe( 'autoLayout — fan centering (both directions)', () => {
 	it( 'centers a fan-in sink between its sources, with the sources kept spread', () => {
-		// s1 + s2 → sink. The sink should sit at the vertical midpoint of its two
-		// sources (mirror of the fan-out target-snap), not floored to the top one.
+		// s1+s2→sink: sink at the midpoint of its sources, not the top one.
 		const { nodes } = autoLayout( {
 			nodes: [ { id: 's1' }, { id: 's2' }, { id: 'sink' } ],
 			edges: [
@@ -119,9 +113,7 @@ describe( 'autoLayout — fan centering (both directions)', () => {
 	} );
 
 	it( 'centers a fan-in MIDDLE node between its sources, keeping the sources spread', () => {
-		// community + releases → summarizer → digest. summarizer is a fan-in that
-		// also feeds forward — it must still center between its two sources, and the
-		// sources must keep their spread (not collapse onto summarizer).
+		// summarizer fans in from community+releases and also feeds digest.
 		const { nodes } = autoLayout( {
 			nodes: [
 				{ id: 'community' },
@@ -164,9 +156,7 @@ describe( 'autoLayout — fan centering (both directions)', () => {
 } );
 
 describe( 'autoLayout — real graphs (normalized; relative positions only)', () => {
-	// Shift a position map so its top-left corner sits at (0, 0). Only relative
-	// positions matter, so the layout and the expected output are each normalized
-	// before comparison.
+	// Shift a position map so its top-left sits at (0,0) for comparison.
 	function normalize( posMap ) {
 		let minX = Infinity;
 		let minY = Infinity;
@@ -188,7 +178,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		return m;
 	}
 
-	// ── Graph A: performance dashboard (sources → tees → sinks; _output fans in) ──
+	// ── Graph A: performance dashboard (sources → tees → sinks) ──
 	const graphA = {
 		nodes: [
 			{ id: '_completion' },
@@ -310,11 +300,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		] ).toContainEqual( got );
 	} );
 
-	// The runtime registers nodes in an arbitrary order (the live performance
-	// dashboard hands them over backbone-first, not alphabetically). The layout
-	// must be the same regardless — a node's registration order must not change
-	// where it lands. The backbone-first order is the exact one that produced the
-	// wrong live layout before the fix.
+	// Layout must be identical regardless of node registration order.
 	const reorder = ( graph, order ) => ( {
 		nodes: order.map( ( id ) => ( { id } ) ),
 		edges: graph.edges,
@@ -356,9 +342,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		}
 	} );
 
-	// ── Graph C: fan-in → straight chain → fan-out (the summarizer pipeline) ──
-	// community/releases → summarizer → digest → tee → out/_repl. The end fan-out
-	// must STRADDLE tee (out/_repl above & below it), mirroring the start fan-in.
+	// ── Graph C: fan-in chain then a tail fan-out that straddles tee ──
 	const graphC = {
 		nodes: [
 			'_repl',
@@ -516,7 +500,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'prefers the "straighter" link when two column-mates tie on row', () => {
-		// a->b->c (row 0) and x->y->c (via y, row 1); straightness keeps b on c's row.
+		// a->b->c (row 0), x->y->c (row 1); straightness keeps b on c's row.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'a' },
@@ -596,13 +580,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'pairs a single-source target with its source, and centers a multi-source fan-in between its sources', () => {
-		// Local-Shell topology repro: 5 sources in col 0, 3 targets in col 1.
-		// Two sources share a target (_metadata + _uptime → _cwd); two have
-		// their own target; one source has no target. The desired layout
-		// places each source on the SAME ROW as its (first) target, so the
-		// dashed edge runs horizontally between adjacent columns. Sources
-		// without a target (or that share a target already paired) fall to
-		// the next available row.
+		// Local-Shell repro: each source shares its target's row.
 		const out = autoLayout( {
 			nodes: [
 				{ id: '_metadata' },
@@ -627,8 +605,7 @@ describe( 'autoLayout', () => {
 		// Single-source targets stay paired with their source (straight edge).
 		expect( rowOf( '_heartbeat' ) ).toBe( rowOf( '_http' ) );
 		expect( rowOf( '_sse' ) ).toBe( rowOf( '_output' ) );
-		// _cwd fans in from _metadata + _uptime, so it centers between them (mirror
-		// of fan-out) — the two sources stay spread on different rows.
+		// _cwd fans in from _metadata+_uptime, so it centers between them.
 		expect( rowOf( '_metadata' ) ).not.toBe( rowOf( '_uptime' ) );
 		expect( rowOf( '_cwd' ) ).toBe(
 			( rowOf( '_metadata' ) + rowOf( '_uptime' ) ) / 2
@@ -636,12 +613,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'pushes every sink (no outgoing) AND every isolated node (no edges) to the max-depth column', () => {
-		// Worker pattern: a fan-out from request-builder reaches some leaf
-		// partitions at depth 3 and some at depth 4 (via completed:tee). The
-		// shallower-depth sinks should cluster in the rightmost column with
-		// the natural-max-depth sinks so all partitions line up. An isolated
-		// node (no edges anywhere — `_repl` in the live worker graph) joins
-		// them at the right rather than sitting lonely on the left.
+		// Sinks at mixed depths + an isolated _repl all cluster rightmost.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'consumer' },
@@ -665,8 +637,7 @@ describe( 'autoLayout', () => {
 		const colOf = ( id ) =>
 			( out.nodes.find( ( n ) => n.id === id ).position.x - X_PAD ) /
 			X_STEP;
-		// All sinks (errors, completed, gyroscope) and the isolated _repl
-		// land in the rightmost column.
+		// All sinks and the isolated _repl land in the rightmost column.
 		const maxCol = Math.max(
 			...out.nodes.map( ( n ) => ( n.position.x - X_PAD ) / X_STEP )
 		);
@@ -682,12 +653,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'source-only nodes (no incoming edges) stay anchored at column 0 (left edge)', () => {
-		// Worker pattern: jobintake:consumer → job-router → jobs:partition
-		// alongside a longer chain that makes jobs:partition depth 3. The
-		// forward-pull pass slides job-router right (toward jobs:partition's
-		// depth 3), which would then drag jobintake:consumer with it.
-		// Source-only nodes ignore the forward pull — they have nowhere to
-		// come from, so they belong on the left edge.
+		// Source-only nodes ignore the forward-pull and stay on the left edge.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'jobintake_consumer' },
@@ -713,10 +679,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'a middle node with a fan-out sits near the midpoint of its targets (not pulled to its predecessor row)', () => {
-		// Worker pattern: request-builder fans out to 4 targets across rows
-		// 0..3. Its single predecessor (firehose:tee) sits on row 0. The
-		// midpoint of the targets is row 1.5 — request-builder should land
-		// near that, not on row 0 with its predecessor.
+		// A fan-out middle node sits near its targets' midpoint, not row 0.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'firehose_tee' },
@@ -751,10 +714,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'a fan-out source lands on a HALF-row at the exact midpoint of its targets (e.g. targets at 1+2 → source at 1.5)', () => {
-		// User-requested precision: snap to nearest 0.5 (not 1) so a source
-		// fanning to 2 targets at rows 1 and 2 sits exactly between them at
-		// row 1.5 — the dashed edges then run symmetrically up-right and
-		// down-right at the same angle.
+		// Snap to nearest 0.5 so a 2-target fan-out sits exactly between them.
 		const out = autoLayout( {
 			nodes: [ { id: 'src' }, { id: 't_upper' }, { id: 't_lower' } ],
 			edges: [
@@ -772,11 +732,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'completed:tee in the worker topology lands at the half-row midpoint of its 2 leaf targets', () => {
-		// Full worker repro of the screenshot Chris flagged. completed:tee
-		// has two outgoing edges (→ completed:partition, → gyroscope:partition)
-		// in a graph where col 4 contains both targets at non-adjacent rows.
-		// The half-row snap should put completed:tee at the exact midpoint of
-		// the two target rows — NOT at the same row as one of them.
+		// completed:tee snaps to the exact midpoint of its 2 leaf targets.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'firehose:consumer' },
@@ -810,8 +766,7 @@ describe( 'autoLayout', () => {
 		const ctRow = rowOf( 'completed:tee' );
 		const cpRow = rowOf( 'completed:partition' );
 		const gyroRow = rowOf( 'gyroscope:partition' );
-		// completed:tee must NOT share a row with either of its targets —
-		// it sits strictly between them.
+		// completed:tee must sit strictly between its targets, not on either.
 		expect( ctRow ).not.toBe( cpRow );
 		expect( ctRow ).not.toBe( gyroRow );
 		// And specifically at the exact midpoint.
@@ -819,15 +774,7 @@ describe( 'autoLayout', () => {
 	} );
 
 	it( 'middle nodes re-snap to FINAL target rows after deconflict (not stale Pass-1 rows)', () => {
-		// Worker repro of the firehose-workers-and-jobs topology with virtual
-		// edges (the augmentWithVirtualEdges output): request-builder fans
-		// out to errors, completed:tee, gyroscope, requests. completed:tee
-		// fans to completed:partition and gyroscope. The col 4 deconflict
-		// pulls gyroscope from Pass-1 row 2 → row 1; without a second snap
-		// pass, completed:tee stays at Pass-2 row 1 (mean of row 0 and the
-		// STALE row 2) and ends up sharing gyroscope's row. The final
-		// re-snap should put it at the actual midpoint of its FINAL targets:
-		// (0 + 1) / 2 = 0.5.
+		// Middle nodes must re-snap to FINAL target rows after deconflict.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'firehose:consumer' },
@@ -884,20 +831,16 @@ describe( 'autoLayout', () => {
 } );
 
 describe( 'snapToGrid', () => {
-	// Drop point lands AT (or near) a node's center; snapToGrid returns the
-	// top-left corner of a node whose center sits on the nearest grid
-	// intersection. That keeps a fresh drop on the same grid the renderer
-	// uses for the existing nodes, so connections + drag-snaps line up.
+	// snapToGrid maps a drop's center to the nearest grid intersection.
 	it( 'snaps the canonical first-cell drop to (X_PAD, Y_PAD)', () => {
-		// (X_PAD + NODE_W/2, Y_PAD + NODE_H/2) is the first cell's center;
-		// snapping that returns the top-left = (X_PAD, Y_PAD).
+		// The first cell's center snaps back to its top-left (X_PAD, Y_PAD).
 		expect( snapToGrid( X_PAD + NODE_W / 2, Y_PAD + NODE_H / 2 ) ).toEqual(
 			{ x: X_PAD, y: Y_PAD }
 		);
 	} );
 
 	it( 'rounds an off-grid drop to the nearest intersection', () => {
-		// A drop one cell to the right + a hair below — round to (col 2, row 2).
+		// A drop one cell right + a hair below — round to (col 2, row 2).
 		const cx = X_PAD + NODE_W / 2 + X_STEP + 4;
 		const cy = Y_PAD + NODE_H / 2 + Y_STEP + 3;
 		expect( snapToGrid( cx, cy ) ).toEqual( {

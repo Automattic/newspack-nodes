@@ -12,8 +12,7 @@ describe( 'deltaFromAutofit', () => {
 	} );
 
 	it( 'captures the center offset (world units) and the zoom ratio', () => {
-		// autofit center is (500, 275); a viewport centered +40,+20 from it at
-		// half the width is a 2x zoom → { dcx: 40, dcy: 20, zoom: 2 }.
+		// Centered +40,+20 at half width → {dcx:40, dcy:20, zoom:2}.
 		const V = { x: 340, y: 182.5, w: 400, h: 225 };
 		const d = deltaFromAutofit( V, A );
 		expect( d.dcx ).toBeCloseTo( 40 );
