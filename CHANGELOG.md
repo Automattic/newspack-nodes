@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`list_timers` / `list_handles` REPL verbs (PHP + JS).** Ported from Tachikoma's CommandInterpreter. `list_timers` tabulates the `Event_Framework`'s registered timers (interval, next-fire ms, oneshot, type, name) so a 0 ms / perpetually-due spinner is visible at a glance; `list_handles` tabulates the registered cURL multi handles the drain loop selects on (JS: the EventSource connections). Both discoverable via `help`.
+
 ### Fixed
 
 - **Cooperative stop now propagates on every drain path (ADR-14).** A `Worker_Should_Stop` raised mid-job by `Event_Framework::pump()` was swallowed by `Command_Interpreter_Node`'s broad `catch (\Throwable)` (wrapped as `TM_ERROR`) and could be lost in Tee/Tap fan-out, so a mid-job stop was only guaranteed on the direct firehose write. Broad drain-path catches now re-throw `Worker_Should_Stop` before handling, with deliberate carve-outs for Tee/Tap fan-out (a target throw can't starve its siblings) and the post-success `Job_Worker::after_job` finally (propagating there would false-poison a completed job).

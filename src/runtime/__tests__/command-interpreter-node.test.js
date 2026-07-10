@@ -1,6 +1,8 @@
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { Node, parseSchemaArgs } from '../node';
 import { Core } from '../core';
+import { TimerNode } from '../timer-node';
+import { SseInNode } from '../sse-in-node';
 import {
 	TYPE,
 	FROM,
@@ -1429,5 +1431,30 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const out = dispatch( interpreter, 'dump_node', 'd' );
 			expect( out ).not.toContain( 'helper' );
 		} );
+	} );
+} );
+
+describe( 'list_timers / list_handles introspection verbs', () => {
+	test( 'list_timers lists active timers with their interval', () => {
+		const timer = new TimerNode();
+		timer.name = 'tick0';
+		timer.setTimer( 250 );
+
+		const out = dispatch( new CommandInterpreterNode(), 'list_timers' );
+		timer.stopTimer();
+
+		expect( out ).toContain( 'tick0' );
+		expect( out ).toContain( 'Timer' );
+		expect( out ).toContain( '250' );
+	} );
+
+	test( 'list_handles lists nodes holding an EventSource', () => {
+		const sse = new SseInNode();
+		sse.name = 'sse0';
+		sse._es = { readyState: 1 }; // fake OPEN EventSource
+
+		const out = dispatch( new CommandInterpreterNode(), 'list_handles' );
+
+		expect( out ).toContain( 'sse0' );
 	} );
 } );

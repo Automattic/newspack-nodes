@@ -4,8 +4,10 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Echo_Node;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
+use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -123,6 +125,31 @@ class CommandInterpreterTest extends TestCase {
 
 		$this->expectException( Worker_Should_Stop::class );
 		$interpreter->fill( $this->command_message( 'stopme', '', true ) );
+	}
+
+	public function test_list_timers_lists_registered_timers(): void {
+		Event_Framework::reset();
+		$timer = new Timer_Node();
+		$timer->name( 'tick0' );
+		$timer->set_timer( 250 );
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_timers' );
+
+		$this->assertStringContainsString( 'tick0', $out, 'names the registered timer' );
+		$this->assertStringContainsString( 'Timer', $out, 'shows the node type' );
+		$this->assertStringContainsString( '250', $out, 'shows the interval_ms' );
+	}
+
+	public function test_list_handles_lists_registered_curl_handles(): void {
+		Event_Framework::reset();
+		$node = new Echo_Node();
+		$node->name( 'sse0' );
+		$mh = \curl_multi_init();
+		Event_Framework::instance()->register_curl_handle( $node, $mh );
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_handles' );
+
+		$this->assertStringContainsString( 'sse0', $out, 'names the node holding a curl handle' );
 	}
 
 	public function test_interpret_refuses_command_without_local_provenance(): void {
