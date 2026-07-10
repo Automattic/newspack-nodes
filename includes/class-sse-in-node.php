@@ -521,6 +521,10 @@ class SSE_In_Node extends Node {
 		}
 		if ( null !== $this->multi ) {
 			@\curl_multi_remove_handle( $this->multi, $this->handle );
+			// No easy handle left on the multi -> unregister so the drain loop stops
+			// selecting on a fd-less multi during reconnect backoff. arm() re-registers
+			// once reconnected (a live handle is present again).
+			Event_Framework::instance()->unregister_curl_handle( $this );
 		}
 		@\curl_close( $this->handle );
 		$this->handle    = null;
@@ -535,7 +539,9 @@ class SSE_In_Node extends Node {
 	 * @api Support for the Remote_Source Buffered_Pump valve.
 	 */
 	public function arm(): void {
-		if ( null !== $this->multi ) {
+		// Only register with a live easy handle: arming during reconnect backoff
+		// (multi present, but disconnected) would re-create the fd-less spin.
+		if ( null !== $this->multi && $this->handle instanceof \CurlHandle ) {
 			Event_Framework::instance()->register_curl_handle( $this, $this->multi );
 		}
 	}

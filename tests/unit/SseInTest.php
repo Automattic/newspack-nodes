@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\SSE_In_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -234,6 +235,27 @@ class SseInTest extends TestCase {
 		$node->maybe_connect();
 
 		$this->assertSame( 1748960000, $node->connection()['last_attempt'] );
+	}
+
+	public function test_disconnect_unregisters_the_multi_from_the_drain_loop(): void {
+		// A disconnected multi has no fd; leaving it registered spins curl_multi_select
+		// during reconnect backoff. Disconnect must unregister.
+		Event_Framework::reset();
+		[ $node ] = $this->configured_node();
+		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$node->maybe_connect();
+		$this->assertArrayHasKey(
+			\spl_object_id( $node ),
+			Event_Framework::instance()->curl_handles(),
+			'connected: registered'
+		);
+
+		$node->disconnect();
+		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'disconnected: unregistered' );
 	}
 
 	public function test_oversized_message_handed_raw_no_size_gate(): void {
