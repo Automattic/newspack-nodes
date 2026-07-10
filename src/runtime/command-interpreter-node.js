@@ -66,9 +66,9 @@ const HELP = {
 	list_nodes:
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
 	list_timers:
-		'list_timers\n    note: active timers (INTERVAL ms, MODE, ONESHOT, TYPE, NAME).\n',
+		'list_timers\n    note: all timers (ACTIVE, INTERVAL ms, MODE, ONESHOT, FIRES, TYPE, NAME).\n',
 	list_handles:
-		'list_handles\n    note: nodes holding an EventSource (STATE, TYPE, NAME).\n',
+		'list_handles\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
 	dump_config:
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
@@ -1006,14 +1006,23 @@ export class CommandInterpreterNode extends Node {
 				String( node.interval_ms ?? 0 ),
 				node.mode,
 				node.oneshot ? 'yes' : 'no',
+				String( node.fire_count ?? 0 ),
 				node.constructor.name,
 				name,
 			] );
 		}
-		rows.sort( ( a, b ) => a[ 5 ].localeCompare( b[ 5 ] ) );
+		rows.sort( ( a, b ) => a[ 6 ].localeCompare( b[ 6 ] ) );
 		return CommandInterpreterNode._tabulate(
-			[ 'right', 'right', 'right', 'right', 'right', 'left' ],
-			[ 'ACTIVE', 'INTERVAL', 'MODE', 'ONESHOT', 'TYPE', 'NAME' ],
+			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[
+				'ACTIVE',
+				'INTERVAL',
+				'MODE',
+				'ONESHOT',
+				'FIRES',
+				'TYPE',
+				'NAME',
+			],
 			rows
 		);
 	}
@@ -1029,12 +1038,17 @@ export class CommandInterpreterNode extends Node {
 			}
 			const state =
 				states[ node._es.readyState ] ?? String( node._es.readyState );
-			rows.push( [ state, node.constructor.name, name ] );
+			rows.push( [
+				state,
+				String( node.counter ?? 0 ),
+				node.constructor.name,
+				name,
+			] );
 		}
-		rows.sort( ( a, b ) => a[ 2 ].localeCompare( b[ 2 ] ) );
+		rows.sort( ( a, b ) => a[ 3 ].localeCompare( b[ 3 ] ) );
 		return CommandInterpreterNode._tabulate(
-			[ 'right', 'right', 'left' ],
-			[ 'STATE', 'TYPE', 'NAME' ],
+			[ 'right', 'right', 'right', 'left' ],
+			[ 'STATE', 'COUNT', 'TYPE', 'NAME' ],
 			rows
 		);
 	}

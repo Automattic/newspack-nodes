@@ -138,6 +138,7 @@ class CommandInterpreterTest extends TestCase {
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_timers' );
 
 		$this->assertStringContainsString( 'ACTIVE', $out, 'has an ACTIVE column' );
+		$this->assertStringContainsString( 'FIRES', $out, 'has a FIRES (fire count) column' );
 		$this->assertStringContainsString( 'tick0', $out, 'names the active timer' );
 		$this->assertStringContainsString( '250', $out, 'shows the interval_ms' );
 		$this->assertStringContainsString( 'idle0', $out, 'lists inactive timers too' );
@@ -154,6 +155,7 @@ class CommandInterpreterTest extends TestCase {
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_handles' );
 
 		$this->assertStringContainsString( 'sse0', $out, 'names the node holding a curl handle' );
+		$this->assertStringContainsString( 'COUNT', $out, 'has a COUNT (messages processed) column' );
 	}
 
 	public function test_interpret_refuses_command_without_local_provenance(): void {
