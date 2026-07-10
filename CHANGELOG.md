@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-07-09
+
 ### Added
 
 - **`list_timers` / `list_handles` REPL verbs (PHP + JS).** Ported from Tachikoma's CommandInterpreter. `list_timers` tabulates every timer (active, interval, next-fire ms, oneshot, fire-count, type, name) — a `NEXT <= 0` with a climbing `FIRES` is a spinner; `list_handles` tabulates the registered cURL multi handles the drain loop selects on (id, message-count, type, name; JS: the EventSource connections + their message counter). Both discoverable via `help`.
