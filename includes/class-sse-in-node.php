@@ -220,6 +220,8 @@ class SSE_In_Node extends Node {
 		$this->handle             = $ch;
 		$this->last_attempt       = $now;
 		$this->slot               = null;
+		// Register every connect: a reused multi won't self-register on reconnect.
+		Event_Framework::instance()->register_curl_handle( $this, $multi );
 		// Stream opened; awaiting the 'connected' handshake (CONNECTED replaces this).
 		$this->set_state( 'CONNECTING', $this->subscribe );
 		return true;
@@ -227,14 +229,15 @@ class SSE_In_Node extends Node {
 
 	// --- cURL lifecycle ---
 
-	/** Ensure the owned multi handle exists and is registered. Idempotent. */
+	/** Ensure the owned multi handle exists. Registration with the drain loop is
+	 * per-connection (maybe_connect), NOT here — a reused multi across reconnect must
+	 * re-register or the reconnected stream is never serviced. Idempotent. */
 	private function ensure_multi(): \CurlMultiHandle {
 		if ( null !== $this->multi ) {
 			return $this->multi;
 		}
 		$multi       = \curl_multi_init();
 		$this->multi = $multi;
-		Event_Framework::instance()->register_curl_handle( $this, $multi );
 		return $multi;
 	}
 
@@ -521,9 +524,7 @@ class SSE_In_Node extends Node {
 		}
 		if ( null !== $this->multi ) {
 			@\curl_multi_remove_handle( $this->multi, $this->handle );
-			// No easy handle left on the multi -> unregister so the drain loop stops
-			// selecting on a fd-less multi during reconnect backoff. arm() re-registers
-			// once reconnected (a live handle is present again).
+			// Unregister: no easy handle left, so the drain loop won't spin on a fd-less multi.
 			Event_Framework::instance()->unregister_curl_handle( $this );
 		}
 		@\curl_close( $this->handle );
@@ -539,8 +540,7 @@ class SSE_In_Node extends Node {
 	 * @api Support for the Remote_Source Buffered_Pump valve.
 	 */
 	public function arm(): void {
-		// Only register with a live easy handle: arming during reconnect backoff
-		// (multi present, but disconnected) would re-create the fd-less spin.
+		// Only register with a live handle; arming while disconnected recreates the spin.
 		if ( null !== $this->multi && $this->handle instanceof \CurlHandle ) {
 			Event_Framework::instance()->register_curl_handle( $this, $this->multi );
 		}

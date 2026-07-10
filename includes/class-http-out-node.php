@@ -196,8 +196,7 @@ class HTTP_Out_Node extends Timer_Node {
 			$this->print_less_often( "curl_init failed" );
 			return;
 		}
-		// Register with the drain loop only on the idle->active edge: an idle
-		// registered multi has no fd, so curl_multi_select would spin on it.
+		// Register only on the idle->active edge; an idle registered multi spins the loop.
 		$was_idle = [] === $this->inflight;
 		// Keep the handle alive in $inflight: a freed handle's spl_object_id is
 		// reused, so dropping it would collide the next enqueue's key.
@@ -280,8 +279,7 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$this->detach( $easy );
 		unset( $this->inflight[ $id ] );
-		// Last transfer done -> back to idle: unregister so the drain loop stops
-		// selecting on a fd-less multi (the spin fix).
+		// Last transfer done -> idle: unregister so the drain loop won't spin on a fd-less multi.
 		if ( [] === $this->inflight ) {
 			Event_Framework::instance()->unregister_curl_handle( $this );
 		}

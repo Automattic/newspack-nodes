@@ -137,6 +137,10 @@ class CommandInterpreterTest extends TestCase {
 		$hitch = new Timer_Node();
 		$hitch->name( 'hitch0' );
 		$hitch->set_timer( 15000 ); // >= 1000 -> router-hitchhike: NEXT is _router
+		$trans = new Timer_Node();
+		$trans->name( 'trans0' );
+		$trans->set_timer( 300 );   // own-slot seeds next_fire > 0 ...
+		$trans->set_timer( 20000 ); // ... then re-arm as router: stale next_fire must clear
 		$idle = new Timer_Node(); // never armed -> inactive
 		$idle->name( 'idle0' );
 
@@ -153,6 +157,13 @@ class CommandInterpreterTest extends TestCase {
 			}
 		}
 		$this->assertStringContainsString( '_router', $hitch_row, 'a hitchhiking timer shows _router in its NEXT cell' );
+		$trans_row = '';
+		foreach ( \explode( "\n", $out ) as $line ) {
+			if ( \str_contains( $line, 'trans0' ) ) {
+				$trans_row = $line;
+			}
+		}
+		$this->assertStringContainsString( '_router', $trans_row, 'own-slot -> router re-arm shows _router (stale next_fire cleared)' );
 		$this->assertStringContainsString( 'idle0', $out, 'lists inactive timers too' );
 		$this->assertStringContainsString( 'no', $out, 'the never-armed timer reads ACTIVE=no' );
 	}
