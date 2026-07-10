@@ -113,6 +113,7 @@ renumber.
 | 11 | `make_node` construction sequence; `arguments()` defaults/required centralized in `parse_schema_args()` | [ADR-11](docs/architecture-decisions.md#adr-11-make_node-construction-sequence) |
 | 12 | Dead-letter poison / crash lifecycle — bounded-retry then `:deadletter` quarantine on caught-throw poison; crawl-checkpoint on uncatchable death | [ADR-12](docs/architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle) |
 | 13 | `fill()` returns void — a node can't observe its sink's disposition; outcomes come back as messages (TO=FROM reply / TM_ERROR), never a return value | [ADR-13](docs/architecture-decisions.md#adr-13-fill-returns-nothing) |
+| 14 | Cooperative-stop propagates — a broad `catch` on the drain path re-throws `Worker_Should_Stop` first; carve-outs: Tee/Tap fan-out + post-success `finally` | [ADR-14](docs/architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches) |
 
 ## Layout
 

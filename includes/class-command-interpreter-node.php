@@ -128,6 +128,8 @@ class Command_Interpreter_Node extends Node {
 					$message
 				);
 				$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
+			} catch ( Worker_Should_Stop $e ) {
+				throw $e; // control flow, not a verb error (ADR-14).
 			} catch ( \Throwable $e ) {
 				// Verb handlers esc_html() their dynamic throw messages for the phpcs
 				// EscapeOutput sniff, but this payload is plain text for a JSON/terminal

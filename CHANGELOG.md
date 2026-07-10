@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cooperative stop now propagates on every drain path (ADR-14).** A `Worker_Should_Stop` raised mid-job by `Event_Framework::pump()` was swallowed by `Command_Interpreter_Node`'s broad `catch (\Throwable)` (wrapped as `TM_ERROR`) and could be lost in Tee/Tap fan-out, so a mid-job stop was only guaranteed on the direct firehose write. Broad drain-path catches now re-throw `Worker_Should_Stop` before handling, with deliberate carve-outs for Tee/Tap fan-out (a target throw can't starve its siblings) and the post-success `Job_Worker::after_job` finally (propagating there would false-poison a completed job).
+
 ## [0.32.1] - 2026-07-09
 
 ### Fixed

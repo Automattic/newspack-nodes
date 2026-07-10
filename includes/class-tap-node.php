@@ -28,16 +28,18 @@ class Tap_Node extends Tee_Node {
 		}
 		$this->target = $alive;
 
+		$to = Core::as_string( $message[ Message::TO ] );
 		foreach ( $alive as $t ) {
+			$message[ Message::TO ] = $t;
 			try {
-				$copy                = $message;
-				$copy[ Message::TO ] = $t;
-				$this->sink?->fill( $copy );
+				$this->sink?->fill( $message );
+			} catch ( Worker_Should_Stop $e ) {
+				throw $e;                                                           // cooperative stop is control flow
 			} catch ( \Throwable $e ) {
-				// log_midfix prepends the node name; keep only the class label here.
-				$this->print_less_often( "target $t threw: " . $e->getMessage() );
+				$this->print_less_often( "target $t threw: " . $e->getMessage() );  // tap error stays non-fatal
 			}
 		}
+		$message[ Message::TO ] = $to;
 		$this->sink?->fill( $message );
 	}
 }

@@ -35,13 +35,19 @@ class Tee_Node extends Node {
 		}
 		$this->target = $alive;
 
+		// At least once.
 		$deferred = null;
 		foreach ( $alive as $t ) {
 			$message[ Message::TO ] = '' === $to ? $t : ( $t . '/' . $to );
 			try {
 				$this->sink->fill( $message );
 			} catch ( \Throwable $e ) {
-				$deferred ??= $e;
+				if ( null === $deferred ) {
+					$deferred = $e;
+				} elseif ( $e instanceof Worker_Should_Stop ) {
+					// Worker_Should_Stop is a cooperative-stop signal: it takes priority.
+					$deferred = $e;
+				}
 			}
 		}
 		if ( null !== $deferred ) {
