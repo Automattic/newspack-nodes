@@ -65,6 +65,10 @@ const HELP = {
 		'remove_node <node name> [<more names>...]\nremove_node -a <anchored regex glob>\n    aliases: remove, rm\n',
 	list_nodes:
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
+	list_timers:
+		'list_timers\n    note: active timers (INTERVAL ms, MODE, ONESHOT, TYPE, NAME).\n',
+	list_handles:
+		'list_handles\n    note: nodes holding an EventSource (STATE, TYPE, NAME).\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
 	dump_config:
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
@@ -327,6 +331,8 @@ export class CommandInterpreterNode extends Node {
 			rm: ( self, args ) => self._cmdRemove( args ),
 			list_nodes: ( self, args, env ) => self._cmdList( args, env ),
 			ls: ( self, args, env ) => self._cmdList( args, env ),
+			list_timers: () => CommandInterpreterNode._cmdListTimers(),
+			list_handles: () => CommandInterpreterNode._cmdListHandles(),
 			log: ( self, args ) => {
 				self.stderr( args );
 				return '';
@@ -985,6 +991,51 @@ export class CommandInterpreterNode extends Node {
 			out += formatRow( row ) + '\n';
 		}
 		return out.replace( /\n+$/, '' );
+	}
+
+	// `list_timers` — active timers across the graph (mirrors PHP / Tachikoma list_ids).
+	// MODE reveals own-slot (`event_framework`, a setInterval) vs router-hitchhike.
+	static _cmdListTimers() {
+		const rows = [];
+		for ( const [ name, node ] of Core.nodes ) {
+			if ( ! node.mode || 'inactive' === node.mode ) {
+				continue;
+			}
+			rows.push( [
+				String( node.interval_ms ?? 0 ),
+				node.mode,
+				node.oneshot ? 'yes' : 'no',
+				node.constructor.name,
+				name,
+			] );
+		}
+		rows.sort( ( a, b ) => a[ 4 ].localeCompare( b[ 4 ] ) );
+		return CommandInterpreterNode._tabulate(
+			[ 'right', 'right', 'right', 'right', 'left' ],
+			[ 'INTERVAL', 'MODE', 'ONESHOT', 'TYPE', 'NAME' ],
+			rows
+		);
+	}
+
+	// `list_handles` — nodes holding an EventSource (the browser analog of the cURL
+	// handles PHP's list_handles/list_fds report). STATE is the EventSource readyState.
+	static _cmdListHandles() {
+		const states = [ 'CONNECTING', 'OPEN', 'CLOSED' ];
+		const rows = [];
+		for ( const [ name, node ] of Core.nodes ) {
+			if ( ! node._es ) {
+				continue;
+			}
+			const state =
+				states[ node._es.readyState ] ?? String( node._es.readyState );
+			rows.push( [ state, node.constructor.name, name ] );
+		}
+		rows.sort( ( a, b ) => a[ 2 ].localeCompare( b[ 2 ] ) );
+		return CommandInterpreterNode._tabulate(
+			[ 'right', 'right', 'left' ],
+			[ 'STATE', 'TYPE', 'NAME' ],
+			rows
+		);
 	}
 
 	// uptime — clock-time + elapsed-since-reset.

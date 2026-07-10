@@ -311,6 +311,8 @@ class Command_Interpreter_Node extends Node {
 				. "    note: Without -a, the argument specifies a node;\n"
 				. "          all nodes sinking into the specified node are displayed.\n"
 				. "    alias: ls\n",
+			'list_timers' => "list_timers\n    note: active timers (ID, INTERVAL ms, NEXT ms, ONESHOT, TYPE, NAME); NEXT <= 0 = fires every tick.\n",
+			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, TYPE, NAME).\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
 			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
@@ -360,6 +362,8 @@ class Command_Interpreter_Node extends Node {
 			'rm'              => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'list_nodes'      => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
 			'ls'              => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
+			'list_timers'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_list_timers(),
+			'list_handles'    => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_list_handles(),
 			'log'             => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_log( $self, $args ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dmesg(),
 			'dump_node'       => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
@@ -897,6 +901,55 @@ class Command_Interpreter_Node extends Node {
 			];
 		}
 		return self::tabulate( $dirs, $header, $rows );
+	}
+
+	/**
+	 * `list_timers` — tabulate the Event_Framework's registered timers. NEXT is ms
+	 * until the next fire (<=0 = due every tick, i.e. a spinner); INTERVAL is the
+	 * re-arm period. Ported from Tachikoma CommandInterpreter's list_ids/list_timers.
+	 */
+	private static function cmd_list_timers(): string {
+		$rows = [];
+		foreach ( Event_Framework::instance()->timers() as $id => $node ) {
+			$next_ms = (int) \round( ( $node->next_fire - Core::$now ) * 1000 );
+			$rows[]  = [
+				(string) $id,
+				(string) $node->interval_ms,
+				(string) $next_ms,
+				$node->oneshot ? 'yes' : 'no',
+				( new \ReflectionClass( $node ) )->getShortName(),
+				$node->name(),
+			];
+		}
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[5] <=> $b[5] );
+		return self::tabulate(
+			[ 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'ID', 'INTERVAL', 'NEXT', 'ONESHOT', 'TYPE', 'NAME' ],
+			$rows
+		);
+	}
+
+	/**
+	 * `list_handles` — tabulate the Event_Framework's registered cURL multi handles
+	 * (the SSE/HTTP egress nodes the drain loop selects on). Analogous to
+	 * Tachikoma CommandInterpreter's list_fds.
+	 */
+	private static function cmd_list_handles(): string {
+		$rows = [];
+		foreach ( Event_Framework::instance()->curl_handles() as $id => $entry ) {
+			$node   = $entry['node'];
+			$rows[] = [
+				(string) $id,
+				( new \ReflectionClass( $node ) )->getShortName(),
+				\method_exists( $node, 'name' ) ? Core::as_string( $node->name() ) : 'unknown',
+			];
+		}
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[2] <=> $b[2] );
+		return self::tabulate(
+			[ 'right', 'right', 'left' ],
+			[ 'ID', 'TYPE', 'NAME' ],
+			$rows
+		);
 	}
 
 	/**
