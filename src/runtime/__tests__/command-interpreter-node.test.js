@@ -1435,17 +1435,21 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 } );
 
 describe( 'list_timers / list_handles introspection verbs', () => {
-	test( 'list_timers lists active timers with their interval', () => {
+	test( 'list_timers lists active + inactive timers with an ACTIVE column', () => {
 		const timer = new TimerNode();
 		timer.name = 'tick0';
 		timer.setTimer( 250 );
+		const idle = new TimerNode(); // never armed -> inactive
+		idle.name = 'idle0';
 
 		const out = dispatch( new CommandInterpreterNode(), 'list_timers' );
 		timer.stopTimer();
 
+		expect( out ).toContain( 'ACTIVE' );
 		expect( out ).toContain( 'tick0' );
-		expect( out ).toContain( 'Timer' );
 		expect( out ).toContain( '250' );
+		expect( out ).toContain( 'idle0' );
+		expect( out ).toContain( 'no' );
 	} );
 
 	test( 'list_handles lists nodes holding an EventSource', () => {

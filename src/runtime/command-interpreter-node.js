@@ -998,10 +998,11 @@ export class CommandInterpreterNode extends Node {
 	static _cmdListTimers() {
 		const rows = [];
 		for ( const [ name, node ] of Core.nodes ) {
-			if ( ! node.mode || 'inactive' === node.mode ) {
+			if ( ! ( node instanceof TimerNode ) ) {
 				continue;
 			}
 			rows.push( [
+				'inactive' === node.mode ? 'no' : 'yes',
 				String( node.interval_ms ?? 0 ),
 				node.mode,
 				node.oneshot ? 'yes' : 'no',
@@ -1009,10 +1010,10 @@ export class CommandInterpreterNode extends Node {
 				name,
 			] );
 		}
-		rows.sort( ( a, b ) => a[ 4 ].localeCompare( b[ 4 ] ) );
+		rows.sort( ( a, b ) => a[ 5 ].localeCompare( b[ 5 ] ) );
 		return CommandInterpreterNode._tabulate(
-			[ 'right', 'right', 'right', 'right', 'left' ],
-			[ 'INTERVAL', 'MODE', 'ONESHOT', 'TYPE', 'NAME' ],
+			[ 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'ACTIVE', 'INTERVAL', 'MODE', 'ONESHOT', 'TYPE', 'NAME' ],
 			rows
 		);
 	}

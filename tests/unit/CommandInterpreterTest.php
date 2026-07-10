@@ -132,12 +132,16 @@ class CommandInterpreterTest extends TestCase {
 		$timer = new Timer_Node();
 		$timer->name( 'tick0' );
 		$timer->set_timer( 250 );
+		$idle = new Timer_Node(); // never armed -> inactive
+		$idle->name( 'idle0' );
 
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_timers' );
 
-		$this->assertStringContainsString( 'tick0', $out, 'names the registered timer' );
-		$this->assertStringContainsString( 'Timer', $out, 'shows the node type' );
+		$this->assertStringContainsString( 'ACTIVE', $out, 'has an ACTIVE column' );
+		$this->assertStringContainsString( 'tick0', $out, 'names the active timer' );
 		$this->assertStringContainsString( '250', $out, 'shows the interval_ms' );
+		$this->assertStringContainsString( 'idle0', $out, 'lists inactive timers too' );
+		$this->assertStringContainsString( 'no', $out, 'the never-armed timer reads ACTIVE=no' );
 	}
 
 	public function test_list_handles_lists_registered_curl_handles(): void {
