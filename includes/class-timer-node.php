@@ -17,6 +17,8 @@ class Timer_Node extends Node {
 	public float $next_fire = 0.0;
 	public bool $oneshot    = false;
 
+	protected int $fire_count = 0;
+
 	/** Tag stamped onto each emitted message's KEY (Tachikoma uses STREAM; we have no STREAM slot). Empty = unset. */
 	protected string $key = '';
 
@@ -28,11 +30,6 @@ class Timer_Node extends Node {
 
 	public function __construct() {
 		parent::__construct();
-	}
-
-	/** @api Timer introspection (list_timers): whether the timer is currently armed. */
-	public function timer_is_active(): bool {
-		return 'inactive' !== $this->mode;
 	}
 
 	public function arguments( ?string $args = null ): string {
@@ -72,6 +69,7 @@ class Timer_Node extends Node {
 			$this->last_fire_time = Core::$now;
 		}
 		$this->fire();
+		$this->fire_count++;
 	}
 
 	// One tick (Perl Timer::fire). Emit a TM_BYTESTREAM heartbeat carrying the
@@ -163,6 +161,15 @@ class Timer_Node extends Node {
 		if ( 'event_framework' === $this->mode ) {
 			Event_Framework::instance()->stop_timer( $this );
 		}
+	}
+
+	/** @api Timer introspection (list_timers): whether the timer is currently armed. */
+	public function timer_is_active(): bool {
+		return 'inactive' !== $this->mode;
+	}
+
+	public function get_fire_count(): int {
+		return $this->fire_count;
 	}
 
 	public function key( ?string $key = null ): string {

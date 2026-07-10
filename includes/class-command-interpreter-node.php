@@ -311,8 +311,8 @@ class Command_Interpreter_Node extends Node {
 				. "    note: Without -a, the argument specifies a node;\n"
 				. "          all nodes sinking into the specified node are displayed.\n"
 				. "    alias: ls\n",
-			'list_timers' => "list_timers\n    note: active timers (ID, INTERVAL ms, NEXT ms, ONESHOT, TYPE, NAME); NEXT <= 0 = fires every tick.\n",
-			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, TYPE, NAME).\n",
+			'list_timers' => "list_timers\n    note: all timers (ID, ACTIVE, INTERVAL ms, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n",
+			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
 			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
@@ -922,14 +922,15 @@ class Command_Interpreter_Node extends Node {
 				(string) $node->interval_ms,
 				$next_ms,
 				$node->oneshot ? 'yes' : 'no',
+				(string) $node->get_fire_count(),
 				( new \ReflectionClass( $node ) )->getShortName(),
 				$name,
 			];
 		}
-		\usort( $rows, static fn ( array $a, array $b ): int => $a[6] <=> $b[6] );
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[7] <=> $b[7] );
 		return self::tabulate(
-			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
-			[ 'ID', 'ACTIVE', 'INTERVAL', 'NEXT', 'ONESHOT', 'TYPE', 'NAME' ],
+			[ 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'ID', 'ACTIVE', 'INTERVAL', 'NEXT', 'ONESHOT', 'FIRES', 'TYPE', 'NAME' ],
 			$rows
 		);
 	}
@@ -945,14 +946,15 @@ class Command_Interpreter_Node extends Node {
 			$node   = $entry['node'];
 			$rows[] = [
 				(string) $id,
+				(string) $entry['counter'],
 				( new \ReflectionClass( $node ) )->getShortName(),
 				\method_exists( $node, 'name' ) ? Core::as_string( $node->name() ) : 'unknown',
 			];
 		}
-		\usort( $rows, static fn ( array $a, array $b ): int => $a[2] <=> $b[2] );
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[3] <=> $b[3] );
 		return self::tabulate(
-			[ 'right', 'right', 'left' ],
-			[ 'ID', 'TYPE', 'NAME' ],
+			[ 'right', 'right', 'right', 'left' ],
+			[ 'ID', 'COUNT', 'TYPE', 'NAME' ],
 			$rows
 		);
 	}

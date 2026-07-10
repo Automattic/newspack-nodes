@@ -1446,6 +1446,7 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		timer.stopTimer();
 
 		expect( out ).toContain( 'ACTIVE' );
+		expect( out ).toContain( 'FIRES' );
 		expect( out ).toContain( 'tick0' );
 		expect( out ).toContain( '250' );
 		expect( out ).toContain( 'idle0' );
@@ -1460,5 +1461,6 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		const out = dispatch( new CommandInterpreterNode(), 'list_handles' );
 
 		expect( out ).toContain( 'sse0' );
+		expect( out ).toContain( 'COUNT' );
 	} );
 } );
