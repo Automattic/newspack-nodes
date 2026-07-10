@@ -14,10 +14,12 @@ A WordPress-internal node-graph runtime — a message-passing node graph built o
 - [Backpressure (none)](#backpressure-none)
 - [TO=FROM Convention](#tofrom-convention)
 - [Event_Framework](#event_framework)
+- [Lock](#lock)
 - [Worker Lifecycle](#worker-lifecycle)
 - [Supervisor Lifecycle](#supervisor-lifecycle)
-- [Lock](#lock)
+- [Job_Worker_Node](#job_worker_node)
 - [REPL: wp nodes cli](#repl-wp-nodes-cli)
+- [Config System (declarative settings)](#config-system-declarative-settings)
 - [Substrate Lifecycle Events vs WordPress Hooks](#substrate-lifecycle-events-vs-wordpress-hooks)
 
 ## Overview
@@ -346,6 +348,18 @@ $c->checkpoint();   // append a {segment, offset, attempts, reason, first_crash_
 
 **Timer** (and its subclass **Router**) is the time-driven base. `set_timer( $interval_ms, $oneshot )` registers with Event_Framework; `fire_cb` is the Event_Framework-side hook; `fire()` is the override point for subclasses. Default `fire()` emits a TM_BYTESTREAM with the current timestamp at `target` and notifies `FIRE` listeners.
 
+**Grep** is the payload filter (`Grep_Node`, a port of Tachikoma's `Grep.pm`): forwards a message only when its VALUE matches a bracket-delimited PCRE (`arguments()` sets the pattern; default matches everything), drops the rest. Category `Filtering`.
+
+**Tap** is `Tee` with *hard* (non-pruned) targets plus passthrough — a `Tee_Node` subclass for observability fan-out: it copies the message to its taps AND forwards the original down `sink`. Unlike Tee, a tap target throwing is non-fatal — swallowed + logged — so a broken tap can't break the pipeline; `Worker_Should_Stop` still re-throws (see [ADR-14](architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)).
+
+**Stderr** (`Stderr_Node`) is a bare diagnostic sink: it routes a TM_BYTESTREAM VALUE through the node's stderr chain (`Node::stderr` → `Core::stderr`: node-name midfix, dmesg ring, `error_log`, debug.log, real stderr) and writes nothing else. Splice one on the end of a debug tap (`Tee → Dumper → Grep → Stderr`) so rendered/filtered lines land in the diagnostic log without polluting the STDOUT data path. Only TM_BYTESTREAM is written — put a Dumper in front to render structured types first.
+
+**Struct_To_JSON / JSON_To_Struct** are the round-trippable serialization pair (the Tachikoma `StorableToJSON` / `JSONtoStorable` analog). `Struct_To_JSON_Node` serializes a TM_STRUCT message's array VALUE into a TM_BYTESTREAM JSON line (splice in front of a Log or terminal so a struct producer's payload can be written as a line); `JSON_To_Struct_Node` is the inverse on the read side — decode a JSON line back into a TM_STRUCT array (a line that isn't a JSON array/object passes through as a plain bytestream).
+
+**Remote reader family (SSE-pull aggregation).** `Remote_Source_Node` is a self-sufficient, topology-visible SSE-pull node: it extends `Remote_Link_Node` (the channel layer — `SSE_In_Node` + `HTTP_Out_Node` patrons, heartbeat, reconnect, status) and `use`s the `Buffered_Pump` trait (the durable message-path spine it shares with Consumer), so each raw SSE `msg` payload appends to the pump buffer and the tick drains it exactly like a Consumer — with the same durable offsetlog cursor and dead-letter/crash lifecycle ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)). `Remote_IPC_Node` is the IPC-partition variant of the same channel. These are the cURL-driven nodes that register handles with the drain loop (see [Event_Framework](#event_framework)).
+
+**Topic_Probe** (`Topic_Probe_Node`) is a periodic Consumer-stats sweep (a port of Tachikoma's `TopicProbe`): each worker process runs one, sweeping ITS local Consumers (`Core::$nodes_by_name`) and emitting one snapshot record per tick (cursor + exact byte volumes) into the shared `topicprobe` log.
+
 ## Backpressure (none)
 
 There's no graph-wide ack/retry machinery. Synchronous I/O at every boundary serializes the whole graph onto one CPU: `Topic::fill` blocks on `Partition`'s `fwrite`; `Consumer::fire_cb` blocks on `read_at`; network-driven nodes pace at the network's speed. There's no decoupled queue between producer and consumer that could grow — each step finishes (commits to disk or returns) before the next message is accepted. All substrate-provided producers are fire-and-forget.
@@ -540,7 +554,7 @@ Each tier only knows about the level immediately below. Clean separation; no cro
 
 `Job_Worker_Node` (substrate since 0.12.0; was an application node) is the generic async-job dispatch Node. It keeps two handler maps — `local_handlers` and `remote_handlers` — eagerly loaded in the constructor from the `newspack_nodes/job_handlers` and `newspack_nodes/remote_job_handlers` filters (by topology-evaluation time `plugins_loaded` has fired, so every registered handler is in place; eager load saves a `load_handlers` line in every TSL). Each `fill()` runs the matching handler bracketed by `do_action( 'newspack_nodes/job_worker/before_job', $handler )` and `…/after_job` — the after-action always fires (even when the handler throws) so applications can hook per-job request context (logger suspend, synthetic `$_SERVER` rewrite) without that being a substrate concern.
 
-After each job it bumps counters, `gc_collect_cycles()`, and — every `CACHE_FLUSH_INTERVAL = 50` jobs — `wp_cache_flush()` (object-cache flush extends per-process runtime by orders of magnitude). A per-job memory check latches `memory_pressure` once usage crosses `MEMORY_WATERMARK_PCT = 0.80` of the limit, so the worker requests its own restart before PHP's uncatchable fatal-on-OOM bypasses cleanup. A `GET_HEALTH` request (declared in `node_schema()['requests']`) reports counters/pressure. Ships with a stock `topologies/job-worker.tsl`, registered via `Topology_Registry::register_stock_dir`.
+After each job it bumps counters, `gc_collect_cycles()`, and — every `CACHE_FLUSH_INTERVAL = 50` jobs — `wp_cache_flush()` (object-cache flush extends per-process runtime by orders of magnitude). A per-job memory check latches `memory_pressure` once usage crosses `MEMORY_WATERMARK_PCT = 0.80` of the limit, so the worker requests its own restart before PHP's uncatchable fatal-on-OOM bypasses cleanup. A `GET_HEALTH` request (declared in `node_schema()['requests']`) reports counters/pressure. Ships with a stock `topologies/job-worker.tsl` in the substrate's built-in dir (`Topology_Registry::register_builtin_dir`, wired in `Bootstrap`; `register_stock_dir` is the per-plugin analog used by `register_plugin`).
 
 ## REPL: wp nodes cli
 
@@ -597,6 +611,8 @@ Shell also intercepts the **path-composing builtins** before they reach the mess
 **The cd to a remote/other worker is just `$this->path`** — a TO prefix, nothing hardwired. At the root prompt `path=''` so default commands carry empty TO and the local `_command_interpreter` handles them; after `cd firehose:partition` the same default command carries `TO=firehose:partition` and `_router` dispatches it. In attached mode the Shell's sink stays `_command_interpreter`; `build_repl_graph` sets `$shell->path` to the worker id, so default commands carry `TO={worker-id}` and `_router` routes them to the worker-id Partition that writes them to the worker's input IPC dir instead of running locally.
 
 **`list_nodes` (alias `ls`) flags are `-a c l s t`** (matched by `^-([aclst]+)$`), NOT `-celos`: `-a` all-nodes (optional regex glob), `-c` counters, `-s` sinks, `-t` targets, `-l` = `-ct`. Without `-a`, a bare name lists nodes whose sink IS that node; no arg lists this interpreter's siblings.
+
+**Event-loop introspection verbs (`list_timers` / `list_handles`).** Both are static Command_Interpreter_Node verbs (ported from Tachikoma's `CommandInterpreter` `list_ids`/`list_timers`) that tabulate the current `Event_Framework` state — useful for diagnosing a spinning drain loop without redeploying. `list_timers` lists all registered timers (ID, ACTIVE, INTERVAL ms, NEXT ms, ONESHOT, FIRES, TYPE, NAME); a `NEXT <= 0` with a climbing `FIRES` is a spinner. `list_handles` lists the registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME). Both are mirrored in the JS interpreter (`src/runtime/command-interpreter-node.js`), where `list_timers`'s MODE column distinguishes own-slot from Router-hitchhike timers and `list_handles` lists nodes holding an `EventSource`.
 
 **Completion-query mode (`KEY='completion'`).** Both `help` and `ls` short-circuit when the inbound message carries `KEY='completion'`: they return a bare newline-separated candidate list (sorted verb names for `help`; bare node names for `ls`, honoring the same `-a`/glob/siblings selection but dropping all `-clst` columns) instead of the tabulated human output. This is the substrate's `TM_COMPLETION` protocol, implemented identically in PHP and JS (same set, same ordering) so tab-completion works against the browser-local graph and live workers alike. Tab-completion is built on top: `wp nodes cli` (readline-backed) and the browser REPL both fire a `help`/`ls` command with `KEY='completion'` through a `_completion` node, complete to the longest common prefix on the first Tab, and list the ambiguous candidates on a second consecutive Tab. The REPL also keeps a command history (up/down recall).
 

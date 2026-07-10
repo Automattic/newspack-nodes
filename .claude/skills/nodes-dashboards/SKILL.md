@@ -42,7 +42,14 @@ Traffic at every edge is the whole point: you can **`connect <node>` / drop a `T
 
 ## Reusable primitives
 
-`Timer`, `Tee`, `HttpOut` (`_http`), `Callback`/`Hook` (transforms), thin view nodes — already in the JS runtime. The generic **`Fetcher`** (trigger → emit command, `FROM` = receiver) is the missing piece: build/reuse it, never inline a bespoke command-firing view node. `mountExospine()` clips your graph onto the `_command_interpreter → _router` backbone.
+`Timer`, `Tee`, `HttpOut` (`_http`), `Callback`/`Hook` (transforms), thin view nodes — already in the JS runtime (`src/runtime/`). The generic **`Fetcher`** (`src/runtime/fetcher-node.js` — trigger → emit command, `FROM` = receiver) is the missing piece: build/reuse it, never inline a bespoke command-firing view node. `mountExospine()` (`src/runtime/exospine.js`) clips your graph onto the `_command_interpreter → _router` backbone.
+
+**Don't hand-wire the batching boilerplate — the substrate ships it.** Two shared helpers under `src/shared/` (consumed by sibling plugins via the `@newspack-nodes/shared` alias) own the whole `_shell`/`_http`/Timer/Tee/lock-flush + page-visibility scaffold so a dashboard hook is *just its slices*:
+
+- **`useBatchedPoll`** (`src/shared/hooks/useBatchedPoll.js`) — owns the exospine mount, the `_http` `HttpOut` egress, the observe-only `_shell` `Tap`, the fan-out `Tee` + router-hitchhike `Timer`, the per-tick lock/flush bracket (one POST per tick), and the page-visibility gate (HIDDEN unregisters the Timer). You supply a `build({ interpreter, tee })` that adds only the dashboard-specific nodes.
+- **`addSliceFetcher`** (`src/shared/helpers/addSliceFetcher.js`) — wires ONE slice in one call: `Fetcher → target` plus a `receiver` `Tee → [transform →] view`, with an independent reply path per slice. Call it once per slice inside `build`.
+
+Consumer dashboards live in their own `src/` trees (the substrate's own are `src/event-dashboards/`, `src/event-aggregator/`, `src/topology-console/`, `src/debug-overlay/`); the shared spine stays in `newspack-nodes/src/shared/`.
 
 ## Red flags — STOP, you're building a god object
 
@@ -57,4 +64,4 @@ Traffic at every edge is the whole point: you can **`connect <node>` / drop a `T
 
 ## Required background
 
-`nodes-review` gate #8d (everything sinks into the interpreter; flow via `target`/`TO`/invoke). The Tachikoma batching principle — the tick hitchhike means more fetchers cost the same one POST. Pair with `writing-a-dashboard.md` (the worked rebuild of Publisher Insights this way).
+`nodes-review` gate #8d (everything sinks into the interpreter; flow via `target`/`TO`/invoke). The Tachikoma batching principle — the tick hitchhike means more fetchers cost the same one POST. Pair with the `docs/` tutorial track: `writing-a-dashboard.md` → `writing-a-real-dashboard.md` (the worked Publisher Insights rebuild) → `writing-a-view-node.md` (the thin per-widget view node).

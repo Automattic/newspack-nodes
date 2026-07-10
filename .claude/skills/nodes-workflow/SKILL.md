@@ -53,6 +53,14 @@ For a new CommandInterpreter verb:
 # instead of stalling the whole suite.
 cd tests && ../vendor/bin/phpunit --enforce-time-limit
 
+# Lint PHP against WordPress VIP Go (phpcs). Run from the plugin root.
+npm run lint:php
+
+# PHPStan / dead-code audit (opt-in — NOT in the commit gate). Substrate caveat:
+# most findings are public API / WP-CLI entrypoints / JS-PHP wire constants / test
+# seams, not real dead code — verify every call path before acting.
+npm run lint:phpstan   # alias: npm run lint:deadcode
+
 # Restart workers so they pick up the new code (otherwise the old class lives
 # in the running PHP process for ~10 more minutes). Run `wp nodes types`
 # first to see what topologies are actually live — the substrate ships two

@@ -491,6 +491,13 @@ export function usePublisherInsightsGraph( opts = {} ) {
 
 `useBatchedPoll` owns everything that used to be hand-wired here — the `_shell` Tap, the `_http` HttpOut (with the injectable command client), the fan-out `Tee`, the router-hitchhike `Timer`, the lock/flush bracket, and the page-visibility gate. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, and its view node. (When a slice needs a per-slice merge/dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
 
+Our toy polls every router tick and never pauses, so it passes none of them, but `useBatchedPoll` also takes two production knobs the real dashboards lean on — pass them the same way, in the same options bag:
+
+- **`intervalMs`** — the poll cadence. Omit it (or `0`) to fire every router tick; a value `> 1000` throttles the Timer's hitchhike to that many milliseconds, re-pacing live when it changes. The event-aggregator dashboard wires this to its user-chosen refresh dropdown (`intervalMs: parseInt( refreshInterval, 10 ) || 0`).
+- **`paused`** — suspend polling *without* unmounting the graph (it stops the Timer's hitchhike, exactly like a hidden tab, and resumes when false). The Overview dashboard passes `paused: dragging` so a poll doesn't fight a drag in flight.
+
+(A slice can also emit *live* command args per tick — `addSliceFetcher` takes an `argsFn: () => argsString` fire-time getter it assigns to the Fetcher's `command_args`, so a filter/sort/page value can track React state without re-wiring the graph. The toy's three verbs take no args, so it doesn't need one.)
+
 Two ideas still carry the whole hook — they're just owned by the toolkit now instead of copied into it:
 
 - **The tick hitchhike + the batch lock.** `insights:timer` is a `Timer` in router-hitchhike mode (`setTimer()` with no args) — it fires on every `_router` TIMER tick. `useBatchedPoll` brackets that tick with `router.beforeTimerNotify = () => http.lock()` and `router.afterTimerNotify = () => http.flush()`. So when the tick fans out through the Tee to all three Fetchers, each Fetcher's command buffers behind the `_http` lock, and the single `flush()` after the tick ships them as **one `postBatch`**. **Fan-out is free: three Fetchers, one HTTP round-trip** — add a fourth slice and it's still one POST per tick. (This is the same batching principle the worker side gets from the drain loop — more traffic per tick, the same fixed cost.)
