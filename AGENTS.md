@@ -139,7 +139,7 @@ renumber.
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status,activate,deactivate}` |
 | `includes/cli/class-ingest-cli-command.php` | `wp nodes ingest` — replay packed partition-segment records back through a Topic onto disk |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
-| `includes/rest/class-http-in-node.php` | `POST /newspack-nodes/v1/command` controller + the `_http` egress Node (double-duty) |
+| `includes/rest/class-http-in-node.php` | `POST /newspack-nodes/v1/command` controller + the `_output` response-writer Node (double-duty): as a controller it routes the decoded batch through Router; as a Node its `fill()` writes the `/command` response body, so an interpreter reply with TO=FROM walks the `_output` boundary back to it. (Outbound command egress is the separate `HTTP_Out_Node`; `_http` is the filter Node below.) |
 | `includes/rest/class-sse-out-node.php` | `GET /newspack-nodes/v1/messages/stream` controller + the `_sse` egress Node (double-duty); carries the inlined SSE wire helpers (headers, event framing, flush) |
 | `includes/class-http-filter-node.php` | `_http` filter Node used inside SSE-stream processes (forwards `dump_metadata`/`uptime` replies back to the browser) |
 | `includes/class-http-out-node.php` | `HTTP_Out_Node` — non-blocking outbound command egress (push-side counterpart of `HTTP_In`): buffers TM_COMMAND envelopes, batches one JSONL POST per drain tick to a remote spoke's `/command` over the Event_Framework's cURL-multi |
