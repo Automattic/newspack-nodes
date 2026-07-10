@@ -156,8 +156,7 @@ export const setupTooltip = (
 		.attr( 'y', 0 )
 		.attr( 'height', innerH )
 		.attr( 'width', bucketWidth )
-		// Neutral grey translucent so the hover column reads on BOTH a light
-		// chart panel and a dark one (white was invisible on light).
+		// Neutral grey so the hover column reads on light AND dark panels.
 		.attr( 'fill', 'rgba(128,128,128,0.18)' )
 		.attr( 'stroke', 'rgba(128,128,128,0.4)' )
 		.attr( 'stroke-width', 1 )
@@ -275,10 +274,7 @@ export function useTimeChart( renderFn ) {
 		return () => window.removeEventListener( 'resize', handleResize );
 	}, [ renderChart ] );
 
-	// Also re-fit when the CONTAINER resizes (e.g. the debug overlay panel) — a
-	// `window` resize listener only catches the browser window, not a panel the
-	// chart lives in, so the chart stayed at its old width after a panel resize.
-	// Debounced so it re-renders once the resize settles, not every frame.
+	// Also re-fit on CONTAINER resize (window resize misses panels); debounced.
 	useEffect( () => {
 		const container = containerRef.current;
 		if ( ! container || typeof window.ResizeObserver === 'undefined' ) {

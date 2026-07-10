@@ -7,8 +7,7 @@ import { __ } from '@wordpress/i18n';
 import { longestCommonPrefix } from '../../runtime/completion-node';
 import { loadHistory, saveHistory } from '../core/consolePersistence';
 
-// The whitespace-delimited token under the cursor — the last token of the
-// input, or '' after a trailing space. Returns the token + the prefix before it.
+// Split value into the trailing whitespace token + the head before it.
 function splitTrailingToken( value ) {
 	const lastSpace = value.search( /\s\S*$/ );
 	if ( -1 === lastSpace ) {
@@ -29,13 +28,8 @@ const STATUS_LABELS = {
 // Transcript pane sizing; default 20% of canvas, drag-resizable, persisted.
 const HEIGHT_STORAGE_KEY = 'newspack-nodes:topology-console:repl-height';
 const HEIGHT_MIN_PX = 80;
-const RESIZE_STEP_PX = 20; // Keyboard ArrowUp/ArrowDown nudge for the resize handle.
-// Pre-layout FALLBACK only: both consumers (the console via
-// `replCeilingFromAppHeight`, the debug overlay via `replMaxHeight`) pass an
-// explicit measured `maxHeightPx`; `maxHeight()` is used just until they've
-// measured. The full-page chrome around the canvas is 32 (WP admin bar) + 64
-// (shared hub header) + 40 (hub tab bar) above + 38 (repl bar) below = 174
-// (the tab bar was missed before — the header moved above the tabs).
+const RESIZE_STEP_PX = 20; // Arrow-key nudge for the resize handle.
+// Pre-layout FALLBACK; callers pass measured maxHeightPx. 174=32+64+40+38.
 const FIXED_CHROME_PX = 174;
 function defaultHeight() {
 	if ( typeof window === 'undefined' ) {
@@ -46,9 +40,7 @@ function defaultHeight() {
 		Math.round( ( window.innerHeight - FIXED_CHROME_PX ) * 0.2 )
 	);
 }
-// The 6px resize handle is centered on the transcript's top edge, so 3px of it
-// overhangs above the pane; reserve that so the handle isn't clipped against
-// the canvas top when the transcript is maximized.
+// Handle is centered on the top edge; reserve its 3px overhang from clipping.
 const RESIZE_HANDLE_OVERHANG_PX = 6;
 function maxHeight() {
 	if ( typeof window === 'undefined' ) {
@@ -80,40 +72,25 @@ export default function ReplFooter( {
 	onExpandedChange,
 	// Optional external ref so the parent can blur / re-focus the prompt.
 	inputRef: externalInputRef,
-	// Tab-completion: `onComplete(line)` fires the completion query; the reply
-	// arrives back as the `completion` prop ( { candidates, seq } ); when ≥2
-	// matches share no extending prefix, `onShowCandidates(list)` lists them.
+	// Tab-completion query/reply; onShowCandidates lists ambiguous matches.
 	onComplete,
 	completion = null,
 	onShowCandidates,
-	// Optional ceiling override — when set, takes precedence over the
-	// viewport-based maxHeight(). The debug overlay passes its panel's
-	// inner height minus header height so the transcript can't grow past
-	// the overlay's bounds (default maxHeight assumes a full-page console).
+	// Optional ceiling override for maxHeight(); overlay passes inner height.
 	maxHeightPx = null,
-	// Reports the px the transcript overlays the canvas with (its height when
-	// expanded, 0 when collapsed) so the canvas autofit can reserve that band.
+	// Px the transcript overlays the canvas; autofit reserves that band.
 	onOverlayHeightChange,
 } ) {
 	const [ value, setValue ] = useState( '' );
-	// Command history (oldest→newest). `historyCursor` points at the recalled
-	// entry; `history.length` means "past the end" (the live draft). The draft
-	// typed before navigation began is stashed so Down can restore it. Seeded
-	// from localStorage so recall survives a reload [87].
+	// Command history; cursor = recalled entry, length = live draft.
 	const history = useRef( loadHistory() );
-	// Start past-the-end (at the live draft) so the first ArrowUp recalls the
-	// most-recent persisted command rather than clamping at the oldest.
+	// Start past-the-end so the first ArrowUp recalls the newest command.
 	const historyCursor = useRef( history.current.length );
 	const historyDraft = useRef( '' );
-	// The token being completed when the last Tab fired, plus the last applied
-	// completion seq so a re-render doesn't re-apply the same reply. Cleared once
-	// a reply is consumed.
+	// Token completed on the last Tab + last applied seq (guards re-apply).
 	const pendingToken = useRef( null );
 	const lastAppliedSeq = useRef( null );
-	// Count of consecutive Tab presses (reset by any other key / typing).
-	// readline lists ambiguous candidates only when the previous command was
-	// also a Tab — i.e. on the 2nd+ press of a run — whether or not the first
-	// press extended the token.
+	// Consecutive Tab-press count; readline lists ambiguous on 2nd+ press.
 	const tabStreak = useRef( 0 );
 	const setExpanded = useCallback(
 		( next ) => {
@@ -133,14 +110,12 @@ export default function ReplFooter( {
 	);
 	const dragState = useRef( null );
 
-	// Report the canvas overlap (transcript height when expanded, else 0) so the
-	// consumer can feed the canvas autofit a bottom obstruction.
+	// Report canvas overlap so the consumer can feed autofit a bottom inset.
 	useEffect( () => {
 		onOverlayHeightChange?.( expanded ? height : 0 );
 	}, [ expanded, height, onOverlayHeightChange ] );
 
-	// Click in the transcript refocuses the input, unless on a selection
-	// or a button (preserves copy/paste; via ownerDocument for the linter).
+	// Transcript click refocuses the input, unless on a selection or a button.
 	const handleTranscriptClick = ( ev ) => {
 		const win = ev.currentTarget.ownerDocument?.defaultView;
 		const selection = win?.getSelection();
@@ -153,9 +128,7 @@ export default function ReplFooter( {
 		inputRef.current?.focus();
 	};
 
-	// `streamStatus` is undefined for local-only callers (the debug overlay reads
-	// Core synchronously — no stream). Treat absent as LIVE so the LED reads as
-	// connected without exploding on the missing `.toUpperCase()`.
+	// Absent streamStatus (local overlay) → LIVE; avoids .toUpperCase() crash.
 	const statusLabel = streamStatus
 		? STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase()
 		: __( 'LIVE', 'newspack-nodes' );
@@ -176,7 +149,7 @@ export default function ReplFooter( {
 			if ( ev.key === 'Escape' ) {
 				ev.preventDefault();
 				setExpanded( false );
-				// Blur the input so the `/` shortcut below fires next keystroke.
+				// Blur the input so the `/` shortcut fires next keystroke.
 				inputRef.current?.blur();
 			}
 		};
@@ -208,10 +181,7 @@ export default function ReplFooter( {
 		return () => document.removeEventListener( 'keydown', handler );
 	}, [ setExpanded, inputRef ] );
 
-	// Double-click the resize handle toggles the transcript between its
-	// max ceiling (visually like dragging it to the top) and the default
-	// starting height. A small ref tracks whether the LAST toggle maximized
-	// so the next dbl-click goes the other way.
+	// Dbl-click resize handle toggles between max ceiling and default height.
 	const lastWasMaxRef = useRef( false );
 	const handleResizeDoubleClick = useCallback( () => {
 		const ceiling = maxHeightPx ?? maxHeight();
@@ -254,7 +224,7 @@ export default function ReplFooter( {
 				document.body.style.userSelect = '';
 				document.body.style.cursor = '';
 			};
-			// Suppress selection + force the resize cursor document-wide while dragging.
+			// Suppress selection + force ns-resize cursor while dragging.
 			document.body.style.userSelect = 'none';
 			document.body.style.cursor = 'ns-resize';
 			document.addEventListener( 'mousemove', onMove );
@@ -263,8 +233,7 @@ export default function ReplFooter( {
 		[ height, maxHeightPx ]
 	);
 
-	// Keyboard resize: ArrowUp/ArrowDown nudge the pane by RESIZE_STEP_PX,
-	// clamped to the same [HEIGHT_MIN_PX, ceiling] bounds as the drag.
+	// Keyboard resize: Arrow keys nudge by RESIZE_STEP_PX, clamped like drag.
 	const handleResizeKeyDown = useCallback(
 		( ev ) => {
 			if ( ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown' ) {
@@ -284,17 +253,14 @@ export default function ReplFooter( {
 		[ maxHeightPx ]
 	);
 
-	// Clamp existing height down if the ceiling shrinks (panel resized smaller).
+	// Clamp existing height down if ceiling shrinks (panel resized smaller).
 	useEffect( () => {
 		if ( maxHeightPx !== null && height > maxHeightPx ) {
 			setHeight( Math.max( HEIGHT_MIN_PX, maxHeightPx ) );
 		}
 	}, [ maxHeightPx, height ] );
 
-	// Re-clamp when the WINDOW shrinks too — without an explicit ceiling, the
-	// console's viewport-based maxHeight() would drop but `height` wouldn't,
-	// leaving the transcript overflowing past the top of the page and burying
-	// its drag handle out of reach. Listen for resize and clamp on the fly.
+	// Re-clamp on WINDOW resize too, else height outgrows the shrunk ceiling.
 	useEffect( () => {
 		const onResize = () => {
 			const ceiling = maxHeightPx ?? maxHeight();
@@ -310,14 +276,11 @@ export default function ReplFooter( {
 		try {
 			window.localStorage.setItem( HEIGHT_STORAGE_KEY, String( height ) );
 		} catch ( _e ) {
-			// Private-mode/quota errors are non-fatal; height just won't persist.
+			// Private-mode/quota errors are non-fatal; height won't persist.
 		}
 	}, [ height ] );
 
-	// Apply a completion reply (readline two-stage): filter candidates to the
-	// remembered token, compute the LCP; extend the input to the LCP if it grows
-	// the token, else list the options. Guarded against stale replies (the input
-	// must still end with the token that fired the query) and re-renders (seq).
+	// Apply a completion reply: extend the input to the LCP, else list options.
 	useEffect( () => {
 		if ( ! completion || pendingToken.current === null ) {
 			return;
@@ -339,8 +302,7 @@ export default function ReplFooter( {
 		if ( 0 === matches.length ) {
 			return;
 		}
-		// Unique match: complete the token and append a space (readline behavior),
-		// even when the token already equals the candidate.
+		// Unique match: complete token + append a space (readline behavior).
 		if ( 1 === matches.length ) {
 			setValue( head + matches[ 0 ] + ' ' );
 			return;
@@ -350,16 +312,14 @@ export default function ReplFooter( {
 			setValue( head + lcp );
 			return;
 		}
-		// LCP can't extend the token (ambiguous). readline lists candidates only
-		// on the 2nd+ Tab of a consecutive run — the first press just bells.
+		// LCP can't extend (ambiguous); readline lists only on 2nd+ Tab of run.
 		if ( tabStreak.current >= 2 && onShowCandidates ) {
 			onShowCandidates( matches );
 		}
 	}, [ completion, value, onShowCandidates ] );
 
 	function handleKeyDown( ev ) {
-		// Any key other than Tab (modifiers excepted) breaks a Tab run, so the
-		// next Tab starts a fresh single press.
+		// Any non-Tab key (modifiers aside) breaks a Tab run.
 		if (
 			ev.key !== 'Tab' &&
 			! [ 'Shift', 'Control', 'Alt', 'Meta' ].includes( ev.key )
@@ -377,8 +337,7 @@ export default function ReplFooter( {
 			}
 			return;
 		}
-		// Tab requests completion for the trailing token; the reply lands via the
-		// `completion` prop and the effect above applies the LCP.
+		// Tab requests completion for the trailing token; reply via prop.
 		if ( ev.key === 'Tab' && ev.target === inputRef.current ) {
 			ev.preventDefault();
 			if ( ! onComplete ) {
@@ -431,7 +390,7 @@ export default function ReplFooter( {
 		if ( ! trimmed ) {
 			return;
 		}
-		// Record in history, collapsing an immediate duplicate of the last entry.
+		// Record in history, collapsing an immediate duplicate of last entry.
 		const entries = history.current;
 		if ( entries[ entries.length - 1 ] !== trimmed ) {
 			entries.push( trimmed );
@@ -470,8 +429,7 @@ export default function ReplFooter( {
 							'Resize transcript',
 							'newspack-nodes'
 						) }
-						// A draggable, Arrow-key-operable splitter is a one-axis slider;
-						// ArrowUp/ArrowDown adjust height, so the axis is vertical.
+						// Arrow-key splitter = a vertical one-axis slider.
 						role="slider"
 						aria-orientation="vertical"
 						aria-valuemin={ HEIGHT_MIN_PX }
@@ -480,7 +438,7 @@ export default function ReplFooter( {
 							maxHeightPx ?? maxHeight()
 						) }
 						aria-valuenow={ height }
-						// Sibling of the transcript so it stays anchored to the top edge.
+						// Sibling of the transcript, anchored to its top edge.
 						style={ { bottom: `${ height + 38 - 3 }px` } }
 					/>
 					<div
@@ -559,8 +517,7 @@ export default function ReplFooter( {
 						setValue( ev.target.value );
 					} }
 					onKeyDown={ handleKeyDown }
-					// Focus → show transcript; blur→hide is handled elsewhere
-					// (onBlur here would fire on node/Inspector clicks too).
+					// Focus → show transcript; blur→hide handled elsewhere.
 					onFocus={ () => setExpanded( true ) }
 					disabled={ ! canSend }
 					autoComplete="off"

@@ -68,8 +68,7 @@ describe( 'SliceViewNode', () => {
 
 	test( 'surfaces a TM_ERROR with an OBJECT { message } VALUE as a slice error', () => {
 		const v = makeView();
-		// A transport error (Router NOT_AVAILABLE) arrives as a bare object
-		// VALUE whose .payload carries the readable message.
+		// A transport error arrives as a bare object VALUE; .payload has msg.
 		const m = newMessage();
 		m[ TYPE ] = TM_ERROR;
 		m[ VALUE ] = { payload: { message: 'NOT_AVAILABLE' } };
@@ -78,8 +77,7 @@ describe( 'SliceViewNode', () => {
 	} );
 
 	test( 'the base emptySlice is an empty object', () => {
-		// Exercised through the base directly (no subclass override of
-		// emptySlice), which the constructor publishes as the initial view.
+		// Exercised through base directly (no subclass emptySlice override).
 		expect( new SliceViewNode().setStateCache.view ).toEqual( {} );
 	} );
 
@@ -118,8 +116,7 @@ describe( 'SliceViewNode', () => {
 			const m = reply( JSON.stringify( { sources: { x: 9 } } ) );
 			m[ ID ] = id;
 			v.fill( m );
-			// The reply was consumed by the settle path: the awaited Promise
-			// resolves with VALUE.payload and the slice model is untouched.
+			// Settle path consumed the reply; the slice model is untouched.
 			await expect( settled ).resolves.toBe(
 				JSON.stringify( { sources: { x: 9 } } )
 			);

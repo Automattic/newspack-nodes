@@ -22,10 +22,7 @@ import { RemoteIpcNode } from '../../../runtime/remote-ipc-node';
 import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 
-// The command client is the singleton useConsoleGraph hands each RemoteIpc AND
-// uses for the mount-time `topologies get` TSL seed. Mock it so no real fetch
-// fires; `mockSend` defaults to resolving null (seed no-ops) and tests override
-// it to drive a TSL reply.
+// Mock the command client — no real fetch; defaults to null (seed no-op).
 const mockSend = jest.fn().mockResolvedValue( null );
 const mockPostBatch = jest.fn().mockResolvedValue( [] );
 jest.mock( '../../utils/commandClient', () => ( {
@@ -35,11 +32,7 @@ jest.mock( '../../utils/commandClient', () => ( {
 
 let lastConnector = null;
 
-// Minimal FakeEventSource — same shape as the substrate's `sse-in-node.test.js`
-// and `useRawLogsGraph.test.js`. Lets the reply-routing tests drive a real `msg`
-// frame the way production delivers it (through the EventSource), so it lands on
-// the REAL SseInNode `msg` listener → `Node.fill` (route-by-TO), NOT the
-// `SseInNode.fill` empty-name stamp path that a direct `connector.fill()` hits.
+// FakeEventSource: real `msg` frame → route-by-TO, not empty-name stamp path.
 class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
@@ -59,14 +52,7 @@ class FakeEventSource {
 }
 
 jest.mock( '../../../runtime/sse-in-node', () => {
-	// Extend the REAL SseInNode so the session wrap/routing logic is exercised. The
-	// EventSource itself is the suite's FakeEventSource (`global.EventSource`), so
-	// `start()` runs the REAL connector path — registering the production `msg`
-	// listener — and only the start/close BOOKKEEPING is layered on. The
-	// RemoteIpc/RemoteLink composes this as its receive child, so `lastConnector`
-	// tracks the active worker's composed SseIn. The fake exposes an `opts`-shaped
-	// read-back of the public config properties so the tests can assert against
-	// `lastConnector.opts.…`.
+	// Extend the REAL SseInNode; only start/close bookkeeping layered on.
 	const { SseInNode: RealSseIn } = jest.requireActual(
 		'../../../runtime/sse-in-node'
 	);
@@ -96,9 +82,7 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			super.close();
 		}
 		emitConnected( pid ) {
-			// The connected envelope is now the flat string the server sends;
-			// _applyConnected parses pid + slot into plain fields and fires the
-			// CONNECTED bridge.
+			// Flat envelope; _applyConnected parses pid+slot, fires CONNECTED.
 			this._applyConnected(
 				`PID ${ pid } SLOT 1 SUBSCRIPTIONS x INTERVAL 2000`
 			);
@@ -110,9 +94,7 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 import { useConsoleGraph } from '../useConsoleGraph';
 
 beforeEach( () => {
-	// The Dumper now persists its transcript to localStorage on every change, so
-	// isolate each test's storage — otherwise one test's transcript restores into
-	// the next test's freshly-mounted Dumper.
+	// Dumper persists its transcript to localStorage; isolate it per test.
 	window.localStorage.clear();
 	Core.reset();
 	lastConnector = null;
@@ -139,7 +121,7 @@ const renderGraph = ( props = {} ) =>
 		{ initialProps: props }
 	);
 
-// The composed HttpOut of the session worker's RemoteIpc — where its sends land.
+// The composed HttpOut of the session worker's RemoteIpc — where sends land.
 const httpOf = ( reader ) => Core.node( reader )?.httpOut;
 
 describe( 'useConsoleGraph — graph topology', () => {
@@ -156,9 +138,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 			CompletionNode
 		);
 		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
-		// No top-level `_sse` node (each RemoteIpc owns an UNNAMED SseIn), but
-		// `_http`/`_heartbeat` ARE the SHARED reserved-name singletons every
-		// RemoteIpc composes — present once the session worker connects on mount.
+		// No top-level `_sse`, but `_http`/`_heartbeat` are shared singletons.
 		expect( Core.node( names.SSE ) ).toBeNull();
 		expect( Core.node( names.HTTP ) ).toBe(
 			Core.node( 'demo.p0' ).httpOut
@@ -295,10 +275,9 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf( 'demo.p0' ).client = { postBatch };
-		// Point the cwd at the active worker so the polls route out to its HttpOut.
+		// Point the cwd at the active worker so polls route to its HttpOut.
 		Core.node( names.CWD ).target = 'demo.p0';
-		// One Router TIMER tick: every poll this tick emits (dump_metadata + any
-		// uptime) rides ONE POST via the active RemoteIpc's HttpOut.
+		// One Router TIMER tick: every poll rides ONE POST via active HttpOut.
 		act( () => Core.node( names.ROUTER ).fireCb() );
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		const { VALUE } = require( '../../../runtime/message' );
@@ -325,12 +304,7 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 		expect( oldActive.httpOut ).toBe( sharedHttp );
 		expect( newActive.httpOut ).toBe( sharedHttp );
 		const flush = jest.spyOn( sharedHttp, 'flush' );
-		// Run the bracket by hand, stealing active in between (what a poll that
-		// reconnects a different worker does mid-notifyTimer). `beforeTimerNotify`
-		// captures the node active at lock-time; `afterTimerNotify` must flush
-		// THAT captured node's httpOut (the shared `_http`) exactly once, even
-		// though active was stolen — never re-resolving the flush off the new
-		// active (which would risk a double-flush or a stranded lock).
+		// afterTimerNotify flushes the lock-time node, not the stolen active.
 		act( () => {
 			router.beforeTimerNotify();
 			RemoteIpcNode.active = newActive; // steal mid-notify
@@ -363,8 +337,7 @@ describe( 'useConsoleGraph — connection state', () => {
 
 	it( 'holds a Heartbeat slot on the active worker after the connected handshake (slot keepalive)', () => {
 		renderGraph();
-		// The fake SseIn's connected envelope carries slot 1; the RemoteLink bridge
-		// hands it to the composed Heartbeat so the slot is kept alive.
+		// Connected envelope carries slot 1; Heartbeat keeps that slot alive.
 		act( () => lastConnector.emitConnected( 4242 ) );
 		expect( Core.node( 'demo.p0' ).heartbeat.slot ).toBe( 1 );
 	} );
@@ -379,8 +352,7 @@ describe( 'useConsoleGraph — connection state', () => {
 		act( () => Core.node( 'demo.p0' ).connect() );
 		act( () => Core.node( 'demo.p0' ).sseIn.emitConnected( 4242 ) );
 		expect( result.current.ssePid ).toBe( 4242 );
-		// Steal to the other worker: its connect() closes demo.p0, whose onClose
-		// must clear the displayed pid (the new worker repopulates it on handshake).
+		// Stealing to the other worker closes demo.p0; onClose clears the pid.
 		act( () => Core.node( 'other.p1' ).connect() );
 		expect( result.current.ssePid ).toBeNull();
 	} );
@@ -428,9 +400,7 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
 		act( () => setVisibility( 'hidden' ) );
 		act( () => setVisibility( 'visible' ) );
-		// …but its stream was never opened: with streaming off, connect() never
-		// ran, so no SseIn child was ever built (a null connector is the proof, not
-		// a vacuous fallback). If one HAD been built, it must not have started.
+		// Streaming off: connect() never ran; no SseIn child built (null).
 		expect( Core.node( 'demo.p0' ).sseIn ).toBeNull();
 		expect( lastConnector ).toBeNull();
 	} );
@@ -439,9 +409,7 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 describe( 'useConsoleGraph — reply routing through _router', () => {
 	it( 'an SSE reply with TO=_output lands in the Dumper transcript', () => {
 		renderGraph();
-		// Deliver the reply the way production does — a packed `msg` frame through
-		// the live EventSource — so it lands on the REAL SseIn `msg` listener
-		// → Node.fill (route-by-TO), not the SseInNode.fill empty-name stamp path.
+		// Packed `msg` via EventSource → route-by-TO, not empty-name stamp.
 		const {
 			newMessage,
 			pack,
@@ -523,8 +491,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 			renderGraph();
 			await Promise.resolve();
 		} );
-		// Fired the topologies `get` for the live topology — the same direct REST
-		// command edit mode uses, independent of the SSE stream.
+		// Fired topologies `get` — same direct REST command edit mode uses.
 		expect( mockSend ).toHaveBeenCalledWith(
 			expect.objectContaining( {
 				to: 'topologies',
@@ -532,8 +499,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 				args: 'demo',
 			} )
 		);
-		// parseTsl( tsl ).nodes seeded the canvas graph (useGraphSource reads this)
-		// before any dump_metadata reply.
+		// parseTsl(tsl).nodes seeded the canvas graph before dump_metadata.
 		const seeded = Core.node( names.METADATA ).setStateCache.metadata;
 		expect( seeded.nodes.map( ( n ) => n.id ) ).toContain( 'greeter' );
 	} );
@@ -551,9 +517,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		};
 		mockSend.mockResolvedValue( reply );
 		renderGraph();
-		// cd / before the async TSL seed resolves. The local root renders the
-		// in-browser graph, never the topology — seeding it here paints the wrong
-		// graph and stomps the layout (foreign node ids miss the 'local' map).
+		// cd / before the seed resolves; seeding topology paints wrong graph.
 		Core.node( names.CWD ).target = '';
 		await act( async () => {
 			await Promise.resolve();
@@ -605,13 +569,13 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
-		// RemoteIpc wrapped the bare `_output` FROM into the private reply address.
+		// RemoteIpc wrapped the bare `_output` FROM into the reply address.
 		expect( batch[ 1 ][ FROM ] ).toBe( `${ names.SSE }:4242/_output` );
 	} );
 
 	it( 'ls -a at the local root (cd /) lists EVERY in-browser node in the transcript', () => {
 		const { result } = renderGraph();
-		act( () => result.current.shell.fill( 'cd /' ) ); // empty cwd → local interpreter
+		act( () => result.current.shell.fill( 'cd /' ) ); // empty cwd → local
 		act( () => result.current.shell.fill( 'ls -a' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
@@ -658,7 +622,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		TM_COMMAND,
 	} = require( '../../../runtime/message' );
 
-	// A poll addressed to `_cwd` (FROM=_metadata), the way the poll nodes emit it.
+	// A poll addressed to `_cwd` (FROM=_metadata), as the poll nodes emit it.
 	const cwdPoll = () => {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
@@ -674,7 +638,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf( 'demo.p0' ).client = { postBatch };
-		// cd onto a worker: the gating effect sets `_cwd.target` to the bare reader.
+		// cd onto a worker: gating sets `_cwd.target` to the bare reader.
 		Core.node( names.CWD ).target = 'demo.p0';
 		act( () => {
 			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
@@ -686,8 +650,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		);
 		expect( routed ).toBeTruthy();
 		expect( routed[ TO ] ).toBe( 'demo.p0' );
-		// FROM survived the `_cwd` hop (a plain Node doesn't stamp FROM); RemoteIpc
-		// wrapped the reply address with the live pid.
+		// FROM survived the `_cwd` hop; RemoteIpc wrapped it with live pid.
 		expect( routed[ FROM ] ).toBe(
 			`${ names.SSE }:4242/${ names.METADATA }`
 		);
@@ -768,14 +731,11 @@ describe( 'useConsoleGraph — lifecycle', () => {
 
 	it( 'tears down the shared _http/_heartbeat singletons on unmount (no orphan for the next tab to collide with)', () => {
 		const { unmount } = renderGraph();
-		// The session worker's RemoteIpc composed the shared singletons on its
-		// mount-time connect.
+		// The session RemoteIpc composed the shared singletons on connect.
 		expect( Core.node( names.HTTP ) ).not.toBeNull();
 		expect( Core.node( names.HEARTBEAT ) ).not.toBeNull();
 		unmount();
-		// They must NOT survive the console unmount: the next tab's
-		// `makeNode( 'HttpOut', '_http' )` registers unconditionally and would
-		// throw "node name collision" against an orphan.
+		// Must NOT survive unmount: next tab's makeNode collides with orphan.
 		expect( Core.node( names.HTTP ) ).toBeNull();
 		expect( Core.node( names.HEARTBEAT ) ).toBeNull();
 	} );
@@ -825,10 +785,7 @@ describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
 
 	it( 'does NOT open the stream when streamEnabled is false (cwd not a worker)', () => {
 		renderGraph( { streamEnabled: false } );
-		// The session worker's RemoteIpc is mounted but its stream is never opened:
-		// connect() never ran, so no SseIn child was built. Asserting the node
-		// exists AND has no connector beats the old `lastConnector ? … : false`,
-		// which passed vacuously when no SseIn was ever constructed.
+		// RemoteIpc mounted; connect() never ran, so no SseIn child was built.
 		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
 		expect( Core.node( 'demo.p0' ).sseIn ).toBeNull();
 		expect( lastConnector ).toBeNull();

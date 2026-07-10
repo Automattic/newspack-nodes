@@ -4,9 +4,7 @@ jest.mock( '../../utils/commandClient', () => ( {
 	getCommandClient: jest.fn(),
 } ) );
 jest.mock( '../../utils/unwrapCommandResponse', () => jest.fn() );
-// Spy on parseTsl (delegating to the real parser) so the post-unmount test can
-// assert the `!live` guard short-circuits BEFORE parsing — the other tests still
-// get real parsing.
+// Spy on parseTsl so post-unmount test asserts !live short-circuits parsing.
 jest.mock( '../../utils/parseTsl', () => {
 	const actual = jest.requireActual( '../../utils/parseTsl' );
 	return { parseTsl: jest.fn( actual.parseTsl ) };
@@ -76,9 +74,7 @@ describe( 'useCanonicalNodes', () => {
 		// Flush the resolve handler.
 		await Promise.resolve();
 		await Promise.resolve();
-		// The `!live` guard returns BEFORE parsing/setState. Deleting it would let the
-		// late resolve parse the tsl and setState on the unmounted hook — so parseTsl
-		// running here is the regression signal.
+		// !live guard returns before parse/setState; parseTsl running is a bug.
 		expect( parseTsl ).not.toHaveBeenCalled();
 	} );
 

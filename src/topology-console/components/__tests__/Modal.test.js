@@ -61,10 +61,7 @@ describe( 'ModalShell', () => {
 	} );
 
 	it( 'portals the backdrop to <body> under a theme wrapper (escapes nested stacking; fixed full-viewport dim)', () => {
-		// A fixed backdrop's z-index only competes within its own stacking context, so
-		// rendered in place (inside the inspector dock's z-index:2 console) it paints
-		// below the panel header. At <body> it escapes that and dims the whole page;
-		// the theme wrapper keeps --paper / --ink in scope.
+		// Portaled to <body> to escape the dock's stacking context + dim all.
 		render(
 			<div className="dock">
 				<ModalShell title="x" onDismiss={ () => {} }>
@@ -84,7 +81,7 @@ describe( 'ModalShell', () => {
 	} );
 
 	it( 'centers the dialog over the overlay panel (not the viewport) when one is present', () => {
-		// Whole-page dim, but the dialog itself is positioned at the panel's centre.
+		// Whole-page dim, but the dialog centres over the panel, not viewport.
 		const panel = document.createElement( 'div' );
 		panel.className = 'nodes-debug__panel';
 		document.body.appendChild( panel );

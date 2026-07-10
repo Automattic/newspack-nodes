@@ -22,15 +22,13 @@ window.NewspackNodesData = {
 	userLogin: 'tester',
 };
 
-// Edit mode disables SSE, so the graph hook is never enabled; a minimal mock
-// suffices (the draft's _repl anchor gives the canvas its node).
+// Edit mode disables SSE so the graph hook never enables; a minimal mock.
 jest.mock( '../hooks/useConsoleGraph', () => ( {
 	useConsoleGraph: () => ( { status: 'closed', ssePid: null, shell: null } ),
 } ) );
 globalThis.__untitledHooks = {
 	fetchTopology: jest.fn().mockResolvedValue( null ),
-	// fetchLayout must NOT be called when effectiveTopologyName is '' — a
-	// never-resolving promise proves the canvas renders without it.
+	// fetchLayout must NOT be called when effectiveTopologyName is ''.
 	fetchLayout: jest.fn( () => new Promise( () => {} ) ),
 	saveLayout: jest.fn().mockResolvedValue( null ),
 };
@@ -112,8 +110,7 @@ describe( 'TopologyConsole — untitled (no topologies) edit mode', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Blank draft carries the _repl anchor, so the layout graph has a node;
-		// effectiveTopologyName is '' so no fetch fires — the canvas must render.
+		// Blank draft's _repl anchor gives graph a node; no fetch fires.
 		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
 		expect(
 			document.querySelector( '.topology-canvas-building' )

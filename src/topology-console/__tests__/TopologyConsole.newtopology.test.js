@@ -103,9 +103,7 @@ describe( 'TopologyConsole — Topologies-tab New/Edit deep-links', () => {
 		window.history.replaceState( {}, '', '/?new=1' );
 		const { getByTestId } = render( <TopologyConsole /> );
 		await act( async () => {} );
-		// `?new=1` is the distinct New signal: it must enter edit mode via
-		// handleNew (a blank draft) and NEVER fetch a topology's TSL — regardless
-		// of what the `topology`-state default / URL sync is.
+		// ?new=1 is the New signal: enters edit mode, NEVER fetches a TSL.
 		expect( getByTestId( 'header' ).dataset.mode ).toBe( 'edit' );
 		expect( globalThis.__newHooks.fetchTopology ).not.toHaveBeenCalled();
 	} );

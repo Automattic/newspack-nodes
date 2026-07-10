@@ -35,9 +35,7 @@ describe( 'toNeedsSseSession', () => {
 	} );
 
 	it( 'the direct _http/{worker} boundary form does not need a session', () => {
-		// Routed straight to the HTTP boundary (not through RemoteIpc's pid-wrap),
-		// so there is no async stream demux to wait on. The `_http` head fails the
-		// worker-partition shape (it has no `.pN`).
+		// Routed straight to the HTTP boundary; _http head has no worker .pN.
 		expect( toNeedsSseSession( '_http/demo.p0' ) ).toBe( false );
 	} );
 

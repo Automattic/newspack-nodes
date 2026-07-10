@@ -14,8 +14,7 @@
 import { render, fireEvent } from '@testing-library/react';
 import TimeTravelPanel from '../TimeTravelPanel';
 
-// Offsetlog-style frame ids (monotonic, climbed far past 0); the source cursor
-// segment is an UNRELATED small number — the two spaces must NOT be conflated.
+// Offsetlog frame ids and the source cursor segment are UNRELATED spaces.
 const FRAMES = [
 	{ id: 8, size: 120 },
 	{ id: 9, size: 40 },
@@ -29,9 +28,7 @@ const current = ( container ) =>
 const stepped = ( container ) =>
 	container.querySelector( '.topology-tt__marker--stepped' )?.dataset.frameId;
 
-// A live consumer reports the newest frame as `atFrame` (the cursor reads forward
-// from its last checkpoint). Quiet live ⇒ onFrame true; reading-ahead ⇒ onFrame
-// false. These are the panel's default props standing in for that live signal.
+// Default props stand in for a live consumer: atFrame=newest, onFrame=false.
 const renderPanel = ( props = {} ) =>
 	render(
 		<TimeTravelPanel
@@ -122,8 +119,7 @@ describe( 'TimeTravelPanel — pause gating', () => {
 		expect( view.getByLabelText( /pause/i ).disabled ).toBe( true );
 		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
 		expect( view.getByLabelText( /^play/i ).disabled ).toBe( false );
-		// Live (atFrame=10=newest) + read-ahead (onFrame false): rewind snaps onto
-		// the current keyframe; fast-forward stays disabled (10 is the newest).
+		// Read-ahead: rewind snaps to keyframe; FF disabled (10 newest).
 		expect( view.getByLabelText( /rewind/i ).disabled ).toBe( false );
 		expect( view.getByLabelText( /fast.?forward/i ).disabled ).toBe( true );
 	} );
@@ -165,10 +161,7 @@ describe( 'TimeTravelPanel — step', () => {
 } );
 
 describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
-	// The worked example in at_frame/on_frame terms (10 = newest). Mount live and
-	// read-ahead (atFrame=10, onFrame=false): pause → rewind SNAPS onto 10 [onFrame];
-	// rewind again → previous keyframe 9 [onFrame]; step → off 9 [!onFrame]; rewind →
-	// SNAP BACK to 9 (not 8); rewind → previous keyframe 8.
+	// Worked example (10=newest): rewind snaps on-frame, then walks back.
 	it( 'plays out the full worked example', () => {
 		const onTransport = jest.fn();
 		const view = renderPanel( { onTransport } );
@@ -268,7 +261,7 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 		pause( view );
 		// Live (atFrame=10=newest): fast-forward disabled.
 		expect( view.getByLabelText( /fast.?forward/i ).disabled ).toBe( true );
-		fireEvent.click( view.getByLabelText( /rewind/i ) ); // snap onto newest 10
+		fireEvent.click( view.getByLabelText( /rewind/i ) ); // snap → newest 10
 		// Still on the newest: disabled.
 		expect( view.getByLabelText( /fast.?forward/i ).disabled ).toBe( true );
 		fireEvent.click( view.getByLabelText( /rewind/i ) ); // → 9
@@ -289,8 +282,7 @@ describe( 'TimeTravelPanel — play resumes following the head', () => {
 		expect( current( view.container ) ).toBe( '9' );
 		fireEvent.click( view.getByLabelText( /^play/i ) ); // go live
 		expect( onTransport ).toHaveBeenLastCalledWith( 'PLAY', '' );
-		// A fresh checkpoint appends; the next live poll reports it as atFrame and
-		// un-pauses — current follows the head.
+		// A new checkpoint appends; the next live poll follows the head.
 		view.rerender(
 			<TimeTravelPanel
 				frames={ [ ...FRAMES, { id: 11, size: 60 } ] }
@@ -340,7 +332,7 @@ describe( 'TimeTravelPanel — paused signal sync', () => {
 		pause( view );
 		expect( onTransport ).toHaveBeenLastCalledWith( 'PAUSE', '' );
 		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
-		// The signal arrives true: still paused, override deferred to the signal.
+		// The signal arrives true: still paused, override deferred to it.
 		view.rerender(
 			<TimeTravelPanel
 				frames={ FRAMES }
@@ -370,9 +362,7 @@ describe( 'TimeTravelPanel — paused signal sync', () => {
 
 describe( 'TimeTravelPanel — position survives remount via signals', () => {
 	it( 'seeds at_frame + off-frame position on mount (the remount case)', () => {
-		// A fresh mount reflecting a consumer paused at frame 9, stepped off it —
-		// it must NOT reset to live/newest; it must show 9 current, the --stepped
-		// cue, and the "between" position label.
+		// Fresh mount paused off frame 9: shows 9, --stepped, not live/newest.
 		const { container } = renderPanel( {
 			atFrameSignal: 9,
 			onFrameSignal: false,
@@ -395,8 +385,7 @@ describe( 'TimeTravelPanel — position survives remount via signals', () => {
 	} );
 
 	it( 'seeds a quiet live consumer reading "on frame N" (the goal)', () => {
-		// Live + quiet: atFrame is the newest, onFrame true → the panel reads
-		// "on frame 10" rather than "after". A non-paused, on-frame consumer.
+		// Live + quiet (onFrame true): reads "on frame 10", not "after".
 		const { container } = renderPanel( {
 			atFrameSignal: 10,
 			onFrameSignal: true,
@@ -451,8 +440,7 @@ describe( 'TimeTravelPanel — position survives remount via signals', () => {
 	} );
 
 	it( 'a transport click still drives optimistically before the signal catches up', () => {
-		// Mounted on frame 9; a rewind click must move to 8 AT ONCE, without waiting
-		// for the next poll to change atFrameSignal.
+		// Mounted on frame 9; rewind moves to 8 AT ONCE, before the next poll.
 		const onTransport = jest.fn();
 		const view = renderPanel( {
 			onTransport,
@@ -476,7 +464,7 @@ describe( 'TimeTravelPanel — clamp on aged-out at_frame', () => {
 			paused: true,
 		} );
 		expect( current( view.container ) ).toBe( '9' );
-		// Retention drops 8/9/10 and rotates in newer frames; 9 no longer exists.
+		// Retention drops 8/9/10 and rotates in newer frames; 9 is gone.
 		const NEXT = [
 			{ id: 12, size: 10 },
 			{ id: 13, size: 20 },
@@ -523,7 +511,7 @@ describe( 'TimeTravelPanel — position feedback', () => {
 	it( 'reports being after the keyframe when it is the newest and stepped off', () => {
 		const view = renderPanel();
 		pause( view );
-		fireEvent.click( view.getByLabelText( /rewind/i ) ); // snap → 10 (newest)
+		fireEvent.click( view.getByLabelText( /rewind/i ) ); // snap → 10 newest
 		fireEvent.click( view.getByLabelText( /step/i ) ); // off 10
 		expect( view.container.textContent ).toMatch( /after frame 10/i );
 	} );

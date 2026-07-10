@@ -48,7 +48,7 @@ describe( 'DevtoolsTabHost', () => {
 		// One tab so far → no bar, and no "B".
 		expect( queryByRole( 'tablist' ) ).toBeNull();
 		expect( queryByText( 'B' ) ).toBeNull();
-		// A late bundle registers a second tab — the host must re-render and show it.
+		// A late second tab registers; the host must re-render and show it.
 		act( () => {
 			registerDevtoolsTab( {
 				id: 'b',
@@ -340,7 +340,7 @@ describe( 'DevtoolsTabHost', () => {
 					window.history.replaceState( {}, '', '/?tab=topologies' );
 					registerConsole();
 					render( <DevtoolsTabHost host="hub" syncUrl /> );
-					// Must NOT rewrite ?tab=topologies → ?tab=console while pending.
+					// Do NOT rewrite ?tab=topologies to console while pending.
 					expect( tabParam() ).toBe( 'topologies' );
 					act( registerTopologies );
 					expect( tabParam() ).toBe( 'topologies' );
@@ -406,7 +406,7 @@ describe( 'DevtoolsTabHost', () => {
 				const { getByRole } = render(
 					<DevtoolsTabHost host="hub" syncUrl />
 				);
-				// Land on console: its own `topology` stays, raw-logs' `log` is dropped.
+				// On console: its own topology stays; raw-logs' log is dropped.
 				let params = new URLSearchParams( window.location.search );
 				expect( params.get( 'topology' ) ).toBe( 'alpha' );
 				expect( params.get( 'log' ) ).toBeNull();
@@ -434,9 +434,7 @@ describe( 'DevtoolsTabHost', () => {
 
 describe( 'DevtoolsTabHost styles', () => {
 	it( 'reskin off the universal --cyan accent, not fixed --np-*', () => {
-		// The tab focus ring + active underline must follow the console-selected
-		// skin, so the SCSS reads the universal --cyan accent (which maps to
-		// --np-primary under Newspack), never the Newspack-fixed --np-* directly.
+		// The SCSS reads the universal --cyan accent, never the fixed --np-*.
 		const scss = fs.readFileSync(
 			path.join( __dirname, '..', 'DevtoolsTabHost.scss' ),
 			'utf8'

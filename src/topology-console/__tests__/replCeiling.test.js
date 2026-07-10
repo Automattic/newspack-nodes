@@ -21,10 +21,7 @@ describe( 'replCeilingFromAppHeight', () => {
 	} );
 
 	it( 'subtracts the repl bar (38) and a small resize-handle overhang from the app height (NOT the old 64px header row)', () => {
-		// The exact handle reserve is a small tuning knob (currently 0 — the
-		// console measures its frame exactly); assert the shape — bar + 0..a few px
-		// of handle reserve — not the magic number, and crucially NOT the stale
-		// −64 header that stranded the transcript.
+		// Assert the shape (bar + a few px reserve), not the magic number.
 		const c = replCeilingFromAppHeight( 916 );
 		expect( c ).toBeLessThanOrEqual( 916 - 38 );
 		expect( c ).toBeGreaterThan( 916 - 38 - 12 );
@@ -44,7 +41,7 @@ describe( 'console grid (graph-view.scss)', () => {
 	it( 'reserves no dead 0-height header row (the header moved to the hub)', () => {
 		// No grid-template-rows leads with a collapsed `0` header track,
 		expect( scss ).not.toMatch( /grid-template-rows:\s*0\s/ );
-		// no `header` grid-area survives in any grid-template-areas (2- or 3-col),
+		// no `header` grid-area survives in any grid-template-areas (2/3-col),
 		expect( scss ).not.toMatch( /"header\s+header/ );
 		// and nothing claims the dead area.
 		expect( scss ).not.toMatch( /grid-area:\s*header\s*;/ );

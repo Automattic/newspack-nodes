@@ -16,8 +16,7 @@ function render( props ) {
 	} );
 }
 
-// The skin is NOT owned here — it's the global `<html>.theme-<slug>` class (see
-// shared/theme.js `applySkin`). This hook is only the palette + inspector chrome.
+// Skin isn't owned here (global `<html>.theme-<slug>`); hook is chrome only.
 describe( 'usePanelChrome', () => {
 	beforeEach( () => window.localStorage.clear() );
 

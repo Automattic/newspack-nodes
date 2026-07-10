@@ -36,9 +36,7 @@ export class SliceViewNode extends Node {
 			return;
 		}
 		const value = message[ VALUE ];
-		// TM_ERROR FIRST: a transport error (e.g. the Router's NOT_AVAILABLE)
-		// arrives with a bare STRING VALUE, not a { name, payload } object —
-		// surface it whichever shape it is, so the widget never stays blank/stale.
+		// TM_ERROR FIRST: may arrive as a bare STRING VALUE, not an object.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			const payload =
 				value && 'object' === typeof value ? value.payload : value;
@@ -49,8 +47,7 @@ export class SliceViewNode extends Node {
 			this.setState( 'view', this.model );
 			return;
 		}
-		// Non-error: only an object VALUE carries a parseable slice payload.
-		// A non-object reply (transient garbage) keeps the prior slice.
+		// Non-error: only an object VALUE carries a parseable slice.
 		if ( ! value || 'object' !== typeof value ) {
 			return;
 		}

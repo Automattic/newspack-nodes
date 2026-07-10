@@ -26,19 +26,14 @@ describe( 'workerPollPath (shared by the SSE stream gate)', () => {
 	} );
 
 	it( 'a slash-containing path under a non-worker boundary (_http/foo.p3) is NOT treated as a worker', () => {
-		// parseWorker anchors the topology capture to `[^/]+`, so `_http/foo.p3`
-		// can't be mistaken for the worker `_http/foo`.p3 (a topology reader has no
-		// slash). With it in the menu, longestWorkerPrefix must still skip it.
+		// parseWorker anchors topology to [^/]+; _http/foo.p3 isn't a worker.
 		expect(
 			workerPollPath( '_http/foo.p3', [ ...OPTIONS, '_http/foo.p3' ] )
 		).toBeNull();
 	} );
 
 	it( 'a worker-SHAPED path for an INACTIVE topology is not a live worker (so the stream must not open for it)', () => {
-		// Regression: the stream gate used to use a pure regex (scopeFromCwd),
-		// which treated `inactive.p0` as a worker and opened the EventSource —
-		// but with no active mount the slot TTL'd out into a reconnect loop. The
-		// stream gate now uses THIS detection: not in the menu → null → no stream.
+		// Regression: the stream gate now uses THIS detection, not a regex.
 		expect( workerPollPath( 'inactive.p0', OPTIONS ) ).toBeNull();
 	} );
 } );

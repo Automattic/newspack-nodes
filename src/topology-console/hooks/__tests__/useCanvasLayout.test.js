@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useCanvasLayout } from '../useCanvasLayout';
 
 const KEY = 'newspack-nodes:topology:test';
-// a -> b: autoLayout puts a at {60,80} (col0,row0), b at {300,80} (maxDepth,row0).
+// a→b: autoLayout puts a at {60,80} (col0,row0), b at {300,80} (maxDepth,row0).
 const GRAPH_AB = {
 	nodes: [ { id: 'a' }, { id: 'b' } ],
 	edges: [ { from: 'a', to: 'b' } ],
@@ -49,9 +49,7 @@ describe( 'useCanvasLayout', () => {
 	} );
 
 	it( 'defers the initial autoLayout until the streaming node set settles (no premature partial layout)', () => {
-		// The graph streams in over frames: first only `a`, then `a→b`, all before
-		// the settle window elapses. The initial autoLayout must run on the COMPLETE
-		// graph, not the first partial frame — else the late node gets column-tucked.
+		// Initial autoLayout runs on the COMPLETE graph, else late node tucks.
 		const { result, rerender } = render( {
 			graph: { nodes: [ { id: 'a' } ], edges: [] },
 		} );
@@ -64,9 +62,9 @@ describe( 'useCanvasLayout', () => {
 				graph: GRAPH_AB,
 			} )
 		);
-		expect( result.current.positions ).toEqual( {} ); // re-armed, still settling
+		expect( result.current.positions ).toEqual( {} ); // re-armed, settling
 		act( () => jest.advanceTimersByTime( 300 ) );
-		// b lands at the DAG position {300,80}, NOT column-tucked below a at {60,190}.
+		// b lands at DAG {300,80}, NOT column-tucked below a at {60,190}.
 		expect( result.current.positions ).toEqual( {
 			a: { x: 60, y: 80 },
 			b: { x: 300, y: 80 },
@@ -119,8 +117,8 @@ describe( 'useCanvasLayout', () => {
 
 	it( 'tucks a newly-appeared node below the left-most-then-bottom-most, WITHOUT marking modified', () => {
 		const { result, rerender } = render();
-		act( () => jest.advanceTimersByTime( 300 ) ); // let the initial autoLayout settle+run
-		// autoLayout: a{60,80}, b{300,80}. left-most col = x60 (just a) → new node at {60,190}.
+		act( () => jest.advanceTimersByTime( 300 ) ); // settle+run autoLayout
+		// autoLayout a{60,80}, b{300,80}; left x60 → node tucks to {60,190}.
 		rerender( {
 			storageKey: KEY,
 			ready: true,
@@ -131,9 +129,7 @@ describe( 'useCanvasLayout', () => {
 			},
 		} );
 		expect( result.current.positions.c ).toEqual( { x: 60, y: 190 } );
-		// Auto-tucking an externally-added node is NOT a user modification — the
-		// graph can change from outside (the shared Core gains nodes when another
-		// view/tab mounts), so Reset Layout must not surface for it.
+		// Auto-tucking an external node isn't a user edit; no Reset Layout.
 		expect( result.current.canReset ).toBe( false );
 	} );
 
@@ -158,7 +154,7 @@ describe( 'useCanvasLayout', () => {
 		act( () => result.current.onPositionChange( 'a', { x: 5, y: 5 } ) );
 		expect( result.current.canReset ).toBe( true );
 		act( () => result.current.resetLayout() );
-		act( () => jest.advanceTimersByTime( 300 ) ); // re-init settles from cleared state
+		act( () => jest.advanceTimersByTime( 300 ) ); // re-init settles
 		expect( result.current.positions ).toEqual( {
 			a: { x: 60, y: 80 },
 			b: { x: 300, y: 80 },
@@ -204,7 +200,7 @@ describe( 'useCanvasLayout', () => {
 		expect( result.current.viewportDelta ).toEqual( delta );
 		act( () => jest.advanceTimersByTime( 200 ) );
 		const stored = JSON.parse( window.localStorage.getItem( KEY ) );
-		// Only the delta persists; the live viewBox is re-derived from it each session.
+		// Only the delta persists; viewBox is re-derived from it each session.
 		expect( stored.viewportDelta ).toEqual( delta );
 		expect( stored.viewport ).toBeUndefined();
 	} );
@@ -251,7 +247,7 @@ describe( 'useCanvasLayout', () => {
 			} )
 		);
 		const { result, rerender } = render();
-		// Scope B's graph matches its stored layout (node z), as it would in app.
+		// Scope B's graph matches its stored layout (node z), as in the app.
 		rerender( {
 			storageKey: 'newspack-nodes:topology:B',
 			graph: { nodes: [ { id: 'z' } ], edges: [] },
@@ -286,7 +282,7 @@ describe( 'useCanvasLayout', () => {
 		const stored = JSON.parse(
 			window.localStorage.getItem( 'newspack-nodes:topology:B' )
 		);
-		// B's saved layout must survive: b1 at {111,111}, no A node ids leaked in.
+		// B's saved layout must survive: b1 at {111,111}, no A ids leaked in.
 		expect( stored.positions ).toEqual( { b1: { x: 111, y: 111 } } );
 		expect( stored.modified ).toBe( false );
 		expect( result.current.positions ).toEqual( {

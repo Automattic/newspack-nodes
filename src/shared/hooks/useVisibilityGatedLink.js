@@ -44,27 +44,21 @@ export function useVisibilityGatedLink( { mountNodes, isActive, onConnect } ) {
 	const connectedLinkRef = useRef( null );
 	const [ buildGen, bumpBuild ] = useState( 0 );
 
-	// Read the latest callbacks without re-running the connection effect on their
-	// identity change — the effect must fire on isActive/buildGen only, else every
-	// render would tear the seek down into a tail reconnect.
+	// Read latest callbacks without re-running the effect on identity change.
 	const mountNodesRef = useRef( mountNodes );
 	mountNodesRef.current = mountNodes;
 	const onConnectRef = useRef( onConnect );
 	onConnectRef.current = onConnect;
 
-	// Mount the graph once onto the exospine; a rebuild (Reset Graph / reinit)
-	// re-runs this build, and mountExospine calls the returned cleanup FIRST so
-	// connectedLinkRef is cleared before the connection effect re-runs on the new link.
+	// Mount once; cleanup runs FIRST so a rebuild clears connectedLinkRef.
 	useEffect( () => {
 		const build = ( { interpreter } ) => {
 			const { link, view } = mountNodesRef.current( interpreter );
 			linkRef.current = link;
 			viewRef.current = view ?? null;
-			// A fresh link's SseIn has no tracked offset — its first connect opens
-			// at the caller's default seek, not a resume.
+			// Fresh link's SseIn has no offset; connect uses the default seek.
 			hasConnectedRef.current = false;
-			// Re-render so the connection effect runs against the fresh link and a
-			// consumer's useNodeState re-subscribes to the freshly-mounted view.
+			// Re-render so the connection effect runs against the fresh link.
 			bumpBuild( ( n ) => n + 1 );
 			return () => {
 				link.removeNode();
@@ -77,8 +71,7 @@ export function useVisibilityGatedLink( { mountNodes, isActive, onConnect } ) {
 		return teardown;
 	}, [] );
 
-	// Own the live SSE connection: open while active, else close. Re-runs on every
-	// (re)build via buildGen and on every isActive change (visibility / pause).
+	// Own the live SSE connection: open while active, else close.
 	useEffect( () => {
 		const link = linkRef.current;
 		if ( ! buildGen || ! link ) {
@@ -89,8 +82,7 @@ export function useVisibilityGatedLink( { mountNodes, isActive, onConnect } ) {
 			connectedLinkRef.current = null;
 			return undefined;
 		}
-		// Already streaming this exact link — a re-render must NOT tear the seek
-		// down into a tail reconnect.
+		// Already streaming this link; a re-render must NOT tear the seek.
 		if ( connectedLinkRef.current === link ) {
 			return undefined;
 		}

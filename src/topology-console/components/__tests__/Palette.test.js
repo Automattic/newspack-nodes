@@ -8,9 +8,7 @@
 import { render, fireEvent } from '@testing-library/react';
 import Palette from '../Palette';
 
-// A fake canvas SVG that elementFromPoint resolves to: closest() returns
-// itself, createSVGPoint/getScreenCTM project (clientX,clientY) → a fixed
-// SVG-space point so the drop coords are deterministic.
+// Fake canvas SVG: closest() returns itself; projects coords to a fixed pt.
 function makeCanvasStub( projected = { x: 42, y: 99 } ) {
 	const svg = {
 		createSVGPoint: () => ( {
@@ -52,9 +50,7 @@ describe( 'Palette', () => {
 	} );
 
 	it( 'omits non-draggable categories (Service) from the palette and the count', () => {
-		// Service CIs are mounted, not make_node'd — they must not be draggable in
-		// the palette, but they stay in the catalog so the inspector can still
-		// render their command/request buttons (catalog.find by shell_name).
+		// Service CIs are mounted, not draggable, but stay in the catalog.
 		const withService = [
 			{ shell_name: 'Echo', category: 'Generic' },
 			{ shell_name: 'Insights_CI', category: 'Service' },
@@ -91,8 +87,7 @@ describe( 'Palette', () => {
 	} );
 
 	it( 'glyph connectors reflect accepts_fill (in) and has_target (out)', () => {
-		// accepts_fill → left/in dot (::before); has_target → right/out dot
-		// (::after). The component flags the absent ones so CSS hides them.
+		// accepts_fill → in dot (::before); has_target → out dot (::after).
 		const classes = [
 			{
 				shell_name: 'Sourcey',
@@ -106,7 +101,7 @@ describe( 'Palette', () => {
 				accepts_fill: true,
 				has_target: false,
 			},
-			{ shell_name: 'Both', category: 'Generic' }, // undefined → both default true
+			{ shell_name: 'Both', category: 'Generic' }, // both default true
 		];
 		const { container } = render(
 			<Palette classes={ classes } loading={ false } />

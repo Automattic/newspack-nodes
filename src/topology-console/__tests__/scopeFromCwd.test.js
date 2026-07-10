@@ -54,8 +54,7 @@ describe( 'scopeFromCwd', () => {
 	} );
 
 	it( 'a worker-shaped segment under a non-worker boundary (_http/foo.p3) is NOT a worker', () => {
-		// The topology capture is anchored to `[^/]+`, so a slash-containing path
-		// like `_http/foo.p3` can't be mistaken for the worker `_http/foo`.p3.
+		// Topology capture anchored to [^/]+, so _http/foo.p3 isn't a worker.
 		const scope = scopeFromCwd( '_http/foo.p3' );
 		expect( scope.isWorker ).toBe( false );
 		expect( scope.key ).toBe( '_http/foo.p3' );

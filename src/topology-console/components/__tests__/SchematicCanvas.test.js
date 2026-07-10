@@ -13,8 +13,7 @@ const parsed = {
 
 describe( 'SchematicCanvas', () => {
 	beforeAll( () => {
-		// jsdom lacks a PointerEvent constructor; polyfill via MouseEvent so
-		// synthetic pointer events carry the coordinate fields drag math reads.
+		// jsdom lacks PointerEvent; polyfill via MouseEvent for coord fields.
 		if ( typeof window.PointerEvent === 'undefined' ) {
 			window.PointerEvent = class PointerEvent extends window.MouseEvent {
 				constructor( type, init = {} ) {
@@ -32,7 +31,7 @@ describe( 'SchematicCanvas', () => {
 				}
 			};
 		}
-		// Stub createSVGPoint / getScreenCTM (jsdom's SVGSVGElement lacks them).
+		// Stub createSVGPoint / getScreenCTM (jsdom SVGSVGElement lacks them).
 		const svg = window.SVGSVGElement.prototype;
 		svg.createSVGPoint = function () {
 			const pt = { x: 0, y: 0 };
@@ -57,7 +56,7 @@ describe( 'SchematicCanvas', () => {
 				} ),
 			};
 		};
-		// Pointer capture/release are no-ops jsdom requires the handlers to call.
+		// Pointer capture/release: no-op stubs jsdom's handlers require.
 		window.Element.prototype.setPointerCapture = function () {};
 		window.Element.prototype.releasePointerCapture = function () {};
 		window.Element.prototype.hasPointerCapture = function () {
@@ -65,8 +64,7 @@ describe( 'SchematicCanvas', () => {
 		};
 	} );
 
-	// positionOverrides is now the COMPLETE map (the canvas no longer lays out);
-	// supply the default a/b graph's autoLayout positions so nodes render.
+	// positionOverrides is the COMPLETE map now; supply autoLayout positions.
 	const baseProps = {
 		parsed,
 		selectedId: null,
@@ -125,9 +123,7 @@ describe( 'SchematicCanvas', () => {
 		for ( const id of [ 'topology-bloom-crt', 'topology-bloom-neo' ] ) {
 			const filter = container.querySelector( `#${ id }` );
 			expect( filter ).not.toBeNull();
-			// `feMerge[bloom, SourceGraphic]` paints the sharp OPAQUE card over the
-			// blur, hiding the glow that falls inside the card (names, LEDs). A
-			// `screen` blend adds the glow so it shows through the card instead.
+			// feMerge hides glow in card; screen blend lets it show through.
 			expect(
 				filter.querySelector( 'feBlend[mode="screen"]' )
 			).not.toBeNull();
@@ -136,10 +132,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'suppresses the infinite edge-flow animation above EDGE_FLOW_MAX edges (Firefox raster cost)', () => {
-		// A perpetual stroke-dashoffset flow on each active edge re-rasterizes
-		// every dashed path every frame — fine for a handful, but hundreds peg
-		// Firefox. Above the threshold the edge groups get `--still` (CSS drops
-		// the animation) so the static graph can be layer-cached.
+		// --still drops the per-frame dashoffset flow above the edge cap.
 		const nodes = [ { id: 's' } ];
 		const positionOverrides = { s: { x: 60, y: 80 } };
 		const edges = [];
@@ -234,8 +227,7 @@ describe( 'SchematicCanvas', () => {
 		);
 	} );
 
-	// Arrow-pan only fires while the canvas is hovered (so the debug overlay
-	// doesn't hijack the host page's arrows) — hover the SVG before pressing.
+	// Arrow-pan fires only while the canvas is hovered; hover the SVG first.
 	const hoverCanvas = ( container ) =>
 		fireEvent.pointerEnter(
 			container.querySelector( '.topology-canvas-svg' )
@@ -306,8 +298,7 @@ describe( 'SchematicCanvas', () => {
 				onViewportChange={ onViewportChange }
 			/>
 		);
-		// No hover → the document arrow handler must NOT pan (and must not
-		// preventDefault, leaving the host page free to scroll).
+		// No hover → the arrow handler must NOT pan or preventDefault.
 		fireEvent.keyDown( document, { key: 'ArrowRight' } );
 		expect( onViewportChange ).not.toHaveBeenCalled();
 	} );
@@ -390,10 +381,7 @@ describe( 'SchematicCanvas', () => {
 		);
 	} );
 
-	// The OUT port is a wire-drag source whenever `interactive` + `onConnect`
-	// are both provided — independent of editMode. The CSS pins `cursor:
-	// crosshair` to the `is-wire-source` modifier so live mode + debug overlay
-	// hovers show the "+" too, not just edit mode.
+	// OUT port is a wire-drag source when interactive + onConnect (any mode).
 	it( 'OUT port carries is-wire-source when interactive + onConnect (non-edit)', () => {
 		const { container } = render(
 			<SchematicCanvas
@@ -463,9 +451,7 @@ describe( 'SchematicCanvas', () => {
 			.getAttribute( 'viewBox' )
 			.split( /\s+/ )
 			.map( Number );
-		// baseProps' graph is smaller than the 1280 fallback canvas. The old
-		// floor pinned the viewBox to 1280 (native zoom, sea of margin); the
-		// fill-autofit zooms in so the viewBox is smaller than the canvas.
+		// Fill-autofit zooms in, so the viewBox is smaller than the canvas.
 		expect( w ).toBeLessThan( 1280 );
 	} );
 
@@ -483,8 +469,7 @@ describe( 'SchematicCanvas', () => {
 		const inset = render(
 			<SchematicCanvas { ...baseProps } bottomObstructionPx={ 200 } />
 		);
-		// Reserving the bottom band moves the viewBox window down in world space,
-		// i.e. pushes the graph UP on screen, clear of the transcript.
+		// Reserving the bottom band moves viewBox down → graph up on screen.
 		expect( yOf( inset ) ).toBeGreaterThan( baseY );
 	} );
 
@@ -586,9 +571,7 @@ describe( 'SchematicCanvas', () => {
 		expect( edge ).not.toBeNull();
 	} );
 
-	// Registration edges (parseMetadata's `{ from, to, registration, event }`)
-	// are an informational THIRD edge kind: dotted (is-registration), event-name
-	// <title> tooltip, and no edit-mode hit-target (not click-deletable).
+	// Registration edges: dotted, <title> tooltip, no edit hit-target.
 	const registrationParsed = {
 		nodes: [ { id: 'a' }, { id: 'b' } ],
 		edges: [ { from: 'a', to: 'b', registration: true, event: 'EVT' } ],
@@ -861,7 +844,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'wheel: zoom clamps to ZOOM_MIN / ZOOM_MAX', () => {
-		// Large viewport: zoom-in shrinks it but the clamp floors at baseW/ZOOM_MAX.
+		// Large viewport: zoom-in shrinks it; clamp floors at baseW/ZOOM_MAX.
 		const onViewportChange = jest.fn();
 		const { container } = render(
 			<SchematicCanvas
@@ -883,11 +866,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'anchors wheel zoom to the cursor SCREEN fraction, not the viewBox-world fraction', () => {
-		// The bug: on a letterboxed autofit, current.w (viewBox) != the canvas
-		// width, so the cursor's world-fraction within the viewBox diverges from
-		// its screen-fraction and the first zoom flings the graph off. Here the
-		// viewBox is 1700 wide but the canvas is 1000 — a world-fraction anchor
-		// would mis-place the cursor point; the screen-fraction anchor keeps it.
+		// Bug: viewBox ≠ canvas width → world-fraction anchor flings graph.
 		const onViewportChange = jest.fn();
 		const { container } = render(
 			<SchematicCanvas
@@ -907,7 +886,7 @@ describe( 'SchematicCanvas', () => {
 			right: 1000,
 			bottom: 1000,
 		} );
-		// Identity-CTM stub → world under cursor === client coords === (500,500).
+		// Identity-CTM stub → world under cursor = client coords = (500,500).
 		fireEvent.wheel( svg, { deltaY: -100, clientX: 500, clientY: 500 } );
 		const [ vp ] = onViewportChange.mock.calls.at( -1 );
 		// Cursor screen fraction is 0.5; the world point (500) must stay there.
@@ -916,9 +895,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'attaches the wheel listener as non-passive (so preventDefault works)', () => {
-		// React's onWheel is passive — its preventDefault is ignored, so the page
-		// scrolls behind the canvas (and Chrome/FF warn). The zoom listener must be
-		// attached via a non-passive addEventListener instead.
+		// React onWheel is passive; attach the zoom listener non-passive.
 		const addSpy = jest.spyOn(
 			window.SVGSVGElement.prototype,
 			'addEventListener'
@@ -1287,14 +1264,13 @@ describe( 'SchematicCanvas', () => {
 			/>
 		);
 		hoverCanvas( container );
-		// The document keydown handler runs setViewport, which early-returns when
-		// onViewportChange is absent — no throw, nothing to observe but no crash.
+		// keydown → setViewport early-returns when onViewportChange is absent.
 		expect( () =>
 			fireEvent.keyDown( document, { key: 'ArrowRight' } )
 		).not.toThrow();
 	} );
 
-	// === Guards: non-arrow key, right-button background, sub-threshold move ===
+	// === Guards: non-arrow key, right-button bg, sub-threshold move ===
 
 	it( 'ignores a non-arrow key (no pan)', () => {
 		const onViewportChange = jest.fn();
@@ -1371,7 +1347,7 @@ describe( 'SchematicCanvas', () => {
 		expect( onViewportChange ).not.toHaveBeenCalled();
 	} );
 
-	// === Node pointer handlers: fresh move/up are no-ops; pointerdown starts drag ===
+	// === Node pointer handlers: move/up no-op; pointerdown starts drag ===
 
 	it( 'pointerMove / pointerUp on a node with no active drag are no-ops', () => {
 		const onPositionChange = jest.fn();
@@ -1382,7 +1358,7 @@ describe( 'SchematicCanvas', () => {
 			/>
 		);
 		const node = container.querySelector( '.topology-node' );
-		// No prior pointer-down → updateDrag / endDrag hit their `! drag` guard.
+		// No prior pointer-down → updateDrag/endDrag hit their `! drag` guard.
 		expect( () => {
 			fireEvent.pointerMove( node, { clientX: 50, clientY: 50 } );
 			fireEvent.pointerUp( node, { clientX: 50, clientY: 50 } );
@@ -1427,7 +1403,7 @@ describe( 'SchematicCanvas', () => {
 			clientX: 80,
 			clientY: 80,
 		} );
-		// Click before the endDrag microtask resets the flag → selection suppressed.
+		// Click before endDrag resets the flag → selection suppressed.
 		fireEvent.click( node );
 		expect( onSelect ).not.toHaveBeenCalled();
 	} );
@@ -1445,7 +1421,7 @@ describe( 'SchematicCanvas', () => {
 		);
 		// Node b's IN port sits at ( x=300, y=80 + NODE_H/2=42 ) = (300, 122).
 		const outPort = container.querySelector( '.topology-port--out' );
-		// pointerDown (not mouseDown) also covers the OUT-port onPointerDown arrow.
+		// pointerDown (not mouseDown) covers the OUT-port onPointerDown arrow.
 		fireEvent.pointerDown( outPort, {
 			button: 0,
 			clientX: 256,
@@ -1457,9 +1433,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 } );
 
-// Scale-gated level-of-detail. The default tests run with an unmeasured (0x0)
-// canvas, so scale is Infinity and detail is always on; here we stub the canvas
-// measurement so the zoomed-OUT tier (no edge layer, static nodes) is exercised.
+// Scale-gated LOD: stub the canvas measure so the zoomed-OUT tier is tested.
 describe( 'SchematicCanvas scale-gated LOD', () => {
 	let stubW = 0;
 	let stubH = 0;
@@ -1473,8 +1447,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 			configurable: true,
 			get: () => stubH,
 		} );
-		// A no-op ResizeObserver: the effect's synchronous mount-time measure()
-		// reads the stubbed client size; we don't need observer callbacks here.
+		// No-op ResizeObserver: mount-time measure() reads the stubbed size.
 		if ( typeof window.ResizeObserver === 'undefined' ) {
 			window.ResizeObserver = class {
 				observe() {}
@@ -1506,9 +1479,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'drops the edge layer below the detail (text) scale, with the text', () => {
 		stubW = 1000;
 		stubH = 1000;
-		// 1000px across a 5000-unit viewBox = 0.2 px/unit — the OLD EDGE_MIN_SCALE
-		// (0.05) gate kept edges here, but it's below the 0.35 detail scale, so
-		// edges now LOD away at the same zoom as the labels.
+		// 0.2 px/unit: below 0.35 detail scale, so edges LOD away with labels.
 		const { container } = render(
 			<SchematicCanvas
 				{ ...lodProps }
@@ -1558,9 +1529,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'floors a bare node to a visible on-screen size at extreme zoom-out', () => {
 		stubW = 1000;
 		stubH = 1000;
-		// 1000px across a 400000-unit viewBox = 0.0025 px/unit; a 196-unit node
-		// would render at ~0.5px (invisible / spotty in Firefox). The floor must
-		// enlarge its rect so it stays >= ~2px (>= 800 world units here).
+		// 0.0025 px/unit: a 196-unit node → ~0.5px; floor enlarges it to ~2px.
 		const { container } = render(
 			<SchematicCanvas
 				{ ...lodProps }
@@ -1569,7 +1538,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		);
 		const bg = container.querySelector( '.topology-node__bg' );
 		const minWorld = 2 / ( 1000 / 400000 ); // MIN_NODE_PX / scale = 800
-		// Bounded both ways: floors UP to ~2px-equivalent, not arbitrarily larger.
+		// Bounded both ways: floors UP to ~2px, not arbitrarily larger.
 		expect( Number( bg.getAttribute( 'width' ) ) ).toBeCloseTo(
 			minWorld,
 			3
@@ -1611,8 +1580,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 			/>
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
-		// a in-view, b far off-view → a straight stub (M..L..), NOT a bezier (C),
-		// and no arrowhead (it points off-screen).
+		// a in-view, b off-view → stub (M..L..), no bezier/arrowhead.
 		expect( edge.getAttribute( 'd' ) ).toMatch( /^M [\d.,-]+ L [\d.,-]+$/ );
 		expect( edge.getAttribute( 'd' ) ).not.toContain( 'C' );
 		expect( edge.getAttribute( 'marker-end' ) ).toBeNull();
@@ -1678,7 +1646,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		expect(
 			container.querySelector( '[clip-path="url(#topology-node-clip)"]' )
 		).not.toBeNull();
-		// The bloom filters pin their region to the viewport (not the group bbox).
+		// Bloom filters pin their region to the viewport, not the group bbox.
 		const crt = container.querySelector( '#topology-bloom-crt' );
 		expect( crt.getAttribute( 'filterUnits' ) ).toBe( 'userSpaceOnUse' );
 	} );
@@ -1739,9 +1707,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const onViewportChange = jest.fn();
-		// A panned/zoomed viewport off the autofit so the delta re-applied against
-		// the new (inset-shifted) autofit box yields a DIFFERENT viewport — the
-		// resize/transcript-reflow effect then persists the re-derived frame.
+		// Panned/zoomed off autofit; inset-shifted box → a different viewport.
 		const viewport = { x: 100, y: 100, w: 2000, h: 2000 };
 		const { rerender } = render(
 			<SchematicCanvas
@@ -1751,12 +1717,9 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				bottomObstructionPx={ 0 }
 			/>
 		);
-		// The mount measure + freeze may call onViewportChange; ignore those and
-		// watch only the reflow triggered by the obstruction change below.
+		// Ignore mount-measure onViewportChange calls; watch only the reflow.
 		onViewportChange.mockClear();
-		// Transcript overlay opens → 200px obstructed at the bottom. Same canvas
-		// px, different inset → the effect's early-return guard passes and it
-		// re-derives + persists the controlled viewport against the new autofit.
+		// Overlay obstructs 200px; new inset → reflow persists a new frame.
 		rerender(
 			<SchematicCanvas
 				{ ...lodProps }
@@ -1790,9 +1753,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 			/>
 		);
 		onViewportChange.mockClear();
-		// Uncontrolled: the reflow effect hits its `! vp` branch and returns;
-		// the null-viewport path re-fits from defaultViewBox instead (no
-		// setViewport call from the reflow effect).
+		// Uncontrolled: reflow's `! vp` branch returns, no setViewport call.
 		expect( () =>
 			rerender(
 				<SchematicCanvas
