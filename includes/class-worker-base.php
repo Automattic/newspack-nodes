@@ -14,9 +14,11 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Worker_Base {
-	// A fresh post-reset baseline already at/above this fraction of the memory limit is
-	// "near the watermark" — a leak / undersized limit, not a single poison message. A
-	// memory stop on such a baseline alerts instead of striking the message ([42]).
+	/**
+	 * A fresh post-reset baseline already at/above this fraction of the memory limit is
+	 * "near the watermark" — a leak / undersized limit, not a single poison message. A
+	 * memory stop on such a baseline alerts instead of striking the message ([42]).
+	 */
 	public const BASELINE_WATERMARK_PCT = 0.50;
 	public const DB_CHECK_INTERVAL_S    = 30;
 	public const DB_CHECK_MAX_FAILURES  = 3;
@@ -29,10 +31,12 @@ class Worker_Base {
 	public const MEMORY_WATERMARK_PCT   = 0.80;
 	public const TOPICPROBE_INTERVAL_S   = 15;
 
-	// Shared topicprobe log: 1 MiB segments × 2, aged out at 24h — a day of
-	// consumer-stats snapshots for the dashboards' rate + backlog graphs. Single
-	// fixed partition (.p0); every worker process appends to this one dir, so
-	// Log_Cleaner must whitelist it (it's declared by no .tsl).
+	/**
+	 * Shared topicprobe log: 1 MiB segments × 2, aged out at 24h — a day of
+	 * consumer-stats snapshots for the dashboards' rate + backlog graphs. Single
+	 * fixed partition (.p0); every worker process appends to this one dir, so
+	 * Log_Cleaner must whitelist it (it's declared by no .tsl).
+	 */
 	public const TOPICPROBE_LOG_DIR      = 'topicprobe.p0';
 	public const TOPICPROBE_MAX_LIFESPAN = 86400;
 	public const TOPICPROBE_NUM_SEGMENTS = 2;
@@ -94,32 +98,30 @@ class Worker_Base {
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
-				// Handoff every durable cursor before teardown — graceful on a clean exit, but
-				// SKIPPED on a fatal so the crash counter climbs (see shutdown_handoff).
+				// Handoff durable cursors; skipped on fatal (crashes climb).
 				$this->shutdown_handoff();
-				// Tear down nodes first so Partitions release their locks before the next spawn.
+				// Tear down nodes first so Partitions unlock before respawn.
 				Core::cleanup_all_nodes();
 				$this->release();
 				$this->self_respawn( $spawn_url, $token );
 			}
 		} );
 
-		// Brief grace so a concurrent spawn sees we own the lock before retrying.
+		// Brief grace so a concurrent spawn sees we hold the lock before retry.
 		\usleep( (int) ( self::LOCK_CHECK_GRACE_S * 1_000_000 ) );
 
 		try {
 			$interpreter = $this->build_scaffolding();
 			$this->run_topology( $topology, $interpreter );
 
-			// Capture the fresh baseline (Core::initialize reset already ran this execution)
-			// before any message processing — the memory-guard reference for the fair-shot rule.
+			// Fresh baseline pre-processing — memory-guard for fair-shot.
 			$this->baseline_memory = \memory_get_usage( true );
 
 			$ef = Event_Framework::instance();
 			$ef->install_signal_handlers();
 			$ef->drain( fn() => $this->should_continue(), cooperative_stop: true );
 		} catch ( Worker_Should_Stop $e ) {
-			// pump() said stop from inside a job; normal exit — finally releases + respawns.
+			// pump() stopped mid-job; normal exit — finally releases/respawns.
 			Core::stderr( "{$this->worker_type}.p{$this->partition}: stopped mid-job (pump)" );
 		} finally {
 			if ( ! $this->shutdown_handled ) {
@@ -140,7 +142,7 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
-		// Process lifecycle lock acquired before the graph exists: bare new (no interpreter in scope).
+		// Lifecycle lock, acquired pre-graph: bare new, no interpreter yet.
 		$this->lock = new Lock_Node( $this->lock_path(), $this->stale_timeout );
 		if ( ! $this->lock->acquire() ) {
 			return false;
@@ -198,7 +200,7 @@ class Worker_Base {
 			if ( $node instanceof Consumer_Node ) {
 				$this->handoff_consumer( $node );
 			} elseif ( $node instanceof Remote_Source_Node ) {
-				// Not a Consumer_Node but carries a durable cursor: cooperative stop → fair-shot, operational → graceful.
+				// Durable cursor: coop stop → fair-shot, else graceful.
 				$this->handoff_remote_source( $node );
 			}
 		}
@@ -310,31 +312,28 @@ class Worker_Base {
 	 * @return Command_Interpreter_Node So topology closures can drive graph construction.
 	 */
 	public function build_scaffolding(): Command_Interpreter_Node {
-		// This worker process is a command VERIFIER: every interpreter it builds — the main
-		// _command_interpreter plus the patron interpreters embedded in Partitions — must
-		// HMAC-check commands arriving over IPC (which strips the LOCAL taint). Set
-		// the process-wide authorization policy once, before any interpreter is constructed.
+		// Worker = command VERIFIER: set the process-wide HMAC authorize once.
 		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
 		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
 
 		$router = new Router_Node();
 		$router->name( Node_Names::ROUTER );
-		// Active timer so the Router fires TIMER for the hitchhike pattern (keepalives etc.).
+		// Active timer so the Router fires TIMER for the hitchhike pattern.
 		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
-		// _repl output Partition: TO=_repl lands on disk; allow_large_writes since dumps exceed PIPE_BUF.
+		// _repl output Partition: allow_large_writes (dumps exceed PIPE_BUF).
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		// Graph assembly with the interpreter in scope: go through make_node (name -> arguments -> sink=interpreter).
+		// Graph assembly via make_node (name → arguments → sink=interpreter).
 		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, "{$ipc_dir}/output", self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS );
-		// allow_large_writes keys its Lock/heartbeat off name + sink, both set by make_node.
+		// allow_large_writes keys Lock/heartbeat off name+sink from make_node.
 		if ( $repl instanceof Partition_Node ) {
 			$repl->void_warranty();
 		}
@@ -363,12 +362,10 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $input_dir, 0755, true );
 		}
-		// Intentionally anonymous (pure source, never a routed TO) — stays out of Core's registry.
+		// Anonymous pure source (never a routed TO); off Core's registry.
 		$consumer = new Consumer_Node();
 		$consumer->arguments( "{$input_dir} {$ipc_dir}/input.offsets" );
-		// Seek the tail to skip any stale command history. On respawn, poll_init's
-		// load_offsetlog overrides this with the durable checkpoint (resume wins);
-		// on a first spawn there's no checkpoint, so the tail seek stands.
+		// Tail-seek skips stale history; a respawn's checkpoint overrides it.
 		$consumer->next_offset( 'end' );
 		$consumer->set_stamp_as( Node_Names::REPL );
 		$this->ipc_input_consumer = $consumer;
@@ -418,7 +415,7 @@ class Worker_Base {
 			return $this->stop( 'lock dir gone' );
 		}
 
-		// External request_restart() drops a flag into our lock dir; exit so the supervisor respawns.
+		// request_restart() flags our lock dir; exit so supervisor respawns.
 		if ( $this->lock->should_restart() ) {
 			return $this->stop( 'restart requested' );
 		}

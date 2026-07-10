@@ -42,11 +42,7 @@ class SSE_Slot_Pool {
 			self::release( self::hostname(), self::user_id(), self::ip_hash(), $slot );
 		};
 		SSE_Out_Node::$check_slot = static function ( int $slot ): bool {
-			// Check-only — NEVER refresh the TTL here. The slot TTL is refreshed
-			// EXCLUSIVELY by the client's periodic `workers/heartbeat` poke
-			// (Workers_CI -> Sse_Slot_Pool::touch). A stream draining is not proof
-			// the browser is alive; refresh-on-check would let a zombie connection
-			// hold a slot indefinitely, defeating the rate-limit invariant.
+			// Check-only — NEVER refresh TTL here (only client heartbeat does).
 			return self::check( self::hostname(), self::user_id(), self::ip_hash(), $slot );
 		};
 	}

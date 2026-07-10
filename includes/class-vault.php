@@ -87,15 +87,7 @@ class Vault {
 	 */
 	public function get_all(): array {
 		if ( null === $this->servers ) {
-			// Read config-file defaults DIRECTLY, not via load_config().
-			// load_config caches the merged config (file + WP options), and
-			// since OPTION_KEY === 'newspack_nodes_vault' it ALSO lives in the
-			// option schema, so the cache's `vault` is the merged WP-option view
-			// at first read. Subsequent WP-option mutations (admin add/remove)
-			// don't invalidate that cache until `plugins_loaded`'s one-shot
-			// reset, so reading the merged value here would resurrect-zombie
-			// servers we just deleted. is_config_server() already uses this
-			// pattern for the same reason (see its docblock).
+			// Read file defaults DIRECTLY; load_config cache zombies deletes.
 			$config_defaults = \Newspack_Nodes\Config::load_config_defaults()['vault'] ?? [];
 			if ( ! \is_array( $config_defaults ) ) {
 				$config_defaults = [];
@@ -105,18 +97,14 @@ class Vault {
 			$option = \get_option( self::OPTION_KEY, null );
 
 			if ( \is_array( $option ) ) {
-				// Option takes precedence; use `+` not array_merge — server ids
-				// are the keys, and array_merge RENUMBERS integer keys, so a
-				// numeric id (stored as an int key) would be silently reindexed
-				// and destroyed. The union operator preserves every key.
+				// Use `+` not array_merge (renumbers int server-id keys).
 				$merged = $option + $config_defaults;
 			} else {
 				// No (or non-array) option - use config defaults.
 				$merged = $config_defaults;
 			}
 
-			// Normalize: ensure all entries have required keys (config-file entries
-			// bypass validate_config and may be missing fields).
+			// Normalize: file entries skip validate_config; may lack keys.
 			$normalized = [];
 			foreach ( $merged as $id => $server ) {
 				if ( ! \is_array( $server ) ) {
@@ -128,7 +116,7 @@ class Vault {
 					'auth_username' => '',
 					'auth_password' => '',
 				];
-				// Decrypt credentials (handles both encrypted and legacy plaintext).
+				// Decrypt credentials (encrypted or legacy plaintext).
 				$pw = $server['auth_password'];
 				if ( '' !== $pw && \is_scalar( $pw ) ) {
 					$server['auth_password'] = self::decrypt( (string) $pw );
@@ -150,13 +138,7 @@ class Vault {
 	 * @return string Decrypted plaintext, original value if not encrypted, or empty on decrypt failure.
 	 */
 	private static function decrypt( string $stored ): string {
-		// Plaintext path: anything that doesn't carry the ENCRYPTED_PREFIX
-		// (e.g. a config-file Application Password the operator typed in
-		// directly) flows through unchanged. Mirrors the docstring's
-		// "original value if not encrypted" contract — without this guard
-		// the prefix-strip + base64_decode below silently nukes any plaintext
-		// password that contains non-base64 characters (such as the spaces
-		// WordPress Application Passwords come formatted with).
+		// No ENCRYPTED_PREFIX = plaintext; else base64_decode nukes spaces.
 		if ( 0 !== \strpos( $stored, self::ENCRYPTED_PREFIX ) ) {
 			return $stored;
 		}
@@ -227,7 +209,7 @@ class Vault {
 		$wp_servers        = $this->get_wp_servers();
 		$wp_servers[ $id ] = $validated;
 
-		// update_option() returns false on both failure and no-op — verify by re-read.
+		// update_option() false on failure/no-op; re-read to verify.
 		self::write_option( $wp_servers );
 		$this->servers = null;
 
@@ -300,7 +282,7 @@ class Vault {
 				}
 				$password = self::encrypt( $password );
 			} else {
-				// Already encrypted — verify it actually decrypts; reject if not.
+				// Already encrypted — verify it decrypts; reject if not.
 				$decrypted = self::decrypt( $password );
 				if ( '' === $decrypted ) {
 					$password = '';

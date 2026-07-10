@@ -17,7 +17,7 @@ class Tap_Node extends Tee_Node {
 		}
 		++$this->counter;
 
-		// Prune dead bare-name targets; pass path-shaped targets (with a slash) through as-is for the sink to route.
+		// Prune dead bare-name targets; pass path-shaped targets through as-is.
 		$targets = \is_array( $this->target ) ? $this->target : [];
 		$alive   = [];
 		foreach ( $targets as $t ) {
@@ -34,7 +34,7 @@ class Tap_Node extends Tee_Node {
 			try {
 				$this->sink?->fill( $message );
 			} catch ( Worker_Should_Stop $e ) {
-				throw $e;                                                           // cooperative stop is control flow
+				throw $e; // cooperative stop is control flow
 			} catch ( \Throwable $e ) {
 				$this->print_less_often( "target $t threw: " . $e->getMessage() );  // tap error stays non-fatal
 			}

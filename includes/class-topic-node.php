@@ -123,13 +123,13 @@ class Topic_Node extends Node {
 		$first = empty( $this->partitions );
 		if ( ! isset( $this->partitions[ $i ] ) ) {
 			$p = new Partition_Node();
-			// Name the sibling `{topic}:p{i}` (mirrors Consumer's `{name}:source`) when the Topic is named.
+			// Name the sibling `{topic}:p{i}` when the Topic is named.
 			if ( '' !== $this->name ) {
 				$p->name( "{$this->name}:p{$i}" );
 			}
 			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
 			$p->arguments( "{$child_dir} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
-			// Keep Topic's own sink (specific) and patron-link so dump_metadata hides it from the canvas.
+			// Keep Topic's sink + patron-link so dump_metadata hides it.
 			$p->sink( $this->sink );
 			$p->patron( $this );
 			$this->apply_large_write_mode( $p );

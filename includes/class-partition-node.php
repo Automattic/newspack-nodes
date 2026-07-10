@@ -130,20 +130,14 @@ class Partition_Node extends Timer_Node {
 	public function fill( array $message ): void {
 		++$this->counter;
 
-		// Debounced mode: grab the lock for this write burst (re-syncing from disk, since
-		// another writer may have advanced the partition while we held nothing) and mark
-		// the burst's last-write time. Arm the release timer HERE — the moment the lock is
-		// held — so EVERY fill() exit (small batch, >PIPE_BUF early return, oversize drop,
-		// or a pump() throw) guarantees fire() eventually releases it. The small-batch path
-		// below re-arms set_timer(0) for a prompt flush, which just fires sooner and re-arms
-		// the debounce window from fire() [65].
+		// Debounced: hold lock for the burst; arm timer so fire() frees it.
 		if ( $this->debounce_lock_ms > 0 ) {
 			$this->ensure_debounced_lock();
 			$this->last_write_at = Core::$now;
 			$this->set_timer( $this->debounce_lock_ms, true );
 		}
 
-		// No-event-loop heartbeat: heartbeat() returns false if ownership was stolen, so throw.
+		// No-event-loop heartbeat: throw if heartbeat() shows lost ownership.
 		if ( $this->allow_large_writes && $this->lock_held && null === $this->heartbeat_timer && null !== $this->write_lock ) {
 			$now = \microtime( true );
 			if ( $now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
@@ -159,10 +153,10 @@ class Partition_Node extends Timer_Node {
 			}
 		}
 
-		// Beat the worker heartbeat from inside a long in-process job (see pump()).
+		// Beat the worker heartbeat from inside a long in-process job (pump()).
 		Event_Framework::instance()->pump();
 
-		// Size cap is on the final packed bytes (not VALUE alone) — that's what hits PIPE_BUF.
+		// Size cap is on the packed bytes (not VALUE) — what hits PIPE_BUF.
 		$record = $this->serialize_record( $message );
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 		$size   = \strlen( $record );
@@ -184,7 +178,7 @@ class Partition_Node extends Timer_Node {
 
 		$this->maybe_rescan_segments();
 
-		// Large messages bypass the batch; flush pending batch first to preserve ordering.
+		// Large messages bypass the batch; flush it first to preserve ordering.
 		if ( $size > self::MAX_LINE_SIZE ) {
 			$this->flush();
 			if ( $this->current_size + $size > $this->segment_size ) {
@@ -207,7 +201,7 @@ class Partition_Node extends Timer_Node {
 			return;
 		}
 
-		// Flush if this message would push the batch over PIPE_BUF — keeps syswrites atomic.
+		// Flush if this message would push batch over PIPE_BUF — stays atomic.
 		if ( '' !== $this->batch && \strlen( $this->batch ) + $size > self::MAX_LINE_SIZE ) {
 			$this->flush();
 		}
@@ -229,9 +223,7 @@ class Partition_Node extends Timer_Node {
 	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
 	protected function fire(): void {
 		$this->flush();
-		// Debounced lock: release once the burst has been idle past the debounce window,
-		// else re-arm to re-check at the window's end. A fresh write resets the window by
-		// re-arming the 0-delay flush timer (which preempts this) [65].
+		// Debounced: free lock once idle past the window, else re-arm.
 		if ( $this->debounce_lock_ms > 0 && $this->lock_held ) {
 			$idle_ms = ( Core::$now - $this->last_write_at ) * 1000.0;
 			if ( $idle_ms >= $this->debounce_lock_ms ) {
@@ -279,7 +271,7 @@ class Partition_Node extends Timer_Node {
 	}
 
 	public function __destruct() {
-		// Flush residual batched messages so request-scope writes aren't GC'd unwritten.
+		// Flush residual batch so request-scope writes aren't GC'd unwritten.
 		$this->flush();
 		$this->close_handle();
 	}
@@ -325,7 +317,7 @@ class Partition_Node extends Timer_Node {
 				$survivors[] = $s;
 				continue;
 			}
-			// Partition's segment directory is base_dir-relative — not WP-managed.
+			// Partition's segment dir is base_dir-relative — not WP-managed.
 			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			@\unlink( $this->get_segment_path( $s['id'] ) );
 			@\unlink( $this->get_index_path( $s['id'] ) );
@@ -338,8 +330,7 @@ class Partition_Node extends Timer_Node {
 		$this->current_log_path   = $this->get_segment_path( $segment );
 		$this->current_idx_path   = $this->get_index_path( $segment );
 
-		// $survivors is built by appending in id order, so it is already a 0-indexed
-		// list matching get_segments()'s shape — no array_values() re-key needed.
+		// $survivors is already 0-indexed by id — no array_values() re-key.
 		$this->segments_cache      = $survivors;
 		$this->segments_cache_time = \microtime( true );
 	}
@@ -348,8 +339,7 @@ class Partition_Node extends Timer_Node {
 	public function remove_node(): void {
 		$this->close_handle();
 		if ( null !== $this->write_lock ) {
-			// Only release a lock we actually hold — in debounced mode another writer may
-			// own it right now, and releasing it would steal their exclusivity ([65]).
+			// Release only a lock we hold — a debounced peer may own it now.
 			if ( $this->lock_held ) {
 				$this->write_lock->release();
 			}
@@ -375,8 +365,7 @@ class Partition_Node extends Timer_Node {
 		$stale_timeout = 60;
 		$lock          = new Lock_Node( $this->write_lock_path(), $stale_timeout );
 
-		// Sibling: name (when the partition is named), keep the partition's own
-		// specific sink, and patron-link so dump_metadata hides it from the canvas.
+		// Sibling lock: name it, share our sink, patron-link to hide it.
 		if ( '' !== $this->name ) {
 			$lock->name( "{$this->name}:lock" );
 		}
@@ -389,13 +378,12 @@ class Partition_Node extends Timer_Node {
 		$this->lock_max_wait_ms   = $max_wait_ms;
 
 		if ( $debounce_ms > 0 ) {
-			// Debounced: don't acquire now — fill() grabs the lock per burst, fire() frees it.
+			// Debounced: fill() grabs the lock per burst, fire() frees it.
 			$this->debounce_lock_ms = $debounce_ms;
 			return $this;
 		}
 
-		// Hold mode: acquire-and-hold for the partition's lifetime.
-		// Drain active: arm the heartbeat Timer. Request-scope: drive heartbeat from fill().
+		// Hold mode: acquire for life; arm heartbeat Timer, else fill() drives.
 		$ef_running = Event_Framework::instance()->is_running();
 
 		if ( ! $lock->acquire( $max_wait_ms ) ) {
@@ -412,7 +400,7 @@ class Partition_Node extends Timer_Node {
 		$this->last_lock_heartbeat = \microtime( true );
 
 		if ( $ef_running ) {
-			// Heartbeat cadence = stale_timeout/3 ms; three ticks per stale window.
+			// Heartbeat cadence = stale_timeout/3 ms; 3 ticks per stale window.
 			$this->heartbeat_timer = new Timer_Node();
 			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
 			$this->heartbeat_timer->arguments( (string) \intdiv( $stale_timeout * 1000, 3 ) );
@@ -445,7 +433,7 @@ class Partition_Node extends Timer_Node {
 		}
 		$this->lock_held           = true;
 		$this->last_lock_heartbeat = \microtime( true );
-		// Drop cached position/handle: the live end on disk is authoritative now.
+		// Drop cached position/handle: the live disk end is authoritative now.
 		$this->close_handle();
 		$this->current_segment_id = null;
 		$this->segments_cache     = null;
@@ -537,7 +525,7 @@ class Partition_Node extends Timer_Node {
 			}
 			$age = \time() - $mtime;
 			if ( $age < self::ROTATE_LOCK_TTL_SECONDS ) {
-				// Another process is rotating; wait briefly and re-init from disk.
+				// Peer is rotating; wait briefly and re-init from disk.
 				\usleep( 50000 );
 				$this->init_current_segment();
 				return;
@@ -566,9 +554,7 @@ class Partition_Node extends Timer_Node {
 	 * Detects "a peer already advanced": adopt the newest segment if it still has room.
 	 */
 	protected function do_rotate(): void {
-		// Multi-writer partitions force-refresh to detect a peer that already
-		// rotated the dir behind us; an allow_large_writes (single-writer) log has no
-		// peer, so a warm-cache read suffices — saving a scandir per ~30s checkpoint.
+		// Multi-writer rescans for peer rotations; single-writer stays warm.
 		$segments = $this->get_segments( ! $this->allow_large_writes );
 
 		if ( ! empty( $segments ) ) {
@@ -578,7 +564,7 @@ class Partition_Node extends Timer_Node {
 				$this->current_size       = $newest['size'];
 				$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
 				$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
-				// Cache already holds the truth (incl. the adopted newest); keep it warm.
+				// Cache already holds the adopted newest; keep it warm.
 				return;
 			}
 		}
@@ -590,7 +576,7 @@ class Partition_Node extends Timer_Node {
 		$this->current_log_path   = $this->get_segment_path( $next_id );
 		$this->current_idx_path   = $this->get_index_path( $next_id );
 
-		// Materialize the empty file so get_handle()'s missing-file guard doesn't reset to segment 0.
+		// Touch the empty file so get_handle()'s guard won't reset to seg 0.
 		if ( ! \is_dir( $this->segment_dir() ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $this->segment_dir(), 0755, true );
@@ -600,9 +586,7 @@ class Partition_Node extends Timer_Node {
 			$this->print_less_often( "WARNING: touch() failed for {$this->current_log_path}" );
 		}
 
-		// Maintain the cache: the post-create list is the line-351 scan plus the
-		// empty segment we just created. cleanup_segments() then prunes it in place
-		// without a second scan.
+		// Keep cache warm: scan + new empty segment; cleanup prunes in place.
 		$this->segments_cache[]    = [ 'id' => $next_id, 'size' => 0 ];
 		$this->segments_cache_time = \microtime( true );
 
@@ -616,7 +600,7 @@ class Partition_Node extends Timer_Node {
 	 * AND (now - mtime) >= max_lifespan.
 	 */
 	public function cleanup_segments(): void {
-		// Operate on the maintained cache when warm; standalone callers (cold cache) force-scan.
+		// Use the warm cache; standalone callers (cold cache) force-scan.
 		$segments       = null === $this->segments_cache ? $this->get_segments( true ) : $this->segments_cache;
 		$count          = \count( $segments );
 		$initial_count  = $count;
@@ -629,7 +613,7 @@ class Partition_Node extends Timer_Node {
 			if ( false === $mtime || ( $now - $mtime ) < $this->max_lifespan ) {
 				break;
 			}
-			// Partition's segment directory is base_dir-relative — not WP-managed.
+			// Partition's segment dir is base_dir-relative — not WP-managed.
 			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			@\unlink( $path );
 			@\unlink( $this->get_index_path( $oldest['id'] ) );
@@ -664,11 +648,11 @@ class Partition_Node extends Timer_Node {
 			// Whole tree got wiped; reset from disk (lands at segment 0).
 			$this->init_current_segment();
 		} elseif ( null === $this->current_log_path || ! \file_exists( $this->current_log_path ) ) {
-			// No active segment yet, or the active log file disappeared underneath us — (re-)init from disk.
+			// No active segment, or log file vanished — (re-)init from disk.
 			$this->init_current_segment();
 		}
 
-		// init_current_segment() always sets these together; bail if somehow unset.
+		// init_current_segment() sets these together; bail if somehow unset.
 		$log_path   = $this->current_log_path;
 		$idx_path   = $this->current_idx_path;
 		$segment = $this->current_segment_id;
@@ -686,13 +670,12 @@ class Partition_Node extends Timer_Node {
 			$this->fh            = $fh;
 			$this->fh_segment_id = $segment;
 
-			// Single-writer mode: disable PHP's 8KB buffer so readers see writes immediately.
+			// Single-writer: disable PHP's 8KB buffer so readers see writes.
 			if ( $this->allow_large_writes ) {
 				\stream_set_write_buffer( $this->fh, 0 );
 			}
 
-			// Only open the .idx companion when a with_index() formatter is set —
-			// default mode writes no index, so no empty .idx should materialize.
+			// Open .idx only when a with_index() formatter is set; else none.
 			if ( null !== $this->index_callback ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
 				$idx_fh       = @\fopen( $idx_path, 'a' );
@@ -821,7 +804,7 @@ class Partition_Node extends Timer_Node {
 			return '';
 		}
 		if ( 0 === $length ) {
-			return '';  // fread() throws on $length === 0 in PHP 8.1+; short-circuit.
+			return '';  // fread() throws on $length === 0 in PHP 8.1+.
 		}
 		$path = $this->get_segment_path( $segment );
 		if ( ! \file_exists( $path ) ) {
@@ -1145,7 +1128,7 @@ class Partition_Node extends Timer_Node {
 			if ( '' === $bytes ) {
 				return [];
 			}
-			// A non-zero start may land mid-record; drop the partial leading line.
+			// A non-zero start may land mid-record; drop the partial line.
 			if ( $offset > 0 ) {
 				$nl    = \strpos( $bytes, "\n" );
 				$bytes = false === $nl ? '' : \substr( $bytes, $nl + 1 );

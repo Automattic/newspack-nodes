@@ -83,13 +83,7 @@ class Job_Worker_Node extends Node {
 	public function __construct() {
 		parent::__construct();
 
-		// Handler maps are eager init, not config — a JobWorker with
-		// no handlers is dead weight. By the time a worker's TSL is
-		// evaluated, plugins_loaded has fired, so every registered
-		// `newspack_nodes/{job,remote_job}_handlers` filter is in
-		// place. Eager-load avoids the operator having to remember a
-		// `cmd job-worker:config load_handlers` line in every TSL
-		// file that uses JobWorker.
+		// Eager-load handlers: plugins_loaded has fired by TSL eval time.
 		$this->load_handlers_from_filters();
 	}
 
@@ -132,9 +126,7 @@ class Job_Worker_Node extends Node {
 			$this->print_less_often( 'oversized entry, skipping' );
 			return;
 		}
-		// Canonical jobs.log / jobintake.log entry: {k, handler, parameters, ts}.
-		// `k` is the firehose category field ('job' | 'remote_job'); Job_Intake
-		// writes it verbatim and Job_Router carries it through unrenamed.
+		// Each entry carries kind k (job or remote_job), handler, parameters, ts.
 		$kind = $entry['k'] ?? '';
 		if ( 'job' !== $kind && 'remote_job' !== $kind ) {
 			return;
@@ -153,8 +145,7 @@ class Job_Worker_Node extends Node {
 		}
 		$parameters = $entry['parameters'] ?? [];
 
-		// Apps hook request-scoped context (suspend a logger, rewrite $_SERVER) onto
-		// before_job/after_job. The swallow-vs-propagate asymmetry below is deliberate.
+		// Apps hook request context on before/after_job; asymmetry deliberate.
 		$before_ok = false;
 		try {
 			try {
@@ -163,15 +154,15 @@ class Job_Worker_Node extends Node {
 			} catch ( Worker_Should_Stop $e ) {
 				throw $e;
 			} catch ( \Throwable $e ) {
-				// An app before_job listener crashing must not down the drain batch — swallow + skip the handler.
+				// before_job listener crash must not kill batch; swallow, skip.
 				$this->print_less_often( 'before_job listener threw: ' . $e->getMessage() );
 			}
 			if ( $before_ok ) {
-				// A handler throw is poison: let it propagate so the Consumer quarantines it (Worker_Should_Stop too).
+				// Handler throw is poison: let it propagate to the Consumer.
 				( $handlers[ $handler ] )( $parameters );
 			}
 		} finally {
-			// after_job always fires; swallow a listener throw so cleanup can't mask the handler exception or false-poison a good job.
+			// after_job always fires; swallow throw so it can't mask the error.
 			try {
 				\do_action( 'newspack_nodes/job_worker/after_job', $handler );
 			} catch ( \Throwable $e ) {
@@ -181,12 +172,10 @@ class Job_Worker_Node extends Node {
 		++$this->jobs_executed;
 		++$this->jobs_since_cache_flush;
 
-		// Force a GC cycle every job. Reference-counted GC can't break cycles
-		// immediately; explicit collection delays the watermark trip.
+		// Force GC each job; refcount GC can't break cycles immediately.
 		\gc_collect_cycles();
 
-		// Periodic object-cache flush extends per-process runtime by orders of
-		// magnitude on workloads that fan out wp_query under handler control.
+		// Periodic cache flush extends runtime on wp_query-heavy handlers.
 		if ( $this->jobs_since_cache_flush >= $this->cache_flush_interval ) {
 			if ( \function_exists( 'wp_cache_flush' ) ) {
 				\wp_cache_flush();
@@ -195,10 +184,7 @@ class Job_Worker_Node extends Node {
 			$this->jobs_since_cache_flush = 0;
 		}
 
-		// Memory watermark check. If we cross 80% of memory_limit, latch the
-		// pressure flag and emit the MEMORY_PRESSURE set_state event (also
-		// surfaced in GET_HEALTH) so the supervisor can respawn into a fresh
-		// process. Latched so the event fires once per pressure episode.
+		// At 80% memory_limit, latch + emit MEMORY_PRESSURE for respawn.
 		if ( $this->is_memory_high() && ! $this->memory_pressure ) {
 			$this->set_state( 'MEMORY_PRESSURE', \implode( ' ', [ 'USAGE', \memory_get_usage( true ) ] ) );
 			$this->memory_pressure = true;

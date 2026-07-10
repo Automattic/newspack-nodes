@@ -36,8 +36,7 @@ class SSE_Out_Node extends Node {
 	/** Flush-comment total byte size. Must stay under PIPE_BUF (4096 on Linux). */
 	public const FLUSH_SIZE = 4096;
 
-	// Idle-keepalive heartbeat cadence (ms). Data flushes every drain tick regardless;
-	// this only paces the idle heartbeat. 2s matches the dashboards' refresh.
+	// Idle heartbeat cadence (ms); data flushes every tick regardless. 2s.
 	public const HEARTBEAT_MS = 2000;
 
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
@@ -187,51 +186,33 @@ class SSE_Out_Node extends Node {
 	 * @param int                      $partition Slot-pool partition (-1 = shared browser).
 	 */
 	public function run_stream_loop( array $subs, ?array $positions, int $interval, int $slot = 1, int $partition = -1 ): void {
-		// `connected` emits before the graph is built (registers no nodes), so it stays outside try.
-		// Its own SSE event type (like `heartbeat`): the client discriminates the handshake by
-		// `event:` rather than unpacking every `msg` to peek KEY.
+		// connected emits outside try (no nodes yet); own SSE event type.
 		$this->send_sse_event( 'connected', $this->build_connected_msg( $slot, $subs, $interval ) );
-		// A bare flush() doesn't clear fastcgi/nginx buffers; the FLUSH_SIZE padding does.
+		// A bare flush() doesn't clear proxy buffers; FLUSH_SIZE padding does.
 		$this->flush_if_needed();
 
 		$consumers = [];
 		try {
-			// Build INSIDE the try so finally cleans up even when open_subscription
-			// throws — otherwise the next request hits a `_router already registered` collision.
+			// Build INSIDE try so finally cleans up (else _router collides).
 			( new Router_Node() )->name( Node_Names::ROUTER );
 
-			// SSE-process interpreter (Tachikoma rule #2: things sink into _command_interpreter
-			// → _router). A worker can drive it (`cmd _repl/_command_interpreter …`);
-			// such stream commands are HMAC-signed (the cli signed them; LOCAL is
-			// stripped at the wire), so authorize with the verifier like the worker.
+			// SSE-process interpreter → _router; authorize with the verifier.
 			Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 			$interpreter = new Command_Interpreter_Node();
 			$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 			$interpreter->sink( Core::node( Node_Names::ROUTER ) );
 
-			// This controller IS the SSE egress Node; reached by TO=`_sse`. Named so
-			// broadcasts (and this process's stderr) route to the client through it.
+			// This controller IS the SSE egress Node; reached by TO=_sse.
 			$this->name( Node_Names::SSE );
 			$this->sink( $interpreter );
 
 			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
 			$http_filter->name( Node_Names::OUTPUT );
 			$http_filter->sink( $this );
-			// Plumbing of the SSE egress — patron-linked so dump_metadata hides it from the canvas.
+			// SSE egress plumbing — patron-linked so dump_metadata hides it.
 			$http_filter->patron( $this );
 
-			// The ONE exceptional non-interpreter sink: Consumers sink HERE, not
-			// straight into the interpreter, because a Consumer would FORCE TO=target()
-			// on EVERY message if it had a target (it does that to keep commands/requests
-			// from leaking out of non-IPC partitions) — which would clobber reply
-			// breadcrumbs. A plain Node uses the DEFAULT fill(): it stamps TO=`_sse` only
-			// when TO is EMPTY, else leaves TO and forwards. So: empty-TO worker
-			// broadcasts (stderr/events) → TO=`_sse` → egress; non-empty-TO replies keep
-			// their breadcrumb → `_output`. A command addressed `_command_interpreter`
-			// (TO non-empty here) is NOT stamped; the interpreter forwards it to
-			// `_router`, which peels `_command_interpreter` and re-delivers it to the
-			// interpreter with TO now empty — THEN it interprets. So the _router
-			// round-trip matters; don't "simplify" it away.
+			// Consumers sink to a plain Node; keep the _router round-trip.
 			$default_route = new Node();
 			$default_route->name( '_default_route' );
 			$default_route->sink( $interpreter );
@@ -239,17 +220,12 @@ class SSE_Out_Node extends Node {
 			$default_route->patron( $this );
 
 			foreach ( $subs as $sub ) {
-				// Positions are a FLAT `{ <concrete-dir>: pos }` map; pass the whole
-				// thing — open_subscription seeds only the dirs it opens (by name).
+				// Positions are a FLAT { dir: pos } map; pass the whole thing.
 				$opened = $this->open_subscription(
 					$sub,
 					\is_array( $positions ) ? $positions : null
 				);
-				// A subscription can resolve to several Consumers (one per partition
-				// of a multi-partition log). Each needs a DISTINCT node name —
-				// Node::name() throws on a duplicate. The partition the dashboard
-				// reads rides the stamp/FROM, not the node name, so the `:p{i}`
-				// suffix is invisible downstream.
+				// Each Consumer needs a DISTINCT name (Node::name dup throws).
 				$multi = \count( $opened ) > 1;
 				foreach ( $opened as $i => $c ) {
 					$c->name( $multi ? "{$sub}:p{$i}" : $sub );
@@ -259,8 +235,7 @@ class SSE_Out_Node extends Node {
 				}
 			}
 
-			// Heartbeat every $interval ms so dashboards can tell an idle-but-live
-			// stream from a dead one (quiet topologies would otherwise go dark).
+			// Heartbeat every $interval ms so an idle-but-live stream ≠ dead.
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = \microtime( true );
 			Event_Framework::instance()->drain(
@@ -277,7 +252,7 @@ class SSE_Out_Node extends Node {
 						$this->send_sse_event( 'heartbeat', $this->build_heartbeat_msg( $now ) );
 						$last_heartbeat = $now;
 					}
-					// Flush before the framework sleeps so this tick's msgs + heartbeats reach the client.
+					// Flush before sleep so this tick reaches the client.
 					$this->flush_if_needed();
 					return true;
 				}
@@ -302,7 +277,7 @@ class SSE_Out_Node extends Node {
 			if ( $router instanceof Router_Node ) {
 				$router->remove_node();
 			}
-			// Drop the `_sse` egress name mapping (the controller instance persists).
+			// Drop the _sse egress name mapping (controller instance persists).
 			Core::unregister_node( Node_Names::SSE );
 			$release = self::$release_slot;
 			if ( null !== $release ) {
@@ -325,7 +300,7 @@ class SSE_Out_Node extends Node {
 		}
 		$json    = Message::packed( $message );
 		$payload = "event: {$event}\ndata: {$json}\n\n";
-		// SSE wire format must reach the client byte-for-byte; HTML escaping would corrupt the stream.
+		// SSE wire must reach the client byte-for-byte; escaping corrupts it.
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo $payload;
 		@\flush();
@@ -365,7 +340,7 @@ class SSE_Out_Node extends Node {
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
-		# XXX: This violates "Partition token is layout-agnostic" (feedback_partition_token_layout_agnostic.md)
+		# XXX: violates "Partition token is layout-agnostic" (see feedback doc).
 		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
 			$ipc_output = "{$base}/ipc/{$sub}/output";
 			if ( \is_dir( $ipc_output ) ) {
@@ -391,9 +366,7 @@ class SSE_Out_Node extends Node {
 			$partitions = $this->num_partitions ?? ( \is_numeric( $np_raw ) ? (int) $np_raw : 1 );
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
-				// Request-scope producers (Log_Manager/Job_Intake) write a fixed
-				// `{name}.p{N}` layout; each dir is the unique partition. Stamp AND
-				// resume-key by that concrete dir name (the FROM the dashboard reads).
+				// Fixed {name}.p{N} layout; stamp + resume-key by the dir name.
 				$dir      = "{$sub}.p{$p}";
 				$consumer = new Consumer_Node();
 				$consumer->arguments( "{$base}/logs/{$dir} " );
@@ -439,14 +412,11 @@ class SSE_Out_Node extends Node {
 	private function build_connected_msg( int $slot, array $subs, int $interval ): array {
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_INFO;
-		// connected fires before the drain loop seeds `Core::$now`; fall back to microtime().
+		// connected fires before the drain seeds Core::$now; use microtime().
 		$message[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
 		$message[ Message::FROM ]      = '_stream';
 		$message[ Message::KEY ]       = 'connected';
-		// TM_INFO values are STRINGS — encode as a flat `KEY VALUE` envelope the
-		// client splits back (array_chunk/array_column). Every token must be a
-		// single whitespace-free string: cast the ints, comma-join the sub list
-		// (one token; an empty list yields an empty token that keeps the pairing).
+		// TM_INFO values are STRINGS — flat KEY VALUE, whitespace-free tokens.
 		$message[ Message::VALUE ]     = \implode( ' ', [
 			'PID',           (string) \getmypid(),
 			'SLOT',          (string) $slot,
@@ -533,8 +503,7 @@ class SSE_Out_Node extends Node {
 			[
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'stream' ],
-				// Capability-only gate (auth resolved upstream by the REST dispatcher).
-				// Don't add a nonce check — it would break the cross-server SSE pull.
+				// Capability-only gate; NO nonce (breaks cross-server pull).
 				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
 				'args'                => [
 					'subscribe' => [ 'required' => true, 'type' => 'string' ],

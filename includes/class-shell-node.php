@@ -133,7 +133,7 @@ class Shell_Node extends Node {
 	 * @return array<int, mixed>|null The 7-field positional Message, or null.
 	 */
 	public function parse( string $line ): ?array {
-		// Backslash continuation: accumulate and return null (caller reads next line).
+		// Backslash continuation: accumulate, return null (caller reads next).
 		if ( \str_ends_with( $line, '\\' ) ) {
 			$this->continuation .= \substr( $line, 0, -1 ) . "\n";
 			return null;
@@ -145,7 +145,7 @@ class Shell_Node extends Node {
 
 		$line = $this->interpolate( $line );
 
-		// Trim AFTER interpolation so `<var>` can expand into leading whitespace.
+		// Trim AFTER interpolation so `<var>` can expand into leading space.
 		$line = \trim( $line );
 		if ( '' === $line || '#' === $line[0] ) {
 			return null;
@@ -208,9 +208,7 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		// `var name=value` (spaces around `=` optional, value may be empty or multi-word).
-		// Splits on the FIRST `=`, matching the .tsl frontmatter parser; `:` names are
-		// reserved for read-only namespaces like config:.
+		// A var assignment splits on the first equals; colon-names are reserved.
 		if ( 'var' === $verb ) {
 			$assignment = \implode( ' ', $args );
 			$eq         = \strpos( $assignment, '=' );
@@ -235,8 +233,7 @@ class Shell_Node extends Node {
 		// FROM=`_output/$pid` so replies route back to this session's Dumper.
 		$message                   = Message::new_message();
 		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
-		// LOCAL provenance taint — minted in this process. Stripped at the wire
-		// boundary (packed()), so it authorizes only an in-process interpreter.
+		// LOCAL taint: in-proc mint, stripped at wire (packed()); local-only.
 		$message[ Message::LOCAL ] = true;
 
 		switch ( $verb ) {
@@ -281,9 +278,7 @@ class Shell_Node extends Node {
 				break;
 			case 'send_struct':
 			case 'send_struct_node':
-				// VALUE is the JSON (the args after the path, re-joined). A builtin
-				// runs here in parse(), before the interpreter's central catch sees
-				// anything, so surface a decode error ourselves and send nothing.
+				// Runs in parse(), before central catch — decode error here.
 				try {
 					$decoded = \json_decode( \implode( ' ', \array_slice( $args, 1 ) ), true, 512, \JSON_THROW_ON_ERROR );
 				} catch ( \JsonException $e ) {
@@ -331,7 +326,7 @@ class Shell_Node extends Node {
 	 */
 	public function interpolate( string $line ): string {
 		$out     = '';
-		$literal = null; // active single-quote or backtick span suppressing expansion.
+		$literal = null; // active quote/backtick span, suppresses expansion.
 		$length     = \strlen( $line );
 		for ( $i = 0; $i < $length; ) {
 			$ch = $line[ $i ];
@@ -388,7 +383,7 @@ class Shell_Node extends Node {
 			}
 			if ( '"' === $ch || "'" === $ch || '`' === $ch ) {
 				$in_quote = $ch;
-				$in_token = true; // empty quoted string still counts as a token.
+				$in_token = true; // empty quoted string counts as a token.
 				continue;
 			}
 			if ( ' ' === $ch || "\t" === $ch ) {

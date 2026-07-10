@@ -23,7 +23,7 @@ class JSON_To_Struct_Node extends Node {
 			$decoded = \json_decode( $value, true );
 			if ( \is_array( $decoded ) ) {
 				$message[ Message::VALUE ] = $decoded;
-				// Swap only the BYTESTREAM bit for STRUCT; preserve co-existing flags (e.g. TM_RESPONSE).
+				// Swap BYTESTREAM bit for STRUCT; keep other flags.
 				$message[ Message::TYPE ] = ( $type & ~Message::TM_BYTESTREAM ) | Message::TM_STRUCT;
 			}
 		}

@@ -74,7 +74,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 				\esc_html( 'body too large: layout arguments exceed 1 MiB' )
 			);
 		}
-		// `save <name> <positions-json>`: name is the first token, the rest-of-line is the JSON.
+		// `save <name> <positions-json>`: name is first token, rest is JSON.
 		[ $name_raw, $positions_json ] = self::split_first_token( $args );
 		$name      = self::require_valid_name( $name_raw );
 		$positions = \json_decode( $positions_json, true );

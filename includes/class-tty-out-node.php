@@ -79,10 +79,10 @@ class TTY_Out_Node extends Stdout_Node {
 			$text .= "\n";
 		}
 
-		// stdout/stderr are the cli's own terminal streams — not WP-Filesystem paths.
+		// stdout/stderr are the cli's own terminal streams, not WP-Filesystem.
 		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		if ( $this->readline_mode ) {
-			// Readline runs with an empty prompt; never call readline_redisplay (flips into incremental-search).
+			// Empty prompt; skip readline_redisplay (flips to incr-search).
 			\fwrite(
 				$this->stdout,
 				self::ANSI_CR_CLEAR_LINE . $text . $this->shell->prompt

@@ -58,10 +58,7 @@ class Timer_Node extends Node {
 		if ( null === $this->sink ) {
 			return;
 		}
-		// A hitchhike timer with interval_ms > 1000 rides the per-second router tick
-		// but only fires once interval_ms has elapsed (Core::$now is in seconds, so
-		// convert). interval_ms <= 1000 (own slot already paces it) and interval_ms
-		// === 0 (no-ms hitchhike fires every tick) skip the throttle.
+		// Hitchhike timers with interval_ms>1000 throttle here; <=1000/0 skip.
 		if ( $this->interval_ms > 1000 ) {
 			if ( Core::$now - $this->last_fire_time < $this->interval_ms / 1000.0 ) {
 				return;
@@ -72,10 +69,7 @@ class Timer_Node extends Node {
 		$this->fire_count++;
 	}
 
-	// One tick (Perl Timer::fire). Emit a TM_BYTESTREAM heartbeat carrying the
-	// timestamp ONLY when this timer has a target, or its sink isn't the
-	// CommandInterpreter (the owner/CI guard — a target-less timer sinking into the
-	// interpreter would just spam it); counter++ on emit. Always notify 'FIRE'.
+	// Emit heartbeat unless target-less & sink is CI (spam guard); notify FIRE.
 	protected function fire(): void {
 		if ( '' !== $this->target || ! ( $this->sink instanceof Command_Interpreter_Node ) ) {
 			if ( null === $this->sink ) {
@@ -96,12 +90,7 @@ class Timer_Node extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
-	// No ms (or $ms >= 1000) => Router-hitchhike: fire_cb() throttles a >=1000
-	// interval against last_fire_time so the per-second router tick is enough. A
-	// $ms < 1000 timer needs its own event-framework slot (the router tick is ~1s,
-	// too coarse to pace a sub-second timer). The router itself is the exception —
-	// it can't hitchhike its own TIMER, so it always owns a slot (the drain loop
-	// ticks it; everything else then rides that tick).
+	// No ms / >=1000 => router-hitchhike; <1000 => own slot (router self-owns).
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
 		$router = Core::node( Node_Names::ROUTER );
 		if ( ( null === $ms || $ms >= 1000 ) && $router !== $this ) {
@@ -118,7 +107,8 @@ class Timer_Node extends Node {
 			$this->mode           = 'router';
 			$this->interval_ms    = null === $ms ? $router->interval_ms : $ms;
 			$this->last_fire_time = 0.0;
-			$this->next_fire      = 0.0; // clear a stale own-slot next_fire (list_timers reads it)
+			// clear a stale own-slot next_fire (list_timers reads it)
+			$this->next_fire      = 0.0;
 			$this->oneshot        = false;
 			return;
 		}
@@ -126,8 +116,7 @@ class Timer_Node extends Node {
 			$this->_stop_timer();
 		}
 		if ( null === $ms ) {
-			// Own-slot needs a concrete interval. Only the router reaches here with a
-			// null $ms (it can't hitchhike itself) — it must pass a real tick.
+			// Own-slot needs an interval; only router reaches here null $ms.
 			throw new \RuntimeException( 'Own-slot timer requires an interval (ms)' );
 		}
 		$this->mode        = 'event_framework';

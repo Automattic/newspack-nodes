@@ -19,8 +19,7 @@ class Field_Reset_Assets {
 
 	/** Enqueue the nodes-built field-reset toggle module (DOM-only, no deps). */
 	public static function enqueue(): void {
-		// Need both constants: DIR to read the asset manifest, URL to build a
-		// loadable script src (a bare relative path would 404).
+		// Need both DIR (asset manifest) and URL (script src, else a 404).
 		if ( ! \function_exists( 'wp_enqueue_script' ) || ! \defined( 'NEWSPACK_NODES_DIR' ) || ! \defined( 'NEWSPACK_NODES_URL' ) ) {
 			return;
 		}
@@ -36,10 +35,7 @@ class Field_Reset_Assets {
 
 	/** Marked-state highlight CSS — print once near the settings form. */
 	public static function highlight_style(): string {
-		// The :hover/:focus rule re-asserts the red at (0,3,0) so WP core's
-		// `.wp-core-ui .button:focus` can't repaint the marked toggle grey the
-		// moment it's clicked; box-shadow is left alone, so WP's blue focus ring
-		// still renders over the (now visible) red state.
+		// :hover/:focus re-asserts red at (0,3,0) so WP can't grey the toggle.
 		return '<style>.is-marked [data-nn-reset-toggle]{background:#d63638;border-color:#d63638;color:#fff;}'
 			. '.is-marked [data-nn-reset-toggle]:hover,.is-marked [data-nn-reset-toggle]:focus{background:#b32d2e;border-color:#b32d2e;color:#fff;}</style>';
 	}

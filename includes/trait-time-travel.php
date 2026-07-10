@@ -185,14 +185,14 @@ trait Time_Travel {
 	 * @return array{segment:int, offset:int, at_eof:bool} The resulting cursor + EOF flag.
 	 */
 	public function step(): array {
-		// Stepping stays paused: a self-rearming fire() would leap past messages.
+		// Stepping stays paused: a self-rearming fire() leaps past messages.
 		$this->stop_timer();
 		$this->set_state( 'POLLING', 'PAUSED' );
 		if ( null === $this->saved_line_mode ) {
 			$this->saved_line_mode = $this->line_mode;
 		}
 		$this->line_mode          = true;
-		$this->stepped_since_seek = true; // Cursor advances off the seeked frame.
+		$this->stepped_since_seek = true; // Cursor moves off the seeked frame.
 		return $this->advance_one_message();
 	}
 
@@ -284,7 +284,7 @@ trait Time_Travel {
 			$this->offsetlog?->truncate_after( $this->rewound_to );
 			$this->rewound_to = null;
 		}
-		$this->stepped_since_seek = false; // Going live: no longer off a seeked frame.
+		$this->stepped_since_seek = false; // Going live: off any seeked frame.
 		if ( null !== $this->saved_line_mode ) {
 			$this->line_mode       = $this->saved_line_mode;
 			$this->saved_line_mode = null;
@@ -327,7 +327,7 @@ trait Time_Travel {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
-		// Keep 'quarantined' while on an already-DLQ'd message; past it drops the seal.
+		// Keep 'quarantined' on the DLQ'd message; past it drops the seal.
 		if ( null !== $this->sealed_quarantine ) {
 			$sealed = $this->sealed_quarantine;
 			if ( $segment === $sealed['segment'] && $offset === $sealed['offset'] ) {
@@ -489,7 +489,7 @@ trait Time_Travel {
 			[
 				'name'        => 'SEEK_FRAME',
 				'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
-				// Driven by the Inspector's transport bar; hide the standalone verb button.
+				// Driven by the Inspector transport bar; hide the verb button.
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'segment', 'type' => 'int', 'required' => true ],
@@ -511,7 +511,7 @@ trait Time_Travel {
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_play( $interpreter ),
 			],
 			[
-				// STEP mutates, so it must ride the auth-gated command path, not TM_REQUEST.
+				// STEP mutates: auth-gated command path, not TM_REQUEST.
 				'name'        => 'STEP',
 				'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
 				'hidden'      => true,

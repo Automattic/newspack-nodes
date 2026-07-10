@@ -40,8 +40,7 @@ class Log_Cleaner {
 
 		$declared = self::declared_dirs();
 
-		// Each bucket is already a `name => partition` map: its KEYS are the
-		// declared dir names the sweep keeps, so it doubles as the membership set.
+		// Each bucket's KEYS are the declared dir names to keep (membership).
 		if ( null !== $declared['logs'] && ! empty( $declared['logs'] ) ) {
 			self::sweep( "{$base_dir}/logs", $declared['logs'], $base_dir, $deleted );
 		}
@@ -92,11 +91,7 @@ class Log_Cleaner {
 			foreach ( self::producer_log_dirs() as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
-			// The substrate's auto-mounted probe log (Worker_Base::mount_topic_probe)
-			// is declared by no .tsl — whitelist it so the orphan sweep spares it.
-			// Only ride along when a real declared set already exists: topicprobe
-			// must not by itself flip the empty→non-empty fail-closed gate (which
-			// skips the sweep before the app/topologies are registered).
+			// Whitelist the auto-mounted probe log; only if a set exists.
 			if ( ! empty( $logs ) ) {
 				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] ??= 0;
 				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] ??= 0;

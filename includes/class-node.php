@@ -350,7 +350,7 @@ class Node {
 	public function patron( ?Node $node = null ): ?Node {
 		if ( null !== $node ) {
 			$this->patron = $node;
-			// A sidecar needs no `{name}:config`; drop the auto-wired interpreter.
+			// Sidecar needs no `{name}:config`; drop auto-wired interpreter.
 			if ( null !== $this->interpreter ) {
 				if ( '' !== $this->interpreter->name() ) {
 					$this->interpreter->remove_node();
@@ -457,7 +457,7 @@ class Node {
 		$this->sink          = null;
 		$this->target        = '';
 		$this->patron        = null;
-		// Cascade-unregister the sibling interpreter so a name-recycle can't collide.
+		// Cascade-unregister sibling interpreter so a rename can't collide.
 		if ( null !== $this->interpreter && '' !== $this->interpreter->name() ) {
 			Core::unregister_node( $this->interpreter->name() );
 		}
@@ -487,7 +487,7 @@ class Node {
 			if ( 'sink' === $key && $value instanceof Node ) {
 				$value = $value->name();
 			}
-			// Redact a non-empty credential; an empty one stays visible (unset).
+			// Redact a non-empty credential; an empty one stays visible.
 			if ( Core::is_secret_property( $key )
 				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
 				$value = '[REDACTED]';
@@ -495,13 +495,13 @@ class Node {
 			if ( \is_object( $value ) ) {
 				$value = '(' . \get_class( $value ) . ')';
 			}
-			// Resources aren't JSON-encodable; coerce so json_encode won't fail.
+			// Resources aren't JSON-encodable; coerce so encode won't fail.
 			if ( \is_resource( $value ) ) {
 				$value = '(resource:' . \get_resource_type( $value ) . ')';
 			}
 			$snapshot[ $key ] = $value;
 		}
-		// Subclass-aware class name; cmd_dump_node surfaces it as the dump header.
+		// Subclass-aware class name; cmd_dump_node surfaces it as dump header.
 		$snapshot['class'] = $ref->getShortName();
 		return $snapshot;
 	}
@@ -541,9 +541,7 @@ class Node {
 			$out .= "connect_node {$this->name} {$this->target}\n";
 		}
 
-		// Verb-configured nodes (e.g. Partition) override dump_config() to emit
-		// their own `cmd {name}:config <verb>` lines from their STATE — no generic
-		// invoked-verb recording.
+		// Verb-configured nodes override dump_config() to emit their own lines.
 		return $out;
 	}
 

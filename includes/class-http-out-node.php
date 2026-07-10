@@ -93,9 +93,7 @@ class HTTP_Out_Node extends Timer_Node {
 	public function fill( array $message ): void {
 		++$this->counter;
 
-		// Preserve the caller's FROM (a heartbeat minted with FROM=<remote-source>
-		// keeps it so the spoke's reply can route back); fall back to _http only
-		// when the caller left FROM empty (settings-sync's fire-and-forget path).
+		// Preserve caller FROM for reply routing; fall back to _http if empty.
 		$from = Core::as_string( $message[ Message::FROM ] );
 
 		$envelope                   = Message::new_message();
@@ -137,8 +135,7 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		$cfg = Config::load_config();
-		// Refuse a plaintext spoke when the operator requires HTTPS:
-		// drop the batch, no POST.
+		// Refuse plaintext spoke when operator requires HTTPS; drop batch.
 		if ( ( $cfg['vault_require_ssl'] ?? false ) && ! \str_starts_with( $url, 'https://' ) ) {
 			$dropped = \count( $batch );
 			$this->print_less_often( "vault_require_ssl set but url is not https; dropping {$dropped} message(s)" );
@@ -165,7 +162,7 @@ class HTTP_Out_Node extends Timer_Node {
 			$headers[] = 'Authorization: Bearer ' . $token;
 		}
 
-		// Mirror Vault_CI_Node::probe_remote: verify on unless explicitly disabled.
+		// Mirror Vault_CI_Node::probe_remote: verify on unless disabled.
 		$verify = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
 		$opts   = [
 			\CURLOPT_URL            => $url . self::COMMAND_PATH,
@@ -196,10 +193,9 @@ class HTTP_Out_Node extends Timer_Node {
 			$this->print_less_often( "curl_init failed" );
 			return;
 		}
-		// Register only on the idle->active edge; an idle registered multi spins the loop.
+		// Register on the idle->active edge; idle multi spins the loop.
 		$was_idle = [] === $this->inflight;
-		// Keep the handle alive in $inflight: a freed handle's spl_object_id is
-		// reused, so dropping it would collide the next enqueue's key.
+		// Hold handle to avoid GC; freed ids get reused and collide keys.
 		$this->inflight[ \spl_object_id( $easy ) ] = [
 			'handle'   => $easy,
 			'vault_id' => $this->vault_id,
@@ -256,17 +252,14 @@ class HTTP_Out_Node extends Timer_Node {
 					if ( '' === $line ) {
 						continue;
 					}
-					// Message::unpacked() throws on a non-positional line; skip it
-					// rate-limited rather than aborting the rest of the batch.
+					// unpacked() throws on a bad line; skip, keep batch.
 					try {
 						$reply = Message::unpacked( $line );
 					} catch ( \InvalidArgumentException $e ) {
 						$this->print_less_often( "malformed reply line" );
 						continue;
 					}
-					// The spoke's HTTP_In prepends _output/ to the FROM it echoes;
-					// a worker graph has no _output, so strip it so TO=<remote-source>
-					// routes correctly through _command_interpreter → _router.
+					// HTTP_In prepends _output/ to FROM; strip it.
 					$to = Core::as_string( $reply[ Message::TO ] );
 					if ( \str_starts_with( $to, '_output/' ) ) {
 						$reply[ Message::TO ] = \substr( $to, \strlen( '_output/' ) );
@@ -279,7 +272,7 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$this->detach( $easy );
 		unset( $this->inflight[ $id ] );
-		// Last transfer done -> idle: unregister so the drain loop won't spin on a fd-less multi.
+		// Last transfer done -> idle: unregister so the loop won't spin.
 		if ( [] === $this->inflight ) {
 			Event_Framework::instance()->unregister_curl_handle( $this );
 		}

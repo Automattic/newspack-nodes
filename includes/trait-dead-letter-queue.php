@@ -184,10 +184,9 @@ trait Dead_Letter_Queue {
 				$this->deadletter->flush();
 				$outcome = 'quarantined';
 			} catch ( Worker_Should_Stop $e ) {
-				throw $e; // A stop during the DLQ write still escapes; poison re-quarantines on respawn.
+				throw $e; // Stop escapes; poison re-quarantines on respawn.
 			} catch ( \Throwable $e ) {
-				// Quarantine itself failed (disk full / I/O). Drop the poison and let the
-				// cursor advance — re-wedging here would loop the source forever.
+				// Quarantine failed: drop + advance, else the source loops.
 				$outcome = 'DROP — deadletter write failed: ' . $e->getMessage();
 			}
 		}
@@ -255,7 +254,7 @@ trait Dead_Letter_Queue {
 	 */
 	protected function arm_skip_head_from_frame( array $entry ): bool {
 		if ( $this->resume_attempts_from_frame( $entry ) ) {
-			$this->crawl_skip_head = true; // Disposition stays at its default (sacrifice to the DLQ).
+			$this->crawl_skip_head = true; // Keep default: DLQ sacrifice.
 		}
 		if ( true === ( $entry['quarantined'] ?? false ) ) {
 			$this->crawl_skip_head       = true;

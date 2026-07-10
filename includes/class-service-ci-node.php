@@ -90,10 +90,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 				return $handler( ...$args );
 			};
 		}
-		// Gate the auto-`help` too: the base commands() accessor injects an
-		// UNgated default help into any interpreter that lacks one. Pre-seed a
-		// wrapped help here so it passes the same cap check as every other verb
-		// (gate-by-default — no ungated bypass).
+		// Pre-seed a gated help; base commands() would inject an ungated one.
 		if ( ! isset( $table['help'] ) ) {
 			$table['help'] = static function ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ): string {
 				self::require_manage_options();

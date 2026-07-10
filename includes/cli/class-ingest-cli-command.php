@@ -94,7 +94,7 @@ class Ingest_CLI_Command {
 		}
 		if ( ! $stdin_mode ) {
 			foreach ( $files as $file ) {
-				// is_file rejects a partition DIR mistakenly passed as a file (fopen would succeed, then read nothing).
+				// is_file rejects a DIR passed as a file (fopen reads nothing).
 				if ( ! \is_file( $file ) || ! \is_readable( $file ) ) {
 					\WP_CLI::error( "Cannot read file: {$file}" );
 				}
@@ -108,16 +108,13 @@ class Ingest_CLI_Command {
 		$requested = \is_numeric( $np_raw ) ? (int) $np_raw : null;
 		[ $tpl, $num_partitions ] = $this->resolve_destination( $topic_arg, $requested );
 
-		// Segment geometry — defaults to the Partition schema defaults; override to
-		// re-segment a log (e.g. shrink topicprobe.p0 to 1 MiB segments). max_lifespan
-		// is omitted: re-ingested segments all carry a fresh mtime, so age-based
-		// retention is meaningless here, and the live writer remounts with its own.
+		// Segment geometry defaults to Partition's; no max_lifespan.
 		$segment_size = $this->int_flag( $assoc_args, 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE );
 		$num_segments = $this->int_flag( $assoc_args, 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS );
 
 		\WP_CLI::log( "Destination: {$tpl} ({$num_partitions} partition(s), {$segment_size}-byte segments)" );
 
-		// >4KB records hit PIPE_BUF; the cap rises to 10MB only when the operator opts in.
+		// >4KB records hit PIPE_BUF; the cap rises to 10MB only on opt-in.
 		$cap = ( $lock || $void ) ? Partition_Node::MAX_LARGE_LINE_SIZE : Partition_Node::MAX_LINE_SIZE;
 
 		$topic = null;
@@ -138,7 +135,7 @@ class Ingest_CLI_Command {
 			'max_size'    => 0,
 		];
 		if ( $stdin_mode ) {
-			// Batch replay: eof_deadline 0 → the reader self-exits the moment stdin closes.
+			// Batch replay: eof_deadline 0 → self-exits when stdin closes.
 			$src = new Stdin_Node( $stdin, 0.0 );
 			$src->sink( new Callback_Node(
 				function ( array $message ) use ( $topic, $cap, &$stats ): void {
@@ -154,7 +151,7 @@ class Ingest_CLI_Command {
 				$fh = \fopen( $file, 'r' );
 				if ( false === $fh ) {
 					\WP_CLI::error( "Cannot open file: {$file}" );
-					continue; // WP_CLI::error exits in production; unreachable, but narrows $fh for the rest of the loop.
+					continue; // WP_CLI::error exits; narrows $fh below.
 				}
 				while ( false !== ( $line = \fgets( $fh ) ) ) {
 					$this->ingest_record( $line, $topic, $cap, $stats );
@@ -164,8 +161,7 @@ class Ingest_CLI_Command {
 			}
 		}
 		if ( null !== $topic ) {
-			// Flush the batch, then remove_node() to close handles AND release any
-			// held write lock (allow_large_writes) — __destruct alone leaks the lock.
+			// Flush, then remove_node() to close handles + free the write lock.
 			$topic->flush();
 			$topic->remove_node();
 		}
@@ -215,7 +211,7 @@ class Ingest_CLI_Command {
 		if ( ! \is_numeric( $raw ) ) {
 			\WP_CLI::error( "--{$key} must be an integer." );
 		}
-		// is_scalar narrows for the cast; the is_numeric guard above already rejected non-numbers.
+		// is_scalar narrows the cast; is_numeric already rejected non-nums.
 		return (int) ( \is_scalar( $raw ) ? $raw : 0 );
 	}
 

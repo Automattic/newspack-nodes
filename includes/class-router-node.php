@@ -26,9 +26,7 @@ class Router_Node extends Timer_Node {
 	public function fill( array $message ): void {
 		++$this->counter;
 
-		// Perl Router::fill drops before routing, in this order: an unaddressed
-		// message (empty TO), then one whose FROM trail exceeded MAX_FROM_SIZE
-		// (path explosion on a routing cycle).
+		// Drop unaddressed (empty TO), then FROM > MAX_FROM_SIZE (cycle).
 		if ( '' === $message[ Message::TO ] ) {
 			$this->drop_message( $message, 'message not addressed' );
 			return;
@@ -50,10 +48,7 @@ class Router_Node extends Timer_Node {
 		$target->fill( $message );
 	}
 
-	// fire_cb (Perl Router::fire_cb): dispatch the TIMER tick via notify_timer (the
-	// Router has no sink, so it can't fall through Timer_Node::fire_cb's no-sink
-	// guard), then prune expired logs (Perl Router::update_logs). Overrides
-	// Timer_Node::fire_cb — the Router dispatches TIMER instead of emitting.
+	// Dispatch TIMER via notify_timer (Router has no sink) + prune logs.
 	public function fire_cb(): void {
 		$this->notify_timer();
 		Core::prune_logs();
@@ -66,8 +61,7 @@ class Router_Node extends Timer_Node {
 			return;
 		}
 		$this->handling_error = true;
-		// The unreachable destination is the head segment of TO (Router peels it
-		// in fill() before the lookup that landed here).
+		// Unreachable node = head segment of TO (peeled in fill()).
 		[ $node_name ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
 		$this->set_state(
 			'NOT_AVAILABLE',
@@ -99,10 +93,7 @@ class Router_Node extends Timer_Node {
 		return;
 	}
 
-	// notify_timer (Perl Router::notify_timer): call each TIMER-registered node's
-	// fire_cb DIRECTLY; a name with no live node is warned + dropped (forgot to
-	// unregister). No message, no fill(). array_keys() snapshots the keys so a
-	// mid-loop unset() (self-stop or this cleanup) is safe.
+	// Call each TIMER node's fire_cb; array_keys snapshot = safe unset.
 	public function notify_timer(): void {
 		foreach ( array_keys( $this->registrations['TIMER'] ) as $name ) {
 			$node = Core::node( $name );
@@ -111,9 +102,7 @@ class Router_Node extends Timer_Node {
 				unset( $this->registrations['TIMER'][ $name ] );
 				continue;
 			}
-			// Only Timer_Node (and its Router_Node subclass) defines fire_cb;
-			// Timer_Node::set_timer is the sole TIMER registrar, so a non-Timer
-			// node here is a misregistration — skip it rather than fatal.
+			// Non-Timer node = misregistration; skip rather than fatal.
 			if ( $node instanceof Timer_Node ) {
 				$node->fire_cb();
 			}
@@ -139,9 +128,7 @@ class Router_Node extends Timer_Node {
 			'description'   => 'Path-based message routing — placed automatically as `_router`.',
 			'arguments'     => [],
 			'commands'      => [],
-			// FIRE (inherited Timer tick) + TIMER (hitchhike event peers register for)
-			// + NOT_AVAILABLE (routing-failure state set_state publishes for observers,
-			// matching the JS Router). Fresh array (no parent merge), so list all three.
+			// FIRE (Timer tick) + TIMER (hitchhike) + NOT_AVAILABLE.
 			'registrations' => [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ],
 		];
 	}

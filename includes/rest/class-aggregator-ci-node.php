@@ -89,7 +89,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		$registry = Vault::get_instance();
 		$registry->reset_cache();
 
-		// remote_partition embeds the `<partition>` token → fan across the SPAWN-aligned count.
+		// remote_partition has a <partition> token; fan across num_partitions.
 		$num_partitions = Bootstrap::num_partitions_for( 'aggregator' );
 
 		$result = [];
@@ -102,12 +102,12 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			if ( '' === $name ) {
 				continue;
 			}
-			// args: <vault-id> <remote_partition> (the Remote_Link 2-arg schema).
+			// args: <vault-id> <remote_partition> (Remote_Link 2-arg schema).
 			$node_args = $node['args'] ?? [];
 			$vault_id  = $node_args[0] ?? '';
 			$template  = $node_args[1] ?? '';
 
-			// Reconstruct the writer's exact key np:remote:<node-name>:<concrete remote_partition>.
+			// Rebuild the writer's exact key: np:remote:<node-name>:<concrete>.
 			$partitions = [];
 			for ( $p = 0; $p < $num_partitions; $p++ ) {
 				$concrete         = Core::resolve_partition_template( $template, $p );
@@ -162,8 +162,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				'is_config'       => $registry->is_config_server( $id ),
 			];
 		}
-		// Sequential array, NOT a map keyed by id — the shape the
-		// React aggregator tree relies on.
+		// Sequential array (not id-keyed) — the aggregator tree relies on it.
 		return $out;
 	}
 

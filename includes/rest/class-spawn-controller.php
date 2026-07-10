@@ -47,13 +47,12 @@ class Spawn_Controller {
 			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
 		}
 
-		// Internal HMAC path — no capability/rate limit (supervisor self-limits).
+		// Internal HMAC path — no cap/rate limit (supervisor self-limits).
 		if ( $this->supervisor->validate_spawn_token( $nonce, \time() ) ) {
 			return true;
 		}
 
-		// Capability THEN nonce THEN rate-limit: rate-limiting first would let
-		// unauthenticated requests poison the transient table.
+		// Capability→nonce→rate-limit: rate-limiting first poisons the table.
 		if ( ! \function_exists( 'current_user_can' ) || ! \current_user_can( 'manage_options' ) ) {
 			return new \WP_Error(
 				'invalid_token',
@@ -126,7 +125,7 @@ class Spawn_Controller {
 			);
 		}
 
-		// Acknowledge synchronously; do the work zombie-style. FPM detach is a no-op in CLI/test.
+		// Ack synchronously; work zombie-style (FPM detach no-op in CLI/test).
 		if ( \function_exists( 'fastcgi_finish_request' ) ) {
 			\fastcgi_finish_request();
 		}
@@ -137,8 +136,7 @@ class Spawn_Controller {
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = $type;
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;
 
-		// Supervisor-as-worker: run synchronously. It self-manages lock contention,
-		// so a concurrent spawn becomes a quick no-op.
+		// Supervisor-as-worker: run sync (self-manages lock contention).
 		if ( 'supervisor' === $type ) {
 			$result = $this->run_supervisor_sync();
 			return new \WP_REST_Response(
@@ -152,7 +150,7 @@ class Spawn_Controller {
 			);
 		}
 
-		// Topology / application worker: topology owners hook this to build the graph and execute().
+		// Topology worker: owners hook this to build the graph and execute().
 		\do_action( 'newspack_nodes/spawn_worker', $type, $partition );
 
 		return new \WP_REST_Response(
@@ -193,7 +191,7 @@ class Spawn_Controller {
 			}
 		}
 		if ( 0 === $max ) {
-			// Not in topology — defense-in-depth (validate_worker_type should have caught it).
+			// Not in topology — defense-in-depth (should've been caught).
 			return false;
 		}
 		return $partition < $max;

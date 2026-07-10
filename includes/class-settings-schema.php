@@ -36,10 +36,7 @@ class Settings_Schema {
 		$storage = 'newspack_nodes_storage_section';
 		$remote  = 'newspack_nodes_remote_section';
 
-		// Literal (matches Admin::OPTION_PREFIX) so building the schema — which a
-		// worker does via Config::overlay_keys() — never autoloads the admin class
-		// just to read a constant. The `Admin::class` callables below are
-		// compile-time strings; they don't load Admin until invoked in admin context.
+		// Literal prefix so a schema-building worker never autoloads Admin.
 		self::$schema = new Schema(
 			'newspack_nodes_',
 			[
@@ -48,7 +45,7 @@ class Settings_Schema {
 					type: 'int',
 					label: static fn(): string => \__( 'Num Partitions', 'newspack-nodes' ),
 					section: $storage,
-					// Supervisor refreshes config each loop — no worker restart needed.
+					// Supervisor reloads config each loop; no restart needed.
 					restart: 'supervisor_only',
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
 					render: [ Admin::class, 'num_partitions_callback' ],
@@ -92,7 +89,7 @@ class Settings_Schema {
 					type: 'path',
 					label: static fn(): string => \__( 'Base Directory', 'newspack-nodes' ),
 					section: $storage,
-					// Every long-lived worker resolves paths from base_directory.
+					// Long-lived workers resolve paths from base_directory.
 					restart: 'all',
 					sanitize: [ Admin::class, 'sanitize_base_directory' ],
 					render: [ Admin::class, 'base_directory_callback' ],
@@ -102,14 +99,13 @@ class Settings_Schema {
 					type: 'memcache_servers',
 					label: static fn(): string => \__( 'Memcache Servers', 'newspack-nodes' ),
 					section: $storage,
-					// The Memcached handle lives in every long-lived worker process.
+					// The Memcached handle lives in every long-lived worker.
 					restart: 'all',
 					sanitize: [ Admin::class, 'sanitize_memcache_servers' ],
 					render: [ Admin::class, 'memcache_servers_callback' ],
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
-				// Storage geometry pushed to remote spokes. Registered + resettable,
-				// overlaid into load_config() like every other setting.
+				// Remote storage geometry; registered + resettable.
 				new Field(
 					key: 'remote_num_segments',
 					type: 'int',
@@ -140,21 +136,13 @@ class Settings_Schema {
 					render: [ Admin::class, 'remote_max_lifespan_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
-				// Overlay-only (ui:false): loaded + autoloaded for the per-request
-				// config overlay, but NOT a settings-API setting. The Topology
-				// Manager's active toggle + the activate/deactivate verbs are the sole
-				// writers (update_option). Registering it as a settings-group option
-				// made Save on the Nodes Runtime page — which never renders it — wipe
-				// the active set (options.php sanitizes every registered option from
-				// $_POST, and an absent one collapsed to []). Conflict protection lives
-				// in the activate verb + Supervisor::check_config, not a form sanitizer.
+				// ui:false overlay; registering lets Save wipe the active set.
 				new Field(
 					key: 'topologies',
 					type: 'array_strings',
 					ui: false,
 				),
-				// Overlay-only: loaded + autoloaded, but no settings field (a
-				// config-file/programmatic access whitelist).
+				// Overlay-only access whitelist; no settings field.
 				new Field(
 					key: 'allowed_users',
 					type: 'array_strings',

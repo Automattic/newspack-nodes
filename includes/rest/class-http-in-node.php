@@ -90,8 +90,7 @@ class HTTP_In_Node extends Node {
 		$this->send_header = $send_header ?? static function ( int $code ): void {
 			\status_header( $code );
 		};
-		// Chain to the base ctor (no-op today — no handler-bearing node_schema
-		// verbs — but keeps the :config auto-wire available if any are added).
+		// Chain to base ctor (no-op now; keeps :config auto-wire available).
 		parent::__construct();
 	}
 
@@ -102,11 +101,7 @@ class HTTP_In_Node extends Node {
 			( $this->send_header )( 200 );
 			$this->sent_headers = true;
 		}
-		// JSONL: one packed Message per line. A command can emit MORE than one
-		// message into the body (e.g. a `log`/stderr line plus the verb response),
-		// so the client splits on newlines and unpacks each line — never JSON.parse
-		// the whole body. packed() is single-line JSON (newlines in values are
-		// escaped), so `\n` is an unambiguous record separator.
+		// JSONL: one packed Message per line; split on \n, never JSON.parse.
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo Message::packed( $message ) . "\n";
 	}
@@ -154,9 +149,7 @@ class HTTP_In_Node extends Node {
 		}
 
 		$user_id = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
-		// Bucket by floor(microtime) — each clock-second is an independent
-		// counter, so a steady stream at <BURST/sec stays at count=1 in each
-		// bucket forever instead of accumulating in a single transient.
+		// Bucket by floor(microtime): steady <BURST/s stays count=1.
 		$now     = self::$clock_now_seam ?? \microtime( true );
 		$bucket  = (int) \floor( $now );
 		$key     = "newspack_nodes_cmd_rl:{$user_id}:{$bucket}";
@@ -169,9 +162,7 @@ class HTTP_In_Node extends Node {
 				[ 'status' => 429 ]
 			);
 		}
-		// TTL is 2x the window: long enough to outlive the bucket so an in-
-		// flight check still sees a stale count, short enough that abandoned
-		// buckets get GC'd by the transient store without manual cleanup.
+		// TTL 2x window: outlives the bucket, then the store GCs it.
 		\set_transient( $key, $count + 1, self::RATE_LIMIT_WINDOW_S * 2 );
 		return true;
 	}
@@ -179,8 +170,7 @@ class HTTP_In_Node extends Node {
 	public function dispatch( \WP_REST_Request $request ): void {
 		$messages = $this->messages_from_body( $request->get_body() );
 
-		// Lazy-init the request-scope graph (idempotent), then let applications
-		// mount service interpreters via the request_graph_ready hook.
+		// Lazy-init the request-scope graph (idempotent); apps mount via hook.
 		$base_interpreter = $this->ensure_request_graph();
 		\do_action( 'newspack_nodes/request_graph_ready', $base_interpreter );
 
@@ -195,47 +185,23 @@ class HTTP_In_Node extends Node {
 			return;
 		}
 
-		// This request process is a command VERIFIER: the request-scope base_interpreter
-		// (and any patron interpreters it mounts) must HMAC-check every command. Set the
-		// process-wide policy once before routing.
+		// This request process is a command VERIFIER: HMAC-check every command.
 		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
-		// Route messages in order through the one request graph: a batch runs
-		// serially, so an earlier command's side effect is visible to a later one.
-		// Sink through the base CommandInterpreter (mirroring the client's
-		// Shell → interpreter → _router spine): the interpreter interprets an empty-TO command
-		// addressed to the request scope itself (`cd /_sse`) and forwards a
-		// non-empty TO on to _router. (_router has no sink and would drop empty TO.)
+		// Route the batch in order through the base interpreter (serial).
 		$out->reset();
 		foreach ( $messages as $message ) {
-			// The HTTP boundary stamps its own name onto every incoming message
-			// (I/O-boundary stamping), so a reply's TO=FROM walks `_output/…` back
-			// here. The client sends a bare reply path (`_output`, `_sse:{pid}/…`,
-			// or '') and does NOT hardcode the `_output` prefix; we add it. An empty
-			// FROM stamps to just `_output`. Stamp with the constant, not $this->name:
-			// when the graph was pre-built, the registered `_output` node is a DIFFERENT
-			// instance and $this is unnamed.
+			// Stamp with _output constant, not $this->name (pre-built differs).
 			$this->stamp_message( $message, Node_Names::OUTPUT );
-			// Re-anchor freshness to the SERVER clock at the ingress/sign moment. The
-			// browser minted this command with ITS wall clock; signing that timestamp
-			// would make the downstream freshness window depend on client↔server clock
-			// skew (>20s silently rejects every dashboard command). This is the sign
-			// moment, not transit re-stamping — the signature covers TIMESTAMP, so set
-			// it immediately before Command_Auth::sign().
+			// Re-anchor TIMESTAMP to server clock (client skew >20s rejects).
 			$message[ Message::TIMESTAMP ] = (int) Core::$now;
-			// WP already authenticated this request (permission_callback:
-			// manage_options). Sign command provenance on the browser's behalf so
-			// downstream verifier interpreters (request-scope + worker) accept it; the
-			// signature covers semantics only, so the later FROM/TO peeling is fine.
-			// Non-command messages (TM_BYTESTREAM/INFO, or responses) are left alone.
+			// WP already authed; sign provenance so verifiers accept it.
 			Command_Auth::sign( $message );
 			$base_interpreter->fill( $message );
 		}
 
 		if ( ! $out->sent_headers ) {
-			// Async / IPC case: routed onward (worker IPC), so the reply arrives
-			// later over the SSE stream — a bare 202 ack with no body. The client
-			// treats an empty response as "nothing to route."
+			// Async/IPC: routed onward, reply arrives via SSE — bare 202 ack.
 			\status_header( 202 );
 		}
 		$this->finish();
@@ -281,7 +247,7 @@ class HTTP_In_Node extends Node {
 			$base_interpreter->name( Node_Names::COMMAND_INTERPRETER );
 			$base_interpreter->sink( $router );
 		}
-		// The controller instance IS the _output egress Node (deliberately the same object).
+		// This controller instance IS the _output egress Node (same obj).
 		if ( ! Core::node( Node_Names::OUTPUT ) instanceof self ) {
 			$this->name( Node_Names::OUTPUT );
 		}
