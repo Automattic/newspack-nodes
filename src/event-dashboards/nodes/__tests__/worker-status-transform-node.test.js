@@ -64,8 +64,7 @@ function withClock( fn ) {
 	}
 }
 
-// A single-stage firehose producer topology: one Consumer reading firehose
-// straight into a Log (no logic node), partition 0 only.
+// Single-stage firehose topology: Consumer → Log, partition 0 only.
 const firehoseGraph = () => ( {
 	'firehose-workers': {
 		nodes: [
@@ -84,8 +83,7 @@ const firehoseGraph = () => ( {
 	},
 } );
 
-// A request topology: Consumer reads requests → request-builder (logic) →
-// completed Log. Two partitions.
+// Request topology: Consumer → request-builder → completed Log; 2 parts.
 const requestGraph = () => ( {
 	'request-workers': {
 		nodes: [
@@ -373,7 +371,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 	} );
 
 	test( 'disambiguated readers of one source each get their own rich worker row', () => {
-		// Two readers of firehose.p0 under distinct reader ids — both get a row.
+		// Two readers of firehose.p0 under distinct ids — both get a row.
 		const graph = {
 			'firehose-workers-and-jobs': {
 				nodes: [
@@ -453,9 +451,7 @@ describe( 'workerstatus:transform — inputs_status carries full live segments +
 							end_size: 40,
 						} ),
 					],
-					// Live partition has grown past the snapshot: seg 2 is new, seg 1
-					// is now bigger than end_size. The bar paints the full live data
-					// (gray beyond the recorded end), so NOTHING is trimmed here.
+					// Live grew past the snapshot; bar paints it all, no trim.
 					logs: [
 						logEntry( 'firehose.p0', 0, [
 							{ id: 0, size: 100 },
@@ -478,16 +474,14 @@ describe( 'workerstatus:transform — inputs_status carries full live segments +
 		expect( status.total_size ).toBe( 230 );
 		expect( status.cursor_segment ).toBe( 1 );
 		expect( status.cursor_offset ).toBe( 0 );
-		// The recorded probe end rides along so the bar can paint its red/gray split.
+		// The recorded probe end rides along for the bar's red/gray split.
 		expect( status.end_segment ).toBe( 1 );
 		expect( status.end_size ).toBe( 40 );
 	} );
 } );
 
 describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => {
-	// Read rate = Δ(absolute cursor byte position)/Δts; absolute position =
-	// Σ(live seg.size for id < cursor_segment) + cursor_offset. Write rate =
-	// Δ(partition end position)/Δts.
+	// Read rate = Δ(cursor byte pos)/Δts; write rate = Δ(end pos)/Δts.
 	const snapshot = (
 		ts,
 		cursorSegment,
@@ -535,10 +529,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 		withClock( () => {
 			// Poll 1: cursor at seg 0 offset 0 → abs pos 0.
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Poll 2 at ts 1002 (Δ 2s): cursor at seg 1 offset 50. The cursor seg
-			// contributes only its offset, segments below it their full live size.
-			// abs pos = Σ(live seg.size for id < cursor_segment 1) + cursor_offset
-			//         = 100 + 50 = 150. Δ = 150 - 0 = 150 over 2s = 75 B/s.
+			// Poll 2 (Δ2s): abs pos = 100 + 50 = 150; Δ150 over 2s = 75 B/s.
 			t.fill(
 				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )
 			);
@@ -554,8 +545,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 		withClock( () => {
 			// Poll 1: total live = 100.
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Poll 2 at ts 1004 (Δ 4s): total live = 100 + 300 = 400.
-			// Δ = 400 - 100 = 300 over 4s = 75 B/s.
+			// Poll 2 (Δ4s): live 100+300=400; Δ300 over 4s = 75 B/s.
 			t.fill(
 				metadataMsg( snapshot( 1004, 0, 0, [ 100, 300 ], 1, 300 ) )
 			);
@@ -604,10 +594,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 		withClock( () => {
 			// Poll 1 establishes a baseline at ts 1000.
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Poll 2 resumes after a multi-minute hidden gap: ts jumps far ahead
-			// and the cursor/end advanced over the whole gap. Without gap-awareness
-			// this divides a huge Δvalue by a huge Δts; the fix treats it as a fresh
-			// baseline (rate 0), like a first sample / counter reset.
+			// Poll 2 resumes after a hidden gap: fresh baseline (rate 0).
 			t.fill(
 				metadataMsg( snapshot( 1000 + 600, 1, 50, [ 100, 90 ], 1, 80 ) )
 			);
@@ -627,8 +614,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			t.fill(
 				metadataMsg( snapshot( 1000 + 600, 1, 50, [ 100, 90 ], 1, 80 ) )
 			);
-			// Normal 2s cadence after the gap: cursor abs pos = 100 + 100 = 200.
-			// Δ = 200 - 150 = 50 over 2s = 25 B/s.
+			// Normal 2s cadence after the gap: Δ50 over 2s = 25 B/s.
 			t.fill(
 				metadataMsg( snapshot( 1602, 1, 100, [ 100, 110 ], 1, 110 ) )
 			);
@@ -642,9 +628,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		withClock( () => {
-			// Two polls 2s apart — well within a sane sample-gap bound, so the
-			// existing cross-poll delta still applies (regression guard for the
-			// gap check not being over-eager).
+			// Two polls 2s apart: within gap bound, cross-poll delta applies.
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
 			t.fill(
 				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )
@@ -728,8 +712,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 		t.sink = sink.node;
 		const s = snap();
 		s.supervisor = { type: 'supervisor', status: 'running' };
-		// Reader caught up to the live end (end_size matches the 100B segment) →
-		// the snapshot trim is a no-op, so logs pass through unchanged.
+		// Reader caught up to the live end → trim is a no-op, logs unchanged.
 		s.consumers = [
 			consumerRow( 'firehose.p0', 'firehose.p0', 0, { end_size: 100 } ),
 		];

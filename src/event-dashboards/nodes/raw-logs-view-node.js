@@ -47,9 +47,7 @@ export class RawLogsViewNode extends Node {
 	constructor( maxLines ) {
 		super();
 		this.maxLines = maxLines || MAX_LINES;
-		// Ring buffer: rows written at `_head` (mod maxLines), oldest overwritten
-		// once full. `_count` is how many slots hold a live row. No shifting,
-		// concatenation, or truncation — append and cap-drop are both O(1).
+		// Ring buffer: append at _head (mod maxLines), overwrite oldest; O(1).
 		this._ring = [];
 		this._head = 0;
 		this._count = 0;
@@ -61,24 +59,16 @@ export class RawLogsViewNode extends Node {
 		this.selected = '';
 		this.paused = false;
 		this.connectionError = false;
-		// Hook-stamped ID → { resolve, reject }; resolved/rejected when the
-		// matching reply lands here. Cleared on resolution.
+		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
 		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
-		// Terminal node (no sink) — base Node.fill() can't run, so count here
-		// to keep the overlay's per-node throughput honest. (Distinct from the
-		// line-rate counters above.)
+		// Terminal node (no sink): count here for overlay throughput (not lps).
 		this.counter += 1;
 		const value = message[ VALUE ];
 
-		// Pending-Map gating (canonical): settle any Promise the hook stashed
-		// under this ID. A pending-matched reply is the caller's surface — we
-		// don't ALSO act on it locally (so a list_logs reply doesn't accidentally
-		// land in the row buffer below). NOTE: a command reply's VALUE has a
-		// `name` field; the row/control shapes do not — gate on it so a raw log
-		// envelope can never settle a pending Promise.
+		// Settle a pending Promise; gate on VALUE.name so raw logs can't.
 		if (
 			value &&
 			'object' === typeof value &&
@@ -89,16 +79,13 @@ export class RawLogsViewNode extends Node {
 		}
 
 		if ( value && 'object' === typeof value && value.action ) {
-			// Hook-minted control + catalog changes are the LOW-frequency path
-			// — publish so the dropdown / pause button / selected value re-render.
+			// Low-frequency control/catalog path; publish to re-render.
 			this._control( value );
 			this._publish();
 			return;
 		}
 
-		// Otherwise: a raw SSE log envelope. Shape envelope → `{ p, line }`
-		// inline (the work the deleted `rawlogs:transform` used to do) and
-		// append to the HIGH-frequency buffer the rAF reads off the node.
+		// Otherwise a raw SSE log envelope: shape inline, append to buffer.
 		this._appendEnvelope( message );
 	}
 
@@ -118,7 +105,7 @@ export class RawLogsViewNode extends Node {
 		}
 	}
 
-	// Clear buffer + counter + LPS window (matches handleLogChange in RawLogs.js).
+	// Clear buffer + counter + LPS window (matches RawLogs handleLogChange).
 	_clear() {
 		this.lines = [];
 		this.lineCounter = 0;
@@ -126,11 +113,7 @@ export class RawLogsViewNode extends Node {
 		this.lps = 0;
 	}
 
-	// Publish ONLY the low-frequency view model. `lines` and `lps` are the
-	// high-frequency buffer the rAF reads off the node directly — keeping them
-	// out of setState is what stops a busy stream re-rendering React per row.
-	// `connectionError` rides here so the reconnect banner re-renders at low
-	// frequency (off the stream's connection controls).
+	// Publish only the low-freq model; lines/lps stay off setState (perf).
 	_publish() {
 		this.setState( 'view', {
 			logs: this.logs,
@@ -140,14 +123,7 @@ export class RawLogsViewNode extends Node {
 		} );
 	}
 
-	// Shape a raw SSE log envelope into a row and append. Branches inlined
-	// verbatim from the deleted `transformLogLine` helper:
-	//   - empty/null/undefined VALUE → drop.
-	//   - object VALUE → JSON-stringify; string VALUE passes through.
-	//   - non-empty string KEY → prepend `${KEY}: `.
-	//   - clip to MAX_LINE_LENGTH + '...'.
-	//   - partition column derived from the FROM dir (its `.pN` number, else a
-	//     stable first-seen index — layout-agnostic).
+	// Shape a raw SSE log envelope into a row and append it to the buffer.
 	_appendEnvelope( message ) {
 		const value = message[ VALUE ];
 		if ( value === '' || value === null || value === undefined ) {
@@ -161,10 +137,7 @@ export class RawLogsViewNode extends Node {
 		if ( line.length > MAX_LINE_LENGTH ) {
 			line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
 		}
-		// Each concrete partition dir (FROM's first segment) is its own unique
-		// partition. Prefer a `.pN` number for a tidy column when the layout has
-		// one; otherwise assign a stable first-seen index so distinct opaque dirs
-		// don't all collapse onto column 0.
+		// Prefer .pN column; else stable first-seen index (no collapse to 0).
 		const dir = String( message[ FROM ] || '' ).split( '/' )[ 0 ];
 		const match = dir.match( PARTITION_RE );
 		let partition;
@@ -180,8 +153,7 @@ export class RawLogsViewNode extends Node {
 		this._appendRow( partition, line );
 	}
 
-	// Write a shaped row into the ring (O(1)); the canvas reads it back via
-	// lineAt/linesCount. No setState on the HIGH-frequency path.
+	// Write a shaped row into the ring (O(1)); no setState on this hot path.
 	_appendRow( partition, line ) {
 		if ( this.paused ) {
 			return;
@@ -196,14 +168,12 @@ export class RawLogsViewNode extends Node {
 		this._updateLinesPerSecond( 1 );
 	}
 
-	// Lines per second over a 10s window, smoothed with a 0.1 EMA (RateSmoother).
+	// Lines/sec over a 10s window, smoothed with a 0.1 EMA (RateSmoother).
 	_updateLinesPerSecond( newCount ) {
 		this.lps = this.lpsSmoother.add( newCount, Date.now() );
 	}
 
-	// The whole buffer materialized newest-first — O(n), for the filter path and
-	// tests only, NOT the per-frame canvas path. Assigning (`node.lines = []` from
-	// handleClear / select) reseeds the ring from the given newest-first array.
+	// Whole buffer newest-first, O(n): filter path + tests only, not frames.
 	get lines() {
 		const out = new Array( this._count );
 		for ( let i = 0; i < this._count; i++ ) {
@@ -231,9 +201,7 @@ export class RawLogsViewNode extends Node {
 		this._count = Math.min( this._count + 1, this.maxLines );
 	}
 
-	// The i-th row newest-first (i=0 is newest), O(1); undefined out of range.
-	// The canvas reads only its on-screen window through this — never the whole
-	// buffer — so the frame cost is O(rows-on-screen) regardless of buffer size.
+	// The i-th row newest-first (i=0 newest), O(1); undefined out of range.
 	lineAt( i ) {
 		if ( i < 0 || i >= this._count ) {
 			return undefined;
@@ -251,7 +219,7 @@ export class RawLogsViewNode extends Node {
 		return {
 			category: 'Hidden',
 			description: 'Raw Logs render-model sink (the React view node).',
-			// Terminal receiver: settles replies, never sets target → no out-port.
+			// Terminal receiver: settles replies, no target → no out-port.
 			has_target: false,
 			arguments: [],
 			commands: [],

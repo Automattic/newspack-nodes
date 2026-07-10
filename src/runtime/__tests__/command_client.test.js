@@ -11,9 +11,7 @@ import {
 
 beforeEach( () => {
 	global.fetch = jest.fn().mockResolvedValue( {
-		// #post reads the body as text and JSON.parses it (so a bare-202 empty
-		// body resolves to null instead of rejecting). A synchronous reply is a
-		// packed Message; VALUE is a nested object (the only JSON layer).
+		// #post reads body as text + JSON.parses it (bare-202 → null).
 		text: async () =>
 			JSON.stringify( [
 				TM_RESPONSE,

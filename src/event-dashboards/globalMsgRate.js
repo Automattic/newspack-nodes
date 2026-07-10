@@ -15,8 +15,7 @@
  * @return {number} Summed latest msgRate across distinct sources (0 if none).
  */
 export function globalMsgRate( consumers ) {
-	// source → max latest msgRate across its co-readers (identical per-partition
-	// rate, so max dedups without summing).
+	// source → max latest msgRate across co-readers (max dedups, no summing).
 	const bySource = new Map();
 	for ( const c of Object.values( consumers || {} ) ) {
 		const source = c.source || '';

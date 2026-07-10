@@ -25,8 +25,7 @@ describe( 'formatters', () => {
 	it( 'formatMsgRate', () => {
 		expect( formatMsgRate( 0 ) ).toBe( '0/s' );
 		expect( formatMsgRate( 2996 ) ).toBe( '3K/s' );
-		// Fractional per-second rates (the overlay's In/Out) must not produce
-		// "NaN/s" from a negative unit index.
+		// Fractional per-second rates must not produce "NaN/s" (neg unit idx).
 		expect( formatMsgRate( 0.4 ) ).toBe( '0.4/s' );
 		expect( formatMsgRate( 2.5 ) ).toBe( '2.5/s' );
 		// >= 10 in-unit drops the decimal (15.4K/s → "15K/s").
@@ -48,7 +47,7 @@ describe( 'formatters', () => {
 		expect( formatEta( 7200, 1 ) ).toBe( '2h0m' );
 	} );
 	it( 'etaSeconds', () => {
-		// Not behind → 0; stalled (rate<=0 with lag) → Infinity; else ceil(behind/rate).
+		// Not behind → 0; stalled → Infinity; else ceil(behind/rate).
 		expect( etaSeconds( 0, 10 ) ).toBe( 0 );
 		expect( etaSeconds( -5, 10 ) ).toBe( 0 );
 		expect( etaSeconds( 100, 0 ) ).toBe( Infinity );

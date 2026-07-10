@@ -36,8 +36,7 @@ export function useThemeToken( ref ) {
 			} );
 		}
 
-		// The ancestor class may already differ from the seeded value by the
-		// time the effect runs (mount-time skin swap); reconcile once.
+		// Ancestor class may already differ at effect time; reconcile once.
 		sync();
 
 		return () => {

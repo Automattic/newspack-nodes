@@ -15,8 +15,7 @@ import { registerDevtoolsTab } from '@newspack-nodes/shared/devtools/tabRegistry
 import Overview from './Overview';
 import RawLogs from './RawLogs';
 
-// Order 0 → the hub's default first paint, ahead of the Console (order 15): a
-// light landing glance instead of the Console's heavy graph build.
+// Order 0 → hub's default first paint, ahead of the Console's graph build.
 registerDevtoolsTab( {
 	id: 'overview',
 	label: __( 'Overview', 'newspack-nodes' ),

@@ -13,9 +13,7 @@
  * different subtrees / generations, never for same-level siblings.
  */
 
-// Partition/Consumer paths carry `<partition>`; a Topic's path template carries
-// the deferred curly `{partition}` (left untouched by shell interpolation on
-// purpose). A vertex carries at most one syntax — match whichever is present.
+// Paths carry `<partition>` or a Topic's `{partition}` — match either.
 const PARTITION_TOKENS = [ '<partition>', '{partition}' ];
 const partitionTokenIn = ( vertex ) =>
 	PARTITION_TOKENS.find( ( t ) => vertex.includes( t ) ) ?? null;
@@ -44,9 +42,7 @@ function concreteLogNames( vertex, catalogNames ) {
 	if ( null === token ) {
 		return [ { name: vertex, partition: 0 } ];
 	}
-	// Degrade safely on a multi-token vertex (unrealistic): pre = before the
-	// first token, post = after the last; the all-digits middle test then
-	// simply won't match, which is acceptable.
+	// Multi-token vertex (unrealistic): pre=before first, post=after last.
 	const tokenAt = vertex.indexOf( token );
 	const lastTokenAt = vertex.lastIndexOf( token );
 	const pre = vertex.slice( 0, tokenAt );
@@ -90,7 +86,7 @@ function logicalLogName( vertex ) {
 	const lastTokenAt = vertex.lastIndexOf( token );
 	const pre = vertex
 		.slice( 0, tokenAt )
-		// Drop a trailing `p` partition-prefix then a separator run (`firehose.p` → `firehose`).
+		// Drop a trailing `p` + separator (`firehose.p` → `firehose`).
 		.replace( /[._-]p$/, '' );
 	const post = vertex
 		.slice( lastTokenAt + token.length )
@@ -151,10 +147,7 @@ function collectLogPartitions( logName, ctx ) {
 	const { stepByKey, producers, consumers, logSlotsByName } = ctx;
 	const consumerKeys = consumers.get( logName ) || [];
 
-	// Cursor + recorded probe end by partition from THIS topology's worker
-	// reading this log. Per-topology so two trees of the same log never share a
-	// cursor/end — the bar derives its green/red/gray regions from this tree's
-	// own consumer (or none, leaving the bar all-gray).
+	// Cursor + probe end per partition, from THIS topology's own worker.
 	const probeByPartition = new Map();
 	let hasCursor = false;
 	for ( const ckey of consumerKeys ) {
@@ -366,7 +359,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		const tWorkers = byType.get( topology ) || [];
 		const { outAdj, inDegree, isLog } = collapseGraph( graphTopo );
 
-		// Status-overlay context: worker rows keyed for collectLogPartitions.
+		// Status-overlay: worker rows keyed for collectLogPartitions.
 		const steps = buildSteps( tWorkers );
 		const stepByKey = new Map( steps.map( ( s ) => [ s.key, s ] ) );
 		const producers = new Map();
@@ -413,17 +406,11 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			);
 		};
 
-		// Out-neighbor signature; convergent siblings share the same downstream set.
+		// Out-neighbor signature; convergent siblings share downstream.
 		const signatureOf = ( vertex ) =>
 			JSON.stringify( [ ...( outAdj.get( vertex ) || [] ) ].sort() );
 
-		// Join logic siblings that converge on the same non-empty shared subtree —
-		// including when that shared child is a LOG. Siblings here are a group with an
-		// identical out-neighbor signature under one parent (same generation), so they
-		// collapse to a single entity even when they all write to one log (e.g. three
-		// sources → one ingest log). The repeat-per-writer rule is only for producers in
-		// DIFFERENT subtrees (different parents / generations), which never land in the
-		// same sibling group. Leaves (empty downstream) have nothing to deduplicate.
+		// Join logic siblings converging on the same non-empty subtree.
 		const joinable = ( members ) => {
 			if ( members.length < 2 ) {
 				return false;
@@ -434,10 +421,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			);
 		};
 
-		// Emit a sibling list, joining convergent logic-only groups (size >= 2)
-		// onto one entity whose shared subtree is built once. `prefix` is the
-		// parent entity's key; each child key is `${prefix}>${childVertexId}`
-		// so a vertex reached via N parents gets N distinct (position) keys.
+		// Emit a sibling list, joining convergent logic-only groups.
 		const makeSiblings = ( siblings, path, prefix = '' ) => {
 			const groups = new Map();
 			siblings.forEach( ( vertex ) => {
@@ -461,8 +445,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			} );
 			return entities.sort( byName );
 		};
-		// A position key encodes the tree path: roots use their vertex id, a child
-		// uses `${parentKey}>${childVertexId}`. Roots pass prefix ''.
+		// Position key = tree path: root = vertex id, child = parent>id.
 		const childKey = ( prefix, id ) =>
 			prefix ? `${ prefix }>${ id }` : id;
 		const byName = ( a, b ) => byLower( a.name, b.name );
@@ -492,13 +475,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 				children: makeSiblings( childrenOf( ids[ 0 ] ), nextPath, key ),
 			};
 		};
-		// A log vertex GROUPS its concrete per-partition catalog entries into ONE
-		// logical entity (`firehose`), each concrete entry becoming a partition
-		// sub-row carried on the entity, with the downstream consumer subtree built
-		// ONCE under that single entity (its position key per ancestry). Each
-		// concrete entry's slot is stat'd via `collectLogPartitions` (catalog +
-		// cursor merge) and stamped with its real partition number (the substituted
-		// `<partition>` VALUE) so the partition-keyed rates line up.
+		// A log vertex groups its concrete partitions into ONE entity.
 		const makeLog = ( vertex, path, prefix ) => {
 			const concretes = concreteLogNames( vertex, catalogNames );
 			const name = logicalLogName( vertex );
@@ -508,10 +485,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 					const collected = collectLogPartitions( concrete, ctx );
 					hasCursor = hasCursor || collected.hasCursor;
 					const slot = collected.partitions[ 0 ] || {};
-					// Carry the CONCRETE catalog name as the rate key: it's the
-					// verbatim string the transform (recordLog) keys on too, so the
-					// W/R rate + segment animations line up regardless of where the
-					// partition token sits (layout-agnostic).
+					// CONCRETE catalog name = rate key (matches recordLog).
 					return { ...slot, partition, name: concrete };
 				}
 			);

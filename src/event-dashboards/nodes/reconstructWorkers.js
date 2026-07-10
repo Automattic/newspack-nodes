@@ -20,17 +20,13 @@
 
 const PARTITION_TOKEN = '<partition>';
 
-// Substitute the partition number into a `<partition>` template. A token-free
-// template (a clean logical name) is returned verbatim.
+// Substitute the partition number into a <partition> template (else verbatim).
 const concreteSource = ( template, partition ) =>
 	template.includes( PARTITION_TOKEN )
 		? template.split( PARTITION_TOKEN ).join( String( partition ) )
 		: template;
 
-// True when `reader` IS handler `name` — exactly, or `name` followed by a
-// partition suffix at a separator boundary (`prereq.p0`, `prereq-0`). Anchored so
-// `req` does NOT claim `prereq.p0` (the loose-substring bug): a substring hit must
-// align with the start AND end at a separator, never mid-token.
+// reader === name, or name followed by a separator suffix (prereq.p0/-0).
 const readerIsHandler = ( reader, name ) =>
 	reader === name ||
 	( reader.startsWith( name ) &&
@@ -55,8 +51,7 @@ function consumerHandlers( graphTopo ) {
 	const kindOf = new Map( nodes.map( ( n ) => [ n.name, n.kind ] ) );
 	const isTee = ( name ) => 'tee' === kindOf.get( name );
 
-	// Contract tees: replace x→T, T→y with x→y until no edge touches a tee
-	// (the same loop as topologyGraph.collapseGraph, on raw node names).
+	// Contract tees: replace x→T, T→y with x→y (as collapseGraph, raw names).
 	let edges = rawEdges.map( ( e ) => [ e[ 0 ], e[ 1 ] ] );
 	while ( edges.some( ( [ a, b ] ) => isTee( a ) || isTee( b ) ) ) {
 		const tee = edges.flatMap( ( [ a, b ] ) => [ a, b ] ).find( isTee );
@@ -84,19 +79,14 @@ function consumerHandlers( graphTopo ) {
 		if ( 'consumer' !== node.kind ) {
 			return;
 		}
-		// EVERY downstream LOGIC node (the tee fan-out, post-contraction) — only
-		// `logic` nodes become their own NodeRow vertex in collapseGraph (storage
-		// kinds collapse to their writes-vertex), so only they are valid handlers.
-		// A consumer feeding only storage directly (single-stage) → its own name.
+		// Only logic nodes are valid handlers; else consumer's own name.
 		const downstream = ( outAdj.get( node.name ) || [] ).filter(
 			( n ) => 'logic' === kindOf.get( n )
 		);
 		out.push( {
 			name: node.name,
 			sourceTemplate: node.reads || '',
-			// The consumer's offsetlog basename template — its UNIQUE reader id.
-			// Two topologies can read the same source via distinct offsetlogs, so
-			// match probe rows by reader (when known), not just source.
+			// Offsetlog basename = UNIQUE reader id; match probes by it.
 			readerTemplate: node.reader || '',
 			handlers: downstream.length > 0 ? downstream : [ node.name ],
 		} );
@@ -108,20 +98,14 @@ function consumerHandlers( graphTopo ) {
 const liveTotal = ( segments ) =>
 	segments.reduce( ( acc, seg ) => acc + ( seg.size || 0 ), 0 );
 
-// Absolute byte position of a cursor within its partition: the sum of every
-// segment fully behind the cursor plus the offset into the current one.
+// Absolute byte position of a cursor: full segments behind it + offset.
 const cursorBytes = ( segments, cursorSegment, cursorOffset ) =>
 	segments.reduce(
 		( acc, seg ) => ( seg.id < cursorSegment ? acc + seg.size : acc ),
 		0
 	) + cursorOffset;
 
-// Absolute byte position of a partition's HEAD as the consumer knows it: full
-// segments below `endSegment` plus the fresh `endSize` offset. Mirrors `cursorBytes`
-// and, crucially, does NOT cap `endSize` at the live head-segment's size — that
-// segment size is sampled separately and often lags `endSize`, which stuck the
-// write rate at 0 while the read rate (fresh cursor offset) advanced. Used only
-// for the write RATE.
+// Partition HEAD position; does NOT cap endSize (it lags, stuck W at 0).
 const endPosition = ( segments, endSegment, endSize ) =>
 	segments.reduce(
 		( acc, seg ) => ( seg.id < endSegment ? acc + seg.size : acc ),
@@ -154,9 +138,9 @@ function steppedRate( prev, value, now ) {
 		};
 	}
 	if ( value === prev.value ) {
-		return { value, ts: prev.ts, rate: prev.rate }; // unchanged probe data → hold
+		return { value, ts: prev.ts, rate: prev.rate }; // unchanged → hold
 	}
-	return { value, ts: now, rate: prev.rate }; // went backward → rebaseline, hold rate
+	return { value, ts: now, rate: prev.rate }; // backward → rebaseline
 }
 
 /**
@@ -179,7 +163,7 @@ export function reconstructWorkers( data, prior ) {
 	const priorRead = prior.read || {};
 	const priorWrite = prior.write || {};
 
-	// Live per-(name, partition) segment lists, indexed by concrete source name.
+	// Live per-(name, partition) segment lists, indexed by concrete source.
 	const liveByName = new Map();
 	logs.forEach( ( log ) => {
 		( log.partitions || [] ).forEach( ( p ) => {
@@ -202,14 +186,7 @@ export function reconstructWorkers( data, prior ) {
 	const nextRead = {};
 	const nextWrite = {};
 
-	// Write rate = Δ(probe END) of a partition — snapshot-stable, intentionally NOT
-	// the live total. A partition can be read by SEVERAL consumers (distinct
-	// topologies/readers) whose end snapshots differ and whose row order in
-	// `consumers[]` is unstable across polls; collapse them per concrete source to
-	// the MAX end (the reader closest to the head) so steppedRate sees ONE
-	// monotonic series. Keying per-row by source instead would let the two
-	// readers clobber each other non-monotonically and strand fanned partitions
-	// at 0 B/s. Computed once here, reader-count- and order-independent.
+	// Write rate = Δ(probe END); collapse per source to MAX end (monotonic).
 	const writeTotals = new Map();
 	consumers.forEach( ( row ) => {
 		const live =
@@ -220,10 +197,7 @@ export function reconstructWorkers( data, prior ) {
 			writeTotals.set( row.source, total );
 		}
 	} );
-	// OUTPUT logs (written but read by nothing in the graph) have no consumer row,
-	// so fall back to the live segment head — else a busy output partition shows
-	// W 0 B/s forever. A CONSUMED log keeps its reader's END (set above): that is
-	// intentionally NOT the live total, so only fill keys not already present.
+	// Output logs (no consumer) fall back to live head; only fill new keys.
 	logs.forEach( ( log ) => {
 		( log.partitions || [] ).forEach( ( p ) => {
 			if ( writeTotals.has( log.name ) ) {
@@ -242,10 +216,7 @@ export function reconstructWorkers( data, prior ) {
 		writeRates[ source ] = step.rate;
 	} );
 
-	// Read step per reader, computed ONCE up front: it depends only on the probe
-	// row (reader / source / cursor) + the live segments + ts — never the topology.
-	// Computing it inside the per-topology loop made it N×M (most discarded). One
-	// reader's cursor advances at one rate no matter how many topologies read it.
+	// Read step per reader, computed ONCE up front (per-topology was N×M).
 	const readStepByReader = new Map();
 	consumers.forEach( ( row ) => {
 		if ( readStepByReader.has( row.reader ) ) {
@@ -265,16 +236,9 @@ export function reconstructWorkers( data, prior ) {
 	Object.entries( graph ).forEach( ( [ topology, graphTopo ] ) => {
 		const handlers = consumerHandlers( graphTopo );
 
-		// One rich worker per probe row (so disambiguated readers each get their
-		// own row). Resolve each row's handler from the consumer node whose `reads`
-		// template substitutes to the row's source; when several consumer nodes
-		// share that template, prefer the one whose name is embedded in the
-		// disambiguated reader id, else the first match.
+		// One worker per probe row; resolve handler by its reads-template.
 		consumers.forEach( ( row ) => {
-			// Match by the consumer's READER (its offsetlog) when known — that's
-			// the unique key, so two topologies sharing a source don't both claim
-			// the other's probe row. Fall back to source for consumers whose graph
-			// node carries no reader template (single-reader sources, unchanged).
+			// Match by READER (unique); fall back to source when no reader.
 			const matching = handlers.filter( ( h ) =>
 				h.readerTemplate
 					? concreteSource( h.readerTemplate, row.partition ) ===
@@ -295,11 +259,7 @@ export function reconstructWorkers( data, prior ) {
 				liveByName.get( `${ concrete }#${ row.partition }` ) || [];
 			const status = liveByKey.get( `${ topology }#${ row.partition }` );
 
-			// Drop a ghost reader: a stale probe row for a partition that's no
-			// longer declared (config shrank the count away) AND has no live worker
-			// backing it. liveByName is the declared-log set already in context, so
-			// this cross-checks against the real source — not just a stall timer.
-			// A still-declared partition (between worker respawns) stays visible.
+			// Drop a ghost reader: undeclared partition AND no live worker.
 			if (
 				! liveByName.has( `${ concrete }#${ row.partition }` ) &&
 				! ( status && status.live )
@@ -307,12 +267,7 @@ export function reconstructWorkers( data, prior ) {
 				return;
 			}
 
-			// One worker row PER downstream handler so a fanned-out consumer
-			// (firehose → request-builder AND job-router) lands a row on EACH
-			// processor's collapsed-graph vertex — one row per target. They share
-			// the reader's cursor/end/segments. The bar
-			// carries the FULL live segments plus the reader's recorded (end_segment,
-			// end_size) so it can paint the green/red/gray regions itself.
+			// One worker row per downstream handler (fan-out: each vertex).
 			const inputsStatus = {
 				name: concrete,
 				partition: row.partition,
@@ -324,10 +279,7 @@ export function reconstructWorkers( data, prior ) {
 				end_size: row.end_size,
 			};
 
-			// Read rate is PROBE-cadence (steppedRate), computed ONCE per reader up
-			// front (see readStepByReader) — NOT here per topology, which recomputed
-			// the identical step N times. Each worker carries its own read_rate (for
-			// the ETA rollup + the eta-aware "behind" health).
+			// Read rate: computed once per reader, not here per topology.
 			const readStep = readStepByReader.get( row.reader );
 
 			chosen.handlers.forEach( ( handler ) => {
@@ -354,13 +306,10 @@ export function reconstructWorkers( data, prior ) {
 					outputs_status: [],
 				} );
 			} );
-			// Write rate is computed once per source up front (see maxEndBySource) —
-			// NOT here per consumer row, which clobbered fanned partitions.
+			// Write rate: once per source up front, not per row here.
 		} );
 
-		// A liveness row with no matching consumer row still emits a worker so the
-		// tree shows the worker. Track which (type, partition) already produced a
-		// row above and backfill the rest from liveness.
+		// A liveness row with no consumer row still emits a worker row.
 		const emitted = new Set(
 			workers
 				.filter( ( w ) => w.type === topology )

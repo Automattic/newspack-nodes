@@ -9,12 +9,7 @@
  * legend.
  */
 
-// A metric is either a LEVEL gauge (backlog/cacheSize — a standing quantity, so
-// an unsampled instant means "unknown, hold the last reading", not "zero") or a
-// RATE (msgRate/byteRate — a per-interval flow, so an unsampled instant IS zero).
-// buildAlignedSeries needs this distinction to fill empty buckets correctly; we
-// derive it from the metric name HERE (the layer that knows the name) and pass
-// {fill,agg} down as data, so the low-level aligner never string-matches metrics.
+// LEVEL gauges hold across gaps, RATE metrics zero-fill; mode derived by name.
 const LEVEL_MODE = { fill: 'hold', agg: 'last' };
 const RATE_MODE = { fill: 'zero', agg: 'max' };
 const FILL_MODES = {

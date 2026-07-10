@@ -1,7 +1,6 @@
 import { fleetSummary } from '../fleetSummary';
 
-// A topology row as useTopologyManager emits it: active flag, configured
-// num_partitions, rolled-up health, and a live status carrying worker rows.
+// A topology row as useTopologyManager emits it (active, partitions, health).
 const topo = ( name, o = {} ) => ( {
 	name,
 	active: o.active ?? true,
@@ -22,8 +21,7 @@ it( 'counts topologies and active topologies', () => {
 } );
 
 it( 'workersTotal counts CONFIGURED num_partitions over active topologies, not reporting workers', () => {
-	// The bug: a topology configured for 2 partitions whose 2nd worker is absent
-	// from this snapshot must still count 2 toward the total — not 1.
+	// A 2-partition topology missing its 2nd worker still counts 2, not 1.
 	const s = fleetSummary( [
 		topo( 'a', { num_partitions: 2, workers: [ wk( 0 ) ] } ),
 	] );

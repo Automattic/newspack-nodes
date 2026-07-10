@@ -10,21 +10,17 @@ import {
 import { Core } from '../../../runtime/core';
 import { RawLogsViewNode } from '../raw-logs-view-node';
 
-// setName registers in the per-process Core registry; clear it between tests
-// so re-creating the same-named node doesn't collide (matches node.test.js).
+// setName registers in Core; clear it between tests to avoid collisions.
 beforeEach( () => Core.reset() );
 
-// Construct the node directly (production wires it via interpreter.makeNode;
-// bare-newing the class is fine inside a test).
+// Construct the node directly (bare-new is fine in a test).
 function makeView( name ) {
 	const node = new RawLogsViewNode();
 	node.name = name;
 	return node;
 }
 
-// A raw SSE log envelope as it arrives at the view from `_sse` after the
-// route+transform chain was collapsed: the view itself shapes
-// envelope → `{ p, line }` row inline.
+// A raw SSE log envelope as it arrives at the view from _sse.
 function envelopeMsg( { from = 'firehose.p0', key = '', value = '' } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;
@@ -34,8 +30,7 @@ function envelopeMsg( { from = 'firehose.p0', key = '', value = '' } = {} ) {
 	return m;
 }
 
-// A control message: TM_STRUCT carrying { action, ... }. Hook-minted; no
-// envelope metadata (no FROM/KEY).
+// A control message: TM_STRUCT { action, ... }; no FROM/KEY.
 function controlMsg( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -90,9 +85,7 @@ test( 'partition defaults to 0 when FROM does not match `{sub}.pN`', () => {
 } );
 
 test( 'distinct non-`.pN` FROM dirs get distinct stable partition indices (opaque)', () => {
-	// Layout-agnostic: a partition dir that isn't `{sub}.pN` is still its own
-	// unique partition — assign a stable first-seen display index instead of
-	// collapsing every such dir onto column 0.
+	// Layout-agnostic: a non-.pN dir gets a stable first-seen index.
 	const v = makeView( 'rawlogs:view' );
 	v.fill( envelopeMsg( { from: 'alpha', value: 'a' } ) );
 	v.fill( envelopeMsg( { from: 'beta', value: 'b' } ) );
@@ -276,10 +269,7 @@ test( 'a read mid-stream then more appends keeps newest-first across the coalesc
 } );
 
 test( 'LPS tracking aggregates per second, not one entry per line (bounded window)', () => {
-	// Perf contract: the lines/second window must NOT grow one entry per
-	// line (the old `lineHistory.push`-per-line + full filter+reduce was
-	// O(n) per line). A 10s window collapses to per-second buckets, so a
-	// burst of 500 synchronous lines stays a handful of buckets — never 500.
+	// Perf contract: the lines/second window must NOT grow per line.
 	const v = makeView( 'rawlogs:view' );
 	for ( let i = 0; i < 500; i++ ) {
 		v.fill( envelopeMsg( { value: `row ${ i }` } ) );

@@ -11,8 +11,7 @@
 import { render, fireEvent } from '@testing-library/react';
 import { consoleHref, sectionFor, TopologyRow } from '../TopologyRow';
 
-// TopologyControls has its OWN suite; here it's a prop-capturing stub so the row
-// only proves it wired the right handlers + active flag + editHref.
+// TopologyControls has its own suite; stubbed to capture its wired props.
 jest.mock( '../TopologyControls', () => {
 	const el = require( '@wordpress/element' );
 	return ( props ) => {
@@ -25,9 +24,7 @@ function controlFor( name ) {
 	return globalThis.__topologyControls.find( ( c ) => c.name === name );
 }
 
-// Live status mirroring the enriched worker-status MODEL slices the hook attaches
-// per active topology. The worker's `handler` matches the graph vertex
-// (`producer`) so a real node row renders and the `byteRates` read is exercised.
+// Live status mirroring the enriched worker-status MODEL the hook attaches.
 function activeStatus() {
 	return {
 		graph: { nodes: [ { name: 'producer', kind: 'logic' } ], edges: [] },
@@ -143,7 +140,7 @@ describe( 'TopologyRow — folded mode', () => {
 		expect( chevron ).toBeTruthy();
 		chevron.click();
 		expect( props.onExpand ).toHaveBeenCalledWith( 'alpha' );
-		// Still shows the same per-partition heading pills as the unfolded view.
+		// Same per-partition heading pills as the unfolded view.
 		expect(
 			container.querySelectorAll( '.topology-partition' ).length
 		).toBeGreaterThan( 0 );
@@ -305,8 +302,7 @@ describe( 'TopologyRow', () => {
 			},
 			collapsed: new Set(),
 		} );
-		// Drive the within-tree fold the way TopologySection does: it calls
-		// onToggle(key); a stateful wrapper threads the collapsed Set back in.
+		// Drive the within-tree fold as TopologySection does: onToggle(key).
 		function Wrapper() {
 			const el = require( '@wordpress/element' );
 			const [ collapsed, setCollapsed ] = el.useState( () => new Set() );

@@ -64,9 +64,7 @@ const VIEW = 'topicprobe:view';
 
 const fakeClient = () => ( { postBatch: () => Promise.resolve( [] ) } );
 
-// The view node drops probe records older than 24h by wall clock, so `ts` here is
-// an OFFSET from a recent epoch base — the synthetic frames must sit in the live
-// window or they never accumulate.
+// The view drops records older than 24h; ts is an OFFSET into the live window.
 const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
 
 function probeFrame( {
@@ -79,9 +77,7 @@ function probeFrame( {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ FROM ] = 'topicprobe.p0';
-	// topicprobe.p0 is a PARTITION, so each replayed record carries the TO the
-	// probe stamped server-side (routing it to the partition) — a path that means
-	// nothing in the browser. The RemoteLink must re-home it to its target.
+	// A replayed record carries a server-side TO; RemoteLink must re-home it.
 	m[ TO ] = 'topicprobe';
 	m[ TIMESTAMP ] = TS_BASE + ts;
 	const v = [];
@@ -211,16 +207,14 @@ describe( 'useTopicProbeStream', () => {
 		} );
 		const snap = Core.node( VIEW ).snapshot();
 		expect( snap[ 'firehose.p0' ] ).toBeTruthy();
-		expect( snap[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 ); // +3000 msgs / 3s
+		// +3000 msgs / 3s
+		expect( snap[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 );
 		expect( snap[ 'firehose.p0' ].latest.backlog ).toBe( 7800 );
 		expect( snap[ 'firehose.p0' ].source ).toBe( 'firehose.p0' );
 	} );
 
 	it( 'reconnects (re-seeking history) after a graph rebuild drops + recreates the link', async () => {
-		// A graph-generation bump (Reset Graph, or a co-mounted dashboard's
-		// rebuild) tears down + recreates the link. The connect must re-fire on the
-		// fresh link — even though page visibility never changed — or the rebuilt
-		// link sits unconnected and the panels go empty.
+		// A graph-gen bump rebuilds the link; connect must re-fire.
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'history',
@@ -236,7 +230,8 @@ describe( 'useTopicProbeStream', () => {
 		} );
 
 		expect( Core.node( LINK ) ).not.toBe( firstLink ); // rebuilt
-		expect( FakeEventSource.instances.length ).toBeGreaterThan( before ); // reconnected
+		// reconnected
+		expect( FakeEventSource.instances.length ).toBeGreaterThan( before );
 		expect( FakeEventSource.last.url ).toContain(
 			encodeURIComponent( JSON.stringify( { 'topicprobe.p0': 'start' } ) )
 		); // re-seeks history, not a tail-follow

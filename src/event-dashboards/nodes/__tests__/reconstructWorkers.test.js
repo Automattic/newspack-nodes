@@ -3,7 +3,7 @@ import { buildTopologySections } from '../../topologyGraph';
 
 const EMPTY_PRIOR = { read: {}, write: {} };
 
-// Flatten a buildTopologySections tree into all entities, for attachment asserts.
+// Flatten a buildTopologySections tree into all entities.
 function flatten( entities, acc = [] ) {
 	entities.forEach( ( e ) => {
 		acc.push( e );
@@ -12,9 +12,7 @@ function flatten( entities, acc = [] ) {
 	return acc;
 }
 
-// The `combined` topology shape: one consumer fans through a tee to TWO logic
-// processors. The OLD payload emitted one worker row per target; the join must
-// reproduce that so EACH processor's collapsed-graph vertex gets a worker row.
+// The `combined` shape: one consumer fans via a tee to TWO processors.
 const FANOUT_GRAPH = {
 	combined: {
 		nodes: [
@@ -94,8 +92,7 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 		const { workers } = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
 		const handlers = workers.map( ( w ) => w.handler ).sort();
 		expect( handlers ).toEqual( [ 'job-router', 'request-builder' ] );
-		// Both rows share the reader's snapshot state + the worker's liveness
-		// (including started_at, which drives the per-partition uptime).
+		// Both rows share the reader's snapshot + the worker's liveness.
 		workers.forEach( ( w ) => {
 			expect( w.behind ).toBe( 150 );
 			expect( w.cursor_offset ).toBe( 50 );
@@ -114,17 +111,13 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 		const entities = flatten( sections[ 0 ].tree );
 		const byName = ( name ) =>
 			entities.find( ( e ) => 'node' === e.kind && e.name === name );
-		// The regression guard: picking only the first downstream handler would
-		// leave job-router with no worker row.
+		// Regression guard: picking only the first handler drops job-router.
 		expect( byName( 'request-builder' )?.workers ?? [] ).toHaveLength( 1 );
 		expect( byName( 'job-router' )?.workers ?? [] ).toHaveLength( 1 );
 	} );
 } );
 
-// Two SEPARATE topologies tailing the SAME source log (firehose.p<N>) via their
-// own offsetlogs — the request-builder / job-router shape. Each consumer carries
-// a distinct `reader` template; the join must match each topology to ITS reader,
-// not every probe row that happens to share the source.
+// Two topologies tail the SAME source via distinct readers; match by reader.
 const SHARED_SOURCE_GRAPH = {
 	'request-builder': {
 		nodes: [
@@ -287,8 +280,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			],
 		};
 		const { logs } = reconstructWorkers( data, EMPTY_PRIOR );
-		// The bar paints the live head with a gray "beyond" region, so the
-		// payload must carry the FULL live segments — NOT trimmed to the probe.
+		// The bar paints a gray beyond region, so carry FULL live segments.
 		const logSegs = logs[ 0 ].partitions[ 0 ].segments;
 		expect( logSegs.map( ( s ) => [ s.id, s.size ] ) ).toEqual( [
 			[ 0, 100 ],
@@ -384,7 +376,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			( e ) => 'log' === e.kind && 'firehose' === e.name
 		);
 		const part = firehose.partitions[ 0 ];
-		// id 2 (live, past the probe end) STAYS — it paints as the gray beyond region.
+		// id 2 (live, past the probe end) STAYS — paints as gray beyond.
 		expect( part.segments.map( ( s ) => s.id ) ).toEqual( [ 0, 1, 2 ] );
 		expect( part.cursor_segment ).toBe( 0 );
 		expect( part.cursor_offset ).toBe( 50 );
@@ -410,7 +402,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			write: first.nextWrite,
 		} );
 		expect( second.byteRates[ rb ] ).toBe( 10 );
-		// Each worker also carries its own read_rate (for the ETA rollup / health).
+		// Each worker carries its own read_rate (ETA rollup / health).
 		const w = second.workers.find(
 			( x ) => x.handler === 'request-builder'
 		);
@@ -442,7 +434,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 
 	it( 'HOLDS the read rate across polls where the cursor is unchanged (no flicker to 0)', () => {
 		const rb = `request-builder-0-firehose.p0`;
-		// Poll 1: baseline (rate 0). Poll 2 (probe advanced the cursor): rate 10.
+		// Poll 1: baseline (rate 0). Poll 2 (cursor advanced): rate 10.
 		const p1 = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
 		const p2 = reconstructWorkers(
 			{
@@ -455,8 +447,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			{ read: p1.nextRead, write: p1.nextWrite }
 		);
 		expect( p2.byteRates[ rb ] ).toBe( 10 );
-		// Poll 3: SAME probe data (cursor unchanged), poll clock advanced 1s. The
-		// rate must HOLD at 10 — not drop to 0 because the poll saw no new probe.
+		// Poll 3: SAME probe data, clock +1s. Rate must HOLD at 10, not 0.
 		const p3 = reconstructWorkers(
 			{
 				...FANOUT_DATA,
@@ -481,8 +472,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 					end_size: endSize,
 				},
 			],
-			// Live total GROWS every poll, but the write rate must ignore it and
-			// track only the probe END — so a poll with unchanged end holds.
+			// Live total grows, but write rate tracks only the probe END.
 			logs: [
 				{
 					name: 'firehose.p0',
@@ -514,9 +504,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 	} );
 
 	it( 'computes write rate for an OUTPUT log with no consumer (from the live head)', () => {
-		// `completed` is written but nothing in the graph reads it — there are no
-		// consumer rows, so its rate must come from the live segment head, else an
-		// output log under a constant stream shows W 0 B/s forever.
+		// `completed` has no consumer rows, so its rate = live segment head.
 		const src = 'completed.p0';
 		const make = ( headSize, ts ) => ( {
 			...FANOUT_DATA,
@@ -545,10 +533,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 	} );
 
 	it( 'tracks the consumer END for write rate even when the live head-segment size lags it (no cap)', () => {
-		// The live head-segment size is sampled separately from the consumer end and
-		// can be STALE/smaller; the write position must follow the fresh end (as the
-		// READ rate follows the fresh cursor offset), not the capped live size — that
-		// cap is why firehose.p1 stuck at 0 B/s while clearly filling.
+		// Write position follows the fresh end, not the capped live head-size.
 		const src = 'firehose.p0';
 		const make = ( endSize, ts ) => ( {
 			...FANOUT_DATA,
@@ -565,7 +550,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 					partitions: [
 						{
 							partition: 0,
-							segments: [ { id: 0, size: 50 } ], // lags the end below
+							segments: [ { id: 0, size: 50 } ], // lags end
 							total_size: 50,
 						},
 					],
@@ -584,11 +569,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 	} );
 
 	it( 'collapses a partition read by MULTIPLE consumers to one write rate (max end), stable across flipped row order', () => {
-		// Two separate consumers (distinct readers) of the SAME partition, with
-		// differing end snapshots; the head = max(end) advances 1000→2000→3000 over
-		// 10s steps = 100 B/s. The committed rate must track the head and NOT depend
-		// on the (unstable) consumers[] order — the bug stranded a fanned partition
-		// at 0 because the two readers clobbered one writeRates key non-monotonically.
+		// Two readers of one partition: head=max(end) is order-independent.
 		const src = 'firehose.p0';
 		const make = ( endA, endB, order, ts ) => ( {
 			...FANOUT_DATA,
@@ -621,7 +602,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			read: p1.nextRead,
 			write: p1.nextWrite,
 		} );
-		expect( p2.writeRates[ src ] ).toBe( 100 ); // Δmax = 1000/10s, order-independent
+		expect( p2.writeRates[ src ] ).toBe( 100 ); // Δmax = 1000/10s
 		const p3 = reconstructWorkers( make( 3000, 300, [ 'A', 'B' ], 1020 ), {
 			read: p2.nextRead,
 			write: p2.nextWrite,
@@ -630,11 +611,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 	} );
 } );
 
-// Two consumer nodes in ONE topology share a source (no reader template, so the
-// match is by source). Their names collide as substrings: `req` is a substring of
-// the reader `prereq.p0`. The disambiguation must bind the probe row to the
-// handler whose IDENTITY equals the reader basename (`prereq`), not the first one
-// whose name is a loose substring of the reader (`req`).
+// Bind to the handler equal to the reader basename (prereq), not req.
 const SUBSTRING_COLLISION_GRAPH = {
 	t: {
 		nodes: [
@@ -694,20 +671,14 @@ describe( 'reconstructWorkers — reader/handler identity match (no loose substr
 			SUBSTRING_COLLISION_DATA,
 			EMPTY_PRIOR
 		);
-		// reader `prereq.p0` must resolve to `prereq`'s downstream (`prereq-proc`),
-		// NOT `req`'s (`req-proc`) — `req` is merely a substring of `prereq.p0`.
+		// reader prereq.p0 resolves to prereq-proc, NOT req-proc.
 		const handlers = workers.map( ( w ) => w.handler ).sort();
 		expect( handlers ).toEqual( [ 'prereq-proc' ] );
 	} );
 } );
 
 describe( 'reconstructWorkers — read step computed once per reader (not per topology)', () => {
-	// A probe row whose source matches a consumer in EVERY topology (no reader
-	// template → matched by source). The per-reader read step depends only on the
-	// row + segments + timestamp, never the topology, so it must be computed ONCE
-	// regardless of topology count. A counting getter on the segment `id` (read by
-	// the cursor-byte computation, NOT by liveTotal which reads `size`) reveals the
-	// N×M recompute: more topologies must NOT multiply the read-step work.
+	// The per-reader read step must be computed ONCE, not per topology (N×M).
 	const buildData = ( topologyCount ) => {
 		const graph = {};
 		for ( let i = 0; i < topologyCount; i++ ) {
@@ -768,8 +739,7 @@ describe( 'reconstructWorkers — read step computed once per reader (not per to
 	it( 'does not scale the per-reader read computation with the number of topologies', () => {
 		const oneTopology = buildData( 1 );
 		const fourTopologies = buildData( 4 );
-		// The cursor-byte read step for a reader is the same regardless of how many
-		// topologies reference it — adding topologies must not recompute it.
+		// A reader's read step is same no matter how many topologies use it.
 		expect( fourTopologies ).toBe( oneTopology );
 	} );
 } );
@@ -786,10 +756,7 @@ describe( 'reconstructWorkers — liveness backfill', () => {
 } );
 
 describe( 'reconstructWorkers — hides ghost readers of an undeclared partition', () => {
-	// After num_partitions shrinks 2→1, the probe still carries a stale p1 reader
-	// (its last snapshot before the p1 worker died). The join must drop it: the
-	// source partition is no longer in the declared logs AND no live worker backs
-	// it — cross-checked against logs[] (already in context), not just a timer.
+	// After num_partitions 2→1, drop the stale p1 reader (no decl, no worker).
 	const GHOST_DATA = {
 		graph: FANOUT_GRAPH,
 		workers: [
@@ -855,8 +822,7 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 	} );
 
 	it( 'keeps a reader whose partition IS still declared even if its worker is momentarily absent', () => {
-		// Guard: only the undeclared + unbacked combination is a ghost. A declared
-		// partition with no live worker (between respawns) stays visible.
+		// Only undeclared + unbacked is a ghost; declared-but-dead stays.
 		const data = {
 			...GHOST_DATA,
 			logs: [

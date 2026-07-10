@@ -37,7 +37,7 @@ import { Node } from '../../../runtime/node';
 import { useNodeState } from '../../../runtime/react';
 import names from '../../../runtime/reserved-node-names.json';
 
-// Minimal FakeEventSource — same shape as the substrate's `sse-in-node.test.js`.
+// Minimal FakeEventSource — same shape as the substrate's sse-in-node.test.
 class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
@@ -70,16 +70,13 @@ import { useRawLogsGraph } from '../useRawLogsGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const LINK = 'rawlogs:link';
-// The composed SseIn is UNNAMED (held as link.sseIn, never registered); HttpOut
-// + Heartbeat are the SHARED reserved-name singletons.
+// SseIn is UNNAMED (link.sseIn); HttpOut + Heartbeat are shared singletons.
 const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
 const VIEW = 'rawlogs:view';
 const TEE = 'rawlogs:stream';
 
-// CommandClient double mirroring HttpOut's seam: postBatch returns reply
-// Messages addressed back along FROM. Used for `list_logs` (initial dropdown)
-// and `heartbeat` (slot poke).
+// CommandClient double: postBatch returns reply Messages addressed along FROM.
 function makeFakeClient( payloadByVerb = {} ) {
 	const client = {
 		batches: [],
@@ -113,8 +110,7 @@ function makeFakeClient( payloadByVerb = {} ) {
 	return client;
 }
 
-// Build a `connected` envelope as SseIn recognizes it: the flat string the
-// server now sends (TM_INFO values are strings), no partition.
+// Build a connected envelope as a flat string (TM_INFO values are strings).
 function connectedEnvelope( { pid = 4242, slot = 3 } = {} ) {
 	const value = `PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS firehose.p0 INTERVAL 2000`;
 	const m = newMessage();
@@ -144,8 +140,7 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		const link = Core.node( LINK );
 		expect( link.sseIn ).toBeTruthy();
 		expect( Core.node( 'rawlogs:link:sse-in' ) ).toBeNull();
-		// HttpOut + Heartbeat are the SHARED reserved-name singletons, sinking
-		// into the interpreter; the link holds the same instances.
+		// HttpOut + Heartbeat are SHARED singletons sinking into the backbone.
 		for ( const name of [ HTTP, HEARTBEAT ] ) {
 			const node = Core.node( name );
 			expect( node ).toBeTruthy();
@@ -158,7 +153,7 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 	test( 'steers flow with targets: composed (unnamed) sse-in → stream Tee → view; shared heartbeat → _http/workers', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		// The link re-homes received frames to the inspectable Tee, which fans to the view.
+		// The link re-homes frames to the Tee, which fans to the view.
 		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
@@ -180,7 +175,7 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		expect( tee ).toBeTruthy();
 		expect( tee.constructor.name ).toBe( 'TeeNode' );
 		expect( tee.sink ).toBe( interpreter );
-		// The link re-homes received frames to the Tee, not straight to the view.
+		// The link re-homes frames to the Tee, not straight to the view.
 		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
 		// The Tee forwards to the view (pure pass-through, single target).
 		expect( tee.target ).toEqual( [ VIEW ] );
@@ -251,7 +246,7 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 			.find( ( m ) => 'list_logs' === m[ VALUE ]?.name );
 		expect( listMsg ).toBeTruthy();
 		expect( listMsg[ TO ] ).toBe( 'raw-logs' );
-		// View received the logs list and defaulted the selection to logs[0].key.
+		// View got the logs list and defaulted the selection to logs[0].key.
 		const view = Core.node( VIEW );
 		expect( view.setStateCache.view.logs ).toHaveLength( 2 );
 		expect( view.setStateCache.view.selected ).toBe( 'firehose.p0' );
@@ -277,9 +272,7 @@ describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
 			'connected',
 			pack( connectedEnvelope() )
 		);
-		// Drive a real log line — a Consumer-unpacked firehose entry carries the
-		// producer's type (a string VALUE is TM_BYTESTREAM); a typeless frame would
-		// (correctly) be dropped at the SSE ingress boundary.
+		// A string VALUE is TM_BYTESTREAM; a typeless frame drops at ingress.
 		const env = newMessage();
 		env[ TYPE ] = TM_BYTESTREAM;
 		env[ KEY ] = 'p0';
@@ -326,7 +319,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 				);
 			} );
 			client.batches.length = 0; // ignore the initial list_logs batch
-			// 1s Router TIMER × 5 = past the 5s base-Timer throttle (lastFireTime).
+			// 1s Router TIMER x 5 = past the 5s base-Timer throttle.
 			act( () => {
 				jest.advanceTimersByTime( 5000 );
 			} );
@@ -353,8 +346,7 @@ describe( 'useRawLogsGraph — teardown', () => {
 		const es = FakeEventSource.last;
 		unmount();
 		expect( es.closed ).toBe( true );
-		// The single-link owner tears down the shared `_http`/`_heartbeat`; the
-		// link, view, and backbone all unregister.
+		// The single-link owner tears down the shared _http/_heartbeat too.
 		for ( const name of [
 			HTTP,
 			HEARTBEAT,
@@ -408,8 +400,7 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 			Core.reinit();
 		} );
 
-		// Soft (build) nodes are fresh instances under the same names; the backbone
-		// survives — including the shared `_http` singleton it now owns.
+		// Soft nodes rebuild fresh; the backbone (with _http) survives.
 		expect( Core.node( VIEW ) ).not.toBe( firstView );
 		expect( Core.node( HTTP ) ).toBe( firstHttp );
 		expect( Core.node( VIEW ).sink ).toBe( Core.node( INTERPRETER ) );
@@ -432,8 +423,7 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		const freshView = Core.node( VIEW );
 		expect( freshView ).not.toBe( firstView );
 
-		// The fresh view publishes state; the consumer must observe it (proving
-		// it re-subscribed to freshView, not the removed firstView).
+		// Fresh view publishes; the consumer must observe it (proving rebind).
 		await act( async () => {
 			freshView.setState( 'view', { selected: 'sentinel' } );
 		} );
@@ -477,8 +467,7 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 	test( 'resumes from the last streamed offset on refocus (reopen carries &positions=), not a blind tail', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		// Stream a real tailed record: the server stamps a `segment:offset` breadcrumb in
-		// ID and the partition dir in FROM — that is what _trackPosition records.
+		// Server stamps segment:offset in ID + partition dir in FROM.
 		const env = newMessage();
 		env[ TYPE ] = TM_BYTESTREAM;
 		env[ KEY ] = 'p0';

@@ -1,8 +1,4 @@
-// Register the dashboard-specific node classes into the interpreter's
-// includeNodes map so they're createable via interpreter.makeNode — mirrors
-// PHP's per-plugin namespace registration. Imported (for its side effect) by
-// the dashboard hooks and the bundle entry, so registration runs before any
-// graph build.
+// Register dashboard node classes so interpreter.makeNode can create them.
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { RawLogsViewNode } from './raw-logs-view-node';
 import { TopicProbeViewNode } from './topic-probe-view-node';

@@ -4,8 +4,7 @@ import {
 	fillModeForMetric,
 } from '../topicProbeSeries';
 
-// Build a topicprobe:view `consumers` map entry (the real snapshot() shape:
-// keyed by reader, carrying `source` + a {ts,msgRate,byteRate,backlog} series).
+// Build a topicprobe:view consumers entry: keyed by reader, source + series.
 function consumer( source, series ) {
 	return { source, series };
 }

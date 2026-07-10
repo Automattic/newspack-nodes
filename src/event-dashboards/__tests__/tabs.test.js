@@ -8,8 +8,7 @@
 
 import { __ } from '@wordpress/i18n';
 
-// RawLogs + Overview pull in dashboard graph/hook trees; the registry only stores
-// the component reference, so stubs keep this a pure registry test.
+// RawLogs + Overview pull in heavy trees; stubs keep this a pure registry test.
 jest.mock( '../RawLogs', () => () => null );
 jest.mock( '../Overview', () => () => null );
 

@@ -42,7 +42,7 @@ import {
 } from '../../runtime/message';
 import '../nodes/register';
 
-// The single RemoteLink node, the inspectable stream Tee, and the view-model node.
+// The RemoteLink node, the inspectable stream Tee, and the view-model node.
 const LINK = 'rawlogs:link';
 const TEE = 'rawlogs:stream';
 const VIEW = 'rawlogs:view';
@@ -54,8 +54,7 @@ function makeOpId() {
 	return `rawlogs-op-${ Date.now() }-${ nextOpId }`;
 }
 
-// Build a TM_STRUCT control message the view's fill() routes on its `action`.
-// FROM=VIEW like its sibling commands — it's the view's own control signal.
+// TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
 const controlMsg = ( value ) => {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -64,9 +63,7 @@ const controlMsg = ( value ) => {
 	return m;
 };
 
-// Build the list_logs TM_COMMAND, FROM=`rawlogs:view` so the reply (TO=VIEW)
-// routes back to the view by TO. Routed out through the link's HttpOut to the
-// request-scope `raw-logs` CI.
+// list_logs TM_COMMAND, FROM=rawlogs:view so its reply (TO=VIEW) routes back.
 function buildListCommand( id ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
@@ -94,19 +91,14 @@ export function useRawLogsGraph( opts = {} ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	// A long-hidden tab throttles the heartbeat TIMER, so the SSE slot TTLs out and
-	// the stream dies. Gate the stream on visibility (same pattern as the topology
-	// console + dashboards): close while hidden, reopen the selected log on refocus.
+	// A hidden tab throttles the heartbeat; gate the stream on visibility.
 	const isPageVisible = usePageVisibility();
 
-	// Bumped on every (re)build so a consumer re-renders and its useNodeState
-	// rebinds to the freshly-registered view node. A monotonic counter, not a
-	// boolean latch — reinit()'s second build must still force a render.
+	// Bumped per (re)build so the view rebinds; monotonic, not a boolean latch.
 	const [ , bumpBuild ] = useState( 0 );
 
 	useEffect( () => {
-		// The soft view-nodes the backbone clips onto. mountExospine snapshots
-		// Core around this so reinit() removes exactly these and rebuilds them.
+		// Soft view-nodes; mountExospine snapshots Core for reinit() rebuild.
 		const build = ( { interpreter } ) => {
 			const data =
 				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
@@ -114,19 +106,13 @@ export function useRawLogsGraph( opts = {} ) {
 			const baseUrl = data.restUrl || '/wp-json/';
 			const nonce = data.nonce || '';
 
-			// ONE RemoteLink composes the SseIn + HttpOut + Heartbeat children and
-			// the `connected → slot` bridge. The positional `arguments` carry a
-			// placeholder subscribe (no log selected yet) plus baseUrl/nonce; the
-			// real subscription is set via setSubscribe before the stream opens, so
-			// the placeholder never reaches an EventSource.
+			// ONE RemoteLink; real subscribe via setSubscribe before open.
 			const link = interpreter.makeNode(
 				'RemoteLink',
 				LINK,
 				`raw-logs ${ baseUrl } ${ nonce }`
 			);
-			// A pure pass-through Tee on the stream edge: the link re-homes received
-			// frames to it, it copies each to the view. `connect rawlogs:stream` in
-			// the debug overlay appends a second target to inspect the live stream.
+			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
 			link.client =
 				optsRef.current.commandClient ||
@@ -135,18 +121,16 @@ export function useRawLogsGraph( opts = {} ) {
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );
 
-			// View-model node — envelope→row shaping is inlined into its fill().
+			// View-model node; envelope-to-row shaping inlined in fill().
 			const view = interpreter.makeNode( 'RawLogsView', VIEW );
 
 			linkRef.current = link;
 			viewRef.current = view;
 
-			// Re-render so useNodeState re-subscribes to the freshly-mounted view.
+			// Re-render so useNodeState re-subscribes to the new view.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire list_logs through the link's HttpOut. The reply (TO=VIEW) routes
-			// back to the view; captured via the view's pending Map, then fed back
-			// as `{action:'logs',logs}` and the stream opens on the default log.
+			// Fire list_logs; its reply opens the stream on the default.
 			const listId = makeOpId();
 			const listFuture = new Promise( ( resolve, reject ) => {
 				view.replies.add( listId, resolve, reject );
@@ -157,8 +141,7 @@ export function useRawLogsGraph( opts = {} ) {
 					if ( ! Array.isArray( logs ) || 0 === logs.length ) {
 						return;
 					}
-					// Push the catalog into the view (sets the dropdown + defaults
-					// `selected` to logs[0].key).
+					// Push the catalog into the view (defaults selected).
 					view.fill( controlMsg( { action: 'logs', logs } ) );
 					const selected = view.setStateCache?.view?.selected;
 					if ( selected ) {
@@ -166,12 +149,10 @@ export function useRawLogsGraph( opts = {} ) {
 					}
 				} )
 				.catch( () => {
-					// list_logs failure is silent — the dropdown stays empty; the
-					// reconnect banner / per-request error surface handles the rest.
+					// list_logs failure is silent; dropdown stays empty.
 				} );
 
-			// Tear down the RemoteLink (closes its stream + removes all three
-			// children) before the exospine removes the rest.
+			// Tear down the RemoteLink before the exospine teardown.
 			return () => {
 				link.removeNode();
 				linkRef.current = null;
@@ -183,9 +164,7 @@ export function useRawLogsGraph( opts = {} ) {
 		return teardown;
 	}, [] );
 
-	// Visibility gate: close the stream while hidden (the slot TTLs out anyway),
-	// reopen the currently-selected log on refocus. The initial open is driven by
-	// the list_logs reply above, so this no-ops until a log is selected.
+	// Visibility gate: close while hidden, reopen the selected log on refocus.
 	useEffect( () => {
 		const link = linkRef.current;
 		if ( ! link ) {
@@ -194,8 +173,7 @@ export function useRawLogsGraph( opts = {} ) {
 		if ( isPageVisible ) {
 			const selected = viewRef.current?.setStateCache?.view?.selected;
 			if ( selected ) {
-				// Refocus resumes from the last seen offset (replays only the lines
-				// emitted while hidden), not a blind tail-seek that drops them.
+				// Resume from last offset, not a tail-seek dropping lines.
 				link.setSubscribe( [ selected ], link.resumePositions() );
 			}
 		} else {
@@ -203,7 +181,7 @@ export function useRawLogsGraph( opts = {} ) {
 		}
 	}, [ isPageVisible ] );
 
-	// selectLog: the view clears+sets the selection; the link re-opens for the new log.
+	// selectLog: view sets the selection; the link re-opens for the new log.
 	const selectLog = ( log ) => {
 		const view = viewRef.current;
 		const link = linkRef.current;

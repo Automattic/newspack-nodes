@@ -3,10 +3,9 @@ import { RateSmoother } from '../rateSmoother';
 describe( 'RateSmoother', () => {
 	it( 'averages over the window then EMA-smooths (10s window, 0.1 alpha)', () => {
 		const sm = new RateSmoother( 10, 0.1 );
-		// 10 events in one second → window total 10 over 10s = rate 1/s; EMA from
-		// 0 toward 1 by alpha → 0.1.
+		// 10 events/s → window 10 over 10s = rate 1/s; EMA 0→1 by alpha = 0.1.
 		expect( sm.add( 10, 0 ) ).toBeCloseTo( 0.1 );
-		// Another 10 in the same second → total 20 → rate 2; EMA 0.1 + (2-0.1)*0.1.
+		// Another 10 same second → total 20 → rate 2; EMA 0.1 + (2-0.1)*0.1.
 		expect( sm.add( 10, 0 ) ).toBeCloseTo( 0.29 );
 	} );
 

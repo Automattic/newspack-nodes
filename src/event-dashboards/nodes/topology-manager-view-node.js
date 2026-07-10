@@ -20,22 +20,19 @@ export class TopologyManagerViewNode extends Node {
 	static isSystemNode = true;
 	constructor() {
 		super();
-		// loading until the first list reply lands; error null until an
-		// un-correlated failure surfaces.
+		// loading until first list reply; error null until a failure.
 		this.model = {
 			topologies: [],
 			userDir: null,
 			error: null,
 			loading: true,
 		};
-		// Hook-stamped ID → { resolve, reject }; settled when the matching reply
-		// lands here.
+		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
 		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
-		// Terminal node (no sink) — base Node.fill() can't run, so count here
-		// to keep the overlay's per-node throughput honest.
+		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
@@ -47,8 +44,7 @@ export class TopologyManagerViewNode extends Node {
 		// Settle any awaited verb (activate/deactivate) stashed under this ID.
 		const pendingMatched = this.replies.settle( message );
 
-		// Un-correlated errors (the list poll) surface globally; pending-matched
-		// ones are owned by the caller's catch.
+		// Un-correlated errors surface globally; pending ones by the caller.
 		if ( isError ) {
 			if ( ! pendingMatched ) {
 				this.model = {
@@ -83,7 +79,7 @@ export class TopologyManagerViewNode extends Node {
 			category: 'Hidden',
 			description:
 				'Topology Manager list-model sink (the React view node).',
-			// Terminal receiver: settles replies, never sets target → no out-port.
+			// Terminal receiver: settles replies, no target → no out-port.
 			has_target: false,
 			arguments: [],
 			commands: [],

@@ -63,8 +63,7 @@ describe( 'deriveConnected — error flag OR poll-freshness', () => {
 	} );
 
 	it( 'is disconnected when the last poll is staler than the threshold while visible', () => {
-		// A wedged/paused channel: no error flag, but the poll clock stopped
-		// advancing past STALE_POLL_INTERVALS × refreshMs.
+		// Wedged channel: no error flag, but the poll clock stopped advancing.
 		const stale = 100000 - ( STALE_POLL_INTERVALS * 4000 + 1 );
 		expect(
 			deriveConnected( {
@@ -90,8 +89,7 @@ describe( 'deriveConnected — error flag OR poll-freshness', () => {
 	} );
 
 	it( 'treats a never-polled clock (0) as not-yet-stale while visible', () => {
-		// Pre-first-poll the clock is 0; don't flash "disconnected" before the
-		// mount poll has had a chance to stamp it.
+		// Pre-first-poll clock is 0; don't flash "disconnected" prematurely.
 		expect(
 			deriveConnected( {
 				...opts,
@@ -165,9 +163,7 @@ jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
 	default: () => true,
 } ) );
 
-// A recording CommandClient double mirroring HttpOut's seam: postBatch records
-// every posted command into `sent`, then resolves replies addressed back along
-// FROM with a per-verb payload.
+// Recording CommandClient double: postBatch records sends, resolves replies.
 function makeRecordingClient( payloadByVerb = {}, errorVerbs = new Set() ) {
 	const sent = [];
 	const client = {
@@ -313,8 +309,7 @@ describe( 'useTopologyManager', () => {
 		const status = result.current.topologies.find(
 			( t ) => 'a' === t.name
 		).status;
-		// The same enriched model slices WorkerStatus threads into
-		// TopologySection — not a degraded { graph, workers } reduction.
+		// The enriched WorkerStatus model, not a degraded reduction.
 		expect( status ).toHaveProperty( 'byteRates' );
 		expect( status ).toHaveProperty( 'writeRates' );
 		expect( status ).toHaveProperty( 'prevSegments' );
@@ -447,7 +442,7 @@ describe( 'useTopologyManager', () => {
 		renderHook( () => useTopologyManager( { commandClient: client } ) );
 		await act( async () => {} );
 
-		// useBatchedPoll owns the I/O boundary, the fan-out Tee, and the hitchhike Timer.
+		// useBatchedPoll owns the I/O boundary, fan-out Tee, hitchhike Timer.
 		for ( const name of [
 			'_http',
 			'_shell',
@@ -470,8 +465,7 @@ describe( 'useTopologyManager', () => {
 		renderHook( () => useTopologyManager( { commandClient: client } ) );
 		await act( async () => {} );
 
-		// The transform rides the addSliceFetcher transform slot — on the
-		// receiver-Tee → view edge, NOT inside the view.
+		// Transform rides the receiver-Tee to view edge, NOT inside the view.
 		const transform = Core.node( 'workerstatus:transform' );
 		expect( transform ).toBeTruthy();
 		expect( transform.target ).toBe( 'workerstatus:view' );
@@ -513,13 +507,10 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'goes disconnected when the channel wedges (no reply past the staleness threshold)', async () => {
-		// Fake timers drive both the poll interval AND Date.now, so advancing time
-		// ages the last-success clock exactly as in production.
+		// Fake timers drive the poll interval AND Date.now, aging the clock.
 		jest.useFakeTimers();
 		try {
-			// A client that answers the FIRST poll (so we connect), then wedges:
-			// later polls are accepted but never reply, so the view models stop
-			// updating and the last-success clock freezes.
+			// Answers the FIRST poll, then wedges: later polls never reply.
 			const fresh = buildClient();
 			let answered = false;
 			const wedging = {
@@ -542,8 +533,7 @@ describe( 'useTopologyManager', () => {
 			// First poll succeeded → connected.
 			expect( result.current.connected ).toBe( true );
 
-			// Age time well past STALE_POLL_INTERVALS × refreshMs; the freshness
-			// heartbeat re-derives `connected` against the now-frozen success clock.
+			// Age past the threshold; re-derive against the frozen clock.
 			await act( async () => {
 				jest.advanceTimersByTime( STALE_POLL_INTERVALS * 4000 + 5000 );
 			} );
@@ -563,9 +553,7 @@ describe( 'useTopologyManager', () => {
 	} );
 } );
 
-// Build a single-active-topology client whose LEAN dump_graph payload carries
-// the per-partition liveness + probe rows (heartbeat_age / behind) the
-// transform reconstructs into rich workers. Topology `a` reads `a.p<partition>`.
+// LEAN dump_graph client: per-partition liveness + probe rows to workers.
 function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
 	const dump = {
 		// Liveness only — heartbeat_age + status per (type, partition).

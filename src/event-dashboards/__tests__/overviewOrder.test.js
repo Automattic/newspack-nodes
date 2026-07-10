@@ -48,7 +48,7 @@ describe( 'orderTopologies', () => {
 
 describe( 'dragReorder', () => {
 	const names = [ 'a', 'b', 'c', 'd' ];
-	// Rows 100px tall stacked from y=0: a[0-100] b[100-200] c[200-300] d[300-400].
+	// Rows 100px tall from y=0: a[0-100] b[100-200] c[200-300] d[300-400].
 	const rects = [
 		{ top: 0, bottom: 100 },
 		{ top: 100, bottom: 200 },
@@ -86,8 +86,7 @@ describe( 'dragReorder', () => {
 	} );
 
 	it( 'keeps the row in place when the cursor is over its own band', () => {
-		// 'b' band is 100-200, midpoint 150; cursor 120 (above b's mid, below a's)
-		// → slot 1 == b's index → no move.
+		// 'b' band 100-200, mid 150; cursor 120 → slot 1 = b's index → no move.
 		expect( dragReorder( names, 'b', rects, 120 ) ).toEqual( names );
 	} );
 
@@ -109,7 +108,7 @@ describe( 'dragGapTransforms', () => {
 		// Drag row 0 down to slot 2 (cursor y=260, past c midpoint).
 		const { transforms, toIndex } = dragGapTransforms( rects, 0, 55, 260 );
 		expect( toIndex ).toBe( 2 );
-		// row0 = dy; rows 1,2 shift up one pitch to fill the vacated space; row3 stays.
+		// row0 = dy; rows 1,2 shift up one pitch; row3 stays.
 		expect( transforms ).toEqual( [ 55, -100, -100, 0 ] );
 	} );
 
@@ -135,8 +134,7 @@ describe( 'dragGapTransforms', () => {
 
 describe( 'mergeStoredOrder', () => {
 	it( 'keeps inactive stored names so a drag while one is down does not lose its slot', () => {
-		// prior persisted [a,b,c,d]; c is inactive so the new active order is
-		// [b,a,d]. c must survive (carried, in prior relative order) — not dropped.
+		// c is inactive; it must survive (carried, in prior relative order).
 		expect(
 			mergeStoredOrder( [ 'a', 'b', 'c', 'd' ], [ 'b', 'a', 'd' ] )
 		).toEqual( [ 'b', 'a', 'd', 'c' ] );
