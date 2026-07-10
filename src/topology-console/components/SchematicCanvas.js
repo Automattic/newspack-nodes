@@ -58,24 +58,14 @@ function edgePath( a, b ) {
 	},${ y2 }`;
 }
 
-// Fallback canvas size (only used before the canvas is measured — jsdom / first
-// render). Once measured we fit against the real pixel size.
+// Fallback canvas size before measurement (jsdom / first render).
 const AUTOFIT_FALLBACK_W = 1280;
 const AUTOFIT_FALLBACK_H = 720;
-// Fraction of the binding dimension the graph fills (the rest is uniform
-// margin). "Fit-all, zoom to ~90%."
+// Fraction of the binding dimension the graph fills (fit-all ~90%).
 const AUTOFIT_FILL = 0.9;
-// Cap on autofit zoom-IN (px per world unit) so a tiny graph fills generously
-// without ballooning a lone node to fill the whole canvas.
+// Cap on autofit zoom-IN (px/world) so a tiny graph doesn't balloon.
 const AUTOFIT_MAX_SCALE = 2;
-// Compute the autofit viewBox: a `meet`-fit that scales the node bbox to fill
-// AUTOFIT_FILL of whichever canvas dimension binds (no cropping), capped at
-// AUTOFIT_MAX_SCALE so a one-node graph doesn't balloon. `bottomInsetPx` marks
-// canvas px obstructed at the BOTTOM (the expanded REPL transcript) — the graph
-// is fit + centered into the unobstructed band above it.
-// World-unit bounding box of the nodes (each node is NODE_W×NODE_H from its
-// position). `null` for an empty graph. The `|| NODE_*` guards a zero-span box
-// (a single node / a perfect row or column).
+// World-unit bbox of the nodes; null for empty, || NODE_* guards a zero span.
 function nodesBBox( nodes ) {
 	if ( ! nodes.length ) {
 		return null;
@@ -107,11 +97,9 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	if ( ! bbox ) {
 		return `0 0 ${ minW } ${ minH }`;
 	}
-	// Usable height = canvas minus the bottom obstruction; the graph fits into
-	// (and centers within) that top band so it never hides behind the transcript.
+	// Usable height = canvas minus the bottom obstruction; graph fits above it.
 	const usableH = Math.max( 1, minH - Math.max( 0, bottomInsetPx ) );
-	// Scale to fill AUTOFIT_FILL of the binding dimension, capped so tiny graphs
-	// don't balloon. The viewBox then spans the full canvas at that scale.
+	// Scale to fill AUTOFIT_FILL of the binding dimension, capped for tiny graphs.
 	const scale = Math.min(
 		AUTOFIT_MAX_SCALE,
 		AUTOFIT_FILL * Math.min( minW / bbox.w, usableH / bbox.h )
@@ -121,8 +109,7 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	const centerX = ( bbox.minX + bbox.maxX ) / 2;
 	const centerY = ( bbox.minY + bbox.maxY ) / 2;
 	const x = centerX - w / 2;
-	// Center the bbox in the top usable band (half the band's world-height above
-	// the center); with no obstruction this reduces to the full-canvas center.
+	// Center the bbox in the top usable band (else full-canvas center).
 	const y = centerY - usableH / ( 2 * scale );
 	return `${ x } ${ y } ${ w } ${ h }`;
 }
@@ -131,33 +118,20 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 const ZOOM_STEP = 1.12;
 // How far past the whole-graph fit you can zoom OUT.
 const ZOOM_MIN = 0.25;
-// Deepest zoom-IN, as an ABSOLUTE scale (CSS px per world unit) so a giant graph
-// can still be zoomed in to read individual cards — not capped relative to the
-// (tiny) whole-graph fit. A node is NODE_W wide, so 3 px/unit ≈ a 588px card.
+// Deepest zoom-IN as ABSOLUTE px/world so a giant graph stays card-readable.
 const SCALE_MAX = 3;
-// Floor a node's on-screen size to this many CSS px so a card never shrinks to a
-// sub-pixel rect that some browsers (Firefox) drop entirely. At a tiny scale the
-// bare rect is enlarged in world units so it still paints ~2px.
+// Floor on-screen node size (px) so a card never drops to a sub-pixel rect.
 const MIN_NODE_PX = 2;
-// Render this fraction of a viewport of off-screen nodes on each side so panning
-// scrolls smoothly and a narrow column doesn't blink out when nudged sideways.
+// Overscan fraction of off-screen nodes each side so panning stays smooth.
 const NODE_OVERSCAN = 0.5;
-// LOD scale (px/world) below which node cards drop to bare rects — MUST match
-// viewportCull's `detailScale` default. The transcript reflow floors the graph
-// right above this so it can't shrink the nodes into unreadable rects.
+// LOD scale below which cards drop to bare rects — MUST match detailScale.
 const LOD_DETAIL_SCALE = 0.35;
-// Floor a hair ABOVE the LOD threshold, not exactly on it: landing on
-// `detailScale` sits on the `scale >= detailScale` boundary, so any rounding or
-// a slightly-zoomed-out ratio tips it into LOD. The margin keeps cards detailed.
+// Floor a hair ABOVE the LOD threshold so rounding can't tip cards into LOD.
 const LOD_FLOOR_SCALE = LOD_DETAIL_SCALE * 1.2;
-// A transcript this close to covering the canvas counts as "full" (e.g. the
-// double-click maximize): the graph is framed as though the transcript were
-// CLOSED (full + centered, covered) instead of reflowed into a sliver, and
-// reflows back down once the transcript comes off full.
+// A near-covering transcript counts as "full": frame as if it were CLOSED.
 const TRANSCRIPT_FULL_FRACTION = 0.9;
 
-// Arrow-key pan: fraction of the viewport shifted per keypress (hold to repeat),
-// and the faster shift+arrow step. Keyed by arrow → [dx, dy] sign.
+// Arrow-key pan: viewport fraction per keypress; shift pans faster.
 const PAN_STEP = 0.08;
 const PAN_STEP_FAST = 0.25;
 const ARROW_PAN = {
@@ -167,18 +141,12 @@ const ARROW_PAN = {
 	ArrowDown: [ 0, 1 ],
 };
 
-// Above this many on-screen edges, suppress the perpetual edge-flow animation
-// (the `--still` modifier). An infinite stroke-dashoffset animation re-rasterizes
-// every dashed bezier every frame — fine for a handful, but hundreds peg the
-// browser's raster threads (Firefox especially). A static graph layer-caches.
+// Above this many on-screen edges, suppress the edge-flow anim (raster peg).
 const EDGE_FLOW_MAX = 40;
 
-// Bloom blur radius in SCREEN px (per theme). The SVG filter's stdDeviation is in
-// world units, so it's divided by the px/world scale each render to hold a
-// constant on-screen glow across zoom.
+// Bloom blur radius in SCREEN px (÷ scale each render for a constant glow).
 const BLOOM_STDDEV_PX = { crt: 5, neo: 4 };
-// stdDeviation (world units) for a screen-constant glow; 0 when unmeasured
-// (scale === Infinity) so jsdom/first-render emit a no-op blur.
+// stdDeviation (world units) for a screen-constant glow; 0 when unmeasured.
 function bloomStdDev( px, scale ) {
 	return Number.isFinite( scale ) && scale > 0
 		? ( px / scale ).toFixed( 2 )
@@ -222,8 +190,7 @@ function sparklinePath( history ) {
 		.join( ' ' );
 }
 
-// A node is "idle" when its message rate is below the formatNodeRate display
-// floor — no meaningful activity — so the graph dims it like a quiet edge.
+// A node is "idle" when its rate is below the display floor — dim it.
 export function isIdleRate( rate ) {
 	return ! rate || rate < 0.05;
 }
@@ -256,28 +223,21 @@ export default function SchematicCanvas( {
 	viewport,
 	viewportDelta,
 	onViewportChange,
-	// onConnect fires on OUT-port → IN-port drag. `interactive` gates the gesture
-	// machinery (true in both live + edit); `editMode` gates only draft-specific
-	// affordances (edge-select hit target, out-port styling). The palette→canvas
-	// node-drop gesture is owned by the Palette (pointer events), not here.
+	// interactive gates gestures; editMode gates only draft-only affordances.
 	onConnect,
 	interactive = true,
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
-	// Canvas px obstructed at the bottom (the expanded REPL transcript overlay);
-	// the autofit reserves this band so nodes fit above it. 0 = none.
+	// Canvas px obstructed at the bottom (expanded REPL); autofit reserves it.
 	bottomObstructionPx = 0,
 	// shell_name → schema; drives port visibility (accepts_fill/has_target).
 	classCatalog = {},
-	// Node ids that exist live but NOT in the registered .tsl (runtime drift) —
-	// painted distinctly via `is-drift` (roadmap [49]). null = no drift info.
+	// Ids live but NOT in the .tsl (runtime drift); painted via `is-drift`.
 	driftIds = null,
 } ) {
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
-	// positionOverrides is the COMPLETE position map (owned by useCanvasLayout).
-	// Render only nodes that have a position — a brand-new node may beat the
-	// layout hook's placement by one frame; it appears the next frame.
+	// Complete position map; render only positioned nodes (new ones lag a frame).
 	const nodes = useMemo(
 		() =>
 			( parsed?.nodes ?? [] )
@@ -312,16 +272,9 @@ export default function SchematicCanvas( {
 		displayNodes.forEach( ( n ) => map.set( n.id, n ) );
 		return map;
 	}, [ displayNodes ] );
-	// The autofit viewBox for the CURRENT nodes+canvas, refreshed each render
-	// (below, once canvasSize is defined). Both setViewport (to persist the
-	// viewport as a delta FROM autofit) and the freeze (to re-derive a stored
-	// delta) read it, so they share one basis and reloads round-trip exactly.
+	// Autofit viewBox for the current nodes+canvas; setViewport + freeze share it.
 	const autofitBoxRef = useRef( null );
-	// Parent-controlled viewport; `null` = autofit to the tight bbox. Persisted
-	// as a DELTA from autofit (`{0,0,1}` = autofit) so a reload re-derives against
-	// the CURRENT canvas — a never-touched view stays autofit through any dimension
-	// change. The pan/zoom/resize/freeze call sites still pass a viewBox; this
-	// wrapper converts + persists. Stable identity (a freeze-effect dep).
+	// Parent viewport; null = autofit. Persisted as a delta from autofit.
 	const setViewport = useCallback(
 		( vp ) => {
 			if ( ! onViewportChange ) {
@@ -337,10 +290,7 @@ export default function SchematicCanvas( {
 	);
 	// Active pan drag on the empty canvas (stable start origin per move).
 	const panRef = useRef( null );
-	// Whether the pointer is over the canvas — gates arrow-key panning so the
-	// document-level handler only steals arrows (and preventDefault) while the
-	// canvas is hovered. Without this the debug overlay (which mounts this canvas
-	// over an arbitrary admin page) would hijack the host page's arrow scrolling.
+	// Pointer-over gate: only steal arrow keys while the canvas is hovered.
 	const canvasHoverRef = useRef( false );
 
 	// Debounce flag for beginDrag — see comment in beginDrag below.
@@ -361,8 +311,7 @@ export default function SchematicCanvas( {
 	// Port hit radius (SVG units); well under node spacing.
 	const PORT_HIT_R = 24;
 
-	// Window-level wire-drag listeners. useCallback keeps their closures fresh
-	// over nodes/onConnect so the attached listeners never read stale values.
+	// Window-level wire-drag listeners; useCallback keeps closures fresh.
 	const handleWindowWireMove = useCallback(
 		( e ) => {
 			const current = wireDragRef.current;
@@ -435,8 +384,7 @@ export default function SchematicCanvas( {
 			if ( ! svg ) {
 				return;
 			}
-			// Window-level listeners (not SVG capture): work in the Safari
-			// post-drop case and keep reporting when the cursor leaves the SVG.
+			// Window listeners (not SVG capture): survive the Safari post-drop case.
 			const onMove = ( me ) => handleWindowWireMove( me );
 			const onUp = ( me ) => {
 				handleWindowWireUp( me );
@@ -470,9 +418,7 @@ export default function SchematicCanvas( {
 		]
 	);
 
-	// SVG pixel size — used as the autofit minimum so a small graph in a
-	// small canvas stays at native zoom (instead of using a hardcoded 1280
-	// fallback that makes nodes appear shrunken in narrow panels).
+	// SVG pixel size as the autofit minimum so a small graph stays native zoom.
 	const canvasSize = () => {
 		const el = svgRef.current;
 		if ( ! el ) {
@@ -481,9 +427,7 @@ export default function SchematicCanvas( {
 		return { w: el.clientWidth, h: el.clientHeight };
 	};
 
-	// Track the canvas pixel size reactively (a ref read isn't) so the autofit and
-	// the viewport cull recompute when the overlay panel is resized — otherwise the
-	// cull keeps deciding against a stale canvas size until the next pan/zoom.
+	// Track canvas px reactively so autofit + cull recompute on panel resize.
 	const [ canvasPx, setCanvasPx ] = useState( { w: 0, h: 0 } );
 	useEffect( () => {
 		const el = svgRef.current;
@@ -515,10 +459,7 @@ export default function SchematicCanvas( {
 		: defaultViewBox;
 	const vb = viewport || parseViewBox( defaultViewBox );
 
-	// Cull for the current viewport so a multi-thousand-node graph doesn't put
-	// every card (and every label) in the DOM. Only nodes intersecting the viewBox
-	// render; below a readable scale the cards drop to bare rects (LOD). Recomputed
-	// on viewport / node-position / canvas-size changes, not on hover.
+	// Cull to the viewport so a huge graph doesn't put every card in the DOM.
 	const { visibleIds, showDetail, scale, region, visibleRegion } = useMemo(
 		() =>
 			viewportCull( displayNodes, vb, canvasPx, {
@@ -529,17 +470,12 @@ export default function SchematicCanvas( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ viewport, defaultViewBox, displayNodes, canvasPx ]
 	);
-	// Minimum node size in WORLD units to keep each card >= MIN_NODE_PX on screen.
-	// scale is px/world-unit; 0 (no floor) when unmeasured (scale === Infinity).
+	// Min node size in WORLD units to keep cards ≥ MIN_NODE_PX on screen.
 	const minNodeWorld =
 		Number.isFinite( scale ) && scale > 0 ? MIN_NODE_PX / scale : 0;
 	const nodeRenderW = Math.max( NODE_W, minNodeWorld );
 	const nodeRenderH = Math.max( NODE_H, minNodeWorld );
-	// Cache the autofit box (committed nodes + LIVE canvas size + raw inset) so
-	// setViewport's delta persist and the freeze re-derive share ONE basis (→ a
-	// reload round-trips exactly). canvasSize() reads live because canvasPx state
-	// lags the mount measure by a render, and the first freeze must frame at real
-	// dims. Reading nodesRef (not displayNodes) keeps an in-flight drag out of it.
+	// Cache autofit (live canvas + nodesRef) so persist + freeze share one basis.
 	useEffect( () => {
 		autofitBoxRef.current = parseViewBox(
 			tightViewBoxFor(
@@ -549,11 +485,7 @@ export default function SchematicCanvas( {
 			)
 		);
 	}, [ nodes, canvasPx, bottomObstructionPx ] );
-	// Freeze the autofit on first render so node drags don't live-shift the whole
-	// canvas (viewport=null otherwise re-fits every render). On load, apply any
-	// stored delta to the current autofit — a zero delta stays autofit, a saved
-	// pan/zoom re-derives against THIS session's canvas (so a resize can't strand
-	// the frame). Keyed on nodes.length, reading nodesRef so a drag doesn't re-fit.
+	// Freeze autofit on first render so drags don't re-fit; apply any stored delta.
 	useEffect( () => {
 		const currentNodes = nodesRef.current;
 		const autofit = autofitBoxRef.current;
@@ -572,16 +504,7 @@ export default function SchematicCanvas( {
 		bottomObstructionPx,
 	] );
 
-	// On resize — or when the transcript overlay opens/resizes — keep the displayed
-	// scale tracking autofit WITHOUT triggering a full autofit: rewrite the
-	// controlled viewport to hold its pan (relative to the autofit center) and take
-	// the new canvas aspect + a scale of `autofit(new) × (currentScale/autofit(old))`.
-	// So the scale only shrinks when autofit shrinks (no `meet` letterbox
-	// under-shrink), grows in step with autofit when the panel grows, a manual zoom
-	// survives (ratio preserved), and the transcript opening slides the graph up into
-	// the band above it (the autofit center shifts, and the framing follows). Refs
-	// feed the latest viewport so pan/zoom (which change neither canvasPx nor the
-	// inset) never trigger it.
+	// On resize, rewrite the viewport to track autofit without a full re-fit.
 	const viewportRef = useRef( viewport );
 	viewportRef.current = viewport;
 	const prevSurfaceRef = useRef( null );
@@ -590,9 +513,7 @@ export default function SchematicCanvas( {
 		if ( ! canvasPx.w || ! canvasPx.h ) {
 			return; // unmeasured — keep the baseline for the first real measure
 		}
-		// A (near) full transcript — e.g. the double-click maximize — is framed as
-		// though the transcript were CLOSED (inset 0): the graph sits at its full
-		// centered autofit (covered), and un-maximizing reflows from there.
+		// A near-full transcript frames as if CLOSED (inset 0); un-max reflows back.
 		const effInset =
 			bottomObstructionPx >= canvasPx.h * TRANSCRIPT_FULL_FRACTION
 				? 0
@@ -610,18 +531,14 @@ export default function SchematicCanvas( {
 		}
 		const vp = viewportRef.current;
 		if ( ! vp ) {
-			// Uncontrolled (or not yet frozen): the null-viewport path already
-			// re-fits from defaultViewBox on every canvasPx/inset change.
+			// Uncontrolled/not-frozen: the null-viewport path already re-fits.
 			prevSurfaceRef.current = cur;
 			return;
 		}
 		prevSurfaceRef.current = cur;
-		// Committed nodes (like the freeze effect) so a resize mid-node-drag fits
-		// the settled layout, not the drag's transient bbox.
+		// Committed nodes so a resize mid-drag fits the settled layout.
 		const currentNodes = nodesRef.current;
-		// Floor the transcript reflow right above LOD: clamp the inset so the
-		// remaining band never shrinks the graph past the readable scale. Beyond
-		// this the transcript overlays instead of shrinking the graph further.
+		// Floor the transcript reflow above LOD (band can't shrink past readable).
 		const bboxH = nodesBBox( currentNodes )?.h ?? 0;
 		const clampInset = ( inset, pxH ) =>
 			Math.min(
@@ -633,11 +550,7 @@ export default function SchematicCanvas( {
 					fill: AUTOFIT_FILL,
 				} )
 			);
-		// Re-derive the viewport against the autofit at the NEW canvas/inset while
-		// holding its offset + zoom RELATIVE to autofit: take the delta from the
-		// old autofit box, re-apply it to the new one. (This is exactly the old
-		// resizeViewportTrackingAutofit math — pan relative to the autofit center,
-		// scale = fitNew × the current fit-ratio — expressed via the delta helpers.)
+		// Re-derive the viewport against the new autofit, holding its delta.
 		const oldBox = parseViewBox(
 			tightViewBoxFor(
 				currentNodes,
@@ -674,16 +587,13 @@ export default function SchematicCanvas( {
 		const world = screenToSvg( svg, e.clientX, e.clientY );
 		const current = viewport || parseViewBox( defaultViewBox );
 		const measured = canvasSize();
-		// Unmeasured (first render / tests): fall back to the viewBox's own size
-		// so zoom still scales by `factor` and keeps the current aspect.
+		// Unmeasured: fall back to the viewBox's own size (keeps aspect + factor).
 		const cs =
 			measured && measured.w && measured.h
 				? measured
 				: { w: current.w, h: current.h };
 		const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-		// Work in scale-space (px per world unit) so the limits are ABSOLUTE: a
-		// giant graph can still be zoomed in to read. The displayed scale under
-		// preserveAspectRatio="meet" is the smaller of the width/height fits.
+		// Work in scale-space (px/world) so zoom limits are ABSOLUTE.
 		const baseVb = parseViewBox( defaultViewBox );
 		const fitScale = Math.min( cs.w / baseVb.w, cs.h / baseVb.h );
 		const curScale = Math.min( cs.w / current.w, cs.h / current.h );
@@ -693,15 +603,10 @@ export default function SchematicCanvas( {
 			minScale,
 			Math.min( maxScale, curScale / factor )
 		);
-		// Zoomed regions take the CANVAS aspect so they fill the panel instead of
-		// letterboxing a tall-narrow graph into an unreadable thin strip.
+		// Zoomed regions take the CANVAS aspect (no letterboxing).
 		const nextW = cs.w / nextScale;
 		const nextH = cs.h / nextScale;
-		// Anchor on the cursor's SCREEN fraction (of the canvas), not its world
-		// fraction within the viewBox. Under a letterboxed (tall-narrow) autofit
-		// the two diverge wildly — the whole graph renders as a thin strip, so a
-		// world-fraction anchor flings it to the edge on the first zoom. The new
-		// viewBox is canvas-aspect, so screen fraction maps back linearly.
+		// Anchor on the cursor SCREEN fraction, not world (diverge under letterbox).
 		const rect = svg.getBoundingClientRect();
 		const fracX = rect.width ? ( e.clientX - rect.left ) / rect.width : 0.5;
 		const fracY = rect.height
@@ -715,10 +620,7 @@ export default function SchematicCanvas( {
 		} );
 	};
 
-	// Attach the wheel zoom NON-PASSIVELY so preventDefault() actually stops the
-	// page scrolling behind the canvas. React's onWheel is passive — Safari honors
-	// that and scrolls the page; Chrome/FF log "Unable to preventDefault inside
-	// passive event listener". A ref holds the latest closure so we attach once.
+	// Attach wheel NON-PASSIVELY so preventDefault() stops the page scroll.
 	const handleWheelRef = useRef( handleWheel );
 	handleWheelRef.current = handleWheel;
 	useEffect( () => {
@@ -731,11 +633,7 @@ export default function SchematicCanvas( {
 		return () => el.removeEventListener( 'wheel', onWheel );
 	}, [] );
 
-	// Arrow keys pan the viewport (hold to repeat; shift pans faster). A `null`
-	// viewport materializes from the autofit viewBox so panning works from the
-	// default fit too. document-level to match the Delete handler, skipped while
-	// typing in a form field; `setViewport` is a no-op when the parent owns no
-	// viewport. A ref feeds the latest viewport so the listener binds once.
+	// Arrow keys pan the viewport (document-level, skipped while typing).
 	const panStateRef = useRef( { viewport, defaultViewBox } );
 	panStateRef.current = { viewport, defaultViewBox };
 	useEffect( () => {
@@ -744,8 +642,7 @@ export default function SchematicCanvas( {
 			if ( ! dir ) {
 				return;
 			}
-			// Only pan (and swallow the arrow) while the canvas is hovered, so the
-			// overlay doesn't steal the host page's arrow scrolling.
+			// Only pan (and swallow the arrow) while the canvas is hovered.
 			if ( ! canvasHoverRef.current ) {
 				return;
 			}
@@ -773,8 +670,7 @@ export default function SchematicCanvas( {
 		return () => document.removeEventListener( 'keydown', onKey );
 	}, [ setViewport ] );
 
-	// Pan on background drag (nodes stopPropagation); a non-drag click
-	// becomes deselect/autofit.
+	// Pan on background drag; a non-drag click becomes deselect/autofit.
 	const handleBgPointerDown = ( e ) => {
 		if ( e.button !== 0 ) {
 			return;
@@ -831,9 +727,7 @@ export default function SchematicCanvas( {
 		const wasDragged = panRef.current.dragged;
 		panRef.current = null;
 		if ( ! wasDragged ) {
-			// A background click deselects the current node/edge if there is one,
-			// else autofits. It never dismisses the transcript (that's the REPL's
-			// own Esc / toggle).
+			// Background click deselects if there's a selection, else autofits.
 			if ( selectedId || selectedEdge ) {
 				if ( onDeselect ) {
 					onDeselect();
@@ -857,8 +751,7 @@ export default function SchematicCanvas( {
 		if ( e.button !== 0 ) {
 			return;
 		}
-		// Listen to both pointerdown + mousedown (Safari swallows pointerdown
-		// after an HTML5 drop); the guard dedupes the normal paired-fire case.
+		// Listen to pointerdown + mousedown (Safari post-drop); guard dedupes.
 		if ( beginDragGuardRef.current ) {
 			// Stop the deduped duplicate so it doesn't bubble and start a pan.
 			e.stopPropagation();
@@ -915,8 +808,7 @@ export default function SchematicCanvas( {
 			// Pointer capture may already be released; ignore.
 		}
 		if ( draggedRef.current && onPositionChange ) {
-			// Snap to half-steps of the auto-layout grid (anchored at
-			// X_PAD/Y_PAD); negatives are allowed.
+			// Snap to half-steps of the layout grid (negatives allowed).
 			const halfX = X_STEP / 2;
 			const halfY = Y_STEP / 2;
 			const xi = Math.round( ( drag.currentPos.x - X_PAD ) / halfX );
@@ -927,22 +819,19 @@ export default function SchematicCanvas( {
 			} );
 		}
 		setDrag( null );
-		// Reset the click-suppress flag next microtask so the click after
-		// pointerup still sees the "we just dragged" signal.
+		// Reset the click-suppress flag next microtask (click still sees the drag).
 		const wasDragged = draggedRef.current;
 		setTimeout( () => {
 			draggedRef.current = wasDragged ? true : false;
 		}, 0 );
 	};
 
-	// One node card. Extracted for readability; all visible cards render into the
-	// single nodes group (which carries the bloom filter when zoomed in for text).
+	// One node card; all visible cards share the single bloom-filtered group.
 	const renderNode = ( n ) => {
 		const isSelected = n.id === selectedId;
 		const isHovered = n.id === hoveredId;
 		const isFaded = hoveredId && ! isHovered;
-		// Dim quiet nodes in LIVE mode only. Edit mode has no live rate stream, so
-		// every node would read as idle (rate undefined) and dim — never dim there.
+		// Dim quiet nodes in LIVE mode only (edit has no rate stream).
 		const isIdle =
 			! editMode &&
 			!! rateRef &&
@@ -995,12 +884,9 @@ export default function SchematicCanvas( {
 				{ /* Labels/sparkline/ports only when zoomed in enough to read. */ }
 				{ showDetail && (
 					<>
-						{ /* Card-clipped label layer: a long id/type can't write
-						     past the card edge (so it can't bloom outside it either).
-						     Ports sit ON the edge, so they stay outside the clip. */ }
+						{ /* Card-clipped label layer (ports sit on the edge, outside the clip). */ }
 						<g clipPath="url(#topology-node-clip)">
-							{ /* Title band behind the type/id; transparent by
-							     default, filled per-skin (Newspack shades it). */ }
+							{ /* Title band behind the type/id; filled per-skin. */ }
 							<rect
 								className="topology-node__header"
 								width={ NODE_W }
@@ -1026,9 +912,7 @@ export default function SchematicCanvas( {
 								cy={ 13 }
 								r={ 3.5 }
 							/>
-							{ /* A Consumer holding the cursor (dump_metadata polling
-							     === PAUSED): a ⏸ badge in the header so the pause is
-							     visible on the canvas without selecting the node. */ }
+							{ /* ⏸ badge when a Consumer holds the cursor (polling PAUSED). */ }
 							{ 'PAUSED' === n.polling && (
 								<text
 									className="topology-node__paused"
@@ -1186,9 +1070,7 @@ export default function SchematicCanvas( {
 						className="topology-arrow-head topology-arrow-head--active"
 					/>
 				</marker>
-				{ /* Clip each card's label layer to the card rect so a long id /
-				     type can't write past the edge (nor bloom past it). userSpace
-				     coords are the card-local frame under the node's transform. */ }
+				{ /* Clip each card label layer to the card rect (userSpace, card-local). */ }
 				<clipPath
 					id="topology-node-clip"
 					clipPathUnits="userSpaceOnUse"
@@ -1203,19 +1085,7 @@ export default function SchematicCanvas( {
 						ry={ 7 }
 					/>
 				</clipPath>
-				{ /* Group bloom: ONE blur pass per group (vs a drop-shadow per
-				     glyph), blurring real pixels so each element keeps its color and
-				     the cards + names bloom together. The blur is `screen`-blended
-				     OVER the source (not feMerge'd UNDER it) so the glow composites
-				     ADDITIVELY — interior glyph/name/LED glow shows through the
-				     opaque card instead of being painted over by the sharp card on
-				     top (which is what hid it). Referenced by the --bloom groups via
-				     `filter:url()` in the CRT and Neo-Tokyo themes only.
-				     The region is pinned to the strict viewport (userSpaceOnUse) so
-				     the blur buffer is exactly the visible rect — never the full
-				     group bbox (which spans the overscan ring) nor a degenerate
-				     near-zero-height bbox (a row of horizontal edges). stdDeviation
-				     is world units ÷ scale, holding a constant on-screen glow. */ }
+				{ /* Group bloom: one screen-blended blur pass; region pinned to viewport. */ }
 				<filter
 					id="topology-bloom-crt"
 					filterUnits="userSpaceOnUse"
@@ -1268,9 +1138,7 @@ export default function SchematicCanvas( {
 
 			{ showDetail &&
 				( () => {
-					// Bloom only full (both-endpoints-visible) connections; a stub
-					// — an edge whose far endpoint is off-screen — renders in the
-					// plain group so its glow never bleeds from off-screen.
+					// Bloom only full connections; a stub's glow can't bleed from off-screen.
 					const bloomEdges = [];
 					const plainEdges = [];
 					edges.forEach( ( e, i ) => {
@@ -1279,15 +1147,11 @@ export default function SchematicCanvas( {
 						if ( ! a || ! b ) {
 							return;
 						}
-						// Cull only edges with BOTH endpoints off-screen; one
-						// visible endpoint anchors the edge on-screen.
+						// Cull only edges with BOTH endpoints off-screen.
 						if ( ! isEdgeVisible( e.from, e.to, visibleIds ) ) {
 							return;
 						}
-						// Animate the flow ONLY where data actually moved this dump:
-						// both endpoints' counters incremented since the last
-						// dump_metadata (rate > 0). Idle connections stay static, so
-						// the per-frame bloom re-raster is paid only for live paths.
+						// Animate flow only where both counters moved this dump (rate > 0).
 						const fromRate =
 							rateRef?.current?.get( e.from )?.rate ?? 0;
 						const toRate = rateRef?.current?.get( e.to )?.rate ?? 0;
@@ -1297,18 +1161,14 @@ export default function SchematicCanvas( {
 						const selectTouches =
 							! hoveredId &&
 							( selectedId === e.from || selectedId === e.to );
-						// Hover highlights + dims the rest; selection highlights
-						// without dimming so surrounding context stays visible.
+						// Hover dims the rest; selection highlights without dimming.
 						const touches = hoverTouches || selectTouches;
 						const dimmed = hoveredId && ! hoverTouches;
 						const isEdgeSelected =
 							selectedEdge &&
 							selectedEdge.from === e.from &&
 							selectedEdge.to === e.to;
-						// One endpoint off-screen: straight stub from the visible
-						// port toward the off-screen port, clipped to the viewport
-						// (no giant bezier to the off-screen peer, no arrowhead).
-						// Both visible → the normal node-to-node bezier.
+						// One endpoint off-screen: clip a straight stub to the viewport.
 						const fromVis = visibleIds.has( e.from );
 						const toVis = visibleIds.has( e.to );
 						let d;
@@ -1390,9 +1250,7 @@ export default function SchematicCanvas( {
 						);
 						( stub ? plainEdges : bloomEdges ).push( el );
 					} );
-					// Too many on-screen edges → drop the per-frame flow animation
-					// so the raster threads aren't pegged repainting hundreds of
-					// dashed paths every frame.
+					// Too many on-screen edges → drop the per-frame flow animation.
 					const still =
 						bloomEdges.length + plainEdges.length > EDGE_FLOW_MAX
 							? ' topology-edges--still'
@@ -1411,10 +1269,7 @@ export default function SchematicCanvas( {
 					);
 				} )() }
 
-			{ /* One stable nodes group — no per-frame reparenting (so a drag never
-			     remounts a card and drops pointer capture). It carries the bloom
-			     filter when zoomed in for text; the viewport-pinned filter region
-			     keeps the blur bounded to the visible rect. */ }
+			{ /* One stable nodes group so a drag never drops pointer capture. */ }
 			<g
 				className={ `topology-nodes${
 					showDetail ? ' topology-nodes--bloom' : ''

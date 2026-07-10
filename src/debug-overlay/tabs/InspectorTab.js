@@ -57,12 +57,7 @@ export function measureTabBarHeight( rootEl ) {
  * @return {number} Transcript max-height in px.
  */
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
-	// -4 reserves the resize handle so it isn't clipped at full height. Unlike the
-	// console (which measures its frame exactly and needs 0 — see
-	// replCeilingFromAppHeight), this path HARDCODES the header (64) and bar (38)
-	// instead of measuring them, and those are ~4px off the panel's real chrome;
-	// the 4 absorbs that slop so the transcript top lands at the same spot (handle
-	// edge ~1px below the tab bar, hit area extending down).
+	// -4 reserves the resize handle so full height doesn't clip it (chrome slop).
 	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight - 4 );
 }
 
@@ -95,16 +90,10 @@ export default function InspectorTab( {
 	storageKey,
 	frame,
 	publishHeader,
-	// false on the hub Console tab: the overlay rides it ONLY for the Overview tab
-	// (browser I/O). Its own graph+REPL would duplicate the Console's AND collide
-	// on the shared `_output` infra, so the inspector body builds nothing there
-	// (active=false) and points at the Console's own REPL instead.
+	// false on hub Console tab — its own graph+REPL would collide on `_output`.
 	buildRepl = true,
 } ) {
-	// replExpanded / setReplExpanded / replInputRef come from useGraphSurface.
-	// Measure the DevtoolsTabHost tab bar that sits above this body so the
-	// transcript ceiling reserves exactly its rendered height (it may be absent
-	// on a single-tab host). A ResizeObserver keeps it correct if the bar wraps.
+	// Measure the host tab bar so the transcript ceiling reserves its height.
 	const rootRef = useRef( null );
 	const [ tabBarHeight, setTabBarHeight ] = useState( 0 );
 	const measureTabBar = useCallback( () => {
@@ -127,10 +116,7 @@ export default function InspectorTab( {
 		ro.observe( bar );
 		return () => ro.disconnect();
 	}, [ measureTabBar ] );
-	// Palette is shared with the topology console so a preference picked in either
-	// surface applies in both. The overlay is always live (no edit mode), so it
-	// uses the live palette key (default collapsed). The skin is global (the
-	// `<html>` class), so there's no theme value to thread here.
+	// Palette + skin shared with the topology console; overlay uses the live key.
 	const {
 		paletteCollapsed,
 		inspectorCollapsed,
@@ -139,18 +125,13 @@ export default function InspectorTab( {
 		replChromeProps,
 		setReplExpanded,
 	} = useGraphSurface( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
-	// One Shell instance per panel mount, shared by useDebugGraph (handler
-	// dispatch) and useDebugRepl (typed-line dispatch). cwd is empty: the overlay
-	// is local-only. useDebugRepl binds shell.sink to the page's interpreter
-	// during its build-before-render — no separate bind effect, no race.
+	// One Shell per panel mount; cwd empty (local-only), sink bound before render.
 	const shell = useMemo( () => {
 		const s = new ShellNode();
 		s.path = '';
 		return s;
 	}, [] );
-	// The host graph's rebuild handle, stashed on the per-page Core by
-	// mountExospine. Read every render so it's populated once the dashboard's
-	// mount effect has run.
+	// Host graph rebuild handle from mountExospine; read each render once mounted.
 	const reinit = Core.reinit;
 	const {
 		transcript,
@@ -161,14 +142,10 @@ export default function InspectorTab( {
 		setPath,
 		ready: replReady,
 	} = useDebugRepl( buildRepl, shell, applySkin );
-	// Layout storage scoped by cwd. useDebugGraph runs first (it needs only
-	// `onPositionChange`, threaded via a ref to break the hoist cycle); then
-	// useCanvasLayout consumes `graph`/`ready` from it and one-shot autoLayouts
-	// the COMPLETE graph once ready.
+	// useDebugGraph runs first (via ref); useCanvasLayout then autolays out.
 	const cwdScope = cwd || 'local';
 	const onPositionChangeRef = useRef( null );
-	// Catalog must be resolved before useDebugGraph so the Inspector handler can
-	// look up `is_interpreter` for non-local-scope nodes.
+	// Resolve catalog before useDebugGraph so the handler looks up is_interpreter.
 	const jsCatalog = useJsCatalog();
 	const phpCatalog = useClassCatalog( { enabled: !! cwd } );
 	const catalog = cwd ? phpCatalog : jsCatalog;
@@ -183,8 +160,7 @@ export default function InspectorTab( {
 	} = useDebugGraph( buildRepl, shell, catalog.classes || [], ( id, p ) =>
 		onPositionChangeRef.current?.( id, p )
 	);
-	// Composite readiness: gate layout + the canvas render on BOTH the overlay's
-	// own infra being mounted (replReady) AND the graph carrying nodes.
+	// Gate layout + render on both infra mounted AND the graph carrying nodes.
 	const ready = replReady && graphHasNodes;
 	const {
 		positions,
@@ -204,17 +180,13 @@ export default function InspectorTab( {
 	// Thread the latest onPositionChange to useDebugGraph's drop recorder.
 	onPositionChangeRef.current = onPositionChange;
 
-	// Compose modal's "To" list: derived from the VIEWED graph (`graph.nodes`),
-	// never Core.nodes — at a remote worker cwd the browser's own Core holds
-	// only its scaffolding, not the worker's graph.
+	// Compose "To" from the VIEWED graph, not Core.nodes (remote cwd differs).
 	const composeTargets = useMemo(
 		() => buildComposeTargets( graph.nodes ),
 		[ graph.nodes ]
 	);
 
-	// Reachable path scopes — every top-level substrate-node-name in the current
-	// Core registry that's a legitimate `cd` target (peel-and-route). Filter out
-	// internal-only names AND bare `_sse`.
+	// Reachable `cd` targets: top-level substrate node names, minus internal-only.
 	const NON_NAVIGABLE = useMemo(
 		() =>
 			new Set( [
@@ -231,8 +203,7 @@ export default function InspectorTab( {
 			] ),
 		[]
 	);
-	// Reachable LOCAL `cd` targets, read from the browser's own registry — NOT
-	// the polled `graph`, which reflects the CURRENT cwd's (possibly remote) scope.
+	// LOCAL cd targets from the browser registry, not the (maybe remote) graph.
 	const pathOptions = [ '' ];
 	for ( const id of Core.nodes.keys() ) {
 		if ( id.startsWith( '_' ) && ! NON_NAVIGABLE.has( id ) ) {
@@ -240,11 +211,7 @@ export default function InspectorTab( {
 		}
 	}
 
-	// Publish the cwd PATH selector up to the panel's one shared Header (the
-	// Console owns it; the Overview publishes nothing). Re-publish when the option
-	// set or cwd changes; clear on unmount so switching to the Overview drops it.
-	// onPathChange is a ref-stable wrapper so a churning `setPath` identity can't
-	// re-fire this setState effect into an infinite render loop.
+	// Publish cwd PATH selector to shared Header; ref-wrap setPath (churn loops).
 	const setPathRef = useRef( setPath );
 	setPathRef.current = setPath;
 	const stableOnPathChange = useCallback(
@@ -263,8 +230,7 @@ export default function InspectorTab( {
 	}, [ publishHeader, pathOptionsKey, cwd, stableOnPathChange ] );
 	useEffect( () => () => publishHeader?.( null ), [ publishHeader ] );
 
-	// Tab-completion: subscribe to _completion's published candidates and expose
-	// requestCompletion/handleShowCandidates via the shared useCompletion hook.
+	// Tab-completion: subscribe to _completion candidates via useCompletion.
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
 		cwd,
@@ -291,15 +257,10 @@ export default function InspectorTab( {
 	// "Reset Layout" appears only when the user has modified the layout.
 	const hasLayoutToReset = isLayoutDirty;
 
-	// Cap the transcript at panel-height minus the header row, prompt bar, and
-	// the measured tab bar above this body (the ReplFooter is transcript +
-	// always-visible prompt stacked).
+	// Cap the transcript at panel height minus header, prompt bar, and tab bar.
 	const replMaxHeightPx = replMaxHeight( frame.h, tabBarHeight );
 
-	// On the hub Console tab the overlay rides along ONLY for its Overview tab;
-	// the graph + REPL are the Console's own job (and would collide on `_output`).
-	// Every hook above ran with active=false, so no infra was built — point the
-	// user at the Console + the Overview tab instead of a second, empty canvas.
+	// Hub Console tab built no infra (active=false) — point at Console + Overview.
 	if ( ! buildRepl ) {
 		return (
 			<div
@@ -339,8 +300,7 @@ export default function InspectorTab( {
 						partition: null,
 						isWorker: false,
 						editMode: false,
-						// Hide the chips when there's nothing to reset:
-						// passing null tells CanvasFrame to skip them.
+						// null tells CanvasFrame to skip the reset chips.
 						onResetLayout: hasLayoutToReset ? resetLayout : null,
 						onResetGraph: canResetGraph ? resetGraph : null,
 					} }
@@ -348,9 +308,7 @@ export default function InspectorTab( {
 					canvasProps={ {
 						...canvasChromeProps,
 						resetKey: storageKey,
-						// No cwd = the page's own (local) graph → the no-node
-						// header reads this overlay's IoTelemetry (same source as
-						// the Overview tab); an attached-worker cwd stays on dump_metadata.
+						// No cwd = local graph; header reads IoTelemetry else dump_metadata.
 						local: ! cwd,
 						interactive: true,
 						editMode: false,
@@ -376,15 +334,9 @@ export default function InspectorTab( {
 							payload,
 							flags
 						) => {
-							// Pop the transcript footer when the user fires an
-							// inspector action — matches the console's UX (the
-							// reply lands in _output and the user should see it).
+							// Pop the transcript footer when an inspector action fires.
 							setReplExpanded( true );
-							// No-node command buttons carry a raw REPL line; dispatch
-							// it through the Shell's typed-line path so shell-special
-							// (ping → TM_PING) AND local builtins (debug_level, …) work,
-							// not just interpreter verbs. Structured GUI verbs
-							// (dump/tail/trace/tell/…) stay on the handler.
+							// Raw REPL line via Shell so shell-special (ping) + local builtins work.
 							if ( 'command' === action ) {
 								sendLine( payload );
 								return;
@@ -414,8 +366,7 @@ export default function InspectorTab( {
 				/>
 			</div>
 			{ pendingDrop && (
-				// display:contents themed host so the sibling-rendered modal
-				// inherits .topology-app's --paper/--ink tokens.
+				// display:contents themed host so the sibling modal inherits --paper/--ink.
 				<div
 					className="topology-app newspack-nodes-theme"
 					style={ { display: 'contents' } }

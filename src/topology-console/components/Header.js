@@ -14,10 +14,7 @@ const VERSION =
 	( window.NewspackNodesData && window.NewspackNodesData.version ) || '';
 const HOST = window.location.hostname;
 
-// The path selector + mode/action buttons — the contents of
-// `.topology-header__controls`, without the wrapper, so the active tab can
-// portal it into the shared header's slot (which IS the
-// `.topology-header__controls` element). Same props as Header's controls.
+// Path selector + mode/action buttons, sans wrapper, so a tab can portal them.
 export function HeaderControls( {
 	pathOptions = [],
 	path = '',
@@ -38,8 +35,7 @@ export function HeaderControls( {
 } ) {
 	return (
 		<>
-			{ /* Path selector applies only to the live feed, not edit mode. Also
-			     hidden when there's only one option (the overlay's local scope). */ }
+			{ /* Live feed only; hidden when there is a single option. */ }
 			{ mode !== 'edit' && pathOptions.length > 1 && (
 				<>
 					<span className="topology-ctl-label">
@@ -52,9 +48,7 @@ export function HeaderControls( {
 							onPathChange && onPathChange( e.target.value )
 						}
 					>
-						{ /* The cwd can be moved by the REPL `cd` to a path not in
-						     the menu; surface it as an extra option so the control
-						     reflects the real cwd instead of snapping to the first. */ }
+						{ /* Surface a `cd`-set off-menu cwd as an extra option. */ }
 						{ ( pathOptions.includes( path )
 							? pathOptions
 							: [ ...pathOptions, path ]
@@ -75,9 +69,7 @@ export function HeaderControls( {
 						aria-label={ __( 'Close', 'newspack-nodes' ) }
 						title={ __( 'Close', 'newspack-nodes' ) }
 					>
-						{ /* The standard WP `close` icon (the X ELN/pyrobase
-						     modals use), inlined since @wordpress/icons isn't a
-						     nodes dependency. */ }
+						{ /* Inlined WP `close` X (@wordpress/icons is not a nodes dep). */ }
 						<svg
 							width="24"
 							height="24"
@@ -147,9 +139,7 @@ export function HeaderControls( {
 							{ __( 'DELETE', 'newspack-nodes' ) }
 						</button>
 					) }
-					{ /* NEW is available from live mode too (start a fresh topology);
-				     the editor's NEW lives in the edit toolbar above. Not in the
-				     debug overlay (onClose), which has no editor to land in. */ }
+					{ /* NEW works in live mode too; not in the debug overlay (no editor). */ }
 					{ mode !== 'edit' && ! onClose && (
 						<button
 							type="button"

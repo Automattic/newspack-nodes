@@ -47,7 +47,7 @@ const MUTATING_VERBS = new Set( [
 	'rm',
 ] );
 
-// The substrate's own node names — anything else in the local graph is user-added.
+// Substrate's own node names — anything else in the local graph is user-added.
 const RESERVED_NAMES = new Set( Object.values( names ) );
 
 export function useGraphReset( {
@@ -63,9 +63,7 @@ export function useGraphReset( {
 	const markDirtyRef = useRef( markDirty );
 	markDirtyRef.current = markDirty;
 
-	// Tap the Shell's single dispatch chokepoint; a mutating verb flips the Reset
-	// Graph chip AND marks the layout dirty — a drop / connect / disconnect /
-	// remove changes the structure, so offer a fresh auto-fit (Reset Layout) too.
+	// Tap the Shell dispatch chokepoint; a mutating verb flips dirty + markDirty.
 	useEffect( () => {
 		if ( ! shell ) {
 			return undefined;
@@ -99,13 +97,7 @@ export function useGraphReset( {
 		markDirtyRef.current();
 	}, [] );
 
-	// A user-added node present in the live graph — node presence outlives a shell
-	// rebuild that clears structureDirty (a surviving node after a topology swap).
-	// Excluded as infra: substrate-reserved names, this overlay's own reinit set,
-	// AND any view-model node whose class flags `isSystemNode` — the latter covers
-	// dashboard nodes (e.g. the hub's workerstatus:* / topologymanager:view) that
-	// leak into the shared Core from a DIFFERENT builder than this overlay's, so
-	// they aren't in reinitNames and were being miscounted as user-added.
+	// A user-added node in the live graph; excludes reserved/reinit/isSystemNode.
 	const hasUserNodes =
 		!! isLocalScope &&
 		( nodes ?? [] ).some( ( n ) => {

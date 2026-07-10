@@ -74,8 +74,7 @@ class Consumer_Node extends Timer_Node {
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
-		// Build the {name}:config interpreter from the schema commands, so the
-		// set_snapshot_node verb is dispatchable; handlers read the patron lazily.
+		// Build the {name}:config interpreter so set_snapshot_node is dispatchable.
 		$this->auto_wire_interpreter();
 	}
 
@@ -111,15 +110,14 @@ class Consumer_Node extends Timer_Node {
 			self::OFFSETLOG_SEGMENT_SIZE,
 			self::OFFSETLOG_NUM_SEGMENTS
 		);
-		// The offsetlog shares the consumer's data sink (its sink() override keeps them in step).
+		// Offsetlog shares the consumer's data sink (sink() keeps them in step).
 		$this->offsetlog?->sink( $this->sink );
 
 		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
 		$this->ensure_deadletter( $this->deadletter_dir, '' !== $this->name ? "{$this->name}:deadletter" : '' );
 		$this->deadletter?->sink( $this->sink );
 
-		// No I/O at construction: the first poll loads the durable cursor and
-		// restores the snapshot, once the whole topology graph exists.
+		// No I/O at construction: first poll loads the cursor + restores snapshot.
 		$this->poll_cb = $this->poll_init( ... );
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 		$this->set_state( 'POLLING', 'ACTIVE' );
@@ -230,8 +228,7 @@ class Consumer_Node extends Timer_Node {
 		if ( empty( $segments ) ) {
 			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_segment' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
 		}
-		// Recover a deleted/recreated cursor segment first so lag reflects the
-		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
+		// Recover a deleted/recreated cursor first; a stale one reads as caught up.
 		$this->normalize_cursor( $segments );
 		$bytes_behind     = 0;
 		$segments_behind  = 0;
@@ -239,9 +236,7 @@ class Consumer_Node extends Timer_Node {
 		foreach ( $segments as $s ) {
 			$id   = $s['id'];
 			$size = $s['size'];
-			// Absolute partition byte position (Σ all live segment sizes) — the
-			// browser derives the byte THROUGHPUT from its delta (Δ end_bytes/Δt),
-			// the only way it can: the lean record carries no per-segment sizes.
+			// Absolute byte position (sum of live segment sizes); browser derives rate.
 			$end_bytes += $size;
 			if ( $id < $this->cursor_segment ) {
 				continue;
@@ -253,10 +248,9 @@ class Consumer_Node extends Timer_Node {
 				++$segments_behind;
 			}
 		}
-		// Count buffered (already-read) bytes as consumed so lag reflects bytes-still-to-emit.
+		// Count buffered bytes as consumed so lag reflects bytes-to-emit.
 		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
-		// Partition END (newest segment + its size) captured in the SAME read as
-		// the cursor — the topologies tab trims its live segment list back to here.
+		// Partition END from the SAME read as the cursor; topologies tab trims here.
 		$last = \end( $segments );
 		return [
 			'bytes_behind'    => $bytes_behind,
@@ -282,7 +276,7 @@ class Consumer_Node extends Timer_Node {
 			$node = Core::node( $this->snapshot_node );
 			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
 				$node->restore_state( $this->loaded_cache );
-				// Restore survived: re-commit the cache statefully (the boot frame was stateless).
+				// Restore survived: re-commit cache statefully (boot frame was stateless).
 				$this->write_checkpoint_frame( false, true );
 			} else {
 				$this->print_less_often( "WARNING: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
@@ -314,20 +308,15 @@ class Consumer_Node extends Timer_Node {
 		$this->cursor_offset       = \is_numeric( $offset ) ? (int) $offset : 0;
 		$this->boot_cursor_segment = $this->cursor_segment;
 		$this->boot_cursor_offset  = $this->cursor_offset;
-		// Resume the shared attempt accounting (climb at attempts+1, carry the streak, detect a
-		// hard-crash lineage → crawl) AND arm the boot head-skip from the frame: a quarantine
-		// marker → DROP the already-DLQ'd head; a hard-crash lineage → sacrifice the boot-cursor
-		// head (the message in flight at the uncatchable death) to the DLQ ('crash').
+		// Resume attempt accounting and arm the boot head-skip (ADR-12).
 		$this->arm_skip_head_from_frame( $entry );
 		if ( 'drop' === $this->skip_head_disposition ) {
-			// Booted onto a quarantine marker: seal the boot position so the stateless boot frame
-			// (and any pre-drop commit) keeps the marker until the drop advances the cursor past it.
+			// Booted onto a quarantine marker: seal boot pos until drop passes it.
 			$this->sealed_quarantine = [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 		}
-		// Offset + cache come from ONE record, so the resumed cursor and the
-		// restored state are always aligned.
+		// Offset + cache come from ONE record, so cursor and state stay aligned.
 		$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
-		// Crash streak past the wipe window: discard the corrupt resumable state (no message-skip can fix it).
+		// Crash streak past the wipe window: discard the corrupt resumable state.
 		if (
 			null !== $this->loaded_cache
 			&& null !== $this->first_crash_ts
@@ -336,7 +325,7 @@ class Consumer_Node extends Timer_Node {
 			$this->print_less_often( 'WARNING: snapshot cache exceeded ' . self::STATE_WIPE_AFTER_S . 's crash streak; discarding (suspected corrupt state, not a poison message)' );
 			$this->loaded_cache = null;
 		}
-		// Stateless boot frame BEFORE restore: a restore crash still advances the durable counter.
+		// Stateless boot frame BEFORE restore: a crash still advances the counter.
 		$this->write_checkpoint_frame( false, false );
 	}
 
@@ -415,18 +404,15 @@ class Consumer_Node extends Timer_Node {
 	 *                       resumes at a virgin first attempt rather than counting a strike.
 	 */
 	public function checkpoint( bool $graceful = false ): void {
-		// Skip an unestablished cursor (never polled AND never explicitly positioned): it's the
-		// 0:0 construction default, and committing it would clobber the real durable position.
+		// Skip an unestablished cursor: committing 0:0 clobbers the durable position.
 		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
 			return;
 		}
-		// Advance-guard: skip a redundant same-cursor write (graceful is exempt — its
-		// attempts=0 is new content; boot frames bypass via write_checkpoint_frame).
+		// Advance-guard: skip a redundant same-cursor write (graceful is exempt).
 		if ( ! $graceful && ! $this->cursor_moved_since_checkpoint( $this->cursor_segment, $this->cursor_offset ) ) {
 			return;
 		}
-		// Forward progress past the boot cursor ends the crash streak: clear the strikes.
-		// Not in crawl — attempts stays pinned at the threshold until we exit crawl.
+		// Progress past the boot cursor ends the crash streak; not while crawling.
 		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
 			$this->attempts       = 1;
 			$this->first_crash_ts = null;
@@ -448,8 +434,7 @@ class Consumer_Node extends Timer_Node {
 	 * @param array<array-key, mixed> $extra      Per-call frame additions (the quarantine marker).
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
-		// Co-commit the snapshot node's state with the offset, as ONE record, so a
-		// respawn restores the cache and resumes the cursor in lockstep.
+		// Co-commit snapshot state with offset as ONE record for lockstep respawn.
 		if ( $with_state && '' !== $this->snapshot_node ) {
 			$node = Core::node( $this->snapshot_node );
 			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
@@ -545,18 +530,11 @@ class Consumer_Node extends Timer_Node {
 		$seg_size = $sizes[ $this->cursor_segment ] ?? 0;
 		$read_at  = $this->cursor_offset + \strlen( $this->buffer );
 
-		// Current segment fully read: step to the next live segment (one per poll) or rest at EOF.
+		// Current segment fully read: step to next live segment or rest at EOF.
 		if ( $read_at >= $seg_size ) {
 			$next = $this->next_segment_id( $segments, $this->cursor_segment );
 			if ( null !== $next ) {
-				// Multi-writer seal-grace: a peer may still be appending to this
-				// segment for up to DRIFT_RESCAN after the newer one appeared. Hold
-				// until its size has been steady for SEAL_GRACE, then advance. If a
-				// straggler writes in the meantime, $read_at < $seg_size on the next
-				// poll and we consume it here (in order) before re-testing the seal.
-				// Only the live boundary (second-newest) can still receive a straggler;
-				// segments further back are definitely sealed, so a backlog catch-up
-				// crosses them at once (no per-segment grace tax).
+				// Multi-writer seal-grace: hold live boundary until steady for SEAL_GRACE.
 				if ( $this->multi_writer
 					&& $this->cursor_segment >= $newest_id - 1
 					&& ! $this->segment_sealed( $this->cursor_segment, $seg_size ) ) {
@@ -570,8 +548,7 @@ class Consumer_Node extends Timer_Node {
 				$this->set_state( 'SEGMENT', (string) $this->cursor_segment );
 				return;
 			}
-			// Nothing more on disk. drain_buffer ran first this tick, so the buffer
-			// holds at most a trailing partial (never a complete line) here.
+			// Nothing on disk; buffer holds at most a trailing partial here.
 			$this->at_eof = true;
 			return;
 		}
@@ -582,9 +559,7 @@ class Consumer_Node extends Timer_Node {
 		$this->bytes_read += \strlen( $bytes );
 		$this->buffer     .= $bytes;
 
-		// at_eof means "nothing left to do": caught up on disk AND no buffered line
-		// still to drain. Leaving a pending line would back off to the EOF cadence
-		// and stall the burst's trailing record ~100ms.
+		// at_eof: caught up on disk AND no buffered line, else it stalls ~100ms.
 		$tail            = $this->cursor_offset + \strlen( $this->buffer );
 		$disk_caught_up  = ( $this->cursor_segment >= $newest_id ) && ( $tail >= $newest_size );
 		$this->at_eof    = $disk_caught_up && ! $this->buffer_has_line();
@@ -652,11 +627,7 @@ class Consumer_Node extends Timer_Node {
 		}
 	}
 
-	// ============================================================================
-	// Time-travel transport hooks. The shared machinery (pause/step/play/seek, the
-	// read surface, verbs + command handlers) lives in the Time_Travel trait; these
-	// are Consumer's file-tail-specific moves the trait calls.
-	// ============================================================================
+	// Time-travel transport hooks; shared machinery is in the Time_Travel trait.
 
 	/**
 	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is
@@ -715,8 +686,7 @@ class Consumer_Node extends Timer_Node {
 		$out  = parent::dump_config();
 		$out .= $this->dump_time_travel_config( $this->name );
 		if ( $this->multi_writer ) {
-			// Explicit `1`: cmd_set_multi_writer treats a bare/empty arg as "disable",
-			// so a value-less line would round-trip multi_writer back to false.
+			// Explicit `1`: a bare/empty arg disables, flipping multi_writer to false.
 			$out .= "cmd {$this->name}:config set_multi_writer 1\n";
 		}
 		return $out;
@@ -822,9 +792,7 @@ class Consumer_Node extends Timer_Node {
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '' ],
 			],
-			// The time-travel verbs (set_snapshot_node, set_line_mode, SEEK_FRAME,
-			// PAUSE, PLAY, STEP) are shared with Remote_Source via the Time_Travel trait;
-			// set_multi_writer is Consumer-specific (the seal-grace for shared logs).
+			// Time-travel verbs shared via Time_Travel; set_multi_writer Consumer-only.
 			'commands'      => \array_merge(
 				self::time_travel_verbs(),
 				[

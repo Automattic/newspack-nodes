@@ -114,11 +114,7 @@ class Node {
 
 	public function name( ?string $name = null ): string {
 		if ( \func_num_args() > 0 ) {
-			// A node is committed to a name once set: name(null)/name('') is not
-			// an unregister path — use remove_node() for that. This also turns the
-			// classic getter-passthrough mistake (an override doing
-			// `parent::name( $name )` with a null default) into a loud failure
-			// instead of a silent unregister.
+			// name(null)/name('') is not an unregister path; use remove_node().
 			if ( ! Core::has_value( $name ) ) {
 				throw new \RuntimeException( 'name() requires a non-empty name; use remove_node() to unregister' );
 			}
@@ -186,7 +182,8 @@ class Node {
 		if ( ! isset( $this->registrations[ $event ] ) ) {
 			throw new \RuntimeException( \esc_html( "no such event: $event" ) );
 		}
-		$this->registrations[ $event ][ $listener ] = $cb; // null means "Node-name dispatch".
+		// null means "Node-name dispatch".
+		$this->registrations[ $event ][ $listener ] = $cb;
 
 		if ( \array_key_exists( $event, $this->set_state ) ) {
 			$this->_notify_registered( $event, $listener, $this->set_state[ $event ] );
@@ -271,7 +268,7 @@ class Node {
 		}
 		$value = $message[ Message::VALUE ];
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
-			// json-encode array VALUEs for the audit line; (string) would emit "Array" and warn.
+			// json-encode array VALUEs; (string) would emit "Array" and warn.
 			$value_str = \is_array( $value )
 				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
 				: Core::as_string( $value );
@@ -354,10 +351,7 @@ class Node {
 	public function patron( ?Node $node = null ): ?Node {
 		if ( null !== $node ) {
 			$this->patron = $node;
-			// A sidecar (patron-managed) doesn't need its own `{name}:config`: the
-			// patron configures it directly, and dump_config skips patron-owned
-			// nodes. Drop the ctor-auto-wired interpreter so we don't register a
-			// config node nobody routes to.
+			// A sidecar needs no `{name}:config`; drop the auto-wired interpreter.
 			if ( null !== $this->interpreter ) {
 				if ( '' !== $this->interpreter->name() ) {
 					$this->interpreter->remove_node();
@@ -464,7 +458,7 @@ class Node {
 		$this->sink          = null;
 		$this->target        = '';
 		$this->patron        = null;
-		// Cascade-unregister the sibling interpreter so a name-recycle doesn't collide with an orphan.
+		// Cascade-unregister the sibling interpreter so a name-recycle can't collide.
 		if ( null !== $this->interpreter && '' !== $this->interpreter->name() ) {
 			Core::unregister_node( $this->interpreter->name() );
 		}
@@ -494,8 +488,7 @@ class Node {
 			if ( 'sink' === $key && $value instanceof Node ) {
 				$value = $value->name();
 			}
-			// Redact a non-empty credential (string token or array of secrets);
-			// an empty one stays visible so the operator can tell it's unset.
+			// Redact a non-empty credential; an empty one stays visible (unset).
 			if ( Core::is_secret_property( $key )
 				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
 				$value = '[REDACTED]';
@@ -503,15 +496,13 @@ class Node {
 			if ( \is_object( $value ) ) {
 				$value = '(' . \get_class( $value ) . ')';
 			}
-			// Resources aren't JSON-encodable; coerce so json_encode doesn't fail the whole snapshot.
+			// Resources aren't JSON-encodable; coerce so json_encode won't fail.
 			if ( \is_resource( $value ) ) {
 				$value = '(resource:' . \get_resource_type( $value ) . ')';
 			}
 			$snapshot[ $key ] = $value;
 		}
-		// The node's own class (subclass-aware via ReflectionObject). cmd_dump_node
-		// surfaces this as the dump header; overrides that build their own snapshot
-		// should include it too.
+		// Subclass-aware class name; cmd_dump_node surfaces it as the dump header.
 		$snapshot['class'] = $ref->getShortName();
 		return $snapshot;
 	}

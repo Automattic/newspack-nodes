@@ -25,7 +25,7 @@ class Callback_Node extends Node {
 	}
 
 	public static function node_schema(): array {
-		// Hidden: a PHP closure can't be expressed in TSL or built from the GUI (still used programmatically).
+		// Hidden: a closure can't be expressed in TSL or built from the GUI.
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Inline PHP closure as a node — invokes a callable on each message.',

@@ -104,8 +104,7 @@ class Bootstrap {
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
-		// Footgun: do NOT wire SSE_Slot_Pool here — it force-loads the SSE REST controller
-		// on every admin/cron caller. It rides register_rest_routes() (the only SSE_Out path).
+		// Footgun: don't wire SSE_Slot_Pool here; it force-loads SSE REST routes.
 	}
 
 	/**
@@ -193,11 +192,7 @@ class Bootstrap {
 	 */
 	public static function get_topologies(): array {
 		$catalog = self::get_topology_catalog();
-		// Active set = the substrate `topologies` config key. Config::load_config()
-		// resolves the precedence: the operator overlay (wp option
-		// `newspack_nodes_topologies`) when set, else the config-file default.
-		// Empty (the shipped default) means NOTHING is active — deployments
-		// declare their active topologies in config; nothing spawns by surprise.
+		// Active set = the `topologies` config key; empty default spawns nothing.
 		$config       = Config::load_config();
 		$active_names = $config['topologies'] ?? [];
 		if ( ! \is_array( $active_names ) ) {
@@ -435,7 +430,7 @@ class Bootstrap {
 
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
-		// Slot-pool seams live here, not in ensure_runtime_wired — SSE_Out is REST-only.
+		// Slot-pool seams live here, not ensure_runtime_wired: SSE_Out is REST-only.
 		SSE_Slot_Pool::wire();
 		( new Spawn_Controller( self::supervisor() ) )->register_routes();
 		( new SSE_Out_Node() )->register_routes();
@@ -476,7 +471,7 @@ class Bootstrap {
 		}
 		$part = new Partition_Node();
 		$part->name( $worker_id );
-		// Sibling plumbing: patron + sink to the in-scope interpreter (Rule 4 skips both when none).
+		// Patron + sink to the in-scope interpreter (Rule 4 skips both if none).
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null !== $ci ) {
 			$part->patron( $ci );

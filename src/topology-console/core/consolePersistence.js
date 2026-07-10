@@ -13,15 +13,13 @@ import { TRANSCRIPT_MAX } from '../../runtime/dumper-node';
 
 const NS = 'newspack-nodes:console:';
 const TRANSCRIPT_KEY = `${ NS }transcript`;
-// Separate key from the overlay's so the hub's worker-realm transcript and the overlay's local one never clobber each other.
+// Separate key so hub worker-realm and overlay transcripts never clobber.
 const HUB_TRANSCRIPT_KEY = `${ NS }hub-transcript`;
 const HISTORY_KEY = `${ NS }history`;
 const DEBUG_LEVEL_KEY = `${ NS }debug-level`;
 const DEBUG_STATE_KEY = `${ NS }debug-state`;
 
-// Recent-only caps so a long-lived session can't grow storage unbounded. The
-// transcript cap reuses the Dumper's own TRANSCRIPT_MAX so save/restore never
-// disagree (the Dumper re-caps on restore). History has no runtime twin.
+// Recent-only caps; transcript reuses Dumper TRANSCRIPT_MAX so restore agrees.
 export const MAX_PERSISTED_TRANSCRIPT = TRANSCRIPT_MAX;
 export const MAX_PERSISTED_HISTORY = 100;
 

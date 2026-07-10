@@ -59,26 +59,20 @@ export function useConsoleGraph( {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
 
-	// A long-hidden tab throttles the heartbeat TIMER, so the SSE slot TTLs out and
-	// the stream dies. Gate the stream on visibility (same pattern as the dashboards):
-	// close while hidden, reopen on refocus.
+	// Hidden tab throttles the heartbeat → slot TTLs out; gate on visibility.
 	const isPageVisible = usePageVisibility();
 
-	// Reset Graph bumps the generation; including it here re-runs the graph effect
-	// (cleanup tears down the spine, the effect rebuilds it fresh off the canonical
-	// wiring) — recovering a self-broken browser graph without a page reload.
+	// Reset Graph bumps generation → re-runs the effect, rebuilding a broken graph.
 	const generation = useGraphGeneration();
 
-	// Direct `topologies get` fetch (the same one edit mode uses) for the mount
-	// TSL seed below; stable identity, so the build effect can call it freely.
+	// Direct `topologies get` for the mount TSL seed; stable identity.
 	const fetchTopologyTsl = useTopology();
 
-	// Stash the latest debugLevelRef so the effect wires it without re-subscribing.
+	// Stash debugLevelRef so the effect wires it without re-subscribing.
 	const debugLevelRefRef = useRef( debugLevelRef );
 	debugLevelRefRef.current = debugLevelRef;
 
-	// Stable key over the worker list so the effect rebuilds the RemoteIpc set when
-	// the active-worker list changes (a topology started/stopped elsewhere).
+	// Stable key over the worker list so the effect rebuilds RemoteIpc on change.
 	const workersKey = workers.join( ',' );
 
 	useEffect( () => {
@@ -101,46 +95,31 @@ export function useConsoleGraph( {
 			shell: shellTap,
 			teardown: teardownSpine,
 		} = mountExospine();
-		// The interpreter ships the full PHP verb set as built-ins (make_node, dump_node,
-		// dump_metadata, stats, uptime, list_nodes/ls, …) — no local overrides. `ls`
-		// defaults to interpreter siblings (Tachikoma); `ls -a` lists every node, and the
-		// column flags (-c/-s/-t) work because the full `_cmdList` runs.
+		// Interpreter ships the full PHP verb set as built-ins (no local overrides).
 
-		// Receive-side reply nodes (Router peels TO and delivers to these).
-		// Reply/boundary nodes are terminal (they render in fill(), never
-		// forwarding through sink) — but rule #2 still wires their sink to the interpreter
-		// so the declared topology is uniform: every node sinks into the interpreter, and
-		// _router is the only node left bare.
-		// Dumper stays bare new+named — it needs the debugLevelRef before sink.
+		// Reply nodes sink into the interpreter (rule #2); Dumper stays bare.
 		const dumper = new DumperNode();
 		dumper.debugLevelRef = debugLevelRefRef.current;
 		dumper.name = names.OUTPUT;
 		dumper.sink = interpreter;
-		// Persist+restore the transcript [87] (overlay pattern) or the teardown removeNode below drops it on every worker switch / Reset Graph / reload.
+		// Persist+restore the transcript, else teardown drops it on switch/reload.
 		const transcriptListenerId = 'useConsoleGraph/transcript';
 		dumper.register( 'transcript', transcriptListenerId, ( next ) => {
 			saveHubTranscript( next || EMPTY_TRANSCRIPT );
 			return true;
 		} );
 		dumper.restore( loadHubTranscript() );
-		// Substrate soft-nodes (registered in includeNodes) via make_node:
-		// name + sink=interpreter + arguments in one call.
+		// Substrate soft-nodes via make_node: name + sink=interpreter + args in one.
 		const metadata = interpreter.makeNode( 'Metadata', names.METADATA );
 		const uptime = interpreter.makeNode( 'Uptime', names.UPTIME );
-		// `_dmesg` polls the viewed process's dmesg + publishes error/warn/debug
-		// line counts for the inspector's process-stats header (roadmap [95]).
+		// `_dmesg` publishes error/warn/debug counts for the process-stats header.
 		const dmesg = interpreter.makeNode( 'Dmesg', names.DMESG );
 		const completion = interpreter.makeNode(
 			'Completion',
 			names.COMPLETION
 		);
 
-		// One RemoteIpc per active worker, named `{topology}.p{N}`. Each composes a
-		// SseIn (receive), an HttpOut (POST /command), and a Heartbeat (slot
-		// keepalive) plus the connected→slot bridge. `cd /{worker}` routes straight
-		// to it; only one stream is live at a time (the active RemoteIpc steals it).
-		// The session's own worker is guaranteed present even if the active-worker
-		// list hasn't caught up yet, so the default cwd always has a channel.
+		// One RemoteIpc per worker (SseIn+HttpOut+Heartbeat); one stream at a time.
 		const readers = new Set( [ reader, ...workers ] );
 		const remotes = [];
 		for ( const wr of readers ) {
@@ -152,66 +131,40 @@ export function useConsoleGraph( {
 			remote.target = names.OUTPUT;
 			remote.client = getCommandClient();
 			// The active worker's connect handshake drives the session pid display.
-			// The envelope is a string now (TM_INFO), parsed into the SseIn's
-			// sessionPid — read it via the link rather than the raw payload.
 			remote.onConnected = () => setSsePid( remote.pid() );
-			// A steal closes the old active link before the new one handshakes;
-			// reset the displayed pid so a B-bound send doesn't wrap A's stale pid
-			// into the reply FROM. The new worker's onConnected repopulates it.
+			// Reset pid on a steal so a send doesn't wrap the old link's stale pid.
 			remote.onClose = () => setSsePid( null );
 			remotes.push( remote );
 		}
 
-		// The RemoteIpc channels are console infra, not user-added nodes. This is a
-		// bare mount (no build snapshot), so register them in reinitNames by hand —
-		// the same exclusion the dashboards get from runBuild — so useGraphReset
-		// doesn't count them and leave the Reset Graph chip stuck on the browser
-		// graph. Teardown nulls reinitNames (the bare mount owns the backbone), so
-		// this self-cleans on rebuild.
+		// Bare mount: list RemoteIpc channels in reinitNames (else Reset sticks).
 		Core.reinitNames = [
 			...( Core.reinitNames || [] ),
 			...remotes.map( ( r ) => r.name ),
 		];
 
-		// `_cwd` is a plain Node whose `target` IS the current working directory.
-		// The poll nodes address `_cwd`; Router peels it, the base Node.fill
-		// re-stamps the live cwd into TO (or leaves TO empty for the local root),
-		// then forwards to the interpreter. One indirection routes every scope: cd / the
-		// Path menu just set `_cwd.target`.
+		// `_cwd`.target IS the cwd; polls address `_cwd`, Router re-stamps into TO.
 		const cwdNode = new Node();
 		cwdNode.name = names.CWD;
 		cwdNode.sink = interpreter;
-		// Seed the cwd to the session's default path (its own worker, the same path
-		// the Shell mounts at below) so the polls route before the TopologyConsole
-		// gating effect first runs; that effect keeps `_cwd.target` in sync on cd.
+		// Seed cwd to the default path so polls route before the gate effect runs.
 		cwdNode.target = reader;
 
-		// Anonymous, React-driven Shell. Default cwd is the session's own worker
-		// `{reader}` — routes straight to that worker's RemoteIpc, which wraps the
-		// reply privately. Static: the pid lives only in the wrapped FROM, not the path.
-		// Sinks into the backbone `_shell` Tap (mountExospine owns it), which forwards
-		// to the interpreter — so typed input is observable at `_shell`.
+		// Anonymous React Shell; sinks into the backbone `_shell` Tap → interpreter.
 		const consoleShell = new ShellNode();
 		consoleShell.path = reader;
 		consoleShell.sink = shellTap;
 
 		setSsePid( null );
 
-		// Live-canvas poll on a single Router TIMER (1s). Each tick locks the ACTIVE
-		// RemoteIpc's HttpOut, notifies subscribers (Metadata every tick, Uptime on
-		// its 5s throttle) — which emit their poll commands through the interpreter →
-		// the cwd worker's RemoteIpc → its HttpOut — then flushes it so the whole
-		// tick's emissions ride in ONE POST. The canvas polls target `_cwd` (which
-		// re-stamps the live cwd, routing every scope through one indirection).
+		// Canvas poll on one Router TIMER (1s): all emissions ride in ONE POST.
 		metadata.sink = interpreter;
 		uptime.sink = interpreter;
 		dmesg.sink = interpreter;
 		metadata.target = names.CWD;
 		uptime.target = names.CWD;
 		dmesg.target = names.CWD;
-		// Capture the node locked in `before` and flush THAT SAME node in `after`:
-		// a tick that steals `active` to a new worker mid-notify must not strand the
-		// old link's HttpOut locked (lock OLD, flush NEW would).
+		// Flush the SAME node locked in `before` (a steal must not strand it).
 		let tickLocked = null;
 		router.beforeTimerNotify = () => {
 			tickLocked = RemoteIpcNode.active ?? null;
@@ -221,36 +174,24 @@ export function useConsoleGraph( {
 			tickLocked?.httpOut?.flush();
 			tickLocked = null;
 		};
-		// Each poll node hitchhikes the _router TIMER (set_timer() with no args):
-		// the router's notify_timer calls their fireCb -> fire directly each tick.
+		// Poll nodes hitchhike the _router TIMER (fireCb runs each tick).
 		metadata.setTimer();
 		uptime.setTimer();
 		dmesg.setTimer();
 
-		// Paint the topology's declared structure immediately: the same direct
-		// `topologies get` edit mode uses (independent of the SSE stream), parsed
-		// via parseTsl and published as the metadata graph — so the schematic shows
-		// while the SSE connect, the first TIMER tick, and the dump_metadata
-		// round-trip are still in flight. The first real dump_metadata reply then
-		// overwrites it with the live-enriched graph.
+		// Paint the declared topology at once, before SSE/dump_metadata arrives.
 		if ( topology ) {
 			fetchTopologyTsl( topology )
 				.then( ( resp ) => {
-					// Anchor `_repl` in the seed so it's on the canvas from the first
-					// paint — otherwise autofit runs without it and the later
-					// dump_metadata (which carries the worker's live `_repl`) shifts
-					// the graph. Reserved → serializeTsl never persists it.
+					// Anchor `_repl` in the seed so autofit includes it from first paint.
 					const seeded = withReplAnchor(
 						parseTsl( resp?.tsl || '' )
 					);
-					// Resolve the LIVE metadata node by name (not the closed-over
-					// build instance): a rebuild may have replaced it while this was
-					// in flight. Skip if a dump_metadata reply already populated the
-					// graph (the round-trip can beat this async seed on a warm worker).
+					// Resolve LIVE metadata by name; skip if a reply already filled it.
 					const node = Core.node( names.METADATA );
 					const live =
 						node?.rawMap && Object.keys( node.rawMap ).length > 0;
-					// Seed a topology only at a worker scope: at `/` (or `_http`) the canvas shows the in-browser graph, so seeding would paint the wrong graph and stomp its layout.
+					// Seed only at a worker scope (else it paints the wrong graph).
 					const onWorker = scopeFromCwd(
 						Core.node( names.CWD )?.target ?? ''
 					).isWorker;
@@ -264,17 +205,10 @@ export function useConsoleGraph( {
 		}
 
 		setShell( consoleShell );
-		// The EventSource is opened/closed by the stream-gating effect below (it
-		// depends on `streamEnabled`, which the graph build must not), so cd-ing off
-		// a worker can quiet the stream without tearing the whole graph down.
+		// The stream-gating effect owns the EventSource; cd-off can quiet it.
 
 		return () => {
-			// Each node owns its teardown: removeNode() clears registrations/sink and,
-			// for the Timer poll nodes, stop_timer -> unregister from the _router's
-			// TIMER set — so a closure can't outlive the node. The RemoteIpcs close
-			// their streams + tear down their children (and clear the active claim).
-			// Before teardownSpine so the router still exists when those nodes unregister.
-			// Unregister before removeNode so teardown can't persist an empty transcript over the good one.
+			// Each node owns teardown; unregister before removeNode/teardownSpine.
 			dumper.unregister( 'transcript', transcriptListenerId );
 			dumper.removeNode();
 			metadata.removeNode();
@@ -285,22 +219,16 @@ export function useConsoleGraph( {
 				remote.removeNode();
 			}
 			cwdNode.removeNode();
-			// The backbone last: stops the router TIMER and removes interpreter,
-			// router, _shell, and the shared `_http`/`_heartbeat` singletons it owns.
+			// Backbone last: stops the router TIMER, removes interpreter/router/_shell.
 			teardownSpine();
 			setSsePid( null );
 			setShell( null );
 		};
-		// `workersKey` is the stable string projection of `workers`; depending on the
-		// array identity would rebuild the graph on every render.
+		// `workersKey` is the stable projection of `workers` (id churn otherwise).
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ topology, partition, enabled, workersKey, generation ] );
 
-	// SSE stream gating: open the active worker's stream only while the graph is
-	// mounted, the cwd is a worker (streamEnabled), AND the tab is visible. Closing
-	// on cd-off-worker OR tab-hide drops the pid and the heartbeat slot (the
-	// keepalive goes quiet, so the server reclaims the slot at TTL); cd-ing back or
-	// refocusing reopens via the next poll/cd's fill→connect.
+	// Stream open only while mounted, cwd is a worker, and the tab is visible.
 	useEffect( () => {
 		if ( ! enabled ) {
 			return undefined;

@@ -4,8 +4,7 @@ import names from '../../runtime/reserved-node-names.json';
 
 const EMPTY_GRAPH = { nodes: [], edges: [], pwd: '' };
 
-// Always-present, visible backbone fixtures — they don't count toward "has the
-// graph any real content" (the empty-state / ready gate).
+// Always-present backbone fixtures; don't count toward "graph has content".
 const BACKBONE_FIXTURES = new Set( [
 	names.CONSOLE_TAP,
 	names.HTTP,
@@ -47,9 +46,7 @@ export function useGraphSource( {
 	} else {
 		graph = coreFallback ? coreToGraph() ?? EMPTY_GRAPH : EMPTY_GRAPH;
 	}
-	// The visible but always-present backbone fixtures (`_shell` command Tap,
-	// `_http` egress, `_heartbeat` keepalive) must not, on their own, make an
-	// otherwise-empty graph read as non-empty.
+	// Backbone fixtures alone must not make an empty graph read as non-empty.
 	const hasNodes = graph.nodes.some(
 		( n ) => ! BACKBONE_FIXTURES.has( n.id )
 	);

@@ -14,12 +14,7 @@
 
 let saved = null;
 
-// Only WebKit (Safari) needs the CSS lock: it ignores a wheel `preventDefault()`
-// when the event target is the SVG canvas, so the panel's own wheel-eater can't
-// stop the page scrolling there. Chromium honours that wheel-eater, so the CSS
-// lock is redundant — AND harmful: toggling html/body overflow (+ paddingRight)
-// reflows the page behind the overlay, which drops sections of a live dashboard
-// the moment the pointer enters the panel. Gate it to WebKit-non-Chromium.
+// WebKit-only CSS lock (ignores wheel PD on SVG); Chromium reflows, so skip it.
 function needsCssScrollLock() {
 	const ua = window.navigator?.userAgent || '';
 	return /AppleWebKit/.test( ua ) && ! /Chrome|Chromium|Edg|OPR/.test( ua );
@@ -31,12 +26,7 @@ export function lockPageScroll() {
 	}
 	const html = document.documentElement;
 	const body = document.body;
-	// Width of the scrollbar gutter that disappears when overflow is hidden.
-	// Guard the reading the same way getAvailableBounds does: a real gutter is a
-	// scrollbar (0–40px). If clientWidth comes back 0/tiny (jsdom always; a real
-	// page transiently), `innerWidth - clientWidth` is the whole viewport, and
-	// applying THAT as paddingRight collapses the page to zero width (the blank
-	// dashboard) — so treat anything outside the scrollbar range as no gutter.
+	// Scrollbar gutter, clamped 0-40px (jsdom clientWidth 0 would blank the page).
 	const rawGutter = window.innerWidth - html.clientWidth;
 	const gutter = rawGutter > 0 && rawGutter <= 40 ? rawGutter : 0;
 	saved = {

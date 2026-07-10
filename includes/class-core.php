@@ -235,9 +235,7 @@ class Core {
 		} );
 		self::$now       = \microtime( true );
 		self::$init_time = self::$now;
-		// Clearing the node world must drop the event loop's timer set too — else a
-		// prior worker's (or test's) armed timer survives on a now-orphaned node and a
-		// later drain fires it. At worker spawn the framework is empty, so this no-ops.
+		// Drop the timer set too, else an orphaned node's armed timer survives.
 		Event_Framework::reset();
 	}
 
@@ -307,7 +305,7 @@ class Core {
 			\CURLOPT_SSL_VERIFYHOST    => 0,
 			\CURLOPT_SSL_VERIFYPEER    => false,
 		] );
-		// Default ignores $body (already in POSTFIELDS); the arg only matters to test mocks.
+		// Default ignores $body (already in POSTFIELDS); arg only matters to mocks.
 		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
 		$exec( $ch, $body );
 		$errno = \curl_errno( $ch );

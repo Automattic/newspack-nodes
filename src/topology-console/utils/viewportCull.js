@@ -30,20 +30,14 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 	const detailScale = opts.detailScale ?? 0.35;
 	const overscan = opts.overscan ?? 0;
 
-	// Effective scale (px per world unit) under SVG preserveAspectRatio="meet":
-	// the smaller of the width- and height-fit ratios. A tall-narrow graph is
-	// height-bound, so the width ratio alone would wrongly read as zoomed-in.
-	// Unmeasured canvas (first render / jsdom) → assume readable, show detail.
+	// Effective scale under "meet": min of width/height fit ratios.
 	const fits = canvas.w > 0 && canvas.h > 0 && viewBox.w > 0 && viewBox.h > 0;
 	const scale = fits
 		? Math.min( canvas.w / viewBox.w, canvas.h / viewBox.h )
 		: Infinity;
 	const showDetail = scale >= detailScale;
 
-	// The TRUE on-screen world region under "meet": the viewBox expanded to the
-	// canvas aspect. The under-constrained axis letterboxes, showing world BEYOND
-	// the viewBox — so culling against the raw viewBox would drop a node the moment
-	// a tall-narrow column is panned into that (still-visible) letterbox margin.
+	// Expand viewBox to canvas aspect ("meet") — the letterbox stays visible.
 	let visX = viewBox.x;
 	let visY = viewBox.y;
 	let visW = viewBox.w;
@@ -55,10 +49,7 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 		visY = viewBox.y + ( viewBox.h - visH ) / 2;
 	}
 
-	// Overscan: render a band of just-off-screen nodes (a fraction of the visible
-	// region on each axis) so panning scrolls smoothly instead of popping the
-	// leading edge. Default 0 (strict). An absolute `margin` (used by tests)
-	// overrides it on both axes.
+	// Overscan band of off-screen nodes for smooth panning; `margin` overrides.
 	const marginX = opts.margin ?? visW * overscan;
 	const marginY = opts.margin ?? visH * overscan;
 
@@ -84,15 +75,9 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 		visibleIds,
 		showDetail,
 		scale,
-		// The clip rect (on-screen region + overscan) so a one-endpoint-visible
-		// edge can be truncated to the viewport instead of drawn as a giant bezier
-		// out to its off-screen peer.
+		// Clip rect (on-screen + overscan) to truncate one-endpoint edges.
 		region: { x: left, y: top, w: right - left, h: bottom - top },
-		// The strict on-screen world rect (NO overscan). The bloom filter pins its
-		// region to this (`filterUnits="userSpaceOnUse"`), so the blur buffer is
-		// exactly the viewport — never the full group bbox (which spans the
-		// overscan ring) and never a degenerate near-zero-height bbox (a row of
-		// horizontal edges), both of which a default objectBoundingBox region hits.
+		// Strict on-screen rect (no overscan): bloom pins its filter region to this.
 		visibleRegion: { x: visX, y: visY, w: visW, h: visH },
 	};
 }

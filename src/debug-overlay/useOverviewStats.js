@@ -3,9 +3,7 @@ import { IoTelemetry } from '../runtime/io-telemetry';
 import { overviewChartSeries } from './overviewChartSeries';
 import { RateSmoother } from '../event-dashboards/rateSmoother';
 
-// Card refresh cadence (20Hz). The live rate uses the same RateSmoother as the
-// Raw Logs lines/s — a 10s windowed average, EMA-smoothed — so the counters
-// read steady instead of spiky.
+// Card refresh cadence (20Hz); live rate uses the RateSmoother (10s avg, EMA).
 const TICK_MS = 50;
 
 /**
@@ -35,10 +33,7 @@ export function useOverviewStats() {
 		[]
 	);
 
-	// 20Hz tick: feed the per-tick counter delta into each stream's RateSmoother
-	// (10s windowed average + 0.1 EMA), then re-render so the cards (totals read
-	// below + these rates) stay current. The charts are untouched — they key off
-	// the sample revision.
+	// 20Hz tick: feed each stream's counter delta to its RateSmoother, re-render.
 	useEffect( () => {
 		const tick = () => {
 			const s = IoTelemetry.snapshot();
@@ -46,9 +41,7 @@ export function useOverviewStats() {
 			const prev = prevRef.current;
 			const sm = smoothersRef.current;
 			if ( prev ) {
-				// A cumulative counter going backward = the telemetry was reset
-				// (Reset stats / clear); drop the windows so the rate falls to 0
-				// now instead of decaying out over the window.
+				// A counter going backward = telemetry reset; drop the windows to 0 now.
 				if ( s.bytesIn < prev.bytesIn || s.msgsIn < prev.msgsIn ) {
 					sm.byteIn.reset();
 					sm.byteOut.reset();
@@ -76,10 +69,7 @@ export function useOverviewStats() {
 
 	const totals = IoTelemetry.snapshot();
 	const ring = IoTelemetry.getSeries();
-	// The ring is mutated in place, so key the memo on the monotonic emitted-sample
-	// revision: the charts get a fresh, stable-identity series exactly once per new
-	// sample (and skip otherwise, so the memoized TopicsChart doesn't redraw — even
-	// as the cards re-render at 20Hz).
+	// Ring mutated in place; memo keyed on the sample revision (per sample).
 	const { msgRate, byteRate } = useMemo(
 		() => overviewChartSeries( ring ),
 		// eslint-disable-next-line react-hooks/exhaustive-deps

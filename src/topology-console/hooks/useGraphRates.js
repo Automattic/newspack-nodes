@@ -36,14 +36,7 @@ export function useGraphRates( graph, resetKey ) {
 			const hasRead = ( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
 			const hasWritten =
 				( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
-			// A node's rate baseline is only trustworthy once it reflects a REAL
-			// counter reading. The first dump_metadata backfills the full
-			// cumulative counter at once (a worker that has run for minutes
-			// reports e.g. 12k messages / 2.3 MB in ONE response); a delta against
-			// a cold 0-baseline turns that backfill into a bogus ~12k/s spike that
-			// poisons the peak. So a node stays "cold" (rate 0, no history) until
-			// its first reading WITH data seeds the baseline — real per-interval
-			// rates accrue only from the next sample on.
+			// Cold until first reading with data (else backfill reads as a spike).
 			const warm = !! ( prevEntry && prevEntry.warm );
 			const hasData = count > 0 || bytesRead > 0 || bytesWritten > 0;
 			if ( prevEntry && warm && prevEntry.ts < now ) {
@@ -92,12 +85,7 @@ export function useGraphRates( graph, resetKey ) {
 				} );
 				touched = true;
 			} else if ( ! prevEntry || ! warm ) {
-				// Cold node (a placeholder, or seen before any data ever arrived —
-				// a warm node never reaches this branch). Seed the baseline without
-				// emitting a rate; it warms the moment a reading carries data, so
-				// the NEXT sample computes a real delta against this baseline rather
-				// than treating the cumulative backfill as a rate. A cold node has
-				// accrued no rate history yet, so it starts empty.
+				// Cold node: seed baseline without emitting a rate (warms on first data).
 				rateRef.current.set( n.id, {
 					count,
 					bytesRead,

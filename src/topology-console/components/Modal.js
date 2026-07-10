@@ -25,9 +25,7 @@ export function ModalShell( { title, onDismiss, children } ) {
 	if ( typeof document === 'undefined' ) {
 		return null;
 	}
-	// The backdrop dims the WHOLE page (fixed, portaled to <body>), but the dialog is
-	// centered over the OVERLAY PANEL, not the viewport — measure the panel and place
-	// the dialog at its centre. No panel (standalone console) → viewport-centered.
+	// Center the dialog over the overlay PANEL (backdrop still dims the page).
 	const panelRect = document
 		.querySelector( '.nodes-debug__panel' )
 		?.getBoundingClientRect();

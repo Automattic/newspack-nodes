@@ -69,12 +69,11 @@ class Command_Auth {
 				|| ! \is_array( $value ) ) {
 			return;
 		}
-		$ts    = (int) $ts; // TIMESTAMP is float seconds; sign at second granularity (matches the freshness window).
+		$ts    = (int) $ts; // Second granularity, matching the freshness window.
 		$nonce = \bin2hex( \random_bytes( 16 ) );
 		$canon = self::canonical( $type, $ts, $value, $nonce );
 		if ( null === $canon ) {
-			// Un-encodable arguments: leave the command unsigned so the verifier
-			// refuses it, rather than signing a collision-prone empty canonical.
+			// Leave un-encodable args unsigned so the verifier refuses them.
 			Core::print_less_often( 'Command_Auth: un-encodable command arguments; refusing to sign' );
 			return;
 		}
@@ -133,7 +132,7 @@ class Command_Auth {
 			$interpreter?->drop_message( $message, 'verification failed: wrong type' );
 			return false;
 		}
-		$ts   = (int) $ts; // float seconds → second granularity; both sign + verify truncate the same wire value identically.
+		$ts   = (int) $ts; // Second granularity; sign + verify truncate identically.
 		$auth = $value['auth'] ?? null;
 		if ( ! \is_array( $auth )
 				|| ! isset( $auth['nonce'], $auth['sig'] ) ) {

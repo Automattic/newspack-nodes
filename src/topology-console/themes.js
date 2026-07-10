@@ -16,18 +16,12 @@ export {
 	resetSkin,
 } from '../shared/theme';
 
-// Palette collapse state is stored per-mode (live vs edit) because the
-// two surfaces want different defaults: live defaults to collapsed
-// (the palette isn't needed when watching), edit defaults to open (you
-// drop nodes from it onto the canvas). The DebugOverlay only ever runs
-// in live mode and so reads/writes the live key.
+// Palette collapse is per-mode: live defaults collapsed, edit defaults open.
 export const PALETTE_COLLAPSED_STORAGE_KEY_LIVE =
 	'newspack-nodes:palette-collapsed:live';
 export const PALETTE_COLLAPSED_STORAGE_KEY_EDIT =
 	'newspack-nodes:palette-collapsed:edit';
 
-// Inspector collapse is a single global preference (not per-mode like the
-// palette): the user's choice to keep the inspector railed persists across
-// mode switches and mounts.
+// Inspector collapse is one global preference (not per-mode like palette).
 export const INSPECTOR_COLLAPSED_STORAGE_KEY =
 	'newspack-nodes:inspector-collapsed';

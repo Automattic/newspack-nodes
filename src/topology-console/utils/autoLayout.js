@@ -19,11 +19,7 @@ export const Y_PAD = 80;
 export const NODE_W = 196;
 export const NODE_H = 84;
 
-// Snap a drop point (SVG-space, presumed near a node center) to the nearest
-// grid intersection and return the corresponding top-left position the
-// renderer stores. Shared by the topology console (live + edit drop) and the
-// debug overlay so a fresh drop lands on the same grid the existing nodes
-// already snap to.
+// Snap a drop point to the nearest grid intersection; returns top-left pos.
 export function snapToGrid( x, y ) {
 	const sx = X_STEP / 2;
 	const sy = Y_STEP / 2;
@@ -74,8 +70,7 @@ const median = ( arr ) => {
 	}
 	return n % 2 ? s[ ( n - 1 ) / 2 ] : ( s[ n / 2 - 1 ] + s[ n / 2 ] ) / 2;
 };
-// Stable numeric-key sort; ties keep prior order (which is alphabetical here, so
-// the layout stays deterministic regardless of registration order).
+// Stable numeric-key sort; ties keep prior (alphabetical) order.
 const stableSort = ( arr, key ) =>
 	arr
 		.map( ( v, i ) => [ v, i ] )
@@ -86,10 +81,7 @@ export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];
 
-	// No edges → alpha-sorted column-major grid. The depth-driven layout
-	// would stack every node in column 0 (all depth=0 without predecessors),
-	// which makes a request-scope service-CI graph (independent CIs with no
-	// targets) read as one long column.
+	// No edges → alpha-sorted column-major grid (depth layout would stack col 0).
 	if ( edges.length === 0 && nodes.length > 0 ) {
 		const sorted = [ ...nodes ].sort( ( a, b ) =>
 			a.id.localeCompare( b.id )
@@ -105,15 +97,7 @@ export function autoLayout( parsed ) {
 		return { nodes: positioned, edges };
 	}
 
-	// ── Coffman-Graham columns + force-spring rows ──
-	// Columns: sources→0, sinks→rightmost, interior nodes to the deepest feasible
-	// layer (between longest-path-from-source and longest-path-to-sink), pulled to
-	// the barycenter of their neighbours' columns so a processor tier aligns.
-	// Rows: barycenter crossing-reduction + edge-spring midpoints (unchanged).
-	//
-	// Canonicalize to alphabetical node order so the layout is independent of the
-	// order the runtime registers nodes in — the live graph hands them over
-	// backbone-first, which must lay out the same as a topology file (alphabetical).
+	// Coffman-Graham columns + spring rows; alpha-canonical so live == .tsl.
 	const ids = [ ...nodes ]
 		.map( ( n ) => n.id )
 		.sort( ( a, b ) => String( a ).localeCompare( String( b ) ) );
@@ -127,8 +111,7 @@ export function autoLayout( parsed ) {
 	} );
 	const nodeSet = new Set( ids );
 	for ( const e of edges ) {
-		// Skip edges whose endpoints aren't real nodes (the plain-object
-		// adjacency would throw on a dangling endpoint).
+		// Skip dangling edges (adjacency would throw on a missing endpoint).
 		if ( ! nodeSet.has( e.from ) || ! nodeSet.has( e.to ) ) {
 			continue;
 		}
@@ -184,10 +167,7 @@ export function autoLayout( parsed ) {
 		}
 	}
 
-	// Coffman-Graham layering: pin sources to 0 and sinks to the rightmost
-	// column; seed interior nodes at their longest-path depth, then relax each
-	// toward the barycenter of its neighbours' columns inside its feasible band
-	// [depth, maxDepth − height] so a processor tier collapses onto one column.
+	// Coffman-Graham: pin sources/sinks, relax interior to barycenter in-band.
 	const col = {};
 	for ( const id of ids ) {
 		if ( isIsolated( id ) ) {
@@ -223,11 +203,7 @@ export function autoLayout( parsed ) {
 		}
 	}
 
-	// Isolated nodes go left (col 0) only on a deep, source-heavy pipeline (≥3
-	// columns AND sources ≥ depth); otherwise they join the rightmost sink column.
-	// NB: the obvious "≥2 connected components → left" rule was tried and rejected
-	// — it sends the debug-overlay's chain+backbone graph left, breaking its
-	// isolated-on-the-right test. Keep this threshold; don't revert to components.
+	// Isolated-left only when deep+source-heavy; NOT ≥2-components (broke a test).
 	const sourceCount = ids.filter(
 		( id ) => isSource( id ) && ! isIsolated( id )
 	).length;
@@ -285,8 +261,7 @@ export function autoLayout( parsed ) {
 		}
 	}
 
-	// Integer-stack the anchor in its order; pull every other node to the round-half
-	// midpoint of its already-placed neighbours (the spring step).
+	// Integer-stack the anchor; spring others to neighbour-row midpoint.
 	const assignRows = () => {
 		const r = {};
 		columns[ anchor ].forEach( ( id, i ) => ( r[ id ] = i ) );
@@ -310,8 +285,7 @@ export function autoLayout( parsed ) {
 	};
 	let row = assignRows();
 
-	// Fix the anchor's own order + orientation from its neighbours' rows: pick the
-	// sign that puts the lowest-index anchor node on the side the layout flows from.
+	// Orient the anchor so the lowest-index node sits on the flow-from side.
 	const anchorKey = ( id ) =>
 		median(
 			( sinkSide ? pred[ id ] : succ[ id ] )
@@ -337,7 +311,7 @@ export function autoLayout( parsed ) {
 	columns[ anchor ] = chosen;
 	row = assignRows();
 
-	// Settle the remaining columns by neighbour-row median (a few relaxation passes).
+	// Settle remaining columns by neighbour-row median (a few passes).
 	for ( let it = 0; it < 6; it++ ) {
 		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
 			columns[ c ] = stableSort( columns[ c ], ( id ) =>
@@ -360,10 +334,7 @@ export function autoLayout( parsed ) {
 		row = assignRows();
 	}
 
-	// Resolve same-column overlaps by spreading each colliding cluster symmetrically
-	// around its barycenter (pool-adjacent-violators), not just pushing down — so a
-	// producer's fan-out leaves straddle it (tee → out/_repl land above/below tee)
-	// instead of dropping below. Non-overlapping columns are untouched.
+	// Spread same-column overlaps symmetrically (PAV) so fan-out leaves straddle.
 	columns.forEach( ( arr ) => {
 		const sorted = [ ...arr ].sort(
 			( a, b ) => row[ a ] - row[ b ] || declIdx[ a ] - declIdx[ b ]
@@ -371,8 +342,7 @@ export function autoLayout( parsed ) {
 		const blocks = [];
 		for ( const id of sorted ) {
 			let block = { ids: [ id ], first: row[ id ] };
-			// Merge with the previous block while the 1-row-spaced layouts would
-			// overlap; a merged block sits at the barycenter of its members' wants.
+			// Merge into the previous block while 1-row-spaced layouts overlap.
 			while ( blocks.length ) {
 				const prev = blocks[ blocks.length - 1 ];
 				if ( block.first >= prev.first + prev.ids.length - 1e-9 ) {
@@ -405,8 +375,7 @@ export function autoLayout( parsed ) {
 		row[ id ] = maxRow + 1 + i;
 	} );
 
-	// Normalize: shift every row so the topmost is 0 (the barycenter spread can push
-	// a fan-out cluster to negative rows when its producer sits near the top).
+	// Normalize rows so the topmost is 0 (spread can push clusters negative).
 	let minRow = Infinity;
 	for ( const id of ids ) {
 		if ( row[ id ] < minRow ) {

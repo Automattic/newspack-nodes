@@ -19,8 +19,7 @@ function toEntries( frontmatter ) {
 	] );
 }
 
-// Parse an int from a number-input string: empty stays empty, non-numeric
-// clears to empty, numeric is floored at `min` (and capped at `max` if given).
+// Parse int: empty stays empty, non-numeric clears, numeric clamped [min,max].
 function clampInt( raw, min, max ) {
 	const trimmed = String( raw ).trim();
 	if ( '' === trimmed ) {
@@ -34,21 +33,12 @@ function clampInt( raw, min, max ) {
 	return String( undefined === max ? floored : Math.min( max, floored ) );
 }
 
-// Frontmatter values are one-per-line and `;`-delimited at parse time, so a
-// value can carry neither newlines nor `;`.
+// Frontmatter values are line-per-entry and `;`-delimited — no newlines/`;`.
 function sanitizeValue( v ) {
 	return String( v ).replace( /[\r\n;]/g, '' );
 }
 
-// The panel is a fixed-position overlay that must paint over the hub header.
-// The hub is `display:flex`, so its header is a flex item whose `z-index: 3`
-// creates a real stacking context — and rendered in-tree the panel lives inside
-// the canvas frame's own lower (`z:2`) stacking context, so NO panel z-index can
-// climb above that header. Portal it to the hub root instead: that element is
-// themed by inheritance (the universal `--paper`/`--ink` tokens cascade in from
-// the outer `.topology-app.theme-*`) AND is the `z:99` context where the panel's
-// own `z-index` finally wins. Falls back to `document.body` (jsdom in tests,
-// where stacking is irrelevant and screen queries still find the node).
+// Portal to the hub root so the panel z-index clears the header's context.
 function getPortalTarget() {
 	if ( typeof document === 'undefined' ) {
 		return null;
@@ -73,8 +63,7 @@ export default function TopologySettingsPanel( {
 		return hit ? hit[ 1 ] : '';
 	};
 
-	// Commit local entries up to the draft, filtering empty values so we never
-	// emit `var x =` (which the PHP frontmatter parser would not re-read).
+	// Filter empty values so we never emit `var x =` (PHP wouldn't re-read it).
 	const commit = ( next ) => {
 		setEntries( next );
 		const map = {};

@@ -24,9 +24,7 @@ function load( key ) {
 				p && typeof p.positions === 'object' && p.positions
 					? p.positions
 					: null,
-			// The live viewBox is always re-derived from the delta by the canvas
-			// freeze — so start null. An old pre-delta `p.viewport` viewBox is
-			// intentionally ignored (a one-time re-fit on upgrade).
+			// Start null; the freeze re-derives the live viewBox from the delta.
 			viewport: null,
 			viewportDelta:
 				p && p.viewportDelta !== undefined ? p.viewportDelta : null,
@@ -80,11 +78,7 @@ function visiblePositions( positions, nodes ) {
  * @param {Object}  [opts.serverLayout] Worker-topology saved layout, or null.
  * @return {Object} { positions, viewport, canReset, onPositionChange, onViewportChange, renamePosition, resetLayout }.
  */
-// A no-saved-layout (local) scope's Core graph registers its nodes over several
-// frames as other views mount, so the one-shot autoLayout waits this long after the
-// node set last changed before running — else it lays out a partial graph and every
-// node that arrives afterward gets column-tucked. A server-seeded worker topology
-// arrives complete and skips this (adopts its saved layout immediately).
+// Wait this long for the streamed node set to settle before one-shot layout.
 const LAYOUT_SETTLE_MS = 250;
 
 export function useCanvasLayout( {
@@ -108,11 +102,7 @@ export function useCanvasLayout( {
 		setState( load( storageKey ) );
 	}, [ storageKey ] );
 
-	// One-shot init: autoLayout once (or adopt server layout) when ready + uninitialized.
-	// Functional update + the `prev.key !== storageKey` guard (symmetric with the tuck
-	// effect below) so a concurrent key-change reload wins the race: on a key switch
-	// the reload commits the loaded positions first, and this re-checks `prev` instead
-	// of clobbering them with autoLayout off a stale (null) closure snapshot.
+	// One-shot init; the prev.key guard lets a concurrent key-change reload win.
 	useEffect( () => {
 		if ( ! ready ) {
 			return undefined;
@@ -126,8 +116,7 @@ export function useCanvasLayout( {
 			return undefined;
 		}
 
-		// Server-seeded scopes (a worker topology's saved layout) arrive complete —
-		// adopt the saved layout immediately.
+		// Server-seeded scopes arrive complete — adopt the saved layout at once.
 		if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
 			setState( ( prev ) => {
 				if ( prev.positions !== null || prev.key !== storageKey ) {
@@ -154,9 +143,7 @@ export function useCanvasLayout( {
 			return undefined;
 		}
 
-		// No saved layout: wait for the streaming node set to SETTLE, then autoLayout
-		// the COMPLETE graph. The effect re-runs (and this timer re-arms) on every
-		// graph change, so it fires LAYOUT_SETTLE_MS after the last node arrived.
+		// No saved layout: wait for the node set to SETTLE, then lay out complete.
 		settleTimer.current = setTimeout( () => {
 			settleTimer.current = null;
 			setState( ( prev ) => {
@@ -208,11 +195,7 @@ export function useCanvasLayout( {
 			if ( ! changed ) {
 				return prev;
 			}
-			// Auto-placing a node that appeared is NOT a user modification — the
-			// graph can change from outside this console (the shared Core gains
-			// nodes when another view/tab mounts). Preserve the modified flag so
-			// "Reset Layout" only surfaces when the USER moved/renamed something,
-			// not whenever an external node gets tucked in.
+			// An externally-added node getting tucked is NOT a user mod — keep the flag.
 			const next = {
 				positions,
 				viewport: prev.viewport,
@@ -279,7 +262,7 @@ export function useCanvasLayout( {
 		[ storageKey ]
 	);
 
-	// Surface the Reset Layout chip without moving anything — e.g. after Reset Graph.
+	// Surface the Reset Layout chip without moving anything (e.g. Reset Graph).
 	const markDirty = useCallback( () => {
 		setState( ( prev ) => {
 			if ( prev.positions === null || prev.modified ) {

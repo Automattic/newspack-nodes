@@ -8,10 +8,7 @@
 import { useRef, useState } from '@wordpress/element';
 import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
 
-// Categories that stay in the catalog (so the inspector still resolves their
-// command/request buttons via catalog.find) but are NOT draggable in the palette.
-// Service CIs are mounted into the request graph, never make_node'd, so dragging
-// one would only mint a stray duplicate.
+// Categories kept in the catalog but NOT draggable (Service CIs are mounted).
 const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
 
 function groupByCategory( classes ) {
@@ -34,16 +31,11 @@ export default function Palette( {
 	onToggle,
 	onDropNode,
 } ) {
-	// Drag ghost following the cursor ({ shellName, acceptsFill, hasTarget, x, y }
-	// | null). dragRef holds the in-flight shellName so the pointer handlers stay
-	// stable across renders.
+	// Drag ghost following the cursor (or null); dragRef keeps handlers stable.
 	const [ ghost, setGhost ] = useState( null );
 	const dragRef = useRef( null );
 
-	// accepts_fill → left/in connector (the glyph's ::before); has_target →
-	// right/out connector (::after). Both default true (matches the PHP schema),
-	// so the glyph only carries a modifier when a connector is ABSENT — CSS hides
-	// that pseudo-element. Shared by the palette item and the drag ghost.
+	// accepts_fill/has_target default true; glyph marks only an ABSENT port.
 	const acceptsFillOf = ( c ) => c.accepts_fill !== false;
 	const hasTargetOf = ( c ) => c.has_target !== false;
 	const glyphClass = ( acceptsFill, hasTarget ) =>
@@ -88,8 +80,7 @@ export default function Palette( {
 		setGhost( null );
 	};
 
-	// Project the cursor onto the canvas SVG beneath it (the ghost is
-	// pointer-events:none so elementFromPoint sees the SVG, not the ghost).
+	// Project cursor onto the canvas SVG (ghost is pointer-events:none).
 	const dropAt = ( shellName, clientX, clientY ) => {
 		const target = document.elementFromPoint( clientX, clientY );
 		const svg =
@@ -109,8 +100,7 @@ export default function Palette( {
 		const local = pt.matrixTransform( ctm.inverse() );
 		onDropNode( { shellName, x: local.x, y: local.y } );
 	};
-	// Collapsed view: a slim vertical rail with just the expand button,
-	// so the user can always bring the palette back without reloading.
+	// Collapsed: a slim rail with just the expand button (no reload needed).
 	if ( collapsed ) {
 		return (
 			<aside className="topology-palette topology-palette--collapsed">
@@ -197,10 +187,7 @@ export default function Palette( {
 				classes registered
 			</div>
 			{ ghost && (
-				// The ghost is the actual node card as it looks once dropped:
-				// header + class name + LED + the schema-gated in/out ports
-				// (mirrors the SchematicCanvas node render). A standalone SVG;
-				// pointer-events:none so the pointer-up hit-test sees the canvas.
+				// Ghost = the dropped node card; pointer-events:none for hit-testing.
 				<svg
 					className="topology-palette__drag-ghost"
 					style={ { left: ghost.x, top: ghost.y } }

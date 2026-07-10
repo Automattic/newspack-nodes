@@ -108,10 +108,7 @@ function TransportButton( { label, glyph, disabled, onClick } ) {
 	);
 }
 
-// Where the cursor sits, in words. `selectedFrameId` is atFrame (the keyframe the
-// cursor is at-or-just-past); `nextId` is the one after it (null when atFrame is the
-// newest). onFrame ⇒ sitting on it; off-frame ⇒ between atFrame and nextId (paused)
-// or reading ahead of it (live).
+// Cursor position, in words. atFrame/nextId bracket the retained window.
 function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
 	if ( onFrame ) {
 		return sprintf(
@@ -120,8 +117,7 @@ function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
 			selectedFrameId
 		);
 	}
-	// Off the frame: paused gives the scrub a "between X and Y" reading; live reads
-	// "after X" (the cursor is reading ahead of its last checkpoint).
+	// Off-frame: paused reads "between X and Y", live reads "after X".
 	if ( paused && null !== nextId ) {
 		return sprintf(
 			// translators: %1$d and %2$d are adjacent offsetlog frame ids.
@@ -145,24 +141,18 @@ export default function TimeTravelPanel( {
 	onFrameSignal = false,
 	onTransport,
 } ) {
-	// Optimistic override: null defers to the metadata signal; a concrete bool
-	// gives a transport click instant feedback. Cleared whenever the signal
-	// changes, so the metadata reconciles the panel back to the source of truth.
+	// Optimistic override: null defers to metadata; a bool gives instant feedback.
 	const [ optimistic, setOptimistic ] = useState( null );
 	useEffect( () => setOptimistic( null ), [ pausedSignal ] );
 	const paused = null !== optimistic ? optimistic : !! pausedSignal;
-	// Position is SEEDED from the consumer-reported signals (so a fresh mount
-	// reflects where the consumer actually sits, including a quiet live "on frame N"),
-	// then driven optimistically by transport clicks for instant feedback. Each signal
-	// change from the next poll RECONCILES the state back to the consumer's truth —
-	// mirroring the `paused` optimistic/reconcile pattern above.
+	// Seed from consumer signals; clicks drive optimistically, polls reconcile.
 	const [ atFrame, setAtFrame ] = useState( atFrameSignal );
 	const [ onFrame, setOnFrame ] = useState( onFrameSignal );
 	useEffect( () => setAtFrame( atFrameSignal ), [ atFrameSignal ] );
 	useEffect( () => setOnFrame( onFrameSignal ), [ onFrameSignal ] );
 
 	const newestId = frames.length ? frames[ frames.length - 1 ].id : null;
-	// An atFrame that has aged out of the retained window clamps to the newest frame.
+	// An atFrame aged out of the retained window clamps to the newest frame.
 	const selectedFrameId = frames.some( ( f ) => f.id === atFrame )
 		? atFrame
 		: newestId;
@@ -179,10 +169,9 @@ export default function TimeTravelPanel( {
 	const canPause = ! paused;
 	const canPlay = paused;
 	const canStep = paused;
-	// Rewind: needs an earlier landing point. On-frame on the oldest keyframe has
-	// none; off-frame can always snap back onto atFrame.
+	// Rewind needs an earlier landing point; oldest on-frame has none.
 	const canRewind = paused && frames.length > 0 && ! ( onFrame && onOldest );
-	// Fast-forward walks the retained keyframes ahead of atFrame — never on the newest.
+	// Fast-forward walks retained keyframes ahead of atFrame — never the newest.
 	const canForward = paused && ! onNewest;
 
 	const seekTo = ( id ) => {
@@ -235,7 +224,7 @@ export default function TimeTravelPanel( {
 		if ( ! canPlay ) {
 			return;
 		}
-		setOptimistic( false ); // resume following the head; the next signal reconciles
+		setOptimistic( false ); // resume following head; next signal reconciles
 		if ( onTransport ) {
 			onTransport( 'PLAY', '' );
 		}

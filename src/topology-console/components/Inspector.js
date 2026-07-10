@@ -13,20 +13,12 @@ import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
 
-// A Consumer (or its Tail subclass) is the node whose dump_metadata carries a
-// `frames` array AND a `cursor` (its dump_metadata() read surface) — the
-// data the inspector already holds, no request verb and no class-name list.
-// Reserved/plumbing nodes without frames+cursor don't qualify.
+// A Consumer/Tail node: its dump_metadata carries both `frames` and a `cursor`.
 function isConsumerNode( node ) {
 	return Array.isArray( node?.frames ) && !! node?.cursor;
 }
 
-// The Inspector hides config-edit affordances (Routing/Constructor/Verbs/
-// rename/Delete/class-catalog verb buttons) for the worker-auto-mounted
-// `_repl` anchor only. Edit-mode draft nodes carry `reserved: true` (set by
-// `withReplAnchor`); live-mode `parseMetadata` doesn't tag, so the id check
-// catches `_repl` there. Every OTHER node — including other spine names
-// (_metadata, _http, _output, …) — stays freely inspectable.
+// Hide config-edit affordances for the `_repl` anchor only (id + reserved).
 function isReserved( node ) {
 	return !! ( node && ( node.reserved || '_repl' === node.id ) );
 }
@@ -187,10 +179,7 @@ function absorbTrailingArgs( args, count ) {
 // Inspector sparkline (wider/taller variant of the node-card one).
 const INSP_SPARK_HISTORY_MAX = 60;
 
-// Honest "last ~Ns" label for the Activity sparkline. It holds
-// INSP_SPARK_HISTORY_MAX samples, one per metadata poll, and the poll cadence
-// scales with graph size (computePollIntervalMs) — so the real trailing window
-// is sample-count * interval, not a fixed minute. Rolls to minutes past 120s.
+// Honest "last ~Ns" label: sample-count × poll interval, not a fixed minute.
 export function formatActivityWindow( nodeCount ) {
 	const windowSec =
 		( INSP_SPARK_HISTORY_MAX * computePollIntervalMs( nodeCount ) ) / 1000;
@@ -286,18 +275,10 @@ function formatBytes( n ) {
 	return `${ ( n / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G`;
 }
 
-// Process-stats header for the no-node inspector (roadmap [95]). Everything is
-// scoped to the process being viewed (whatever `_cwd` points at): messages-in/out
-// + bytes roll up from the live dump_metadata graph (processStats); the In/Out
-// rate `rateSeries` is accumulated by the always-mounted GraphView (so it
-// survives this header un/remounting on node-select or panel-collapse) and the
-// error/warning/debug counts come from a `dmesg` of that process (the `_dmesg`
-// poll node classifies the stderr tail).
+// Process-stats header for the no-node inspector, scoped to the `_cwd` process.
 const lastSample = ( arr ) => ( arr.length ? arr[ arr.length - 1 ] : 0 );
 
-// The four Activity rows share their labels + formatters across both stat
-// sources (graph roll-up and browser IoTelemetry); only the per-second series
-// differ. Build them once from the four rate series so the labels can't drift.
+// Build the four Activity rows once so labels can't drift across stat sources.
 function buildActivity( msgIn, msgOut, byteRead, byteWrite ) {
 	const row = ( label, series, format ) => ( {
 		label,
@@ -321,9 +302,7 @@ function buildActivity( msgIn, msgOut, byteRead, byteWrite ) {
 	];
 }
 
-// Presentational process-stats body: an Activity section of peak-labeled
-// sparkline rows + a cumulative Throughput section + the dmesg level strip.
-// Both the graph-rollup and the browser-IoTelemetry sources feed this shape.
+// Presentational process-stats body: Activity + Throughput + dmesg strip.
 function ProcessStatsView( { windowMeta, activity, totals, levels } ) {
 	return (
 		<div
@@ -396,8 +375,7 @@ function ProcessStatsView( { windowMeta, activity, totals, levels } ) {
 	);
 }
 
-// Remote/worker scope: roll the live dump_metadata graph up via processStats +
-// the GraphView-accumulated In/Out rate series, dmesg from the `_dmesg` poll.
+// Remote/worker scope: roll up dump_metadata via processStats + rate series.
 function GraphProcessStats( { nodes, rateSeries } ) {
 	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 		processStats( nodes );
@@ -432,7 +410,7 @@ function GraphProcessStats( { nodes, rateSeries } ) {
 	);
 }
 
-// Human window label for the IoTelemetry rate ring's accumulated span (seconds).
+// Human window label for the IoTelemetry rate ring's span (seconds).
 function formatTelemetryWindow( span ) {
 	if ( span >= 60 ) {
 		return sprintf(
@@ -451,10 +429,7 @@ function formatTelemetryWindow( span ) {
 	return __( 'live', 'newspack-nodes' );
 }
 
-// Browser/local scope: the wire-accurate IoTelemetry counters that also back
-// the Overview tab — counted once at the SSE/HTTP boundary, so it sidesteps the
-// graph-rollup double-count. Totals + the 5s rate ring (cols
-// [t, msgIn, msgOut, byteIn, byteOut]); a sample-tick subscription re-renders.
+// Browser scope: wire-accurate IoTelemetry counters (no graph double-count).
 function BrowserProcessStats() {
 	const [ , force ] = useState( 0 );
 	useEffect(
@@ -492,8 +467,7 @@ function BrowserProcessStats() {
 	);
 }
 
-// Browser graphs read their own wire-accurate IoTelemetry (matches the Overview
-// tab); remote/worker graphs roll up that process's dump_metadata via processStats.
+// Browser graphs read own IoTelemetry; remote/worker roll up dump_metadata.
 function ProcessStatsHeader( { nodes, rateSeries, local } ) {
 	return local ? (
 		<BrowserProcessStats />
@@ -531,7 +505,7 @@ function formatLastSeen( ts, live ) {
 	);
 }
 
-// Edit-mode form: schema-driven Constructor + Verbs sections for the draft node.
+// Edit-mode form: schema-driven Constructor + Verbs for the draft node.
 
 function NameField( { node, takenNames, onRenameNode } ) {
 	const [ value, setValue ] = useState( node.id );
@@ -637,8 +611,7 @@ function VerbRow( {
 } ) {
 	const checked = !! invocation;
 	const id = `topology-verb-${ spec.name }`;
-	// A `multiple` verb has one row per invocation (always present, removable),
-	// not a single checkbox — the operator wires N independent mappings.
+	// A `multiple` verb: one row per invocation (removable), not a checkbox.
 	const showArgs =
 		( multiple || checked ) &&
 		invocation &&
@@ -696,17 +669,13 @@ function VerbRow( {
 	);
 }
 
-// Live metadata wins, else the class catalog default, else true — mirrors the
-// SchematicCanvas OUT-port gating so a sink-only node shows no routing UI.
+// Live target wins, else catalog default, else true (mirrors OUT-port gating).
 function nodeHasTarget( node, catalog ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class );
 	return node.has_target ?? schema?.has_target ?? true;
 }
 
-// A Tee-family fan-out node, per the catalog `is_tee` flag (both edit + view
-// modes carry the class catalog). Falls back to the runtime target shape when
-// the catalog lacks the class — in edit mode `target` is a string, so the
-// catalog flag is the only reliable signal there.
+// Tee-family fan-out per catalog is_tee; falls back to runtime target shape.
 function isTeeNode( node, catalog ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class );
 	return schema?.is_tee ?? Array.isArray( node.target );
@@ -721,9 +690,7 @@ function TargetsField( {
 	onConnect,
 	onRemoveEdge,
 } ) {
-	// A Tee-family fan-out node gets the multi-target editor; everything else a
-	// single target. Keys off the catalog is_tee flag (both modes carry it), so
-	// any Tee subclass gets the multi-target editor regardless of target shape.
+	// Tee-family fan-out (catalog is_tee) gets the multi-target editor.
 	const isTee = isTeeNode( node, catalog );
 	const datalistId = `topology-targets-${ node.id }`;
 	if ( isTee ) {
@@ -920,15 +887,11 @@ function EditForm( {
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
-	// Hidden verbs (e.g. Tail's time-travel set_snapshot_node/seek_frame/…) are
-	// schema plumbing, not operator-facing config — keep them out of the editor,
-	// matching the runtime action-button filter below.
+	// Drop hidden verbs (schema plumbing) from the editor, matching the buttons.
 	const commandSpecs = ( schema?.commands || [] ).filter(
 		( spec ) => ! spec.hidden
 	);
-	// Collapse each free-text trailing arg's tail into its declared slot once,
-	// the same absorb-last rule the read-only view applies via positionalArgs —
-	// so display, edit-writeback, and serialize all read one normalized form.
+	// Absorb each free-text trailing arg into its declared slot once (normalized).
 	const ctorArgs = absorbTrailingArgs(
 		node.ctorArgs || [],
 		argumentSpecs.length
@@ -1034,9 +997,7 @@ function EditForm( {
 						</div>
 					) }
 					{ commandSpecs.map( ( cspec ) => {
-						// A `multiple` verb wires N independent invocations (e.g.
-						// settings-sync's 13 add_setting mappings): render a row per
-						// invocation + an Add button, not one checkbox.
+						// A `multiple` verb: a row per invocation + Add, not a checkbox.
 						if ( cspec.multiple ) {
 							const invIdxs = verbInvocations
 								.map( ( inv, i ) =>
@@ -1163,8 +1124,7 @@ function EditForm( {
 	);
 }
 
-// Modal collecting a verb's args via the same CtorField widgets edit mode uses,
-// then firing onAction('invoke', …) with positional + by-name argument forms.
+// Modal collecting a verb's args (CtorField widgets), then fires 'invoke'.
 function VerbArgModal( {
 	nodeId,
 	verb,
@@ -1245,8 +1205,7 @@ function VerbArgModal( {
 	);
 }
 
-// One schema verb button. Argless verbs fire immediately; verbs with args open
-// the VerbArgModal. `kind` is 'command' (TM_COMMAND) or 'request' (TM_REQUEST).
+// One schema verb button; argless fire now, args open VerbArgModal.
 function VerbButton( {
 	nodeId,
 	spec,
@@ -1283,7 +1242,7 @@ function VerbButton( {
 				title={
 					spec.description ||
 					sprintf(
-						// translators: %s: verb name (prefixed with TM_REQUEST for request verbs).
+						// translators: %s: verb name (TM_REQUEST-prefixed for request verbs).
 						__( 'Send %s', 'newspack-nodes' ),
 						verbLabel
 					)
@@ -1308,12 +1267,7 @@ function VerbButton( {
 	);
 }
 
-// No-node inspector quick-commands: server-wide verbs that don't operate on a
-// selected node (roadmap [48]). Each dispatches its raw command via onAction's
-// generic `command` action; args-taking verbs (log/ping) show their usage in the
-// transcript, same as typing them bare in the REPL.
-// Value-taking selected-node verbs (roadmap [48]): each button opens ONE shared
-// prompt modal keyed by verb; onConfirm dispatches onAction(verb, node.id, value).
+// Value-taking node verbs: each opens ONE shared prompt modal keyed by verb.
 const PROMPT_VERBS = {
 	cmd: { label: 'Command', noun: 'phrase' },
 	send: { label: 'Send', noun: 'bytes' },
@@ -1333,9 +1287,7 @@ const NO_NODE_COMMANDS = [
 	[ 'ping', 'ping' ],
 ];
 
-// Register modal (roadmap [48]-C): wire a listener node to one of the source
-// node's valid registration events. Confirm dispatches `register <source>
-// <target> <event>` via onAction('register', source, `${target} ${event}`).
+// Register modal: wire a listener to a source node's registration event.
 function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 	const [ event, setEvent ] = useState( events[ 0 ] || '' );
 	const [ target, setTarget ] = useState( nodeNames[ 0 ] || '' );
@@ -1403,8 +1355,7 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 	);
 }
 
-// Message-composer types (roadmap [46]): each maps to a CLI verb so Compose has
-// full CLI equivalence. [ label, onAction-action, takesValue ].
+// Message-composer types: each maps to a CLI verb. [label, action, takesValue].
 const COMPOSE_TYPES = [
 	[ 'TM_COMMAND (cmd)', 'cmd', true ],
 	[ 'TM_BYTESTREAM (send_node)', 'send', true ],
@@ -1414,15 +1365,7 @@ const COMPOSE_TYPES = [
 	[ 'TM_EOF (send_eof)', 'send_eof', false ],
 ];
 
-// Compose modal (roadmap [46]): a message-composer playground — pick a target +
-// message TYPE + value, dispatched via the matching CLI verb (full equivalence
-// with the REPL). `nodeNames` is the "To" list — callers pass `composeTargets`
-// (the graph's full addressable surface: `_command_interpreter` + every node +
-// its `:config` sidecar) when available, falling back to the connect-edge
-// node-id list otherwise. The two reply-flag checkboxes OR TM_RESPONSE /
-// TM_ERROR onto the dispatched message's TYPE further downstream, at the
-// shell.parse() chokepoint — this modal only carries the flags out. Confirm
-// calls onConfirm(action, to, value, flags).
+// Compose modal: pick target+TYPE+value → CLI verb; flags applied downstream.
 function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 	const [ to, setTo ] = useState( nodeNames[ 0 ] || '' );
 	const [ typeIdx, setTypeIdx ] = useState( 0 );
@@ -1565,9 +1508,7 @@ export default function Inspector( {
 	onConnect,
 	composeTargets,
 } ) {
-	// Pending `send_node` payload prompt (replaces window.prompt).
-	// Which value-taking verb's prompt modal is open (send/request/tell/send_struct), or
-	// null. One shared PromptModal keyed by PROMPT_VERBS.
+	// Which value-taking verb's prompt modal is open, or null (one shared modal).
 	const [ promptVerb, setPromptVerb ] = useState( null );
 	// Whether the "Register a listener" modal is open.
 	const [ registerOpen, setRegisterOpen ] = useState( false );
@@ -1575,9 +1516,7 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 
 	if ( ! selectedId ) {
-		// Edit mode has no live interpreter — the `_command_interpreter` header +
-		// server-command palette below are meaningless for an offline draft. Show a
-		// hint until a node is selected (selected nodes render the edit form).
+		// Edit mode has no live interpreter; show a hint until a node is selected.
 		if ( editMode ) {
 			return (
 				<aside className="topology-inspector">
@@ -1698,43 +1637,28 @@ export default function Inspector( {
 	const nodeNames = parsed.nodes
 		.map( ( n ) => n.id )
 		.filter( ( id ) => id !== selectedId );
-	// The selected node's valid registration events (from the class catalog) —
-	// drives the Register button + modal (roadmap [48]-C).
+	// The node's valid registration events (catalog) — drives the Register modal.
 	const catalogEntry = catalog.find( ( c ) => c.shell_name === node.class );
 	const regEvents = catalogEntry?.registrations ?? [];
-	// The live editor uses the node's FULL uncollapsed target list — NOT
-	// parsed.edges, which are headOf-collapsed (so `_sse/workers` → `_sse`, and a
-	// disconnect would miss) and include registration edges that must get no ×.
+	// Use the node's FULL uncollapsed targets (parsed.edges are head-collapsed).
 	const editorTargets = ( node.targets || [] ).map( ( to ) => ( {
 		from: selectedId,
 		to,
 	} ) );
 	const type = node.class;
-	// The tail/tap button keys off the catalog is_tee flag, so any Tee subclass
-	// gets it regardless of the runtime target shape.
+	// The tail/tap button keys off the catalog is_tee flag (any Tee subclass).
 	const isTee = isTeeNode( node, catalog );
 	// A consumer carries its read surface (frames + cursor) in dump_metadata.
 	const isConsumer = isConsumerNode( node );
-	// Absent streamStatus = no SSE stream to report (the debug overlay reads
-	// the page's OWN Core synchronously, so the graph is literally always live).
+	// No streamStatus = no SSE stream (overlay reads its own Core, always live).
 	const live = ! streamStatus || streamStatus === 'open';
 
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
-	// A tail (`connect_node <node>` with no target) defaults the Tee target to
-	// the issuing command's FROM — THIS session's reply path. The metadata
-	// producer reports that exact reply path as `parsed.pwd` (the reverse_cwd), so the
-	// toggle is a precise match against the node's FULL targets — no reconstructing
-	// the runtime-renamed path, and it works for the attached worker AND the in-browser
-	// JS tee (where pwd is the bare `_output`). parseMetadata collapses every edge
-	// to its head, flattening all sessions' reply paths to one shared `_repl`, so the
-	// full target list is the only place the per-session reply path survives.
+	// A tail defaults to the session's reply FROM; match the node's FULL targets.
 	const tailOn =
 		!! parsed.pwd && ( node.targets || [] ).includes( parsed.pwd );
-	// Read-only Constructor view: the class's declared positional args paired
-	// with the values the node was GIVEN. An omitted optional arg falls back to
-	// the schema default (shown dimmed). To change them, delete + recreate the
-	// node — there is no live re-arg.
+	// Read-only Constructor: declared args + given values (no live re-arg).
 	const argSpecs =
 		catalog.find( ( c ) => c.shell_name === node.class )?.arguments || [];
 	const argValues = positionalArgs( node.arguments, argSpecs.length );
@@ -1757,10 +1681,7 @@ export default function Inspector( {
 			{ nodeHasTarget( node, catalog ) && (
 				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
 					{ onConnect && onRemoveEdge && ! isReserved( node ) ? (
-						// Live targets editor — the same UI as edit mode, but its
-						// add/remove dispatch runtime connect_node/disconnect_node
-						// (no .tsl write). Read-only fallback for reserved nodes /
-						// when no handlers are wired.
+						// Live targets editor: add/remove dispatch connect_node, no .tsl.
 						<TargetsField
 							node={ node }
 							nodeNames={ nodeNames }
@@ -1948,8 +1869,7 @@ export default function Inspector( {
 								verb,
 								kind: 'command',
 								positional,
-								// SEEK_FRAME's schema arg is `segment`; bare
-								// transport verbs (PAUSE/PLAY/STEP) take none.
+								// SEEK_FRAME's arg is `segment`; PAUSE/PLAY/STEP take none.
 								byName:
 									'SEEK_FRAME' === verb
 										? { segment: positional }
@@ -2130,9 +2050,7 @@ export default function Inspector( {
 						).filter( ( spec ) => ! spec.hidden );
 						const requests =
 							schema && schema.requests ? schema.requests : [];
-						// node_name verb args pick from the live graph
-						// (parsed = the dump_metadata snapshot), minus the
-						// inspected node itself.
+						// node_name args pick from the live graph, minus the inspected node.
 						const liveNodeNames = ( parsed?.nodes || [] )
 							.map( ( n ) => n.name || n.id )
 							.filter( ( n ) => n && n !== node.id );

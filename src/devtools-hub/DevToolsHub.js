@@ -20,24 +20,18 @@ import Header from '../topology-console/components/Header';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './devtools-hub.scss';
 
-// The overlay rides EVERY hub tab — its Overview tab shows the browser's own I/O
-// while the Console shows a worker. On the Console tab it runs Overview-only
-// (`buildRepl={false}`): the Console already IS a live graph+REPL, and a second
-// overlay REPL would collide on the shared `_output` infra. The Inspector body
-// builds no infra there and points back at the Console (see InspectorTab).
+// The overlay rides every hub tab, Overview-only on the Console tab
+// (buildRepl=false) since its own REPL would collide on `_output`.
 const CONSOLE_TAB_ID = 'topology-console';
 
 export default function DevToolsHub() {
 	const menuWidth = useAdminMenuWidth();
 	const [ activeTabId, setActiveTabId ] = useState( null );
-	// The active tab portals its own controls into this slot on the right of the
-	// shared header (setState-as-callback-ref re-renders once the node mounts).
+	// The active tab portals its own controls into this shared-header slot.
 	const [ controlsSlot, setControlsSlot ] = useState( null );
 
 	return (
-		// display:contents token-provider so the hub + its chrome resolve the live
-		// skin's --paper/--ink (from the global `<html>.theme-<slug>` scope); no
-		// box, so the fixed layout is intact.
+		// display:contents token host so the hub chrome resolves the live skin.
 		<div
 			className="topology-app newspack-nodes-theme"
 			style={ { display: 'contents' } }
@@ -51,13 +45,8 @@ export default function DevToolsHub() {
 					right: '0',
 					bottom: '0',
 					zIndex: 99,
-					// Theme tokens, independent of the WP admin color scheme — the
-					// hub is a themed product surface; the tab bar's
-					// `--nodes-devtools-fg` follows the ink so labels read on it.
-					// `--paper-3` (the OPAQUE base) not `--paper`: the parent
-					// `.topology-app` is `display:contents` (no box), so this is the
-					// only backdrop — under a translucent skin (aurora's `--paper` is
-					// rgba alpha) `--paper` would let the wp-admin white bleed through.
+					// `--paper-3` (opaque base) not `--paper`: the display:contents
+					// parent has no box, so a translucent skin would bleed wp-admin white.
 					background: 'var(--paper-3)',
 					'--nodes-devtools-fg': 'var(--ink)',
 					transition: 'left 0.1s ease-in-out',
@@ -69,8 +58,7 @@ export default function DevToolsHub() {
 					overflow: 'hidden',
 				} }
 			>
-				{ /* The ONE shared header — brand on the left, an empty controls
-				     slot on the right the active tab portals its controls into. */ }
+				{ /* The ONE shared header — brand left, controls slot right. */ }
 				<Header controlsSlotRef={ setControlsSlot } />
 				<DevtoolsTabHost
 					host="hub"

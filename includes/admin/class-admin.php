@@ -56,18 +56,13 @@ class Admin {
 		\add_action( 'admin_menu', [ $this, 'register_event_dashboard_pages' ], 11 );
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
-		// Register the canonical Newspack token stylesheet early (priority 1) so it
-		// exists before any dashboard enqueues with it as a dependency — including
-		// the sibling plugins' (event-logger-nodes, pyrobase), which run on the same
-		// admin pages while nodes is active (a hard `Requires Plugins` dep).
+		// Priority 1: register the token sheet before any dashboard deps on it.
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
 
-		// The hub is the top-level "Nodes" page; the console + Topology Manager
-		// load on it as DevTools tab bundles (the console carries the partition
-		// snapshot its dropdown reads).
+		// Console + Topology Manager load on the top-level hub as tab bundles.
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_event_dashboards_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_vault_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_aggregator_tab_bundle' ] );
@@ -132,8 +127,7 @@ class Admin {
 			return null;
 		}
 
-		// Deps + version come from the wp-scripts manifest when present, so a
-		// cache-bust rides the content hash; otherwise hardcoded deps + filemtime.
+		// Prefer wp-scripts manifest deps+hash; else hardcoded deps + filemtime.
 		$fallback   = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
 		$asset_path = "{$dir}/index.asset.php";
 		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
@@ -150,9 +144,7 @@ class Admin {
 		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
 
 		if ( \file_exists( "{$dir}/index.css" ) ) {
-			// Default every dashboard onto the Newspack token sheet so its
-			// var(--np-*) references resolve (the `.newspack-nodes-theme` root
-			// class carries the tokens; this loads their definitions).
+			// Depend on the token sheet so var(--np-*) references resolve.
 			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-theme' ];
 			$style_version = self::css_cache_version( "{$dir}/index.css", $version );
 			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
@@ -507,9 +499,7 @@ class Admin {
 		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : ( \is_scalar( $segment_size ) ? (int) $segment_size : 0 );
 		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 4 ) : ( \is_scalar( $num_segments ) ? (int) $num_segments : 0 );
 
-		// `Log_Discovery::on_disk()` returns the concrete per-partition dir
-		// names (e.g. `firehose.p0`), so the partition dimension is already in
-		// this count — don't multiply by num_partitions again.
+		// on_disk() is already per-partition; don't multiply by num_partitions.
 		$num_log_dirs = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
 		$total_bytes  = $segment_size * $num_segments * $num_log_dirs;
 		$total_mb     = \round( $total_bytes / ( 1024 * 1024 ) );
@@ -679,8 +669,7 @@ class Admin {
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
 		\sort( $active_topologies );
 
-		// Config default partition count — the client's fallback for a topology
-		// whose live `topologies.list` entry omits num_partitions.
+		// Client fallback when a topology's list entry omits num_partitions.
 		$config_np  = Config::load_config()['num_partitions'] ?? 1;
 		$default_np = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
 
@@ -737,9 +726,7 @@ class Admin {
 		$schema = Settings_Schema::get();
 		$schema->register_options( self::OPTIONS_GROUP );
 
-		// Shared per-field reset / delete-on-blank gate (Config_System\Reset_Gate):
-		// a reset toggle (any field) OR a blanked text-like field deletes the row
-		// so the file default resurfaces.
+		// Reset toggle or blanked field deletes the row so the file default wins.
 		Reset_Gate::register(
 			self::RESET_MARK_FIELD,
 			$schema->setting_option_names(),
@@ -874,12 +861,12 @@ class Admin {
 			return;
 		}
 
-		// Reset cached config so this process sees the new value later in the same request.
+		// Reset cached config so this request sees the new value.
 		Config::reset();
 
 		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );
 
-		// Wrap the whole resolve+touch: the planner re-enters Config::load_config() via Bootstrap.
+		// Guarded: the planner re-enters Config::load_config() via Bootstrap.
 		try {
 			$locks_dir = Config::get_locks_directory();
 			Restart_Planner::request_restarts( Settings_Schema::get()->restart_for( $short ), $locks_dir );

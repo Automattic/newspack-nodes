@@ -1,8 +1,6 @@
 import { useEffect, useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-// Reuse the hub's exact d3 rate panel rather than reimplement it. Tradeoff: this
-// pulls d3 (via the shared useTimeChart) into the devtools-hub bundle that hosts
-// the overlay — accepted, since reimplementing the area chart is the worse cost.
+// Reuse the hub's d3 rate panel (pulls d3 in) — cheaper than reimplementing it.
 import { TopicsChart } from '../../event-dashboards/TopicsChart';
 import {
 	formatBytes,
@@ -13,16 +11,11 @@ import {
 } from '../../event-dashboards/formatters';
 import { useOverviewStats } from '../useOverviewStats';
 import { IoTelemetry } from '../../runtime/io-telemetry';
-// The Overview tab reuses the hub's card + overview LAYOUT classes
-// (`.nodes-card(s)`, `.nodes-overview(__panels)`), whose styles live in the
-// event-dashboards bundle. The hub page loads that bundle; pages that merely
-// EMBED the overlay don't — so import the styles here to ship them in whatever
-// bundle carries this tab, keeping the overlay self-contained anywhere.
+// Ship the hub's card/overview layout styles so the overlay is self-contained.
 import '../../event-dashboards/styles/summary-cards.scss';
 import '../../event-dashboards/styles/overview.scss';
 
-// One metric card — the same `.nodes-card` markup the hub SummaryCards uses, so
-// it inherits the existing card styling (no overlay-specific stylesheet).
+// One metric card — reuses the hub SummaryCards `.nodes-card` markup + styling.
 function Card( { id, label, value } ) {
 	return (
 		<div
@@ -35,9 +28,7 @@ function Card( { id, label, value } ) {
 	);
 }
 
-// Compact in/out value for a single card: ↓ inbound  ↑ outbound. Each number is
-// its own right-aligned, min-width cell so the arrows hold still as the digit
-// count changes instead of bouncing left and right.
+// Compact in/out value: ↓ inbound ↑ outbound; fixed-width cells so arrows hold.
 function inOut( inbound, outbound ) {
 	return (
 		<>
@@ -75,9 +66,7 @@ export default function OverviewTab( { publishHeader } ) {
 	// The Overview owns no header controls — clear any the Console left behind.
 	useEffect( () => publishHeader?.( null ), [ publishHeader ] );
 
-	// Uptimes read at render so they tick with the cards' existing ~20Hz refresh —
-	// no new timer. Client: page-load (performance.timeOrigin) to now. SSE: the
-	// live stream's connect time (SseInNode marks it; "-" while disconnected).
+	// Uptimes read at render so they tick with the cards' 20Hz refresh (no timer).
 	const nowSec = Math.floor( Date.now() / 1000 );
 	const clientUptime = formatAge(
 		Math.floor( performance.timeOrigin / 1000 ),
@@ -85,9 +74,7 @@ export default function OverviewTab( { publishHeader } ) {
 	);
 	const sseUptime = formatAge( totals.sseConnectedAt, nowSec );
 
-	// Memoize the classified-message list: the cards refresh at 20Hz, but the
-	// (up to 200) <li> only need to reconcile when the messages actually change.
-	// Key on length + the newest timestamp, which both move when a line is added.
+	// Memoize the <li> list: reconcile only when messages change, not every tick.
 	const messages = totals.messages;
 	const messagesKey = `${ messages.length }:${
 		messages[ messages.length - 1 ]?.ts ?? 0
@@ -121,8 +108,7 @@ export default function OverviewTab( { publishHeader } ) {
 	}, [ messagesKey ] );
 
 	return (
-		// Fullbleed scrolling body on the hub's Newspack surface. The flex/overflow
-		// is layout plumbing only — every visual rule comes from the reused classes.
+		// Fullbleed scrolling body; flex/overflow is plumbing, visuals from classes.
 		<div
 			data-testid="overview-tab"
 			className="nodes-overview"

@@ -74,7 +74,7 @@ class CLI_Command {
 	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node}
 	 */
 	private function prepare_repl( array $args ): array {
-		// Refuse root: a root cli would create the IPC dirs root-owned, so non-root clis lose writes.
+		// Refuse root: a root cli makes IPC dirs root-owned, locking out non-root.
 		$uid = ( self::$uid_provider ?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1 )();
 		if ( 0 === $uid ) {
 			\WP_CLI::error( 'wp nodes cli must run as the same user as the workers, not root.' );
@@ -132,8 +132,7 @@ class CLI_Command {
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
-		// `_stdout`: the terminal writer. Every node sinks into the interpreter (Rule #2);
-		// the Dumper reaches it by target/TO routing, not a direct sink.
+		// `_stdout`: terminal writer; Dumper reaches it via target/TO (Rule #2).
 		$stdout = new TTY_Out_Node();
 		$stdout->name( Node_Names::STDOUT );
 		$stdout->sink( $interpreter );
@@ -149,12 +148,11 @@ class CLI_Command {
 		$console_tap->name( Node_Names::CONSOLE_TAP );
 		$console_tap->sink( $interpreter );
 
-		// Shell stays anonymous (Shell::name would throw); `ls` filters by sink anyway.
+		// Shell stays anonymous (Shell::name throws); `ls` filters by sink anyway.
 		$shell = new Shell_Node();
 		$shell->sink( $console_tap );
 
-		// Defined unconditionally (empty in bare mode) so it's in scope for both
-		// attached blocks below; the blocks themselves are guarded.
+		// Empty in bare mode; defined here so it's in scope for the guarded blocks.
 		$worker_id = ( $attached && null !== $ipc ) ? "{$ipc['type']}.p{$ipc['partition']}" : '';
 		if ( $attached && null !== $ipc ) {
 			$shell->prompt = "/{$worker_id}> ";
@@ -167,8 +165,7 @@ class CLI_Command {
 		$stdout->set_readline_mode( $is_tty && \function_exists( 'readline_callback_handler_install' ) );
 
 		if ( $attached && null !== $ipc ) {
-			// IPC topics are single-partition; skip allow_large_writes so sessions append concurrently.
-			// 1 MiB segment_size + 2 segments — matches the worker/server IPC mounts.
+			// Single-partition IPC; skip allow_large_writes for concurrent appends.
 			$ipc_out = new Partition_Node();
 			$ipc_out->arguments( "{$ipc['input']} " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
 			$ipc_out->name( $worker_id );
@@ -185,7 +182,7 @@ class CLI_Command {
 			$ipc_in->sink( $reply_in );
 		}
 
-		// TO filter matches `_output/$pid` and `$pid`; empty TO always renders, other sessions drop.
+		// TO filter: `_output/$pid` or `$pid`; empty TO renders, other sessions drop.
 		$dumper->set_to_filter( $pid );
 
 		return [ $shell, $dumper, $stdout ];
@@ -202,24 +199,19 @@ class CLI_Command {
 		// Skip prompts when stdin is piped — they break `... | grep` consumers.
 		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, null, $is_tty );
 
-		// The reader sinks into the Shell: its drained lines/EOF fill the sink, and
-		// the Shell parses + forwards them on into the interpreter/router. The sink
-		// also satisfies Timer_Node::fire_cb()'s no-sink guard (a sink-less reader
-		// never reaches fire(), so its stdin drain would never run).
+		// Sink needed: Timer_Node::fire_cb() skips fire()/stdin-drain when sink-less.
 		$reader->sink( $shell );
 
-		// Completion replies (KEY='completion') are intercepted at the renderer and fed
-		// to the reader's candidate cache instead of being printed. Readline-only.
+		// Completion replies (KEY='completion') feed the cache, not printed.
 		if ( $has_readline ) {
 			$dumper->set_completion_sink(
 				fn ( array $message ): bool => $reader->ingest_completion_reply( $message )
 			);
-			// Seed the candidate cache now that the intercept is wired, so the first
-			// Tab has candidates and the seed replies are consumed, not printed.
+			// Seed cache now the intercept is wired, so the first Tab has candidates.
 			$reader->send_completion_queries();
 		}
 
-		// On the worker's TM_EOF echo, flip the exit flag so scripted sessions don't orphan replies.
+		// On the worker's TM_EOF echo, flip exit so scripts don't orphan replies.
 		$dumper->on_eof( static function () use ( $reader ): void {
 			$reader->exit = true;
 		} );
@@ -231,7 +223,7 @@ class CLI_Command {
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
 		}
-		// Courtesy trailing newline on a TTY; skipped when piped (stray noise breaks consumers).
+		// Courtesy trailing newline on a TTY; skipped when piped (breaks consumers).
 		if ( $is_tty ) {
 			\WP_CLI::log( '' );
 		}

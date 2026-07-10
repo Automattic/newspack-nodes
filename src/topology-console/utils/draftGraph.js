@@ -44,11 +44,7 @@ export function addEdge( graph, { from, to } ) {
 	return { ...graph, nodes, edges: [ ...graph.edges, { from, to } ] };
 }
 
-// `_repl` is the worker's auto-mounted Partition — `log`/`tell` broadcast
-// handle. Not part of any topology .tsl, but the editor anchors it on the
-// canvas so the user can draw edges TO it. Reserved → no rename/no delete
-// (the refusal lives in renameNode/removeNode here, and `serializeTsl`
-// already skips reserved nodes so it never round-trips into the .tsl).
+// `_repl`: worker's auto-mounted Partition; reserved anchor, never in a .tsl.
 const REPL_ANCHOR = {
 	id: '_repl',
 	name: '_repl',
