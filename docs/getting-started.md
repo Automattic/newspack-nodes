@@ -73,7 +73,7 @@ wp nodes cli example-ai-newsletter.p0
 Each `TICK` flows source → summarizer → scorer → scored:partition → scored:consumer → digest (watch the counts climb in the console). `FLUSH` writes the assembled draft:
 
 ```bash
-cat /tmp/example-ai-newsletter/digest.md
+cat /tmp/example-ai-newsletter/digest.md.0   # Log writes segments {file}.0, {file}.1, … — there is no bare {file}
 # # Newsletter draft
 #
 # - Roundup Block ships — AI summarizes selected posts into a draft.

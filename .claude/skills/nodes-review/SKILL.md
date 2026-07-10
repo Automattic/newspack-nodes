@@ -6,7 +6,7 @@ argument-hint: "[file or class]"
 
 # Newspack Nodes Review Checklist
 
-Substrate-specific review pass. Read AGENTS.md decisions 1-11 for the rationale; this skill is the application of those rules to a diff.
+Substrate-specific review pass. Read AGENTS.md decisions 1-14 (the ADRs in `docs/architecture-decisions.md`) for the rationale; this skill is the application of those rules to a diff.
 
 ## When to Use
 
@@ -59,6 +59,34 @@ The `sink`/`target` distinction matters: `sink` is the physical next node `fill(
 `WorkerBase::execute()`'s `finally` block does `release()` THEN `self_respawn()`. Reverse order means the new worker fails to acquire the lock the old one is still holding; the spawn rate-limit then keeps the slot empty for 15s. Don't reorder.
 
 The HMAC spawn token validates against TWO accepted windows (current + previous, 10 seconds each). Don't tighten to one window — race tolerance for tokens generated near boundaries is intentional.
+
+### 6b. `fill()` returns void (ADR-13)
+
+Every node's entry point is `fill( array $message ): void`. A node emits into its sink and learns *nothing* about the disposition downstream — delivered, dropped, queued, transformed. Flag any diff that:
+
+- Drops the `: void` return type, or adds a non-void return type to a `fill()`.
+- Uses `return <expr>;` inside a `fill()` body (bare `return;` for early-exit is fine).
+- Reads/assigns/branches on a `fill()` call's result (`$x = $sink->fill(...)`). A node that must know an outcome receives it *as a message* — a `TO=FROM` reply (ADR-7) or a `TM_ERROR` (ADR-3) routed back — never a return value.
+
+Testing stays "construct a message, call `fill()`, inspect the *sink*" (`Capture_Sink_Node`), never "inspect `fill()`'s return."
+
+### 6c. Cooperative-stop propagates through broad catches (ADR-14)
+
+`Event_Framework::pump()` raises `Worker_Should_Stop` (extends `\RuntimeException`) to unwind a long in-process job on timeout / memory / shutdown. Any broad `catch ( \Throwable )` / `catch ( \Exception )` on the message/drain path MUST re-throw it **first**, before handling anything else:
+
+```php
+} catch ( Worker_Should_Stop $e ) {
+	throw $e;   // cooperative-stop signalling, not an error
+} catch ( \Throwable $e ) {
+	// real error handling
+}
+```
+
+A broad catch that logs / wraps `TM_ERROR` / defers `Worker_Should_Stop` without the explicit-first re-throw swallows the stop — the worker runs past its deadline (a live bug that had a mid-job stop guaranteed only on the direct firehose path; an intervening Tee / Command_Interpreter ate it). Three deliberate carve-outs, each documented at its site — don't flag these, but don't let a new broad catch omit the re-throw:
+
+- **Tee / Tap fan-out** — attempt every target; a `Worker_Should_Stop` still overrides the deferred first-throwable slot (a stop must re-play, not advance the cursor past poison).
+- **Tap** swallows a regular target throw (broken tap can't break the pipeline) but re-throws `Worker_Should_Stop`.
+- **Post-success `finally` (`Job_Worker::after_job`)** swallows everything, WSS included — the handler already succeeded, so propagating from cleanup would false-poison a completed job (ADR-12).
 
 ### 7. No TM_PERSIST / answer / cancel
 

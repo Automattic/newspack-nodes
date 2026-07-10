@@ -42,6 +42,8 @@ dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
 dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments/lgst_msg/bytes_read/bytes_written/accepts_fill/has_target/has_config, plus `registrations` when non-empty (accepts_fill and has_target are port flags read from the node schema; has_config flags whether the node has a `:config` command sidecar) — one round-trip gives a visualizer the graph. Patron-linked (`{node}:config`) CIs are filtered out. NOT the same verb as `Workers_CI`'s `dump_graph` over REST (that returns `{workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp}`).
 debug_state [<node>] [<level>]      # toggle/set node's debug_state level (0/1/N). No args toggles the interpreter's own.
+list_timers                         # all Timer_Nodes: ID ACTIVE INTERVAL(ms) NEXT(ms) ONESHOT FIRES TYPE NAME — NEXT<=0 with a climbing FIRES = a drain spinner
+list_handles                        # registered cURL-multi handles the drain loop selects on: ID COUNT(msgs) TYPE NAME — a stuck SSE/HTTP egress shows here
 uptime                              # clock-time + days+HH:MM:SS since Core::reset() (worker spawn)
 stats [-a] [<regex>]                # NAME COUNT LGST_MSG READ WRITTEN columns; default scope is siblings, -a all
 reply_to <node path> <command>      # run <command> HERE but route reply to <node path> (inverse of command_node)
@@ -139,6 +141,8 @@ Listing a partition dir, you'll also see `{seg}.idx` sidecars next to each `{seg
 **Messages enter Topic but don't reach the Consumer downstream.** The Consumer (or Tail, for a non-partitioned file) reads what Partition wrote. If the Partition didn't flush the batch, the reader won't see it on poll. Check the segment file's mtime/size with `ls -la`. If the segment is empty after a write, the Partition's batch is still pending — `set_timer(0, true)` flushes at the end of the event-loop iteration, so a synchronous write-then-read (no event loop tick between them) will see nothing.
 
 **`wp nodes cli` runs at 100% CPU.** Means readline got installed in a non-TTY context. The fix is in place (gate on `posix_isatty(STDIN)`), so this should be impossible — but if it recurs, check that `cli-command.php`'s `$is_tty` flag is being computed before `set_readline_mode`.
+
+**A worker pegs 100% CPU with no traffic (drain spinner).** Some node is re-arming a timer every tick (`set_timer(0)` that never clears) or a cURL-multi handle never completes. Pivot into the worker and run `list_timers`: a row with `NEXT <= 0` and a `FIRES` count that climbs on every re-run is the spinner (a legit router-hitchhike Timer shows `NEXT` = `_router`, not a small/negative ms). `list_handles` does the same for a stuck SSE/HTTP egress node — a handle whose `COUNT` never advances. Both verbs read straight off the `Event_Framework`'s registered timers / handles, so they reflect the live drain loop.
 
 **`Core::node('foo')` returns null inside a constructor.** Constructor ran during request scope before the EventFramework drain started. Either move the lookup to a `READY`-event listener, or rewrite the caller to be lazy.
 
