@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **SSE slot-pool memcache keys moved to the substrate namespace** — `evlog:sse:…` → `newspack_nodes:sse:…`. The old prefix was a leftover from the pool's event-logger origin; the substrate now owns its own key space. Live slots keyed under the old prefix orphan on upgrade and age out by TTL.
+
 ### Fixed
 
 - **Two `'off'` string literals clobbered by the segment/offset/length whole-word rename (`9240c816`).** The Shell's `show_parse` toggle-off confirmation printed `show_parse: offset` instead of `show_parse: off`, and `SSE_Out_Node::init_sse_headers()` passed the invalid value `'offset'` to `ini_set( 'output_buffering', … )` (behaviorally inert — the directive is `PHP_INI_PERDIR` — but wrong on its face). Audited the full rename commit across PHP and JS: these were the only two damaged literals.

@@ -69,10 +69,10 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Slot cache key.
+	 * Slot cache key. Changing this shape orphans live slots until their TTL lapses.
 	 */
 	private static function slot_key( string $hostname, int $user_id, string $ip_hash, int $slot ): string {
-		return "evlog:sse:{$hostname}:{$user_id}:{$ip_hash}:{$slot}";
+		return "newspack_nodes:sse:{$hostname}:{$user_id}:{$ip_hash}:{$slot}";
 	}
 
 	/**
