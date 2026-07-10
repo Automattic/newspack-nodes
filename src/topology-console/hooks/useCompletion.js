@@ -30,8 +30,7 @@ import names from '../../runtime/reserved-node-names.json';
  * @return {{ requestCompletion: Function, handleShowCandidates: Function }} The completion handlers.
  */
 export function useCompletion( { cwd, fill, append, skip = () => false } ) {
-	// Tab-completion query: KEY='completion' tells the interpreter to emit a bare
-	// candidate list; FROM routes the reply to the silent `_completion` node.
+	// Tab-completion query; reply routes to the silent `_completion` node.
 	const requestCompletion = useCallback(
 		( line ) => {
 			if ( skip() ) {

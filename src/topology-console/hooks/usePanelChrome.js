@@ -17,8 +17,7 @@ function readStoredPaletteCollapsed( key, def ) {
 	}
 }
 
-// A boolean collapse-state persisted to a localStorage key ('0' open / '1'
-// collapsed). Returns [value, toggle]; the palette + inspector share the recipe.
+// Boolean collapse-state persisted to localStorage ('0' open / '1' collapsed).
 function usePersistedCollapse( key, def ) {
 	const [ value, setValue ] = useState( () =>
 		readStoredPaletteCollapsed( key, def )
@@ -59,10 +58,7 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 		);
 	}, [ paletteKey, defaultCollapsed, setPaletteCollapsed ] );
 
-	// Inspector collapse — a single global preference shared by the console and
-	// overlay. Default collapsed (a slim rail) so it's compact until a selection
-	// auto-expands it (consumers call setInspectorCollapsed(false) on select) or
-	// the user expands it via the chevron.
+	// Inspector collapse: global pref shared console+overlay; default collapsed.
 	const [
 		inspectorCollapsed,
 		setInspectorCollapsed,

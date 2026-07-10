@@ -28,9 +28,7 @@ function seedFromGlobal() {
 	};
 }
 
-// Map a `topologies.list` entry array to the catalog shape. `num_partitions` is
-// authoritative (the handler derives it the same way the localizer does);
-// configNumPartitions is the defensive fallback for a malformed entry.
+// Map a topologies.list entry to catalog shape; num_partitions authoritative.
 function catalogFromList( list, defaultPartitions ) {
 	const partitions = {};
 	const active = [];
@@ -49,10 +47,7 @@ export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
 	const reload = useCallback( () => setReloadKey( ( k ) => k + 1 ), [] );
 	const isVisible = usePageVisibility();
 
-	// Signature of the last applied catalog — an identical poll result skips
-	// setState so consumers (pathOptions, the status-line effect) don't churn
-	// every tick on unchanged data. Primed to the seed on first render so a
-	// first fetch that matches the snapshot doesn't force a needless re-render.
+	// Signature of last applied catalog; identical poll skips setState (no churn).
 	const lastSig = useRef( null );
 	if ( null === lastSig.current ) {
 		lastSig.current = JSON.stringify( data );
@@ -75,9 +70,7 @@ export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
 						return;
 					}
 					const body = unwrapCommandResponse( message );
-					// Only a well-formed list ever replaces the catalog: a legit
-					// empty `[]` collapses the menu, but a malformed reply (no
-					// `topologies` array) keeps the last-good — never blanks.
+					// Malformed reply keeps last-good; only a well-formed list replaces it.
 					if ( ! body || ! Array.isArray( body.topologies ) ) {
 						return;
 					}
@@ -92,8 +85,7 @@ export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
 					}
 				} )
 				.catch( () => {
-					// Keep the last-good catalog; a transient list failure must
-					// not blank the Path menu.
+					// Keep last-good; a transient list failure must not blank the menu.
 				} );
 		};
 		fetchOnce();

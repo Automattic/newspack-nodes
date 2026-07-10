@@ -56,10 +56,7 @@ export function useGraphHandlers( {
 	sseGuard = () => true,
 } ) {
 	return useMemo( () => {
-		// After a mutation, optimistically patch the local metadata so the canvas
-		// updates immediately instead of waiting for the throttled full poll (a
-		// dump_metadata round-trip would race the gesture command to a worker). The
-		// next full poll reconciles. `patch === null` drops the node.
+		// Optimistically patch local metadata so the canvas updates before the poll.
 		const patch = ( name, p ) =>
 			name && Core.node( names.METADATA )?.optimisticPatch( name, p );
 		return {
@@ -69,11 +66,7 @@ export function useGraphHandlers( {
 					'connect_node',
 					`${ from } ${ to }`
 				);
-				// A connect APPENDS a target server-side, so for a Tee fan-out
-				// (array target) append here too — replacing it with the single
-				// new `to` would drop the Tee's other edges from the canvas until
-				// the next dump_metadata reasserts them. Single-target nodes
-				// (string/empty) just take the new target.
+				// connect appends server-side; append (replacing drops Tee edges).
 				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
 					?.target;
 				let next = to;
@@ -90,8 +83,7 @@ export function useGraphHandlers( {
 					'disconnect_node',
 					`${ from } ${ to }`
 				);
-				// disconnect_node value-filters the target server-side; mirror it —
-				// drop `to` from a Tee fan-out array, or clear a single-target string.
+				// Mirror disconnect: drop `to` from a Tee array, else clear the string.
 				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
 					?.target;
 				if ( Array.isArray( current ) ) {
@@ -107,9 +99,7 @@ export function useGraphHandlers( {
 				patch( id, null );
 			},
 			onDropNode: ( { shellName, x, y } ) => {
-				// Live-mode drops always go through the NewNodeModal so the user can
-				// override the auto-generated name (and add args when the class
-				// declares them). The consumer's commit dispatches the make_node.
+				// Live drops go through NewNodeModal so the user can rename/add args.
 				const defaultName = generateNodeName( graph, shellName );
 				const cls = ( catalogClasses || [] ).find(
 					( c ) => c.shell_name === shellName
@@ -118,12 +108,7 @@ export function useGraphHandlers( {
 				onDropStage( { shellName, defaultName, argSchema, x, y } );
 			},
 			onInspectorAction: ( action, nodeId, payload, flags ) => {
-				// The Compose modal's reply-flag checkboxes (TM_RESPONSE / TM_ERROR)
-				// ride along as an optional 4th arg on exactly the six verbs Compose
-				// can pick (cmd/send/request/tell/send_struct/send_eof); every other
-				// caller (Send/Tell/Struct/Command/Request buttons, no flags UI)
-				// keeps dispatch's original 3-arg call — appending `flags` only when
-				// supplied avoids inventing a "no flags" 4th arg for them.
+				// Compose reply flags ride as an optional 4th arg (omitted elsewhere).
 				const dispatchVerb = ( line, verb, args ) =>
 					flags
 						? dispatch( line, verb, args, flags )
@@ -137,21 +122,14 @@ export function useGraphHandlers( {
 						nodeId
 					);
 				} else if ( 'command' === action ) {
-					// Raw server command (no node) — the no-node inspector buttons.
-					// payload is the full command line; split into the verb (first
-					// token) and its args (the rest) so e.g. `debug_state *` keeps
-					// its `*` instead of arriving arg-less.
+					// Raw server command: split payload into verb (first token) + args.
 					const line = String( payload ).trim();
 					const sp = line.indexOf( ' ' );
 					const verb = -1 === sp ? line : line.slice( 0, sp );
 					const args = -1 === sp ? '' : line.slice( sp + 1 ).trim();
 					dispatch( line, verb, args );
 				} else if ( 'tail' === action ) {
-					// connect_node with NO target appends the issuing FROM — this
-					// session's reply path, reported authoritatively as the _header
-					// pwd. Append it to the Tee's fan-out array (don't replace, or the
-					// other edges vanish until the next poll); the bare value also
-					// covers the in-browser tee (pwd === `_output`).
+					// Bare connect appends the reply FROM; append, don't replace.
 					dispatch(
 						`connect_node ${ nodeId }`,
 						'connect_node',
@@ -170,9 +148,7 @@ export function useGraphHandlers( {
 						patch( nodeId, { target: next } );
 					}
 				} else if ( 'disconnect' === action ) {
-					// disconnect_node with NO target resolves to the issuing FROM and
-					// value-filters JUST that reply path — so optimistically remove only
-					// this session's pwd, preserving the Tee's other fan-out edges.
+					// Bare disconnect drops only this reply path; keep Tee's other edges.
 					dispatch(
 						`disconnect_node ${ nodeId }`,
 						'disconnect_node',
@@ -211,14 +187,10 @@ export function useGraphHandlers( {
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( 'send_struct' === action ) {
-					// Quote the JSON so the console's quote-aware tokenizer (which strips
-					// quotes and has no escape) delivers it to send_struct intact, instead
-					// of shredding the unquoted JSON into a JSON.parse error [#32].
+					// Quote the JSON so the quote-aware tokenizer delivers it intact [#32].
 					const json = quoteToken( payload );
 					if ( null === json ) {
-						// Value carries ', ` AND " — unrepresentable through the tokenizer.
-						// Say so honestly instead of dispatching a doomed line that would
-						// blame the (valid) JSON with a parse error.
+						// Value has ', ` and " — unrepresentable; say so, don't dispatch.
 						append( {
 							kind: 'error',
 							text: __(
@@ -236,8 +208,7 @@ export function useGraphHandlers( {
 				} else if ( 'send_eof' === action ) {
 					dispatchVerb( `send_eof ${ nodeId }`, 'send_eof', nodeId );
 				} else if ( 'register' === action || 'unregister' === action ) {
-					// payload is `<target> <event>`; the verb is
-					// `register <source> <target> <event>` (source = nodeId).
+					// payload `<target> <event>`; verb prefixes `register <source>`.
 					dispatch(
 						`${ action } ${ nodeId } ${ payload }`,
 						action,
@@ -250,20 +221,14 @@ export function useGraphHandlers( {
 						'debug_state',
 						`${ nodeId } ${ level }`
 					);
-					// Reflect the new trace level at once so the Trace button flips
-					// without waiting out the (5s+) dump_metadata poll.
+					// Reflect the new trace level at once (don't wait out the poll).
 					patch( nodeId, { debug_state: level } );
 				} else if ( 'invoke' === action && payload ) {
 					if ( ! shell ) {
 						return;
 					}
 					const { verb, kind, positional } = payload;
-					// Key on the catalog's per-class is_interpreter flag (NOT a
-					// Core.node(`:config`) presence check — in remote scope the
-					// browser's Core never holds server-side `:config` siblings, so
-					// that check always fell back to nodeId and misrouted verbs on
-					// non-interpreter PHP nodes). A request is always answered by the
-					// node itself, so it never targets the `:config` sibling.
+					// Route by catalog is_interpreter flag, not a `:config` check (remote).
 					const node = ( graph?.nodes || [] ).find(
 						( n ) => n.id === nodeId
 					);
@@ -282,8 +247,7 @@ export function useGraphHandlers( {
 					m[ TO ] = prefix( commandTarget );
 					m[ FROM ] = replyFrom( names.OUTPUT );
 					m[ LOCAL ] = true;
-					// Only an attached-worker target's reply rides the async stream; a
-					// local-graph invocation interprets in-browser without a pid.
+					// Only attached-worker replies ride the stream; local has no pid.
 					if ( ! sseGuard( m[ TO ] ) ) {
 						append( {
 							kind: 'error',

@@ -7,10 +7,6 @@ import { startOverviewSampler, stopOverviewSampler } from './overviewSampler';
 import './tabs'; // registers the built-in overlay tabs (Inspector, Overview)
 import './debug-overlay.scss';
 
-// (We reuse the topology console's CanvasFrame directly for visual parity —
-// reticles, paper background, "kissing the header" border seal — and pass
-// only the minimal props it needs. No PlainFrame.)
-
 /**
  * Same-page debug overlay: a debug-gated floating FAB + panel that renders the
  * host page's own live Core.nodes graph in the shared GraphView and lets you
@@ -36,17 +32,13 @@ import './debug-overlay.scss';
 export default function DebugOverlay( {
 	search,
 	storageKey = 'newspack-nodes:debug',
-	// false on the hub Console tab — the overlay's own graph+REPL would collide
-	// with the Console's shared infra, so the Inspector body runs Overview-only.
+	// false on the hub Console tab — its graph+REPL would collide with Console's.
 	buildRepl = true,
 } ) {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
 
-	// Apply the persisted skin to <html> when the overlay mounts, so this surface
-	// (and the page behind it) shows the console-selected skin — even on a fresh
-	// dashboard load or a skin picked in another tab. The skin is the global
-	// `<html>.theme-<slug>` class (see shared/theme.js); set_skin re-applies it.
+	// Apply the persisted <html> skin so this surface matches the console pick.
 	useEffect( () => {
 		if ( enabled ) {
 			initSkin();
@@ -68,9 +60,7 @@ export default function DebugOverlay( {
 		return () => document.removeEventListener( 'keydown', onKey );
 	}, [ enabled ] );
 
-	// Keep the always-on Overview sampler running for the whole time the overlay
-	// is enabled — independent of the panel being open or the Overview tab being
-	// selected — so the rate charts carry continuous history.
+	// Keep the Overview sampler running whenever enabled, for continuous history.
 	useEffect( () => {
 		if ( ! enabled ) {
 			return undefined;

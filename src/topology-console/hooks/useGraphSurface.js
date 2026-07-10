@@ -32,15 +32,13 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 		toggleInspectorCollapsed,
 	} = usePanelChrome( { paletteKey, defaultCollapsed } );
 
-	// Px the expanded transcript overlays the canvas with (reported by ReplFooter)
-	// → fed to the autofit so nodes fit ABOVE the transcript.
+	// Px the transcript overlay covers the canvas; fed to autofit (fit above it).
 	const [ transcriptOverlayPx, setTranscriptOverlayPx ] = useState( 0 );
 	// REPL transcript expand state + the prompt input (so a parent can refocus).
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 
-	// Selecting a node auto-opens the inspector (rail → panel); deselect (null)
-	// leaves it as-is. Consumers call this from their own onSelectionChange.
+	// Selecting a node auto-opens the inspector; deselect leaves it as-is.
 	const openInspectorOnSelect = useCallback(
 		( id ) => {
 			if ( id ) {
@@ -50,8 +48,7 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 		[ setInspectorCollapsed ]
 	);
 
-	// The canvasProps fragment both consumers spread (palette + inspector + the
-	// transcript obstruction). Memoized so identity is stable per state.
+	// canvasProps fragment both consumers spread; memoized for stable identity.
 	const canvasChromeProps = useMemo(
 		() => ( {
 			paletteCollapsed,
@@ -69,8 +66,7 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 		]
 	);
 
-	// The replProps fragment both consumers spread (expand state + the overlay
-	// height report that feeds bottomObstructionPx).
+	// replProps fragment both consumers spread (expand + overlay-height report).
 	const replChromeProps = useMemo(
 		() => ( {
 			expanded: replExpanded,

@@ -4,8 +4,7 @@
  * through unchanged and anything unrecognized is silently dropped.
  */
 
-// Mirrors the PHP Topology_Registry::frontmatter() regex: `var name = value`,
-// value kept as the raw (trimmed) string after `=`. Detected per-line.
+// Mirrors PHP Topology_Registry::frontmatter(); value = raw trimmed after `=`.
 const FRONTMATTER_RE = /^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/;
 
 function tokenize( line ) {
@@ -46,8 +45,7 @@ export function parseTsl( text ) {
 		if ( ! line || line.startsWith( '#' ) ) {
 			continue;
 		}
-		// Frontmatter scan: split on `;` to match the PHP frontmatter() parser,
-		// which explodes each line on `;` before applying the var regex.
+		// Split on `;` to match PHP frontmatter() before the var regex.
 		let capturedVar = false;
 		for ( const seg of line.split( ';' ) ) {
 			const fm = FRONTMATTER_RE.exec( seg.trim() );
@@ -82,10 +80,7 @@ export function parseTsl( text ) {
 			nodesByName.set( name, node );
 			nodes.push( node );
 		} else if ( verb === 'cmd' && tokens.length >= 3 ) {
-			// Two target shapes: `cmd <name>:config <verb>` (non-interpreter, a
-			// `:config` sibling interpreter) and `cmd <name> <verb>` (interpreter node,
-			// which handles verbs directly). Strip a trailing `:config` if present;
-			// otherwise the bare token is the owner.
+			// Strip trailing `:config`; bare token is the owner node's name.
 			const target = tokens[ 1 ];
 			const colonIdx = target.indexOf( ':config' );
 			const ownerName =

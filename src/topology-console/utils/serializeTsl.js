@@ -113,7 +113,7 @@ function emitVerb( name, invocation, schemas, className ) {
 	const spec = commandArgSpecFor( schemas, className, invocation.verb );
 	const filled = applyDefaults( invocation.args || [], spec );
 	const args = trimTrailingEmpties( filled ).map( serializeArg );
-	// Interpreter nodes handle verbs directly (no `:config` sibling) → bare target.
+	// Interpreter nodes take verbs directly (no `:config`) → bare target.
 	const target = isInterpreterClass( schemas, className )
 		? name
 		: `${ name }:config`;
@@ -135,15 +135,11 @@ export function serializeTsl( graph, schemas = null ) {
 		return '';
 	}
 	const lines = [];
-	// Frontmatter first (raw `var name = value`, no quoting — values with spaces
-	// round-trip verbatim through the PHP frontmatter parser). Insertion order
-	// preserved for a byte-stable round-trip.
+	// Frontmatter first: raw `var name = value`, no quoting, insertion-ordered.
 	for ( const [ name, value ] of Object.entries( graph.frontmatter || {} ) ) {
 		lines.push( `var ${ name } = ${ value }` );
 	}
-	// Reserved anchors (e.g. `_repl`) are auto-mounted by the worker — the
-	// editor never emits their make_node or any wiring FROM them. They remain
-	// valid edge TARGETS.
+	// Reserved anchors (`_repl`) aren't emitted; still valid edge TARGETS.
 	const reserved = new Set(
 		graph.nodes.filter( ( n ) => n.reserved ).map( ( n ) => n.id )
 	);

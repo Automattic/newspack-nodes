@@ -45,7 +45,7 @@ class Dumper_Node extends Node {
 	private string $to_filter = '';
 
 	public function fill( array $message ): void {
-		// Drop messages addressed to a different cli session; empty TO always renders.
+		// Drop messages addressed to a different cli session; empty TO renders.
 		if ( '' !== $this->to_filter ) {
 			$to = self::coerce_string( $message[ Message::TO ] );
 			if ( '' !== $to
@@ -55,8 +55,7 @@ class Dumper_Node extends Node {
 			}
 		}
 
-		// Tab-completion replies are consumed before render — they feed the cli's
-		// candidate cache, not the terminal.
+		// Tab-completion replies feed the cli's candidate cache, not the terminal.
 		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
 			return;
 		}

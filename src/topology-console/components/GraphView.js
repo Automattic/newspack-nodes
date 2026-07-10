@@ -92,23 +92,18 @@ export default function GraphView( {
 	const [ selectedEdge, setSelectedEdge ] = useState( null );
 	const [ hoveredId, setHoveredId ] = useState( null );
 
-	// Re-sync to an external controlled selection (rename re-point / reset
-	// clear). A no-op for internal clicks, which keep `selection` in lockstep
-	// via onSelectionChange.
+	// Re-sync to an external controlled selection (rename re-point / reset).
 	useEffect( () => {
 		if ( selection === undefined ) {
 			return;
 		}
 		setSelectedId( selection );
-		// Selecting a node clears the edge; clearing (null) clears it too —
-		// either way a stale edge must not survive an external re-sync.
+		// A stale edge must not survive an external selection re-sync.
 		setSelectedEdge( null );
 	}, [ selection ] );
 
 	const { rateRef, rateVersion } = useGraphRates( graph, resetKey );
-	// Aggregate In/Out rate sparkline series for the inspector's process-stats
-	// header. Accumulated HERE (always mounted) — not in the header — so it
-	// survives the header un/remounting on node-select or inspector collapse.
+	// Aggregate rate series, kept here so it survives the header remounting.
 	const rateSeries = useAggregateRateSeries( graph.nodes, resetKey );
 
 	// Node + edge selection are mutually exclusive (unambiguous Delete).
@@ -225,10 +220,7 @@ export default function GraphView( {
 					classCatalog={ classCatalog }
 				/>
 			</Frame>
-			{ /* Always present so the show/hide chevron is reachable even with no
-			     selection: a slim rail when collapsed, the inspector when expanded
-			     (its empty state reads "select a node"). Selecting a node
-			     auto-expands it (the consumer sets inspectorCollapsed=false). */ }
+			{ /* Always present so the show/hide chevron is reachable with no selection. */ }
 			{
 				<div
 					className={ `topology-inspector-dock${

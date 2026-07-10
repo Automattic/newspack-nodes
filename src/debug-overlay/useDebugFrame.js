@@ -3,8 +3,7 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 const MIN_W = 200;
 const MIN_H = 120;
 
-// Eight resize handles — each entry's bit mask: l=left, r=right, t=top, b=bottom.
-// Combined entries (corners) drive both axes at once.
+// Resize handle bit masks: l/r/t/b; corner entries drive both axes.
 const HANDLE_DIRS = {
 	n: { t: 1 },
 	s: { b: 1 },
@@ -27,22 +26,13 @@ function defaultFrame() {
 	};
 }
 
-// The usable area on the page: viewport minus WP admin bar (top), admin
-// menu (left), and the vertical scrollbar (right). Falls back to the raw
-// viewport when the WP chrome isn't present (non-WP host). Used by BOTH
-// the strict in-bounds clamp and the maximize so dragging and maximizing
-// agree on what "inside" means. Pass { ignoreScrollbar: true } for the
-// maximize path — we hide the body scrollbar there, so the panel can
-// claim that strip too.
+// Usable area: viewport minus WP admin bar/menu + scrollbar (else viewport).
 function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
 	const adminBar = document.getElementById( 'wpadminbar' );
 	const adminMenu = document.getElementById( 'adminmenuwrap' );
 	const top = adminBar ? adminBar.offsetHeight : 0;
 	const left = adminMenu ? adminMenu.offsetWidth : 0;
-	// innerWidth - clientWidth = vertical-scrollbar width (0 when none).
-	// Guard against jsdom where clientWidth can be 0 — that would compute a
-	// scrollbar of the full window width and collapse the bounds to zero.
-	// Anything larger than 40px is obviously not a real scrollbar; ignore.
+	// innerWidth - clientWidth = scrollbar width; guard jsdom 0 and bogus >40px.
 	let scrollbarW = 0;
 	if ( ! ignoreScrollbar ) {
 		const clientW = document.documentElement.clientWidth;
@@ -60,16 +50,7 @@ function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
 	};
 }
 
-// Strict in-bounds: the entire panel stays inside the AVAILABLE area
-// (viewport minus admin chrome + scrollbar). If the panel is larger
-// than that area (e.g. user shrunk the window), shrink it to fit;
-// min-size still applies (the panel can't shrink below MIN_W x MIN_H).
-//
-// `bounds` lets a caller pass a pre-read box so we DON'T call getAvailableBounds
-// here — it reads offsetHeight/offsetWidth/clientWidth, which force a synchronous
-// reflow. Doing that on every pointermove of a drag stutters badly on a page
-// whose layout is constantly dirtied (live dashboards); a static page never
-// shows it. Drags snapshot the bounds once at gesture start and pass them in.
+// `bounds` = pre-read box; getAvailableBounds reflows (costly per pointermove).
 function clampFrame( { x, y, w, h }, opts = {}, bounds = null ) {
 	const b = bounds || getAvailableBounds( opts );
 	const availW = b.right - b.left;
@@ -125,8 +106,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 			return;
 		}
 		preMaximizeRef.current = frame;
-		// Maximize claims the scrollbar strip too — the body-overflow:hidden
-		// effect below hides the scrollbar, freeing that space.
+		// Maximize claims the scrollbar strip; the body-overflow effect hides it.
 		const b = getAvailableBounds( { ignoreScrollbar: true } );
 		setFrame( {
 			x: b.left,
@@ -137,11 +117,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 		setMaximized( true );
 	}, [ frame ] );
 
-	// While maximized AND visible, suppress the page's vertical scrollbar
-	// so it doesn't eat the panel's right edge. Restored when the panel
-	// is un-maximized, hidden, or unmounted. The `visible` flag lets the
-	// consumer (DebugOverlay) reflect open/close so the scrollbar comes
-	// back the moment the X is clicked, even if the panel was maximized.
+	// While maximized+visible, hide the page scrollbar (it eats the right edge).
 	useEffect( () => {
 		if ( ! maximized || ! visible ) {
 			return undefined;
@@ -153,9 +129,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 		};
 	}, [ maximized, visible ] );
 
-	// Re-clamp on viewport shrink so a previously-fitting panel stays inside.
-	// While maximized, ignore the scrollbar (we've hidden it) so the panel
-	// keeps claiming the full width.
+	// Re-clamp on viewport shrink; while maximized ignore the (hidden) scrollbar.
 	useEffect( () => {
 		const onResize = () =>
 			setFrame( ( prev ) =>
@@ -187,14 +161,10 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 		};
 	}, [ frame, storageKey ] );
 
-	// The latest in-flight frame computed during a drag/resize. We mutate the
-	// panel's DOM style directly per pointermove (cheap) and only push this to
-	// React state ONCE on pointerup — so the heavy panel subtree (graph, tab
-	// content) doesn't re-render every frame while dragging or resizing.
+	// Latest in-flight frame; mutate DOM per move, commit to React on pointerup.
 	const liveFrameRef = useRef( null );
 
-	// Generic pointer-drag wrapper: a stream of dx/dy deltas to `apply`, with a
-	// `commit` fired once on pointerup (where the per-drag React state update lands).
+	// Generic pointer-drag: streams dx/dy to apply; commit fires on pointerup.
 	const beginDrag = useCallback( ( e, apply, commit ) => {
 		if ( e.button !== undefined && e.button !== 0 ) {
 			return;
@@ -238,8 +208,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 				}
 			}
 			const start = frame;
-			// Snapshot the clamp bounds ONCE (the read forces a reflow; doing it per
-			// pointermove stutters on a live page). They don't change mid-drag.
+			// Snapshot clamp bounds ONCE — the read reflows; per-pointermove stutters.
 			const bounds = getAvailableBounds();
 			beginDrag(
 				e,
@@ -255,9 +224,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 						bounds
 					);
 					liveFrameRef.current = f;
-					// Composited translate, no React. The `is-dragging` class lifts
-					// the panel's drop shadow (a 40px-blur shadow forces the page
-					// BEHIND it to repaint as it moves). Restored on pointerup.
+					// Composited translate; is-dragging lifts the repainting shadow.
 					const el = panelRef && panelRef.current;
 					if ( el ) {
 						el.classList.add( 'is-dragging' );
@@ -312,10 +279,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 							}
 							const f = clampFrame( { x, y, w, h }, {}, bounds );
 							liveFrameRef.current = f;
-							// Real box resize (no transform — scaling stretched the
-							// content). The `is-dragging` class lifts the drop shadow,
-							// which is what made growing jank (the shadow repaints the
-							// page behind); the panel's own content reflow is cheap.
+							// Real box resize; is-dragging lifts the shadow.
 							const el = panelRef && panelRef.current;
 							if ( el ) {
 								el.classList.add( 'is-dragging' );

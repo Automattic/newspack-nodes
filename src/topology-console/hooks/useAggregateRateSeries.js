@@ -32,9 +32,7 @@ export function useAggregateRateSeries( nodes, resetKey ) {
 	const keyRef = useRef( resetKey );
 
 	useEffect( () => {
-		// Scope changed (e.g. switched to a different worker): drop the prior
-		// scope's baseline + history. Otherwise the new scope's cumulative counters
-		// delta against the old baseline into a totals-as-rates spike.
+		// Scope changed: drop prior baseline+history (else totals-as-rates spike).
 		if ( keyRef.current !== resetKey ) {
 			keyRef.current = resetKey;
 			prevRef.current = null;
@@ -43,11 +41,7 @@ export function useAggregateRateSeries( nodes, resetKey ) {
 		const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 			processStats( nodes || [] );
 		const prev = prevRef.current;
-		// Don't seed the baseline from a not-yet-loaded reading (all counters
-		// zero): the next cumulative reading would delta against ~zero into a
-		// totals-as-rates spike — the first datapoint comparing 0 to the full
-		// total, while the sparkline is still empty. Wait for the first reading
-		// WITH data to seed; real per-interval rates accrue from the next on.
+		// Wait for first reading WITH data to seed (else totals-as-rates spike).
 		const hasData =
 			messagesIn > 0 ||
 			messagesOut > 0 ||

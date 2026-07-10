@@ -35,22 +35,14 @@ export function useDebugGraph(
 	catalogClasses = [],
 	onPositionChange = null
 ) {
-	// A drop on a class with declared positional args stages here; the
-	// parent renders the NewNodeModal until commitDrop / cancelDrop. The
-	// ref-mirror lets commitDrop run side effects (sendCommand,
-	// onPositionChange) without putting them inside a setState callback,
-	// which React.StrictMode would invoke twice.
+	// Drop with args stages here; ref-mirror avoids StrictMode double-run.
 	const [ pendingDrop, setPendingDrop ] = useState( null );
 	const pendingDropRef = useRef( null );
 	pendingDropRef.current = pendingDrop;
 	// Shared metadata‖coreToGraph source; ready = the graph carries a node.
 	const { graph, hasNodes: ready } = useGraphSource( { active: _active } );
 
-	// Echo the equivalent commandline into the `_output` Dumper, then dispatch via
-	// shell.sendCommand. A GUI gesture / Inspector click must read back in the
-	// transcript like the typed verb would (the reply already routes to _output
-	// via FROM; this adds the matching `sent` line) — parity with
-	// TopologyConsole.handleInspectorAction's appendTranscript echo.
+	// Echo the line into `_output` then dispatch (reply routes back via FROM).
 	const sendVerb = useCallback(
 		( echoText, path, name, args = '', flags = null ) => {
 			Core.node( names.OUTPUT )?.append( {
@@ -77,25 +69,20 @@ export function useDebugGraph(
 		[ shell ]
 	);
 
-	// Every non-invoke verb echoes + routes through sendVerb (so the useGraphReset
-	// dispatch tap sees a mutating verb). Bound to path '' — the overlay is local-only.
+	// Non-invoke verbs echo + route through sendVerb (path '' — overlay is local).
 	const dispatch = useCallback(
 		( echoLine, name, args, flags ) =>
 			sendVerb( echoLine, '', name, args, flags ),
 		[ sendVerb ]
 	);
 
-	// Append straight to the `_output` Dumper (invoke echo + sse error). The
-	// overlay never blocks invoke (no attached worker), so sseGuard stays default.
+	// Append straight to the `_output` Dumper (invoke echo + sse error).
 	const append = useCallback(
 		( entry ) => Core.node( names.OUTPUT )?.append( entry ),
 		[]
 	);
 
-	// Shared handlers. Inject the Shell's prefix/replyFrom so invoke honors the
-	// cwd at a non-root scope (the Path menu can `cd /_http`); invoke here
-	// doesn't route through shell.sendCommand, so it must carry them explicitly.
-	// sseGuard stays default (the overlay never blocks invoke — no attached worker).
+	// Inject Shell prefix/replyFrom so invoke honors cwd (it skips sendCommand).
 	const handlers = useGraphHandlers( {
 		shell,
 		graph,
@@ -107,9 +94,7 @@ export function useDebugGraph(
 		replyFrom: ( node ) => shell?.replyFrom( node ),
 	} );
 
-	// Modal "OK" — dispatch make_node with the user-edited name + args, then
-	// record the drop position so the canvas renders the new node at the
-	// drop site once the metadata poll surfaces it.
+	// Modal "OK": make_node with edited name + args, then record drop position.
 	const commitDrop = useCallback(
 		( { name, args } ) => {
 			const current = pendingDropRef.current;
@@ -121,8 +106,7 @@ export function useDebugGraph(
 				? `${ current.shellName } ${ name } ${ trimmed }`
 				: `${ current.shellName } ${ name }`;
 			sendVerb( `make_node ${ line }`, '', 'make_node', line );
-			// Optimistically inject the dropped node so it appears at once (no poll
-			// wait, no dump_metadata round-trip); the next full poll reconciles.
+			// Optimistically inject the dropped node; the next full poll reconciles.
 			Core.node( names.METADATA )?.optimisticPatch( name, {
 				class: current.shellName,
 				target: '',

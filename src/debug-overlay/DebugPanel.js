@@ -29,8 +29,7 @@ export default function DebugPanel( {
 	onClose,
 	buildRepl = true,
 } ) {
-	// The panel element ref, created BEFORE the frame hook so the hook can mutate
-	// its style directly during a drag/resize (no per-frame React re-render).
+	// Panel ref created before the frame hook so it mutates style during a drag.
 	const panelRef = useRef( null );
 
 	const {
@@ -43,12 +42,10 @@ export default function DebugPanel( {
 		// Global frame key — same overlay dimensions across every dashboard.
 	} = useDebugFrame( 'newspack-nodes:debug:frame', true, panelRef );
 
-	// The active tab publishes the header controls it owns (the Console its PATH
-	// selector; the Overview nothing). Merged into the one shared Header below.
+	// The active tab publishes the header controls it owns; merged into Header.
 	const [ headerExtras, setHeaderExtras ] = useState( null );
 
-	// Eat wheel scrolls inside the panel so they don't scroll the page behind the
-	// overlay. preventDefault needs a non-passive listener — attach one directly.
+	// Eat wheel scrolls inside the panel (non-passive listener, preventDefault).
 	useEffect( () => {
 		const el = panelRef.current;
 		if ( ! el ) {
@@ -85,8 +82,7 @@ export default function DebugPanel( {
 		return () => el.removeEventListener( 'wheel', onWheel );
 	}, [] );
 
-	// Callback ref for the panel: tracks the node AND releases the page-scroll
-	// lock the instant the panel detaches (close, unmount, or remount).
+	// Callback ref: track the node AND release the page-scroll lock on detach.
 	const setPanelRef = useCallback( ( node ) => {
 		panelRef.current = node;
 		if ( ! node ) {
@@ -95,11 +91,7 @@ export default function DebugPanel( {
 	}, [] );
 
 	return (
-		// display:contents token-provider wrapping the WHOLE panel: the panel +
-		// header + tab bar become descendants of `.topology-app`, so every chrome
-		// rule resolves the live skin's --paper/--ink/etc. from the global
-		// `<html>.theme-<slug>` scope. No box, so the panel's fixed positioning is
-		// intact.
+		// display:contents token host so panel chrome resolves the live skin tokens.
 		<div
 			className="topology-app newspack-nodes-theme"
 			style={ { display: 'contents' } }
@@ -111,14 +103,11 @@ export default function DebugPanel( {
 				}` }
 				data-testid="debug-panel"
 				style={ frameStyle }
-				// Block the page behind the overlay from scrolling whenever the
-				// pointer is inside the panel (Safari ignores the canvas wheel's
-				// preventDefault, so pin the page physically instead).
+				// Pin the page while pointer is inside (Safari ignores canvas wheel PD).
 				onPointerEnter={ lockPageScroll }
 				onPointerLeave={ unlockPageScroll }
 			>
-				{ /* The ONE shared header — `.topology-header` is the panel's
-				     direct flex child, identical for every tab. */ }
+				{ /* The ONE shared header, identical for every tab. */ }
 				<div
 					className="nodes-debug__header-drag"
 					data-testid="overlay-header"

@@ -11,8 +11,7 @@ function inputForType( type ) {
 		case 'bool':
 			// Text, not checkbox, so the field can hold a `<config:...>` token.
 			return { type: 'text', placeholder: 'true | false | <config:...>' };
-		// All types are text: substitution tokens are strings an
-		// `input type="number"` would reject; loader coerces at runtime.
+		// All types are text; loader coerces at runtime (tokens are strings).
 		case 'int':
 			return { type: 'text', inputMode: 'numeric' };
 		case 'float':
@@ -108,8 +107,7 @@ export function CtorField( {
 		);
 	}
 	if ( 'vault_id' === spec.type ) {
-		// Pick from registered Vault entries; empty list falls back to free
-		// text so a `<config:...>` token or not-yet-created id can be typed.
+		// Registered Vault entries; empty list falls back to free text.
 		if ( vaults.length === 0 ) {
 			return (
 				<div className="topology-edit-row">
@@ -131,8 +129,7 @@ export function CtorField( {
 				</div>
 			);
 		}
-		// Preserve a stored value that isn't in the fetched list (config-file
-		// entry or a hand-typed token) so editing never silently blanks it.
+		// Preserve a stored value not in the list so editing never blanks it.
 		const current = value ?? '';
 		const known = vaults.some( ( v ) => v.id === current );
 		return (

@@ -74,7 +74,7 @@ class Event_Framework {
 
 			$timeout_us = $this->next_timer_timeout_us();
 
-			// One blocking call per iteration: cURL handles, or usleep until the next timer.
+			// One blocking call per iteration: cURL handles, or usleep to next timer.
 			if ( ! empty( $this->curl_handles ) ) {
 				foreach ( $this->curl_handles as $entry ) {
 					// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_select
@@ -120,7 +120,7 @@ class Event_Framework {
 	}
 
 	private function drain_curl_multi(): void {
-		// Raw cURL is intentional: wp_remote_get is one-shot; SSE pulls need curl_multi_*.
+		// Raw cURL: wp_remote_get is one-shot; SSE pulls need curl_multi_*.
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_exec, WordPress.WP.AlternativeFunctions.curl_curl_multi_info_read
 		foreach ( $this->curl_handles as $entry ) {
 			$still_running = 0;
@@ -181,10 +181,7 @@ class Event_Framework {
 
 	public function set_timer( Timer_Node $node ): void {
 		$id = \spl_object_id( $node );
-		// Schedule the first fire from the node's interval (set by Timer_Node::set_timer
-		// before it hands us the node). Without this, next_fire stays 0.0 → the timer
-		// fires immediately on the first drain pass and next_timer_timeout_us() computes
-		// a negative wait, busy-looping instead of sleeping the interval.
+		// Seed next_fire; without it next_fire stays 0.0 and the timer busy-loops.
 		$node->next_fire     = Core::$now + ( $node->interval_ms / 1000.0 );
 		$this->timers[ $id ] = $node;
 	}

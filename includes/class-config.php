@@ -103,9 +103,7 @@ class Config {
 			return self::$config;
 		}
 
-		// Presence-based overlay: a stored option (even '' / [] / false / 0) wins
-		// over the file default; only an absent option falls back. Shared rule —
-		// see Config_System\Options_Overlay.
+		// Presence-based overlay: any stored option wins; only absent falls back.
 		$schema = Settings_Schema::get();
 		$config = Config_System\Options_Overlay::apply(
 			self::load_config_defaults(),
@@ -132,7 +130,7 @@ class Config {
 			\dirname( __DIR__ ) . '/newspack-nodes-config.php',
 			'Newspack_Nodes\\Config'
 		);
-		// Local override (CLI/testing) via env var pointing at an allowed-dir config file.
+		// Local override (CLI/testing) via env var to an allowed-dir config file.
 		$local_config_file = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		if ( $local_config_file ) {
 			$validated_path = self::validate_config_path( $local_config_file );

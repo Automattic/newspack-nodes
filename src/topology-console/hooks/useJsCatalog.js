@@ -34,14 +34,11 @@ export function useJsCatalog() {
 						description: schema.description ?? '',
 						accepts_fill: schema.accepts_fill ?? true,
 						has_target: schema.has_target ?? true,
-						// Ctor arg schema — drives the ADD modal's per-field inputs.
-						// Mirrors PHP Classes_CI (`schema['arguments'] ?? []`); without
-						// it the browser ADD modal showed only `name`, no interval_ms.
+						// Ctor arg schema drives the ADD modal fields (mirrors PHP Classes_CI).
 						arguments: schema.arguments ?? [],
 					};
 				} )
-				// PHP Classes_CI skips a class whose schema category is 'Hidden'
-				// or empty — only real-category classes are palette participants.
+				// Skip Hidden/empty-category classes (mirrors PHP Classes_CI palette).
 				.filter( ( c ) => 'Hidden' !== c.category && '' !== c.category )
 				// Match PHP usort: order by [category, shell_name].
 				.sort(

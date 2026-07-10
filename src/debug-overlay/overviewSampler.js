@@ -21,8 +21,7 @@ function store() {
 	return window[ GLOBAL_KEY ];
 }
 
-// Start (or join) the shared sampler. Idempotent — the interval is created only
-// on the first caller; later callers just take a reference.
+// Start (or join) the shared sampler; the interval starts on the first caller.
 export function startOverviewSampler() {
 	const s = store();
 	s.refs += 1;

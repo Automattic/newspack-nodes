@@ -24,15 +24,10 @@ import {
 
 const EMPTY_TRANSCRIPT = [];
 
-// Construct the overlay's infra ON the page's existing backbone and return the
-// live nodes + a teardown. Runs render-phase (before the canvas paints), so the
-// graph is complete before auto-layout and shell.sink is bound before any typed
-// line can dispatch — no useEffect creates these nodes, no dispatch-time race.
+// Build overlay infra on the backbone render-phase (no dispatch-time race).
 function buildInfra( shell, debugLevelRef, onTranscript ) {
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
-	// Idempotent under StrictMode's double-invoked useState initializer: if the
-	// infra is already registered, reuse the existing Dumper instead of colliding
-	// on the reserved _output name.
+	// Idempotent under StrictMode's double-invoke: reuse an existing Dumper.
 	const existing = Core.node( names.OUTPUT );
 	if ( existing ) {
 		shell.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
@@ -46,8 +41,7 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 			},
 		};
 	}
-	// `_output` Dumper is a backbone-class node (needs its debugLevelRef), so it
-	// stays new+named; the siblings come through the interpreter's make_node.
+	// `_output` Dumper is backbone-class (needs debugLevelRef), so new+named.
 	const dumper = new DumperNode();
 	dumper.debugLevelRef = debugLevelRef;
 	dumper.name = names.OUTPUT;
@@ -58,8 +52,7 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 		saveTranscript( next || EMPTY_TRANSCRIPT ); // persist recent transcript [87].
 		return true;
 	} );
-	// Seed the recent transcript + the browser interpreter's debug_state from the
-	// last session [87], so reopening the console restores where you left off.
+	// Seed recent transcript + interpreter debug_state from the last session [87].
 	dumper.restore( loadTranscript() );
 	if ( interpreter ) {
 		interpreter.debugState = loadDebugState();
@@ -70,28 +63,20 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 	if ( interpreter ) {
 		// Tab completion: `_completion` answers help/ls queries off the cwd.
 		completion = interpreter.makeNode( 'Completion', names.COMPLETION );
-		// Canvas-poll: Metadata fires dump_metadata at _cwd each TIMER tick,
-		// publishes the parsed graph via setState('metadata') for the canvas.
+		// Canvas-poll: Metadata fires dump_metadata at _cwd each tick for the canvas.
 		metadata = interpreter.makeNode( 'Metadata', names.METADATA );
 		metadata.target = names.CWD;
-		// Hitchhike the _router TIMER: notify_timer calls metadata.fireCb -> fire;
-		// metadata.removeNode -> stop_timer unwinds it.
+		// Hitchhike the _router TIMER; removeNode unwinds via stop_timer.
 		metadata.setTimer();
-		// `_cwd` is the routing indirection — every scope-relative command's TO
-		// stamps through this node, which re-stamps the live cwd. Path menu /
-		// REPL `cd` just sets `_cwd.target`.
+		// `_cwd` routing indirection: scope-relative TO re-stamps the cwd.
 		cwdNode = interpreter.makeNode( 'Node', names.CWD );
 		cwdNode.target = shell.path;
 	}
-	// Bind shell.sink to the always-present `_shell` Tap (an exospine-backbone
-	// fixture) as part of the build, so a fast open-and-type can't find it null —
-	// dispatch never null-resolves. `_shell` forwards to the interpreter; routing
-	// through it keeps every typed command observable via `connect _shell`.
+	// Bind shell.sink to `_shell` Tap at build so open-and-type can't null it.
 	shell.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
 	const teardown = () => {
 		dumper.unregister( 'transcript', listenerId );
-		// metadata.removeNode() -> stop_timer -> unregister from the _router's
-		// TIMER (TimerNode self-manages the lifecycle; no hand-rolled unregister).
+		// metadata.removeNode() -> stop_timer unregisters from the _router TIMER.
 		dumper.removeNode();
 		completion?.removeNode();
 		metadata?.removeNode();
@@ -118,36 +103,22 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	const dumperRef = useRef( null );
 	// Seeded from localStorage so verbosity survives a reload [87].
 	const debugLevelRef = useRef( loadDebugLevel() );
-	// The browser interpreter's last-persisted debug_state, so sendLine only writes
-	// storage when a REPL command actually changed it [87].
+	// Last-persisted interpreter debug_state; sendLine writes only on change [87].
 	const lastDebugStateRef = useRef( loadDebugState() );
-	// Held in a ref so the []-dep dispatchStatement always calls the live skin
-	// applier without rebuilding the callback.
+	// Ref so the []-dep dispatchStatement calls the live skin applier.
 	const onSetSkinRef = useRef( onSetSkin );
 	onSetSkinRef.current = onSetSkin;
-	// Transcript mirror — driven by a `transcript` subscription on the Dumper so
-	// every append/clear re-renders the prompt subscribers. Defaults to empty so
-	// the first render before infra is built shows a stable empty list.
-	// Single source: the Dumper holds the transcript and drives this mirror via its
-	// `transcript` subscription. buildInfra restores the persisted transcript into
-	// the Dumper, which notifies this setter — so we start empty here, not from
-	// storage, to avoid seeding the same data twice [87].
+	// Transcript mirror from the Dumper sub; start empty, no double-seed [87].
 	const [ transcript, setTranscript ] = useState( EMPTY_TRANSCRIPT );
-	// cwd reflects the live Shell.path; re-rendered after every dispatch so the
-	// Header path selector + _cwd.target both follow REPL `cd` commands.
+	// cwd mirrors Shell.path; re-rendered so Header + _cwd follow REPL `cd`.
 	const [ cwd, setCwd ] = useState( '' );
 	const [ , bumpRemount ] = useState( 0 );
 	// True once the infra nodes (_output/_completion/_metadata/_cwd) are mounted.
 	const [ ready, setReady ] = useState( false );
-	// The full-rebuild signal: a bump tears down + rebuilds the overlay's infra
-	// off the fresh backbone so "Reset Graph" reconstructs the overlay's half too.
+	// Full-rebuild signal: a bump rebuilds overlay infra off the fresh backbone.
 	const generation = useGraphGeneration();
 
-	// Build-before-render: construct the infra (graph nodes + shell.sink bind) in
-	// this useState lazy-initializer so it runs render-phase, BEFORE the canvas
-	// paints + auto-layouts — never in a useEffect. Reactive state (ready/cwd)
-	// flips in the effect below, which also tears the infra down on cleanup and
-	// rebuilds it across active/shell/generation changes.
+	// Build-before-render: construct infra in this lazy initializer, before paint.
 	const infraRef = useRef( null );
 	const buildNow = useCallback( () => {
 		const infra = buildInfra( shell, debugLevelRef, setTranscript );
@@ -167,9 +138,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			setReady( false );
 			return undefined;
 		}
-		// The useState initializer built the first instance before render; on a
-		// subsequent active/shell/generation change the previous effect's cleanup
-		// tore it down, so rebuild here off the (possibly fresh) backbone.
+		// Rebuild here off the (possibly fresh) backbone after the previous teardown.
 		if ( ! infraRef.current ) {
 			buildNow();
 		}
@@ -194,8 +163,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		dumperRef.current?.clear();
 	}, [] );
 
-	// Run one statement through the Shell and act on the three return shapes the
-	// console's local-scope dispatch handles (no attached worker, no SSE).
+	// Run one statement through the Shell; handle the three local-scope shapes.
 	const dispatchStatement = useCallback( ( statement ) => {
 		const s = shellRef.current;
 		const dumper = dumperRef.current;
@@ -225,8 +193,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			if ( undefined === parsed[ TO ] ) {
 				parsed[ TO ] = '';
 			}
-			// shell.sink is bound at build time (build-before-render); a null sink
-			// means the page genuinely has no interpreter — surface, don't drop.
+			// shell.sink bound at build; a null sink means no interpreter — surface it.
 			if ( ! s.sink ) {
 				const verb = parsed[ VALUE ]?.name || '?';
 				Core.stderr(
@@ -234,8 +201,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				);
 				return;
 			}
-			// dispatch (not sink.fill) so useGraphReset's onDispatch tap sees the
-			// verb — a REPL rewire dirties the graph exactly like a GUI rewire.
+			// dispatch (not sink.fill) so useGraphReset's onDispatch tap sees the verb.
 			s.dispatch( parsed );
 			return;
 		}
@@ -260,8 +226,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			for ( const stmt of splitStatements( line ) ) {
 				dispatchStatement( stmt );
 			}
-			// Pick up any shell.path change from `cd` and mirror it to _cwd.target
-			// and our reactive cwd state. (Shell.parse mutates path in place.)
+			// Mirror any `cd` shell.path change to _cwd.target and reactive cwd.
 			const s = shellRef.current;
 			if ( s && s.path !== cwd ) {
 				const cwdNode = Core.node( names.CWD );
@@ -270,8 +235,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				}
 				setCwd( s.path );
 			}
-			// A `debug_state` verb mutates the browser interpreter directly; persist
-			// the new value when it changed so it survives a reload [87].
+			// A `debug_state` verb mutates the interpreter; persist on change [87].
 			const ci = Core.node( names.COMMAND_INTERPRETER );
 			const ds = ci ? ci.debugState ?? 0 : 0;
 			if ( ds !== lastDebugStateRef.current ) {
@@ -282,8 +246,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		[ dispatchStatement, cwd ]
 	);
 
-	// Programmatic path change (e.g. from the Header path menu) — equivalent
-	// to typing `cd /<path>` at the prompt.
+	// Programmatic path change — equivalent to typing `cd /<path>`.
 	const setPath = useCallback(
 		( path ) => {
 			sendLine( `cd /${ path }` );
