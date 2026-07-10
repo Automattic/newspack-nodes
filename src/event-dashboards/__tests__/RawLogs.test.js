@@ -11,20 +11,14 @@ import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import RawLogs from '../RawLogs';
 
-// The graph hook is exercised by its own suite; mock it to spy on the control
-// callbacks the thin view wires to the dropdown / pause button. It's also called
-// exactly once per RawLogs render, so the idle-frames test counts its calls as a
-// render probe — no reaching into React internals.
+// Own suite exercises this hook; mock it — 1 call/render = a render probe.
 jest.mock( '../hooks/useRawLogsGraph', () => ( {
 	useRawLogsGraph: jest.fn(),
 } ) );
 
 const { useRawLogsGraph } = require( '../hooks/useRawLogsGraph' );
 
-// A minimal stand-in for the rawlogs:view node: the low-frequency model lives in
-// setStateCache.view (what useNodeState subscribes to) and the high-frequency
-// buffer/LPS live directly on the instance (what the rAF reads). setState here
-// notifies subscribers exactly like the real Node.setState.
+// Stand-in rawlogs:view node: model in setStateCache.view, buffer/LPS on node.
 function registerViewFixture( {
 	logs = [],
 	selected = '',
@@ -107,9 +101,7 @@ describe( 'RawLogs', () => {
 		useRawLogsGraph.mockClear();
 		useRawLogsGraph.mockReturnValue( { selectLog, setPaused } );
 
-		// Capture rAF callbacks so a test can drive exactly one frame (the rAF
-		// reads node.lines / node.lps and pushes them into React state). We do
-		// NOT auto-loop — the component re-schedules inside the callback.
+		// Capture rAF callbacks to drive one frame; we do NOT auto-loop.
 		rafCbs = [];
 		global.requestAnimationFrame = ( cb ) => {
 			rafCbs.push( cb );
@@ -180,7 +172,7 @@ describe( 'RawLogs', () => {
 
 		it( 'does not seed a ?log= that arrives only in a later catalog (no clobber)', () => {
 			window.history.replaceState( {}, '', '/?log=errors' );
-			// First non-empty catalog lacks 'errors' — the one seed chance is spent.
+			// First non-empty catalog lacks 'errors' — seed chance is spent.
 			const node = registerViewFixture( {
 				logs: [ { key: 'firehose', label: 'Firehose' } ],
 				selected: 'firehose',
@@ -188,7 +180,7 @@ describe( 'RawLogs', () => {
 			render( <RawLogs /> );
 			expect( selectLog ).not.toHaveBeenCalledWith( 'errors' );
 
-			// 'errors' shows up in a later update — it must NOT override the selection.
+			// 'errors' arrives later — it must NOT override the selection.
 			act( () =>
 				node.setState( 'view', {
 					logs: [
@@ -405,10 +397,7 @@ describe( 'RawLogs', () => {
 		} );
 		render( <RawLogs /> );
 		tickFrame(); // first frame: paints the one line + settles state
-		// useRawLogsGraph runs once per RawLogs render — use it as a render
-		// probe. Idle frames (buffer + lps unchanged) must push no new state
-		// refs, so RawLogs must NOT re-render. A per-frame setLines(newArray)
-		// would re-render every frame and bump this count.
+		// 1 call/render = render probe; idle frames must not re-render.
 		const rendersAfterSettle = useRawLogsGraph.mock.calls.length;
 		tickFrame();
 		tickFrame();
@@ -416,9 +405,7 @@ describe( 'RawLogs', () => {
 	} );
 
 	it( 'sources "Xs ago" from the link connector — a heartbeat resets it on an idle stream', () => {
-		// Staleness reflects CONNECTION liveness: the shared link connector stamps
-		// lastEventTime on every frame AND the server's idle heartbeats, so an
-		// idle-but-healthy stream (no new lines) resets "ago" on each heartbeat.
+		// Staleness = connection liveness, not line arrival.
 		jest.useFakeTimers( {
 			doNotFake: [ 'requestAnimationFrame', 'cancelAnimationFrame' ],
 		} );
@@ -439,7 +426,7 @@ describe( 'RawLogs', () => {
 			tickFrame();
 			act( () => jest.advanceTimersByTime( 1000 ) );
 			expect( container.textContent ).toMatch( /1[23]s ago/ );
-			// Heartbeat: the connector stamps a fresh lastEventTime with NO new lines.
+			// Heartbeat: connector stamps fresh lastEventTime, no lines.
 			Core.node( 'rawlogs:link' ).lastEventTime = () => Date.now();
 			tickFrame();
 			act( () => jest.advanceTimersByTime( 1000 ) );
@@ -476,16 +463,13 @@ describe( 'RawLogs', () => {
 	} );
 
 	it( 'falls back to an empty model when the view node is absent', () => {
-		// No fixture registered — useNodeState yields undefined; the view must
-		// still render (No logs available) without throwing.
+		// No fixture → useNodeState undefined; view still renders, no throw.
 		const { container } = render( <RawLogs /> );
 		expect( container.textContent ).toMatch( /No logs available/ );
 	} );
 
 	it( 'does not render its own debug overlay — the hub provides one', () => {
-		// As a hub tab, Raw Logs must NOT mount its own DebugOverlay; the hub
-		// renders the overlay on non-console tabs. A self-rendered overlay would
-		// double-up. The overlay enables its FAB off the sticky localStorage flag.
+		// Hub tab must NOT mount its own DebugOverlay — the hub renders it.
 		window.localStorage.setItem( 'newspack-nodes:debug', '1' );
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],

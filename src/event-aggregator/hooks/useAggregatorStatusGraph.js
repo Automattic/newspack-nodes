@@ -33,8 +33,7 @@ import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
 
-// The server CI mount + the egress path the Fetchers target (useBatchedPoll owns
-// `_shell`/`_http`; the caller names the server CI mount).
+// Server CI mount + egress path the Fetchers target (owns _shell/_http).
 const SERVER = 'aggregator';
 const TARGET = `_shell/_http/${ SERVER }`;
 
@@ -64,9 +63,7 @@ function initialRefresh() {
 	return DEFAULT_REFRESH_MS;
 }
 
-// The two per-concern slices: the header summary (counts + clock) and the
-// server-cards data. Each is one Fetcher → receiver Tee → view; addSliceFetcher
-// wires the inspectable reply path per slice.
+// Two slices; each a Fetcher → receiver Tee → view with its own reply path.
 const SLICES = [
 	{
 		fetcher: 'fetch-summary',
@@ -96,9 +93,7 @@ export function useAggregatorStatusGraph( opts = {} ) {
 	const [ refreshInterval, setRefreshIntervalState ] =
 		useState( initialRefresh );
 
-	// The de-god poll graph: each slice as an independent Fetcher → receiver Tee →
-	// view path on the shared batched-poll backbone. useBatchedPoll owns the
-	// Timer/Tee/_shell/_http + lock-flush; both slices ride one POST per tick.
+	// De-god poll graph: each slice its own Fetcher→Tee→view; one POST/tick.
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
 			SLICES.forEach( ( slice ) =>
@@ -112,8 +107,7 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		timerName: 'aggregator:timer',
 		teeName: 'aggregator:tee',
 		commandClient: opts.commandClient,
-		// The refresh selector's value (ms string) becomes the poll cadence: > 1s
-		// hitchhikes the router TIMER and throttles to it; changing it re-arms.
+		// Refresh value (ms) = poll cadence; >1s hitchhikes TIMER, re-arms.
 		intervalMs: parseInt( refreshInterval, 10 ) || 0,
 	} );
 
@@ -122,7 +116,7 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		localStorage.setItem( REFRESH_KEY, refreshInterval );
 	}, [ refreshInterval ] );
 
-	// Change + persist the refresh interval; useBatchedPoll's interval effect re-paces.
+	// Change the refresh interval; useBatchedPoll's effect re-paces.
 	const setRefreshInterval = ( value ) => {
 		setRefreshIntervalState( value );
 	};

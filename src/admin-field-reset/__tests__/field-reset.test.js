@@ -1,10 +1,6 @@
 import { initFieldReset } from '../index';
 
-// DOM contract: a wrapper `[data-nn-reset="<hidden marker name>"]` holds the
-// field control(s) plus a `[data-nn-reset-toggle]` button. Marking clears the
-// control(s), highlights (wrapper gets `is-marked`), and injects the hidden
-// marker input so Save deletes the option. The marker name is passed verbatim
-// in the data attribute, so the module carries no plugin-specific constant.
+// DOM contract: [data-nn-reset] wrapper holds controls + a reset toggle.
 
 function valueFixture(
 	marker = 'newspack_nodes_reset[newspack_nodes_base_directory]'

@@ -33,8 +33,7 @@ function Harness() {
 	return <div>{ completion ? String( completion.seq ) : 'none' }</div>;
 }
 
-// How many React (useNodeState) listeners are subscribed to a node's
-// `candidates` event — proof the subscription is bound to THAT instance.
+// React (useNodeState) listeners on a node's candidates — proof of binding.
 function reactListenerCount( node ) {
 	return Object.keys( node?.registrations?.candidates || {} ).filter( ( k ) =>
 		k.startsWith( 'react/' )

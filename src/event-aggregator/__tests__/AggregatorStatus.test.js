@@ -55,9 +55,7 @@ const SAMPLE_SERVERS = [
 	},
 ];
 
-// A minimal stand-in for a slice view node: the model lives in setStateCache.view
-// (what useNodeState subscribes to). setState here notifies subscribers exactly
-// like the real Node.setState.
+// A stand-in slice-view node: model in setStateCache.view; setState notifies.
 function fixtureNode( name, model ) {
 	const node = {
 		registrations: { view: {} },
@@ -301,7 +299,7 @@ describe( 'AggregatorStatus', () => {
 						partitions: {
 							0: {
 								connected: true,
-								// Recorded 1s before the snapshot serverNow below.
+								// Recorded 1s before serverNow below.
 								last_sse_heartbeat: 1999,
 							},
 						},
@@ -339,8 +337,7 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'falls back to a loading model when the slice nodes are absent', () => {
-		// No fixture registered — useNodeState yields undefined; the view must
-		// still render the loading state without throwing.
+		// No fixture → useNodeState undefined; must still render loading.
 		const { container } = mount();
 		expect( container.textContent ).toContain( 'Loading server status' );
 	} );

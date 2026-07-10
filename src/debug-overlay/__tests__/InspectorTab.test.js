@@ -9,11 +9,7 @@ import {
 import { TYPE, TM_RESPONSE, TM_ERROR } from '../../runtime/message';
 import { replMaxHeight, measureTabBarHeight } from '../tabs/InspectorTab';
 
-// Capture the props InspectorTab hands its heavy children so the interaction
-// tests can fire the callbacks (onInspectorAction, onComplete, onConfirm)
-// directly — the real ConsoleShell/CanvasFrame canvas never dispatches them in
-// jsdom. The `mock`-prefixed holder is the one outer ref a jest.mock factory may
-// close over.
+// mock-prefixed holder: a ref the jest.mock factory can close over.
 const mockCaptured = { consoleShell: null, modal: null };
 jest.mock( '../../topology-console/components/ConsoleShell', () => ( {
 	__esModule: true,
@@ -28,9 +24,7 @@ jest.mock( '../../topology-console/components/Modal', () => ( {
 		return null;
 	},
 } ) );
-// Stub the catalog hooks so changing cwd doesn't kick off an async class-catalog
-// fetch whose late setState lands outside act() (these are separate modules, so
-// stubbing them doesn't affect InspectorTab's own coverage).
+// Stub catalog hooks so cwd changes don't fire an async fetch after act().
 jest.mock( '../../topology-console/hooks/useJsCatalog', () => ( {
 	useJsCatalog: () => ( {
 		classes: [ { shell_name: 'Echo', arguments: [] } ],
@@ -51,9 +45,7 @@ jest.mock( '../../topology-console/hooks/useVaults', () => ( {
 
 describe( 'replMaxHeight', () => {
 	it( 'subtracts header, prompt bar, the measured tab bar, AND the resize-handle overhang from the frame height', () => {
-		// The tab bar now sits above the inspector body, so the transcript must
-		// reserve its measured height too — otherwise the REPL overflows the panel.
-		// The trailing -4 reserves the resize handle that overhangs the pane top.
+		// Reserve tab-bar height + trailing -4 for the resize-handle overhang.
 		expect( replMaxHeight( 600, 37 ) ).toBe( 600 - 64 - 38 - 37 - 4 );
 	} );
 
@@ -145,8 +137,7 @@ describe( 'InspectorTab registration + render', () => {
 				buildRepl={ false }
 			/>
 		);
-		// Built no overlay infra — the hub Console tab owns `_output` itself, so a
-		// second one here would collide. The body points the user back at it.
+		// No overlay infra: Console tab owns `_output`; a second collides.
 		expect( Core.node( '_output' ) ).toBeNull();
 		expect( getByText( /Console tab itself/i ) ).not.toBeNull();
 	} );
@@ -185,8 +176,7 @@ describe( 'InspectorTab interactions', () => {
 				disconnect();
 			}
 		};
-		// The effect only wires a ResizeObserver when a `.nodes-devtools__tabbar`
-		// precedes the body's `.nodes-devtools__tab-content` wrapper.
+		// Effect wires a ResizeObserver when a tabbar precedes content.
 		const tabbar = document.createElement( 'div' );
 		tabbar.className = 'nodes-devtools__tabbar';
 		const content = document.createElement( 'div' );
@@ -225,9 +215,7 @@ describe( 'InspectorTab interactions', () => {
 		// Initial scope is local (empty path).
 		expect( cfg.path ).toBe( '' );
 
-		// Invoking onPathChange routes through setPath → `cd /_http`, which moves the
-		// live cwd and republishes the header at the new path. Assert the header was
-		// re-published with the new path (a no-op wrapper would leave it unchanged).
+		// onPathChange → setPath `cd /_http` republishes the header.
 		act( () => cfg.onPathChange( '_http' ) );
 		const latest = publishHeader.mock.calls
 			.map( ( c ) => c[ 0 ] )
@@ -288,9 +276,7 @@ describe( 'InspectorTab interactions', () => {
 			seen.push( m.slice() );
 			return realFill( m );
 		};
-		// Target a nonexistent node — the TM_ERROR flag makes Router's
-		// NOT_AVAILABLE branch drop silently instead of round-tripping an
-		// error reply, so this stays a pure capture-the-TYPE-bits test.
+		// Nonexistent target + TM_ERROR → Router drops it silently.
 		act( () =>
 			mockCaptured.consoleShell.canvasProps.onInspectorAction(
 				'cmd',
@@ -308,9 +294,7 @@ describe( 'InspectorTab interactions', () => {
 		mountExospine();
 		const a = new Node();
 		a.name = 'a';
-		// Give `a` a real `:config` sidecar (a patron-linked plumbing sibling, so
-		// it's hidden from the node list but registered in Core) — that's what
-		// makes `a` report has_config and offer `a:config` as a target.
+		// Give `a` a patron-linked `:config` sidecar → offers `a:config`.
 		const aConfig = new Node();
 		aConfig.name = 'a:config';
 		aConfig.patron = a;
@@ -332,9 +316,7 @@ describe( 'InspectorTab interactions', () => {
 		// `b` has no sidecar → present, but no synthesized `b:config`.
 		expect( targets ).toContain( 'b' );
 		expect( targets ).not.toContain( 'b:config' );
-		// `_router` is a REAL registered Core node (mountExospine creates it)
-		// but is SCAFFOLDING-hidden from the local graph — its absence here
-		// proves composeTargets is sourced from `graph.nodes`, not `Core.nodes`.
+		// _router: real Core node, graph-hidden → source is graph.nodes.
 		expect( Core.node( '_router' ) ).not.toBeNull();
 		expect( targets ).not.toContain( '_router' );
 		expect( targets ).not.toContain( '_router:config' );
@@ -364,9 +346,7 @@ describe( 'InspectorTab interactions', () => {
 			} )
 		);
 		expect( mockCaptured.modal ).toBeTruthy();
-		// commitDrop dispatches `make_node Echo my_echo` through the interpreter and
-		// records the snapped drop position. Assert the observable commit: the node
-		// was actually created in the graph (a no-op onConfirm would leave it absent).
+		// commitDrop fires `make_node Echo my_echo` → creates the node.
 		expect( Core.node( 'my_echo' ) ).toBeNull();
 		act( () =>
 			mockCaptured.modal.onConfirm( { name: 'my_echo', args: '' } )

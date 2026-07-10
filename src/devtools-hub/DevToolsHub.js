@@ -20,8 +20,7 @@ import Header from '../topology-console/components/Header';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './devtools-hub.scss';
 
-// The overlay rides every hub tab, Overview-only on the Console tab
-// (buildRepl=false) since its own REPL would collide on `_output`.
+// Overlay rides every tab; Console uses buildRepl=false (`_output` clash).
 const CONSOLE_TAB_ID = 'topology-console';
 
 export default function DevToolsHub() {
@@ -45,8 +44,7 @@ export default function DevToolsHub() {
 					right: '0',
 					bottom: '0',
 					zIndex: 99,
-					// `--paper-3` (opaque base) not `--paper`: the display:contents
-					// parent has no box, so a translucent skin would bleed wp-admin white.
+					// Opaque --paper-3: parent boxless, else bleeds white.
 					background: 'var(--paper-3)',
 					'--nodes-devtools-fg': 'var(--ink)',
 					transition: 'left 0.1s ease-in-out',
@@ -58,7 +56,7 @@ export default function DevToolsHub() {
 					overflow: 'hidden',
 				} }
 			>
-				{ /* The ONE shared header — brand left, controls slot right. */ }
+				{ /* ONE shared header — brand left, controls slot right. */ }
 				<Header controlsSlotRef={ setControlsSlot } />
 				<DevtoolsTabHost
 					host="hub"

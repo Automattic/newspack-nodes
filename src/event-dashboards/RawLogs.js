@@ -33,9 +33,7 @@ const ROW_HEIGHT = 18;
 const PARTITION_WIDTH = 36;
 const FONT = '12px monospace';
 const VIEW_NODE = 'rawlogs:view';
-// The shared SSE connector owns stream liveness — it stamps lastEventTime on
-// every frame AND the server's idle heartbeats — so "Xs ago" reads it, not the
-// view node (which only grows on line arrivals).
+// SSE connector owns liveness; "Xs ago" reads its lastEventTime, not the view.
 const LINK_NODE = 'rawlogs:link';
 
 // Dark theme colors (match base.scss).
@@ -72,10 +70,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 		connectionError,
 	} = view;
 
-	// One-shot deep-link seed: `?log=` (read once at mount) selects that log on the
-	// FIRST non-empty catalog, then disarms — so a later incremental catalog update
-	// can never clobber a user's pick. Best-effort: if the target isn't in that
-	// first catalog, the user's selection (or the default) stands.
+	// One-shot `?log=` seed: selects that log on FIRST catalog, then disarms.
 	const urlLogRef = useRef( getQueryParam( 'log' ) );
 	const seededLogRef = useRef( false );
 	useEffect( () => {
@@ -93,17 +88,14 @@ export default function RawLogs( { headerControlsSlot } ) {
 		}
 	}, [ availableLogs, selectedLog, selectLog ] );
 
-	// User log pick: drive the graph AND reflect it into `?log=` for deep-linking.
+	// User log pick: drive the graph AND reflect into `?log=` for deep-linking.
 	const handleSelectLog = ( log ) => {
 		selectLog( log );
 		setQueryParam( 'log', log );
 	};
 
 	const [ filter, setFilter ] = useState( '' );
-	// Cheap derived state pushed from the rAF at frame rate: lines/second plus the
-	// two counts the header + spacer need (total rows in the ring, and how many
-	// are visible after the filter). The row DATA is not React state — the canvas
-	// reads its visible window straight off the ring node each frame.
+	// Cheap rAF-pushed state: LPS + counts (row DATA is not React state).
 	const [ linesPerSecond, setLinesPerSecond ] = useState( 0 );
 	const [ totalCount, setTotalCount ] = useState( 0 );
 	const [ visibleCount, setVisibleCount ] = useState( 0 );
@@ -116,18 +108,13 @@ export default function RawLogs( { headerControlsSlot } ) {
 	const scrollTopRef = useRef( 0 );
 	const isAdjustingScrollRef = useRef( false );
 	const rafRef = useRef( null );
-	// Last visible-row count — drives spacer-height changes (grow/filter/clear).
+	// Last visible-row count; drives spacer-height (grow/filter/clear).
 	const lastVisibleCountRef = useRef( 0 );
-	// Newest visible row id the rAF has seen. New arrivals are detected off this
-	// MONOTONIC id (it climbs past the cap, unlike the pinned count) — driving both
-	// staleness AND scroll compensation so they keep working once the buffer caps.
+	// Newest visible row id (MONOTONIC): detects new arrivals past the cap.
 	const lastTopIdRef = useRef( 0 );
-	// The filter `lastTopIdRef` was last measured under. Filtered and unfiltered
-	// top-ids live in different id-spaces, so a filter toggle must re-baseline
-	// (no phantom new rows) rather than diff across the two.
+	// Filter `lastTopIdRef` was measured under; a filter toggle re-baselines.
 	const lastTopFilterRef = useRef( '' );
-	// Last state we pushed to React — so idle frames (nothing changed) push no
-	// new state and don't re-render.
+	// Last state pushed to React; idle frames push nothing, no re-render.
 	const pushedRef = useRef( {
 		total: -1,
 		visible: -1,
@@ -137,8 +124,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 	// Filter kept in a ref so the rAF reads the latest without re-subscribing.
 	const filterRef = useRef( filter );
 	filterRef.current = filter;
-	// Last time the RemoteLink's SseIn saw a frame or heartbeat — drives the "Xs
-	// ago" staleness. Synced from the link's lastEventTime() each rAF (below).
+	// Last time SseIn saw a frame/heartbeat; drives "Xs ago", synced each rAF.
 	const lastEventTimeRef = useRef( null );
 
 	// Ticking "Xs ago" display.
@@ -151,8 +137,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 		? Math.max( 0, Math.floor( ( now - lastEventTimeRef.current ) / 1000 ) )
 		: null;
 
-	// Canvas rendering loop. Reads the ring's visible window (linesCount/lineAt)
-	// directly every frame and pushes the cheap derived state (counts + LPS) to React.
+	// Canvas loop: reads the ring's visible window each frame; pushes counts.
 	useEffect( () => {
 		const canvas = canvasRef.current;
 		const container = containerRef.current;
@@ -181,18 +166,14 @@ export default function RawLogs( { headerControlsSlot } ) {
 		window.addEventListener( 'resize', resize );
 
 		const draw = () => {
-			// Read counts + LPS straight off the ring node each frame. Row data is
-			// read by index (lineAt) only for the on-screen window below — never
-			// the whole buffer — so the frame cost is O(rows-on-screen).
+			// Read counts+LPS off the ring; lineAt reads only on-screen rows.
 			const node = Core.node( VIEW_NODE );
 			const count = node?.linesCount ?? 0;
 			const lps = node?.lps ?? 0;
 			const activeFilter = filterRef.current;
 			const filterLower = activeFilter.toLowerCase();
 
-			// With a filter active, materialize the matching rows (one O(ring)
-			// scan, and ONLY while filtering). Unfiltered, draw straight off the
-			// ring — no per-frame copy of the buffer.
+			// Filter: scan ring for matches; else draw off the ring (no copy).
 			let filteredRows = null;
 			let visible;
 			if ( activeFilter ) {
@@ -211,12 +192,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 				visible = count;
 			}
 
-			// New rows since last frame, detected off the MONOTONIC newest-visible
-			// id — NOT the visible count, which pins at the cap and would make
-			// `newRows` read 0 forever (freezing staleness AND stalling the
-			// smooth-scroll so rows replace in place = jank). Mirrors Request Log.
-			// A filter toggle switches id-spaces (filtered top-id <= unfiltered),
-			// so re-baseline that frame instead of reporting phantom new rows.
+			// New rows via the MONOTONIC top-id, not the pinned count.
 			const topRow = filteredRows ? filteredRows[ 0 ] : node?.lineAt( 0 );
 			const topId = topRow ? topRow.id : 0;
 			const filterChanged = activeFilter !== lastTopFilterRef.current;
@@ -241,8 +217,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 
 			const isAtTop = scrollTopRef.current < ROW_HEIGHT;
 
-			// Spacer height tracks the visible row count (grows while filling,
-			// shrinks on clear/filter; stable at the cap).
+			// Spacer height tracks the visible row count (caps at max).
 			if (
 				visible !== lastVisibleCountRef.current &&
 				spacerRef.current
@@ -266,8 +241,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 
 			lastVisibleCountRef.current = visible;
 
-			// Push the cheap derived state ONLY when it changed (counts + LPS).
-			// Skipping unchanged frames keeps idle frames from re-rendering React.
+			// Push cheap state ONLY on change; idle frames don't re-render.
 			const pushed = pushedRef.current;
 			if (
 				count !== pushed.total ||
@@ -326,8 +300,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 				Math.ceil( visibleEndPx / ROW_HEIGHT ) + 1
 			);
 
-			// Draw visible lines — filtered array when filtering, else the ring
-			// directly (lineAt is O(1), so this loop touches only on-screen rows).
+			// Draw visible lines: filtered array or ring (on-screen only).
 			for ( let i = startIndex; i < endIndex; i++ ) {
 				const line = filteredRows
 					? filteredRows[ i ]
@@ -369,11 +342,10 @@ export default function RawLogs( { headerControlsSlot } ) {
 			cancelAnimationFrame( rafRef.current );
 			window.removeEventListener( 'resize', resize );
 		};
-		// isPaused is read inside draw for the empty-state label; re-bind on change.
+		// isPaused read in draw for the empty-state label; re-bind on change.
 	}, [ isPaused ] );
 
-	// Total height for the scroll container (spacer); the rAF keeps the live
-	// height in sync imperatively — this is the React-render seed.
+	// Total scroll-spacer height; the rAF keeps it in sync (this is the seed).
 	const totalHeight = visibleCount * ROW_HEIGHT;
 
 	// Clear all lines — clears the node ring; the next frame reflects 0 lines.
@@ -402,10 +374,7 @@ export default function RawLogs( { headerControlsSlot } ) {
 		}
 	};
 
-	// The controls strip (log picker / Filter / counter / pause / Clear) lives on
-	// the right of the hub's ONE shared header — portaled into its slot. A node =
-	// the hub slot (portal); `null` = slot pending (render nothing, no flash);
-	// `undefined` = standalone (e.g. tests) → render inline.
+	// Controls strip portals into the hub header slot; undefined = inline.
 	const controls = (
 		<div className="newspack-nodes-toolbar">
 			{ availableLogs.length === 0 && (

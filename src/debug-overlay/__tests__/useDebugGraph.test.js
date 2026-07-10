@@ -18,8 +18,7 @@ import {
 } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
 
-// Mount the `_output` Dumper so transcript echoes are observable, mirroring the
-// real overlay where useDebugRepl owns it. Returns the live transcript array.
+// Mount _output Dumper so transcript echoes are observable in tests.
 function mountOutput() {
 	const dumper = new DumperNode();
 	dumper.name = names.OUTPUT;
@@ -42,10 +41,7 @@ describe( 'useDebugGraph', () => {
 	afterEach( () => jest.useRealTimers() );
 
 	it( 'falls back to coreToGraph when NO metadata is published but Core holds nodes', () => {
-		// Instant local paint: before the first dump_metadata poll publishes,
-		// the canvas reads the in-process graph straight off Core via
-		// coreToGraph(). With a live node in Core (and no metadata), graph comes
-		// from coreToGraph and ready is true synchronously.
+		// Before metadata publishes, canvas paints from Core (coreToGraph).
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -58,18 +54,15 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'reports ready=false with an empty graph when Core is empty and no _metadata', () => {
-		// Bare exospine: _router/_command_interpreter are SCAFFOLDING-hidden, so
-		// coreToGraph() is empty and no metadata is published — ready=false.
+		// Bare exospine: backbone hidden, no metadata → ready=false.
 		const { teardown } = mountExospine();
 		const { result } = renderHook( () => useDebugGraph() );
 		expect( result.current.ready ).toBe( false );
-		// The visible, always-present backbone fixtures (_shell/_http/_heartbeat) are
-		// the only nodes and are excluded from readiness. coreToGraph stamps the
-		// local reply path into pwd (the in-browser tail target is `_output`).
+		// Backbone fixtures excluded from readiness; pwd is _output.
 		expect(
 			result.current.graph.nodes.map( ( n ) => n.id ).sort()
 		).toEqual( [ '_heartbeat', '_http', '_shell' ] );
-		// The backbone heartbeat's permanent poke edge (`_heartbeat → _http/workers`).
+		// Backbone heartbeat's permanent poke edge (_heartbeat → _http).
 		expect( result.current.graph.edges ).toEqual( [
 			{ from: '_heartbeat', to: '_http' },
 		] );
@@ -78,8 +71,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'published metadata-with-nodes takes precedence over the coreToGraph fallback, and flips ready true', () => {
-		// Core holds a live node `a` (coreToGraph would show it). Once _metadata
-		// publishes a graph with ≥1 node, the metadata source wins and ready=true.
+		// _metadata with ≥1 node wins over coreToGraph; ready=true.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -101,8 +93,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'consumes _metadata.setState(metadata) when published', () => {
-		// With Metadata mounted, the hook reads the parsed graph from
-		// useNodeState(_metadata, 'metadata').
+		// With Metadata mounted, the hook reads it from useNodeState.
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
@@ -121,10 +112,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'an empty metadata graph (no nodes) falls back to coreToGraph', () => {
-		// An empty metadata graph (nodes:[]) is treated as "not yet populated":
-		// the hook falls back to coreToGraph() rather than blanking the canvas.
-		// Here Core holds the mounted _metadata node, so coreToGraph is non-empty
-		// and ready stays true.
+		// Empty metadata graph → fall back to coreToGraph, not blank canvas.
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
@@ -151,28 +139,21 @@ describe( 'useDebugGraph', () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
-		// connect_node sets the base node's `target` string (command_interpreter
-		// _cmdConnect → src.target = target). Assert the real effect.
+		// connect_node sets src.target (command_interpreter _cmdConnect).
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
 		teardown();
 	} );
 
 	it( 'onInspectorAction handles tail / disconnect / trace (parity with the console)', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
-		// The console's handleInspectorAction routes five non-invoke actions:
-		// dump → dump_node, tail → connect_node <id> (no target = tail), disconnect
-		// → disconnect_node, send → send_node, trace → debug_state. The overlay
-		// previously handled only dump + invoke, silently dropping the rest.
+		// Routes 5 non-invoke actions like console; overlay used to drop them.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
-		// tail = `connect_node a` with NO target — connect_node defaults to the
-		// issuing message's FROM, which the overlay stamps as '_output' (the
-		// transcript Dumper). So a.target becomes '_output' and a's emissions
-		// flow into the transcript, which is the whole point of Tail.
+		// tail = connect_node with no target → defaults to FROM (_output).
 		act( () =>
 			result.current.handlers.onInspectorAction( 'tail', 'a', null )
 		);
@@ -198,10 +179,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'onInspectorAction command "ping" parses to a TM_PING (not a no-such-verb command)', () => {
 		const { teardown } = mountExospine();
-		// Capture what the shell dispatches: the no-node `ping` button must produce a
-		// TM_PING (shell-parsed, bounces for RTT) — NOT a TM_COMMAND name=ping, which
-		// the interpreter rejects as "no such verb". (Parity with the hub console +
-		// typed input, which both route through shell.parse.)
+		// The ping button must produce TM_PING, not a TM_COMMAND name=ping.
 		const captured = [];
 		const shell = new ShellNode();
 		shell.sink = { fill: ( m ) => captured.push( m ) };
@@ -216,10 +194,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'onDropNode + commitDrop end-to-end: SchematicCanvas {shellName,x,y} envelope → modal → make_node', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
-		// SchematicCanvas.handleDrop calls onDropNode({shellName, x, y}) — a
-		// single OBJECT, not (shellName, pos). The hook stages pendingDrop;
-		// commitDrop dispatches once the modal confirms. Earlier the positional
-		// implementation got `[object Object]` as the shellName.
+		// onDropNode takes one {shellName,x,y} object, not positional args.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -247,11 +222,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'commitDrop records the drop position via onPositionChange (snapped to grid)', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
-		// Without this, a freshly-dropped node renders at autoLayout's choice
-		// (e.g. column 0, row 0 of the depth grid), not where the user dropped
-		// it. The console records the drop position via handlePositionChange
-		// after sendLine('make_node …'); the overlay does the same via the
-		// onPositionChange callback the consumer passes in.
+		// Without this the node renders at autoLayout's spot, not the drop.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -263,10 +234,7 @@ describe( 'useDebugGraph', () => {
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Tee',
-				// (398, 232) is the second-column second-row node's center
-				// (col=2: X_PAD+X_STEP+NODE_W/2 = 60+240+98; row=2:
-				// Y_PAD+Y_STEP+NODE_H/2 = 80+110+42). The snap returns the
-				// top-left = (X_PAD+X_STEP, Y_PAD+Y_STEP) = (300, 190).
+				// (398,232) = col2/row2 center; snap → top-left (300,190).
 				x: 398,
 				y: 232,
 			} )
@@ -286,8 +254,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'commitDrop is silent on position when no onPositionChange is provided', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
-		// Back-compat: passing no onPositionChange (e.g., from tests that
-		// don't care about layout) MUST NOT crash; make_node still fires.
+		// Back-compat: no onPositionChange must not crash; make_node fires.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -311,11 +278,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'invoke keys on catalog is_interpreter (interpreter → nodeId)', () => {
-		// New contract: the Inspector consults the catalog's per-class
-		// is_interpreter flag (NOT a Core.node(`:config`) presence check —
-		// in remote scope the browser's Core never holds server-side
-		// `:config` siblings, so the old check always fell back to nodeId
-		// and misrouted verbs on non-interpreter PHP nodes).
+		// Inspector reads catalog is_interpreter, not Core.node(:config).
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
@@ -331,8 +294,7 @@ describe( 'useDebugGraph', () => {
 		const { result } = renderHook( () =>
 			useDebugGraph( true, shell, classes )
 		);
-		// The graph comes only from _metadata now (no coreToGraph fallback);
-		// publish my-interpreter so the invoke logic can resolve its class.
+		// Publish my-interpreter so invoke resolves its class.
 		act( () => {
 			metadata.setState( 'metadata', {
 				nodes: [ { id: 'my-interpreter', class: 'Node' } ],
@@ -404,8 +366,7 @@ describe( 'useDebugGraph', () => {
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		// Every parsed message (interpreter verbs included) now routes through
-		// shell.dispatch, not a separate shell.sendCommand call — spy there.
+		// Every parsed message routes through shell.dispatch — spy there.
 		const spy = jest.spyOn( shell, 'dispatch' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () =>
@@ -421,8 +382,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'onInspectorAction `send` dispatches a TM_BYTESTREAM payload to the node (send_node)', () => {
 		const { teardown } = mountExospine();
-		// send_node is shell-special — it parses to a TM_BYTESTREAM addressed to the
-		// node, NOT a TM_COMMAND. Capture the dispatched message off the shell sink.
+		// send_node parses to a TM_BYTESTREAM to the node, not a TM_COMMAND.
 		const captured = [];
 		const shell = new ShellNode();
 		shell.sink = { fill: ( m ) => captured.push( m ) };
@@ -433,7 +393,7 @@ describe( 'useDebugGraph', () => {
 		expect( captured ).toHaveLength( 1 );
 		expect( captured[ 0 ][ TYPE ] & TM_BYTESTREAM ).toBeTruthy();
 		expect( captured[ 0 ][ TO ] ).toBe( 'a' );
-		// send_node is line-oriented — the bytestream value carries a trailing \n.
+		// send_node is line-oriented — value carries a trailing \n.
 		expect( captured[ 0 ][ VALUE ] ).toBe( 'hello\n' );
 		teardown();
 	} );
@@ -538,8 +498,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		// A real registered browser class (Tee) so make_node actually
-		// constructs a node — `Partition` only exists on the PHP side.
+		// A real browser class (Tee) so make_node actually constructs a node.
 		const classes = [
 			{
 				shell_name: 'Tee',
@@ -565,8 +524,7 @@ describe( 'useDebugGraph', () => {
 				args: 'mytopic 8192',
 			} )
 		);
-		// Side-effect of make_node: the node exists in Core, constructed with
-		// the modal-provided args string.
+		// make_node side-effect: node exists in Core with modal-provided args.
 		expect( Core.node( 'mypart' ) ).not.toBeNull();
 		expect( Core.node( 'mypart' ).arguments ).toBe( 'mytopic 8192' );
 		// Position recorded under the user-chosen name (not the default).
@@ -599,8 +557,7 @@ describe( 'useDebugGraph', () => {
 			} )
 		);
 		act( () => result.current.commitDrop( { name: 'p1', args: '   ' } ) );
-		// Side-effect: the node is created with EMPTY arguments — the
-		// whitespace-only args were trimmed away, not passed through.
+		// Node is created with EMPTY args — whitespace-only args were trimmed.
 		expect( Core.node( 'p1' ) ).not.toBeNull();
 		expect( Core.node( 'p1' ).arguments ).toBe( '' );
 		teardown();
@@ -636,9 +593,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onDropNode on an args-LESS class still stages pendingDrop (name modal always shows in live mode)', () => {
-		// Even classes with no positional args get the NewNodeModal so the
-		// user can override the auto-generated name on the way in. The modal
-		// just shows the empty args row with no placeholder.
+		// Args-less classes still get NewNodeModal to override the auto name.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -669,16 +624,12 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction echoes the equivalent commandline into the transcript (parity with the console)', () => {
-		// The reported bug: clicking an Inspector command dispatched the verb but
-		// never echoed the commandline, so only the reply showed up — unlike a
-		// typed REPL line (useDebugRepl appends `kind: 'sent'`) and unlike
-		// TopologyConsole.handleInspectorAction (appendTranscript `kind: 'sent'`).
+		// Bug: Inspector command dispatched the verb but never echoed it.
 		const { teardown } = mountExospine();
 		const dumper = mountOutput();
 		const a = new Node();
 		a.name = 'a';
-		// `send` parses to a TM_BYTESTREAM routed to `a`; give it a sink so the
-		// dispatch doesn't throw (we only assert the echoed commandline here).
+		// give `a` a sink so the send dispatch doesn't throw.
 		a.sink = { fill: () => {} };
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -732,8 +683,7 @@ describe( 'useDebugGraph', () => {
 				positional: 'foo bar',
 			} )
 		);
-		// Non-interpreter class ⇒ targets the `:config` sibling; the echo mirrors
-		// the console's `command_node <target> <verb> <args>`.
+		// Non-interpreter class ⇒ targets :config; echoes command_node.
 		expect( sentLines( dumper ) ).toContain(
 			'command_node my-node:config configure foo bar'
 		);
@@ -780,12 +730,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'dispatches via the passed-in Shell.dispatch (not a separate local dispatch)', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
-		// Task 3: useDebugGraph accepts a Shell as its second argument and
-		// routes every gesture through THIS shell's own dispatch (every parsed
-		// message — interpreter verbs included — goes through shell.dispatch,
-		// not a separate local implementation). Spying on the shell's dispatch
-		// proves the wiring; the side-effect on Core.node('a').target proves
-		// the message still reaches the interpreter.
+		// Every gesture routes through the passed-in shell.dispatch.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -806,17 +751,13 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'invoke honors the shell cwd prefix at a non-root scope (Path-menu cd)', () => {
-		// Regression: the old overlay routed invoke through shell.sendCommand,
-		// which applies shell.prefix, so a non-root cwd prefixed the invoke TO.
-		// The shared useGraphHandlers defaults prefix to identity; the overlay
-		// must inject shell.prefix so invoke still honors a Path-menu `cd /_http`.
+		// Overlay injects shell.prefix so invoke honors a non-root cwd.
 		const { teardown } = mountExospine();
 		const node = new Node();
 		node.name = 'my-node';
 		const config = new Node();
 		config.name = 'my-node:config';
-		// Capture the invoke message at fill time — routing peels TO in place, so a
-		// post-hoc mock.calls read sees the mutated value. A stub sink snapshots it.
+		// Capture at fill time — routing peels TO; stub sink snapshots it.
 		const captured = [];
 		const shell = new ShellNode();
 		shell.path = '_http';
@@ -839,11 +780,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'sendVerb stamps FROM=_output and LOCAL=true on a parsed message that lacks them', () => {
-		// When shell.parse yields a Message array missing FROM / LOCAL (e.g. a
-		// bare positional array), sendVerb backfills FROM=`_output` (so the reply
-		// routes to the transcript) and LOCAL=true (local-only provenance) before
-		// dispatching — the two conditional backfills the normal ShellNode path
-		// pre-stamps and so never exercises.
+		// A parsed Message missing FROM/LOCAL → sendVerb backfills both.
 		const { teardown } = mountExospine();
 		const dispatched = [];
 		const shell = {
@@ -862,10 +799,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'falls back to shell.sendCommand when the parsed line is NOT a Message array (a local/error signal)', () => {
-		// shell.parse can return a `{ kind: 'error' | 'local' }` signal object
-		// instead of a Message array (e.g. an unsupported/builtin verb). sendVerb
-		// then routes through shell.sendCommand( path, name, args ) rather than
-		// shell.dispatch — the else branch.
+		// A {kind} signal (not a Message array) → sendVerb uses sendCommand.
 		const { teardown } = mountExospine();
 		const calls = [];
 		const shell = {
@@ -885,9 +819,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop with no staged pendingDrop is a no-op (early return, no dispatch)', () => {
-		// The modal "OK" can only fire after a drop stages pendingDrop; calling
-		// commitDrop with nothing staged must early-return without dispatching
-		// make_node (guards the ref-mirror read).
+		// commitDrop with nothing staged early-returns, no make_node dispatch.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -903,12 +835,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'GUI dispatch routes through the already-bound shell.sink without re-resolving it', () => {
 		expectConsoleWarn( '_router: WARNING: message not addressed' );
-		// Build-before-render: useDebugRepl binds shell.sink to the interpreter
-		// during its build (render-phase), before any canvas gesture is possible.
-		// So sendVerb no longer resolves the interpreter at dispatch time — it
-		// just fills the already-bound sink. A GUI gesture works on the very first
-		// render, and sendVerb leaves shell.sink untouched (no dispatch-time
-		// rebind). Here the test plays the role of the build by pre-binding sink.
+		// useDebugRepl binds shell.sink at build; here the test pre-binds it.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';

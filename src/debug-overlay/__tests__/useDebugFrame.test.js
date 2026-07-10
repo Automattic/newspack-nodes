@@ -22,8 +22,7 @@ function captureDrag( onPointerDown, downAt = { x: 0, y: 0 } ) {
 	return handlers;
 }
 
-// Build a pointerdown / move / up sequence on the header drag handler.
-// `e.preventDefault` is a no-op so the hook can call it freely.
+// pointerdown/move/up on the drag handler; preventDefault is a no-op stub.
 function fireDrag( onPointerDown, from, to ) {
 	const down = {
 		clientX: from.x,
@@ -58,7 +57,7 @@ function fireDrag( onPointerDown, from, to ) {
 describe( 'useDebugFrame', () => {
 	beforeEach( () => {
 		window.localStorage.clear();
-		// jsdom defaults window.innerWidth/Height to 1024x768 — make it explicit.
+		// jsdom defaults innerWidth/Height to 1024x768 — make it explicit.
 		Object.defineProperty( window, 'innerWidth', {
 			value: 1200,
 			writable: true,
@@ -91,8 +90,7 @@ describe( 'useDebugFrame', () => {
 	} );
 
 	it( 'header pointerdown→move→up shifts the frame by the delta', () => {
-		// Start from a small frame in the center so a +50/+30 shift stays
-		// inside the strict viewport bounds (otherwise the clamp eats it).
+		// Small centered frame so +50/+30 stays inside the clamp bounds.
 		window.localStorage.setItem(
 			KEY,
 			JSON.stringify( { x: 100, y: 100, w: 400, h: 300 } )
@@ -134,8 +132,7 @@ describe( 'useDebugFrame', () => {
 		const initial = latest.frame;
 
 		const handlers = captureDrag( latest.onHeaderPointerDown );
-		// During the move: the element gets a transform, the frame STATE does not
-		// change (no per-frame React re-render of the heavy panel subtree).
+		// Move applies a transform; frame STATE stays put (no React re-render).
 		act( () => {
 			handlers.pointermove( {
 				clientX: 40,
@@ -188,8 +185,7 @@ describe( 'useDebugFrame', () => {
 		const handlers = captureDrag(
 			latest.getResizeHandlers().se.onPointerDown
 		);
-		// During the resize: the box is written directly (no committed state
-		// change), and the panel carries the shadow-lifting drag class.
+		// Resize writes the box directly; panel gets the drag class.
 		act( () => {
 			handlers.pointermove( {
 				clientX: 80,
@@ -271,12 +267,10 @@ describe( 'useDebugFrame', () => {
 			JSON.stringify( { x: 100, y: 100, w: 400, h: 300 } )
 		);
 		const { result } = renderHook( () => useDebugFrame( KEY ) );
-		// onPointerDown snapshots the bounds at the current 1200-wide viewport.
+		// onPointerDown snapshots the bounds at the 1200-wide viewport.
 		const handlers = captureDrag( result.current.onHeaderPointerDown );
 		act( () => {
-			// Shrink the viewport mid-drag. The cached bounds must win — if the
-			// clamp re-read the (now 600-wide) viewport per move, that's the
-			// per-frame reflow we removed.
+			// Shrink mid-drag: cached bounds must win, not a per-move re-read.
 			window.innerWidth = 600;
 			handlers.pointermove( {
 				clientX: 700,
@@ -291,8 +285,7 @@ describe( 'useDebugFrame', () => {
 				preventDefault: () => {},
 			} );
 		} );
-		// x = 100 + 700 = 800, clamped to the snapshotted right (1200) − w (400).
-		// A live 600-wide read would instead clamp to 600 − 400 = 200.
+		// x = 800 (snapshotted 1200 − w 400), not 200 from a live 600 read.
 		expect( result.current.frame.x ).toBe( 800 );
 	} );
 

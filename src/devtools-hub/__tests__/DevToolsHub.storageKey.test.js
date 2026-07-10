@@ -10,9 +10,7 @@ import {
 	resetDevtoolsTabs,
 } from '@newspack-nodes/shared/devtools/tabRegistry';
 
-// Capture the storageKey the overlay is mounted with. Mocking the overlay also
-// keeps this test off the real overlay's FAB/graph machinery — we only care
-// about the prop the hub hands down.
+// Capture the storageKey prop the hub hands the mocked overlay (no FAB/graph).
 const overlayStorageKeys = [];
 jest.mock( '../../debug-overlay/DebugOverlay', () => ( props ) => {
 	overlayStorageKeys.push( props.storageKey );

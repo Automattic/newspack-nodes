@@ -19,12 +19,7 @@ import { partitionSummaries } from './partitionSummaries';
 import { formatAge, formatEtaSeconds } from './formatters';
 import './styles/topology-row.scss';
 
-// Opens the DevTools hub's Console tab (the hub reads `?tab=` to pick it). A
-// `name` scopes it via `?topology=`; `edit` adds `?edit=1` to open that topology
-// in the editor; `isNew` adds `?new=1` to open a BLANK editor draft. `new` is a
-// distinct signal (not `?edit=1` sans topology) because the console's
-// topology→URL sync writes the default `?topology` on mount, which would
-// otherwise make a New link look like an edit of the default topology.
+// Opens the hub Console tab; name/edit/isNew add ?topology/?edit/?new params.
 export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	const params = new URLSearchParams( {
 		page: 'newspack-nodes-hub',
@@ -42,8 +37,7 @@ export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	return `admin.php?${ params.toString() }`;
 };
 
-// Source → badge label. Mirrors the topology-resolution provenance: stock-only,
-// user-only, or user-shadows-stock.
+// Source → badge label (provenance: stock-only, user-only, user-shadows-stock).
 const SOURCE_LABELS = {
 	stock: __( 'stock', 'newspack-nodes' ),
 	user: __( 'user only', 'newspack-nodes' ),
@@ -57,10 +51,7 @@ const HEALTH_LABELS = {
 	stalled: __( 'stalled', 'newspack-nodes' ),
 };
 
-// Build the single `TopologySection` model for one active topology's live status.
-// `status` carries the topology's `.tsl` graphTopo + workers (plus the enriched
-// rate/segment/time slices the body threads through); buildTopologySections keys
-// on topology name, so wrap the graph in a one-entry map and take the section.
+// Build the `TopologySection` model for one active topology's live status.
 export function sectionFor( name, status ) {
 	if ( ! status || ! status.graph ) {
 		return null;
@@ -115,8 +106,7 @@ const TopologyRow = memo( function TopologyRow( {
 	const { name, source, active, health = 'ok', etaSeconds = 0 } = topology;
 	const section =
 		! folded && active ? sectionFor( name, topology.status ) : null;
-	// Per-partition process summary (uptime + heartbeat + restart_pending) and
-	// the rolled-up ALL RUN / ALL DEAD badge.
+	// Per-partition process summary + the rolled-up ALL RUN / ALL DEAD badge.
 	const parts = active
 		? partitionSummaries( topology.status?.workers || [] )
 		: [];
@@ -125,7 +115,7 @@ const TopologyRow = memo( function TopologyRow( {
 	const allRunning = parts.length > 0 && up === parts.length;
 	const allDead =
 		parts.length > 0 && parts.every( ( p ) => p.status === 'dead' );
-	// ETA to catch up — shown only when behind/stalled (sub-minute lag reads ok).
+	// ETA to catch up — shown only when behind/stalled (sub-minute reads ok).
 	const eta = 'ok' !== health ? formatEtaSeconds( etaSeconds ) : '';
 
 	return (
@@ -167,8 +157,7 @@ const TopologyRow = memo( function TopologyRow( {
 					{ folded ? '▸' : '▾' }
 				</button>
 				{ active ? (
-					// draggable=false so the native link-drag doesn't hijack the
-					// row-reorder drag (the classic Firefox handle-drag killer).
+					// draggable=false so link-drag doesn't hijack the reorder.
 					<a
 						className="nodes-tm__name"
 						href={ consoleHref( name ) }
@@ -177,8 +166,7 @@ const TopologyRow = memo( function TopologyRow( {
 						{ name }
 					</a>
 				) : (
-					// Stopped: nothing live to open — plain label, not a
-					// live-mode link (Edit still deep-links into the console).
+					// Stopped: plain label, not a live link (Edit deep-links).
 					<span className="nodes-tm__name">{ name }</span>
 				) }
 				<span className="nodes-tm__parts">
@@ -221,8 +209,7 @@ const TopologyRow = memo( function TopologyRow( {
 						</span>
 					) ) }
 				</span>
-				{ /* Fixed-width liveness slot so the health (● OK) after it lines up
-				    across rows regardless of ALL RUN / ALL DEAD / "k/n up". */ }
+				{ /* Fixed-width slot so health lines up across rows. */ }
 				<span className="nodes-tm__liveness">
 					{ allRunning && (
 						<span className="worker-status-badge running small">
@@ -245,8 +232,7 @@ const TopologyRow = memo( function TopologyRow( {
 						</span>
 					) }
 				</span>
-				{ /* Health (● OK) sits right after the liveness badge; the catch-up
-				    ETA next to it. */ }
+				{ /* Health sits after the liveness badge; ETA next to it. */ }
 				{ active && (
 					<span
 						className={ `nodes-tm__health nodes-tm__health--${ health }` }
@@ -255,8 +241,7 @@ const TopologyRow = memo( function TopologyRow( {
 					</span>
 				) }
 				{ active && (
-					// A fixed (often empty) slot so the provenance pill after it
-					// doesn't shift between a caught-up row and a behind one.
+					// Fixed slot so the provenance pill doesn't shift.
 					<span
 						className="nodes-tm__eta"
 						title={ __(
@@ -273,7 +258,7 @@ const TopologyRow = memo( function TopologyRow( {
 							: '' }
 					</span>
 				) }
-				{ /* Provenance pill pushed to the right edge, next to the controls. */ }
+				{ /* Provenance pill pushed to the right, by the controls. */ }
 				<span className="nodes-tm__badge-cell">
 					<span
 						className={ `nodes-tm__badge nodes-tm__badge--${ source }` }

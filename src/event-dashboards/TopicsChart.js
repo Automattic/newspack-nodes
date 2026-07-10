@@ -27,12 +27,10 @@ import { resolveChartPalette } from './resolveChartPalette';
 import { useThemeToken } from './useThemeToken';
 
 const HEIGHT = 200;
-// A panel is ~1800px wide, so a denser axis than this is sub-pixel; capping here
-// is what keeps the d3 redraw cheap (the 24h union is ~30k points/topic).
+// Panel ~1800px wide; denser than this is sub-pixel. Caps the d3 redraw cost.
 const MAX_POINTS = 1000;
 
-// Memoized: d3-driven and re-rendered by Overview on every drag-reorder frame;
-// the memoized `series` props are stable mid-drag, so it skips the redraw.
+// Memoized: d3-driven; Overview re-renders each drag frame, stable series skip.
 export const TopicsChart = memo( function TopicsChart( {
 	title,
 	series,
@@ -44,10 +42,7 @@ export const TopicsChart = memo( function TopicsChart( {
 		[ series, fillMode ]
 	);
 
-	// Anchor in the themed `.topology-app` cascade so the chart's series colors
-	// re-skin with the active hub theme; `theme` changing re-runs the d3 render,
-	// which re-resolves the `--chart-*` tokens (falling back to the shared
-	// PALETTE) off the now-mounted ref.
+	// Anchor in the themed cascade so series colors re-skin with the theme.
 	const themeRef = useRef( null );
 	const theme = useThemeToken( themeRef );
 
@@ -62,8 +57,7 @@ export const TopicsChart = memo( function TopicsChart( {
 						window.getComputedStyle( el ).getPropertyValue( name )
 				  )
 				: PALETTE;
-			// Empty series (e.g. right after a stats reset) → wipe any prior
-			// render so the old lines clear instead of lingering, then stop.
+			// Empty series (after a stats reset): wipe prior render, stop.
 			if ( chartState.series.length === 0 ) {
 				d3.select( refs.containerRef.current )
 					.selectAll( '*' )
@@ -167,9 +161,7 @@ export const TopicsChart = memo( function TopicsChart( {
 				width
 			);
 		},
-		// `theme` isn't read in the body but is the re-resolution trigger: a skin
-		// swap must change renderFn's identity so useTimeChart re-runs the d3
-		// render and re-reads the `--chart-*` tokens off themeRef.
+		// `theme` is the re-resolution trigger; changes renderFn identity.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ chartState, formatValue, theme ]
 	);

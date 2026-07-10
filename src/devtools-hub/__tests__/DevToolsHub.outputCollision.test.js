@@ -32,8 +32,7 @@ import {
 	resetDevtoolsTabs,
 } from '@newspack-nodes/shared/devtools/tabRegistry';
 
-// Faithful console-ish tab: like useConsoleGraph, it registers an `_output`
-// DumperNode in a mount effect and removes it on unmount.
+// Faithful console-ish tab: registers `_output` on mount, removes on unmount.
 function ConsoleishTab() {
 	useEffect( () => {
 		const dumper = new DumperNode();
@@ -51,10 +50,7 @@ describe( 'DevToolsHub _output collision on switch-to-Console', () => {
 		window.history.replaceState( {}, '', '/' );
 		// Sticky flag → isDebugEnabled true → the overlay mounts.
 		window.localStorage.setItem( 'newspack-nodes:debug', '1' );
-		// resetDevtoolsTabs() wiped the overlay's built-in Inspector tab (normally
-		// registered by `import './tabs'` in DebugOverlay). Re-register it so the
-		// opened panel mounts the REAL InspectorTab → real useDebugRepl → real
-		// `_output` registration during render.
+		// Re-register the Inspector tab (reset wiped it) → real `_output`.
 		registerDevtoolsTab( {
 			id: 'inspector',
 			label: 'Inspector',
@@ -74,8 +70,7 @@ describe( 'DevToolsHub _output collision on switch-to-Console', () => {
 			order: 0,
 			component: () => <div data-testid="manager" />,
 		} );
-		// Console tab — the overlay is gated OFF here; its component registers
-		// the real `_output` node on mount.
+		// Console tab: overlay gated OFF; registers `_output` on mount.
 		registerDevtoolsTab( {
 			id: 'topology-console',
 			label: 'Console',
@@ -89,13 +84,11 @@ describe( 'DevToolsHub _output collision on switch-to-Console', () => {
 		registerTabs();
 		const { getByRole } = render( <DevToolsHub /> );
 
-		// Open the overlay panel on the non-console tab so the real
-		// useDebugRepl registers `_output` during render.
+		// Open overlay on the non-console tab → useDebugRepl regs `_output`.
 		fireEvent.click( getByRole( 'button', { name: /node debugger/i } ) );
 		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
 
-		// Switch to the Console tab. Before the fix this throws
-		// "node name collision: _output already registered".
+		// Switch to Console; before the fix this threw a `_output` collision.
 		expect( () =>
 			fireEvent.click( getByRole( 'tab', { name: 'Console' } ) )
 		).not.toThrow();
