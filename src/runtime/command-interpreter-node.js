@@ -33,8 +33,7 @@ import {
 	newMessage,
 } from './message';
 
-// Alias to canonical, kept in lockstep with the verb table + Shell builtins so
-// `help <alias>` resolves to the same topic PHP cmd_help does.
+// Alias→canonical; lockstep with verb table + builtins so `help` resolves.
 const ALIAS_TO_CANONICAL = {
 	ls: 'list_nodes',
 	dump: 'dump_node',
@@ -84,7 +83,7 @@ const HELP = {
 	stats: 'stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n',
 	help: 'help [ <topic> ]\n',
 
-	// Shell-level builtins — Shell intercepts these; listed here so `help` is complete.
+	// Shell builtins — Shell intercepts these; listed so `help` is complete.
 	cd: 'cd [ <path> ]\n    alias: chdir\n',
 	debug_level: 'debug_level [0|1|2]\n',
 	tell_node: 'tell_node <path> <info>\n    alias: tell\n',
@@ -102,7 +101,7 @@ const HELP = {
 	status: 'status\n    note: local cli mode summary (no command sent).\n',
 };
 
-// Split on runs of whitespace, dropping empties (PHP preg_split('/\s+/', trim())).
+// Split on runs of whitespace, dropping empties (PHP preg_split '/\s+/').
 function splitArgs( args ) {
 	const t = String( args ?? '' ).trim();
 	return '' === t ? [] : t.split( /\s+/ );
@@ -117,8 +116,7 @@ function splitArgs( args ) {
 export class CommandInterpreterNode extends Node {
 	constructor() {
 		super();
-		// Per-instance authorize override (tests / special cases); null falls back
-		// to the static default, then to the built-in LOCAL-provenance check.
+		// Per-instance authorize override; null → static default → LOCAL check.
 		this.authorize = null;
 		this._commands = CommandInterpreterNode._defaultCommands();
 	}
@@ -154,9 +152,7 @@ export class CommandInterpreterNode extends Node {
 			return;
 		}
 
-		// Authorization gate (every command): the browser tier requires the LOCAL
-		// provenance taint a Shell stamps on in-process commands. An SSE-injected
-		// command routed here lacks it and is refused before dispatch.
+		// Auth gate: needs LOCAL taint (Shell stamps it); wire cmds refused.
 		const authorize =
 			this.authorize ??
 			CommandInterpreterNode.defaultAuthorize ??
@@ -193,9 +189,7 @@ export class CommandInterpreterNode extends Node {
 		if ( payload === '' || payload === undefined ) {
 			return;
 		}
-		// TM_NOREPLY (Tachikoma CommandInterpreter::send_response): suppress the
-		// routed reply, but still surface an error to stderr so a failed boot
-		// command (e.g. a bad topology make_node) stays visible in dmesg.
+		// TM_NOREPLY: suppress the routed reply, but surface errors to stderr.
 		const inType = message[ TYPE ];
 		if ( ( typeof inType === 'number' ? inType : 0 ) & TM_NOREPLY ) {
 			if ( kind & TM_ERROR ) {
@@ -210,9 +204,7 @@ export class CommandInterpreterNode extends Node {
 		resp[ TO ] = message[ FROM ];
 		resp[ ID ] = message[ ID ];
 		resp[ KEY ] = message[ KEY ];
-		// Response VALUE rides as { name, arguments, payload } directly — `arguments`
-		// echoes the request so a targeted reply (e.g. `dump_metadata <node>`) is
-		// distinguishable from a full one.
+		// Response VALUE echoes request `arguments` (targeted vs full reply).
 		const reqArgs =
 			message[ VALUE ] && typeof message[ VALUE ] === 'object'
 				? message[ VALUE ].arguments ?? ''
@@ -223,12 +215,7 @@ export class CommandInterpreterNode extends Node {
 		}
 	}
 
-	// `make_node <type> <name> [<ctor_args>...]` — mirrors PHP
-	// Command_Interpreter_Node::make_node: split the args on whitespace, the
-	// remaining tokens spread straight into the constructor as positional args,
-	// then name() + sink($self). The browser builds it locally (no deferring to a
-	// worker) so the console graph is live + hackable. A bad/short arg list
-	// throws in the constructor — that's fine, breaking is how you learn.
+	// `make_node <type> <name> [args]`: spread tokens to ctor, name()+sink.
 	_cmdMakeNode( args ) {
 		const parts = String( args ?? '' )
 			.trim()
@@ -238,8 +225,7 @@ export class CommandInterpreterNode extends Node {
 			return 'usage: make_node <type> <name> [<ctor_args>...]';
 		}
 		const type = parts.shift();
-		// Unknown class returns a string (builds nothing); a name collision still
-		// throws out so interpret()'s central catch wraps it as TM_ERROR.
+		// Unknown class returns a string; a collision throws → TM_ERROR.
 		if ( ! CommandInterpreterNode.includeNodes[ type ] ) {
 			return `unknown class: ${ type }`;
 		}
@@ -248,8 +234,7 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// Programmatic graph construction: create a registered class, name + sink it
-	// into this interpreter, return the node. The make_node verb delegates here.
+	// Programmatic build: create, name + sink a class; make_node delegates.
 	makeNode( type, name, args = '' ) {
 		const NodeClass = CommandInterpreterNode.includeNodes[ type ];
 		if ( ! NodeClass ) {
@@ -265,8 +250,7 @@ export class CommandInterpreterNode extends Node {
 		return node;
 	}
 
-	// The verb table and the auth closure are internal machinery, not display state and
-	// not nodes (so the base instanceof filter wouldn't catch them) — mask them. [96]
+	// Verb table + auth closure are internal machinery, not state — mask them.
 	dumpNode() {
 		const snapshot = super.dumpNode();
 		snapshot._commands = '{...}';
@@ -354,10 +338,7 @@ export class CommandInterpreterNode extends Node {
 		};
 	}
 
-	// `reply_to <node path> <command>` — run <command> HERE but route its reply to
-	// <node path> (inverse of command_node). Mints the sub-command stamped
-	// FROM=<path> (interpret replies TO=FROM) + re-enters fill(); LOCAL authorizes
-	// the in-process mint. Returns nothing — the output went to <path>.
+	// `reply_to <path> <cmd>` — run <cmd> here but route its reply to <path>.
 	_cmdReplyTo( args ) {
 		const t = String( args ?? '' ).trim();
 		const i1 = t.search( /\s/ );
@@ -369,9 +350,7 @@ export class CommandInterpreterNode extends Node {
 		if ( '' === path || '' === verb ) {
 			return 'usage: reply_to <node path> <command>';
 		}
-		// reply_to is the only verb that re-enters interpret() with a fresh
-		// sub-command; refuse to nest it so `reply_to p reply_to p ... <verb>`
-		// can't recurse synchronously until the stack blows.
+		// reply_to re-enters interpret(); refuse to nest (stack blowup).
 		if ( 'reply_to' === verb ) {
 			return 'reply_to cannot invoke reply_to';
 		}
@@ -425,9 +404,7 @@ export class CommandInterpreterNode extends Node {
 				return 'usage: connect_node <node> [<target>]';
 			}
 		}
-		// Every node implements connectNode now (base = single string target; Tee
-		// appends to a fan-out array; RemoteLink points its SseIn), so dispatch
-		// uniformly — no branch on node type. Matches PHP Node::connect_node.
+		// Every node implements connectNode; dispatch uniformly, no branch.
 		src.connectNode( target );
 		return 'ok';
 	}
@@ -454,8 +431,7 @@ export class CommandInterpreterNode extends Node {
 			// Primary path: base Node + Tee both implement disconnectNode now.
 			src.disconnectNode( target );
 		} else if ( Array.isArray( src.target ) ) {
-			// Defensive fallback for any node missing disconnectNode: remove the
-			// target from the fan-out array directly (PHP Node::disconnect_node).
+			// Fallback if a node lacks disconnectNode: filter from fan-out.
 			src.target = src.target.filter( ( t ) => t !== target );
 		} else if ( src.target === target ) {
 			src.target = '';
@@ -463,9 +439,7 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// `register <source> <target> <event>` — source registers target as a
-	// node-name listener for event (Tachikoma register; arg order source/target/event
-	// but Node.register takes event first). Undeclared events throw out as TM_ERROR.
+	// register: arg order src/tgt/event, but Node.register takes event first.
 	static _cmdRegister( args ) {
 		const parts = splitArgs( args );
 		const source = parts[ 0 ] ?? '';
@@ -487,9 +461,7 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// `unregister <source> <target> <event>` — drop target's node-name
-	// registration for event on source (Tachikoma unregister). No target-existence
-	// check: a vanished target's registration can still be cleared.
+	// unregister: drop tgt's registration on src; no target-existence check.
 	static _cmdUnregister( args ) {
 		const parts = splitArgs( args );
 		const source = parts[ 0 ] ?? '';
@@ -556,8 +528,7 @@ export class CommandInterpreterNode extends Node {
 				errors.push( `can't find node "${ name }"` );
 				continue;
 			}
-			// Full lifecycle teardown (clears refs, cascades the sibling interpreter,
-			// unregisters its own name LAST) — matches PHP Node::remove_node.
+			// Full teardown, own name LAST (PHP Node::remove_node).
 			node.removeNode();
 			removed.push( `removed ${ name }` );
 		}
@@ -569,10 +540,9 @@ export class CommandInterpreterNode extends Node {
 		return '' === out ? 'ok' : out;
 	}
 
-	// `list_nodes` (alias `ls`): default=siblings, `-a [glob]`=all, `<name>`=that sink's children.
+	// `list_nodes`/`ls`: none=siblings, `-a [glob]`=all, `<name>`=its kids.
 	_cmdList( args, env = {} ) {
-		// Completion mode: emit bare node names only, ignoring all -clst column
-		// flags so the tab-completion parser gets clean candidates.
+		// Completion mode: bare node names only, ignoring -clst column flags.
 		const isCompletion = env && env[ KEY ] === 'completion';
 		let listMatches = false;
 		let showCount = false;
@@ -606,8 +576,7 @@ export class CommandInterpreterNode extends Node {
 			argv.push( tok );
 		}
 
-		// Completion mode shows bare names only: drop any column flags, and list
-		// ALL nodes (like `-a`) so `cd <tab>` can reach _-prefixed nodes too.
+		// Completion: bare names, no flags, list ALL so `cd <tab>` sees _nodes.
 		if ( isCompletion ) {
 			showCount = false;
 			showSink = false;
@@ -715,7 +684,7 @@ export class CommandInterpreterNode extends Node {
 		return Array.isArray( recent ) ? recent.join( '' ) : '';
 	}
 
-	// dump_node <name> [<keys>]: class-header + pretty-JSON of the node's state.
+	// dump_node <name> [<keys>]: class header + pretty-JSON of state.
 	static _cmdDumpNode( args ) {
 		const parts = splitArgs( args );
 		const name = parts[ 0 ] ?? '';
@@ -729,13 +698,13 @@ export class CommandInterpreterNode extends Node {
 		let wanted = parts.slice( 1 );
 		const snapshot = node.dumpNode();
 
-		// The class heads the dump (first line); pull it out so it isn't a body key.
+		// The class heads the dump (first line); pull it out of the body keys.
 		const klass = snapshot.class ?? '';
 		delete snapshot.class;
-		// `class` is always shown in the header, so requesting it as a key is a no-op.
+		// `class` always in the header; requesting it as a key is a no-op.
 		wanted = wanted.filter( ( k ) => 'class' !== k );
 
-		// Alphabetical so output is stable across nodes with different ancestors.
+		// Alphabetical so output is stable across differing ancestries.
 		const ordered = {};
 		for ( const k of Object.keys( snapshot ).sort() ) {
 			ordered[ k ] = snapshot[ k ];
@@ -757,15 +726,12 @@ export class CommandInterpreterNode extends Node {
 		return `${ klass } ${ JSON.stringify( body, null, 4 ) }`;
 	}
 
-	// dump_config — every node's round-trippable make_node/set_sink/connect_node
-	// lines, skipping the baseline scaffolding. Mirrors PHP cmd_dump_config.
+	// dump_config — round-trippable make_node/set_sink/connect_node lines.
 	static _cmdDumpConfig( glob = '' ) {
 		const pattern = ( glob || '' ).trim();
 		let re = null;
 		if ( pattern ) {
-			// Tachikoma: the arg is a regex glob on node names. A malformed
-			// pattern matches nothing (empty dump), mirroring PHP where a bad
-			// preg_match returns false and every node is skipped.
+			// Regex glob on node names; a bad pattern matches nothing.
 			try {
 				re = new RegExp( pattern );
 			} catch {
@@ -774,17 +740,14 @@ export class CommandInterpreterNode extends Node {
 		}
 		let out = '';
 		for ( const [ name, node ] of Core.nodes ) {
-			// Skip only the backbone (literals avoid the `names` shadow); _output
-			// is a real node now, shown on the canvas and dumpable.
+			// Skip only the backbone; _output is a real node now, dumpable.
 			if ( '_command_interpreter' === name || '_router' === name ) {
 				continue;
 			}
 			if ( re && ! re.test( name ) ) {
 				continue; // regex-glob filter — skip names not matching.
 			}
-			// Omit patron-managed sidecars (a Consumer's :source / :offsetlog): the
-			// patron's own config line recreates them, so dumping them separately
-			// would duplicate them on replay.
+			// Omit patron-managed sidecars; patron's config recreates them.
 			if ( node.patron ) {
 				continue;
 			}
@@ -795,9 +758,7 @@ export class CommandInterpreterNode extends Node {
 		return out;
 	}
 
-	// dump_metadata [<node>] — per-node stats snapshot for the GUI canvas. With a
-	// node name, returns just that node (or an empty map if it's gone) so a
-	// post-mutation refresh is a one-node round-trip; bare = the full map.
+	// dump_metadata [<node>] — per-node stats snapshot; bare = the full map.
 	static _cmdDumpMetadata( args ) {
 		return dumpMetadataPayload( String( args ?? '' ).trim() );
 	}
@@ -850,7 +811,7 @@ export class CommandInterpreterNode extends Node {
 		return CommandInterpreterNode._tabulate( dirs, header, rows );
 	}
 
-	// debug_state [ <node name> [ <level> ] ] — toggle or set a node's debug level.
+	// debug_state [<node> [<level>]] — toggle or set a node's debug level.
 	_cmdDebugState( args ) {
 		const parts = splitArgs( args );
 		const first = parts[ 0 ] ?? '';
@@ -867,7 +828,7 @@ export class CommandInterpreterNode extends Node {
 			if ( '' === second ) {
 				next = ( this.debugState ?? 0 ) > 0 ? 0 : 1;
 			} else {
-				// Match PHP (int) coercion + max(0,…): non-numeric → 0, never negative.
+				// Match PHP (int) + max(0,…): non-numeric → 0, never negative.
 				next = Math.max( 0, parseInt( second, 10 ) || 0 );
 			}
 			let output = `Setting all nodes to debug_state: ${ next }\n`;
@@ -892,20 +853,18 @@ export class CommandInterpreterNode extends Node {
 		if ( '' === second ) {
 			next = ( node.debugState ?? 0 ) > 0 ? 0 : 1;
 		} else {
-			// Match PHP (int) coercion + max(0,…): non-numeric → 0, never negative.
+			// Match PHP (int) + max(0,…): non-numeric → 0, never negative.
 			next = Math.max( 0, parseInt( second, 10 ) || 0 );
 		}
 		node.debugState = next;
 		return `${ first } debug_state: ${ next }`;
 	}
 
-	// help — no args lists command names tabulated; a topic returns that command's help.
+	// help — no args tabulates command names; a topic returns its help.
 	static _cmdHelp( args, env = {} ) {
-		// Completion mode: bare sorted verb names, newline-separated — no headers,
-		// no per-topic help text — so the tab-completion parser gets clean candidates.
+		// Completion: bare sorted verb names, newline-separated, no help text.
 		if ( env && env[ KEY ] === 'completion' ) {
-			// Source from the verb dispatch table, not the help-topic table, so
-			// aliases (ls, rm, make, ...) are offered alongside the canonicals.
+			// From verb dispatch table (not help-topic) so aliases are listed.
 			return Object.keys( CommandInterpreterNode._defaultCommands() )
 				.sort()
 				.join( '\n' );
@@ -993,8 +952,7 @@ export class CommandInterpreterNode extends Node {
 		return out.replace( /\n+$/, '' );
 	}
 
-	// `list_timers` — active timers across the graph (mirrors PHP / Tachikoma list_ids).
-	// MODE reveals own-slot (`event_framework`, a setInterval) vs router-hitchhike.
+	// `list_timers` — active timers; MODE = own-slot vs router-hitchhike.
 	static _cmdListTimers() {
 		const rows = [];
 		for ( const [ name, node ] of Core.nodes ) {
@@ -1027,8 +985,7 @@ export class CommandInterpreterNode extends Node {
 		);
 	}
 
-	// `list_handles` — nodes holding an EventSource (the browser analog of the cURL
-	// handles PHP's list_handles/list_fds report). STATE is the EventSource readyState.
+	// `list_handles` — nodes holding an EventSource; STATE = its readyState.
 	static _cmdListHandles() {
 		const states = [ 'CONNECTING', 'OPEN', 'CLOSED' ];
 		const rows = [];
@@ -1085,16 +1042,10 @@ export class CommandInterpreterNode extends Node {
 	}
 }
 
-// Process-wide default authorization policy. The browser leaves it null (the
-// built-in LOCAL check applies). Same shape as PHP CommandInterpreter::$default_authorize.
+// Process-wide default authorize policy; browser leaves it null (LOCAL check).
 CommandInterpreterNode.defaultAuthorize = null;
 
-// The `make_node` type→class lookup. Tachikoma resolves `$prefix::$type` by
-// require-ing the .pm off @INC ( include_nodes + the default Tachikoma::Nodes );
-// the browser has no require-by-name, so this flat table IS that namespace.
-// The console extends it with its own node classes (Tachikoma's include_nodes).
-// Hook / Router / Callback are intentionally absent — nobody makes a second
-// router, or a predicate/closure node, from the shell.
+// `make_node` type→class lookup — flat table for Tachikoma's @INC require.
 CommandInterpreterNode.includeNodes = {
 	Node,
 	CommandInterpreter: CommandInterpreterNode,
@@ -1115,9 +1066,7 @@ CommandInterpreterNode.includeNodes = {
 	Uptime: UptimeNode,
 };
 
-// Plugins/dashboards register their own node classes (the `*View`/`*Transform`
-// factories, ELN's `Performance*`, etc.) by merging a shell-name→class map into
-// includeNodes — mirrors PHP's per-plugin namespace registration.
+// Plugins register node classes by merging a name→class map into includeNodes.
 CommandInterpreterNode.registerNodeClasses = function ( map ) {
 	Object.assign( CommandInterpreterNode.includeNodes, map );
 };

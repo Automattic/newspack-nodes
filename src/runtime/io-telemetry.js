@@ -25,8 +25,7 @@
 
 import { byteLength } from './message';
 
-// Re-exported so the boundary instrumentation (SseIn, CommandClient) can
-// pull the byte counter from the same module it records into.
+// Re-exported so SseIn/CommandClient pull byteLength from this module.
 export { byteLength };
 
 const GLOBAL_KEY = '__newspackNodesIoTelemetry';
@@ -41,8 +40,7 @@ export const OVERVIEW_STORAGE_KEY = 'newspack-nodes:debug:overview';
 export const RING_SECONDS = 3600;
 export const SAMPLE_INTERVAL_MS = 5000;
 export const MAX_SAMPLES = RING_SECONDS / ( SAMPLE_INTERVAL_MS / 1000 );
-// Bounded ring of the most recent classified log lines (debug/warning/error)
-// shown under the Overview charts — per page-load, not persisted.
+// Bounded ring of recent classified log lines — per page-load, not persisted.
 export const MAX_MESSAGES = 200;
 
 class IoTelemetryImpl {
@@ -51,8 +49,7 @@ class IoTelemetryImpl {
 		this.load( nowSeconds() );
 	}
 
-	// Clear every counter + the series + subscribers. Does NOT touch localStorage
-	// (so tests stay isolated) — load() restores from storage explicitly.
+	// Clear counters + series + subscribers; does NOT touch localStorage.
 	reset() {
 		this.bytesIn = 0;
 		this.bytesOut = 0;
@@ -61,24 +58,20 @@ class IoTelemetryImpl {
 		this.warnings = 0;
 		this.errors = 0;
 		this.debug = 0;
-		// Wall-clock (seconds) the browser's SSE stream last connected, or null when
-		// not connected. Set by SseInNode on CONNECTED, cleared on DISCONNECTED.
-		// Survives clear() (a stats reset doesn't drop a live connection).
+		// Wall-clock (s) the SSE stream last connected, else null.
 		this.sseConnectedAt = null;
 		// Recent classified log lines `{ level, text, ts }` (bounded ring).
 		this.messages = [];
 		// Compact rows: [ t, msgInRate, msgOutRate, byteInRate, byteOutRate ].
 		this.series = [];
-		// Monotonic emitted-sample counter — a stable, collision-free memo key for
-		// readers (the in-place ring mutates, so length/last-ts is a fragile proxy).
+		// Monotonic sample counter — a stable, collision-free memo key.
 		this.revision = 0;
 		// Rate baseline (per page-load; null until the first sample).
 		this._last = null;
 		this._listeners = new Set();
 	}
 
-	// Restore the persisted series, dropping rows older than the 1h window.
-	// Malformed storage is ignored (series stays empty).
+	// Restore the persisted series (drop rows >1h; malformed → empty).
 	load( now = nowSeconds() ) {
 		let stored;
 		try {
@@ -97,10 +90,7 @@ class IoTelemetryImpl {
 		);
 	}
 
-	// Operator "reset stats": zero the counters, series, and messages AND drop the
-	// persisted series — but KEEP subscribers (the dashboards stay live and
-	// re-render to the cleared state). Bumps the revision so the chart memo
-	// recomputes against the empty series, and restarts the rate baseline.
+	// Operator "reset stats": zero counters/series/messages, KEEP subscribers.
 	clear() {
 		this.bytesIn = 0;
 		this.bytesOut = 0;
@@ -132,9 +122,7 @@ class IoTelemetryImpl {
 		this._pushMessage( 'warning', text );
 	}
 
-	// Append a classified line to the bounded ring. A textless record (e.g. a
-	// TM_ERROR frame) bumps the counter but adds no row. No notify: the list
-	// refreshes on the next sampler tick like the count cards, not per line.
+	// Append a classified line to the bounded ring; textless adds no row.
 	_pushMessage( level, text ) {
 		if ( '' === text ) {
 			return;
@@ -190,7 +178,7 @@ class IoTelemetryImpl {
 		this._last = cur;
 	}
 
-	// Drop rows older than the 1h window, then cap to MAX_SAMPLES (oldest first).
+	// Drop rows older than the 1h window, then cap to MAX_SAMPLES.
 	_trim( now ) {
 		const cutoff = now - RING_SECONDS;
 		while ( this.series.length && this.series[ 0 ][ 0 ] < cutoff ) {
@@ -222,11 +210,9 @@ class IoTelemetryImpl {
 		this.msgsOut += count;
 	}
 
-	// SSE stream lifecycle (drives the Overview's SSE Uptime card). Connect stamps
-	// the wall-clock; disconnect clears it so the card reads "—" while down.
+	// SSE lifecycle (Overview Uptime card); connect stamps, disconnect clears.
 	markSseConnected( at = nowSeconds() ) {
-		// Whole seconds: nowSeconds() is a float (Date.now()/1000), and the Uptime
-		// card's formatAge would otherwise render a fractional age ("51.684…s").
+		// Whole seconds: nowSeconds() is a float; avoid a fractional age.
 		this.sseConnectedAt = Math.floor( at );
 	}
 
@@ -258,11 +244,7 @@ class IoTelemetryImpl {
 	}
 }
 
-// The build emits each dashboard bundle as its own IIFE inlining its own copy of
-// this module; a module-local instance would split the accounting per bundle. Back
-// it with a process-wide window singleton so every copy shares ONE accumulator —
-// matching the Core / tabRegistry convention. Bare `window` is safe: these bundles
-// only run in the browser (jest provides window too).
+// Back with a window singleton so every inlined bundle shares ONE accumulator.
 if ( ! window[ GLOBAL_KEY ] ) {
 	window[ GLOBAL_KEY ] = new IoTelemetryImpl();
 }

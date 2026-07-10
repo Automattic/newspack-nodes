@@ -42,9 +42,9 @@ function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
 describe( 'quoteToken — tokenizer inverse for one intact token [#32]', () => {
 	it( 'wraps a JSON value so tokenize() returns it as a single token', () => {
 		const json = '{ "foo": "bar", "n": 3 }';
-		// Bare JSON shreds: the tokenizer strips the " quotes and splits on spaces.
+		// Bare JSON shreds: the tokenizer strips " quotes and splits on spaces.
 		expect( tokenize( json ).length ).toBeGreaterThan( 1 );
-		// Quoted, it survives as one token (quote char stripped → original JSON).
+		// Quoted, it survives as one token (quote stripped → original JSON).
 		expect( tokenize( quoteToken( json ) ) ).toEqual( [ json ] );
 	} );
 
@@ -60,9 +60,7 @@ describe( 'quoteToken — tokenizer inverse for one intact token [#32]', () => {
 	} );
 
 	it( 'returns null when the value contains every quote char (not representable)', () => {
-		// The tokenizer has no escape, so a value carrying ', `, AND " can't be wrapped
-		// in any single quote char — quoteToken reports that honestly rather than
-		// best-efforting into a token that re-tokenizes wrong.
+		// No escape: a value with all ', `, " can't be wrapped by quoteToken.
 		expect( quoteToken( 'a\'b`c"d' ) ).toBeNull();
 	} );
 } );
@@ -108,7 +106,7 @@ describe( 'Shell node — cd navigation', () => {
 		const { shell } = makeShell( { path: '_http/demo.p0' } );
 		shell.parse( 'cd /_http' );
 		const msg = shell.parse( 'ls' );
-		expect( msg[ TO ] ).toBe( '_http' ); // → HttpOut → request-scope interpreter
+		expect( msg[ TO ] ).toBe( '_http' ); // → HttpOut → request interpreter
 		shell.parse( 'cd /' );
 		const local = shell.parse( 'ls' );
 		expect( local[ TO ] ).toBe( '' ); // → browser-internal interpreter
@@ -173,7 +171,7 @@ describe( 'Shell node — fill() reply path + TO', () => {
 		expect( filled ).toHaveLength( 1 );
 		const m = filled[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
-		// FROM is the bare reply node; the `_sse` session node wraps it downstream.
+		// FROM is the bare reply node; _sse wraps it downstream.
 		expect( m[ FROM ] ).toBe( '_output' );
 		expect( m[ TO ] ).toBe( 'demo.p0' );
 		expect( m[ VALUE ] ).toEqual( {
@@ -244,8 +242,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	} );
 
 	it( 'send_struct <node> <json> → TM_STRUCT with the decoded object as VALUE', () => {
-		// JSON single-quoted so the tokenizer keeps it as one token with the
-		// inner double-quotes intact (mirrors `send_hash <path> '<json>'`).
+		// JSON single-quoted → one token, inner double-quotes intact.
 		const { m } = drive( 'send_struct my_node \'{"foo":23,"bar":42}\'' );
 		expect( m[ TYPE ] ).toBe( TM_STRUCT );
 		expect( m[ TO ] ).toBe( '_http/demo.p0/my_node' );

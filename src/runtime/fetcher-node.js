@@ -50,9 +50,7 @@ export class FetcherNode extends Node {
 	}
 
 	fill( _message ) {
-		// command_args may be a fire-time getter (live UI-state args) or a static
-		// string. Resolve it here so each tick carries the CURRENT args; a getter
-		// returning a non-string coerces to ''.
+		// command_args may be a fire-time getter or static string; resolve now.
 		const args =
 			'function' === typeof this.command_args
 				? this.command_args()

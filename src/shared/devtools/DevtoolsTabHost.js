@@ -42,20 +42,14 @@ export default function DevtoolsTabHost( {
 	onActiveTabChange,
 	syncUrl = false,
 } ) {
-	// Re-render when the registry changes so a tab bundle that registers AFTER
-	// this host first rendered still appears — the common case when a backgrounded
-	// tab throttles script loading past the hub's initial render. Stable module
-	// refs so the subscription isn't churned each render; the version return is
-	// unused (the read below is the source of truth).
+	// Re-render on registry change so late-registered tabs still appear.
 	const registryVersion = useSyncExternalStore(
 		subscribeDevtoolsTabs,
 		getDevtoolsTabsVersion,
 		getDevtoolsTabsVersion
 	);
 	const tabs = getDevtoolsTabs( host );
-	// Compute the initial tab in the initializer so the right tab mounts on the
-	// FIRST render (matters for a fullBleed tab that builds before it paints):
-	// honor `?tab=<slug>` under syncUrl, else the first tab.
+	// Resolve initial tab now so a fullBleed tab mounts right on first render.
 	const [ activeId, setActiveId ] = useState( () => {
 		if ( syncUrl ) {
 			const slug = getQueryParam( 'tab' );
@@ -69,27 +63,18 @@ export default function DevtoolsTabHost( {
 	const active = tabs.find( ( t ) => t.id === activeId ) || tabs[ 0 ];
 	const Active = active?.component;
 
-	// Deep-link resolution across LATE tab registration (the background-tab load):
-	// capture the initial `?tab=` slug ONCE (before the URL-sync effect can rewrite
-	// it) so we can still honor it after its bundle registers.
+	// Capture the initial ?tab= slug once so a late tab is still honored.
 	const initialSlugRef = useRef( syncUrl ? getQueryParam( 'tab' ) : null );
-	// Set once the user picks a tab — after that we never auto-switch to the
-	// deep-link target.
+	// Set once the user picks a tab; then we never auto-switch to deep-link.
 	const pickedRef = useRef( false );
-	// The deep-link is "pending" until the ACTIVE tab is actually the target — not
-	// merely until the target registers. The gap matters: on the render where the
-	// target has registered but the switch effect hasn't run yet, the fallback tab
-	// is still active, and letting the URL sync fire there would clear the target's
-	// own param (e.g. `?topology=`) before the target mounts and reads it.
+	// Pending until ACTIVE tab IS target; else URL sync clears its param early.
 	const deepLinkPending =
 		syncUrl &&
 		! pickedRef.current &&
 		!! initialSlugRef.current &&
 		active?.slug !== initialSlugRef.current;
 
-	// When the deep-linked tab finally registers, switch to it — unless the user
-	// already picked a tab. Keyed on the registry version so it re-checks on each
-	// registration rather than every render.
+	// Switch to the deep-linked tab when it registers, unless the user picked.
 	useEffect( () => {
 		if ( ! syncUrl || pickedRef.current || ! initialSlugRef.current ) {
 			return;
@@ -102,12 +87,10 @@ export default function DevtoolsTabHost( {
 		}
 	}, [ syncUrl, host, activeId, registryVersion ] );
 
-	// Canonicalize the URL to the resolved tab's slug on mount and on a switch,
-	// dropping other tabs' deep-link params so only the active tab's remains.
+	// Canonicalize the URL to the resolved tab's slug on mount and on switch.
 	const resolvedSlug = active?.slug;
 	useEffect( () => {
-		// Hold off while a deep-link is pending so we don't rewrite `?tab=<target>`
-		// to the fallback tab's slug before the target registers.
+		// Hold off while a deep-link is pending; don't rewrite ?tab= early.
 		if ( ! syncUrl || ! resolvedSlug || deepLinkPending ) {
 			return;
 		}
@@ -119,8 +102,7 @@ export default function DevtoolsTabHost( {
 		}
 	}, [ syncUrl, resolvedSlug, host, deepLinkPending ] );
 
-	// Report the RESOLVED active id (which may differ from activeId when the
-	// stored id no longer matches a tab) so the host always learns the real tab.
+	// Report the RESOLVED active id so the host always learns the real tab.
 	const resolvedId = active?.id;
 	useEffect( () => {
 		onActiveTabChange?.( resolvedId );

@@ -46,9 +46,7 @@ test( 'teardown removes the _shell Tap', () => {
 } );
 
 test( 'the backbone heartbeat targets _http/workers (permanent edge, even with no connect)', () => {
-	// The poke target is fixed backbone wiring, not set on RemoteLink connect — so
-	// the `_heartbeat → _http/workers` edge survives a Reset Graph rebuild at `/`
-	// where the console never connects a worker stream.
+	// _heartbeat → _http/workers is fixed backbone wiring, not per-connect.
 	const { teardown } = mountExospine();
 	expect( Core.node( names.HEARTBEAT ).target ).toBe(
 		`${ names.HTTP }/workers`
@@ -73,8 +71,7 @@ test( 'teardown fully clears the backbone (sink edge + caller TIMER listeners)',
 	teardown();
 
 	expect( interpreter.sink ).toBeNull();
-	// removeNode wipes registrations wholesale, so the caller's TIMER listener
-	// cannot survive teardown.
+	// removeNode wipes registrations, so the TIMER listener can't survive.
 	expect( router.registrations.TIMER?.poll ).toBeUndefined();
 } );
 
@@ -117,8 +114,7 @@ describe( 'mountExospine( build )', () => {
 		reinit();
 
 		expect( builds ).toBe( 2 );
-		// A fresh instance under the same name (the old one was removed first, so
-		// the rebuild's setName doesn't collide).
+		// Fresh instance, same name (old one removed first, no collision).
 		expect( Core.node( 'view' ) ).not.toBeNull();
 		expect( Core.node( 'view' ) ).not.toBe( first );
 		// The old instance was fully removed (removeNode clears its name).
@@ -140,8 +136,7 @@ describe( 'mountExospine( build )', () => {
 			view.name = 'host:view';
 			view.sink = interpreter;
 		} );
-		// A sibling (the debug overlay) registers its own node into the same
-		// per-page Core AFTER mount — reinit must not touch it.
+		// Sibling registered into Core after mount — reinit must not touch it.
 		const overlay = new Node();
 		overlay.name = 'overlay:output';
 
@@ -198,7 +193,7 @@ describe( 'mountExospine — full rebuild on graphGeneration', () => {
 
 		Core.bumpGraphGeneration();
 
-		// Everything is a fresh instance — no exceptions, the backbone included.
+		// Everything is a fresh instance — the backbone included.
 		expect( builds ).toBe( 2 );
 		expect( Core.node( names.COMMAND_INTERPRETER ) ).not.toBe(
 			firstInterpreter
@@ -245,7 +240,7 @@ describe( 'mountExospine — full rebuild on graphGeneration', () => {
 
 		Core.bumpGraphGeneration();
 
-		// The backbone is untouched — no full rebuild for a non-delegated graph.
+		// Backbone untouched — no full rebuild for a non-delegated graph.
 		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBe( interpreter );
 		expect( Core.node( names.ROUTER ) ).toBe( router );
 	} );
@@ -322,9 +317,7 @@ describe( 'mountExospine — Core.reinit stash', () => {
 	} );
 
 	test( 'accumulates names across co-mounted builds; a teardown drops only its own', () => {
-		// Two build-delegated mounts share the page (e.g. the hub overview's several
-		// dashboards). reinitNames must recognize BOTH builds' infra, not just the
-		// last — else the Reset Graph chip counts the others as user-added.
+		// reinitNames must recognize BOTH co-mounted builds, not just one.
 		const a = mountExospine( ( { interpreter } ) => {
 			const n = new Node();
 			n.name = 'a:view';
@@ -341,7 +334,7 @@ describe( 'mountExospine — Core.reinit stash', () => {
 			'b:view',
 		] );
 
-		// Tearing down the reusing mount drops only its names; the owner's survive.
+		// Tearing down the reuser drops only its names; the owner's survive.
 		b.teardown();
 		expect( Core.reinitNames ).toEqual( [ 'a:view' ] );
 
@@ -351,10 +344,9 @@ describe( 'mountExospine — Core.reinit stash', () => {
 
 test( 'a second build-mount reuses the backbone without tearing it down (no orphaned interpreter)', () => {
 	const a = mountExospine( () => {} ); // owner — creates the backbone
-	const b = mountExospine( () => {} ); // reuser — must NOT rebuild it out from under itself
+	const b = mountExospine( () => {} ); // reuser — must NOT rebuild backbone
 
-	// The reuser sees the SAME live backbone; its mount must not have triggered a
-	// generation bump that swapped the shared backbone (orphaning nodes wired to it).
+	// The reuser must see the SAME backbone — no generation bump on reuse.
 	expect( b.interpreter ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
 	expect( a.interpreter ).toBe( b.interpreter );
 	expect( b.interpreter.sink ).toBe( Core.node( names.ROUTER ) );
@@ -370,11 +362,7 @@ test( 'a second build-mount reuses the backbone without tearing it down (no orph
 } );
 
 test( 'a second co-mounted build graph does NOT bump graphGeneration again (no spurious first-graph rebuild)', () => {
-	// The Overview co-mounts two build-delegated graphs (useDashboardGraph +
-	// useTopicProbeStream) on one page. Only the FIRST (owner) mount may bump:
-	// a second bump would full-rebuild the first graph (swapping the shared
-	// backbone out from under its nodes / its SSE link). The reuser's
-	// ownsBackbone=false guard must keep the generation at exactly +1.
+	// Only the owner co-mount may bump; the reuser keeps generation at +1.
 	const before = Core.graphGeneration;
 
 	mountExospine( () => {} ); // owner — the one allowed bump
@@ -385,11 +373,8 @@ test( 'a second co-mounted build graph does NOT bump graphGeneration again (no s
 } );
 
 test( 'a reusing co-mount rebuilds against the FRESH backbone after the owner full-rebuilds', () => {
-	// The owner's full rebuild (generation bump) replaces the backbone instances.
-	// A co-mounted reuser captured its spine at mount; its reinit must re-sync so
-	// its build sees the NEW _http — else it sets .client on the removed node while
-	// the live _http has none.
-	mountExospine( () => {} ); // owner — owns the backbone, subscribes fullRebuild
+	// After the owner rebuilds, a reuser's reinit must re-sync to NEW _http.
+	mountExospine( () => {} ); // owner — owns the backbone, subscribes rebuild
 	const seen = {};
 	mountExospine( ( spine ) => {
 		seen.http = spine.http; // record the _http this build was handed
@@ -401,7 +386,7 @@ test( 'a reusing co-mount rebuilds against the FRESH backbone after the owner fu
 
 	const freshHttp = Core.node( names.HTTP );
 	expect( freshHttp ).not.toBe( firstHttp ); // owner replaced the backbone
-	expect( seen.http ).toBe( freshHttp ); // the reuser's rebuild saw the fresh one
+	expect( seen.http ).toBe( freshHttp ); // reuser's rebuild saw the fresh one
 } );
 
 test( 'co-mount does not rebuild the first graph (its build runs once across both mounts)', () => {
@@ -411,7 +396,6 @@ test( 'co-mount does not rebuild the first graph (its build runs once across bot
 	} ); // owner
 	mountExospine( () => {} ); // reuser co-mounts after
 
-	// The reuser's mount must not have driven a generation bump that re-ran
-	// (and thus tore down + rebuilt) the first graph's build.
+	// The reuser's mount must not bump generation and re-run the first build.
 	expect( firstBuilds ).toBe( 1 );
 } );

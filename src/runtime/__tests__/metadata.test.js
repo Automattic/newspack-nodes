@@ -7,8 +7,7 @@ describe( 'dumpMetadataPayload', () => {
 	beforeEach( () => Core.reset() );
 
 	it( 'reports the SHELL name (strips the _Node suffix), matching the worker tier', () => {
-		// The worker emits shell names (`Tee`); the in-browser tier must agree, or
-		// the Inspector's `type === 'Tee'` checks (e.g. the Connect button) fail.
+		// Worker emits shell names (Tee); the in-browser tier must match them.
 		const tee = new TeeNode();
 		tee.name = 'firehose:tee';
 		expect( dumpMetadataPayload()[ 'firehose:tee' ].class ).toBe( 'Tee' );
@@ -47,8 +46,7 @@ describe( 'dumpMetadataPayload', () => {
 		const a = new Node();
 		a.name = 'a';
 		const payload = dumpMetadataPayload();
-		// The in-browser interpreter's reply path is the bare Dumper `_output`,
-		// so a local `connect_node <tee>` stores `_output` — matched against this.
+		// In-browser reply path is the bare Dumper _output.
 		expect( payload._header ).toEqual( { pwd: '_output' } );
 	} );
 } );

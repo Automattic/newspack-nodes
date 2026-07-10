@@ -44,7 +44,7 @@ class FakeEventSource {
 	dispatch( name, data ) {
 		( this.listeners[ name ] || [] ).forEach( ( cb ) => cb( { data } ) );
 	}
-	// Drive es.onerror with a given readyState (browser CLOSED = gave up; CONNECTING = retrying).
+	// Drive es.onerror with a readyState (CLOSED=gave up; CONNECTING=retry).
 	dispatchError( readyState ) {
 		this.readyState = readyState;
 		( this.listeners.error || [] ).forEach( ( cb ) => cb( {} ) );
@@ -59,8 +59,7 @@ beforeEach( () => {
 	global.EventSource = FakeEventSource;
 } );
 
-// Build a configured SseIn via the no-arg ctor + arguments= setter. The
-// `subscribe` token is the comma-joined topic list; `routed` captures forwards.
+// Build a configured SseIn via no-arg ctor + arguments= setter.
 function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
 	const sse = new SseInNode();
 	sse.arguments = `${ subscribe.join( ',' ) } ${ baseUrl } ${ nonce }`;
@@ -69,8 +68,7 @@ function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
 	return { sse, routed };
 }
 
-// The flat `connected` envelope string the server now sends (TM_INFO values are
-// strings); SseIn splits it chunk-by-2 into sessionPid / sessionSlot.
+// SseIn splits the flat `connected` string chunk-by-2 into pid / slot.
 const connectedRaw = ( { pid = 7777, slot = 3 } = {} ) =>
 	`PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS x INTERVAL 2000`;
 function connectedFrame( opts ) {
@@ -113,8 +111,7 @@ test( 'start omits the positions param when none is set (default tail-seek)', ()
 } );
 
 test( 'start appends positions as an encoded JSON blob when set', () => {
-	// The dashboards seed a per-subscription start/end (or {segment,offset}) so the
-	// server's open_subscription seeks there instead of tailing the end.
+	// Dashboards seed a per-subscription start/end so the server seeks there.
 	const { sse } = makeSseIn( {
 		subscribe: [ 'topicprobe.p0' ],
 		baseUrl: '/',
@@ -198,7 +195,7 @@ test( 'a connected envelope with no PID sets ERROR state and warns', () => {
 	FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
 	expect( sse.pid() ).toBeNull();
 	expect( sse.setStateCache.ERROR ).toContain( 'missing PID' );
-	// A malformed handshake must NOT report CONNECTED (don't clobber the ERROR).
+	// A malformed handshake must NOT report CONNECTED (keep the ERROR).
 	expect( sse.setStateCache.CONNECTED ).toBeUndefined();
 	expect( warn ).toHaveBeenCalledWith(
 		expect.stringContaining( 'connected envelope missing PID' )
@@ -218,10 +215,7 @@ test( 'msg event forwards parsed message into sink', () => {
 } );
 
 test( 'a malformed typeless frame is dropped at ingress, sets ERROR, and warns', () => {
-	// During a container restart the stream can flush a partial/empty frame;
-	// unpack() turns anything non-canonical into a pristine, typeless Message.
-	// Every real frame carries a type flag, so a typeless one is malformed —
-	// drop it at the boundary and make noise so the bug is visible.
+	// A partial/empty frame unpacks to a typeless Message — drop it + warn.
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
@@ -254,13 +248,12 @@ test( 'a TM_ERROR frame sets ERROR state, warns, and is still forwarded', () => 
 	expect( warn ).toHaveBeenCalledWith(
 		'ERROR: SseInNode: stream error frame'
 	);
-	expect( routed ).toHaveLength( 1 ); // snooped, but still forwarded downstream
+	expect( routed ).toHaveLength( 1 ); // snooped, but still forwarded
 	warn.mockRestore();
 } );
 
 test( 'a late msg frame after close() is dropped (stale stream never forwards)', () => {
-	// On teardown the graph nodes are removed; a frame the closed EventSource
-	// still delivers must not reach the torn-down sink — fill() throws on a null sink.
+	// After teardown a late frame must not reach the torn-down sink.
 	const { sse, routed } = makeSseIn();
 	sse.start();
 	const source = FakeEventSource.last;
@@ -273,9 +266,7 @@ test( 'a late msg frame after close() is dropped (stale stream never forwards)',
 	expect( routed ).toHaveLength( 0 );
 } );
 
-// --- Connection liveness (drives every SSE dashboard's "Xs ago") ---------
-// SseIn is the one node that sees EVERY inbound frame — data rows AND the
-// server's idle heartbeats — so it owns "when did the stream last show life".
+// SseIn sees EVERY inbound frame (data + heartbeats), so it owns liveness.
 
 test( 'lastEventTime starts null (no frame seen yet)', () => {
 	const { sse } = makeSseIn();
@@ -324,8 +315,7 @@ test( 'close() forgets the session pid so a reopen does not report a stale one',
 	);
 	expect( sse.pid() ).toBe( 4242 );
 	sse.close();
-	// After the stream closes (e.g. cd off a worker), the old session is gone —
-	// a reopen must NOT report the prior pid until a fresh `connected` arrives.
+	// After the stream closes, a reopen must NOT report the prior pid.
 	expect( sse.pid() ).toBeNull();
 } );
 
@@ -339,11 +329,7 @@ test( 'start() called twice closes the first EventSource before opening the seco
 	expect( first.closed ).toBe( true );
 } );
 
-// --- Heartbeat watchdog + onerror reconnect (half-open recovery) ----------
-// The browser's EventSource auto-reconnect never fires for a HALF-OPEN socket
-// (worker reaped without a clean FIN): heartbeats stop, lastEventTime freezes,
-// the stream is dead forever. A heartbeat-driven watchdog forces a reconnect
-// after total silence — but only AFTER a grace window.
+// A half-open socket never auto-reconnects; a heartbeat watchdog forces it.
 
 test( 'watchdog forces close+reopen after total silence past FORCE_AFTER_MS', () => {
 	jest.useFakeTimers();
@@ -354,7 +340,7 @@ test( 'watchdog forces close+reopen after total silence past FORCE_AFTER_MS', ()
 		const { sse } = makeSseIn();
 		sse.start();
 		const first = FakeEventSource.last;
-		jest.advanceTimersByTime( 13000 ); // > 10s of silence, no frame ever arrived
+		jest.advanceTimersByTime( 13000 ); // > 10s silence, no frame arrived
 		const second = FakeEventSource.last;
 		expect( first.closed ).toBe( true );
 		expect( second ).not.toBe( first );
@@ -369,9 +355,9 @@ test( 'a heartbeat during the grace window resets the clock — NO forced reconn
 		const { sse } = makeSseIn();
 		sse.start();
 		const first = FakeEventSource.last;
-		jest.advanceTimersByTime( 7000 ); // past STALE (6s), inside grace, before FORCE (10s)
+		jest.advanceTimersByTime( 7000 ); // past STALE (6s), before FORCE (10s)
 		first.dispatch( 'heartbeat', JSON.stringify( { ts: 1 } ) );
-		jest.advanceTimersByTime( 5000 ); // total 12s, but only 5s since the beat
+		jest.advanceTimersByTime( 5000 ); // total 12s, only 5s since the beat
 		expect( FakeEventSource.last ).toBe( first ); // never reconnected
 		expect( first.closed ).toBeUndefined();
 	} finally {
@@ -458,10 +444,10 @@ test( 'a forced reconnect with nothing tracked tail-follows — it does NOT re-r
 		const { sse } = makeSseIn();
 		sse.positions = { x: { 0: 'start' } };
 		sse.start();
-		expect( FakeEventSource.last.url ).toContain( 'positions=' ); // initial replay
-		// Stream goes silent (no frames → nothing to resume from); watchdog forces a reconnect.
+		expect( FakeEventSource.last.url ).toContain( 'positions=' ); // replay
+		// Stream goes silent; the watchdog forces a reconnect.
 		jest.advanceTimersByTime( 13000 );
-		// Reopens LIVE (tail), not another full replay of the original 'start' seed.
+		// Reopens LIVE (tail), not another full replay of the seed.
 		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
 	} finally {
 		jest.useRealTimers();
@@ -477,9 +463,7 @@ test( 'tracks segment:offset:length from each frame, resuming at offset+length',
 	m[ ID ] = '4:623851:120';
 	m[ VALUE ] = 'a line';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
-	// Keyed by the OPAQUE concrete-partition dir name (the FROM's first segment),
-	// not a parsed integer — each directory is its own unique partition. The tracked
-	// offset is the exclusive next-read: the record's offset + its on-disk length.
+	// Keyed by the opaque partition dir name; offset = record offset + length.
 	expect( sse.resumePositions() ).toEqual( {
 		'completed.p0': { segment: 4, offset: 623851 + 120 },
 	} );
@@ -535,7 +519,7 @@ test( 'removeNode() stops the watchdog and closes the stream (no reconnect after
 		sse.removeNode();
 		expect( first.closed ).toBe( true );
 		expect( () => jest.advanceTimersByTime( 20000 ) ).not.toThrow();
-		expect( FakeEventSource.last ).toBe( first ); // nothing reopened post-removal
+		expect( FakeEventSource.last ).toBe( first ); // nothing reopened
 	} finally {
 		jest.useRealTimers();
 	}
@@ -558,8 +542,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 		] );
 	} );
 
-	// accepts_fill is a UI wireability hint: SseIn is a pure ingress source
-	// composed by RemoteLink, not a drag-into target, so it's false.
+	// accepts_fill=false: SseIn is a pure ingress source, not a drag target.
 	test( 'declares accepts_fill:false (pure network-ingress source)', () => {
 		expect( SseInNode.nodeSchema().accepts_fill ).toBe( false );
 	} );

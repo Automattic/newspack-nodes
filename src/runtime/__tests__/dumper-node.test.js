@@ -124,8 +124,7 @@ describe( 'renderMessage', () => {
 	} );
 
 	it( 'renders a structured TM_COMMAND|TM_RESPONSE payload as JSON (not dropped)', () => {
-		// dump_node's reply payload is a structure (de-double-encoded verbs), so
-		// it must render as JSON, not get dropped for being non-string.
+		// Structured reply payload renders as JSON, not dropped.
 		const t = TM_COMMAND | TM_RESPONSE;
 		const out = renderMessage(
 			msg( t, { name: 'dump_node', payload: { sink: 'x', counter: 3 } } )
@@ -166,7 +165,7 @@ describe( 'formatTypeLabel + stringifyValue', () => {
 	it( 'stringifyValue: falls back to String() on a circular object', () => {
 		const circular = {};
 		circular.self = circular;
-		// Doesn't throw; produces some string (the [object Object] String() form).
+		// Doesn't throw; produces some string (the [object Object] form).
 		expect( typeof stringifyValue( circular ) ).toBe( 'string' );
 	} );
 } );

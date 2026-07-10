@@ -142,24 +142,19 @@ export function splitStatements( line ) {
 export class ShellNode extends Node {
 	constructor() {
 		super();
-		// cwd: the node-path bare verbs route to by default. Settable by the host.
+		// cwd: node-path bare verbs route to by default. Set by the host.
 		this.path = '';
 		// `var`-set values, read back by <name> interpolation (PHP Core::$var).
 		this.vars = {};
-		// Read-only namespace exposed via <config:foo> interpolation (PHP Core::$config).
+		// Read-only namespace via <config:foo> (PHP Core::$config).
 		this.config = {};
 		// Lines emitted by the local `status` builtin; host-populated.
 		this.statusLines = [];
 		// When true, parsed lines are reported back to the host for echoing.
 		this.showParse = false;
-		// Interactive REPLs want their command replies (default). A script/topology
-		// loader sets this false so commands go out TM_NOREPLY — the interpreter then
-		// suppresses replies that would otherwise dead-end. Mirrors PHP Shell_Node::$want_reply.
+		// Interactive REPLs want replies; a script/topology loader unsets it.
 		this._wantReply = true;
-		// Dispatch tap: invoked with every outgoing Message just before it fills
-		// the sink. The UI sets this to observe graph-mutating commands (make_node
-		// / connect_node / …) for the Reset Graph chip. Verb-agnostic — the Shell
-		// only announces the dispatch; the consumer classifies.
+		// Dispatch tap: invoked with every outgoing Message before the sink.
 		this.onDispatch = null;
 	}
 
@@ -192,7 +187,7 @@ export class ShellNode extends Node {
 	 * @return {Object|Array|null} `{ kind: 'local'|'error', … }`, a Message, or null.
 	 */
 	parse( line ) {
-		// Interpolate first so `<var>` can expand into leading whitespace (PHP order).
+		// Interpolate first so `<var>` can expand into leading whitespace.
 		const trimmed = this.interpolate( line || '' ).trim();
 		if ( ! trimmed || '#' === trimmed[ 0 ] ) {
 			return null;
@@ -206,7 +201,7 @@ export class ShellNode extends Node {
 		// args[n] joined with single spaces, mirroring PHP implode(' ', slice).
 		const join = ( from ) => args.slice( from ).join( ' ' );
 
-		// `include` reads a topology file from disk in PHP — impossible in the browser.
+		// `include` reads a topology file from disk — impossible in-browser.
 		if ( 'include' === verb ) {
 			return {
 				kind: 'error',
@@ -235,9 +230,7 @@ export class ShellNode extends Node {
 			};
 		}
 
-		// `var name=value` (spaces around `=` optional, value may be empty or
-		// multi-word). Splits on the FIRST `=`, matching the .tsl frontmatter
-		// parser; `:` names are reserved for read-only namespaces like config:.
+		// `var name=value`: splits on the FIRST `=`; `:` names are reserved.
 		if ( 'var' === verb ) {
 			const assignment = join( 0 );
 			const eq = assignment.indexOf( '=' );
@@ -271,8 +264,7 @@ export class ShellNode extends Node {
 			return { kind: 'local', name: 'debug_level', level };
 		}
 
-		// Undocumented skin builtins: emit a local signal (the host resolves the
-		// raw name against THEMES + applies it); never reach `help`'s verb table.
+		// Undocumented skin builtins: emit a local signal for the host.
 		if ( 'list_skins' === verb ) {
 			return { kind: 'local', name: 'list_skins' };
 		}
@@ -284,9 +276,7 @@ export class ShellNode extends Node {
 			return { kind: 'local', name: 'set_skin', skin };
 		}
 
-		// `cd` navigates the path tree locally (no message). `/` = browser-internal
-		// graph; `/_http` = the HTTP boundary (HttpOut → /command → PHP HTTP_In);
-		// `/_http/<worker>` = a worker; `..` walks up. Mirrors the cli's cd.
+		// `cd` navigates the path tree locally (no message); `..` walks up.
 		if ( 'cd' === verb || 'chdir' === verb ) {
 			this.path = this.cd( this.path, args[ 0 ] ?? '' );
 			return null;
@@ -296,8 +286,7 @@ export class ShellNode extends Node {
 		const to = args[ 0 ] ?? '';
 		message[ FROM ] = this.replyFrom( names.OUTPUT );
 		message[ TO ] = this.prefix( to );
-		// LOCAL provenance taint — minted in this Shell. Stripped at the wire
-		// (pack()), so it authorizes only the in-browser interpreter; the server verifies HMAC.
+		// LOCAL provenance taint — minted here, stripped at the wire (pack()).
 		message[ LOCAL ] = true;
 
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
@@ -407,7 +396,7 @@ export class ShellNode extends Node {
 	interpolate( line ) {
 		const token = /<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/y;
 		let out = '';
-		let literal = null; // active single-quote or backtick span suppressing expansion.
+		let literal = null; // active '/` span suppressing expansion.
 		let i = 0;
 		while ( i < line.length ) {
 			const ch = line[ i ];
@@ -481,23 +470,19 @@ export class ShellNode extends Node {
 	sendCommand( path, name, args = '' ) {
 		const m = this.command( name, args );
 		m[ FROM ] = this.replyFrom( names.OUTPUT );
-		// `path` is RELATIVE to the cwd — prefix() joins them. This matches the
-		// REPL's bare-verb dispatch (which uses prefix() too) and ensures
-		// debug-overlay Inspector clicks honor the live cwd.
+		// `path` is RELATIVE to the cwd — prefix() joins them.
 		m[ TO ] = this.prefix( path );
 		m[ LOCAL ] = true;
 		this.stampNoreply( m );
 		this.dispatch( m );
 	}
 
-	// FROM = the bare reply node. When the cwd routes through `_sse:{pid}` that
-	// session node wraps it into the private reply address `_http/_sse:{pid}/<reply-node>`;
-	// otherwise (`_http/…`) it stays bare and replies broadcast.
+	// FROM = the bare reply node; `_sse:{pid}` wraps it into a private address.
 	replyFrom( replyNode ) {
 		return replyNode;
 	}
 
-	// Slash-join cwd with an extra path arg, dropping empty pieces (PHP prefix()).
+	// Slash-join cwd with an extra path arg, dropping empty pieces.
 	prefix( path ) {
 		const parts = [];
 		if ( '' !== this.path ) {
@@ -542,13 +527,12 @@ export class ShellNode extends Node {
 		return this._name;
 	}
 
-	// The Shell is the unnamed REPL front-end — naming it would register a
-	// command surface in the graph. Fatal so the rule can't be violated.
+	// The Shell is the unnamed REPL front-end; naming it is fatal.
 	set name( value ) {
 		throw new Error( 'Shell must not be named' );
 	}
 
-	// Instance accessor for the quote-aware tokenizer (PHP Shell_Node::tokenize).
+	// Instance accessor for the quote-aware tokenizer (Shell_Node::tokenize).
 	tokenize( line ) {
 		return tokenize( line );
 	}

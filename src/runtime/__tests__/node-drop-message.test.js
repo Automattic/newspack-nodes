@@ -4,9 +4,7 @@ import { TYPE, FROM, TO, VALUE, TM_BYTESTREAM, TM_INFO } from '../message';
 
 beforeEach( () => Core.reset() );
 
-// dropMessage mirrors Perl/PHP Node::drop_message: a rate-limited audit line
-// "WARNING: <error> - <types> [from: …] [to: …] [payload: …]", with NOT_AVAILABLE
-// routed to printLessOften.
+// dropMessage mirrors PHP Node::drop_message: rate-limited WARNING audit line.
 describe( 'Node.dropMessage', () => {
 	it( 'emits "WARNING: <error> - <type>" via printLessOften', () => {
 		const n = new Node();

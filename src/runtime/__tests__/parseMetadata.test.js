@@ -29,10 +29,7 @@ describe( 'parseMetadata', () => {
 	} );
 
 	it( 'canonicalizes the pwd reply-node segment to _output (the tail target)', () => {
-		// The dump_metadata POLL is sent FROM the `_metadata` node, so the header
-		// pwd arrives ending in `_metadata`. But a Tee tail target (from a shell
-		// `connect_node`) ends in `_output`. Canonicalize the final segment to
-		// `_output` so the toggle's exact match against the tail target holds.
+		// Canonicalize the final pwd segment to _output so the toggle matches.
 		expect(
 			parseMetadata( {
 				_header: { pwd: '_repl/_output/_sse:346/_metadata' },
@@ -86,9 +83,7 @@ describe( 'parseMetadata', () => {
 	} );
 
 	it( "preserves each node's FULL target list even though edges collapse to the head", () => {
-		// The canvas edge collapses `_repl/_output/_sse:123/_output` to its head
-		// `_repl`, but the Inspector's Connect/Disconnect toggle must still tell
-		// WHICH session's reply path is wired — so the node keeps the full paths.
+		// Edges collapse to the head; nodes keep the full target paths.
 		const { nodes, edges } = parseMetadata( {
 			tee: {
 				class: 'Tee',
@@ -116,9 +111,7 @@ describe( 'parseMetadata', () => {
 	} );
 
 	it( 'draws an edge to the head node of a path target (router peels the head)', () => {
-		// `_heartbeat` targets the PATH `_sse/workers`; the router peels `_sse`
-		// and delivers there, so the canvas edge connects to `_sse`, not the
-		// non-existent `_sse/workers`.
+		// Router peels the head → edge connects to _sse, not _sse/workers.
 		const { edges } = parseMetadata( {
 			_heartbeat: {
 				class: 'Heartbeat',
@@ -170,8 +163,7 @@ describe( 'parseMetadata', () => {
 				arguments: '',
 			},
 		} );
-		// The backbone is plumbing; the canvas shows the rest of the graph,
-		// including the transcript sink (_output) and a mounted _repl.
+		// Backbone is plumbing; canvas shows the rest (_output + _repl).
 		expect( nodes.map( ( n ) => n.id ) ).toEqual( [
 			'_output',
 			'_repl',

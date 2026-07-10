@@ -25,14 +25,10 @@ import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { TYPE, FROM, TO, ID, VALUE, TM_ERROR, unpack } from './message';
 
-// A record's ID is the Consumer's `segment:offset:length` breadcrumb; FROM carries the
-// producer path `<sub>.p<partition>/…`. Parsing both lets the client resume a
-// reconnect from exactly where it left off (no gap, no replay).
+// ID is the `segment:offset:length` breadcrumb; FROM carries the producer path.
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
-// Heartbeat-timeout watchdog. The server beats every 2s; force a fresh stream
-// only after STALE (3 missed beats) + GRACE (self-recovery observe window) of
-// total silence, long enough not to fight the browser's own EventSource retry.
+// Heartbeat-timeout watchdog: force a fresh stream after STALE + GRACE silence.
 const HEARTBEAT_CADENCE_MS = 2000;
 const STALE_AFTER_MS = HEARTBEAT_CADENCE_MS * 3;
 const GRACE_MS = 4000;
@@ -45,32 +41,18 @@ export class SseInNode extends Node {
 		this.subscribe = [];
 		this.baseUrl = '';
 		this.nonce = '';
-		// Optional per-subscription seek seed, `{ <sub>: { <partition>: pos } }`
-		// where pos is 'start' (replay from the oldest retained record), 'end'
-		// (tail — the default when unset), or a `{segment,offset}`. Set programmatically
-		// (a structured blob, NOT a positional arg); serialized into the stream
-		// URL by start(). null/empty → omit the param → the server tail-seeks.
+		// Optional per-subscription seek seed; null/empty → tail-seek.
 		this.positions = null;
-		// Last seen record position per `[sub][partition] = { segment, offset }`, parsed
-		// from each frame's ID + FROM — so a reconnect resumes from the exact offset.
+		// Last record position per `[sub][partition]`, from each ID+FROM.
 		this.lastPositions = {};
 		this._es = null;
-		// Wall-clock of the last inbound frame (data row OR idle heartbeat). SseIn is
-		// the only node that sees every frame, so it owns stream
-		// liveness — dashboards read this for their "Xs ago" staleness, which must
-		// reset on a heartbeat and only climb on a real drop. null = no live frame.
+		// Wall-clock of the last inbound frame; the stream-liveness clock.
 		this.lastEventTime = null;
-		// Heartbeat-timeout watchdog: a baseline stamped at each open (so a dead
-		// INITIAL connect that never delivers a first frame still gets forced),
-		// the interval handle, and the last forced-reconnect instant (tight-loop
-		// guard so a persistently-failing reopen can't spin).
+		// Watchdog state: open-baseline, interval handle, last-force instant.
 		this._watchdogBase = 0;
 		this._watchdog = null;
 		this._lastForce = 0;
-		// Session identity parsed from the `connected` envelope into PLAIN fields
-		// (set_state payloads are strings, so these can't ride the state cache):
-		// pid for RemoteIpc's `_sse:{pid}` reply-FROM wrap; slot for the Heartbeat's
-		// slot keep-alive (RemoteLink's bridge reads it on the CONNECTED event).
+		// Session identity from `connected` envelope; PLAIN fields (pid, slot).
 		this.sessionPid = null;
 		this.sessionSlot = null;
 		this.registrations.CONNECTED = {};
@@ -83,13 +65,13 @@ export class SseInNode extends Node {
 	set arguments( value ) {
 		super.arguments = value;
 		parseSchemaArgs( this, value );
-		// The walk assigns `subscribe` as the raw comma-separated token; split it.
+		// The walk assigns `subscribe` as a comma-separated token; split it.
 		if ( 'string' === typeof this.subscribe ) {
 			this.subscribe = this.subscribe.split( ',' ).filter( Boolean );
 		}
 	}
 
-	// A node owns its teardown: drop the stream + watchdog before unregistering.
+	// A node owns its teardown: drop the stream + watchdog first.
 	removeNode() {
 		this.close();
 		super.removeNode();
@@ -106,12 +88,11 @@ export class SseInNode extends Node {
 				JSON.stringify( this.positions )
 			) }`;
 		}
-		// Lifecycle visibility: opening the stream. CONNECTED replaces it on the
-		// `connected` handshake; DISCONNECTED / RECONNECTING / ERROR on trouble.
+		// Lifecycle: opening; CONNECTED on handshake, then DISCONNECTED/ERROR.
 		this.setState( 'CONNECTING', this.subscribe.join( ',' ) );
 		const es = new EventSource( url, { withCredentials: true } );
 		this._es = es;
-		// Baseline so a connect that never delivers a first frame still trips FORCE_AFTER_MS.
+		// Baseline so a connect with no first frame still trips FORCE_AFTER_MS.
 		this._watchdogBase = Date.now();
 		this._watchdog = setInterval( () => {
 			const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
@@ -119,10 +100,9 @@ export class SseInNode extends Node {
 				this._forceReconnect();
 			}
 		}, WATCHDOG_INTERVAL_MS );
-		// A frame from a stream we've since close()d (or reopened past) must not
-		// drive the graph — on teardown the sink is gone and fill() throws.
+		// A frame from a closed/reopened stream must not drive the graph.
 		const stale = () => this._es !== es;
-		// CLOSED = browser gave up retrying (nonce/401) → reopen; CONNECTING = it's still retrying → leave it.
+		// CLOSED = browser gave up (nonce/401) → reopen; CONNECTING → leave it.
 		es.addEventListener( 'error', () => {
 			if ( stale() ) {
 				return;
@@ -136,19 +116,14 @@ export class SseInNode extends Node {
 				this._forceReconnect();
 			}
 		} );
-		// Idle keepalive: the server sends an `event: heartbeat` every couple of
-		// seconds even when no data flows. It carries no graph payload — its only
-		// job is to prove the stream is alive — so snoop it for liveness, don't
-		// route it (routing would land it in the topology-console transcript).
+		// Idle keepalive `event: heartbeat`: snoop for liveness, don't route.
 		es.addEventListener( 'heartbeat', () => {
 			if ( stale() ) {
 				return;
 			}
 			this.lastEventTime = Date.now();
 		} );
-		// The `connected` handshake is its own SSE event type (like heartbeat):
-		// snoop it for pid/slot + the CONNECTED state, don't route it. Discriminated
-		// by `event:` rather than by unpacking every `msg` to peek KEY.
+		// `connected` is its own SSE event: snoop pid/slot, don't route.
 		es.addEventListener( 'connected', ( e ) => {
 			if ( stale() ) {
 				return;
@@ -162,12 +137,7 @@ export class SseInNode extends Node {
 			}
 			this.lastEventTime = Date.now();
 			const message = unpack( e.data );
-			// Every real frame carries a type flag: the server packs full Messages,
-			// and even a tailed log line arrives as a Consumer-unpacked Message with
-			// the producer's type. A typeless frame is therefore always malformed —
-			// a partial/empty flush (e.g. while the server restarts) that unpack()
-			// turned into a pristine Message. Routing it only earns a router
-			// "message not addressed - TYPE_UNKNOWN" drop, so reject it loudly here.
+			// A typeless frame is malformed — reject it loudly here.
 			if ( ! message[ TYPE ] ) {
 				this.setState( 'ERROR', 'malformed typeless frame' );
 				Core.printLessOften(
@@ -175,44 +145,24 @@ export class SseInNode extends Node {
 				);
 				return;
 			}
-			// A log/topic SUBSCRIPTION (RemoteLink, homeToTarget) re-homes every
-			// received record to its target: records replayed from a PARTITION carry
-			// the TO the producer stamped server-side (routing it to that partition)
-			// — a path that means nothing here, so the router would silently drop it.
-			// RemoteIpc leaves this off so worker reply frames keep their TO=FROM
-			// breadcrumb routing.
+			// A SUBSCRIPTION (homeToTarget) re-homes each record to target.
 			if ( this.homeToTarget && this.target ) {
 				message[ TO ] = this.target;
 			}
 			this._trackPosition( message );
-			// Inbound boundary accounting: per-node bytesRead / largestMsgSent (read
-			// surface, mirrors PHP SSE_In) AND the debug overlay's IoTelemetry — one
-			// received frame + its wire bytes. The error tally for a TM_ERROR frame
-			// rides the `ERROR:` log below — Core.stderr records it off the keyword,
-			// so an explicit recordError() here would double-count.
-			// NOTE: this counts only the `msg` event DATA. EventSource hides the SSE
-			// framing and never surfaces non-`msg` events (heartbeat/connected), so
-			// JS bytesRead is necessarily LESS than PHP SSE_In's (which sees every
-			// raw wire byte). The gap is inherent to the transport — don't "fix" it
-			// to match PHP; the two are independently correct for what each can see.
+			// Inbound accounting: bytesRead + IoTelemetry (msg DATA only).
 			const size = byteLength( e.data );
 			this.bytesRead += size;
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );
 			IoTelemetry.recordIn( size, 1 );
 			if ( message[ TYPE ] & TM_ERROR ) {
-				// Surface the stream error for dashboards (snoop; still forwarded so
-				// the consumer's own error handling runs). setState for the visible
-				// last-error + printLessOften so the rate is tunable (and the count).
+				// Surface the stream error (still forwarded too).
 				const errText =
 					'string' === typeof message[ VALUE ]
 						? message[ VALUE ]
 						: 'stream error';
 				this.setState( 'ERROR', errText );
-				// Stable rate-limit key (errText rides the ERROR state, not the log
-				// key) so a varying-text stream-error storm coalesces instead of
-				// flooding + leaking Core._lastPrint. The error tally rides this
-				// `ERROR:` log via Core.stderr — deliberately rate-limited for a
-				// stream, unlike CommandClient's per-reply explicit count.
+				// Stable rate-limit key; errText rides the ERROR state.
 				Core.printLessOften( 'ERROR: SseInNode: stream error frame' );
 			}
 			super.fill( message );
@@ -220,10 +170,6 @@ export class SseInNode extends Node {
 	}
 
 	// Parse the flat `KEY VALUE` connected envelope into plain session fields.
-	// TM_INFO / set_state values are STRINGS, so pid lives on the node (not the
-	// state cache) and the CONNECTED state carries the raw string for subscribers
-	// to split themselves. A handshake with no PID is malformed — report it both
-	// ways (state + rate-limited log).
 	_applyConnected( value ) {
 		const raw = String( value ?? '' );
 		const parts = raw.split( ' ' );
@@ -240,23 +186,18 @@ export class SseInNode extends Node {
 				'ERROR',
 				`connected envelope missing PID: ${ raw }`
 			);
-			// Stable rate-limit key; raw rides the ERROR state. Don't emit CONNECTED
-			// on a malformed handshake (mirror PHP, which returns without CONNECTED).
+			// Stable rate-limit key; no CONNECTED on a malformed handshake.
 			Core.printLessOften(
 				'ERROR: SseInNode: connected envelope missing PID'
 			);
 			return;
 		}
 		this.setState( 'CONNECTED', raw );
-		// Stamp the live-stream connect time for the Overview's SSE Uptime card.
+		// Stamp the live-stream connect time for the Overview SSE Uptime card.
 		IoTelemetry.markSseConnected();
 	}
 
-	// Remember a record's `{segment,offset}` keyed by its concrete partition DIRECTORY —
-	// the FROM's first path segment (`completed.p0`, or any layout the producer
-	// stamped). Each directory is its own unique partition; we never parse a
-	// `.p{N}` integer out of the name. A non-breadcrumb ID (a command reply's
-	// correlation id) is ignored.
+	// Remember a record's `{segment,offset}` keyed by its partition DIRECTORY.
 	_trackPosition( message ) {
 		const idMatch = ID_POSITION_RE.exec(
 			'string' === typeof message[ ID ] ? message[ ID ] : ''
@@ -268,18 +209,14 @@ export class SseInNode extends Node {
 		if ( '' === dir ) {
 			return;
 		}
-		// Resume at the exclusive next-read offset+length — the remote stamped the on-disk
-		// length in the breadcrumb, so this is the exact next-record boundary.
+		// Resume at offset+length — the exact next-record boundary.
 		this.lastPositions[ dir ] = {
 			segment: Number( idMatch[ 1 ] ),
 			offset: Number( idMatch[ 2 ] ) + Number( idMatch[ 3 ] ),
 		};
 	}
 
-	// A flat `{ <concrete-dir>: pos }` seed resuming each seen partition from its
-	// last offset, or null when nothing's been tracked yet (→ the caller
-	// tail-seeks). The server seeds only the dirs it opens and ignores the rest,
-	// so no per-subscription filtering is needed.
+	// A `{ <dir>: pos }` seed resuming each seen partition; null → tail-seek.
 	resumePositions() {
 		return Object.keys( this.lastPositions ).length > 0
 			? { ...this.lastPositions }
@@ -298,8 +235,7 @@ export class SseInNode extends Node {
 			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
 		);
 		this._lastForce = now;
-		// Resume from the last seen offset (no gap, no replay); null when nothing
-		// was tracked → tail, so a history seed is never re-streamed on a drop.
+		// Resume from the last seen offset (no gap/replay); null → tail.
 		this.positions = this.resumePositions();
 		this.start();
 	}
@@ -313,13 +249,9 @@ export class SseInNode extends Node {
 			this._es.close();
 		}
 		this._es = null;
-		// A closed stream has no liveness — hide "Xs ago" until a reopen produces a
-		// fresh frame. (A real drop is an EventSource error, not close(), so it
-		// leaves lastEventTime frozen and "ago" climbs as the intended warning.)
+		// A closed stream has no liveness — hide 'Xs ago' until a reopen frame.
 		this.lastEventTime = null;
-		// Forget the session pid so pid() doesn't report a stale one after a reopen
-		// (the stream can be closed/reopened on cd off/onto a worker); a fresh
-		// `connected` envelope repopulates it.
+		// Forget the session pid so pid() won't report a stale one.
 		this.sessionPid = null;
 	}
 
@@ -327,8 +259,7 @@ export class SseInNode extends Node {
 		return this.sessionPid ?? null;
 	}
 
-	// Session slot parsed from the `connected` envelope (mirrors PHP slot()). The
-	// RemoteLink bridge reads it to keep the Heartbeat's slot keepalive alive.
+	// Session slot from the `connected` envelope; RemoteLink's bridge reads it.
 	slot() {
 		return this.sessionSlot ?? null;
 	}
@@ -338,8 +269,7 @@ export class SseInNode extends Node {
 			category: 'Hidden',
 			description:
 				'Inbound SSE receive-ingress; composed (unnamed) by RemoteLink as the per-link stream.',
-			// accepts_fill is a UI wireability hint: SseIn is a pure ingress source
-			// composed by RemoteLink, not a drag-into target, so it's false.
+			// accepts_fill UI hint: SseIn is pure ingress, so false.
 			accepts_fill: false,
 			has_target: true,
 			arguments: [

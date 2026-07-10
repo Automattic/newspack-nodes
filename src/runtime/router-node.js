@@ -22,25 +22,19 @@ import {
 export class RouterNode extends TimerNode {
 	constructor() {
 		super();
-		// Optional hooks injected by the console to bracket each tick's notify (e.g.
-		// HttpOut lock/flush so one tick's emissions batch into ONE POST). Kept here
-		// so the substrate Router stays decoupled from any console node.
+		// Optional hooks to bracket each tick's notify (HttpOut lock/flush).
 		this.beforeTimerNotify = null;
 		this.afterTimerNotify = null;
-		// Router self-starts its own 1s slot (Tachikoma fidelity: the Router IS
-		// timer-driven). Tests that don't want it running can stopTimer(). isRouter
-		// exempts it from the >=1000 hitchhike — it can't ride its own TIMER.
+		// Router self-starts its own 1s slot; isRouter skips the hitchhike.
 		this.isRouter = true;
 		this.setTimer( 1000 );
 	}
 
 	fill( message ) {
-		// One inbound miss increments counter by 2 via the bounce (matches PHP).
+		// One inbound miss increments counter by 2 via the bounce (PHP).
 		this.counter += 1;
 
-		// Perl Router::fill drops before routing, in this order: an unaddressed
-		// message (empty TO), then one whose FROM trail exceeded MAX_FROM_SIZE
-		// (path explosion on a routing cycle). dropMessage is rate-limited.
+		// Drop before routing: empty TO, then a FROM trail over MAX_FROM_SIZE.
 		if ( '' === message[ TO ] ) {
 			this.dropMessage( message, 'message not addressed' );
 			return;
@@ -61,8 +55,7 @@ export class RouterNode extends TimerNode {
 
 		const target = Core.node( head );
 		if ( null === target ) {
-			// setState fires before the TM_ERROR-drop branch so observers
-			// still see NOT_AVAILABLE even when the message is dropped.
+			// setState fires before the TM_ERROR-drop branch.
 			this.setState( 'NOT_AVAILABLE', {
 				node: head,
 				from: message[ FROM ],
@@ -78,7 +71,7 @@ export class RouterNode extends TimerNode {
 			err[ TO ] = message[ FROM ];
 			err[ ID ] = message[ ID ];
 			err[ VALUE ] = 'NOT_AVAILABLE\n';
-			// Re-fill so the error walks the FROM trail (drops on the TM_ERROR branch if unrouted).
+			// Re-fill so the error walks the FROM trail; drops if unrouted.
 			this.fill( err );
 			return;
 		}
@@ -86,9 +79,7 @@ export class RouterNode extends TimerNode {
 		target.fill( message );
 	}
 
-	// fire_cb (Perl Router::fire_cb): bracket notify_timer with the console's
-	// lock/flush hooks; afterTimerNotify always runs (finally). Overrides Timer's
-	// fire_cb — the Router has no sink and dispatches TIMER instead of emitting.
+	// fireCb (Router::fire_cb): bracket notifyTimer with lock/flush.
 	fireCb() {
 		if ( this.beforeTimerNotify ) {
 			this.beforeTimerNotify();
@@ -102,9 +93,7 @@ export class RouterNode extends TimerNode {
 		}
 	}
 
-	// notify_timer (Perl Router::notify_timer): call each TIMER-registered node's
-	// fireCb DIRECTLY; a name with no live node is warned + dropped (forgot to
-	// unregister). No message, no fill().
+	// notifyTimer (Router::notify_timer): call each TIMER node's fireCb.
 	notifyTimer() {
 		const registrations = this.registrations.TIMER;
 		for ( const name of Object.keys( registrations ) ) {
@@ -118,10 +107,7 @@ export class RouterNode extends TimerNode {
 		}
 	}
 
-	// The Router has no sink: it routes by peeling TO and drops what it cannot
-	// peel (an empty or unknown head → NOT_AVAILABLE). Reject any attempt to set
-	// one; the getter always returns null. (The base constructor's `this.sink =
-	// null` passes through harmlessly.)
+	// The Router has no sink: it routes by peeling TO; reject any set.
 	get sink() {
 		return null;
 	}
@@ -133,9 +119,7 @@ export class RouterNode extends TimerNode {
 		}
 	}
 
-	// FIRE (inherited Timer tick) + TIMER (the hitchhike event peers register for)
-	// + NOT_AVAILABLE (routing-failure state observers watch). The base ctor seeds
-	// all three from here; this list is standalone (no super spread).
+	// FIRE + TIMER + NOT_AVAILABLE registrations; base ctor seeds all three.
 	static nodeSchema() {
 		return { registrations: [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ] };
 	}

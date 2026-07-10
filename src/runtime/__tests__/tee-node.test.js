@@ -118,8 +118,7 @@ test( 'disconnectNode removes one target from the fan-out array', () => {
 } );
 
 test( 'disconnectNode with a bare target is a value-filter no-op (matches PHP)', () => {
-	// PHP Tee::disconnect_node('') filters out '' entries — on a normal fan-out
-	// that removes nothing. (The verb resolves a bare target to FROM first.)
+	// Tee::disconnect_node('') filters out '' entries — removes nothing here.
 	const t = new TeeNode();
 	t.connectNode( 'a' );
 	t.connectNode( 'b' );

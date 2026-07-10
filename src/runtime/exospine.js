@@ -58,9 +58,7 @@ export function mountExospine( build ) {
 	let router;
 	let interpreter;
 
-	// Point the spine's backbone refs at the live Core nodes. Re-run before each
-	// build so a co-mounted (reusing) mount — whose spine was captured at mount —
-	// rebuilds against the FRESH backbone after the owner's full rebuild replaced it.
+	// Point the spine's backbone refs at live Core nodes; re-run before build.
 	const syncSpineFromCore = () => {
 		spine.interpreter = Core.node( names.COMMAND_INTERPRETER );
 		spine.router = Core.node( names.ROUTER );
@@ -68,18 +66,12 @@ export function mountExospine( build ) {
 		spine.http = Core.node( names.HTTP );
 		spine.heartbeat = Core.node( names.HEARTBEAT );
 	};
-	// Whether THIS mount created the backbone. A second build-mount on the same
-	// page (e.g. the Overview runs useTopologyManager AND useTopicProbeStream)
-	// REUSES the existing backbone — it must not own it: no generation bump (which
-	// would full-rebuild and tear the shared backbone out from under the first
-	// mount's nodes) and no backbone teardown.
+	// Whether THIS mount created the backbone; a reusing mount must not own it.
 	let ownsBackbone = false;
 
-	// (Re)create the rule-#2 backbone. Mutable so the FULL rebuild can recreate it,
-	// not just the soft build nodes — "Reset Graph" rebuilds everything.
+	// (Re)create the rule-#2 backbone; mutable so a FULL rebuild recreates it.
 	const mountBackbone = () => {
-		// Idempotent under StrictMode's double-invoked useState initializer: if the
-		// backbone is already registered, reuse it instead of colliding on the name.
+		// Idempotent under StrictMode double-invoke: reuse existing backbone.
 		const existing = Core.node( names.COMMAND_INTERPRETER );
 		if ( existing ) {
 			interpreter = existing;
@@ -96,20 +88,12 @@ export function mountExospine( build ) {
 		interpreter.name = names.COMMAND_INTERPRETER;
 		interpreter.sink = router;
 
-		// `_shell` — a permanent observe-only Tap every command path routes
-		// through: a constructed Shell sinks into it, and the dashboards' periodic
-		// poll commands do too. Always present so `connect _shell` watches all
-		// outbound commands, with or without a REPL. It forwards its sink → the
-		// interpreter.
+		// `_shell` — permanent observe-only Tap all commands route through.
 		const shell = new TapNode();
 		shell.name = names.CONSOLE_TAP;
 		shell.sink = interpreter;
 
-		// `_http` (egress POST boundary) + `_heartbeat` (SSE slot keepalive) —
-		// shared singletons every RemoteLink/dashboard reuses. Backbone-owned (like
-		// `_shell`) so they survive a Reset Graph rebuild and are always laid out;
-		// callers set `_http.client`, RemoteLink arms the heartbeat's timer + slot on
-		// connect. Dormant until a stream opens (fire() no-ops without a slot).
+		// `_http` + `_heartbeat` — shared backbone singletons, reused widely.
 		const http = new HttpOutNode();
 		http.name = names.HTTP;
 		http.sink = interpreter;
@@ -117,9 +101,7 @@ export function mountExospine( build ) {
 		const heartbeat = new HeartbeatNode();
 		heartbeat.name = names.HEARTBEAT;
 		heartbeat.sink = interpreter;
-		// The poke target is fixed wiring (`_http/workers`) — set it here, not on
-		// connect, so the `_heartbeat → _http/workers` edge is permanent and survives
-		// a Reset Graph rebuild even at `/` where no RemoteLink connects.
+		// Poke target is fixed wiring (`_http/workers`); set here.
 		heartbeat.target = `${ names.HTTP }/workers`;
 
 		spine.interpreter = interpreter;
@@ -129,25 +111,18 @@ export function mountExospine( build ) {
 		spine.heartbeat = heartbeat;
 	};
 
-	// Snapshot Core around build so a rebuild/teardown removes only what build
-	// registered — the overlay's own nodes (registered later into the same
-	// per-page Core) must survive.
+	// Snapshot Core around build so rebuild removes only what build added.
 	let builtNames = [];
 	let cleanup;
 	const runBuild = () => {
-		// A reusing mount captured its spine at mount; the owner's full rebuild may
-		// have since replaced the backbone — re-point at the live nodes before build.
+		// A reusing mount's spine may be stale — re-point at live nodes first.
 		syncSpineFromCore();
 		const before = new Set( Core.nodes.keys() );
 		cleanup = 'function' === typeof build ? build( spine ) : undefined;
 		builtNames = [ ...Core.nodes.keys() ].filter(
 			( name ) => ! before.has( name )
 		);
-		// Publish the build-registered set so the debug overlay knows which names
-		// belong to a dashboard (vs user-added nodes). UNION across mounts — several
-		// build-delegated dashboards co-mount on one page (the hub overview), so the
-		// Reset Graph chip must recognize EVERY build's infra, not just the last
-		// mount's (teardownBuilt drops a mount's names again).
+		// Publish the build-registered set (UNION across mounts) for overlay.
 		Core.reinitNames = [
 			...new Set( [ ...( Core.reinitNames || [] ), ...builtNames ] ),
 		];
@@ -157,13 +132,11 @@ export function mountExospine( build ) {
 			cleanup();
 		}
 		cleanup = undefined;
-		// Full removeNode (not a bare unregister) so each soft node clears its
-		// own sink/target/registrations before the rebuild recreates it by name.
+		// Full removeNode (not unregister) so each node clears its refs.
 		for ( const name of builtNames ) {
 			Core.node( name )?.removeNode();
 		}
-		// Drop only THIS mount's names from the shared set — co-mounted dashboards
-		// keep theirs (the inverse of runBuild's union).
+		// Drop only THIS mount's names (inverse of runBuild's union).
 		const gone = new Set( builtNames );
 		Core.reinitNames = ( Core.reinitNames || [] ).filter(
 			( name ) => ! gone.has( name )
@@ -172,9 +145,7 @@ export function mountExospine( build ) {
 	};
 	const teardownBackbone = () => {
 		router.stopTimer();
-		// Remove the leaf singletons (they sink into the interpreter), then clear
-		// the interpreter (sink + caller TIMER listeners) and router — the backbone
-		// leaves nothing dangling.
+		// Remove leaf singletons, then interpreter + router — nothing dangles.
 		Core.node( names.CONSOLE_TAP )?.removeNode();
 		Core.node( names.HTTP )?.removeNode();
 		Core.node( names.HEARTBEAT )?.removeNode();
@@ -188,10 +159,7 @@ export function mountExospine( build ) {
 		runBuild();
 	};
 
-	// FULL rebuild: tear down EVERYTHING this exospine owns (backbone + build
-	// nodes) and reconstruct it from scratch. Driven by Core.bumpGraphGeneration()
-	// — the overlay's "Reset Graph" removes every node then bumps, and the build
-	// callback re-runs against the fresh backbone. The consumer does nothing.
+	// FULL rebuild: tear down EVERYTHING (backbone + build nodes), rebuild.
 	const fullRebuild = () => {
 		teardownBuilt();
 		teardownBackbone();
@@ -216,22 +184,15 @@ export function mountExospine( build ) {
 	mountBackbone();
 	runBuild();
 
-	// Only a build-delegated graph exposes the rebuild handles + subscribes to the
-	// full-rebuild signal. A bare mountExospine() — the console, or a dashboard
-	// that builds its own nodes — leaves Core.reinit null (hiding the overlay
-	// chip) and drives its own resetKey instead of the shared generation.
+	// Only a build-delegated graph exposes rebuild handles + rebuild sub.
 	if ( 'function' === typeof build ) {
 		if ( ownsBackbone ) {
 			Core.reinit = spine.reinit;
-			// Pre-subscribe bump: an open overlay rebuilds its poll on the new backbone.
+			// Pre-subscribe bump: an open overlay rebuilds its poll.
 			Core.bumpGraphGeneration();
 			unsubscribe = Core.subscribeGraphGeneration( fullRebuild );
 		} else {
-			// Reused backbone — the owner manages full rebuilds. Don't bump (it
-			// would tear the shared backbone out from under us). Just rebuild OUR
-			// build nodes when the generation bumps: the owner's fullRebuild (it
-			// subscribed first) recreates the backbone, then our reinit re-runs our
-			// build against it.
+			// Reused backbone — owner owns full rebuilds; just reinit ours.
 			unsubscribe = Core.subscribeGraphGeneration( spine.reinit );
 		}
 	}

@@ -19,8 +19,7 @@ export function useNodeState( nodeName, event ) {
 		() => Core.node( nodeName )?.setStateCache?.[ event ]
 	);
 	const reactId = useId();
-	// Key the effect on the node instance so a swap under a stable name
-	// re-subscribes to the new node, not the dead one.
+	// Key the effect on the node instance so a name swap re-subscribes.
 	const node = Core.node( nodeName );
 	useEffect( () => {
 		if ( ! node ) {
@@ -31,7 +30,7 @@ export function useNodeState( nodeName, event ) {
 		if ( ! ( event in node.registrations ) ) {
 			node.registrations[ event ] = {};
 		}
-		// Re-seed from the new node's cache so a swap doesn't strand old state.
+		// Re-seed from the new node's cache so a swap doesn't strand state.
 		setValue( node.setStateCache?.[ event ] );
 		const listenerId = `react/${ reactId }/${ event }`;
 		node.register( event, listenerId, ( payload ) => {
@@ -43,10 +42,7 @@ export function useNodeState( nodeName, event ) {
 	return value;
 }
 
-// Stable references for useSyncExternalStore — defined once so the `subscribe`
-// identity never changes across renders (an inline arrow would unsubscribe +
-// re-subscribe every render, churning Core's listener set). getSnapshot doubles
-// as the server snapshot (the counter is 0 on a fresh module, SSR-safe).
+// Stable useSyncExternalStore refs — defined once so `subscribe` is stable.
 const subscribeGeneration = ( onChange ) =>
 	Core.subscribeGraphGeneration( onChange );
 const getGeneration = () => Core.graphGeneration;

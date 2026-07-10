@@ -21,17 +21,14 @@ import {
 	TM_COMMAND,
 } from './message';
 
-// Slot TTL (s) requested in each poke, and the throttle (half the TTL) so a
-// single missed tick still leaves the slot alive.
+// Slot TTL (s) per poke; throttle is half the TTL so a missed tick survives.
 const SLOT_TTL_S = 10;
 const POKE_INTERVAL_MS = 5000;
 
 export class HeartbeatNode extends TimerNode {
 	constructor() {
 		super();
-		// The SSE slot to refresh; null until the SSE stream connects (and cleared
-		// when it closes). The slot pool keeps alive on (user, ip, slot) — no
-		// partition, so the heartbeat doesn't track one.
+		// SSE slot to refresh; null until stream connects, cleared on close.
 		this.slot = null;
 	}
 
@@ -41,9 +38,7 @@ export class HeartbeatNode extends TimerNode {
 		void message;
 	}
 
-	// Router TIMER subscriber: the base fireCb() throttles to POKE_INTERVAL_MS, so
-	// fire() just pokes the slot — only while a worker stream slot is held (the poke
-	// is meaningless without one).
+	// Router TIMER subscriber: fire() pokes the slot, only while one is held.
 	fire() {
 		if ( null === this.slot || ! this.sink ) {
 			return;
@@ -52,11 +47,7 @@ export class HeartbeatNode extends TimerNode {
 		this.sink.fill( this._pollMessage() );
 	}
 
-	// Build the poke TM_COMMAND, addressed to this.target — the REST `workers` CI
-	// via the session boundary (`_sse` wraps FROM into the private reply address;
-	// the slot pool's heartbeat verb lives on `workers`, not on the per-worker IPC
-	// interpreter). FROM = own name is the reply path; LOCAL taints it so the browser interpreter
-	// authorizes it.
+	// Poke TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
 	_pollMessage() {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
@@ -70,14 +61,12 @@ export class HeartbeatNode extends TimerNode {
 		return m;
 	}
 
-	// Hitchhike the Router TIMER and let the base fireCb() throttle to POKE_INTERVAL_MS
-	// (half the slot TTL, so a single missed tick still leaves the slot alive).
+	// Hitchhike the Router TIMER; base fireCb() throttles to POKE_INTERVAL_MS.
 	setTimer() {
 		super.setTimer( POKE_INTERVAL_MS );
 	}
 
-	// Record the slot acquired by the live SSE stream (from its `connected`
-	// payload). The slot pool keys on (user, ip, slot) only.
+	// Record the slot the live SSE stream acquired (its `connected` payload).
 	setSlot( slot ) {
 		this.slot = slot;
 	}
