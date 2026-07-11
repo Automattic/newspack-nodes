@@ -2704,11 +2704,9 @@ class PartitionTest extends TestCase {
 		$this->assertSame( $before, $p->get_segments( true ), 'truncate to an absent id is a no-op' );
 	}
 
-	public function test_truncate_after_throws_on_a_write_lock_held_partition(): void {
-		// truncate_after is safe ONLY on a private single-writer log (the consumer's
-		// offsetlog). An allow_large_writes()-locked partition is, by definition, a
-		// multi-writer-guarded source: truncating it races a peer append. Mirror
-		// allow_large_writes()'s fail-loud contract — refuse rather than corrupt.
+	public function test_truncate_after_works_on_a_write_lock_held_partition(): void {
+		// The old write_lock guard had it backwards: holding the exclusivity
+		// lock means there is no peer append to race. Guard removed.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p0 1 100 0" );
 		$p->name( 'src' );
@@ -2718,9 +2716,9 @@ class PartitionTest extends TestCase {
 		}
 		$p->allow_large_writes(); // acquires the exclusivity write_lock.
 
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'single-writer' );
 		$p->truncate_after( 1 );
+
+		$this->assertSame( [ 0, 1 ], \array_column( $p->get_segments( true ), 'id' ), 'a locked partition truncates like any other' );
 	}
 
 	public function test_truncate_after_works_on_a_void_warranty_offsetlog(): void {

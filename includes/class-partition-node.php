@@ -277,8 +277,8 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Truncate the log AFTER a segment: delete every segment with id > $segment,
-	 * then reset the write state so the log resumes coherently FROM $segment —
+	 * Truncate the offsetlog AFTER a segment: delete every segment with id > $segment,
+	 * then reset the write state so the offsetlog resumes coherently FROM $segment —
 	 * the next rotate lands at $segment + 1, monotonic, no gap, no survivor
 	 * overwritten. No-op when $segment is the newest, past the newest, or absent.
 	 *
@@ -286,25 +286,9 @@ class Partition_Node extends Timer_Node {
 	 * PLAY drops the now-stale forward frames before re-arming so the re-written
 	 * timeline stays monotonic. The OFFSETLOG only — never the source log.
 	 *
-	 * SINGLE-WRITER ONLY: safe solely on a private single-writer log (the consumer's
-	 * offsetlog, lifted via void_warranty() — no lock). An allow_large_writes()-locked
-	 * partition is a multi-writer-guarded SOURCE; truncating it races a peer append, so
-	 * this throws (mirroring allow_large_writes()'s fail-loud contract) rather than
-	 * corrupt the log. The lock — not the lifted cap — distinguishes the two.
-	 *
 	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
-	 * @throws \RuntimeException when the partition holds an exclusivity write_lock.
 	 */
 	public function truncate_after( int $segment ): void {
-		if ( null !== $this->write_lock ) {
-			throw new \RuntimeException(
-				\esc_html(
-					"Partition::truncate_after() refused at {$this->write_lock_path()}: this partition "
-					. 'holds an exclusivity write_lock (allow_large_writes), so it is a multi-writer-guarded '
-					. 'source — truncation is single-writer only (the consumer offsetlog).'
-				)
-			);
-		}
 		$segments = $this->get_segments( true );
 		$sizes    = \array_column( $segments, 'size', 'id' );
 		if ( ! isset( $sizes[ $segment ] ) ) {
