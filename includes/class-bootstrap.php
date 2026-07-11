@@ -109,17 +109,6 @@ class Bootstrap {
 	}
 
 	/**
-	 * Declare the substrate's own non-topology log producers (Job_Intake's
-	 * jobintake.p<N>) so Log_Cleaner never sweeps them on ELN-less installs.
-	 *
-	 * @param array<int, string> $producers Producers from prior contributors.
-	 * @return array<int, string>
-	 */
-	public static function register_log_producers( array $producers ): array {
-		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME ] ) ) );
-	}
-
-	/**
 	 * Build the one shared `\Memcached` handle on `Core::$memd` from the
 	 * substrate's own `memcache_servers` config. The substrate owns this — every
 	 * substrate path that needs caching (command-auth nonce single-use, SSE slot
@@ -459,6 +448,17 @@ class Bootstrap {
 	public static function remember_schedule_event_context( $event ) {
 		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
 		return $event;
+	}
+
+	/**
+	 * Declare the substrate's own non-topology log producers (Job_Intake's
+	 * jobintake.p<N>) so Log_Cleaner never sweeps them on ELN-less installs.
+	 *
+	 * @param array<int, string> $producers Producers from prior contributors.
+	 * @return array<int, string>
+	 */
+	public static function register_log_producers( array $producers ): array {
+		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME ] ) ) );
 	}
 
 	/**

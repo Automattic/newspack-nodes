@@ -30,15 +30,15 @@ class Job_Intake {
 	public const LOG_BASENAME = 'jobintake';
 
 	/**
-	 * Valid handler name pattern (must match JobRouter and JobWorker).
-	 */
-	private const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
-
-	/**
 	 * Maximum job size in bytes (32 MB). The canonical cap: Job_Worker_Node and
 	 * an application's Job_Router derive their limit from this constant.
 	 */
 	public const MAX_JOB_SIZE = 32 * 1024 * 1024;
+
+	/**
+	 * Valid handler name pattern (must match JobRouter and JobWorker).
+	 */
+	private const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
 
 	/**
 	 * Round-robin counter for partition distribution.

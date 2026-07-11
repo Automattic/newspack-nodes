@@ -197,30 +197,6 @@ class Admin {
 	}
 
 	/**
-	 * Append one DevTools tab bundle (the shared `{handle, dir, url[, localize]}`
-	 * shape) to the running list. Each `register_*_tab_bundle` filter callback
-	 * delegates the append here; topology-console also builds a localize payload.
-	 *
-	 * @param array<int,mixed>     $bundles  Existing tab bundles.
-	 * @param string               $handle   Script handle.
-	 * @param string               $subdir   Build subdir under `build/`.
-	 * @param array<string,mixed>  $localize Optional localize payload.
-	 * @return array<int,mixed>
-	 */
-	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [] ): array {
-		$bundle = [
-			'handle' => $handle,
-			'dir'    => self::build_dir( $subdir ),
-			'url'    => self::build_url( $subdir ),
-		];
-		if ( [] !== $localize ) {
-			$bundle['localize'] = $localize;
-		}
-		$bundles[] = $bundle;
-		return $bundles;
-	}
-
-	/**
 	 * Enqueue the DevTools hub bundle on the top-level "Nodes" page.
 	 */
 	public function enqueue_devtools_hub_assets( string $hook = '' ): void {
@@ -335,6 +311,109 @@ class Admin {
 
 	public static function remote_max_lifespan_callback(): void {
 		self::render_number( 'remote_max_lifespan', 3600, 0, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
+	}
+
+	/**
+	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
+	 * page enqueues it and its `host: 'hub'` tabs (Topology Manager + Raw Logs)
+	 * register there. (event-dashboards is also enqueued directly on the hub page
+	 * via enqueue_event_dashboards_assets; wp dedupes by handle, so the double
+	 * enqueue is harmless.)
+	 *
+	 * @param array<int,mixed> $bundles Existing tab bundles.
+	 * @return array<int,mixed> Bundles with the event-dashboards bundle appended.
+	 */
+	public function register_event_dashboards_tab_bundle( array $bundles ): array {
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-event-dashboards', 'event-dashboards' );
+	}
+
+	/**
+	 * Append one DevTools tab bundle (the shared `{handle, dir, url[, localize]}`
+	 * shape) to the running list. Each `register_*_tab_bundle` filter callback
+	 * delegates the append here; topology-console also builds a localize payload.
+	 *
+	 * @param array<int,mixed>     $bundles  Existing tab bundles.
+	 * @param string               $handle   Script handle.
+	 * @param string               $subdir   Build subdir under `build/`.
+	 * @param array<string,mixed>  $localize Optional localize payload.
+	 * @return array<int,mixed>
+	 */
+	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [] ): array {
+		$bundle = [
+			'handle' => $handle,
+			'dir'    => self::build_dir( $subdir ),
+			'url'    => self::build_url( $subdir ),
+		];
+		if ( [] !== $localize ) {
+			$bundle['localize'] = $localize;
+		}
+		$bundles[] = $bundle;
+		return $bundles;
+	}
+
+	/**
+	 * Advertise the vault bundle as a DevTools tab bundle so the hub page
+	 * enqueues it and its `host: 'hub'` Vault tab registers there.
+	 *
+	 * @param array<int,mixed> $bundles Existing tab bundles.
+	 * @return array<int,mixed> Bundles with the vault bundle appended.
+	 */
+	public function register_vault_tab_bundle( array $bundles ): array {
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-vault', 'vault' );
+	}
+
+	/**
+	 * Advertise the aggregator bundle as a DevTools tab bundle so the hub page
+	 * enqueues it and its `host: 'hub'` Aggregator tab registers there.
+	 *
+	 * @param array<int,mixed> $bundles Existing tab bundles.
+	 * @return array<int,mixed> Bundles with the aggregator bundle appended.
+	 */
+	public function register_aggregator_tab_bundle( array $bundles ): array {
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-aggregator-tab', 'event-aggregator' );
+	}
+
+	/**
+	 * Advertise the topology-console bundle as a DevTools tab bundle so the hub
+	 * page enqueues it and its `host: 'hub'` Console tab registers there. Carries
+	 * the partition snapshot the React dropdown reads (the SAME canonical
+	 * derivation the `topologies.list` verb uses, so the page-load snapshot and
+	 * the live refetch can't disagree).
+	 *
+	 * @param array<int,mixed> $bundles Existing tab bundles.
+	 * @return array<int,mixed> Bundles with the topology-console bundle appended.
+	 */
+	public function register_topology_console_tab_bundle( array $bundles ): array {
+		// Per-topology partition counts for the React dropdown.
+		$topology_workers = [];
+		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
+			if ( '' === $name ) {
+				continue;
+			}
+			$topology_workers[ $name ] = Bootstrap::num_partitions_for( $name );
+		}
+		\ksort( $topology_workers );
+
+		// Active topologies (catalog + operator overlay) the supervisor would spawn.
+		$active_topologies = \array_keys( Bootstrap::get_topologies() );
+		\sort( $active_topologies );
+
+		// Client fallback when a topology's list entry omits num_partitions.
+		$config_np  = Config::load_config()['num_partitions'] ?? 1;
+		$default_np = Core::as_int( $config_np, 1 );
+
+		return self::append_tab_bundle(
+			$bundles,
+			'newspack-nodes-topology-console',
+			'topology-console',
+			[
+				'tree'                => 'topology-console',
+				'version'             => \NEWSPACK_NODES_VERSION,
+				'topologyWorkers'     => $topology_workers,
+				'activeTopologies'    => $active_topologies,
+				'configNumPartitions' => $default_np,
+			]
+		);
 	}
 
 	/**
@@ -625,85 +704,6 @@ class Admin {
 		if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
 			\wp_style_add_data( 'newspack-nodes-theme', 'rtl', 'replace' );
 		}
-	}
-
-	/**
-	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
-	 * page enqueues it and its `host: 'hub'` tabs (Topology Manager + Raw Logs)
-	 * register there. (event-dashboards is also enqueued directly on the hub page
-	 * via enqueue_event_dashboards_assets; wp dedupes by handle, so the double
-	 * enqueue is harmless.)
-	 *
-	 * @param array<int,mixed> $bundles Existing tab bundles.
-	 * @return array<int,mixed> Bundles with the event-dashboards bundle appended.
-	 */
-	public function register_event_dashboards_tab_bundle( array $bundles ): array {
-		return self::append_tab_bundle( $bundles, 'newspack-nodes-event-dashboards', 'event-dashboards' );
-	}
-
-	/**
-	 * Advertise the vault bundle as a DevTools tab bundle so the hub page
-	 * enqueues it and its `host: 'hub'` Vault tab registers there.
-	 *
-	 * @param array<int,mixed> $bundles Existing tab bundles.
-	 * @return array<int,mixed> Bundles with the vault bundle appended.
-	 */
-	public function register_vault_tab_bundle( array $bundles ): array {
-		return self::append_tab_bundle( $bundles, 'newspack-nodes-vault', 'vault' );
-	}
-
-	/**
-	 * Advertise the aggregator bundle as a DevTools tab bundle so the hub page
-	 * enqueues it and its `host: 'hub'` Aggregator tab registers there.
-	 *
-	 * @param array<int,mixed> $bundles Existing tab bundles.
-	 * @return array<int,mixed> Bundles with the aggregator bundle appended.
-	 */
-	public function register_aggregator_tab_bundle( array $bundles ): array {
-		return self::append_tab_bundle( $bundles, 'newspack-nodes-aggregator-tab', 'event-aggregator' );
-	}
-
-	/**
-	 * Advertise the topology-console bundle as a DevTools tab bundle so the hub
-	 * page enqueues it and its `host: 'hub'` Console tab registers there. Carries
-	 * the partition snapshot the React dropdown reads (the SAME canonical
-	 * derivation the `topologies.list` verb uses, so the page-load snapshot and
-	 * the live refetch can't disagree).
-	 *
-	 * @param array<int,mixed> $bundles Existing tab bundles.
-	 * @return array<int,mixed> Bundles with the topology-console bundle appended.
-	 */
-	public function register_topology_console_tab_bundle( array $bundles ): array {
-		// Per-topology partition counts for the React dropdown.
-		$topology_workers = [];
-		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
-			if ( '' === $name ) {
-				continue;
-			}
-			$topology_workers[ $name ] = Bootstrap::num_partitions_for( $name );
-		}
-		\ksort( $topology_workers );
-
-		// Active topologies (catalog + operator overlay) the supervisor would spawn.
-		$active_topologies = \array_keys( Bootstrap::get_topologies() );
-		\sort( $active_topologies );
-
-		// Client fallback when a topology's list entry omits num_partitions.
-		$config_np  = Config::load_config()['num_partitions'] ?? 1;
-		$default_np = Core::as_int( $config_np, 1 );
-
-		return self::append_tab_bundle(
-			$bundles,
-			'newspack-nodes-topology-console',
-			'topology-console',
-			[
-				'tree'                => 'topology-console',
-				'version'             => \NEWSPACK_NODES_VERSION,
-				'topologyWorkers'     => $topology_workers,
-				'activeTopologies'    => $active_topologies,
-				'configNumPartitions' => $default_np,
-			]
-		);
 	}
 
 	/**
