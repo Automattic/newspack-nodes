@@ -46,7 +46,7 @@ class Topology_Loader {
 		// No boot console: TM_NOREPLY drops replies dead-ending on _output.
 		$shell->want_reply( false );
 
-		// Local-disk TSL content only — remote-fetch phpcs rule doesn't apply.
+		// Local-disk TSL only; remote-fetch phpcs rule doesn't apply.
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$shell->eval_script( (string) \file_get_contents( $path ) );
 	}

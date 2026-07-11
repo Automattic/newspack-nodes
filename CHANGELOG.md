@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Remote_Link` ticks at 10Hz (`TICK_INTERVAL_MS` 1000 → 100) so `Remote_Source::poll()` drains promptly; housekeeping self-latches to once per wall-second.** Below 1000ms the timer takes its own Event_Framework slot instead of router-hitchhiking; the base `fire()` gates patrons/reconnect/heartbeat-mint/status behind an integer-second latch, so their cadence is unchanged while subclass fast paths ride every tick. `Remote_IPC` inherits the latch (behaviorally unchanged); PLAY's re-arm now lands in `event_framework` timer mode.
+- **`Remote_Link`'s heartbeat-sent state deduplicated** — `Remote_Source`'s shadow property folded onto the parent's (now `protected`, renamed `$last_heartbeat_sent`); the RTT math reads the one stamp the pacing writes.
 - **`Job_Worker_Node`'s redundant memory watermark removed.** The memory-pressure restart is `Worker_Base`'s cooperative stop (same 0.80 threshold, checked every drain tick, stderr-logged with usage/limit/percent); Job_Worker's per-job latch, `MEMORY_PRESSURE` state event, and GET_HEALTH `memory_pressure` field had no consumers, and the latch was only observable for the sub-tick between `after_job()` and the next `should_continue()`. GET_HEALTH keeps `memory_used_mb` / `memory_limit_mb`.
 - **SSE slot-pool memcache keys moved to the substrate namespace** — `evlog:sse:…` → `newspack_nodes:sse:…`. The old prefix was a leftover from the pool's event-logger origin; the substrate now owns its own key space. Live slots keyed under the old prefix orphan on upgrade and age out by TTL.
 
@@ -22,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`HTTP_Out` re-minted every outbound message as a fresh `TM_COMMAND` envelope, destroying TYPE/ID/KEY/TIMESTAMP** — a `TM_PING`/`TM_BYTESTREAM` sent through `Remote_IPC` came back typed `TM_COMMAND`, breaking bare `ping`/`send` against a remote worker. `fill()` now buffers the message verbatim (ADR-2: the wire shape IS the memory shape); the spoke's `HTTP_In` always decoded verbatim, and the JS twin always packed verbatim, so PHP `HTTP_Out` was the lone deviant. Originators stamp FROM at the source — `Remote_IPC`'s bundled `connect_worker_input` now carries its node name (the transport no longer invents an `_http` fallback).
 - **Two `'off'` string literals clobbered by the segment/offset/length whole-word rename (`9240c816`).** The Shell's `show_parse` toggle-off confirmation printed `show_parse: offset` instead of `show_parse: off`, and `SSE_Out_Node::init_sse_headers()` passed the invalid value `'offset'` to `ini_set( 'output_buffering', … )` (behaviorally inert — the directive is `PHP_INI_PERDIR` — but wrong on its face; that inert line is now deleted outright, the `ob_end_clean()` loop is what actually clears buffers). Audited the full rename commit across PHP and JS: these were the only two damaged literals.
 
 ## [0.33.1] - 2026-07-09

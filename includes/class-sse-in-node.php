@@ -34,18 +34,18 @@ namespace Newspack_Nodes;
 // cURL is required for SSE multiplexing — wp_remote_get() can't do it.
 
 class SSE_In_Node extends Node {
-	public const CONNECT_TIMEOUT    = 5;
-	public const HEARTBEAT_TIMEOUT  = 45;
-	public const INITIAL_BACKOFF    = 1;
+	public const CONNECT_TIMEOUT   = 5;
+	public const HEARTBEAT_TIMEOUT = 45;
+	public const INITIAL_BACKOFF   = 1;
 
 	// ----- Reconnect / liveness tuning. -----
 
-	public const MAX_BACKOFF        = 30;
+	public const MAX_BACKOFF       = 30;
 
 	// ----- Memory / size guards. -----
 
-	public const MAX_BUFFER_SIZE = 33554432; // 32MB
-	public const MAX_EVENT_SIZE  = 33554432; // 32MB
+	public const MAX_BUFFER_SIZE   = 33554432; // 32MB
+	public const MAX_EVENT_SIZE    = 33554432; // 32MB
 
 	/**
 	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
@@ -68,38 +68,38 @@ class SSE_In_Node extends Node {
 	 *
 	 * @var \Closure|null
 	 */
-	public ?\Closure $on_message = null;
-	protected string $auth_password = '';
-	protected string $auth_token    = '';
-	protected string $auth_username = '';
-	protected string $subscribe     = '';
+	public ?\Closure $on_message        = null;
+	protected string $auth_password     = '';
+	protected string $auth_token        = '';
+	protected string $auth_username     = '';
+	protected string $subscribe         = '';
 
-	protected string $url           = '';
+	protected string $url               = '';
 
-	private string $buffer = '';
-	private bool  $connected       = false;
-	private int   $current_backoff = self::INITIAL_BACKOFF;
+	private string $buffer              = '';
+	private bool   $connected           = false;
+	private int    $current_backoff     = self::INITIAL_BACKOFF;
 	/** @var array{event:string, data:string} Current SSE event accumulator. */
-	private array $current_event   = [ 'event' => '', 'data' => '' ];
+	private array  $current_event       = [ 'event' => '', 'data' => '' ];
 
 	/** Active easy handle when connected, null otherwise. */
-	private ?\CurlHandle $handle = null;
-	private float $last_attempt    = 0.0;
-	private ?string $last_error    = null;
-	private float $last_event_time = 0.0;
-	private ?int  $last_http_code  = null;
-	private ?int  $last_sse_heartbeat = null;
+	private ?\CurlHandle $handle        = null;
+	private float   $last_attempt       = 0.0;
+	private ?string $last_error         = null;
+	private float   $last_event_time    = 0.0;
+	private ?int    $last_http_code     = null;
+	private ?int    $last_sse_heartbeat = null;
 
 	/** Owned multi handle, registered with the Event_Framework. */
-	private ?\CurlMultiHandle $multi = null;
+	private ?\CurlMultiHandle $multi    = null;
 	/** @var array{segment:int, offset:int} Read cursor. */
-	private array $position        = [ 'segment' => 0, 'offset' => 0 ];
-	private bool $require_ssl  = false;
+	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
+	private bool  $require_ssl          = false;
 	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM). */
-	private ?int  $session_pid    = null;
-	private ?int  $slot            = null;
+	private ?int  $session_pid          = null;
+	private ?int  $slot                 = null;
 
-	private bool $verify_ssl   = true;
+	private bool $verify_ssl            = true;
 
 	/** Tachikoma-parity: no-arg ctor. Config arrives via configure(); no I/O here (ADR-5). */
 	public function __construct() {

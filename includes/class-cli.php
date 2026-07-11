@@ -79,7 +79,7 @@ class CLI {
 	public function consumer_rows(): array {
 		$rows = [];
 		foreach ( $this->read_probe_index() as $reader => $record ) {
-			// reader is `{source_basename}.p{N}` — the partition lives in the name.
+			// reader is `{source_basename}.p{N}`: partition lives in the name.
 			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $reader, $m ) ) {
 				continue;
 			}

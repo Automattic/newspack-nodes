@@ -55,9 +55,9 @@ class Message {
 
 	/** @param array<int, mixed> $message The 7-field positional message array. */
 	public static function packed( array $message ): string {
-		// Canonical 7 fields only; slicing drops LOCAL so it never crosses processes.
+		// Canonical 7 fields; slicing drops LOCAL, never crosses processes.
 		$json = \wp_json_encode( \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 ), \JSON_UNESCAPED_SLASHES );
-		// An unencodable VALUE (e.g. invalid UTF-8) yields false; emit '' explicitly.
+		// Unencodable VALUE (e.g. invalid UTF-8) yields false; emit '' instead.
 		return false === $json ? '' : $json;
 	}
 
@@ -65,7 +65,7 @@ class Message {
 	public static function new_message(): array {
 		return [
 			self::TYPE      => 0,
-			// Cached per-tick clock; microtime() fallback outside the drain loop.
+			// Cached per-tick clock; microtime() fallback outside drain loop.
 			self::TIMESTAMP => Core::$now ?: \microtime( true ),
 			self::FROM      => '',
 			self::TO        => '',

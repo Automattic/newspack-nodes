@@ -26,7 +26,7 @@ export function lockPageScroll() {
 	}
 	const html = document.documentElement;
 	const body = document.body;
-	// Scrollbar gutter, clamped 0-40px (jsdom clientWidth 0 would blank the page).
+	// Scrollbar gutter, clamped 0-40px (jsdom clientWidth 0 blanks the page).
 	const rawGutter = window.innerWidth - html.clientWidth;
 	const gutter = rawGutter > 0 && rawGutter <= 40 ? rawGutter : 0;
 	saved = {

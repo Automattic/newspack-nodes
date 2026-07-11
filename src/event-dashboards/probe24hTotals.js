@@ -17,7 +17,7 @@
  * @return {{ msgs: number, bytes: number }} Produced totals over the retained window.
  */
 export function probe24hTotals( consumers ) {
-	// source → Map(ts → {msgRate, byteRate}), merged across that source's readers.
+	// source → Map(ts → {msgRate, byteRate}), merged across its readers.
 	const bySource = new Map();
 	for ( const c of Object.values( consumers || {} ) ) {
 		const source = c.source || '';

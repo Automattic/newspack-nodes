@@ -106,7 +106,7 @@ class Supervisor_Base {
 		if ( false === $real_path || false === $real_base ) {
 			return false;
 		}
-		// Accept equality — containment predicate; callers reject it if needed.
+		// Accept equality: containment predicate; callers reject it if needed.
 		$real_base_trim = \rtrim( $real_base, '/' );
 		if ( $real_path === $real_base_trim ) {
 			return true;

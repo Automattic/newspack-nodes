@@ -787,7 +787,7 @@ function SingleTargetField( {
 	onConnect,
 	onRemoveEdge,
 } ) {
-	// Physical edge only; virtual (verb-derived) edges live in the Verbs section.
+	// Physical edge only; virtual (verb-derived) edges live in Verbs section.
 	const physical = targets.find( ( e ) => ! e.virtual ) || null;
 	const currentTarget = physical ? physical.to : '';
 
@@ -887,11 +887,11 @@ function EditForm( {
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
-	// Drop hidden verbs (schema plumbing) from the editor, matching the buttons.
+	// Drop hidden verbs (schema plumbing) from editor, matching the buttons.
 	const commandSpecs = ( schema?.commands || [] ).filter(
 		( spec ) => ! spec.hidden
 	);
-	// Absorb each free-text trailing arg into its declared slot once (normalized).
+	// Absorb each free-text trailing arg into its declared slot (normalized).
 	const ctorArgs = absorbTrailingArgs(
 		node.ctorArgs || [],
 		argumentSpecs.length
@@ -997,7 +997,7 @@ function EditForm( {
 						</div>
 					) }
 					{ commandSpecs.map( ( cspec ) => {
-						// A `multiple` verb: a row per invocation + Add, not a checkbox.
+						// `multiple` verb: row per call + Add, not checkbox.
 						if ( cspec.multiple ) {
 							const invIdxs = verbInvocations
 								.map( ( inv, i ) =>
@@ -1508,7 +1508,7 @@ export default function Inspector( {
 	onConnect,
 	composeTargets,
 } ) {
-	// Which value-taking verb's prompt modal is open, or null (one shared modal).
+	// Which value-taking verb's prompt modal is open, or null (shared modal).
 	const [ promptVerb, setPromptVerb ] = useState( null );
 	// Whether the "Register a listener" modal is open.
 	const [ registerOpen, setRegisterOpen ] = useState( false );
@@ -1516,7 +1516,7 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 
 	if ( ! selectedId ) {
-		// Edit mode has no live interpreter; show a hint until a node is selected.
+		// Edit mode has no live interpreter; hint until a node is selected.
 		if ( editMode ) {
 			return (
 				<aside className="topology-inspector">
@@ -1637,10 +1637,10 @@ export default function Inspector( {
 	const nodeNames = parsed.nodes
 		.map( ( n ) => n.id )
 		.filter( ( id ) => id !== selectedId );
-	// The node's valid registration events (catalog) — drives the Register modal.
+	// The node's valid registration events (catalog) — drives Register modal.
 	const catalogEntry = catalog.find( ( c ) => c.shell_name === node.class );
 	const regEvents = catalogEntry?.registrations ?? [];
-	// Use the node's FULL uncollapsed targets (parsed.edges are head-collapsed).
+	// Use the node's FULL uncollapsed targets (parsed.edges head-collapsed).
 	const editorTargets = ( node.targets || [] ).map( ( to ) => ( {
 		from: selectedId,
 		to,
@@ -1650,12 +1650,12 @@ export default function Inspector( {
 	const isTee = isTeeNode( node, catalog );
 	// A consumer carries its read surface (frames + cursor) in dump_metadata.
 	const isConsumer = isConsumerNode( node );
-	// No streamStatus = no SSE stream (overlay reads its own Core, always live).
+	// No streamStatus = no SSE stream (overlay reads its own Core, live).
 	const live = ! streamStatus || streamStatus === 'open';
 
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
-	// A tail defaults to the session's reply FROM; match the node's FULL targets.
+	// A tail defaults to the session's reply FROM; match node's FULL targets.
 	const tailOn =
 		!! parsed.pwd && ( node.targets || [] ).includes( parsed.pwd );
 	// Read-only Constructor: declared args + given values (no live re-arg).
@@ -1681,7 +1681,7 @@ export default function Inspector( {
 			{ nodeHasTarget( node, catalog ) && (
 				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
 					{ onConnect && onRemoveEdge && ! isReserved( node ) ? (
-						// Live targets editor: add/remove dispatch connect_node, no .tsl.
+						// Targets editor: add/remove dispatches connect_node.
 						<TargetsField
 							node={ node }
 							nodeNames={ nodeNames }
@@ -1869,7 +1869,7 @@ export default function Inspector( {
 								verb,
 								kind: 'command',
 								positional,
-								// SEEK_FRAME's arg is `segment`; PAUSE/PLAY/STEP take none.
+								// SEEK_FRAME takes `segment`; others none.
 								byName:
 									'SEEK_FRAME' === verb
 										? { segment: positional }
@@ -2050,7 +2050,7 @@ export default function Inspector( {
 						).filter( ( spec ) => ! spec.hidden );
 						const requests =
 							schema && schema.requests ? schema.requests : [];
-						// node_name args pick from the live graph, minus the inspected node.
+						// node_name args = live graph nodes minus inspected.
 						const liveNodeNames = ( parsed?.nodes || [] )
 							.map( ( n ) => n.name || n.id )
 							.filter( ( n ) => n && n !== node.id );

@@ -69,7 +69,7 @@ export function useDebugGraph(
 		[ shell ]
 	);
 
-	// Non-invoke verbs echo + route through sendVerb (path '' — overlay is local).
+	// Non-invoke verbs echo + route via sendVerb (path '' — overlay local).
 	const dispatch = useCallback(
 		( echoLine, name, args, flags ) =>
 			sendVerb( echoLine, '', name, args, flags ),
@@ -82,7 +82,7 @@ export function useDebugGraph(
 		[]
 	);
 
-	// Inject Shell prefix/replyFrom so invoke honors cwd (it skips sendCommand).
+	// Inject Shell prefix/replyFrom so invoke honors cwd (skips sendCommand).
 	const handlers = useGraphHandlers( {
 		shell,
 		graph,
@@ -106,7 +106,7 @@ export function useDebugGraph(
 				? `${ current.shellName } ${ name } ${ trimmed }`
 				: `${ current.shellName } ${ name }`;
 			sendVerb( `make_node ${ line }`, '', 'make_node', line );
-			// Optimistically inject the dropped node; the next full poll reconciles.
+			// Optimistically inject the dropped node; next poll reconciles.
 			Core.node( names.METADATA )?.optimisticPatch( name, {
 				class: current.shellName,
 				target: '',

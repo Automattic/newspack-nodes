@@ -74,7 +74,7 @@ class Event_Framework {
 
 			$timeout_us = $this->next_timer_timeout_us();
 
-			// One blocking call per iteration: cURL handles, or usleep to next timer.
+			// 1 blocking call/iteration: cURL handles, or usleep to timer.
 			if ( ! empty( $this->curl_handles ) ) {
 				foreach ( $this->curl_handles as $entry ) {
 					// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_select
@@ -127,7 +127,7 @@ class Event_Framework {
 			\curl_multi_exec( $entry['multi'], $still_running );
 			while ( $info = \curl_multi_info_read( $entry['multi'] ) ) {
 				if ( \method_exists( $entry['node'], 'on_curl_message' ) ) {
-					++$entry['counter']; // ref writes the live entry; on_curl_message may unregister it after
+					++$entry['counter']; // @longform ref writes the live entry; on_curl_message may unregister it after
 					$entry['node']->on_curl_message( $info );
 				}
 			}
@@ -183,7 +183,7 @@ class Event_Framework {
 
 	public function set_timer( Timer_Node $node ): void {
 		$id = \spl_object_id( $node );
-		// Seed next_fire; without it next_fire stays 0.0 and the timer busy-loops.
+		// Seed next_fire; else it stays 0.0 and the timer busy-loops.
 		$node->next_fire     = Core::$now + ( $node->interval_ms / 1000.0 );
 		$this->timers[ $id ] = $node;
 	}

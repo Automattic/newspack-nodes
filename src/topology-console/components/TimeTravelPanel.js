@@ -141,7 +141,7 @@ export default function TimeTravelPanel( {
 	onFrameSignal = false,
 	onTransport,
 } ) {
-	// Optimistic override: null defers to metadata; a bool gives instant feedback.
+	// Optimistic override: null defers to metadata; bool = instant feedback.
 	const [ optimistic, setOptimistic ] = useState( null );
 	useEffect( () => setOptimistic( null ), [ pausedSignal ] );
 	const paused = null !== optimistic ? optimistic : !! pausedSignal;
@@ -171,7 +171,7 @@ export default function TimeTravelPanel( {
 	const canStep = paused;
 	// Rewind needs an earlier landing point; oldest on-frame has none.
 	const canRewind = paused && frames.length > 0 && ! ( onFrame && onOldest );
-	// Fast-forward walks retained keyframes ahead of atFrame — never the newest.
+	// Fast-forward walks retained keyframes ahead of atFrame — never newest.
 	const canForward = paused && ! onNewest;
 
 	const seekTo = ( id ) => {

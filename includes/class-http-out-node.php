@@ -1,7 +1,7 @@
 <?php
 /**
  * HTTP_Out: non-blocking outbound command egress. The push-side counterpart of
- * HTTP_In. fill() buffers each message as a packed TM_COMMAND envelope and arms a
+ * HTTP_In. fill() buffers each message verbatim (all 7 fields cross) and arms a
  * one-shot timer; on the next drain tick fire() POSTs the whole batch as a single
  * JSONL body to a remote spoke's /command on the Event_Framework's cURL-multi
  * (neither fill() nor fire() blocks). on_curl_message() forwards each reply Message
@@ -54,7 +54,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	public static ?\Closure $curl_result = null;
 
-	/** @var array<int,array<int,mixed>> Packed TM_COMMAND envelopes buffered between fill() and the next fire(). */
+	/** @var array<int,array<int,mixed>> Packed messages buffered between fill() and the next fire(). */
 	protected array $batch = [];
 
 	/** Whether the one-shot flush timer is already armed; gates re-arming without coupling to Timer_Node internals. */
@@ -84,24 +84,15 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Buffer the incoming message as a packed TM_COMMAND envelope and arm a one-shot
-	 * flush timer; the actual POST happens on the next drain tick in fire(). Never
-	 * blocks and never resolves the Vault (fire() does that once per batch).
+	 * Buffer the incoming message and arm a one-shot flush timer; the actual
+	 * POST happens on the next drain tick in fire(). Never blocks and never
+	 * resolves the Vault (fire() does that once per batch).
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
-
-		// Preserve caller FROM for reply routing; fall back to _http if empty.
-		$from = Core::as_string( $message[ Message::FROM ] );
-
-		$envelope                   = Message::new_message();
-		$envelope[ Message::TYPE ]  = Message::TM_COMMAND;
-		$envelope[ Message::FROM ]  = '' !== $from ? $from : Node_Names::HTTP;
-		$envelope[ Message::TO ]    = Core::as_string( $message[ Message::TO ] );
-		$envelope[ Message::VALUE ] = $message[ Message::VALUE ];
-		$this->batch[]              = $envelope;
+		$this->batch[] = $message;
 
 		if ( ! $this->batch_timer_armed ) {
 			$this->set_timer( 0, true );

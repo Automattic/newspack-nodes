@@ -48,7 +48,7 @@ export default function ConsoleShell( {
 					frame={ frame }
 					frameProps={ frameProps }
 					{ ...canvasProps }
-					// Transcript obstruction is stale in edit mode (no REPL) — don't reserve.
+					// Edit mode has no REPL; don't reserve transcript space.
 					bottomObstructionPx={
 						showRepl ? canvasProps.bottomObstructionPx : 0
 					}

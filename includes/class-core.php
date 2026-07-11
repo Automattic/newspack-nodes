@@ -192,7 +192,7 @@ class Core {
 		try {
 			( self::$stderr_handler )( $text );
 		} finally {
-			// Reset even if the handler throws, else stderr latches to fallback forever.
+			// Reset even if handler throws, else stderr latches to fallback.
 			self::$in_stderr = false;
 		}
 	}
@@ -374,7 +374,7 @@ class Core {
 			\CURLOPT_SSL_VERIFYHOST    => 0,
 			\CURLOPT_SSL_VERIFYPEER    => false,
 		] );
-		// Default ignores $body (already in POSTFIELDS); arg only matters to mocks.
+		// Default ignores $body (in POSTFIELDS); arg only matters to mocks.
 		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
 		$exec( $ch, $body );
 		$errno = \curl_errno( $ch );

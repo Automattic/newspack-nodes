@@ -17,8 +17,7 @@ class Tap_Node extends Tee_Node {
 		}
 		++$this->counter;
 
-		// Prune dead bare-name targets; pass path-shaped targets through as-is.
-		// Inline (not Core::arr): phpstan needs the element-type-preserving narrow.
+		// Prune dead bare-name targets; inline array not Core::arr (phpstan).
 		$targets = \is_array( $this->target ) ? $this->target : [];
 		$alive   = [];
 		foreach ( $targets as $t ) {

@@ -32,9 +32,9 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 		toggleInspectorCollapsed,
 	} = usePanelChrome( { paletteKey, defaultCollapsed } );
 
-	// Px the transcript overlay covers the canvas; fed to autofit (fit above it).
+	// Px the transcript overlay covers the canvas; fed to autofit (fit above).
 	const [ transcriptOverlayPx, setTranscriptOverlayPx ] = useState( 0 );
-	// REPL transcript expand state + the prompt input (so a parent can refocus).
+	// REPL transcript expand state + prompt input (so a parent can refocus).
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 
@@ -66,7 +66,7 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 		]
 	);
 
-	// replProps fragment both consumers spread (expand + overlay-height report).
+	// replProps fragment both consumers spread (expand + overlay-height).
 	const replChromeProps = useMemo(
 		() => ( {
 			expanded: replExpanded,

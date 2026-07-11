@@ -201,7 +201,7 @@ class Partition_Node extends Timer_Node {
 			return;
 		}
 
-		// Flush if this message would push batch over PIPE_BUF — stays atomic.
+		// Flush before batch would exceed PIPE_BUF, keeping the write atomic.
 		if ( '' !== $this->batch && \strlen( $this->batch ) + $size > self::MAX_LINE_SIZE ) {
 			$this->flush();
 		}

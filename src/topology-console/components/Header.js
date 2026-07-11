@@ -225,7 +225,7 @@ export default function Header( {
 				</>
 			) }
 			{ controlsSlotRef ? (
-				// The shared header's slot: the active tab portals its controls here.
+				// Shared header's slot: active tab portals its controls here.
 				<div
 					className="topology-header__controls"
 					ref={ controlsSlotRef }

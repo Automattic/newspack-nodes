@@ -66,7 +66,7 @@ export default function OverviewTab( { publishHeader } ) {
 	// The Overview owns no header controls — clear any the Console left behind.
 	useEffect( () => publishHeader?.( null ), [ publishHeader ] );
 
-	// Uptimes read at render so they tick with the cards' 20Hz refresh (no timer).
+	// Uptimes read at render so they tick with the cards' 20Hz refresh.
 	const nowSec = Math.floor( Date.now() / 1000 );
 	const clientUptime = formatAge(
 		Math.floor( performance.timeOrigin / 1000 ),
@@ -74,7 +74,7 @@ export default function OverviewTab( { publishHeader } ) {
 	);
 	const sseUptime = formatAge( totals.sseConnectedAt, nowSec );
 
-	// Memoize the <li> list: reconcile only when messages change, not every tick.
+	// Memoize the <li> list: reconcile when messages change, not every tick.
 	const messages = totals.messages;
 	const messagesKey = `${ messages.length }:${
 		messages[ messages.length - 1 ]?.ts ?? 0
@@ -108,7 +108,7 @@ export default function OverviewTab( { publishHeader } ) {
 	}, [ messagesKey ] );
 
 	return (
-		// Fullbleed scrolling body; flex/overflow is plumbing, visuals from classes.
+		// Fullbleed body; flex/overflow plumbing, visuals from classes.
 		<div
 			data-testid="overview-tab"
 			className="nodes-overview"

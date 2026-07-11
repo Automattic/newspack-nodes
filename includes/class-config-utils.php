@@ -72,10 +72,10 @@ class Config_Utils {
 		if ( ! \file_exists( $config_file ) ) {
 			return $config;
 		}
-		// Note: this executes PHP. Allowed directories must be tightly controlled.
+		// Executes PHP; allowed directories must be tightly controlled.
 		$parsed_config = require $config_file;
 		if ( \is_array( $parsed_config ) && self::validate_config_values( $parsed_config ) ) {
-			// require'd config is a dynamic array; validated above as scalar/array tree.
+			// require'd config: dynamic array; validated above as scalar/array.
 			/** @var array<string,mixed> $parsed_config */
 			return [ ...$config, ...$parsed_config ];
 		}

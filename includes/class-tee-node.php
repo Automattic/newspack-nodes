@@ -24,8 +24,7 @@ class Tee_Node extends Node {
 
 		$to = Core::as_string( $message[ Message::TO ] );
 
-		// Prune dead bare-name targets; pass path-shaped targets through as-is.
-		// Inline (not Core::arr): phpstan needs the element-type-preserving narrow.
+		// Prune dead bare-name targets; inline array not Core::arr (phpstan).
 		$targets = \is_array( $this->target ) ? $this->target : [];
 		$alive   = [];
 		foreach ( $targets as $t ) {

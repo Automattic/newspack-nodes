@@ -63,12 +63,12 @@ export function useGraphReset( {
 	const markDirtyRef = useRef( markDirty );
 	markDirtyRef.current = markDirty;
 
-	// Tap the Shell dispatch chokepoint; a mutating verb flips dirty + markDirty.
+	// Tap Shell dispatch chokepoint; a mutating verb flips dirty + markDirty.
 	useEffect( () => {
 		if ( ! shell ) {
 			return undefined;
 		}
-		// A fresh shell means a rebuilt (canonical) graph — clear any stale dirty.
+		// A fresh shell means a rebuilt (canonical) graph — clear stale dirty.
 		setStructureDirty( false );
 		const tap = ( message ) => {
 			const name = message?.[ VALUE ]?.name;
@@ -90,14 +90,14 @@ export function useGraphReset( {
 		for ( const node of [ ...Core.nodes.values() ] ) {
 			node.removeNode();
 		}
-		// …then bump: each builder tears down + rebuilds off the canonical wiring.
+		// …then bump: each builder tears down + rebuilds off canonical wiring.
 		Core.bumpGraphGeneration();
 		setStructureDirty( false );
 		// Keep the layout; surface Reset Layout so the user can re-autofit.
 		markDirtyRef.current();
 	}, [] );
 
-	// A user-added node in the live graph; excludes reserved/reinit/isSystemNode.
+	// User-added live-graph node; excludes reserved/reinit/isSystemNode.
 	const hasUserNodes =
 		!! isLocalScope &&
 		( nodes ?? [] ).some( ( n ) => {

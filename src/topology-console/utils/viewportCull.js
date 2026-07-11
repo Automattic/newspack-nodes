@@ -77,7 +77,7 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 		scale,
 		// Clip rect (on-screen + overscan) to truncate one-endpoint edges.
 		region: { x: left, y: top, w: right - left, h: bottom - top },
-		// Strict on-screen rect (no overscan): bloom pins its filter region to this.
+		// Strict on-screen rect (no overscan): bloom pins its filter here.
 		visibleRegion: { x: visX, y: visY, w: visW, h: visH },
 	};
 }

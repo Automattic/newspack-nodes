@@ -32,7 +32,7 @@ import './debug-overlay.scss';
 export default function DebugOverlay( {
 	search,
 	storageKey = 'newspack-nodes:debug',
-	// false on the hub Console tab — its graph+REPL would collide with Console's.
+	// false on hub Console tab — its graph+REPL would collide with Console's.
 	buildRepl = true,
 } ) {
 	const enabled = isDebugEnabled( search );
@@ -60,7 +60,7 @@ export default function DebugOverlay( {
 		return () => document.removeEventListener( 'keydown', onKey );
 	}, [ enabled ] );
 
-	// Keep the Overview sampler running whenever enabled, for continuous history.
+	// Keep the Overview sampler running while enabled for continuous history.
 	useEffect( () => {
 		if ( ! enabled ) {
 			return undefined;
