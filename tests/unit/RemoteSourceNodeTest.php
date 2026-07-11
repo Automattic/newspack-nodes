@@ -126,6 +126,56 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertFalse( $node->oneshot );
 	}
 
+	public function test_valve_backpressures_only_on_buffer_water_marks(): void {
+		// Edge-triggered buffer management: DISARM only when the buffer crosses above
+		// high-water, RE-ARM only when it drains back below low-water. The valve stays
+		// OPEN through normal flow (the old disarm-on-every-line gate stop-started the
+		// spoke and lagged the hub 10-20s). No disarm on an empty buffer, no arm per poll.
+		[ $node ] = $this->make_remote();
+		$sse = new class() extends SSE_In_Node {
+			public int $arms    = 0;
+			public int $disarms = 0;
+			public function arm(): void {
+				++$this->arms; }
+			public function disarm(): void {
+				++$this->disarms; }
+		};
+		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
+		$buffer = new \ReflectionProperty( \Newspack_Nodes\Remote_Source_Node::class, 'buffer' );
+		$armed  = new \ReflectionProperty( \Newspack_Nodes\Remote_Source_Node::class, 'pump_armed' );
+		$disarm = new \ReflectionMethod( $node, 'pump_maybe_disarm' );
+		$arm    = new \ReflectionMethod( $node, 'pump_maybe_arm' );
+
+		// Armed + below high-water: valve stays open (continuous flow).
+		$armed->setValue( $node, true );
+		$buffer->setValue( $node, \str_repeat( 'x', 100 * 1024 ) );
+		$disarm->invoke( $node );
+		$this->assertSame( 0, $sse->disarms, 'below high-water stays armed' );
+
+		// Armed + above high-water: disarm once (backpressure).
+		$buffer->setValue( $node, \str_repeat( 'x', 600 * 1024 ) );
+		$disarm->invoke( $node );
+		$this->assertSame( 1, $sse->disarms );
+		$this->assertFalse( $armed->getValue( $node ), 'disarm flips the valve state' );
+
+		// Disarmed + still above low-water: NO re-arm (hysteresis band).
+		$buffer->setValue( $node, \str_repeat( 'x', 300 * 1024 ) );
+		$arm->invoke( $node );
+		$this->assertSame( 0, $sse->arms, 'above low-water does not re-arm' );
+
+		// Disarmed + drained below low-water: re-arm.
+		$buffer->setValue( $node, \str_repeat( 'x', 10 * 1024 ) );
+		$arm->invoke( $node );
+		$this->assertSame( 1, $sse->arms, 're-arm once drained below low-water' );
+
+		// Armed + empty buffer: NO idle disarm, NO redundant arm-on-poll.
+		$buffer->setValue( $node, '' );
+		$arm->invoke( $node );
+		$disarm->invoke( $node );
+		$this->assertSame( 1, $sse->arms, 'no arm-on-poll when already armed' );
+		$this->assertSame( 1, $sse->disarms, 'no disarm on an empty buffer' );
+	}
+
 	public function test_first_tick_creates_and_configures_sse_in_patron(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
