@@ -50,7 +50,7 @@ export default function AlertModal( { title, message, onClose } ) {
 					<button
 						type="button"
 						ref={ okRef }
-						className="nodes-tm__alert-ok"
+						className="button"
 						onClick={ onClose }
 					>
 						{ __( 'OK', 'newspack-nodes' ) }

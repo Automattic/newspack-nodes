@@ -19,6 +19,15 @@ describe( 'AlertModal', () => {
 		expect( onClose ).toHaveBeenCalledTimes( 1 );
 	} );
 
+	it( 'renders the OK button with the canonical .button class, not a bespoke one', () => {
+		const { getByRole } = render(
+			<AlertModal title="t" message="m" onClose={ jest.fn() } />
+		);
+		const ok = getByRole( 'button', { name: 'OK' } );
+		expect( ok.classList.contains( 'button' ) ).toBe( true );
+		expect( ok.classList.contains( 'nodes-tm__alert-ok' ) ).toBe( false );
+	} );
+
 	it( 'closes on backdrop mouse down', () => {
 		const onClose = jest.fn();
 		const { container } = render(

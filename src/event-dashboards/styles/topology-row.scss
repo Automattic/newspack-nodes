@@ -285,18 +285,4 @@
 		justify-content: flex-end;
 		padding: 0 16px 16px;
 	}
-
-	&__alert-ok {
-		padding: 6px 16px;
-		border-radius: 6px;
-		border: 1px solid var(--paper-shadow);
-		background: var(--paper-2);
-		color: var(--ink);
-		cursor: pointer;
-		transition: background 0.15s;
-
-		&:hover {
-			background: var(--hover);
-		}
-	}
 }

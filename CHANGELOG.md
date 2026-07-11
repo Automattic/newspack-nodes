@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Button normalization on two non-console dashboards.** The AlertModal OK button now uses the canonical `.button` class instead of the bespoke `nodes-tm__alert-ok` (whose appearance-only SCSS rule is removed); the Vault admin modal Cancel buttons drop the inert, unstyled `button-tertiary` modifier, leaving `.button`. No visual change to the sanctioned topology-console mode-switcher.
+
 ## [0.35.0] - 2026-07-10
 
 ### Changed
