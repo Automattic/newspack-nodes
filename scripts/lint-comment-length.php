@@ -36,8 +36,8 @@ function is_longform( string $text ): bool {
 /**
  * @return array<int, string> `line: message` violations for one file.
  */
-function check_file( string $path ): array {
-	$source = \file_get_contents( $path );
+function check_file( string $file ): array {
+	$source = \file_get_contents( $file );
 	if ( false === $source ) {
 		return [ "0: unreadable" ];
 	}
@@ -116,16 +116,16 @@ function check_file( string $path ): array {
 }
 
 $failed = false;
-foreach ( \array_slice( $argv, 1 ) as $path ) {
-	if ( ! \str_ends_with( $path, '.php' ) || ! \is_file( $path ) ) {
+foreach ( \array_slice( $argv, 1 ) as $file ) {
+	if ( ! \str_ends_with( $file, '.php' ) || ! \is_file( $file ) ) {
 		continue;
 	}
 	// Unit tests are exempt (owner's rule), as are vendored trees.
-	if ( 1 === \preg_match( '#(^|/)(tests|vendor|node_modules)/#', $path ) ) {
+	if ( 1 === \preg_match( '#(^|/)(tests|vendor|node_modules)/#', $file ) ) {
 		continue;
 	}
-	foreach ( check_file( $path ) as $violation ) {
-		\fwrite( \STDERR, "{$path}:{$violation}\n" );
+	foreach ( check_file( $file ) as $violation ) {
+		\fwrite( \STDERR, "{$file}:{$violation}\n" );
 		$failed = true;
 	}
 }
