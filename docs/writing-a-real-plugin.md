@@ -541,8 +541,8 @@ docker exec eve-pyrobase1-1 wp nodes restart all --all-partitions --allow-root -
 **Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes `newspack-ai-newsletter.tsl` a *catalog* entry; the supervisor only spawns a topology in the *active* set. Activate it from the console's Topology Manager or with `topologies activate <name>`, then confirm:
 
 ```bash
-docker exec eve-pyrobase1-1 wp nodes ls --allow-root --path=/var/www/html
-#   newspack-ai-newsletter.p0   [live]
+docker exec eve-pyrobase1-1 wp nodes status --allow-root --path=/var/www/html
+#   newspack-ai-newsletter  0  live  3s ago  2m 10s
 ```
 
 **Tests run in the container, from `/services`, no network.** The closure-HTTP seam is what makes the connector suites hermetic — tests set `$http_get`/`$http_post` to return canned bodies, so nothing leaves the box:

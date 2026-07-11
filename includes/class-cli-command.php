@@ -1,6 +1,6 @@
 <?php
 /**
- * Cli_Command: WP-CLI command wrapper for `wp nodes ls` and `wp nodes cli`.
+ * Cli_Command: WP-CLI command wrapper for `wp nodes status` and `wp nodes cli`.
  *
  * @package Newspack_Nodes
  */
@@ -20,7 +20,7 @@ namespace Newspack_Nodes;
  * ## EXAMPLES
  *
  *     # List active workers and their heartbeats
- *     wp nodes ls
+ *     wp nodes status
  *
  *     # Attach a REPL to a live worker
  *     wp nodes cli firehose-workers-and-jobs.p0
@@ -229,30 +229,4 @@ class CLI_Command {
 		}
 	}
 
-	/**
-	 * List live workers, reporting each one's heartbeat age and freshness.
-	 *
-	 * ## EXAMPLES
-	 *
-	 *     wp nodes ls
-	 *
-	 * @api WP-CLI subcommand `wp nodes ls` — invoked by WP-CLI via reflection, not called in PHP.
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
-	 */
-	public function ls( array $args, array $assoc_args ): void {
-		$cli     = new CLI( $this->base_dir() );
-		$workers = $cli->ls_workers();
-		if ( empty( $workers ) ) {
-			\WP_CLI::log( 'No workers running. base_dir=' . $this->base_dir() );
-			return;
-		}
-		$now = \time();
-		foreach ( $workers as $w ) {
-			$age      = $w['heartbeat_at'] ? ( $now - $w['heartbeat_at'] ) . 's ago' : 'never';
-			$flag     = $w['stale'] ? '[stale]' : '[live] ';
-			$worker   = "{$w['type']}.p{$w['partition']}";
-			\WP_CLI::log( \sprintf( '%s %-30s heartbeat %s', $flag, $worker, $age ) );
-		}
-	}
 }

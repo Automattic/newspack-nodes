@@ -66,19 +66,19 @@ npm run lint:phpstan   # alias: npm run lint:deadcode
 # first to see what topologies are actually live — the substrate ships two
 # builtin topologies (`job-worker` and `hub-control`, registered via
 # `Topology_Registry::register_builtin_dir`); the rest come from application
-# plugins and are deployment-specific — `wp nodes types` / `wp nodes ls` is
+# plugins and are deployment-specific — `wp nodes types` / `wp nodes status` is
 # the source of truth.
 wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
 
 # Verify workers came back.
-wp nodes ls
+wp nodes status
 ```
 
 If the change requires an application plugin to also update (e.g., a substrate change that affects how the app's consumer attaches), redeploy that plugin in your environment.
 
 ### Phase 4: Live-verify
 
-For changes affecting the firehose pipeline, hit the dashboard or a real URL. The substrate itself ships `wp nodes ls` / `wp nodes cli`; the application-side filter `wp nodes reqgrep` lives in `newspack-event-logger-nodes` and is only available if that plugin is also installed in your environment (it is, in dndocker):
+For changes affecting the firehose pipeline, hit the dashboard or a real URL. The substrate itself ships `wp nodes status` / `wp nodes cli`; the application-side filter `wp nodes reqgrep` lives in `newspack-event-logger-nodes` and is only available if that plugin is also installed in your environment (it is, in dndocker):
 
 ```bash
 curl -sk "<site>/" -o /dev/null

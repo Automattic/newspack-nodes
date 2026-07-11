@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for `wp nodes ls` and `wp nodes cli` (Cli_Command WP-CLI wrapper).
+ * Tests for `wp nodes status` and `wp nodes cli` (Cli_Command WP-CLI wrapper).
  *
  * The stdin-reading driver (readline / fgets / EOF round-trip / tab-completion)
  * now lives in `TTY_In_Node` and is exercised by `TTYInNodeTest`. Here we cover
@@ -58,50 +58,6 @@ class CliCommandTest extends TestCase {
 		CLI_Command::$uid_provider = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	// ── ls ────────────────────────────────────────────────────────────────────
-
-	public function test_ls_logs_no_workers_when_empty(): void {
-		( new CLI_Command() )->ls( [], [] );
-
-		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'No workers running', $GLOBALS['_test_wp_cli_logs'][0] );
-	}
-
-	public function test_ls_logs_live_worker_with_age(): void {
-		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
-		\touch( "{$this->tmp}/locks/firehose-workers.p0.lock.d/heartbeat" );
-
-		( new CLI_Command() )->ls( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( '[live]', $haystack );
-		$this->assertStringContainsString( 'firehose-workers.p0', $haystack );
-		$this->assertStringContainsString( 'heartbeat', $haystack );
-	}
-
-	public function test_ls_marks_stale_workers(): void {
-		\mkdir( "{$this->tmp}/locks/jobs.p0.lock.d", 0755, true );
-		// Heartbeat older than STALE_TIMEOUT (60s) → marked stale.
-		\touch( "{$this->tmp}/locks/jobs.p0.lock.d/heartbeat", \time() - 3600 );
-
-		( new CLI_Command() )->ls( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( '[stale]', $haystack );
-		$this->assertStringContainsString( 'jobs.p0', $haystack );
-	}
-
-	public function test_ls_shows_never_for_missing_heartbeat(): void {
-		// Lock dir present but heartbeat file never touched.
-		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
-
-		( new CLI_Command() )->ls( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'never', $haystack );
-		$this->assertStringContainsString( 'aggregator.p0', $haystack );
 	}
 
 	// ── cli (root guard) ──────────────────────────────────────────────────────
@@ -172,22 +128,6 @@ class CliCommandTest extends TestCase {
 		$this->expectExceptionMessage( 'missing.p0' );
 
 		$ref->invoke( new CLI_Command(), [ 'missing.p0' ] );
-	}
-
-	// ── base_dir resolution ───────────────────────────────────────────────────
-
-	public function test_base_dir_picks_up_config_file_value(): void {
-		// base_dir() is private but we can verify it through the public surface:
-		// `ls` builds a Cli with `base_dir()`. Without the config file pointing
-		// at our tmp dir (set in setUp via use_base_dir), we'd see
-		// "No workers running" because the lock dirs are under $this->tmp.
-		\mkdir( "{$this->tmp}/locks/test-worker.p0.lock.d", 0755, true );
-		\touch( "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat" );
-
-		( new CLI_Command() )->ls( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'test-worker.p0', $haystack );
 	}
 
 	// ── build_repl_graph: bare and attached ───────────────────────────────────

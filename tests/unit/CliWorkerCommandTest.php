@@ -199,9 +199,73 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_warns'] );
 	}
 
+	public function test_status_lists_fleet_rows_with_state_heartbeat_and_uptime(): void {
+		$this->register_topology( 'aggregator', 1 );
+		$lock = "{$this->tmp}/locks/aggregator.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", '1' );
+		\file_put_contents( "{$lock}/started", (string) ( \time() - 4520 ) );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'aggregator', $haystack );
+		$this->assertStringContainsString( 'live', $haystack );
+		$this->assertStringContainsString( '1h 15m', $haystack, 'uptime from the lock started file' );
+		$this->assertMatchesRegularExpression( '/\b\d+s ago\b/', $haystack, 'heartbeat age' );
+	}
+
+	public function test_status_marks_active_topology_without_a_lock_as_down(): void {
+		$this->register_topology( 'aggregator', 2 );
+		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
+		\file_put_contents( "{$this->tmp}/locks/aggregator.p0.lock.d/heartbeat", '1' );
+
+		( new Worker_CLI_Command() )->status( [], [] ); // p1 has no lock dir
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'down', $haystack );
+	}
+
+	public function test_status_marks_a_stale_heartbeat(): void {
+		$this->register_topology( 'aggregator', 1 );
+		$lock = "{$this->tmp}/locks/aggregator.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", '1' );
+		\touch( "{$lock}/heartbeat", \time() - 120 ); // > Lock_Node::STALE_TIMEOUT
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'stale', $haystack );
+	}
+
+	public function test_status_surfaces_an_orphan_lock_of_a_deactivated_type(): void {
+		// Lock dir with no matching active topology and no heartbeat file:
+		// still listed (base_dir resolution proof), suffixed, heartbeat '-'.
+		\mkdir( "{$this->tmp}/locks/retired.p0.lock.d", 0755, true );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'retired', $haystack );
+		$this->assertStringContainsString( '(inactive)', $haystack );
+		$this->assertStringContainsString( '-', $haystack );
+	}
+
+	public function test_status_lists_inactive_catalog_topologies(): void {
+		\mkdir( "{$this->tmp}/tsl", 0755, true );
+		\file_put_contents( "{$this->tmp}/tsl/parked.tsl", "# no nodes\n" );
+		Topology_Registry::register_builtin_dir( "{$this->tmp}/tsl" );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'parked', $haystack );
+		$this->assertStringContainsString( 'inactive', $haystack );
+	}
+
 	public function test_status_renders_a_row_per_active_consumer(): void {
-		// status() lists active consumers from the probe — reader + source +
-		// behind. Worker heartbeat liveness is `wp nodes ls`, not status.
+		// The consumer-lag section rides below the fleet table.
 		$this->seed_consumer_checkpoint( 'firehose', 0, [ 'source' => 'firehose.p0', 'distance' => 0 ] );
 		$this->seed_consumer_checkpoint( 'requests', 1, [ 'source' => 'requests.p1', 'distance' => 0 ] );
 
@@ -399,10 +463,11 @@ class CliWorkerCommandTest extends TestCase {
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
-		// Plain-text fallback emits one log line per consumer row.
+		// Plain-text fallback emits a header line plus one line per row.
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'firehose.p0', $haystack );
-		$this->assertStringContainsString( 'msgs=7', $haystack );
+		$this->assertStringContainsString( 'Msgs', $haystack );
+		$this->assertStringContainsString( '7', $haystack );
 	}
 
 	// -------------------------------------------------------------------------

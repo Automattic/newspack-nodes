@@ -102,7 +102,9 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Rich worker-status table: Type | Partition | Status | Uptime | Behind | Restart.
+	 * Fleet overview: every catalog topology with per-partition worker state
+	 * (live/stale/down from the lock heartbeats, plus uptime from the lock-dir
+	 * age), then the consumer-lag table from the TopicProbe snapshot.
 	 *
 	 * ## OPTIONS
 	 *
@@ -117,16 +119,57 @@ class Worker_CLI_Command {
 	 *   - yaml
 	 * ---
 	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes status
+	 *
+	 * @alias ls
 	 * @when after_wp_load
 	 *
 	 * @param array<int, string>   $args       Positional arguments.
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function status( array $args, array $assoc_args ): void {
+		$now   = \time();
+		$locks = [];
+		foreach ( $this->cli()->ls_workers() as $w ) {
+			$locks[ "{$w['type']}.p{$w['partition']}" ] = $w;
+		}
+
+		// One row per expected worker of each active topology; no lock = down.
+		$active = Bootstrap::get_topologies();
+		$rows   = [];
+		foreach ( $active as $name => $config ) {
+			// min 1 row: a num_partitions=0 misconfig must stay visible (down).
+			$partitions = \max( 1, self::entry_int( $config, 'num_partitions', 1 ) );
+			for ( $p = 0; $p < $partitions; $p++ ) {
+				$rows[] = self::fleet_row( $name, $p, $locks[ "{$name}.p{$p}" ] ?? null, $now );
+				unset( $locks[ "{$name}.p{$p}" ] );
+			}
+		}
+		// Leftover locks belong to deactivated types still winding down.
+		foreach ( $locks as $w ) {
+			$row          = self::fleet_row( $w['type'], $w['partition'], $w, $now );
+			$row['State'] .= ' (inactive)';
+			$rows[]        = $row;
+		}
+		// Catalog topologies that aren't active: visible, clearly parked.
+		foreach ( \array_keys( Topology_Registry::describe() ) as $name ) {
+			if ( ! isset( $active[ $name ] ) ) {
+				$rows[] = [
+					'Topology'  => $name,
+					'Partition' => '-',
+					'State'     => 'inactive',
+					'Heartbeat' => '-',
+					'Uptime'    => '-',
+				];
+			}
+		}
+
 		// One row per active Consumer from the TopicProbe snapshot.
-		$rows = [];
+		$consumers = [];
 		foreach ( $this->cli()->consumer_rows() as $cr ) {
-			$rows[] = [
+			$consumers[] = [
 				'Reader'    => $cr['reader'],
 				'Source'    => $cr['source'],
 				'Partition' => $cr['partition'],
@@ -135,30 +178,64 @@ class Worker_CLI_Command {
 			];
 		}
 
-		if ( empty( $rows ) ) {
-			\WP_CLI::warning( 'No active consumers (TopicProbe has no records yet).' );
+		if ( empty( $rows ) && empty( $consumers ) ) {
+			\WP_CLI::warning( 'No topologies registered or running. base_dir=' . $this->base_dir() );
 			return;
 		}
-
-		$columns = [ 'Reader', 'Source', 'Partition', 'Behind', 'Msgs' ];
-		$format  = self::entry_string( $assoc_args, 'format' );
-		if ( '' === $format ) {
-			$format = 'table';
+		$format = self::entry_string( $assoc_args, 'format' );
+		if ( ! empty( $rows ) ) {
+			self::render( $format, $rows, [ 'Topology', 'Partition', 'State', 'Heartbeat', 'Uptime' ] );
 		}
-		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
-			\WP_CLI\Utils\format_items( $format, $rows, $columns );
+		if ( ! empty( $consumers ) ) {
+			self::render( $format, $consumers, [ 'Reader', 'Source', 'Partition', 'Behind', 'Msgs' ] );
+		}
+	}
+
+	/**
+	 * One fleet-table row for a {topology, partition} slot.
+	 *
+	 * @param string                    $name Topology name.
+	 * @param int                       $p    Partition.
+	 * @param array<string, mixed>|null $w    Matching ls_workers() row, if any.
+	 * @param int                       $now  Clock.
+	 * @return array<string, int|string>
+	 */
+	private static function fleet_row( string $name, int $p, ?array $w, int $now ): array {
+		$heartbeat_at = null === $w ? 0 : Core::as_int( $w['heartbeat_at'] );
+		$started_at   = null === $w ? 0 : Core::as_int( $w['started_at'] );
+		if ( null === $w ) {
+			$state = 'down';
 		} else {
-			// Test fallback: dump a stable plain-text representation.
-			foreach ( $rows as $row ) {
-				\WP_CLI::log( \sprintf(
-					'%-24s  %-20s  p%-2d  %-10s  msgs=%d',
-					$row['Reader'],
-					$row['Source'],
-					$row['Partition'],
-					$row['Behind'],
-					$row['Msgs']
-				) );
-			}
+			$state = $w['stale'] ? 'stale' : 'live';
+		}
+		return [
+			'Topology'  => $name,
+			'Partition' => $p,
+			'State'     => $state,
+			'Heartbeat' => $heartbeat_at > 0 ? CLI::format_duration( $now - $heartbeat_at ) . ' ago' : '-',
+			'Uptime'    => $started_at > 0 ? CLI::format_duration( $now - $started_at ) : '-',
+		];
+	}
+
+	/**
+	 * Render rows via WP_CLI format_items, or a plain aligned dump without it.
+	 *
+	 * @param string                            $format  table|json|csv|yaml ('' = table).
+	 * @param array<int, array<string, mixed>>  $rows    Table rows.
+	 * @param array<int, string>                $columns Column order.
+	 */
+	private static function render( string $format, array $rows, array $columns ): void {
+		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
+			\WP_CLI\Utils\format_items( '' === $format ? 'table' : $format, $rows, $columns );
+			return;
+		}
+		// Test fallback: stable plain-text lines.
+		\WP_CLI::log( \implode( '  ', $columns ) );
+		foreach ( $rows as $row ) {
+			\WP_CLI::log( \implode( '  ', \array_map(
+				static fn ( string $c ): string => Core::as_string( $row[ $c ] ?? '' ),
+				$columns
+			) ) );
 		}
 	}
 
@@ -271,7 +348,7 @@ class Worker_CLI_Command {
 
 	/**
 	 * List active worker topology groups — the same set the supervisor will
-	 * spawn (`Bootstrap::get_topologies()`), so this agrees with `wp nodes ls`.
+	 * spawn (`Bootstrap::get_topologies()`), so this agrees with `wp nodes status`.
 	 *
 	 * ## EXAMPLES
 	 *

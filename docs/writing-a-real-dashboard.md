@@ -302,7 +302,7 @@ So the split is: **the operator enters the secret in the Vault tab; the topology
 
 ## 7. Build & deploy realities
 
-The toy ran `npm run build` and `wp nodes ls` and called it done. Shipping for real has a handful of sharp edges around that.
+The toy ran `npm run build` and `wp nodes status` and called it done. Shipping for real has a handful of sharp edges around that.
 
 **`release:archive` bundles `build/`, not `src/`, with an optimized autoloader.** The release zip carries the *built* `build/dashboard/index.js` (and its `.asset.php` / `.css` / `-rtl.css`), composer's `--no-dev` autoloader, and none of `src/` or `tests/`. So your `npm run build` output is the artifact — if you didn't build, the zip ships stale JS.
 

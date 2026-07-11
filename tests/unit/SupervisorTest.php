@@ -220,7 +220,7 @@ class SupervisorTest extends TestCase {
 
 	public function test_check_config_rms_orphan_type_lock_dirs_once_worker_exits(): void {
 		// kill_readers flags a removed-topology worker to exit, but the
-		// lock dir lingers afterward — `wp nodes ls` and the topology
+		// lock dir lingers afterward — `wp nodes status` and the topology
 		// console would keep surfacing it as a stale ghost forever. The
 		// supervisor should rm the dir once the worker has gone cold.
 		\add_filter( 'newspack_nodes/topologies', function () {

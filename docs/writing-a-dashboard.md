@@ -737,7 +737,7 @@ The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactl
 # Build the bundle, then deploy + activate the plugin on a site with the substrate.
 npm run build
 wp nodes activate example-ai-newsletter   # add to the active set + spawn the fleet now
-wp nodes ls                               #   example-ai-newsletter.p0   [live]
+wp nodes status                               #   example-ai-newsletter  0  live  3s ago  2m 10s
 ```
 
 The worker is live but its snapshot is empty until the pipeline runs. Drive it from the worker's REPL — the sources emit on a `TICK` runtime request (`request_node`, not an admin command):

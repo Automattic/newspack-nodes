@@ -27,9 +27,9 @@ Two modes:
 
 **Bare** (`wp nodes cli`) — local-only. Builds Shell + CommandInterpreter + Router + Dumper(`_output`) and runs commands in the wp-cli process itself. Use for testing CommandInterpreter verbs without touching a worker.
 
-**Pivoted** (`wp nodes cli <reader>.p<N>`) — attaches to a live worker via a pair of IPC Partitions. Commands you type get serialized to disk; the worker reads them, processes them in its own event loop, and writes responses back to a different Partition the cli tails. Lets you `dump_node`, `connect_node`, `disconnect_node` against a running graph without disturbing it. The `<reader>.p<N>` ids below (e.g. `firehose-workers.p0`) are placeholders — run `wp nodes ls` for the live ids in your environment.
+**Pivoted** (`wp nodes cli <reader>.p<N>`) — attaches to a live worker via a pair of IPC Partitions. Commands you type get serialized to disk; the worker reads them, processes them in its own event loop, and writes responses back to a different Partition the cli tails. Lets you `dump_node`, `connect_node`, `disconnect_node` against a running graph without disturbing it. The `<reader>.p<N>` ids below (e.g. `firehose-workers.p0`) are placeholders — run `wp nodes status` for the live ids in your environment.
 
-The cli verifies the worker exists by checking for `{base}/locks/{reader}.lock.d/`. Typo'd reader ids fail fast with "no worker '<id>' (run `wp nodes ls` to list active workers)" instead of creating ghost IPC partitions. Staleness is not blocked at attach time — a stale worker is mid-restart and the cli will work once the supervisor respawns it.
+The cli verifies the worker exists by checking for `{base}/locks/{reader}.lock.d/`. Typo'd reader ids fail fast with "no worker '<id>' (run `wp nodes status` to list active workers)" instead of creating ghost IPC partitions. Staleness is not blocked at attach time — a stale worker is mid-restart and the cli will work once the supervisor respawns it.
 
 Useful verbs (run from inside the cli prompt — see `help` for the full set):
 
@@ -91,7 +91,7 @@ For the round-trip to work, Partition and Topic pack ALL message types (TM_REQUE
 wp nodes types
 
 # List active workers + last heartbeat age (live vs stale).
-wp nodes ls
+wp nodes status
 
 # Status (formats: table, json, csv, yaml).
 wp nodes status --format=json
@@ -105,7 +105,7 @@ wp nodes run <type> [--partition=<N>] [--quiet]
 # first to discover what's live: the substrate ships two builtin topologies
 # (`job-worker` and `hub-control`, registered via `Topology_Registry::register_builtin_dir`
 # from its own `topologies/` dir); the rest come from application plugins and are
-# deployment-specific. `wp nodes types` / `wp nodes ls` is the source of truth.
+# deployment-specific. `wp nodes types` / `wp nodes status` is the source of truth.
 wp nodes restart all --all-partitions          # every type, every partition
 wp nodes restart <type> --partition=<N>         # one type, one partition
 ```
@@ -115,7 +115,7 @@ The visible-dashboard restart (Workers_CI over REST) additionally accepts a
 `CLI::restart_supervisor()`); the `wp nodes restart` verb only targets worker
 types.
 
-A worker reports as `[live]` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`. `[stale]` means the supervisor will respawn it on the next minute-cron tick.
+A worker reports State `live` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`; `stale` means the supervisor will respawn it on the next minute-cron tick, and `down` means an active topology has no lock dir at all (the rescue case). Uptime reads the lock dir's `started` file.
 
 ## Log layout
 
