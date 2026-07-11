@@ -41,29 +41,63 @@ class Config {
 	private static array $validated_subdirs = [];
 
 	/**
-	 * Register the substrate's `config` topology-token namespace.
+	 * Get the logs directory path ({base}/logs).
 	 *
-	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
-	 * base directory) and every other key straight off load_config(). Called
-	 * once at boot; the app registers its own namespaces for its own keys.
+	 * @api
+	 * @return string
+	 * @throws \RuntimeException If base or logs directory cannot be created or realpath doesn't match.
 	 */
-	public static function register_token_namespace(): void {
-		Core::register_config_namespace(
-			'config',
-			static function ( string $key ) {
-				// Directories derived from the base dir; every other key reads config.
-				$derived = [
-					'logs_dir'       => 'logs',
-					'offsets_dir'    => 'offsets',
-					'deadletter_dir' => 'deadletter',
-				];
-				if ( isset( $derived[ $key ] ) ) {
-					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
-				}
-				$cfg = self::load_config();
-				return $cfg[ $key ] ?? null;
-			}
-		);
+	public static function get_logs_directory(): string {
+		return self::validated_subdir( 'logs' );
+	}
+
+	/**
+	 * Memoized `{base}/{sub}` path (created + realpath-checked via ensure_path).
+	 *
+	 * @throws \RuntimeException If base or the subdir cannot be created or realpath doesn't match.
+	 */
+	private static function validated_subdir( string $sub ): string {
+		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
+	}
+
+	/**
+	 * Ensure a directory path exists and is canonical (realpath must match input — detects symlink attacks).
+	 *
+	 * @param string $path Directory path to ensure.
+	 * @return string Validated canonical path.
+	 * @throws \RuntimeException If path cannot be created or is not canonical.
+	 */
+	public static function ensure_path( string $path ): string {
+		if ( false !== \strpos( $path, "\0" ) ) {
+			throw new \RuntimeException( 'Path contains null byte' );
+		}
+
+		$path = \rtrim( $path, '/' );
+
+		if ( ! \is_dir( $path ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $path, 0755, true );
+		}
+
+		$real = \realpath( $path );
+		if ( false === $real ) {
+			throw new \RuntimeException(
+				\sprintf( 'Failed to create directory: %s', \esc_html( $path ) )
+			);
+		}
+
+		// Canonical path must match input (prevents symlink attacks).
+		if ( $real !== $path ) {
+			throw new \RuntimeException(
+				\sprintf(
+					'Path %s resolves to %s - symlink or path traversal detected',
+					\esc_html( $path ),
+					\esc_html( $real )
+				)
+			);
+		}
+
+		return $real;
 	}
 
 	/**
@@ -149,57 +183,6 @@ class Config {
 	}
 
 	/**
-	 * Ensure a directory path exists and is canonical (realpath must match input — detects symlink attacks).
-	 *
-	 * @param string $path Directory path to ensure.
-	 * @return string Validated canonical path.
-	 * @throws \RuntimeException If path cannot be created or is not canonical.
-	 */
-	public static function ensure_path( string $path ): string {
-		if ( false !== \strpos( $path, "\0" ) ) {
-			throw new \RuntimeException( 'Path contains null byte' );
-		}
-
-		$path = \rtrim( $path, '/' );
-
-		if ( ! \is_dir( $path ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $path, 0755, true );
-		}
-
-		$real = \realpath( $path );
-		if ( false === $real ) {
-			throw new \RuntimeException(
-				\sprintf( 'Failed to create directory: %s', \esc_html( $path ) )
-			);
-		}
-
-		// Canonical path must match input (prevents symlink attacks).
-		if ( $real !== $path ) {
-			throw new \RuntimeException(
-				\sprintf(
-					'Path %s resolves to %s - symlink or path traversal detected',
-					\esc_html( $path ),
-					\esc_html( $real )
-				)
-			);
-		}
-
-		return $real;
-	}
-
-	/**
-	 * Get the logs directory path ({base}/logs).
-	 *
-	 * @api
-	 * @return string
-	 * @throws \RuntimeException If base or logs directory cannot be created or realpath doesn't match.
-	 */
-	public static function get_logs_directory(): string {
-		return self::validated_subdir( 'logs' );
-	}
-
-	/**
 	 * Get the locks directory path ({base}/locks).
 	 *
 	 * @return string
@@ -220,12 +203,29 @@ class Config {
 	}
 
 	/**
-	 * Memoized `{base}/{sub}` path (created + realpath-checked via ensure_path).
+	 * Register the substrate's `config` topology-token namespace.
 	 *
-	 * @throws \RuntimeException If base or the subdir cannot be created or realpath doesn't match.
+	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
+	 * base directory) and every other key straight off load_config(). Called
+	 * once at boot; the app registers its own namespaces for its own keys.
 	 */
-	private static function validated_subdir( string $sub ): string {
-		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
+	public static function register_token_namespace(): void {
+		Core::register_config_namespace(
+			'config',
+			static function ( string $key ) {
+				// Directories derived from the base dir; every other key reads config.
+				$derived = [
+					'logs_dir'       => 'logs',
+					'offsets_dir'    => 'offsets',
+					'deadletter_dir' => 'deadletter',
+				];
+				if ( isset( $derived[ $key ] ) ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
+				}
+				$cfg = self::load_config();
+				return $cfg[ $key ] ?? null;
+			}
+		);
 	}
 
 	/** One-time sweep flipping every schema key to autoloaded (admin_init; no-op on WP < 6.6). */

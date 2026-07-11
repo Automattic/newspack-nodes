@@ -298,6 +298,31 @@ class Supervisor extends Supervisor_Base {
 		}
 	}
 
+	/** HMAC spawn-token, rotating every 10s. Per-site, never logged. */
+	public function generate_spawn_token( int $now ): string {
+		$window = (int) \floor( $now / self::TOKEN_WINDOW_S );
+		return \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
+	}
+
+	/** Reap ipc dirs for workers no longer in the fleet (a live worker's lock defers its own). */
+	private function cleanup_orphan_ipc(): void {
+		$active = [];
+		foreach ( $this->worker_locks as $w ) {
+			$active[ "{$w['type']}.p{$w['partition']}" ] = true;
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		foreach ( @\glob( "{$this->base_dir}/ipc/*.p*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
+			$name = \basename( $dir );
+			if ( isset( $active[ $name ] ) || ! \preg_match( '/\.p\d+$/', $name ) ) {
+				continue;
+			}
+			if ( \is_dir( "{$this->base_dir}/locks/{$name}.lock.d" ) ) {
+				continue; // a live worker still holds it
+			}
+			Supervisor_Base::delete_directory_recursive( $dir, $this->base_dir );
+		}
+	}
+
 	/**
 	 * Spawn every active-fleet worker that's due this tick: missing/stale lock,
 	 * past the rate-limit window, and past any new-type spawn deferral. The single
@@ -325,31 +350,6 @@ class Supervisor extends Supervisor_Base {
 			}
 			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
 			$this->record_spawn( $worker['type'], $worker['partition'], $now );
-		}
-	}
-
-	/** HMAC spawn-token, rotating every 10s. Per-site, never logged. */
-	public function generate_spawn_token( int $now ): string {
-		$window = (int) \floor( $now / self::TOKEN_WINDOW_S );
-		return \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
-	}
-
-	/** Reap ipc dirs for workers no longer in the fleet (a live worker's lock defers its own). */
-	private function cleanup_orphan_ipc(): void {
-		$active = [];
-		foreach ( $this->worker_locks as $w ) {
-			$active[ "{$w['type']}.p{$w['partition']}" ] = true;
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( @\glob( "{$this->base_dir}/ipc/*.p*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
-			$name = \basename( $dir );
-			if ( isset( $active[ $name ] ) || ! \preg_match( '/\.p\d+$/', $name ) ) {
-				continue;
-			}
-			if ( \is_dir( "{$this->base_dir}/locks/{$name}.lock.d" ) ) {
-				continue; // a live worker still holds it
-			}
-			Supervisor_Base::delete_directory_recursive( $dir, $this->base_dir );
 		}
 	}
 

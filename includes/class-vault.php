@@ -492,18 +492,6 @@ class Vault {
 	}
 
 	/**
-	 * Singleton accessor.
-	 *
-	 * @api
-	 */
-	public static function get_instance(): Vault {
-		if ( null === self::$instance ) {
-			self::$instance = new self();
-		}
-		return self::$instance;
-	}
-
-	/**
 	 * The singleton with its in-process cache dropped — for request-scope
 	 * readers (service CIs) that must see writes from earlier in the same
 	 * request.
@@ -514,6 +502,18 @@ class Vault {
 		$instance = self::get_instance();
 		$instance->reset_cache();
 		return $instance;
+	}
+
+	/**
+	 * Singleton accessor.
+	 *
+	 * @api
+	 */
+	public static function get_instance(): Vault {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
 	}
 
 	/**

@@ -51,29 +51,6 @@ class Command_Auth {
 	public static ?\Closure $claim_nonce = null;
 
 	/**
-	 * True when a Message is a signable request command: TM_COMMAND without
-	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
-	 * VALUE. sign() and verify() share this ONE predicate so the signer's flags
-	 * can never drift from the verifier's — the HMAC covers TYPE, so a mismatch
-	 * here would silently reject every command.
-	 *
-	 * @param mixed $type  Raw Message TYPE.
-	 * @param mixed $ts    Raw Message TIMESTAMP.
-	 * @param mixed $value Raw Message VALUE.
-	 *
-	 * @phpstan-assert-if-true int $type
-	 * @phpstan-assert-if-true int|float|numeric-string $ts
-	 * @phpstan-assert-if-true array<array-key, mixed> $value
-	 */
-	private static function is_request_command( $type, $ts, $value ): bool {
-		return \is_integer( $type )
-			&& ( $type & Message::TM_COMMAND )
-			&& ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
-			&& \is_numeric( $ts )
-			&& \is_array( $value );
-	}
-
-	/**
 	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
 	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
 	 * rides along fine). The HMAC covers TYPE, so the signer's flags must match
@@ -101,6 +78,29 @@ class Command_Auth {
 			'sig'   => \hash_hmac( 'sha256', $canon, self::secret() ),
 		];
 		$message[ Message::VALUE ] = $value;
+	}
+
+	/**
+	 * True when a Message is a signable request command: TM_COMMAND without
+	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
+	 * VALUE. sign() and verify() share this ONE predicate so the signer's flags
+	 * can never drift from the verifier's — the HMAC covers TYPE, so a mismatch
+	 * here would silently reject every command.
+	 *
+	 * @param mixed $type  Raw Message TYPE.
+	 * @param mixed $ts    Raw Message TIMESTAMP.
+	 * @param mixed $value Raw Message VALUE.
+	 *
+	 * @phpstan-assert-if-true int $type
+	 * @phpstan-assert-if-true int|float|numeric-string $ts
+	 * @phpstan-assert-if-true array<array-key, mixed> $value
+	 */
+	private static function is_request_command( $type, $ts, $value ): bool {
+		return \is_integer( $type )
+			&& ( $type & Message::TM_COMMAND )
+			&& ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
+			&& \is_numeric( $ts )
+			&& \is_array( $value );
 	}
 
 	/**
