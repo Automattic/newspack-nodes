@@ -21,7 +21,8 @@
 
 set -euo pipefail
 
-readonly HOST=$(hostname -s)
+HOST=$(hostname -s)
+readonly HOST
 readonly PLUGIN_SLUG="newspack-nodes"
 readonly DEPLOY_SCRIPT="/services/pyrobase/setup/${PLUGIN_SLUG}.sh"
 readonly CONTAINER="${HOST}-pyrobase1-1"
@@ -41,6 +42,7 @@ fail() { printf '%s %s\n' "$(red   '✗')" "$*" >&2; exit 1; }
 # <remote_ref> <remote_sha>" line per pushed ref on stdin. Find the diff
 # range vs what the remote already has.
 range=""
+# shellcheck disable=SC2034 # git's stdin protocol: 4 fields, 2 unused.
 while read -r local_ref local_sha remote_ref remote_sha; do
 	[[ -z "${local_sha:-}" ]] && continue
 	if [[ "$local_sha" =~ ^0+$ ]]; then
