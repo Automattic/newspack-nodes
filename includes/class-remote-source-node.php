@@ -28,6 +28,19 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
 
+	/**
+	 * SSE backpressure valve water marks (bytes). The buffer drains whole each tick,
+	 * so accumulation happens between ticks in on_message: disarm when it crosses
+	 * HIGH, re-arm when the drain brings it back under LOW. The hysteresis keeps the
+	 * valve OPEN through normal flow — the throughput fix for hub-aggregation lag
+	 * (the old gate disarmed on every buffered line, stop-starting the spoke).
+	 */
+	private const PUMP_DISARM_BYTES = 524288; // 512 KB.
+	private const PUMP_ARM_BYTES    = 262144; // 256 KB.
+
+	/** Valve state mirror (buffer-driven only): true while SSE_In is armed. */
+	private bool $pump_armed = true;
+
 	private int $last_heartbeat_response = 0;
 
 	/**
@@ -115,10 +128,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$sink = $this->sink;
 		if ( null === $sink ) {
 			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
-		}
-		$size = \strlen( $line ) + 1;
-		if ( $size > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $size;
 		}
 		try {
 			$message = Message::unpacked( $line );
@@ -366,16 +375,16 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/**
 	 * Build the base patrons, then override SSE_In's delivery seam: each raw `msg` payload is
 	 * appended (with its newline) to the Buffered_Pump buffer for the tick to drain — the push
-	 * source buffers rather than forwarding straight downstream (the base channel path). A landed
-	 * line closes the backpressure valve until the tick drains it. (An unparseable line reaches
-	 * the buffer unparsed; forward_line owns its DLQ, mirroring Consumer's torn-on-disk line.)
+	 * source buffers rather than forwarding straight downstream (the base channel path). The
+	 * valve stays OPEN through normal flow and only closes once the buffer crosses the high-water
+	 * mark (An unparseable line reaches the buffer unparsed; forward_line owns its DLQ.)
 	 */
 	protected function ensure_patrons(): ?SSE_In_Node {
 		$sse = parent::ensure_patrons();
 		if ( null !== $sse ) {
 			$sse->on_message = function ( string $raw ): void {
 				$this->buffer .= $raw . "\n";
-				$this->sse_in?->disarm();
+				$this->pump_maybe_disarm();
 			};
 		}
 		return $sse;
@@ -512,25 +521,35 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * Refill seam: the async backpressure VALVE (the dual of Consumer's synchronous disk read).
-	 * Arm the curl handle only while the buffer is dry of complete lines; bytes then flow in via
-	 * on_curl_data → the delivery seam, which disarms once a line lands. While a line is still
-	 * buffered, hold the valve closed so the TCP window backpressures the remote. In unit tests
-	 * (no event loop) the register/unregister toggles are inert — the harness drives poll()
-	 * directly against an already-buffered line.
+	 * The valve is edge-triggered on the buffer BYTE size — pump_maybe_disarm() closes it in
+	 * on_message once accumulation crosses the high-water mark; this re-opens it only once the
+	 * tick's drain has brought the buffer back below low-water. So it stays OPEN through normal
+	 * flow (no arm per poll, no disarm on an empty buffer — the curl multi parks an idle stream
+	 * without spinning). In unit tests the register/unregister toggles are inert.
 	 */
 	protected function get_batch(): void {
-		$sse = $this->sse_in;
-		if ( null === $sse ) {
+		if ( null === $this->sse_in ) {
 			$this->at_eof = true;
 			return;
 		}
-		if ( $this->buffer_has_line() ) {
-			$sse->disarm();
-			$this->at_eof = false;
-			return;
-		}
-		$sse->arm();
+		$this->pump_maybe_arm();
 		$this->at_eof = '' === $this->buffer;
+	}
+
+	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
+	private function pump_maybe_disarm(): void {
+		if ( $this->pump_armed && \strlen( $this->buffer ) >= self::PUMP_DISARM_BYTES ) {
+			$this->sse_in?->disarm();
+			$this->pump_armed = false;
+		}
+	}
+
+	/** Re-open the valve once the buffer has drained back below the low-water mark (from get_batch). */
+	private function pump_maybe_arm(): void {
+		if ( ! $this->pump_armed && \strlen( $this->buffer ) <= self::PUMP_ARM_BYTES ) {
+			$this->sse_in?->arm();
+			$this->pump_armed = true;
+		}
 	}
 
 	/**

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Remote_Source` hub aggregation no longer lags 10-20s behind spokes.** The SSE backpressure valve disarmed after EVERY buffered message and only re-armed once the buffer was fully dry — a stop-start that throttled the spoke to ~one message per 100ms tick, so the spoke's own firehose consumer couldn't keep up. The valve is now edge-triggered on the buffer's byte size: it stays OPEN through normal flow and only disarms once the buffer crosses a 512 KB high-water mark, re-arming when the tick's drain brings it back under 256 KB. Continuous streaming; memory bounded to ~512 KB regardless of message size.
+
 ### Changed
 
 - **`Config_System\Field` derives `delete_on_blank` from the field type instead of a per-field flag.** A blank settings save deletes the option row so the file default resurfaces — the right rule for every text/number/path/array field. Only a `bool` opts out (an unchecked default-on checkbox is a real override, not "reset me to default"). The explicit `delete_on_blank` constructor param is gone; the value is now `'bool' !== $type`. This closes the footgun where a non-bool field wrongly declared `delete_on_blank: false` and stored `''`/`[]` as an empty override that hid its default (e.g. pyrobase's array fields persisting `a:0:{}`). Consumers just declare the right `type`.
