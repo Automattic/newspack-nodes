@@ -61,7 +61,6 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 						type: 'array_strings',
 						label: 'Active Topologies',
 						section: 'topologies',
-						delete_on_blank: false,
 						sanitize: static fn ( $v ) => $v,
 						render: static function (): void {},
 					),
@@ -96,12 +95,22 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 		}
 
 		public function test_delete_on_blank_options_are_the_blank_deletable_subset(): void {
-			// topologies opts out (empty selection is a real override); allowed_users
-			// is ui=false so never a setting.
+			// Every non-bool setting blank-deletes (incl. array_strings topologies —
+			// an empty save resets it to the file default); allowed_users is ui=false
+			// so never a setting. No bool here, so all three settings qualify.
 			$this->assertSame(
-				[ 'pfx_num_segments', 'pfx_num_partitions' ],
+				[ 'pfx_num_segments', 'pfx_num_partitions', 'pfx_topologies' ],
 				$this->sample_schema()->delete_on_blank_options()
 			);
+		}
+
+		public function test_delete_on_blank_is_derived_from_the_bool_type(): void {
+			// A bool keeps its stored value (an unchecked default-on box is a real
+			// override); every other type blank-deletes to the file default.
+			$this->assertFalse( ( new Field( key: 'flag', type: 'bool' ) )->delete_on_blank );
+			$this->assertTrue( ( new Field( key: 'name', type: 'text' ) )->delete_on_blank );
+			$this->assertTrue( ( new Field( key: 'dirs', type: 'array_strings' ) )->delete_on_blank );
+			$this->assertTrue( ( new Field( key: 'ttl', type: 'int' ) )->delete_on_blank );
 		}
 
 		public function test_rendered_fields_include_display_and_keep_declaration_order(): void {
