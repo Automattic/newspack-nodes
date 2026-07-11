@@ -7,7 +7,7 @@ export class CallbackNode extends Node {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		this._fn( message );
 	}
 }

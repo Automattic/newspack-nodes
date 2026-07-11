@@ -81,7 +81,7 @@ export class Node {
 		) {
 			message[ TO ] = this.target;
 		}
-		this.counter += 1;
+		this.counter++;
 		this.sink.fill( message );
 	}
 

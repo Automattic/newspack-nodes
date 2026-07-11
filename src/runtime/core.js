@@ -106,7 +106,7 @@ class CoreImpl {
 
 	// Bump full-rebuild signal: increment + notify every subscriber.
 	bumpGraphGeneration() {
-		this.graphGeneration += 1;
+		this.graphGeneration++;
 		for ( const listener of this._generationListeners ) {
 			listener();
 		}
@@ -132,7 +132,7 @@ class CoreImpl {
 	}
 
 	msgCounter() {
-		this._msgCounter += 1;
+		this._msgCounter++;
 		return this._msgCounter;
 	}
 }

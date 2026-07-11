@@ -48,7 +48,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * @param {Array} message Positional Message; TO is the remainder past {worker}.
 	 */
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		this.connect();
 
 		const reader = this.name;

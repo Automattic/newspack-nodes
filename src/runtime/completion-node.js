@@ -66,7 +66,7 @@ export class CompletionNode extends Node {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		const value = message[ VALUE ];
 		// Reply VALUE is `{ name, payload }`; candidate list is the payload.
 		let text =
@@ -78,7 +78,7 @@ export class CompletionNode extends Node {
 			.split( '\n' )
 			.map( ( line ) => line.trim() )
 			.filter( ( line ) => '' !== line );
-		this._seq += 1;
+		this._seq++;
 		this.setState( 'candidates', { candidates, seq: this._seq } );
 	}
 

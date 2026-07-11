@@ -250,7 +250,7 @@ export class MetadataNode extends TimerNode {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		const value = message[ VALUE ];
 		const isStruct = value && typeof value === 'object';
 		const meta = isStruct ? value.payload ?? value : value;
@@ -292,7 +292,7 @@ export class MetadataNode extends TimerNode {
 		) {
 			this.lastFired = now;
 			this.lastPath = path;
-			this.counter += 1;
+			this.counter++;
 			this.sink.fill( this._pollMessage( 'dump_metadata' ) );
 		}
 	}

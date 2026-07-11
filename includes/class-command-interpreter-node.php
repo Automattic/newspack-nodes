@@ -311,7 +311,7 @@ class Command_Interpreter_Node extends Node {
 				. "    note: Without -a, the argument specifies a node;\n"
 				. "          all nodes sinking into the specified node are displayed.\n"
 				. "    alias: ls\n",
-			'list_timers' => "list_timers\n    note: all timers (ID, ACTIVE, INTERVAL ms, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n",
+			'list_timers' => "list_timers\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n",
 			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
@@ -906,7 +906,8 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `list_timers` — tabulate the Event_Framework's registered timers. NEXT is ms
 	 * until the next fire (<=0 = due every tick, i.e. a spinner); INTERVAL is the
-	 * re-arm period. Ported from Tachikoma CommandInterpreter's list_ids/list_timers.
+	 * re-arm period; MODE is the scheduling mode ('event_framework' own slot vs
+	 * 'router' hitchhike). Ported from Tachikoma CommandInterpreter's list_ids/list_timers.
 	 */
 	private static function cmd_list_timers(): string {
 		$rows = [];
@@ -915,17 +916,16 @@ class Command_Interpreter_Node extends Node {
 				continue;
 			}
 			$active = $node->timer_is_active();
-			if ( ! $active ) {
-				$next_ms = '-';
-			} elseif ( $node->next_fire <= 0.0 ) {
-				$next_ms = '_router'; // router-hitchhike; no own next_fire
-			} else {
+			if ( $active && $node->next_fire > 0.0 ) {
 				$next_ms = (string) (int) \round( ( $node->next_fire - Core::$now ) * 1000 );
+			} else {
+				$next_ms = '-'; // inactive, or hitchhike (no own next_fire)
 			}
 			$rows[]  = [
 				(string) \spl_object_id( $node ),
 				$active ? 'yes' : 'no',
 				(string) $node->interval_ms,
+				$node->timer_mode(),
 				$next_ms,
 				$node->oneshot ? 'yes' : 'no',
 				(string) $node->get_fire_count(),
@@ -933,10 +933,10 @@ class Command_Interpreter_Node extends Node {
 				$name,
 			];
 		}
-		\usort( $rows, static fn ( array $a, array $b ): int => $a[7] <=> $b[7] );
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[8] <=> $b[8] );
 		return self::tabulate(
-			[ 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
-			[ 'ID', 'ACTIVE', 'INTERVAL', 'NEXT', 'ONESHOT', 'FIRES', 'TYPE', 'NAME' ],
+			[ 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'ID', 'ACTIVE', 'INTERVAL', 'MODE', 'NEXT', 'ONESHOT', 'FIRES', 'TYPE', 'NAME' ],
 			$rows
 		);
 	}

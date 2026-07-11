@@ -4,7 +4,7 @@ import { Core } from './core';
 
 export class TapNode extends TeeNode {
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		const targets = Array.isArray( this.target ) ? this.target : [];
 		// Prune targets whose HEAD node is dead (a live head can be routed).
 		const alive = targets.filter(

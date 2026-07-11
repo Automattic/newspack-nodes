@@ -34,7 +34,7 @@ export class HeartbeatNode extends TimerNode {
 
 	// Consume the heartbeat reply; it carries no canvas state, so swallow it.
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		void message;
 	}
 
@@ -43,7 +43,7 @@ export class HeartbeatNode extends TimerNode {
 		if ( null === this.slot || ! this.sink ) {
 			return;
 		}
-		this.counter += 1;
+		this.counter++;
 		this.sink.fill( this._pollMessage() );
 	}
 
@@ -61,19 +61,16 @@ export class HeartbeatNode extends TimerNode {
 		return m;
 	}
 
-	// Hitchhike the Router TIMER; base fireCb() throttles to POKE_INTERVAL_MS.
-	setTimer() {
-		super.setTimer( POKE_INTERVAL_MS );
-	}
-
-	// Record the slot the live SSE stream acquired (its `connected` payload).
+	// Record the slot the live SSE stream acquired; holding one arms the poke.
 	setSlot( slot ) {
 		this.slot = slot;
+		this.setTimer( POKE_INTERVAL_MS );
 	}
 
-	// Forget the slot — the SSE stream closed, so there's nothing to refresh.
+	// Forget the slot and stop poking — the SSE stream closed.
 	clearSlot() {
 		this.slot = null;
+		this.stopTimer();
 	}
 
 	static nodeSchema() {

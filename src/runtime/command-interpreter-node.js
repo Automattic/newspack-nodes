@@ -122,7 +122,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		const type = message[ TYPE ];
 
 		// TM_PING / TM_EOF with empty TO bounce back along FROM (RTT / drain).

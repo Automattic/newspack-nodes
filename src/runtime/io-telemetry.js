@@ -101,7 +101,7 @@ class IoTelemetryImpl {
 		this.debug = 0;
 		this.messages = [];
 		this.series = [];
-		this.revision += 1;
+		this.revision++;
 		this._last = null;
 		try {
 			window.localStorage.removeItem( OVERVIEW_STORAGE_KEY );
@@ -118,7 +118,7 @@ class IoTelemetryImpl {
 	}
 
 	recordWarning( text = '' ) {
-		this.warnings += 1;
+		this.warnings++;
 		this._pushMessage( 'warning', text );
 	}
 
@@ -139,7 +139,7 @@ class IoTelemetryImpl {
 	}
 
 	recordDebug( text = '' ) {
-		this.debug += 1;
+		this.debug++;
 		this._pushMessage( 'debug', text );
 	}
 
@@ -169,7 +169,7 @@ class IoTelemetryImpl {
 					rate( cur.bytesIn, this._last.bytesIn ),
 					rate( cur.bytesOut, this._last.bytesOut ),
 				] );
-				this.revision += 1;
+				this.revision++;
 				this._trim( cur.t );
 				this._persist();
 				this._notify();

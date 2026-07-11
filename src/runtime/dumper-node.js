@@ -166,7 +166,7 @@ export class DumperNode extends Node {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		const level = this.debugLevelRef.current;
 		if ( level >= 2 ) {
 			// Level 2 replaces the render with the full envelope dump.

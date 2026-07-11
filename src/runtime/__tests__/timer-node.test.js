@@ -33,6 +33,31 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 		t.stopTimer();
 	} );
 
+	test( 'a spent oneshot stops fully: one fire, interval cleared, flag reset', () => {
+		const t = new TimerNode();
+		const sent = [];
+		t.name = 't-oneshot';
+		t.sink = { fill: ( m ) => sent.push( m ) };
+		t.setTimer( 100, true );
+		jest.advanceTimersByTime( 500 );
+		expect( sent ).toHaveLength( 1 );
+		expect( t.mode ).toBe( 'inactive' );
+		expect( t.oneshot ).toBe( false );
+		expect( t._handle ).toBeNull();
+	} );
+
+	test( 're-arming a live timer as a oneshot keeps the flag (re-arm stopTimer must not clobber it)', () => {
+		const t = new TimerNode();
+		const sent = [];
+		t.name = 't-rearm-oneshot';
+		t.sink = { fill: ( m ) => sent.push( m ) };
+		t.setTimer( 100 );
+		t.setTimer( 100, true );
+		jest.advanceTimersByTime( 500 );
+		expect( sent ).toHaveLength( 1 );
+		expect( t.mode ).toBe( 'inactive' );
+	} );
+
 	test( 'stopTimer clears the interval', () => {
 		const t = new TimerNode();
 		const sent = [];
@@ -129,6 +154,21 @@ describe( 'Router-hitchhike mode (rides the _router TIMER via notify_timer)', ()
 		expect( sent ).toHaveLength( 2 );
 		expect( t.fire_count ).toBe( 2 );
 		t.stopTimer();
+	} );
+
+	test( 'a hitchhike oneshot unregisters from the router after its single fire', () => {
+		const r = makeRouter();
+		const t = new TimerNode();
+		t.name = 'once';
+		const sent = [];
+		t.sink = { fill: ( m ) => sent.push( m ) };
+		t.target = '_output';
+		t.setTimer( 5000, true );
+		r.notifyTimer();
+		expect( sent ).toHaveLength( 1 );
+		expect( 'once' in r.registrations.TIMER ).toBe( false );
+		r.notifyTimer();
+		expect( sent ).toHaveLength( 1 );
 	} );
 
 	test( 'counter advances once per tick (counter++ lives only in fire())', () => {

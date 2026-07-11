@@ -29,11 +29,15 @@ describe( 'Heartbeat node', () => {
 	} );
 
 	const build = () => {
+		// setSlot() hitchhike-arms, so the poke timer needs a live _router.
+		const router = new RouterNode();
+		router.name = names.ROUTER;
+		router.stopTimer();
 		const node = new HeartbeatNode();
 		node.name = '_heartbeat';
 		const sent = [];
 		node.sink = { fill: ( m ) => sent.push( m ) };
-		return { node, sent };
+		return { node, sent, router };
 	};
 
 	it( 'pre-declares no transcript subscription (it is consume-only)', () => {
@@ -105,7 +109,8 @@ describe( 'Heartbeat node', () => {
 		} );
 
 		it( 'does not throw when there is no sink', () => {
-			const node = new HeartbeatNode();
+			const { node } = build();
+			node.sink = null;
 			node.target = '_sse/workers';
 			node.setSlot( 1 );
 			expect( () => node.fire() ).not.toThrow();
@@ -117,33 +122,34 @@ describe( 'Heartbeat node', () => {
 			expect( new HeartbeatNode() ).toBeInstanceOf( TimerNode );
 		} );
 
-		it( 'setTimer() registers on the router TIMER; notify_timer fires the poke when a slot is held', () => {
+		it( 'setSlot() arms the router-hitchhike poke; notify_timer fires it (no manual setTimer)', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
-			const router = new RouterNode();
-			router.name = names.ROUTER;
-			router.stopTimer();
-			const { node, sent } = build();
+			const { node, sent, router } = build();
 			node.target = '_sse/workers';
 			node.setSlot( 7 );
-			node.setTimer();
+			expect( node.mode ).toBe( 'router' );
 			router.notifyTimer();
 			expect( sent ).toHaveLength( 1 );
 			expect( sent[ 0 ][ VALUE ].name ).toBe( 'heartbeat' );
 			node.stopTimer();
 		} );
 
+		it( 'clearSlot() stops the poke timer — no slot, nothing to keep alive', () => {
+			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
+			const { node, sent, router } = build();
+			node.target = '_sse/workers';
+			node.setSlot( 7 );
+			node.clearSlot();
+			expect( node.mode ).toBe( 'inactive' );
+			router.notifyTimer();
+			expect( sent ).toHaveLength( 0 );
+		} );
+
 		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
-			const router = new RouterNode();
-			router.name = names.ROUTER;
-			router.stopTimer();
-			const node = new HeartbeatNode();
-			node.name = names.HEARTBEAT;
-			node.sink = { fill: () => {} };
-			node.setTimer();
+			const { node, router } = build();
+			node.setSlot( 1 );
 			node.removeNode();
-			expect( names.HEARTBEAT in router.registrations.TIMER ).toBe(
-				false
-			);
+			expect( '_heartbeat' in router.registrations.TIMER ).toBe( false );
 			expect( () => router.notifyTimer() ).not.toThrow();
 		} );
 	} );

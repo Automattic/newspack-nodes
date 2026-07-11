@@ -7,7 +7,7 @@ export class HookNode extends Node {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		if ( this._predicate( message ) && this.sink ) {
 			this.sink.fill( message );
 		}

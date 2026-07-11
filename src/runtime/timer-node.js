@@ -32,7 +32,6 @@ export class TimerNode extends Node {
 		// 'inactive' | 'event_framework' (own slot) | 'router' (hitchhike).
 		this.mode = 'inactive';
 		this.fire_count = 0;
-		this.active = false;
 		this.oneshot = false;
 		// Router can't hitchhike its own TIMER; RouterNode self-arms instead.
 		this.isRouter = false;
@@ -63,12 +62,11 @@ export class TimerNode extends Node {
 		}
 	}
 
-	// fireCb (Timer::fire_cb): deactivate a oneshot, then no-op without a sink.
+	// fireCb (Timer::fire_cb): oneshot stops fully; no-op without a sink.
 	fireCb() {
-		this.fire_count += 1;
+		this.fire_count++;
 		if ( this.oneshot ) {
-			this.active = false;
-			this.mode = 'inactive';
+			this.stopTimer();
 		}
 		if ( ! this.sink ) {
 			return;
@@ -99,7 +97,7 @@ export class TimerNode extends Node {
 				m[ KEY ] = this.key;
 			}
 			m[ VALUE ] = String( Core.now() );
-			this.counter += 1;
+			this.counter++;
 			this.sink.fill( m );
 		}
 		this.notify( 'FIRE', Core.now() );
@@ -107,8 +105,6 @@ export class TimerNode extends Node {
 
 	// No ms or ms > 1000 → Router-hitchhike; ms <= 1000 → own setInterval slot.
 	setTimer( ms = null, oneshot = false ) {
-		this.oneshot = oneshot;
-		this.active = true;
 		// A >=1000ms timer hitchhikes the router notify; except isRouter.
 		if ( ( null === ms || ms >= 1000 ) && ! this.isRouter ) {
 			if ( '' === this.name ) {
@@ -129,6 +125,8 @@ export class TimerNode extends Node {
 			this.interval_ms = null === ms ? 0 : ms;
 			this.lastFireTime = 0;
 			this.mode = 'router';
+			// After the mode-switch stopTimer above, which resets the flag.
+			this.oneshot = oneshot;
 			return;
 		}
 		// Clear any live slot before re-arming, else a setInterval leaks.
@@ -142,6 +140,8 @@ export class TimerNode extends Node {
 		this._handle = setInterval( () => this.fireCb(), ms );
 		this.interval_ms = ms;
 		this.mode = 'event_framework';
+		// After the re-arm stopTimer above, which resets the flag.
+		this.oneshot = oneshot;
 	}
 
 	removeNode() {
@@ -152,8 +152,9 @@ export class TimerNode extends Node {
 	// Unregister the active slot; a mid-notify self-stop is safe.
 	stopTimer() {
 		const mode = this.mode;
-		this.active = false;
 		this.mode = 'inactive';
+		this.interval_ms = 0;
+		this.oneshot = false;
 		if ( 'router' === mode ) {
 			const router = Core.node( names.ROUTER );
 			if ( router && '' !== this.name ) {

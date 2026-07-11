@@ -52,8 +52,10 @@ class Timer_Node extends Node {
 	}
 
 	public function fire_cb(): void {
+		// Driven ticks, not emits (counter's job); silent climber = spinner.
+		$this->fire_count++;
 		if ( $this->oneshot ) {
-			$this->mode = 'inactive';
+			$this->stop_timer();
 		}
 		if ( null === $this->sink ) {
 			return;
@@ -66,7 +68,6 @@ class Timer_Node extends Node {
 			$this->last_fire_time = Core::$now;
 		}
 		$this->fire();
-		$this->fire_count++;
 	}
 
 	// Emit heartbeat unless target-less & sink is CI (spam guard); notify FIRE.
@@ -109,7 +110,7 @@ class Timer_Node extends Node {
 			$this->last_fire_time = 0.0;
 			// clear a stale own-slot next_fire (list_timers reads it)
 			$this->next_fire      = 0.0;
-			$this->oneshot        = false;
+			$this->oneshot        = $oneshot;
 			return;
 		}
 		if ( 'router' === $this->mode ) {
@@ -156,6 +157,11 @@ class Timer_Node extends Node {
 	/** @api Timer introspection (list_timers): whether the timer is currently armed. */
 	public function timer_is_active(): bool {
 		return 'inactive' !== $this->mode;
+	}
+
+	/** @return string 'inactive' | 'event_framework' | 'router'. */
+	public function timer_mode(): string {
+		return $this->mode;
 	}
 
 	public function get_fire_count(): int {
