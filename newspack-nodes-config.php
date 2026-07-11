@@ -17,31 +17,21 @@ return [
 	// Filesystem root for logs / locks / offsets / IPC dirs.
 	'base_directory'      => '/tmp/newspack-nodes',
 
-	// Partitioning + segment retention.
-	//   num_partitions: parallelism factor (CRC32-keyed; capped at 16).
-	//   num_segments:   retained per partition (count cap).
-	//   segment_size:   max bytes before rotation.
-	//   max_lifespan:   minimum retention seconds; deletion requires BOTH
-	//                   over num_segments AND older than max_lifespan.
+	// Partition/retention: num_partitions CRC32 cap 16; delete needs both caps.
 	'num_partitions'      => 1,
 	'num_segments'        => 2,
 	'segment_size'        => 64 * 1024 * 1024,
 	'max_lifespan'        => 86400,
 
-	// Memcache pool. Stats live here only — never on disk. Per-partition
-	// prefix namespaces the keys.
+	// Memcache. Stats live here only, never on disk; per-partition prefix.
 	'memcache_servers'    => [
 		'127.0.0.1:11211',
 	],
 
-	// Active topologies — flat list of names resolved via
-	// Topology_Registry. Substrate ships none; application plugins
-	// (or per-deployment overlays) populate this list. Each entry
-	// becomes one fleet of `num_partitions` workers (sized by the
-	// topology's frontmatter when present).
+	// Topologies (Topology_Registry names); each = a num_partitions fleet.
 	'topologies'          => [],
 
-	// Vault — encrypted aggregator-server registry (managed via the Vault API).
+	// Vault: encrypted aggregator-server registry (managed via Vault API).
 	'vault'               => [],
 
 	// Aggregator spoke list (hubs only; spokes leave empty).
