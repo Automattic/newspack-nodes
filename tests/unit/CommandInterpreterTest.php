@@ -197,6 +197,58 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'unauthorized', $resp[ Message::VALUE ]['payload'] );
 	}
 
+	public function test_authorize_that_logged_a_reason_squelches_the_redundant_unauthorized(): void {
+		// When authorize (e.g. HMAC verify) already logged a SPECIFIC reason via
+		// drop_message, the interpreter must NOT also log the generic "unauthorized"
+		// — but it still returns the unauthorized error response to the client.
+		$interpreter = new class() extends Command_Interpreter_Node {
+			/** @var string[] */
+			public array $dropped = [];
+			public function drop_message( array $message, string $error ): void {
+				$this->dropped[] = $error;
+				parent::drop_message( $message, $error );
+			}
+		};
+		$interpreter->name( '_command_interpreter' );
+		$sink = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$interpreter->authorize = function ( array $m ) use ( $interpreter ): bool {
+			$interpreter->drop_message( $m, 'verification failed: timestamp out of range' );
+			return false;
+		};
+
+		$interpreter->fill( $this->command_message( 'dump_metadata' ) );
+
+		$this->assertSame(
+			[ 'verification failed: timestamp out of range' ],
+			$interpreter->dropped,
+			'only the specific reason is logged; the redundant unauthorized is squelched'
+		);
+		$resp = $sink->captured[0] ?? null;
+		$this->assertNotNull( $resp, 'the unauthorized error response is still sent' );
+		$this->assertStringContainsString( 'unauthorized', $resp[ Message::VALUE ]['payload'] );
+	}
+
+	public function test_bare_authorize_rejection_still_logs_unauthorized(): void {
+		// A rejection that logged NO specific reason keeps the generic "unauthorized"
+		// warning (e.g. a non-LOCAL command reaching an interpreter with no verifier).
+		$interpreter = new class() extends Command_Interpreter_Node {
+			/** @var string[] */
+			public array $dropped = [];
+			public function drop_message( array $message, string $error ): void {
+				$this->dropped[] = $error;
+				parent::drop_message( $message, $error );
+			}
+		};
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
+		$interpreter->authorize = static fn ( array $m ): bool => false;
+
+		$interpreter->fill( $this->command_message( 'dump_metadata' ) );
+
+		$this->assertSame( [ 'unauthorized: dump_metadata' ], $interpreter->dropped );
+	}
+
 	public function test_interpret_allows_command_with_local_provenance(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

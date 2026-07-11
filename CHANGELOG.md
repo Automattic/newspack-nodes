@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Command_Interpreter_Node` no longer double-logs a rejected command.** An HMAC-verify failure already logs the specific reason (`verification failed: timestamp out of range`, …) via `drop_message`; the interpreter then also logged a redundant generic `unauthorized: <verb>`. It now skips the generic log when authorize already logged a reason (tracked per-`interpret()`), while still logging `unauthorized` for a bare rejection that logged nothing (e.g. a non-LOCAL command with no verifier) — and the unauthorized error response is unchanged. Cuts the paired warnings you see when the browser writes into a spoke's IPC after a restart, before wp-cron starts the supervisor.
+
 ## [0.36.0] - 2026-07-11
 
 ### Fixed
