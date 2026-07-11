@@ -19,18 +19,24 @@ const MAX_COLS = 80;
 const TAB_WIDTH = 4;
 
 const isExemptPath = ( p ) =>
-	/(^|\/)(tests?|__tests__|__mocks__|node_modules|build|vendor)\//.test( p ) ||
-	/\.test\.[jt]sx?$/.test( p );
+	/(^|\/)(tests?|__tests__|__mocks__|node_modules|build|vendor)\//.test(
+		p
+	) || /\.test\.[jt]sx?$/.test( p );
 
 const isDirective = ( text ) =>
-	/^\s*(?:\/\/|\/\*)+\s*(?:eslint-|prettier-|@ts-|istanbul\s|jsx\s|global\s|translators:|@codeCoverageIgnore|@phpstan-|@codingStandardsIgnore)/.test( text );
+	/^\s*(?:\/\/|\/\*)+\s*(?:eslint-|prettier-|@ts-|istanbul\s|jsx\s|global\s|translators:|@codeCoverageIgnore|@phpstan-|@codingStandardsIgnore)/.test(
+		text
+	);
 
 const isLongform = ( text ) => text.includes( '@longform' );
 
 const visualLength = ( line ) => {
 	let col = 0;
 	for ( const ch of line ) {
-		col = '\t' === ch ? ( Math.floor( col / TAB_WIDTH ) + 1 ) * TAB_WIDTH : col + 1;
+		col =
+			'\t' === ch
+				? ( Math.floor( col / TAB_WIDTH ) + 1 ) * TAB_WIDTH
+				: col + 1;
 	}
 	return col;
 };
@@ -53,7 +59,9 @@ function checkFile( path ) {
 			if ( trimmed.includes( '*/' ) ) {
 				inBlock = false;
 				if ( ! blockIsDoc && ! blockExempt && n > blockStart ) {
-					violations.push( `${ blockStart }: multi-line /* */ comment (use JSDoc, one line, or @longform)` );
+					violations.push(
+						`${ blockStart }: multi-line /* */ comment (use JSDoc, one line, or @longform)`
+					);
 				}
 			}
 			return;
@@ -64,15 +72,27 @@ function checkFile( path ) {
 			blockStart = n;
 			if ( ! trimmed.includes( '*/' ) ) {
 				inBlock = true;
-			} else if ( ! blockIsDoc && ! blockExempt && visualLength( line ) > MAX_COLS ) {
-				violations.push( `${ n }: comment exceeds ${ MAX_COLS } columns (condense, or tag @longform)` );
+			} else if (
+				! blockIsDoc &&
+				! blockExempt &&
+				visualLength( line ) > MAX_COLS
+			) {
+				violations.push(
+					`${ n }: comment exceeds ${ MAX_COLS } columns (condense, or tag @longform)`
+				);
 			}
 			return;
 		}
 		if ( trimmed.startsWith( '//' ) ) {
 			commentOnly.set( n, trimmed );
-			if ( ! isLongform( trimmed ) && ! isDirective( trimmed ) && visualLength( line ) > MAX_COLS ) {
-				violations.push( `${ n }: comment exceeds ${ MAX_COLS } columns (condense, or tag @longform)` );
+			if (
+				! isLongform( trimmed ) &&
+				! isDirective( trimmed ) &&
+				visualLength( line ) > MAX_COLS
+			) {
+				violations.push(
+					`${ n }: comment exceeds ${ MAX_COLS } columns (condense, or tag @longform)`
+				);
 			}
 		}
 	} );
@@ -91,8 +111,13 @@ function checkFile( path ) {
 				nonDirective++;
 			}
 		}
-		if ( nonDirective >= 2 && ! isLongform( commentOnly.get( runStart ) ?? '' ) ) {
-			violations.push( `${ runStart }: ${ runLen }-line comment block (one line, JSDoc, or @longform)` );
+		if (
+			nonDirective >= 2 &&
+			! isLongform( commentOnly.get( runStart ) ?? '' )
+		) {
+			violations.push(
+				`${ runStart }: ${ runLen }-line comment block (one line, JSDoc, or @longform)`
+			);
 		}
 	};
 	for ( const line of [ ...commentOnly.keys() ].sort( ( a, b ) => a - b ) ) {
