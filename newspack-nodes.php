@@ -27,14 +27,7 @@ if ( ! \defined( 'NEWSPACK_NODES_URL' ) && \function_exists( 'plugin_dir_url' ) 
 	\define( 'NEWSPACK_NODES_URL', \plugin_dir_url( __FILE__ ) );
 }
 
-// Composer classmap autoloader. Class files inside includes/ are scanned at
-// `composer install` / `composer dump-autoload` time and registered with a
-// FQCN-to-path map; classes load on first reference so request scope doesn't
-// pay for code it never touches. Generated vendor/autoload.php ships with the
-// release zip via build-release.sh (which runs composer install --no-dev
-// --optimize-autoloader pre-stage). Dev environments need a `composer install`
-// after cloning; the build:autoloaders npm script wraps this for parity with
-// the other plugins.
+// Composer classmap autoload; release ships it, dev clone: composer install.
 require_once NEWSPACK_NODES_DIR . 'vendor/autoload.php';
 
 if ( \function_exists( 'is_admin' ) && \is_admin() ) {
@@ -44,12 +37,7 @@ if ( \function_exists( 'is_admin' ) && \is_admin() ) {
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\Newspack_Nodes\Bootstrap::ensure_runtime_wired();
-	// `types`, `run`, `restart`, `status` are instance methods on
-	// WorkerCliCommand. PHP 8+ rejects `[ClassName::class, 'instance_method']`
-	// as a callable (see wp-cli/wp-cli#5472), so register a single shared
-	// instance per subcommand. PHPStan's strict callable check requires this
-	// form too; the old class-string-plus-method array form is no longer a
-	// valid callable type. Instance reuse keeps registration cost flat.
+	// PHP 8 rejects array callables here (wp-cli#5472); use shared instances.
 	$nodes_worker_cli = new \Newspack_Nodes\Worker_CLI_Command();
 	$nodes_ingest_cli = new \Newspack_Nodes\Ingest_CLI_Command();
 	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\CLI_Command' );
@@ -62,13 +50,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
 }
 
-// The substrate runtime wiring (node-class namespaces, the `<config:…>` token
-// namespace, the stock-topology dir, and the shared Core::$memd handle) is NO
-// LONGER run at plugin-file scope. It moved into the idempotent
-// `Bootstrap::ensure_runtime_wired()` (above's WP-CLI / is_admin blocks +
-// rest_api_init + the supervisor tick) so a plain frontend page view — which
-// touches none of the node graph / cache — stops paying for the Config System
-// autoload + a `\Memcached` connection it never uses. See ensure_runtime_wired().
+// Runtime wiring: ensure_runtime_wired(), not file scope (frontend skips it).
 
 /**
  * Service-CommandInterpreter (CI) mounting.
@@ -90,11 +72,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
  * callback without duplicating the mount logic.
  */
 function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter_Node $base_interpreter ): void {
-	// Idempotency guard. The `newspack_nodes/request_graph_ready` action
-	// has been observed firing twice in the same PHP request in production —
-	// without this guard the second invocation throws "node name collision:
-	// workers already registered" at make_node('Workers_CI', 'workers') and
-	// fatals the REST response with a 500.
+	// Idempotency guard: request_graph_ready can fire twice, colliding names.
 	if ( null !== \Newspack_Nodes\Core::node( 'workers' ) ) {
 		return;
 	}
@@ -108,14 +86,7 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	$base_interpreter->make_node( 'Settings_CI',   'settings' );
 	$base_interpreter->make_node( 'Status_CI',     'status' );
 
-	// Workers_CI needs the substrate Cli. Live positions come from the shared
-	// TopicProbe log (via the Cli), and the `heartbeat` verb uses the shared
-	// `Core::$memd` directly — so there's no cache to inject here.
-	//
-	// Construction follows the Tachikoma uniform pattern: `make_node` calls a
-	// no-arg ctor + `arguments()` for scalar config; the programmatic dep (Cli)
-	// comes in via public-property assignment immediately after, since
-	// `arguments()` only handles round-trippable scalar tokens.
+	// Workers_CI needs the Cli: assign it as a public property after make_node.
 	$cli        = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
 	$workers_ci = $base_interpreter->make_node( 'Workers_CI', 'workers' );
 	if ( $workers_ci instanceof \Newspack_Nodes\Rest\Workers_CI_Node ) {
@@ -123,55 +94,39 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	}
 }
 
-// Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.
-// Skipped in test environments where add_action is a stub but rest_api_init never fires.
+// Wire WP integration (REST, supervisor cron, activation); skipped in tests.
 if ( \function_exists( 'add_action' ) ) {
-	// Wire the runtime before any REST callback runs (priority 1, ahead of
-	// register_rest_routes at 10). Covers all REST: command, SSE, spawn, the
-	// service CIs, and spawned workers (which boot inside the /spawn request).
+	// Wire runtime before REST callbacks (priority 1, ahead of routes at 10).
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'ensure_runtime_wired' ], 1 );
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
-	// Node-graph settings-sync producer: register the option-change hooks once
-	// at load (init() is idempotent), matching the unconditional ELN call site.
+	// Settings-sync: register option-change hooks once (init idempotent).
 	\Newspack_Nodes\Settings_Event_Writer::init();
-	// Veto-time supervisor-cron diagnostics: these filters run inside
-	// wp_schedule_event/wp_reschedule_event under ANY cron runner, unlike the
-	// cron_*_event_error actions only wp-cron.php fires.
+	// Supervisor-cron veto filters: run under ANY cron runner, not wp-cron.
 	\add_filter( 'pre_schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
 	\add_filter( 'pre_reschedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
 	\add_filter( 'schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'remember_schedule_event_context' ], PHP_INT_MIN + 2, 1 );
 	\add_filter( 'schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_event_veto' ], PHP_INT_MAX - 2, 1 );
-	// Substrate-owned default spawn handler: spawns any worker in the active set
-	// (expand_workers), ungated by plugin ownership — topologies aren't owned.
+	// Default spawn handler: spawns any active-set worker, ungated by owner.
 	\add_action( 'newspack_nodes/spawn_worker', [ '\\Newspack_Nodes\\Topology_Registry', 'spawn_worker' ], 10, 2 );
-	// Long-lived workers that survive a config reload need their on-disk
-	// log view invalidated so newly-created log dirs become visible AND
-	// their per-topology basename cache cleared so newly-edited TSLs are
-	// re-read. Narrow reset_basename_cache() keeps `Topology_Registry`'s
-	// stock_dirs + user_dir intact (the full `reset()` is test-only).
+	// On config reload: reset log view + basename cache (narrow, keeps dirs).
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Log_Discovery', 'reset' ] );
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Topology_Registry', 'reset_basename_cache' ] );
-	// Self-heal: if logging is on and a topology is selected but the
-	// supervisor cron got cleared (DB rebuild, manual wp cron delete, etc.),
-	// re-arm it on the next admin page view rather than waiting for the
-	// operator to deactivate + reactivate the plugin.
+	// Self-heal: re-arm the supervisor cron on admin view if it got cleared.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_supervisor_cron' ] );
-	// One-time autoload-correction sweep for existing installs (guarded;
-	// off the frontend path). See Config::correct_option_autoload().
+	// One-time autoload-correction for existing installs (off frontend path).
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Config', 'correct_option_autoload' ] );
-	// One-time copy of the legacy event-logger aggregator-servers option into the Vault option.
+	// One-time copy of the legacy aggregator-servers option into Vault.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Vault_Migration', 'maybe_migrate' ] );
-	// One-time rename of the ELN remote-spoke geometry options to the substrate names.
+	// One-time rename of ELN remote-spoke geometry options to substrate names.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Remote_Settings_Migration', 'maybe_migrate' ] );
 }
 if ( \function_exists( 'add_filter' ) ) {
 	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.
 	\add_filter( 'cron_schedules', [ '\\Newspack_Nodes\\Bootstrap', 'register_cron_schedules' ] );
-	// Substrate-owned topology catalog: every .tsl in list() (user dir + all
-	// stock dirs), not a per-plugin allowlist.
+	// Topology catalog: every .tsl (user + stock dirs), not an allowlist.
 	\add_filter( 'newspack_nodes/topologies', [ '\\Newspack_Nodes\\Topology_Registry', 'publish_catalog' ] );
 }
 if ( \function_exists( 'register_activation_hook' ) ) {
