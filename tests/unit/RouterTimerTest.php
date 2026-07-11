@@ -16,11 +16,6 @@ class RouterTimerTest extends TestCase {
 		Event_Framework::reset();
 	}
 
-	private function mode_of( Timer_Node $timer ): string {
-		$prop = ( new \ReflectionObject( $timer ) )->getProperty( 'mode' );
-		return (string) $prop->getValue( $timer );
-	}
-
 	public function test_router_pre_declares_TIMER_event(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
@@ -46,6 +41,34 @@ class RouterTimerTest extends TestCase {
 		$prop = ( new \ReflectionObject( $router ) )->getProperty( 'registrations' );
 		$regs = $prop->getValue( $router );
 		$this->assertArrayNotHasKey( 'ghost', $regs['TIMER'] );
+	}
+
+	public function test_hitchhike_oneshot_unregisters_after_its_single_fire(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$timer = new Timer_Node();
+		$timer->name( 'once0' );
+		$capture = new Capture_Sink_Node();
+		$timer->sink( $capture );
+		$timer->set_timer( 5000, true );
+
+		$router->fire_cb();
+		Core::$now += 6; // past the 5s hitchhike throttle: a leak would re-fire
+		$router->fire_cb();
+
+		$this->assertCount( 1, $capture->captured, 'a spent oneshot must not keep riding the router TIMER' );
+		$this->assertFalse( $timer->oneshot );
+		$this->assertSame( 'inactive', $timer->timer_mode() );
+	}
+
+	public function test_router_fire_cb_increments_its_own_fire_count(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$router->fire_cb();
+		$router->fire_cb();
+
+		$this->assertSame( 2, $router->get_fire_count(), 'list_timers FIRES must tally router ticks' );
 	}
 
 	public function test_timer_with_no_args_registers_with_router_TIMER_event(): void {
@@ -149,7 +172,7 @@ class RouterTimerTest extends TestCase {
 		$router->fire_cb();
 		$router->fire_cb();
 		$this->assertSame( 1, $timer->counter(), 'stop_timer must unregister hitchhiked Timer so it stops firing' );
-		$this->assertSame( 'inactive', $this->mode_of( $timer ));
+		$this->assertSame( 'inactive', $timer->timer_mode());
 	}
 
 	/**
@@ -170,6 +193,6 @@ class RouterTimerTest extends TestCase {
 		// No run_closing(): teardown already happened synchronously.
 		$router->fire_cb();
 		$this->assertSame( 0, $timer->counter(), 'stop_timer must unregister immediately so the Timer never fires' );
-		$this->assertSame( 'inactive', $this->mode_of( $timer ));
+		$this->assertSame( 'inactive', $timer->timer_mode());
 	}
 }

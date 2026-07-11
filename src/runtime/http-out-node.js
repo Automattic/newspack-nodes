@@ -40,7 +40,7 @@ export class HttpOutNode extends Node {
 	 * @param {Array} message Positional Message; TO already routed.
 	 */
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		if ( this.locked ) {
 			this.buffer.push( message );
 			return;
@@ -74,7 +74,7 @@ export class HttpOutNode extends Node {
 				for ( const message of messages ) {
 					// Read boundary: tally the wire size of each reply.
 					this.bytesRead += byteLength( pack( message ) );
-					this.counter += 1;
+					this.counter++;
 					this.sink?.fill( message );
 				}
 			} )

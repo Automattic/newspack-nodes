@@ -24,7 +24,7 @@ export class UptimeNode extends TimerNode {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		const value = message[ VALUE ];
 		let text = '';
 		if (
@@ -48,7 +48,7 @@ export class UptimeNode extends TimerNode {
 		if ( ! this.sink ) {
 			return;
 		}
-		this.counter += 1;
+		this.counter++;
 		this.sink.fill( this._pollMessage( 'uptime' ) );
 	}
 

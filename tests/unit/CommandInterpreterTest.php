@@ -147,25 +147,23 @@ class CommandInterpreterTest extends TestCase {
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_timers' );
 
 		$this->assertStringContainsString( 'ACTIVE', $out, 'has an ACTIVE column' );
+		$this->assertStringContainsString( 'MODE', $out, 'has a MODE column (matches the JS console table)' );
 		$this->assertStringContainsString( 'FIRES', $out, 'has a FIRES (fire count) column' );
-		$this->assertStringContainsString( 'tick0', $out, 'names the active timer' );
 		$this->assertStringContainsString( '250', $out, 'shows the interval_ms' );
-		$hitch_row = '';
-		foreach ( \explode( "\n", $out ) as $line ) {
-			if ( \str_contains( $line, 'hitch0' ) ) {
-				$hitch_row = $line;
+		$row_of = static function ( string $name ) use ( $out ): string {
+			foreach ( \explode( "\n", $out ) as $line ) {
+				if ( \str_contains( $line, $name ) ) {
+					return $line;
+				}
 			}
-		}
-		$this->assertStringContainsString( '_router', $hitch_row, 'a hitchhiking timer shows _router in its NEXT cell' );
-		$trans_row = '';
-		foreach ( \explode( "\n", $out ) as $line ) {
-			if ( \str_contains( $line, 'trans0' ) ) {
-				$trans_row = $line;
-			}
-		}
-		$this->assertStringContainsString( '_router', $trans_row, 'own-slot -> router re-arm shows _router (stale next_fire cleared)' );
-		$this->assertStringContainsString( 'idle0', $out, 'lists inactive timers too' );
-		$this->assertStringContainsString( 'no', $out, 'the never-armed timer reads ACTIVE=no' );
+			return '';
+		};
+		$this->assertStringContainsString( 'event_framework', $row_of( 'tick0' ), 'own-slot timer reads MODE=event_framework' );
+		$this->assertStringContainsString( 'router', $row_of( 'hitch0' ), 'a hitchhiking timer reads MODE=router' );
+		$this->assertStringContainsString( '-', $row_of( 'hitch0' ), 'a hitchhiker has no own next_fire; NEXT is -' );
+		$this->assertStringContainsString( 'router', $row_of( 'trans0' ), 'own-slot -> router re-arm reads MODE=router (stale next_fire cleared)' );
+		$this->assertStringContainsString( 'inactive', $row_of( 'idle0' ), 'the never-armed timer reads MODE=inactive' );
+		$this->assertStringContainsString( 'no', $row_of( 'idle0' ), 'the never-armed timer reads ACTIVE=no' );
 	}
 
 	public function test_list_handles_lists_registered_curl_handles(): void {

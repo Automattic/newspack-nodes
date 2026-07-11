@@ -95,6 +95,19 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
 	} );
 
+	it( 'never arms the shared heartbeat itself: the slot lifecycle does (setSlot arms, close stops)', () => {
+		const { link } = makeLink();
+		link.connect();
+		const hb = Core.node( names.HEARTBEAT );
+		expect( hb.mode ).toBe( 'inactive' );
+		dispatchConnected( link, { slot: 3 } );
+		expect( hb.slot ).toBe( 3 );
+		expect( hb.mode ).toBe( 'router' );
+		link.close();
+		expect( hb.slot ).toBeNull();
+		expect( hb.mode ).toBe( 'inactive' );
+	} );
+
 	it( 'surfaces its anonymous SseIn read tally but NOT the shared HttpOut writes (avoids double-count)', () => {
 		const { link } = makeLink();
 		link.connect();

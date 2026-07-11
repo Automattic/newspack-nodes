@@ -166,7 +166,7 @@ export class ShellNode extends Node {
 	 * @return {Object|null} A `{ kind: … }` signal, or null.
 	 */
 	fill( line ) {
-		this.counter += 1;
+		this.counter++;
 		const parsed = this.parse( line );
 		if ( null === parsed ) {
 			return null;
@@ -405,13 +405,13 @@ export class ShellNode extends Node {
 				if ( ch === literal ) {
 					literal = null;
 				}
-				i += 1;
+				i++;
 				continue;
 			}
 			if ( "'" === ch || '`' === ch ) {
 				literal = ch;
 				out += ch;
-				i += 1;
+				i++;
 				continue;
 			}
 			if ( '<' === ch ) {
@@ -427,7 +427,7 @@ export class ShellNode extends Node {
 				}
 			}
 			out += ch;
-			i += 1;
+			i++;
 		}
 		return out;
 	}

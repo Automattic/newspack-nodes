@@ -25,11 +25,6 @@ class TimerTest extends TestCase {
 		Event_Framework::reset();
 	}
 
-	private function mode_of( Timer_Node $timer ): string {
-		$prop = ( new \ReflectionObject( $timer ) )->getProperty( 'mode' );
-		return (string) $prop->getValue( $timer );
-	}
-
 	// ── arguments() — the round-trippable make_node config string ─────────────
 
 	public function test_arguments_getter_returns_stored_value(): void {
@@ -52,14 +47,14 @@ class TimerTest extends TestCase {
 		$timer = new Timer_Node();
 		$timer->name( 'hb' );
 		$timer->arguments( '' );
-		$this->assertSame( 'router', $this->mode_of( $timer ) );
+		$this->assertSame( 'router', $timer->timer_mode() );
 	}
 
 	public function test_arguments_numeric_starts_own_slot(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
 		$timer->arguments( '250' );
-		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
+		$this->assertSame( 'event_framework', $timer->timer_mode() );
 		$timer->stop_timer();
 	}
 
@@ -140,18 +135,18 @@ class TimerTest extends TestCase {
 	public function test_set_timer_with_ms_enters_event_framework_and_stops_clean(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
-		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
+		$this->assertSame( 'inactive', $timer->timer_mode() );
 		$timer->set_timer( 100 );
-		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
+		$this->assertSame( 'event_framework', $timer->timer_mode() );
 		$timer->stop_timer();
-		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
+		$this->assertSame( 'inactive', $timer->timer_mode() );
 	}
 
 	public function test_stop_timer_on_inactive_is_a_noop(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
 		$timer->stop_timer();
-		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
+		$this->assertSame( 'inactive', $timer->timer_mode() );
 	}
 
 	public function test_router_hitchhike_requires_named_timer(): void {
@@ -181,14 +176,14 @@ class TimerTest extends TestCase {
 		$timer->name( 'hb' );
 
 		$timer->set_timer();
-		$this->assertSame( 'router', $this->mode_of( $timer ) );
+		$this->assertSame( 'router', $timer->timer_mode() );
 		$this->assertSame( 250, $timer->interval_ms );
 
 		$timer->set_timer( 100 );
-		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
+		$this->assertSame( 'event_framework', $timer->timer_mode() );
 
 		$timer->set_timer();
-		$this->assertSame( 'router', $this->mode_of( $timer ) );
+		$this->assertSame( 'router', $timer->timer_mode() );
 	}
 
 	// ── hitchhike + throttle (set_timer($ms) with $ms >= 1000) ────────────────
@@ -203,7 +198,7 @@ class TimerTest extends TestCase {
 		// 1000 is the boundary: at-or-over the router tick, hitchhike it.
 		$timer->set_timer( 1000 );
 
-		$this->assertSame( 'router', $this->mode_of( $timer ) );
+		$this->assertSame( 'router', $timer->timer_mode() );
 		$this->assertSame( 1000, $timer->interval_ms );
 		// No own-slot was scheduled in the Event_Framework.
 		$ef   = ( new \ReflectionObject( Event_Framework::instance() ) )->getProperty( 'timers' );
@@ -234,6 +229,8 @@ class TimerTest extends TestCase {
 			$timer->fire_cb();
 		}
 		$this->assertCount( 2, $capture->captured );
+		// FIRES counts every driven tick, not just emits (JS console parity).
+		$this->assertSame( 10, $timer->get_fire_count() );
 		$timer->stop_timer();
 	}
 
@@ -241,7 +238,7 @@ class TimerTest extends TestCase {
 		$timer = new Timer_Node();
 		$timer->name( 'fast' );
 		$timer->set_timer( 999 );
-		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
+		$this->assertSame( 'event_framework', $timer->timer_mode() );
 		$timer->stop_timer();
 	}
 
@@ -252,7 +249,7 @@ class TimerTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
-		$this->assertSame( 'event_framework', $this->mode_of( $router ) );
+		$this->assertSame( 'event_framework', $router->timer_mode() );
 		$router->stop_timer();
 	}
 
@@ -284,8 +281,9 @@ class TimerTest extends TestCase {
 		$timer->sink( $capture );
 		$timer->set_timer( 100, true );
 		$timer->fire_cb();
-		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
+		$this->assertSame( 'inactive', $timer->timer_mode() );
 		$this->assertSame( 1, $timer->counter() );
+		$this->assertFalse( $timer->oneshot, 'a spent oneshot clears its flag so a re-arm is periodic' );
 	}
 
 	public function test_fire_increments_counter_on_emit(): void {

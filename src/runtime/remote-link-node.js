@@ -88,8 +88,8 @@ export class RemoteLinkNode extends Node {
 			new CommandClient( { baseUrl: sse.baseUrl, nonce: sse.nonce } );
 		this.httpOut = http;
 
+		// Not armed here: the CONNECTED slot bridge below arms/stops it.
 		const hb = Core.node( names.HEARTBEAT );
-		hb.setTimer();
 		this.heartbeat = hb;
 
 		// Slot bridge: SseIn's `connected` carries the slot Heartbeat keeps.

@@ -52,6 +52,7 @@ class Router_Node extends Timer_Node {
 	public function fire_cb(): void {
 		$this->notify_timer();
 		Core::prune_logs();
+		$this->fire_count++;
 	}
 
 	/** @param array<int, mixed> $message Message that failed to route. */

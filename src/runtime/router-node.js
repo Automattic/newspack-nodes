@@ -32,7 +32,7 @@ export class RouterNode extends TimerNode {
 
 	fill( message ) {
 		// One inbound miss increments counter by 2 via the bounce (PHP).
-		this.counter += 1;
+		this.counter++;
 
 		// Drop before routing: empty TO, then a FROM trail over MAX_FROM_SIZE.
 		if ( '' === message[ TO ] ) {
@@ -81,6 +81,7 @@ export class RouterNode extends TimerNode {
 
 	// fireCb (Router::fire_cb): bracket notifyTimer with lock/flush.
 	fireCb() {
+		this.fire_count++;
 		if ( this.beforeTimerNotify ) {
 			this.beforeTimerNotify();
 		}

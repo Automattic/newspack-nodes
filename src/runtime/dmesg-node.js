@@ -35,11 +35,11 @@ export function countLevels( text ) {
 			continue;
 		}
 		if ( /\bWARNING:/.test( line ) ) {
-			counts.warnings += 1;
+			counts.warnings++;
 		} else if ( /\bERROR:/.test( line ) ) {
-			counts.errors += 1;
+			counts.errors++;
 		} else {
-			counts.debug += 1;
+			counts.debug++;
 		}
 	}
 	return counts;
@@ -52,7 +52,7 @@ export class DmesgNode extends TimerNode {
 	}
 
 	fill( message ) {
-		this.counter += 1;
+		this.counter++;
 		const value = message[ VALUE ];
 		let text = '';
 		if (
@@ -72,7 +72,7 @@ export class DmesgNode extends TimerNode {
 		if ( ! this.sink ) {
 			return;
 		}
-		this.counter += 1;
+		this.counter++;
 		this.sink.fill( this._pollMessage( 'dmesg' ) );
 	}
 
