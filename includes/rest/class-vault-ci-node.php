@@ -296,9 +296,18 @@ class Vault_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( \esc_html( "HTTP {$code} response from server" ) );
 		}
 
-		// One decode of the whole Message yields payload; NO second decode.
-		$envelope = \json_decode( \wp_remote_retrieve_body( $response ), true, 16 );
-		if ( ! \is_array( $envelope ) || ! \array_key_exists( Message::VALUE, $envelope ) ) {
+		// Pick the reply (struct VALUE) from the JSONL stream; skip noise.
+		$envelope = null;
+		foreach ( \explode( "\n", \wp_remote_retrieve_body( $response ) ) as $line ) {
+			if ( '' === \trim( $line ) ) {
+				continue;
+			}
+			$decoded = \json_decode( $line, true, 16 );
+			if ( \is_array( $decoded ) && isset( $decoded[ Message::VALUE ] ) && \is_array( $decoded[ Message::VALUE ] ) ) {
+				$envelope = $decoded;
+			}
+		}
+		if ( null === $envelope ) {
 			throw new \RuntimeException( 'server returned malformed command envelope' );
 		}
 		$raw_type = $envelope[ Message::TYPE ] ?? 0;
@@ -306,7 +315,7 @@ class Vault_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( 'server returned TM_ERROR for discovery probe' );
 		}
 		$value = $envelope[ Message::VALUE ];
-		if ( ! \is_array( $value ) || ! \array_key_exists( 'payload', $value ) ) {
+		if ( ! \array_key_exists( 'payload', $value ) ) {
 			throw new \RuntimeException( 'server returned malformed command response' );
 		}
 		$payload = $value['payload'];
