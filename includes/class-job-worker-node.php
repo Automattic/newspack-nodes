@@ -135,7 +135,9 @@ class Job_Worker_Node extends Node {
 		}
 		$handlers = ( 'remote_job' === $kind ) ? $this->remote_handlers : $this->local_handlers;
 		if ( ! isset( $handlers[ $handler ] ) ) {
-			$this->print_less_often( "no {$kind} handler registered for: {$handler}" );
+			if ( 'job' === $kind ) {
+				$this->print_less_often( "no job handler registered for: {$handler}" );
+			}
 			return;
 		}
 		$parameters = $entry['parameters'] ?? [];

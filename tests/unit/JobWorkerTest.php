@@ -259,6 +259,27 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 1, $this->jobs_executed( $jw ) );
 	}
 
+	public function test_missing_local_job_handler_warns_but_missing_remote_job_is_silent(): void {
+		// A missing LOCAL job handler is a real misconfig — warn. A missing
+		// remote_job handler is expected off-hub (hub-only handlers), so stay
+		// silent instead of flooding "no remote_job handler" on every spoke.
+		$jw = new class() extends Job_Worker_Node {
+			/** @var string[] */
+			public array $warnings = [];
+			public function print_less_often( string $text ): void {
+				$this->warnings[] = $text;
+			}
+		};
+
+		$jw->fill( $this->job_message( 'unregistered', [], 'job' ) );
+		$this->assertCount( 1, $jw->warnings, 'a missing local job handler warns' );
+		$this->assertStringContainsString( 'no job handler registered', $jw->warnings[0] );
+
+		$jw->warnings = [];
+		$jw->fill( $this->job_message( 'unregistered', [], 'remote_job' ) );
+		$this->assertSame( [], $jw->warnings, 'a missing remote_job handler must not warn' );
+	}
+
 	// --- Local vs. remote handler split -------------------------------------
 
 	public function test_local_handler_dispatches_for_type_job(): void {
