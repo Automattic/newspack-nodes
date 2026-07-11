@@ -50,7 +50,7 @@ npm run lint:php
 npm run lint:deadcode
 
 # REPL against a live worker.
-wp nodes ls
+wp nodes status
 wp nodes cli firehose-workers.p0
 ```
 
@@ -133,8 +133,8 @@ renumber.
 | `includes/class-job-worker-node.php` | `Job_Worker_Node` — generic async-job dispatch (local/remote handler maps via `newspack_nodes/{job,remote_job}_handlers`; GC + cache-flush cadence; memory-watermark self-restart; `GET_HEALTH`). Fires `newspack_nodes/job_worker/{before,after}_job` actions so apps hook per-job request context. Stock `topologies/job-worker.tsl` |
 | `includes/class-lock-node.php`, `includes/class-{worker-base,supervisor,supervisor-base,bootstrap}.php`, `includes/class-worker-should-stop.php` | Lifecycle (`Lock_Node` is a Node subclass; the rest are non-node helpers). `Worker_Should_Stop` is the cooperative-stop exception raised from inside a long job when the drain continue-predicate says stop — see [ADR-14](docs/architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches) |
 | `includes/class-{shell,command-interpreter,dumper}-node.php` | REPL components; `Command_Interpreter_Node` also carries the introspection verbs (`list_timers` / `list_handles` tabulate the Event_Framework's registered timers and cURL-multi handles for spotting drain spinners) |
-| `includes/class-cli.php` | Worker-discovery + attached-cli IPC helpers (used by both `wp nodes ls` and `wp nodes cli`) |
-| `includes/class-cli-command.php` | `wp nodes {ls,cli}` (bare + attached modes); wires the REPL graph — `_stdout` (`TTY_Out_Node`) writer, `_output` (`Dumper_Node`, `target=_stdout`) renderer, and a `TTY_In_Node` stdin reader — then drains via `Event_Framework` |
+| `includes/class-cli.php` | Worker-discovery + attached-cli IPC helpers (used by both `wp nodes status` and `wp nodes cli`) |
+| `includes/class-cli-command.php` | `wp nodes cli` (bare + attached modes); wires the REPL graph — `_stdout` (`TTY_Out_Node`) writer, `_output` (`Dumper_Node`, `target=_stdout`) renderer, and a `TTY_In_Node` stdin reader — then drains via `Event_Framework` |
 | `includes/class-{stdin,stdout,stderr,tty-in,tty-out}-node.php` | Terminal-I/O primitives: `Stdin_Node`/`Stdout_Node` (bare stream drain/sink; self-scheduling 0ms busy / 10ms post-EOF / 100ms idle re-arm) and their `TTY_In_Node`/`TTY_Out_Node` readline/completion/prompt-aware subclasses used by `wp nodes cli`; `Stderr_Node` is a bare diagnostic sink that writes a TM_BYTESTREAM VALUE through the node stderr chain (splice on the end of a `Tee → Dumper → Grep` debug tap) |
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status,activate,deactivate}` |
 | `includes/cli/class-ingest-cli-command.php` | `wp nodes ingest` — replay packed partition-segment records back through a Topic onto disk |

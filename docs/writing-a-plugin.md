@@ -345,8 +345,8 @@ A few things this file adds that the by-hand session didn't:
 ```bash
 composer dump-autoload -o
 wp nodes activate example-ai-newsletter
-wp nodes ls
-#   example-ai-newsletter.p0   [live]
+wp nodes status
+#   example-ai-newsletter  0  live  3s ago  2m 10s
 ```
 
 Open the **topology console**. There's your graph — the same boxes and arrows you drew above — now live, with a message count on every edge. This is the payoff of the uniform contract: because every node speaks `fill()` and announces itself via `node_schema()`, the dashboard can render and drive a graph it has never seen. You didn't build any of this observability.

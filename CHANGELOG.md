@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-07-10
+
+### Changed
+
+- **`wp nodes ls` merged into `wp nodes status`** — one fleet-overview verb (alias `ls` kept): every catalog topology with per-partition worker State (`live` / `stale` / `down` — down = active with no lock dir, the supervisor's rescue case), Heartbeat age, and a new Uptime column (from the lock dir's `started` file, so a pending-restart flag can't skew it), then the consumer-lag table (Reader/Source/Partition/Behind/Msgs). Deactivated types still winding down are suffixed `(inactive)`; catalog-only topologies list as `inactive`; a `num_partitions=0` misconfig still renders (as `down`) instead of vanishing. `--format=json|csv|yaml` applies to both tables. New `CLI::format_duration()` (clock-skew clamped) + `started_at` in `ls_workers()`.
+
 ## [0.34.0] - 2026-07-10
 
 ### Changed

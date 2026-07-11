@@ -37,7 +37,7 @@ Install as a standard WordPress plugin, then:
 wp plugin activate newspack-nodes
 
 # List active workers (none, until an application registers a topology).
-wp nodes ls
+wp nodes status
 
 # Open the bare REPL (local nodes only).
 wp nodes cli

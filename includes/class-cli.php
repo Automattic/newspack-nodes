@@ -30,7 +30,7 @@ class CLI {
 		if ( ! \is_dir( $lock_dir ) ) {
 			throw new \InvalidArgumentException(
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would render the quotes as &#039;.
-				"no worker '" . self::cli_safe( $worker_id ) . "' (run `wp nodes ls` to list active workers)"
+				"no worker '" . self::cli_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
 			);
 		}
 		return [
@@ -102,7 +102,7 @@ class CLI {
 	/**
 	 * Index of every active Consumer's latest stats record from the shared
 	 * topicprobe log, keyed by `offsetlog_dir` — the durable per-reader identity.
-	 * This is the single live-position source the dashboard + `wp nodes ls/status`
+	 * This is the single live-position source the dashboard + `wp nodes status`
 	 * read (it replaced memcache + the offsetlog fallback); TopicProbe appends one
 	 * record per Consumer every ~15s.
 	 *
@@ -118,7 +118,7 @@ class CLI {
 	/**
 	 * Enumerate worker lock dirs and report each one's staleness.
 	 *
-	 * @return array<int,array{type:string,partition:int,heartbeat_at:int,stale:bool}>
+	 * @return array<int,array{type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}>
 	 */
 	public function ls_workers(): array {
 		$locks_dir = "{$this->base_dir}/locks";
@@ -140,6 +140,7 @@ class CLI {
 				'type'         => $type,
 				'partition'    => $partition,
 				'heartbeat_at' => $mtime ?: 0,
+				'started_at'   => Lock_Node::get_started_time( "{$locks_dir}/{$entry}" ) ?? 0,
 				'stale'        => $stale,
 			];
 		}
@@ -205,6 +206,23 @@ class CLI {
 			return \round( $bytes / ( 1024 * 1024 ), 1 ) . 'MB';
 		}
 		return \round( $bytes / ( 1024 * 1024 * 1024 ), 1 ) . 'GB';
+	}
+
+	/** Compact elapsed-time rendering: the two largest units, e.g. '3h 12m'. */
+	public static function format_duration( int $seconds ): string {
+		$seconds = \max( 0, $seconds ); // clock skew must not render '-3s'
+		$units   = [ 'd' => 86400, 'h' => 3600, 'm' => 60, 's' => 1 ];
+		$parts = [];
+		foreach ( $units as $suffix => $size ) {
+			if ( $seconds >= $size || ( 's' === $suffix && empty( $parts ) ) ) {
+				$parts[]  = \intdiv( $seconds, $size ) . $suffix;
+				$seconds %= $size;
+				if ( 2 === \count( $parts ) ) {
+					break;
+				}
+			}
+		}
+		return \implode( ' ', $parts );
 	}
 
 }

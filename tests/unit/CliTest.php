@@ -42,6 +42,38 @@ class CliTest extends TestCase {
 		$this->assertFalse( $workers[0]['stale'] );
 	}
 
+	public function test_ls_workers_reports_started_at_from_the_lock_started_file(): void {
+		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		mkdir( $lock, 0755, true );
+		touch( "{$lock}/heartbeat" );
+		$started = \time() - 3600;
+		\file_put_contents( "{$lock}/started", (string) $started );
+		// A restart request mid-life must NOT reset the reported start.
+		\Newspack_Nodes\Lock_Node::request_restart_at( $lock );
+
+		$workers = ( new CLI( $this->tmp ) )->ls_workers();
+
+		$this->assertSame( $started, $workers[0]['started_at'] );
+	}
+
+	public function test_ls_workers_reports_zero_started_at_without_the_file(): void {
+		mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
+		touch( "{$this->tmp}/locks/firehose-workers.p0.lock.d/heartbeat" );
+
+		$workers = ( new CLI( $this->tmp ) )->ls_workers();
+
+		$this->assertSame( 0, $workers[0]['started_at'] );
+	}
+
+	public function test_format_duration_renders_compact_units(): void {
+		$this->assertSame( '44s', CLI::format_duration( 44 ) );
+		$this->assertSame( '5m 3s', CLI::format_duration( 303 ) );
+		$this->assertSame( '3h 12m', CLI::format_duration( 11520 ) );
+		$this->assertSame( '2d 1h', CLI::format_duration( 176400 ) );
+		$this->assertSame( '0s', CLI::format_duration( 0 ) );
+		$this->assertSame( '0s', CLI::format_duration( -5 ), 'clock skew clamps to 0s' );
+	}
+
 	public function test_ls_skips_stale_locks(): void {
 		mkdir( "{$this->tmp}/locks", 0755, true );
 		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );

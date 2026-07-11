@@ -558,7 +558,7 @@ After each job it bumps counters, `gc_collect_cycles()`, and — every `CACHE_FL
 
 ## REPL: wp nodes cli
 
-`wp nodes ls` — list live workers (group/partition, age, freshness) by reading lock directories.
+`wp nodes status` (alias `ls`) — fleet overview: every catalog topology with per-partition State (`live`/`stale`/`down` from the lock heartbeats), heartbeat age, uptime (the lock dir's `started` file), then the consumer-lag table from the TopicProbe snapshot.
 
 `wp nodes cli` — open an interactive REPL. Two modes:
 
@@ -595,7 +595,7 @@ IPC layout (always single-partition):
 
 Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it a single path segment — `firehose-workers/3` would route as "find node `firehose-workers`, pass remaining path `3`," which is wrong.
 
-**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. `CLI::attach_to_worker( $reader_id )` resolves the IPC paths: it parses `{type}.p{N}`, checks the worker is registered by `is_dir( {base}/locks/{reader_id}.lock.d )`, and throws `InvalidArgumentException` with `"no worker '{reader_id}' (run \`wp nodes ls\` to list active workers)"` if the lock dir is absent (staleness is NOT checked — a mid-restart worker still attaches). It returns `{input, output, type, partition}`. `build_repl_graph()` then constructs the IPC pair directly with `new Partition_Node()` (named after the worker id, e.g. `firehose-workers.p0`, configured via `arguments( "{$ipc['input']} 0 …" )` and sinking into `_command_interpreter`) and `new Consumer_Node()` (unnamed `reply-in`, configured against `$ipc['output']`) — not via `make_node`.
+**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. `CLI::attach_to_worker( $reader_id )` resolves the IPC paths: it parses `{type}.p{N}`, checks the worker is registered by `is_dir( {base}/locks/{reader_id}.lock.d )`, and throws `InvalidArgumentException` with `"no worker '{reader_id}' (run \`wp nodes status\` to list active workers)"` if the lock dir is absent (staleness is NOT checked — a mid-restart worker still attaches). It returns `{input, output, type, partition}`. `build_repl_graph()` then constructs the IPC pair directly with `new Partition_Node()` (named after the worker id, e.g. `firehose-workers.p0`, configured via `arguments( "{$ipc['input']} 0 …" )` and sinking into `_command_interpreter`) and `new Consumer_Node()` (unnamed `reply-in`, configured against `$ipc['output']`) — not via `make_node`.
 
 **Wire / dispatch specifics**:
 

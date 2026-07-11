@@ -8,7 +8,7 @@ A few things this runtime assumes. It's WordPress-internal — there is no stand
 
 - **PHP 8.2+** — declared in the plugin header (`Requires PHP: 8.2`) and enforced by `composer.json` (`"php": ">=8.2"`).
 - **WordPress, with WP-Cron and the REST API.** The substrate's lifecycle *is* WordPress: config in the options table, the supervisor's safety net on WP-Cron, worker spawn / commands / SSE over the REST API. (The plugin header declares no minimum WordPress version — run a current release.)
-- **WP-CLI** — every command on this page (`wp plugin …`, `wp nodes ls`, `wp nodes cli …`) is WP-CLI.
+- **WP-CLI** — every command on this page (`wp plugin …`, `wp nodes status`, `wp nodes cli …`) is WP-CLI.
 - **memcache — optional to boot, load-bearing in practice.** The runtime comes up without it: `Bootstrap::init_memcached()` degrades to a null handle when no servers are configured rather than failing. But several paths then fail closed — HMAC command-auth refuses wire-arrived commands (it can't enforce single-use nonces), SSE slots fail closed, and live position/stats never publish, so the dashboards go dark. Workers still spawn and drain; you just lose the remote-command and live-stats surfaces. For the full experience, point `memcache_servers` at a running memcached.
 
 ## The whole idea, one screen
@@ -53,8 +53,8 @@ mkdir -p /tmp/example-ai-newsletter
 #    the Topology Manager (Nodes → Hub → Topologies) or from the CLI:
 wp nodes activate example-ai-newsletter
 #    Now the supervisor has spawned it:
-wp nodes ls
-#   [live]  example-ai-newsletter.p0   heartbeat 3s ago
+wp nodes status
+#   example-ai-newsletter  0  live  3s ago  2m 10s
 ```
 
 Open the **topology console** (the Nodes admin page): you'll see the `example-ai-newsletter` graph — `releases` and `community` both feeding `summarizer`, then `scorer` appending to the durable `scored:partition`, a `scored:consumer` tailing that log into `digest`, then a `digest:tee` that fans to the built-in `digest:log` — with live message counts on every edge.
@@ -88,7 +88,7 @@ The runtime tries to make its errors tell you the fix. A few you'll likely meet:
 
 - **`unknown class: Summarizer`** — from a `make_node` line (a topology, or `make_node` at the REPL). The type didn't resolve to a `{prefix}Summarizer_Node` class under any registered namespace. Either the name is wrong, or the class file hasn't reached the autoloader yet — see the next one.
 - **A Node class you just added isn't in the topology-editor palette** (and `make_node` can't resolve it). The palette scans the *composer classmap* for concrete `*_Node` classes — `Classes_CI_Node::cmd_list()` walks `ClassLoader::getClassMap()` — so a brand-new class file stays invisible until you regenerate the map: `composer dump-autoload -o`.
-- **``no worker 'exmaple-ai-newsletter.p0' (run `wp nodes ls` to list active workers)``** — from `wp nodes cli <typo>`. The reader id doesn't match a live worker. Do what it says and run `wp nodes ls`. A common cause isn't a typo at all: the topology's active set is empty (nothing spawns by surprise), so `wp nodes activate <topology>` first.
+- **``no worker 'exmaple-ai-newsletter.p0' (run `wp nodes status` to list active workers)``** — from `wp nodes cli <typo>`. The reader id doesn't match a live worker. Do what it says and run `wp nodes status`. A common cause isn't a typo at all: the topology's active set is empty (nothing spawns by surprise), so `wp nodes activate <topology>` first.
 - **`Command_Auth: no memcache handle; refusing command (single-use unverifiable)`** in the log — a wire command reached a worker with no memcache handle, so it can't enforce single-use nonces and fails closed. Point `memcache_servers` at a running memcached (see *Before you start*).
 
 ## Next: build one yourself
