@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-07-11
+
 ### Fixed
 
 - **`Job_Worker_Node` no longer warns about an unregistered `remote_job` handler.** A `remote_job` type (e.g. `pyrobase-cron`) that a node has no handler for is expected off the hub — `remote_job` handlers are hub-only — so it's now silently skipped. A missing LOCAL `job` handler is still a real misconfiguration and still warns.
