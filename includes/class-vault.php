@@ -376,8 +376,7 @@ class Vault {
 		$user_id  = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 		$ts       = \gmdate( 'c' );
 		$fieldstr = empty( $fields ) ? '' : ' fields=' . \implode( ',', $fields );
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		\error_log(
+		Core::stderr(
 			\sprintf(
 				'[NewspackNodes] Vault %s id=%s user=%d ts=%s%s',
 				$action,
