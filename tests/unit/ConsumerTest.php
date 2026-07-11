@@ -1048,6 +1048,55 @@ class ConsumerTest extends TestCase {
 		} );
 	}
 
+	/**
+	 * Like stop_on_value, but the sink raises the CLEAN variant — the signal that the
+	 * message's downstream work finished before the stop (writes durable + snapshot
+	 * bookkeeping done), so the Consumer may commit past it.
+	 */
+	private function stop_clean_on_value( Consumer_Node $c, string $value ): void {
+		$c->sink( new class( $value ) extends Node {
+			public function __construct( private string $stop_at ) {}
+			public function fill( array $message ): void {
+				if ( $this->stop_at === $message[ Message::VALUE ] ) {
+					throw new \Newspack_Nodes\Worker_Should_Stop_Clean();
+				}
+			}
+		} );
+	}
+
+	public function test_clean_stop_advances_the_cursor_past_the_fully_processed_message(): void {
+		// A Worker_Should_Stop_Clean means the in-flight message's downstream work is
+		// complete. Unlike a plain stop (which leaves the message buffered at the boot
+		// cursor for replay), the Consumer commits PAST it — offset+length from the ID —
+		// so a clean recycle resumes on the NEXT line and never replays/dedups it.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'A' );
+		$this->produce_line( $source, 'B' );
+		$this->produce_line( $source, 'C' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$this->stop_clean_on_value( $c, 'C' ); // C's chain completes, then signals stop.
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop_Clean $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		// C was consumed too — no complete line is left buffered (contrast the plain
+		// stop, which parks C at the buffer head).
+		$buffer = (string) $this->read_private( $c, 'buffer' );
+		$this->assertFalse( \strpos( $buffer, "\n" ), 'a clean stop consumes the in-flight message; no line stays buffered' );
+
+		// The advanced cursor is a clean handoff, not a poison strike.
+		$c->cooperative_stop( 'timeout', false );
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'a clean stop advances the cursor — no strike' );
+		$this->assertSame( '', $entry['reason'] );
+	}
+
 	public function test_cooperative_timeout_strikes_when_stopped_on_the_boot_cursor(): void {
 		// A timeout at the message the worker BOOTED on (cursor never advanced, message
 		// still buffered) got a fair full-lifetime shot — it counts as a strike: the

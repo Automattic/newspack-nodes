@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-07-11
+
+### Added
+
+- **`Deferred_Clean_Stop` trait** — the write-side of the clean cooperative-stop protocol (`guarded()` / `clear_pending_stop()` / `raise_pending_stop()`), the symmetric counterpart to `Buffered_Pump`'s read-side advance-on-clean. A snapshot node defers a `Worker_Should_Stop` around its downstream forwards, finishes the message, then re-raises `Worker_Should_Stop_Clean`. Consumed by application snapshot nodes in sibling plugins.
+
+### Fixed
+
+- **A clean (max_runtime) worker recycle no longer replays + dedups the last-consumed message.** A downstream Partition beat the worker heartbeat (`pump()`) *before* its write, so a cooperative stop landed with the in-flight message un-written and the Consumer's cursor parked at its start — on respawn the message replayed while a snapshot node's restored state was already one ahead, logging `duplicate message: expected #N, got #N-1` (and, for a request-completing line, silently dropping the assembled doc). Now the Partition pumps *after* the write (flushing the batched record to disk first, since `remove_node`/`close_handle` don't flush), and a new `Worker_Should_Stop_Clean` — raised by a snapshot node once it has finished the message's bookkeeping — tells `Buffered_Pump` to commit *past* the message (the ID's `offset+length`, the same advance a normal forward makes). A plain `Worker_Should_Stop` (a job interrupted mid-run) still leaves the cursor put, preserving at-least-once replay ([ADR-8](docs/architecture-decisions.md#adr-8-worker-zombie-pattern)/[ADR-14](docs/architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)). The exception subtype is the only signal — no per-consumer flag. Two consequences of pumping after the write: (1) `Partition::fill()` flushes the batch inside a guard on the stop so a flush failure can't mask the `Worker_Should_Stop`; (2) a Consumer wired directly to a Partition with no snapshot node to upgrade the stop (e.g. `Job_Router` → jobs partition) now re-delivers the just-written record once on a mid-write stop — a duplicate within the existing at-least-once contract, benign for append logs and idempotent jobs. The shutdown checkpoint itself is unaffected: it runs after `drain()` restores `continue_predicate` to null, so `pump()` is inert and the offsetlog + snapshot save atomically.
+
 ## [0.36.1] - 2026-07-11
 
 ### Fixed
