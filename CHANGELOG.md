@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-07-11
+
 ### Fixed
 
 - **`Remote_Source` hub aggregation no longer lags 10-20s behind spokes.** The SSE backpressure valve disarmed after EVERY buffered message and only re-armed once the buffer was fully dry — a stop-start that throttled the spoke to ~one message per 100ms tick, so the spoke's own firehose consumer couldn't keep up. The valve is now edge-triggered on the buffer's byte size: it stays OPEN through normal flow and only disarms once the buffer crosses a 512 KB high-water mark, re-arming when the tick's drain brings it back under 256 KB. Continuous streaming; memory bounded to ~512 KB regardless of message size.
