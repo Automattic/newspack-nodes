@@ -185,7 +185,13 @@ trait Buffered_Pump {
 					break;
 				}
 				$line = \substr( $this->buffer, $pos, $nl - $pos );
-				$this->drain_line( $line, $this->cursor_offset + $pos );
+				try {
+					$this->drain_line( $line, $this->cursor_offset + $pos );
+				} catch ( Worker_Should_Stop_Clean $e ) {
+					// Fully processed: commit past it; plain stop replays.
+					$pos = $nl + 1;
+					throw $e;
+				}
 				$pos = $nl + 1; // past the consumed \n.
 				++$emitted;
 			}
@@ -272,6 +278,10 @@ trait Buffered_Pump {
 			$this->sink?->fill( $message );
 			// Count only a successful forward, not a re-delivered stop/throw.
 			++$this->counter;
+		} catch ( Worker_Should_Stop_Clean $e ) {
+			// Forwarded before the stop (count it); not poison.
+			++$this->counter;
+			throw $e;
 		} catch ( Worker_Should_Stop $e ) {
 			// Control flow, not poison: record mid-dispatch stop, then escape.
 			$this->stopped_in_fill = true;

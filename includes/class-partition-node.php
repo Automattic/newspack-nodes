@@ -153,9 +153,6 @@ class Partition_Node extends Timer_Node {
 			}
 		}
 
-		// Beat the worker heartbeat from inside a long in-process job (pump()).
-		Event_Framework::instance()->pump();
-
 		// Size cap is on the packed bytes (not VALUE) — what hits PIPE_BUF.
 		$record = $this->serialize_record( $message );
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
@@ -198,6 +195,8 @@ class Partition_Node extends Timer_Node {
 				$this->write_index_entry( $message, $offset, $size );
 			}
 			$this->touch_segments_cache();
+			// Durable write done; honor a pending stop (flush no-ops here).
+			$this->maybe_stop();
 			return;
 		}
 
@@ -216,8 +215,32 @@ class Partition_Node extends Timer_Node {
 			'size'    => $size,
 		];
 
+		// Beat the heartbeat after batching; a stop flushes it durable first.
+		$this->maybe_stop();
+
 		// 0-delay one-shot flush at the end of this event-loop iteration.
 		$this->set_timer( 0, true );
+	}
+
+	/**
+	 * Beat the worker heartbeat from inside a long in-process write burst (pump()).
+	 * If the cooperative stop is honored, flush the batched in-flight message to disk
+	 * BEFORE the throw unwinds so the Consumer can commit past it (the clean-stop
+	 * contract) — remove_node/close_handle do NOT flush. The large-write path already
+	 * wrote synchronously, so the flush is a no-op there.
+	 */
+	private function maybe_stop(): void {
+		try {
+			Event_Framework::instance()->pump();
+		} catch ( Worker_Should_Stop $e ) {
+			// Stop takes priority: a flush failure must not replace it.
+			try {
+				$this->flush();
+			} catch ( \Throwable $flush_error ) {
+				$this->print_less_often( 'flush failed during cooperative stop: ' . $flush_error->getMessage() );
+			}
+			throw $e;
+		}
 	}
 
 	/** Timer fire: drain the batch at the end of the current event-loop iteration. */

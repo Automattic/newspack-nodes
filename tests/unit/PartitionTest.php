@@ -2476,6 +2476,119 @@ class PartitionTest extends TestCase {
 		);
 	}
 
+	public function test_fill_flushes_the_batched_message_before_a_cooperative_stop_throws(): void {
+		// A small (batched) message hasn't hit disk when pump() signals the stop, and
+		// remove_node/close_handle don't flush. The clean-stop contract needs it durable
+		// BEFORE the throw unwinds (the Consumer commits past it), so fill() flushes the
+		// batch before pump() throws — otherwise the in-flight message is lost.
+		Event_Framework::reset();
+		$ef = Event_Framework::instance();
+
+		$p = new Partition_Node();
+		$p->name( 'firehose-part' );
+		$p->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$timer = new class extends Timer_Node {
+			/** @var callable */
+			public $on_fire;
+			public function fire_cb(): void {
+				( $this->on_fire )();
+			}
+		};
+		$timer->on_fire = function () use ( $p, $state ) {
+			$state->stop               = true;
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::VALUE ] = 'durable';
+			$p->fill( $message ); // fill → batch → pump → predicate false → throw
+		};
+		$timer->set_timer( 1, true );
+
+		try {
+			$ef->drain(
+				function () use ( $state ): bool {
+					Core::$now = \microtime( true );
+					return ! $state->stop && ++$state->ticks < 1000;
+				},
+				cooperative_stop: true
+			);
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$segment = "{$this->tmp}.p0/0.log";
+		$this->assertFileExists( $segment );
+		$decoded = Message::unpacked( \rtrim( (string) \file_get_contents( $segment ), "\n" ) );
+		$this->assertSame( 'durable', $decoded[ Message::VALUE ], 'the in-flight batched message must be durable before the clean stop' );
+	}
+
+	public function test_fill_does_not_throw_a_stop_when_no_drain_is_active(): void {
+		// The shutdown checkpoint writes the offsetlog (and Flame's stats mirror) via
+		// Partition::fill AFTER drain() unwound and restored continue_predicate to null.
+		// pump() must be inert then, so a checkpoint write never throws a spurious
+		// Worker_Should_Stop mid-save and leaves the offsetlog half-written.
+		Event_Framework::reset(); // fresh instance: continue_predicate is null.
+
+		$p = new Partition_Node();
+		$p->name( 'offsetlog-like' );
+		$p->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'frame';
+		$p->fill( $message ); // must NOT throw with no active drain.
+		$p->flush();
+
+		$this->assertFileExists( "{$this->tmp}.p0/0.log" );
+	}
+
+	public function test_a_flush_failure_during_a_stop_does_not_mask_the_cooperative_stop(): void {
+		// maybe_stop() flushes the batch durable before rethrowing the stop. If flush()
+		// itself throws (rotate/mkdir/short-write), that must NOT replace the
+		// Worker_Should_Stop — else the cooperative stop is lost and a generic error hits
+		// the poison/dead-letter path instead of a clean respawn.
+		Event_Framework::reset();
+		$ef = Event_Framework::instance();
+
+		$p = new class extends Partition_Node {
+			public function flush(): void {
+				throw new \RuntimeException( 'disk full' );
+			}
+			// Base __destruct() flushes; a throwing flush there would crash PHPUnit at GC.
+			public function __destruct() {}
+		};
+		$p->name( 'firehose-part' );
+		$p->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$timer = new class extends Timer_Node {
+			/** @var callable */
+			public $on_fire;
+			public function fire_cb(): void {
+				( $this->on_fire )();
+			}
+		};
+		$timer->on_fire = function () use ( $p, $state ) {
+			$state->stop               = true;
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::VALUE ] = 'x';
+			$p->fill( $message ); // fill → batch → maybe_stop → pump throws → flush throws
+		};
+		$timer->set_timer( 1, true );
+
+		$this->expectException( Worker_Should_Stop::class );
+		$ef->drain(
+			function () use ( $state ): bool {
+				Core::$now = \microtime( true );
+				return ! $state->stop && ++$state->ticks < 1000;
+			},
+			cooperative_stop: true
+		);
+	}
+
 	// ============================================================================
 	// Rotation maintains the segments cache (one scan per rotation).
 	// ============================================================================
