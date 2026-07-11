@@ -52,7 +52,7 @@ class Spawn_Controller {
 			return true;
 		}
 
-		// Capability→nonce→rate-limit: rate-limiting first poisons the table.
+		// Capability->nonce->rate-limit: rate-limiting first poisons the table.
 		if ( ! \function_exists( 'current_user_can' ) || ! \current_user_can( 'manage_options' ) ) {
 			return new \WP_Error(
 				'invalid_token',

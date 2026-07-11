@@ -27,13 +27,13 @@ export function useOverviewStats() {
 	} );
 	const prevRef = useRef( null );
 
-	// The 5s sampler notify re-renders so the revision-keyed chart memo updates.
+	// 5s sampler notify re-renders so the revision-keyed chart memo updates.
 	useEffect(
 		() => IoTelemetry.subscribe( () => force( ( n ) => n + 1 ) ),
 		[]
 	);
 
-	// 20Hz tick: feed each stream's counter delta to its RateSmoother, re-render.
+	// 20Hz tick: feed each counter delta to its RateSmoother, then re-render.
 	useEffect( () => {
 		const tick = () => {
 			const s = IoTelemetry.snapshot();
@@ -41,7 +41,7 @@ export function useOverviewStats() {
 			const prev = prevRef.current;
 			const sm = smoothersRef.current;
 			if ( prev ) {
-				// A counter going backward = telemetry reset; drop the windows to 0 now.
+				// Counter went backward = telemetry reset; drop windows to 0.
 				if ( s.bytesIn < prev.bytesIn || s.msgsIn < prev.msgsIn ) {
 					sm.byteIn.reset();
 					sm.byteOut.reset();

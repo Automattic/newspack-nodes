@@ -121,7 +121,7 @@ class Command_Args {
 			if ( \is_array( $value ) ) {
 				$value = \implode( ',', \array_map( '\strval', $value ) );
 			} elseif ( false === $value ) {
-				// `true` is the bare-flag case handled above; the only bool left is false.
+				// bare-flag `true` handled above; only false remains here.
 				$value = 'false';
 			} else {
 				$value = (string) $value;

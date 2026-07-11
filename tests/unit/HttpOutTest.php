@@ -53,6 +53,29 @@ class HttpOutTest extends TestCase {
 		return $m;
 	}
 
+	public function test_fill_transports_the_message_verbatim(): void {
+		// ADR-2: all 7 fields cross the wire untouched (no TM_COMMAND re-mint).
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+
+		$m                       = Message::new_message();
+		$m[ Message::TYPE ]      = Message::TM_PING;
+		$m[ Message::FROM ]      = '_repl/_output';
+		$m[ Message::TO ]        = 'combined.p0/_output';
+		$m[ Message::ID ]        = 'corr-9';
+		$m[ Message::KEY ]       = 'k1';
+		$m[ Message::TIMESTAMP ] = 1234567890;
+		$m[ Message::VALUE ]     = '1234567890.5';
+		$node->fill( $m );
+		$node->fire();
+
+		$this->assertCount( 1, $captured );
+		$wire = Message::unpacked( rtrim( $captured[0][ \CURLOPT_POSTFIELDS ], "\n" ) );
+		$this->assertSame( $m, $wire, 'all 7 fields cross the wire untouched' );
+	}
+
 	public function test_multi_registered_with_drain_only_while_a_transfer_is_in_flight(): void {
 		// An idle registered multi (no in-flight transfer) makes curl_multi_select
 		// spin. HTTP_Out registers with the drain loop only while a POST is in
@@ -162,18 +185,19 @@ class HttpOutTest extends TestCase {
 
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'performance', 'settings_update', 'newspack_nodes_segment_size=64' );
+		$msg[ Message::FROM ] = 'settings-sync';
 		$node->fill( $msg );
 		$node->fire();
 
 		$this->assertCount( 1, $captured );
 		$opts = $captured[0];
 		$this->assertSame( 'https://austin.example/wp-json/newspack-nodes/v1/command', $opts[ \CURLOPT_URL ] );
-		// Body is JSONL: one packed TM_COMMAND with TO=performance, FROM=_http.
+		// Body is JSONL: one packed Message, fields verbatim from the originator.
 		$line     = rtrim( $opts[ \CURLOPT_POSTFIELDS ], "\n" );
 		$envelope = Message::unpacked( $line );
 		$this->assertSame( Message::TM_COMMAND, $envelope[ Message::TYPE ] );
 		$this->assertSame( 'performance', $envelope[ Message::TO ] );
-		$this->assertSame( '_http', $envelope[ Message::FROM ] );
+		$this->assertSame( 'settings-sync', $envelope[ Message::FROM ] );
 		$this->assertSame( [ 'name' => 'settings_update', 'arguments' => 'newspack_nodes_segment_size=64' ], $envelope[ Message::VALUE ] );
 		$this->assertContains( 'Content-Type: text/plain; charset=UTF-8', $opts[ \CURLOPT_HTTPHEADER ] );
 	}
@@ -276,16 +300,18 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'spoke-austin', $envelope[ Message::FROM ] );
 	}
 
-	public function test_fill_falls_back_to_http_when_caller_from_empty(): void {
+	public function test_fill_preserves_from_verbatim_never_invents_one(): void {
+		// Originators stamp FROM; transport must not invent one.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
-		$m    = $this->command_message( 'workers', 'heartbeat', '3 60 0' ); // FROM left empty
+		$m    = $this->command_message( 'workers', 'heartbeat', '3 60 0' );
+		$m[ Message::FROM ] = 'remote:austin';
 		$node->fill( $m );
 		$node->fire();
 		$envelope = Message::unpacked( rtrim( $captured[0][ \CURLOPT_POSTFIELDS ], "\n" ) );
-		$this->assertSame( '_http', $envelope[ Message::FROM ] );
+		$this->assertSame( 'remote:austin', $envelope[ Message::FROM ] );
 	}
 
 	public function test_on_curl_message_strips_output_prefix_from_reply_to(): void {

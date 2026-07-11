@@ -65,7 +65,7 @@ class Command_Auth {
 		if ( ! self::is_request_command( $type, $ts, $value ) ) {
 			return;
 		}
-		$ts    = (int) $ts; // Second granularity, matching the freshness window.
+		$ts    = (int) $ts; // Second granularity, matching freshness window.
 		$nonce = \bin2hex( \random_bytes( 16 ) );
 		$canon = self::canonical( $type, $ts, $value, $nonce );
 		if ( null === $canon ) {
@@ -147,7 +147,7 @@ class Command_Auth {
 			$interpreter?->drop_message( $message, 'verification failed: wrong type' );
 			return false;
 		}
-		$ts   = (int) $ts; // Second granularity; sign + verify truncate identically.
+		$ts   = (int) $ts; // Second granularity: sign/verify truncate alike.
 		$auth = $value['auth'] ?? null;
 		if ( ! \is_array( $auth )
 				|| ! isset( $auth['nonce'], $auth['sig'] ) ) {
@@ -176,7 +176,7 @@ class Command_Auth {
 			return false;
 		}
 
-		// Strict single-use: atomically claim the nonce; false = replay or no store.
+		// Strict single-use: claim the nonce; false = replay or no store.
 		$claim = self::$claim_nonce ?? static function ( string $nonce, int $ttl ): bool {
 			if ( ! Core::$memd instanceof \Memcached ) {
 				Core::print_less_often( 'Command_Auth: no memcache handle; refusing command (single-use unverifiable)' );

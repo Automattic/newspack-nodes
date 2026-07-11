@@ -81,7 +81,7 @@ export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];
 
-	// No edges → alpha-sorted column-major grid (depth layout would stack col 0).
+	// No edges → alpha-sorted column-major grid (depth would stack col 0).
 	if ( edges.length === 0 && nodes.length > 0 ) {
 		const sorted = [ ...nodes ].sort( ( a, b ) =>
 			a.id.localeCompare( b.id )
@@ -203,7 +203,7 @@ export function autoLayout( parsed ) {
 		}
 	}
 
-	// Isolated-left only when deep+source-heavy; NOT ≥2-components (broke a test).
+	// Isolated-left when deep+source-heavy; NOT ≥2-components (broke test).
 	const sourceCount = ids.filter(
 		( id ) => isSource( id ) && ! isIsolated( id )
 	).length;
@@ -235,7 +235,7 @@ export function autoLayout( parsed ) {
 	}
 	const sinkSide = anchor > maxDepth / 2;
 
-	// Barycenter crossing-reduction in index space (alternating down/up sweeps).
+	// Barycenter crossing-reduction in index space (alternating sweeps).
 	const pos = {};
 	const reindex = () =>
 		columns.forEach( ( a ) => a.forEach( ( id, i ) => ( pos[ id ] = i ) ) );
@@ -334,7 +334,7 @@ export function autoLayout( parsed ) {
 		row = assignRows();
 	}
 
-	// Spread same-column overlaps symmetrically (PAV) so fan-out leaves straddle.
+	// Spread same-column overlaps symmetrically (PAV) so fan-out straddles.
 	columns.forEach( ( arr ) => {
 		const sorted = [ ...arr ].sort(
 			( a, b ) => row[ a ] - row[ b ] || declIdx[ a ] - declIdx[ b ]
@@ -362,7 +362,7 @@ export function autoLayout( parsed ) {
 		}
 	} );
 
-	// Isolated nodes stack below the deepest node of whichever column they joined.
+	// Isolated nodes stack below the deepest node of the column they joined.
 	let maxRow = -Infinity;
 	columns[ isolatedCol ].forEach(
 		( id ) => ( maxRow = Math.max( maxRow, row[ id ] ) )

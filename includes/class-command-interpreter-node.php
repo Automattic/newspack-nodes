@@ -83,14 +83,14 @@ class Command_Interpreter_Node extends Node {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = Core::num_int( $type_raw );
 
-		// TM_PING / TM_EOF with empty TO: bounce back along FROM (drain marker).
+		// TM_PING / TM_EOF with empty TO: bounce along FROM (drain marker).
 		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
 			$message[ Message::TO ] = $message[ Message::FROM ];
 			$this->sink->fill( $message );
 			return;
 		}
 
-		// Only handle empty-TO commands; non-empty TO forwards to downstream peers.
+		// Only handle empty-TO commands; non-empty TO forwards downstream.
 		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) && '' === $message[ Message::TO ] ) {
 			$this->interpret( $message );
 			return;
@@ -118,7 +118,7 @@ class Command_Interpreter_Node extends Node {
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 			$this->drop_message( $message, $result );
 		} else {
-			// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR for the cli.
+			// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR for cli.
 			try {
 				$result = $this->dispatch(
 					$cmd_name,
@@ -129,7 +129,7 @@ class Command_Interpreter_Node extends Node {
 			} catch ( Worker_Should_Stop $e ) {
 				throw $e; // control flow, not a verb error (ADR-14).
 			} catch ( \Throwable $e ) {
-				// Decode: handlers esc_html() throws, but this sink re-escapes raw text.
+				// Decode: handler errors are pre-escaped; sink re-escapes raw.
 				$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
 				$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 			}
@@ -195,11 +195,11 @@ class Command_Interpreter_Node extends Node {
 			return null;
 		}
 		$ref = new \ReflectionClass( $fqcn );
-		// Abstract subclasses (e.g. Service_CI_Node) can't instantiate; return null.
+		// Abstract subclass (e.g. Service_CI_Node) not instantiable; null.
 		if ( $ref->isAbstract() ) {
 			return null;
 		}
-		// Tachikoma sequence; object deps are public props set post-construction.
+		// Tachikoma sequence; object deps public props set post-construction.
 		$node = new $fqcn();
 		$node->name( $name );
 		$scalar_args = \array_filter( $args, '\is_scalar' );
@@ -230,12 +230,12 @@ class Command_Interpreter_Node extends Node {
 	 * @return class-string<Node>|null
 	 */
 	public static function resolve_class( string $type ): ?string {
-		// Cache hits only; a miss stays resolvable after later register_namespace().
+		// Cache hits only; a miss resolves after later register_namespace().
 		if ( isset( self::$resolve_cache[ $type ] ) ) {
 			return self::$resolve_cache[ $type ];
 		}
 		foreach ( self::registered_namespaces() as $prefix ) {
-			// Base Node has no `_Node` suffix; `make_node Node` resolves it directly.
+			// Base Node lacks `_Node`; `make_node Node` resolves directly.
 			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
 			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
 				return self::$resolve_cache[ $type ] = $fqcn;
@@ -280,7 +280,7 @@ class Command_Interpreter_Node extends Node {
 			self::init_C();
 			$this->commands = self::$C ?? [];
 		}
-		// Every interpreter answers `help`; base's richer one is never overridden.
+		// Every interpreter answers `help`; base's richer one never overridden.
 		if ( ! isset( $this->commands['help'] ) ) {
 			$this->commands['help'] = static fn ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ): string => $self->default_help();
 		}
@@ -332,7 +332,7 @@ class Command_Interpreter_Node extends Node {
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
 
-			// Shell-level builtins: intercepted by Shell; listed so `help` is complete.
+			// Shell-level builtins: Shell intercepts; listed for `help`.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
 			'debug_level' => "debug_level [0|1|2]\n    note: sets the local Dumper verbosity level.\n",
 			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
@@ -660,7 +660,7 @@ class Command_Interpreter_Node extends Node {
 					}
 				} else {
 					if ( null === $glob ) {
-						// Default: siblings — nodes whose sink IS this interpreter.
+						// Default: siblings — sink IS this interpreter.
 						if ( $self->name() !== $sink_name ) {
 							continue;
 						}
@@ -685,7 +685,7 @@ class Command_Interpreter_Node extends Node {
 			}
 		}
 
-		// Render: with column flags, include header. Otherwise just plain names.
+		// Render: with column flags, include header. Otherwise plain names.
 		if ( ! $any_extra ) {
 			$names = [];
 			foreach ( $rows as $r ) {
@@ -733,14 +733,14 @@ class Command_Interpreter_Node extends Node {
 		$wanted   = \array_slice( $parts, 1 );
 		$snapshot = $node->dump_node();
 
-		// class heads the dump; pulled out so it's not a body key / filter target.
+		// class heads the dump; pulled out so not a body key / filter target.
 		$class_raw = $snapshot['class'] ?? '';
 		$class     = Core::as_string( $class_raw );
 		unset( $snapshot['class'] );
-		// `class` is always in the header, so requesting it as a key is a no-op.
+		// `class` is in the header, so requesting it as a key is a no-op.
 		$wanted = \array_values( \array_filter( $wanted, static fn ( $k ): bool => 'class' !== $k ) );
 
-		// Alphabetical so output is stable across nodes with different ancestors.
+		// Alphabetical so output stable across nodes with different ancestors.
 		\ksort( $snapshot );
 
 		if ( ! empty( $wanted ) ) {
@@ -752,13 +752,13 @@ class Command_Interpreter_Node extends Node {
 			$snapshot = \array_intersect_key( $snapshot, \array_flip( $wanted ) );
 		}
 
-		// Stringify: rides as a display-only payload (not json_decode'd downstream).
+		// Stringify: display-only payload (not json_decode'd downstream).
 		return $class . ' ' . (string) \wp_json_encode( $snapshot, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
 	}
 
 	private static function cmd_dump_config( string $glob = '' ): string {
 		$glob = \trim( $glob );
-		// Arg is a regex glob on node names; a malformed pattern matches nothing.
+		// Arg is a regex glob on node names; malformed pattern matches nothing.
 		$out = '';
 		foreach ( \array_keys( Core::$nodes_by_name ) as $name ) {
 			if ( \in_array( $name, Node_Names::SESSION_SCAFFOLDING, true ) ) {
@@ -767,10 +767,10 @@ class Command_Interpreter_Node extends Node {
 			if ( '' !== $glob && 1 !== \preg_match( '{' . $glob . '}', $name ) ) {
 				continue; // regex-glob filter — skip names not matching.
 			}
-			// $name is from array_keys( Core::$nodes_by_name ); lookup always present.
+			// $name from Core::$nodes_by_name keys; lookup always present.
 			/** @var \Newspack_Nodes\Node $node Node from the registry. */
 			$node = Core::node( $name );
-			// Omit patron-managed sidecars; the patron's config line recreates them.
+			// Omit patron sidecars; patron's config line recreates them.
 			if ( null !== $node->patron() ) {
 				continue;
 			}
@@ -795,14 +795,14 @@ class Command_Interpreter_Node extends Node {
 			if ( '' !== $only && $name !== $only ) {
 				continue;
 			}
-			// Patron-linked nodes are plumbing; the canvas shouldn't render them.
+			// Patron-linked nodes are plumbing; canvas shouldn't render them.
 			if ( null !== $node->patron() ) {
 				continue;
 			}
-			// SHELL name (GUI catalog key), not class short-name (Echo_Node → 'Echo').
+			// SHELL name (GUI key), not class short-name (Echo_Node -> 'Echo').
 			$class = self::shell_name_for( $node );
 			$sink  = $node->sink();
-			// Per-node port flags from schema; default true so the canvas draws both.
+			// Port flags from schema; default true so canvas draws both.
 			$schema       = $node::node_schema();
 			$out[ $name ] = [
 				'class'         => $class,
@@ -816,10 +816,10 @@ class Command_Interpreter_Node extends Node {
 				'bytes_written' => $node->bytes_written(),
 				'accepts_fill'  => $schema['accepts_fill'] ?? true,
 				'has_target'    => $schema['has_target'] ?? true,
-				// Whether this node has a `:config` sidecar; GUI must not synthesize it.
+				// Has a `:config` sidecar; GUI must not synthesize it.
 				'has_config'    => isset( Core::$nodes_by_name[ "{$name}:config" ] ),
 			];
-			// Emit only when non-empty, matching the JS producer (PHP [] vs JS {}).
+			// Emit when non-empty, matching JS producer (PHP [] vs JS {}).
 			$registrations = $node->registered_listeners();
 			if ( [] !== $registrations ) {
 				$out[ $name ]['registrations'] = $registrations;
@@ -878,7 +878,7 @@ class Command_Interpreter_Node extends Node {
 		$all_names = \array_keys( Core::$nodes_by_name );
 		\sort( $all_names );
 		foreach ( $all_names as $name ) {
-			// $name is from array_keys( Core::$nodes_by_name ); lookup always present.
+			// $name from Core::$nodes_by_name keys; lookup always present.
 			/** @var \Newspack_Nodes\Node $node Node from the registry. */
 			$node      = Core::node( $name );
 			$sink_name = $node->sink() ? $node->sink()->name() : '';
@@ -918,7 +918,7 @@ class Command_Interpreter_Node extends Node {
 			if ( ! $active ) {
 				$next_ms = '-';
 			} elseif ( $node->next_fire <= 0.0 ) {
-				$next_ms = '_router'; // router-hitchhike: rides the router tick, no own next_fire
+				$next_ms = '_router'; // router-hitchhike; no own next_fire
 			} else {
 				$next_ms = (string) (int) \round( ( $node->next_fire - Core::$now ) * 1000 );
 			}
@@ -1051,9 +1051,9 @@ class Command_Interpreter_Node extends Node {
 	 * @param array<array-key, mixed> $envelope The command Message.
 	 */
 	private static function cmd_help( string $args, array $envelope = [] ): string {
-		// Completion mode: bare sorted verb names, newline-separated, no help text.
+		// Completion: sorted verb names, newline-separated, no help text.
 		if ( 'completion' === ( $envelope[ Message::KEY ] ?? '' ) ) {
-			// From the dispatch table, not help-topic, so aliases are offered too.
+			// From dispatch table, not help-topic, so aliases offered too.
 			$names = \array_keys( self::$C ?? [] );
 			\sort( $names );
 			return \implode( "\n", $names );

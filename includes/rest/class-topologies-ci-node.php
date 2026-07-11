@@ -150,7 +150,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( 'body too large: topology arguments exceed 1 MiB' )
 			);
 		}
-		// `save <name> <tsl…>`: name is first token, rest-of-line is the body.
+		// `save <name> <tsl>`: name is first token, rest-of-line is the body.
 		[ $name_raw, $tsl ] = self::split_first_token( $args );
 		$name = self::require_valid_name( $name_raw );
 		if ( '' === $tsl ) {

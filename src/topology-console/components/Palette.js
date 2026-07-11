@@ -187,7 +187,7 @@ export default function Palette( {
 				classes registered
 			</div>
 			{ ghost && (
-				// Ghost = the dropped node card; pointer-events:none for hit-testing.
+				// Ghost = dropped node card; pointer-events:none, no hits.
 				<svg
 					className="topology-palette__drag-ghost"
 					style={ { left: ghost.x, top: ghost.y } }

@@ -8,7 +8,7 @@
 const FRONTMATTER_RE = /^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/;
 
 function tokenize( line ) {
-	// Single-quote-aware tokenization (the serializer only emits single quotes).
+	// Single-quote-aware tokenization (serializer only emits single quotes).
 	const out = [];
 	let buf = '';
 	let inQuote = false;

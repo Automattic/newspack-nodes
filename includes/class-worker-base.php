@@ -121,7 +121,7 @@ class Worker_Base {
 			$ef->install_signal_handlers();
 			$ef->drain( fn() => $this->should_continue(), cooperative_stop: true );
 		} catch ( Worker_Should_Stop $e ) {
-			// pump() stopped mid-job; normal exit — finally releases/respawns.
+			// pump() stopped mid-job; normal exit, finally releases/respawns.
 			Core::stderr( "{$this->worker_type}.p{$this->partition}: stopped mid-job (pump)" );
 		} finally {
 			if ( ! $this->shutdown_handled ) {
@@ -331,7 +331,7 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		// Graph assembly via make_node (name → arguments → sink=interpreter).
+		// Graph via make_node (name -> arguments -> sink=interpreter).
 		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, "{$ipc_dir}/output", self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS );
 		// allow_large_writes keys Lock/heartbeat off name+sink from make_node.
 		if ( $repl instanceof Partition_Node ) {

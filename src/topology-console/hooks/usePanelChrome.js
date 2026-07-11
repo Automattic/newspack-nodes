@@ -58,7 +58,7 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 		);
 	}, [ paletteKey, defaultCollapsed, setPaletteCollapsed ] );
 
-	// Inspector collapse: global pref shared console+overlay; default collapsed.
+	// Inspector collapse: global pref (console+overlay); default collapsed.
 	const [
 		inspectorCollapsed,
 		setInspectorCollapsed,

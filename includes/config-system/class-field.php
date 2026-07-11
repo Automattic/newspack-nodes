@@ -20,7 +20,6 @@
 
 namespace Newspack_Nodes\Config_System;
 
-use Newspack_Nodes\Core;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -86,7 +85,8 @@ class Field {
 		if ( \is_callable( $label ) ) {
 			$label = $label();
 		}
-		return Core::str( $label );
+		// Inline (not Core::str): Config_System stays Core-free for consumers.
+		return \is_string( $label ) ? $label : '';
 	}
 
 	/** A rendered option (register_setting, option_names, reset set, restart class). */

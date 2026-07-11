@@ -32,7 +32,7 @@ export function useAggregateRateSeries( nodes, resetKey ) {
 	const keyRef = useRef( resetKey );
 
 	useEffect( () => {
-		// Scope changed: drop prior baseline+history (else totals-as-rates spike).
+		// Scope changed: drop baseline+history (else totals-as-rates spike).
 		if ( keyRef.current !== resetKey ) {
 			keyRef.current = resetKey;
 			prevRef.current = null;
@@ -41,7 +41,7 @@ export function useAggregateRateSeries( nodes, resetKey ) {
 		const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 			processStats( nodes || [] );
 		const prev = prevRef.current;
-		// Wait for first reading WITH data to seed (else totals-as-rates spike).
+		// Wait for first reading WITH data to seed (else totals-as-rates).
 		const hasData =
 			messagesIn > 0 ||
 			messagesOut > 0 ||
@@ -62,7 +62,7 @@ export function useAggregateRateSeries( nodes, resetKey ) {
 			return;
 		}
 		const dt = Math.max( 1, now - prev.ts );
-		// Clamp a backward delta (worker respawn reset the cumulative counter) to 0.
+		// Clamp backward delta (worker respawn reset cumulative counter) to 0.
 		const rate = ( cur, was ) => Math.max( 0, ( cur - was ) / dt );
 		const inRate = rate( messagesIn, prev.messagesIn );
 		const outRate = rate( messagesOut, prev.messagesOut );

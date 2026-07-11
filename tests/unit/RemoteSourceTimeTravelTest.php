@@ -235,7 +235,8 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'precondition: paused' );
 
 		$node->play();
-		$this->assertSame( 'router', $this->read_private( $node, 'mode' ), 'PLAY re-arms the recurring tick' );
+		// 100ms tick = own framework slot (<1000ms never router-hitchhikes).
+		$this->assertSame( 'event_framework', $this->read_private( $node, 'mode' ), 'PLAY re-arms the recurring tick' );
 		$this->assertSame( 'ACTIVE', $node->dump_metadata()['polling'], 'PLAY flags the polling signal ACTIVE' );
 	}
 

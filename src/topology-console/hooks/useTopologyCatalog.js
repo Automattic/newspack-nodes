@@ -47,7 +47,7 @@ export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
 	const reload = useCallback( () => setReloadKey( ( k ) => k + 1 ), [] );
 	const isVisible = usePageVisibility();
 
-	// Signature of last applied catalog; identical poll skips setState (no churn).
+	// Signature of last applied catalog; identical poll skips setState.
 	const lastSig = useRef( null );
 	if ( null === lastSig.current ) {
 		lastSig.current = JSON.stringify( data );
@@ -70,7 +70,7 @@ export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
 						return;
 					}
 					const body = unwrapCommandResponse( message );
-					// Malformed reply keeps last-good; only a well-formed list replaces it.
+					// Malformed keeps last-good; only well-formed replaces it.
 					if ( ! body || ! Array.isArray( body.topologies ) ) {
 						return;
 					}
@@ -85,7 +85,7 @@ export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
 					}
 				} )
 				.catch( () => {
-					// Keep last-good; a transient list failure must not blank the menu.
+					// Keep last-good; a transient failure won't blank menu.
 				} );
 		};
 		fetchOnce();

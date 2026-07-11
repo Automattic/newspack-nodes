@@ -190,11 +190,11 @@ class Job_Intake {
 			return $this->partitions[ $partition ];
 		}
 		$log_base = $this->base_dir . '/logs/' . self::LOG_BASENAME;
-		// pid+object-id token: a 2nd JobIntake won't clash with stale Core regs.
+		// pid+object-id token: 2nd JobIntake won't clash with stale Core regs.
 		$instance_token = \getmypid() . '-' . \spl_object_id( $this );
 		$p              = new Partition_Node();
 		$p->name( self::LOG_BASENAME . ".{$instance_token}.p{$partition}" );
-		// Sibling plumbing: patron-link so dump_metadata hides it from the canvas.
+		// Sibling plumbing: patron-link so dump_metadata hides from canvas.
 		$p->patron( $p );
 		// Rule 4: sink into the interpreter only when one is in scope.
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );

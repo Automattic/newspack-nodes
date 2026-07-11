@@ -255,7 +255,7 @@ trait Buffered_Pump {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			// Won't unpack → never will: quarantine, no retry; cursor advances.
+			// Won't unpack, never will: quarantine; cursor advances.
 			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'unparseable', $e );
 			return;
 		}

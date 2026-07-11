@@ -29,7 +29,7 @@ export default function DebugPanel( {
 	onClose,
 	buildRepl = true,
 } ) {
-	// Panel ref created before the frame hook so it mutates style during a drag.
+	// Panel ref created before the frame hook so it mutates style on drag.
 	const panelRef = useRef( null );
 
 	const {
@@ -45,7 +45,7 @@ export default function DebugPanel( {
 	// The active tab publishes the header controls it owns; merged into Header.
 	const [ headerExtras, setHeaderExtras ] = useState( null );
 
-	// Eat wheel scrolls inside the panel (non-passive listener, preventDefault).
+	// Eat wheel scrolls inside the panel (non-passive, preventDefault).
 	useEffect( () => {
 		const el = panelRef.current;
 		if ( ! el ) {
@@ -91,7 +91,7 @@ export default function DebugPanel( {
 	}, [] );
 
 	return (
-		// display:contents token host so panel chrome resolves the live skin tokens.
+		// display:contents host so panel chrome resolves the live skin tokens.
 		<div
 			className="topology-app newspack-nodes-theme"
 			style={ { display: 'contents' } }
@@ -103,7 +103,7 @@ export default function DebugPanel( {
 				}` }
 				data-testid="debug-panel"
 				style={ frameStyle }
-				// Pin the page while pointer is inside (Safari ignores canvas wheel PD).
+				// Pin page while pointer inside (Safari ignores wheel PD).
 				onPointerEnter={ lockPageScroll }
 				onPointerLeave={ unlockPageScroll }
 			>

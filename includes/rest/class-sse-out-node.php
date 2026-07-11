@@ -416,7 +416,7 @@ class SSE_Out_Node extends Node {
 		$message[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
 		$message[ Message::FROM ]      = '_stream';
 		$message[ Message::KEY ]       = 'connected';
-		// TM_INFO values are STRINGS — flat KEY VALUE, whitespace-free tokens.
+		// TM_INFO values are STRINGS: flat KEY VALUE, space-free tokens.
 		$message[ Message::VALUE ]     = \implode( ' ', [
 			'PID',           (string) \getmypid(),
 			'SLOT',          (string) $slot,

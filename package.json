@@ -51,11 +51,15 @@
 		"stylelint": "^16.26.1"
 	},
 	"lint-staged": {
-		"*.{js,jsx}": "eslint",
+		"*.{js,jsx}": [
+			"eslint",
+			"node scripts/lint-comment-length.mjs"
+		],
 		"*.scss": "stylelint --customSyntax postcss-scss",
 		"*.php": [
 			"phpcs",
-			"sh -c 'npm run lint:phpstan --silent'"
+			"sh -c 'npm run lint:phpstan --silent'",
+			"php scripts/lint-comment-length.php"
 		]
 	},
 	"browserslist": [

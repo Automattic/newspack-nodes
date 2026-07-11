@@ -121,7 +121,7 @@ class Job_Worker_Node extends Node {
 			$this->print_less_often( 'oversized entry, skipping' );
 			return;
 		}
-		// Each entry carries kind k (job or remote_job), handler, parameters, ts.
+		// Entry carries kind k (job or remote_job), handler, parameters, ts.
 		$kind = $entry['k'] ?? '';
 		if ( 'job' !== $kind && 'remote_job' !== $kind ) {
 			return;

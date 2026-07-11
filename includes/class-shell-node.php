@@ -208,7 +208,7 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		// A var assignment splits on the first equals; colon-names are reserved.
+		// Var assignment splits on the first equals; colon-names are reserved.
 		if ( 'var' === $verb ) {
 			$assignment = \implode( ' ', $args );
 			$eq         = \strpos( $assignment, '=' );
@@ -300,7 +300,7 @@ class Shell_Node extends Node {
 				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			default:
-				// TO=cwd: empty → local interpreter; set → routed via _router.
+				// TO=cwd: empty - local interpreter; set - routed via _router.
 				$message[ Message::TYPE ]  = Message::TM_COMMAND;
 				$message[ Message::TO ]    = $this->prefix( '' );
 				$message[ Message::VALUE ] = [

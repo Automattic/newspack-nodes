@@ -56,7 +56,7 @@ export function useGraphHandlers( {
 	sseGuard = () => true,
 } ) {
 	return useMemo( () => {
-		// Optimistically patch local metadata so the canvas updates before the poll.
+		// Optimistically patch local metadata; canvas updates before the poll.
 		const patch = ( name, p ) =>
 			name && Core.node( names.METADATA )?.optimisticPatch( name, p );
 		return {
@@ -66,7 +66,7 @@ export function useGraphHandlers( {
 					'connect_node',
 					`${ from } ${ to }`
 				);
-				// connect appends server-side; append (replacing drops Tee edges).
+				// connect appends; use append — replace drops Tee edges.
 				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
 					?.target;
 				let next = to;
@@ -83,7 +83,7 @@ export function useGraphHandlers( {
 					'disconnect_node',
 					`${ from } ${ to }`
 				);
-				// Mirror disconnect: drop `to` from a Tee array, else clear the string.
+				// Mirror disconnect: drop `to` from Tee array, else clear it.
 				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
 					?.target;
 				if ( Array.isArray( current ) ) {
@@ -99,7 +99,7 @@ export function useGraphHandlers( {
 				patch( id, null );
 			},
 			onDropNode: ( { shellName, x, y } ) => {
-				// Live drops go through NewNodeModal so the user can rename/add args.
+				// Live drops go through NewNodeModal to rename/add args.
 				const defaultName = generateNodeName( graph, shellName );
 				const cls = ( catalogClasses || [] ).find(
 					( c ) => c.shell_name === shellName
@@ -108,7 +108,7 @@ export function useGraphHandlers( {
 				onDropStage( { shellName, defaultName, argSchema, x, y } );
 			},
 			onInspectorAction: ( action, nodeId, payload, flags ) => {
-				// Compose reply flags ride as an optional 4th arg (omitted elsewhere).
+				// Compose reply flags ride as optional 4th arg (omitted else).
 				const dispatchVerb = ( line, verb, args ) =>
 					flags
 						? dispatch( line, verb, args, flags )
@@ -122,14 +122,14 @@ export function useGraphHandlers( {
 						nodeId
 					);
 				} else if ( 'command' === action ) {
-					// Raw server command: split payload into verb (first token) + args.
+					// Command: split payload into verb (first token) + args.
 					const line = String( payload ).trim();
 					const sp = line.indexOf( ' ' );
 					const verb = -1 === sp ? line : line.slice( 0, sp );
 					const args = -1 === sp ? '' : line.slice( sp + 1 ).trim();
 					dispatch( line, verb, args );
 				} else if ( 'tail' === action ) {
-					// Bare connect appends the reply FROM; append, don't replace.
+					// Bare connect appends reply FROM; append, don't replace.
 					dispatch(
 						`connect_node ${ nodeId }`,
 						'connect_node',
@@ -148,7 +148,7 @@ export function useGraphHandlers( {
 						patch( nodeId, { target: next } );
 					}
 				} else if ( 'disconnect' === action ) {
-					// Bare disconnect drops only this reply path; keep Tee's other edges.
+					// Bare disconnect drops this reply path; keep Tee's edges.
 					dispatch(
 						`disconnect_node ${ nodeId }`,
 						'disconnect_node',
@@ -187,10 +187,10 @@ export function useGraphHandlers( {
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( 'send_struct' === action ) {
-					// Quote the JSON so the quote-aware tokenizer delivers it intact [#32].
+					// Quote JSON so the tokenizer delivers it intact [#32].
 					const json = quoteToken( payload );
 					if ( null === json ) {
-						// Value has ', ` and " — unrepresentable; say so, don't dispatch.
+						// Value has all 3 quote types — unrepresentable, skip.
 						append( {
 							kind: 'error',
 							text: __(
@@ -208,7 +208,7 @@ export function useGraphHandlers( {
 				} else if ( 'send_eof' === action ) {
 					dispatchVerb( `send_eof ${ nodeId }`, 'send_eof', nodeId );
 				} else if ( 'register' === action || 'unregister' === action ) {
-					// payload `<target> <event>`; verb prefixes `register <source>`.
+					// payload `<target> <event>`; verb adds register <source>.
 					dispatch(
 						`${ action } ${ nodeId } ${ payload }`,
 						action,
@@ -221,14 +221,14 @@ export function useGraphHandlers( {
 						'debug_state',
 						`${ nodeId } ${ level }`
 					);
-					// Reflect the new trace level at once (don't wait out the poll).
+					// Reflect the new trace level now (don't wait for poll).
 					patch( nodeId, { debug_state: level } );
 				} else if ( 'invoke' === action && payload ) {
 					if ( ! shell ) {
 						return;
 					}
 					const { verb, kind, positional } = payload;
-					// Route by catalog is_interpreter flag, not a `:config` check (remote).
+					// Route by catalog is_interpreter, not `:config` (remote).
 					const node = ( graph?.nodes || [] ).find(
 						( n ) => n.id === nodeId
 					);
@@ -247,7 +247,7 @@ export function useGraphHandlers( {
 					m[ TO ] = prefix( commandTarget );
 					m[ FROM ] = replyFrom( names.OUTPUT );
 					m[ LOCAL ] = true;
-					// Only attached-worker replies ride the stream; local has no pid.
+					// Only attached-worker replies ride stream; local, no pid.
 					if ( ! sseGuard( m[ TO ] ) ) {
 						append( {
 							kind: 'error',

@@ -57,7 +57,7 @@ export function measureTabBarHeight( rootEl ) {
  * @return {number} Transcript max-height in px.
  */
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
-	// -4 reserves the resize handle so full height doesn't clip it (chrome slop).
+	// -4 reserves the resize handle so full height doesn't clip it.
 	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight - 4 );
 }
 
@@ -116,7 +116,7 @@ export default function InspectorTab( {
 		ro.observe( bar );
 		return () => ro.disconnect();
 	}, [ measureTabBar ] );
-	// Palette + skin shared with the topology console; overlay uses the live key.
+	// Palette + skin shared with the topology console; overlay uses live key.
 	const {
 		paletteCollapsed,
 		inspectorCollapsed,
@@ -125,13 +125,13 @@ export default function InspectorTab( {
 		replChromeProps,
 		setReplExpanded,
 	} = useGraphSurface( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
-	// One Shell per panel mount; cwd empty (local-only), sink bound before render.
+	// One Shell per mount; cwd empty (local-only), sink bound before render.
 	const shell = useMemo( () => {
 		const s = new ShellNode();
 		s.path = '';
 		return s;
 	}, [] );
-	// Host graph rebuild handle from mountExospine; read each render once mounted.
+	// Host rebuild handle from mountExospine; read each render once mounted.
 	const reinit = Core.reinit;
 	const {
 		transcript,
@@ -145,7 +145,7 @@ export default function InspectorTab( {
 	// useDebugGraph runs first (via ref); useCanvasLayout then autolays out.
 	const cwdScope = cwd || 'local';
 	const onPositionChangeRef = useRef( null );
-	// Resolve catalog before useDebugGraph so the handler looks up is_interpreter.
+	// Resolve catalog before useDebugGraph so handler looks up is_interpreter.
 	const jsCatalog = useJsCatalog();
 	const phpCatalog = useClassCatalog( { enabled: !! cwd } );
 	const catalog = cwd ? phpCatalog : jsCatalog;
@@ -186,7 +186,7 @@ export default function InspectorTab( {
 		[ graph.nodes ]
 	);
 
-	// Reachable `cd` targets: top-level substrate node names, minus internal-only.
+	// Reachable `cd` targets: top-level substrate names, minus internal-only.
 	const NON_NAVIGABLE = useMemo(
 		() =>
 			new Set( [
@@ -211,7 +211,7 @@ export default function InspectorTab( {
 		}
 	}
 
-	// Publish cwd PATH selector to shared Header; ref-wrap setPath (churn loops).
+	// Publish cwd PATH selector to shared Header; ref-wrap setPath (churn).
 	const setPathRef = useRef( setPath );
 	setPathRef.current = setPath;
 	const stableOnPathChange = useCallback(
@@ -245,7 +245,7 @@ export default function InspectorTab( {
 		[ catalog.classes ]
 	);
 
-	// Shared graph-dirty + Reset Graph logic (identical to the topology console).
+	// Shared graph-dirty + Reset Graph logic (same as the topology console).
 	const { resetGraph, canResetGraph } = useGraphReset( {
 		shell,
 		nodes: graph.nodes,
@@ -260,7 +260,7 @@ export default function InspectorTab( {
 	// Cap the transcript at panel height minus header, prompt bar, and tab bar.
 	const replMaxHeightPx = replMaxHeight( frame.h, tabBarHeight );
 
-	// Hub Console tab built no infra (active=false) — point at Console + Overview.
+	// Hub Console tab: no infra (active=false) — point at Console + Overview.
 	if ( ! buildRepl ) {
 		return (
 			<div
@@ -308,7 +308,7 @@ export default function InspectorTab( {
 					canvasProps={ {
 						...canvasChromeProps,
 						resetKey: storageKey,
-						// No cwd = local graph; header reads IoTelemetry else dump_metadata.
+						// No cwd → local; header uses IoTelemetry vs metadata.
 						local: ! cwd,
 						interactive: true,
 						editMode: false,
@@ -334,9 +334,9 @@ export default function InspectorTab( {
 							payload,
 							flags
 						) => {
-							// Pop the transcript footer when an inspector action fires.
+							// Pop transcript footer on an inspector action.
 							setReplExpanded( true );
-							// Raw REPL line via Shell so shell-special (ping) + local builtins work.
+							// Raw REPL line via Shell (special + builtins).
 							if ( 'command' === action ) {
 								sendLine( payload );
 								return;
@@ -348,7 +348,7 @@ export default function InspectorTab( {
 								flags
 							);
 						},
-						// Selecting a node auto-opens the inspector (rail → panel).
+						// Selecting a node auto-opens inspector (rail→panel).
 						onSelectionChange: openInspectorOnSelect,
 					} }
 					replProps={ {
@@ -366,7 +366,7 @@ export default function InspectorTab( {
 				/>
 			</div>
 			{ pendingDrop && (
-				// display:contents themed host so the sibling modal inherits --paper/--ink.
+				// display:contents host so sibling inherits --paper/--ink.
 				<div
 					className="topology-app newspack-nodes-theme"
 					style={ { display: 'contents' } }

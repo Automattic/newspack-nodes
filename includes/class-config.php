@@ -131,7 +131,7 @@ class Config {
 			return self::$config;
 		}
 
-		// Presence-based overlay: any stored option wins; only absent falls back.
+		// Presence overlay: any stored option wins; only absent falls back.
 		$schema = Settings_Schema::get();
 		$config = Config_System\Options_Overlay::apply(
 			self::load_config_defaults(),
@@ -158,7 +158,7 @@ class Config {
 			\dirname( __DIR__ ) . '/newspack-nodes-config.php',
 			'Newspack_Nodes\\Config'
 		);
-		// Local override (CLI/testing) via env var to an allowed-dir config file.
+		// Local override (CLI/testing) via env var to allowed-dir config file.
 		$local_config_file = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		if ( $local_config_file ) {
 			$validated_path = self::validate_config_path( $local_config_file );
@@ -213,7 +213,7 @@ class Config {
 		Core::register_config_namespace(
 			'config',
 			static function ( string $key ) {
-				// Directories derived from the base dir; every other key reads config.
+				// Dirs derived from base dir; every other key reads config.
 				$derived = [
 					'logs_dir'       => 'logs',
 					'offsets_dir'    => 'offsets',

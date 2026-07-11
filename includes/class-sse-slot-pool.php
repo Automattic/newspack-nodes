@@ -42,7 +42,7 @@ class SSE_Slot_Pool {
 			self::release( self::hostname(), self::user_id(), self::ip_hash(), $slot );
 		};
 		SSE_Out_Node::$check_slot = static function ( int $slot ): bool {
-			// Check-only — NEVER refresh TTL here (only client heartbeat does).
+			// Check-only, NEVER refresh TTL here (only client heartbeat does).
 			return self::check( self::hostname(), self::user_id(), self::ip_hash(), $slot );
 		};
 	}

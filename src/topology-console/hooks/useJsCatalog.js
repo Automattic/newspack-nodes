@@ -34,11 +34,11 @@ export function useJsCatalog() {
 						description: schema.description ?? '',
 						accepts_fill: schema.accepts_fill ?? true,
 						has_target: schema.has_target ?? true,
-						// Ctor arg schema drives the ADD modal fields (mirrors PHP Classes_CI).
+						// Ctor args drive ADD modal (mirrors PHP Classes_CI).
 						arguments: schema.arguments ?? [],
 					};
 				} )
-				// Skip Hidden/empty-category classes (mirrors PHP Classes_CI palette).
+				// Skip Hidden/empty-category classes (mirrors PHP Classes_CI).
 				.filter( ( c ) => 'Hidden' !== c.category && '' !== c.category )
 				// Match PHP usort: order by [category, shell_name].
 				.sort(

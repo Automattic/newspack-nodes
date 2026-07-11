@@ -13,7 +13,6 @@
 
 namespace Newspack_Nodes\Config_System;
 
-use Newspack_Nodes\Core;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -128,7 +127,8 @@ class Schema {
 				if ( \is_callable( $raw_title ) ) {
 					$raw_title = $raw_title();
 				}
-				$title    = Core::str( $raw_title );
+				// Inline, not Core::str: Config_System stays Core-free.
+				$title    = \is_string( $raw_title ) ? $raw_title : '';
 				$callback = \is_callable( $section['callback'] ?? null ) ? $section['callback'] : static function (): void {};
 				\add_settings_section( $section_id, $title, $callback, $page );
 				$seen[ $section_id ] = true;

@@ -68,7 +68,7 @@ export class CompletionNode extends Node {
 	fill( message ) {
 		this.counter += 1;
 		const value = message[ VALUE ];
-		// Reply VALUE is `{ name, payload }`; the candidate list is the payload.
+		// Reply VALUE is `{ name, payload }`; candidate list is the payload.
 		let text =
 			value && typeof value === 'object' ? value.payload ?? '' : value;
 		if ( typeof text !== 'string' ) {

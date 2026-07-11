@@ -9,7 +9,7 @@ const EMPTY = {
 };
 
 function load( key ) {
-	// A null key (e.g. an untitled draft) is in-memory only — never touch storage.
+	// Null key (e.g. untitled draft) is in-memory only — never touch storage.
 	if ( ! key ) {
 		return { ...EMPTY, key };
 	}
@@ -24,7 +24,7 @@ function load( key ) {
 				p && typeof p.positions === 'object' && p.positions
 					? p.positions
 					: null,
-			// Start null; the freeze re-derives the live viewBox from the delta.
+			// Start null; the freeze re-derives the live viewBox from delta.
 			viewport: null,
 			viewportDelta:
 				p && p.viewportDelta !== undefined ? p.viewportDelta : null,
@@ -102,7 +102,7 @@ export function useCanvasLayout( {
 		setState( load( storageKey ) );
 	}, [ storageKey ] );
 
-	// One-shot init; the prev.key guard lets a concurrent key-change reload win.
+	// One-shot init; the prev.key guard lets a concurrent key-change win.
 	useEffect( () => {
 		if ( ! ready ) {
 			return undefined;
@@ -111,12 +111,12 @@ export function useCanvasLayout( {
 		if ( nodes.length === 0 ) {
 			return undefined;
 		}
-		// Already initialized for this scope — graph growth is the tuck effect's job.
+		// Already initialized for this scope — graph growth is the tuck job.
 		if ( state.positions !== null && state.key === storageKey ) {
 			return undefined;
 		}
 
-		// Server-seeded scopes arrive complete — adopt the saved layout at once.
+		// Server-seeded scopes arrive complete — adopt the saved layout now.
 		if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
 			setState( ( prev ) => {
 				if ( prev.positions !== null || prev.key !== storageKey ) {
@@ -143,7 +143,7 @@ export function useCanvasLayout( {
 			return undefined;
 		}
 
-		// No saved layout: wait for the node set to SETTLE, then lay out complete.
+		// No saved layout: wait for the node set to SETTLE, then lay out.
 		settleTimer.current = setTimeout( () => {
 			settleTimer.current = null;
 			setState( ( prev ) => {
@@ -195,7 +195,7 @@ export function useCanvasLayout( {
 			if ( ! changed ) {
 				return prev;
 			}
-			// An externally-added node getting tucked is NOT a user mod — keep the flag.
+			// Externally-added node tucked is NOT a user mod — keep the flag.
 			const next = {
 				positions,
 				viewport: prev.viewport,

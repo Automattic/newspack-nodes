@@ -114,7 +114,7 @@ class Supervisor extends Supervisor_Base {
 
 		$workers = Bootstrap::expand_workers();
 
-		// No topologies → no work; exit so the cron skips until config changes.
+		// No topologies = no work; exit so the cron skips until config changes.
 		if ( empty( $workers ) ) {
 			// Fleet deactivated: drain running workers (reconcile skips empty).
 			if ( ! empty( $this->active_types ) ) {
@@ -458,7 +458,7 @@ class Supervisor extends Supervisor_Base {
 
 		$locks_dir = "{$this->base_dir}/locks";
 		foreach ( $groups as $name ) {
-			// MAX_PARTITIONS fallback for gone topology types — clears orphans.
+			// MAX_PARTITIONS fallback for gone topology types; clears orphans.
 			$count = $counts[ $name ] ?? self::MAX_PARTITIONS;
 			$count = \min( self::MAX_PARTITIONS, \max( 1, $count ) );
 			for ( $p = 0; $p < $count; $p++ ) {

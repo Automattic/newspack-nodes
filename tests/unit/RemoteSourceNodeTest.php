@@ -88,6 +88,32 @@ class RemoteSourceNodeTest extends TestCase {
 	// Task 4 — skeleton: args, patron creation, Vault resolution, schema.
 	// ---------------------------------------------------------------------
 
+	public function test_poll_runs_every_tick_while_housekeeping_latches(): void {
+		$node = new class() extends Remote_Source_Node {
+			public int $polls = 0;
+			public int $housekeeping_runs = 0;
+			public function poll(): void {
+				++$this->polls;
+			}
+			protected function publish_status(): void {
+				++$this->housekeeping_runs;
+			}
+			protected function should_connect(): bool {
+				return true;
+			}
+		};
+		$node->name( 'src-a' );
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' );
+		$ref->setValue( $node, new \Newspack_Nodes\SSE_In_Node() );
+
+		Core::$now = 2000.0;
+		$node->fire();
+		$node->fire();
+		$node->fire();
+		$this->assertSame( 3, $node->polls, '10Hz fast path: poll every tick' );
+		$this->assertSame( 1, $node->housekeeping_runs, 'housekeeping latched to the wall-second' );
+	}
+
 	public function test_arguments_parses_positional_tokens(): void {
 		[ $node ] = $this->make_remote();
 		$this->assertSame( 'austin', $this->read_private( $node, 'vault_id' ) );

@@ -36,7 +36,7 @@ export function useGraphRates( graph, resetKey ) {
 			const hasRead = ( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
 			const hasWritten =
 				( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
-			// Cold until first reading with data (else backfill reads as a spike).
+			// Cold until first reading with data (else backfill = spike).
 			const warm = !! ( prevEntry && prevEntry.warm );
 			const hasData = count > 0 || bytesRead > 0 || bytesWritten > 0;
 			if ( prevEntry && warm && prevEntry.ts < now ) {
@@ -85,7 +85,7 @@ export function useGraphRates( graph, resetKey ) {
 				} );
 				touched = true;
 			} else if ( ! prevEntry || ! warm ) {
-				// Cold node: seed baseline without emitting a rate (warms on first data).
+				// Cold node: seed baseline, emit no rate (warms next data).
 				rateRef.current.set( n.id, {
 					count,
 					bytesRead,

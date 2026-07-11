@@ -55,7 +55,7 @@ class Dumper_Node extends Node {
 			}
 		}
 
-		// Tab-completion replies feed the cli's candidate cache, not the terminal.
+		// Tab-completion replies feed cli's candidate cache, not terminal.
 		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
 			return;
 		}

@@ -127,7 +127,7 @@ class Admin {
 			return null;
 		}
 
-		// Prefer wp-scripts manifest deps+hash; else hardcoded deps + filemtime.
+		// Prefer wp-scripts manifest deps+hash; else static deps + filemtime.
 		$fallback   = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
 		$asset_path = "{$dir}/index.asset.php";
 		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
@@ -394,7 +394,7 @@ class Admin {
 		}
 		\ksort( $topology_workers );
 
-		// Active topologies (catalog + operator overlay) the supervisor would spawn.
+		// Active topologies (catalog + operator overlay) supervisor spawns.
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
 		\sort( $active_topologies );
 
@@ -581,7 +581,7 @@ class Admin {
 		}
 		// Coerce each entry to string exactly as implode/esc_* already would.
 		$default_servers = \array_map( static fn ( $server ): string => Core::as_string( $server ), $default_servers );
-		// Stored as the typed array shape; the textarea joins entries with newlines.
+		// Stored as typed array shape; textarea joins entries with newlines.
 		$value = \get_option( 'newspack_nodes_memcache_servers', [] );
 		$value = Core::arr( $value );
 		$value = \array_map( static fn ( $server ): string => Core::as_string( $server ), $value );
@@ -744,7 +744,7 @@ class Admin {
 		$schema = Settings_Schema::get();
 		$schema->register_options( self::OPTIONS_GROUP );
 
-		// Reset toggle or blanked field deletes the row so the file default wins.
+		// Reset toggle or blanked field deletes row so the file default wins.
 		Reset_Gate::register(
 			self::RESET_MARK_FIELD,
 			$schema->setting_option_names(),

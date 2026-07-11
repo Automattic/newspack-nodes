@@ -29,7 +29,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	public const STATUS_TTL = 300;
 
 	private int $last_heartbeat_response = 0;
-	private int $last_heartbeat_sent     = 0;
 
 	/**
 	 * True once restore_position() has read the durable frame + seeded the cursor. Makes
@@ -206,7 +205,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( 0 === $cmp ) {
 			$this->crawl_skip_head = false;
 			if ( 'drop' === $this->skip_head_disposition ) {
-				// Marker: head already in DLQ — drop silently, no second entry.
+				// Marker: head already in DLQ, drop silently, no second entry.
 				$this->print_less_often( "{$this->name} boot head-drop: message at {$this->boot_cursor_segment}:{$this->boot_cursor_offset} is already quarantined — dropping" );
 				return true;
 			}
@@ -289,7 +288,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$offset  = $value['offset'] ?? 0;
 		$segment = Core::as_int( $segment );
 		$offset  = Core::as_int( $offset );
-		// Arm the head-skip from frame: marker → DROP head, crash → sacrifice.
+		// Arm head-skip from frame: marker -> DROP head, crash -> sacrifice.
 		$this->arm_skip_head_from_frame( $value );
 		$this->cursor_segment      = $segment;
 		$this->cursor_offset       = $offset;
@@ -443,7 +442,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/** Stamp the heartbeat send-time so record_heartbeat_reply() can compute the round-trip. */
 	protected function record_heartbeat_sent( int $now ): void {
-		$this->last_heartbeat_sent = $now;
 		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
 	}
 
@@ -552,7 +550,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return [ '_ts' => (int) Core::$now ];
 	}
 
-	// --- Time-travel transport (Time_Travel trait) — mapped onto SSE pull ---
+	// --- Time-travel transport (Time_Travel trait): mapped onto SSE pull ---
 
 	/**
 	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload. The

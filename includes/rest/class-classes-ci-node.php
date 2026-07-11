@@ -137,7 +137,7 @@ class Classes_CI_Node extends Service_CI_Node {
 				'description' => Core::as_string( $raw_desc ),
 				'args'        => $command['args'] ?? [],
 			];
-			// Carry the multiple flag → console renders one row per invocation.
+			// Carry the multiple flag: console renders one row per invocation.
 			if ( ! empty( $command['multiple'] ) ) {
 				$stripped_command['multiple'] = true;
 			}

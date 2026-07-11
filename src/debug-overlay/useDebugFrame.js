@@ -32,7 +32,7 @@ function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
 	const adminMenu = document.getElementById( 'adminmenuwrap' );
 	const top = adminBar ? adminBar.offsetHeight : 0;
 	const left = adminMenu ? adminMenu.offsetWidth : 0;
-	// innerWidth - clientWidth = scrollbar width; guard jsdom 0 and bogus >40px.
+	// innerWidth - clientWidth = scrollbar width; guard jsdom 0 & bogus >40px.
 	let scrollbarW = 0;
 	if ( ! ignoreScrollbar ) {
 		const clientW = document.documentElement.clientWidth;
@@ -106,7 +106,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 			return;
 		}
 		preMaximizeRef.current = frame;
-		// Maximize claims the scrollbar strip; the body-overflow effect hides it.
+		// Maximize claims the scrollbar strip; body-overflow effect hides it.
 		const b = getAvailableBounds( { ignoreScrollbar: true } );
 		setFrame( {
 			x: b.left,
@@ -117,7 +117,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 		setMaximized( true );
 	}, [ frame ] );
 
-	// While maximized+visible, hide the page scrollbar (it eats the right edge).
+	// While maximized+visible, hide page scrollbar (it eats the right edge).
 	useEffect( () => {
 		if ( ! maximized || ! visible ) {
 			return undefined;
@@ -129,7 +129,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 		};
 	}, [ maximized, visible ] );
 
-	// Re-clamp on viewport shrink; while maximized ignore the (hidden) scrollbar.
+	// Re-clamp on viewport shrink; while maximized ignore (hidden) scrollbar.
 	useEffect( () => {
 		const onResize = () =>
 			setFrame( ( prev ) =>
@@ -161,7 +161,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 		};
 	}, [ frame, storageKey ] );
 
-	// Latest in-flight frame; mutate DOM per move, commit to React on pointerup.
+	// Latest in-flight frame; mutate DOM per move, commit React on pointerup.
 	const liveFrameRef = useRef( null );
 
 	// Generic pointer-drag: streams dx/dy to apply; commit fires on pointerup.
@@ -208,7 +208,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 				}
 			}
 			const start = frame;
-			// Snapshot clamp bounds ONCE — the read reflows; per-pointermove stutters.
+			// Snapshot clamp bounds ONCE — the read reflows; per-move stutters.
 			const bounds = getAvailableBounds();
 			beginDrag(
 				e,
@@ -224,7 +224,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 						bounds
 					);
 					liveFrameRef.current = f;
-					// Composited translate; is-dragging lifts the repainting shadow.
+					// Composited translate; is-dragging lifts repaint shadow.
 					const el = panelRef && panelRef.current;
 					if ( el ) {
 						el.classList.add( 'is-dragging' );

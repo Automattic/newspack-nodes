@@ -109,6 +109,34 @@ class RemoteLinkNodeTest extends TestCase {
 	// Patron lifecycle — ensure_patrons.
 	// ---------------------------------------------------------------------
 
+	public function test_tick_is_100ms_but_housekeeping_latches_to_once_per_second(): void {
+		$this->seed_vault();
+		$this->assertSame( 100, ( new \ReflectionClassConstant( Remote_Link_Node::class, 'TICK_INTERVAL_MS' ) )->getValue() );
+
+		$node = new class() extends Remote_Link_Node {
+			public int $housekeeping_runs = 0;
+			protected function publish_status(): void {
+				++$this->housekeeping_runs;
+			}
+		};
+		$node->name( 'link-austin' );
+		$sink = new Capture_Sink_Node();
+		$sink->name( 'downstream' );
+		$node->sink( $sink );
+		$node->target( 'downstream' );
+		$node->arguments( 'austin firehose.p0' );
+
+		Core::$now = 1000.0;
+		$node->fire();
+		$node->fire();
+		$node->fire();
+		$this->assertSame( 1, $node->housekeeping_runs, 'same wall-second: housekeeping once' );
+
+		Core::$now = 1001.2;
+		$node->fire();
+		$this->assertSame( 2, $node->housekeeping_runs, 'next wall-second: housekeeping again' );
+	}
+
 	public function test_first_fire_creates_and_configures_patrons(): void {
 		$this->seed_vault();
 		[ $node, $sink ] = $this->make_link( 'link-austin' );
