@@ -521,7 +521,9 @@ describe( 'Overview — remaining interactions', () => {
 			rowProps( 'alpha' ).onError( { name: 'alpha', message: 'boom' } )
 		);
 		expect( container.querySelector( '.nodes-tm__alert' ) ).not.toBeNull();
-		fireEvent.click( container.querySelector( '.nodes-tm__alert-ok' ) );
+		fireEvent.click(
+			container.querySelector( '.nodes-tm__alert-actions .button' )
+		);
 		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeNull();
 	} );
 

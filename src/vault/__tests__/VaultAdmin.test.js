@@ -440,6 +440,29 @@ describe( 'VaultAdmin', () => {
 		);
 	} );
 
+	it( 'renders modal Cancel buttons with the canonical .button class, not the inert button-tertiary', () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		const cancel = dialogButton( 'Cancel' );
+		expect( cancel.classList.contains( 'button' ) ).toBe( true );
+		expect( cancel.classList.contains( 'button-tertiary' ) ).toBe( false );
+	} );
+
+	it( 'renders the confirm-remove Cancel button without button-tertiary', async () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
+		await act( async () => {
+			row.querySelector( '.event-aggregator-remove' ).dispatchEvent(
+				new Event( 'click', { bubbles: true } )
+			);
+		} );
+		const cancel = dialogButton( 'Cancel' );
+		expect( cancel.classList.contains( 'button' ) ).toBe( true );
+		expect( cancel.classList.contains( 'button-tertiary' ) ).toBe( false );
+	} );
+
 	it( 'shows the error banner from the view model', () => {
 		registerViewFixture( {
 			servers: SAMPLE_SERVERS,

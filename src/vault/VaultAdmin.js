@@ -110,11 +110,7 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 				) }
 			</p>
 			<div className="nodes-vault__modal-actions">
-				<button
-					type="button"
-					className="button button-tertiary"
-					onClick={ onCancel }
-				>
+				<button type="button" className="button" onClick={ onCancel }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>{ ' ' }
 				<button
@@ -425,11 +421,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 				>
 					{ status.text }
 				</span>
-				<button
-					type="button"
-					className="button button-tertiary"
-					onClick={ onCancel }
-				>
+				<button type="button" className="button" onClick={ onCancel }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
