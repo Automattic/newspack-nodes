@@ -116,7 +116,7 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 				<button
 					type="button"
 					ref={ confirmRef }
-					className="button button-primary button-link-delete"
+					className="button button-link-delete"
 					onClick={ onConfirm }
 				>
 					{ __( 'Remove', 'newspack-nodes' ) }

@@ -86,6 +86,12 @@
 		font-size: 18px;
 	}
 
+	// WP admin sets a direct `p { color }` that beats the modal's inherited
+	// --ink (dark-on-dark on decorative skins); re-theme the body copy.
+	p {
+		color: var(--ink);
+	}
+
 	// The add form drops its own width clamp inside the dialog.
 	.form-table {
 		max-width: none;

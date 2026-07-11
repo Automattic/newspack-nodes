@@ -194,6 +194,32 @@ class VaultCINodeTest extends TestCase {
 		$this->assertSame( 'get', $decoded[ Message::VALUE ]['name'] );
 	}
 
+	public function test_test_verb_extracts_reply_from_stderr_polluted_stream(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Vault::get_instance()->reset_cache();
+
+		// The spoke's /command response is a JSONL message STREAM: diagnostic
+		// stderr lines (TM_BYTESTREAM, string VALUE) can precede the command
+		// reply. probe_remote must find the reply, not choke on line one.
+		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+			$noise                   = Message::new_message();
+			$noise[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$noise[ Message::VALUE ] = 'Newspack ELN: hooks missing for pointer rule "abc"';
+
+			$reply                   = Message::new_message();
+			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+			$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => [ 'lag' => 5 ] ];
+
+			$body = Message::packed( $noise ) . "\n" . Message::packed( $reply ) . "\n";
+			return [ 'response' => [ 'code' => 200 ], 'body' => $body ];
+		};
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+
+		$this->assertSame( 'connected', $out['status'] );
+		$this->assertSame( 5, $out['response']['lag'] );
+	}
+
 	public function test_test_verb_returns_error_on_non_200(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();

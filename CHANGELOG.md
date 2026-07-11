@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Vault "test connection" no longer fails with "malformed command envelope" when the spoke emits stderr diagnostics.** `Vault_CI_Node::probe_remote()` parsed the `/command` response with a single whole-body `json_decode`, which returns `null` the moment the body is a multi-line JSONL stream (e.g. a `Core::stderr()` diagnostic line preceding the reply). It now walks the stream line-by-line and selects the command reply (the message whose VALUE is a struct), tolerating any interleaved bytestream noise. Single-line responses are unaffected.
+- **Vault confirm-remove dialog body text is legible on decorative skins.** The modal's `<p>` inherited `--ink` but WP admin's direct `p { color }` beat it (dark-on-dark); it now re-themes the body copy like the sibling `.form-table th`. The Remove button also drops the conflicting `button-primary` modifier, leaving the canonical destructive `button button-link-delete`.
+
 ### Changed
 
 - **Substrate diagnostics route through `Core::` logging instead of raw `error_log()`.** `Vault::audit()` (per-op credential audit) now uses `Core::stderr()`, and `Spawn_Controller`'s supervisor-run-failure uses `Core::print_less_often()` — so they get the node stderr chain, REPL visibility, and (for the recurring spawn failure) rate-limiting instead of flooding. The `Core::_stderr` primitive keeps its raw `error_log` — it's the base of the chain.
