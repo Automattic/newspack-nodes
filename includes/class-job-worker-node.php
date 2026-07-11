@@ -59,7 +59,7 @@ class Job_Worker_Node extends Node {
 	public const DEFAULT_STALE_TIMEOUT = 600;
 
 	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
-	public const MAX_JOB_SIZE         = 33554432;
+	public const MAX_JOB_SIZE         = Job_Intake::MAX_JOB_SIZE;
 
 	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
 	protected int $max_runtime          = self::DEFAULT_MAX_RUNTIME;
