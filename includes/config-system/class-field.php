@@ -31,6 +31,9 @@ class Field {
 	/** @var callable|null register_setting sanitize_callback (required for option fields). */
 	public readonly mixed $sanitize;
 
+	/** Derived from type: every non-bool field blank-deletes to its file default. */
+	public readonly bool $delete_on_blank;
+
 	/**
 	 * Display label, stored unresolved. A plugin passes either a plain string OR
 	 * a `fn(): string` thunk — the thunk defers `__()` to render time so building
@@ -47,7 +50,6 @@ class Field {
 	 * @param string|callable          $label          Settings-field label, or a `fn(): string` thunk (deferred `__()`).
 	 * @param string                   $section        Section id this field renders under.
 	 * @param string                   $id             add_settings_field id; defaults to $key when empty.
-	 * @param bool                     $delete_on_blank Whether a blank save deletes the row (file default resurfaces).
 	 * @param array<int,string>|string $restart        Restart classification, consumed by Restart_Planner:
 	 *                                                  - list of CONSUMER NODE-TYPE tokens (e.g. ['Partition','Topic'] or ['Flame_Builder']);
 	 *                                                    restarts active topologies whose graph instantiates a matching node (by class ancestry);
@@ -67,7 +69,6 @@ class Field {
 		mixed $label = '',
 		public readonly string $section = '',
 		public readonly string $id = '',
-		public readonly bool $delete_on_blank = true,
 		public readonly array|string $restart = [],
 		mixed $sanitize = null,
 		mixed $render = null,
@@ -77,6 +78,8 @@ class Field {
 		$this->label_source = $label;
 		$this->sanitize     = \is_callable( $sanitize ) ? $sanitize : null;
 		$this->render       = \is_callable( $render ) ? $render : null;
+		// Blank deletes the row to its default; only a bool opts out.
+		$this->delete_on_blank = 'bool' !== $this->type;
 	}
 
 	/** The resolved label: a thunk is invoked here (render time), a plain string passes through. */
