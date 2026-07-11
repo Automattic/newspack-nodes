@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Topology_Registry;
@@ -369,6 +370,31 @@ class LogCleanerTest extends TestCase {
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
 		$this->assertDirectoryDoesNotExist( $ghost );
+	}
+
+	public function test_substrate_registers_jobintake_as_a_producer(): void {
+		// Job_Intake writes jobintake.p<N> outside any topology's write set; the
+		// SUBSTRATE must protect it from the GC sweep (ELN-less installs queue
+		// through it via nuclear-gyrobase / pyrobase).
+		$this->assertContains( 'jobintake', Bootstrap::register_log_producers( [] ) );
+		$this->assertSame(
+			[ 'firehose', 'jobintake' ],
+			Bootstrap::register_log_producers( [ 'firehose', 'jobintake' ] ),
+			'merge dedupes against contributors that already declare it'
+		);
+	}
+
+	public function test_registered_jobintake_producer_protects_its_partition_dirs(): void {
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			[ Bootstrap::class, 'register_log_producers' ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
+		Config::reset();
+
+		$p0 = $this->seed_log_partition( 'jobintake', 0 );
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+		$this->assertDirectoryExists( $p0 );
 	}
 
 	// ── declared_log_dirs ───────────────────────────

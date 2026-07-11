@@ -101,10 +101,22 @@ class Bootstrap {
 		Config::register_token_namespace();
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
+		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
 		// Footgun: don't wire SSE_Slot_Pool here; it force-loads SSE REST routes.
+	}
+
+	/**
+	 * Declare the substrate's own non-topology log producers (Job_Intake's
+	 * jobintake.p<N>) so Log_Cleaner never sweeps them on ELN-less installs.
+	 *
+	 * @param array<int, string> $producers Producers from prior contributors.
+	 * @return array<int, string>
+	 */
+	public static function register_log_producers( array $producers ): array {
+		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME ] ) ) );
 	}
 
 	/**
