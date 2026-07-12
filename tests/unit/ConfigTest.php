@@ -129,6 +129,54 @@ class ConfigTest extends TestCase {
 		$this->assertSame( $d1, $d2 );
 	}
 
+	// ── value(): fail-loud declared-key accessor ───────────────────────────
+
+	public function test_value_returns_configured_value_for_declared_key(): void {
+		// A declared key with a stored option returns the override, distinct
+		// from every hardcoded fallback (1/0) a silently-ignored read would give.
+		\update_option( 'newspack_nodes_num_partitions', '13' );
+		Config::reset();
+		$this->assertSame( '13', Config::value( 'num_partitions' ) );
+	}
+
+	public function test_value_throws_for_undeclared_key(): void {
+		// A renamed/typo'd key is not in the registered set → fail loud instead
+		// of limping on a default.
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/unknown config key/' );
+		Config::value( 'definitely_not_a_real_config_key_zzz' );
+	}
+
+	public function test_value_returns_schema_default_when_option_unset(): void {
+		// Declared-but-unset (no WP option) resolves the declared file default,
+		// distinct from the old `?? 1` fallback the migration drops.
+		$this->allow_dir( $this->temp_dir );
+		$conf = $this->temp_dir . '/np-default.php';
+		\file_put_contents( $conf, "<?php return [ 'num_partitions' => 9 ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		\delete_option( 'newspack_nodes_num_partitions' );
+		Config::reset();
+		$this->assertSame( 9, Config::value( 'num_partitions' ) );
+	}
+
+	public function test_value_resolves_config_file_only_key(): void {
+		// vault_verify_ssl is a config-file default, NOT a Settings_Schema key.
+		// The file IS a declaration, so value() must resolve it — returning the
+		// declared value, distinct from the old `?? true` silent fallback.
+		$this->allow_dir( $this->temp_dir );
+		$conf = $this->temp_dir . '/vault-ssl.php';
+		\file_put_contents( $conf, "<?php return [ 'vault_verify_ssl' => false ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		Config::reset();
+		$this->assertFalse( Config::value( 'vault_verify_ssl' ) );
+	}
+
+	public function test_register_keys_extends_the_valid_set(): void {
+		// A consumer plugin registers its own key; value() stops throwing for it.
+		Config::register_keys( [ 'my_plugin_key' ] );
+		$this->assertNull( Config::value( 'my_plugin_key' ) );
+	}
+
 	// ── File-overlay env override ──────────────────────────────────────────
 
 	public function test_local_env_override_loads_overlay(): void {

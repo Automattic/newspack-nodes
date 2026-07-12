@@ -407,7 +407,7 @@ class Admin {
 		\sort( $active_topologies );
 
 		// Client fallback when a topology's list entry omits num_partitions.
-		$config_np  = Config::load_config()['num_partitions'] ?? 1;
+		$config_np  = Config::value( 'num_partitions' );
 		$default_np = Core::as_int( $config_np, 1 );
 
 		return self::append_tab_bundle(
@@ -465,8 +465,7 @@ class Admin {
 			return false;
 		}
 
-		$config        = Config::load_config();
-		$allowed_users = $config['allowed_users'] ?? [];
+		$allowed_users = Config::value( 'allowed_users' );
 		if ( empty( $allowed_users ) || ! \is_array( $allowed_users ) ) {
 			return true;
 		}

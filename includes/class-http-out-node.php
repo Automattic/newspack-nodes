@@ -125,9 +125,8 @@ class HTTP_Out_Node extends Timer_Node {
 			return;
 		}
 
-		$cfg = Config::load_config();
 		// Refuse plaintext spoke when operator requires HTTPS; drop batch.
-		if ( ( $cfg['vault_require_ssl'] ?? false ) && ! \str_starts_with( $url, 'https://' ) ) {
+		if ( Config::value( 'vault_require_ssl' ) && ! \str_starts_with( $url, 'https://' ) ) {
 			$dropped = \count( $batch );
 			$this->print_less_often( "vault_require_ssl set but url is not https; dropping {$dropped} message(s)" );
 			return;
@@ -154,7 +153,7 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		// Mirror Vault_CI_Node::probe_remote: verify on unless disabled.
-		$verify = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
+		$verify = (bool) Config::value( 'vault_verify_ssl' );
 		$opts   = [
 			\CURLOPT_URL            => $url . self::COMMAND_PATH,
 			\CURLOPT_POST           => true,

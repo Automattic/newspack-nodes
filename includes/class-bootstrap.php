@@ -99,6 +99,9 @@ class Bootstrap {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
+		// Declared keys: schema + config-file defaults; a typo throws.
+		Config::register_keys( Settings_Schema::get()->overlay_keys() );
+		Config::register_keys( \array_keys( Config::load_config_defaults() ) );
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
@@ -127,8 +130,7 @@ class Bootstrap {
 		if ( ! \class_exists( '\Memcached' ) ) {
 			return;
 		}
-		$config  = Config::load_config();
-		$servers = $config['memcache_servers'] ?? null;
+		$servers = Config::value( 'memcache_servers' );
 		if ( ! \is_array( $servers ) || empty( $servers ) ) {
 			Core::$memd = null;
 			return;
@@ -194,12 +196,11 @@ class Bootstrap {
 	public static function get_topologies(): array {
 		$catalog = self::get_topology_catalog();
 		// Active set = `topologies` config key; empty default spawns nothing.
-		$config       = Config::load_config();
-		$active_names = $config['topologies'] ?? [];
+		$active_names = Config::value( 'topologies' );
 		if ( ! \is_array( $active_names ) ) {
 			$active_names = [];
 		}
-		$np_raw     = $config['num_partitions'] ?? 1;
+		$np_raw     = Config::value( 'num_partitions' );
 		$default_np = Core::num_int( $np_raw, 1 );
 		$active     = [];
 		foreach ( $active_names as $name ) {
@@ -281,7 +282,7 @@ class Bootstrap {
 	 * @return int Partition count in [1, MAX_PARTITIONS].
 	 */
 	public static function num_partitions_for( string $name ): int {
-		$np_raw     = Config::load_config()['num_partitions'] ?? 1;
+		$np_raw     = Config::value( 'num_partitions' );
 		$default_np = Core::num_int( $np_raw, 1 );
 		$count      = $default_np;
 

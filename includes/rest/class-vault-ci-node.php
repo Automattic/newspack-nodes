@@ -252,8 +252,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<string, mixed> Sanitised probe response.
 	 */
 	private static function probe_remote( string $id, array $server ): array {
-		$cfg        = Config::load_config();
-		$verify_ssl = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
+		$verify_ssl = (bool) Config::value( 'vault_verify_ssl' );
 
 		// discovery.get via /command; build the body via the shared primitive.
 		/** @var int|float|string|bool|null $raw_server_url */

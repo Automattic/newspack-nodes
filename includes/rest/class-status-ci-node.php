@@ -38,10 +38,9 @@ class Status_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed> Health snapshot.
 	 */
 	public static function cmd_get(): array {
-		$config          = RuntimeConfig::load_config();
 		$cache_available = null !== Core::$memd;
 		/** @var int|float|string|bool|null $num_partitions */
-		$num_partitions = $config['num_partitions'] ?? 1;
+		$num_partitions = RuntimeConfig::value( 'num_partitions' );
 
 		return [
 			'status'          => 'ok',

@@ -28,7 +28,6 @@ use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
-use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Service_CI_Node;
@@ -84,10 +83,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	 */
 	private static function collect_dump_metadata(): array {
 		$now            = \time();
-		$config         = RuntimeConfig::load_config();
-		$num_partitions = self::to_int( $config['num_partitions'] ?? 1 );
-		$max_segments   = self::to_int( $config['max_segments'] ?? Partition_Node::DEFAULT_MAX_SEGMENTS );
-		$segment_size   = self::to_int( $config['segment_size']   ?? ( 16 * 1024 * 1024 ) );
+		$num_partitions = self::to_int( RuntimeConfig::value( 'num_partitions' ) );
+		$max_segments   = self::to_int( RuntimeConfig::value( 'max_segments' ) );
+		$segment_size   = self::to_int( RuntimeConfig::value( 'segment_size' ) );
 		$base_dir       = RuntimeConfig::get_base_directory();
 		$log_base       = $base_dir . '/logs';
 		$locks_base     = $base_dir . '/locks';

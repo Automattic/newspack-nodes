@@ -28,6 +28,9 @@ class Config {
 		'/usr/src',
 	];
 
+	/** @var array<string, bool> Declared config keys; only these may be read via value(). */
+	private static array $registered_keys = [];
+
 	/** @var array<string, mixed>|null Cached config (file defaults + WordPress options). */
 	private static $config = null;
 
@@ -119,6 +122,42 @@ class Config {
 
 		self::$validated_base_directory = self::ensure_path( (string) $base_dir );
 		return self::$validated_base_directory;
+	}
+
+	/**
+	 * Declare config keys that value() may read. Idempotent; accumulates across
+	 * calls. The substrate registers its own at boot (Bootstrap::ensure_runtime_wired);
+	 * consumer plugins register their schema keys the same way.
+	 *
+	 * @api
+	 * @param array<int,string> $keys Unprefixed config keys.
+	 */
+	public static function register_keys( array $keys ): void {
+		foreach ( $keys as $key ) {
+			if ( '' !== $key ) {
+				self::$registered_keys[ $key ] = true;
+			}
+		}
+	}
+
+	/**
+	 * Fail-loud single-key config read: an undeclared key throws instead of
+	 * limping on a `?? default` — that's the guard that catches a renamed or
+	 * typo'd key. A declared key resolves to load_config()[$key] (option overlay
+	 * or file default); declared-but-unset returns null.
+	 *
+	 * @api
+	 * @return mixed
+	 * @throws \RuntimeException If $key is not in the registered set.
+	 */
+	public static function value( string $key ): mixed {
+		if ( ! isset( self::$registered_keys[ $key ] ) ) {
+			throw new \RuntimeException(
+				\sprintf( "unknown config key '%s' — not declared by any registered schema", \esc_html( $key ) )
+			);
+		}
+		$config = self::load_config();
+		return \array_key_exists( $key, $config ) ? $config[ $key ] : null;
 	}
 
 	/**
