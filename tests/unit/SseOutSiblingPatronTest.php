@@ -58,7 +58,7 @@ class SseOutSiblingPatronTest extends TestCase {
 			$captured['default_is_node']  = $default instanceof Node;
 			$captured['default_patron']   = $default instanceof Node ? $default->patron() : null;
 
-			$consumer = Core::node( 'firehose' );
+			$consumer = Core::node( 'firehose.p0' );
 			$captured['consumer_is_consumer'] = $consumer instanceof Consumer_Node;
 			$captured['consumer_patron']      = $consumer instanceof Node ? $consumer->patron() : null;
 
@@ -66,14 +66,15 @@ class SseOutSiblingPatronTest extends TestCase {
 			return false; // stop after one inspection pass
 		};
 
+		$base = $this->make_temp_dir( 'sse-sibling-patron-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
 		$ctrl = new SSE_Out_Node();
-		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-sibling-patron-' ) );
-		$ctrl->set_num_partitions( 1 );
+		$ctrl->set_base_dir( $base );
 		// This test's own check_slot returns false after one inspection pass, so
 		// it terminates the drain — no separate iteration bound needed.
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 1, -1 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, 1, -1 );
 		\ob_get_clean();
 
 		$this->assertTrue( $captured['output_is_filter'] ?? false, '_output sibling must be the HTTP filter' );

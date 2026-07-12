@@ -46,7 +46,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$req  = new \WP_REST_Request( 'GET' );
-		$req->set_param( 'subscribe', 'firehose' );
+		$req->set_param( 'subscribe', 'firehose.*' );
 
 		$result = $ctrl->stream( $req );
 
@@ -64,7 +64,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$req  = new \WP_REST_Request( 'GET' );
-		$req->set_param( 'subscribe', 'firehose' );
+		$req->set_param( 'subscribe', 'firehose.*' );
 		$ctrl->stream( $req );
 
 		$this->assertSame( -1, $captured );
@@ -96,11 +96,10 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-release-' ) );
-		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 2 );
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 7, -1 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, 7, -1 );
 		\ob_get_clean();
 
 		$this->assertSame( 7, $released_slot );
@@ -116,13 +115,12 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-check-' ) );
-		$ctrl->set_num_partitions( 1 );
 		// No bounding closure needed: this test's own check_slot returns false on
 		// the first consult, so it IS what terminates the drain — exactly the
 		// behaviour under test.
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 7, -1 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, 7, -1 );
 		\ob_get_clean();
 
 		$this->assertGreaterThan( 0, $checks, 'check_slot closure should have been consulted at least once' );
@@ -133,11 +131,10 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-conn-' ) );
-		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 1 );
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 4, -1 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, 4, -1 );
 		$raw = \ob_get_clean();
 
 		// First data: line carries the connected envelope (flat `KEY VALUE` string).
@@ -171,7 +168,6 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
-		$ctrl->set_num_partitions( 1 );
 		// Consumer's first fire() is scheduled at POLL_INTERVAL_EOF_MS=100ms.
 		// Drain iterates between events; we need enough iterations that the
 		// timer fires AND its read+callback path completes within the loop.
@@ -194,7 +190,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$positions = [ 'firehose.p0' => [ 'segment' => 0, 'offset' => 0 ] ];
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], $positions, 500, 1, -1 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], $positions, 500, 1, -1 );
 		\ob_get_clean();
 
 		$this->assertNotEmpty( $routed, 'Callback else-branch must have routed the TO-stamped message through Router' );

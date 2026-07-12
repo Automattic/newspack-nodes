@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **SSE `/messages/stream` resolves subscriptions by glob, not a hardcoded `.p{N}` layout.** `open_subscription` now treats the `subscribe` value as a concrete log-dir name (`firehose.p0`) or a glob over one (`firehose.*`) and `glob()`s it under `{base}/logs` — an exact name matches itself; `firehose.*` fans out to one Consumer per matching partition dir, each stamped + resume-keyed by its concrete basename. The `<partition>` token can sit anywhere in a dir name (the filesystem is the source of truth), so a consuming plugin picks its own partition naming and the dashboard subscribes to its convention. A traversal-guarded pattern (must start with a name char; no `/`, no `..`; `*` the only wildcard) keeps `glob()` confined to `logs/`/`ipc/`. Consumers are now named by their concrete dir basename (was `{sub}:p{i}`), and the dead `set_num_partitions` seam is gone. Multi-partition dashboards must now subscribe with `{feed}.*` (bare `{feed}` no longer expands).
 - **`Partition` warns (rate-limited) when an `allow_large_writes` write fails to open its segment handle or short-writes**, instead of dropping the record silently — the large-write path previously returned with no diagnostic.
 
 ### Fixed
