@@ -13,6 +13,10 @@
  * idempotency guard: after the first run the old rows are gone, so a
  * re-activation is a no-op.
  *
+ * The hub-side remote-spoke geometry pushes (remote_num_segments,
+ * remote_max_lifespan) get the same rename under the same mapping, but have no
+ * new sibling axis to seed — their seed-option is null.
+ *
  * @package Newspack_Nodes
  */
 
@@ -22,10 +26,12 @@ namespace Newspack_Nodes;
 
 class Retention_Settings_Migration {
 
-	/** [ old-option => [ new-option, seed-option, seed-default ] ] for the two renamed settings. */
+	/** [ old-option => [ new-option, seed-option|null, seed-default ] ] for the renamed settings. */
 	private const MIGRATIONS = [
-		'newspack_nodes_num_segments' => [ 'newspack_nodes_max_segments', 'newspack_nodes_min_segments', 2 ],
-		'newspack_nodes_max_lifespan' => [ 'newspack_nodes_min_lifetime', 'newspack_nodes_max_lifetime', 0 ],
+		'newspack_nodes_num_segments'        => [ 'newspack_nodes_max_segments', 'newspack_nodes_min_segments', 2 ],
+		'newspack_nodes_max_lifespan'        => [ 'newspack_nodes_min_lifetime', 'newspack_nodes_max_lifetime', 0 ],
+		'newspack_nodes_remote_num_segments' => [ 'newspack_nodes_remote_max_segments', null, 0 ],
+		'newspack_nodes_remote_max_lifespan' => [ 'newspack_nodes_remote_min_lifetime', null, 0 ],
 	];
 
 	/**
@@ -43,7 +49,7 @@ class Retention_Settings_Migration {
 			if ( false === \get_option( $new, false ) ) {
 				\update_option( $new, $value, false );
 			}
-			if ( false === \get_option( $seed, false ) ) {
+			if ( null !== $seed && false === \get_option( $seed, false ) ) {
 				\update_option( $seed, $seed_default, false );
 			}
 			\delete_option( $old );

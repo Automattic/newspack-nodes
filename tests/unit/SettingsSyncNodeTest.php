@@ -118,15 +118,15 @@ class SettingsSyncNodeTest extends TestCase {
 		// A hub-local `remote_*` setting seeds BOTH the spoke's stripped option
 		// (its actual config) AND the spoke's own `remote_*` copy (so the spoke can
 		// propagate it onward to ITS spokes). Two add_setting lines, same local.
-		\update_option( 'newspack_nodes_remote_num_segments', 5 );
+		\update_option( 'newspack_nodes_remote_max_segments', 5 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_remote_num_segments settings newspack_nodes_num_segments' );
-		$node->add_setting( 'newspack_nodes_remote_num_segments settings newspack_nodes_remote_num_segments' );
+		$node->add_setting( 'newspack_nodes_remote_max_segments settings newspack_nodes_max_segments' );
+		$node->add_setting( 'newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_num_segments' ];
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_max_segments' ];
 		$node->fill( $msg );
 
 		$this->assertCount( 2, $sink->captured );
@@ -134,8 +134,8 @@ class SettingsSyncNodeTest extends TestCase {
 			static fn ( $m ) => $m[ Message::VALUE ]['arguments'],
 			$sink->captured
 		);
-		$this->assertContains( 'newspack_nodes_num_segments 5', $args );
-		$this->assertContains( 'newspack_nodes_remote_num_segments 5', $args );
+		$this->assertContains( 'newspack_nodes_max_segments 5', $args );
+		$this->assertContains( 'newspack_nodes_remote_max_segments 5', $args );
 	}
 
 	public function test_add_setting_dedupes_exact_duplicate_mappings(): void {

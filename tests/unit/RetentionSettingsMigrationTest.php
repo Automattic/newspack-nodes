@@ -23,6 +23,10 @@ final class RetentionSettingsMigrationTest extends TestCase {
 		'newspack_nodes_max_lifespan',
 		'newspack_nodes_min_lifetime',
 		'newspack_nodes_max_lifetime',
+		'newspack_nodes_remote_num_segments',
+		'newspack_nodes_remote_max_segments',
+		'newspack_nodes_remote_max_lifespan',
+		'newspack_nodes_remote_min_lifetime',
 	];
 
 	protected function setUp(): void {
@@ -83,5 +87,34 @@ final class RetentionSettingsMigrationTest extends TestCase {
 
 		$this->assertSame( 120, \get_option( 'newspack_nodes_min_lifetime' ) );
 		$this->assertFalse( \get_option( 'newspack_nodes_max_lifespan' ) );
+	}
+
+	public function test_renames_remote_geometry_options_without_seeding_a_companion(): void {
+		\update_option( 'newspack_nodes_remote_num_segments', 8 );
+		\update_option( 'newspack_nodes_remote_max_lifespan', 3600 );
+
+		Retention_Settings_Migration::migrate();
+
+		$this->assertSame( 8, \get_option( 'newspack_nodes_remote_max_segments' ) );
+		$this->assertSame( 3600, \get_option( 'newspack_nodes_remote_min_lifetime' ) );
+		$this->assertFalse( \get_option( 'newspack_nodes_remote_num_segments' ), 'old remote option must be deleted' );
+		$this->assertFalse( \get_option( 'newspack_nodes_remote_max_lifespan' ), 'old remote option must be deleted' );
+	}
+
+	public function test_remote_rename_does_not_clobber_existing_new_value(): void {
+		\update_option( 'newspack_nodes_remote_num_segments', 8 );
+		\update_option( 'newspack_nodes_remote_max_segments', 12 );
+
+		Retention_Settings_Migration::migrate();
+
+		$this->assertSame( 12, \get_option( 'newspack_nodes_remote_max_segments' ), 'existing new remote value preserved' );
+		$this->assertFalse( \get_option( 'newspack_nodes_remote_num_segments' ), 'old remote option still deleted' );
+	}
+
+	public function test_remote_rename_is_a_noop_when_old_remote_options_absent(): void {
+		Retention_Settings_Migration::migrate();
+
+		$this->assertFalse( \get_option( 'newspack_nodes_remote_max_segments' ) );
+		$this->assertFalse( \get_option( 'newspack_nodes_remote_min_lifetime' ) );
 	}
 }
