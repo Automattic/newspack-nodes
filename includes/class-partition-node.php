@@ -45,14 +45,6 @@ class Partition_Node extends Timer_Node {
 
 	protected bool $allow_large_writes = false;
 
-	/**
-	 * Replica mode ([140]): when set, fill() ignores the append cursor and writes each
-	 * message to the EXACT segment+offset its Consumer-stamped ID (`<seg>:<off>:<len>`)
-	 * names — rewinding (truncating the tail + dropping later segments) when that offset
-	 * is behind the log's end. Flipped by the `is_replica` :config verb; default off.
-	 */
-	protected bool $is_replica = false;
-
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
 
@@ -143,12 +135,6 @@ class Partition_Node extends Timer_Node {
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
-
-		// Replica: write to the Consumer-stamped exact coordinates.
-		if ( $this->is_replica ) {
-			$this->replica_write( $message );
-			return;
-		}
 
 		// Debounced: hold lock for the burst; arm timer so fire() frees it.
 		if ( $this->debounce_lock_ms > 0 ) {
@@ -335,187 +321,34 @@ class Partition_Node extends Timer_Node {
 	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
 	 */
 	public function truncate_after( int $segment ): void {
-		$sizes = \array_column( $this->get_segments( true ), 'size', 'id' );
+		$segments = $this->get_segments( true );
+		$sizes    = \array_column( $segments, 'size', 'id' );
 		if ( ! isset( $sizes[ $segment ] ) ) {
 			return; // Absent or past the newest — nothing to truncate.
 		}
-		// Rewind to the segment's FULL end; max(0,..) proves non-negative size.
-		$this->rewind_to( $segment, \max( 0, $sizes[ $segment ] ) );
-	}
-
-	/**
-	 * Replica-mode write ([140]): overwrite the record at the EXACT coordinates the
-	 * Consumer stamped into Message::ID (`<segment>:<offset>:<length>`) rather than
-	 * appending. Fails LOUDLY (throws — never silently drops) when the coordinates
-	 * are incoherent; the drain's central catch surfaces it. When the offset is a
-	 * valid boundary behind the log's end, rewinds first (truncates the tail + drops
-	 * later segments) so the re-written timeline stays monotonic.
-	 *
-	 * @param array<int, mixed> $message The 7-field message; its ID carries the target coordinates.
-	 */
-	private function replica_write( array $message ): void {
-		[ $segment, $offset, $declared ] = $this->parse_replica_id( $message[ Message::ID ] ?? '' );
-
-		$record = $this->serialize_record( $message );
-		$actual = \strlen( $record );
-		if ( $actual !== $declared ) {
-			throw new \RuntimeException(
-				\esc_html( "Partition replica: record length {$actual} != ID-declared length {$declared}" )
-			);
-		}
-
-		$path     = $this->get_segment_path( $segment );
-		$filesize = \file_exists( $path ) ? (int) \filesize( $path ) : 0;
-		if ( $offset > $filesize ) {
-			throw new \RuntimeException(
-				\esc_html( "Partition replica: offset {$offset} is past end of segment {$segment} ({$filesize} bytes)" )
-			);
-		}
-		if ( $offset > 0 && "\n" !== $this->read_at( $segment, $offset - 1, 1 ) ) {
-			throw new \RuntimeException(
-				\esc_html( "Partition replica: offset {$offset} in segment {$segment} is not at a message boundary" )
-			);
-		}
-
-		if ( $actual > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $actual;
-		}
-
-		// Rewind so the file ends exactly at $offset, then append lands there.
-		$this->rewind_to( $segment, $offset );
-
-		$fh = $this->get_handle();
-		if ( null === $fh ) {
-			throw new \RuntimeException(
-				\esc_html( "Partition replica: could not open segment {$segment} at {$this->current_log_path}" )
-			);
-		}
-		$wrote               = $this->write_all( $fh, $record, $this->current_log_path );
-		$this->current_size += $wrote;
-		if ( null !== $this->index_callback ) {
-			$this->write_index_entry( $message, $offset, $actual );
-		}
-		$this->touch_segments_cache();
-	}
-
-	/**
-	 * Parse a Consumer-stamped `<segment>:<offset>:<length>` position ID into three
-	 * non-negative ints. Throws on any malformed value ([140]) — loud, never silent.
-	 *
-	 * @param mixed $id The Message::ID value.
-	 * @return array{0:int<0,max>,1:int<0,max>,2:int<0,max>} ctype_digit guarantees each is non-negative.
-	 */
-	private function parse_replica_id( $id ): array {
-		$parts = \is_string( $id ) ? \explode( ':', $id ) : [];
-		if ( 3 !== \count( $parts ) || '' !== \implode( '', \array_filter( $parts, static fn ( $p ) => ! \ctype_digit( $p ) ) ) ) {
-			throw new \InvalidArgumentException(
-				\esc_html( 'Partition replica: message ID must be "<segment>:<offset>:<length>", got: ' . ( \is_string( $id ) ? $id : \gettype( $id ) ) )
-			);
-		}
-		// max(0,..) no-op: ctype_digit guarantees non-negative.
-		return [ \max( 0, (int) $parts[0] ), \max( 0, (int) $parts[1] ), \max( 0, (int) $parts[2] ) ];
-	}
-
-	/**
-	 * Rewind the log so it ends exactly at ($segment, $offset): drop every later
-	 * segment, truncate the target segment's tail past $offset, and reset the write
-	 * state to $segment. Reuses the segment enumeration + removal of truncate_after(),
-	 * adding the within-segment truncation replica writes need ([140]).
-	 *
-	 * @param int          $segment Target segment id.
-	 * @param int<0, max>  $offset  Byte offset the log is rewound to (non-negative; ftruncate length).
-	 */
-	private function rewind_to( int $segment, int $offset ): void {
-		$this->close_handle();
 
 		$survivors = [];
-		foreach ( $this->get_segments( true ) as $s ) {
-			if ( $s['id'] > $segment ) {
-				// Segment dir is base_dir-relative, not WP-managed.
-				// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-				@\unlink( $this->get_segment_path( $s['id'] ) );
-				@\unlink( $this->get_index_path( $s['id'] ) );
-				// phpcs:enable
+		foreach ( $segments as $s ) {
+			if ( $s['id'] <= $segment ) {
+				$survivors[] = $s;
 				continue;
 			}
-			if ( $s['id'] === $segment ) {
-				$s['size'] = $offset;
-			}
-			$survivors[] = $s;
+			// Partition's segment dir is base_dir-relative — not WP-managed.
+			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+			@\unlink( $this->get_segment_path( $s['id'] ) );
+			@\unlink( $this->get_index_path( $s['id'] ) );
+			// phpcs:enable
 		}
 
-		$path = $this->get_segment_path( $segment );
-		if ( \file_exists( $path ) ) {
-			if ( (int) \filesize( $path ) > $offset ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-				$fh = @\fopen( $path, 'r+' );
-				if ( false !== $fh ) {
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_ftruncate
-					@\ftruncate( $fh, $offset );
-					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
-					@\fclose( $fh );
-				}
-				// Rewind the companion .idx to match the surviving records.
-				if ( null !== $this->index_callback ) {
-					$this->rebuild_index_prefix( $segment, $offset );
-				}
-			}
-		} else {
-			// Touch the empty target so get_handle() won't reset to the newest.
-			if ( ! \is_dir( $this->segment_dir() ) ) {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-				@\mkdir( $this->segment_dir(), 0755, true );
-			}
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
-			@\touch( $path );
-		}
-
+		$this->close_handle();
 		$this->current_segment_id = $segment;
-		$this->current_size       = $offset;
-		$this->current_log_path   = $path;
+		$this->current_size       = $sizes[ $segment ];
+		$this->current_log_path   = $this->get_segment_path( $segment );
 		$this->current_idx_path   = $this->get_index_path( $segment );
 
-		if ( ! \in_array( $segment, \array_column( $survivors, 'id' ), true ) ) {
-			$survivors[] = [ 'id' => $segment, 'size' => $offset ];
-		}
-		\usort( $survivors, static fn ( $a, $b ) => $a['id'] <=> $b['id'] );
+		// $survivors is already 0-indexed by id — no array_values() re-key.
 		$this->segments_cache      = $survivors;
 		$this->segments_cache_time = \microtime( true );
-	}
-
-	/**
-	 * Rewrite the companion `.idx` to match a `.log` truncated to $offset ([140]): re-derive
-	 * one index line per SURVIVING record so a skip-formatter's line count stays right and a
-	 * position-encoding formatter gets the correct running offsets. Caller guards on a set
-	 * index_callback and an in-segment truncation (offset < filesize).
-	 */
-	private function rebuild_index_prefix( int $segment, int $offset ): void {
-		$callback = $this->index_callback;
-		if ( null === $callback ) {
-			return;
-		}
-		$log_bytes = 0 === $offset ? '' : $this->read_at( $segment, 0, $offset );
-		$entries   = '';
-		$running   = 0;
-		foreach ( \explode( "\n", $log_bytes ) as $line ) {
-			if ( '' === $line ) {
-				continue;
-			}
-			$size = \strlen( $line ) + 1;
-			try {
-				$message = Message::unpacked( $line );
-			} catch ( \InvalidArgumentException $e ) {
-				$running += $size;
-				continue;
-			}
-			$entry = $callback( $message, [ 'segment' => $segment, 'offset' => $running, 'length' => $size ] );
-			if ( null !== $entry && '' !== $entry ) {
-				$entries .= $entry . "\n";
-			}
-			$running += $size;
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-		@\file_put_contents( $this->get_index_path( $segment ), $entries );
 	}
 
 	/** Flush the residual batch, then close file handles + release write lock before normal Node teardown. */
@@ -1247,22 +1080,6 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Enable replica mode: fill() writes each message to the exact `<seg>:<off>:<len>`
-	 * position its Consumer stamped into Message::ID instead of appending at the tail
-	 * ([140]). See replica_write() for the boundary/EOF/length validation and rewind.
-	 *
-	 * Not meant to be combined with allow_large_writes()/void_warranty(): replica bypasses
-	 * the PIPE_BUF-cap and batch machinery, and fill() returns before the no-event-loop
-	 * lock-heartbeat block, so a held write lock would never be heartbeated.
-	 *
-	 * @return self
-	 */
-	public function is_replica(): self {
-		$this->is_replica = true;
-		return $this;
-	}
-
-	/**
 	 * Enable companion index files via a custom formatter callback.
 	 *
 	 * The formatter receives the unpacked message array (the 7-field positional
@@ -1293,9 +1110,6 @@ class Partition_Node extends Timer_Node {
 				$verb = 'allow_large_writes';
 			}
 			$out .= "cmd {$this->name}:config {$verb}\n";
-		}
-		if ( $this->is_replica ) {
-			$out .= "cmd {$this->name}:config is_replica\n";
 		}
 		if ( null !== $this->index_formatter_name ) {
 			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
@@ -1397,20 +1211,6 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * `is_replica` verb handler — flip the patron into replica mode (exact-position writes).
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 *
-	 * @return string
-	 */
-	public static function cmd_is_replica( Command_Interpreter_Node $interpreter ): string {
-		/** @var self $patron */
-		$patron = $interpreter->patron();
-		$patron->is_replica();
-		return 'ok';
-	}
-
-	/**
 	 * `with_index` verb handler — set the patron's companion-index line-formatter by name.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
@@ -1469,12 +1269,6 @@ class Partition_Node extends Timer_Node {
 					'description' => 'Lift the 4KB PIPE_BUF cap with NO write lock — caller asserts single-writer (corrupts under concurrent writers; use allow_large_writes otherwise).',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_void_warranty( $interpreter ),
-				],
-				[
-					'name'        => 'is_replica',
-					'description' => 'Write each message to the exact <segment>:<offset>:<length> position stamped in its ID (replication) instead of appending; rewinds the tail when the offset is behind the log end.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_is_replica( $interpreter ),
 				],
 				[
 					'name'        => 'with_index',
