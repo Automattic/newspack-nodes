@@ -141,6 +141,17 @@ class Config {
 	}
 
 	/**
+	 * Whether $key is in the registered set. This is the primitive a consumer
+	 * plugin's own value() accessor calls to validate a key against the shared
+	 * substrate registry before reading its own merged config.
+	 *
+	 * @api
+	 */
+	public static function is_declared( string $key ): bool {
+		return isset( self::$registered_keys[ $key ] );
+	}
+
+	/**
 	 * Fail-loud single-key config read: an undeclared key throws instead of
 	 * limping on a `?? default` — that's the guard that catches a renamed or
 	 * typo'd key. A declared key resolves to load_config()[$key] (option overlay
@@ -151,7 +162,7 @@ class Config {
 	 * @throws \RuntimeException If $key is not in the registered set.
 	 */
 	public static function value( string $key ): mixed {
-		if ( ! isset( self::$registered_keys[ $key ] ) ) {
+		if ( ! self::is_declared( $key ) ) {
 			throw new \RuntimeException(
 				\sprintf( "unknown config key '%s' — not declared by any registered schema", \esc_html( $key ) )
 			);
