@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -105,6 +106,68 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertNotNull( $seeded, 'a consumer is stamped with the concrete dir name' );
 		$this->assertSame( 2, $segment->getValue( $seeded ) );
 		$this->assertSame( 5, $offset->getValue( $seeded ) );
+	}
+
+	public function test_reconcile_adds_new_and_removes_vanished_glob_dirs(): void {
+		// Self-heal: a live glob stream picks up a partition dir that appears and
+		// drops one that vanishes (partitions increasing AND decreasing).
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$route = new Node();
+		$route->name( '_reconcile_route_' . \getmypid() );
+
+		$consumers  = [];
+		$glob_owned = [];
+		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $c ) {
+			$c->name( $c->stamped_as() );
+			$c->sink( $route );
+			$consumers[ $c->stamped_as() ]  = $c;
+			$glob_owned[ $c->stamped_as() ] = true;
+		}
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $consumers ) );
+
+		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+		$this->assertArrayHasKey( 'firehose.p1', $consumers, 'a new partition dir self-heals in' );
+		$this->assertCount( 2, $consumers );
+
+		$this->rmdir_recursive( "{$this->tmp}/logs/firehose.p0" );
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+		$this->assertSame( [ 'firehose.p1' ], \array_keys( $consumers ), 'a vanished partition dir self-heals out' );
+	}
+
+	public function test_reconcile_leaves_a_non_glob_consumer_alone(): void {
+		// An exact IPC/log consumer coexisting with a glob must survive a reconcile
+		// even though it's not in the glob's matched set (not glob-owned).
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$route = new Node();
+		$route->name( '_reconcile_route2_' . \getmypid() );
+
+		$consumers  = [];
+		$glob_owned = [];
+		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $c ) {
+			$c->name( $c->stamped_as() );
+			$c->sink( $route );
+			$consumers[ $c->stamped_as() ]  = $c;
+			$glob_owned[ $c->stamped_as() ] = true;
+		}
+		// An exact IPC consumer whose name MATCHES `firehose.*` (fnmatch true) but
+		// is NOT glob-owned, and has no logs/ dir. Pattern-match removal would drop
+		// it; ownership-based removal must keep it.
+		$exact = new Consumer_Node();
+		$exact->arguments( "{$this->tmp}/ipc/firehose.p9/output " );
+		$exact->set_stamp_as( 'firehose.p9' );
+		$exact->name( 'firehose.p9' );
+		$exact->sink( $route );
+		$consumers['firehose.p9'] = $exact;
+
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+
+		$this->assertArrayHasKey( 'firehose.p9', $consumers, 'an exact consumer matching the glob but not glob-owned survives' );
+		$this->assertArrayHasKey( 'firehose.p0', $consumers );
 	}
 
 	public function test_ipc_reader_subscription_returns_one_consumer(): void {
