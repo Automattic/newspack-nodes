@@ -16,6 +16,7 @@
 import { Node } from './node';
 import { pack } from './message';
 import { byteLength } from './io-telemetry';
+import { CommandClient } from './command-client';
 
 export class HttpOutNode extends Node {
 	/**
@@ -61,6 +62,10 @@ export class HttpOutNode extends Node {
 
 	// POST the entries; feed each sync reply into the sink (routes by TO).
 	_post( entries ) {
+		// Palette drop with no client: default from the localized global.
+		if ( ! this.client ) {
+			this.client = CommandClient.fromGlobal();
+		}
 		// Pack ONCE: byte tally AND the POST body; postBatch reuses them.
 		const packed = entries.map( ( m ) => pack( m ) );
 		// Write boundary: tally the packed wire size of what we POST.
@@ -93,7 +98,7 @@ export class HttpOutNode extends Node {
 	// Programmatic-deps node: no positional config to round-trip.
 	static nodeSchema() {
 		return {
-			category: 'Remote',
+			category: 'I/O',
 			description: 'Browser → /command HTTP boundary (the `_http` node).',
 			// POSTs out, routes replies to FROM; no `target`, no out-port.
 			has_target: false,
