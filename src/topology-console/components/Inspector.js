@@ -1290,6 +1290,8 @@ const NO_NODE_COMMANDS = [
 	[ 'config', 'dump_config' ],
 	[ 'metadata', 'dump_metadata' ],
 	[ 'stats', 'stats' ],
+	[ 'timers', 'list_timers' ],
+	[ 'handles', 'list_handles' ],
 	[ 'ping', 'ping' ],
 ];
 
