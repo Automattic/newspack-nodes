@@ -243,6 +243,11 @@ class Core {
 		self::$stderr_handler = $h;
 	}
 
+	/** True while the stderr handler is on the stack; pump() reads it to skip a log-write stop. */
+	public static function in_stderr(): bool {
+		return self::$in_stderr;
+	}
+
 	/** Register a topology `<ns:key>` token resolver for namespace $ns (last writer wins). */
 	public static function register_config_namespace( string $ns, callable $resolver ): void {
 		self::$config_resolvers[ $ns ] = $resolver;

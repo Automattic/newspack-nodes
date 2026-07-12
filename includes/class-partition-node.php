@@ -226,7 +226,8 @@ class Partition_Node extends Timer_Node {
 	 * Beat the worker heartbeat from inside a long in-process write burst (pump()).
 	 * If the cooperative stop is honored, flush the batched in-flight message to disk
 	 * BEFORE the throw unwinds so the Consumer can commit past it (the clean-stop
-	 * contract) — remove_node/close_handle do NOT flush. The large-write path already
+	 * contract) — close_handle does NOT flush, and remove_node's teardown flush lands
+	 * too late (after the Consumer has already committed). The large-write path already
 	 * wrote synchronously, so the flush is a no-op there.
 	 */
 	private function maybe_stop(): void {
@@ -342,8 +343,9 @@ class Partition_Node extends Timer_Node {
 		$this->segments_cache_time = \microtime( true );
 	}
 
-	/** Close file handles + release write lock before normal Node teardown. */
+	/** Flush the residual batch, then close file handles + release write lock before normal Node teardown. */
 	public function remove_node(): void {
+		$this->flush(); // deterministic shutdown flush (cleanup_all_nodes), not GC/__destruct
 		$this->close_handle();
 		if ( null !== $this->write_lock ) {
 			// Release only a lock we hold — a debounced peer may own it now.
