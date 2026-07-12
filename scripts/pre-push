@@ -26,8 +26,6 @@ readonly HOST
 readonly PLUGIN_SLUG="newspack-nodes"
 readonly DEPLOY_SCRIPT="/services/pyrobase/setup/${PLUGIN_SLUG}.sh"
 readonly CONTAINER="${HOST}-pyrobase1-1"
-# /services, not /usr/src: the nodes/eln deploy installs a release zip and never rsyncs into /usr/src (dndocker AGENTS.md: "run straight from /services").
-readonly TEST_DIR_IN_CONTAINER="/services/pyrobase/sources/${PLUGIN_SLUG}/tests"
 
 red()    { printf '\033[31m%s\033[0m' "$*"; }
 green()  { printf '\033[32m%s\033[0m' "$*"; }
@@ -113,38 +111,50 @@ if [[ -n "$js_changed" || -n "$scss_changed" ]]; then
 	ok "build clean"
 fi
 
-# --- PHP tests run in the docker container when one is available. ----------
-# The configured CONTAINER only exists in some local dev environments —
-# anyone else who clones this plugin won't have it and the silent skip is
-# the right behavior. No dndocker-tree detection needed: the container
-# either responds to `docker exec` or it doesn't.
+# --- PHP tests run WITH COVERAGE in the docker container when available. ----
+# run-coverage.sh runs the phpunit suite (so a test failure still fails the
+# push — it's `bash -e`, phpunit's non-zero exit aborts it) AND emits the
+# clover the gate reads. The gate then fails the push if ANY class dropped
+# below 90% statement coverage — borrowed from tools/coverage-summary.py.
+#
+# The configured CONTAINER only exists in some local dev environments — anyone
+# who clones this plugin standalone won't have it (nor the dndocker tools/), and
+# the silent skip is the right behavior. No dndocker-tree detection needed: the
+# container and the tool either exist or they don't.
 if [[ -n "$php_changed" ]]; then
 	if ! command -v docker >/dev/null 2>&1 \
 	   || ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER}$"; then
-		step "$(dim "container ${CONTAINER} not available — skipping deploy + phpunit")"
+		step "$(dim "container ${CONTAINER} not available — skipping deploy + coverage")"
 	else
 		step "deploy → ${CONTAINER}"
 		docker exec "$CONTAINER" "$DEPLOY_SCRIPT" >/dev/null || fail "deploy script failed"
 
-		step "phpunit in container"
-		out=/tmp/pre-push-phpunit.out
-		# Use the composer-installed binary, NOT the system `phpunit` (a newer
-		# major that crashes on our bootstrap). Capture the real exit code:
-		# `|| true` would swallow a non-zero status, and grepping only for
-		# FAILURES/ERRORS lets a `command not found` (or any error whose output
-		# lacks those words) pass vacuously.
-		if docker exec -u bend "$CONTAINER" bash -c \
-			"cd ${TEST_DIR_IN_CONTAINER} && ../vendor/bin/phpunit --enforce-time-limit 2>&1" \
-			>"$out"; then
-			phpunit_rc=0
+		step "coverage suite in container (phpunit + clover)"
+		out=/tmp/pre-push-coverage.out
+		if docker exec -u bend "$CONTAINER" \
+			"/services/pyrobase/sources/${PLUGIN_SLUG}/tests/run-coverage.sh" >"$out" 2>&1; then
+			cov_rc=0
 		else
-			phpunit_rc=$?
+			cov_rc=$?
 		fi
 		tail -3 "$out" >&2
-		if [[ "$phpunit_rc" -ne 0 ]] || grep -qE 'FAILURES|ERRORS' "$out"; then
-			fail "phpunit failed (exit ${phpunit_rc}) — full output at ${out}"
+		[[ "$cov_rc" -ne 0 ]] && fail "coverage suite failed (exit ${cov_rc}) — full output at ${out}"
+		ok "coverage suite clean"
+
+		# Per-class 90% gate via the repo-local, self-contained scripts/coverage-gate.py
+		# (clover parse borrowed from dndocker's tools/coverage-summary.py). The clover
+		# lands in the dndocker volume; skip gracefully off-dndocker or without python3.
+		gate="$(git rev-parse --show-toplevel)/scripts/coverage-gate.py"
+		dndocker_root="$(cd "$(git rev-parse --show-toplevel)/../../../.." 2>/dev/null && pwd || true)"
+		clover="${dndocker_root}/volumes/pyrobase/tmp/${PLUGIN_SLUG}-coverage/clover.xml"
+		if [[ -f "$gate" && -f "$clover" ]] && command -v python3 >/dev/null 2>&1; then
+			step "coverage gate (every class ≥ 90%)"
+			python3 "$gate" "$clover" --threshold 90 >&2 \
+				|| fail "coverage gate failed — a class is below 90% (see above)"
+			ok "coverage gate passed"
+		else
+			step "$(dim 'coverage gate skipped (no clover / python3)')"
 		fi
-		ok "phpunit clean"
 	fi
 fi
 

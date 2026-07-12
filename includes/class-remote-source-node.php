@@ -110,7 +110,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
 			return; // Sacrificed / dropped — not forwarded.
 		}
-		$this->forward_line( $line, $abs_offset, null !== $crumb );
+		$this->forward_line( $line, $abs_offset, $crumb );
 	}
 
 	/**
@@ -121,10 +121,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * head-block, no fair-shot climb — that is reserved for the hard-crash lineage / crawl); a
 	 * Worker_Should_Stop is control flow (record the mid-dispatch stop, escape); a null downstream
 	 * FAILS LOUD; an unparseable line is quarantined (a re-delivered boot 'drop' head is dropped).
-	 * A crumb-less throwing message ($has_crumb false) has no position of its own — the cursor still
+	 * A crumb-less throwing message (null $crumb) has no position of its own — the cursor still
 	 * pins the prior healthy line — so it is dead-lettered but writes NO quarantine marker there.
+	 *
+	 * @param array{segment:int, offset:int, length:int}|null $crumb The line's parsed breadcrumb.
 	 */
-	protected function forward_line( string $line, int $abs_offset, bool $has_crumb = true ): void {
+	protected function forward_line( string $line, int $abs_offset, ?array $crumb = null ): void {
 		$sink = $this->sink;
 		if ( null === $sink ) {
 			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
@@ -163,13 +165,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 				$this->write_checkpoint_frame( true, true );
 			}
 		} catch ( Worker_Should_Stop $e ) {
+			$clean = $e instanceof Worker_Should_Stop_Clean;
+			// Commit past a crumb-bearing message not in crawl; else replay.
+			if ( ( $clean || $this->assume_clean_shutdown ) && null !== $crumb && ! $this->crawl ) {
+				$this->cursor_offset += $crumb['length'];
+				throw $clean ? $e : new Worker_Should_Stop_Clean();
+			}
 			// Cooperative deadline: record the mid-dispatch stop, then escape.
-			$this->stopped_in_fill = true;
+			if ( ! $clean ) {
+				$this->stopped_in_fill = true;
+			}
 			throw $e;
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
 			// Crumb-bearing message pins its start; else marker hits good line.
-			if ( $has_crumb ) {
+			if ( null !== $crumb ) {
 				$this->mark_quarantined_at( $this->cursor_segment, $this->cursor_offset );
 			}
 		}
@@ -245,12 +255,13 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Parse a raw line's breadcrumb into `{segment, offset}`, or null when the line won't unpack
-	 * or its ID isn't a well-formed crumb. Accepts BOTH `segment:offset:length` (legacy) and the
-	 * shrunk `segment:offset` (advance-on-next retired the length read; a third field is tolerated
-	 * but never consumed). offset is the record's own on-disk start — the only thing the cursor needs.
+	 * Parse a raw line's breadcrumb into `{segment, offset, length}`, or null when the line won't
+	 * unpack or its ID isn't a well-formed crumb. offset is the record's on-disk start; length is
+	 * the crumb's own `segment:offset:length` third field — the spoke's authoritative byte size —
+	 * falling back to the local received size for a legacy 2-field crumb. assume_clean_shutdown
+	 * commits offset+length to advance PAST a durably-written message on a cooperative stop.
 	 *
-	 * @return array{segment:int, offset:int}|null
+	 * @return array{segment:int, offset:int, length:int}|null
 	 */
 	private function crumb_from_line( string $line ): ?array {
 		try {
@@ -267,7 +278,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( 3 === $count && ! \ctype_digit( $parts[2] ) ) {
 			return null;
 		}
-		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1] ];
+		$length = ( 3 === $count ) ? (int) $parts[2] : \strlen( $line ) + 1;
+		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => $length ];
 	}
 
 	// --- Durable position restore + shutdown handoff ---
@@ -621,7 +633,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * dump_config → replay round-trips this source's snapshot node.
 	 */
 	public function dump_config(): string {
-		return parent::dump_config() . $this->dump_time_travel_config( $this->name );
+		return parent::dump_config() . $this->dump_time_travel_config( $this->name ) . $this->dump_pump_config( $this->name );
 	}
 
 	/**
@@ -634,7 +646,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			'category'    => 'I/O',
 			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
 			// Time-travel verbs are shared with Consumer via Time_Travel trait.
-			'commands'    => self::time_travel_verbs(),
+			'commands'    => \array_merge( self::time_travel_verbs(), self::pump_verbs() ),
 		] );
 	}
 }

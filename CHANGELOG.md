@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-07-11
+
+### Added
+
+- **`assume_clean_shutdown` verb on Consumer / Remote_Source** (`Buffered_Pump`) — opt-in for a chain whose sink writes the message *durably before* the stop and has no snapshot node to raise `Worker_Should_Stop_Clean` (a plain Consumer→Partition: the aggregator, `Job_Router` → jobs.log, replication). When set, a plain `Worker_Should_Stop` is treated like Clean — the in-flight message is committed *past* instead of replayed — so a max_runtime recycle doesn't duplicate the already-written record. Remote_Source advances by the message's own remote crumb length (`seg:offset:length`, revived from the advance-on-next retirement) = the spoke's next-record offset. Guarded: crumb-less messages (no position) and crawl mode (hard-crash pin) fall through to at-least-once replay, and it must NOT be set on a Consumer whose sink *runs* jobs (`Job_Worker`), which can stop mid-work ([ADR-8]). `cmd <reader>:config assume_clean_shutdown 1`; round-trips via dump_config.
+
+### Changed
+
+- **Pre-push now runs the coverage suite and gates every class at ≥ 90% statement coverage.** `scripts/pre-push` runs `run-coverage.sh` (a test failure still fails the push) then a self-contained `scripts/coverage-gate.py` (clover parse borrowed from dndocker's `tools/coverage-summary.py`; `scripts/test-coverage-gate.sh` covers it). Skips gracefully off-dndocker. `Log_Discovery` gained a lazily-defaulted `glob()` closure seam so the glob-error branch is testable.
+
 ## [0.37.0] - 2026-07-11
 
 ### Added

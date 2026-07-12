@@ -624,6 +624,45 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'quarantined', $frame, 'a routine cooperative stop writes no marker' );
 	}
 
+	public function test_assume_clean_shutdown_commits_past_the_stopped_message(): void {
+		// With assume_clean_shutdown, a plain cooperative stop commits PAST the in-flight
+		// message using the crumb's own LENGTH (seg:offset:length), so the restart resumes
+		// after it and the hub isn't re-sent the already-written message. Contrast the
+		// default, which commits at the message START and re-delivers it.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->set_assume_clean_shutdown( true );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver_built( $sse, $this->stop_message( '7:300:44' ) ); // plain stop; crumb length 44.
+		$node->cooperative_stop( 'timeout', false );
+
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 344, $frame['offset'], 'commits past the message: start 300 + crumb length 44' );
+		$this->assertSame( 0, $frame['attempts'], 'a clean-shutdown stop advances the cursor — no strike' );
+	}
+
+	public function test_assume_clean_shutdown_does_not_advance_past_a_crumbless_message(): void {
+		// A crumb-less message has no position of its own — the cursor pins the PRIOR
+		// healthy line. assume_clean_shutdown must NOT advance from that base (that would
+		// be prior_start + this_line_len = a bogus offset that misaligns the stream); it
+		// falls through to the normal mid-dispatch replay, committing at the prior line.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->set_assume_clean_shutdown( true );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:100:40', '' );                  // healthy → cursor pins {7,100}.
+		$this->deliver_built( $sse, $this->stop_message( '' ) ); // crumb-less stop.
+		$node->cooperative_stop( 'timeout', false );
+
+		$this->assertSame( 100, $this->newest_offsetlog_frame( $node )['offset'], 'crumb-less stop does not advance past the prior line' );
+	}
+
 	public function test_cooperative_stop_memory_watermark_exemption_does_not_strike(): void {
 		// A memory stop with the fresh baseline already near the watermark blames a leak /
 		// undersized limit, NOT the in-flight message: clean handoff, no strike (EXACTLY Consumer).

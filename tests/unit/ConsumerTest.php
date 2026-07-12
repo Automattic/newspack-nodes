@@ -1097,6 +1097,47 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( '', $entry['reason'] );
 	}
 
+	public function test_assume_clean_shutdown_commits_past_a_plain_stop(): void {
+		// A plain Consumer→Partition chain (no snapshot node to raise Clean) writes
+		// durably before the stop, so assume_clean_shutdown treats a plain
+		// Worker_Should_Stop like a clean one: commit past the in-flight message rather
+		// than replay it. That's the fix for the aggregator / Consumer→Partition dup.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'A' );
+		$this->produce_line( $source, 'B' );
+		$this->produce_line( $source, 'C' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->set_assume_clean_shutdown( true );
+		$this->stop_on_value( $c, 'C' ); // a PLAIN stop on C.
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		// C is committed past (no complete line buffered) despite the PLAIN stop.
+		$buffer = (string) $this->read_private( $c, 'buffer' );
+		$this->assertFalse( \strpos( $buffer, "\n" ), 'assume_clean_shutdown commits past a plain stop' );
+
+		$c->cooperative_stop( 'timeout', false );
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'], 'clean-shutdown plain stop advances the cursor — no strike' );
+	}
+
+	public function test_assume_clean_shutdown_round_trips_through_dump_config(): void {
+		// The verb re-emits on dump_config so a console-serialized graph replays it.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->name( 'firehose:consumer' );
+		$this->assertStringNotContainsString( 'assume_clean_shutdown', $c->dump_config() );
+		$c->set_assume_clean_shutdown( true );
+		$this->assertStringContainsString( 'cmd firehose:consumer:config assume_clean_shutdown 1', $c->dump_config() );
+	}
+
 	public function test_cooperative_timeout_strikes_when_stopped_on_the_boot_cursor(): void {
 		// A timeout at the message the worker BOOTED on (cursor never advanced, message
 		// still buffered) got a fair full-lifetime shot — it counts as a strike: the
@@ -3194,7 +3235,7 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
 		$this->assertSame(
-			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'set_multi_writer' ],
+			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'assume_clean_shutdown', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
 			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (STEP is a mutating command, not a request), and set_multi_writer (seal-grace)'
 		);

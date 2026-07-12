@@ -86,6 +86,55 @@ trait Buffered_Pump {
 	 */
 	protected bool $stopped_in_fill = false;
 
+	/**
+	 * Opt-in for a chain whose sink writes the message DURABLY before the stop and has no
+	 * snapshot node to raise Worker_Should_Stop_Clean (a plain Consumer→Partition: the
+	 * aggregator, a Job_Router → jobs.log, replication). When set, a plain
+	 * Worker_Should_Stop is treated like Clean — the in-flight message is committed past
+	 * instead of replayed — so a recycle doesn't duplicate the already-written message.
+	 *
+	 * Do NOT set this on a Consumer whose sink RUNS work that can stop mid-flight with no
+	 * durable write (a Job_Worker handler that pumps mid-job): committing past would drop
+	 * a half-run job. Default off keeps at-least-once replay for those ([ADR-8]).
+	 */
+	protected bool $assume_clean_shutdown = false;
+
+	/** Verb-backed toggle for assume_clean_shutdown (durable-before-stop chains commit past). */
+	public function set_assume_clean_shutdown( bool $flag ): void {
+		$this->assume_clean_shutdown = $flag;
+	}
+
+	/**
+	 * Config-verb fragment; the using node splices this into its node_schema commands.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function pump_verbs(): array {
+		return [
+			[
+				'name'        => 'assume_clean_shutdown',
+				'description' => 'Treat a plain Worker_Should_Stop like Worker_Should_Stop_Clean — commit PAST the in-flight message on a cooperative stop instead of replaying it. For a durable-before-stop chain with no snapshot node (aggregator, Consumer→Partition, job-router). Only a truthy arg enables.',
+				'args'        => [
+					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
+				],
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_assume_clean_shutdown( $interpreter, $args ),
+			],
+		];
+	}
+
+	/** `assume_clean_shutdown` verb handler — only a truthy arg enables; anything else disables. */
+	public static function cmd_assume_clean_shutdown( Command_Interpreter_Node $interpreter, string $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->set_assume_clean_shutdown( \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true ) );
+		return 'ok';
+	}
+
+	/** dump_config fragment: re-emit the verb when set, so a console dump → replay round-trips it. */
+	protected function dump_pump_config( string $name ): string {
+		return $this->assume_clean_shutdown ? "cmd {$name}:config assume_clean_shutdown 1\n" : '';
+	}
+
 	/** Timer-driven: poll, periodically checkpoint the cursor, then re-arm (busy/EOF cadence). */
 	protected function fire(): void {
 		$this->poll();
@@ -283,6 +332,12 @@ trait Buffered_Pump {
 			++$this->counter;
 			throw $e;
 		} catch ( Worker_Should_Stop $e ) {
+			// Not in crawl: its pin isolates a crash suspect, no commit-past.
+			if ( $this->assume_clean_shutdown && ! $this->crawl ) {
+				// Durable chain, no snapshot: commit past like a clean stop.
+				++$this->counter;
+				throw new Worker_Should_Stop_Clean();
+			}
 			// Control flow, not poison: record mid-dispatch stop, then escape.
 			$this->stopped_in_fill = true;
 			throw $e;
