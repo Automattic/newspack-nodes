@@ -175,6 +175,20 @@ describe( 'Inspector (view mode)', () => {
 		expect( calls ).toContainEqual( [ 'command', null, 'debug_state *' ] );
 	} );
 
+	it( 'exposes list_timers/list_handles as no-node inspector commands', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		fireEvent.click( getByText( 'timers' ) );
+		expect( calls ).toContainEqual( [ 'command', null, 'list_timers' ] );
+		fireEvent.click( getByText( 'handles' ) );
+		expect( calls ).toContainEqual( [ 'command', null, 'list_handles' ] );
+	} );
+
 	it( 'no-node Compose opens a composer that dispatches the chosen verb', () => {
 		const onAction = jest.fn();
 		const { getByText } = render(
