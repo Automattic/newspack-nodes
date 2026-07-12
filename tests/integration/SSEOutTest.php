@@ -16,6 +16,7 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Integration;
 
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
@@ -305,5 +306,41 @@ class SSEOutTest extends TestCase {
 			}
 		}
 		return $out;
+	}
+
+	public function test_stream_self_heals_when_a_partition_dir_appears_and_vanishes(): void {
+		// A live glob stream picks up a partition dir created mid-drain, then drops
+		// the Consumer when the dir is removed (partitions increasing AND decreasing).
+		// The reconcile runs on the heartbeat, so check_slot polls across ticks.
+		$base = $this->make_temp_dir( 'sse-selfheal-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+
+		$ticks = 0;
+		$phase = 'add';
+		SSE_Out_Node::$check_slot = function () use ( &$ticks, &$phase, $base ): bool {
+			if ( ++$ticks > 2000 ) {
+				return false; // safety cap so a wiring regression can't hang the suite
+			}
+			if ( 'add' === $phase ) {
+				if ( ! \is_dir( "{$base}/logs/firehose.p1" ) ) {
+					\mkdir( "{$base}/logs/firehose.p1", 0755, true );
+				} elseif ( Core::node( 'firehose.p1' ) instanceof Consumer_Node ) {
+					$this->rmdir_recursive( "{$base}/logs/firehose.p1" );
+					$phase = 'remove';
+				}
+				return true;
+			}
+			// remove phase: stop once the vanished dir's Consumer is reconciled out.
+			return Core::node( 'firehose.p1' ) instanceof Consumer_Node;
+		};
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 1, 1, -1 );
+		\ob_get_clean();
+
+		$this->assertLessThan( 2000, $ticks, 'self-heal added then removed the partition before the cap' );
+		$this->rmdir_recursive( $base );
 	}
 }

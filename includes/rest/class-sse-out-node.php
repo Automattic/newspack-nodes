@@ -215,22 +215,24 @@ class SSE_Out_Node extends Node {
 			$default_route->target( Node_Names::SSE );
 			$default_route->patron( $this );
 
+			$glob_subs  = [];
+			$glob_owned = [];
 			foreach ( $subs as $sub ) {
+				$is_glob = \str_contains( $sub, '*' );
+				if ( $is_glob ) {
+					$glob_subs[] = $sub;
+				}
 				// Positions are a FLAT { dir: pos } map; pass the whole thing.
 				$opened = $this->open_subscription(
 					$sub,
 					\is_array( $positions ) ? $positions : null
 				);
 				foreach ( $opened as $c ) {
-					// Name by the dir basename (stamp): unique, `*`-free.
 					$name = $c->stamped_as();
-					if ( '' === $name || isset( $consumers[ $name ] ) ) {
-						continue;
+					$this->attach_consumer( $c, $consumers, $default_route );
+					if ( $is_glob && isset( $consumers[ $name ] ) ) {
+						$glob_owned[ $name ] = true;
 					}
-					$c->name( $name );
-					$c->sink( $default_route );
-					$c->patron( $this );
-					$consumers[ $name ] = $c;
 				}
 			}
 
@@ -238,7 +240,7 @@ class SSE_Out_Node extends Node {
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = \microtime( true );
 			Event_Framework::instance()->drain(
-				function () use ( &$last_heartbeat, $heartbeat_interval, $slot, $partition ): bool {
+				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, $glob_subs, $default_route, $heartbeat_interval, $slot, $partition ): bool {
 					$check = self::$check_slot;
 					if ( null !== $check && ! $check( $slot, $partition ) ) {
 						return false;
@@ -249,6 +251,10 @@ class SSE_Out_Node extends Node {
 					$now = \microtime( true );
 					if ( ( $now - $last_heartbeat ) >= $heartbeat_interval ) {
 						$this->send_sse_event( 'heartbeat', $this->build_heartbeat_msg( $now ) );
+						// Self-heal glob subs against the live filesystem.
+						if ( ! empty( $glob_subs ) ) {
+							$this->reconcile_glob_consumers( $glob_subs, $consumers, $glob_owned, $default_route );
+						}
 						$last_heartbeat = $now;
 					}
 					// Flush before sleep so this tick reaches the client.
@@ -396,6 +402,72 @@ class SSE_Out_Node extends Node {
 		);
 		$consumer->set_stamp_as( $name );
 		return $consumer;
+	}
+
+	/**
+	 * Name a Consumer by its dir-basename stamp, wire it into the SSE graph, and
+	 * add it to the live $consumers map. Skips a name already open (dedup).
+	 *
+	 * @param array<string,Consumer_Node> $consumers Live map, mutated in place.
+	 */
+	private function attach_consumer( Consumer_Node $c, array &$consumers, Node $route ): void {
+		$name = $c->stamped_as();
+		if ( '' === $name || isset( $consumers[ $name ] ) ) {
+			return;
+		}
+		$c->name( $name );
+		$c->sink( $route );
+		$c->patron( $this );
+		$consumers[ $name ] = $c;
+	}
+
+	/**
+	 * Self-heal glob subscriptions against the live filesystem: open a Consumer
+	 * for each newly-appeared matching dir (tail-seek — it appeared after connect)
+	 * and remove_node one whose dir vanished (partitions increasing OR decreasing).
+	 * Only glob-OPENED names (`$glob_owned`) are removed — an exact IPC/log
+	 * subscription is never touched. A `glob()` I/O error skips the removal pass
+	 * (keep what we have) so a transient logs/ read failure can't tear down and
+	 * re-tail every partition, only re-add on a trusted (error-free) scan.
+	 *
+	 * @api Called on the drain heartbeat; also unit-tested directly.
+	 *
+	 * @param array<int,string>           $glob_subs  Subscriptions containing `*`.
+	 * @param array<string,Consumer_Node> $consumers  Live map (by dir basename), mutated in place.
+	 * @param array<string,bool>          $glob_owned Names opened by a glob (removable), mutated in place.
+	 */
+	public function reconcile_glob_consumers( array $glob_subs, array &$consumers, array &$glob_owned, Node $route ): void {
+		$base    = $this->base_dir ?? Bootstrap::base_dir();
+		$wanted  = [];
+		$glob_ok = true;
+		foreach ( $glob_subs as $sub ) {
+			$matches = \glob( "{$base}/logs/{$sub}", \GLOB_ONLYDIR );
+			if ( false === $matches ) {
+				$glob_ok = false; // I/O error — not a trustworthy "nothing wanted".
+				continue;
+			}
+			foreach ( $matches as $dir ) {
+				$wanted[ \basename( $dir ) ] = $dir;
+			}
+		}
+		foreach ( $wanted as $name => $dir ) {
+			if ( ! isset( $consumers[ $name ] ) ) {
+				$this->attach_consumer( $this->log_consumer_for( $dir, $name, null ), $consumers, $route );
+				if ( isset( $consumers[ $name ] ) ) {
+					$glob_owned[ $name ] = true;
+				}
+			}
+		}
+		if ( ! $glob_ok ) {
+			return; // partial view: add only this round, never remove.
+		}
+		foreach ( $consumers as $name => $c ) {
+			if ( isset( $wanted[ $name ] ) || ! isset( $glob_owned[ $name ] ) ) {
+				continue;
+			}
+			$c->remove_node();
+			unset( $consumers[ $name ], $glob_owned[ $name ] );
+		}
 	}
 
 	/**

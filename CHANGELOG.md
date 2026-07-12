@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SSE glob subscriptions self-heal live.** A `{feed}.*` stream re-globs on each heartbeat and opens a Consumer for a partition dir that appears mid-stream, and removes the one whose dir vanishes (partition count increasing OR decreasing) — so a dashboard opened before a feed exists starts streaming once its first partition is created, without a reconnect. Only glob-opened readers are reconciled (exact subscriptions are never touched), and a transient `glob()` error skips the removal pass so an I/O blip can't tear down and re-tail every partition.
 - **Argument tooltips in the topology console.** Constructor-argument labels (`CtorField`, shared by the Inspector's edit panel and the add-node modal) and edit-mode verb labels now surface their `node_schema` `description` as a native `title` tooltip — matching the live-mode verb tooltip, so a setting's meaning is visible while editing, not just while running. Every substrate node's constructor arguments gained a `description`, and a new `NodeSchemaCoverageTest` gate fails if any `node_schema` argument lacks one.
 
 ### Changed
