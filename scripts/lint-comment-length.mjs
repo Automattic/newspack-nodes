@@ -13,7 +13,8 @@
  * Exit 0 clean; exit 1 with `file:line: message` per violation.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 const MAX_COLS = 80;
 const TAB_WIDTH = 4;
@@ -135,14 +136,49 @@ function checkFile( path ) {
 	return violations.sort( ( a, b ) => parseInt( a, 10 ) - parseInt( b, 10 ) );
 }
 
-let failed = false;
-for ( const path of process.argv.slice( 2 ) ) {
-	if ( ! /\.[jt]sx?$/.test( path ) || isExemptPath( path ) ) {
-		continue;
+const SKIP_DIRS = new Set( [
+	'node_modules',
+	'build',
+	'vendor',
+	'release',
+	'.git',
+] );
+const isSourceFile = ( p ) => /\.[cm]?jsx?$/.test( p );
+
+function* walkFiles( dir ) {
+	for ( const entry of readdirSync( dir, { withFileTypes: true } ) ) {
+		const full = join( dir, entry.name );
+		if ( entry.isDirectory() ) {
+			if ( ! SKIP_DIRS.has( entry.name ) ) {
+				yield* walkFiles( full );
+			}
+		} else if ( entry.isFile() && isSourceFile( full ) ) {
+			yield full;
+		}
 	}
-	for ( const violation of checkFile( path ) ) {
-		process.stderr.write( `${ path }:${ violation }\n` );
-		failed = true;
+}
+
+function* expandArg( arg ) {
+	if ( ! existsSync( arg ) ) {
+		return;
+	}
+	if ( statSync( arg ).isDirectory() ) {
+		yield* walkFiles( arg );
+	} else {
+		yield arg;
+	}
+}
+
+let failed = false;
+for ( const arg of process.argv.slice( 2 ) ) {
+	for ( const path of expandArg( arg ) ) {
+		if ( ! isSourceFile( path ) || isExemptPath( path ) ) {
+			continue;
+		}
+		for ( const violation of checkFile( path ) ) {
+			process.stderr.write( `${ path }:${ violation }\n` );
+			failed = true;
+		}
 	}
 }
 process.exit( failed ? 1 : 0 );
