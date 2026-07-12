@@ -621,7 +621,10 @@ function VerbRow( {
 		<div className="topology-edit-verb">
 			{ multiple ? (
 				<div className="topology-edit-row topology-edit-verb__head">
-					<span className="topology-edit-row__label">
+					<span
+						className="topology-edit-row__label"
+						title={ spec.description || undefined }
+					>
 						<code>{ spec.name }</code>
 					</span>
 					<button
@@ -645,7 +648,10 @@ function VerbRow( {
 						checked={ checked }
 						onChange={ ( e ) => onToggle( e.target.checked ) }
 					/>
-					<span className="topology-edit-row__label">
+					<span
+						className="topology-edit-row__label"
+						title={ spec.description || undefined }
+					>
 						<code>{ spec.name }</code>
 					</span>
 				</label>

@@ -64,7 +64,11 @@ export function CtorField( {
 		if ( formatters.length === 0 ) {
 			return (
 				<div className="topology-edit-row">
-					<label htmlFor={ id } className="topology-edit-row__label">
+					<label
+						htmlFor={ id }
+						className="topology-edit-row__label"
+						title={ spec.description || undefined }
+					>
 						{ spec.name }
 						{ spec.required ? ' *' : '' }
 					</label>
@@ -84,7 +88,11 @@ export function CtorField( {
 		}
 		return (
 			<div className="topology-edit-row">
-				<label htmlFor={ id } className="topology-edit-row__label">
+				<label
+					htmlFor={ id }
+					className="topology-edit-row__label"
+					title={ spec.description || undefined }
+				>
 					{ spec.name }
 					{ spec.required ? ' *' : '' }
 				</label>
@@ -111,7 +119,11 @@ export function CtorField( {
 		if ( vaults.length === 0 ) {
 			return (
 				<div className="topology-edit-row">
-					<label htmlFor={ id } className="topology-edit-row__label">
+					<label
+						htmlFor={ id }
+						className="topology-edit-row__label"
+						title={ spec.description || undefined }
+					>
 						{ spec.name }
 						{ spec.required ? ' *' : '' }
 					</label>
@@ -134,7 +146,11 @@ export function CtorField( {
 		const known = vaults.some( ( v ) => v.id === current );
 		return (
 			<div className="topology-edit-row">
-				<label htmlFor={ id } className="topology-edit-row__label">
+				<label
+					htmlFor={ id }
+					className="topology-edit-row__label"
+					title={ spec.description || undefined }
+				>
 					{ spec.name }
 					{ spec.required ? ' *' : '' }
 				</label>
@@ -163,7 +179,11 @@ export function CtorField( {
 		// node_name args define a logical edge synthesized onto the canvas.
 		return (
 			<div className="topology-edit-row">
-				<label htmlFor={ id } className="topology-edit-row__label">
+				<label
+					htmlFor={ id }
+					className="topology-edit-row__label"
+					title={ spec.description || undefined }
+				>
 					{ spec.name }
 					{ spec.required ? ' *' : '' }
 				</label>
@@ -194,7 +214,11 @@ export function CtorField( {
 	const hasContent = String( currentValue ).length > 0;
 	return (
 		<div className="topology-edit-row">
-			<label htmlFor={ id } className="topology-edit-row__label">
+			<label
+				htmlFor={ id }
+				className="topology-edit-row__label"
+				title={ spec.description || undefined }
+			>
 				{ spec.name }
 				{ spec.required ? ' *' : '' }
 			</label>

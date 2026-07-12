@@ -48,6 +48,50 @@ class NodeSchemaCoverageTest extends TestCase {
 		);
 	}
 
+	public function test_every_node_schema_argument_has_a_description(): void {
+		// Every constructor argument surfaces in the topology console (CtorField);
+		// a missing description is a blank tooltip. This gate keeps new args honest.
+		$missing   = [];
+		$seen_args = 0;
+		foreach ( ClassLoader::getRegisteredLoaders() as $loader ) {
+			foreach ( \array_keys( $loader->getClassMap() ) as $fqcn ) {
+				if ( ! \str_starts_with( $fqcn, 'Newspack_Nodes\\' ) ) {
+					continue;
+				}
+				if ( \str_starts_with( $fqcn, 'Newspack_Nodes\\Tests\\' ) ) {
+					continue;
+				}
+				$short = \substr( (string) \strrchr( '\\' . $fqcn, '\\' ), 1 );
+				if ( ! \str_ends_with( $short, '_Node' ) || ! \is_subclass_of( $fqcn, Node::class ) ) {
+					continue;
+				}
+				$method = new \ReflectionMethod( $fqcn, 'node_schema' );
+				if ( Node::class === $method->getDeclaringClass()->getName() ) {
+					continue;
+				}
+				$args = $fqcn::node_schema()['arguments'] ?? [];
+				if ( ! \is_array( $args ) ) {
+					continue;
+				}
+				$shell = \substr( $short, 0, -\strlen( '_Node' ) );
+				foreach ( $args as $arg ) {
+					++$seen_args;
+					$name = \is_array( $arg ) ? (string) ( $arg['name'] ?? '?' ) : '?';
+					$desc = \is_array( $arg ) ? ( $arg['description'] ?? '' ) : '';
+					if ( ! \is_string( $desc ) || '' === \trim( $desc ) ) {
+						$missing[] = "{$shell}.{$name}";
+					}
+				}
+			}
+		}
+		$this->assertGreaterThan( 0, $seen_args, 'expected to scan at least one node_schema argument' );
+		$this->assertSame(
+			[],
+			$missing,
+			'node_schema arguments missing a description: ' . \print_r( $missing, true )
+		);
+	}
+
 	public function test_default_node_schema_advertises_both_ports(): void {
 		// Plain Node has both fill() and target() — defaults must be true so
 		// the schematic renderer keeps drawing IN/OUT ports for every class

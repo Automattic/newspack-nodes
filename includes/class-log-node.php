@@ -79,9 +79,9 @@ class Log_Node extends Partition_Node {
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Append-only segmented log of message VALUEs ({file}.{seg}).',
 			'arguments'   => [
-				[ 'name' => 'file',         'type' => 'string', 'required' => true ],
-				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE ],
-				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS ],
+				[ 'name' => 'file',         'type' => 'string', 'required' => true, 'description' => 'Log file path; segments are written alongside it as {file}.0, {file}.1, … (highest suffix = current).' ],
+				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE, 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
+				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS, 'description' => 'Max segments kept before the oldest is pruned (retention count; clamped to a minimum of 2).' ],
 			],
 		] );
 	}

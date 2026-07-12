@@ -272,9 +272,9 @@ class Job_Worker_Node extends Node {
 			'category'    => 'Control',
 			'description' => 'Consumes jobs.log entries and dispatches to registered handlers.',
 			'arguments'        => [
-				[ 'name' => 'cache_flush_interval', 'type' => 'int', 'default' => self::CACHE_FLUSH_INTERVAL ],
-				[ 'name' => 'stale_timeout',        'type' => 'int', 'default' => self::DEFAULT_STALE_TIMEOUT ],
-				[ 'name' => 'max_runtime',          'type' => 'int', 'default' => self::DEFAULT_MAX_RUNTIME ],
+				[ 'name' => 'cache_flush_interval', 'type' => 'int', 'default' => self::CACHE_FLUSH_INTERVAL, 'description' => 'Jobs processed between wp_cache_flush() calls (default 50); clamped to a minimum of 1.' ],
+				[ 'name' => 'stale_timeout',        'type' => 'int', 'default' => self::DEFAULT_STALE_TIMEOUT, 'description' => 'Lock-stale timeout hint in seconds for long-running job pipelines (default 600).' ],
+				[ 'name' => 'max_runtime',          'type' => 'int', 'default' => self::DEFAULT_MAX_RUNTIME, 'description' => 'Worker self-recycle runtime hint in seconds before respawn (default 600).' ],
 			],
 			'commands'       => [],
 			'requests'    => [

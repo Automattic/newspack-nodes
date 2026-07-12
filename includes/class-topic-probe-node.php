@@ -87,7 +87,7 @@ class TopicProbe_Node extends Timer_Node {
 			'category'    => 'Monitor',
 			'description' => 'Sweeps every Consumer in this process every N seconds; emits one stats snapshot (seg:off, bytes_read, backlog) into the topicprobe log.',
 			'arguments'   => [
-				[ 'name' => 'interval_s', 'type' => 'int', 'required' => false ],
+				[ 'name' => 'interval_s', 'type' => 'int', 'required' => false, 'description' => 'Sweep cadence in seconds between Consumer-stats snapshots; empty or absent defaults to 15.' ],
 			],
 		] );
 	}

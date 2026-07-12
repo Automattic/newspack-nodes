@@ -789,9 +789,9 @@ class Consumer_Node extends Timer_Node {
 			'category'      => 'I/O',
 			'description'   => 'Tails a Partition; emits each appended message to its sink.',
 			'arguments'     => [
-				[ 'name' => 'source_dir',     'type' => 'string', 'required' => true ],
-				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '' ],
-				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '' ],
+				[ 'name' => 'source_dir',     'type' => 'string', 'required' => true, 'description' => 'Partition directory to tail; each {seg}.log segment\'s appended messages are emitted to the sink.' ],
+				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
+				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
 			],
 			// Time-travel verbs via Time_Travel; set_multi_writer Consumer.
 			'commands'      => \array_merge(

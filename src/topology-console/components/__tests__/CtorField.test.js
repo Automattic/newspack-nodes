@@ -62,3 +62,55 @@ describe( 'CtorField vault_id', () => {
 		).toBe( true );
 	} );
 } );
+
+describe( 'CtorField description tooltip', () => {
+	const label = ( container ) =>
+		container.querySelector( 'label.topology-edit-row__label' );
+
+	it( 'surfaces the arg description as a title on a text field', () => {
+		const { container } = render(
+			<CtorField
+				spec={ {
+					name: 'remote_partition',
+					type: 'string',
+					required: true,
+					description: 'The spoke partition to pull from.',
+				} }
+				value=""
+				onChange={ noop }
+			/>
+		);
+		expect( label( container ).getAttribute( 'title' ) ).toBe(
+			'The spoke partition to pull from.'
+		);
+	} );
+
+	it( 'surfaces the description on a select field (vault_id) too', () => {
+		const { container } = render(
+			<CtorField
+				spec={ {
+					name: 'vault_id',
+					type: 'vault_id',
+					description: 'Which spoke to aggregate.',
+				} }
+				value=""
+				onChange={ noop }
+				vaults={ [ { id: 'austin', url: '' } ] }
+			/>
+		);
+		expect( label( container ).getAttribute( 'title' ) ).toBe(
+			'Which spoke to aggregate.'
+		);
+	} );
+
+	it( 'omits the title when the arg has no description', () => {
+		const { container } = render(
+			<CtorField
+				spec={ { name: 'x', type: 'string' } }
+				value=""
+				onChange={ noop }
+			/>
+		);
+		expect( label( container ).hasAttribute( 'title' ) ).toBe( false );
+	} );
+} );

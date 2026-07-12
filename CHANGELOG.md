@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Argument tooltips in the topology console.** Constructor-argument labels (`CtorField`, shared by the Inspector's edit panel and the add-node modal) and edit-mode verb labels now surface their `node_schema` `description` as a native `title` tooltip — matching the live-mode verb tooltip, so a setting's meaning is visible while editing, not just while running. Every substrate node's constructor arguments gained a `description`, and a new `NodeSchemaCoverageTest` gate fails if any `node_schema` argument lacks one.
+
 ### Changed
 
 - **`Partition` warns (rate-limited) when an `allow_large_writes` write fails to open its segment handle or short-writes**, instead of dropping the record silently — the large-write path previously returned with no diagnostic.

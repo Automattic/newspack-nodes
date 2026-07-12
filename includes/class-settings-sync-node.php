@@ -211,7 +211,7 @@ class Settings_Sync_Node extends Timer_Node {
 			'category'    => 'Control',
 			'description' => 'Pushes registered WP-option changes to connected spokes.',
 			'arguments'   => [
-				[ 'name' => 'interval_seconds', 'type' => 'int', 'required' => false, 'default' => (string) self::DEFAULT_INTERVAL_SECONDS ],
+				[ 'name' => 'interval_seconds', 'type' => 'int', 'required' => false, 'default' => (string) self::DEFAULT_INTERVAL_SECONDS, 'description' => 'Re-push sweep cadence in seconds — how often every registered option is re-sent to spokes (default 300).' ],
 			],
 			'commands'    => [
 				[

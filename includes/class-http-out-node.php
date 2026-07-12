@@ -335,7 +335,7 @@ class HTTP_Out_Node extends Timer_Node {
 			'description' => 'Outbound: POSTs each message as a TM_COMMAND to a remote spoke /command (non-blocking).',
 			'has_target'  => false,
 			'arguments'   => [
-				[ 'name' => 'vault_id', 'type' => 'vault_id', 'required' => true ],
+				[ 'name' => 'vault_id', 'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
 			],
 			'commands'    => [],
 			'requests'    => [],

@@ -69,6 +69,32 @@ describe( 'Inspector (edit mode)', () => {
 		expect( queryByText( 'seek_frame' ) ).toBeNull();
 	} );
 
+	it( 'surfaces a verb description as a tooltip in the edit Verbs list', () => {
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				catalog={ [
+					{
+						shell_name: 'Echo',
+						arguments: [],
+						commands: [
+							{
+								name: 'assume_clean_shutdown',
+								args: [],
+								description: 'Commit past on a clean stop.',
+							},
+						],
+					},
+				] }
+			/>
+		);
+		const tip = container.querySelector(
+			'[title="Commit past on a clean stop."]'
+		);
+		expect( tip ).not.toBeNull();
+		expect( tip.textContent ).toContain( 'assume_clean_shutdown' );
+	} );
+
 	it( 'NameField: commits rename on blur with a valid new name', () => {
 		const onRenameNode = jest.fn().mockReturnValue( true );
 		const { container } = render(

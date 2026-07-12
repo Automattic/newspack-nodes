@@ -66,9 +66,9 @@ class Tail_Node extends Consumer_Node {
 			'description' => 'Tails a Log\'s {file}.{seg} segments; emits each line as raw TM_BYTESTREAM bytes to its sink.',
 			// Rename source_dir→source_file; keep inherited deadletter_dir.
 			'arguments'   => [
-				[ 'name' => 'source_file',    'type' => 'string', 'required' => true ],
-				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '' ],
-				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '' ],
+				[ 'name' => 'source_file',    'type' => 'string', 'required' => true, 'description' => 'Base path of the Log to poll; segments are {source_file}.0, .1, … and each complete line is emitted.' ],
+				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
+				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
 			],
 		] );
 	}
