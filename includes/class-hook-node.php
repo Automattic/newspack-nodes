@@ -55,8 +55,8 @@ class Hook_Node extends Node {
 			'category'    => 'Control',
 			'description' => 'WordPress hook adapter — fires do_action/apply_filters on each message.',
 			'arguments'   => [
-				[ 'name' => 'hook_name', 'type' => 'string', 'required' => true ],
-				[ 'name' => 'filter',    'type' => 'bool',   'default' => false ],
+				[ 'name' => 'hook_name', 'type' => 'string', 'required' => true, 'description' => 'WordPress hook name fired on each message (do_action, or apply_filters when filter is true).' ],
+				[ 'name' => 'filter',    'type' => 'bool',   'default' => false, 'description' => 'When true, run apply_filters and forward its result as VALUE; when false (default) run do_action and pass VALUE through.' ],
 			],
 			'commands'    => [],
 		];

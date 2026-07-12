@@ -115,7 +115,7 @@ trait Buffered_Pump {
 				'name'        => 'assume_clean_shutdown',
 				'description' => 'Treat a plain Worker_Should_Stop like Worker_Should_Stop_Clean — commit PAST the in-flight message on a cooperative stop instead of replaying it. For a durable-before-stop chain with no snapshot node (aggregator, Consumer→Partition, job-router). Only a truthy arg enables.',
 				'args'        => [
-					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
+					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => 'A truthy value (1/true/yes/on) enables; anything else disables.' ],
 				],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_assume_clean_shutdown( $interpreter, $args ),
 			],

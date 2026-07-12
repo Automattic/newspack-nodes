@@ -180,7 +180,7 @@ class Timer_Node extends Node {
 			'category'      => 'Control',
 			'description'   => 'Periodic firing — emits a heartbeat message every N ms.',
 			'arguments'     => [
-				[ 'name' => 'interval_ms', 'type' => 'int', 'required' => false ],
+				[ 'name' => 'interval_ms', 'type' => 'int', 'required' => false, 'description' => 'Fire interval in milliseconds; empty or >=1000 rides the router heartbeat, <1000 gets its own timer slot.' ],
 			],
 			'registrations' => [ 'FIRE' ],
 		] );

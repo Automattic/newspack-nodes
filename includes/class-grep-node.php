@@ -36,7 +36,7 @@ class Grep_Node extends Node {
 			'category'    => 'Filtering',
 			'description' => 'Forwards a message only when its VALUE matches a regex; drops the rest.',
 			'arguments'   => [
-				[ 'name' => 'pattern', 'type' => 'string', 'default' => '.' ],
+				[ 'name' => 'pattern', 'type' => 'string', 'default' => '.', 'description' => 'PCRE regex matched against the message VALUE; forwards a message only on a match. Default (.) matches everything.' ],
 			],
 		] );
 	}

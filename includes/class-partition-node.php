@@ -1232,10 +1232,10 @@ class Partition_Node extends Timer_Node {
 			'category'      => 'I/O',
 			'description'   => 'Append-only segmented log; data file + offset index per partition.',
 			'arguments'     => [
-				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true ],
-				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE ],
-				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS ],
-				[ 'name' => 'max_lifespan',  'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN ],
+				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true, 'description' => 'On-disk directory holding this partition\'s numbered {seg}.log segment files and .idx indexes.' ],
+				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE, 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
+				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS, 'description' => 'Max segments kept before the oldest is pruned (retention count; clamped to a minimum of 2).' ],
+				[ 'name' => 'max_lifespan',  'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN, 'description' => 'Minimum retention age in seconds before a beyond-count segment may be pruned; 0 disables the age gate (pure count-based on num_segments).' ],
 			],
 			'commands'    => [
 				[
