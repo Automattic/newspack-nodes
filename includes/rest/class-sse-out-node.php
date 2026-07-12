@@ -19,7 +19,6 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
-use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
@@ -85,9 +84,6 @@ class SSE_Out_Node extends Node {
 
 	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
-
-	/** Test seam: overrides `Config::load_config()['num_partitions']`. */
-	private ?int $num_partitions = null;
 
 	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
 	public function fill( array $message ): void {
@@ -225,13 +221,16 @@ class SSE_Out_Node extends Node {
 					$sub,
 					\is_array( $positions ) ? $positions : null
 				);
-				// Each Consumer needs a DISTINCT name (Node::name dup throws).
-				$multi = \count( $opened ) > 1;
-				foreach ( $opened as $i => $c ) {
-					$c->name( $multi ? "{$sub}:p{$i}" : $sub );
+				foreach ( $opened as $c ) {
+					// Name by the dir basename (stamp): unique, `*`-free.
+					$name = $c->stamped_as();
+					if ( '' === $name || isset( $consumers[ $name ] ) ) {
+						continue;
+					}
+					$c->name( $name );
 					$c->sink( $default_route );
 					$c->patron( $this );
-					$consumers[] = $c;
+					$consumers[ $name ] = $c;
 				}
 			}
 
@@ -322,26 +321,36 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Resolve a subscription name to one-or-more `Consumer`s.
+	 * Resolve a subscription to one-or-more `Consumer`s, layout-agnostically.
 	 *
-	 * Two shapes: `{type}.p{N}` (IPC reader, resolved via
-	 * `Cli::attach_to_worker`) and `{a-z0-9_-}` (log feed, one Consumer per
-	 * concrete partition dir `{base}/logs/{name}.p{N}`). Anything else throws
-	 * `InvalidArgumentException` (path-traversal guard for query input).
-	 * `$positions` (keyed by partition) seed each cursor; absent → tail-seek.
+	 * `$sub` is a concrete resource dir NAME or a glob over one — no `.p{N}`
+	 * parsing. An exact name with a live IPC worker (`{base}/ipc/{sub}/output`)
+	 * tails that; otherwise it globs `{base}/logs/{sub}` (exact name → itself,
+	 * `firehose.*` → one Consumer per matching partition dir), each stamped +
+	 * resume-keyed by its concrete dir basename. A traversal-guarded pattern
+	 * (name-char lead, no `/`, no `..`, `*` the only wildcard) confines glob to
+	 * logs/ipc; anything else throws. `$positions` (keyed by dir basename) seed
+	 * each cursor; absent → tail-seek. A valid pattern matching nothing → [].
 	 *
-	 * @param string                      $sub       Subscription name.
-	 * @param array<array-key,mixed>|null $positions Saved positions, indexed by partition.
+	 * @param string                      $sub       Subscription name or glob.
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by dir basename.
 	 *
 	 * @return array<int,Consumer_Node>
 	 *
-	 * @throws \InvalidArgumentException When `$sub` matches no allowed shape.
+	 * @throws \InvalidArgumentException When `$sub` fails the traversal guard.
 	 */
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
-		# XXX: violates "Partition token is layout-agnostic" (see feedback doc).
-		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
+		// Traversal guard: must start with a name char (blocks `.*` / `..`).
+		if ( ! \preg_match( '/^[a-z0-9_-][a-z0-9_.*-]*$/D', $sub ) || \str_contains( $sub, '..' ) ) {
+			throw new \InvalidArgumentException(
+				\esc_html( "invalid subscription: {$sub}" )
+			);
+		}
+
+		// Exact IPC reader wins: a live worker's output partition.
+		if ( ! \str_contains( $sub, '*' ) ) {
 			$ipc_output = "{$base}/ipc/{$sub}/output";
 			if ( \is_dir( $ipc_output ) ) {
 				$consumer = new Consumer_Node();
@@ -350,40 +359,43 @@ class SSE_Out_Node extends Node {
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
 			}
-			$consumer = new Consumer_Node();
-			$consumer->arguments( "{$base}/logs/{$sub} " );
-			if ( isset( $positions[ $sub ] ) ) {
-				$consumer->next_offset( self::position_arg( $positions[ $sub ] ) );
-			} else {
-				$consumer->next_offset( 'end' );
-			}
-			$consumer->set_stamp_as( $sub );
-			return [ $consumer ];
 		}
 
-		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
-			$np_raw     = Config::load_config()['num_partitions'] ?? 1;
-			$partitions = $this->num_partitions ?? Core::num_int( $np_raw, 1 );
-			$consumers  = [];
-			for ( $p = 0; $p < $partitions; $p++ ) {
-				// Fixed {name}.p{N} layout; stamp + resume-key by the dir name.
-				$dir      = "{$sub}.p{$p}";
-				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$base}/logs/{$dir} " );
-				if ( isset( $positions[ $dir ] ) ) {
-					$consumer->next_offset( self::position_arg( $positions[ $dir ] ) );
-				} else {
-					$consumer->next_offset( 'end' );
-				}
-				$consumer->set_stamp_as( $dir );
-				$consumers[] = $consumer;
-			}
-			return $consumers;
+		// Log feed: one Consumer per glob-matched dir (exact name → itself).
+		$consumers = [];
+		foreach ( self::matched_log_dirs( $base, $sub ) as $dir ) {
+			$name        = \basename( $dir );
+			$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
 		}
+		return $consumers;
+	}
 
-		throw new \InvalidArgumentException(
-			\esc_html( "invalid subscription: {$sub}" )
+	/**
+	 * Concrete log-partition dirs under `{base}/logs` matching a subscription
+	 * pattern; an exact name matches itself. Layout-agnostic — the partition
+	 * token sits wherever the producer put it in the dir name.
+	 *
+	 * @return array<int,string> Absolute dir paths, sorted (glob's default order).
+	 */
+	private static function matched_log_dirs( string $base, string $sub ): array {
+		$matches = \glob( "{$base}/logs/{$sub}", \GLOB_ONLYDIR );
+		return false === $matches ? [] : $matches;
+	}
+
+	/**
+	 * Build a Consumer tailing one concrete log-partition dir, stamped +
+	 * resume-keyed by its basename (matching the FROM the browser parses).
+	 *
+	 * @param array<array-key,mixed>|null $positions Saved positions by dir name.
+	 */
+	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
+		$consumer = new Consumer_Node();
+		$consumer->arguments( "{$dir} " );
+		$consumer->next_offset(
+			isset( $positions[ $name ] ) ? self::position_arg( $positions[ $name ] ) : 'end'
 		);
+		$consumer->set_stamp_as( $name );
+		return $consumer;
 	}
 
 	/**
@@ -488,11 +500,6 @@ class SSE_Out_Node extends Node {
 	/** @api Support for unit tests. */
 	public function set_base_dir( string $dir ): void {
 		$this->base_dir = $dir;
-	}
-
-	/** @api Support for unit tests. */
-	public function set_num_partitions( int $n ): void {
-		$this->num_partitions = $n;
 	}
 
 	public function register_routes(): void {

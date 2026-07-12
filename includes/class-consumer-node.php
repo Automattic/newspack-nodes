@@ -724,6 +724,11 @@ class Consumer_Node extends Timer_Node {
 		$this->stamp_override = $stamp;
 	}
 
+	/** The FROM-stamp override ('' if unset). The SSE resolver names each Consumer by this. */
+	public function stamped_as(): string {
+		return $this->stamp_override;
+	}
+
 	/**
 	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll
 	 * payload the inspector round-trips. Delegates to the Time_Travel trait, which

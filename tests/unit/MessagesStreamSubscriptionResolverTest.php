@@ -33,36 +33,35 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_log_partition_subscription_returns_one_consumer_per_partition(): void {
-		// The Partition constructor doesn't require the partition_dir to
-		// pre-exist (get_segments tolerates a missing dir); creating the
-		// flat per-partition log dirs is enough to mirror the production layout
-		// `{base}/logs/{name}.p{N}/`.
+	public function test_glob_subscription_returns_one_consumer_per_matched_dir(): void {
+		// A `{feed}.*` glob fans out to one Consumer per matching concrete log dir
+		// — the filesystem is the source of truth, not a hardcoded `.p{N}` count.
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
+		\mkdir( "{$this->tmp}/logs/firehose.p2", 0755, true );
+		// A same-prefix-but-different-feed dir must NOT match `firehose.*`.
+		\mkdir( "{$this->tmp}/logs/firehose-workers.p0", 0755, true );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
-		$ctrl->set_num_partitions( 3 );
 
-		$consumers = $ctrl->open_subscription( 'firehose', null );
+		$consumers = $ctrl->open_subscription( 'firehose.*', null );
 
 		$this->assertCount( 3, $consumers );
 		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 	}
 
-	public function test_log_subscription_stamps_partition_into_from(): void {
+	public function test_glob_subscription_stamps_concrete_dir_into_from(): void {
 		// Dashboards subscribing to a multi-partition log need to know which
-		// partition each line came from (rawlogs UI shows P0/P1/P2 alongside
-		// each row). The resolver overrides Consumer's FROM stamp with the
-		// subscription-scoped `{sub}.p{N}` shape so the JS side can parse it
-		// without a separate sidecar field. Without this, every partition's
-		// stream emits FROM=`firehose` and the dashboard loses the per-row
-		// partition column.
+		// partition each line came from (rawlogs UI shows P0/P1/P2 per row). The
+		// resolver stamps each Consumer with its concrete dir basename so the JS
+		// side parses it without a sidecar field.
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
+		\mkdir( "{$this->tmp}/logs/firehose.p2", 0755, true );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
-		$ctrl->set_num_partitions( 3 );
 
-		$consumers = $ctrl->open_subscription( 'firehose', null );
+		$consumers = $ctrl->open_subscription( 'firehose.*', null );
 
 		$ref    = new \ReflectionProperty( Consumer_Node::class, 'stamp_override' );
 		$stamps = [];
@@ -73,17 +72,24 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0', 'firehose.p1', 'firehose.p2' ], $stamps );
 	}
 
-	public function test_log_subscription_seeds_position_by_concrete_dir_name(): void {
-		// Positions are keyed by the OPAQUE concrete-partition dir name (matching
-		// the FROM stamp the Consumer emits), not an integer index — so each
-		// directory is its own unique partition and a non-`.p{N}` layout resumes.
+	public function test_empty_glob_returns_no_consumers(): void {
+		// A valid pattern that matches nothing (feed not created yet) is not an
+		// error — the stream simply has nothing to tail until a dir appears.
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->assertSame( [], $ctrl->open_subscription( 'firehose.*', null ) );
+	}
+
+	public function test_glob_subscription_seeds_position_by_concrete_dir_name(): void {
+		// Positions are keyed by the OPAQUE concrete dir name (matching the FROM
+		// stamp), so each matched dir resumes independently of any `.p{N}` layout.
 		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
-		$ctrl->set_num_partitions( 3 );
 
 		$consumers = $ctrl->open_subscription(
-			'firehose',
+			'firehose.*',
 			[ 'firehose.p1' => [ 'segment' => 2, 'offset' => 5 ] ]
 		);
 
@@ -159,6 +165,16 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$this->expectException( \InvalidArgumentException::class );
 		$ctrl->open_subscription( '../etc/passwd', null );
+	}
+
+	public function test_leading_dot_subscription_throws(): void {
+		// A leading `.` (e.g. `.*`) would let glob(logs/.*) match `.`/`..` and
+		// escape logs/. A subscription must start with a real feed-name char.
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$ctrl->open_subscription( '.*', null );
 	}
 
 	public function test_parse_subscriptions_splits_csv_and_trims(): void {

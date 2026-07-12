@@ -81,7 +81,6 @@ class SSEOutTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
-		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 
 		\ob_start();
@@ -91,7 +90,7 @@ class SSEOutTest extends TestCase {
 		// this, the Consumer tail-seeks via 'end' and the two pre-populated lines
 		// never reach the SSE output — the test passes without exercising line
 		// forwarding.
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 500 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 500 );
 		$out = \ob_get_clean();
 
 		$events = $this->split_sse_events( $out );
@@ -130,16 +129,16 @@ class SSEOutTest extends TestCase {
 		// dashboard reads rides the stamp/FROM, not the node name.
 		$base = $this->make_temp_dir( 'msg-stream-multi-' );
 		\mkdir( "{$base}/logs/gyroscope.p0", 0755, true );
+		\mkdir( "{$base}/logs/gyroscope.p1", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
-		$ctrl->set_num_partitions( 2 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 2 );
 
 		\ob_start();
 		// Two partitions → two Consumers. With the bug this throws before the
 		// drain; fixed, it streams to completion and emits the connected envelope.
-		$ctrl->run_stream_loop( [ 'gyroscope' ], null, 500 );
+		$ctrl->run_stream_loop( [ 'gyroscope.*' ], null, 500 );
 		$out = \ob_get_clean();
 
 		$events = $this->split_sse_events( $out );
@@ -171,11 +170,10 @@ class SSEOutTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
-		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 500 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 500 );
 		$out = \ob_get_clean();
 
 		$this->assertStringContainsString(
@@ -217,10 +215,9 @@ class SSEOutTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
-		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 500 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 500 );
 		$out = \ob_get_clean();
 
 		// reply_to routed the uptime reply to _sse → the client sees it; auth passed.
@@ -234,7 +231,6 @@ class SSEOutTest extends TestCase {
 	public function test_invalid_subscription_does_not_leak_substrate_nodes(): void {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-stream-leak-' ) );
-		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 5 );
 
 		try {
@@ -258,15 +254,14 @@ class SSEOutTest extends TestCase {
 		// `heartbeat` event in the captured output came from the drain loop
 		// itself, not from a forwarded message.
 		$base = $this->make_temp_dir( 'msg-stream-heartbeat-' );
-		\mkdir( "{$base}/logs/firehose.log", 0755, true );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
-		$ctrl->set_num_partitions( 1 );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 50 );
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose.p0' => 'start' ], 1 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 1 );
 		$out = \ob_get_clean();
 
 		$events    = $this->split_sse_events( $out );
