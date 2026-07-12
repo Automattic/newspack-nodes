@@ -848,6 +848,20 @@ class CommandInterpreterTest extends TestCase {
 		}
 	}
 
+	public function test_help_renders_node_schema_for_a_node_type(): void {
+		// `help <NodeType>` surfaces the node_schema — description, category,
+		// arguments WITH their descriptions, verbs — not just command help.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$out = $interpreter->dispatch( 'help', 'Partition' );
+
+		$this->assertStringNotContainsString( 'no such topic', $out );
+		$this->assertStringContainsString( 'I/O', $out );            // category
+		$this->assertStringContainsString( 'min_segments', $out );   // an argument
+		$this->assertStringContainsString( 'hard minimum of 2', $out ); // its description
+	}
+
 	public function test_help_covers_every_shell_builtin(): void {
 		// Shell builtins never reach $C (Shell intercepts them before sending),
 		// but they're user-typeable so help must still cover them. Mirrors the
