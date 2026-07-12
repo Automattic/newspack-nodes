@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Idle workers no longer log a spurious `stopped mid-job (pump)` on every shutdown.** A worker routes stderr into its REPL / IPC-output `Partition`, so logging the `stopping — <reason>` line was *itself* a partition write whose `maybe_stop()` → `pump()` re-ran the (already-false) continue-predicate and threw `Worker_Should_Stop` — converting an idle cooperative stop into a fake "mid-job" report on the way out (every worker, every shutdown, since every stop reason logs). `Event_Framework::pump()` now returns early while `Core::in_stderr()` is set — a stderr write is never a cooperative-stop boundary — so an idle worker exits cleanly through the drain-top predicate and `stopped mid-job (pump)` is reserved for a genuine mid-*message* stop. And `Partition::remove_node()` now flushes its residual batch before closing handles, so the final `stopping` line reaches the IPC-output log deterministically via `cleanup_all_nodes()` at shutdown (mirroring `__destruct`) instead of relying on non-deterministic GC — restoring, for this now-guarded log write, the durability the old `pump()`-throw path gave by flushing before it threw (that throw still fires, and still flushes, for a genuine mid-*message* stop).
+
 ## [0.38.0] - 2026-07-11
 
 ### Added

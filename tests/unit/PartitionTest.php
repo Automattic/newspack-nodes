@@ -2478,9 +2478,9 @@ class PartitionTest extends TestCase {
 
 	public function test_fill_flushes_the_batched_message_before_a_cooperative_stop_throws(): void {
 		// A small (batched) message hasn't hit disk when pump() signals the stop, and
-		// remove_node/close_handle don't flush. The clean-stop contract needs it durable
-		// BEFORE the throw unwinds (the Consumer commits past it), so fill() flushes the
-		// batch before pump() throws — otherwise the in-flight message is lost.
+		// close_handle doesn't flush (remove_node's teardown flush lands too late). The
+		// clean-stop contract needs it durable BEFORE the throw unwinds (the Consumer
+		// commits past it), so fill() flushes the batch before pump() throws.
 		Event_Framework::reset();
 		$ef = Event_Framework::instance();
 
@@ -2522,6 +2522,32 @@ class PartitionTest extends TestCase {
 		$this->assertFileExists( $segment );
 		$decoded = Message::unpacked( \rtrim( (string) \file_get_contents( $segment ), "\n" ) );
 		$this->assertSame( 'durable', $decoded[ Message::VALUE ], 'the in-flight batched message must be durable before the clean stop' );
+	}
+
+	public function test_remove_node_flushes_the_residual_batch_on_shutdown(): void {
+		// Shutdown persists via cleanup_all_nodes() → remove_node(), not GC/__destruct.
+		// A batched-but-unflushed line (e.g. the REPL partition's final "stopping" log)
+		// must reach disk on explicit teardown, since the 0-delay flush timer never
+		// fires once the drain loop has exited.
+		Event_Framework::reset(); // predicate null → fill() won't throw a stop.
+
+		$p = new Partition_Node();
+		$p->name( 'shutdown-flush' );
+		$p->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'last-line';
+		$p->fill( $message ); // batches; the 0-delay flush timer never fires at shutdown.
+
+		$segment = "{$this->tmp}.p0/0.log";
+		$this->assertFileDoesNotExist( $segment, 'fill() batches without flushing' );
+
+		$p->remove_node(); // explicit teardown must flush before closing handles.
+
+		$this->assertFileExists( $segment );
+		$decoded = Message::unpacked( \rtrim( (string) \file_get_contents( $segment ), "\n" ) );
+		$this->assertSame( 'last-line', $decoded[ Message::VALUE ] );
 	}
 
 	public function test_fill_does_not_throw_a_stop_when_no_drain_is_active(): void {

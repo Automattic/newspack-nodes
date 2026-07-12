@@ -159,6 +159,10 @@ class Event_Framework {
 		if ( null === $this->continue_predicate ) {
 			return;
 		}
+		// A stderr write is not a stop boundary; logging it would self-throw.
+		if ( Core::in_stderr() ) {
+			return;
+		}
 		$now = \microtime( true );
 		if ( $now - $this->last_pump < self::PUMP_INTERVAL_S ) {
 			return;

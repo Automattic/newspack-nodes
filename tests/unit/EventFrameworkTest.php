@@ -241,4 +241,26 @@ class EventFrameworkTest extends TestCase {
 		$ef->drain( $this->clocked_predicate( $state ), cooperative_stop: true );
 		$this->assertTrue( $state->reached ?? false, 'second rapid pump was throttled, not re-checked' );
 	}
+
+	public function test_pump_does_not_throw_while_inside_the_stderr_handler(): void {
+		// Logging the stop reason must not self-throw a cooperative stop: the worker
+		// routes stderr into the REPL partition, whose fill() calls pump() while the
+		// predicate is already false. Without the guard that is a spurious
+		// "stopped mid-job (pump)" on every shutdown.
+		$ef    = Event_Framework::instance();
+		$state = (object) [ 'stop' => false, 'ticks' => 0, 'reached' => false ];
+
+		Core::set_stderr_handler( static function ( string $text ): void {
+			Event_Framework::instance()->pump(); // mimic the REPL-partition write
+		} );
+
+		$this->fire_once( function () use ( $state ) {
+			$state->stop    = true;       // predicate is now false
+			Core::stderr( 'stopping' );   // handler → pump() while in_stderr → no throw
+			$state->reached = true;       // reached only if pump() did not throw
+		} );
+
+		$ef->drain( $this->clocked_predicate( $state ), cooperative_stop: true );
+		$this->assertTrue( $state->reached, 'a stderr write must not raise a cooperative stop' );
+	}
 }
