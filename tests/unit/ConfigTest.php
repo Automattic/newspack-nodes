@@ -177,6 +177,16 @@ class ConfigTest extends TestCase {
 		$this->assertNull( Config::value( 'my_plugin_key' ) );
 	}
 
+	public function test_is_declared_true_for_registered_key(): void {
+		// A consumer accessor calls this to validate before reading its own config.
+		Config::register_keys( [ 'is_declared_probe_key' ] );
+		$this->assertTrue( Config::is_declared( 'is_declared_probe_key' ) );
+	}
+
+	public function test_is_declared_false_for_unregistered_key(): void {
+		$this->assertFalse( Config::is_declared( 'is_declared_never_registered_key' ) );
+	}
+
 	// ── File-overlay env override ──────────────────────────────────────────
 
 	public function test_local_env_override_loads_overlay(): void {
