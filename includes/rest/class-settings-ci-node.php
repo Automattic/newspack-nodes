@@ -104,19 +104,18 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * @return array{num_partitions:int,segment_size:int,min_segments:int,max_segments:int,min_lifetime:int,max_lifetime:int}
 	 */
 	private static function snapshot(): array {
-		$config = RuntimeConfig::load_config();
 		/** @var int|float|string|bool|null $num_partitions */
-		$num_partitions = $config['num_partitions'] ?? 0;
+		$num_partitions = RuntimeConfig::value( 'num_partitions' );
 		/** @var int|float|string|bool|null $segment_size */
-		$segment_size = $config['segment_size'] ?? 0;
+		$segment_size = RuntimeConfig::value( 'segment_size' );
 		/** @var int|float|string|bool|null $min_segments */
-		$min_segments = $config['min_segments'] ?? 0;
+		$min_segments = RuntimeConfig::value( 'min_segments' );
 		/** @var int|float|string|bool|null $max_segments */
-		$max_segments = $config['max_segments'] ?? 0;
+		$max_segments = RuntimeConfig::value( 'max_segments' );
 		/** @var int|float|string|bool|null $min_lifetime */
-		$min_lifetime = $config['min_lifetime'] ?? 0;
+		$min_lifetime = RuntimeConfig::value( 'min_lifetime' );
 		/** @var int|float|string|bool|null $max_lifetime */
-		$max_lifetime = $config['max_lifetime'] ?? 0;
+		$max_lifetime = RuntimeConfig::value( 'max_lifetime' );
 		return [
 			'num_partitions' => (int) $num_partitions,
 			'segment_size'   => (int) $segment_size,

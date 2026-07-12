@@ -126,8 +126,7 @@ class Log_Cleaner {
 
 	/** Global config num_partitions, clamped [1, MAX_PARTITIONS] (mirrors Bootstrap::num_partitions_for). */
 	private static function config_num_partitions(): int {
-		$cfg = Config::load_config();
-		$raw = $cfg['num_partitions'] ?? 1;
+		$raw = Config::value( 'num_partitions' );
 		return \max( 1, \min( Supervisor_Base::MAX_PARTITIONS, Core::as_int( $raw, 1 ) ) );
 	}
 

@@ -194,7 +194,7 @@ class Ingest_CLI_Command {
 
 	/** Global config num_partitions (the operator default), clamped to >= 1. */
 	private static function config_num_partitions(): int {
-		$raw = Config::load_config()['num_partitions'] ?? 1;
+		$raw = Config::value( 'num_partitions' );
 		return \max( 1, Core::as_int( $raw, 1 ) );
 	}
 

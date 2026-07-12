@@ -58,8 +58,7 @@ class Topology_Registry {
 	 * @return array<string, array<string, mixed>>
 	 */
 	public static function publish_catalog( array $topologies ): array {
-		$cfg        = \Newspack_Nodes\Config::load_config();
-		$cfg_np     = $cfg['num_partitions'] ?? 1;
+		$cfg_np     = \Newspack_Nodes\Config::value( 'num_partitions' );
 		$default_np = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
 		foreach ( self::list() as $name ) {
 			if ( isset( $topologies[ $name ] ) ) {

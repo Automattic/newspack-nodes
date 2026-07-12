@@ -221,9 +221,8 @@ class Remote_Link_Node extends Timer_Node {
 			return null;
 		}
 
-		$cfg         = Config::load_config();
-		$verify_ssl  = ! isset( $cfg['vault_verify_ssl'] ) || (bool) $cfg['vault_verify_ssl'];
-		$require_ssl = ! empty( $cfg['vault_require_ssl'] );
+		$verify_ssl  = (bool) Config::value( 'vault_verify_ssl' );
+		$require_ssl = (bool) Config::value( 'vault_require_ssl' );
 
 		// Restore the cursor before connect so it seeds SSE_In.
 		$restored = $this->restore_position();
