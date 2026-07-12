@@ -948,7 +948,7 @@ class SupervisorTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/requests-workers.tsl",
-			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		\Newspack_Nodes\Topology_Registry::reset_basename_cache();

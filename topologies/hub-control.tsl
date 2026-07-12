@@ -22,6 +22,9 @@ make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offse
 make_node Settings_Sync settings-sync 300
 make_node Tee spokes:tee
 
+# XXX: retention split ([138]) deleted the local num_segments/max_lifespan keys; these
+# two geometry pushes now target dead spoke options. The remote_* fields need their own
+# min/max split before hub→spoke geometry sync works again. segment_size push is unaffected.
 cmd settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_num_segments
 cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size
 cmd settings-sync:config add_setting newspack_nodes_remote_max_lifespan settings newspack_nodes_max_lifespan

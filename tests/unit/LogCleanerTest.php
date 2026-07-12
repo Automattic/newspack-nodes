@@ -71,7 +71,7 @@ class LogCleanerTest extends TestCase {
 	/** A topology that BOTH writes a log (Partition) and tails one (Consumer offsetlog), under `$basename`. */
 	private function log_and_offset_tsl( string $basename, int $num_partitions = 1 ): string {
 		return "var num_partitions = {$num_partitions}\n"
-			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
 			. "make_node Consumer {$basename}:consumer <config:logs_dir>/src.p<partition> <config:offsets_dir>/{$basename}.p<partition>\n";
 	}
 
@@ -93,7 +93,7 @@ class LogCleanerTest extends TestCase {
 
 	private function partition_tsl( string $basename, int $num_partitions = 1 ): string {
 		return "var num_partitions = {$num_partitions}\n"
-			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n";
+			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n";
 	}
 
 	// ── log-dir sweep ──────────────────────────────────────────────────────
@@ -487,7 +487,7 @@ class LogCleanerTest extends TestCase {
 
 		$this->declare_topology(
 			'widget-workers',
-			"make_node Partition widget:partition <config:logs_dir>/widget.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition widget:partition <config:logs_dir>/widget.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
 			. "make_node Consumer widget:consumer <config:logs_dir>/widget.p<partition> <config:offsets_dir>/widget-consumer.p<partition>\n"
 		);
 

@@ -38,8 +38,8 @@ class Worker_Base {
 	 * Log_Cleaner must whitelist it (it's declared by no .tsl).
 	 */
 	public const TOPICPROBE_LOG_DIR      = 'topicprobe.p0';
-	public const TOPICPROBE_MAX_LIFESPAN = 86400;
-	public const TOPICPROBE_NUM_SEGMENTS = 2;
+	public const TOPICPROBE_MIN_LIFETIME = 86400;
+	public const TOPICPROBE_MAX_SEGMENTS = 2;
 	public const TOPICPROBE_SEGMENT_SIZE = 1048576;
 
 	protected string $base_dir;
@@ -387,12 +387,15 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $probe_dir, 0755, true );
 		}
+		// Dual-rule retention: keep 2 segments, but retain anything under 24h.
 		$interpreter->make_node(
 			'Partition',
 			Node_Names::TOPICPROBE_LOG,
 			"{$probe_dir} " . self::TOPICPROBE_SEGMENT_SIZE
-				. ' ' . self::TOPICPROBE_NUM_SEGMENTS
-				. ' ' . self::TOPICPROBE_MAX_LIFESPAN
+				. ' ' . Partition_Node::DEFAULT_MIN_SEGMENTS
+				. ' ' . self::TOPICPROBE_MAX_SEGMENTS
+				. ' ' . self::TOPICPROBE_MIN_LIFETIME
+				. ' 0'
 		);
 		$probe = $interpreter->make_node( 'TopicProbe', Node_Names::TOPICPROBE, (string) self::TOPICPROBE_INTERVAL_S );
 		if ( $probe instanceof TopicProbe_Node ) {

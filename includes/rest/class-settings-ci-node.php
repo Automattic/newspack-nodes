@@ -6,17 +6,17 @@
  * M2 service CIs.
  *
  * Verbs:
- *   get — returns the four substrate-owned integer settings as a snapshot
- *         (num_partitions, num_segments, segment_size, max_lifespan). The
- *         matching getter dashboards diff against.
+ *   get — returns the six substrate-owned integer settings as a snapshot
+ *         (num_partitions, segment_size, min_segments, max_segments,
+ *         min_lifetime, max_lifetime). The matching getter dashboards diff against.
  *   set — applies a single setting by its full `newspack_nodes_*` option name
  *         (the positional grammar Settings_Sync_Node fans out to spokes),
  *         writes via `update_option()`, then returns the post-set snapshot.
  *         Resets the application Config so the snapshot rebuild sees the new
  *         value rather than the stale cache.
  *
- * Allowed-keys whitelist + min/max bounds (1..2^30 for three keys, 0..2^30 for
- * max_lifespan), `manage_options` requirement, WP option keys. Throws
+ * Allowed-keys whitelist + min/max bounds (1..2^30 for the count/size keys,
+ * 0..2^30 for the lifetime keys), `manage_options` requirement, WP option keys. Throws
  * RuntimeException on validation / authorization failure;
  * CommandInterpreter::interpret() wraps as TM_COMMAND|TM_ERROR.
  *
@@ -40,21 +40,23 @@ class Settings_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Whitelist of {short-name => min} for the verbs. The WP option key is
-	 * the short-name prefixed with `newspack_nodes_`. Three settings have
-	 * min=1; max_lifespan accepts 0. The upper bound is
+	 * the short-name prefixed with `newspack_nodes_`. The count/size settings
+	 * have min=1; the lifetime settings accept 0. The upper bound is
 	 * shared (MAX_INT_VALUE).
 	 *
 	 * @var array<string,int>
 	 */
 	private const ALLOWED_KEYS = [
 		'num_partitions' => 1,
-		'num_segments'   => 1,
 		'segment_size'   => 1,
-		'max_lifespan'   => 0,
+		'min_segments'   => 1,
+		'max_segments'   => 1,
+		'min_lifetime'   => 0,
+		'max_lifetime'   => 0,
 	];
 
 	/**
-	 * Upper bound for all four integer settings (2^30 = 1 GiB), enforced by
+	 * Upper bound for all integer settings (2^30 = 1 GiB), enforced by
 	 * the validator.
 	 */
 	private const MAX_INT_VALUE = 1073741824;
@@ -97,25 +99,31 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the canonical four-key snapshot from the substrate Config.
+	 * Build the canonical six-key snapshot from the substrate Config.
 	 *
-	 * @return array{num_partitions:int,num_segments:int,segment_size:int,max_lifespan:int}
+	 * @return array{num_partitions:int,segment_size:int,min_segments:int,max_segments:int,min_lifetime:int,max_lifetime:int}
 	 */
 	private static function snapshot(): array {
 		$config = RuntimeConfig::load_config();
 		/** @var int|float|string|bool|null $num_partitions */
 		$num_partitions = $config['num_partitions'] ?? 0;
-		/** @var int|float|string|bool|null $num_segments */
-		$num_segments = $config['num_segments'] ?? 0;
 		/** @var int|float|string|bool|null $segment_size */
 		$segment_size = $config['segment_size'] ?? 0;
-		/** @var int|float|string|bool|null $max_lifespan */
-		$max_lifespan = $config['max_lifespan'] ?? 0;
+		/** @var int|float|string|bool|null $min_segments */
+		$min_segments = $config['min_segments'] ?? 0;
+		/** @var int|float|string|bool|null $max_segments */
+		$max_segments = $config['max_segments'] ?? 0;
+		/** @var int|float|string|bool|null $min_lifetime */
+		$min_lifetime = $config['min_lifetime'] ?? 0;
+		/** @var int|float|string|bool|null $max_lifetime */
+		$max_lifetime = $config['max_lifetime'] ?? 0;
 		return [
 			'num_partitions' => (int) $num_partitions,
-			'num_segments'   => (int) $num_segments,
 			'segment_size'   => (int) $segment_size,
-			'max_lifespan'   => (int) $max_lifespan,
+			'min_segments'   => (int) $min_segments,
+			'max_segments'   => (int) $max_segments,
+			'min_lifetime'   => (int) $min_lifetime,
+			'max_lifetime'   => (int) $max_lifetime,
 		];
 	}
 
@@ -149,12 +157,12 @@ class Settings_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
-			'description' => 'Substrate-level integer settings: get / update num_partitions, num_segments, segment_size, max_lifespan.',
+			'description' => 'Substrate-level integer settings: get / update num_partitions, segment_size, min_segments, max_segments, min_lifetime, max_lifetime.',
 			'arguments'   => [],
 			'commands'    => [
 				[
 					'name'        => 'get',
-					'description' => 'Return the four substrate-owned integer settings as a snapshot.',
+					'description' => 'Return the six substrate-owned integer settings as a snapshot.',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_get(),
 				],

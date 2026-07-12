@@ -44,7 +44,8 @@ trait Offsetlog_Cursor {
 			$offsetlog->name( $name );
 		}
 		$offsetlog->patron( $this );
-		$offsetlog->arguments( \implode( ' ', [ $dir, $segment_size, $num_segments ] ) );
+		// Retention: min_segments floor, max_segments = retained count.
+		$offsetlog->arguments( \implode( ' ', [ $dir, $segment_size, Partition_Node::DEFAULT_MIN_SEGMENTS, $num_segments ] ) );
 		$this->offsetlog = $offsetlog;
 		return $offsetlog;
 	}

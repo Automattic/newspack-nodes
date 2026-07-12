@@ -13,8 +13,10 @@
 return [
 	'base_directory'   => '/tmp/newspack-nodes-test',
 	'num_partitions'   => 1,
-	'num_segments'     => 2,
 	'segment_size'     => 1024,
-	'max_lifespan'     => 0,
+	'min_segments'     => 2,
+	'max_segments'     => 2,
+	'min_lifetime'     => 0,
+	'max_lifetime'     => 0,
 	'memcache_servers' => [],
 ];

@@ -38,7 +38,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		Topology_Registry::register_stock_dir( $this->tmp );
 		$this->use_base_dir( $this->tmp );
 		// Active set mirrors RestartPlannerTest::setUp — `combined` instantiates a
-		// Partition (geometry-classified num_segments restarts it).
+		// Partition (geometry-classified max_segments restarts it).
 		\update_option( 'newspack_nodes_topologies', [ 'combined', 'aggregator', 'job-worker' ] );
 		Config::reset();
 		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\nmake_node Tee fanout\n" );
@@ -48,7 +48,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 
 	protected function tearDown(): void {
 		\delete_option( 'newspack_nodes_topologies' );
-		\delete_option( 'newspack_nodes_num_segments' );
+		\delete_option( 'newspack_nodes_max_segments' );
 		\delete_option( 'newspack_nodes_num_partitions' );
 		\delete_option( 'newspack_nodes_base_directory' );
 		\delete_option( 'newspack_nodes_remote_segment_size' );
@@ -74,26 +74,26 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 	}
 
 	public function test_rows_report_stored_effective_and_restart_impact(): void {
-		\update_option( 'newspack_nodes_num_segments', 7 );
+		\update_option( 'newspack_nodes_max_segments', 7 );
 		Config::reset();
 		$rows = $this->rows_by_key();
-		$this->assertSame( '7', (string) $rows['num_segments']['stored'] );
-		$this->assertStringContainsString( 'combined', $rows['num_segments']['restart'] );
+		$this->assertSame( '7', (string) $rows['max_segments']['stored'] );
+		$this->assertStringContainsString( 'combined', $rows['max_segments']['restart'] );
 		$this->assertStringContainsString( 'supervisor', \strtolower( $rows['num_partitions']['restart'] ) );
 	}
 
 	public function test_unstored_setting_reports_file_default_and_no_overlay(): void {
 		$rows = $this->rows_by_key();
-		$this->assertStringContainsString( 'file default', $rows['num_segments']['stored'] );
-		$this->assertNull( $rows['num_segments']['overlay'] );
+		$this->assertStringContainsString( 'file default', $rows['max_segments']['stored'] );
+		$this->assertNull( $rows['max_segments']['overlay'] );
 	}
 
 	public function test_stored_overlaid_setting_reports_overlay_value(): void {
-		\update_option( 'newspack_nodes_num_segments', 9 );
+		\update_option( 'newspack_nodes_max_segments', 9 );
 		Config::reset();
 		$rows = $this->rows_by_key();
-		$this->assertSame( '9', $rows['num_segments']['overlay'] );
-		$this->assertSame( '9', (string) $rows['num_segments']['effective'] );
+		$this->assertSame( '9', $rows['max_segments']['overlay'] );
+		$this->assertSame( '9', (string) $rows['max_segments']['effective'] );
 	}
 
 	public function test_immediate_and_supervisor_restart_strings(): void {
@@ -129,11 +129,11 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 	public function test_overlaid_field_still_reports_load_config_value(): void {
 		// Control: overlay=true fields keep reporting the load_config (overlay-resolved)
 		// value — the common-case behavior must not change.
-		\update_option( 'newspack_nodes_num_segments', 11 );
+		\update_option( 'newspack_nodes_max_segments', 11 );
 		Config::reset();
 		$rows = $this->rows_by_key();
-		$this->assertSame( '11', (string) $rows['num_segments']['effective'] );
-		$this->assertSame( (string) ( Config::load_config()['num_segments'] ?? '' ), (string) $rows['num_segments']['effective'] );
+		$this->assertSame( '11', (string) $rows['max_segments']['effective'] );
+		$this->assertSame( (string) ( Config::load_config()['max_segments'] ?? '' ), (string) $rows['max_segments']['effective'] );
 	}
 
 	public function test_small_array_value_renders_in_full(): void {
@@ -184,6 +184,6 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$html = (string) \ob_get_clean();
 		$this->assertStringContainsString( '<table class="widefat"', $html );
 		$this->assertStringContainsString( 'Restart impact', $html );
-		$this->assertStringContainsString( 'Num Segments', $html );
+		$this->assertStringContainsString( 'Max Segments', $html );
 	}
 }

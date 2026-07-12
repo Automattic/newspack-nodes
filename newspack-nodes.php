@@ -131,6 +131,8 @@ if ( \function_exists( 'add_filter' ) ) {
 }
 if ( \function_exists( 'register_activation_hook' ) ) {
 	\register_activation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'activate' ] );
+	// XXX: one-time retention-option split rename; remove next release.
+	\register_activation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Retention_Settings_Migration', 'migrate' ] );
 }
 if ( \function_exists( 'register_deactivation_hook' ) ) {
 	\register_deactivation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'deactivate' ] );

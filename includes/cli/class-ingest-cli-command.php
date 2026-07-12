@@ -110,7 +110,7 @@ class Ingest_CLI_Command {
 
 		// Segment geometry defaults to Partition's; no max_lifespan.
 		$segment_size = $this->int_flag( $assoc_args, 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE );
-		$num_segments = $this->int_flag( $assoc_args, 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS );
+		$max_segments = $this->int_flag( $assoc_args, 'num_segments', Partition_Node::DEFAULT_MAX_SEGMENTS );
 
 		\WP_CLI::log( "Destination: {$tpl} ({$num_partitions} partition(s), {$segment_size}-byte segments)" );
 
@@ -120,7 +120,7 @@ class Ingest_CLI_Command {
 		$topic = null;
 		if ( ! $dry_run ) {
 			$topic = new Topic_Node();
-			$topic->arguments( "{$tpl} {$num_partitions} {$segment_size} {$num_segments}" );
+			$topic->arguments( "{$tpl} {$num_partitions} {$segment_size} " . Partition_Node::DEFAULT_MIN_SEGMENTS . " {$max_segments}" );
 			if ( $lock ) {
 				$topic->allow_large_writes();
 			} elseif ( $void ) {

@@ -90,10 +90,11 @@ class TopologyRegistryGraphTest extends TestCase {
 	}
 
 	public function test_graph_for_log_sink_emits_kind_writes_path_segment_size_and_num_segments(): void {
-		// A Log file-sink: make_node Log <name> <file> [segment_size] [num_segments].
+		// A Log file-sink: make_node Log <name> <file> [segment_size] [min_segments] [max_segments].
 		// kind 'log'; writes = basename; path/segment_size/num_segments carried so
-		// dump_graph can stat the flat `{file}.{seg}` segments.
-		$this->write_tsl( 'l', "make_node Log lg /tmp/x.md 100 3\n" );
+		// dump_graph can stat the flat `{file}.{seg}` segments (num_segments in the
+		// graph is the retained-count = max_segments, token 6).
+		$this->write_tsl( 'l', "make_node Log lg /tmp/x.md 100 2 3\n" );
 		$g = \Newspack_Nodes\Topology_Registry::graph_for( 'l' );
 		$node = $g['nodes'][0];
 		$this->assertSame( 'lg', $node['name'] );

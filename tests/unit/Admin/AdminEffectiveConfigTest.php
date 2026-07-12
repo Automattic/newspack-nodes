@@ -58,7 +58,7 @@ class AdminEffectiveConfigTest extends TestCase {
 		$this->assertStringContainsString( '<table class="widefat"', $html );
 		$this->assertStringContainsString( 'Restart impact', $html );
 		// A substrate setting label only the shared renderer's row loop emits.
-		$this->assertStringContainsString( 'Num Segments', $html );
+		$this->assertStringContainsString( 'Max Segments', $html );
 	}
 
 	public function test_render_section_hooked_to_settings_after_form(): void {

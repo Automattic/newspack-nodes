@@ -213,7 +213,7 @@ class TopologiesActivateTest extends TestCase {
 		// activating B would put two fleets on one log and corrupt it. The verb
 		// must reject (TM_ERROR) BEFORE writing the option or spawning, so the
 		// regression that let the manager toggle create the conflict stays closed.
-		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>';
+		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
 		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\n{$partition}\n" );
 		\file_put_contents( "{$this->stock}/beta.tsl", "var num_partitions = 2\n{$partition}\n" );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];

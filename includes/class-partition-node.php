@@ -14,8 +14,10 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Partition_Node extends Timer_Node {
 	use Schema_Reflection;
 	use File_Writer;
-	public const DEFAULT_MAX_LIFESPAN = 0;
-	public const DEFAULT_NUM_SEGMENTS = 4;
+	public const DEFAULT_MIN_SEGMENTS = 2;
+	public const DEFAULT_MAX_SEGMENTS = 4;
+	public const DEFAULT_MIN_LIFETIME = 0;
+	public const DEFAULT_MAX_LIFETIME = 0;
 
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 
@@ -81,8 +83,10 @@ class Partition_Node extends Timer_Node {
 	protected bool $lock_held = false;
 	protected int $lock_max_wait_ms = 0;
 	protected int $lock_stale_timeout = 0;
-	protected int $max_lifespan     = self::DEFAULT_MAX_LIFESPAN;
-	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
+	protected int $min_segments     = self::DEFAULT_MIN_SEGMENTS;
+	protected int $max_segments     = self::DEFAULT_MAX_SEGMENTS;
+	protected int $min_lifetime     = self::DEFAULT_MIN_LIFETIME;
+	protected int $max_lifetime     = self::DEFAULT_MAX_LIFETIME;
 
 	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
 	protected string $partition_dir = '';
@@ -117,8 +121,10 @@ class Partition_Node extends Timer_Node {
 		$this->parse_schema_args( $args );
 		$this->partition_dir = \rtrim( $this->partition_dir, '/' );
 		$this->segment_size  = \max( 1, $this->segment_size );
-		$this->num_segments  = \max( 2, $this->num_segments );
-		$this->max_lifespan  = \max( 0, $this->max_lifespan );
+		$this->min_segments  = \max( 2, $this->min_segments );
+		$this->max_segments  = \max( $this->min_segments, $this->max_segments );
+		$this->min_lifetime  = \max( 0, $this->min_lifetime );
+		$this->max_lifetime  = \max( 0, $this->max_lifetime );
 		return $args;
 	}
 
@@ -607,8 +613,12 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * AND-gated retention: delete oldest segments only when count > num_segments
-	 * AND (now - mtime) >= max_lifespan.
+	 * Dual-rule retention, oldest-first, above a hard floor of 2 segments. Prune
+	 * the oldest segment when EITHER rule fires:
+	 *   - age rule: older than max_lifetime (0 = off), keeping at least min_segments;
+	 *   - count rule: more than max_segments, keeping anything younger than min_lifetime.
+	 * So the age rule can prune below max_segments, and the count rule below
+	 * max_lifetime — each bounded by the other axis's floor.
 	 */
 	public function cleanup_segments(): void {
 		// Use the warm cache; standalone callers (cold cache) force-scan.
@@ -617,11 +627,17 @@ class Partition_Node extends Timer_Node {
 		$initial_count  = $count;
 		$now            = \time();
 
-		while ( $count > $this->num_segments ) {
+		while ( $count > 2 ) {
 			$oldest = $segments[0];
 			$path   = $this->get_segment_path( $oldest['id'] );
 			$mtime  = @\filemtime( $path );
-			if ( false === $mtime || ( $now - $mtime ) < $this->max_lifespan ) {
+			if ( false === $mtime ) {
+				break; // can't determine age → keep it (and stop, oldest-first).
+			}
+			$age         = $now - $mtime;
+			$age_prune   = $this->max_lifetime > 0 && $age > $this->max_lifetime && $count > $this->min_segments;
+			$count_prune = $count > $this->max_segments && $age >= $this->min_lifetime;
+			if ( ! $age_prune && ! $count_prune ) {
 				break;
 			}
 			// Partition's segment dir is base_dir-relative — not WP-managed.
@@ -1234,8 +1250,10 @@ class Partition_Node extends Timer_Node {
 			'arguments'     => [
 				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true, 'description' => 'On-disk directory holding this partition\'s numbered {seg}.log segment files and .idx indexes.' ],
 				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE, 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
-				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS, 'description' => 'Max segments kept before the oldest is pruned (retention count; clamped to a minimum of 2).' ],
-				[ 'name' => 'max_lifespan',  'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN, 'description' => 'Minimum retention age in seconds before a beyond-count segment may be pruned; 0 disables the age gate (pure count-based on num_segments).' ],
+				[ 'name' => 'min_segments',  'type' => 'int',    'default'  => self::DEFAULT_MIN_SEGMENTS, 'description' => 'Floor for the age rule: keep at least this many segments even when pruning by max_lifetime (clamped to a hard minimum of 2).' ],
+				[ 'name' => 'max_segments',  'type' => 'int',    'default'  => self::DEFAULT_MAX_SEGMENTS, 'description' => 'Count rule: prune the oldest back to this many segments (kept younger ones are protected by min_lifetime).' ],
+				[ 'name' => 'min_lifetime',  'type' => 'int',    'default'  => self::DEFAULT_MIN_LIFETIME, 'description' => 'Floor for the count rule: keep segments younger than this many seconds even when over max_segments; 0 keeps nothing extra.' ],
+				[ 'name' => 'max_lifetime',  'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFETIME, 'description' => 'Age rule: prune segments older than this many seconds down to min_segments; 0 disables age-based pruning.' ],
 			],
 			'commands'    => [
 				[
