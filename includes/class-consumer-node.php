@@ -685,6 +685,7 @@ class Consumer_Node extends Timer_Node {
 	public function dump_config(): string {
 		$out  = parent::dump_config();
 		$out .= $this->dump_time_travel_config( $this->name );
+		$out .= $this->dump_pump_config( $this->name );
 		if ( $this->multi_writer ) {
 			// Explicit `1`: bare/empty arg disables, flips multi_writer false.
 			$out .= "cmd {$this->name}:config set_multi_writer 1\n";
@@ -795,6 +796,7 @@ class Consumer_Node extends Timer_Node {
 			// Time-travel verbs via Time_Travel; set_multi_writer Consumer.
 			'commands'      => \array_merge(
 				self::time_travel_verbs(),
+				self::pump_verbs(),
 				[
 					[
 						'name'        => 'set_multi_writer',

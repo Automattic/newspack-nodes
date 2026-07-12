@@ -15,6 +15,16 @@ final class Log_Discovery {
 	private static ?array $cached = null;
 
 	/**
+	 * glob()-call seam. Lazily-defaulted to the real glob; tests reassign to force the
+	 * error branch (glob returning false) without a real filesystem fault.
+	 *
+	 * Signature: `function ( string $pattern, int $flags ): array|false`.
+	 *
+	 * @var (\Closure(string, int): (array<int, string>|false))|null
+	 */
+	public static ?\Closure $glob = null;
+
+	/**
 	 * Sorted concrete dir basenames of every first-level directory under
 	 * `{base}/logs` (flat partition-in-name layout, e.g. `firehose.p0`),
 	 * returned verbatim. GLOB_ONLYDIR skips Log file-sink segment files.
@@ -26,8 +36,9 @@ final class Log_Discovery {
 			return self::$cached;
 		}
 		$base_dir = Config::get_base_directory();
-		$matches  = \glob( "{$base_dir}/logs/*", \GLOB_ONLYDIR );
-		if ( false === $matches ) {
+		$glob     = self::$glob ?? static fn ( string $pattern, int $flags ): array|false => \glob( $pattern, $flags );
+		$matches  = $glob( "{$base_dir}/logs/*", \GLOB_ONLYDIR );
+		if ( ! \is_array( $matches ) ) {
 			return self::$cached = [];
 		}
 		\sort( $matches );

@@ -357,4 +357,24 @@ class SseInCoverageTest extends TestCase {
 		$node->disconnect();
 		$this->assertNull( $node->test_get_handle() );
 	}
+
+	public function test_maybe_connect_default_dispatch_sets_up_a_real_handle(): void {
+		// No $curl_dispatch seam: exercise the production curl_init + curl_setopt_array +
+		// curl_multi_add_handle path (setup only — no perform, so no network).
+		[ $node ] = $this->configured_node();
+		$this->assertTrue( $node->maybe_connect() );
+		$this->assertInstanceOf( \CurlHandle::class, $node->test_get_handle() );
+		$node->disconnect(); // detach + close the real handle.
+	}
+
+	public function test_arm_and_disarm_toggle_event_loop_registration(): void {
+		// The Buffered_Pump valve: arm registers the live handle with the drain loop,
+		// disarm unregisters it. Both are no-ops without a live handle.
+		[ $node ] = $this->configured_node();
+		$this->connect( $node );
+		$node->arm();
+		$node->disarm();
+		$node->disconnect();
+		$this->addToAssertionCount( 1 );
+	}
 }

@@ -46,6 +46,17 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [], Log_Discovery::on_disk() );
 	}
 
+	public function test_returns_empty_when_glob_errors(): void {
+		// glob() returns false on an I/O error (not [] as for no-match). The seam forces
+		// that branch without a real filesystem fault: discovery yields [], never false.
+		Log_Discovery::$glob = static fn ( string $pattern, int $flags ) => false;
+		try {
+			$this->assertSame( [], Log_Discovery::on_disk() );
+		} finally {
+			Log_Discovery::$glob = null;
+		}
+	}
+
 	public function test_returns_concrete_dir_basenames_verbatim(): void {
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 		\mkdir( "{$this->tmp}/logs/errors.p0", 0755, true );
