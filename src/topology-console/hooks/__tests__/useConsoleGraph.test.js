@@ -263,6 +263,12 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( lastConnector.opts.nonce ).toBe( 'NONCE' );
 	} );
 
+	it( 'makes each RemoteIpc with a token-free (worker-only) argument string', () => {
+		renderGraph( { topology: 'demo', partition: 3 } );
+		// baseUrl/nonce come from the localized global, NOT make_node tokens.
+		expect( Core.node( 'demo.p3' ).arguments ).toBe( 'demo.p3' );
+	} );
+
 	it( 'sets the Shell cwd path to the bare session worker reader', () => {
 		const { result } = renderGraph( { topology: 'demo', partition: 2 } );
 		expect( result.current.shell.path ).toBe( 'demo.p2' );

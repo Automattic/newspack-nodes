@@ -261,6 +261,13 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		);
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose.p0' );
 	} );
+
+	test( 'makes the RemoteLink with a token-free (subscribe-only) argument string', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		// baseUrl/nonce come from the localized global, NOT make_node tokens.
+		expect( Core.node( LINK ).arguments ).toBe( 'raw-logs' );
+	} );
 } );
 
 describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
