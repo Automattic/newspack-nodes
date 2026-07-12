@@ -183,12 +183,14 @@ class Partition_Node extends Timer_Node {
 			}
 			$fh = $this->get_handle();
 			if ( null === $fh ) {
+				$this->print_less_often( "WARNING: large write failed to open {$this->current_log_path}" );
 				return;
 			}
 			$offset              = $this->current_size;
 			$wrote               = $this->write_all( $fh, $record, $this->current_log_path );
 			$this->current_size += $wrote;
 			if ( $wrote < $size ) {
+				$this->print_less_often( "WARNING: large write failed to write all {$size} bytes to {$this->current_log_path}" );
 				return;
 			}
 			if ( null !== $this->index_callback ) {
