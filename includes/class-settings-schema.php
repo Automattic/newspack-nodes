@@ -125,13 +125,13 @@ class Settings_Schema {
 				),
 				// Remote storage geometry; registered + resettable.
 				new Field(
-					key: 'remote_num_segments',
+					key: 'remote_max_segments',
 					type: 'int',
-					label: static fn(): string => \__( 'Remote Segment Count', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Remote Max Segments', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
-					sanitize: [ Admin::class, 'sanitize_remote_num_segments' ],
-					render: [ Admin::class, 'remote_num_segments_callback' ],
+					sanitize: [ Admin::class, 'sanitize_remote_max_segments' ],
+					render: [ Admin::class, 'remote_max_segments_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
 				new Field(
@@ -145,13 +145,13 @@ class Settings_Schema {
 					register_args: [ 'type' => 'string' ],
 				),
 				new Field(
-					key: 'remote_max_lifespan',
+					key: 'remote_min_lifetime',
 					type: 'int',
 					label: static fn(): string => \__( 'Remote Min Retention', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
-					sanitize: [ Admin::class, 'sanitize_remote_max_lifespan' ],
-					render: [ Admin::class, 'remote_max_lifespan_callback' ],
+					sanitize: [ Admin::class, 'sanitize_remote_min_lifetime' ],
+					render: [ Admin::class, 'remote_min_lifetime_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
 				// ui:false overlay; registering lets Save wipe the active set.

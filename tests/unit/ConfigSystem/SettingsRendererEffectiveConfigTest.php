@@ -100,8 +100,8 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$rows = $this->rows_by_key();
 		// num_partitions is classified supervisor_only.
 		$this->assertSame( 'Applies on next supervisor tick', $rows['num_partitions']['restart'] );
-		// remote_num_segments is classified [] (read directly, no worker restart).
-		$this->assertSame( 'Takes effect immediately', $rows['remote_num_segments']['restart'] );
+		// remote_max_segments is classified [] (read directly, no worker restart).
+		$this->assertSame( 'Takes effect immediately', $rows['remote_max_segments']['restart'] );
 	}
 
 	public function test_unset_remote_field_reports_file_default(): void {
@@ -109,12 +109,12 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		// carries the config-file default, and the Effective cell shows it — uniform
 		// with every other field, no blank cell.
 		$rows = $this->rows_by_key();
-		$this->assertStringContainsString( 'file default', $rows['remote_num_segments']['stored'] );
+		$this->assertStringContainsString( 'file default', $rows['remote_max_segments']['stored'] );
 		$this->assertSame(
-			(string) ( Config::load_config()['remote_num_segments'] ?? '' ),
-			(string) $rows['remote_num_segments']['effective']
+			(string) ( Config::load_config()['remote_max_segments'] ?? '' ),
+			(string) $rows['remote_max_segments']['effective']
 		);
-		$this->assertNotSame( '', (string) $rows['remote_num_segments']['effective'] );
+		$this->assertNotSame( '', (string) $rows['remote_max_segments']['effective'] );
 	}
 
 	public function test_stored_remote_field_reports_stored_value(): void {

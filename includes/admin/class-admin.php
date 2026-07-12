@@ -309,16 +309,16 @@ class Admin {
 		self::render_number( 'max_lifetime', 0, 0, 604800, \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
 	}
 
-	public static function remote_num_segments_callback(): void {
-		self::render_number( 'remote_num_segments', 2, 2, 16, \__( 'Number of log segments on remote servers (2-16).', 'newspack-nodes' ) );
+	public static function remote_max_segments_callback(): void {
+		self::render_number( 'remote_max_segments', 2, 2, 16, \__( 'Number of log segments on remote servers (2-16).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_segment_size_callback(): void {
 		self::render_number( 'remote_segment_size', 33554432, 1024 * 1024, 256 * 1024 * 1024, \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
 	}
 
-	public static function remote_max_lifespan_callback(): void {
-		self::render_number( 'remote_max_lifespan', 3600, 0, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
+	public static function remote_min_lifetime_callback(): void {
+		self::render_number( 'remote_min_lifetime', 3600, 0, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
 	}
 
 	/**
@@ -828,12 +828,12 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize the remote num_segments setting: clamp to [2, 16], or '' when unset.
+	 * Sanitize the remote max_segments setting: clamp to [2, 16], or '' when unset.
 	 *
 	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
 	 * @return int|string Clamped segment count, or '' when blank/unset.
 	 */
-	public static function sanitize_remote_num_segments( int|string|null $value ): int|string {
+	public static function sanitize_remote_max_segments( int|string|null $value ): int|string {
 		if ( '' === $value || null === $value ) {
 			return '';
 		}
@@ -854,13 +854,13 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize the remote max_lifespan setting: clamp to [0, 604800] seconds, or '' when unset.
-	 * 0 = disabled (pure count-based), matching the hub max_lifespan.
+	 * Sanitize the remote min_lifetime setting: clamp to [0, 604800] seconds, or '' when unset.
+	 * 0 = disabled (pure count-based), matching the hub min_lifetime.
 	 *
 	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
-	 * @return int|string Clamped lifespan in seconds, or '' when blank/unset.
+	 * @return int|string Clamped lifetime in seconds, or '' when blank/unset.
 	 */
-	public static function sanitize_remote_max_lifespan( int|string|null $value ): int|string {
+	public static function sanitize_remote_min_lifetime( int|string|null $value ): int|string {
 		if ( '' === $value || null === $value ) {
 			return '';
 		}

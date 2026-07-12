@@ -16,11 +16,11 @@ final class RemoteSettingsMigrationTest extends TestCase {
 
 	private const MARKER = 'newspack_nodes_remote_settings_migrated';
 
-	/** [ old-name => new-name ] for the three renamed options. */
+	/** [ old-name => new-name ] for the three renamed options (targets are the post-split names). */
 	private const RENAMES = [
-		'newspack_event_logger_nodes_remote_num_segments' => 'newspack_nodes_remote_num_segments',
+		'newspack_event_logger_nodes_remote_num_segments' => 'newspack_nodes_remote_max_segments',
 		'newspack_event_logger_nodes_remote_segment_size' => 'newspack_nodes_remote_segment_size',
-		'newspack_event_logger_nodes_remote_max_lifespan' => 'newspack_nodes_remote_max_lifespan',
+		'newspack_event_logger_nodes_remote_max_lifespan' => 'newspack_nodes_remote_min_lifetime',
 	];
 
 	protected function setUp(): void {
@@ -39,9 +39,9 @@ final class RemoteSettingsMigrationTest extends TestCase {
 
 		Remote_Settings_Migration::maybe_migrate();
 
-		$this->assertSame( 8, \get_option( 'newspack_nodes_remote_num_segments' ) );
+		$this->assertSame( 8, \get_option( 'newspack_nodes_remote_max_segments' ) );
 		$this->assertSame( 5 * 1024 * 1024, \get_option( 'newspack_nodes_remote_segment_size' ) );
-		$this->assertSame( 1200, \get_option( 'newspack_nodes_remote_max_lifespan' ) );
+		$this->assertSame( 1200, \get_option( 'newspack_nodes_remote_min_lifetime' ) );
 
 		foreach ( \array_keys( self::RENAMES ) as $old ) {
 			$this->assertFalse( \get_option( $old ), "old option {$old} must be deleted" );
@@ -54,9 +54,9 @@ final class RemoteSettingsMigrationTest extends TestCase {
 
 		Remote_Settings_Migration::maybe_migrate();
 
-		$this->assertSame( 4, \get_option( 'newspack_nodes_remote_num_segments' ) );
+		$this->assertSame( 4, \get_option( 'newspack_nodes_remote_max_segments' ) );
 		$this->assertFalse( \get_option( 'newspack_nodes_remote_segment_size' ) );
-		$this->assertFalse( \get_option( 'newspack_nodes_remote_max_lifespan' ) );
+		$this->assertFalse( \get_option( 'newspack_nodes_remote_min_lifetime' ) );
 	}
 
 	public function test_is_idempotent_and_does_not_clobber_existing_new_values(): void {
@@ -64,18 +64,18 @@ final class RemoteSettingsMigrationTest extends TestCase {
 		Remote_Settings_Migration::maybe_migrate();
 
 		// A later write to the new name plus a re-run must not resurrect the rename.
-		\update_option( 'newspack_nodes_remote_num_segments', 12 );
+		\update_option( 'newspack_nodes_remote_max_segments', 12 );
 		\update_option( 'newspack_event_logger_nodes_remote_num_segments', 8 );
 		Remote_Settings_Migration::maybe_migrate();
 
-		$this->assertSame( 12, \get_option( 'newspack_nodes_remote_num_segments' ) );
+		$this->assertSame( 12, \get_option( 'newspack_nodes_remote_max_segments' ) );
 		$this->assertSame( 8, \get_option( 'newspack_event_logger_nodes_remote_num_segments' ), 'second run is a no-op' );
 	}
 
 	public function test_noop_when_nothing_to_migrate(): void {
 		Remote_Settings_Migration::maybe_migrate();
 
-		$this->assertFalse( \get_option( 'newspack_nodes_remote_num_segments' ) );
+		$this->assertFalse( \get_option( 'newspack_nodes_remote_max_segments' ) );
 		$this->assertNotEmpty( \get_option( self::MARKER ), 'marker is set even on a clean install' );
 	}
 }

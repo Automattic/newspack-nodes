@@ -203,9 +203,9 @@ class AdminTest extends TestCase {
 		$admin->register_settings();
 
 		foreach ( [
-			'newspack_nodes_remote_num_segments',
+			'newspack_nodes_remote_max_segments',
 			'newspack_nodes_remote_segment_size',
-			'newspack_nodes_remote_max_lifespan',
+			'newspack_nodes_remote_min_lifetime',
 		] as $option ) {
 			$this->assertArrayHasKey( $option, $GLOBALS['_registered_settings'], "missing option: $option" );
 			$this->assertSame( 'string', $GLOBALS['_registered_settings'][ $option ]['args']['type'] );
@@ -217,7 +217,7 @@ class AdminTest extends TestCase {
 		$admin->register_settings();
 
 		$this->assertArrayHasKey( 'newspack_nodes_remote_section', $GLOBALS['_registered_sections'] );
-		foreach ( [ 'remote_num_segments', 'remote_segment_size', 'remote_max_lifespan' ] as $field ) {
+		foreach ( [ 'remote_max_segments', 'remote_segment_size', 'remote_min_lifetime' ] as $field ) {
 			$this->assertArrayHasKey( $field, $GLOBALS['_registered_fields'], "field $field not registered" );
 			$this->assertSame( Admin::SETTINGS_PAGE, $GLOBALS['_registered_fields'][ $field ]['page'] );
 		}
@@ -440,7 +440,7 @@ class AdminTest extends TestCase {
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_remote_num_segments' );
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_remote_max_segments' );
 
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
@@ -673,15 +673,15 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- remote_* sanitizers ---------------------------------------------
 
-	public function test_sanitize_remote_num_segments_returns_empty_for_empty_and_null(): void {
-		$this->assertSame( '', Admin::sanitize_remote_num_segments( '' ) );
-		$this->assertSame( '', Admin::sanitize_remote_num_segments( null ) );
+	public function test_sanitize_remote_max_segments_returns_empty_for_empty_and_null(): void {
+		$this->assertSame( '', Admin::sanitize_remote_max_segments( '' ) );
+		$this->assertSame( '', Admin::sanitize_remote_max_segments( null ) );
 	}
 
-	public function test_sanitize_remote_num_segments_clamps_to_range(): void {
-		$this->assertSame( 2, Admin::sanitize_remote_num_segments( '1' ) );
-		$this->assertSame( 16, Admin::sanitize_remote_num_segments( '500' ) );
-		$this->assertSame( 8, Admin::sanitize_remote_num_segments( '8' ) );
+	public function test_sanitize_remote_max_segments_clamps_to_range(): void {
+		$this->assertSame( 2, Admin::sanitize_remote_max_segments( '1' ) );
+		$this->assertSame( 16, Admin::sanitize_remote_max_segments( '500' ) );
+		$this->assertSame( 8, Admin::sanitize_remote_max_segments( '8' ) );
 	}
 
 	public function test_sanitize_remote_segment_size_returns_empty_for_empty_and_null(): void {
@@ -695,17 +695,17 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertSame( 10 * 1024 * 1024, Admin::sanitize_remote_segment_size( (string) ( 10 * 1024 * 1024 ) ) );
 	}
 
-	public function test_sanitize_remote_max_lifespan_returns_empty_for_empty_and_null(): void {
-		$this->assertSame( '', Admin::sanitize_remote_max_lifespan( '' ) );
-		$this->assertSame( '', Admin::sanitize_remote_max_lifespan( null ) );
+	public function test_sanitize_remote_min_lifetime_returns_empty_for_empty_and_null(): void {
+		$this->assertSame( '', Admin::sanitize_remote_min_lifetime( '' ) );
+		$this->assertSame( '', Admin::sanitize_remote_min_lifetime( null ) );
 	}
 
-	public function test_sanitize_remote_max_lifespan_clamps_to_range(): void {
+	public function test_sanitize_remote_min_lifetime_clamps_to_range(): void {
 		// 0 = disabled (pure count-based), matching the hub max_lifespan; no 60s floor.
-		$this->assertSame( 0, Admin::sanitize_remote_max_lifespan( '0' ) );
-		$this->assertSame( 10, Admin::sanitize_remote_max_lifespan( '10' ) );
-		$this->assertSame( 604800, Admin::sanitize_remote_max_lifespan( '999999999' ) );
-		$this->assertSame( 3600, Admin::sanitize_remote_max_lifespan( '3600' ) );
+		$this->assertSame( 0, Admin::sanitize_remote_min_lifetime( '0' ) );
+		$this->assertSame( 10, Admin::sanitize_remote_min_lifetime( '10' ) );
+		$this->assertSame( 604800, Admin::sanitize_remote_min_lifetime( '999999999' ) );
+		$this->assertSame( 3600, Admin::sanitize_remote_min_lifetime( '3600' ) );
 	}
 
 	// ---- remote_* section + field callbacks ------------------------------
@@ -718,22 +718,22 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'remote spokes', $out );
 	}
 
-	public function test_remote_num_segments_callback_renders_number_input(): void {
+	public function test_remote_max_segments_callback_renders_number_input(): void {
 		\ob_start();
-		Admin::remote_num_segments_callback();
+		Admin::remote_max_segments_callback();
 		$out = \ob_get_clean();
-		$this->assertStringContainsString( 'name="newspack_nodes_remote_num_segments"', $out );
+		$this->assertStringContainsString( 'name="newspack_nodes_remote_max_segments"', $out );
 		$this->assertStringContainsString( 'type="number"', $out );
 		$this->assertStringContainsString( 'min="2"', $out );
 		$this->assertStringContainsString( 'max="16"', $out );
-		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_remote_num_segments]"', $out );
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_remote_max_segments]"', $out );
 		$this->assertStringContainsString( 'data-nn-reset-toggle', $out );
 	}
 
-	public function test_remote_num_segments_callback_shows_value_when_overridden(): void {
-		\update_option( 'newspack_nodes_remote_num_segments', 8 );
+	public function test_remote_max_segments_callback_shows_value_when_overridden(): void {
+		\update_option( 'newspack_nodes_remote_max_segments', 8 );
 		\ob_start();
-		Admin::remote_num_segments_callback();
+		Admin::remote_max_segments_callback();
 		$out = \ob_get_clean();
 		$this->assertStringContainsString( 'value="8"', $out );
 	}
@@ -747,11 +747,11 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'max="' . ( 256 * 1024 * 1024 ) . '"', $out );
 	}
 
-	public function test_remote_max_lifespan_callback_renders_number_input(): void {
+	public function test_remote_min_lifetime_callback_renders_number_input(): void {
 		\ob_start();
-		Admin::remote_max_lifespan_callback();
+		Admin::remote_min_lifetime_callback();
 		$out = \ob_get_clean();
-		$this->assertStringContainsString( 'name="newspack_nodes_remote_max_lifespan"', $out );
+		$this->assertStringContainsString( 'name="newspack_nodes_remote_min_lifetime"', $out );
 		$this->assertStringContainsString( 'min="0"', $out );
 		$this->assertStringContainsString( 'max="604800"', $out );
 	}

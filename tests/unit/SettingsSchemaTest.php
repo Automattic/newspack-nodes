@@ -28,9 +28,9 @@ class SettingsSchemaTest extends TestCase {
 		'max_lifetime',
 		'base_directory',
 		'memcache_servers',
-		'remote_num_segments',
+		'remote_max_segments',
 		'remote_segment_size',
-		'remote_max_lifespan',
+		'remote_min_lifetime',
 		'topologies',
 		'allowed_users',
 	];
@@ -44,9 +44,9 @@ class SettingsSchemaTest extends TestCase {
 		'newspack_nodes_max_lifetime',
 		'newspack_nodes_base_directory',
 		'newspack_nodes_memcache_servers',
-		'newspack_nodes_remote_num_segments',
+		'newspack_nodes_remote_max_segments',
 		'newspack_nodes_remote_segment_size',
-		'newspack_nodes_remote_max_lifespan',
+		'newspack_nodes_remote_min_lifetime',
 	];
 
 	private const RENDERED_IDS = [
@@ -59,9 +59,9 @@ class SettingsSchemaTest extends TestCase {
 		'total_storage',
 		'base_directory',
 		'memcache_servers',
-		'remote_num_segments',
+		'remote_max_segments',
 		'remote_segment_size',
-		'remote_max_lifespan',
+		'remote_min_lifetime',
 	];
 
 	protected function setUp(): void {
@@ -107,9 +107,9 @@ class SettingsSchemaTest extends TestCase {
 	public function test_remote_settings_restart_nothing(): void {
 		$schema = Settings_Schema::get();
 
-		$this->assertSame( [], $schema->restart_for( 'remote_num_segments' ) );
+		$this->assertSame( [], $schema->restart_for( 'remote_max_segments' ) );
 		$this->assertSame( [], $schema->restart_for( 'remote_segment_size' ) );
-		$this->assertSame( [], $schema->restart_for( 'remote_max_lifespan' ) );
+		$this->assertSame( [], $schema->restart_for( 'remote_min_lifetime' ) );
 	}
 
 	/**
@@ -120,15 +120,15 @@ class SettingsSchemaTest extends TestCase {
 	public function test_remote_settings_are_overlaid_like_every_setting(): void {
 		$schema = Settings_Schema::get();
 
-		foreach ( [ 'remote_num_segments', 'remote_segment_size', 'remote_max_lifespan' ] as $key ) {
+		foreach ( [ 'remote_max_segments', 'remote_segment_size', 'remote_min_lifetime' ] as $key ) {
 			$field = $schema->field_for_short( $key );
 			$this->assertNotNull( $field, "remote field {$key} must exist" );
 			$this->assertSame( 'newspack_nodes_remote_section', $field->section );
 		}
 
-		$this->assertContains( 'remote_num_segments', $schema->overlay_keys() );
+		$this->assertContains( 'remote_max_segments', $schema->overlay_keys() );
 		$this->assertContains( 'remote_segment_size', $schema->overlay_keys() );
-		$this->assertContains( 'remote_max_lifespan', $schema->overlay_keys() );
+		$this->assertContains( 'remote_min_lifetime', $schema->overlay_keys() );
 	}
 
 	public function test_prefix_is_the_substrate_prefix_and_get_is_memoized(): void {
