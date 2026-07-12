@@ -374,9 +374,22 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 1, $captured );
 	}
 
-	public function test_fire_allows_non_https_by_default(): void {
-		// Default off (opt-in): no overlay set → plaintext spoke is allowed.
+	public function test_fire_refuses_non_https_by_default(): void {
+		// Default ON (secure): no overlay set → plaintext spoke is dropped.
 		$this->use_base_dir( $this->make_temp_dir() );
+		$this->seed_vault( 'austin', [ 'url' => 'http://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$m    = $this->command_message( 'workers', 'heartbeat', '3 60 0' );
+		$node->fill( $m );
+		$node->fire();
+		$this->assertCount( 0, $captured );
+	}
+
+	public function test_fire_allows_non_https_when_require_ssl_opted_out(): void {
+		// Explicit opt-out overlay → plaintext spoke is allowed again.
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => false ] );
 		$this->seed_vault( 'austin', [ 'url' => 'http://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
