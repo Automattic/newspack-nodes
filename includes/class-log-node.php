@@ -83,6 +83,8 @@ class Log_Node extends Partition_Node {
 				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE, 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
 				[ 'name' => 'min_segments', 'type' => 'int',    'default' => self::DEFAULT_MIN_SEGMENTS, 'description' => 'Age-rule floor: keep at least this many segments (clamped to a hard minimum of 2).' ],
 				[ 'name' => 'max_segments', 'type' => 'int',    'default' => self::DEFAULT_MAX_SEGMENTS, 'description' => 'Count rule: prune the oldest back to this many segments.' ],
+				[ 'name' => 'min_lifetime', 'type' => 'int',    'default' => self::DEFAULT_MIN_LIFETIME, 'description' => 'Count-rule floor: keep segments younger than this many seconds even when over max_segments; 0 keeps nothing extra.' ],
+				[ 'name' => 'max_lifetime', 'type' => 'int',    'default' => self::DEFAULT_MAX_LIFETIME, 'description' => 'Age rule: prune segments older than this many seconds down to min_segments; 0 disables age-based pruning.' ],
 			],
 		] );
 	}
