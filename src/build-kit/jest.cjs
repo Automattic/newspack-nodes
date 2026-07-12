@@ -27,10 +27,7 @@ function createJestConfig( {
 	testPathIgnorePatterns = null,
 	transformIgnorePatterns = null,
 } ) {
-	// Order matters: the @newspack-nodes/shared subpath mapper MUST precede the
-	// css/scss style-mock (first-match wins, so an aliased style import resolves
-	// to the real file, not the mock — the documented AGENTS trap). Building the
-	// object in this order, with the mock added LAST, makes that unbotchable.
+	// Shared-subpath mapper MUST precede css/scss style-mock (AGENTS trap).
 	const moduleNameMapper = {
 		'^@newspack-nodes/runtime$': path.join( aliasBase, 'runtime/index.js' ),
 		'^@newspack-nodes/debug-overlay$': path.join(
@@ -41,10 +38,7 @@ function createJestConfig( {
 		'^@newspack-nodes/shared$': path.join( aliasBase, 'shared' ),
 	};
 
-	// Pin ONE copy of React + @wordpress/element so a substrate hook called from
-	// a consumer's render can't trip "Invalid hook call" (two dispatchers from
-	// two node_modules trees). The substrate itself has a single copy, so it
-	// omits this.
+	// Pin ONE React + @wordpress/element copy (avoids "Invalid hook call").
 	if ( pinReactFrom ) {
 		moduleNameMapper[ '^@wordpress/element$' ] = path.join(
 			pinReactFrom,
@@ -69,8 +63,7 @@ function createJestConfig( {
 		setupFilesAfterEnv: [ '<rootDir>/jest.setup.js' ],
 		testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
 		moduleNameMapper,
-		// `.mjs` covers ESM build tooling a test may import (e.g. the build-kit
-		// itself); jest runs babel-jest over it so its `node:` imports resolve.
+		// babel-jest over .mjs so its node: imports resolve.
 		transform: { '\\.m?[jt]sx?$': 'babel-jest' },
 	};
 	if ( testPathIgnorePatterns ) {
