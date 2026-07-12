@@ -101,9 +101,11 @@ class AdminTest extends TestCase {
 		$expected = [
 			'newspack_nodes_base_directory',
 			'newspack_nodes_num_partitions',
-			'newspack_nodes_num_segments',
+			'newspack_nodes_min_segments',
+			'newspack_nodes_max_segments',
 			'newspack_nodes_segment_size',
-			'newspack_nodes_max_lifespan',
+			'newspack_nodes_min_lifetime',
+			'newspack_nodes_max_lifetime',
 			'newspack_nodes_memcache_servers',
 		];
 		foreach ( $expected as $option ) {
@@ -127,9 +129,11 @@ class AdminTest extends TestCase {
 
 		$int_options = [
 			'newspack_nodes_num_partitions',
-			'newspack_nodes_num_segments',
+			'newspack_nodes_min_segments',
+			'newspack_nodes_max_segments',
 			'newspack_nodes_segment_size',
-			'newspack_nodes_max_lifespan',
+			'newspack_nodes_min_lifetime',
+			'newspack_nodes_max_lifetime',
 		];
 		foreach ( $int_options as $option ) {
 			$cb = $GLOBALS['_registered_settings'][ $option ]['args']['sanitize_callback'];
@@ -188,7 +192,7 @@ class AdminTest extends TestCase {
 		$this->assertArrayHasKey( 'newspack_nodes_storage_section', $GLOBALS['_registered_sections'] );
 
 		// Fields populated under the right page.
-		foreach ( [ 'num_partitions', 'num_segments', 'segment_size', 'max_lifespan', 'total_storage', 'base_directory', 'memcache_servers' ] as $field ) {
+		foreach ( [ 'num_partitions', 'min_segments', 'max_segments', 'segment_size', 'min_lifetime', 'max_lifetime', 'total_storage', 'base_directory', 'memcache_servers' ] as $field ) {
 			$this->assertArrayHasKey( $field, $GLOBALS['_registered_fields'], "field $field not registered" );
 			$this->assertSame( Admin::SETTINGS_PAGE, $GLOBALS['_registered_fields'][ $field ]['page'] );
 		}
@@ -405,7 +409,7 @@ class AdminTest extends TestCase {
 		}
 	}
 
-	public function test_saving_num_segments_restarts_live_topologies_not_phantom_groups(): void {
+	public function test_saving_max_segments_restarts_live_topologies_not_phantom_groups(): void {
 		// Storage geometry classifies for the Partition node type. The fixture
 		// 'combined' topology has a Partition; the phantom 'request-workers'
 		// worker-group label matches no live topology and must NOT be touched.
@@ -413,7 +417,7 @@ class AdminTest extends TestCase {
 		$this->prepare_lock_dir( 'combined', 0 );
 		$this->prepare_lock_dir( 'request-workers', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_num_segments' );
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_max_segments' );
 
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/request-workers.p0.lock.d/" . Lock_Node::RESTART_FLAG );
@@ -580,18 +584,36 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'value=""', $html );
 	}
 
-	// ---- num_segments_callback (max=32 → small-text) ---------------------
+	// ---- min_segments_callback (max=32 → small-text) ---------------------
 
-	public function test_num_segments_callback_renders_number_input_with_bounds(): void {
+	public function test_min_segments_callback_renders_number_input_with_bounds(): void {
 		$admin = new Admin();
 
 		\ob_start();
-		$admin->num_segments_callback();
+		$admin->min_segments_callback();
 		$html = \ob_get_clean();
 
 		$this->assertStringContainsString( 'type="number"', $html );
-		$this->assertStringContainsString( 'name="newspack_nodes_num_segments"', $html );
-		$this->assertStringContainsString( 'id="num_segments"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_min_segments"', $html );
+		$this->assertStringContainsString( 'id="min_segments"', $html );
+		$this->assertStringContainsString( 'min="2"', $html );
+		$this->assertStringContainsString( 'max="32"', $html );
+		// max <= 999.
+		$this->assertStringContainsString( 'class="small-text"', $html );
+	}
+
+	// ---- max_segments_callback (max=32 → small-text) ---------------------
+
+	public function test_max_segments_callback_renders_number_input_with_bounds(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->max_segments_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="number"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_max_segments"', $html );
+		$this->assertStringContainsString( 'id="max_segments"', $html );
 		$this->assertStringContainsString( 'min="2"', $html );
 		$this->assertStringContainsString( 'max="32"', $html );
 		// max <= 999.
@@ -615,17 +637,34 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="regular-text"', $html );
 	}
 
-	// ---- max_lifespan_callback (max=604800 → regular-text) ---------------
+	// ---- min_lifetime_callback (max=604800 → regular-text) ---------------
 
-	public function test_max_lifespan_callback_renders_number_input_with_bounds(): void {
+	public function test_min_lifetime_callback_renders_number_input_with_bounds(): void {
 		$admin = new Admin();
 
 		\ob_start();
-		$admin->max_lifespan_callback();
+		$admin->min_lifetime_callback();
 		$html = \ob_get_clean();
 
 		$this->assertStringContainsString( 'type="number"', $html );
-		$this->assertStringContainsString( 'name="newspack_nodes_max_lifespan"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_min_lifetime"', $html );
+		$this->assertStringContainsString( 'min="0"', $html );
+		$this->assertStringContainsString( 'max="604800"', $html );
+		// max > 999 → regular-text branch.
+		$this->assertStringContainsString( 'class="regular-text"', $html );
+	}
+
+	// ---- max_lifetime_callback (max=604800 → regular-text) ---------------
+
+	public function test_max_lifetime_callback_renders_number_input_with_bounds(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->max_lifetime_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="number"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_max_lifetime"', $html );
 		$this->assertStringContainsString( 'min="0"', $html );
 		$this->assertStringContainsString( 'max="604800"', $html );
 		// max > 999 → regular-text branch.
@@ -801,10 +840,10 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	public function test_total_storage_callback_does_not_double_count_partitions(): void {
 		// `Log_Discovery::on_disk()` now returns CONCRETE per-partition dir
 		// names, so the partition dimension is already in the dir count. The
-		// estimate must be segment_size × num_segments × dir_count — NOT
+		// estimate must be segment_size × max_segments × dir_count — NOT
 		// multiplied by num_partitions a second time.
 		\update_option( 'newspack_nodes_segment_size', 10 * 1024 * 1024 );
-		\update_option( 'newspack_nodes_num_segments', 4 );
+		\update_option( 'newspack_nodes_max_segments', 4 );
 		\update_option( 'newspack_nodes_num_partitions', 4 );
 		foreach ( [ 'firehose.p0', 'firehose.p1', 'firehose.p2' ] as $name ) {
 			\mkdir( "{$this->base_dir}/logs/{$name}", 0755, true );
@@ -826,7 +865,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	public function test_total_storage_callback_shows_gb_when_total_over_one_gigabyte(): void {
 		// Force a large enough total: 64MB segment × 4 segments × 4 on-disk dirs = 1 GB.
 		\update_option( 'newspack_nodes_segment_size', 64 * 1024 * 1024 );
-		\update_option( 'newspack_nodes_num_segments', 4 );
+		\update_option( 'newspack_nodes_max_segments', 4 );
 		foreach ( [ 'firehose.p0', 'firehose.p1', 'jobs.p0', 'jobs.p1' ] as $name ) {
 			\mkdir( "{$this->base_dir}/logs/{$name}", 0755, true );
 		}
@@ -846,7 +885,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		// ABSENT options fall back to config defaults (presence-based override:
 		// only a deleted/never-stored row uses the file default).
 		\delete_option( 'newspack_nodes_segment_size' );
-		\delete_option( 'newspack_nodes_num_segments' );
+		\delete_option( 'newspack_nodes_max_segments' );
 		\delete_option( 'newspack_nodes_num_partitions' );
 
 		$admin = new Admin();

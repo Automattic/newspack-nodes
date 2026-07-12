@@ -17,11 +17,13 @@ return [
 	// Filesystem root for logs / locks / offsets / IPC dirs.
 	'base_directory'      => '/tmp/newspack-nodes',
 
-	// Partition/retention: num_partitions CRC32 cap 16; delete needs both caps.
+	// Retention: dual-rule; values reproduce the old 2-seg / 24h defaults.
 	'num_partitions'      => 1,
-	'num_segments'        => 2,
 	'segment_size'        => 64 * 1024 * 1024,
-	'max_lifespan'        => 86400,
+	'min_segments'        => 2,
+	'max_segments'        => 2,
+	'min_lifetime'        => 86400,
+	'max_lifetime'        => 0,
 
 	// Memcache. Stats live here only, never on disk; per-partition prefix.
 	'memcache_servers'    => [

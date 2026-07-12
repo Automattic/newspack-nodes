@@ -6,7 +6,7 @@
  *   list           — minimal worker enumeration (Cli::ls_workers() projection +
  *                    live cursor positions) for programmatic callers.
  *   dump_graph     — full operator-grade envelope (`{workers[], supervisor,
- *                    logs[], num_partitions, num_segments, segment_size,
+ *                    logs[], num_partitions, max_segments, segment_size,
  *                    timestamp}`) plus a `graph` map of active-topology-name =>
  *                    `{nodes, edges}`; the dashboard reads it; heavyweight.
  *   cleanup_status — diagnostic of what Log_Cleaner sees vs the expected set.
@@ -28,6 +28,7 @@ use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Service_CI_Node;
@@ -85,7 +86,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		$now            = \time();
 		$config         = RuntimeConfig::load_config();
 		$num_partitions = self::to_int( $config['num_partitions'] ?? 1 );
-		$num_segments   = self::to_int( $config['num_segments']   ?? 8 );
+		$max_segments   = self::to_int( $config['max_segments'] ?? Partition_Node::DEFAULT_MAX_SEGMENTS );
 		$segment_size   = self::to_int( $config['segment_size']   ?? ( 16 * 1024 * 1024 ) );
 		$base_dir       = RuntimeConfig::get_base_directory();
 		$log_base       = $base_dir . '/logs';
@@ -138,7 +139,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'logs'           => $logs,
 			'log_partitions' => $log_partitions,
 			'num_partitions' => $num_partitions,
-			'num_segments'   => $num_segments,
+			'max_segments'   => $max_segments,
 			'segment_size'   => $segment_size,
 			'timestamp'      => $now,
 			'heartbeat_interval_s' => Worker_Base::HEARTBEAT_INTERVAL_S,

@@ -35,13 +35,13 @@ class LogTest extends TestCase {
 	}
 
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
-		// New signature: file segment_size num_segments. No eager fopen (lazy like Partition).
+		// New signature: file segment_size min_segments max_segments. No eager fopen (lazy like Partition).
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 1024 3" );
+		$log->arguments( "{$this->tmp}/out.log 1024 2 3" );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( "{$this->tmp}/out.log", $ref->getProperty( 'file' )->getValue( $log ) );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
-		$this->assertSame( 3,    $ref->getProperty( 'num_segments' )->getValue( $log ) );
+		$this->assertSame( 3,    $ref->getProperty( 'max_segments' )->getValue( $log ) );
 		$this->assertNull( $ref->getProperty( 'fh' )->getValue( $log ), 'handle is opened lazily on first write' );
 	}
 
@@ -50,7 +50,7 @@ class LogTest extends TestCase {
 		$log->arguments( "{$this->tmp}/out.log" );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( Partition_Node::DEFAULT_SEGMENT_SIZE, $ref->getProperty( 'segment_size' )->getValue( $log ) );
-		$this->assertSame( Partition_Node::DEFAULT_NUM_SEGMENTS, $ref->getProperty( 'num_segments' )->getValue( $log ) );
+		$this->assertSame( Partition_Node::DEFAULT_MAX_SEGMENTS, $ref->getProperty( 'max_segments' )->getValue( $log ) );
 	}
 
 	public function test_fill_writes_raw_value_not_packed_envelope(): void {
@@ -66,7 +66,7 @@ class LogTest extends TestCase {
 
 	public function test_fill_accumulates_multiple_values_in_one_segment(): void {
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 1048576 2" ); // large segment: both land in .0
+		$log->arguments( "{$this->tmp}/out.log 1048576 2 2" ); // large segment: both land in .0
 		$this->write_value( $log, "first\n" );
 		$this->write_value( $log, "second\n" );
 		$log->flush();
@@ -96,7 +96,7 @@ class LogTest extends TestCase {
 	public function test_segment_size_rolls_to_next_monotonic_segment(): void {
 		// segment_size=10: the second write crosses the cap and rotates to .1.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 10 4" );
+		$log->arguments( "{$this->tmp}/out.log 10 2 4" );
 		$this->write_value( $log, "0123456789\n" ); // 11 bytes → lands in .0
 		$log->flush();
 		$this->write_value( $log, "after\n" );       // .0 is over cap → rotate to .1
@@ -106,10 +106,10 @@ class LogTest extends TestCase {
 		$this->assertSame( "after\n",      \file_get_contents( "{$this->tmp}/out.log.1" ) );
 	}
 
-	public function test_num_segments_retention_prunes_oldest(): void {
-		// num_segments=2, max_lifespan default 0 (age gate always satisfied) → keep 2 newest.
+	public function test_max_segments_retention_prunes_oldest(): void {
+		// max_segments=2, min_lifetime default 0 (count rule always fires) → keep 2 newest.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 1 2" ); // segment_size=1 → every write rotates
+		$log->arguments( "{$this->tmp}/out.log 1 2 2" ); // segment_size=1 → every write rotates
 		foreach ( [ 'a', 'b', 'c', 'd' ] as $v ) {
 			$this->write_value( $log, $v );
 			$log->flush();
@@ -206,7 +206,7 @@ class LogTest extends TestCase {
 
 	public function test_dump_config_round_trips_ctor_args(): void {
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 4096 5" );
+		$log->arguments( "{$this->tmp}/out.log 4096 2 5" );
 		$log->name( 'mylog' );
 
 		$out = $log->dump_config();
@@ -216,10 +216,10 @@ class LogTest extends TestCase {
 		$this->assertStringContainsString( '5', $out );
 	}
 
-	public function test_node_schema_arguments_are_file_segment_size_num_segments(): void {
+	public function test_node_schema_arguments_are_file_segment_size_min_segments_max_segments(): void {
 		$args  = Log_Node::node_schema()['arguments'];
 		$names = \array_column( $args, 'name' );
-		$this->assertSame( [ 'file', 'segment_size', 'num_segments' ], $names );
+		$this->assertSame( [ 'file', 'segment_size', 'min_segments', 'max_segments' ], $names );
 	}
 
 	public function test_node_schema_inherits_large_write_verbs_and_is_terminal(): void {

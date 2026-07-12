@@ -21,9 +21,11 @@ class SettingsSchemaTest extends TestCase {
 
 	private const OVERLAY_KEYS = [
 		'num_partitions',
-		'num_segments',
+		'min_segments',
+		'max_segments',
 		'segment_size',
-		'max_lifespan',
+		'min_lifetime',
+		'max_lifetime',
 		'base_directory',
 		'memcache_servers',
 		'remote_num_segments',
@@ -35,9 +37,11 @@ class SettingsSchemaTest extends TestCase {
 
 	private const OPTION_NAMES = [
 		'newspack_nodes_num_partitions',
-		'newspack_nodes_num_segments',
+		'newspack_nodes_min_segments',
+		'newspack_nodes_max_segments',
 		'newspack_nodes_segment_size',
-		'newspack_nodes_max_lifespan',
+		'newspack_nodes_min_lifetime',
+		'newspack_nodes_max_lifetime',
 		'newspack_nodes_base_directory',
 		'newspack_nodes_memcache_servers',
 		'newspack_nodes_remote_num_segments',
@@ -47,9 +51,11 @@ class SettingsSchemaTest extends TestCase {
 
 	private const RENDERED_IDS = [
 		'num_partitions',
-		'num_segments',
+		'min_segments',
+		'max_segments',
 		'segment_size',
-		'max_lifespan',
+		'min_lifetime',
+		'max_lifetime',
 		'total_storage',
 		'base_directory',
 		'memcache_servers',

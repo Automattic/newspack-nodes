@@ -498,7 +498,8 @@ class Topology_Registry {
 					$node['writes']       = $basename( $m[3] );
 					$node['path']         = $m[3];
 					$node['segment_size'] = isset( $tokens[4] ) && \ctype_digit( $tokens[4] ) ? (int) $tokens[4] : 0;
-					$node['num_segments'] = isset( $tokens[5] ) && \ctype_digit( $tokens[5] ) ? (int) $tokens[5] : 0;
+					// Retained count = max_segments, token 6 of Log args.
+					$node['num_segments'] = isset( $tokens[6] ) && \ctype_digit( $tokens[6] ) ? (int) $tokens[6] : 0;
 				}
 				$nodes[] = $node;
 				continue;

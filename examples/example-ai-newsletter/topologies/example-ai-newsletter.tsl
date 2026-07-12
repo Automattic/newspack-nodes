@@ -19,11 +19,11 @@ make_node Community_Source_Demo community
 make_node Summarizer_Demo       summarizer
 make_node Digest_Builder_Demo   digest
 make_node Tee                   digest:tee
-make_node Log                   digest:log /tmp/example-ai-newsletter/digest.md 1 7
+make_node Log                   digest:log /tmp/example-ai-newsletter/digest.md 1 2 7
 cmd digest:log:config void_warranty
 # `example-scored` log paths (not bare `scored`) keep this demo's data isolated from a
 # real plugin's `scored` log in the same substrate dir; MUST match Insights_CI_Demo's glob.
-make_node Partition             scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition             scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>
 cmd scored:partition:config void_warranty
 make_node Consumer              scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition>
 cmd scored:consumer:config set_snapshot_node digest

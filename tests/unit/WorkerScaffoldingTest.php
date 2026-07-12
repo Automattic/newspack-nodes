@@ -44,13 +44,15 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $log );
 		$this->assertSame( '_topicprobe:log', $probe->target() );
 
-		[ , $segment_size, $num_segments, $max_lifespan ] = \explode(
-			' ',
-			$log->arguments()
-		);
-		$this->assertSame( (string) ( 1024 * 1024 ), $segment_size );
-		$this->assertSame( '2', $num_segments );
-		$this->assertSame( '86400', $max_lifespan );
+		// Assert RESOLVED retention props, not the raw arg string — a string
+		// check can't catch a token landing in the wrong parse slot. The probe
+		// log keeps 2 segments but retains anything under 24h (min_lifetime).
+		$ref = new \ReflectionClass( Partition_Node::class );
+		$this->assertSame( 1024 * 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
+		$this->assertSame( 2, $ref->getProperty( 'min_segments' )->getValue( $log ) );
+		$this->assertSame( 2, $ref->getProperty( 'max_segments' )->getValue( $log ) );
+		$this->assertSame( 86400, $ref->getProperty( 'min_lifetime' )->getValue( $log ) );
+		$this->assertSame( 0, $ref->getProperty( 'max_lifetime' )->getValue( $log ) );
 	}
 
 	public function test_ipc_input_consumer_resumes_from_prior_offsetlog(): void {

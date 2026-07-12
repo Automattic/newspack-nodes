@@ -81,7 +81,8 @@ class Log_Node extends Partition_Node {
 			'arguments'   => [
 				[ 'name' => 'file',         'type' => 'string', 'required' => true, 'description' => 'Log file path; segments are written alongside it as {file}.0, {file}.1, … (highest suffix = current).' ],
 				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE, 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
-				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS, 'description' => 'Max segments kept before the oldest is pruned (retention count; clamped to a minimum of 2).' ],
+				[ 'name' => 'min_segments', 'type' => 'int',    'default' => self::DEFAULT_MIN_SEGMENTS, 'description' => 'Age-rule floor: keep at least this many segments (clamped to a hard minimum of 2).' ],
+				[ 'name' => 'max_segments', 'type' => 'int',    'default' => self::DEFAULT_MAX_SEGMENTS, 'description' => 'Count rule: prune the oldest back to this many segments.' ],
 			],
 		] );
 	}

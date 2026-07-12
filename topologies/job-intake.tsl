@@ -6,6 +6,6 @@
 #   Tail (jobintake.log) ──→ Partition (jobs:partition)
 
 make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/jobintake.jobs.p<partition>
-make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>
 cmd jobs:partition:config void_warranty
 connect_node jobintake:consumer jobs:partition

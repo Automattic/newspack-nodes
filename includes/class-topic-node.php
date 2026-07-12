@@ -28,9 +28,11 @@ class Topic_Node extends Node {
 
 	/** Large-write opt-in propagated to every partition: '' none, 'lock' (allow_large_writes), 'void' (void_warranty). */
 	protected string $large_write_mode = '';
-	protected int $max_lifespan     = Partition_Node::DEFAULT_MAX_LIFESPAN;
+	protected int $min_segments     = Partition_Node::DEFAULT_MIN_SEGMENTS;
+	protected int $max_segments     = Partition_Node::DEFAULT_MAX_SEGMENTS;
+	protected int $min_lifetime     = Partition_Node::DEFAULT_MIN_LIFETIME;
+	protected int $max_lifetime     = Partition_Node::DEFAULT_MAX_LIFETIME;
 	protected int $num_partitions   = 1;
-	protected int $num_segments     = Partition_Node::DEFAULT_NUM_SEGMENTS;
 
 	/** @var array<int,Partition_Node> Lazy. */
 	protected array $partitions = [];
@@ -128,7 +130,7 @@ class Topic_Node extends Node {
 				$p->name( "{$this->name}:p{$i}" );
 			}
 			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
-			$p->arguments( "{$child_dir} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
+			$p->arguments( "{$child_dir} {$this->segment_size} {$this->min_segments} {$this->max_segments} {$this->min_lifetime} {$this->max_lifetime}" );
 			// Keep Topic's sink + patron-link so dump_metadata hides it.
 			$p->sink( $this->sink );
 			$p->patron( $this );
@@ -187,8 +189,10 @@ class Topic_Node extends Node {
 				[ 'name' => 'dir_template',   'type' => 'string', 'required' => true, 'description' => 'Per-partition directory path template; the {partition} token is replaced with each index 0..N-1.' ],
 				[ 'name' => 'num_partitions', 'type' => 'int',    'default'  => 1, 'description' => 'Number of partitions to spread writes across; a message\'s KEY is CRC32-routed to one (default 1).' ],
 				[ 'name' => 'segment_size',   'type' => 'int',    'default' => Partition_Node::DEFAULT_SEGMENT_SIZE, 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
-				[ 'name' => 'num_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_NUM_SEGMENTS, 'description' => 'Max segments kept before the oldest is pruned (retention count; clamped to a minimum of 2).' ],
-				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_LIFESPAN, 'description' => 'Minimum retention age in seconds before a beyond-count segment may be pruned; 0 disables the age gate (pure count-based on num_segments).' ],
+				[ 'name' => 'min_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MIN_SEGMENTS, 'description' => 'Age-rule floor per partition: keep at least this many segments (hard minimum 2).' ],
+				[ 'name' => 'max_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_SEGMENTS, 'description' => 'Count rule per partition: prune the oldest back to this many segments.' ],
+				[ 'name' => 'min_lifetime',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MIN_LIFETIME, 'description' => 'Count-rule floor per partition: keep segments younger than this many seconds; 0 keeps nothing extra.' ],
+				[ 'name' => 'max_lifetime',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_LIFETIME, 'description' => 'Age rule per partition: prune segments older than this many seconds down to min_segments; 0 disables it.' ],
 			],
 			'commands'      => [],
 			'registrations' => [ 'READY' ],

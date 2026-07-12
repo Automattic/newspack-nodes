@@ -2,9 +2,9 @@
 /**
  * Admin: substrate-side WP-Settings-API surface.
  *
- * Owns ONLY substrate options (base_directory, num_partitions, num_segments,
- * segment_size, max_lifespan, memcache_servers). Saving layout/memcache options
- * triggers a per-partition worker-restart request.
+ * Owns ONLY substrate options (base_directory, num_partitions, min_segments,
+ * max_segments, segment_size, min_lifetime, max_lifetime, memcache_servers).
+ * Saving layout/memcache options triggers a per-partition worker-restart request.
  *
  * @package Newspack_Nodes
  */
@@ -289,16 +289,24 @@ class Admin {
 		return Reset_Gate::mark_name( self::RESET_MARK_FIELD, self::OPTION_PREFIX . $field );
 	}
 
-	public static function num_segments_callback(): void {
-		self::render_number( 'num_segments', 4, 2, 32, \__( 'Number of segments to retain per partition.', 'newspack-nodes' ) );
+	public static function min_segments_callback(): void {
+		self::render_number( 'min_segments', 2, 2, 32, \__( 'Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime.', 'newspack-nodes' ) );
+	}
+
+	public static function max_segments_callback(): void {
+		self::render_number( 'max_segments', 4, 2, 32, \__( 'Count rule: prune the oldest back to this many segments (younger ones are protected by min lifetime).', 'newspack-nodes' ) );
 	}
 
 	public static function segment_size_callback(): void {
 		self::render_number( 'segment_size', 64 * 1024 * 1024, 1048576, 536870912, \__( 'Maximum segment size in bytes.', 'newspack-nodes' ) );
 	}
 
-	public static function max_lifespan_callback(): void {
-		self::render_number( 'max_lifespan', 86400, 0, 604800, \__( 'Minimum retention in seconds. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
+	public static function min_lifetime_callback(): void {
+		self::render_number( 'min_lifetime', 0, 0, 604800, \__( 'Floor for the count rule: keep segments younger than this many seconds even when over max segments. 0 = pure count-based.', 'newspack-nodes' ) );
+	}
+
+	public static function max_lifetime_callback(): void {
+		self::render_number( 'max_lifetime', 0, 0, 604800, \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_num_segments_callback(): void {
@@ -601,16 +609,16 @@ class Admin {
 	}
 
 	/**
-	 * Total-storage field: segment_size × num_segments × (count of on-disk log-partition dirs).
+	 * Total-storage field: segment_size × max_segments × (count of on-disk log-partition dirs).
 	 */
 	public static function total_storage_callback(): void {
 		$defaults     = Config::load_config_defaults();
 		$segment_size = \get_option( 'newspack_nodes_segment_size', '' );
-		$num_segments = \get_option( 'newspack_nodes_num_segments', '' );
+		$num_segments = \get_option( 'newspack_nodes_max_segments', '' );
 
 		// Use config defaults for empty values.
 		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : Core::as_int( $segment_size );
-		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 4 ) : Core::as_int( $num_segments );
+		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'max_segments', 4 ) : Core::as_int( $num_segments );
 
 		// on_disk() is already per-partition; don't multiply by num_partitions.
 		$num_log_dirs = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
