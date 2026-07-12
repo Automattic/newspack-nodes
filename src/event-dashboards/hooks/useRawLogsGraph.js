@@ -106,12 +106,8 @@ export function useRawLogsGraph( opts = {} ) {
 			const baseUrl = data.restUrl || '/wp-json/';
 			const nonce = data.nonce || '';
 
-			// ONE RemoteLink; real subscribe via setSubscribe before open.
-			const link = interpreter.makeNode(
-				'RemoteLink',
-				LINK,
-				`raw-logs ${ baseUrl } ${ nonce }`
-			);
+			// ONE RemoteLink; baseUrl/nonce come from the global, not tokens.
+			const link = interpreter.makeNode( 'RemoteLink', LINK, 'raw-logs' );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
 			link.client =

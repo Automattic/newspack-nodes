@@ -114,6 +114,18 @@ describe( 'useTopicProbeStream', () => {
 		);
 	} );
 
+	it( 'makes the RemoteLink with a token-free (subscribe-only) argument string', async () => {
+		renderHook( () =>
+			useTopicProbeStream( {
+				mode: 'follow',
+				commandClient: fakeClient(),
+			} )
+		);
+		await act( async () => {} );
+		// baseUrl/nonce come from the localized global, NOT make_node tokens.
+		expect( Core.node( LINK ).arguments ).toBe( 'topicprobe.p0' );
+	} );
+
 	it( "mode:'history' seeks from start (positions in the stream URL)", async () => {
 		renderHook( () =>
 			useTopicProbeStream( {

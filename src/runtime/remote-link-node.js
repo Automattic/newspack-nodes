@@ -72,7 +72,7 @@ export class RemoteLinkNode extends Node {
 		}
 
 		const sse = new SseInNode();
-		sse.arguments = this.arguments; // `{subscribe} {baseUrl} {nonce}`
+		sse.arguments = this.arguments; // `{subscribe}`; baseUrl/nonce from global
 		sse.sink = this.sink;
 		if ( this.target ) {
 			sse.target = this.target;
@@ -83,9 +83,7 @@ export class RemoteLinkNode extends Node {
 
 		// `_http` + `_heartbeat` are backbone singletons; reuse + configure.
 		const http = Core.node( names.HTTP );
-		http.client =
-			this.client ||
-			new CommandClient( { baseUrl: sse.baseUrl, nonce: sse.nonce } );
+		http.client = this.client || CommandClient.fromGlobal();
 		this.httpOut = http;
 
 		// Not armed here: the CONNECTED slot bridge below arms/stops it.

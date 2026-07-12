@@ -82,10 +82,6 @@ export function useConsoleGraph( {
 			return undefined;
 		}
 
-		const data =
-			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
-		const restUrl = data.restUrl || '/wp-json/';
-		const nonce = data.nonce || '';
 		const reader = `${ topology }.p${ partition }`;
 
 		// The shared rule-#2 backbone: _command_interpreter → _router.
@@ -123,11 +119,8 @@ export function useConsoleGraph( {
 		const readers = new Set( [ reader, ...workers ] );
 		const remotes = [];
 		for ( const wr of readers ) {
-			const remote = interpreter.makeNode(
-				'RemoteIpc',
-				wr,
-				`${ wr } ${ restUrl } ${ nonce }`
-			);
+			// baseUrl/nonce resolve from the localized global, not tokens.
+			const remote = interpreter.makeNode( 'RemoteIpc', wr, wr );
 			remote.target = names.OUTPUT;
 			remote.client = getCommandClient();
 			// The active worker's connect handshake drives the pid display.

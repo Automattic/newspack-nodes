@@ -14,6 +14,7 @@ import { RemoteLinkNode } from '../remote-link-node';
 import { SseInNode } from '../sse-in-node';
 import { HttpOutNode } from '../http-out-node';
 import { HeartbeatNode } from '../heartbeat-node';
+import { CommandClient } from '../command-client';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { Core } from '../core';
 import { mountExospine } from '../exospine';
@@ -311,6 +312,30 @@ describe( 'RemoteLinkNode', () => {
 		dispatchConnected( link, { pid: 4242, slot: 3 } );
 		// Bridge fires the hook with the CONNECTED payload (raw envelope).
 		expect( seen ).toEqual( [ connectedRaw( { pid: 4242, slot: 3 } ) ] );
+	} );
+
+	it( 'defaults the shared `_http` client from the localized global when none is injected and args carry no baseUrl/nonce', () => {
+		window.NewspackNodesData = {
+			restUrl: 'https://example.test/wp-json/',
+			nonce: 'GLOBALNONCE',
+		};
+		try {
+			const { interpreter } = mountExospine();
+			const link = new RemoteLinkNode();
+			link.name = 'dash:link';
+			link.sink = interpreter;
+			// subscribe only — no baseUrl/nonce tokens, no injected client.
+			link.arguments = 'raw-logs';
+			link.connect();
+			const http = Core.node( names.HTTP );
+			expect( http.client ).toBeInstanceOf( CommandClient );
+			expect( http.client.baseUrl ).toBe(
+				'https://example.test/wp-json/'
+			);
+			expect( http.client.nonce ).toBe( 'GLOBALNONCE' );
+		} finally {
+			delete window.NewspackNodesData;
+		}
 	} );
 
 	it( 'dumpNode filters out its internal sub-node refs (sseIn/httpOut/heartbeat)', () => {
