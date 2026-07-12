@@ -10,6 +10,17 @@ describe( 'useJsCatalog', () => {
 		expect( names ).toContain( 'Timer' );
 	} );
 
+	it( 'surfaces HttpOut and SseIn in the I/O category (draggable from the palette)', () => {
+		const { result } = renderHook( () => useJsCatalog() );
+		const byName = Object.fromEntries(
+			result.current.classes.map( ( c ) => [ c.shell_name, c ] )
+		);
+		expect( byName.HttpOut ).toBeDefined();
+		expect( byName.HttpOut.category ).toBe( 'I/O' );
+		expect( byName.SseIn ).toBeDefined();
+		expect( byName.SseIn.category ).toBe( 'I/O' );
+	} );
+
 	it( 'each entry has shell_name + category (the Palette grouping fields)', () => {
 		const { result } = renderHook( () => useJsCatalog() );
 		for ( const c of result.current.classes ) {

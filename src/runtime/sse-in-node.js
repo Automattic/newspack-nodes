@@ -22,6 +22,7 @@
  */
 import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
+import { nodesData } from './nodes-data';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { TYPE, FROM, TO, ID, VALUE, TM_ERROR, unpack } from './message';
 
@@ -39,8 +40,9 @@ export class SseInNode extends Node {
 	constructor() {
 		super();
 		this.subscribe = [];
-		this.baseUrl = '';
-		this.nonce = '';
+		// Empty falls back to the localized global (see the getters below).
+		this._baseUrl = '';
+		this._nonce = '';
 		// Optional per-subscription seek seed; null/empty → tail-seek.
 		this.positions = null;
 		// Last record position per `[sub][partition]`, from each ID+FROM.
@@ -56,6 +58,23 @@ export class SseInNode extends Node {
 		this.sessionPid = null;
 		this.sessionSlot = null;
 		this.registrations.CONNECTED = {};
+	}
+
+	// baseUrl/nonce fall back to the localized global when not set explicitly.
+	get baseUrl() {
+		return this._baseUrl || nodesData().restUrl;
+	}
+
+	set baseUrl( value ) {
+		this._baseUrl = value ?? '';
+	}
+
+	get nonce() {
+		return this._nonce || nodesData().nonce;
+	}
+
+	set nonce( value ) {
+		this._nonce = value ?? '';
 	}
 
 	get arguments() {
@@ -266,16 +285,15 @@ export class SseInNode extends Node {
 
 	static nodeSchema() {
 		return {
-			category: 'Hidden',
+			category: 'I/O',
 			description:
-				'Inbound SSE receive-ingress; composed (unnamed) by RemoteLink as the per-link stream.',
+				'Inbound SSE receive-ingress; opens an EventSource for the subscribed topics.',
 			// accepts_fill UI hint: SseIn is pure ingress, so false.
 			accepts_fill: false,
 			has_target: true,
+			// Only subscribe is positional; baseUrl/nonce from the global.
 			arguments: [
 				{ name: 'subscribe', type: 'string', required: true },
-				{ name: 'baseUrl', type: 'string', required: true },
-				{ name: 'nonce', type: 'string', required: true },
 			],
 			commands: [],
 		};

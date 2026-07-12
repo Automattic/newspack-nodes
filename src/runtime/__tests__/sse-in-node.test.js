@@ -59,10 +59,14 @@ beforeEach( () => {
 	global.EventSource = FakeEventSource;
 } );
 
-// Build a configured SseIn via no-arg ctor + arguments= setter.
+// Build a configured SseIn. `subscribe` is the only positional argument; the
+// transport coordinates (baseUrl + nonce) are set explicitly — they no longer
+// ride the make_node args, they come from the localized global by default.
 function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
 	const sse = new SseInNode();
-	sse.arguments = `${ subscribe.join( ',' ) } ${ baseUrl } ${ nonce }`;
+	sse.arguments = subscribe.join( ',' );
+	sse.baseUrl = baseUrl;
+	sse.nonce = nonce;
 	const routed = [];
 	sse.sink = { fill: ( m ) => routed.push( [ ...m ] ) };
 	return { sse, routed };
@@ -526,20 +530,29 @@ test( 'removeNode() stops the watchdog and closes the stream (no reconnect after
 } );
 
 describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
+	afterEach( () => {
+		delete window.NewspackNodesData;
+	} );
+
 	test( 'constructs with no args and exposes safe-default config fields', () => {
 		const sse = new SseInNode();
 		expect( sse.subscribe ).toEqual( [] );
-		expect( sse.baseUrl ).toBe( '' );
+		// No explicit override + no global → the safe REST default / empty nonce.
+		expect( sse.baseUrl ).toBe( '/wp-json/' );
 		expect( sse.nonce ).toBe( '' );
 	} );
 
-	test( 'declares a node schema with three positional arguments', () => {
+	// subscribe is the ONLY positional arg — the transport coordinates
+	// (baseUrl + nonce) are request-scoped, sourced from the localized global.
+	test( 'declares a node schema with just the subscribe positional argument', () => {
 		const schema = SseInNode.nodeSchema();
 		expect( schema.arguments.map( ( a ) => a.name ) ).toEqual( [
 			'subscribe',
-			'baseUrl',
-			'nonce',
 		] );
+	} );
+
+	test( 'lives in the I/O palette category (draggable network-ingress source)', () => {
+		expect( SseInNode.nodeSchema().category ).toBe( 'I/O' );
 	} );
 
 	// accepts_fill=false: SseIn is a pure ingress source, not a drag target.
@@ -557,31 +570,49 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 		expect( description ).not.toMatch( /[Bb]idirectional/ );
 	} );
 
-	test( 'arguments setter parses the three tokens and splits subscribe on commas', () => {
+	test( 'arguments setter parses subscribe and splits it on commas', () => {
 		const sse = new SseInNode();
-		sse.arguments = 'firehose,errors https://example.test/wp-json/ NONCE';
+		sse.arguments = 'firehose,errors';
 		expect( sse.subscribe ).toEqual( [ 'firehose', 'errors' ] );
-		expect( sse.baseUrl ).toBe( 'https://example.test/wp-json/' );
-		expect( sse.nonce ).toBe( 'NONCE' );
 	} );
 
-	test( 'arguments getter returns the raw string for dump_config round-trip', () => {
+	test( 'baseUrl + nonce default to the localized global at read time', () => {
+		window.NewspackNodesData = {
+			restUrl: 'https://example.test/wp-json/',
+			nonce: 'GNONCE',
+		};
 		const sse = new SseInNode();
-		sse.arguments = 'firehose,errors https://example.test/wp-json/ NONCE';
-		expect( sse.arguments ).toBe(
-			'firehose,errors https://example.test/wp-json/ NONCE'
-		);
+		sse.arguments = 'firehose';
+		expect( sse.baseUrl ).toBe( 'https://example.test/wp-json/' );
+		expect( sse.nonce ).toBe( 'GNONCE' );
+	} );
+
+	test( 'an explicit baseUrl / nonce overrides the global', () => {
+		window.NewspackNodesData = {
+			restUrl: 'https://global/wp-json/',
+			nonce: 'GLOBAL',
+		};
+		const sse = new SseInNode();
+		sse.baseUrl = 'https://explicit/wp-json/';
+		sse.nonce = 'EXPLICIT';
+		expect( sse.baseUrl ).toBe( 'https://explicit/wp-json/' );
+		expect( sse.nonce ).toBe( 'EXPLICIT' );
 	} );
 
 	test( 'a single-topic subscribe still parses as a one-element array', () => {
 		const sse = new SseInNode();
-		sse.arguments = 'firehose / N';
+		sse.arguments = 'firehose';
 		expect( sse.subscribe ).toEqual( [ 'firehose' ] );
 	} );
 
-	test( 'start() opens an EventSource against the configured baseUrl + nonce', () => {
+	test( 'start() sources baseUrl + nonce from the global when unset (palette-drop path)', () => {
+		window.NewspackNodesData = {
+			restUrl: 'https://example.test/wp-json/',
+			nonce: 'NONCE',
+		};
+		// A bare palette-drop configures only subscribe; no nonce is threaded in.
 		const sse = new SseInNode();
-		sse.arguments = 'firehose,errors https://example.test/wp-json/ NONCE';
+		sse.arguments = 'firehose,errors';
 		sse.start();
 		expect( FakeEventSource.last.url ).toBe(
 			'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE'

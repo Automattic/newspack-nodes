@@ -10,6 +10,7 @@ import {
 	TM_ERROR,
 } from './message';
 import { IoTelemetry, byteLength } from './io-telemetry';
+import { nodesData } from './nodes-data';
 
 // JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
@@ -18,6 +19,18 @@ export class CommandClient {
 	constructor( { baseUrl, nonce } ) {
 		this.baseUrl = baseUrl;
 		this.nonce = nonce;
+	}
+
+	/**
+	 * Build a CommandClient from the PHP-localized `window.NewspackNodesData`.
+	 * The push-side boundary nodes lazily default their client to this so a
+	 * fresh palette-drop never needs the nonce threaded through construction.
+	 *
+	 * @return {CommandClient} A client bound to the localized REST base + nonce.
+	 */
+	static fromGlobal() {
+		const { restUrl, nonce } = nodesData();
+		return new CommandClient( { baseUrl: restUrl, nonce } );
 	}
 
 	/**

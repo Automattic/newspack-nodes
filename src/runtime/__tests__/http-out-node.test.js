@@ -305,6 +305,46 @@ describe( 'HttpOut', () => {
 			expect( schema.arguments ).toEqual( [] );
 		} );
 
+		it( 'lives in the I/O palette category (draggable command egress)', () => {
+			expect( HttpOutNode.nodeSchema().category ).toBe( 'I/O' );
+		} );
+
+		describe( 'lazy client default from the localized global (palette-drop path)', () => {
+			afterEach( () => {
+				delete window.NewspackNodesData;
+				delete global.fetch;
+			} );
+
+			it( 'defaults its client from window.NewspackNodesData when none was assigned, then POSTs through it', async () => {
+				window.NewspackNodesData = {
+					restUrl: 'https://example.test/wp-json/',
+					nonce: 'GNONCE',
+				};
+				global.fetch = jest
+					.fn()
+					.mockResolvedValue( { text: async () => '' } );
+				const node = new HttpOutNode();
+				node.name = '_http';
+				// No client assigned: a fresh drop has no programmatic dependency.
+				expect( node.client ).toBeNull();
+
+				node.fill( routed( { to: 'demo.p0' } ) );
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
+
+				expect( node.client ).toBeInstanceOf( CommandClient );
+				expect( node.client.baseUrl ).toBe(
+					'https://example.test/wp-json/'
+				);
+				expect( node.client.nonce ).toBe( 'GNONCE' );
+				expect( global.fetch ).toHaveBeenCalledTimes( 1 );
+				const [ url, init ] = global.fetch.mock.calls[ 0 ];
+				expect( url ).toBe(
+					'https://example.test/wp-json/newspack-nodes/v1/command'
+				);
+				expect( init.headers[ 'X-WP-Nonce' ] ).toBe( 'GNONCE' );
+			} );
+		} );
+
 		it( 'declares has_target:false (POSTs out + routes replies, never targets in-graph — no out-port)', () => {
 			expect( HttpOutNode.nodeSchema().has_target ).toBe( false );
 		} );
