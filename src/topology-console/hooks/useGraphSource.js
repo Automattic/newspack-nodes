@@ -4,11 +4,16 @@ import names from '../../runtime/reserved-node-names.json';
 
 const EMPTY_GRAPH = { nodes: [], edges: [], pwd: '' };
 
-// Always-present backbone fixtures; don't count toward "graph has content".
+/**
+ * Scaffolding present before the real graph lands. It must NOT count as "graph
+ * has content": laying out the scaffolding alone makes every real node arriving
+ * on the next dump_metadata get tucked below it, in a column.
+ */
 const BACKBONE_FIXTURES = new Set( [
 	names.CONSOLE_TAP,
 	names.HTTP,
 	names.HEARTBEAT,
+	names.REPL,
 ] );
 
 /**

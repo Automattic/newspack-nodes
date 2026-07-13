@@ -639,3 +639,37 @@ describe( 'draftGraph', () => {
 		} );
 	} );
 } );
+
+describe( 'applyLoadedBaseline — dangling edges', () => {
+	it( 'drops a baseline edge whose endpoint no node provides', () => {
+		// reconcileIncludes filters these out; if applyLoadedBaseline keeps them
+		// the two disagree and a freshly-opened topology reads as DIRTY.
+		const graph = {
+			nodes: [],
+			edges: [],
+			frontmatter: {},
+			includes: [ 'performance' ],
+			disconnects: [],
+		};
+		const baseline = {
+			nodes: [
+				{
+					name: 'zebra:consumer',
+					class: 'Consumer',
+					args: [],
+					origin: [ 'performance' ],
+					via: [ 'performance' ],
+				},
+			],
+			edges: [
+				{
+					from: 'zebra:consumer',
+					to: 'ghost:tee',
+					origin: [ 'performance' ],
+				},
+			],
+		};
+
+		expect( applyLoadedBaseline( graph, baseline ).edges ).toEqual( [] );
+	} );
+} );

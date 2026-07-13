@@ -128,4 +128,25 @@ class TopologyRegistryConflictsTest extends TestCase {
 	public function test_describe_conflicts_empty_is_empty_string(): void {
 		$this->assertSame( '', Topology_Registry::describe_conflicts( [] ) );
 	}
+
+	/**
+	 * write_set() is the conflict gate: it stops two fleets writing one log.
+	 * It scanned the RAW file, so a topology that only `include`s others (ELN's
+	 * combined.tsl is now exactly that) reported an EMPTY write set — and the
+	 * gate silently passed anything.
+	 */
+	public function test_write_set_sees_through_includes(): void {
+		$this->write_tsl(
+			'zebra-base',
+			"make_node Partition zebra:partition /var/log/zebra.log <partition> 1 2 0\n"
+		);
+		$this->write_tsl( 'zebra-top', "include zebra-base\n" );
+
+		$this->assertSame(
+			Topology_Registry::write_set( 'zebra-base' ),
+			Topology_Registry::write_set( 'zebra-top' ),
+			'an include-only topology must report what its includes write'
+		);
+		$this->assertNotEmpty( Topology_Registry::write_set( 'zebra-top' ) );
+	}
 }
