@@ -254,4 +254,16 @@ class TeeTest extends TestCase {
 		$this->assertSame( 'data', $alive->captured[0][ Message::VALUE ] );
 	}
 
+	public function test_connect_node_is_idempotent_so_a_reexpanded_include_cannot_double_deliver(): void {
+		// Pinning test: connect_node() already guards with in_array(); a re-evaluated
+		// `connect_node <tee> <target>` (e.g. an include expanded twice) must not
+		// append a duplicate target, or every message would double-deliver.
+		$tee = new Tee_Node();
+		$tee->name( 'wombat-tee' );
+		$tee->connect_node( 'zebra-sink' );
+		$tee->connect_node( 'zebra-sink' );
+
+		$this->assertSame( [ 'zebra-sink' ], $tee->target() );
+	}
+
 }

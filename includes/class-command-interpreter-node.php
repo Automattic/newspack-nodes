@@ -222,9 +222,6 @@ class Command_Interpreter_Node extends Node {
 		if ( $ref->isAbstract() ) {
 			return null;
 		}
-		// Tachikoma sequence; object deps public props set post-construction.
-		$node = new $fqcn();
-		$node->name( $name );
 		$scalar_args = \array_filter( $args, '\is_scalar' );
 		if ( \count( $scalar_args ) !== \count( $args ) ) {
 			Core::print_less_often(
@@ -233,7 +230,23 @@ class Command_Interpreter_Node extends Node {
 				': non-scalar positional arg filtered (assign object deps as public properties)'
 			);
 		}
-		$node->arguments( \implode( ' ', $scalar_args ) );
+		$arg_string = \implode( ' ', $scalar_args );
+
+		// Identical redeclaration collapses; a conflict throws.
+		$existing = Core::node( $name );
+		if ( null !== $existing ) {
+			if ( $existing::class === $fqcn && $existing->arguments() === $arg_string ) {
+				return $existing;
+			}
+			throw new \RuntimeException(
+				\esc_html( "make_node conflict: '$name' already declared as " . $existing::class . " '" . $existing->arguments() . "', redeclared as $type '$arg_string'" )
+			);
+		}
+
+		// Tachikoma sequence; object deps public props set post-construction.
+		$node = new $fqcn();
+		$node->name( $name );
+		$node->arguments( $arg_string );
 		$node->sink( $this );
 		if ( $this->debug_state() > 0 ) {
 			$node->debug_state( $this->debug_state() );
