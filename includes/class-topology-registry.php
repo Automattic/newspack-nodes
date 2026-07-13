@@ -28,6 +28,9 @@ class Topology_Registry {
 	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name; cleared by reset_basename_cache(). */
 	private static array $frontmatter_cache = [];
 
+	/** @var array<string,array{statements:list<array{line:string,origin:?string,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
+	private static array $statements_cache = [];
+
 	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
@@ -265,18 +268,11 @@ class Topology_Registry {
 		if ( isset( self::$write_set_cache[ $name ] ) ) {
 			return self::$write_set_cache[ $name ];
 		}
-		$path = self::resolve( $name );
-		if ( null === $path ) {
+		if ( null === self::resolve( $name ) ) {
 			return self::$write_set_cache[ $name ] = [];
 		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$contents = (string) \file_get_contents( $path );
-		$seen     = [];
-		foreach ( \explode( "\n", $contents ) as $raw ) {
-			$line = \trim( $raw );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
-			}
+		$seen = [];
+		foreach ( self::flat_lines( $name ) as $line ) {
 			// Partition+Topic share `partition:` (same-log collision).
 			if ( \preg_match( '/^make_node\s+(?:Partition|Topic)\s+\S+\s+(\S+)/', $line, $m ) ) {
 				$seen[ 'partition:' . $m[1] ] = true;
@@ -401,14 +397,8 @@ class Topology_Registry {
 		if ( null === $path ) {
 			return self::$segment_size_overrides_cache[ $name ] = [];
 		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$contents  = (string) \file_get_contents( $path );
 		$overrides = [];
-		foreach ( \explode( "\n", $contents ) as $raw ) {
-			$line = \trim( $raw );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
-			}
+		foreach ( self::flat_lines( $name ) as $line ) {
 			// basename + segment_size (flat: 1st arg after path), int-filtered.
 			if ( ! \preg_match(
 				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>\s+(\S+)/',
@@ -438,6 +428,11 @@ class Topology_Registry {
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function statements( string $name, array $extra_includes = [] ): array {
+		// Every static reader walks this tree; a re-walk re-reads every file.
+		$memo_key = $name . "\0" . \implode( ' ', $extra_includes );
+		if ( isset( self::$statements_cache[ $memo_key ] ) ) {
+			return self::$statements_cache[ $memo_key ];
+		}
 		$state = [
 			'statements' => [],
 			'expanded'   => [],
@@ -459,10 +454,11 @@ class Topology_Registry {
 			}
 			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
 		}
-		return [
+		$out = [
 			'statements' => $state['statements'],
 			'tree'       => $tree,
 		];
+		return self::$statements_cache[ $memo_key ] = $out;
 	}
 
 	/**
@@ -511,6 +507,7 @@ class Topology_Registry {
 				);
 				continue;
 			}
+			$line = self::canonical_verb( $line );
 			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
 				$node_name = $m[2];
 				$def       = [
@@ -569,6 +566,41 @@ class Topology_Registry {
 	}
 
 	/**
+	 * A topology's statements, includes flattened and verbs canonicalized.
+	 *
+	 * EVERY static reader goes through here. Scanning the raw file makes an
+	 * include-only topology (ELN's combined.tsl is two `include` lines) look
+	 * EMPTY — which silently disarmed the write_set conflict gate.
+	 *
+	 * @return list<string>
+	 */
+	private static function flat_lines( string $name ): array {
+		try {
+			$walked = self::statements( $name );
+		} catch ( \RuntimeException $e ) {
+			Core::print_less_often( 'flat_lines ', $name, ': ' . $e->getMessage() );
+			return [];
+		}
+		return \array_column( $walked['statements'], 'line' );
+	}
+
+	/**
+	 * Rewrite the interpreter's verb ALIASES to their canonical form.
+	 *
+	 * `make` / `connect` / `disconnect` are real aliases in the interpreter's verb
+	 * table, and topologies use them (ELN's performance.tsl says `make Tee`). A
+	 * static reader that knows only the long form paints a graph the runtime never
+	 * builds, so normalize once here and every reader downstream sees one form.
+	 */
+	private static function canonical_verb( string $line ): string {
+		return (string) \preg_replace(
+			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/' ],
+			[ 'make_node ', 'connect_node ', 'disconnect_node ' ],
+			$line
+		);
+	}
+
+	/**
 	 * Fold one statement into the node/edge maps, unioning `origin` on a re-reach.
 	 *
 	 * @param array{line: string, origin: ?string, via: list<string>} $statement Walked statement.
@@ -594,6 +626,20 @@ class Topology_Registry {
 				'origin' => [ $origin ],
 				'via'    => $statement['via'],
 			];
+			return;
+		}
+		// Eval order: a disconnect removes what an earlier connect added.
+		if ( \preg_match( '/^disconnect_node\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
+			$target = $m[2] ?? '';
+			foreach ( \array_keys( $edges ) as $key ) {
+				[ $from, $to ] = \explode( "\0", $key );
+				$hit = '' !== $target
+					? ( $from === $m[1] && $to === $target )
+					: $from === $m[1];
+				if ( $hit ) {
+					unset( $edges[ $key ] );
+				}
+			}
 			return;
 		}
 		$edge = null;
@@ -763,6 +809,7 @@ class Topology_Registry {
 		self::$write_set_cache              = [];
 		self::$graph_cache                  = [];
 		self::$frontmatter_cache            = [];
+		self::$statements_cache             = [];
 	}
 
 	/**

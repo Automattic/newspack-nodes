@@ -91,4 +91,59 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->expectExceptionMessage( 'no-such-topology' );
 		Topology_Registry::expand( [ 'no-such-topology' ] );
 	}
+
+	/**
+	 * The interpreter aliases `make` to `make_node` and honors `disconnect_node`
+	 * (one-arg = clear the sink). A static expander that ignores either one paints
+	 * a graph the runtime never builds — ELN's own performance.tsl uses BOTH.
+	 */
+	public function test_expand_honors_the_make_alias_and_disconnect_node(): void {
+		$this->write_tsl(
+			'wombat-wiring',
+			"make_node Consumer zebra:consumer /tmp/z.log 0\n"
+			. "make_node Echo zebra-sink\n"
+			. "make Tee zebra:tee\n"
+			. "connect_node zebra:consumer zebra-sink\n"
+			. "disconnect_node zebra:consumer\n"
+			. "connect_node zebra:consumer zebra:tee\n"
+			. "connect_node zebra:tee zebra-sink\n"
+		);
+
+		$out    = Topology_Registry::expand( [ 'wombat-wiring' ] );
+		$names  = \array_column( $out['nodes'], 'name' );
+		$edges  = \array_map(
+			static fn ( array $e ): string => $e['from'] . '->' . $e['to'],
+			$out['edges']
+		);
+
+		$this->assertContains( 'zebra:tee', $names, '`make` is a make_node alias' );
+		$this->assertNotContains(
+			'zebra:consumer->zebra-sink',
+			$edges,
+			'disconnect_node must remove the edge it disconnects'
+		);
+		$this->assertContains( 'zebra:consumer->zebra:tee', $edges );
+		$this->assertContains( 'zebra:tee->zebra-sink', $edges );
+	}
+
+	/** Two-arg disconnect_node drops only that edge (a Tee keeps its others). */
+	public function test_expand_two_arg_disconnect_drops_only_that_edge(): void {
+		$this->write_tsl(
+			'wombat-tee',
+			"make_node Tee zebra:tee\n"
+			. "make_node Echo giraffe-sink\n"
+			. "make_node Echo llama-sink\n"
+			. "connect_node zebra:tee giraffe-sink\n"
+			. "connect_node zebra:tee llama-sink\n"
+			. "disconnect_node zebra:tee giraffe-sink\n"
+		);
+
+		$edges = \array_map(
+			static fn ( array $e ): string => $e['from'] . '->' . $e['to'],
+			Topology_Registry::expand( [ 'wombat-tee' ] )['edges']
+		);
+
+		$this->assertNotContains( 'zebra:tee->giraffe-sink', $edges );
+		$this->assertContains( 'zebra:tee->llama-sink', $edges );
+	}
 }

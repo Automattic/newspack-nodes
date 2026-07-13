@@ -18,7 +18,7 @@
 
 var num_partitions = 1;
 
-make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/settings.settings-sync.p0
+make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/settings.p0
 make_node Settings_Sync settings-sync 300
 make_node Tee spokes:tee
 

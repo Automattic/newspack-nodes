@@ -190,6 +190,17 @@ function borrowedNode( record ) {
 	};
 }
 
+const isBorrowedNode = ( n ) =>
+	Array.isArray( n.origin ) && n.origin.length > 0;
+
+// Content equality for the draft-dirty compare (draftIsDirty is a JSON diff).
+function sameGraphContent( a, b ) {
+	return (
+		JSON.stringify( a.nodes || [] ) === JSON.stringify( b.nodes || [] ) &&
+		JSON.stringify( a.edges || [] ) === JSON.stringify( b.edges || [] )
+	);
+}
+
 /**
  * Re-apply an include-set change to the draft: add what the new baseline brings,
  * drop what the old one provided and the new one doesn't, leave own edits alone.
@@ -209,11 +220,26 @@ export function reconcileIncludes( graph, oldBaseline, newBaseline ) {
 	const departed = new Set(
 		[ ...oldNodes ].filter( ( name ) => ! newByName.has( name ) )
 	);
-	// Own nodes stay; borrowed nodes are re-derived from the new baseline.
-	const own = ( graph.nodes || [] ).filter(
-		( n ) => ! ( Array.isArray( n.origin ) && n.origin.length > 0 )
-	);
-	const nodes = [ ...own, ...[ ...newByName.values() ].map( borrowedNode ) ];
+
+	// Rebuild IN PLACE: re-ordering reads as dirty against the open baseline.
+	const nodes = [];
+	const placed = new Set();
+	for ( const n of graph.nodes || [] ) {
+		if ( ! isBorrowedNode( n ) ) {
+			nodes.push( n );
+			continue;
+		}
+		const record = newByName.get( n.id );
+		if ( record ) {
+			nodes.push( borrowedNode( record ) );
+			placed.add( n.id );
+		}
+	}
+	for ( const [ name, record ] of newByName ) {
+		if ( ! placed.has( name ) ) {
+			nodes.push( borrowedNode( record ) );
+		}
+	}
 
 	const oldEdges = new Set( ( oldBaseline?.edges || [] ).map( edgeKey ) );
 	const newEdgeList = newBaseline?.edges || [];
@@ -239,7 +265,9 @@ export function reconcileIncludes( graph, oldBaseline, newBaseline ) {
 		)
 		.map( ( e ) => ( { from: e.from, to: e.to } ) );
 
-	return { ...graph, nodes, edges: [ ...kept, ...added ] };
+	const next = { ...graph, nodes, edges: [ ...kept, ...added ] };
+	// Nothing moved: hand back the SAME graph so the draft stays clean.
+	return sameGraphContent( graph, next ) ? graph : next;
 }
 
 /**
@@ -263,8 +291,15 @@ export function applyLoadedBaseline( graph, baseline ) {
 	const disconnectKeys = new Set(
 		( graph.disconnects || [] ).map( edgeKey )
 	);
+	// Same alive-filter reconcileIncludes applies, or a fresh open reads dirty.
+	const alive = new Set( nodes.map( ( n ) => n.id ) );
 	const baselineEdges = ( baseline?.edges || [] )
-		.filter( ( e ) => ! disconnectKeys.has( edgeKey( e ) ) )
+		.filter(
+			( e ) =>
+				! disconnectKeys.has( edgeKey( e ) ) &&
+				alive.has( e.from ) &&
+				alive.has( e.to )
+		)
 		.map( ( e ) => ( { from: e.from, to: e.to } ) );
 
 	return {

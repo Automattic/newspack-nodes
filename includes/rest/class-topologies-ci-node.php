@@ -303,6 +303,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 			);
 		}
 
+		// The file changed under the memoized readers.
+		Topology_Registry::reset_basename_cache();
+
 		// Restart the active fleet, keyed off the catalog filter (not overlay).
 		$resolved  = \function_exists( 'apply_filters' )
 			? (array) \apply_filters( 'newspack_nodes/topologies', [] )

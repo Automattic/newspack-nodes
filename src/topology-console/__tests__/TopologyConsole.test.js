@@ -233,6 +233,8 @@ jest.mock( '../hooks/useTopologyCatalog', () => ( {
 				? override.partitions
 				: data.topologyWorkers || {},
 			active: override ? override.active : data.activeTopologies || [],
+			// Raw `topologies list` entries (each carries `includes`).
+			entries: override ? override.entries || [] : [],
 			reload: globalThis.__hooks.reloadCatalog,
 		};
 	},
@@ -3844,6 +3846,114 @@ describe( 'TopologyConsole boot', () => {
 			const call = hooks.saveTopology.mock.calls[ 0 ];
 			return call && call[ 0 ].tsl;
 		}
+
+		it( 'shows hulls in LIVE mode from the VIEWED topology, not a stale draft', async () => {
+			// Hulls were derived from draft.includes, which survives leaving edit
+			// mode — so an include dragged into one topology painted a hull over a
+			// DIFFERENT topology's live graph. Live must read the viewed topology's
+			// own includes (topologies list carries them) and its expand baseline.
+			hooks.catalog = {
+				partitions: { demo: 1 },
+				active: [ 'demo' ],
+				entries: [
+					{
+						name: 'demo',
+						active: true,
+						num_partitions: 1,
+						includes: [ 'job-intake' ],
+					},
+				],
+			};
+			mockTopologyExpand( [ 'job-intake' ], {
+				nodes: [
+					{
+						name: 'zebra:partition',
+						class: 'Partition',
+						args: [],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+				],
+				edges: [],
+				tree: { 'job-intake': {} },
+			} );
+
+			window.history.replaceState(
+				{},
+				'',
+				'/?topology=demo&partition=0'
+			);
+			render( <TopologyConsole /> );
+
+			// Publish a live worker graph carrying the borrowed node.
+			const { Core: RtCore } = require( '../../runtime/core' );
+			const reservedNames = require( '../../runtime/reserved-node-names.json' );
+			await act( async () => {
+				RtCore.node( reservedNames.METADATA ).setState( 'metadata', {
+					nodes: [ { id: 'zebra:partition', class: 'Partition' } ],
+					edges: [],
+					pwd: '',
+				} );
+			} );
+
+			await waitFor( () => {
+				expect( lastCanvasProps ).not.toBeNull();
+				const hulls = lastCanvasProps.hulls || [];
+				expect( hulls.map( ( h ) => h.include ) ).toEqual( [
+					'job-intake',
+				] );
+				expect( hulls[ 0 ].nodeIds ).toEqual( [ 'zebra:partition' ] );
+			} );
+		} );
+
+		it( 'a freshly-opened topology with includes is NOT dirty', async () => {
+			// Opening one and leaving edit mode must not prompt "discard unsaved
+			// changes?" — the user changed nothing. The async include reconcile
+			// runs after the draft is set, so it must land content-identical.
+			mockTopologyGet(
+				'wombat-top',
+				'include job-intake\nmake_node Echo own-echo\n'
+			);
+			mockTopologyExpand( [ 'job-intake' ], {
+				nodes: [
+					{
+						name: 'zebra:consumer',
+						class: 'Consumer',
+						args: [],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+					{
+						name: 'zebra:partition',
+						class: 'Partition',
+						args: [],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+				],
+				edges: [
+					{
+						from: 'zebra:consumer',
+						to: 'zebra:partition',
+						origin: [ 'job-intake' ],
+					},
+				],
+				tree: { 'job-intake': {} },
+			} );
+
+			const { getByText, queryByText } = await renderConsoleInEditMode();
+			// Let the reconcile effect settle after the baseline lands.
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
+			} );
+
+			await act( async () => {
+				fireEvent.click( getByText( 'view' ) );
+			} );
+
+			expect( queryByText( /discard unsaved changes/i ) ).toBeNull();
+			expect( lastHeaderProps.mode ).toBe( 'view' );
+		} );
 
 		it( "keeps the include's OWN edges, so save emits no phantom disconnect_node", async () => {
 			// The included topology wires its own nodes together. Those edges must

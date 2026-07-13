@@ -80,7 +80,7 @@ class JobIntakeTopologyCutoverTest extends TestCase {
 		$this->assertFileExists( "{$this->tmp}/logs/jobintake.p0/0.log" );
 
 		// No durable offsetlog frame before the drain.
-		$offset_dir = "{$this->tmp}/offsets/jobintake.jobs.p0";
+		$offset_dir = "{$this->tmp}/offsets/jobintake.p0";
 		$this->assertNull( $this->last_offsetlog_frame( $offset_dir ), 'no checkpoint before draining' );
 
 		$this->pump_consumer( $consumer );
@@ -95,7 +95,7 @@ class JobIntakeTopologyCutoverTest extends TestCase {
 		$this->assertSame( 'process_image', $jobs[0]['handler'] );
 		$this->assertSame( $big, $jobs[0]['parameters']['data'] );
 
-		// The offsetlog frame advanced past 0 on the SAME jobintake.jobs.p0 path.
+		// The offsetlog frame advanced past 0 on the SAME jobintake.p0 path.
 		$frame = $this->last_offsetlog_frame( $offset_dir );
 		$this->assertNotNull( $frame, 'draining must commit a durable offsetlog frame' );
 		$this->assertGreaterThan( 0, Core::num_int( $frame['offset'] ?? 0 ), 'cursor advanced past the consumed job' );

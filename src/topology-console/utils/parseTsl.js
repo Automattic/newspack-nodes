@@ -11,6 +11,12 @@
  * re-expanded baseline resurrecting the edge the splice removed.
  */
 
+const VERB_ALIASES = {
+	make: 'make_node',
+	connect: 'connect_node',
+	disconnect: 'disconnect_node',
+};
+
 // Mirrors PHP Topology_Registry::frontmatter(); value = raw trimmed after `=`.
 const FRONTMATTER_RE = /^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/;
 
@@ -70,7 +76,8 @@ export function parseTsl( text ) {
 		if ( tokens.length === 0 ) {
 			continue;
 		}
-		const verb = tokens[ 0 ];
+		// `make`/`connect`/`disconnect` are real interpreter aliases.
+		const verb = VERB_ALIASES[ tokens[ 0 ] ] || tokens[ 0 ];
 		if ( verb === 'include' && tokens.length >= 2 ) {
 			if ( ! includes.includes( tokens[ 1 ] ) ) {
 				includes.push( tokens[ 1 ] );

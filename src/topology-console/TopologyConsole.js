@@ -298,21 +298,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
 
-	// The composed `topologies expand` result for the draft's include set.
-	const { baseline: expandBaseline, error: expandError } =
-		useExpandedIncludes( draft.includes || [] );
-	// Previous expandBaseline, so reconcile can diff old vs new on each change.
-	const prevExpandBaselineRef = useRef( null );
-	useEffect( () => {
-		// The draft is inert outside edit mode; skip the wasted reconcile.
-		if ( mode !== 'edit' ) {
-			return;
-		}
-		// Read the ref NOW: the updater runs at render, after the line below.
-		const prev = prevExpandBaselineRef.current;
-		setDraft( ( g ) => reconcileIncludes( g, prev, expandBaseline ) );
-		prevExpandBaselineRef.current = expandBaseline;
-	}, [ expandBaseline, mode ] );
 	// { name, drop } for a just-dropped topology awaiting its cluster layout.
 	const pendingClusterRef = useRef( null );
 
@@ -406,7 +391,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	} );
 
 	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4).
-	const { graph: parsed } = useGraphSource( { coreFallback: false } );
+	const { graph: parsed, hasNodes: parsedHasNodes } = useGraphSource( {
+		coreFallback: false,
+	} );
 	const uptime = useNodeState( names.UPTIME, 'uptime' ) ?? null;
 	// Tab-completion candidates from `_completion` ( { candidates, seq } ).
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
@@ -429,6 +416,36 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Derive the display/storage scope from the cwd, not stale topology state.
 	const scope = scopeFromCwd( cwd );
+
+	/**
+	 * Whose includes are we showing? The draft in edit mode; in view mode, the
+	 * topology on screen — reading draft.includes there leaks a stale edit's
+	 * hulls onto a completely different topology's live graph.
+	 */
+	const viewedIncludes = useMemo( () => {
+		const entry = ( topologyEntries || [] ).find(
+			( t ) => t.name === scope.label
+		);
+		return entry?.includes || [];
+	}, [ topologyEntries, scope.label ] );
+	const activeIncludes =
+		'edit' === mode ? draft.includes || [] : viewedIncludes;
+
+	// The composed `topologies expand` result for that include set.
+	const { baseline: expandBaseline, error: expandError } =
+		useExpandedIncludes( activeIncludes );
+	// Previous expandBaseline, so reconcile can diff old vs new on each change.
+	const prevExpandBaselineRef = useRef( null );
+	useEffect( () => {
+		// The draft is inert outside edit mode; skip the wasted reconcile.
+		if ( mode !== 'edit' ) {
+			return;
+		}
+		// Read the ref NOW: the updater runs at render, after the line below.
+		const prev = prevExpandBaselineRef.current;
+		setDraft( ( g ) => reconcileIncludes( g, prev, expandBaseline ) );
+		prevExpandBaselineRef.current = expandBaseline;
+	}, [ expandBaseline, mode ] );
 
 	// Pick the catalog where make_node runs: JS at cwd '/', else PHP.
 	const catalog =
@@ -500,11 +517,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ mode, draft, parsed, catalog.classes ]
 	);
 
-	// Ready when the graph has nodes; a server scope also waits for the fetch.
+	// VIEW waits for a REAL node; scaffolding-only layout tucks everything.
 	const serverFetchResolved = ! effectiveTopologyName || savedLayout !== null;
+	const graphHasContent =
+		mode === 'edit' ? layoutGraph.nodes.length > 0 : parsedHasNodes;
 	const layoutReady =
-		layoutGraph.nodes.length > 0 &&
-		( ! isServerScope || serverFetchResolved );
+		graphHasContent && ( ! isServerScope || serverFetchResolved );
 
 	// One layout entry per scope (view) or edited topology (edit).
 	const positionStorageKey = layoutStorageKey( {
@@ -912,17 +930,28 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ parsed.nodes ]
 	);
 
-	// One soft hull per directly-declared include, for SchematicCanvas.
-	const hulls = useMemo(
-		() =>
-			( draft.includes || [] ).map( ( name ) => ( {
-				include: name,
-				nodeIds: draft.nodes
-					.filter( ( n ) => ( n.origin || [] ).includes( name ) )
-					.map( ( n ) => n.id ),
-			} ) ),
-		[ draft ]
-	);
+	/**
+	 * One soft hull per directly-declared include. Membership comes from the
+	 * BASELINE's provenance intersected with the nodes actually on screen, so it
+	 * works in live mode too, where metadata nodes carry no `origin` of their own.
+	 */
+	const hulls = useMemo( () => {
+		const originsByName = new Map(
+			( expandBaseline.nodes || [] ).map( ( n ) => [
+				n.name,
+				n.origin || [],
+			] )
+		);
+		const onScreen = 'edit' === mode ? draft.nodes : parsed.nodes;
+		return activeIncludes.map( ( name ) => ( {
+			include: name,
+			nodeIds: ( onScreen || [] )
+				.filter( ( n ) =>
+					( originsByName.get( n.id ) || [] ).includes( name )
+				)
+				.map( ( n ) => n.id ),
+		} ) );
+	}, [ activeIncludes, expandBaseline, mode, draft.nodes, parsed.nodes ] );
 
 	// Virtual node_name-verb edges are derived; the canvas dims them.
 	const canvasGraph = useMemo( () => {

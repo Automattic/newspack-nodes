@@ -122,4 +122,31 @@ describe( 'useGraphSource', () => {
 		);
 		teardown();
 	} );
+
+	it( 'hasNodes stays false for a metadata graph of only backbone + _repl', () => {
+		// The console mounts `_repl` (the worker's input Partition) before the
+		// first dump_metadata reply lands. If that counts as "the graph", the
+		// canvas lays out the scaffolding alone and every real node arriving on
+		// the next poll gets placeBelow-tucked into a column — the staged paint.
+		const { teardown } = mountExospine();
+		const { MetadataNode } = require( '../../../runtime/metadata-node' );
+		const metadata = new MetadataNode();
+		metadata.name = names.METADATA;
+		const { result } = renderHook( () =>
+			useGraphSource( { coreFallback: false } )
+		);
+		act( () => {
+			metadata.setState( 'metadata', {
+				nodes: [
+					{ id: '_shell' },
+					{ id: '_http' },
+					{ id: '_heartbeat' },
+					{ id: '_repl' },
+				],
+				edges: [],
+			} );
+		} );
+		expect( result.current.hasNodes ).toBe( false );
+		teardown();
+	} );
 } );

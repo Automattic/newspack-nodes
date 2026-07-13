@@ -172,3 +172,22 @@ describe( 'parseTsl — disconnect_node', () => {
 		).toEqual( [] );
 	} );
 } );
+
+describe( 'parseTsl — verb aliases', () => {
+	it( 'reads `make` as `make_node` (the interpreter aliases it, and topologies use it)', () => {
+		// ELN's performance.tsl says `make Tee firehose:tee`. A parser that only
+		// knows the long form silently drops the node.
+		const g = parseTsl(
+			'make Tee wombat:tee\nconnect_node wombat:tee zebra\n'
+		);
+		expect( g.nodes.map( ( n ) => n.name ) ).toEqual( [ 'wombat:tee' ] );
+		expect( g.nodes[ 0 ].class ).toBe( 'Tee' );
+	} );
+
+	it( 'reads `disconnect` as `disconnect_node`', () => {
+		const g = parseTsl( 'disconnect wombat:tee zebra\n' );
+		expect( g.disconnects ).toEqual( [
+			{ from: 'wombat:tee', to: 'zebra' },
+		] );
+	} );
+} );
