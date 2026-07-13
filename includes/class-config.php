@@ -13,7 +13,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Config {
 
-	/** One-time marker so `correct_option_autoload()` sweeps once per install. */
+	/** XXX: One-time marker so `correct_option_autoload()` sweeps once per install. */
 	public const AUTOLOAD_FIXED_OPTION = 'newspack_nodes_autoload_fixed';
 
 	/** Action fired from reset() so dependent Configs can invalidate their caches. */
