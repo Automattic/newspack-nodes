@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-07-12
+
 ### Added
 
 - **`Config::is_declared( $key )` — the registry primitive consumer accessors validate against.** Public boolean report of whether a key is in the shared registered set (schema overlay keys ∪ config-file defaults, accumulated by `register_keys()`). `Config::value()` now routes its own validation through it, and a consumer plugin's own `value()` accessor (e.g. the event-logger's, over its merged config) calls `is_declared()` to fail loud on an undeclared key without re-reading the substrate's config.
