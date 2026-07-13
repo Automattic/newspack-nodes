@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The topologies dashboard lost its segment colours** (consumer offset vs. TopicProbe offset vs. the live filesystem check — every bar went grey). Reader templates carry `<topology>` now, but the client substituted only `<partition>`, so `firehose.<topology>.p0` never matched the live reader `firehose.combined.p0`: no cursor, no colours, no read-rate badges. The client resolves both tokens, like `Topology_Loader` binds both.
+- **Activity highlighting overrode the hull hover-dim.** `.topology-node` carries an entrance `animation` whose `both` fill locks opacity at 1, and a CSS animation beats a plain declaration — so an ACTIVE node ignored `.is-faded` entirely (`.is-idle` already cancels the animation for exactly this reason; the fade didn't). Same trap on a `--flowing` edge. Both now cancel the animation, and hovering a hull dims the non-member edges too.
+
 - **A locked `Partition` leaked its `:heartbeat` Timer's router registration.** The Timer registers with `_router` for TIMER (only while the Event_Framework is draining — i.e. inside a worker, which is why no unit test caught it). Tearing the Partition down dropped the node from `Core` but left that registration pointing at a name that no longer resolved, so every tick the router walked a dangling entry: `_router: WARNING: jobintake.<pid>-<n>.p0:heartbeat forgot to unregister`, once per job (1,007 of them in the live log). `Partition::remove_node()` now removes the heartbeat AND the `:lock` sibling — the latter matters because `Job_Intake` names partitions with `pid + spl_object_id`, and PHP recycles `spl_object_id`, so a stale lock registration blocked the next `Job_Intake` from claiming its own name.
 
 ### Added

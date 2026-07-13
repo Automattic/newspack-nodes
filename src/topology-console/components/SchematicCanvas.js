@@ -1298,7 +1298,13 @@ export default function SchematicCanvas( {
 							( selectedId === e.from || selectedId === e.to );
 						// Hover dims the rest; selection highlights, no dim.
 						const touches = hoverTouches || selectTouches;
-						const dimmed = hoveredId && ! hoverTouches;
+						// A hovered hull dims every edge not inside it.
+						const inHoveredHull =
+							! hoveredHullMembers ||
+							( hoveredHullMembers.has( e.from ) &&
+								hoveredHullMembers.has( e.to ) );
+						const dimmed =
+							( hoveredId && ! hoverTouches ) || ! inHoveredHull;
 						const isEdgeSelected =
 							selectedEdge &&
 							selectedEdge.from === e.from &&
