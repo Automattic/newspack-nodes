@@ -45,6 +45,8 @@ class Topology_Loader {
 		$shell->sink( $sink );
 		// No boot console: TM_NOREPLY drops replies dead-ending on _output.
 		$shell->want_reply( false );
+		// A cyclic .tsl fails loud at boot; it must not half-build the graph.
+		$shell->fatal_on_cycle( true );
 
 		// Local-disk TSL only; remote-fetch phpcs rule doesn't apply.
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
