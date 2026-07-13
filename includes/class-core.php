@@ -76,10 +76,20 @@ class Core {
 	/** @var callable */
 	private static $stderr_handler;
 
-	public static function resolve_partition_template( string $template, int $p ): string {
-		return self::resolve_config_tokens(
-			\str_replace( [ '<partition>', '{partition}' ], (string) $p, $template )
-		);
+	/**
+	 * Resolve `<partition>` (and `<topology>`, when the fleet is known) in a path
+	 * template. `<topology>` names the FLEET — see Topology_Loader.
+	 *
+	 * @param string      $template Path template.
+	 * @param int         $p        Partition index.
+	 * @param string|null $topology Fleet name, or null to leave `<topology>` alone.
+	 */
+	public static function resolve_partition_template( string $template, int $p, ?string $topology = null ): string {
+		$out = \str_replace( [ '<partition>', '{partition}' ], (string) $p, $template );
+		if ( null !== $topology ) {
+			$out = \str_replace( [ '<topology>', '{topology}' ], $topology, $out );
+		}
+		return self::resolve_config_tokens( $out );
 	}
 
 	/** Resolve every `<ns:key>` token in $path via resolve_config_token; an unknown token becomes ''. */

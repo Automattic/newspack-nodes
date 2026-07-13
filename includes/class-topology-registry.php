@@ -273,6 +273,8 @@ class Topology_Registry {
 		}
 		$seen = [];
 		foreach ( self::flat_lines( $name ) as $line ) {
+			// Fleet-scope the cursor; logs carry no token, so they collide.
+			$line = \str_replace( '<topology>', $name, $line );
 			// Partition+Topic share `partition:` (same-log collision).
 			if ( \preg_match( '/^make_node\s+(?:Partition|Topic)\s+\S+\s+(\S+)/', $line, $m ) ) {
 				$seen[ 'partition:' . $m[1] ] = true;
@@ -359,7 +361,7 @@ class Topology_Registry {
 				continue;
 			}
 			for ( $p = 0; $p < $num_partitions; $p++ ) {
-				$concrete = Core::resolve_partition_template( $token, $p );
+				$concrete = Core::resolve_partition_template( $token, $p, $name );
 				$prefix   = $root . '/';
 				if ( 0 !== \strpos( $concrete, $prefix ) ) {
 					continue;
@@ -581,16 +583,16 @@ class Topology_Registry {
 	 * include-only topology (ELN's combined.tsl is two `include` lines) look
 	 * EMPTY — which silently disarmed the write_set conflict gate.
 	 *
+	 * THROWS on a broken include. The safety gates read through here: an empty
+	 * write set reads as "no conflict" to find_conflicts and as "every one of its
+	 * logs is an orphan" to Log_Cleaner. Fail loud; graph_for (a display helper)
+	 * catches this itself so one bad .tsl can't take out the dashboard.
+	 *
 	 * @return list<string>
+	 * @throws \RuntimeException On an unknown include, a cycle, or a conflicting make_node.
 	 */
 	private static function flat_lines( string $name ): array {
-		try {
-			$walked = self::statements( $name );
-		} catch ( \RuntimeException $e ) {
-			Core::print_less_often( 'flat_lines ', $name, ': ' . $e->getMessage() );
-			return [];
-		}
-		return \array_column( $walked['statements'], 'line' );
+		return \array_column( self::statements( $name )['statements'], 'line' );
 	}
 
 	/**

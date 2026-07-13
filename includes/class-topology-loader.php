@@ -2,7 +2,13 @@
 /**
  * Topology_Loader — reads a TSL topology file and runs it through a Shell instance.
  *
- * `<partition>` is bound here via Core::$var['partition']. `<ns:key>` tokens
+ * `<partition>` and `<topology>` are bound here via Core::$var. `<topology>` names
+ * the FLEET: an offsetlog is a reader's cursor and the reader is the fleet, so two
+ * processes tailing one log need two cursors. It lets two topologies declare
+ * BYTE-IDENTICAL Consumer lines — so composing them with `include` dedupes to one
+ * reader — while each standalone fleet still gets its own offsetlog.
+ *
+ * `<ns:key>` tokens
  * (e.g. `<config:foo>`) resolve through their namespace's registered resolver
  * — see Core::register_config_namespace() / Config::register_token_namespace().
  *
@@ -38,8 +44,9 @@ class Topology_Loader {
 			);
 		}
 
-		// Bind `<partition>`; `<ns:key>` tokens use registered resolvers.
+		// Bind the partition + fleet tokens; ns:key use registered resolvers.
 		Core::$var['partition'] = (string) $partition;
+		Core::$var['topology']  = $name;
 
 		$shell = new Shell_Node();
 		$shell->sink( $sink );

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Topology_Loader;
 use Newspack_Nodes\Topology_Registry;
@@ -188,5 +189,35 @@ class TopologyLoaderTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no-such-topology' );
 		Topology_Loader::load( 'no-such-topology', 0, $interpreter );
+	}
+
+	/**
+	 * `<topology>` names the FLEET. An offsetlog is a reader's cursor, and the
+	 * reader is the fleet — two processes tailing one log need two cursors. The
+	 * token lets request-builder.tsl and job-router.tsl declare BYTE-IDENTICAL
+	 * Consumer lines (so `combined` dedupes them into one reader) while each
+	 * standalone fleet still gets its own offsetlog.
+	 */
+	public function test_binds_the_topology_name_for_the_topology_token(): void {
+		$this->write_tsl(
+			'zebra-top',
+			"make_node Consumer zebra:consumer /logs/z.p<partition> /offsets/z.<topology>.p<partition>\n"
+		);
+
+		$sink = new Capture_Sink_Node();
+		Topology_Loader::load( 'zebra-top', 3, $sink );
+
+		$lines = [];
+		foreach ( $sink->captured as $message ) {
+			$value = $message[ Message::VALUE ];
+			if ( \is_array( $value ) && isset( $value['name'] ) ) {
+				$lines[] = \trim( $value['name'] . ' ' . ( $value['arguments'] ?? '' ) );
+			}
+		}
+
+		$this->assertContains(
+			'make_node Consumer zebra:consumer /logs/z.p3 /offsets/z.zebra-top.p3',
+			$lines
+		);
 	}
 }

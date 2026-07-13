@@ -149,4 +149,52 @@ class TopologyRegistryConflictsTest extends TestCase {
 		);
 		$this->assertNotEmpty( Topology_Registry::write_set( 'zebra-top' ) );
 	}
+
+	/**
+	 * A safety gate must never DISARM itself. write_set() feeds find_conflicts()
+	 * (two fleets on one log) and Log_Cleaner (delete what nothing declares), so
+	 * an unresolvable include must THROW, not quietly report "this topology writes
+	 * nothing" — which reads as "no conflict" and "all its logs are orphans".
+	 */
+	public function test_write_set_throws_on_an_unresolvable_include(): void {
+		$this->write_tsl( 'zebra-top', "include no-such-base\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no-such-base' );
+
+		Topology_Registry::write_set( 'zebra-top' );
+	}
+
+	/**
+	 * The whole point of `<topology>`: two fleets tailing ONE log each get their
+	 * own cursor, so they may co-run — while composing them still dedupes to one
+	 * reader (the make_node lines are byte-identical). The LOG they write stays
+	 * unscoped, so two fleets writing one log is still a conflict.
+	 */
+	public function test_topology_token_gives_each_fleet_its_own_offsetlog(): void {
+		$consumer = "make_node Consumer shared:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.<topology>.p<partition>\n";
+		$this->write_tsl( 'alpha-fleet', $consumer );
+		$this->write_tsl( 'beta-fleet', $consumer );
+
+		$this->assertSame(
+			[],
+			Topology_Registry::find_conflicts( [ 'alpha-fleet', 'beta-fleet' ] ),
+			'same log, different fleets — the cursors must not collide'
+		);
+
+		$alpha = Topology_Registry::write_set( 'alpha-fleet' );
+		$this->assertContains( 'offsetlog:<config:offsets_dir>/firehose.alpha-fleet.p<partition>', $alpha );
+	}
+
+	/** Two fleets WRITING one log is still a conflict — only the cursor is fleet-scoped. */
+	public function test_topology_token_does_not_excuse_a_shared_partition(): void {
+		$partition = "make_node Partition shared:partition <config:logs_dir>/requests.p<partition> 1 2 3 4 5\n";
+		$this->write_tsl( 'alpha-fleet', $partition );
+		$this->write_tsl( 'beta-fleet', $partition );
+
+		$this->assertNotEmpty(
+			Topology_Registry::find_conflicts( [ 'alpha-fleet', 'beta-fleet' ] ),
+			'two fleets writing one log is a real collision'
+		);
+	}
 }
