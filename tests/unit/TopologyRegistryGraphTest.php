@@ -121,6 +121,33 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( [ 'nodes' => [], 'edges' => [] ], \Newspack_Nodes\Topology_Registry::graph_for( 'nope' ) );
 	}
 
+	/**
+	 * graph_for is a DISPLAY helper — dump_graph walks every registered topology,
+	 * so one cyclic .tsl must degrade to an empty graph, not throw and take the
+	 * whole dashboard down with it. The LOADER still fails loud at boot.
+	 */
+	public function test_graph_for_degrades_to_empty_on_a_cyclic_include(): void {
+		$this->write_tsl( 'ouroboros-a', "include ouroboros-b\nmake_node Echo wombat-echo\n" );
+		$this->write_tsl( 'ouroboros-b', "include ouroboros-a\n" );
+
+		$this->assertSame(
+			[ 'nodes' => [], 'edges' => [] ],
+			Topology_Registry::graph_for( 'ouroboros-a' )
+		);
+	}
+
+	/** Same contract for a conflicting make_node across two included topologies. */
+	public function test_graph_for_degrades_to_empty_on_a_conflicting_make_node(): void {
+		$this->write_tsl( 'clash-a', "make_node Grep shared-grep zebra-pattern\n" );
+		$this->write_tsl( 'clash-b', "make_node Grep shared-grep giraffe-pattern\n" );
+		$this->write_tsl( 'clash-top', "include clash-a\ninclude clash-b\n" );
+
+		$this->assertSame(
+			[ 'nodes' => [], 'edges' => [] ],
+			Topology_Registry::graph_for( 'clash-top' )
+		);
+	}
+
 	public function test_graph_for_preserves_custom_node_type_and_positional_args(): void {
 		// A custom node type flattens to kind:'logic', but must carry its make_node
 		// type token + positional args so Aggregator_CI can discover wired sources.
@@ -171,5 +198,62 @@ class TopologyRegistryGraphTest extends TestCase {
 			$by_name[ $n['name'] ] = $n;
 		}
 		$this->assertSame( 'tee', $by_name['firehose:tap']['kind'] );
+	}
+
+	public function test_graph_for_expands_includes_so_a_borrowed_partition_is_not_a_hole(): void {
+		$this->write_tsl(
+			'wombat-base',
+			"make_node Partition zebra:partition /var/wombat/zebra.log <partition> 1 2 0\n"
+		);
+		$this->write_tsl(
+			'wombat-top',
+			"include wombat-base\n"
+			. "make_node Echo top-echo\n"
+			. "connect_node top-echo zebra:partition\n"
+		);
+
+		$graph = Topology_Registry::graph_for( 'wombat-top' );
+		$names = \array_column( $graph['nodes'], 'name' );
+
+		$this->assertContains( 'zebra:partition', $names, 'the included Partition never made it into the graph' );
+		$this->assertContains( 'top-echo', $names );
+		$this->assertContains( [ 'top-echo', 'zebra:partition' ], $graph['edges'] );
+	}
+
+	public function test_statements_tags_origin_and_via_through_a_nested_include(): void {
+		$this->write_tsl( 'wombat-leaf', "make_node Echo leaf-echo\n" );
+		$this->write_tsl( 'wombat-mid', "include wombat-leaf\nmake_node Echo mid-echo\n" );
+		$this->write_tsl( 'wombat-top', "include wombat-mid\nmake_node Echo own-echo\n" );
+
+		$out = Topology_Registry::statements( 'wombat-top' );
+		$by_line = [];
+		foreach ( $out['statements'] as $s ) {
+			$by_line[ $s['line'] ] = $s;
+		}
+
+		$this->assertNull( $by_line['make_node Echo own-echo']['origin'] );
+		$this->assertSame( [], $by_line['make_node Echo own-echo']['via'] );
+		$this->assertSame( 'wombat-mid', $by_line['make_node Echo mid-echo']['origin'] );
+		$this->assertSame( [ 'wombat-mid' ], $by_line['make_node Echo mid-echo']['via'] );
+		$this->assertSame( 'wombat-mid', $by_line['make_node Echo leaf-echo']['origin'] );
+		$this->assertSame( [ 'wombat-mid', 'wombat-leaf' ], $by_line['make_node Echo leaf-echo']['via'] );
+		$this->assertSame( [ 'wombat-mid' => [ 'wombat-leaf' => [] ] ], $out['tree'] );
+	}
+
+	public function test_statements_drops_an_identical_duplicate_and_throws_on_a_conflicting_one(): void {
+		$this->write_tsl( 'dup-a', "make_node Grep shared-grep zebra-pattern\n" );
+		$this->write_tsl( 'dup-b', "make_node Grep shared-grep zebra-pattern\n" );
+		$this->write_tsl( 'dup-top', "include dup-a\ninclude dup-b\n" );
+
+		$out   = Topology_Registry::statements( 'dup-top' );
+		$greps = \array_filter( $out['statements'], fn ( $s ) => \str_contains( $s['line'], 'shared-grep' ) );
+		$this->assertCount( 1, $greps, 'the identical duplicate make_node should collapse' );
+
+		$this->write_tsl( 'dup-c', "make_node Grep shared-grep giraffe-pattern\n" );
+		$this->write_tsl( 'conflict-top', "include dup-a\ninclude dup-c\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'shared-grep' );
+		Topology_Registry::statements( 'conflict-top' );
 	}
 }
