@@ -1579,7 +1579,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					currentTopology: editingName,
 					onDropTopology: handleDropTopology,
 					includeTree: expandBaseline.tree,
-					includes: draft.includes || [],
+					// Mode-aware: draft.includes would leak into live.
+					includes: activeIncludes,
 					onRemoveInclude: handleRemoveInclude,
 					// Drill into a hull (guarded when the draft is dirty).
 					onOpenTopology: handleDrillIntoHull,

@@ -288,6 +288,7 @@ describe( 'Palette', () => {
 			<Palette
 				classes={ [] }
 				topologies={ topologies }
+				editMode
 				currentTopology="performance"
 				declaredIncludes={ [ 'request-builder' ] }
 				onDropTopology={ jest.fn() }
@@ -306,6 +307,7 @@ describe( 'Palette', () => {
 			<Palette
 				classes={ [] }
 				topologies={ topologies }
+				editMode
 				currentTopology="performance"
 				declaredIncludes={ [ 'request-builder' ] }
 				onDropTopology={ jest.fn() }
@@ -327,6 +329,7 @@ describe( 'Palette', () => {
 			<Palette
 				classes={ [] }
 				topologies={ topologies }
+				editMode
 				currentTopology="performance"
 				declaredIncludes={ [] }
 				onDropTopology={ onDropTopology }
@@ -357,5 +360,41 @@ describe( 'Palette', () => {
 		const btn = getByRole( 'button', { name: /expand palette/i } );
 		btn.click();
 		expect( onToggle ).toHaveBeenCalled();
+	} );
+} );
+
+describe( 'Palette — Topologies section is edit-only', () => {
+	const topologies = [
+		{ name: 'combined', includes: [] },
+		{ name: 'job-router', includes: [] },
+	];
+
+	it( 'hides the Topologies section in LIVE mode — there is no draft to include into', () => {
+		render(
+			<Palette
+				classes={ [] }
+				topologies={ topologies }
+				declaredIncludes={ [] }
+				editMode={ false }
+				onDropTopology={ jest.fn() }
+			/>
+		);
+		expect( screen.queryByText( 'Topologies' ) ).toBeNull();
+		expect(
+			document.querySelectorAll( '[data-testid^="palette-topology-"]' )
+		).toHaveLength( 0 );
+	} );
+
+	it( 'shows it in EDIT mode', () => {
+		render(
+			<Palette
+				classes={ [] }
+				topologies={ topologies }
+				declaredIncludes={ [] }
+				editMode
+				onDropTopology={ jest.fn() }
+			/>
+		);
+		expect( screen.getByText( 'Topologies' ) ).toBeTruthy();
 	} );
 } );

@@ -50,6 +50,7 @@ export default function Palette( {
 	onToggle,
 	onDropNode,
 	topologies = [],
+	editMode = false,
 	currentTopology = '',
 	declaredIncludes = [],
 	onDropTopology,
@@ -201,7 +202,7 @@ export default function Palette( {
 					{ '‹' }
 				</button>
 			) }
-			{ topologies.length > 0 && (
+			{ editMode && topologies.length > 0 && (
 				<div>
 					<h3 className="topology-palette__group">Topologies</h3>
 					{ topologies.map( ( t ) => {

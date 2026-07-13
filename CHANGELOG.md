@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The palette showed its "Topologies" section in LIVE mode**, where there's no draft to `include` anything into — and it greyed entries from the stale edit `draft`, so a leftover include from an earlier edit session bled into the live view. The section is edit-only now, and the greying reads the mode-aware include set (the draft in edit, the viewed topology in live) instead of the draft unconditionally.
+
 - **Clicking the background didn't clear a selected hull.** The canvas only treated a node or an edge as "a selection", so with only a hull selected the background click fell through to **autofit** instead of deselecting — and the hull panel stayed up. A hull is a selection: it now clears on a background click, and selecting a node or an edge supersedes it.
 
 - **The topologies dashboard lost its segment colours** (consumer offset vs. TopicProbe offset vs. the live filesystem check — every bar went grey). Reader templates carry `<topology>` now, but the client substituted only `<partition>`, so `firehose.<topology>.p0` never matched the live reader `firehose.combined.p0`: no cursor, no colours, no read-rate badges. The client resolves both tokens, like `Topology_Loader` binds both.
