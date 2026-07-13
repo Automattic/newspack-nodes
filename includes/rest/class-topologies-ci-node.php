@@ -13,7 +13,15 @@
  *   get    — args `{name}`. Returns `{name, source, tsl}`; throws on miss.
  *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
  *            restarted_fleets}`. 1 MiB cap; dry-run validation via
- *            Shell::validate_line; restarts the matching active fleet.
+ *            Shell::validate_line, plus include resolution (Topology_Registry::expand
+ *            rejects an unknown include, a cycle, or a make_node the body and an
+ *            include declare differently — all of which would otherwise save clean
+ *            and kill the worker at its next spawn); restarts the matching active fleet.
+ *   expand — args `{names…}`. Returns `{nodes, edges, tree}` for an include SET:
+ *            the composed graph with provenance (`origin` = the directly-declared
+ *            includes providing a node, a LIST since a diamond-shared node has
+ *            several; `via` = the path it entered through). Informational — the
+ *            runtime is the Shell's `include`. The console's edit-mode baseline.
  *   delete — args `{name}`. Returns `{name, deleted, stock_fallback,
  *            pruned_active, restarted_fleets}`. User copy only (stock immutable);
  *            restarts the matching active fleet (symmetry with save). When no
@@ -75,6 +83,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 				'active'         => isset( $active[ $name ] ),
 				'num_partitions' => Bootstrap::num_partitions_for( $name ),
 				'frontmatter'    => Topology_Registry::frontmatter( $name ),
+				'includes'       => self::direct_includes( $name ),
 			];
 		}
 		\usort( $out, static fn ( $a, $b ) => $a['name'] <=> $b['name'] );
@@ -118,6 +127,90 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'source' => self::source_of( $sources ),
 			'tsl'    => $tsl,
 		];
+	}
+
+	/**
+	 * `expand` verb handler — compose an include set for the console.
+	 *
+	 * @param string $args Space-separated topology names.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_expand( string $args ): array {
+		$names = \preg_split( '/\s+/', \trim( $args ) ) ?: [];
+		$names = \array_values( \array_filter( $names, fn ( $n ) => '' !== $n ) );
+		foreach ( $names as $name ) {
+			self::require_valid_name( $name );
+		}
+		return Topology_Registry::expand( $names );
+	}
+
+	/**
+	 * A topology's DIRECT `include` lines, in declaration order.
+	 *
+	 * @return list<string>
+	 */
+	private static function direct_includes( string $name ): array {
+		$path = Topology_Registry::resolve( $name );
+		if ( null === $path ) {
+			return [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		return self::direct_includes_from_tsl( (string) \file_get_contents( $path ) );
+	}
+
+	/**
+	 * `include` lines parsed straight out of a TSL body string — used by save's
+	 * dry-run validation, where the body isn't on disk yet.
+	 *
+	 * @return list<string>
+	 */
+	private static function direct_includes_from_tsl( string $tsl ): array {
+		$out = [];
+		foreach ( \explode( "\n", $tsl ) as $raw ) {
+			if ( \preg_match( '/^\s*include\s+(\S+)/', $raw, $m ) ) {
+				$out[] = $m[1];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Throw if the saved body redeclares a borrowed node differently.
+	 *
+	 * `make_node` collapses an IDENTICAL redeclaration and throws on a
+	 * conflicting one, so a body whose own `make_node` clashes with a node an
+	 * `include` provides would save clean here and kill the worker at its next
+	 * spawn. Catch it at the boundary instead.
+	 *
+	 * @param string                                                                                          $tsl            The body being saved.
+	 * @param list<array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}> $borrowed_nodes expand()'s node records.
+	 * @throws \RuntimeException On a conflicting redeclaration.
+	 */
+	private static function assert_no_borrowed_node_conflict( string $tsl, array $borrowed_nodes ): void {
+		$borrowed = [];
+		foreach ( $borrowed_nodes as $node ) {
+			$borrowed[ $node['name'] ] = [
+				'class' => $node['class'],
+				'args'  => \implode( ' ', $node['args'] ),
+			];
+		}
+		foreach ( \explode( "\n", $tsl ) as $raw ) {
+			if ( ! \preg_match( '/^\s*make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $raw, $m ) ) {
+				continue;
+			}
+			$prior = $borrowed[ $m[2] ] ?? null;
+			if ( null === $prior ) {
+				continue;
+			}
+			$args = \trim( $m[3] );
+			if ( $prior['class'] === $m[1] && $prior['args'] === $args ) {
+				continue;
+			}
+			throw new \RuntimeException(
+				\esc_html( "make_node conflict: '{$m[2]}' is provided by an include as {$prior['class']} '{$prior['args']}', redeclared as {$m[1]} '{$args}'" )
+			);
+		}
 	}
 
 	/**
@@ -169,6 +262,16 @@ class Topologies_CI_Node extends Service_CI_Node {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $message is a fixed Shell::validate_line string.
 				throw new \RuntimeException( "validation failed at line $line_no: $message" );
 			}
+		}
+
+		// Resolve includes too; a bad one must not save clean and die at boot.
+		try {
+			$borrowed = Topology_Registry::expand( self::direct_includes_from_tsl( $tsl ) );
+			self::assert_no_borrowed_node_conflict( $tsl, $borrowed['nodes'] );
+		} catch ( \RuntimeException $e ) {
+			// Topology_Registry::expand already esc_html's its thrown messages.
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			throw new \RuntimeException( "validation failed: {$e->getMessage()}" );
 		}
 
 		$user_dir = Topology_Registry::user_dir();
@@ -359,6 +462,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_deactivate( $args ),
+				],
+				[
+					'name'        => 'expand',
+					'description' => 'Compose an include set into one graph with provenance (informational).',
+					'args'        => [ [ 'name' => 'names', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_expand( $args ),
 				],
 				[
 					'name'        => 'connect_worker_input',
