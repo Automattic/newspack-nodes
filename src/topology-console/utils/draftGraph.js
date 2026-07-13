@@ -69,6 +69,34 @@ export function removeNode( graph, id ) {
 }
 
 /**
+ * Declare an include; a duplicate is a no-op (the loader's `#pragma once`).
+ *
+ * @param {Object} graph Current graph.
+ * @param {string} name  Topology name to include.
+ * @return {Object} New graph reference, or the original on a no-op.
+ */
+export function addInclude( graph, name ) {
+	const includes = graph.includes || [];
+	if ( includes.includes( name ) ) {
+		return graph;
+	}
+	return { ...graph, includes: [ ...includes, name ] };
+}
+
+/**
+ * @param {Object} graph Current graph.
+ * @param {string} name  Topology name to drop.
+ * @return {Object} New graph reference, or the original on a no-op.
+ */
+export function removeInclude( graph, name ) {
+	const includes = graph.includes || [];
+	if ( ! includes.includes( name ) ) {
+		return graph;
+	}
+	return { ...graph, includes: includes.filter( ( n ) => n !== name ) };
+}
+
+/**
  * Rename a node + rewrite edges referencing the old id (no-op on empty,
  * unchanged, or taken name). Does NOT rewrite verb-arg refs — caller does.
  *

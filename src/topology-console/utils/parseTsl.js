@@ -1,7 +1,14 @@
 /**
- * parseTsl — inverse of serializeTsl. Parses make_node / cmd / connect_node
- * statements into an edit-mode draft graph; substitution patterns pass
- * through unchanged and anything unrecognized is silently dropped.
+ * parseTsl — inverse of serializeTsl. Parses make_node / cmd / connect_node /
+ * disconnect_node / include statements into an edit-mode draft graph;
+ * substitution patterns pass through unchanged and anything unrecognized is
+ * silently dropped.
+ *
+ * `includes` and `disconnects` are the collapsed form's two halves: the caller
+ * re-expands each include via `topologies expand` to get the borrowed baseline,
+ * then SUBTRACTS `disconnects` from it — that's what makes a spliced edge
+ * (drop a Grep between two borrowed endpoints) survive a reopen instead of the
+ * re-expanded baseline resurrecting the edge the splice removed.
  */
 
 // Mirrors PHP Topology_Registry::frontmatter(); value = raw trimmed after `=`.
@@ -38,6 +45,8 @@ export function parseTsl( text ) {
 	const nodes = [];
 	const edges = [];
 	const frontmatter = {};
+	const includes = [];
+	const disconnects = [];
 
 	const lines = String( text || '' ).split( '\n' );
 	for ( const raw of lines ) {
@@ -62,6 +71,12 @@ export function parseTsl( text ) {
 			continue;
 		}
 		const verb = tokens[ 0 ];
+		if ( verb === 'include' && tokens.length >= 2 ) {
+			if ( ! includes.includes( tokens[ 1 ] ) ) {
+				includes.push( tokens[ 1 ] );
+			}
+			continue;
+		}
 		if ( verb === 'make_node' && tokens.length >= 3 ) {
 			const className = tokens[ 1 ];
 			const name = tokens[ 2 ];
@@ -95,8 +110,11 @@ export function parseTsl( text ) {
 			} );
 		} else if ( verb === 'connect_node' && tokens.length >= 3 ) {
 			edges.push( { from: tokens[ 1 ], to: tokens[ 2 ] } );
+		} else if ( verb === 'disconnect_node' && tokens.length >= 3 ) {
+			// Subtracts a re-expanded baseline edge; the caller applies it.
+			disconnects.push( { from: tokens[ 1 ], to: tokens[ 2 ] } );
 		}
 	}
 
-	return { nodes, edges, frontmatter };
+	return { nodes, edges, frontmatter, includes, disconnects };
 }
