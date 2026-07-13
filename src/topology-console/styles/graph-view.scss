@@ -280,6 +280,29 @@
 				background: var(--paper-2);
 			}
 		}
+
+		// A candidate that would self-reference, duplicate, or cycle: no drag.
+		&.is-disabled {
+			opacity: 0.4;
+			cursor: not-allowed;
+
+			&:hover {
+				background: none;
+				border-left-color: transparent;
+			}
+		}
+	}
+
+	// Draggable topology (hull) items sit above the class groups; the glyph
+	// is a soft rounded blob (echoing the on-canvas hull) rather than a card.
+	&__item--topology &__hull-glyph {
+		width: 22px;
+		height: 18px;
+		margin-right: 11px;
+		border-radius: 10px;
+		background: var(--cyan-subtle);
+		border: 1.5px solid var(--cyan);
+		flex-shrink: 0;
 	}
 
 	/* stylelint-disable-next-line no-descending-specificity */
@@ -437,6 +460,20 @@
 		pointer-events: none;
 		z-index: 1000;
 		overflow: visible; // the in/out ports sit on the card's edges
+
+		// Topology drag ghost: a soft rounded pill (echoing the on-canvas
+		// hull) rather than the node card, so the drop preview reads as a
+		// region being borrowed, not a single node.
+		&--topology {
+			display: flex;
+			align-items: center;
+			padding: 6px 14px;
+			border-radius: 999px;
+			background: var(--cyan-subtle);
+			border: 1.5px solid var(--cyan);
+			color: var(--ink);
+			font: 500 12px var(--font-mono);
+		}
 	}
 }
 
@@ -649,6 +686,22 @@
 // SVG nodes + edges
 // =====================================================================
 
+// Soft region hugging a directly-declared include's nodes. Hulls overlap
+// freely — a diamond-shared node sits in the intersection of two hulls,
+// which is the truthful picture (it does NOT live in exactly one group).
+// No delete affordance here; that lives in the inspector's include tree.
+.topology-hull {
+	stroke-width: 1.5;
+	opacity: 0.16;
+
+	@for $i from 0 through 5 {
+		&--#{ $i } {
+			fill: var(--chart-#{ $i + 1 });
+			stroke: var(--chart-#{ $i + 1 });
+		}
+	}
+}
+
 .topology-node {
 	cursor: grab;
 	animation: topology-fadein 0.35s ease-out both;
@@ -679,6 +732,18 @@
 			stroke: var(--brass, #dba617);
 			stroke-width: 2;
 			stroke-dasharray: 5 3;
+		}
+	}
+
+	// Borrowed via `include`: the node is locked (no delete/reconfigure), but
+	// stays draggable and both ports stay live — wiring through it is fully
+	// editable. Desaturated fill is the only visual cue; the lock badge and
+	// hull region carry the rest.
+	&.is-borrowed {
+		cursor: grab;
+
+		.topology-node__bg {
+			filter: saturate(0.35);
 		}
 	}
 
@@ -747,6 +812,14 @@
 	&__paused {
 		font: 700 12px var(--font-mono);
 		fill: var(--brass);
+		pointer-events: none;
+	}
+
+	// 🔒 badge on a node borrowed via `include` — cannot be deleted or
+	// reconfigured here, but its ports stay live (splicing wiring is fine).
+	&__lock {
+		font: 700 12px var(--font-mono);
+		fill: var(--ink-3);
 		pointer-events: none;
 	}
 

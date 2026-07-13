@@ -1431,6 +1431,65 @@ describe( 'SchematicCanvas', () => {
 		fireEvent.mouseUp( window, { clientX: 300, clientY: 122 } );
 		expect( onConnect ).toHaveBeenCalledWith( 'a', 'b' );
 	} );
+
+	it( 'renders one hull path per include, before the edges', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{
+							id: 'shared-tee',
+							class: 'Tee',
+							origin: [ 'performance' ],
+						},
+						{ id: 'wombat-echo', class: 'Echo' },
+					],
+					edges: [],
+				} }
+				positionOverrides={ {
+					'shared-tee': { x: 100, y: 100 },
+					'wombat-echo': { x: 400, y: 100 },
+				} }
+				hulls={ [
+					{ include: 'performance', nodeIds: [ 'shared-tee' ] },
+				] }
+				editMode
+			/>
+		);
+		const hull = container.querySelector(
+			'.topology-hull[data-include="performance"]'
+		);
+		expect( hull ).not.toBeNull();
+		expect( hull.getAttribute( 'd' ) ).toMatch( /^M / );
+	} );
+
+	it( 'marks a borrowed node locked', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{
+							id: 'shared-tee',
+							class: 'Tee',
+							origin: [ 'performance' ],
+						},
+					],
+					edges: [],
+				} }
+				positionOverrides={ { 'shared-tee': { x: 100, y: 100 } } }
+				hulls={ [] }
+				editMode
+			/>
+		);
+		expect(
+			container.querySelector( '.topology-node.is-borrowed' )
+		).not.toBeNull();
+		expect(
+			container.querySelector( '.topology-node__lock' )
+		).not.toBeNull();
+	} );
 } );
 
 // Scale-gated LOD: stub the canvas measure so the zoomed-OUT tier is tested.

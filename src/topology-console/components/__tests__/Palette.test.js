@@ -5,7 +5,7 @@
  * projects the cursor into SVG coords and calls onDropNode.
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, screen } from '@testing-library/react';
 import Palette from '../Palette';
 
 // Fake canvas SVG: closest() returns itself; projects coords to a fixed pt.
@@ -274,6 +274,71 @@ describe( 'Palette', () => {
 		const btn = getByRole( 'button', { name: /collapse palette/i } );
 		btn.click();
 		expect( onToggle ).toHaveBeenCalled();
+	} );
+
+	const topologies = [
+		{ name: 'performance', includes: [ 'request-builder' ] },
+		{ name: 'request-builder', includes: [] },
+		{ name: 'job-router', includes: [] },
+		{ name: 'combined', includes: [ 'performance', 'job-router' ] },
+	];
+
+	it( 'renders a Topologies section listing includable topologies', () => {
+		render(
+			<Palette
+				classes={ [] }
+				topologies={ topologies }
+				currentTopology="performance"
+				declaredIncludes={ [ 'request-builder' ] }
+				onDropTopology={ jest.fn() }
+			/>
+		);
+		expect( screen.getByText( 'Topologies' ) ).not.toBeNull();
+		expect(
+			screen
+				.getByTestId( 'palette-topology-job-router' )
+				.className.includes( 'is-disabled' )
+		).toBe( false );
+	} );
+
+	it( 'greys out self, an already-declared include, and an ancestor', () => {
+		render(
+			<Palette
+				classes={ [] }
+				topologies={ topologies }
+				currentTopology="performance"
+				declaredIncludes={ [ 'request-builder' ] }
+				onDropTopology={ jest.fn() }
+			/>
+		);
+		const isDisabled = ( testId ) =>
+			screen.getByTestId( testId ).className.includes( 'is-disabled' );
+		// self
+		expect( isDisabled( 'palette-topology-performance' ) ).toBe( true );
+		// already included
+		expect( isDisabled( 'palette-topology-request-builder' ) ).toBe( true );
+		// ancestor: combined includes performance (transitively, directly here)
+		expect( isDisabled( 'palette-topology-combined' ) ).toBe( true );
+	} );
+
+	it( 'does not fire onDropTopology for a disabled item', () => {
+		const onDropTopology = jest.fn();
+		render(
+			<Palette
+				classes={ [] }
+				topologies={ topologies }
+				currentTopology="performance"
+				declaredIncludes={ [] }
+				onDropTopology={ onDropTopology }
+			/>
+		);
+		fireEvent.pointerDown(
+			screen.getByTestId( 'palette-topology-performance' )
+		);
+		fireEvent.pointerUp(
+			screen.getByTestId( 'palette-topology-performance' )
+		);
+		expect( onDropTopology ).not.toHaveBeenCalled();
 	} );
 
 	it( 'collapses to a slim expand handle when `collapsed` is true', () => {
