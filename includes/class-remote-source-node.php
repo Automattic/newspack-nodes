@@ -416,12 +416,17 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( '' === $this->name ) {
 			return null;
 		}
-		$offsets_dir = Config::get_offsets_directory();
-		if ( '' === $offsets_dir ) {
-			return null;
+		$dir = $this->offsetlog_dir;
+		if ( '' === $dir ) {
+			// Back-compat: a topology that hasn't declared the dir yet.
+			$offsets_dir = Config::get_offsets_directory();
+			if ( '' === $offsets_dir ) {
+				return null;
+			}
+			$dir = "{$offsets_dir}/{$this->name}.{$this->remote_partition}";
 		}
 		$offsetlog = $this->ensure_offsetlog(
-			"{$offsets_dir}/{$this->name}.{$this->remote_partition}",
+			$dir,
 			"{$this->name}:{$this->remote_partition}:offsetlog",
 			self::OFFSETLOG_SEGMENT_SIZE,
 			self::OFFSETLOG_NUM_SEGMENTS
@@ -447,9 +452,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( '' === $this->name ) {
 			return null;
 		}
-		$base       = \rtrim( Config::get_base_directory(), '/' );
+		$dir = $this->deadletter_dir;
+		if ( '' === $dir ) {
+			// Back-compat: a topology that hasn't declared the dir yet.
+			$base = \rtrim( Config::get_base_directory(), '/' );
+			$dir  = "{$base}/deadletter/{$this->name}.{$this->remote_partition}";
+		}
 		$deadletter = $this->ensure_deadletter(
-			"{$base}/deadletter/{$this->name}.{$this->remote_partition}",
+			$dir,
 			"{$this->name}:{$this->remote_partition}:deadletter"
 		);
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
@@ -640,11 +650,33 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
 	 */
+	/**
+	 * Durable read-cursor dir. An ARGUMENT, not a Config read: an offsetlog is a
+	 * reader's cursor, so a topology must be able to write the path — that's what
+	 * lets it carry `<topology>` and keeps two fleets pulling one spoke partition
+	 * off each other's cursor. Empty disables checkpointing (Consumer's contract).
+	 */
+	protected string $offsetlog_dir = '';
+
+	/** Dead-letter quarantine dir; empty disables the DLQ. Consumer's contract. */
+	protected string $deadletter_dir = '';
+
 	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
+		$parent = parent::node_schema();
+		/** @var list<array<string,mixed>> $parent_args */
+		$parent_args = $parent['arguments'];
+		return \array_merge( $parent, [
 			// Parent Remote_Link_Node 'Hidden'; pin droppable subclass to I/O.
 			'category'    => 'I/O',
 			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
+			// Read like a Consumer: it IS one, over the wire.
+			'arguments'   => \array_merge(
+				$parent_args,
+				[
+					[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing. Carry `<topology>` so two fleets pulling one spoke partition keep separate cursors.' ],
+					[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
+				]
+			),
 			// Time-travel verbs are shared with Consumer via Time_Travel trait.
 			'commands'    => \array_merge( self::time_travel_verbs(), self::pump_verbs() ),
 		] );

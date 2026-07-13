@@ -197,4 +197,24 @@ class TopologyRegistryConflictsTest extends TestCase {
 			'two fleets writing one log is a real collision'
 		);
 	}
+
+	/**
+	 * [147] Remote_Source's offsetlog is an ARGUMENT now, not a path write_set
+	 * reconstructs from the old hardcoded convention. Reading the convention
+	 * instead of the arg means the conflict gate and the GC both look at a cursor
+	 * the node doesn't actually use — and a `<topology>`-scoped one is invisible.
+	 */
+	public function test_write_set_reads_remote_source_offsetlog_from_its_argument(): void {
+		$this->write_tsl(
+			'zebra-agg',
+			"make_node Remote_Source spoke-a zebra-vault firehose.p0 <config:offsets_dir>/spoke-a.<topology>.p0 <config:deadletter_dir>/spoke-a.p0\n"
+		);
+
+		$set = Topology_Registry::write_set( 'zebra-agg' );
+
+		$this->assertContains( 'offsetlog:<config:offsets_dir>/spoke-a.zebra-agg.p0', $set );
+		$this->assertContains( 'deadletter:<config:deadletter_dir>/spoke-a.p0', $set );
+		// NOT the reconstructed legacy path.
+		$this->assertNotContains( 'offsetlog:<config:offsets_dir>/spoke-a.firehose.p0', $set );
+	}
 }

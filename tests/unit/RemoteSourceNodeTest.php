@@ -1135,7 +1135,12 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertArrayNotHasKey( 'hidden', $schema );
 		$names = \array_column( $schema['arguments'], 'name' );
-		$this->assertSame( [ 'vault_id', 'remote_partition' ], $names );
+		// [147] Reads like the Consumer it is: the cursor + DLQ dirs are ARGS, so
+		// a topology can write them — and therefore scope them with `<topology>`.
+		$this->assertSame(
+			[ 'vault_id', 'remote_partition', 'offsetlog_dir', 'deadletter_dir' ],
+			$names
+		);
 	}
 
 	// ---------------------------------------------------------------------
@@ -1440,5 +1445,44 @@ class RemoteSourceNodeTest extends TestCase {
 		$m[ Message::KEY ]   = 'connected';
 		$m[ Message::VALUE ] = "PID 1 SLOT {$slot}";
 		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
+	}
+
+	/**
+	 * [147] Remote_Source is a Consumer that reads over the wire, so its arguments
+	 * should read like one: vault_id, remote_partition, offsetlog_dir, deadletter_dir.
+	 *
+	 * It used to HARDCODE both dirs (Config::get_offsets_directory(), and
+	 * <base>/deadletter). That is not just an asymmetry — it means the cursor path
+	 * is not something a topology can write, so it cannot carry `<topology>`, and
+	 * two aggregator fleets pulling the same spoke partition would silently share
+	 * one offsetlog. Every other Consumer got fleet-scoped cursors; this one could
+	 * not.
+	 */
+	public function test_offsetlog_dir_is_an_argument_not_a_hardcoded_config_read(): void {
+		$node = new Remote_Source_Node();
+		$node->name( 'src-a' );
+		$node->sink( new Capture_Sink_Node() );
+		$node->arguments(
+			"zebra-vault firehose.p0 {$this->tmp}/offsets/firehose.combined.p0 {$this->tmp}/dead/firehose.combined.p0"
+		);
+
+		$this->assertSame(
+			"{$this->tmp}/offsets/firehose.combined.p0",
+			$this->read_private( $node, 'offsetlog_dir' )
+		);
+		$this->assertSame(
+			"{$this->tmp}/dead/firehose.combined.p0",
+			$this->read_private( $node, 'deadletter_dir' )
+		);
+	}
+
+	/** The dirs are optional, like Consumer's: empty disables checkpointing / DLQ. */
+	public function test_offsetlog_dir_defaults_to_empty(): void {
+		$node = new Remote_Source_Node();
+		$node->name( 'src-b' );
+		$node->sink( new Capture_Sink_Node() );
+		$node->arguments( 'zebra-vault firehose.p0' );
+
+		$this->assertSame( '', $this->read_private( $node, 'offsetlog_dir' ) );
 	}
 }

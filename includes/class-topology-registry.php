@@ -287,9 +287,16 @@ class Topology_Registry {
 					$seen[ 'deadletter:' . $m[2] ] = true;
 				}
 			}
-			// make_node Remote_Source <node> <vault_id> <source>
-			if ( \preg_match( '/^make_node\s+Remote_Source\s+(\S+)\s+\S+\s+(\S+)/', $line, $m ) ) {
-				$seen[ 'offsetlog:<config:offsets_dir>/' . $m[1] . '.' . $m[2] ] = true;
+			// Remote_Source: <node> <vault> <source> [offsetlog] [dlq]
+			if ( \preg_match( '/^make_node\s+Remote_Source\s+(\S+)\s+\S+\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?/', $line, $m ) ) {
+				// The offsetlog is an ARG now; the derived path is a fallback.
+				$offsetlog = isset( $m[3] )
+					? $m[3]
+					: '<config:offsets_dir>/' . $m[1] . '.' . $m[2];
+				$seen[ 'offsetlog:' . $offsetlog ] = true;
+				if ( isset( $m[4] ) ) {
+					$seen[ 'deadletter:' . $m[4] ] = true;
+				}
 			}
 		}
 		$out = \array_keys( $seen );
