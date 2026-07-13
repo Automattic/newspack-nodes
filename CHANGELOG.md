@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Partition/Topic/Log retention args default to `<config:*>` tokens (config-driven defaults).** An omitted retention arg on a `make_node` line — `segment_size`, `min_segments`, `max_segments`, `min_lifetime`, `max_lifetime` (Topic also `num_partitions`) — now resolves from config instead of a hardcoded `DEFAULT_*` constant. `Schema_Reflection::parse_schema_args` gained a `resolve_default()` step: a `<ns:key>` token default is run through `Core::resolve_config_tokens()` and coerced to the declared type, exactly like a positional token (which the TSL loader already resolves; a PHP schema default is not, which is why an unresolved token string previously TypeError'd the typed `int` property). Non-token defaults pass through verbatim. Caveat: a token that resolves empty (a deployment config missing the key, or the `config` namespace not yet registered) coerces to `0` and is then clamped, where a constant default was a safe fallback — the shipped `newspack-nodes-config.php` carries every retention key.
+
 ## [0.39.0] - 2026-07-12
 
 ### Added

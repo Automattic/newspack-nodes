@@ -55,12 +55,15 @@ class LogTest extends TestCase {
 		$this->assertSame( 200, $ref->getProperty( 'max_lifetime' )->getValue( $log ) );
 	}
 
-	public function test_arguments_applies_schema_defaults_for_missing_optional_tokens(): void {
+	public function test_arguments_resolves_config_defaults_for_missing_optional_tokens(): void {
+		// Optional args default to <config:*> tokens, resolved from config and
+		// coerced to int; 1024/2 are the test-config values, distinct from the
+		// DEFAULT_* constants (67108864/4) they used to fall back to.
 		$log = new Log_Node();
 		$log->arguments( "{$this->tmp}/out.log" );
 		$ref = new \ReflectionClass( $log );
-		$this->assertSame( Partition_Node::DEFAULT_SEGMENT_SIZE, $ref->getProperty( 'segment_size' )->getValue( $log ) );
-		$this->assertSame( Partition_Node::DEFAULT_MAX_SEGMENTS, $ref->getProperty( 'max_segments' )->getValue( $log ) );
+		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
+		$this->assertSame( 2,    $ref->getProperty( 'max_segments' )->getValue( $log ) );
 	}
 
 	public function test_fill_writes_raw_value_not_packed_envelope(): void {

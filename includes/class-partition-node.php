@@ -1249,11 +1249,11 @@ class Partition_Node extends Timer_Node {
 			'description'   => 'Append-only segmented log; data file + offset index per partition.',
 			'arguments'     => [
 				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true, 'description' => 'On-disk directory holding this partition\'s numbered {seg}.log segment files and .idx indexes.' ],
-				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE, 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
-				[ 'name' => 'min_segments',  'type' => 'int',    'default'  => self::DEFAULT_MIN_SEGMENTS, 'description' => 'Floor for the age rule: keep at least this many segments even when pruning by max_lifetime (clamped to a hard minimum of 2).' ],
-				[ 'name' => 'max_segments',  'type' => 'int',    'default'  => self::DEFAULT_MAX_SEGMENTS, 'description' => 'Count rule: prune the oldest back to this many segments (kept younger ones are protected by min_lifetime).' ],
-				[ 'name' => 'min_lifetime',  'type' => 'int',    'default'  => self::DEFAULT_MIN_LIFETIME, 'description' => 'Floor for the count rule: keep segments younger than this many seconds even when over max_segments; 0 keeps nothing extra.' ],
-				[ 'name' => 'max_lifetime',  'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFETIME, 'description' => 'Age rule: prune segments older than this many seconds down to min_segments; 0 disables age-based pruning.' ],
+				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => '<config:segment_size>', 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
+				[ 'name' => 'min_segments',  'type' => 'int',    'default'  => '<config:min_segments>', 'description' => 'Floor for the age rule: keep at least this many segments even when pruning by max_lifetime (clamped to a hard minimum of 2).' ],
+				[ 'name' => 'max_segments',  'type' => 'int',    'default'  => '<config:max_segments>', 'description' => 'Count rule: prune the oldest back to this many segments (kept younger ones are protected by min_lifetime).' ],
+				[ 'name' => 'min_lifetime',  'type' => 'int',    'default'  => '<config:min_lifetime>', 'description' => 'Floor for the count rule: keep segments younger than this many seconds even when over max_segments; 0 keeps nothing extra.' ],
+				[ 'name' => 'max_lifetime',  'type' => 'int',    'default'  => '<config:max_lifetime>', 'description' => 'Age rule: prune segments older than this many seconds down to min_segments; 0 disables age-based pruning.' ],
 			],
 			'commands'    => [
 				[

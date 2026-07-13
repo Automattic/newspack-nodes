@@ -132,19 +132,21 @@ class TopicTest extends TestCase {
 	}
 
 	/**
-	 * Schema defaults are real int constants (not placeholder strings like
-	 * '<config:num_partitions>') — so `arguments()` with only the required
-	 * tokens leaves the optional ints at their DEFAULT_* values rather than
-	 * a string that would TypeError the typed `int` property assignment.
+	 * Optional args default to `<config:*>` tokens; `arguments()` with only the
+	 * required token resolves each omitted arg from config and coerces it to the
+	 * typed `int` property (never a raw token string, which would TypeError).
+	 * The test-config values (segment_size 1024, max_segments 2) are distinct
+	 * from the DEFAULT_* constants (67108864, 4), proving the value came from
+	 * config. num_partitions here is the explicit positional token (4).
 	 */
-	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
+	public function test_arguments_setter_resolves_config_defaults_for_missing_optional_tokens(): void {
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 4" );
 		$ref = new \ReflectionClass( $t );
-		$this->assertSame( 4, $ref->getProperty( 'num_partitions' )->getValue( $t ) );
-		$this->assertSame( Partition_Node::DEFAULT_SEGMENT_SIZE, $ref->getProperty( 'segment_size' )->getValue( $t ) );
-		$this->assertSame( Partition_Node::DEFAULT_MAX_SEGMENTS, $ref->getProperty( 'max_segments' )->getValue( $t ) );
-		$this->assertSame( Partition_Node::DEFAULT_MIN_LIFETIME, $ref->getProperty( 'min_lifetime' )->getValue( $t ) );
+		$this->assertSame( 4,    $ref->getProperty( 'num_partitions' )->getValue( $t ) );
+		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $t ) );
+		$this->assertSame( 2,    $ref->getProperty( 'max_segments' )->getValue( $t ) );
+		$this->assertSame( 0,    $ref->getProperty( 'min_lifetime' )->getValue( $t ) );
 	}
 
 	public function test_constructor_clamps_num_partitions_to_minimum_one(): void {

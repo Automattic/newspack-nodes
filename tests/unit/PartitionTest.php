@@ -57,19 +57,21 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
-	 * Schema defaults are real int constants (not placeholder strings) — so
-	 * `arguments()` with only the required token leaves the optional ints at
-	 * their DEFAULT_* values, NOT at a string that would TypeError the typed
-	 * `int` property assignment.
+	 * Optional retention args default to `<config:*>` tokens; `arguments()` with
+	 * only the required token resolves each from config and coerces it to the
+	 * typed `int` property (never a raw token string, which would TypeError).
+	 * The test-config values (segment_size 1024, max_segments 2) are distinct
+	 * from the DEFAULT_* constants (67108864, 4), proving the value came from
+	 * config, not the constant.
 	 */
-	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
+	public function test_arguments_setter_resolves_config_defaults_for_missing_optional_tokens(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}.p2" );
 		$this->assertSame( "{$this->tmp}.p2", $p->partition_dir() );
 		$ref = new \ReflectionClass( $p );
-		$this->assertSame( Partition_Node::DEFAULT_SEGMENT_SIZE, $ref->getProperty( 'segment_size' )->getValue( $p ) );
-		$this->assertSame( Partition_Node::DEFAULT_MAX_SEGMENTS, $ref->getProperty( 'max_segments' )->getValue( $p ) );
-		$this->assertSame( Partition_Node::DEFAULT_MIN_LIFETIME, $ref->getProperty( 'min_lifetime' )->getValue( $p ) );
+		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $p ) );
+		$this->assertSame( 2,    $ref->getProperty( 'max_segments' )->getValue( $p ) );
+		$this->assertSame( 0,    $ref->getProperty( 'min_lifetime' )->getValue( $p ) );
 	}
 
 	/**
