@@ -20,6 +20,17 @@ class Config {
 	public const RESET_ACTION = 'newspack_nodes/config_reset';
 
 	/**
+	 * Action fired while deriving the declared set; consumer plugins declare their keys here.
+	 *
+	 * Contract for a callback: call `Config::register_keys()` and nothing else. It runs
+	 * from INSIDE a config read (any request, any process), so config reads, option
+	 * writes, or I/O from a callback fire at an unpredictable point in the request —
+	 * and a read of a still-undeclared key from here is re-entrant (bounded by the
+	 * declaring guard, but it will not see keys a later callback declares).
+	 */
+	public const DECLARE_ACTION = 'newspack_nodes/declare_config_keys';
+
+	/**
 	 * Allowed directories (or subdirectories) for local config override files.
 	 *
 	 * @var array<int, string>
@@ -30,6 +41,12 @@ class Config {
 
 	/** @var array<string, bool> Declared config keys; only these may be read via value(). */
 	private static array $registered_keys = [];
+
+	/** @var bool declare_keys() ran; reset() clears it so a reload re-derives. */
+	private static bool $keys_declared = false;
+
+	/** @var bool Inside declare_keys(): a DECLARE_ACTION callback that reads config can't re-enter. */
+	private static bool $declaring = false;
 
 	/** @var array<string, mixed>|null Cached config (file defaults + WordPress options). */
 	private static $config = null;
@@ -126,8 +143,8 @@ class Config {
 
 	/**
 	 * Declare config keys that value() may read. Idempotent; accumulates across
-	 * calls. The substrate registers its own at boot (Bootstrap::ensure_runtime_wired);
-	 * consumer plugins register their schema keys the same way.
+	 * calls and never pruned — a declaration is monotone, so a dropped
+	 * DECLARE_ACTION callback can't un-declare keys that already resolve.
 	 *
 	 * @api
 	 * @param array<int,string> $keys Unprefixed config keys.
@@ -141,13 +158,58 @@ class Config {
 	}
 
 	/**
+	 * Derive the declared set on first read: the substrate's own keys (Settings_Schema
+	 * overlay keys ∪ config-file default keys), then DECLARE_ACTION so every consumer
+	 * plugin declares its own.
+	 *
+	 * Declaration is PULLED, not pushed, because push has no safe moment to happen:
+	 * ensure_runtime_wired() runs on admin / REST / WP-CLI / supervisor entry points
+	 * only (never a frontend page view), and a consumer sorting before newspack-nodes
+	 * can't touch this class at its own file scope — so both hung declaration off
+	 * something that fires AFTER the first read (the firehose reads num_partitions at
+	 * plugins_loaded:-10001) and the fail-loud value() gate threw on a real key.
+	 * Pulling it here means the keys exist by construction whenever anyone asks.
+	 *
+	 * Costs nothing on the hot path: load_config() already builds both of the substrate
+	 * halves on any request that reads config.
+	 */
+	private static function declare_keys(): void {
+		if ( self::$keys_declared || self::$declaring ) {
+			return;
+		}
+		self::$keys_declared = true;
+		self::$declaring     = true;
+		try {
+			self::register_keys( Settings_Schema::get()->overlay_keys() );
+			self::register_keys( \array_keys( self::load_config_defaults() ) );
+			if ( \function_exists( 'do_action' ) ) {
+				\do_action( self::DECLARE_ACTION );
+			}
+		} finally {
+			self::$declaring = false;
+		}
+	}
+
+	/**
 	 * Whether $key is in the registered set. This is the primitive a consumer
 	 * plugin's own value() accessor calls to validate a key against the shared
 	 * substrate registry before reading its own merged config.
 	 *
+	 * A miss re-pulls before it answers false: a consumer plugin that loads AFTER
+	 * the first read (this plugin's own file scope reads memcache_servers on an
+	 * admin request) hooks DECLARE_ACTION too late for that pull, and a one-shot
+	 * derive would deny its keys for the rest of the request. The re-pull is only
+	 * paid on a miss — which otherwise ends in a throw anyway.
+	 *
 	 * @api
 	 */
 	public static function is_declared( string $key ): bool {
+		self::declare_keys();
+		if ( isset( self::$registered_keys[ $key ] ) ) {
+			return true;
+		}
+		self::$keys_declared = false;
+		self::declare_keys();
 		return isset( self::$registered_keys[ $key ] );
 	}
 
@@ -297,6 +359,7 @@ class Config {
 	public static function reset(): void {
 		self::$config                   = null;
 		self::$config_defaults          = null;
+		self::$keys_declared            = false;
 		self::$validated_base_directory = null;
 		self::$validated_subdirs        = [];
 		if ( \function_exists( 'do_action' ) ) {

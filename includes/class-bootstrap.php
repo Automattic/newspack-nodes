@@ -99,9 +99,6 @@ class Bootstrap {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
-		// Declared keys: schema + config-file defaults; a typo throws.
-		Config::register_keys( Settings_Schema::get()->overlay_keys() );
-		Config::register_keys( \array_keys( Config::load_config_defaults() ) );
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
