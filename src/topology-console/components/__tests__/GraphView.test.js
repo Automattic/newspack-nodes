@@ -274,6 +274,41 @@ describe( 'GraphView', () => {
 		expect( global.__canvasProps.hulls ).toBe( hulls );
 	} );
 
+	it( 'forwards ONE `includes` prop to both Palette (declaredIncludes) and Inspector (includes)', () => {
+		const topologies = [ { name: 'performance', includes: [] } ];
+		const onDropTopology = jest.fn();
+		const includeTree = { performance: {} };
+		const onAddInclude = jest.fn();
+		const onRemoveInclude = jest.fn();
+		render(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				showPalette
+				topologies={ topologies }
+				currentTopology="wombat-top"
+				includes={ [ 'performance' ] }
+				onDropTopology={ onDropTopology }
+				includeTree={ includeTree }
+				onAddInclude={ onAddInclude }
+				onRemoveInclude={ onRemoveInclude }
+			/>
+		);
+		expect( global.__paletteProps.topologies ).toBe( topologies );
+		expect( global.__paletteProps.currentTopology ).toBe( 'wombat-top' );
+		expect( global.__paletteProps.declaredIncludes ).toEqual( [
+			'performance',
+		] );
+		expect( global.__paletteProps.onDropTopology ).toBe( onDropTopology );
+		expect( global.__inspectorProps.tree ).toBe( includeTree );
+		expect( global.__inspectorProps.includes ).toEqual( [ 'performance' ] );
+		expect( global.__inspectorProps.onAddInclude ).toBe( onAddInclude );
+		expect( global.__inspectorProps.onRemoveInclude ).toBe(
+			onRemoveInclude
+		);
+	} );
+
 	it( 'inspector collapse: expanded shows Inspector + a Collapse toggle; collapsed shows an Expand rail (no Inspector)', () => {
 		const onInspectorToggle = jest.fn();
 		const { getByTestId, getByLabelText, queryByTestId, rerender } = render(

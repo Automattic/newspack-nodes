@@ -39,10 +39,20 @@ import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
 import {
+	useExpandedIncludes,
+	getExpandedIncludesCache,
+	invalidateExpandedIncludes,
+	setExpandedIncludesCache,
+} from './hooks/useExpandedIncludes';
+import {
 	addEdge,
+	addInclude,
 	addNode,
+	applyLoadedBaseline,
 	generateNodeName,
+	reconcileIncludes,
 	removeEdge,
+	removeInclude,
 	removeNode,
 	renameNode,
 	updateNodeArgs,
@@ -50,6 +60,7 @@ import {
 	withReplAnchor,
 } from './utils/draftGraph';
 import { snapToGrid } from './utils/autoLayout';
+import { clusterLayout } from './utils/clusterLayout';
 import { augmentWithVirtualEdges } from './utils/virtualEdges';
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
@@ -216,6 +227,44 @@ function initialPartitionFromUrl() {
 
 // Stable empty defaults so unpopulated state keeps a constant reference.
 const EMPTY_TRANSCRIPT = [];
+const EMPTY_EXPAND_BASELINE = { nodes: [], edges: [], tree: {} };
+
+/**
+ * One-off `topologies expand` round trip for a topology-open/edit-entry load
+ * (applyLoadedBaseline needs the composed baseline BEFORE the draft is set,
+ * so it can subtract `disconnects`; useExpandedIncludes only reacts AFTER).
+ *
+ * Shares useExpandedIncludes' module-level cache: a cache hit here skips the
+ * network round trip, and a fresh fetch primes the cache so the reactive
+ * useExpandedIncludes pass that follows (once the includes land in the
+ * draft) is itself a cache hit — one `topologies expand` per open, not two.
+ *
+ * @param {string[]} includes Directly-declared includes to expand.
+ * @return {Promise<Object>} `{ nodes, edges, tree }`.
+ */
+async function fetchIncludeBaseline( includes ) {
+	if ( ! includes || ! includes.length ) {
+		return EMPTY_EXPAND_BASELINE;
+	}
+	const key = includes.join( ' ' );
+	const cached = getExpandedIncludesCache( key );
+	if ( cached ) {
+		return cached;
+	}
+	const message = await getCommandClient().send( {
+		to: 'topologies',
+		verb: 'expand',
+		args: key,
+	} );
+	const value = unwrapCommandResponse( message ) || {};
+	const baseline = {
+		nodes: value.nodes || [],
+		edges: value.edges || [],
+		tree: value.tree || {},
+	};
+	setExpandedIncludesCache( key, baseline );
+	return baseline;
+}
 
 // Per-mode palette key: edit and live store separately (different defaults).
 function paletteKeyFor( mode ) {
@@ -248,6 +297,29 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const [ editingName, setEditingName ] = useState( '' );
 	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
+
+	// The composed `topologies expand` result for the draft's include set.
+	const { baseline: expandBaseline, error: expandError } =
+		useExpandedIncludes( draft.includes || [] );
+	// Previous expandBaseline, so reconcile can diff old vs new on each change.
+	const prevExpandBaselineRef = useRef( null );
+	useEffect( () => {
+		// The draft is inert outside edit mode; skip the wasted reconcile.
+		if ( mode !== 'edit' ) {
+			return;
+		}
+		setDraft( ( g ) =>
+			reconcileIncludes(
+				g,
+				prevExpandBaselineRef.current,
+				expandBaseline
+			)
+		);
+		prevExpandBaselineRef.current = expandBaseline;
+	}, [ expandBaseline, mode ] );
+	// { name, drop } for a just-dropped topology awaiting its cluster layout.
+	const pendingClusterRef = useRef( null );
+
 	const [ discardModal, setDiscardModal ] = useState( null );
 	// Live-mode palette drop with declared args stages here (NewNodeModal).
 	const [ pendingDrop, setPendingDrop ] = useState( null );
@@ -262,6 +334,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Palette chrome shared with the debug overlay; key varies by mode.
 	const {
 		paletteCollapsed,
+		togglePaletteCollapsed,
 		inspectorCollapsed,
 		openInspectorOnSelect,
 		canvasChromeProps,
@@ -784,17 +857,34 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setBaseline( blank );
 				if ( topology ) {
 					fetchTopology( topology )
-						.then( ( resp ) => {
-							const loaded = withReplAnchor(
-								parseTsl( resp.tsl || '' )
+						.then( async ( resp ) => {
+							const parsedGraph = parseTsl( resp.tsl || '' );
+							const includeBaseline = await fetchIncludeBaseline(
+								parsedGraph.includes
 							);
+							const loaded = withReplAnchor(
+								applyLoadedBaseline(
+									parsedGraph,
+									includeBaseline
+								)
+							);
+							// Sync ref: re-fetch diffs vs THIS, not EMPTY.
+							prevExpandBaselineRef.current = includeBaseline;
 							setDraft( loaded );
 							setBaseline( loaded );
 							setEditingName( resp.name );
 							setEditingSource( resp.source || '' );
 						} )
-						.catch( () => {
-							// Silent fallback — build from scratch or OPEN.
+						.catch( ( e ) => {
+							// Draft stays blank; surface WHY, don't go silent.
+							const msg =
+								( e && e.data && e.data.message ) ||
+								( e && e.message ) ||
+								__(
+									'Failed to load topology.',
+									'newspack-nodes'
+								);
+							setToast( { kind: 'error', text: msg } );
 						} );
 				}
 				return;
@@ -824,6 +914,18 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const composeTargets = useMemo(
 		() => buildComposeTargets( parsed.nodes ),
 		[ parsed.nodes ]
+	);
+
+	// One soft hull per directly-declared include, for SchematicCanvas.
+	const hulls = useMemo(
+		() =>
+			( draft.includes || [] ).map( ( name ) => ( {
+				include: name,
+				nodeIds: draft.nodes
+					.filter( ( n ) => ( n.origin || [] ).includes( name ) )
+					.map( ( n ) => n.id ),
+			} ) ),
+		[ draft ]
 	);
 
 	// Virtual node_name-verb edges are derived; the canvas dims them.
@@ -868,6 +970,69 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		},
 		// sendLine is consumed by commitPendingDrop (below), not this callback.
 		[ mode, liveHandlers, handlePositionChange ]
+	);
+
+	// Palette topology drop; edit-only, like handleDropNode.
+	const handleDropTopology = useCallback(
+		( { name, x, y } ) => {
+			if ( mode !== 'edit' ) {
+				return;
+			}
+			pendingClusterRef.current = { name, drop: snapToGrid( x, y ) };
+			setDraft( ( g ) => addInclude( g, name ) );
+		},
+		[ mode ]
+	);
+
+	// Unpositioned borrowed node is invisible; lay out below.
+	useEffect( () => {
+		const pending = pendingClusterRef.current;
+		if ( ! pending ) {
+			return;
+		}
+		const landed = ( expandBaseline.nodes || [] ).some( ( n ) =>
+			( n.origin || [] ).includes( pending.name )
+		);
+		if ( ! landed ) {
+			return;
+		}
+		const positions = clusterLayout(
+			expandBaseline.nodes,
+			expandBaseline.edges,
+			pending.name,
+			pending.drop,
+			positionOverrides
+		);
+		for ( const [ id, pos ] of Object.entries( positions ) ) {
+			handlePositionChange( id, pos );
+		}
+		pendingClusterRef.current = null;
+	}, [ expandBaseline, handlePositionChange, positionOverrides ] );
+
+	// Backstop for the palette's greying-out: revert to the last-good includes.
+	useEffect( () => {
+		if ( ! expandError ) {
+			return;
+		}
+		setToast( { kind: 'error', text: expandError } );
+		setDraft( ( g ) => ( {
+			...g,
+			includes: Object.keys( expandBaseline.tree || {} ),
+		} ) );
+		pendingClusterRef.current = null;
+	}, [ expandError, expandBaseline ] );
+
+	// Inspector's "+ add include" affordance; expands a collapsed palette.
+	const handleAddInclude = useCallback( () => {
+		if ( paletteCollapsed ) {
+			togglePaletteCollapsed();
+		}
+	}, [ paletteCollapsed, togglePaletteCollapsed ] );
+
+	// Inspector's IncludeTree remove button.
+	const handleRemoveInclude = useCallback(
+		( name ) => setDraft( ( g ) => removeInclude( g, name ) ),
+		[]
 	);
 
 	// NewNodeModal commit/cancel (live mode).
@@ -987,6 +1152,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			} );
 			topologyList.reload();
 			// A delete restarts the matching fleet — re-fetch the live catalog.
+			invalidateExpandedIncludes();
 			reloadCatalog();
 			// Drop back to view mode; the file no longer exists.
 			setMode( 'view' );
@@ -1081,7 +1247,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			setOpenModalShown( false );
 			try {
 				const resp = await fetchTopology( name );
-				const next = withReplAnchor( parseTsl( resp.tsl || '' ) );
+				const parsedGraph = parseTsl( resp.tsl || '' );
+				const includeBaseline = await fetchIncludeBaseline(
+					parsedGraph.includes
+				);
+				const next = withReplAnchor(
+					applyLoadedBaseline( parsedGraph, includeBaseline )
+				);
+				// Sync ref: re-fetch diffs vs THIS, not EMPTY.
+				prevExpandBaselineRef.current = includeBaseline;
 				// Replace draft AND baseline so the load starts clean.
 				setDraft( next );
 				setBaseline( next );
@@ -1186,7 +1360,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				name
 			);
 			try {
-				const tsl = serializeTsl( draft, schemasByShellName );
+				const tsl = serializeTsl(
+					draft,
+					schemasByShellName,
+					expandBaseline
+				);
 				const resp = await saveTopology( { name, tsl } );
 				const restartedCount = ( resp.restarted_fleets || [] ).length;
 				const fleetsPhrase = sprintf(
@@ -1214,6 +1392,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				// Refresh the picker so the next Open sees the new topology.
 				topologyList.reload();
 				// A save restarts the fleet — re-fetch the live catalog.
+				invalidateExpandedIncludes();
 				reloadCatalog();
 				setSettingsOpen( false );
 				setMode( 'view' );
@@ -1243,6 +1422,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			saveTopology,
 			topologyList,
 			schemasByShellName,
+			expandBaseline,
 			reloadCatalog,
 			topologyWorkers,
 		]
@@ -1384,6 +1564,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					onRenameNode: handleRenameNode,
 					onUpdateArgs: handleUpdateArgs,
 					onUpdateVerbs: handleUpdateVerbs,
+					hulls,
+					topologies: topologyList.topologies,
+					currentTopology: editingName,
+					onDropTopology: handleDropTopology,
+					includeTree: expandBaseline.tree,
+					includes: draft.includes || [],
+					onAddInclude: handleAddInclude,
+					onRemoveInclude: handleRemoveInclude,
 					onSelectionChange: ( id ) => {
 						setSelectedId( id );
 						// Auto-open inspector; NO refocus (breaks Delete).

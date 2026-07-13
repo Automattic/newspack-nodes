@@ -9,7 +9,7 @@
  * components expose every prop callback as a button so handlers run end-to-end.
  */
 
-import { render, fireEvent, act } from '@testing-library/react';
+import { render, fireEvent, act, waitFor } from '@testing-library/react';
 import {
 	newMessage,
 	TYPE,
@@ -29,6 +29,8 @@ import {
 	TM_STRUCT,
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
+import * as draftGraph from '../utils/draftGraph';
+import { __resetExpandedIncludesCacheForTests } from '../hooks/useExpandedIncludes';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
 window.NewspackNodesData = {
@@ -682,6 +684,7 @@ describe( 'TopologyConsole boot', () => {
 		hooks.reloadCatalog.mockReset();
 		hooks.catalog = null;
 		globalThis.__catalog = { classes: [], formatters: [] };
+		__resetExpandedIncludesCacheForTests();
 	} );
 
 	// Simulate an SSE reply; the 2nd act() drains React's deferred batch.
@@ -3760,6 +3763,377 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( stored.positions.n1 ).toEqual( { x: 700, y: 800 } );
 		expect( stored.modified ).toBe( false );
+	} );
+
+	describe( 'edit mode: topology includes', () => {
+		function mockTopologyGet( name, tsl, extra = {} ) {
+			hooks.fetchTopology.mockResolvedValueOnce( {
+				tsl,
+				name,
+				source: 'user',
+				...extra,
+			} );
+		}
+
+		// getCommandClient().send is the one mocked entry point (shared with the
+		// "Activate now?" flow); route only the `topologies expand` verb through it.
+		function mockTopologyExpand( includeNames, result ) {
+			globalThis.__activateSend.mockImplementation( ( msg ) => {
+				if ( msg && msg.to === 'topologies' && msg.verb === 'expand' ) {
+					const m = newMessage();
+					m[ VALUE ] = { name: 'expand', payload: result };
+					return Promise.resolve( m );
+				}
+				return Promise.resolve( newMessage() );
+			} );
+		}
+
+		function mockTopologyExpandFailure( message ) {
+			globalThis.__activateSend.mockImplementation( ( msg ) => {
+				if ( msg && msg.to === 'topologies' && msg.verb === 'expand' ) {
+					return Promise.reject( new Error( message ) );
+				}
+				return Promise.resolve( newMessage() );
+			} );
+		}
+
+		// 'demo' is the one topology SEED_WORKERS/topologyWorkers knows about
+		// (window.NewspackNodesData seed above) — the fetchTopology MOCK's
+		// response shapes the actually-loaded content/name, not the URL.
+		async function renderConsoleInEditMode() {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const utils = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( utils.getByText( 'edit' ) );
+			} );
+			// The load chain (fetchTopology -> fetchIncludeBaseline ->
+			// applyLoadedBaseline) is deeper than one act() flush; force a
+			// macrotask boundary so every microtask hop settles first.
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
+			} );
+			return utils;
+		}
+
+		// Fires the drop, then waits for BOTH the include to land AND its
+		// borrowed nodes to reconcile into the draft (the hull is proof of both).
+		async function dropTopologyFromPalette( name, point ) {
+			await act( async () => {
+				lastPaletteProps.onDropTopology( { name, ...point } );
+			} );
+			await waitFor( () => {
+				expect( lastPaletteProps.declaredIncludes ).toContain( name );
+				expect(
+					( lastCanvasProps.hulls || [] ).some(
+						( h ) => h.include === name
+					)
+				).toBe( true );
+			} );
+		}
+
+		async function clickSave( getByText ) {
+			await act( async () => {
+				fireEvent.click( getByText( 'save' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'prompt-ok' ) );
+			} );
+		}
+
+		function savedTsl() {
+			const call = hooks.saveTopology.mock.calls[ 0 ];
+			return call && call[ 0 ].tsl;
+		}
+
+		it( 'dropping a topology emits an include and saves the collapsed form', async () => {
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			mockTopologyExpand( [ 'performance' ], {
+				nodes: [
+					{
+						name: 'shared-tee',
+						class: 'Tee',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+				],
+				edges: [],
+				tree: { performance: {} },
+			} );
+
+			const { getByText } = await renderConsoleInEditMode();
+			await dropTopologyFromPalette( 'performance', { x: 500, y: 300 } );
+
+			expect( globalThis.__activateSend ).toHaveBeenCalledWith( {
+				to: 'topologies',
+				verb: 'expand',
+				args: 'performance',
+			} );
+
+			// The borrowed node landed with a COMPUTED position (not the
+			// borrowedNode() x:0/y:0 default) — otherwise it's invisible, since
+			// SchematicCanvas only renders nodes present in positionOverrides.
+			expect(
+				lastCanvasProps.positionOverrides[ 'shared-tee' ]
+			).not.toEqual( { x: 0, y: 0 } );
+			expect(
+				lastCanvasProps.parsed.nodes.find(
+					( n ) => n.id === 'shared-tee'
+				)?.origin
+			).toEqual( [ 'performance' ] );
+			// Inspector's IncludeTree threading (tree/includes props) is covered
+			// at the GraphView level (GraphView.test.js), where the inspector
+			// isn't gated behind TopologyConsole's own collapsed-by-default chrome.
+
+			await clickSave( getByText );
+			expect( savedTsl() ).toBe(
+				'include performance\nmake_node Echo own-echo\n'
+			);
+		} );
+
+		it( 'reopening a topology with an existing include re-derives its borrowed nodes', async () => {
+			mockTopologyGet(
+				'wombat-top',
+				'include performance\nmake_node Echo own-echo\n'
+			);
+			mockTopologyExpand( [ 'performance' ], {
+				nodes: [
+					{
+						name: 'shared-tee',
+						class: 'Tee',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+				],
+				edges: [],
+				tree: { performance: {} },
+			} );
+
+			await renderConsoleInEditMode();
+
+			await waitFor( () => {
+				expect(
+					lastCanvasProps.parsed.nodes.find(
+						( n ) => n.id === 'shared-tee'
+					)?.origin
+				).toEqual( [ 'performance' ] );
+			} );
+		} );
+
+		it( 'a failed expand toasts the error and reverts the pending include', async () => {
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			mockTopologyExpandFailure( 'topology include cycle: a -> b -> a' );
+
+			const { container } = await renderConsoleInEditMode();
+			await act( async () => {
+				lastPaletteProps.onDropTopology( {
+					name: 'performance',
+					x: 500,
+					y: 300,
+				} );
+			} );
+
+			await waitFor( () => {
+				expect(
+					container.querySelector( '.topology-toast--error' )
+				).not.toBeNull();
+			} );
+			expect( lastPaletteProps.declaredIncludes ).toEqual( [] );
+		} );
+
+		it( 'palette topology drop in VIEW mode is a no-op (editMode guard, like handleDropNode)', async () => {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			render( <TopologyConsole /> );
+			// The palette only renders once layoutReady (>=1 node); view mode
+			// stays a worker scope, so a metadata reply satisfies the gate.
+			await publishMeta();
+
+			await act( async () => {
+				lastPaletteProps.onDropTopology( {
+					name: 'performance',
+					x: 10,
+					y: 10,
+				} );
+			} );
+
+			expect( globalThis.__activateSend ).not.toHaveBeenCalledWith(
+				expect.objectContaining( { verb: 'expand' } )
+			);
+			expect( lastPaletteProps.declaredIncludes ).toEqual( [] );
+		} );
+
+		it( 'auto-loading a topology whose declared include fails to expand toasts the error (not a silent blank canvas)', async () => {
+			mockTopologyGet(
+				'wombat-top',
+				'include performance\nmake_node Echo own-echo\n'
+			);
+			mockTopologyExpandFailure( 'topology include cycle: a -> b -> a' );
+
+			const { container } = await renderConsoleInEditMode();
+
+			await waitFor( () => {
+				expect(
+					container.querySelector( '.topology-toast--error' )
+				).not.toBeNull();
+			} );
+		} );
+
+		it( 'handleOpenPick surfaces a failed expand for the picked topology via toast (not a silent blank canvas)', async () => {
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			hooks.fetchTopology.mockResolvedValueOnce( {
+				tsl: 'include performance\nmake_node Echo picked-echo\n',
+				name: 'picked',
+				source: 'user',
+			} );
+			mockTopologyExpandFailure(
+				'unknown topology in include: performance'
+			);
+
+			const { getByText, container } = await renderConsoleInEditMode();
+			await act( async () => {
+				fireEvent.click( getByText( 'open' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'pick' ) );
+			} );
+
+			await waitFor( () => {
+				expect(
+					container.querySelector( '.topology-toast--error' )
+				).not.toBeNull();
+			} );
+		} );
+
+		it( 'dropping a second topology does not move a node already shared with an existing include (diamond)', async () => {
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			globalThis.__activateSend.mockImplementation( ( msg ) => {
+				if (
+					! msg ||
+					msg.to !== 'topologies' ||
+					msg.verb !== 'expand'
+				) {
+					return Promise.resolve( newMessage() );
+				}
+				const m = newMessage();
+				const payload =
+					msg.args === 'performance'
+						? {
+								nodes: [
+									{
+										name: 'shared-tee',
+										class: 'Tee',
+										args: [],
+										origin: [ 'performance' ],
+										via: [ 'performance' ],
+									},
+								],
+								edges: [],
+								tree: { performance: {} },
+						  }
+						: {
+								nodes: [
+									{
+										name: 'shared-tee',
+										class: 'Tee',
+										args: [],
+										origin: [ 'performance', 'job-router' ],
+										via: [ 'performance', 'job-router' ],
+									},
+									{
+										name: 'router-only',
+										class: 'Echo',
+										args: [],
+										origin: [ 'job-router' ],
+										via: [ 'job-router' ],
+									},
+								],
+								edges: [],
+								tree: { performance: {}, 'job-router': {} },
+						  };
+				m[ VALUE ] = { name: 'expand', payload };
+				return Promise.resolve( m );
+			} );
+
+			await renderConsoleInEditMode();
+			await dropTopologyFromPalette( 'performance', { x: 500, y: 300 } );
+			const sharedPos = {
+				...lastCanvasProps.positionOverrides[ 'shared-tee' ],
+			};
+
+			await dropTopologyFromPalette( 'job-router', { x: 900, y: 900 } );
+
+			expect( lastCanvasProps.positionOverrides[ 'shared-tee' ] ).toEqual(
+				sharedPos
+			);
+		} );
+
+		it( 'reopening a topology only round-trips `topologies expand` once (fetchIncludeBaseline result is cached for useExpandedIncludes)', async () => {
+			mockTopologyGet(
+				'wombat-top',
+				'include performance\nmake_node Echo own-echo\n'
+			);
+			mockTopologyExpand( [ 'performance' ], {
+				nodes: [
+					{
+						name: 'shared-tee',
+						class: 'Tee',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+				],
+				edges: [],
+				tree: { performance: {} },
+			} );
+
+			await renderConsoleInEditMode();
+
+			await waitFor( () => {
+				expect(
+					lastCanvasProps.parsed.nodes.find(
+						( n ) => n.id === 'shared-tee'
+					)?.origin
+				).toEqual( [ 'performance' ] );
+			} );
+
+			const expandCalls = globalThis.__activateSend.mock.calls.filter(
+				( [ msg ] ) =>
+					msg && msg.to === 'topologies' && msg.verb === 'expand'
+			);
+			expect( expandCalls ).toHaveLength( 1 );
+		} );
+
+		it( 'onAddInclude/onRemoveInclude keep a stable identity across an unrelated re-render (no full-canvas re-render per keystroke)', async () => {
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			const { getByText } = await renderConsoleInEditMode();
+
+			// Selecting a node auto-opens the inspector (openInspectorOnSelect).
+			await act( async () => {
+				fireEvent.click( getByText( 'select-n1' ) );
+			} );
+			const beforeAdd = lastInspectorProps.onAddInclude;
+			const beforeRemove = lastInspectorProps.onRemoveInclude;
+
+			// A viewport change is a genuinely unrelated re-render trigger.
+			await act( async () => {
+				fireEvent.click( getByText( 'vp-change' ) );
+			} );
+
+			expect( lastInspectorProps.onAddInclude ).toBe( beforeAdd );
+			expect( lastInspectorProps.onRemoveInclude ).toBe( beforeRemove );
+		} );
+
+		it( 'reconcile effect does not run in VIEW mode (no wasted setDraft on mount)', async () => {
+			const spy = jest.spyOn( draftGraph, 'reconcileIncludes' );
+
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			render( <TopologyConsole /> );
+			await act( async () => {} );
+
+			expect( spy ).not.toHaveBeenCalled();
+			spy.mockRestore();
+		} );
 	} );
 
 	describe( 'skin theme', () => {
