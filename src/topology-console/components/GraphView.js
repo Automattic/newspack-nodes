@@ -50,6 +50,13 @@ import '../styles/graph-view.scss';
  * @param {Set<string>|null} props.driftIds            Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
  * @param {Array}            [props.composeTargets]    The Compose modal's full "To" list (derived from `parsed.nodes`: `_command_interpreter` + every node id + its `:config` sidecar); Inspector falls back to its own node-id list when omitted.
  * @param {Array}            [props.hulls]             One soft hull per directly-declared include: `{ include, nodeIds }[]`, forwarded to SchematicCanvas.
+ * @param {Array}            [props.topologies]        `topologies list` entries (each carries `includes`); forwarded to the Palette's "Topologies" drag section.
+ * @param {string}           [props.currentTopology]   The topology being edited; disables dragging it (or an ancestor) onto itself.
+ * @param {Function}         [props.onDropTopology]    ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
+ * @param {Object}           [props.includeTree]       `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
+ * @param {Array}            [props.includes]          The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector's IncludeTree.
+ * @param {Function}         [props.onAddInclude]      () — Inspector's "+ add include" affordance.
+ * @param {Function}         [props.onRemoveInclude]   (name) — Inspector's IncludeTree remove button.
  * @return {Element} the graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -89,6 +96,13 @@ export default function GraphView( {
 	local = false,
 	composeTargets,
 	hulls = [],
+	topologies = [],
+	currentTopology = '',
+	onDropTopology,
+	includeTree = {},
+	includes = [],
+	onAddInclude,
+	onRemoveInclude,
 } ) {
 	const [ selectedId, setSelectedId ] = useState( null );
 	const [ selectedEdge, setSelectedEdge ] = useState( null );
@@ -198,6 +212,10 @@ export default function GraphView( {
 					collapsed={ paletteCollapsed }
 					onToggle={ onPaletteToggle }
 					onDropNode={ onDropNode }
+					topologies={ topologies }
+					currentTopology={ currentTopology }
+					declaredIncludes={ includes }
+					onDropTopology={ onDropTopology }
 				/>
 			) }
 			<Frame { ...frameProps }>
@@ -280,6 +298,10 @@ export default function GraphView( {
 							onRemoveEdge={ handleRemoveEdge }
 							onConnect={ onConnect }
 							composeTargets={ composeTargets }
+							tree={ includeTree }
+							includes={ includes }
+							onAddInclude={ onAddInclude }
+							onRemoveInclude={ onRemoveInclude }
 						/>
 					) }
 				</div>
