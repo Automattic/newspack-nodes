@@ -47,6 +47,7 @@ import {
 import {
 	addEdge,
 	addInclude,
+	draftIsDirty,
 	addNode,
 	applyLoadedBaseline,
 	generateNodeName,
@@ -906,22 +907,20 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 * works in live mode too, where metadata nodes carry no `origin` of their own.
 	 */
 	const hulls = useMemo( () => {
-		const originsByName = new Map(
-			( expandBaseline.nodes || [] ).map( ( n ) => [
-				n.name,
-				n.origin || [],
-			] )
+		const membership = expandBaseline.hulls || {};
+		const onScreen = new Set(
+			( ( 'edit' === mode ? draft.nodes : parsed.nodes ) || [] ).map(
+				( n ) => n.id
+			)
 		);
-		const onScreen = 'edit' === mode ? draft.nodes : parsed.nodes;
-		return activeIncludes.map( ( name ) => ( {
-			include: name,
-			nodeIds: ( onScreen || [] )
-				.filter( ( n ) =>
-					( originsByName.get( n.id ) || [] ).includes( name )
-				)
-				.map( ( n ) => n.id ),
-		} ) );
-	}, [ activeIncludes, expandBaseline, mode, draft.nodes, parsed.nodes ] );
+		// Depth-first: painting in order puts a nested hull atop its parent.
+		return Object.entries( membership )
+			.map( ( [ include, memberIds ] ) => ( {
+				include,
+				nodeIds: memberIds.filter( ( id ) => onScreen.has( id ) ),
+			} ) )
+			.filter( ( h ) => h.nodeIds.length > 0 );
+	}, [ expandBaseline, mode, draft.nodes, parsed.nodes ] );
 
 	// Virtual node_name-verb edges are derived; the canvas dims them.
 	const canvasGraph = useMemo( () => {
@@ -1274,6 +1273,28 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ fetchTopology ]
 	);
 
+	/**
+	 * Drill into a hull: open the topology it stands for. This REPLACES the draft,
+	 * so an edited draft must be confirmed away first — same contract as leaving
+	 * edit mode, and for the same reason.
+	 */
+	const handleDrillIntoHull = useCallback(
+		( name ) => {
+			if ( ! draftIsDirty( draft, baseline ) ) {
+				handleOpenPick( name );
+				return;
+			}
+			setDiscardModal( {
+				onConfirm: () => {
+					setDiscardModal( null );
+					handleOpenPick( name );
+				},
+				onCancel: () => setDiscardModal( null ),
+			} );
+		},
+		[ draft, baseline, handleOpenPick ]
+	);
+
 	// Shared canvas-background-click dismiss pattern (mirrored in the overlay).
 	const handleSave = useCallback( () => {
 		setSaveModal( {} );
@@ -1560,6 +1581,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					includeTree: expandBaseline.tree,
 					includes: draft.includes || [],
 					onRemoveInclude: handleRemoveInclude,
+					// Drill into a hull (guarded when the draft is dirty).
+					onOpenTopology: handleDrillIntoHull,
 					onSelectionChange: ( id ) => {
 						setSelectedId( id );
 						// Auto-open inspector; NO refocus (breaks Delete).

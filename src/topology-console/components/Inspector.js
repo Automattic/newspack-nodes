@@ -7,6 +7,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
 import { CtorField } from './CtorField';
 import IncludeTree from './IncludeTree';
+import HullPanel from './HullPanel';
 import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { processStats } from '../utils/processStats';
@@ -1556,6 +1557,9 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 
 export default function Inspector( {
 	selectedId,
+	selectedHull = null,
+	hulls = [],
+	onOpenTopology,
 	parsed,
 	streamStatus,
 	rateInfo,
@@ -1586,6 +1590,20 @@ export default function Inspector( {
 	const [ registerOpen, setRegisterOpen ] = useState( false );
 	// Whether the no-node message-composer (roadmap [46]) is open.
 	const [ composeOpen, setComposeOpen ] = useState( false );
+
+	// A hull gets its own panel; a node selection still wins over it.
+	if ( ! selectedId && selectedHull ) {
+		return (
+			<HullPanel
+				include={ selectedHull }
+				hulls={ hulls }
+				parsed={ parsed }
+				includeTree={ tree }
+				onOpenTopology={ onOpenTopology }
+				onRemoveInclude={ onRemoveInclude }
+			/>
+		);
+	}
 
 	if ( ! selectedId ) {
 		// Edit mode has no live interpreter; hint until a node is selected.

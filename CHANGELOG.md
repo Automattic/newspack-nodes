@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Hulls for NESTED includes, not just the directly-declared ones.** `expand()` now reports the node set of every topology in the tree at any depth, so `combined` draws `request-builder`, `flame-builder`, `job-router` AND `job-intake` — the last nested inside `job-router`. Outer hulls paint first, so a nested one lands on top of the parent that brings it.
+- **Hull interaction.** Hovering a hull lights it and dims every node that isn't a member (on `combined`, hovering `job-intake` dims 14 of 16). Clicking a hull's FILL selects it — clicking a node inside it still selects the node, so the hull is never a scrim you have to fight past. Dragging a hull moves every member by one delta, so a borrowed cluster keeps its shape.
+- **The hull inspector.** A hull is a composition boundary, not a node, so the panel shows what the canvas deliberately can't: the recursion we flattened out of the drawing (its include-tree), the nodes it provides, the ones an unrelated include ALSO provides (the diamond — visible on canvas only as an overlap; an ancestor or descendant sharing a node is containment, not sharing, and isn't named), and the edges crossing the boundary — the borrowed subsystem's interface. The action is **Open `<topology>`.tsl**: the hull is the handle for drilling in, and drilling in with an edited draft asks before dropping it, exactly like leaving edit mode.
+
 ## [0.42.0] - 2026-07-13
 
 ### Added

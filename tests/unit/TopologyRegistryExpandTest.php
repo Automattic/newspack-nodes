@@ -173,4 +173,37 @@ class TopologyRegistryExpandTest extends TestCase {
 		);
 		$this->assertStringContainsString( 'wombat-varbase', $buf );
 	}
+
+	/**
+	 * Hulls are drawn for NESTED includes too, not just the directly-declared
+	 * ones — so the canvas needs, for every topology at ANY depth, the nodes it
+	 * provides. `origin` (top-level) and `via` (first path) can't answer that:
+	 * a node two levels down belongs to BOTH hulls.
+	 */
+	public function test_expand_reports_the_node_set_of_every_include_at_every_depth(): void {
+		$this->write_tsl( 'wombat-leaf', "make_node Echo leaf-echo\n" );
+		$this->write_tsl( 'wombat-mid', "include wombat-leaf\nmake_node Echo mid-echo\n" );
+		$this->write_tsl( 'wombat-top', "include wombat-mid\nmake_node Echo top-echo\n" );
+
+		$out = Topology_Registry::expand( [ 'wombat-top' ] );
+
+		// One entry per topology in the tree — including the nested ones.
+		$this->assertSame(
+			[ 'wombat-top', 'wombat-mid', 'wombat-leaf' ],
+			\array_keys( $out['hulls'] )
+		);
+		// The outer hull contains everything it brings, transitively.
+		$this->assertSame(
+			[ 'leaf-echo', 'mid-echo', 'top-echo' ],
+			$this->sorted( $out['hulls']['wombat-top'] )
+		);
+		$this->assertSame( [ 'leaf-echo', 'mid-echo' ], $this->sorted( $out['hulls']['wombat-mid'] ) );
+		$this->assertSame( [ 'leaf-echo' ], $this->sorted( $out['hulls']['wombat-leaf'] ) );
+	}
+
+	/** @return list<string> */
+	private function sorted( array $names ): array {
+		\sort( $names );
+		return $names;
+	}
 }

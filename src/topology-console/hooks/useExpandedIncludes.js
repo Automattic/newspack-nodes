@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
-const EMPTY = { nodes: [], edges: [], tree: {} };
+const EMPTY = { nodes: [], edges: [], tree: {}, hulls: {} };
 
 const cache = new Map();
 
@@ -71,6 +71,7 @@ export function primeExpandedIncludes( includes, baseline ) {
 		nodes: baseline.nodes || [],
 		edges: baseline.edges || [],
 		tree: baseline.tree || {},
+		hulls: baseline.hulls || {},
 	} );
 }
 
@@ -93,6 +94,7 @@ export async function fetchExpandedIncludes( includes ) {
 		nodes: value.nodes || [],
 		edges: value.edges || [],
 		tree: value.tree || {},
+		hulls: value.hulls || {},
 	};
 	cache.set( key, baseline );
 	return baseline;
@@ -136,6 +138,7 @@ export function useExpandedIncludes( includes ) {
 					nodes: value.nodes || [],
 					edges: value.edges || [],
 					tree: value.tree || {},
+					hulls: value.hulls || {},
 				};
 				cache.set( key, baseline );
 				setState( { baseline, error: null, loading: false } );

@@ -3876,6 +3876,9 @@ describe( 'TopologyConsole boot', () => {
 				],
 				edges: [],
 				tree: { 'job-intake': {} },
+				hulls: {
+					'job-intake': [ 'zebra:consumer', 'zebra:partition' ],
+				},
 			} );
 
 			window.history.replaceState(
@@ -3904,6 +3907,45 @@ describe( 'TopologyConsole boot', () => {
 				] );
 				expect( hulls[ 0 ].nodeIds ).toEqual( [ 'zebra:partition' ] );
 			} );
+		} );
+
+		it( 'drilling into a hull with unsaved edits asks before dropping them', async () => {
+			// "Open performance.tsl" REPLACES the draft. Doing that silently after
+			// the user has edited is data loss — the same reason leaving edit mode
+			// prompts.
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+
+			const { queryByTestId } = await renderConsoleInEditMode();
+			// Dirty the draft.
+			await act( async () => {
+				lastPaletteProps.onDropNode( {
+					shellName: 'Echo',
+					x: 100,
+					y: 100,
+				} );
+			} );
+
+			// Select a node so the inspector dock mounts (collapsed by default).
+			await act( async () => {
+				lastCanvasProps.onSelect( 'own-echo' );
+			} );
+
+			await act( async () => {
+				lastInspectorProps.onOpenTopology( 'performance' );
+			} );
+
+			// The confirm modal is up (Modal is mocked to a testid + buttons).
+			expect( queryByTestId( 'confirm-modal' ) ).not.toBeNull();
+			expect( globalThis.__lastConfirmModal.title ).toMatch(
+				/discard unsaved changes/i
+			);
+			// The draft is untouched until the user confirms.
+			expect(
+				lastCanvasProps.parsed.nodes.some(
+					( n ) => n.id === 'own-echo'
+				)
+			).toBe( true );
+			expect( hooks.fetchTopology ).toHaveBeenCalledTimes( 1 );
 		} );
 
 		it( 'a freshly-opened topology with includes is NOT dirty', async () => {
@@ -3939,6 +3981,9 @@ describe( 'TopologyConsole boot', () => {
 					},
 				],
 				tree: { 'job-intake': {} },
+				hulls: {
+					'job-intake': [ 'zebra:consumer', 'zebra:partition' ],
+				},
 			} );
 
 			const { getByText, queryByText } = await renderConsoleInEditMode();
@@ -3987,6 +4032,9 @@ describe( 'TopologyConsole boot', () => {
 					},
 				],
 				tree: { 'job-intake': {} },
+				hulls: {
+					'job-intake': [ 'zebra:consumer', 'zebra:partition' ],
+				},
 			} );
 
 			const { getByText } = await renderConsoleInEditMode();
@@ -4022,6 +4070,7 @@ describe( 'TopologyConsole boot', () => {
 				],
 				edges: [],
 				tree: { performance: {} },
+				hulls: { performance: [ 'shared-tee' ] },
 			} );
 
 			const { getByText } = await renderConsoleInEditMode();
@@ -4071,6 +4120,7 @@ describe( 'TopologyConsole boot', () => {
 				],
 				edges: [],
 				tree: { performance: {} },
+				hulls: { performance: [ 'shared-tee' ] },
 			} );
 
 			await renderConsoleInEditMode();
@@ -4193,6 +4243,7 @@ describe( 'TopologyConsole boot', () => {
 								],
 								edges: [],
 								tree: { performance: {} },
+								hulls: { performance: [ 'shared-tee' ] },
 						  }
 						: {
 								nodes: [
@@ -4213,6 +4264,14 @@ describe( 'TopologyConsole boot', () => {
 								],
 								edges: [],
 								tree: { performance: {}, 'job-router': {} },
+								// The diamond node is a member of BOTH hulls.
+								hulls: {
+									performance: [ 'shared-tee' ],
+									'job-router': [
+										'shared-tee',
+										'router-only',
+									],
+								},
 						  };
 				m[ VALUE ] = { name: 'expand', payload };
 				return Promise.resolve( m );
@@ -4248,6 +4307,7 @@ describe( 'TopologyConsole boot', () => {
 				],
 				edges: [],
 				tree: { performance: {} },
+				hulls: { performance: [ 'shared-tee' ] },
 			} );
 
 			await renderConsoleInEditMode();
