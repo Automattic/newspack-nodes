@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Remote_Source` reads like the Consumer it is [147]:** `vault_id`, `remote_partition`, **`offsetlog_dir`**, **`deadletter_dir`**. It used to HARDCODE both dirs (`Config::get_offsets_directory()`, and `<base>/deadletter`), which isn't just an asymmetry — it meant a topology could not write the cursor path, so the cursor could not carry `<topology>`, so two hubs pulling the same spoke partition would silently share one offsetlog. Every other Consumer got fleet-scoped cursors; this one structurally couldn't. Both args are optional (empty disables checkpointing / the DLQ, exactly like `Consumer`), and omitting them falls back to the legacy derived paths. `write_set()` reads the offsetlog from the ARGUMENT now rather than reconstructing it from the old convention — otherwise the conflict gate and the GC would both be looking at a cursor the node doesn't use.
+
 - **`Topic` takes the Partition verbs: `allow_large_writes`, `void_warranty`, `with_index` [146].** The first two already existed as PHP methods but were unreachable — `Topic`'s `commands` was empty, so `cmd topic:config void_warranty` silently did nothing and the node never even wired a `{name}:config` interpreter. All three propagate to partitions the Topic materializes LATER (they're created lazily, on first write to a key), and `dump_config()` round-trips them like `Partition`'s does.
 
 ### Fixed
