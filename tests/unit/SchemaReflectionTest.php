@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Schema_Reflection;
 use Newspack_Nodes\Tests\TestCase;
@@ -11,6 +12,60 @@ use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Schema_Reflection::class )]
 class SchemaReflectionTest extends TestCase {
+
+	public function test_parse_schema_args_resolves_and_coerces_a_config_token_default(): void {
+		// A <ns:key> token default is resolved via its namespace resolver and
+		// coerced to the declared type — a schema default never passes through
+		// the TSL loader, so parse_schema_args must resolve it itself. 7777 is
+		// distinct from every DEFAULT_* retention constant.
+		Core::register_config_namespace( 'tconf', static fn ( string $k ): mixed => 'probe_count' === $k ? 7777 : null );
+
+		$node = new class extends Node {
+			use Schema_Reflection;
+
+			public int $count = 0;
+
+			public function parse( string $args ): void {
+				$this->parse_schema_args( $args );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'arguments' => [
+						[ 'name' => 'count', 'type' => 'int', 'default' => '<tconf:probe_count>' ],
+					],
+				];
+			}
+		};
+
+		$node->parse( '' );
+
+		$this->assertSame( 7777, $node->count );
+	}
+
+	public function test_parse_schema_args_leaves_a_non_token_default_verbatim(): void {
+		$node = new class extends Node {
+			use Schema_Reflection;
+
+			public string $label = '';
+
+			public function parse( string $args ): void {
+				$this->parse_schema_args( $args );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'arguments' => [
+						[ 'name' => 'label', 'type' => 'string', 'default' => 'plain-default' ],
+					],
+				];
+			}
+		};
+
+		$node->parse( '' );
+
+		$this->assertSame( 'plain-default', $node->label );
+	}
 
 	public function test_parse_schema_args_noops_when_arguments_schema_is_not_a_list(): void {
 		$node = new class extends Node {

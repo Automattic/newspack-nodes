@@ -49,12 +49,27 @@ trait Schema_Reflection {
 			if ( isset( $tokens[ $i ] ) ) {
 				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
 			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
-				$this->{$name} = $arg_spec['default'];
+				$this->{$name} = self::resolve_default( $arg_spec['default'], $type );
 			} elseif ( \array_key_exists( 'required', $arg_spec ) && $arg_spec['required'] ) {
 				throw new \InvalidArgumentException( \esc_html( "Missing required argument: {$name}" ) );
 			}
 		}
 		$this->arguments = $args;
+	}
+
+	/**
+	 * Resolve a schema-arg default. A `<ns:key>` token default (e.g.
+	 * `<config:max_segments>`) is resolved through its namespace resolver and
+	 * coerced to the declared type — a schema default lives in PHP and never
+	 * passes through the TSL loader that resolves tokens on make_node lines, so
+	 * a positional token arrives pre-resolved but a default does not. Any other
+	 * default (constant, array, plain string) is used verbatim.
+	 */
+	private static function resolve_default( mixed $default, string $type ): mixed {
+		if ( \is_string( $default ) && \preg_match( '/<[a-zA-Z_]\w*:[a-zA-Z_]\w*>/', $default ) ) {
+			return self::coerce_argument( Core::resolve_config_tokens( $default ), $type );
+		}
+		return $default;
 	}
 
 	/** Coerce a raw string token to the declared schema type; unknown types pass through as string. */
