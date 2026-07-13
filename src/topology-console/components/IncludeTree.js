@@ -50,7 +50,6 @@ export default function IncludeTree( {
 	tree = {},
 	includes = [],
 	selectedOrigin = null,
-	onAdd,
 	onRemove,
 } ) {
 	const roots = (
@@ -75,15 +74,6 @@ export default function IncludeTree( {
 					/>
 				) ) }
 			</ul>
-			{ onAdd && (
-				<button
-					type="button"
-					className="topology-edit-verb__add"
-					onClick={ onAdd }
-				>
-					{ __( '+ add include', 'newspack-nodes' ) }
-				</button>
-			) }
 		</div>
 	);
 }

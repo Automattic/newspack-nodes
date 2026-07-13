@@ -3845,6 +3845,59 @@ describe( 'TopologyConsole boot', () => {
 			return call && call[ 0 ].tsl;
 		}
 
+		it( "keeps the include's OWN edges, so save emits no phantom disconnect_node", async () => {
+			// The included topology wires its own nodes together. Those edges must
+			// land in the draft, or the serializer sees them "removed" and writes a
+			// disconnect_node for an edge the user never touched — which then tears
+			// the borrowed topology apart at boot. (Caught in a live browser run;
+			// the earlier drop test used an edge-less baseline and missed it.)
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			mockTopologyExpand( [ 'job-intake' ], {
+				nodes: [
+					{
+						name: 'zebra:consumer',
+						class: 'Consumer',
+						args: [],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+					{
+						name: 'zebra:partition',
+						class: 'Partition',
+						args: [],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+				],
+				edges: [
+					{
+						from: 'zebra:consumer',
+						to: 'zebra:partition',
+						origin: [ 'job-intake' ],
+					},
+				],
+				tree: { 'job-intake': {} },
+			} );
+
+			const { getByText } = await renderConsoleInEditMode();
+			await dropTopologyFromPalette( 'job-intake', { x: 500, y: 300 } );
+
+			// The borrowed edge is in the edited graph, not silently dropped.
+			expect(
+				lastCanvasProps.parsed.edges.some(
+					( e ) =>
+						e.from === 'zebra:consumer' &&
+						e.to === 'zebra:partition'
+				)
+			).toBe( true );
+
+			await clickSave( getByText );
+			expect( savedTsl() ).not.toContain( 'disconnect_node' );
+			expect( savedTsl() ).toBe(
+				'include job-intake\nmake_node Echo own-echo\n'
+			);
+		} );
+
 		it( 'dropping a topology emits an include and saves the collapsed form', async () => {
 			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
 			mockTopologyExpand( [ 'performance' ], {

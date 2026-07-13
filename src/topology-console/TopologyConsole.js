@@ -308,13 +308,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( mode !== 'edit' ) {
 			return;
 		}
-		setDraft( ( g ) =>
-			reconcileIncludes(
-				g,
-				prevExpandBaselineRef.current,
-				expandBaseline
-			)
-		);
+		// Read the ref NOW: the updater runs at render, after the line below.
+		const prev = prevExpandBaselineRef.current;
+		setDraft( ( g ) => reconcileIncludes( g, prev, expandBaseline ) );
 		prevExpandBaselineRef.current = expandBaseline;
 	}, [ expandBaseline, mode ] );
 	// { name, drop } for a just-dropped topology awaiting its cluster layout.
@@ -334,7 +330,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Palette chrome shared with the debug overlay; key varies by mode.
 	const {
 		paletteCollapsed,
-		togglePaletteCollapsed,
 		inspectorCollapsed,
 		openInspectorOnSelect,
 		canvasChromeProps,
@@ -389,6 +384,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const {
 		partitions: topologyWorkers,
 		active: activeTopologies,
+		entries: topologyEntries,
 		reload: reloadCatalog,
 	} = useTopologyCatalog();
 
@@ -1022,13 +1018,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		pendingClusterRef.current = null;
 	}, [ expandError, expandBaseline ] );
 
-	// Inspector's "+ add include" affordance; expands a collapsed palette.
-	const handleAddInclude = useCallback( () => {
-		if ( paletteCollapsed ) {
-			togglePaletteCollapsed();
-		}
-	}, [ paletteCollapsed, togglePaletteCollapsed ] );
-
 	// Inspector's IncludeTree remove button.
 	const handleRemoveInclude = useCallback(
 		( name ) => setDraft( ( g ) => removeInclude( g, name ) ),
@@ -1565,12 +1554,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					onUpdateArgs: handleUpdateArgs,
 					onUpdateVerbs: handleUpdateVerbs,
 					hulls,
-					topologies: topologyList.topologies,
+					topologies: topologyEntries,
 					currentTopology: editingName,
 					onDropTopology: handleDropTopology,
 					includeTree: expandBaseline.tree,
 					includes: draft.includes || [],
-					onAddInclude: handleAddInclude,
 					onRemoveInclude: handleRemoveInclude,
 					onSelectionChange: ( id ) => {
 						setSelectedId( id );

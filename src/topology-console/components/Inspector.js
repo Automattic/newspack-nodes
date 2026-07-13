@@ -885,14 +885,7 @@ function RoutingChip( { label, virtual, onClear } ) {
 }
 
 // Borrowed node: config is immutable here — wiring stays editable on canvas.
-function LockedForm( {
-	node,
-	catalog,
-	tree,
-	includes,
-	onAddInclude,
-	onRemoveInclude,
-} ) {
+function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
 	const ctorArgs = absorbTrailingArgs(
@@ -940,7 +933,6 @@ function LockedForm( {
 				tree={ tree }
 				includes={ includes }
 				selectedOrigin={ node.origin }
-				onAdd={ onAddInclude }
 				onRemove={ onRemoveInclude }
 			/>
 		</aside>
@@ -1586,7 +1578,6 @@ export default function Inspector( {
 	composeTargets,
 	tree = {},
 	includes = [],
-	onAddInclude,
 	onRemoveInclude,
 } ) {
 	// Which value-taking verb's prompt modal is open, or null (shared modal).
@@ -1611,7 +1602,6 @@ export default function Inspector( {
 						tree={ tree }
 						includes={ includes }
 						selectedOrigin={ null }
-						onAdd={ onAddInclude }
 						onRemove={ onRemoveInclude }
 					/>
 				</aside>
@@ -1710,7 +1700,6 @@ export default function Inspector( {
 					catalog={ catalog }
 					tree={ tree }
 					includes={ includes }
-					onAddInclude={ onAddInclude }
 					onRemoveInclude={ onRemoveInclude }
 				/>
 			);
@@ -1734,7 +1723,6 @@ export default function Inspector( {
 					tree={ tree }
 					includes={ includes }
 					selectedOrigin={ null }
-					onAdd={ onAddInclude }
 					onRemove={ onRemoveInclude }
 				/>
 			</>

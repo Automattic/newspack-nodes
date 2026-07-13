@@ -278,7 +278,6 @@ describe( 'GraphView', () => {
 		const topologies = [ { name: 'performance', includes: [] } ];
 		const onDropTopology = jest.fn();
 		const includeTree = { performance: {} };
-		const onAddInclude = jest.fn();
 		const onRemoveInclude = jest.fn();
 		render(
 			<GraphView
@@ -291,7 +290,6 @@ describe( 'GraphView', () => {
 				includes={ [ 'performance' ] }
 				onDropTopology={ onDropTopology }
 				includeTree={ includeTree }
-				onAddInclude={ onAddInclude }
 				onRemoveInclude={ onRemoveInclude }
 			/>
 		);
@@ -303,7 +301,6 @@ describe( 'GraphView', () => {
 		expect( global.__paletteProps.onDropTopology ).toBe( onDropTopology );
 		expect( global.__inspectorProps.tree ).toBe( includeTree );
 		expect( global.__inspectorProps.includes ).toEqual( [ 'performance' ] );
-		expect( global.__inspectorProps.onAddInclude ).toBe( onAddInclude );
 		expect( global.__inspectorProps.onRemoveInclude ).toBe(
 			onRemoveInclude
 		);

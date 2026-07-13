@@ -55,7 +55,6 @@ import '../styles/graph-view.scss';
  * @param {Function}         [props.onDropTopology]    ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
  * @param {Object}           [props.includeTree]       `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
  * @param {Array}            [props.includes]          The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector's IncludeTree.
- * @param {Function}         [props.onAddInclude]      () — Inspector's "+ add include" affordance.
  * @param {Function}         [props.onRemoveInclude]   (name) — Inspector's IncludeTree remove button.
  * @return {Element} the graph-editing surface as a Fragment.
  */
@@ -101,7 +100,6 @@ export default function GraphView( {
 	onDropTopology,
 	includeTree = {},
 	includes = [],
-	onAddInclude,
 	onRemoveInclude,
 } ) {
 	const [ selectedId, setSelectedId ] = useState( null );
@@ -300,7 +298,6 @@ export default function GraphView( {
 							composeTargets={ composeTargets }
 							tree={ includeTree }
 							includes={ includes }
-							onAddInclude={ onAddInclude }
 							onRemoveInclude={ onRemoveInclude }
 						/>
 					) }
