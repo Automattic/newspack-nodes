@@ -49,6 +49,7 @@ import '../styles/graph-view.scss';
  * @param {boolean}          props.local               When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
  * @param {Set<string>|null} props.driftIds            Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
  * @param {Array}            [props.composeTargets]    The Compose modal's full "To" list (derived from `parsed.nodes`: `_command_interpreter` + every node id + its `:config` sidecar); Inspector falls back to its own node-id list when omitted.
+ * @param {Array}            [props.hulls]             One soft hull per directly-declared include: `{ include, nodeIds }[]`, forwarded to SchematicCanvas.
  * @return {Element} the graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -87,6 +88,7 @@ export default function GraphView( {
 	driftIds = null,
 	local = false,
 	composeTargets,
+	hulls = [],
 } ) {
 	const [ selectedId, setSelectedId ] = useState( null );
 	const [ selectedEdge, setSelectedEdge ] = useState( null );
@@ -162,6 +164,11 @@ export default function GraphView( {
 				return;
 			}
 			if ( selectedId ) {
+				// A borrowed node is locked; not deletable from here.
+				const node = graph.nodes.find( ( n ) => n.id === selectedId );
+				if ( Array.isArray( node?.origin ) && node.origin.length > 0 ) {
+					return;
+				}
 				e.preventDefault();
 				handleRemoveNode( selectedId );
 			} else if ( editMode && selectedEdge ) {
@@ -175,6 +182,7 @@ export default function GraphView( {
 		editMode,
 		selectedId,
 		selectedEdge,
+		graph.nodes,
 		handleRemoveNode,
 		handleRemoveEdge,
 	] );
@@ -218,6 +226,7 @@ export default function GraphView( {
 					selectedEdge={ selectedEdge }
 					onSelectEdge={ handleSelectEdge }
 					classCatalog={ classCatalog }
+					hulls={ hulls }
 				/>
 			</Frame>
 			{ /* Always present so the show/hide chevron is reachable with no selection. */ }

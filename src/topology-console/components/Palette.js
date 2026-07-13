@@ -24,12 +24,35 @@ function groupByCategory( classes ) {
 	return out;
 }
 
+/**
+ * Transitive include closure of `name`, from the DAG `topologies list` gives us.
+ *
+ * @param {string}                            name   Topology whose closure to compute.
+ * @param {Map<string, {includes: string[]}>} byName Topology name → entry.
+ * @param {Set<string>}                       [seen] Accumulator (internal recursion).
+ * @return {Set<string>} every topology transitively included by `name`.
+ */
+function includeClosure( name, byName, seen = new Set() ) {
+	for ( const child of byName.get( name )?.includes || [] ) {
+		if ( seen.has( child ) ) {
+			continue;
+		}
+		seen.add( child );
+		includeClosure( child, byName, seen );
+	}
+	return seen;
+}
+
 export default function Palette( {
 	classes = [],
 	loading = false,
 	collapsed = false,
 	onToggle,
 	onDropNode,
+	topologies = [],
+	currentTopology = '',
+	declaredIncludes = [],
+	onDropTopology,
 } ) {
 	// Drag ghost following the cursor (or null); dragRef keeps handlers stable.
 	const [ ghost, setGhost ] = useState( null );
@@ -50,11 +73,28 @@ export default function Palette( {
 		} catch {
 			// jsdom / browsers without pointer capture — drag still works.
 		}
-		dragRef.current = c.shell_name;
+		dragRef.current = { kind: 'node', name: c.shell_name };
 		setGhost( {
+			kind: 'node',
 			shellName: c.shell_name,
 			acceptsFill: acceptsFillOf( c ),
 			hasTarget: hasTargetOf( c ),
+			x: e.clientX,
+			y: e.clientY,
+		} );
+	};
+
+	const onTopologyPointerDown = ( e, t ) => {
+		e.preventDefault();
+		try {
+			e.currentTarget.setPointerCapture( e.pointerId );
+		} catch {
+			// jsdom / browsers without pointer capture — drag still works.
+		}
+		dragRef.current = { kind: 'topology', name: t.name };
+		setGhost( {
+			kind: 'topology',
+			name: t.name,
 			x: e.clientX,
 			y: e.clientY,
 		} );
@@ -67,11 +107,11 @@ export default function Palette( {
 	};
 
 	const onItemPointerUp = ( e ) => {
-		const shellName = dragRef.current;
+		const drag = dragRef.current;
 		dragRef.current = null;
 		setGhost( null );
-		if ( shellName ) {
-			dropAt( shellName, e.clientX, e.clientY );
+		if ( drag ) {
+			dropAt( drag, e.clientX, e.clientY );
 		}
 	};
 
@@ -81,13 +121,14 @@ export default function Palette( {
 	};
 
 	// Project cursor onto the canvas SVG (ghost is pointer-events:none).
-	const dropAt = ( shellName, clientX, clientY ) => {
+	const dropAt = ( { kind, name }, clientX, clientY ) => {
 		const target = document.elementFromPoint( clientX, clientY );
 		const svg =
 			target &&
 			target.closest &&
 			target.closest( 'svg.topology-canvas-svg' );
-		if ( ! svg || ! svg.createSVGPoint || ! onDropNode ) {
+		const onDrop = kind === 'topology' ? onDropTopology : onDropNode;
+		if ( ! svg || ! svg.createSVGPoint || ! onDrop ) {
 			return;
 		}
 		const pt = svg.createSVGPoint();
@@ -98,7 +139,11 @@ export default function Palette( {
 			return;
 		}
 		const local = pt.matrixTransform( ctm.inverse() );
-		onDropNode( { shellName, x: local.x, y: local.y } );
+		if ( kind === 'topology' ) {
+			onDrop( { name, x: local.x, y: local.y } );
+		} else {
+			onDrop( { shellName: name, x: local.x, y: local.y } );
+		}
 	};
 	// Collapsed: a slim rail with just the expand button (no reload needed).
 	if ( collapsed ) {
@@ -141,6 +186,7 @@ export default function Palette( {
 	);
 	const grouped = groupByCategory( draggable );
 	const total = draggable.length;
+	const byName = new Map( topologies.map( ( t ) => [ t.name, t ] ) );
 
 	return (
 		<aside className="topology-palette">
@@ -154,6 +200,46 @@ export default function Palette( {
 				>
 					{ '‹' }
 				</button>
+			) }
+			{ topologies.length > 0 && (
+				<div>
+					<h3 className="topology-palette__group">Topologies</h3>
+					{ topologies.map( ( t ) => {
+						const disabled =
+							t.name === currentTopology ||
+							declaredIncludes.includes( t.name ) ||
+							includeClosure( t.name, byName ).has(
+								currentTopology
+							);
+						return (
+							<div
+								key={ t.name }
+								data-testid={ `palette-topology-${ t.name }` }
+								className={ `topology-palette__item topology-palette__item--topology${
+									disabled ? ' is-disabled' : ''
+								}` }
+								title={
+									disabled
+										? 'Would form a cycle, or is already included'
+										: `include ${ t.name }`
+								}
+								onPointerDown={ ( e ) =>
+									disabled
+										? undefined
+										: onTopologyPointerDown( e, t )
+								}
+								onPointerMove={ onItemPointerMove }
+								onPointerUp={ onItemPointerUp }
+								onPointerCancel={ onItemPointerCancel }
+							>
+								<div className="topology-palette__hull-glyph" />
+								<div className="topology-palette__name">
+									{ t.name }
+								</div>
+							</div>
+						);
+					} ) }
+				</div>
 			) }
 			{ Object.entries( grouped ).map( ( [ group, items ] ) => (
 				<div key={ group }>
@@ -186,7 +272,16 @@ export default function Palette( {
 				<span className="topology-palette__count">{ total }</span>{ ' ' }
 				classes registered
 			</div>
-			{ ghost && (
+			{ ghost && ghost.kind === 'topology' && (
+				// Ghost = a rounded translucent hull blob, not a node card.
+				<div
+					className="topology-palette__drag-ghost topology-palette__drag-ghost--topology"
+					style={ { left: ghost.x, top: ghost.y } }
+				>
+					{ ghost.name }
+				</div>
+			) }
+			{ ghost && ghost.kind !== 'topology' && (
 				// Ghost = dropped node card; pointer-events:none, no hits.
 				<svg
 					className="topology-palette__drag-ghost"

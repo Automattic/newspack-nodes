@@ -18,6 +18,7 @@ import {
 } from '../utils/viewportCull';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
+import { hullPath } from '../utils/hullPath';
 
 // Exported so the palette drag ghost can render the same node-card geometry.
 export const NODE_W = 196;
@@ -235,8 +236,30 @@ export default function SchematicCanvas( {
 	classCatalog = {},
 	// Ids live but NOT in the .tsl (runtime drift); painted via `is-drift`.
 	driftIds = null,
+	// One soft hull per directly-declared include: { include, nodeIds }.
+	hulls = [],
 } ) {
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
+	const hullPaths = useMemo(
+		() =>
+			hulls
+				.map( ( h ) => ( {
+					include: h.include,
+					d: hullPath(
+						h.nodeIds
+							.map( ( id ) => positionOverrides[ id ] )
+							.filter( Boolean )
+							.map( ( p ) => ( {
+								x: p.x,
+								y: p.y,
+								w: NODE_W,
+								h: NODE_H,
+							} ) )
+					),
+				} ) )
+				.filter( ( h ) => h.d ),
+		[ hulls, positionOverrides ]
+	);
 	// Complete position map; render only positioned nodes (new ones lag).
 	const nodes = useMemo(
 		() =>
@@ -837,6 +860,8 @@ export default function SchematicCanvas( {
 			!! rateRef &&
 			isIdleRate( rateRef.current?.get( n.id )?.rate );
 		const isDragging = drag && drag.nodeId === n.id;
+		// Borrowed via `include`: locked, but its wiring stays editable.
+		const isBorrowed = Array.isArray( n.origin ) && n.origin.length > 0;
 		return (
 			<g
 				key={ n.id }
@@ -848,7 +873,7 @@ export default function SchematicCanvas( {
 					showDetail ? '' : ' is-static'
 				}${ isIdle ? ' is-idle' : '' }${
 					driftIds?.has( n.id ) ? ' is-drift' : ''
-				}` }
+				}${ isBorrowed ? ' is-borrowed' : '' }` }
 				transform={ `translate(${ n.position.x },${ n.position.y })` }
 				onClick={ ( ev ) => {
 					ev.stopPropagation();
@@ -921,6 +946,16 @@ export default function SchematicCanvas( {
 									textAnchor="end"
 								>
 									⏸
+								</text>
+							) }
+							{ /* Borrowed via `include`: locked, but its wiring stays editable. */ }
+							{ isBorrowed && (
+								<text
+									className="topology-node__lock"
+									x={ NODE_W - 26 }
+									y={ 15 }
+								>
+									🔒
 								</text>
 							) }
 							<text
@@ -1135,6 +1170,18 @@ export default function SchematicCanvas( {
 				fill="url(#topology-grid)"
 				pointerEvents="none"
 			/>
+
+			{ /* One soft hull per include; overlapping where a node is shared. */ }
+			<g className="topology-hulls" pointerEvents="none">
+				{ hullPaths.map( ( h, i ) => (
+					<path
+						key={ h.include }
+						className={ `topology-hull topology-hull--${ i % 6 }` }
+						data-include={ h.include }
+						d={ h.d }
+					/>
+				) ) }
+			</g>
 
 			{ showDetail &&
 				( () => {

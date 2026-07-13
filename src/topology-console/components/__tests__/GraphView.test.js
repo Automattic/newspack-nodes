@@ -242,6 +242,38 @@ describe( 'GraphView', () => {
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'n1' );
 	} );
 
+	it( 'Delete key on a selected BORROWED node does not call onRemoveNode', () => {
+		const onRemoveNode = jest.fn();
+		const borrowedGraph = {
+			nodes: [ { id: 'n1', count: 0, origin: [ 'performance' ] } ],
+			edges: [],
+		};
+		const { getByText } = render(
+			<GraphView
+				graph={ borrowedGraph }
+				frame={ Frame }
+				onRemoveNode={ onRemoveNode }
+				resetKey="k"
+			/>
+		);
+		fireEvent.click( getByText( 'select-n1' ) );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+		expect( onRemoveNode ).not.toHaveBeenCalled();
+	} );
+
+	it( 'forwards hulls through to SchematicCanvas', () => {
+		const hulls = [ { include: 'performance', nodeIds: [ 'n1' ] } ];
+		render(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				hulls={ hulls }
+			/>
+		);
+		expect( global.__canvasProps.hulls ).toBe( hulls );
+	} );
+
 	it( 'inspector collapse: expanded shows Inspector + a Collapse toggle; collapsed shows an Expand rail (no Inspector)', () => {
 		const onInspectorToggle = jest.fn();
 		const { getByTestId, getByLabelText, queryByTestId, rerender } = render(
