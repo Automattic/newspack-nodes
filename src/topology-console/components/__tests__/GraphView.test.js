@@ -1,4 +1,4 @@
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import GraphView from '../GraphView';
 
 // Minimal frame stub: renders children (the console passes CanvasFrame).
@@ -368,5 +368,29 @@ describe( 'GraphView', () => {
 			/>
 		);
 		expect( global.__inspectorProps.rateSeries.in.length ).toBe( len );
+	} );
+} );
+
+describe( 'GraphView — hull selection', () => {
+	it( 'clicking the background clears a selected HULL, not just a node', () => {
+		const hulls = [ { include: 'performance', nodeIds: [ 'n1' ] } ];
+		const { getByText } = render(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				hulls={ hulls }
+			/>
+		);
+
+		// Select the hull the way the canvas does (fill click).
+		act( () => {
+			global.__canvasProps.onSelectHull( 'performance' );
+		} );
+		expect( global.__inspectorProps.selectedHull ).toBe( 'performance' );
+
+		fireEvent.click( getByText( 'deselect' ) );
+
+		expect( global.__inspectorProps.selectedHull ).toBeNull();
 	} );
 } );

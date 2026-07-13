@@ -1904,3 +1904,28 @@ describe( 'SchematicCanvas — hull interaction', () => {
 		expect( moved[ 'inner-a' ].y ).toBe( moved[ 'inner-b' ].y );
 	} );
 } );
+
+describe( 'SchematicCanvas — background click with only a hull selected', () => {
+	it( 'deselects instead of falling through to autofit', () => {
+		const onDeselect = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				parsed={ {
+					nodes: [ { id: 'a', class: 'Echo', origin: [ 'perf' ] } ],
+					edges: [],
+				} }
+				positionOverrides={ { a: { x: 10, y: 10 } } }
+				hulls={ [ { include: 'perf', nodeIds: [ 'a' ] } ] }
+				selectedHull="perf"
+				onDeselect={ onDeselect }
+				editMode
+			/>
+		);
+		const svg = container.querySelector( 'svg.topology-canvas-svg' );
+
+		fireEvent.pointerDown( svg, { button: 0, pointerId: 1 } );
+		fireEvent.pointerUp( svg, { button: 0, pointerId: 1 } );
+
+		expect( onDeselect ).toHaveBeenCalled();
+	} );
+} );
