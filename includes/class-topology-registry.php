@@ -425,8 +425,123 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Raw structural graph for `$name` from its TSL: nodes with a class-derived
-	 * kind, the make_node `type` token + positional `args` list, (+ the log a
+	 * Flatten a topology and everything it includes into one statement list.
+	 *
+	 * Mirrors the Shell's include rules statically: registry name resolution,
+	 * `#pragma once` per resolved path, an ancestor-stack cycle guard, and
+	 * make_node dedup-or-conflict. Statement ORDER is the eval order.
+	 *
+	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
+	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
+	 *
+	 * @return array{statements: list<array{line: string, origin: ?string, via: list<string>}>, tree: array<string, mixed>}
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
+	public static function statements( string $name, array $extra_includes = [] ): array {
+		$state = [
+			'statements' => [],
+			'expanded'   => [],
+			'subtrees'   => [],
+			'defs'       => [],
+		];
+		$tree = [];
+		if ( '' !== $name ) {
+			$path = self::resolve( $name );
+			if ( null === $path ) {
+				throw new \RuntimeException( \esc_html( "unknown topology: $name" ) );
+			}
+			$tree = self::walk( $path, $name, null, [], [], $state );
+		}
+		foreach ( $extra_includes as $include ) {
+			$path = self::resolve( $include );
+			if ( null === $path ) {
+				throw new \RuntimeException( \esc_html( "unknown topology in include: $include" ) );
+			}
+			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
+		}
+		return [
+			'statements' => $state['statements'],
+			'tree'       => $tree,
+		];
+	}
+
+	/**
+	 * Walk one resolved topology file, appending its statements to $state.
+	 *
+	 * @param string       $path   Resolved .tsl path.
+	 * @param string       $name   Topology name (for errors + the tree).
+	 * @param string|null  $origin Directly-declared include this file sits under; null = the top-level file's own lines.
+	 * @param list<string> $via    Include path from the top level down to this file.
+	 * @param list<string> $stack  Ancestor resolved paths — a repeat is a cycle.
+	 * @param array{statements: list<array{line: string, origin: ?string, via: list<string>}>, expanded: array<string,array{0:int,1:int}>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string}>} $state Walker state, by reference.
+	 *
+	 * @return array<string, mixed> This file's include subtree.
+	 */
+	private static function walk( string $path, string $name, ?string $origin, array $via, array $stack, array &$state ): array {
+		if ( \in_array( $path, $stack, true ) ) {
+			throw new \RuntimeException( \esc_html( 'topology include cycle: ' . \implode( ' -> ', [ ...$via, $name ] ) ) );
+		}
+		if ( isset( $state['expanded'][ $path ] ) ) {
+			return $state['subtrees'][ $path ];
+		}
+		$first   = \count( $state['statements'] );
+		$stack[] = $path;
+		$subtree = [];
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		foreach ( \explode( "\n", (string) \file_get_contents( $path ) ) as $raw ) {
+			$line = \trim( $raw );
+			if ( '' === $line || '#' === $line[0] ) {
+				continue;
+			}
+			if ( \preg_match( '/^include\s+(\S+)/', $line, $m ) ) {
+				$child_name = $m[1];
+				$child_path = self::resolve( $child_name );
+				if ( null === $child_path ) {
+					throw new \RuntimeException( \esc_html( "unknown topology in include: $child_name" ) );
+				}
+				$child_origin           = $origin ?? $child_name;
+				$subtree[ $child_name ] = self::walk(
+					$child_path,
+					$child_name,
+					$child_origin,
+					[ ...$via, $child_name ],
+					$stack,
+					$state
+				);
+				continue;
+			}
+			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
+				$node_name = $m[2];
+				$def       = [
+					'type' => $m[1],
+					'args' => \trim( $m[3] ),
+				];
+				$prior     = $state['defs'][ $node_name ] ?? null;
+				if ( null !== $prior ) {
+					if ( $prior['type'] === $def['type'] && $prior['args'] === $def['args'] ) {
+						continue;
+					}
+					throw new \RuntimeException(
+						\esc_html( "make_node conflict: '$node_name' declared as {$prior['type']} '{$prior['args']}' and as {$def['type']} '{$def['args']}'" )
+					);
+				}
+				$state['defs'][ $node_name ] = $def;
+			}
+			$state['statements'][] = [
+				'line'   => $line,
+				'origin' => $origin,
+				'via'    => $via,
+			];
+		}
+		$state['expanded'][ $path ] = [ $first, \count( $state['statements'] ) ];
+		$state['subtrees'][ $path ] = $subtree;
+		return $subtree;
+	}
+
+	/**
+	 * Raw structural graph for `$name` from its TSL (+ every topology it
+	 * `include`s, flattened via statements()): nodes with a class-derived kind,
+	 * the make_node `type` token + positional `args` list, (+ the log a
 	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
 	 * a name suffix), and edges from `connect_node` plus
 	 * `cmd <node>:config set_*_target <target>`. Memoized.
@@ -437,8 +552,7 @@ class Topology_Registry {
 		if ( isset( self::$graph_cache[ $name ] ) ) {
 			return self::$graph_cache[ $name ];
 		}
-		$path = self::resolve( $name );
-		if ( null === $path ) {
+		if ( null === self::resolve( $name ) ) {
 			return self::$graph_cache[ $name ] = [
 				'nodes' => [],
 				'edges' => [],
@@ -468,12 +582,18 @@ class Topology_Registry {
 		};
 		$nodes = [];
 		$edges = [];
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		foreach ( \explode( "\n", (string) \file_get_contents( $path ) ) as $raw ) {
-			$line = \trim( $raw );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
-			}
+		try {
+			$walked = self::statements( $name );
+		} catch ( \RuntimeException $e ) {
+			// Display helper: one broken include must not take out dump_graph.
+			Core::print_less_often( 'graph_for ', $name, ': ' . $e->getMessage() );
+			return self::$graph_cache[ $name ] = [
+				'nodes' => [],
+				'edges' => [],
+			];
+		}
+		foreach ( $walked['statements'] as $statement ) {
+			$line = $statement['line'];
 			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
 				$kind = $kind_of( $m[1] );
 				// Tokens 3.. = positional args; a CI reads the node's config.
