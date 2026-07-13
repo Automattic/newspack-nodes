@@ -212,6 +212,7 @@ export default function GraphView( {
 		<>
 			{ showPalette && (
 				<Palette
+					editMode={ editMode }
 					classes={ catalog }
 					loading={ paletteLoading }
 					collapsed={ paletteCollapsed }
