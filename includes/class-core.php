@@ -110,13 +110,19 @@ class Core {
 		return (string) $value;
 	}
 
-	/** Emit text on first sight; suppress identical text thereafter (re-windowed by prune_logs). */
-	public static function print_less_often( string $text ): void {
+	/**
+	 * Emit on first sight, then suppress (re-windowed by prune_logs). The
+	 * throttle key is $text — the stable FIRST arg — ONLY; $extra is variable
+	 * payload printed on the first occurrence but never folded into the key, so
+	 * a flood of one category with differing values (Tachikoma's `$text, @extra`)
+	 * collapses to one line instead of one per distinct value.
+	 */
+	public static function print_less_often( string $text, string ...$extra ): void {
 		$row = self::$recent_log_timers[ $text ] ?? null;
 		if ( null !== $row ) {
 			++$row['count'];
 		} else {
-			self::stderr( $text );
+			self::stderr( $text . \implode( '', $extra ) );
 			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
 		}
 		self::$recent_log_timers[ $text ] = $row;
