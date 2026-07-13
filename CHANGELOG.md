@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-07-13
+
 ### Fixed
 
 - **A borrowed node is no longer painted as runtime drift.** `useCanonicalNodes` compared the live graph against the raw `.tsl`, so every node an `include` provided looked like a "temporary" node someone had `make_node`'d in by hand — for `combined.tsl` that was 15 of 16 nodes. A node an include declares is canonical; it's just declared in another file.
