@@ -45,11 +45,15 @@ describe( 'useTopologyCatalog', () => {
 		);
 	} );
 
-	it( 'seeds partitions + active from NewspackNodesData before any fetch resolves', () => {
+	it( 'seeds partitions + active from NewspackNodesData before any fetch resolves', async () => {
 		const { result } = renderHook( () => useTopologyCatalog() );
 		expect( result.current.partitions ).toEqual( { demo: 2 } );
 		expect( result.current.active ).toEqual( [ 'demo' ] );
 		expect( typeof result.current.reload ).toBe( 'function' );
+		// The mount fetch lands right after: entries arrive (the seed has none).
+		await waitFor( () =>
+			expect( result.current.entries ).toHaveLength( 1 )
+		);
 	} );
 
 	it( 'fetches topologies.list on mount and maps active + num_partitions', async () => {
@@ -69,6 +73,38 @@ describe( 'useTopologyCatalog', () => {
 		} );
 		// Only the active topology appears in the active set.
 		expect( result.current.active ).toEqual( [ 'demo' ] );
+	} );
+
+	it( "exposes the raw entries so the palette gets each topology's includes", async () => {
+		// The palette's Topologies section needs name + includes to build the
+		// include DAG (for greying out an ancestor). This hook already polls
+		// `topologies list`; a second lazy fetch just to re-read it would be waste.
+		unwrapCommandResponse.mockReturnValue(
+			listBody( [
+				{
+					name: 'wombat-top',
+					active: false,
+					num_partitions: 1,
+					includes: [ 'zebra-base' ],
+				},
+				{
+					name: 'zebra-base',
+					active: false,
+					num_partitions: 1,
+					includes: [],
+				},
+			] )
+		);
+		const { result } = renderHook( () => useTopologyCatalog() );
+		await waitFor( () =>
+			expect( result.current.entries ).toHaveLength( 2 )
+		);
+		expect( result.current.entries[ 0 ] ).toEqual( {
+			name: 'wombat-top',
+			active: false,
+			num_partitions: 1,
+			includes: [ 'zebra-base' ],
+		} );
 	} );
 
 	it( 'falls back to configNumPartitions when an entry omits num_partitions', async () => {

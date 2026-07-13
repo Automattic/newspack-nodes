@@ -25,6 +25,7 @@ function seedFromGlobal() {
 	return {
 		partitions: data.topologyWorkers || {},
 		active: data.activeTopologies || [],
+		entries: [],
 	};
 }
 
@@ -38,7 +39,8 @@ function catalogFromList( list, defaultPartitions ) {
 			active.push( entry.name );
 		}
 	}
-	return { partitions, active };
+	// Raw entries too: the palette needs each topology's `includes`.
+	return { partitions, active, entries: list };
 }
 
 export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
@@ -96,5 +98,10 @@ export function useTopologyCatalog( { pollMs = POLL_INTERVAL_MS } = {} ) {
 		};
 	}, [ reloadKey, pollMs, isVisible ] );
 
-	return { partitions: data.partitions, active: data.active, reload };
+	return {
+		partitions: data.partitions,
+		active: data.active,
+		entries: data.entries || [],
+		reload,
+	};
 }
