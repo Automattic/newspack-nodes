@@ -17,6 +17,11 @@ const SYSTEM_COLORS = {
 };
 
 /**
+ * Dark badge ink, the alternative to white.
+ */
+const DARK_INK = '#1e1e1e';
+
+/**
  * Compiled regex patterns for hook categorization (built lazily).
  */
 let compiledPatternsCache = null;
@@ -82,6 +87,26 @@ const getHookColor = ( hookName ) => {
 };
 
 /**
+ * Parse a 3- or 6-digit hex color into its channels.
+ *
+ * @param {string} hex Hex color code.
+ * @return {{r: number, g: number, b: number}|null} Channels, or null if unparseable.
+ */
+const parseHex = ( hex ) => {
+	const digits = String( hex || '' ).replace( '#', '' );
+	const full =
+		3 === digits.length ? digits.replace( /./g, ( d ) => d + d ) : digits;
+	if ( ! /^[0-9a-f]{6}$/i.test( full ) ) {
+		return null;
+	}
+	return {
+		r: parseInt( full.slice( 0, 2 ), 16 ),
+		g: parseInt( full.slice( 2, 4 ), 16 ),
+		b: parseInt( full.slice( 4, 6 ), 16 ),
+	};
+};
+
+/**
  * Convert hex color to RGBA with opacity.
  *
  * @param {string} hex     Hex color code.
@@ -89,10 +114,52 @@ const getHookColor = ( hookName ) => {
  * @return {string} RGBA color string.
  */
 export const hexToRgba = ( hex, opacity ) => {
-	const r = parseInt( hex.slice( 1, 3 ), 16 );
-	const g = parseInt( hex.slice( 3, 5 ), 16 );
-	const b = parseInt( hex.slice( 5, 7 ), 16 );
+	const { r, g, b } = parseHex( hex ) ?? { r: 0, g: 0, b: 0 };
 	return `rgba(${ r }, ${ g }, ${ b }, ${ opacity })`;
+};
+
+/**
+ * WCAG relative luminance of a hex color.
+ *
+ * @param {string} hex Hex color code.
+ * @return {number} Relative luminance (0-1); 0 if unparseable.
+ */
+const relativeLuminance = ( hex ) => {
+	const rgb = parseHex( hex );
+	if ( ! rgb ) {
+		return 0;
+	}
+	const channel = ( value ) => {
+		const c = value / 255;
+		return c <= 0.03928 ? c / 12.92 : ( ( c + 0.055 ) / 1.055 ) ** 2.4;
+	};
+	return (
+		0.2126 * channel( rgb.r ) +
+		0.7152 * channel( rgb.g ) +
+		0.0722 * channel( rgb.b )
+	);
+};
+
+/**
+ * Pick a legible foreground for a background color.
+ *
+ * Hook-category colors are operator-customizable and many are pale, so a fixed
+ * white label drops to ~1.5:1 contrast. Choose whichever ink wins on WCAG
+ * relative luminance.
+ *
+ * @param {string} background Background hex color.
+ * @return {string} Foreground hex color.
+ */
+export const getTextColor = ( background ) => {
+	if ( ! parseHex( background ) ) {
+		return '#ffffff';
+	}
+
+	const luminance = relativeLuminance( background );
+	const onWhite = 1.05 / ( luminance + 0.05 );
+	const onDark =
+		( luminance + 0.05 ) / ( relativeLuminance( DARK_INK ) + 0.05 );
+	return onDark > onWhite ? DARK_INK : '#ffffff';
 };
 
 /**

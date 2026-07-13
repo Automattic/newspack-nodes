@@ -11,6 +11,7 @@ import {
 	getStatusCategory,
 	getStatusClass,
 	getStatusColor,
+	getTextColor,
 	hexToRgba,
 } from '../formatUtils';
 
@@ -21,6 +22,28 @@ describe( 'hexToRgba', () => {
 
 	it( 'converts black with full opacity', () => {
 		expect( hexToRgba( '#000000', 1 ) ).toBe( 'rgba(0, 0, 0, 1)' );
+	} );
+
+	it( 'expands a 3-digit hex', () => {
+		expect( hexToRgba( '#36F', 0.5 ) ).toBe( 'rgba(51, 102, 255, 0.5)' );
+	} );
+} );
+
+describe( 'getTextColor', () => {
+	it( 'picks dark ink on a pale background', () => {
+		expect( getTextColor( '#CDDC39' ) ).toBe( '#1e1e1e' );
+		expect( getTextColor( '#BDBDBD' ) ).toBe( '#1e1e1e' );
+		expect( getTextColor( '#AED581' ) ).toBe( '#1e1e1e' );
+	} );
+
+	it( 'picks white on a dark background', () => {
+		expect( getTextColor( '#7B1FA2' ) ).toBe( '#ffffff' );
+		expect( getTextColor( '#795548' ) ).toBe( '#ffffff' );
+	} );
+
+	it( 'handles 3-digit hex and unparseable input', () => {
+		expect( getTextColor( '#36F' ) ).toBe( '#ffffff' );
+		expect( getTextColor( '' ) ).toBe( '#ffffff' );
 	} );
 } );
 
