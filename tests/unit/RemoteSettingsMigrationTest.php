@@ -1,6 +1,6 @@
 <?php
 /**
- * RemoteSettingsMigrationTest: the one-time rename of the three remote-spoke
+ * XXX: RemoteSettingsMigrationTest: the one-time rename of the three remote-spoke
  * geometry options from the ELN `newspack_event_logger_nodes_remote_*` names to
  * the substrate `newspack_nodes_remote_*` names.
  *

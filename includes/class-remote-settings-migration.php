@@ -1,6 +1,6 @@
 <?php
 /**
- * One-time rename of the three remote-spoke geometry options from the ELN
+ * XXX: One-time rename of the three remote-spoke geometry options from the ELN
  * `newspack_event_logger_nodes_remote_*` names to the substrate
  * `newspack_nodes_remote_*` names (these settings configure substrate storage
  * geometry pushed to spokes and now live on the Nodes Runtime settings page).

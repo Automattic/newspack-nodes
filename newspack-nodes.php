@@ -5,9 +5,9 @@
  * Version: 0.39.0
  * Author: Automattic
  * License: GPL-2.0-or-later
+ * Requires PHP: 8.2
  * Text Domain: newspack-nodes
  * Domain Path: /languages
- * Requires PHP: 8.2
  *
  * @package Newspack_Nodes
  */
@@ -16,9 +16,6 @@
 
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
 	\define( 'NEWSPACK_NODES_VERSION', '0.39.0' );
-}
-if ( ! \defined( 'NEWSPACK_NODES_FILE' ) ) {
-	\define( 'NEWSPACK_NODES_FILE', __FILE__ );
 }
 if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
@@ -116,24 +113,24 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Topology_Registry', 'reset_basename_cache' ] );
 	// Self-heal: re-arm the supervisor cron on admin view if it got cleared.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_supervisor_cron' ] );
-	// One-time autoload-correction for existing installs (off frontend path).
-	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Config', 'correct_option_autoload' ] );
-	// One-time copy of the legacy aggregator-servers option into Vault.
-	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Vault_Migration', 'maybe_migrate' ] );
-	// One-time rename of ELN remote-spoke geometry options to substrate names.
-	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Remote_Settings_Migration', 'maybe_migrate' ] );
 }
+
 if ( \function_exists( 'add_filter' ) ) {
 	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.
 	\add_filter( 'cron_schedules', [ '\\Newspack_Nodes\\Bootstrap', 'register_cron_schedules' ] );
 	// Topology catalog: every .tsl (user + stock dirs), not an allowlist.
 	\add_filter( 'newspack_nodes/topologies', [ '\\Newspack_Nodes\\Topology_Registry', 'publish_catalog' ] );
 }
+
+// XXX: one-time; remove next release.
 if ( \function_exists( 'register_activation_hook' ) ) {
-	\register_activation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'activate' ] );
-	// XXX: one-time retention-option split rename; remove next release.
-	\register_activation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Retention_Settings_Migration', 'migrate' ] );
+	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Config', 'correct_option_autoload' ] );
+	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Vault_Migration', 'maybe_migrate' ] );
+	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Remote_Settings_Migration', 'maybe_migrate' ] );
+	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Retention_Settings_Migration', 'migrate' ] );
+	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Bootstrap', 'activate' ] );
 }
+
 if ( \function_exists( 'register_deactivation_hook' ) ) {
-	\register_deactivation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'deactivate' ] );
+	\register_deactivation_hook( __FILE__, [ '\\Newspack_Nodes\\Bootstrap', 'deactivate' ] );
 }

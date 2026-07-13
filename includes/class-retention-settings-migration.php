@@ -1,6 +1,6 @@
 <?php
 /**
- * One-time activation rename of the two retention-geometry options to the
+ * XXX: One-time activation rename of the two retention-geometry options to the
  * split dual-rule scheme. The old single count/lifespan pair became two
  * ranges: num_segments → max_segments (count rule) and max_lifespan →
  * min_lifetime (the count rule's age floor). The two brand-new options

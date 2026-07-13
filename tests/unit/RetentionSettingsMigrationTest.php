@@ -1,6 +1,6 @@
 <?php
 /**
- * RetentionSettingsMigrationTest: the one-time activation rename of the two
+ * XXX: RetentionSettingsMigrationTest: the one-time activation rename of the two
  * retention-geometry options to the split dual-rule scheme
  * (num_segments → max_segments, max_lifespan → min_lifetime) plus seeding the
  * two brand-new options (min_segments, max_lifetime) when the old ones existed.

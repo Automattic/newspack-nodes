@@ -1,6 +1,6 @@
 <?php
 /**
- * One-time copy of the legacy event-logger aggregator-servers option into the
+ * XXX: One-time copy of the legacy event-logger aggregator-servers option into the
  * substrate Vault option. Ciphertext is portable (same wp_salt('auth') key),
  * so this is a value copy, not a re-encrypt. The source option is left intact.
  *
