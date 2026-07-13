@@ -845,3 +845,54 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 		).toBeGreaterThan( 0 );
 	} );
 } );
+
+// The reader template carries `<topology>` now (the fleet-scoped cursor). The
+// client substituted only `<partition>`, so `firehose.<topology>.p0` never
+// matched the live reader `firehose.combined.p0` — no cursor, and every segment
+// bar on the topologies dashboard painted grey.
+const TOPOLOGY_TOKEN_GRAPH = {
+	combined: {
+		nodes: [
+			{
+				name: 'firehose:consumer',
+				kind: 'consumer',
+				reads: 'firehose.p<partition>',
+				reader: 'firehose.<topology>.p<partition>',
+			},
+			{ name: 'request-builder', kind: 'logic' },
+		],
+		edges: [ [ 'firehose:consumer', 'request-builder' ] ],
+	},
+};
+
+const TOPOLOGY_TOKEN_DATA = {
+	consumers: [
+		{
+			reader: 'firehose.combined.p0',
+			source: 'firehose.p0',
+			partition: 0,
+			cursor_segment: 3,
+			cursor_offset: 128,
+			end_segment: 3,
+			end_size: 512,
+			distance: 384,
+		},
+	],
+	workers: [ { type: 'combined', partition: 0, status: 'live', live: true } ],
+	logs: [],
+	graph: TOPOLOGY_TOKEN_GRAPH,
+};
+
+describe( 'reconstructWorkers — the <topology> token in a reader template', () => {
+	it( 'resolves <topology> so the cursor lands (grey bars otherwise)', () => {
+		const { workers } = reconstructWorkers(
+			TOPOLOGY_TOKEN_DATA,
+			EMPTY_PRIOR
+		);
+
+		const w = workers.find( ( x ) => x.type === 'combined' );
+		expect( w ).toBeDefined();
+		expect( w.cursor_segment ).toBe( 3 );
+		expect( w.inputs_status[ 0 ].cursor_offset ).toBe( 128 );
+	} );
+} );

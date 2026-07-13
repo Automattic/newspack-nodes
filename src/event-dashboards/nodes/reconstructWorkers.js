@@ -19,12 +19,30 @@
  */
 
 const PARTITION_TOKEN = '<partition>';
+const TOPOLOGY_TOKEN = '<topology>';
 
-// Substitute the partition number into a <partition> template (else verbatim).
-const concreteSource = ( template, partition ) =>
-	template.includes( PARTITION_TOKEN )
-		? template.split( PARTITION_TOKEN ).join( String( partition ) )
-		: template;
+/**
+ * Resolve a path template the way Topology_Loader binds it: `<partition>` AND
+ * `<topology>`. An offsetlog is a reader's cursor and the reader is the FLEET, so
+ * reader templates carry `<topology>` — substituting only the partition left
+ * `firehose.<topology>.p0` never matching the live `firehose.combined.p0`, which
+ * cost every segment bar its cursor and painted the lot grey.
+ *
+ * @param {string} template   Path template.
+ * @param {number} partition  Partition index.
+ * @param {string} [topology] Fleet name; omitted leaves `<topology>` alone.
+ * @return {string} Concrete path.
+ */
+const concreteSource = ( template, partition, topology ) => {
+	let out = template;
+	if ( out.includes( PARTITION_TOKEN ) ) {
+		out = out.split( PARTITION_TOKEN ).join( String( partition ) );
+	}
+	if ( topology && out.includes( TOPOLOGY_TOKEN ) ) {
+		out = out.split( TOPOLOGY_TOKEN ).join( String( topology ) );
+	}
+	return out;
+};
 
 // reader === name, or name followed by a separator suffix (prereq.p0/-0).
 const readerIsHandler = ( reader, name ) =>
@@ -241,10 +259,16 @@ export function reconstructWorkers( data, prior ) {
 			// Match by READER (unique); fall back to source when no reader.
 			const matching = handlers.filter( ( h ) =>
 				h.readerTemplate
-					? concreteSource( h.readerTemplate, row.partition ) ===
-					  row.reader
-					: concreteSource( h.sourceTemplate, row.partition ) ===
-					  row.source
+					? concreteSource(
+							h.readerTemplate,
+							row.partition,
+							topology
+					  ) === row.reader
+					: concreteSource(
+							h.sourceTemplate,
+							row.partition,
+							topology
+					  ) === row.source
 			);
 			if ( 0 === matching.length ) {
 				return;

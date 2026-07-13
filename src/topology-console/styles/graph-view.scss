@@ -815,7 +815,11 @@
 		}
 	}
 
+	// `animation: none` for the same reason .is-idle does it: the entrance fade's
+	// `both` fill locks opacity at 1, and a CSS animation beats a declaration —
+	// so an ACTIVE node would ignore the dim entirely.
 	&.is-faded {
+		animation: none;
 		opacity: 0.55;
 	}
 
@@ -1080,7 +1084,10 @@
 		opacity: 1;
 	}
 
+	// Same trap as the node fade: a --flowing edge animates, and the animation
+	// beats the declaration, so it must be cancelled for the dim to land.
 	&.is-dimmed {
+		animation: none;
 		opacity: 0.15;
 	}
 }
