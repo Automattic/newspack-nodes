@@ -441,6 +441,7 @@ class Topology_Registry {
 			'subtrees'   => [],
 			'defs'       => [],
 		];
+		/** @var array<string,mixed> $tree */
 		$tree = [];
 		if ( '' !== $name ) {
 			$path = self::resolve( $name );
@@ -573,7 +574,48 @@ class Topology_Registry {
 			'nodes' => \array_values( $nodes ),
 			'edges' => \array_values( $edges ),
 			'tree'  => $tree,
+			'hulls' => self::hulls_for_tree( $tree ),
 		];
+	}
+
+	/**
+	 * Node set of EVERY topology in the tree, nested ones included.
+	 *
+	 * The canvas draws a hull per include at any depth, so it needs each one's
+	 * membership. `origin` (top-level) and `via` (first path) can't answer it —
+	 * a node two levels down belongs to both hulls. Depth-first, so the outer
+	 * topology precedes what it brings; the canvas paints in that order and the
+	 * nested hull lands on top of its parent.
+	 *
+	 * @param array<array-key,mixed> $tree Include tree from statements().
+	 * @return array<string, list<string>> Topology name => node names it provides.
+	 */
+	private static function hulls_for_tree( array $tree ): array {
+		$out = [];
+		foreach ( $tree as $name => $subtree ) {
+			$out[ (string) $name ] = self::declared_node_names( (string) $name );
+			if ( \is_array( $subtree ) ) {
+				foreach ( self::hulls_for_tree( $subtree ) as $child => $names ) {
+					$out[ $child ] = $names;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Every node a topology declares, its own includes flattened in.
+	 *
+	 * @return list<string>
+	 */
+	private static function declared_node_names( string $name ): array {
+		$names = [];
+		foreach ( self::flat_lines( $name ) as $line ) {
+			if ( \preg_match( '/^make_node\s+\S+\s+(\S+)/', $line, $m ) ) {
+				$names[ $m[1] ] = true;
+			}
+		}
+		return \array_keys( $names );
 	}
 
 	/**

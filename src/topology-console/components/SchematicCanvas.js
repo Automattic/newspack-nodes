@@ -29,6 +29,10 @@ const DRAG_THRESHOLD = 3;
 
 // Convert pointer (viewport) coords to SVG coords via the CTM scale.
 function screenToSvg( svg, clientX, clientY ) {
+	// jsdom has no SVG geometry; fall back to raw coords (deltas still hold).
+	if ( ! svg || ! svg.createSVGPoint ) {
+		return { x: clientX, y: clientY };
+	}
 	const pt = svg.createSVGPoint();
 	pt.x = clientX;
 	pt.y = clientY;
@@ -236,8 +240,10 @@ export default function SchematicCanvas( {
 	classCatalog = {},
 	// Ids live but NOT in the .tsl (runtime drift); painted via `is-drift`.
 	driftIds = null,
-	// One soft hull per directly-declared include: { include, nodeIds }.
+	// One soft hull per include, at ANY depth: { include, nodeIds }.
 	hulls = [],
+	selectedHull = null,
+	onSelectHull,
 } ) {
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
 	const hullPaths = useMemo(
@@ -278,6 +284,9 @@ export default function SchematicCanvas( {
 
 	// Active-drag state; snap + commit happen on pointerup.
 	const [ drag, setDrag ] = useState( null );
+	// Hovered hull (highlight it, dim every non-member) + in-flight hull drag.
+	const [ hoveredHull, setHoveredHull ] = useState( null );
+	const [ hullDrag, setHullDrag ] = useState( null );
 	// Set when the pointer-down crossed the threshold; suppresses selection.
 	const draggedRef = useRef( false );
 
@@ -849,11 +858,64 @@ export default function SchematicCanvas( {
 		}, 0 );
 	};
 
+	// Hovered hull's members; every other node dims so the group reads.
+	const hoveredHullMembers = useMemo( () => {
+		const hull = hulls.find( ( h ) => h.include === hoveredHull );
+		return hull ? new Set( hull.nodeIds ) : null;
+	}, [ hulls, hoveredHull ] );
+
+	// A hull drag moves EVERY member by one delta; the cluster keeps shape.
+	const beginHullDrag = ( ev, include ) => {
+		const hull = hulls.find( ( h ) => h.include === include );
+		if ( ! hull || ! onPositionChange ) {
+			return;
+		}
+		ev.stopPropagation();
+		const svg = ev.currentTarget.ownerSVGElement;
+		const start = screenToSvg( svg, ev.clientX, ev.clientY );
+		try {
+			ev.currentTarget.setPointerCapture( ev.pointerId );
+		} catch {
+			// jsdom / no pointer capture — the drag still tracks.
+		}
+		setHullDrag( {
+			include,
+			start,
+			origin: Object.fromEntries(
+				hull.nodeIds
+					.filter( ( id ) => positionOverrides[ id ] )
+					.map( ( id ) => [ id, positionOverrides[ id ] ] )
+			),
+		} );
+	};
+	const updateHullDrag = ( ev ) => {
+		if ( ! hullDrag ) {
+			return;
+		}
+		const svg = ev.currentTarget.ownerSVGElement;
+		const at = screenToSvg( svg, ev.clientX, ev.clientY );
+		const dx = at.x - hullDrag.start.x;
+		const dy = at.y - hullDrag.start.y;
+		setHullDrag( ( d ) => ( d ? { ...d, dx, dy } : d ) );
+	};
+	const endHullDrag = () => {
+		if ( ! hullDrag ) {
+			return;
+		}
+		const { origin, dx = 0, dy = 0 } = hullDrag;
+		for ( const [ id, pos ] of Object.entries( origin ) ) {
+			onPositionChange( id, { x: pos.x + dx, y: pos.y + dy } );
+		}
+		setHullDrag( null );
+	};
+
 	// One node card; all visible cards share the single bloom-filtered group.
 	const renderNode = ( n ) => {
 		const isSelected = n.id === selectedId;
 		const isHovered = n.id === hoveredId;
-		const isFaded = hoveredId && ! isHovered;
+		const isFaded =
+			( hoveredId && ! isHovered ) ||
+			!! ( hoveredHullMembers && ! hoveredHullMembers.has( n.id ) );
 		// Dim quiet nodes in LIVE mode only (edit has no rate stream).
 		const isIdle =
 			! editMode &&
@@ -1172,15 +1234,41 @@ export default function SchematicCanvas( {
 			/>
 
 			{ /* One soft hull per include; overlapping where a node is shared. */ }
-			<g className="topology-hulls" pointerEvents="none">
-				{ hullPaths.map( ( h, i ) => (
-					<path
-						key={ h.include }
-						className={ `topology-hull topology-hull--${ i % 6 }` }
-						data-include={ h.include }
-						d={ h.d }
-					/>
-				) ) }
+			<g className="topology-hulls">
+				{ hullPaths.map( ( h, i ) => {
+					const isDragging = hullDrag?.include === h.include;
+					const offset = isDragging
+						? `translate(${ hullDrag.dx || 0 },${
+								hullDrag.dy || 0
+						  })`
+						: undefined;
+					return (
+						<path
+							key={ h.include }
+							className={ `topology-hull topology-hull--${
+								i % 6
+							}${
+								hoveredHull === h.include ? ' is-hovered' : ''
+							}${
+								selectedHull === h.include ? ' is-selected' : ''
+							}${ isDragging ? ' is-dragging' : '' }` }
+							data-include={ h.include }
+							d={ h.d }
+							transform={ offset }
+							onMouseEnter={ () => setHoveredHull( h.include ) }
+							onMouseLeave={ () => setHoveredHull( null ) }
+							onMouseDown={ () =>
+								onSelectHull && onSelectHull( h.include )
+							}
+							onPointerDown={ ( ev ) =>
+								beginHullDrag( ev, h.include )
+							}
+							onPointerMove={ updateHullDrag }
+							onPointerUp={ endHullDrag }
+							onPointerCancel={ endHullDrag }
+						/>
+					);
+				} ) }
 			</g>
 
 			{ showDetail &&

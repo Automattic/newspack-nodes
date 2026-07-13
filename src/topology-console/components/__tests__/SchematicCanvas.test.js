@@ -1825,3 +1825,82 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		).not.toThrow();
 	} );
 } );
+
+describe( 'SchematicCanvas — hull interaction', () => {
+	const hullProps = {
+		parsed: {
+			nodes: [
+				{ id: 'inner-a', class: 'Tee', origin: [ 'performance' ] },
+				{ id: 'inner-b', class: 'Echo', origin: [ 'performance' ] },
+				{ id: 'mine', class: 'Echo' },
+			],
+			edges: [],
+		},
+		positionOverrides: {
+			'inner-a': { x: 100, y: 100 },
+			'inner-b': { x: 300, y: 100 },
+			mine: { x: 600, y: 400 },
+		},
+		hulls: [
+			{ include: 'performance', nodeIds: [ 'inner-a', 'inner-b' ] },
+		],
+		editMode: true,
+	};
+
+	it( 'hovering a hull dims the nodes that are NOT its members', () => {
+		const { container } = render( <SchematicCanvas { ...hullProps } /> );
+		const hull = container.querySelector( '.topology-hull' );
+
+		fireEvent.mouseEnter( hull );
+
+		const dimmed = [ ...container.querySelectorAll( 'g.topology-node' ) ]
+			.filter( ( n ) => n.getAttribute( 'class' ).includes( 'is-faded' ) )
+			.map( ( n ) => n.textContent );
+		expect( dimmed.join( ' ' ) ).toContain( 'mine' );
+		expect( dimmed.join( ' ' ) ).not.toContain( 'inner-a' );
+		expect(
+			container.querySelector( '.topology-hull' ).getAttribute( 'class' )
+		).toContain( 'is-hovered' );
+	} );
+
+	it( 'clicking a hull FILL selects the hull', () => {
+		const onSelectHull = jest.fn();
+		const { container } = render(
+			<SchematicCanvas { ...hullProps } onSelectHull={ onSelectHull } />
+		);
+
+		fireEvent.mouseDown( container.querySelector( '.topology-hull' ) );
+
+		expect( onSelectHull ).toHaveBeenCalledWith( 'performance' );
+	} );
+
+	it( 'dragging a hull moves EVERY member by the same delta, and nothing else', () => {
+		const onPositionChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...hullProps }
+				onPositionChange={ onPositionChange }
+			/>
+		);
+		const hull = container.querySelector( '.topology-hull' );
+
+		fireEvent.pointerDown( hull, { clientX: 0, clientY: 0, pointerId: 1 } );
+		fireEvent.pointerMove( hull, {
+			clientX: 40,
+			clientY: 20,
+			pointerId: 1,
+		} );
+		fireEvent.pointerUp( hull, { clientX: 40, clientY: 20, pointerId: 1 } );
+
+		const moved = Object.fromEntries(
+			onPositionChange.mock.calls.map( ( [ id, pos ] ) => [ id, pos ] )
+		);
+		expect( Object.keys( moved ).sort() ).toEqual( [
+			'inner-a',
+			'inner-b',
+		] );
+		// One delta, applied to both — the cluster keeps its shape.
+		expect( moved[ 'inner-b' ].x - moved[ 'inner-a' ].x ).toBe( 200 );
+		expect( moved[ 'inner-a' ].y ).toBe( moved[ 'inner-b' ].y );
+	} );
+} );

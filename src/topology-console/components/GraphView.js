@@ -56,6 +56,7 @@ import '../styles/graph-view.scss';
  * @param {Object}           [props.includeTree]       `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
  * @param {Array}            [props.includes]          The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector's IncludeTree.
  * @param {Function}         [props.onRemoveInclude]   (name) — Inspector's IncludeTree remove button.
+ * @param {Function}         [props.onOpenTopology]    (name) — drill into a hull's topology (open its .tsl).
  * @return {Element} the graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -101,9 +102,12 @@ export default function GraphView( {
 	includeTree = {},
 	includes = [],
 	onRemoveInclude,
+	onOpenTopology,
 } ) {
 	const [ selectedId, setSelectedId ] = useState( null );
 	const [ selectedEdge, setSelectedEdge ] = useState( null );
+	// A hull selection is cleared by selecting a node — the node wins.
+	const [ selectedHull, setSelectedHull ] = useState( null );
 	const [ hoveredId, setHoveredId ] = useState( null );
 
 	// Re-sync to an external controlled selection (rename re-point / reset).
@@ -125,6 +129,7 @@ export default function GraphView( {
 		( id ) => {
 			setSelectedId( id );
 			setSelectedEdge( null );
+			setSelectedHull( null );
 			onSelectionChange?.( id );
 		},
 		[ onSelectionChange ]
@@ -222,6 +227,13 @@ export default function GraphView( {
 					driftIds={ driftIds }
 					selectedId={ selectedId }
 					onSelect={ handleSelectNode }
+					selectedHull={ selectedHull }
+					onSelectHull={ ( include ) => {
+						setSelectedId( null );
+						setSelectedEdge( null );
+						setSelectedHull( include );
+						onSelectionChange?.( null );
+					} }
 					positionOverrides={ positionOverrides }
 					onPositionChange={ onPositionChange }
 					onDeselect={ () => {
@@ -298,6 +310,9 @@ export default function GraphView( {
 							composeTargets={ composeTargets }
 							tree={ includeTree }
 							includes={ includes }
+							selectedHull={ selectedHull }
+							hulls={ hulls }
+							onOpenTopology={ onOpenTopology }
 							onRemoveInclude={ onRemoveInclude }
 						/>
 					) }

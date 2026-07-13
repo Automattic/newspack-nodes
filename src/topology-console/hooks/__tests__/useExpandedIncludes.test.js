@@ -38,6 +38,7 @@ describe( 'useExpandedIncludes', () => {
 			nodes: [],
 			edges: [],
 			tree: {},
+			hulls: {},
 		} );
 		expect( send ).not.toHaveBeenCalled();
 	} );
@@ -78,6 +79,7 @@ describe( 'useExpandedIncludes', () => {
 			nodes: [],
 			edges: [],
 			tree: {},
+			hulls: {},
 		} );
 	} );
 
