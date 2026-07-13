@@ -266,8 +266,8 @@ class JobWorkerTest extends TestCase {
 		$jw = new class() extends Job_Worker_Node {
 			/** @var string[] */
 			public array $warnings = [];
-			public function print_less_often( string $text ): void {
-				$this->warnings[] = $text;
+			public function print_less_often( string $text, string ...$extra ): void {
+				$this->warnings[] = $text . \implode( '', $extra );
 			}
 		};
 

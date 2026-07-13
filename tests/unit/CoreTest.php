@@ -195,6 +195,17 @@ class CoreTest extends TestCase {
 		$this->assertSame( 1, \substr_count( $buf, 'duplicate' ) );
 	}
 
+	public function test_print_less_often_throttles_on_prefix_only_and_prints_varying_payload(): void {
+		// The throttle key is the first arg (stable category); varying payload
+		// args print on the first occurrence but never widen the key.
+		$buf = '';
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
+		Core::print_less_often( 'transport error ', '28', ' on ', 'austin' );
+		Core::print_less_often( 'transport error ', '52', ' on ', 'burlington' );
+		$this->assertSame( 1, \substr_count( $buf, 'transport error' ), 'flood collapses to one emission under the stable prefix' );
+		$this->assertStringContainsString( 'transport error 28 on austin', $buf, 'the one emission carries the first payload' );
+	}
+
 	public function test_emit_stderr_falls_back_when_handler_re_enters(): void {
 		// Handler that synchronously re-emits via print_less_often. Without
 		// the re-entry guard this recurses until the stack blows.

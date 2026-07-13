@@ -291,16 +291,17 @@ class Node {
 	}
 
 	/** Emit text on first sight; suppress identical text thereafter. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
-	public function print_less_often( string $text ): void {
-		$line = $this->log_midfix( $text );
-		$row = Core::$recent_log_timers[ $line ] ?? null;
+	public function print_less_often( string $text, string ...$extra ): void {
+		// Key on $text only; $extra is printed payload, not keyed.
+		$key = $this->log_midfix( $text );
+		$row = Core::$recent_log_timers[ $key ] ?? null;
 		if ( null !== $row ) {
 			++$row['count'];
 		} else {
-			Core::stderr( $line );
+			Core::stderr( $this->log_midfix( $text . \implode( '', $extra ) ) );
 			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
 		}
-		Core::$recent_log_timers[ $line ] = $row;
+		Core::$recent_log_timers[ $key ] = $row;
 	}
 
 	/**

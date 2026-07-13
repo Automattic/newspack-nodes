@@ -997,6 +997,22 @@ class NodeTest extends TestCase {
 		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
 	}
 
+	public function test_print_less_often_throttles_on_prefix_only_and_prints_varying_payload(): void {
+		// Tachikoma semantics: the throttle key is the FIRST arg (the stable
+		// category); the varying payload args are printed on the first
+		// occurrence but never widen the key — so a flood of the same category
+		// with different values collapses to ONE emission (not one per value).
+		$buf = '';
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'seq' );
+		$n->print_less_often( 'INFO: duplicate message: expected #', '1', ', got #', '5' );
+		$n->print_less_often( 'INFO: duplicate message: expected #', '2', ', got #', '9' );
+		$n->print_less_often( 'INFO: duplicate message: expected #', '3', ', got #', '7' );
+		$this->assertSame( 1, \substr_count( $buf, 'duplicate message' ), 'flood collapses to one emission under the stable prefix' );
+		$this->assertStringContainsString( 'expected #1, got #5', $buf, 'the one emission carries the first payload (extra args are printed, not dropped)' );
+	}
+
 	// ---- Schema_Reflection trait auto-wires the sibling :config interpreter (opt-in) -----
 
 	public function test_node_with_schema_handlers_auto_wires_config_interpreter(): void {
