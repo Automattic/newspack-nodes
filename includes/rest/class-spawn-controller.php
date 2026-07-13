@@ -209,7 +209,7 @@ class Spawn_Controller {
 			$supervisor->run();
 			return [ 'status' => 'completed' ];
 		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'Newspack_Nodes\\SpawnController: supervisor run failed: ' . $e->getMessage() );
+			Core::print_less_often( 'Newspack_Nodes\\SpawnController: supervisor run failed: ', $e->getMessage() );
 			return [ 'status' => 'error' ];
 		}
 	}

@@ -111,7 +111,7 @@ class Settings_Sync_Node extends Timer_Node {
 		$scalar = self::scalarize( $value );
 		// Skip unencodable values; an empty token would WIPE the option.
 		if ( null === $scalar ) {
-			$this->print_less_often( "settings-sync: cannot encode value for {$local}; skipping" );
+			$this->print_less_often( 'settings-sync: cannot encode value for ', $local, '; skipping' );
 			return;
 		}
 		// One `set` per mapping — a local may target several spoke options.

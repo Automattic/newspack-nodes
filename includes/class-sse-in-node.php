@@ -302,7 +302,7 @@ class SSE_In_Node extends Node {
 			$this->last_error = 'Connection closed by server';
 		}
 
-		$this->print_less_often( 'ERROR: disconnected - ' . $this->last_error );
+		$this->print_less_often( 'ERROR: disconnected - ', $this->last_error );
 		$this->set_state( 'DISCONNECTED', $this->last_error );
 		$this->detach_handle();
 		$this->increase_backoff();
@@ -326,7 +326,7 @@ class SSE_In_Node extends Node {
 			$this->buffer     = '';
 			$this->connected  = false;
 			$this->set_state( 'ERROR', $this->last_error );
-			$this->print_less_often( 'ERROR: ' . $this->last_error );
+			$this->print_less_often( "ERROR: {$this->last_error}" );
 			return false;
 		}
 
@@ -369,7 +369,7 @@ class SSE_In_Node extends Node {
 					$this->current_event = [ 'event' => '', 'data' => '' ];
 					$this->connected     = false;
 					$this->set_state( 'ERROR', $this->last_error );
-					$this->print_less_often( 'ERROR: ' . $this->last_error );
+					$this->print_less_often( "ERROR: {$this->last_error}" );
 					return false;
 				}
 				break;
@@ -404,7 +404,7 @@ class SSE_In_Node extends Node {
 			} catch ( \InvalidArgumentException $e ) {
 				$this->last_error = 'unparseable connected frame';
 				$this->set_state( 'ERROR', $this->last_error );
-				$this->print_less_often( 'ERROR: ' . $this->last_error );
+				$this->print_less_often( "ERROR: {$this->last_error}" );
 				return true;
 			}
 			return $this->handle_connected( $message );
@@ -438,7 +438,7 @@ class SSE_In_Node extends Node {
 			// TM_INFO VALUEs are strings; non-string = malformed, report it.
 			$this->last_error = 'malformed connected envelope (non-string value)';
 			$this->set_state( 'ERROR', $this->last_error );
-			$this->print_less_often( 'ERROR: ' . $this->last_error );
+			$this->print_less_often( "ERROR: {$this->last_error}" );
 			return true;
 		}
 		$pairs             = \array_chunk( \explode( ' ', $value ), 2 );
@@ -451,7 +451,7 @@ class SSE_In_Node extends Node {
 		if ( null === $this->session_pid ) {
 			$this->last_error = 'connected envelope missing PID';
 			$this->set_state( 'ERROR', $this->last_error );
-			$this->print_less_often( 'ERROR: ' . $this->last_error );
+			$this->print_less_often( "ERROR: {$this->last_error}" );
 			return true;
 		}
 		$this->connected = true;
@@ -477,7 +477,7 @@ class SSE_In_Node extends Node {
 		}
 		$stale_seconds    = (int) $elapsed;
 		$this->last_error = "Stale connection (no events for {$stale_seconds}s)";
-		$this->print_less_often( "ERROR: reconnecting - stale ({$stale_seconds}s)" );
+		$this->print_less_often( 'ERROR: reconnecting - stale (', (string) $stale_seconds, 's)' );
 		$this->set_state( 'RECONNECTING', $this->last_error );
 
 		$this->detach_handle();

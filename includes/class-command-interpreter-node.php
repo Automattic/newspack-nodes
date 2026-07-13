@@ -228,7 +228,9 @@ class Command_Interpreter_Node extends Node {
 		$scalar_args = \array_filter( $args, '\is_scalar' );
 		if ( \count( $scalar_args ) !== \count( $args ) ) {
 			Core::print_less_often(
-				"make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)"
+				'make_node ',
+				"{$type} {$name}",
+				': non-scalar positional arg filtered (assign object deps as public properties)'
 			);
 		}
 		$node->arguments( \implode( ' ', $scalar_args ) );

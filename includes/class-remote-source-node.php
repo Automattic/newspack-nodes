@@ -139,7 +139,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			if ( $this->crawl_skip_head && 'drop' === $this->skip_head_disposition
 				&& $pos['segment'] === $this->boot_cursor_segment && $pos['offset'] === $this->boot_cursor_offset ) {
 				$this->crawl_skip_head = false;
-				$this->print_less_often( "{$this->name} boot head-drop (unparseable) at {$pos['segment']}:{$pos['offset']} — already quarantined, dropping" );
+				$this->print_less_often( "{$this->name} boot head-drop (unparseable) at ", "{$pos['segment']}:{$pos['offset']}", ' — already quarantined, dropping' );
 				return;
 			}
 			$this->dead_letter( $this->poison_from_line( $line, $pos['segment'], $pos['offset'] ), 'unparseable', $e );
@@ -225,7 +225,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->crawl_skip_head = false;
 			if ( 'drop' === $this->skip_head_disposition ) {
 				// Marker: head already in DLQ, drop silently, no second entry.
-				$this->print_less_often( "{$this->name} boot head-drop: message at {$this->boot_cursor_segment}:{$this->boot_cursor_offset} is already quarantined — dropping" );
+				$this->print_less_often( "{$this->name} boot head-drop: message at ", "{$this->boot_cursor_segment}:{$this->boot_cursor_offset}", ' is already quarantined — dropping' );
 				return true;
 			}
 			// Crash suspect: dead-letter, quarantine-mark start (crash window).
@@ -236,7 +236,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		if ( 0 < $cmp ) {
 			$this->crawl_skip_head = false;
-			$this->print_less_often( "{$this->name} crawl head-sacrifice: suspect at {$this->boot_cursor_segment}:{$this->boot_cursor_offset} is gone (stream resumed past it) — not sacrificing" );
+			$this->print_less_often( "{$this->name} crawl head-sacrifice: suspect at ", "{$this->boot_cursor_segment}:{$this->boot_cursor_offset}", ' is gone (stream resumed past it) — not sacrificing' );
 		}
 		return false;
 	}

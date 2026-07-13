@@ -189,14 +189,14 @@ class Partition_Node extends Timer_Node {
 			}
 			$fh = $this->get_handle();
 			if ( null === $fh ) {
-				$this->print_less_often( "WARNING: large write failed to open {$this->current_log_path}" );
+				$this->print_less_often( 'WARNING: large write failed to open ', (string) $this->current_log_path );
 				return;
 			}
 			$offset              = $this->current_size;
 			$wrote               = $this->write_all( $fh, $record, $this->current_log_path );
 			$this->current_size += $wrote;
 			if ( $wrote < $size ) {
-				$this->print_less_often( "WARNING: large write failed to write all {$size} bytes to {$this->current_log_path}" );
+				$this->print_less_often( 'WARNING: large write failed to write all ', (string) $size, ' bytes to ', (string) $this->current_log_path );
 				return;
 			}
 			if ( null !== $this->index_callback ) {
@@ -246,7 +246,7 @@ class Partition_Node extends Timer_Node {
 			try {
 				$this->flush();
 			} catch ( \Throwable $flush_error ) {
-				$this->print_less_often( 'flush failed during cooperative stop: ' . $flush_error->getMessage() );
+				$this->print_less_often( 'flush failed during cooperative stop: ', $flush_error->getMessage() );
 			}
 			throw $e;
 		}
@@ -600,7 +600,7 @@ class Partition_Node extends Timer_Node {
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
 		if ( ! @\touch( $this->current_log_path ) ) {
-			$this->print_less_often( "WARNING: touch() failed for {$this->current_log_path}" );
+			$this->print_less_often( 'WARNING: touch() failed for ', $this->current_log_path );
 		}
 
 		// Keep cache warm: scan + new empty segment; cleanup prunes in place.
@@ -756,7 +756,7 @@ class Partition_Node extends Timer_Node {
 				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
 			}
 		} catch ( \Throwable $e ) {
-			$this->print_less_often( 'WARNING: index callback threw: ' . $e->getMessage() );
+			$this->print_less_often( 'WARNING: index callback threw: ', $e->getMessage() );
 		}
 	}
 

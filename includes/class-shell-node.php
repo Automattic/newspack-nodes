@@ -420,14 +420,14 @@ class Shell_Node extends Node {
 	 */
 	private function include_file( string $file ): void {
 		if ( '' === $file || ! \is_file( $file ) ) {
-			$this->print_less_often( "Shell: include: file not found: $file" );
+			$this->print_less_often( 'Shell: include: file not found: ', $file );
 			return;
 		}
 		// Topology files live alongside the plugin, not in WP-managed storage.
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 		$fh = @\fopen( $file, 'r' );
 		if ( false === $fh ) {
-			$this->print_less_often( "Shell: include: cannot open: $file" );
+			$this->print_less_often( 'Shell: include: cannot open: ', $file );
 			return;
 		}
 		while ( ( $line = \fgets( $fh ) ) !== false ) {

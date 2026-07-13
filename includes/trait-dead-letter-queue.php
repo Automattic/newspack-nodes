@@ -190,7 +190,7 @@ trait Dead_Letter_Queue {
 				$outcome = 'DROP — deadletter write failed: ' . $e->getMessage();
 			}
 		}
-		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at {$where} — {$outcome}{$why}" );
+		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at ", $where, ' — ', $outcome, $why );
 	}
 
 	/**

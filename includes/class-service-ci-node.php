@@ -80,7 +80,9 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 			}
 			if ( ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
 				Core::print_less_often(
-					'Service_CI: verb "' . $name . '" on ' . static::class . ' has no callable handler; skipping'
+					'Service_CI: verb "',
+					$name,
+					'" on ' . static::class . ' has no callable handler; skipping'
 				);
 				continue;
 			}
