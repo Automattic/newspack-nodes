@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-07-13
+
 ### Added
 
 - **A `<topology>` template token, bound to the FLEET.** An offsetlog is a reader's *cursor*, and the reader is the fleet — two processes tailing one log need two cursors. Without a token for "which fleet", two topologies that want to SHARE a reader when composed (`include` dedupes only byte-identical `make_node` lines) had to name the same offsetlog, which made them unsafe to run side by side. `<config:offsets_dir>/firehose.<topology>.p<partition>` resolves to `firehose.combined.p0` under `combined` and `firehose.request-builder.p0` when that topology runs standalone: identical declarations compose into one reader, distinct fleets get distinct cursors, and the conflict gate stays strict — a shared *log* is still a conflict, because only the cursor is fleet-scoped.
