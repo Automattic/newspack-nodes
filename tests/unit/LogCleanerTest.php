@@ -509,4 +509,56 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $off_p1 );
 		$this->assertDirectoryDoesNotExist( $off_p2 );
 	}
+
+	/**
+	 * DATA LOSS: retention drives off Topology_Registry::resolved_resource_dirs(),
+	 * which reads write_set(). That scanned the RAW .tsl, so an include-only
+	 * topology (ELN's combined.tsl is now two `include` lines) declared NOTHING —
+	 * and the GC ATE its live logs and offsetlogs as orphans.
+	 *
+	 * The second active topology is load-bearing: with an EMPTY declared set the
+	 * cleaner skips the sweep entirely (fail-safe), so an include-only topology
+	 * alone is never at risk. It takes a neighbour that DOES declare dirs to make
+	 * the set non-empty, run the sweep, and delete the borrowed dirs. That is the
+	 * live fleet exactly: combined (include-only) beside job-worker + hub-control.
+	 */
+	public function test_keeps_the_dirs_an_included_topology_declares(): void {
+		$this->declare_topology( 'neighbour', $this->partition_tsl( 'neighbour' ) );
+		$this->declare_inactive_topology(
+			'zebra-base',
+			$this->log_and_offset_tsl( 'zebra' )
+		);
+		// The active topology is include-ONLY: it declares no node of its own.
+		$this->declare_topology( 'zebra-top', "include zebra-base\n" );
+
+		$log    = $this->seed_log_partition( 'zebra', 0 );
+		$offset = $this->seed_offsetlog_dir( 'zebra', 0 );
+
+		$deleted = Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertSame( [], $deleted, 'the GC must not orphan what an include declares' );
+		$this->assertDirectoryExists( $log );
+		$this->assertDirectoryExists( $offset );
+	}
+
+	/** Every partition of an included Partition survives, not just p0. */
+	public function test_include_only_topology_declares_every_partition(): void {
+		$this->declare_topology( 'neighbour', $this->partition_tsl( 'neighbour' ) );
+		$this->declare_inactive_topology(
+			'zebra-base',
+			$this->log_and_offset_tsl( 'zebra', 2 )
+		);
+		$this->declare_topology(
+			'zebra-top',
+			"var num_partitions = 2\ninclude zebra-base\n"
+		);
+
+		$p0 = $this->seed_log_partition( 'zebra', 0 );
+		$p1 = $this->seed_log_partition( 'zebra', 1 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $p0 );
+		$this->assertDirectoryExists( $p1 );
+	}
 }

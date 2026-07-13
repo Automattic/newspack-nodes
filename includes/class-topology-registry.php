@@ -507,6 +507,15 @@ class Topology_Registry {
 				);
 				continue;
 			}
+			// Only the TOP-LEVEL file's frontmatter is honored.
+			if ( null !== $origin && \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)/', $line, $m ) ) {
+				Core::print_less_often(
+					'topology include: ignoring `var ' . $m[1] . '` in ',
+					$name,
+					' — only the top-level topology\'s frontmatter is honored'
+				);
+				continue;
+			}
 			$line = self::canonical_verb( $line );
 			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
 				$node_name = $m[2];

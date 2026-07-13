@@ -146,4 +146,31 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->assertNotContains( 'zebra:tee->giraffe-sink', $edges );
 		$this->assertContains( 'zebra:tee->llama-sink', $edges );
 	}
+
+	/**
+	 * Only the TOP-LEVEL file's `var` frontmatter is honored (frontmatter() reads
+	 * that file alone). An included `var` is therefore ignored — which must be
+	 * LOUD, not silent: `var num_partitions = 4` in an included file vanishing
+	 * without a word is a fleet that quietly runs at the wrong width.
+	 */
+	public function test_an_included_var_is_ignored_but_says_so(): void {
+		$this->write_tsl( 'wombat-varbase', "var num_partitions = 7\nmake_node Echo zebra-echo\n" );
+		$this->write_tsl( 'wombat-vartop', "include wombat-varbase\n" );
+
+		$buf = '';
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( $message ) use ( &$buf ): void {
+				$buf .= $message;
+			}
+		);
+
+		Topology_Registry::expand( [ 'wombat-vartop' ] );
+
+		$this->assertStringContainsString(
+			'num_partitions',
+			$buf,
+			'an ignored included `var` must be reported, not swallowed'
+		);
+		$this->assertStringContainsString( 'wombat-varbase', $buf );
+	}
 }
