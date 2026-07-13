@@ -97,7 +97,7 @@ class TopologiesCITest extends TestCase {
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
-			[ 'activate', 'connect_worker_input', 'deactivate', 'delete', 'get', 'list', 'save' ],
+			[ 'activate', 'connect_worker_input', 'deactivate', 'delete', 'expand', 'get', 'list', 'save' ],
 			$names
 		);
 		$this->assertNotEmpty( $schema['description'] );
@@ -390,6 +390,41 @@ class TopologiesCITest extends TestCase {
 		);
 
 		$this->assertTrue( $result['shadows_stock'] );
+	}
+
+	/**
+	 * The saved body's OWN make_node can collide with a borrowed one. Caught at
+	 * save, not at boot: `make_node` throws on a conflicting redeclaration, so a
+	 * body that saves clean here would kill the worker on its next spawn.
+	 */
+	public function test_save_rejects_a_node_that_conflicts_with_an_included_one(): void {
+		\file_put_contents( "{$this->stock}/zebra-base.tsl", "make_node Tee shared-tee\n" );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			"clash-top include zebra-base\nmake_node Echo shared-tee\n"
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'validation failed', $result );
+		$this->assertStringContainsString( 'shared-tee', $result );
+	}
+
+	/** An IDENTICAL redeclaration is legal — make_node collapses it. */
+	public function test_save_accepts_a_node_declared_identically_by_an_include(): void {
+		\file_put_contents( "{$this->stock}/zebra-base.tsl", "make_node Grep shared-grep giraffe-pattern\n" );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			"twin-top include zebra-base\nmake_node Grep shared-grep giraffe-pattern\n"
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'twin-top', $result['name'] );
 	}
 
 	public function test_save_rejects_invalid_tsl_with_line_number(): void {
@@ -879,5 +914,53 @@ class TopologiesCITest extends TestCase {
 		$this->assertStringContainsString( 'permission denied', $result );
 		// File must still exist — permission check prevents the unlink.
 		$this->assertFileExists( "{$this->user}/locked.tsl" );
+	}
+
+	// ── expand verb + list includes ─────────────────────────────────────────
+
+	public function test_expand_verb_returns_the_composed_graph_with_provenance(): void {
+		\file_put_contents( "{$this->stock}/wombat-base.tsl", "make_node Tee shared-tee\n" );
+		\file_put_contents( "{$this->stock}/wombat-top.tsl", "include wombat-base\nmake_node Echo top-echo\n" );
+
+		$out = Topologies_CI_Node::cmd_expand( 'wombat-top' );
+
+		$names = \array_column( $out['nodes'], 'name' );
+		$this->assertContains( 'shared-tee', $names );
+		$this->assertContains( 'top-echo', $names );
+		$this->assertSame( [ 'wombat-top' => [ 'wombat-base' => [] ] ], $out['tree'] );
+	}
+
+	public function test_list_reports_each_topology_direct_includes(): void {
+		\file_put_contents( "{$this->stock}/wombat-base.tsl", "make_node Tee shared-tee\n" );
+		\file_put_contents( "{$this->stock}/wombat-top.tsl", "include wombat-base\nmake_node Echo top-echo\n" );
+
+		$out    = Topologies_CI_Node::cmd_list();
+		$byName = [];
+		foreach ( $out['topologies'] as $entry ) {
+			$byName[ $entry['name'] ] = $entry;
+		}
+
+		$this->assertSame( [ 'wombat-base' ], $byName['wombat-top']['includes'] );
+		$this->assertSame( [], $byName['wombat-base']['includes'] );
+	}
+
+	public function test_expand_verb_throws_on_unknown_topology(): void {
+		$this->expectException( \RuntimeException::class );
+		Topologies_CI_Node::cmd_expand( 'no-such-topology' );
+	}
+
+	// ── save resolves includes ──────────────────────────────────────────────
+
+	public function test_save_rejects_a_tsl_including_an_unknown_topology(): void {
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			'broken-include ' . "include no-such-topology\n"
+		);
+
+		$this->assertIsString( $result, 'save must reject an unresolvable include, not write it to disk' );
+		$this->assertStringContainsString( 'no-such-topology', $result );
+		$this->assertFileDoesNotExist( "{$this->user}/broken-include.tsl" );
 	}
 }

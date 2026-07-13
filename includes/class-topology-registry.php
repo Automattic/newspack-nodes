@@ -499,7 +499,8 @@ class Topology_Registry {
 				if ( null === $child_path ) {
 					throw new \RuntimeException( \esc_html( "unknown topology in include: $child_name" ) );
 				}
-				$child_origin           = $origin ?? $child_name;
+				$child_origin = $origin ?? $child_name;
+				// Memoized subtree: the tree shows what each file DECLARES.
 				$subtree[ $child_name ] = self::walk(
 					$child_path,
 					$child_name,
@@ -536,6 +537,86 @@ class Topology_Registry {
 		$state['expanded'][ $path ] = [ $first, \count( $state['statements'] ) ];
 		$state['subtrees'][ $path ] = $subtree;
 		return $subtree;
+	}
+
+	/**
+	 * Compose an include set into one graph with provenance — for the console.
+	 *
+	 * Informational only: the runtime is the Shell's `include`. `origin` is the
+	 * SET of directly-declared includes providing a node (a diamond lists several);
+	 * `via` is the path it first entered through.
+	 *
+	 * @param list<string> $include_names Directly-declared includes.
+	 *
+	 * @return array{nodes: list<array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}>, edges: list<array{from: string, to: string, origin: list<string>}>, tree: array<string,mixed>}
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
+	public static function expand( array $include_names ): array {
+		$nodes = [];
+		$edges = [];
+		foreach ( $include_names as $include ) {
+			$walked = self::statements( '', [ $include ] );
+			foreach ( $walked['statements'] as $statement ) {
+				self::absorb_statement( $statement, $include, $nodes, $edges );
+			}
+		}
+		$tree = self::statements( '', $include_names )['tree'];
+		return [
+			'nodes' => \array_values( $nodes ),
+			'edges' => \array_values( $edges ),
+			'tree'  => $tree,
+		];
+	}
+
+	/**
+	 * Fold one statement into the node/edge maps, unioning `origin` on a re-reach.
+	 *
+	 * @param array{line: string, origin: ?string, via: list<string>} $statement Walked statement.
+	 * @param string                                                  $origin    Top-level include being absorbed.
+	 * @param array<string, array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
+	 * @param array<string, array{from: string, to: string, origin: list<string>}>                                          $edges Edge map, by reference.
+	 */
+	private static function absorb_statement( array $statement, string $origin, array &$nodes, array &$edges ): void {
+		$line = $statement['line'];
+		if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
+			$name = $m[2];
+			if ( isset( $nodes[ $name ] ) ) {
+				if ( ! \in_array( $origin, $nodes[ $name ]['origin'], true ) ) {
+					$nodes[ $name ]['origin'][] = $origin;
+				}
+				return;
+			}
+			$args           = '' === \trim( $m[3] ) ? [] : ( \preg_split( '/\s+/', \trim( $m[3] ) ) ?: [] );
+			$nodes[ $name ] = [
+				'name'   => $name,
+				'class'  => $m[1],
+				'args'   => $args,
+				'origin' => [ $origin ],
+				'via'    => $statement['via'],
+			];
+			return;
+		}
+		$edge = null;
+		if ( \preg_match( '/^connect_node\s+(\S+)\s+(\S+)/', $line, $m ) ) {
+			$edge = [ $m[1], $m[2] ];
+		} elseif ( \preg_match( '/^cmd\s+(\S+?):config\s+set_\w*target\s+(\S+)/', $line, $m ) ) {
+			$edge = [ $m[1], $m[2] ];
+		}
+		if ( null === $edge ) {
+			return;
+		}
+		$key = $edge[0] . "\0" . $edge[1];
+		if ( isset( $edges[ $key ] ) ) {
+			if ( ! \in_array( $origin, $edges[ $key ]['origin'], true ) ) {
+				$edges[ $key ]['origin'][] = $origin;
+			}
+			return;
+		}
+		$edges[ $key ] = [
+			'from'   => $edge[0],
+			'to'     => $edge[1],
+			'origin' => [ $origin ],
+		];
 	}
 
 	/**
