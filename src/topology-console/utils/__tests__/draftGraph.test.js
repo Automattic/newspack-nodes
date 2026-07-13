@@ -9,6 +9,8 @@ import {
 	draftIsDirty,
 	generateNodeName,
 	withReplAnchor,
+	addInclude,
+	removeInclude,
 } from '../draftGraph';
 
 describe( 'draftGraph', () => {
@@ -339,6 +341,45 @@ describe( 'draftGraph', () => {
 			expect(
 				next.nodes.find( ( n ) => n.id === '_repl' )
 			).toBeDefined();
+		} );
+	} );
+
+	describe( 'includes', () => {
+		it( 'addInclude appends, and is a no-op for one already declared', () => {
+			const g0 = { nodes: [], edges: [], frontmatter: {}, includes: [] };
+			const g1 = addInclude( g0, 'performance' );
+			expect( g1.includes ).toEqual( [ 'performance' ] );
+			expect( addInclude( g1, 'performance' ) ).toBe( g1 );
+		} );
+
+		it( 'removeInclude drops the name', () => {
+			const g0 = {
+				nodes: [],
+				edges: [],
+				frontmatter: {},
+				includes: [ 'performance', 'job-router' ],
+			};
+			expect( removeInclude( g0, 'performance' ).includes ).toEqual( [
+				'job-router',
+			] );
+		} );
+
+		it( 'preserves includes across every mutator', () => {
+			let g = {
+				nodes: [],
+				edges: [],
+				frontmatter: {},
+				includes: [ 'performance' ],
+			};
+			g = addNode( g, {
+				shellName: 'Echo',
+				name: 'wombat-echo',
+				x: 10,
+				y: 20,
+			} );
+			g = addEdge( g, { from: 'wombat-echo', to: 'zebra-tee' } );
+			g = updateNodeArgs( g, 'wombat-echo', [ 'giraffe' ] );
+			expect( g.includes ).toEqual( [ 'performance' ] );
 		} );
 	} );
 

@@ -6,7 +6,17 @@ describe( 'parseTsl', () => {
 			nodes: [],
 			edges: [],
 			frontmatter: {},
+			includes: [],
+			disconnects: [],
 		} );
+	} );
+
+	it( 'parses include lines into graph.includes, in declaration order', () => {
+		const g = parseTsl(
+			'include performance\ninclude job-router\nmake_node Echo wombat-echo\n'
+		);
+		expect( g.includes ).toEqual( [ 'performance', 'job-router' ] );
+		expect( g.nodes.map( ( n ) => n.name ) ).toEqual( [ 'wombat-echo' ] );
 	} );
 
 	it( 'captures var frontmatter into an ordered map', () => {
@@ -132,5 +142,33 @@ describe( 'parseTsl', () => {
 			original.nodes.map( clean )
 		);
 		expect( reparsed.edges ).toEqual( original.edges );
+	} );
+} );
+
+describe( 'parseTsl — disconnect_node', () => {
+	it( 'collects disconnect_node lines so a splice survives a reopen', () => {
+		// The worked splice's saved form: the include re-expands `spokes:tee ->
+		// remote:x` on load, and this line is what removes it again. Drop it and
+		// reopening resurrects the very edge the splice deleted.
+		const g = parseTsl(
+			'include hub-control\n' +
+				'make_node Grep wombat-grep zebra-pattern\n' +
+				'disconnect_node spokes:tee remote:x\n' +
+				'connect_node spokes:tee wombat-grep\n' +
+				'connect_node wombat-grep remote:x\n'
+		);
+		expect( g.disconnects ).toEqual( [
+			{ from: 'spokes:tee', to: 'remote:x' },
+		] );
+		expect( g.edges ).toEqual( [
+			{ from: 'spokes:tee', to: 'wombat-grep' },
+			{ from: 'wombat-grep', to: 'remote:x' },
+		] );
+	} );
+
+	it( 'defaults disconnects to an empty list', () => {
+		expect(
+			parseTsl( 'make_node Echo wombat-echo\n' ).disconnects
+		).toEqual( [] );
 	} );
 } );

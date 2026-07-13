@@ -1,10 +1,13 @@
 /**
  * serializeTsl — render an edit-mode draft graph as a TSL script.
  *
- * Emits `make_node`/`cmd` per node then `connect_node` per edge, ordered to
- * match the substrate's dump_config for a stable round-trip. Whitespace args
- * are single-quoted; with `schemas`, empty slots are filled from defaults and
- * trailing empties dropped (so positional indexing stays aligned).
+ * Emits `include` lines, then `make_node`/`cmd` per OWN (non-borrowed) node,
+ * then `connect_node` per edge, ordered to match the substrate's dump_config
+ * for a stable round-trip. Whitespace args are single-quoted; with `schemas`,
+ * empty slots are filled from defaults and trailing empties dropped (so
+ * positional indexing stays aligned). With `baseline`, edges are diffed
+ * against it and emitted as `disconnect_node`/`connect_node` deltas instead
+ * of a full connect list.
  */
 
 function serializeArg( value ) {
@@ -121,17 +124,26 @@ function emitVerb( name, invocation, schemas, className ) {
 	return args.length ? `${ head } ${ args.join( ' ' ) }` : head;
 }
 
+const edgeKey = ( e ) => `${ e.from } ${ e.to }`;
+
+const isBorrowed = ( n ) => Array.isArray( n.origin ) && n.origin.length > 0;
+
 /**
- * @param {Object} graph   Draft graph (nodes + edges + per-node verbInvocations).
- * @param {Object} schemas Optional class-name → schema map; omitted = no default expansion.
+ * @param {Object} graph    Draft graph (nodes + edges + verbInvocations + includes).
+ * @param {Object} schemas  Optional class-name → schema map; omitted = no default expansion.
+ * @param {Object} baseline Optional `topologies expand` result for graph.includes; omitted = no deltas.
  */
-export function serializeTsl( graph, schemas = null ) {
+export function serializeTsl( graph, schemas = null, baseline = null ) {
 	if ( ! graph ) {
 		return '';
 	}
+	const includes = graph.includes || [];
 	const hasFrontmatter =
 		graph.frontmatter && Object.keys( graph.frontmatter ).length > 0;
-	if ( ( ! graph.nodes || graph.nodes.length === 0 ) && ! hasFrontmatter ) {
+	const ownNodes = ( graph.nodes || [] ).filter(
+		( n ) => ! n.reserved && ! isBorrowed( n )
+	);
+	if ( ! ownNodes.length && ! hasFrontmatter && ! includes.length ) {
 		return '';
 	}
 	const lines = [];
@@ -139,24 +151,35 @@ export function serializeTsl( graph, schemas = null ) {
 	for ( const [ name, value ] of Object.entries( graph.frontmatter || {} ) ) {
 		lines.push( `var ${ name } = ${ value }` );
 	}
+	for ( const name of includes ) {
+		lines.push( `include ${ name }` );
+	}
 	// Reserved anchors (`_repl`) aren't emitted; still valid edge TARGETS.
 	const reserved = new Set(
-		graph.nodes.filter( ( n ) => n.reserved ).map( ( n ) => n.id )
+		( graph.nodes || [] ).filter( ( n ) => n.reserved ).map( ( n ) => n.id )
 	);
-	for ( const n of graph.nodes ) {
-		if ( n.reserved ) {
-			continue;
-		}
+	for ( const n of ownNodes ) {
 		lines.push( emitMakeNode( n, schemas ) );
 		for ( const inv of n.verbInvocations || [] ) {
 			lines.push( emitVerb( n.name, inv, schemas, n.class ) );
 		}
 	}
-	for ( const e of graph.edges || [] ) {
-		if ( reserved.has( e.from ) ) {
-			continue;
+	const edges = ( graph.edges || [] ).filter(
+		( e ) => ! reserved.has( e.from )
+	);
+	const baseEdges = baseline?.edges || [];
+	const editedKeys = new Set( edges.map( edgeKey ) );
+	const baseKeys = new Set( baseEdges.map( edgeKey ) );
+	// Tee's connect_node APPENDS; a dropped baseline edge needs a disconnect.
+	for ( const e of baseEdges ) {
+		if ( ! editedKeys.has( edgeKey( e ) ) ) {
+			lines.push( `disconnect_node ${ e.from } ${ e.to }` );
 		}
-		lines.push( `connect_node ${ e.from } ${ e.to }` );
+	}
+	for ( const e of edges ) {
+		if ( ! baseKeys.has( edgeKey( e ) ) ) {
+			lines.push( `connect_node ${ e.from } ${ e.to }` );
+		}
 	}
 	if ( lines.length === 0 ) {
 		return '';

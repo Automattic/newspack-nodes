@@ -511,6 +511,136 @@ describe( 'serializeTsl', () => {
 		} );
 	} );
 
+	describe( 'collapsed form with baseline (includes + edge deltas)', () => {
+		const baseline = {
+			nodes: [
+				{
+					name: 'spokes:tee',
+					class: 'Tee',
+					args: [],
+					origin: [ 'hub-control' ],
+				},
+				{
+					name: 'remote:x',
+					class: 'Echo',
+					args: [],
+					origin: [ 'hub-control' ],
+				},
+			],
+			edges: [
+				{
+					from: 'spokes:tee',
+					to: 'remote:x',
+					origin: [ 'hub-control' ],
+				},
+			],
+		};
+
+		it( 'emits the collapsed form: include lines, own nodes only, disconnect before connect', () => {
+			// The worked splice: a Grep dropped between two borrowed endpoints.
+			const graph = {
+				includes: [ 'hub-control' ],
+				frontmatter: {},
+				nodes: [
+					{
+						id: 'spokes:tee',
+						name: 'spokes:tee',
+						class: 'Tee',
+						ctorArgs: [],
+						verbInvocations: [],
+						origin: [ 'hub-control' ],
+					},
+					{
+						id: 'remote:x',
+						name: 'remote:x',
+						class: 'Echo',
+						ctorArgs: [],
+						verbInvocations: [],
+						origin: [ 'hub-control' ],
+					},
+					{
+						id: 'wombat-grep',
+						name: 'wombat-grep',
+						class: 'Grep',
+						ctorArgs: [ 'zebra-pattern' ],
+						verbInvocations: [],
+					},
+				],
+				edges: [
+					{ from: 'spokes:tee', to: 'wombat-grep' },
+					{ from: 'wombat-grep', to: 'remote:x' },
+				],
+			};
+
+			expect( serializeTsl( graph, null, baseline ) ).toBe(
+				'include hub-control\n' +
+					'make_node Grep wombat-grep zebra-pattern\n' +
+					'disconnect_node spokes:tee remote:x\n' +
+					'connect_node spokes:tee wombat-grep\n' +
+					'connect_node wombat-grep remote:x\n'
+			);
+		} );
+
+		it( 'emits a disconnect even when a new edge shares the same source (a Tee appends)', () => {
+			const graph = {
+				includes: [ 'hub-control' ],
+				frontmatter: {},
+				nodes: [
+					{
+						id: 'spokes:tee',
+						name: 'spokes:tee',
+						class: 'Tee',
+						ctorArgs: [],
+						verbInvocations: [],
+						origin: [ 'hub-control' ],
+					},
+					{
+						id: 'remote:x',
+						name: 'remote:x',
+						class: 'Echo',
+						ctorArgs: [],
+						verbInvocations: [],
+						origin: [ 'hub-control' ],
+					},
+					{
+						id: 'zebra-echo',
+						name: 'zebra-echo',
+						class: 'Echo',
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+				],
+				edges: [ { from: 'spokes:tee', to: 'zebra-echo' } ],
+			};
+
+			const out = serializeTsl( graph, null, baseline );
+			expect( out ).toContain( 'disconnect_node spokes:tee remote:x' );
+			expect( out.indexOf( 'disconnect_node' ) ).toBeLessThan(
+				out.indexOf( 'connect_node' )
+			);
+		} );
+
+		it( 'emits an unchanged baseline edge as neither a connect nor a disconnect', () => {
+			const graph = {
+				includes: [ 'hub-control' ],
+				frontmatter: {},
+				nodes: baseline.nodes.map( ( n ) => ( {
+					id: n.name,
+					name: n.name,
+					class: n.class,
+					ctorArgs: [],
+					verbInvocations: [],
+					origin: n.origin,
+				} ) ),
+				edges: [ { from: 'spokes:tee', to: 'remote:x' } ],
+			};
+
+			expect( serializeTsl( graph, null, baseline ) ).toBe(
+				'include hub-control\n'
+			);
+		} );
+	} );
+
 	describe( 'reserved anchor (_repl)', () => {
 		const { parseTsl } = require( '../parseTsl' );
 		const { withReplAnchor } = require( '../draftGraph' );
