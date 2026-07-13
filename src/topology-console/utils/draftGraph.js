@@ -166,6 +166,115 @@ export function draftIsDirty( draft, baseline ) {
 	return JSON.stringify( draft ) !== JSON.stringify( baseline );
 }
 
+const edgeKey = ( e ) => `${ e.from } ${ e.to }`;
+
+/**
+ * A draft node built from an expand() borrowed-node record.
+ *
+ * @param {Object} record `topologies expand` node record.
+ * @return {Object} Draft node.
+ */
+function borrowedNode( record ) {
+	return {
+		id: record.name,
+		name: record.name,
+		class: record.class,
+		x: 0,
+		y: 0,
+		target: '',
+		also: [],
+		ctorArgs: record.args || [],
+		verbInvocations: [],
+		origin: record.origin || [],
+		via: record.via || [],
+	};
+}
+
+/**
+ * Re-apply an include-set change to the draft: add what the new baseline brings,
+ * drop what the old one provided and the new one doesn't, leave own edits alone.
+ *
+ * @param {Object} graph       Current draft.
+ * @param {Object} oldBaseline Previous expand() result.
+ * @param {Object} newBaseline Current expand() result.
+ * @return {Object} New draft graph.
+ */
+export function reconcileIncludes( graph, oldBaseline, newBaseline ) {
+	const oldNodes = new Set(
+		( oldBaseline?.nodes || [] ).map( ( n ) => n.name )
+	);
+	const newByName = new Map(
+		( newBaseline?.nodes || [] ).map( ( n ) => [ n.name, n ] )
+	);
+	const departed = new Set(
+		[ ...oldNodes ].filter( ( name ) => ! newByName.has( name ) )
+	);
+	// Own nodes stay; borrowed nodes are re-derived from the new baseline.
+	const own = ( graph.nodes || [] ).filter(
+		( n ) => ! ( Array.isArray( n.origin ) && n.origin.length > 0 )
+	);
+	const nodes = [ ...own, ...[ ...newByName.values() ].map( borrowedNode ) ];
+
+	const oldEdges = new Set( ( oldBaseline?.edges || [] ).map( edgeKey ) );
+	const newEdgeList = newBaseline?.edges || [];
+	const newEdges = new Set( newEdgeList.map( edgeKey ) );
+	const alive = new Set( nodes.map( ( n ) => n.id ) );
+	const kept = ( graph.edges || [] ).filter( ( e ) => {
+		const key = edgeKey( e );
+		// A baseline edge the departed include provided and the new set lacks.
+		if ( oldEdges.has( key ) && ! newEdges.has( key ) ) {
+			return false;
+		}
+		// An own edge left dangling by a departed borrowed node.
+		if ( departed.has( e.from ) || departed.has( e.to ) ) {
+			return false;
+		}
+		return alive.has( e.from ) && alive.has( e.to );
+	} );
+	const keptKeys = new Set( kept.map( edgeKey ) );
+	const added = newEdgeList
+		.filter(
+			( e ) =>
+				! oldEdges.has( edgeKey( e ) ) && ! keptKeys.has( edgeKey( e ) )
+		)
+		.map( ( e ) => ( { from: e.from, to: e.to } ) );
+
+	return { ...graph, nodes, edges: [ ...kept, ...added ] };
+}
+
+/**
+ * Re-expand `graph.includes` into borrowed nodes/edges on topology open.
+ * `graph` is parseTsl's output (own nodes/edges + `disconnects`, the file's
+ * `disconnect_node` lines); `baseline` is the include set's `topologies expand`
+ * result. Baseline edges get `graph.disconnects` subtracted — that's what makes
+ * a splice (a node dropped between two borrowed endpoints) survive a reopen
+ * instead of the re-expanded baseline resurrecting the edge the splice removed.
+ * Once applied, the draft's edge list is the single source of truth; disconnects
+ * are cleared, and `serializeTsl` re-derives them by diffing against `baseline`.
+ *
+ * @param {Object} graph    parseTsl() output for the collapsed `.tsl` file.
+ * @param {Object} baseline `topologies expand( graph.includes )` result.
+ * @return {Object} Draft graph with borrowed nodes/edges merged in.
+ */
+export function applyLoadedBaseline( graph, baseline ) {
+	const borrowed = ( baseline?.nodes || [] ).map( borrowedNode );
+	const nodes = [ ...( graph.nodes || [] ), ...borrowed ];
+
+	const disconnectKeys = new Set(
+		( graph.disconnects || [] ).map( edgeKey )
+	);
+	const baselineEdges = ( baseline?.edges || [] )
+		.filter( ( e ) => ! disconnectKeys.has( edgeKey( e ) ) )
+		.map( ( e ) => ( { from: e.from, to: e.to } ) );
+
+	return {
+		...graph,
+		nodes,
+		edges: [ ...( graph.edges || [] ), ...baselineEdges ],
+		disconnects: [],
+	};
+}
+
 /**
  * Produce a unique name for a new `shellName` instance (`echo`, `echo-2`, …).
  *

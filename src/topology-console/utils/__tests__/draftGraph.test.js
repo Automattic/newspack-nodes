@@ -11,7 +11,10 @@ import {
 	withReplAnchor,
 	addInclude,
 	removeInclude,
+	reconcileIncludes,
+	applyLoadedBaseline,
 } from '../draftGraph';
+import { parseTsl } from '../parseTsl';
 
 describe( 'draftGraph', () => {
 	const empty = { nodes: [], edges: [] };
@@ -380,6 +383,221 @@ describe( 'draftGraph', () => {
 			g = addEdge( g, { from: 'wombat-echo', to: 'zebra-tee' } );
 			g = updateNodeArgs( g, 'wombat-echo', [ 'giraffe' ] );
 			expect( g.includes ).toEqual( [ 'performance' ] );
+		} );
+	} );
+
+	describe( 'reconcileIncludes', () => {
+		it( 'adds new borrowed nodes/edges and drops departed ones, keeping own edits', () => {
+			const oldBase = { nodes: [], edges: [] };
+			const newBase = {
+				nodes: [
+					{
+						name: 'shared-tee',
+						class: 'Tee',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+				],
+				edges: [
+					{
+						from: 'shared-tee',
+						to: 'zebra-sink',
+						origin: [ 'performance' ],
+					},
+				],
+			};
+			const g0 = {
+				nodes: [
+					{
+						id: 'wombat-echo',
+						name: 'wombat-echo',
+						class: 'Echo',
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+				],
+				edges: [ { from: 'wombat-echo', to: 'wombat-echo' } ],
+				frontmatter: {},
+				includes: [ 'performance' ],
+			};
+
+			const g1 = reconcileIncludes( g0, oldBase, newBase );
+
+			expect( g1.nodes.map( ( n ) => n.name ).sort() ).toEqual( [
+				'shared-tee',
+				'wombat-echo',
+			] );
+			expect(
+				g1.nodes.find( ( n ) => n.name === 'shared-tee' ).origin
+			).toEqual( [ 'performance' ] );
+			expect( g1.edges ).toContainEqual( {
+				from: 'shared-tee',
+				to: 'zebra-sink',
+			} );
+			// The user's own edge survives untouched.
+			expect( g1.edges ).toContainEqual( {
+				from: 'wombat-echo',
+				to: 'wombat-echo',
+			} );
+
+			// Now drop the include: the borrowed node and its edge go, own edits stay.
+			const g2 = reconcileIncludes( g1, newBase, oldBase );
+			expect( g2.nodes.map( ( n ) => n.name ) ).toEqual( [
+				'wombat-echo',
+			] );
+			expect( g2.edges ).toEqual( [
+				{ from: 'wombat-echo', to: 'wombat-echo' },
+			] );
+		} );
+
+		it( 'does not resurrect a baseline edge the user deleted', () => {
+			const base = {
+				nodes: [
+					{
+						name: 'shared-tee',
+						class: 'Tee',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+				],
+				edges: [
+					{
+						from: 'shared-tee',
+						to: 'zebra-sink',
+						origin: [ 'performance' ],
+					},
+				],
+			};
+			const withDeletion = {
+				nodes: [
+					{
+						id: 'shared-tee',
+						name: 'shared-tee',
+						class: 'Tee',
+						ctorArgs: [],
+						verbInvocations: [],
+						origin: [ 'performance' ],
+					},
+				],
+				edges: [],
+				frontmatter: {},
+				includes: [ 'performance' ],
+			};
+			// Same baseline in and out — a no-op reconcile must not re-add the edge.
+			expect(
+				reconcileIncludes( withDeletion, base, base ).edges
+			).toEqual( [] );
+		} );
+
+		it( 'drops an own edge left dangling by a departed borrowed node', () => {
+			const base = {
+				nodes: [
+					{
+						name: 'shared-tee',
+						class: 'Tee',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+				],
+				edges: [],
+			};
+			const g0 = {
+				nodes: [
+					{
+						id: 'shared-tee',
+						name: 'shared-tee',
+						class: 'Tee',
+						ctorArgs: [],
+						verbInvocations: [],
+						origin: [ 'performance' ],
+					},
+					{
+						id: 'wombat-echo',
+						name: 'wombat-echo',
+						class: 'Echo',
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+				],
+				edges: [ { from: 'wombat-echo', to: 'shared-tee' } ],
+				frontmatter: {},
+				includes: [ 'performance' ],
+			};
+
+			const g1 = reconcileIncludes( g0, base, { nodes: [], edges: [] } );
+			expect( g1.edges ).toEqual( [] );
+		} );
+	} );
+
+	describe( 'applyLoadedBaseline', () => {
+		it( 're-expands includes and subtracts disconnects on reopen (splice)', () => {
+			const collapsed = [
+				'include spokes',
+				'make_node Grep splice-grep .',
+				'connect_node spokes:tee splice-grep',
+				'connect_node splice-grep remote:x',
+				'disconnect_node spokes:tee remote:x',
+			].join( '\n' );
+			const parsed = parseTsl( collapsed );
+			const baseline = {
+				nodes: [
+					{
+						name: 'spokes:tee',
+						class: 'Tee',
+						args: [],
+						origin: [ 'spokes' ],
+						via: [ 'spokes' ],
+					},
+					{
+						name: 'remote:x',
+						class: 'HTTP_Out',
+						args: [],
+						origin: [ 'spokes' ],
+						via: [ 'spokes' ],
+					},
+				],
+				edges: [
+					{
+						from: 'spokes:tee',
+						to: 'remote:x',
+						origin: [ 'spokes' ],
+					},
+				],
+			};
+
+			const draft = applyLoadedBaseline( parsed, baseline );
+
+			expect( draft.nodes.map( ( n ) => n.name ).sort() ).toEqual( [
+				'remote:x',
+				'splice-grep',
+				'spokes:tee',
+			] );
+			expect(
+				draft.nodes.find( ( n ) => n.name === 'spokes:tee' )
+			).toMatchObject( {
+				id: 'spokes:tee',
+				name: 'spokes:tee',
+				class: 'Tee',
+				origin: [ 'spokes' ],
+				via: [ 'spokes' ],
+			} );
+			// The re-expanded baseline edge stays subtracted — the splice wins.
+			expect( draft.edges ).not.toContainEqual( {
+				from: 'spokes:tee',
+				to: 'remote:x',
+			} );
+			expect( draft.edges ).toContainEqual( {
+				from: 'spokes:tee',
+				to: 'splice-grep',
+			} );
+			expect( draft.edges ).toContainEqual( {
+				from: 'splice-grep',
+				to: 'remote:x',
+			} );
+			expect( draft.disconnects ).toEqual( [] );
 		} );
 	} );
 
