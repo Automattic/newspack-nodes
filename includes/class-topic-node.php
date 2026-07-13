@@ -28,6 +28,12 @@ class Topic_Node extends Node {
 
 	/** Large-write opt-in propagated to every partition: '' none, 'lock' (allow_large_writes), 'void' (void_warranty). */
 	protected string $large_write_mode = '';
+
+	/** Debounce for 'lock' mode, propagated with it. */
+	protected int $large_write_debounce_ms = 0;
+
+	/** Companion-index formatter NAME, propagated to every partition; null = none. */
+	public ?string $index_formatter_name = null;
 	protected int $min_segments     = Partition_Node::DEFAULT_MIN_SEGMENTS;
 	protected int $max_segments     = Partition_Node::DEFAULT_MAX_SEGMENTS;
 	protected int $min_lifetime     = Partition_Node::DEFAULT_MIN_LIFETIME;
@@ -41,6 +47,8 @@ class Topic_Node extends Node {
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
+		// The Partition verbs dispatch through the `{name}:config` sibling.
+		$this->auto_wire_interpreter();
 	}
 
 	/**
@@ -88,13 +96,30 @@ class Topic_Node extends Node {
 	}
 
 	/** Lift the 4KB cap on every partition via a held write lock — propagates to future children too. See Partition_Node::allow_large_writes(). */
-	public function allow_large_writes(): self {
+	public function allow_large_writes( int $debounce_ms = 0 ): self {
+		$this->large_write_debounce_ms = \max( 0, $debounce_ms );
 		return $this->set_large_write_mode( 'lock' );
 	}
 
 	/** Lift the 4KB cap on every partition with NO lock — caller asserts single-writer. See Partition_Node::void_warranty(). */
 	public function void_warranty(): self {
 		return $this->set_large_write_mode( 'void' );
+	}
+
+	/** Name the companion-index formatter; applies to every partition, including ones materialized later. See Partition_Node::with_index(). */
+	public function with_index( string $formatter_name ): self {
+		$this->index_formatter_name = $formatter_name;
+		foreach ( $this->partitions as $p ) {
+			$this->apply_index( $p );
+		}
+		return $this;
+	}
+
+	/** Apply the named index formatter to one partition; unknown name is a no-op. */
+	private function apply_index( Partition_Node $p ): void {
+		if ( null !== $this->index_formatter_name ) {
+			$p->with_index_named( $this->index_formatter_name );
+		}
 	}
 
 	/** Set the mode once and apply to already-materialized partitions; a repeat call in the same mode is a no-op (Partition::allow_large_writes re-locks). */
@@ -121,6 +146,68 @@ class Topic_Node extends Node {
 		return $result;
 	}
 
+	/**
+	 * `allow_large_writes` verb — lift the cap on every partition, with the lock.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter.
+	 * @param string                   $args        Optional debounce_ms.
+	 */
+	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, string $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->allow_large_writes( \max( 0, (int) \trim( $args ) ) );
+		return 'ok';
+	}
+
+	/**
+	 * `void_warranty` verb — lift the cap on every partition with NO lock.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter.
+	 */
+	public static function cmd_void_warranty( Command_Interpreter_Node $interpreter ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->void_warranty();
+		return 'ok';
+	}
+
+	/**
+	 * `with_index` verb — name the companion-index formatter for every partition.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter.
+	 * @param string                   $args        Formatter name.
+	 */
+	public static function cmd_with_index( Command_Interpreter_Node $interpreter, string $args ): string {
+		$args = \trim( $args );
+		if ( '' === $args ) {
+			return 'usage: with_index <formatter_name>';
+		}
+		if ( null === Formatters::resolve( $args ) ) {
+			return "unknown formatter: $args";
+		}
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->with_index( $args );
+		return 'ok';
+	}
+
+	/** Emit the base config plus the verb-config, from STATE — like Partition's. */
+	public function dump_config(): string {
+		$out = parent::dump_config();
+		if ( 'void' === $this->large_write_mode ) {
+			$out .= "cmd {$this->name}:config void_warranty\n";
+		} elseif ( 'lock' === $this->large_write_mode ) {
+			$verb = $this->large_write_debounce_ms > 0
+				? "allow_large_writes {$this->large_write_debounce_ms}"
+				: 'allow_large_writes';
+			$out .= "cmd {$this->name}:config {$verb}\n";
+		}
+		if ( null !== $this->index_formatter_name ) {
+			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
+		}
+		return $out;
+	}
+
 	protected function partition( int $i ): Partition_Node {
 		$first = empty( $this->partitions );
 		if ( ! isset( $this->partitions[ $i ] ) ) {
@@ -135,6 +222,7 @@ class Topic_Node extends Node {
 			$p->sink( $this->sink );
 			$p->patron( $this );
 			$this->apply_large_write_mode( $p );
+			$this->apply_index( $p );
 			$this->partitions[ $i ] = $p;
 		}
 		return $this->partitions[ $i ];
@@ -143,7 +231,7 @@ class Topic_Node extends Node {
 	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
 	private function apply_large_write_mode( Partition_Node $p ): void {
 		if ( 'lock' === $this->large_write_mode ) {
-			$p->allow_large_writes();
+			$p->allow_large_writes( 65000, $this->large_write_debounce_ms );
 		} elseif ( 'void' === $this->large_write_mode ) {
 			$p->void_warranty();
 		}
@@ -194,7 +282,30 @@ class Topic_Node extends Node {
 				[ 'name' => 'min_lifetime',   'type' => 'int',    'default' => '<config:min_lifetime>', 'description' => 'Count-rule floor per partition: keep segments younger than this many seconds; 0 keeps nothing extra.' ],
 				[ 'name' => 'max_lifetime',   'type' => 'int',    'default' => '<config:max_lifetime>', 'description' => 'Age rule per partition: prune segments older than this many seconds down to min_segments; 0 disables it.' ],
 			],
-			'commands'      => [],
+			'commands'      => [
+				[
+					'name'        => 'allow_large_writes',
+					'description' => 'Lift the 4KB PIPE_BUF cap on every partition via a held write lock; propagates to partitions materialized later. Optional debounce_ms > 0 locks per write burst.',
+					'args'        => [
+						[ 'name' => 'debounce_ms', 'type' => 'int', 'required' => false ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter, $args ),
+				],
+				[
+					'name'        => 'void_warranty',
+					'description' => 'Lift the 4KB cap on every partition with NO write lock — caller asserts single-writer. Propagates to partitions materialized later.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_void_warranty( $interpreter ),
+				],
+				[
+					'name'        => 'with_index',
+					'description' => 'Use a named line-formatter for every partition\'s companion index file.',
+					'args'        => [
+						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_with_index( $interpreter, $args ),
+				],
+			],
 			'registrations' => [ 'READY' ],
 			'has_target'    => false,
 		];

@@ -519,4 +519,81 @@ class TopicTest extends TestCase {
 		}
 		$this->assertSame( 2, $found, 'both lazily-materialized partitions accepted the oversize record' );
 	}
+
+	/**
+	 * A Topic is a fan of Partitions, so it must take the Partition verbs — and
+	 * propagate them to partitions it materializes LATER (they're created lazily,
+	 * on first write to that key). `allow_large_writes` and `void_warranty`
+	 * already existed as PHP methods but were unreachable: `commands` was empty,
+	 * so `cmd topic:config void_warranty` silently did nothing.
+	 */
+	public function test_void_warranty_verb_reaches_partitions_made_later(): void {
+		$t = new Topic_Node();
+		$t->name( 'zebra:topic' );
+		$t->arguments( "{$this->tmp}/zebra.p{partition} 4 65536 2 4 86400 0" );
+
+		$this->assertSame( 'ok', $this->verb( $t, 'void_warranty' ) );
+
+		// A >4KB write only lands if the cap was lifted on the partition the key
+		// routes to — which does not exist yet at the time of the verb.
+		$big = \str_repeat( 'x', 8000 );
+		$this->produce_into( $t, $big, '/late' );
+
+		$found = false;
+		for ( $i = 0; $i < 4; ++$i ) {
+			$path = "{$this->tmp}/zebra.p{$i}/0.log";
+			if ( \file_exists( $path ) ) {
+				$decoded = Message::unpacked( \rtrim( \file_get_contents( $path ), "\n" ) );
+				$found   = $big === $decoded[ Message::VALUE ];
+				break;
+			}
+		}
+		$this->assertTrue( $found, 'the >4KB write must land — the cap was lifted' );
+	}
+
+	public function test_allow_large_writes_verb_is_dispatchable(): void {
+		$t = new Topic_Node();
+		$t->name( 'zebra:topic' );
+		$t->arguments( "{$this->tmp}/zebra.p{partition} 2 65536 2 4 86400 0" );
+
+		$this->assertSame( 'ok', $this->verb( $t, 'allow_large_writes' ) );
+	}
+
+	/** with_index names a line-formatter for each partition's companion index. */
+	public function test_with_index_verb_names_a_formatter(): void {
+		\Newspack_Nodes\Formatters::register( 'zebra-index', static fn ( $m ): string => 'z' );
+		$t = new Topic_Node();
+		$t->name( 'zebra:topic' );
+		$t->arguments( "{$this->tmp}/zebra.p{partition} 2 65536 2 4 86400 0" );
+
+		$this->assertStringContainsString(
+			'unknown formatter',
+			$this->verb( $t, 'with_index', 'no-such-formatter' )
+		);
+		$this->assertSame(
+			'ok',
+			$this->verb( $t, 'with_index', 'zebra-index' )
+		);
+	}
+
+	/** The verbs round-trip: dump_config re-emits them, like Partition's does. */
+	public function test_dump_config_round_trips_the_verbs(): void {
+		\Newspack_Nodes\Formatters::register( 'zebra-index', static fn ( $m ): string => 'z' );
+		$t = new Topic_Node();
+		$t->name( 'zebra:topic' );
+		$t->arguments( "{$this->tmp}/zebra.p{partition} 2 65536 2 4 86400 0" );
+		$this->verb( $t, 'void_warranty' );
+		$this->verb( $t, 'with_index', 'zebra-index' );
+
+		$dump = $t->dump_config();
+
+		$this->assertStringContainsString( 'cmd zebra:topic:config void_warranty', $dump );
+		$this->assertStringContainsString( 'cmd zebra:topic:config with_index zebra-index', $dump );
+	}
+
+	/** Dispatch a verb through the node's own `{name}:config` interpreter. */
+	private function verb( Topic_Node $t, string $name, string $args = '' ): mixed {
+		$interpreter = $this->read_private( $t, 'interpreter' );
+		return $interpreter->dispatch( $name, $args );
+	}
 }

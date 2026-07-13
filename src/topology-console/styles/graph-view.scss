@@ -724,14 +724,23 @@
 // The hull inspector: a composition boundary, not a node.
 .topology-hull-panel {
 	&__actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin: 8px 0 10px;
+		margin: 8px 0 12px;
+	}
 
-		button {
-			flex: 0 0 auto;
-			white-space: nowrap;
+	&__open {
+		width: 100%;
+		padding: 5px 8px;
+		border: 1px solid var(--line-2);
+		border-radius: 2px;
+		background: var(--panel-2);
+		color: var(--ink-1);
+		font: inherit;
+		font-size: 11px;
+		cursor: pointer;
+
+		&:hover {
+			border-color: var(--cyan);
+			color: var(--cyan);
 		}
 	}
 

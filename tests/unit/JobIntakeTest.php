@@ -2,6 +2,8 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Job_Intake;
+use Newspack_Nodes\Node_Names;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -285,5 +287,44 @@ class JobIntakeTest extends TestCase {
 			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev_env ? '' : $prev_env ) );
 			\Newspack_Nodes\Config::reset();
 		}
+	}
+
+	/**
+	 * A leak the router shouted about once per job:
+	 *   `_router: WARNING: jobintake.<pid>-<n>.p0:heartbeat forgot to unregister`
+	 *
+	 * A locked Partition arms a `:heartbeat` Timer that REGISTERS with _router for
+	 * TIMER (only when the Event_Framework is draining — i.e. in a worker, which
+	 * is why no unit test caught it). Tearing the Partition down left that
+	 * registration behind, pointing at a name that no longer resolves, so every
+	 * tick the router walked a dangling entry and shouted. The Partition owns the
+	 * sibling; remove_node() must remove it (Timer::remove_node() unregisters).
+	 */
+	public function test_removing_a_locked_partition_unregisters_its_heartbeat(): void {
+		$router = new Router_Node();
+		$router->name( Node_Names::ROUTER );
+		// Arm the heartbeat the way a worker does: the EF is draining.
+		$ef       = \Newspack_Nodes\Event_Framework::instance();
+		$draining = new \ReflectionProperty( $ef, 'draining' );
+		$draining->setValue( $ef, true );
+
+		$p = new Partition_Node();
+		$p->name( 'zebra:partition' );
+		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$p->arguments( "{$this->tmp}/zebra.p0" );
+		$p->allow_large_writes();
+
+		$armed = \array_keys( $this->read_private( $router, 'registrations' )['TIMER'] ?? [] );
+		$this->assertContains( 'zebra:partition:heartbeat', $armed );
+
+		$p->remove_node();
+
+		$left = \array_keys( $this->read_private( $router, 'registrations' )['TIMER'] ?? [] );
+		$this->assertNotContains(
+			'zebra:partition:heartbeat',
+			$left,
+			'removing the Partition must unregister its heartbeat, not orphan it'
+		);
+		$draining->setValue( $ef, false );
 	}
 }

@@ -30,7 +30,7 @@ describe( 'Inspector — selected hull', () => {
 				{ from: 'request-builder', to: 'own-echo' },
 			],
 		},
-		includeTree: {
+		tree: {
 			performance: { 'request-builder': {}, 'flame-builder': {} },
 		},
 		hulls: [
@@ -66,6 +66,23 @@ describe( 'Inspector — selected hull', () => {
 		const iface = screen.getByTestId( 'hull-interface' ).textContent;
 		expect( iface ).toContain( 'own-echo' );
 		expect( iface ).toContain( 'request-builder' );
+	} );
+
+	it( 'does NOT duplicate the remove affordance — deletion lives in the tree', () => {
+		render( <Inspector { ...props } /> );
+		expect( screen.queryByTestId( 'hull-remove' ) ).toBeNull();
+	} );
+
+	it( 'lists what the topology itself includes, not its own name', () => {
+		render( <Inspector { ...props } /> );
+		const tree = screen.getByTestId( 'hull-includes' ).textContent;
+		expect( tree ).toContain( 'request-builder' );
+		expect( tree ).toContain( 'flame-builder' );
+	} );
+
+	it( 'omits the includes section entirely when it includes nothing', () => {
+		render( <Inspector { ...props } tree={ { performance: {} } } /> );
+		expect( screen.queryByTestId( 'hull-includes' ) ).toBeNull();
 	} );
 
 	it( 'offers to OPEN the included topology — the drill-in', () => {
