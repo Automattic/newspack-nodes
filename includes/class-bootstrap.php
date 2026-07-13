@@ -260,8 +260,9 @@ class Bootstrap {
 			$result = \wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor', [], true );
 			if ( \is_wp_error( $result ) ) {
 				Core::print_less_often(
+					'supervisor cron schedule failed: ',
 					\sprintf(
-						'supervisor cron schedule failed: code=%s message=%s schedule=newspack_nodes_minute',
+						'code=%s message=%s schedule=newspack_nodes_minute',
 						$result->get_error_code(),
 						$result->get_error_message()
 					)
@@ -333,8 +334,9 @@ class Bootstrap {
 		$filter = (string) \current_filter();
 		$reason = \is_wp_error( $pre ) ? $pre->get_error_code() . ': ' . $pre->get_error_message() : 'false';
 		Core::print_less_often(
+			'supervisor cron vetoed: ',
 			\sprintf(
-				'supervisor cron vetoed: filter=%s value=%s callbacks=[%s]',
+				'filter=%s value=%s callbacks=[%s]',
 				$filter,
 				$reason,
 				self::describe_hook_callbacks( $filter )
@@ -421,8 +423,9 @@ class Bootstrap {
 
 		$filter = (string) \current_filter();
 		Core::print_less_often(
+			'supervisor cron vetoed: ',
 			\sprintf(
-				'supervisor cron vetoed: filter=%s value=falsy callbacks=[%s]',
+				'filter=%s value=falsy callbacks=[%s]',
 				$filter,
 				self::describe_hook_callbacks( $filter )
 			)

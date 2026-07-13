@@ -68,7 +68,7 @@ class TopicProbe_Node extends Timer_Node {
 			try {
 				$record = $node->probe_stats();
 			} catch ( \Throwable $e ) {
-				$this->print_less_often( "TopicProbe skipped {$node->name()}: {$e->getMessage()}" );
+				$this->print_less_often( "TopicProbe skipped {$node->name()}: ", $e->getMessage() );
 				continue;
 			}
 			$message                       = Message::new_message();

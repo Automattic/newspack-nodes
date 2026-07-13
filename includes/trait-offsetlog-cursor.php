@@ -83,7 +83,7 @@ trait Offsetlog_Cursor {
 		try {
 			$message = Message::unpacked( \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->print_less_often( "ignoring unparseable offsetlog entry: {$e->getMessage()}" );
+			$this->print_less_often( 'ignoring unparseable offsetlog entry: ', $e->getMessage() );
 			return null;
 		}
 		$value = $message[ Message::VALUE ];

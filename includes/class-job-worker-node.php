@@ -130,13 +130,13 @@ class Job_Worker_Node extends Node {
 		$raw_handler = $entry['handler'] ?? '';
 		$handler     = (string) $raw_handler;
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
-			$this->print_less_often( "JobWorker: invalid handler name: {$handler}" );
+			$this->print_less_often( 'JobWorker: invalid handler name: ', $handler );
 			return;
 		}
 		$handlers = ( 'remote_job' === $kind ) ? $this->remote_handlers : $this->local_handlers;
 		if ( ! isset( $handlers[ $handler ] ) ) {
 			if ( 'job' === $kind ) {
-				$this->print_less_often( "no job handler registered for: {$handler}" );
+				$this->print_less_often( 'no job handler registered for: ', $handler );
 			}
 			return;
 		}
@@ -152,7 +152,7 @@ class Job_Worker_Node extends Node {
 				throw $e;
 			} catch ( \Throwable $e ) {
 				// before_job listener crash must not kill batch; swallow, skip.
-				$this->print_less_often( 'before_job listener threw: ' . $e->getMessage() );
+				$this->print_less_often( 'before_job listener threw: ', $e->getMessage() );
 			}
 			if ( $before_ok ) {
 				// Handler throw is poison: let it propagate to the Consumer.
@@ -163,7 +163,7 @@ class Job_Worker_Node extends Node {
 			try {
 				\do_action( 'newspack_nodes/job_worker/after_job', $handler );
 			} catch ( \Throwable $e ) {
-				$this->print_less_often( 'after_job listener threw: ' . $e->getMessage() );
+				$this->print_less_often( 'after_job listener threw: ', $e->getMessage() );
 			}
 		}
 		++$this->jobs_executed;

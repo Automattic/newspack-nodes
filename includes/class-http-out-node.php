@@ -121,14 +121,14 @@ class HTTP_Out_Node extends Timer_Node {
 		$url    = \is_array( $server ) ? \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) : '';
 		if ( '' === $url ) {
 			$dropped = \count( $batch );
-			$this->print_less_often( "no Vault entry / url; dropping {$dropped} message(s)" );
+			$this->print_less_often( 'no Vault entry / url; dropping ', (string) $dropped, ' message(s)' );
 			return;
 		}
 
 		// Refuse plaintext spoke when operator requires HTTPS; drop batch.
 		if ( Config::value( 'vault_require_ssl' ) && ! \str_starts_with( $url, 'https://' ) ) {
 			$dropped = \count( $batch );
-			$this->print_less_often( "vault_require_ssl set but url is not https; dropping {$dropped} message(s)" );
+			$this->print_less_often( 'vault_require_ssl set but url is not https; dropping ', (string) $dropped, ' message(s)' );
 			return;
 		}
 
@@ -230,12 +230,12 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$result = $info['result'] ?? \CURLE_OK;
 		if ( \CURLE_OK !== $result ) {
-			$this->print_less_often( "transport error {$result}" );
+			$this->print_less_often( 'transport error ', (string) $result );
 		} else {
 			$res = $this->read_result( $easy );
 			if ( 200 !== $res['code'] ) {
 				if ( 202 !== $res['code'] ) {
-					$this->print_less_often( "HTTP {$res['code']}" );
+					$this->print_less_often( 'HTTP ', (string) $res['code'] );
 				}
 			} elseif ( null !== $this->sink && '' !== $res['body'] ) {
 				foreach ( \explode( "\n", $res['body'] ) as $line ) {

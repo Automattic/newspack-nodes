@@ -1013,6 +1013,26 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'expected #1, got #5', $buf, 'the one emission carries the first payload (extra args are printed, not dropped)' );
 	}
 
+	public function test_drop_message_throttles_on_category_not_the_varying_address(): void {
+		// drop_message bakes the per-message FROM/TO into its audit line. If those
+		// widened the throttle key, a drop storm (same error + type, different
+		// senders) would emit one line per sender — loudest exactly when the storm
+		// is worst. The stable error+type category is what must key the throttle.
+		$buf = '';
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'router' );
+		foreach ( [ 'alpha/7', 'bravo/19', 'charlie/23' ] as $origin ) {
+			$msg                       = Message::new_message();
+			$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+			$msg[ Message::FROM ]      = $origin;
+			$msg[ Message::TO ]        = 'nowhere/' . $origin;
+			$n->drop_message( $msg, 'message not addressed' );
+		}
+		$this->assertSame( 1, \substr_count( $buf, 'message not addressed' ), 'a drop storm with varying senders collapses to one audit line under the stable error+type category' );
+		$this->assertStringContainsString( 'from: alpha/7', $buf, 'the one emission carries the first message\'s address payload' );
+	}
+
 	// ---- Schema_Reflection trait auto-wires the sibling :config interpreter (opt-in) -----
 
 	public function test_node_with_schema_handlers_auto_wires_config_interpreter(): void {

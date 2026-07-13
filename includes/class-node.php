@@ -163,7 +163,7 @@ class Node {
 		$from = Core::as_string( $message[ Message::FROM ] );
 		$new  = '' === $from ? $name : ( $name . '/' . $from );
 		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
-			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
+			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . ' bytes; dropping from: ', $new );
 			return false;
 		}
 		$message[ Message::FROM ] = $new;
@@ -274,8 +274,10 @@ class Node {
 			$parts[] = 'payload: ' . $value_str;
 		}
 
-		$line = \implode( ' ', $parts );
-		$this->print_less_often( $line );
+		// Key on $parts[0] (stable category); tail prints once, unkeyed.
+		$head = \array_shift( $parts );
+		$tail = empty( $parts ) ? '' : ' ' . \implode( ' ', $parts );
+		$this->print_less_often( $head, $tail );
 	}
 
 	/**
@@ -294,14 +296,11 @@ class Node {
 	public function print_less_often( string $text, string ...$extra ): void {
 		// Key on $text only; $extra is printed payload, not keyed.
 		$key = $this->log_midfix( $text );
-		$row = Core::$recent_log_timers[ $key ] ?? null;
-		if ( null !== $row ) {
-			++$row['count'];
-		} else {
+		$timestamp = Core::$recent_log_timers[ $key ] ?? null;
+		if ( null === $timestamp ) {
 			Core::stderr( $this->log_midfix( $text . \implode( '', $extra ) ) );
-			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
+			Core::$recent_log_timers[ $key ] = Core::$now;
 		}
-		Core::$recent_log_timers[ $key ] = $row;
 	}
 
 	/**

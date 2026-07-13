@@ -43,7 +43,7 @@ trait File_Writer {
 			if ( false === $written || 0 === $written ) {
 				if ( ++$attempts >= static::MAX_WRITE_ATTEMPTS ) {
 					$where = ( null === $context || '' === $context ) ? '' : " for $context";
-					$this->print_less_often( "write stalled after $attempts attempts$where" );
+					$this->print_less_often( 'write stalled after ', (string) $attempts, ' attempts', $where );
 					break;
 				}
 				continue;

@@ -36,7 +36,7 @@ class Tap_Node extends Tee_Node {
 			} catch ( Worker_Should_Stop $e ) {
 				throw $e; // cooperative stop is control flow
 			} catch ( \Throwable $e ) {
-				$this->print_less_often( "target $t threw: " . $e->getMessage() );  // tap error stays non-fatal
+				$this->print_less_often( "target $t threw: ", $e->getMessage() );  // tap error stays non-fatal
 			}
 		}
 		$message[ Message::TO ] = $to;

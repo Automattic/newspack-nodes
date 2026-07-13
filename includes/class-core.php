@@ -62,7 +62,7 @@ class Core {
 	/** @var array<string> */
 	public static array $recent_log = [];
 
-	/** @var array<string,array{timestamp:float,count:int}> */
+	/** @var array<string,float> Category → first-seen timestamp; pruned by prune_logs. */
 	public static array $recent_log_timers = [];
 
 	public static bool $shutting_down = false;
@@ -95,16 +95,16 @@ class Core {
 	public static function resolve_config_token( string $ns, string $key ): string {
 		$resolver = self::$config_resolvers[ $ns ] ?? null;
 		if ( null === $resolver ) {
-			self::print_less_often( "resolve_config_token: unknown namespace <{$ns}:{$key}>" );
+			self::print_less_often( 'resolve_config_token: unknown namespace ', "<{$ns}:{$key}>" );
 			return '';
 		}
 		$value = $resolver( $key );
 		if ( null === $value ) {
-			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned null" );
+			self::print_less_often( 'resolve_config_token: resolver returned null for ', "<{$ns}:{$key}>" );
 			return '';
 		}
 		if ( ! \is_scalar( $value ) ) {
-			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned non-scalar" );
+			self::print_less_often( 'resolve_config_token: resolver returned non-scalar for ', "<{$ns}:{$key}>" );
 			return '';
 		}
 		return (string) $value;
@@ -118,14 +118,11 @@ class Core {
 	 * collapses to one line instead of one per distinct value.
 	 */
 	public static function print_less_often( string $text, string ...$extra ): void {
-		$row = self::$recent_log_timers[ $text ] ?? null;
-		if ( null !== $row ) {
-			++$row['count'];
-		} else {
+		$timestamp = self::$recent_log_timers[ $text ] ?? null;
+		if ( null === $timestamp ) {
 			self::stderr( $text . \implode( '', $extra ) );
-			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
+			self::$recent_log_timers[ $text ] = self::$now;
 		}
-		self::$recent_log_timers[ $text ] = $row;
 	}
 
 	public static function stderr( string $text ): void {
@@ -397,8 +394,8 @@ class Core {
 
 	/** Evict rate-limiter entries older than the timeout so stale messages re-emit (per Router tick). */
 	public static function prune_logs(): void {
-		foreach ( self::$recent_log_timers as $key => $row ) {
-			if ( self::$now - $row['timestamp'] > self::$log_timeout ) {
+		foreach ( self::$recent_log_timers as $key => $timestamp ) {
+			if ( self::$now - $timestamp > self::$log_timeout ) {
 				unset( self::$recent_log_timers[ $key ] );
 			}
 		}

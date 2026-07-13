@@ -271,7 +271,7 @@ trait Buffered_Pump {
 			$this->crawl_skip_head = false;
 			if ( 'drop' === $this->skip_head_disposition ) {
 				// Marker: head already in the DLQ — drop, no second entry.
-				$this->print_less_often( "DROP [quarantined] {$this->name} at {$this->cursor_segment}:{$this->cursor_offset} — already dead-lettered" );
+				$this->print_less_often( "DROP [quarantined] {$this->name} at ", "{$this->cursor_segment}:{$this->cursor_offset}", ' — already dead-lettered' );
 			} else {
 				// Sacrifice head to DLQ, then quarantine-mark its start.
 				$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'crash' );
@@ -363,7 +363,9 @@ trait Buffered_Pump {
 			return;
 		}
 		$this->print_less_often(
-			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_segment )
+			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg ', self::MAX_LINE_BUFFER_SIZE ),
+			(string) $this->cursor_segment,
+			' - discarding'
 		);
 		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $this->cursor_segment, 'OFFSET', $this->cursor_offset, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
 		$this->cursor_offset += \strlen( $this->buffer ); // Don't re-read it.
