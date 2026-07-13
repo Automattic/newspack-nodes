@@ -4,7 +4,7 @@
  * variants, verb checkbox + arg inputs, and the delete-node button.
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, screen } from '@testing-library/react';
 import Inspector from '../Inspector';
 
 const baseProps = {
@@ -829,6 +829,33 @@ describe( 'Inspector (edit mode)', () => {
 		const select = container.querySelector( '.topology-edit-add-chip' );
 		fireEvent.change( select, { target: { value: 'b' } } );
 		expect( onConnect ).toHaveBeenCalledWith( 'tap_a', 'b' );
+	} );
+
+	it( 'renders a borrowed node read-only, with its breadcrumb and no delete', () => {
+		const node = {
+			id: 'shared-tee',
+			name: 'shared-tee',
+			class: 'Tee',
+			ctorArgs: [],
+			verbInvocations: [],
+			origin: [ 'performance' ],
+			via: [ 'performance', 'request-builder' ],
+		};
+		render(
+			<Inspector
+				selectedId="shared-tee"
+				parsed={ { nodes: [ node ], edges: [] } }
+				editMode
+				catalog={ [] }
+				onRemoveNode={ jest.fn() }
+			/>
+		);
+		expect(
+			screen.getByText( /via performance → request-builder/ )
+		).not.toBeNull();
+		expect(
+			screen.queryByRole( 'button', { name: /delete/i } )
+		).toBeNull();
 	} );
 
 	it( 'Tee TargetsField: shows an empty hint when there are no available targets', () => {

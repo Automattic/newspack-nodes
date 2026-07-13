@@ -6,6 +6,7 @@ import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
 import { CtorField } from './CtorField';
+import IncludeTree from './IncludeTree';
 import TimeTravelPanel from './TimeTravelPanel';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { processStats } from '../utils/processStats';
@@ -21,6 +22,11 @@ function isConsumerNode( node ) {
 // Hide config-edit affordances for the `_repl` anchor only (id + reserved).
 function isReserved( node ) {
 	return !! ( node && ( node.reserved || '_repl' === node.id ) );
+}
+
+// Borrowed via `include` — origin is a SET (a diamond-shared node has several).
+function isBorrowed( node ) {
+	return Array.isArray( node?.origin ) && node.origin.length > 0;
 }
 
 function FieldRow( { k, v, vClass } ) {
@@ -878,6 +884,69 @@ function RoutingChip( { label, virtual, onClear } ) {
 	);
 }
 
+// Borrowed node: config is immutable here — wiring stays editable on canvas.
+function LockedForm( {
+	node,
+	catalog,
+	tree,
+	includes,
+	onAddInclude,
+	onRemoveInclude,
+} ) {
+	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
+	const argumentSpecs = schema?.arguments || [];
+	const ctorArgs = absorbTrailingArgs(
+		node.ctorArgs || [],
+		argumentSpecs.length
+	);
+
+	return (
+		<aside className="topology-inspector">
+			<h2 className="topology-insp__title">{ node.id }</h2>
+			<div className="topology-insp__type">
+				{ node.class || '?' } · { __( 'BORROWED', 'newspack-nodes' ) }
+			</div>
+			{ node.via?.length > 0 && (
+				<div className="topology-insp__breadcrumb">
+					via { node.via.join( ' → ' ) }
+				</div>
+			) }
+			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
+				{ argumentSpecs.length === 0 && (
+					<div className="topology-edit-empty">
+						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
+					</div>
+				) }
+				{ argumentSpecs.map( ( spec, i ) => (
+					<div className="topology-edit-row" key={ spec.name }>
+						<label
+							htmlFor={ `topology-locked-ctor-${ spec.name }` }
+							className="topology-edit-row__label"
+						>
+							{ spec.name }
+						</label>
+						<input
+							id={ `topology-locked-ctor-${ spec.name }` }
+							type="text"
+							className="topology-edit-row__input"
+							value={ ctorArgs[ i ] ?? '' }
+							disabled
+							readOnly
+						/>
+					</div>
+				) ) }
+			</Section>
+			<IncludeTree
+				tree={ tree }
+				includes={ includes }
+				selectedOrigin={ node.origin }
+				onAdd={ onAddInclude }
+				onRemove={ onRemoveInclude }
+			/>
+		</aside>
+	);
+}
+
 function EditForm( {
 	node,
 	catalog,
@@ -1515,6 +1584,10 @@ export default function Inspector( {
 	onRemoveEdge,
 	onConnect,
 	composeTargets,
+	tree = {},
+	includes = [],
+	onAddInclude,
+	onRemoveInclude,
 } ) {
 	// Which value-taking verb's prompt modal is open, or null (shared modal).
 	const [ promptVerb, setPromptVerb ] = useState( null );
@@ -1534,6 +1607,13 @@ export default function Inspector( {
 							'newspack-nodes'
 						) }
 					</div>
+					<IncludeTree
+						tree={ tree }
+						includes={ includes }
+						selectedOrigin={ null }
+						onAdd={ onAddInclude }
+						onRemove={ onRemoveInclude }
+					/>
 				</aside>
 			);
 		}
@@ -1623,20 +1703,41 @@ export default function Inspector( {
 	}
 
 	if ( editMode ) {
+		if ( isBorrowed( node ) ) {
+			return (
+				<LockedForm
+					node={ node }
+					catalog={ catalog }
+					tree={ tree }
+					includes={ includes }
+					onAddInclude={ onAddInclude }
+					onRemoveInclude={ onRemoveInclude }
+				/>
+			);
+		}
 		return (
-			<EditForm
-				node={ node }
-				catalog={ catalog }
-				formatters={ formatters }
-				vaults={ vaults }
-				parsed={ parsed }
-				onUpdateArgs={ onUpdateArgs }
-				onUpdateVerbs={ onUpdateVerbs }
-				onRemoveNode={ onRemoveNode }
-				onRenameNode={ onRenameNode }
-				onRemoveEdge={ onRemoveEdge }
-				onConnect={ onConnect }
-			/>
+			<>
+				<EditForm
+					node={ node }
+					catalog={ catalog }
+					formatters={ formatters }
+					vaults={ vaults }
+					parsed={ parsed }
+					onUpdateArgs={ onUpdateArgs }
+					onUpdateVerbs={ onUpdateVerbs }
+					onRemoveNode={ onRemoveNode }
+					onRenameNode={ onRenameNode }
+					onRemoveEdge={ onRemoveEdge }
+					onConnect={ onConnect }
+				/>
+				<IncludeTree
+					tree={ tree }
+					includes={ includes }
+					selectedOrigin={ null }
+					onAdd={ onAddInclude }
+					onRemove={ onRemoveInclude }
+				/>
+			</>
 		);
 	}
 

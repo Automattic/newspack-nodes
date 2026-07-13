@@ -1107,6 +1107,14 @@
 	gap: 8px;
 }
 
+// Provenance trail on a selected borrowed node (task 13): `via a → b`.
+.topology-insp__breadcrumb {
+	font: 400 10px var(--font-mono);
+	color: var(--ink-3);
+	margin: -8px 0 14px;
+	letter-spacing: 0.04em;
+}
+
 .topology-insp__led {
 	display: inline-block;
 	width: 6px;
@@ -1816,6 +1824,43 @@
 	color: var(--ink-4);
 	font-style: italic;
 	padding: 4px 0;
+}
+
+// IncludeTree (task 13): top-level rows are this file's declared includes
+// (remove/add reuse the .topology-edit-verb__remove/__add classes above);
+// deeper rows are read-only and nest via the child list's own indent.
+.topology-include-tree {
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--ink-4);
+}
+
+.topology-include-tree__list,
+.topology-include-tree__children {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.topology-include-tree__children {
+	padding-left: 14px;
+	margin-top: 2px;
+}
+
+.topology-include-tree__item {
+	padding: 3px 0;
+}
+
+.topology-include-tree__row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.topology-include-tree__name {
+	font: 400 11px var(--font-mono);
+	color: var(--ink-2);
 }
 
 // =====================================================================
