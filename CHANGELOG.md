@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`getTextColor()` in the shared format utils picks a badge's ink from its background luminance.** Dashboards that paint a chip with a hook-category color hardcoded white text, but 40 of the 63 shipped category colors are pale — `#CDDC39` (Options & Settings) sits at 1.5:1 against white and `#BDBDBD` (Sanitization/Localization) at 1.9:1, i.e. unreadable. The new util returns `#1e1e1e` or `#ffffff`, whichever wins on WCAG relative luminance, so operator-customized colors stay legible too.
+- **`hexToRgba()` accepts 3-digit hex.** It sliced 6 digits unconditionally, so the shipped `#36F` (Newspack category) produced `rgba(NaN, NaN, NaN, …)` and the row tint silently dropped.
+
 ## [0.40.1] - 2026-07-13
 
 ### Fixed
