@@ -26,6 +26,31 @@ class Shell_Node extends Node {
 	/** Backslash-continuation accumulator. */
 	private string $continuation = '';
 
+	/**
+	 * Resolved include paths already evaluated within the CURRENT top-level
+	 * script (`#pragma once`) — scoped per fill() entered with an empty
+	 * include_stack, not per Shell lifetime, so a long-lived REPL re-running
+	 * `include foo` after editing foo.tsl isn't a silent no-op.
+	 *
+	 * @var array<string,true>
+	 */
+	private array $included = [];
+
+	/**
+	 * Resolved include paths on the current ancestor chain — a repeat is a cycle.
+	 *
+	 * @var list<string>
+	 */
+	private array $include_stack = [];
+
+	/**
+	 * Cycle handling: REPLs log-and-continue (safe default) so a typo'd
+	 * include doesn't kill the session; Topology_Loader turns this on so a
+	 * cyclic .tsl fails loud at worker boot rather than booting a half-built
+	 * graph. Mirrors the want_reply() setter shape.
+	 */
+	private bool $fatal_on_cycle = false;
+
 	/** When true, every parsed line dumps its interpolated/tokenized form to $output_stream. */
 	private bool $show_parse = false;
 
@@ -63,6 +88,10 @@ class Shell_Node extends Node {
 		}
 		if ( Message::TM_BYTESTREAM !== $type || ! \is_string( $value ) ) {
 			throw new \RuntimeException( 'Shell::fill requires a TM_BYTESTREAM message with a string VALUE' );
+		}
+		if ( empty( $this->include_stack ) ) {
+			// A fresh top-level script (not a recursive include) — new memo.
+			$this->included = [];
 		}
 		foreach ( $this->split_statements( $value ) as $statement ) {
 			$parsed = $this->parse( $statement );
@@ -419,22 +448,57 @@ class Shell_Node extends Node {
 	 * Read & parse a file, filling each non-trivial line through the sink as if typed.
 	 */
 	private function include_file( string $file ): void {
-		if ( '' === $file || ! \is_file( $file ) ) {
+		$path = $this->resolve_include( $file );
+		if ( null === $path ) {
 			$this->print_less_often( 'Shell: include: file not found: ', $file );
+			return;
+		}
+		$real = \realpath( $path );
+		$key  = false === $real ? $path : $real;
+		if ( \in_array( $key, $this->include_stack, true ) ) {
+			$chain = \implode(
+				' -> ',
+				\array_map( static fn ( string $p ): string => \basename( $p ), [ ...$this->include_stack, $key ] )
+			);
+			if ( $this->fatal_on_cycle ) {
+				throw new \RuntimeException( \esc_html( "topology include cycle: $chain" ) );
+			}
+			$this->print_less_often( 'Shell: include: cycle: ', $chain );
+			return;
+		}
+		if ( isset( $this->included[ $key ] ) ) {
 			return;
 		}
 		// Topology files live alongside the plugin, not in WP-managed storage.
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		$fh = @\fopen( $file, 'r' );
+		$fh = @\fopen( $path, 'r' );
 		if ( false === $fh ) {
-			$this->print_less_often( 'Shell: include: cannot open: ', $file );
+			$this->print_less_often( 'Shell: include: cannot open: ', $path );
 			return;
 		}
-		while ( ( $line = \fgets( $fh ) ) !== false ) {
-			$line = \rtrim( $line, "\r\n" );
-			$this->eval_script( $line );
+		$this->included[ $key ] = true;
+		$this->include_stack[] = $key;
+		try {
+			while ( ( $line = \fgets( $fh ) ) !== false ) {
+				$line = \rtrim( $line, "\r\n" );
+				$this->eval_script( $line );
+			}
+		} finally {
+			\array_pop( $this->include_stack );
+			\fclose( $fh );
 		}
-		\fclose( $fh );
+	}
+
+	/** A topology NAME resolves through the registry; a literal path is taken as-is. */
+	private function resolve_include( string $file ): ?string {
+		if ( '' === $file ) {
+			return null;
+		}
+		$resolved = Topology_Registry::resolve( $file );
+		if ( null !== $resolved ) {
+			return $resolved;
+		}
+		return \is_file( $file ) ? $file : null;
 	}
 
 	/**
@@ -509,6 +573,14 @@ class Shell_Node extends Node {
 			$this->want_reply = $value;
 		}
 		return $this->want_reply;
+	}
+
+	/** Accessor: interactive sessions log-and-continue on a cycle; topology loads fail loud. */
+	public function fatal_on_cycle( ?bool $value = null ): bool {
+		if ( null !== $value ) {
+			$this->fatal_on_cycle = $value;
+		}
+		return $this->fatal_on_cycle;
 	}
 
 	/**

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **TSL `include <topology>` resolves through the topology registry.** `include` was a Shell builtin that took a file path; it now resolves a topology NAME the same way `Topology_Loader` does (user dir wins, then each stock dir), so a consumer plugin can compose the substrate's topology instead of copy-pasting a shadowing `.tsl` that drifts. A literal path still works for the REPL. Includes are memoized per top-level script (`#pragma once`), so two sibling includes reaching a shared base expand it exactly once — while a REPL that re-types `include foo` still re-runs the file. A cycle fails loud at worker boot (`Topology_Loader` sets the new `Shell_Node::fatal_on_cycle()`) but only logs in an interactive session, so a typo can't kill a live `wp nodes cli`.
+
 ### Fixed
 
 - **`getTextColor()` in the shared format utils picks a badge's ink from its background luminance.** Dashboards that paint a chip with a hook-category color hardcoded white text, but 40 of the 63 shipped category colors are pale — `#CDDC39` (Options & Settings) sits at 1.5:1 against white and `#BDBDBD` (Sanitization/Localization) at 1.9:1, i.e. unreadable. The new util returns `#1e1e1e` or `#ffffff`, whichever wins on WCAG relative luminance, so operator-customized colors stay legible too.
