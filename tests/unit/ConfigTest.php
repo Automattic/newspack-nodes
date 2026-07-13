@@ -25,6 +25,12 @@ class ConfigTest extends TestCase {
 	/** Saved snapshot of `Config::$allowed_config_dirs` so tests can mutate freely. */
 	private array $saved_allowed_dirs = [];
 
+	/** Saved snapshot of `Config::$registered_keys` (a process-wide static). */
+	private array $saved_registered_keys = [];
+
+	/** Stand-in consumer plugin's DECLARE_ACTION callback; removed in tearDown. */
+	private \Closure $consumer_declaration;
+
 	protected function setUp(): void {
 		parent::setUp();
 		Config::reset();
@@ -37,6 +43,10 @@ class ConfigTest extends TestCase {
 		// Snapshot the allowlist; allow_dir() restores from this in tearDown.
 		$ref                      = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
 		$this->saved_allowed_dirs = $ref->getValue();
+		// Snapshot the declared-key registry; simulate_unwired_request() empties it.
+		$keys                        = new \ReflectionProperty( Config::class, 'registered_keys' );
+		$this->saved_registered_keys = $keys->getValue();
+		$this->consumer_declaration  = static fn () => Config::register_keys( [ 'acme_consumer_key' ] );
 	}
 
 	protected function tearDown(): void {
@@ -47,6 +57,10 @@ class ConfigTest extends TestCase {
 		// Restore allowed_config_dirs in case allow_dir() was used.
 		$ref = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
 		$ref->setValue( null, $this->saved_allowed_dirs );
+		\remove_action( Config::DECLARE_ACTION, $this->consumer_declaration );
+		// Restore the declared-key registry (emptied by simulate_unwired_request).
+		$keys = new \ReflectionProperty( Config::class, 'registered_keys' );
+		$keys->setValue( null, $this->saved_registered_keys );
 		parent::tearDown();
 	}
 
@@ -185,6 +199,97 @@ class ConfigTest extends TestCase {
 
 	public function test_is_declared_false_for_unregistered_key(): void {
 		$this->assertFalse( Config::is_declared( 'is_declared_never_registered_key' ) );
+	}
+
+	public function test_is_declared_self_declares_own_keys_without_runtime_wiring(): void {
+		// A frontend page view never runs Bootstrap::ensure_runtime_wired(), so
+		// declaration cannot hang off it: Config derives its own key set on first
+		// read. Both halves — Settings_Schema overlay keys (num_partitions) AND
+		// config-file-only keys (vault_verify_ssl) — must be declared.
+		$this->simulate_unwired_request();
+		$this->assertTrue( Config::is_declared( 'num_partitions' ) );
+		$this->assertTrue( Config::is_declared( 'vault_verify_ssl' ) );
+	}
+
+	public function test_value_reads_own_key_without_runtime_wiring(): void {
+		// The staging fatal: Log_Manager's firehose init reads num_partitions on a
+		// frontend request and value() threw "unknown config key". 7 is distinct
+		// from the shipped default (1), so a config that silently ignores the
+		// option overlay fails this too.
+		$this->allow_dir( $this->temp_dir );
+		$conf = $this->temp_dir . '/unwired.php';
+		\file_put_contents( $conf, "<?php return [ 'num_partitions' => 7 ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		$this->simulate_unwired_request();
+		$this->assertSame( 7, Config::value( 'num_partitions' ) );
+	}
+
+	public function test_declare_config_keys_action_pulls_consumer_declarations(): void {
+		// A consumer plugin can only declare its keys once the substrate class is
+		// loadable — which for a plugin sorting before newspack-nodes is AFTER its
+		// own file scope. So declaration is PULLED: whenever the substrate derives
+		// its declared set it fires DECLARE_ACTION, and consumers declare there.
+		// Without the pull, a consumer key read before the consumer's own boot hook
+		// throws "unknown config key" — the staging fatal, one layer up.
+		\add_action( Config::DECLARE_ACTION, $this->consumer_declaration );
+		$this->simulate_unwired_request();
+		$this->assertTrue( Config::is_declared( 'acme_consumer_key' ) );
+	}
+
+	public function test_declare_action_pulls_a_consumer_that_hooks_after_the_first_read(): void {
+		// Load order: newspack-nodes' own file scope reads a key on an admin request
+		// (is_admin → ensure_runtime_wired → init_memcached → value('memcache_servers')),
+		// which happens BEFORE a consumer sorting after it (pyrobase) has hooked
+		// DECLARE_ACTION. A one-shot pull would lock that consumer's keys out for the
+		// whole request, so a miss must re-pull before it becomes a throw.
+		$this->simulate_unwired_request();
+		Config::is_declared( 'memcache_servers' );
+		\add_action( Config::DECLARE_ACTION, $this->consumer_declaration );
+		$this->assertTrue( Config::is_declared( 'acme_consumer_key' ) );
+	}
+
+	public function test_a_declaring_consumer_that_reads_an_unknown_key_cannot_recurse(): void {
+		// DECLARE_ACTION runs third-party callbacks from inside a config read, and a
+		// miss re-pulls — so a callback that itself reads an unknown key would re-enter
+		// the derive, re-fire the action, and recurse without bound (stack overflow
+		// instead of the clean "unknown config key" throw). Declaration is re-entrant-
+		// safe: at most the initial pull plus one re-pull, however deep the callback goes.
+		$calls    = 0;
+		$reentrant = function () use ( &$calls ): void {
+			++$calls;
+			if ( $calls > 5 ) {
+				return; // Bail so an unbounded regression fails the assert, not the runner.
+			}
+			Config::is_declared( 'key_the_callback_asks_about' );
+		};
+		\add_action( Config::DECLARE_ACTION, $reentrant );
+		$this->simulate_unwired_request();
+
+		$this->assertFalse( Config::is_declared( 'a_key_nobody_declares' ) );
+		$this->assertSame( 2, $calls, 'initial pull + one re-pull on the miss' );
+
+		\remove_action( Config::DECLARE_ACTION, $reentrant );
+	}
+
+	public function test_reset_keeps_declarations_when_the_consumer_hook_is_gone(): void {
+		// Declarations are MONOTONE: reset() re-derives additively and never empties
+		// the registry. Pruning it would make the whole declared set hostage to the
+		// DECLARE_ACTION callbacks still being registered at re-derive time — a
+		// consumer whose hook was dropped (test isolation wipes $wp_actions; prod
+		// code can remove_action) would have every one of its keys throw, i.e. a
+		// 500 on every request, to buy the pruning of a key nobody reads.
+		\add_action( Config::DECLARE_ACTION, $this->consumer_declaration );
+		$this->assertTrue( Config::is_declared( 'acme_consumer_key' ) );
+		\remove_action( Config::DECLARE_ACTION, $this->consumer_declaration );
+		Config::reset();
+		$this->assertTrue( Config::is_declared( 'acme_consumer_key' ) );
+	}
+
+	/** Empty the declared-key registry: a fresh frontend process, nothing wired. */
+	private function simulate_unwired_request(): void {
+		$ref = new \ReflectionProperty( Config::class, 'registered_keys' );
+		$ref->setValue( null, [] );
+		Config::reset();
 	}
 
 	// ── File-overlay env override ──────────────────────────────────────────

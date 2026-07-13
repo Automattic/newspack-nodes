@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-07-13
+
+### Fixed
+
+- **Config-key declaration is PULLED on first read; a frontend request no longer fatals on a substrate config read.** `Bootstrap::ensure_runtime_wired()` used to be the only thing that called `Config::register_keys()`, but it deliberately runs on admin / REST / WP-CLI / supervisor entry points ONLY — never on a plain frontend page view. Anything reading a substrate key on the frontend therefore hit an empty registry and got `RuntimeException: unknown config key '<key>'` from the fail-loud `value()` gate: a hard 500 on every logged frontend request on any site where the event logger's firehose starts (`Log_Manager::init_firehose()` reads `num_partitions`, `segment_size`, `min/max_segments`, `min/max_lifetime`). It only escaped local dev because frontend logging is off for anonymous requests there.
+
+  `Config::is_declared()` now derives the declared set itself on first call — the substrate's own keys (Settings_Schema overlay keys ∪ config-file default keys), then the new `Config::DECLARE_ACTION` (`newspack_nodes/declare_config_keys`) so every consumer plugin declares its own. Consumers hook that action at plugin-file scope instead of pushing their keys at boot, which is what makes the keys exist by construction whenever anyone asks — the push had no safe moment: this plugin's wiring skips the frontend, and a consumer sorting alphabetically before `newspack-nodes` (event-logger-nodes) can't touch this class at its own file scope at all. `ensure_runtime_wired()` no longer declares anything.
+
+  Two properties worth knowing: a **miss re-pulls** before it answers false, so a consumer that loads after the first read (this plugin's own file scope reads `memcache_servers` on an admin request) still gets its keys in; and the registry is **monotone** — `reset()` re-derives additively and never prunes, because a declared set that could be emptied would be hostage to every `DECLARE_ACTION` callback still being registered, turning one dropped hook into a 500 on every request. Costs nothing on the hot path: `load_config()` already builds both substrate halves on any request that reads config.
+
 ## [0.40.0] - 2026-07-13
 
 ### Changed
