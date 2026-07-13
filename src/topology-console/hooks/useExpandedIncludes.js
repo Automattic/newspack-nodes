@@ -43,6 +43,61 @@ export function __resetExpandedIncludesCacheForTests() {
 	cache.clear();
 }
 
+/**
+ * One-off `topologies expand` round trip for a topology-open/edit-entry load
+ * (applyLoadedBaseline needs the composed baseline BEFORE the draft is set,
+ * so it can subtract `disconnects`; useExpandedIncludes only reacts AFTER).
+ *
+ * Shares useExpandedIncludes' module-level cache: a cache hit here skips the
+ * network round trip, and a fresh fetch primes the cache so the reactive
+ * useExpandedIncludes pass that follows (once the includes land in the
+ * draft) is itself a cache hit — one `topologies expand` per open, not two.
+ *
+ * @param {string[]} includes Directly-declared includes to expand.
+ * @return {Promise<Object>} `{ nodes, edges, tree }`.
+ */
+/**
+ * Seed the cache with an expansion that arrived some other way (`topologies get`
+ * ships one with the file), so the reactive pass below is a cache hit.
+ *
+ * @param {string[]} includes Directly-declared includes the expansion covers.
+ * @param {Object}   baseline `{ nodes, edges, tree }`.
+ */
+export function primeExpandedIncludes( includes, baseline ) {
+	if ( ! includes || ! includes.length || ! baseline ) {
+		return;
+	}
+	cache.set( includes.join( ' ' ), {
+		nodes: baseline.nodes || [],
+		edges: baseline.edges || [],
+		tree: baseline.tree || {},
+	} );
+}
+
+export async function fetchExpandedIncludes( includes ) {
+	if ( ! includes || ! includes.length ) {
+		return EMPTY;
+	}
+	const key = includes.join( ' ' );
+	const cached = cache.get( key );
+	if ( cached ) {
+		return cached;
+	}
+	const message = await getCommandClient().send( {
+		to: 'topologies',
+		verb: 'expand',
+		args: key,
+	} );
+	const value = unwrapCommandResponse( message ) || {};
+	const baseline = {
+		nodes: value.nodes || [],
+		edges: value.edges || [],
+		tree: value.tree || {},
+	};
+	cache.set( key, baseline );
+	return baseline;
+}
+
 export function useExpandedIncludes( includes ) {
 	const key = ( includes || [] ).join( ' ' );
 	const [ state, setState ] = useState( {

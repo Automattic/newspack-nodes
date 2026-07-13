@@ -54,6 +54,31 @@ describe( 'useCanonicalNodes', () => {
 		expect( result.current.has( 'beta' ) ).toBe( true );
 	} );
 
+	it( 'counts a BORROWED node as canonical, not as runtime drift', async () => {
+		// combined.tsl owns one node and `include`s the rest. Comparing live nodes
+		// against the raw file alone paints every borrowed node as drift — a
+		// "temporary node" the operator never added.
+		send.mockResolvedValue( {
+			tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
+			includes: [ 'zebra-base' ],
+			expanded: {
+				nodes: [
+					{ name: 'zebra:consumer', class: 'Consumer', args: [] },
+					{ name: 'zebra:partition', class: 'Partition', args: [] },
+				],
+				edges: [],
+				tree: { 'zebra-base': {} },
+			},
+		} );
+
+		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
+
+		await waitFor( () => expect( result.current.size ).toBe( 3 ) );
+		expect( result.current.has( 'wombat:tee' ) ).toBe( true );
+		expect( result.current.has( 'zebra:consumer' ) ).toBe( true );
+		expect( result.current.has( 'zebra:partition' ) ).toBe( true );
+	} );
+
 	it( 'returns an empty set (and does not fetch) when there is no topology', () => {
 		const { result } = renderHook( () => useCanonicalNodes( '' ) );
 		expect( result.current.size ).toBe( 0 );

@@ -10,7 +10,7 @@
  * live SseIn — `lastConnector` is its composed SseIn child (`{reader}:sse-in`).
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
 import { RouterNode } from '../../../runtime/router-node';
 import { CommandInterpreterNode } from '../../../runtime/command-interpreter-node';
@@ -810,5 +810,103 @@ describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
 		act( () => rerender( rerenderProps( false ) ) );
 		expect( lastConnector.closed ).toBe( true );
 		expect( result.current.ssePid ).toBeNull();
+	} );
+} );
+
+// A well-formed command reply the real unwrapCommandResponse accepts.
+const reply = ( payload ) => {
+	const { newMessage } = require( '../../../runtime/message' );
+	const { VALUE } = require( '../../../runtime/message' );
+	const m = newMessage();
+	m[ VALUE ] = { name: 'verb', payload };
+	return m;
+};
+
+describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
+	it( 'seeds the EXPANDED graph, so an include-only topology paints in one shot', async () => {
+		// combined.tsl owns one node and borrows the rest. Seeding the parsed file
+		// alone paints that sliver + _repl, and everything else pops in on the next
+		// dump_metadata — the staged paint. The seed must expand its includes.
+		mockSend.mockImplementation( ( msg ) => {
+			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						name: 'demo',
+						source: 'user',
+						tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
+					} )
+				);
+			}
+			if ( 'topologies' === msg?.to && 'expand' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						nodes: [
+							{
+								name: 'zebra:consumer',
+								class: 'Consumer',
+								args: [],
+								origin: [ 'zebra-base' ],
+								via: [ 'zebra-base' ],
+							},
+						],
+						edges: [],
+						tree: { 'zebra-base': {} },
+					} )
+				);
+			}
+			return Promise.resolve( null );
+		} );
+
+		renderGraph();
+
+		await waitFor( () => {
+			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			const ids = ( seeded?.nodes || [] ).map( ( n ) => n.id );
+			expect( ids ).toContain( 'wombat:tee' );
+			expect( ids ).toContain( 'zebra:consumer' );
+		} );
+	} );
+
+	it( 'uses the expansion `get` ships, without a second round trip', async () => {
+		// Two SEQUENTIAL round trips before the first paint is what made an
+		// include-based topology feel slow next to a flat one.
+		mockSend.mockImplementation( ( msg ) => {
+			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						name: 'demo',
+						source: 'user',
+						tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
+						includes: [ 'zebra-base' ],
+						expanded: {
+							nodes: [
+								{
+									name: 'zebra:consumer',
+									class: 'Consumer',
+									args: [],
+									origin: [ 'zebra-base' ],
+									via: [ 'zebra-base' ],
+								},
+							],
+							edges: [],
+							tree: { 'zebra-base': {} },
+						},
+					} )
+				);
+			}
+			return Promise.resolve( null );
+		} );
+
+		renderGraph();
+
+		await waitFor( () => {
+			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			expect( ( seeded?.nodes || [] ).map( ( n ) => n.id ) ).toContain(
+				'zebra:consumer'
+			);
+		} );
+		expect(
+			mockSend.mock.calls.filter( ( c ) => 'expand' === c[ 0 ]?.verb )
+		).toHaveLength( 0 );
 	} );
 } );

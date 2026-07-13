@@ -963,4 +963,37 @@ class TopologiesCITest extends TestCase {
 		$this->assertStringContainsString( 'no-such-topology', $result );
 		$this->assertFileDoesNotExist( "{$this->user}/broken-include.tsl" );
 	}
+
+	/**
+	 * The console seeds its canvas from `get` BEFORE dump_metadata arrives. A
+	 * topology that only `include`s others owns few nodes of its own, so seeding
+	 * the parsed file alone paints a sliver and the rest pops in on the next poll.
+	 * `get` therefore ships the COMPOSED graph with the file — one round trip, not
+	 * two (get, then expand), which is what made an include-based topology feel
+	 * slow to load next to a flat one.
+	 */
+	public function test_get_ships_the_composed_graph_with_the_file(): void {
+		\file_put_contents( "{$this->stock}/zebra-base.tsl", "make_node Tee zebra:tee\n" );
+		\file_put_contents(
+			"{$this->stock}/zebra-top.tsl",
+			"include zebra-base\nmake_node Echo wombat-echo\n"
+		);
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'zebra-top' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( [ 'zebra-base' ], $result['includes'] );
+		$names = \array_column( $result['expanded']['nodes'], 'name' );
+		$this->assertSame( [ 'zebra:tee' ], $names, 'the BORROWED nodes ride along' );
+	}
+
+	/** A topology with no includes ships an empty expansion, not a missing key. */
+	public function test_get_ships_an_empty_expansion_when_there_are_no_includes(): void {
+		\file_put_contents( "{$this->stock}/flat.tsl", "make_node Echo wombat-echo\n" );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'flat' );
+
+		$this->assertSame( [], $result['includes'] );
+		$this->assertSame( [], $result['expanded']['nodes'] );
+	}
 }
