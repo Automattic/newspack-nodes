@@ -355,11 +355,18 @@ class Partition_Node extends Timer_Node {
 	public function remove_node(): void {
 		$this->flush(); // deterministic shutdown flush (cleanup_all_nodes), not GC/__destruct
 		$this->close_handle();
+		// Timer::remove_node() unregisters it from _router's TIMER list.
+		if ( null !== $this->heartbeat_timer ) {
+			$this->heartbeat_timer->remove_node();
+			$this->heartbeat_timer = null;
+		}
 		if ( null !== $this->write_lock ) {
 			// Release only a lock we hold — a debounced peer may own it now.
 			if ( $this->lock_held ) {
 				$this->write_lock->release();
 			}
+			// Unregister the sibling: a later Partition may reuse the name.
+			$this->write_lock->remove_node();
 			$this->write_lock = null;
 		}
 		parent::remove_node();
@@ -1095,6 +1102,23 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Set the companion-index formatter BY NAME — the round-trippable form, and
+	 * the one a Topic propagates to each partition it materializes.
+	 *
+	 * @param string $formatter_name Registered formatter name.
+	 * @return bool False when no such formatter is registered.
+	 */
+	public function with_index_named( string $formatter_name ): bool {
+		$callable = Formatters::resolve( $formatter_name );
+		if ( null === $callable ) {
+			return false;
+		}
+		$this->with_index( $callable );
+		$this->index_formatter_name = $formatter_name;
+		return true;
+	}
+
+	/**
 	 * Emit the base config plus this Partition's verb-config, from STATE — the
 	 * `allow_large_writes` flag and the `with_index` formatter name. (The index
 	 * callback itself can't be dumped; the formatter name is its round-trip form.)
@@ -1229,8 +1253,7 @@ class Partition_Node extends Timer_Node {
 		}
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->with_index( $callable );
-		$patron->index_formatter_name = $args;
+		$patron->with_index_named( $args );
 		return 'ok';
 	}
 

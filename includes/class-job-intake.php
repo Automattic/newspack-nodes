@@ -220,11 +220,7 @@ class Job_Intake {
 	public function close(): void {
 		foreach ( $this->partitions as $partition ) {
 			$partition->flush();
-			$base = $partition->name();
-			if ( '' !== $base ) {
-				Core::unregister_node( "{$base}:lock" );
-				Core::unregister_node( "{$base}:heartbeat" );
-			}
+			// remove_node() owns the siblings (lock + heartbeat).
 			$partition->remove_node();
 		}
 		$this->partitions = [];

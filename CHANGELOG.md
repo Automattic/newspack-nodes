@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Topic` takes the Partition verbs: `allow_large_writes`, `void_warranty`, `with_index` [146].** The first two already existed as PHP methods but were unreachable — `Topic`'s `commands` was empty, so `cmd topic:config void_warranty` silently did nothing and the node never even wired a `{name}:config` interpreter. All three propagate to partitions the Topic materializes LATER (they're created lazily, on first write to a key), and `dump_config()` round-trips them like `Partition`'s does.
+
+### Fixed
+
+- **A locked `Partition` leaked its `:heartbeat` Timer's router registration.** The Timer registers with `_router` for TIMER (only while the Event_Framework is draining — i.e. inside a worker, which is why no unit test caught it). Tearing the Partition down dropped the node from `Core` but left that registration pointing at a name that no longer resolved, so every tick the router walked a dangling entry: `_router: WARNING: jobintake.<pid>-<n>.p0:heartbeat forgot to unregister`, once per job (1,007 of them in the live log). `Partition::remove_node()` now removes the heartbeat AND the `:lock` sibling — the latter matters because `Job_Intake` names partitions with `pid + spl_object_id`, and PHP recycles `spl_object_id`, so a stale lock registration blocked the next `Job_Intake` from claiming its own name.
+
+### Added
+
 - **Hulls for NESTED includes, not just the directly-declared ones.** `expand()` now reports the node set of every topology in the tree at any depth, so `combined` draws `request-builder`, `flame-builder`, `job-router` AND `job-intake` — the last nested inside `job-router`. Outer hulls paint first, so a nested one lands on top of the parent that brings it.
 - **Hull interaction.** Hovering a hull lights it and dims every node that isn't a member (on `combined`, hovering `job-intake` dims 14 of 16). Clicking a hull's FILL selects it — clicking a node inside it still selects the node, so the hull is never a scrim you have to fight past. Dragging a hull moves every member by one delta, so a borrowed cluster keeps its shape.
 - **The hull inspector.** A hull is a composition boundary, not a node, so the panel shows what the canvas deliberately can't: the recursion we flattened out of the drawing (its include-tree), the nodes it provides, the ones an unrelated include ALSO provides (the diamond — visible on canvas only as an overlap; an ancestor or descendant sharing a node is containment, not sharing, and isn't named), and the edges crossing the boundary — the borrowed subsystem's interface. The action is **Open `<topology>`.tsl**: the hull is the handle for drilling in, and drilling in with an edited draft asks before dropping it, exactly like leaving edit mode.

@@ -75,7 +75,6 @@ export default function HullPanel( {
 	parsed = { nodes: [], edges: [] },
 	includeTree = {},
 	onOpenTopology,
-	onRemoveInclude,
 } ) {
 	const hull = hulls.find( ( h ) => h.include === include );
 	const members = new Set( hull?.nodeIds || [] );
@@ -103,6 +102,10 @@ export default function HullPanel( {
 
 	const { inbound, outbound } = boundaryEdges( parsed.edges, members );
 
+	// What THIS topology includes — its own name would just restate the title.
+	const subtree = includeTree[ include ] || {};
+	const children = Object.keys( subtree );
+
 	return (
 		<aside className="topology-inspector topology-hull-panel">
 			<h3 className="topology-insp__title">{ include }</h3>
@@ -119,7 +122,7 @@ export default function HullPanel( {
 					<button
 						type="button"
 						data-testid="hull-open"
-						className="topology-edit-verb__add"
+						className="topology-hull-panel__open"
 						onClick={ () => onOpenTopology( include ) }
 					>
 						{ sprintf(
@@ -127,16 +130,6 @@ export default function HullPanel( {
 							__( 'Open %s.tsl', 'newspack-nodes' ),
 							include
 						) }
-					</button>
-				) }
-				{ onRemoveInclude && (
-					<button
-						type="button"
-						data-testid="hull-remove"
-						className="topology-edit-verb__remove"
-						onClick={ () => onRemoveInclude( include ) }
-					>
-						{ __( 'Remove include', 'newspack-nodes' ) }
 					</button>
 				) }
 			</div>
@@ -204,16 +197,16 @@ export default function HullPanel( {
 				) ) }
 			</ul>
 
-			<IncludeTree
-				tree={
-					includeTree[ include ]
-						? { [ include ]: includeTree[ include ] }
-						: {}
-				}
-				includes={ [ include ] }
-				selectedOrigin={ null }
-				onRemove={ null }
-			/>
+			{ children.length > 0 && (
+				<div data-testid="hull-includes">
+					<IncludeTree
+						tree={ subtree }
+						includes={ children }
+						selectedOrigin={ null }
+						onRemove={ null }
+					/>
+				</div>
+			) }
 		</aside>
 	);
 }
