@@ -759,8 +759,8 @@ export default function SchematicCanvas( {
 		const wasDragged = panRef.current.dragged;
 		panRef.current = null;
 		if ( ! wasDragged ) {
-			// Background click deselects if there's a selection, else autofits.
-			if ( selectedId || selectedEdge ) {
+			// Clears any selection (a HULL counts too), else autofits.
+			if ( selectedId || selectedEdge || selectedHull ) {
 				if ( onDeselect ) {
 					onDeselect();
 				}

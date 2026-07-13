@@ -138,6 +138,8 @@ export default function GraphView( {
 		( edge ) => {
 			setSelectedEdge( edge );
 			setSelectedId( null );
+			// One selection at a time: an edge supersedes a hull.
+			setSelectedHull( null );
 			onSelectionChange?.( null );
 		},
 		[ onSelectionChange ]
@@ -239,6 +241,8 @@ export default function GraphView( {
 					onDeselect={ () => {
 						setSelectedId( null );
 						setSelectedEdge( null );
+						// The hull is a selection too — background clears it.
+						setSelectedHull( null );
 						onSelectionChange?.( null );
 					} }
 					bottomObstructionPx={ bottomObstructionPx }
