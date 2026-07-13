@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Log retention no longer eats an included topology's logs.** `Log_Cleaner` drives off `resolved_resource_dirs()` → `write_set()`, which scanned the raw `.tsl` — so an include-only topology declared NOTHING and the GC saw its live logs and offsetlogs as orphans. (It takes one neighbour topology that DOES declare dirs to arm the sweep, which is every real fleet.) Now pinned by tests that fail loudly on the old code.
+- **An included `var` says it's being ignored.** Only the top-level topology's frontmatter is honored; an included `var num_partitions = 4` silently vanishing meant a fleet quietly running at the wrong width.
 - **Static readers now understand `make` / `connect` / `disconnect`** — real aliases in the interpreter's verb table that topologies actually use (ELN's `performance.tsl` says `make Tee firehose:tee`). `expand()`, `graph_for()`, `write_set()`, and `segment_size_overrides_for()` only knew the long forms, so they painted a graph the runtime never builds.
 - **`expand()` honors `disconnect_node`** (both the one-arg "clear the sink" and two-arg forms), applied in eval order. Without it the composed graph kept an edge a later `disconnect_node` had removed.
 - **The `write_set` conflict gate saw through includes.** It scanned the raw file, so an include-only topology (ELN's `combined.tsl` is now two `include` lines) reported an EMPTY write set — silently disarming the gate that stops two fleets writing one log. `write_set()` and `segment_size_overrides_for()` now read the flattened statements, like `graph_for()`.
