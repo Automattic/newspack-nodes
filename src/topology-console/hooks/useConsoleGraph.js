@@ -26,7 +26,11 @@ import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { getCommandClient } from '../utils/commandClient';
 import { useTopology } from './useTopologyList';
 import { parseTsl } from '../utils/parseTsl';
-import { withReplAnchor } from '../utils/draftGraph';
+import {
+	fetchExpandedIncludes,
+	primeExpandedIncludes,
+} from './useExpandedIncludes';
+import { applyLoadedBaseline, withReplAnchor } from '../utils/draftGraph';
 import { scopeFromCwd } from '../utils/scope';
 import {
 	loadHubTranscript,
@@ -175,10 +179,22 @@ export function useConsoleGraph( {
 		// Paint the declared topology before SSE/dump_metadata arrives.
 		if ( topology ) {
 			fetchTopologyTsl( topology )
-				.then( ( resp ) => {
+				.then( async ( resp ) => {
+					/**
+					 * Seed the COMPOSED graph. A topology that mostly `include`s
+					 * others owns few nodes of its own, so seeding the parsed file
+					 * alone paints a sliver and the rest pops in on the next
+					 * dump_metadata — the staged paint autofit can't survive.
+					 * `get` ships the expansion; expand() is the fallback.
+					 */
+					const parsedGraph = parseTsl( resp?.tsl || '' );
+					const baseline =
+						resp?.expanded ??
+						( await fetchExpandedIncludes( parsedGraph.includes ) );
+					primeExpandedIncludes( parsedGraph.includes, baseline );
 					// Anchor `_repl` in the seed so autofit includes it.
 					const seeded = withReplAnchor(
-						parseTsl( resp?.tsl || '' )
+						applyLoadedBaseline( parsedGraph, baseline )
 					);
 					// Resolve LIVE metadata; skip if a reply already filled it.
 					const node = Core.node( names.METADATA );

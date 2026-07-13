@@ -1,8 +1,9 @@
 /**
- * useCanonicalNodes — the set of node names declared in a topology's registered
- * `.tsl` (the canonical graph). Live nodes NOT in this set, and not reserved
- * `_`-prefixed console infra, are runtime DRIFT (added via the console /
- * `make_node`) that the canvas paints distinctly (roadmap [49]).
+ * useCanonicalNodes — the set of node names a topology DECLARES: its own
+ * `make_node`s plus everything its `include`s bring (`topologies get` ships the
+ * composed graph). Live nodes NOT in this set, and not reserved `_`-prefixed
+ * console infra, are runtime DRIFT (added via the console / `make_node`) that
+ * the canvas paints distinctly (roadmap [49]).
  *
  * Empty until the `.tsl` loads, and for scopes with no registered `.tsl` (the
  * in-browser `''` scope, an unsaved draft). Callers MUST treat an empty set as
@@ -56,7 +57,16 @@ export function useCanonicalNodes( topology ) {
 					return;
 				}
 				const parsed = parseTsl( resp?.tsl || '' );
-				setNames( new Set( parsed.nodes.map( ( n ) => n.id ) ) );
+				// A borrowed node is canonical: declared, just in another file.
+				const borrowed = ( resp?.expanded?.nodes || [] ).map(
+					( n ) => n.name
+				);
+				setNames(
+					new Set( [
+						...parsed.nodes.map( ( n ) => n.id ),
+						...borrowed,
+					] )
+				);
 			} )
 			.catch( () => {
 				// Best-effort: no canonical set means no drift coloring.

@@ -122,10 +122,15 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'stock' => [],
 		];
 
+		// Composed graph rides along: the console seeds its canvas from this.
+		$includes = self::direct_includes_from_tsl( $tsl );
+
 		return [
-			'name'   => $name,
-			'source' => self::source_of( $sources ),
-			'tsl'    => $tsl,
+			'name'     => $name,
+			'source'   => self::source_of( $sources ),
+			'tsl'      => $tsl,
+			'includes' => $includes,
+			'expanded' => Topology_Registry::expand( $includes ),
 		];
 	}
 

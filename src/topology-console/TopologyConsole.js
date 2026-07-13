@@ -40,9 +40,9 @@ import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
 import {
 	useExpandedIncludes,
-	getExpandedIncludesCache,
+	fetchExpandedIncludes,
 	invalidateExpandedIncludes,
-	setExpandedIncludesCache,
+	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
 import {
 	addEdge,
@@ -227,44 +227,6 @@ function initialPartitionFromUrl() {
 
 // Stable empty defaults so unpopulated state keeps a constant reference.
 const EMPTY_TRANSCRIPT = [];
-const EMPTY_EXPAND_BASELINE = { nodes: [], edges: [], tree: {} };
-
-/**
- * One-off `topologies expand` round trip for a topology-open/edit-entry load
- * (applyLoadedBaseline needs the composed baseline BEFORE the draft is set,
- * so it can subtract `disconnects`; useExpandedIncludes only reacts AFTER).
- *
- * Shares useExpandedIncludes' module-level cache: a cache hit here skips the
- * network round trip, and a fresh fetch primes the cache so the reactive
- * useExpandedIncludes pass that follows (once the includes land in the
- * draft) is itself a cache hit — one `topologies expand` per open, not two.
- *
- * @param {string[]} includes Directly-declared includes to expand.
- * @return {Promise<Object>} `{ nodes, edges, tree }`.
- */
-async function fetchIncludeBaseline( includes ) {
-	if ( ! includes || ! includes.length ) {
-		return EMPTY_EXPAND_BASELINE;
-	}
-	const key = includes.join( ' ' );
-	const cached = getExpandedIncludesCache( key );
-	if ( cached ) {
-		return cached;
-	}
-	const message = await getCommandClient().send( {
-		to: 'topologies',
-		verb: 'expand',
-		args: key,
-	} );
-	const value = unwrapCommandResponse( message ) || {};
-	const baseline = {
-		nodes: value.nodes || [],
-		edges: value.edges || [],
-		tree: value.tree || {},
-	};
-	setExpandedIncludesCache( key, baseline );
-	return baseline;
-}
 
 // Per-mode palette key: edit and live store separately (different defaults).
 function paletteKeyFor( mode ) {
@@ -428,8 +390,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		);
 		return entry?.includes || [];
 	}, [ topologyEntries, scope.label ] );
-	const activeIncludes =
-		'edit' === mode ? draft.includes || [] : viewedIncludes;
+	const activeIncludes = useMemo(
+		() => ( 'edit' === mode ? draft.includes || [] : viewedIncludes ),
+		[ mode, draft.includes, viewedIncludes ]
+	);
 
 	// The composed `topologies expand` result for that include set.
 	const { baseline: expandBaseline, error: expandError } =
@@ -873,8 +837,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					fetchTopology( topology )
 						.then( async ( resp ) => {
 							const parsedGraph = parseTsl( resp.tsl || '' );
-							const includeBaseline = await fetchIncludeBaseline(
-								parsedGraph.includes
+							const includeBaseline =
+								resp.expanded ??
+								( await fetchExpandedIncludes(
+									parsedGraph.includes
+								) );
+							primeExpandedIncludes(
+								parsedGraph.includes,
+								includeBaseline
 							);
 							const loaded = withReplAnchor(
 								applyLoadedBaseline(
@@ -1266,9 +1236,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			try {
 				const resp = await fetchTopology( name );
 				const parsedGraph = parseTsl( resp.tsl || '' );
-				const includeBaseline = await fetchIncludeBaseline(
-					parsedGraph.includes
-				);
+				const includeBaseline =
+					resp.expanded ??
+					( await fetchExpandedIncludes( parsedGraph.includes ) );
+				primeExpandedIncludes( parsedGraph.includes, includeBaseline );
 				const next = withReplAnchor(
 					applyLoadedBaseline( parsedGraph, includeBaseline )
 				);
