@@ -2,8 +2,8 @@
 /**
  * Tests for the substrate Config (file overlay + WP options + path validation).
  * Mirrors the application-side ConfigTest, scoped to substrate
- * keys (base_directory, num_partitions, num_segments, segment_size,
- * max_lifespan, memcache_servers).
+ * keys (base_directory, num_partitions, max_segments, segment_size,
+ * max_lifetime, memcache_servers).
  *
  * Reflection is used to exercise private surfaces (`validate_config_path`,
  * `validate_config_values`).

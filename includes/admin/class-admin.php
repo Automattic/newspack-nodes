@@ -613,15 +613,15 @@ class Admin {
 	public static function total_storage_callback(): void {
 		$defaults     = Config::load_config_defaults();
 		$segment_size = \get_option( 'newspack_nodes_segment_size', '' );
-		$num_segments = \get_option( 'newspack_nodes_max_segments', '' );
+		$max_segments = \get_option( 'newspack_nodes_max_segments', '' );
 
 		// Use config defaults for empty values.
 		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : Core::as_int( $segment_size );
-		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'max_segments', 4 ) : Core::as_int( $num_segments );
+		$max_segments = '' === $max_segments ? self::default_int( $defaults, 'max_segments', 4 ) : Core::as_int( $max_segments );
 
 		// on_disk() is already per-partition; don't multiply by num_partitions.
 		$num_log_dirs = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
-		$total_bytes  = $segment_size * $num_segments * $num_log_dirs;
+		$total_bytes  = $segment_size * $max_segments * $num_log_dirs;
 		$total_mb     = \round( $total_bytes / ( 1024 * 1024 ) );
 		$total_gb     = \round( $total_bytes / ( 1024 * 1024 * 1024 ), 2 );
 		$segment_mb   = \round( $segment_size / ( 1024 * 1024 ) );
@@ -641,7 +641,7 @@ class Admin {
 			/* translators: 1: segment size in MB, 2: number of segments, 3: number of on-disk log partitions */
 			\esc_html__( 'Calculated as: %1$s MB segment × %2$s segments × %3$s log partitions', 'newspack-nodes' ),
 			\esc_html( (string) $segment_mb ),
-			\esc_html( (string) $num_segments ),
+			\esc_html( (string) $max_segments ),
 			\esc_html( (string) $num_log_dirs )
 		);
 		?>

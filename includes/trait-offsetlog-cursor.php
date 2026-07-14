@@ -18,21 +18,36 @@ namespace Newspack_Nodes;
 
 trait Offsetlog_Cursor {
 
+	/**
+	 * Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces one
+	 * checkpoint = one segment = one frame, uniformly for stateless readers (small offset
+	 * records) and stateful/snapshot ones (offset + cache). Partition's do_rotate() adopts
+	 * the still-empty newest segment on the first commit, then rotates to a fresh segment
+	 * on every later commit (current_size ≥ 1 > the 1-byte threshold) — so segment_size=1
+	 * produces no empty-segment spam.
+	 *
+	 * Retention is the dual-rule scheme (see Partition_Node): keep at least 10 keyframes
+	 * and at most 30, holding anything younger than 5 minutes even when over the count,
+	 * and pruning anything older than 15 minutes back down to the floor.
+	 */
+	public const OFFSETLOG_SEGMENT_SIZE = 1;
+	public const OFFSETLOG_MIN_SEGMENTS = 10;
+	public const OFFSETLOG_MAX_SEGMENTS = 30;
+	public const OFFSETLOG_MIN_LIFETIME = 300;
+	public const OFFSETLOG_MAX_LIFETIME = 900;
+
 	/** Durable offsetlog Partition; null until built (ephemeral nodes skip it). */
 	protected ?Partition_Node $offsetlog = null;
 
 	/**
-	 * Build + register the offsetlog Partition once (idempotent). Each caller owns
-	 * its own dir/name derivation and wires the partition's sink afterward — the
-	 * sink target differs (Consumer shares its data sink; Remote_Source routes to
-	 * the command interpreter), so it is deliberately left out of here.
+	 * Build + register the offsetlog Partition once (idempotent). The caller wires the
+	 * sink afterward: the target differs (Consumer shares its data sink; Remote_Source
+	 * routes to the command interpreter), so it is deliberately left out of here.
 	 *
-	 * @param string $dir          Segment directory. Empty → null (no durable cursor).
-	 * @param string $name         Node name for the partition; '' leaves it unnamed (named later).
-	 * @param int    $segment_size Bytes per segment before rotation.
-	 * @param int    $num_segments Retained segment count.
+	 * @param string $dir  Segment directory. Empty → null (no durable cursor).
+	 * @param string $name Node name for the partition; '' leaves it unnamed (named later).
 	 */
-	protected function ensure_offsetlog( string $dir, string $name, int $segment_size, int $num_segments ): ?Partition_Node {
+	protected function ensure_offsetlog( string $dir = '', string $name = '' ): ?Partition_Node {
 		if ( null !== $this->offsetlog ) {
 			return $this->offsetlog;
 		}
@@ -44,10 +59,16 @@ trait Offsetlog_Cursor {
 			$offsetlog->name( $name );
 		}
 		$offsetlog->patron( $this );
-		// Retention: min_segments floor, max_segments = retained count.
-		$offsetlog->arguments( \implode( ' ', [ $dir, $segment_size, Partition_Node::DEFAULT_MIN_SEGMENTS, $num_segments ] ) );
+		$offsetlog->arguments( \implode( ' ', [
+			$dir,
+			self::OFFSETLOG_SEGMENT_SIZE,
+			self::OFFSETLOG_MIN_SEGMENTS,
+			self::OFFSETLOG_MAX_SEGMENTS,
+			self::OFFSETLOG_MIN_LIFETIME,
+			self::OFFSETLOG_MAX_LIFETIME,
+		] ) );
 		$this->offsetlog = $offsetlog;
-		return $offsetlog;
+		return $this->offsetlog;
 	}
 
 	/**

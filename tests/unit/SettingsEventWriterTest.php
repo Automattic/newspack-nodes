@@ -84,6 +84,22 @@ class SettingsEventWriterTest extends TestCase {
 		$this->assertSame( [ 'option' => 'newspack_deleted_via_hook' ], $this->captured[2][ Message::VALUE ] );
 	}
 
+	public function test_writer_partition_args_declare_all_four_retention_axes(): void {
+		// The settings log used to pass `2 86400` — a LIFETIME landing on the
+		// max_segments slot, licensing 86400 segments. All four axes, explicitly.
+		$part = new Partition_Node();
+		$part->arguments( Settings_Event_Writer::partition_args( '/tmp/settings.p0' ) );
+
+		$this->assertSame( 2, $this->read_private( $part, 'min_segments' ) );
+		$this->assertSame( 2, $this->read_private( $part, 'max_segments' ), 'a count, not a duration' );
+		$this->assertSame( 0, $this->read_private( $part, 'min_lifetime' ) );
+		$this->assertSame(
+			Settings_Event_Writer::SETTINGS_MAX_LIFETIME,
+			$this->read_private( $part, 'max_lifetime' ),
+			'the day-long lifespan is the AGE rule'
+		);
+	}
+
 	/**
 	 * The critical test: drive the PRODUCTION default seam (no mock) twice in
 	 * one request. Each write constructs a named `settings:writer` Partition and

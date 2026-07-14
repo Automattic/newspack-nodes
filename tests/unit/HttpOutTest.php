@@ -108,7 +108,7 @@ class HttpOutTest extends TestCase {
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
-		$a    = $this->command_message( 'settings', 'set', 'newspack_nodes_num_segments 8' );
+		$a    = $this->command_message( 'settings', 'set', 'newspack_nodes_max_segments 8' );
 		$b    = $this->command_message( 'settings', 'set', 'newspack_nodes_segment_size 65536' );
 		$node->fill( $a );
 		$node->fill( $b );
@@ -122,7 +122,7 @@ class HttpOutTest extends TestCase {
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
-		$a    = $this->command_message( 'settings', 'set', 'newspack_nodes_num_segments 8' );
+		$a    = $this->command_message( 'settings', 'set', 'newspack_nodes_max_segments 8' );
 		$b    = $this->command_message( 'performance', 'set', 'x y' );
 		$node->fill( $a );
 		$node->fill( $b );

@@ -11,9 +11,6 @@ namespace Newspack_Nodes;
 
 final class Log_Discovery {
 
-	/** @var array<string>|null Memoized basename list; null = not yet scanned. */
-	private static ?array $cached = null;
-
 	/**
 	 * glob()-call seam. Lazily-defaulted to the real glob; tests reassign to force the
 	 * error branch (glob returning false) without a real filesystem fault.
@@ -23,6 +20,9 @@ final class Log_Discovery {
 	 * @var (\Closure(string, int): (array<int, string>|false))|null
 	 */
 	public static ?\Closure $glob = null;
+
+	/** @var array<string>|null Memoized basename list; null = not yet scanned. */
+	private static ?array $cached = null;
 
 	/**
 	 * Sorted concrete dir basenames of every first-level directory under

@@ -901,7 +901,7 @@ class CommandInterpreterTest extends TestCase {
 		$tmp = $this->make_temp_dir();
 		try {
 			// Only the required args (base_dir, partition); the base arguments()
-			// setter now leaves segment_size/num_segments/max_lifespan at their
+			// setter now leaves segment_size/max_segments/max_lifetime at their
 			// real schema defaults instead of overwriting them with placeholder
 			// strings — so this short form constructs successfully.
 			$interpreter->dispatch( 'make_node', "Partition mypart {$tmp} 0" );

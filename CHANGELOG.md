@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Retention was inert on every partition built with a bare segment count.** A live offsetlog dir held **249** segments where 10 were intended.
+
+  The dual-rule retention split gave Partition four axes (`min_segments`, `max_segments`, `min_lifetime`, `max_lifetime`), but several internal partitions still passed only two or three. The omitted axes fall back to their schema defaults, and the inherited `<config:min_lifetime>` is the one that bites: the count rule refuses to prune anything *younger* than it, so it was blocked until segments aged past that floor. The ceiling becomes `min_lifetime / checkpoint_interval` — with a 24h floor and a 30s checkpoint, **2,880** segments. The 249 found on disk wasn't the plateau; it was just how far that worker had got. Worse, two callers passed a *duration* into the `max_segments` slot: the settings log said `2 86400`, licensing 86400 segments.
+
+  Every internal partition now declares all four axes explicitly:
+  - **offsetlog** (`Offsetlog_Cursor`): 10–30 keyframes, holding 5 minutes, pruning past 15.
+  - **dead-letter** (`Dead_Letter_Queue`): 16 segments by count, no age rule.
+  - **IPC scratch** (`Worker_Base::ipc_partition_args()`, now shared by Bootstrap, the REPL and `wp nodes cli`): 2 segments by count, no age rule.
+  - **settings log**: 2 segments, with the day-long lifespan as the AGE rule where it belongs.
+  - **`wp nodes ingest`**: the flag is now `--max_segments` (was `--num_segments`), and it finally *does* something — it previously inherited `<config:min_lifetime>`, which protected every freshly-ingested segment and made the flag a no-op.
+
+  `ensure_offsetlog()` moved from `Time_Travel` to `Offsetlog_Cursor`, which owns the offsetlog and now owns its geometry too.
+
+  The old tests passed throughout, because the test environment's `min_lifetime` defaults to 0 — pruning fired in tests and never in production. The new tests backdate segment mtimes (retention reads the real clock, not `Core::$now`) and assert both rules for real.
+
 ### Added
 
 - **A selected hull now shows its own message and byte rates.** Activity (messages in/out per second, bytes read/written per second, as sparklines) and cumulative Throughput, scoped to the nodes that include provides — so an include's traffic is readable on its own, not just as part of the whole graph's.

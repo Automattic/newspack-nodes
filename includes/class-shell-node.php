@@ -27,14 +27,12 @@ class Shell_Node extends Node {
 	private string $continuation = '';
 
 	/**
-	 * Resolved include paths already evaluated within the CURRENT top-level
-	 * script (`#pragma once`) — scoped per fill() entered with an empty
-	 * include_stack, not per Shell lifetime, so a long-lived REPL re-running
-	 * `include foo` after editing foo.tsl isn't a silent no-op.
-	 *
-	 * @var array<string,true>
+	 * Cycle handling: REPLs log-and-continue (safe default) so a typo'd
+	 * include doesn't kill the session; Topology_Loader turns this on so a
+	 * cyclic .tsl fails loud at worker boot rather than booting a half-built
+	 * graph. Mirrors the want_reply() setter shape.
 	 */
-	private array $included = [];
+	private bool $fatal_on_cycle = false;
 
 	/**
 	 * Resolved include paths on the current ancestor chain — a repeat is a cycle.
@@ -44,12 +42,14 @@ class Shell_Node extends Node {
 	private array $include_stack = [];
 
 	/**
-	 * Cycle handling: REPLs log-and-continue (safe default) so a typo'd
-	 * include doesn't kill the session; Topology_Loader turns this on so a
-	 * cyclic .tsl fails loud at worker boot rather than booting a half-built
-	 * graph. Mirrors the want_reply() setter shape.
+	 * Resolved include paths already evaluated within the CURRENT top-level
+	 * script (`#pragma once`) — scoped per fill() entered with an empty
+	 * include_stack, not per Shell lifetime, so a long-lived REPL re-running
+	 * `include foo` after editing foo.tsl isn't a silent no-op.
+	 *
+	 * @var array<string,true>
 	 */
-	private bool $fatal_on_cycle = false;
+	private array $included = [];
 
 	/** When true, every parsed line dumps its interpolated/tokenized form to $output_stream. */
 	private bool $show_parse = false;

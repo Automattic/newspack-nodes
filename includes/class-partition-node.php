@@ -14,10 +14,10 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Partition_Node extends Timer_Node {
 	use Schema_Reflection;
 	use File_Writer;
-	public const DEFAULT_MIN_SEGMENTS = 2;
+	public const DEFAULT_MAX_LIFETIME = 0;
 	public const DEFAULT_MAX_SEGMENTS = 4;
 	public const DEFAULT_MIN_LIFETIME = 0;
-	public const DEFAULT_MAX_LIFETIME = 0;
+	public const DEFAULT_MIN_SEGMENTS = 2;
 
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 
@@ -83,10 +83,10 @@ class Partition_Node extends Timer_Node {
 	protected bool $lock_held = false;
 	protected int $lock_max_wait_ms = 0;
 	protected int $lock_stale_timeout = 0;
-	protected int $min_segments     = self::DEFAULT_MIN_SEGMENTS;
+	protected int $max_lifetime     = self::DEFAULT_MAX_LIFETIME;
 	protected int $max_segments     = self::DEFAULT_MAX_SEGMENTS;
 	protected int $min_lifetime     = self::DEFAULT_MIN_LIFETIME;
-	protected int $max_lifetime     = self::DEFAULT_MAX_LIFETIME;
+	protected int $min_segments     = self::DEFAULT_MIN_SEGMENTS;
 
 	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
 	protected string $partition_dir = '';
@@ -230,6 +230,20 @@ class Partition_Node extends Timer_Node {
 		$this->set_timer( 0, true );
 	}
 
+	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
+	protected function fire(): void {
+		$this->flush();
+		// Debounced: free lock once idle past the window, else re-arm.
+		if ( $this->debounce_lock_ms > 0 && $this->lock_held ) {
+			$idle_ms = ( Core::$now - $this->last_write_at ) * 1000.0;
+			if ( $idle_ms >= $this->debounce_lock_ms ) {
+				$this->release_debounced_lock();
+			} else {
+				$this->set_timer( $this->debounce_lock_ms, true );
+			}
+		}
+	}
+
 	/**
 	 * Beat the worker heartbeat from inside a long in-process write burst (pump()).
 	 * If the cooperative stop is honored, flush the batched in-flight message to disk
@@ -249,20 +263,6 @@ class Partition_Node extends Timer_Node {
 				$this->print_less_often( 'flush failed during cooperative stop: ', $flush_error->getMessage() );
 			}
 			throw $e;
-		}
-	}
-
-	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
-	protected function fire(): void {
-		$this->flush();
-		// Debounced: free lock once idle past the window, else re-arm.
-		if ( $this->debounce_lock_ms > 0 && $this->lock_held ) {
-			$idle_ms = ( Core::$now - $this->last_write_at ) * 1000.0;
-			if ( $idle_ms >= $this->debounce_lock_ms ) {
-				$this->release_debounced_lock();
-			} else {
-				$this->set_timer( $this->debounce_lock_ms, true );
-			}
 		}
 	}
 
@@ -1063,6 +1063,38 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
+	/**
+	 * Set the companion-index formatter BY NAME — the round-trippable form, and
+	 * the one a Topic propagates to each partition it materializes.
+	 *
+	 * @param string $formatter_name Registered formatter name.
+	 * @return bool False when no such formatter is registered.
+	 */
+	public function with_index_named( string $formatter_name ): bool {
+		$callable = Formatters::resolve( $formatter_name );
+		if ( null === $callable ) {
+			return false;
+		}
+		$this->with_index( $callable );
+		$this->index_formatter_name = $formatter_name;
+		return true;
+	}
+
+	/**
+	 * Enable companion index files via a custom formatter callback.
+	 *
+	 * The formatter receives the unpacked message array (the 7-field positional
+	 * Message) plus the on-disk position — never the serialized JSONL line — so
+	 * it reads `$message[ Message::VALUE ]` directly instead of json_decode-ing.
+	 *
+	 * @param callable(array<int, mixed>, array<string, int>): (string|null) $callback fn(array $message, array $position) => string|null. Return null/'' to skip.
+	 * @return self
+	 */
+	public function with_index( callable $callback ): self {
+		$this->index_callback = $callback;
+		return $this;
+	}
+
 	public static function hash_to_partition( string $key, int $num_partitions ): int {
 		[ $stripped ] = \explode( '?', $key, 2 );
 		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
@@ -1084,38 +1116,6 @@ class Partition_Node extends Timer_Node {
 		$this->allow_large_writes = true;
 		$this->warranty_voided    = true;
 		return $this;
-	}
-
-	/**
-	 * Enable companion index files via a custom formatter callback.
-	 *
-	 * The formatter receives the unpacked message array (the 7-field positional
-	 * Message) plus the on-disk position — never the serialized JSONL line — so
-	 * it reads `$message[ Message::VALUE ]` directly instead of json_decode-ing.
-	 *
-	 * @param callable(array<int, mixed>, array<string, int>): (string|null) $callback fn(array $message, array $position) => string|null. Return null/'' to skip.
-	 * @return self
-	 */
-	public function with_index( callable $callback ): self {
-		$this->index_callback = $callback;
-		return $this;
-	}
-
-	/**
-	 * Set the companion-index formatter BY NAME — the round-trippable form, and
-	 * the one a Topic propagates to each partition it materializes.
-	 *
-	 * @param string $formatter_name Registered formatter name.
-	 * @return bool False when no such formatter is registered.
-	 */
-	public function with_index_named( string $formatter_name ): bool {
-		$callable = Formatters::resolve( $formatter_name );
-		if ( null === $callable ) {
-			return false;
-		}
-		$this->with_index( $callable );
-		$this->index_formatter_name = $formatter_name;
-		return true;
 	}
 
 	/**

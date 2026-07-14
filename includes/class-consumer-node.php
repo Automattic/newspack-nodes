@@ -104,12 +104,7 @@ class Consumer_Node extends Timer_Node {
 		$this->source->sink( $this->sink );
 		$this->source->patron( $this );
 
-		$this->ensure_offsetlog(
-			$this->offsetlog_dir,
-			'' !== $this->name ? "{$this->name}:offsetlog" : '',
-			self::OFFSETLOG_SEGMENT_SIZE,
-			self::OFFSETLOG_NUM_SEGMENTS
-		);
+		$this->ensure_offsetlog( $this->offsetlog_dir, '' !== $this->name ? "{$this->name}:offsetlog" : '' );
 		// Offsetlog shares consumer's data sink (sink() keeps them in step).
 		$this->offsetlog?->sink( $this->sink );
 

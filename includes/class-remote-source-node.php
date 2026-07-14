@@ -27,6 +27,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
+	private const PUMP_ARM_BYTES    = 262144; // 256 KB.
 
 	/**
 	 * SSE backpressure valve water marks (bytes). The buffer drains whole each tick,
@@ -36,10 +37,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * (the old gate disarmed on every buffered line, stop-starting the spoke).
 	 */
 	private const PUMP_DISARM_BYTES = 524288; // 512 KB.
-	private const PUMP_ARM_BYTES    = 262144; // 256 KB.
 
-	/** Valve state mirror (buffer-driven only): true while SSE_In is armed. */
-	private bool $pump_armed = true;
+	/** Dead-letter quarantine dir; empty disables the DLQ. Consumer's contract. */
+	protected string $deadletter_dir = '';
+
+	/**
+	 * @api Dynamic entrypoint.
+	 * @return array<string,mixed>
+	 */
+	/**
+	 * Durable read-cursor dir. An ARGUMENT, not a Config read: an offsetlog is a
+	 * reader's cursor, so a topology must be able to write the path — that's what
+	 * lets it carry `<topology>` and keeps two fleets pulling one spoke partition
+	 * off each other's cursor. Empty disables checkpointing (Consumer's contract).
+	 */
+	protected string $offsetlog_dir = '';
 
 	private int $last_heartbeat_response = 0;
 
@@ -50,6 +62,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * first poll — the second call is a no-op that returns the already-seeded cursor.
 	 */
 	private bool $position_restored = false;
+
+	/** Valve state mirror (buffer-driven only): true while SSE_In is armed. */
+	private bool $pump_armed = true;
 
 	/** Tachikoma-parity: no-arg ctor. Auto-wire the {name}:config interpreter for the time-travel verbs. */
 	public function __construct() {
@@ -405,9 +420,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	// --- Durable offsetlog — per-node, keyed by NODE NAME ---
 
 	/**
-	 * Ensure the per-node offsetlog Partition exists + is registered. Derives the dir
-	 * (`<offsets_dir>/<name>.<remote_partition>`), delegates the build to the Offsetlog_Cursor
-	 * trait, and routes its sink to the command interpreter.
+	 * Derive this node's offsetlog dir + name, then let Offsetlog_Cursor build it.
+	 * Unlike Consumer, the dir can be implicit (`<offsets_dir>/<name>.<remote_partition>`)
+	 * and the partition answers to the command interpreter rather than the data sink.
 	 */
 	private function ensure_offsetlog_partition(): ?Partition_Node {
 		if ( null !== $this->offsetlog ) {
@@ -425,13 +440,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			}
 			$dir = "{$offsets_dir}/{$this->name}.{$this->remote_partition}";
 		}
-		$offsetlog = $this->ensure_offsetlog(
-			$dir,
-			"{$this->name}:{$this->remote_partition}:offsetlog",
-			self::OFFSETLOG_SEGMENT_SIZE,
-			self::OFFSETLOG_NUM_SEGMENTS
-		);
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		$offsetlog = $this->ensure_offsetlog( $dir, "{$this->name}:{$this->remote_partition}:offsetlog" );
+		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null !== $offsetlog && null === $offsetlog->sink() && null !== $ci ) {
 			$offsetlog->sink( $ci );
 		}
@@ -645,21 +655,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	public function dump_config(): string {
 		return parent::dump_config() . $this->dump_time_travel_config( $this->name ) . $this->dump_pump_config( $this->name );
 	}
-
-	/**
-	 * @api Dynamic entrypoint.
-	 * @return array<string,mixed>
-	 */
-	/**
-	 * Durable read-cursor dir. An ARGUMENT, not a Config read: an offsetlog is a
-	 * reader's cursor, so a topology must be able to write the path — that's what
-	 * lets it carry `<topology>` and keeps two fleets pulling one spoke partition
-	 * off each other's cursor. Empty disables checkpointing (Consumer's contract).
-	 */
-	protected string $offsetlog_dir = '';
-
-	/** Dead-letter quarantine dir; empty disables the DLQ. Consumer's contract. */
-	protected string $deadletter_dir = '';
 
 	public static function node_schema(): array {
 		$parent = parent::node_schema();

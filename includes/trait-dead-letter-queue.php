@@ -46,7 +46,10 @@ trait Dead_Letter_Queue {
 
 	/** DLQ sibling retention: 1 MiB segments × 16, rotate by count (no time-based aging). */
 	public const DEADLETTER_SEGMENT_SIZE = 1048576;
-	public const DEADLETTER_NUM_SEGMENTS = 16;
+	public const DEADLETTER_MIN_SEGMENTS = 2;
+	public const DEADLETTER_MAX_SEGMENTS = 16;
+	public const DEADLETTER_MIN_LIFETIME = 0;
+	public const DEADLETTER_MAX_LIFETIME = 0;
 
 	/**
 	 * Times the message at the boot cursor has been attempted without advancing past
@@ -136,7 +139,15 @@ trait Dead_Letter_Queue {
 			$deadletter->name( $name );
 		}
 		$deadletter->patron( $this );
-		$deadletter->arguments( \implode( ' ', [ $dir, self::DEADLETTER_SEGMENT_SIZE, self::DEADLETTER_NUM_SEGMENTS ] ) );
+		// All four axes: an omitted one inherits <config:*> and never prunes.
+		$deadletter->arguments( \implode( ' ', [
+			$dir,
+			self::DEADLETTER_SEGMENT_SIZE,
+			self::DEADLETTER_MIN_SEGMENTS,
+			self::DEADLETTER_MAX_SEGMENTS,
+			self::DEADLETTER_MIN_LIFETIME,
+			self::DEADLETTER_MAX_LIFETIME,
+		] ) );
 		$deadletter->void_warranty();
 		$this->deadletter = $deadletter;
 		return $deadletter;

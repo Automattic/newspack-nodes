@@ -25,7 +25,10 @@ class Worker_Base {
 
 	public const DEFAULT_MAX_RUNTIME    = 595;
 	public const HEARTBEAT_INTERVAL_S   = 10;
-	public const IPC_NUM_SEGMENTS       = 2;
+	public const IPC_MAX_LIFETIME       = 0;
+	public const IPC_MAX_SEGMENTS       = 2;
+	public const IPC_MIN_LIFETIME       = 0;
+	public const IPC_MIN_SEGMENTS       = 2;
 	public const IPC_SEGMENT_SIZE       = 1048576;
 	public const LOCK_CHECK_GRACE_S     = 0.25;
 	public const MEMORY_WATERMARK_PCT   = 0.80;
@@ -38,8 +41,8 @@ class Worker_Base {
 	 * Log_Cleaner must whitelist it (it's declared by no .tsl).
 	 */
 	public const TOPICPROBE_LOG_DIR      = 'topicprobe.p0';
-	public const TOPICPROBE_MIN_LIFETIME = 86400;
 	public const TOPICPROBE_MAX_SEGMENTS = 2;
+	public const TOPICPROBE_MIN_LIFETIME = 86400;
 	public const TOPICPROBE_SEGMENT_SIZE = 1048576;
 
 	protected string $base_dir;
@@ -332,7 +335,7 @@ class Worker_Base {
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
 		// Graph via make_node (name -> arguments -> sink=interpreter).
-		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, "{$ipc_dir}/output", self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS );
+		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, self::ipc_partition_args( "{$ipc_dir}/output" ) );
 		// allow_large_writes keys Lock/heartbeat off name+sink from make_node.
 		if ( $repl instanceof Partition_Node ) {
 			$repl->void_warranty();
@@ -344,6 +347,25 @@ class Worker_Base {
 		$this->mount_topic_probe( $interpreter );
 
 		return $interpreter;
+	}
+
+	/**
+	 * Full six-axis geometry for an IPC scratch partition: bounded by COUNT, never
+	 * age-pruned. Declaring all four retention axes is the point — an omitted one
+	 * inherits `<config:*>`, where a min_lifetime of an hour protects every segment
+	 * from the count rule and the scratch grows without bound.
+	 *
+	 * @param string $dir Segment directory.
+	 */
+	public static function ipc_partition_args( string $dir ): string {
+		return \implode( ' ', [
+			$dir,
+			self::IPC_SEGMENT_SIZE,
+			self::IPC_MIN_SEGMENTS,
+			self::IPC_MAX_SEGMENTS,
+			self::IPC_MIN_LIFETIME,
+			self::IPC_MAX_LIFETIME,
+		] );
 	}
 
 	/**

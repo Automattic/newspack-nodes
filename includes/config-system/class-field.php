@@ -25,14 +25,14 @@ namespace Newspack_Nodes\Config_System;
 
 class Field {
 
+	/** Derived from type: every non-bool field blank-deletes to its file default. */
+	public readonly bool $delete_on_blank;
+
 	/** @var callable|null add_settings_field render callback (required for rendered fields). */
 	public readonly mixed $render;
 
 	/** @var callable|null register_setting sanitize_callback (required for option fields). */
 	public readonly mixed $sanitize;
-
-	/** Derived from type: every non-bool field blank-deletes to its file default. */
-	public readonly bool $delete_on_blank;
 
 	/**
 	 * Display label, stored unresolved. A plugin passes either a plain string OR

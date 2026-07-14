@@ -24,20 +24,20 @@ class Topic_Node extends Node {
 
 	protected static int $rr_counter = 0;
 
-	protected string $dir_template  = '';
+	/** Companion-index formatter NAME, propagated to every partition; null = none. */
+	public ?string $index_formatter_name = null;
 
-	/** Large-write opt-in propagated to every partition: '' none, 'lock' (allow_large_writes), 'void' (void_warranty). */
-	protected string $large_write_mode = '';
+	protected string $dir_template  = '';
 
 	/** Debounce for 'lock' mode, propagated with it. */
 	protected int $large_write_debounce_ms = 0;
 
-	/** Companion-index formatter NAME, propagated to every partition; null = none. */
-	public ?string $index_formatter_name = null;
-	protected int $min_segments     = Partition_Node::DEFAULT_MIN_SEGMENTS;
+	/** Large-write opt-in propagated to every partition: '' none, 'lock' (allow_large_writes), 'void' (void_warranty). */
+	protected string $large_write_mode = '';
+	protected int $max_lifetime     = Partition_Node::DEFAULT_MAX_LIFETIME;
 	protected int $max_segments     = Partition_Node::DEFAULT_MAX_SEGMENTS;
 	protected int $min_lifetime     = Partition_Node::DEFAULT_MIN_LIFETIME;
-	protected int $max_lifetime     = Partition_Node::DEFAULT_MAX_LIFETIME;
+	protected int $min_segments     = Partition_Node::DEFAULT_MIN_SEGMENTS;
 	protected int $num_partitions   = 1;
 
 	/** @var array<int,Partition_Node> Lazy. */
@@ -115,13 +115,6 @@ class Topic_Node extends Node {
 		return $this;
 	}
 
-	/** Apply the named index formatter to one partition; unknown name is a no-op. */
-	private function apply_index( Partition_Node $p ): void {
-		if ( null !== $this->index_formatter_name ) {
-			$p->with_index_named( $this->index_formatter_name );
-		}
-	}
-
 	/** Set the mode once and apply to already-materialized partitions; a repeat call in the same mode is a no-op (Partition::allow_large_writes re-locks). */
 	private function set_large_write_mode( string $mode ): self {
 		if ( $mode === $this->large_write_mode ) {
@@ -144,6 +137,42 @@ class Topic_Node extends Node {
 			$this->set_state( 'READY', $this->name );
 		}
 		return $result;
+	}
+
+	protected function partition( int $i ): Partition_Node {
+		$first = empty( $this->partitions );
+		if ( ! isset( $this->partitions[ $i ] ) ) {
+			$p = new Partition_Node();
+			// Name the sibling `{topic}:p{i}` when the Topic is named.
+			if ( '' !== $this->name ) {
+				$p->name( "{$this->name}:p{$i}" );
+			}
+			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
+			$p->arguments( "{$child_dir} {$this->segment_size} {$this->min_segments} {$this->max_segments} {$this->min_lifetime} {$this->max_lifetime}" );
+			// Keep Topic's sink + patron-link so dump_metadata hides it.
+			$p->sink( $this->sink );
+			$p->patron( $this );
+			$this->apply_large_write_mode( $p );
+			$this->apply_index( $p );
+			$this->partitions[ $i ] = $p;
+		}
+		return $this->partitions[ $i ];
+	}
+
+	/** Apply the named index formatter to one partition; unknown name is a no-op. */
+	private function apply_index( Partition_Node $p ): void {
+		if ( null !== $this->index_formatter_name ) {
+			$p->with_index_named( $this->index_formatter_name );
+		}
+	}
+
+	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
+	private function apply_large_write_mode( Partition_Node $p ): void {
+		if ( 'lock' === $this->large_write_mode ) {
+			$p->allow_large_writes( 65000, $this->large_write_debounce_ms );
+		} elseif ( 'void' === $this->large_write_mode ) {
+			$p->void_warranty();
+		}
 	}
 
 	/**
@@ -206,35 +235,6 @@ class Topic_Node extends Node {
 			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
 		}
 		return $out;
-	}
-
-	protected function partition( int $i ): Partition_Node {
-		$first = empty( $this->partitions );
-		if ( ! isset( $this->partitions[ $i ] ) ) {
-			$p = new Partition_Node();
-			// Name the sibling `{topic}:p{i}` when the Topic is named.
-			if ( '' !== $this->name ) {
-				$p->name( "{$this->name}:p{$i}" );
-			}
-			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
-			$p->arguments( "{$child_dir} {$this->segment_size} {$this->min_segments} {$this->max_segments} {$this->min_lifetime} {$this->max_lifetime}" );
-			// Keep Topic's sink + patron-link so dump_metadata hides it.
-			$p->sink( $this->sink );
-			$p->patron( $this );
-			$this->apply_large_write_mode( $p );
-			$this->apply_index( $p );
-			$this->partitions[ $i ] = $p;
-		}
-		return $this->partitions[ $i ];
-	}
-
-	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
-	private function apply_large_write_mode( Partition_Node $p ): void {
-		if ( 'lock' === $this->large_write_mode ) {
-			$p->allow_large_writes( 65000, $this->large_write_debounce_ms );
-		} elseif ( 'void' === $this->large_write_mode ) {
-			$p->void_warranty();
-		}
 	}
 
 	/** @api Flush every materialized partition's batch (request-scope callers land pending writes). */

@@ -39,8 +39,8 @@ describe( 'coerceValue', () => {
 	} );
 
 	it( 'float: TSL substitution tokens pass through as strings', () => {
-		expect( coerceValue( 'float', '<config:max_lifespan>', 0 ) ).toBe(
-			'<config:max_lifespan>'
+		expect( coerceValue( 'float', '<config:max_lifetime>', 0 ) ).toBe(
+			'<config:max_lifetime>'
 		);
 	} );
 

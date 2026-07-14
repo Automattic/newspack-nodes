@@ -490,7 +490,7 @@ class Bootstrap {
 			$part->patron( $ci );
 			$part->sink( $ci );
 		}
-		$part->arguments( $input_dir . ' ' . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
+		$part->arguments( Worker_Base::ipc_partition_args( $input_dir ) );
 		return true;
 	}
 

@@ -60,23 +60,6 @@ export class SseInNode extends Node {
 		this.registrations.CONNECTED = {};
 	}
 
-	// baseUrl/nonce fall back to the localized global when not set explicitly.
-	get baseUrl() {
-		return this._baseUrl || nodesData().restUrl;
-	}
-
-	set baseUrl( value ) {
-		this._baseUrl = value ?? '';
-	}
-
-	get nonce() {
-		return this._nonce || nodesData().nonce;
-	}
-
-	set nonce( value ) {
-		this._nonce = value ?? '';
-	}
-
 	get arguments() {
 		return super.arguments;
 	}
@@ -272,6 +255,23 @@ export class SseInNode extends Node {
 		this.lastEventTime = null;
 		// Forget the session pid so pid() won't report a stale one.
 		this.sessionPid = null;
+	}
+
+	// baseUrl/nonce fall back to the localized global when not set explicitly.
+	get baseUrl() {
+		return this._baseUrl || nodesData().restUrl;
+	}
+
+	set baseUrl( value ) {
+		this._baseUrl = value ?? '';
+	}
+
+	get nonce() {
+		return this._nonce || nodesData().nonce;
+	}
+
+	set nonce( value ) {
+		this._nonce = value ?? '';
 	}
 
 	pid() {

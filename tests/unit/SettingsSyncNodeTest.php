@@ -96,14 +96,14 @@ class SettingsSyncNodeTest extends TestCase {
 	}
 
 	public function test_fill_emits_set_command_for_registered_option(): void {
-		\update_option( 'newspack_nodes_num_segments', 8 );
+		\update_option( 'newspack_nodes_max_segments', 8 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_num_segments settings newspack_nodes_num_segments' );
+		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
 
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::VALUE ]     = [ 'option' => 'newspack_nodes_num_segments' ];
+		$msg[ Message::VALUE ]     = [ 'option' => 'newspack_nodes_max_segments' ];
 		$node->fill( $msg );
 
 		$this->assertCount( 1, $sink->captured );
@@ -111,7 +111,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame( Message::TM_COMMAND, $out[ Message::TYPE ] );
 		$this->assertSame( 'spokes:tee/settings', $out[ Message::TO ] );
 		$this->assertSame( 'set', $out[ Message::VALUE ]['name'] );
-		$this->assertSame( 'newspack_nodes_num_segments 8', $out[ Message::VALUE ]['arguments'] );
+		$this->assertSame( 'newspack_nodes_max_segments 8', $out[ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_add_setting_twice_for_same_local_pushes_to_each_remote(): void {
@@ -153,25 +153,25 @@ class SettingsSyncNodeTest extends TestCase {
 		// save (reset-to-default, remote_* change) is invisible to get_option until
 		// the cache is dropped. push() must invalidate FIRST. The seam simulates the
 		// clear revealing the current value; without the invalidate it ships stale.
-		\update_option( 'newspack_nodes_num_segments', 2 );
+		\update_option( 'newspack_nodes_max_segments', 2 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_num_segments settings newspack_nodes_num_segments' );
+		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
 
 		Settings_Sync_Node::$invalidate_options_cache = static function (): void {
-			$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 9;
+			$GLOBALS['_wp_options']['newspack_nodes_max_segments'] = 9;
 		};
 		try {
 			$msg                   = Message::new_message();
 			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-			$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_num_segments' ];
+			$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_max_segments' ];
 			$node->fill( $msg );
 		} finally {
 			Settings_Sync_Node::$invalidate_options_cache = null;
 		}
 
 		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( 'newspack_nodes_num_segments 9', $sink->captured[0][ Message::VALUE ]['arguments'] );
+		$this->assertSame( 'newspack_nodes_max_segments 9', $sink->captured[0][ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_fill_scalarizes_array_value_to_json(): void {
@@ -244,45 +244,45 @@ class SettingsSyncNodeTest extends TestCase {
 	}
 
 	public function test_fill_honors_value_resolver_filter(): void {
-		\update_option( 'newspack_nodes_num_segments', 8 );
-		$filter = static fn ( $value, $option ) => 'newspack_nodes_num_segments' === $option ? 99 : $value;
+		\update_option( 'newspack_nodes_max_segments', 8 );
+		$filter = static fn ( $value, $option ) => 'newspack_nodes_max_segments' === $option ? 99 : $value;
 		\add_filter( 'newspack_nodes/settings_sync/value', $filter, 10, 2 );
 
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_num_segments settings newspack_nodes_num_segments' );
+		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_num_segments' ];
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_max_segments' ];
 		$node->fill( $msg );
 
 		\remove_action( 'newspack_nodes/settings_sync/value', $filter );
 
 		$out = $sink->captured[0];
-		$this->assertSame( 'newspack_nodes_num_segments 99', $out[ Message::VALUE ]['arguments'] );
+		$this->assertSame( 'newspack_nodes_max_segments 99', $out[ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_fill_ignores_non_struct_message(): void {
-		\update_option( 'newspack_nodes_num_segments', 8 );
+		\update_option( 'newspack_nodes_max_segments', 8 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_num_segments settings newspack_nodes_num_segments' );
+		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_num_segments' ];
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_max_segments' ];
 		$node->fill( $msg );
 
 		$this->assertCount( 0, $sink->captured );
 	}
 
 	public function test_fire_pushes_every_registered_option_in_one_call(): void {
-		\update_option( 'newspack_nodes_num_segments', 8 );
+		\update_option( 'newspack_nodes_max_segments', 8 );
 		\update_option( 'newspack_nodes_num_partitions', 4 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_num_segments settings newspack_nodes_num_segments' );
+		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
 		$node->add_setting( 'newspack_nodes_num_partitions settings newspack_nodes_num_partitions' );
 
 		$node->fire();

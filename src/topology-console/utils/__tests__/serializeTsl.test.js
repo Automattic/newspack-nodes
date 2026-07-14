@@ -219,14 +219,14 @@ describe( 'serializeTsl', () => {
 						default: '<config:segment_size>',
 					},
 					{
-						name: 'num_segments',
+						name: 'max_segments',
 						type: 'int',
-						default: '<config:num_segments>',
+						default: '<config:max_segments>',
 					},
 					{
-						name: 'max_lifespan',
+						name: 'max_lifetime',
 						type: 'int',
-						default: '<config:max_lifespan>',
+						default: '<config:max_lifetime>',
 					},
 				],
 				commands: [
@@ -286,7 +286,7 @@ describe( 'serializeTsl', () => {
 				edges: [],
 			};
 			expect( serializeTsl( g, schemas ) ).toBe(
-				'make_node Partition flames:partition /tmp/flames.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n'
+				'make_node Partition flames:partition /tmp/flames.log <partition> <config:segment_size> <config:max_segments> <config:max_lifetime>\n'
 			);
 		} );
 
@@ -304,7 +304,7 @@ describe( 'serializeTsl', () => {
 				edges: [],
 			};
 			expect( serializeTsl( g, schemas ) ).toBe(
-				'make_node Partition p /tmp/log <partition> <config:segment_size> <config:num_segments> 86400\n'
+				'make_node Partition p /tmp/log <partition> <config:segment_size> <config:max_segments> 86400\n'
 			);
 		} );
 
@@ -322,7 +322,7 @@ describe( 'serializeTsl', () => {
 				edges: [],
 			};
 			expect( serializeTsl( g, schemas ) ).toBe(
-				'make_node Partition p /tmp/log 7 4096 <config:num_segments> <config:max_lifespan>\n'
+				'make_node Partition p /tmp/log 7 4096 <config:max_segments> <config:max_lifetime>\n'
 			);
 		} );
 
