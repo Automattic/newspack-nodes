@@ -84,7 +84,10 @@ export function HeaderControls( {
 				</div>
 			) : (
 				<div className="topology-mode">
-					{ mode === 'edit' && (
+					{ /* NEW + OPEN work from live too (OPEN lands you in edit);
+					     neither belongs in the debug overlay, which has no editor.
+					     Live is a PREFIX of edit — a control never moves on you. */ }
+					{ ! onClose && (
 						<button
 							type="button"
 							className="topology-mode__btn topology-mode__btn--new"
@@ -93,14 +96,15 @@ export function HeaderControls( {
 							{ __( 'NEW', 'newspack-nodes' ) }
 						</button>
 					) }
-					{ /* OPEN works from live too — picking a topology lands you in edit. */ }
-					<button
-						type="button"
-						className="topology-mode__btn topology-mode__btn--open"
-						onClick={ () => onOpen && onOpen() }
-					>
-						{ __( 'OPEN', 'newspack-nodes' ) }
-					</button>
+					{ ! onClose && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--open"
+							onClick={ () => onOpen && onOpen() }
+						>
+							{ __( 'OPEN', 'newspack-nodes' ) }
+						</button>
+					) }
 					{ mode === 'edit' && (
 						<button
 							type="button"
@@ -108,21 +112,6 @@ export function HeaderControls( {
 							onClick={ () => onSave && onSave() }
 						>
 							{ __( 'SAVE', 'newspack-nodes' ) }
-						</button>
-					) }
-					{ mode === 'edit' && (
-						<button
-							type="button"
-							className={ `topology-mode__btn topology-mode__btn--settings${
-								settingsActive ? ' is-active' : ''
-							}` }
-							onClick={ () => onSettings && onSettings() }
-							title={ __(
-								'Topology settings (partitions and other frontmatter)',
-								'newspack-nodes'
-							) }
-						>
-							{ __( 'SETTINGS', 'newspack-nodes' ) }
 						</button>
 					) }
 					{ mode === 'edit' && canDelete && (
@@ -138,14 +127,19 @@ export function HeaderControls( {
 							{ __( 'DELETE', 'newspack-nodes' ) }
 						</button>
 					) }
-					{ /* NEW works in live mode too; not in the debug overlay (no editor). */ }
-					{ mode !== 'edit' && ! onClose && (
+					{ mode === 'edit' && (
 						<button
 							type="button"
-							className="topology-mode__btn topology-mode__btn--new"
-							onClick={ () => onNew && onNew() }
+							className={ `topology-mode__btn topology-mode__btn--settings${
+								settingsActive ? ' is-active' : ''
+							}` }
+							onClick={ () => onSettings && onSettings() }
+							title={ __(
+								'Topology settings (partitions and other frontmatter)',
+								'newspack-nodes'
+							) }
 						>
-							{ __( 'NEW', 'newspack-nodes' ) }
+							{ __( 'SETTINGS', 'newspack-nodes' ) }
 						</button>
 					) }
 					{ canEdit && (
