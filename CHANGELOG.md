@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.3] - 2026-07-14
+
 ### Fixed
 
 - **A failing `/command` POST reported itself as a ghost, not as an HTTP error.** `CommandClient` never checked `r.ok`, so a non-2xx response — whose body is a WordPress REST error OBJECT, not JSONL — went through `unpack()`, which minted a blank message, which routed into the graph and surfaced three hops later as `_router: WARNING: message not addressed`. Seen live: the `_heartbeat` node POSTing into a **404 `rest_no_route`** while the plugin was briefly deactivated mid-deploy. An expired nonce (**401 `rest_forbidden`**) would have done the same — every command silently becoming a ghost instead of saying the session had expired.
