@@ -1930,14 +1930,46 @@ describe( 'SchematicCanvas — hull interaction', () => {
 		).toBe( 0 );
 	} );
 
-	// Selection fades nothing, so lighting its members would buy no contrast --
-	// it would only hide live idle state, and stickily: a hull stays selected.
-	it( 'SELECTING a hull does not suspend idle dimming', () => {
+	// A selected hull reads exactly like a hovered one: members lit, internal
+	// wires lit, everything else faded. Selection is the STICKY form of the same
+	// focus gesture -- so it has to fade the rest too, or lighting its members
+	// would buy no contrast against the ordinary active nodes around it.
+	it( 'a SELECTED hull highlights exactly like a hovered one', () => {
 		const { container } = render(
 			<SchematicCanvas { ...liveHullProps } selectedHull="performance" />
 		);
 
-		expect( idleNodes( container ) ).toContain( 'inner-a' );
+		// Members lit: no idle dim inside the hull...
+		expect( idleNodes( container ) ).not.toContain( 'inner-a' );
+		expect( idleNodes( container ) ).not.toContain( 'inner-b' );
+		// ...everything outside stays idle, under the stronger fade.
+		expect( idleNodes( container ) ).toContain( 'mine' );
+
+		const faded = [ ...container.querySelectorAll( 'g.topology-node' ) ]
+			.filter( ( n ) => n.getAttribute( 'class' ).includes( 'is-faded' ) )
+			.map( ( n ) => n.textContent )
+			.join( ' ' );
+		expect( faded ).toContain( 'mine' );
+		expect( faded ).not.toContain( 'inner-a' );
+
+		// The wire wholly inside the hull lights; the one leaving it dims.
+		expect(
+			container.querySelectorAll( '.topology-edge.is-lit' )
+		).toHaveLength( 1 );
+		expect(
+			container.querySelectorAll( '.topology-edge.is-dimmed' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'hovering one hull takes over from a DIFFERENT selected hull', () => {
+		const { container } = render(
+			<SchematicCanvas { ...liveHullProps } selectedHull="other" />
+		);
+
+		fireEvent.mouseEnter( container.querySelector( '.topology-hull' ) );
+
+		expect( idleNodes( container ) ).not.toContain( 'inner-a' );
+		expect( idleNodes( container ) ).toContain( 'mine' );
 	} );
 
 	it( 'clicking a hull FILL selects the hull', () => {
