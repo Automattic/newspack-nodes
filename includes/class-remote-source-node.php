@@ -402,19 +402,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return $sse;
 	}
 
-	// --- Durable offsetlog — per-node, keyed by NODE NAME ---
-
-	/** One node pulls one remote partition, so its sidecars are named for it. */
-	protected function offsetlog_name(): string {
-		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:offsetlog" : '';
-	}
-
-	protected function deadletter_name(): string {
-		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:deadletter" : '';
-	}
-
-	// --- Dead-letter sibling — per-node quarantine for poison messages ---
-
 	// --- Status snapshot: only aggregated spokes publish (IPC = no-op) ---
 
 	/** Stamp the heartbeat send-time so record_heartbeat_reply() can compute the round-trip. */
@@ -518,6 +505,17 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->sse_in?->arm();
 			$this->pump_armed = true;
 		}
+	}
+
+	// --- Sidecar naming: offsetlog + dead-letter, keyed by NODE NAME ---
+
+	/** One node pulls one remote partition, so its sidecars are named for it. */
+	protected function offsetlog_name(): string {
+		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:offsetlog" : '';
+	}
+
+	protected function deadletter_name(): string {
+		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:deadletter" : '';
 	}
 
 	/**
