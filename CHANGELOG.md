@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dark skins drew a near-black caret on a near-black select.** The chevron is a baked data-URI (an SVG background cannot read a CSS var), dark by default, with a rule repainting it light for the seven dark skins. That rule was written `.topology-app.topology-app.newspack-nodes-theme.theme-crt` — all four classes on ONE element — but the skin class lives on `<html>` (`shared/theme.js`), so it matched nothing. The base rule won, and every dark skin got the dark chevron. The same dead block carried `color-scheme: dark`, so dark skins were also drawing light native number-spinners and checkboxes.
+
+  The selectors are ancestor-form now, and the console's duplicate `.topology-select` list is gone — it only existed because the shared rule was silently dead, and `.topology-select` is a `<select>` the shared rule reaches.
+
 ### Changed
 
 - **A reader's offsetlog and dead-letter dirs are ARGUMENTS, with no derived fallback.** `Remote_Source` used to invent an implicit offsetlog dir (`<offsets_dir>/<name>.<remote_partition>`) and dead-letter dir (`<base>/deadletter/…`) when a topology declared none — the last splinter of the hardcode that [147] set out to remove. It meant an omitted dir silently kept checkpointing at a path the topology could not write (so it could not carry `<topology>`, and two fleets pulling one spoke partition shared a cursor), and it flatly contradicted the plugin's own `test_offsetlog_dir_defaults_to_empty`. Both dirs now follow Consumer's contract: empty means no cursor and no quarantine. **Every stock topology declares both** — a Consumer that omitted its dead-letter dir was silently dropping poison rather than quarantining it.
