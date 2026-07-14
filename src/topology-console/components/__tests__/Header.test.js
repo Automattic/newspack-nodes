@@ -230,3 +230,60 @@ describe( 'Header', () => {
 		).toBeNull();
 	} );
 } );
+
+/**
+ * Button ORDER is part of the interface: the same control must not move as you
+ * change mode. Live is a prefix of edit — NEW, OPEN, then the edit-only middle,
+ * then always EDIT, LIVE on the right.
+ */
+describe( 'Header — mode button order', () => {
+	// LIVE carries an uptime suffix; compare the label word only.
+	const labels = ( container ) =>
+		[ ...container.querySelectorAll( '.topology-mode__btn' ) ].map(
+			( b ) => ( b.textContent.trim().match( /^[A-Z]+/ ) ?? [ '' ] )[ 0 ]
+		);
+
+	it( 'live mode: NEW, OPEN, EDIT, LIVE', () => {
+		const { container } = render(
+			<Header { ...baseProps } onNew={ jest.fn() } onOpen={ jest.fn() } />
+		);
+		expect( labels( container ) ).toEqual( [
+			'NEW',
+			'OPEN',
+			'EDIT',
+			'LIVE',
+		] );
+	} );
+
+	it( 'edit mode: NEW, OPEN, SAVE, DELETE, SETTINGS, EDIT, LIVE', () => {
+		const { container } = render(
+			<Header
+				{ ...baseProps }
+				mode="edit"
+				canDelete
+				onNew={ jest.fn() }
+				onOpen={ jest.fn() }
+				onSave={ jest.fn() }
+				onDelete={ jest.fn() }
+				onSettings={ jest.fn() }
+			/>
+		);
+		expect( labels( container ) ).toEqual( [
+			'NEW',
+			'OPEN',
+			'SAVE',
+			'DELETE',
+			'SETTINGS',
+			'EDIT',
+			'LIVE',
+		] );
+	} );
+
+	it( 'the debug overlay has no editor — no NEW, no OPEN', () => {
+		const { container } = render(
+			<Header { ...baseProps } onClose={ jest.fn() } />
+		);
+		expect( labels( container ) ).not.toContain( 'NEW' );
+		expect( labels( container ) ).not.toContain( 'OPEN' );
+	} );
+} );

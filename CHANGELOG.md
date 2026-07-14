@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Header button order is fixed and consistent across modes** — live: `NEW OPEN EDIT LIVE`; edit: `NEW OPEN SAVE DELETE SETTINGS EDIT LIVE`. Live is a strict PREFIX of edit, so no control moves under the cursor when you switch. Previously NEW was rendered twice (once per mode) and landed AFTER the edit-only buttons in live, while SETTINGS sat before DELETE.
+
+### Fixed
+
+- **OPEN no longer appears in the debug overlay**, which has no editor to open a topology into — a regression from making OPEN available in live mode. NEW and OPEN are both gated on the overlay now, as NEW already was.
+
 ## [0.45.1] - 2026-07-14
 
 ### Fixed
