@@ -183,7 +183,7 @@ class LogTest extends TestCase {
 
 	public function test_value_over_pipe_buf_is_dropped_without_void_warranty(): void {
 		// Log inherits Partition's 4KB PIPE_BUF cap (atomic-write discipline, ADR-4).
-		// An oversize VALUE is dropped (state DROPPED), NOT written — a deliberate
+		// An oversize VALUE is dropped, NOT written — a deliberate
 		// change from the old uncapped Log. Operators opt out via void_warranty().
 		$log = new Log_Node();
 		$log->arguments( "{$this->tmp}/out.log" );

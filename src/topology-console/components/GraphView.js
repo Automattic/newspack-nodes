@@ -206,6 +206,14 @@ export default function GraphView( {
 			} else if ( editMode && selectedEdge ) {
 				e.preventDefault();
 				handleRemoveEdge( selectedEdge.from, selectedEdge.to );
+			} else if ( editMode && selectedHull ) {
+				// Only a DIRECTLY-declared include has a line here to remove.
+				if ( ! includes.includes( selectedHull ) ) {
+					return;
+				}
+				e.preventDefault();
+				onRemoveInclude?.( selectedHull );
+				setSelectedHull( null );
 			}
 		};
 		document.addEventListener( 'keydown', onKey );
@@ -214,6 +222,9 @@ export default function GraphView( {
 		editMode,
 		selectedId,
 		selectedEdge,
+		selectedHull,
+		includes,
+		onRemoveInclude,
 		graph.nodes,
 		handleRemoveNode,
 		handleRemoveEdge,

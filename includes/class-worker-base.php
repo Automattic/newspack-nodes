@@ -446,10 +446,7 @@ class Worker_Base {
 		}
 
 		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {
-			return $this->stop(
-				\sprintf( 'max_runtime exceeded (%ds / %ds)', (int) ( $now - $this->start_time ), $this->max_runtime ),
-				'timeout'
-			);
+			return $this->stop( '', 'timeout' );
 		}
 
 		if ( $this->memory_over_watermark() ) {
@@ -498,7 +495,9 @@ class Worker_Base {
 	 */
 	private function stop( string $reason, string $category = '' ): bool {
 		$this->stop_reason = $category;
-		Core::stderr( "{$this->worker_type}.p{$this->partition}: stopping — {$reason}" );
+		if ( '' !== $reason ) {
+			Core::stderr( "{$this->worker_type}.p{$this->partition}: stopping — {$reason}" );
+		}
 		return false;
 	}
 

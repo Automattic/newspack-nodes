@@ -162,7 +162,7 @@ export class RemoteLinkNode extends Node {
 
 	static nodeSchema() {
 		return {
-			category: 'Remote',
+			category: 'I/O',
 			description:
 				'Full-duplex SSE+HTTP channel: composes a SseIn, HttpOut and Heartbeat as one node.',
 			accepts_fill: false,

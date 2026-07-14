@@ -164,10 +164,7 @@ class Partition_Node extends Timer_Node {
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 		$size   = \strlen( $record );
 		if ( $size > $max ) {
-			$this->set_state(
-				'DROPPED',
-				\implode( ' ', [ 'REASON', 'oversize', 'SIZE', $size, 'MAX', $max ] )
-			);
+			$this->drop_message( $message, "oversize: {$size} > {$max}" );
 			return;
 		}
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Delete removes a selected hull's include.** A hull IS the include, so it now answers Delete/Backspace like a selected node or edge does — no round trip to the inspector's include tree. Only a DIRECTLY-declared include can go (a nested one has no `include` line in this topology to remove), and only in edit mode, since removing an include edits the draft. The selection clears with it.
+
 ## [0.45.3] - 2026-07-14
 
 ### Fixed

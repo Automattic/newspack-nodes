@@ -1530,10 +1530,10 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Coverage: emit DROPPED state when message exceeds size cap.
+	// Coverage: emit oversize WARNING when message exceeds size cap.
 	// ============================================================================
 
-	public function test_fill_emits_DROPPED_state_when_oversized(): void {
+	public function test_fill_emits_oversize_WARNING_when_oversized(): void {
 		$router = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$router->name( '_router' );
 
@@ -1541,7 +1541,6 @@ class PartitionTest extends TestCase {
 
 		$p->arguments( "{$this->tmp}.p0 " . ( 64 * 1024 ) . " 2 4 86400 0" );
 		$p->name( 'p-drop' );
-		$p->debug_state( 1 );
 		\Newspack_Nodes\Core::$recent_log = [];
 
 		$message = $this->produce( \str_repeat( 'x', 5000 ) ); // > MAX_LINE_SIZE
@@ -1549,9 +1548,9 @@ class PartitionTest extends TestCase {
 
 		$dropped_traces = \array_values( \array_filter(
 			\Newspack_Nodes\Core::$recent_log,
-			static fn ( $line ) => \str_contains( $line, 'DEBUG: DROPPED' )
+			static fn ( $line ) => \str_contains( $line, 'WARNING: oversize' )
 		) );
-		$this->assertNotEmpty( $dropped_traces, 'oversize fill must emit DROPPED debug_state' );
+		$this->assertNotEmpty( $dropped_traces, 'oversize fill must emit oversize_WARNING' );
 		// Flat payload carries the reason + the offending size.
 		$this->assertStringContainsString( 'oversize', \reset( $dropped_traces ) );
 	}
