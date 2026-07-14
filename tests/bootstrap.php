@@ -761,6 +761,7 @@ require_once __DIR__ . '/Helpers/BoundedTicks.php';
 require_once __DIR__ . '/Helpers/VerbHarness.php';
 require_once __DIR__ . '/Helpers/FakeMemcached.php';
 require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
+require_once __DIR__ . '/Helpers/TopologyDurability.php';
 
 // Capture the shared fire-and-forget POSTs (Supervisor spawn fan-out AND
 // Worker_Base self-respawn) without actually hitting libcurl. `Core::$curl_exec`
