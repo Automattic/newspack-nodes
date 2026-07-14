@@ -46,6 +46,17 @@ parameters:
         # szepeviktor/phpstan-wordpress doesn't ship WP-CLI stubs; supply them
         # via php-stubs/wp-cli-stubs.
         - vendor/php-stubs/wp-cli-stubs/wp-cli-stubs.php
+    ignoreErrors:
+        # This is a SUBSTRATE: Deferred_Clean_Stop is `use`d only by application
+        # snapshot nodes in sibling repos (event-logger-nodes' Request_Builder and
+        # Flame_Builder), which this analysis cannot see — so the core trait.unused
+        # rule reads it as dead. It is not. `@api` on the trait marks the intent,
+        # but trait.unused does not honor @api, so the ignore is the mechanism.
+        # Lives HERE (not in the dead-code overlay) because trait.unused is a CORE
+        # rule: a bare `vendor/bin/phpstan` must be clean too. @longform
+        -
+            identifier: trait.unused
+            path: includes/trait-deferred-clean-stop.php
     # treatPhpDocTypesAsCertain + reportUnmatchedIgnoredErrors left at PHPStan
     # defaults (both `true`). First makes PHPDoc types behave like real types
     # for always-true/always-false detection. Second fails the build on any
