@@ -68,9 +68,7 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( $w->should_continue() );
 	}
 
-	public function test_should_continue_logs_the_stop_reason(): void {
-		// A cooperative stop should say WHY it stopped (which should_continue branch),
-		// prefixed with the worker id — so operators can see lifetime vs watermark etc.
+	public function test_should_continue_does_not_log_normal_shutdown(): void {
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
 		$w->acquire();
 		$w->set_start_time_for_test( \microtime( true ) - 2.0 );
@@ -81,8 +79,7 @@ class WorkerBaseTest extends TestCase {
 			}
 		);
 		$this->assertFalse( $w->should_continue() );
-		$this->assertStringContainsString( 'test-worker.p0', $buf );
-		$this->assertStringContainsString( 'max_runtime', $buf );
+		$this->assertSame( '', $buf );
 	}
 
 	public function test_should_continue_logs_memory_watermark_reason(): void {

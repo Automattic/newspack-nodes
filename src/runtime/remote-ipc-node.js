@@ -125,7 +125,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 	static nodeSchema() {
 		return {
-			category: 'Remote',
+			category: 'I/O',
 			description:
 				'Per-worker interactive command channel (Remote_IPC): cd onto it and commands ride to the remote worker.',
 			accepts_fill: false,

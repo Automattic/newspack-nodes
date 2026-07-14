@@ -472,3 +472,67 @@ describe( 'GraphView — hull selection', () => {
 		} );
 	} );
 } );
+
+/**
+ * A hull IS the include — deleting the selection should remove it, the same way
+ * Delete removes a selected node or edge. Only a DIRECTLY-declared include can
+ * go: a nested one isn't in this topology's `include` lines, so there is nothing
+ * to remove. And only in edit mode — deleting an include edits the draft.
+ */
+describe( 'GraphView — Delete on a selected hull', () => {
+	const hulls = [
+		{ include: 'performance', nodeIds: [ 'n1' ] },
+		{ include: 'nested-only', nodeIds: [ 'n1' ] },
+	];
+
+	const renderWith = ( props ) =>
+		render(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				hulls={ hulls }
+				includes={ [ 'performance' ] }
+				{ ...props }
+			/>
+		);
+
+	it( 'removes the include the hull stands for', () => {
+		const onRemoveInclude = jest.fn();
+		renderWith( { editMode: true, onRemoveInclude } );
+
+		act( () => global.__canvasProps.onSelectHull( 'performance' ) );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+
+		expect( onRemoveInclude ).toHaveBeenCalledWith( 'performance' );
+	} );
+
+	it( 'leaves a NESTED include alone — it is not declared here', () => {
+		const onRemoveInclude = jest.fn();
+		renderWith( { editMode: true, onRemoveInclude } );
+
+		act( () => global.__canvasProps.onSelectHull( 'nested-only' ) );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+
+		expect( onRemoveInclude ).not.toHaveBeenCalled();
+	} );
+
+	it( 'does nothing in live mode — there is no draft to edit', () => {
+		const onRemoveInclude = jest.fn();
+		renderWith( { onRemoveInclude } );
+
+		act( () => global.__canvasProps.onSelectHull( 'performance' ) );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+
+		expect( onRemoveInclude ).not.toHaveBeenCalled();
+	} );
+
+	it( 'clears the hull selection after removing it', () => {
+		renderWith( { editMode: true, onRemoveInclude: jest.fn() } );
+
+		act( () => global.__canvasProps.onSelectHull( 'performance' ) );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+
+		expect( global.__inspectorProps.selectedHull ).toBeNull();
+	} );
+} );

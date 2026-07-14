@@ -402,9 +402,8 @@ class Command_Interpreter_Node extends Node {
 	 * @param array<array-key, mixed> $envelope The command Message.
 	 */
 	private static function cmd_pwd( string $args, array $envelope ): string {
-		$cwd      = '' === $args ? '/' : $args;
-		$from_raw = $envelope[ Message::FROM ] ?? '';
-		$from     = Core::as_string( $from_raw );
+		$cwd  = '' === $args ? '/' : $args;
+		$from = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 		return ' ' . $cwd . ' -> ' . $from;
 	}
 
@@ -437,8 +436,7 @@ class Command_Interpreter_Node extends Node {
 		}
 		// No target defaults to the issuing FROM; tees the node's flow back.
 		if ( '' === $target ) {
-			$from   = $envelope[ Message::FROM ] ?? '';
-			$target = Core::as_string( $from );
+			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
 				return 'usage: connect_node <node> [<target>]';
 			}
@@ -460,8 +458,7 @@ class Command_Interpreter_Node extends Node {
 		}
 		// For a Tee, no target removes the issuing FROM from the fan-out.
 		if ( '' === $target && \is_array( $src->target() ) ) {
-			$from   = $envelope[ Message::FROM ] ?? '';
-			$target = Core::as_string( $from );
+			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
 				return 'usage: disconnect_node <node> [<target>]';
 			}

@@ -48,22 +48,13 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Job_Worker_Node extends Node {
 	use Schema_Reflection;
 
-
 	/** Default cache-flush interval in jobs. */
 	public const CACHE_FLUSH_INTERVAL = 50;
-
-	/** Default max-runtime hint (matches DEFAULT_STALE_TIMEOUT for symmetry). */
-	public const DEFAULT_MAX_RUNTIME = 600;
-
-	/** Default stale-timeout hint for long-running JobWorker pipelines. */
-	public const DEFAULT_STALE_TIMEOUT = 600;
 
 	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
 	public const MAX_JOB_SIZE         = Job_Intake::MAX_JOB_SIZE;
 
 	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
-	protected int $max_runtime          = self::DEFAULT_MAX_RUNTIME;
-	protected int $stale_timeout        = self::DEFAULT_STALE_TIMEOUT;
 	/** @api Used by unit tests. */
 	private int $jobs_executed = 0;
 	private int $jobs_since_cache_flush = 0;
@@ -84,7 +75,7 @@ class Job_Worker_Node extends Node {
 
 	/**
 	 * Store the raw string, parse positional tokens via parse_schema_args()
-	 * (cache_flush_interval / stale_timeout / max_runtime), then clamp each knob
+	 * (cache_flush_interval), then clamp each knob
 	 * to a minimum of 1.
 	 *
 	 * @param string|null $args
@@ -96,8 +87,6 @@ class Job_Worker_Node extends Node {
 		}
 		$this->parse_schema_args( $args );
 		$this->cache_flush_interval = \max( 1, $this->cache_flush_interval );
-		$this->stale_timeout        = \max( 1, $this->stale_timeout );
-		$this->max_runtime          = \max( 1, $this->max_runtime );
 		return $args;
 	}
 
@@ -273,8 +262,6 @@ class Job_Worker_Node extends Node {
 			'description' => 'Consumes jobs.log entries and dispatches to registered handlers.',
 			'arguments'        => [
 				[ 'name' => 'cache_flush_interval', 'type' => 'int', 'default' => self::CACHE_FLUSH_INTERVAL, 'description' => 'Jobs processed between wp_cache_flush() calls (default 50); clamped to a minimum of 1.' ],
-				[ 'name' => 'stale_timeout',        'type' => 'int', 'default' => self::DEFAULT_STALE_TIMEOUT, 'description' => 'Lock-stale timeout hint in seconds for long-running job pipelines (default 600).' ],
-				[ 'name' => 'max_runtime',          'type' => 'int', 'default' => self::DEFAULT_MAX_RUNTIME, 'description' => 'Worker self-recycle runtime hint in seconds before respawn (default 600).' ],
 			],
 			'commands'       => [],
 			'requests'    => [

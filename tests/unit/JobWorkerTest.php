@@ -173,23 +173,6 @@ class JobWorkerTest extends TestCase {
 
 	// --- Constructor params + getters ---------------------------------------
 
-	public function test_default_stale_timeout_is_600(): void {
-		$jw = new Job_Worker_Node();
-		$this->assertSame( 600, $this->read_private( $jw, 'stale_timeout' ) );
-	}
-
-	public function test_default_max_runtime_is_600(): void {
-		$jw = new Job_Worker_Node();
-		$this->assertSame( 600, $this->read_private( $jw, 'max_runtime' ) );
-	}
-
-	public function test_constructor_overrides_stale_and_runtime(): void {
-		$jw = new Job_Worker_Node();
-		$jw->arguments( '10 1200 1200' );
-		$this->assertSame( 1200, $this->read_private( $jw, 'stale_timeout' ) );
-		$this->assertSame( 1200, $this->read_private( $jw, 'max_runtime' ) );
-	}
-
 	public function test_cache_flush_interval_default_is_50(): void {
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'noop', fn ( $p ) => null );
@@ -419,8 +402,6 @@ class JobWorkerTest extends TestCase {
 	public function test_constructor_clamps_zero_or_negative_to_one(): void {
 		$jw = new Job_Worker_Node();
 		$jw->arguments( '0 0 -5' );
-		$this->assertSame( 1, $this->read_private( $jw, 'stale_timeout' ) );
-		$this->assertSame( 1, $this->read_private( $jw, 'max_runtime' ) );
 
 		$this->register_job_handler( $jw, 'noop', fn () => null );
 		$message = $this->job_message( 'noop' );
@@ -663,8 +644,6 @@ class JobWorkerTest extends TestCase {
 		$jw->arguments( '7 120 480' );
 		$ref = new \ReflectionClass( $jw );
 		$this->assertSame( 7,   $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
-		$this->assertSame( 120, $ref->getProperty( 'stale_timeout' )->getValue( $jw ) );
-		$this->assertSame( 480, $ref->getProperty( 'max_runtime' )->getValue( $jw ) );
 	}
 
 	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
@@ -672,15 +651,11 @@ class JobWorkerTest extends TestCase {
 		$jw->arguments( '' );
 		$ref = new \ReflectionClass( $jw );
 		$this->assertSame( Job_Worker_Node::CACHE_FLUSH_INTERVAL,   $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
-		$this->assertSame( Job_Worker_Node::DEFAULT_STALE_TIMEOUT,  $ref->getProperty( 'stale_timeout' )->getValue( $jw ) );
-		$this->assertSame( Job_Worker_Node::DEFAULT_MAX_RUNTIME,    $ref->getProperty( 'max_runtime' )->getValue( $jw ) );
 
 		$jw2 = new Job_Worker_Node();
 		$jw2->arguments( '5' );
 		$ref2 = new \ReflectionClass( $jw2 );
 		$this->assertSame( 5,                                       $ref2->getProperty( 'cache_flush_interval' )->getValue( $jw2 ) );
-		$this->assertSame( Job_Worker_Node::DEFAULT_STALE_TIMEOUT,  $ref2->getProperty( 'stale_timeout' )->getValue( $jw2 ) );
-		$this->assertSame( Job_Worker_Node::DEFAULT_MAX_RUNTIME,    $ref2->getProperty( 'max_runtime' )->getValue( $jw2 ) );
 	}
 
 	public function test_arguments_setter_normalizes_to_minimum_one(): void {
@@ -688,8 +663,6 @@ class JobWorkerTest extends TestCase {
 		$jw->arguments( '0 -3 -5' );
 		$ref = new \ReflectionClass( $jw );
 		$this->assertSame( 1, $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
-		$this->assertSame( 1, $ref->getProperty( 'stale_timeout' )->getValue( $jw ) );
-		$this->assertSame( 1, $ref->getProperty( 'max_runtime' )->getValue( $jw ) );
 	}
 
 	public function test_worker_should_stop_escapes_the_per_job_throwable_catch(): void {
