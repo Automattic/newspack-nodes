@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A hovered hull read as a mix of opacities instead of one group.** Live-mode idle dimming applied to the hull's own members, and its internal wires kept the non-flowing edge dim — so hovering an idle include rendered it as part-dim boxes strung on faded wire, exactly the thing the hull exists to group. A hovered hull now lights: idle dimming is suspended on its members, and the edges wholly inside it drop the idle dim. Hover only — a hull stays SELECTED until you click away, so lighting on selection would hide live idle state indefinitely, and selection fades nothing, so it would buy no contrast anyway. Non-members fade to 0.4 (was 0.55), restoring the gap from the 0.7 idle dim that the hover fade is supposed to read against.
+
 - **The palette showed its "Topologies" section in LIVE mode**, where there's no draft to `include` anything into — and it greyed entries from the stale edit `draft`, so a leftover include from an earlier edit session bled into the live view. The section is edit-only now, and the greying reads the mode-aware include set (the draft in edit, the viewed topology in live) instead of the draft unconditionally.
 
 - **Clicking the background didn't clear a selected hull.** The canvas only treated a node or an edge as "a selection", so with only a hull selected the background click fell through to **autofit** instead of deselecting — and the hull panel stayed up. A hull is a selection: it now clears on a background click, and selecting a node or an edge supersedes it.
