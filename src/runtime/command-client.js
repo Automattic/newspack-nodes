@@ -17,6 +17,15 @@ import { nodesData } from './nodes-data';
 // JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
 
+// The `code` off a WP REST error body ('rest_no_route'), or '' if unreadable.
+function restErrorCode( text ) {
+	try {
+		return JSON.parse( text )?.code ?? '';
+	} catch ( e ) {
+		return '';
+	}
+}
+
 export class CommandClient {
 	constructor( { baseUrl, nonce } ) {
 		this.baseUrl = baseUrl;
@@ -102,6 +111,15 @@ export class CommandClient {
 		} );
 		// JSONL: unpack each line — NEVER JSON.parse the multi-message body.
 		const text = await r.text();
+		// A non-2xx body is a REST error OBJECT, not JSONL. Say so.
+		if ( false === r.ok ) {
+			Core.printLessOften(
+				`ERROR: CommandClient: /command failed - HTTP ${
+					r.status
+				} ${ restErrorCode( text ) }`
+			);
+			return [];
+		}
 		const unpacked = text
 			? text
 					.split( '\n' )
