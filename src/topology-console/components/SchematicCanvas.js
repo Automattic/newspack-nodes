@@ -860,11 +860,14 @@ export default function SchematicCanvas( {
 		}, 0 );
 	};
 
-	// Hovered hull's members; every other node dims so the group reads.
-	const hoveredHullMembers = useMemo( () => {
-		const hull = hulls.find( ( h ) => h.include === hoveredHull );
+	// @longform The FOCUSED hull: hovered, else selected — selection is the
+	// sticky form of the same gesture. Members + inner wires light; rest fades.
+	const focusedHullMembers = useMemo( () => {
+		const hull = hulls.find(
+			( h ) => h.include === ( hoveredHull ?? selectedHull )
+		);
 		return hull ? new Set( hull.nodeIds ) : null;
-	}, [ hulls, hoveredHull ] );
+	}, [ hulls, hoveredHull, selectedHull ] );
 
 	// Snapped so the outline lands exactly where the drag drew it.
 	const hullDragDelta = ( d ) =>
@@ -922,12 +925,12 @@ export default function SchematicCanvas( {
 		const isHovered = n.id === hoveredId;
 		const isFaded =
 			( hoveredId && ! isHovered ) ||
-			!! ( hoveredHullMembers && ! hoveredHullMembers.has( n.id ) );
+			!! ( focusedHullMembers && ! focusedHullMembers.has( n.id ) );
 		// Idle dim: LIVE mode only, and never inside the hovered hull.
 		const isIdle =
 			! editMode &&
 			!! rateRef &&
-			! hoveredHullMembers?.has( n.id ) &&
+			! focusedHullMembers?.has( n.id ) &&
 			isIdleRate( rateRef.current?.get( n.id )?.rate );
 		const isDragging = drag && drag.nodeId === n.id;
 		// Borrowed via `include`: locked, but its wiring stays editable.
@@ -1312,12 +1315,12 @@ export default function SchematicCanvas( {
 						// it, so an idle group doesn't read as bright boxes on
 						// faded wire; every edge that leaves the hull dims.
 						const lit =
-							!! hoveredHullMembers &&
-							hoveredHullMembers.has( e.from ) &&
-							hoveredHullMembers.has( e.to );
-						const inHoveredHull = ! hoveredHullMembers || lit;
+							!! focusedHullMembers &&
+							focusedHullMembers.has( e.from ) &&
+							focusedHullMembers.has( e.to );
+						const inFocusedHull = ! focusedHullMembers || lit;
 						const dimmed =
-							( hoveredId && ! hoverTouches ) || ! inHoveredHull;
+							( hoveredId && ! hoverTouches ) || ! inFocusedHull;
 						const isEdgeSelected =
 							selectedEdge &&
 							selectedEdge.from === e.from &&
