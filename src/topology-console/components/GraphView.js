@@ -5,6 +5,7 @@ import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
 import { useAggregateRateSeries } from '../hooks/useAggregateRateSeries';
 import { hullNodes } from '../utils/hullNodes';
+import { aggregateSeries } from '../utils/aggregateSeries';
 import '../styles/graph-view.scss';
 
 /**
@@ -124,14 +125,16 @@ export default function GraphView( {
 	const { rateRef, rateVersion } = useGraphRates( graph, resetKey );
 	// Aggregate rate series, kept here so it survives the header remounting.
 	const rateSeries = useAggregateRateSeries( graph.nodes, resetKey );
-	// The selected hull's own series, kept here so it survives a panel remount.
-	const hullMembers = useMemo(
-		() => hullNodes( graph.nodes, hulls, selectedHull ),
-		[ graph.nodes, hulls, selectedHull ]
-	);
-	const hullRateSeries = useAggregateRateSeries(
-		hullMembers,
-		`${ resetKey }:${ selectedHull ?? '' }`
+	// Derived from the per-node history: selecting a hull reveals the past.
+	const hullRateSeries = useMemo(
+		() =>
+			aggregateSeries(
+				rateRef.current,
+				hullNodes( graph.nodes, hulls, selectedHull )
+			),
+		// rateVersion ticks on every poll; rateRef itself is stable.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[ graph.nodes, hulls, selectedHull, rateRef, rateVersion ]
 	);
 
 	// Node + edge selection are mutually exclusive (unambiguous Delete).
