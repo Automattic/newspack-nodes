@@ -8,7 +8,9 @@ import {
 	VALUE,
 	TM_COMMAND,
 	TM_ERROR,
+	TM_UNTYPED,
 } from './message';
+import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData } from './nodes-data';
 
@@ -100,12 +102,22 @@ export class CommandClient {
 		} );
 		// JSONL: unpack each line — NEVER JSON.parse the multi-message body.
 		const text = await r.text();
-		const messages = text
+		const unpacked = text
 			? text
 					.split( '\n' )
 					.filter( ( line ) => '' !== line.trim() )
 					.map( ( line ) => unpack( line ) )
 			: [];
+		// A line unpack() cannot read mints a blank — never route that.
+		const messages = unpacked.filter( ( m ) => {
+			if ( m[ TYPE ] & TM_UNTYPED ) {
+				Core.printLessOften(
+					'ERROR: CommandClient: dropped an unparseable /command response line'
+				);
+				return false;
+			}
+			return true;
+		} );
 		// Inbound boundary accounting: response bytes, replies, error tally.
 		IoTelemetry.recordIn( byteLength( text ), messages.length );
 		for ( const message of messages ) {

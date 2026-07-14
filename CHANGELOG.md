@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Found the `_router: WARNING: message not addressed - TYPE_UNKNOWN` ghost.** It was not a buggy minter — it was the wire. `unpack()` returns a fresh blank message for any line that is not a 7-field array, and `CommandClient` fed EVERY line of a `/command` response straight back into the graph (`HttpOut` fills each reply into its sink). So one malformed response line became a message with no TYPE, no FROM and no TO, which is precisely what `_router` was reporting.
+
+  The wire boundary now rejects it — a line `unpack()` cannot read is dropped with `ERROR: CommandClient: dropped an unparseable /command response line`, naming the real fault instead of surfacing a ghost three hops downstream. The guard sits in the shared `#post`, so `send()` and `postBatch()` are both covered. `SseInNode` already did this for its own ingress; the command path never did.
+
 ## [0.45.0] - 2026-07-14
 
 ### Added
