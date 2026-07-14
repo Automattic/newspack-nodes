@@ -15,6 +15,7 @@ import {
 	TM_STRUCT,
 	TM_REQUEST,
 	TM_NOREPLY,
+	TM_UNTYPED,
 	newMessage,
 } from './message';
 import names from './reserved-node-names.json';
@@ -33,6 +34,7 @@ const TYPE_NAMES = [
 	[ TM_STRUCT, 'TM_STRUCT' ],
 	[ TM_REQUEST, 'TM_REQUEST' ],
 	[ TM_NOREPLY, 'TM_NOREPLY' ],
+	[ TM_UNTYPED, 'TM_UNTYPED' ],
 ];
 // Types whose VALUE is included in the dropMessage audit line.
 const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;

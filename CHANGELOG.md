@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`TM_UNTYPED` (1024) — the mint default for a message.** `new_message()` used to hand back `TYPE = 0`, so a message that was minted and never typed was indistinguishable in the drop audit from a naked array with no TYPE at all. Both printed `TYPE_UNKNOWN`, and a live `_router: WARNING: message not addressed - TYPE_UNKNOWN` told you nothing about which. Now a minted-but-untyped message reports `TM_UNTYPED` (our bug) and a naked array still reports `TYPE_UNKNOWN` (garbage).
+
+  It is a free HIGH bit, so it matches NO type gate — an untyped message is inert. A `-1` sentinel would have been the opposite: as a bitmask every bit is set, so it would satisfy `type & TM_COMMAND` AND `type & TM_EOF` AND `type & TM_ERROR` at once, and be acted on by every handler in the graph.
+
+  Both runtimes mint it (PHP `Message::TM_UNTYPED`, JS `TM_UNTYPED`) — it is part of the wire format, so they move together.
+
+### Fixed
+
+- **`SseInNode` dropped malformed frames via `! message[ TYPE ]`**, which the new truthy mint default would have silently defeated — malformed frames would have been ROUTED. It now splits the two causes it had been conflating: `unpack()` returns a fresh (untyped) message when a frame will not parse, so `TM_UNTYPED` means the WIRE was garbage (`unparseable frame`), while a clean 7-field frame carrying no type is a different bug (`typeless frame`). Separate ERROR states, separate rate-limit keys.
+
 ## [0.44.1] - 2026-07-14
 
 ### Fixed

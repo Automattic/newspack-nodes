@@ -61,7 +61,7 @@ class MessageTest extends TestCase {
 	public function test_new_message_returns_seven_element_array(): void {
 		$m = Message::new_message();
 		$this->assertCount( 7, $m );
-		$this->assertSame( 0, $m[ Message::TYPE ] );
+		$this->assertSame( Message::TM_UNTYPED, $m[ Message::TYPE ] );
 		$this->assertIsFloat( $m[ Message::TIMESTAMP ] );
 		$this->assertSame( '', $m[ Message::FROM ] );
 		$this->assertSame( '', $m[ Message::TO ] );
@@ -126,6 +126,32 @@ class MessageTest extends TestCase {
 		// LOCAL is the appended bookkeeping field — provenance taint, never on the wire.
 		$this->assertSame( 7, Message::LOCAL );
 		$this->assertSame( Message::LAST_VALUE_INDEX + 1, Message::LOCAL );
+	}
+
+	/**
+	 * A message that was MINTED but never typed is a different failure from a
+	 * naked array with no TYPE at all — the first is a bug in our own code, the
+	 * second is garbage. TM_UNTYPED is a free HIGH bit so it matches no gate: an
+	 * untyped message is inert, where a -1 sentinel would match every type check
+	 * in the system (every bit set) and be treated as a command AND an EOF AND an
+	 * error, all at once.
+	 */
+	public function test_untyped_matches_no_type_gate(): void {
+		$type = Message::new_message()[ Message::TYPE ];
+
+		foreach ( [
+			Message::TM_BYTESTREAM,
+			Message::TM_EOF,
+			Message::TM_PING,
+			Message::TM_COMMAND,
+			Message::TM_STRUCT,
+			Message::TM_ERROR,
+			Message::TM_INFO,
+			Message::TM_REQUEST,
+			Message::TM_RESPONSE,
+		] as $bit ) {
+			$this->assertSame( 0, $type & $bit, 'an untyped message is inert' );
+		}
 	}
 
 	public function test_new_message_has_no_local_field(): void {

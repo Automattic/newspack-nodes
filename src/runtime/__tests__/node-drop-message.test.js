@@ -1,6 +1,18 @@
 import { Node } from '../node';
 import { Core } from '../core';
-import { TYPE, FROM, TO, VALUE, TM_BYTESTREAM, TM_INFO } from '../message';
+import {
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	newMessage,
+	TM_BYTESTREAM,
+	TM_INFO,
+	TM_EOF,
+	TM_COMMAND,
+	TM_ERROR,
+	TM_REQUEST,
+} from '../message';
 
 beforeEach( () => Core.reset() );
 
@@ -113,5 +125,54 @@ describe( 'Node.dropMessage', () => {
 		m[ VALUE ] = '';
 		n.dropMessage( m, 'NOT_AVAILABLE' );
 		expect( less ).toHaveBeenCalledTimes( 1 );
+	} );
+} );
+
+/**
+ * A message that was MINTED but never typed is a different failure from a naked
+ * array with no TYPE at all — the first is our bug, the second is garbage on the
+ * wire. TM_UNTYPED (a free high bit, matching no gate) tells them apart in the
+ * audit; -1 could not, since as a bitmask it matches every type check there is.
+ */
+describe( 'TM_UNTYPED', () => {
+	it( 'labels a minted-but-never-typed message TM_UNTYPED', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+
+		n.dropMessage( newMessage(), 'message not addressed' );
+
+		expect( spy.mock.calls[ 0 ][ 0 ] ).toContain( 'TM_UNTYPED' );
+		expect( spy.mock.calls[ 0 ][ 0 ] ).not.toContain( 'TYPE_UNKNOWN' );
+	} );
+
+	it( 'still labels a naked array TYPE_UNKNOWN', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const naked = [];
+		naked[ TYPE ] = 0;
+		naked[ FROM ] = '';
+		naked[ TO ] = '';
+
+		n.dropMessage( naked, 'message not addressed' );
+
+		expect( spy.mock.calls[ 0 ][ 0 ] ).toContain( 'TYPE_UNKNOWN' );
+	} );
+
+	it( 'matches no type gate — an untyped message is inert, not every type', () => {
+		const type = newMessage()[ TYPE ];
+		for ( const bit of [
+			TM_BYTESTREAM,
+			TM_EOF,
+			TM_COMMAND,
+			TM_ERROR,
+			TM_INFO,
+			TM_REQUEST,
+		] ) {
+			expect( type & bit ).toBe( 0 );
+		}
 	} );
 } );

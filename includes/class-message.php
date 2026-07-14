@@ -39,6 +39,16 @@ class Message {
 	public const TM_REQUEST    = 128;
 	public const TM_RESPONSE   = 256;
 	public const TM_STRUCT     = 16;
+
+	/**
+	 * The mint default: a message that exists but has not been typed yet. A free
+	 * HIGH bit, so it matches NO type gate — an untyped message is inert rather
+	 * than every type at once (which is what a -1 sentinel would be as a bitmask).
+	 * Every minter assigns TYPE and overwrites it; one that reaches a sink still
+	 * carrying it is a bug, and the drop audit names it. A naked array (no TYPE)
+	 * stays TYPE_UNKNOWN — a different failure, worth telling apart.
+	 */
+	public const TM_UNTYPED = 1024;
 	public const TO        = 3;
 
 	public const TYPE      = 0;
@@ -64,7 +74,7 @@ class Message {
 	/** @return array<int, mixed> The 7-field positional message array. */
 	public static function new_message(): array {
 		return [
-			self::TYPE      => 0,
+			self::TYPE      => self::TM_UNTYPED,
 			// Cached per-tick clock; microtime() fallback outside drain loop.
 			self::TIMESTAMP => Core::$now ?: \microtime( true ),
 			self::FROM      => '',

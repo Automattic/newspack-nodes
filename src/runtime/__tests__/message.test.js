@@ -8,6 +8,7 @@ import {
 	VALUE,
 	LAST_VALUE_INDEX,
 	LOCAL,
+	TM_UNTYPED,
 	TM_BYTESTREAM,
 	TM_EOF,
 	TM_PING,
@@ -58,10 +59,10 @@ test( 'TM_* flags are single-bit', () => {
 	expect( TM_NOREPLY ).toBe( 512 );
 } );
 
-test( 'newMessage returns a 7-slot array with TYPE=0, blank string slots', () => {
+test( 'newMessage returns a 7-slot array with TYPE=TM_UNTYPED, blank string slots', () => {
 	const m = newMessage();
 	expect( m ).toHaveLength( 7 );
-	expect( m[ TYPE ] ).toBe( 0 );
+	expect( m[ TYPE ] ).toBe( TM_UNTYPED );
 	expect( typeof m[ TIMESTAMP ] ).toBe( 'number' );
 	expect( m[ FROM ] ).toBe( '' );
 	expect( m[ TO ] ).toBe( '' );
@@ -84,13 +85,13 @@ test( 'pack/unpack roundtrips', () => {
 test( 'unpack with non-array JSON returns a fresh new message', () => {
 	const m = unpack( '"not an array"' );
 	expect( m ).toHaveLength( 7 );
-	expect( m[ TYPE ] ).toBe( 0 );
+	expect( m[ TYPE ] ).toBe( TM_UNTYPED );
 } );
 
 test( 'unpack with truncated array returns a fresh new message', () => {
 	const m = unpack( '[1,2,3]' );
 	expect( m ).toHaveLength( 7 );
-	expect( m[ TYPE ] ).toBe( 0 );
+	expect( m[ TYPE ] ).toBe( TM_UNTYPED );
 } );
 
 test( 'LOCAL is index 7, after the canonical fields', () => {
@@ -128,7 +129,7 @@ test( 'valueSize on object VALUE returns JSON-encoded byte length', () => {
 test( 'unpack returns a fresh new message on invalid JSON', () => {
 	const m = unpack( 'not json' );
 	expect( m ).toHaveLength( 7 );
-	expect( m[ TYPE ] ).toBe( 0 );
+	expect( m[ TYPE ] ).toBe( TM_UNTYPED );
 } );
 
 test( 'valueSize returns 0 when VALUE is null or undefined', () => {
