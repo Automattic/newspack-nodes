@@ -1980,6 +1980,87 @@ describe( 'SchematicCanvas — hull interaction', () => {
 		expect( moved[ 'inner-b' ].x - moved[ 'inner-a' ].x ).toBe( 200 );
 		expect( moved[ 'inner-a' ].y ).toBe( moved[ 'inner-b' ].y );
 	} );
+
+	// @longform A hull drag lands on the same half-node lattice a single-node drag
+	// snaps to (top-left at X_PAD + k*X_STEP/2 = 60 + 120k, Y_PAD + k*Y_STEP/2 =
+	// 80 + 55k). What snaps is the ANCHOR member's absolute target, and every
+	// member then moves by that one delta: snapping each member's own position
+	// would quantise away the cluster's internal offsets and reshape the group,
+	// while snapping the raw delta would preserve whatever off-grid offset the
+	// members already had -- and hull drags used to commit an unsnapped delta, so
+	// off-grid clusters are out there to be tidied.
+	const dragHullBy = ( container, x, y ) => {
+		const hull = container.querySelector( '.topology-hull' );
+		fireEvent.pointerDown( hull, { clientX: 0, clientY: 0, pointerId: 1 } );
+		fireEvent.pointerMove( hull, { clientX: x, clientY: y, pointerId: 1 } );
+		fireEvent.pointerUp( hull, { clientX: x, clientY: y, pointerId: 1 } );
+	};
+	const movedBy = ( onPositionChange ) =>
+		Object.fromEntries(
+			onPositionChange.mock.calls.map( ( [ id, pos ] ) => [ id, pos ] )
+		);
+
+	it( 'snaps a hull drag onto the grid, moving every member by one delta', () => {
+		const onPositionChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...hullProps }
+				onPositionChange={ onPositionChange }
+			/>
+		);
+
+		dragHullBy( container, 190, 90 );
+
+		// inner-a starts at 100,100 (already OFF the lattice); the raw delta would
+		// land it at 290,190. The anchor snaps to the nearest cell instead.
+		const moved = movedBy( onPositionChange );
+		expect( moved[ 'inner-a' ] ).toEqual( { x: 300, y: 190 } );
+		expect( moved[ 'inner-b' ] ).toEqual( { x: 500, y: 190 } );
+		// The cluster keeps its shape through the snap.
+		expect( moved[ 'inner-b' ].x - moved[ 'inner-a' ].x ).toBe( 200 );
+	} );
+
+	it( 'snaps a NEGATIVE hull drag too, off the left/top of the origin', () => {
+		const onPositionChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...hullProps }
+				onPositionChange={ onPositionChange }
+			/>
+		);
+
+		dragHullBy( container, -190, -90 );
+
+		// Anchor 100,100 - 190,90 = -90,10 -> nearest cell is -60,25.
+		const moved = movedBy( onPositionChange );
+		expect( moved[ 'inner-a' ] ).toEqual( { x: -60, y: 25 } );
+		expect( moved[ 'inner-b' ] ).toEqual( { x: 140, y: 25 } );
+	} );
+
+	it( 'tidies an off-grid cluster onto the grid without reshaping it', () => {
+		const onPositionChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...hullProps }
+				positionOverrides={ {
+					...hullProps.positionOverrides,
+					'inner-a': { x: 107, y: 103 },
+					'inner-b': { x: 307, y: 103 },
+				} }
+				onPositionChange={ onPositionChange }
+			/>
+		);
+
+		dragHullBy( container, 190, 90 );
+
+		// The anchor lands ON the lattice (60+240, 80+110) despite starting at a
+		// 7px/23px offset — a raw-delta snap could never have corrected that.
+		const moved = movedBy( onPositionChange );
+		expect( moved[ 'inner-a' ] ).toEqual( { x: 300, y: 190 } );
+		// ...and the cluster's internal offset survives intact.
+		expect( moved[ 'inner-b' ].x - moved[ 'inner-a' ].x ).toBe( 200 );
+		expect( moved[ 'inner-a' ].y ).toBe( moved[ 'inner-b' ].y );
+	} );
 } );
 
 describe( 'SchematicCanvas — background click with only a hull selected', () => {

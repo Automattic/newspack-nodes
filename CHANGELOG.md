@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dragging a hull didn't snap to the grid**, though dragging a single node always has. The hull committed the raw pointer delta, so a cluster moved by its hull landed wherever the mouse happened to stop.
+
+  What snaps is the ANCHOR member's absolute target (the top-left-most one), and every member then moves by that one delta. The two obvious alternatives are both wrong: snapping each member's own position would quantise away the cluster's internal offsets and reshape the group you grabbed, while snapping the raw *delta* only preserves whatever offset the members already had — an off-grid cluster could never be tidied by dragging its hull, and since hull drags used to commit an unsnapped delta, those clusters are already out there in saved layouts. Anchoring gives both: the shape survives and the cluster lands on the grid.
+
+  The live outline now previews the *snapped* delta too, so it clicks onto the grid as you drag instead of sliding out from under the cursor on release.
+
+  The lattice lived in three hand-rolled copies (the palette drop's `snapToGrid`, plus inline half-step math in the node drag and, briefly, the hull drag). `snapPosition()` and `snapClusterDelta()` now sit beside `snapToGrid()` in `utils/autoLayout` and every drag path routes through them.
+
 ## [0.43.0] - 2026-07-13
 
 ### Added

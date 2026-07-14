@@ -10,7 +10,14 @@ import {
 	useState,
 } from '@wordpress/element';
 
-import { X_PAD, X_STEP, Y_PAD, Y_STEP } from '../utils/autoLayout';
+import {
+	X_PAD,
+	X_STEP,
+	Y_PAD,
+	Y_STEP,
+	snapPosition,
+	snapClusterDelta,
+} from '../utils/autoLayout';
 import {
 	viewportCull,
 	isEdgeVisible,
@@ -840,15 +847,10 @@ export default function SchematicCanvas( {
 			// Pointer capture may already be released; ignore.
 		}
 		if ( draggedRef.current && onPositionChange ) {
-			// Snap to half-steps of the layout grid (negatives allowed).
-			const halfX = X_STEP / 2;
-			const halfY = Y_STEP / 2;
-			const xi = Math.round( ( drag.currentPos.x - X_PAD ) / halfX );
-			const yi = Math.round( ( drag.currentPos.y - Y_PAD ) / halfY );
-			onPositionChange( drag.nodeId, {
-				x: X_PAD + xi * halfX,
-				y: Y_PAD + yi * halfY,
-			} );
+			onPositionChange(
+				drag.nodeId,
+				snapPosition( drag.currentPos.x, drag.currentPos.y )
+			);
 		}
 		setDrag( null );
 		// Reset click-suppress flag next microtask (click still sees drag).
@@ -863,6 +865,10 @@ export default function SchematicCanvas( {
 		const hull = hulls.find( ( h ) => h.include === hoveredHull );
 		return hull ? new Set( hull.nodeIds ) : null;
 	}, [ hulls, hoveredHull ] );
+
+	// Snapped so the outline lands exactly where the drag drew it.
+	const hullDragDelta = ( d ) =>
+		snapClusterDelta( d.origin, d.dx || 0, d.dy || 0 );
 
 	// A hull drag moves EVERY member by one delta; the cluster keeps shape.
 	const beginHullDrag = ( ev, include ) => {
@@ -902,7 +908,8 @@ export default function SchematicCanvas( {
 		if ( ! hullDrag ) {
 			return;
 		}
-		const { origin, dx = 0, dy = 0 } = hullDrag;
+		const { origin } = hullDrag;
+		const { dx, dy } = hullDragDelta( hullDrag );
 		for ( const [ id, pos ] of Object.entries( origin ) ) {
 			onPositionChange( id, { x: pos.x + dx, y: pos.y + dy } );
 		}
@@ -1238,10 +1245,12 @@ export default function SchematicCanvas( {
 			<g className="topology-hulls">
 				{ hullPaths.map( ( h, i ) => {
 					const isDragging = hullDrag?.include === h.include;
-					const offset = isDragging
-						? `translate(${ hullDrag.dx || 0 },${
-								hullDrag.dy || 0
-						  })`
+					// SNAPPED: the outline lands where the drag drew it.
+					const snapped = isDragging
+						? hullDragDelta( hullDrag )
+						: null;
+					const offset = snapped
+						? `translate(${ snapped.dx },${ snapped.dy })`
 						: undefined;
 					return (
 						<path
