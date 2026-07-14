@@ -93,6 +93,94 @@ describe( 'Inspector — selected hull', () => {
 	} );
 } );
 
+describe( 'Inspector — hull stats', () => {
+	// Counters distinct from every other node's, so a graph-wide (unscoped) roll-up
+	// can't accidentally produce the hull's numbers.
+	const props = {
+		selectedId: null,
+		selectedHull: 'performance',
+		parsed: {
+			nodes: [
+				{
+					id: 'request-builder',
+					class: 'Request_Builder',
+					count: 71,
+					bytesRead: 2048,
+					has_target: true,
+					accepts_fill: false,
+				},
+				{
+					id: 'shared-tee',
+					class: 'Tee',
+					count: 33,
+					bytesWritten: 3072,
+					has_target: false,
+					accepts_fill: true,
+				},
+				{
+					id: 'own-echo',
+					class: 'Echo',
+					count: 999,
+					bytesRead: 999999,
+					has_target: false,
+					accepts_fill: true,
+				},
+			],
+			edges: [],
+		},
+		tree: {},
+		hulls: [
+			{
+				include: 'performance',
+				nodeIds: [ 'request-builder', 'shared-tee' ],
+			},
+		],
+		hullRateSeries: {
+			in: [ 1, 5 ],
+			out: [ 2, 6 ],
+			read: [ 3, 7 ],
+			write: [ 4, 9 ],
+		},
+		catalog: [],
+	};
+
+	it( 'rolls the hull members up into throughput totals', () => {
+		render( <Inspector { ...props } /> );
+		const stats = screen.getByTestId( 'hull-stats' ).textContent;
+		expect( stats ).toContain( '71' );
+		expect( stats ).toContain( '33' );
+		expect( stats ).toContain( '2.0 K' );
+		expect( stats ).toContain( '3.0 K' );
+	} );
+
+	it( 'counts ONLY the members — a non-member node is another scope', () => {
+		render( <Inspector { ...props } /> );
+		const stats = screen.getByTestId( 'hull-stats' ).textContent;
+		expect( stats ).not.toContain( '999' );
+	} );
+
+	it( 'graphs the hull message and byte rates', () => {
+		render( <Inspector { ...props } /> );
+		const stats = screen.getByTestId( 'hull-stats' ).textContent;
+		expect( stats ).toContain( '5.0 /s' );
+		expect( stats ).toContain( '6.0 /s' );
+		expect( stats ).toContain( '7 B/s' );
+		expect( stats ).toContain( '9 B/s' );
+	} );
+
+	it( 'omits the dmesg strip — err/warn counts are process-wide, not per-hull', () => {
+		render( <Inspector { ...props } /> );
+		expect( screen.getByTestId( 'hull-stats' ).textContent ).not.toContain(
+			'err'
+		);
+	} );
+
+	it( 'shows NO stats in edit mode — a draft graph has nothing to measure', () => {
+		render( <Inspector { ...props } editMode={ true } /> );
+		expect( screen.queryByTestId( 'hull-stats' ) ).toBeNull();
+	} );
+} );
+
 describe( 'HullPanel — shared vs contained', () => {
 	it( 'does not call a nested include a SHARING peer of its own parent', () => {
 		// job-router INCLUDES job-intake, so job-intake's nodes are in both hulls.

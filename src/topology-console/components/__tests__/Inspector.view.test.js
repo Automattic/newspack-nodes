@@ -3,7 +3,8 @@
  */
 
 import { render, fireEvent } from '@testing-library/react';
-import Inspector, { formatActivityWindow } from '../Inspector';
+import Inspector from '../Inspector';
+import { formatActivityWindow } from '../ProcessStats';
 import { Core } from '../../../runtime/core';
 import { Node } from '../../../runtime/node';
 import { IoTelemetry } from '../../../runtime/io-telemetry';
