@@ -22,14 +22,9 @@ parameters:
     # PHPStan tmp dir can race when multiple plugin gates run concurrently.
     tmpDir: .phpstan/cache/deadcode
     ignoreErrors:
-        # Deferred_Clean_Stop is the write-side clean-stop trait, consumed ONLY by
-        # application snapshot nodes in sibling repos (event-logger-nodes) the
-        # substrate analysis can't see — so every member reads as unused here. @api
-        # marks intent; these path-scoped ignores are the documented cross-plugin
-        # caveat, not genuine dead code (verified: both builders use all three).
-        -
-            identifier: trait.unused
-            path: includes/trait-deferred-clean-stop.php
+        # Deferred_Clean_Stop's cross-repo consumers are invisible here, so its
+        # members read as dead. The core trait.unused ignore lives in the BASE
+        # config; these two are shipmonk rules, which only exist in this overlay.
         -
             identifier: shipmonk.deadMethod
             path: includes/trait-deferred-clean-stop.php
