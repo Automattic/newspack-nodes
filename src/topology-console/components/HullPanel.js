@@ -10,6 +10,13 @@
 
 import { __, sprintf, _n } from '@wordpress/i18n';
 import IncludeTree from './IncludeTree';
+import {
+	ProcessStatsView,
+	activityFromSeries,
+	formatActivityWindow,
+} from './ProcessStats';
+import { processStats } from '../utils/processStats';
+import { hullNodes } from '../utils/hullNodes';
 
 /**
  * Every topology reachable from `include` in the tree, in either direction.
@@ -69,16 +76,51 @@ function boundaryEdges( edges, members ) {
 	return { inbound, outbound };
 }
 
+/**
+ * The hull's own traffic, rolled up the same way the process header rolls up a
+ * whole graph: `in` is what the member SOURCES produced, `out` what the member
+ * SINKS consumed — so a message hopping between two members isn't counted twice.
+ *
+ * Consequence worth knowing: an include made only of pass-through nodes (no
+ * source, no sink) reads 0/0 — its traffic is interior to some other scope's
+ * boundary. The window label takes the WHOLE graph's node count because that, not
+ * the hull's size, is what the metadata poll interval scales with.
+ *
+ * @param {Object} props
+ * @param {Array}  props.nodes      The hull's member nodes.
+ * @param {number} props.graphSize  Node count of the whole graph.
+ * @param {Object} props.rateSeries `{ in, out, read, write }` sample rings.
+ * @return {Element} Activity + Throughput for the hull.
+ */
+function HullStats( { nodes, graphSize, rateSeries } ) {
+	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
+		processStats( nodes );
+	return (
+		<ProcessStatsView
+			testId="hull-stats"
+			windowMeta={ formatActivityWindow( graphSize ) }
+			activity={ activityFromSeries( rateSeries ) }
+			totals={ {
+				msgsIn: messagesIn,
+				msgsOut: messagesOut,
+				bytesRead,
+				bytesWritten,
+			} }
+		/>
+	);
+}
+
 export default function HullPanel( {
 	include,
 	hulls = [],
 	parsed = { nodes: [], edges: [] },
+	rateSeries,
+	editMode = false,
 	includeTree = {},
 	onOpenTopology,
 } ) {
-	const hull = hulls.find( ( h ) => h.include === include );
-	const members = new Set( hull?.nodeIds || [] );
-	const nodes = ( parsed.nodes || [] ).filter( ( n ) => members.has( n.id ) );
+	const nodes = hullNodes( parsed.nodes, hulls, include );
+	const members = new Set( nodes.map( ( n ) => n.id ) );
 
 	/**
 	 * A node an UNRELATED hull also provides — the diamond, which the canvas
@@ -133,6 +175,15 @@ export default function HullPanel( {
 					</button>
 				) }
 			</div>
+
+			{ /* A draft graph has no counters — the whole inspector hides stats in edit mode. */ }
+			{ ! editMode && (
+				<HullStats
+					nodes={ nodes }
+					graphSize={ ( parsed.nodes || [] ).length }
+					rateSeries={ rateSeries }
+				/>
+			) }
 
 			<h4 className="topology-insp__section-title">
 				{ __( 'Provides', 'newspack-nodes' ) }

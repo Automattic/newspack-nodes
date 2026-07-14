@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useMemo, useState } from '@wordpress/element';
 import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
 import { useAggregateRateSeries } from '../hooks/useAggregateRateSeries';
+import { hullNodes } from '../utils/hullNodes';
 import '../styles/graph-view.scss';
 
 /**
@@ -123,6 +124,15 @@ export default function GraphView( {
 	const { rateRef, rateVersion } = useGraphRates( graph, resetKey );
 	// Aggregate rate series, kept here so it survives the header remounting.
 	const rateSeries = useAggregateRateSeries( graph.nodes, resetKey );
+	// The selected hull's own series, kept here so it survives a panel remount.
+	const hullMembers = useMemo(
+		() => hullNodes( graph.nodes, hulls, selectedHull ),
+		[ graph.nodes, hulls, selectedHull ]
+	);
+	const hullRateSeries = useAggregateRateSeries(
+		hullMembers,
+		`${ resetKey }:${ selectedHull ?? '' }`
+	);
 
 	// Node + edge selection are mutually exclusive (unambiguous Delete).
 	const handleSelectNode = useCallback(
@@ -297,6 +307,7 @@ export default function GraphView( {
 								rateRef.current.get( selectedId ) || null
 							}
 							rateSeries={ rateSeries }
+							hullRateSeries={ hullRateSeries }
 							local={ local }
 							onAction={ onInspectorAction }
 							onSelect={ handleSelectNode }

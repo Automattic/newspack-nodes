@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A selected hull now shows its own message and byte rates.** Activity (messages in/out per second, bytes read/written per second, as sparklines) and cumulative Throughput, scoped to the nodes that include provides — so an include's traffic is readable on its own, not just as part of the whole graph's.
+
+  The roll-up goes through `processStats()`, the same source/sink accounting the process header uses: a hull's "in" is what its SOURCE nodes produced and its "out" is what its SINK nodes consumed, so a message hopping between two nodes *inside* the boundary isn't counted twice. One consequence is worth knowing: an include made only of pass-through nodes — no source, no sink — reads 0/0, because its traffic is interior to some other scope's boundary. The dmesg err/warn strip is deliberately omitted — those counts are process-wide, and showing them under one include's name would attribute the whole process to it.
+
+  Nothing renders in edit mode: a draft graph has no counters, and the inspector already suppresses stats there rather than showing a permanently-zero panel.
+
+  The stats presentation (`SparklineRow`, `ProcessStatsView`, the rate/byte formatters) moved out of `Inspector` into `components/ProcessStats`, and the shared `Section`/`FieldRow` layout primitives into `components/InspectorFields`, so `HullPanel` — which `Inspector` imports — can render the same view without an import cycle.
+
 ### Fixed
 
 - **A SELECTED hull now highlights exactly like a hovered one** — members lit, inner wires lit, everything else faded. Selection is just the sticky form of the same focus gesture, so it gets the same treatment: hovering still takes over while the pointer is on a hull, and the selection reappears when you leave. Previously selection lit nothing, on the reasoning that lighting its members bought no contrast — but that was only true because selection didn't fade the rest either. It does now, so it does.
