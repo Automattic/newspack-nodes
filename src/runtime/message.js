@@ -22,8 +22,19 @@ export const TM_REQUEST = 128;
 export const TM_RESPONSE = 256;
 export const TM_NOREPLY = 512;
 
+/**
+ * The mint default: a message that exists but has not been typed yet.
+ *
+ * A free HIGH bit, so it matches NO type gate — an untyped message is inert
+ * rather than every type at once (which is what a -1 sentinel would be as a
+ * bitmask). Every minter assigns TYPE and overwrites it; one that reaches a sink
+ * still carrying it is a bug, and the drop audit names it. A naked array (no
+ * TYPE at all) stays TYPE_UNKNOWN — a different failure, worth telling apart.
+ */
+export const TM_UNTYPED = 1024;
+
 export function newMessage() {
-	return [ 0, Date.now() / 1000, '', '', '', '', '' ];
+	return [ TM_UNTYPED, Date.now() / 1000, '', '', '', '', '' ];
 }
 
 export function pack( m ) {

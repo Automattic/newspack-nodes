@@ -32,6 +32,7 @@ class Node {
 		Message::TM_STRUCT     => 'TM_STRUCT',
 		Message::TM_REQUEST    => 'TM_REQUEST',
 		Message::TM_NOREPLY    => 'TM_NOREPLY',
+		Message::TM_UNTYPED    => 'TM_UNTYPED',
 	];
 
 	/** Cached config string; dump_config round-trips it back into the make_node line. */

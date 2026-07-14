@@ -218,8 +218,8 @@ test( 'msg event forwards parsed message into sink', () => {
 	expect( routed[ 0 ][ VALUE ] ).toBe( 'data line' );
 } );
 
-test( 'a malformed typeless frame is dropped at ingress, sets ERROR, and warns', () => {
-	// A partial/empty frame unpacks to a typeless Message — drop it + warn.
+test( 'an UNPARSEABLE frame is dropped at ingress, sets ERROR, and warns', () => {
+	// unpack() hands back a fresh (untyped) message when the wire is garbage.
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
@@ -231,9 +231,34 @@ test( 'a malformed typeless frame is dropped at ingress, sets ERROR, and warns',
 	FakeEventSource.last.dispatch( 'msg', '[]' ); // short array → newMessage()
 
 	expect( routed ).toEqual( [] );
-	expect( sse.setStateCache.ERROR ).toBe( 'malformed typeless frame' );
+	expect( sse.setStateCache.ERROR ).toBe( 'unparseable frame' );
 	expect( warn ).toHaveBeenCalledWith(
-		'ERROR: SseInNode: dropped a malformed typeless SSE frame'
+		'ERROR: SseInNode: dropped an unparseable SSE frame'
+	);
+	warn.mockRestore();
+} );
+
+/**
+ * Garbage on the wire and a well-formed frame nobody typed are DIFFERENT bugs.
+ * Reporting both as one line is what left `_router: ... TYPE_UNKNOWN` unexplained
+ * in the first place — the whole reason TM_UNTYPED exists.
+ */
+test( 'a TYPELESS frame reports differently from an unparseable one', () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const { sse, routed } = makeSseIn();
+	sse.start();
+
+	// Parses cleanly as a 7-field message — it simply has no TYPE.
+	const typeless = newMessage();
+	typeless[ TYPE ] = 0;
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( typeless ) );
+
+	expect( routed ).toEqual( [] );
+	expect( sse.setStateCache.ERROR ).toBe( 'typeless frame' );
+	expect( warn ).toHaveBeenCalledWith(
+		'ERROR: SseInNode: dropped a typeless SSE frame'
 	);
 	warn.mockRestore();
 } );

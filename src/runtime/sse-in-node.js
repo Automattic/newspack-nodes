@@ -24,7 +24,16 @@ import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
 import { nodesData } from './nodes-data';
 import { IoTelemetry, byteLength } from './io-telemetry';
-import { TYPE, FROM, TO, ID, VALUE, TM_ERROR, unpack } from './message';
+import {
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	VALUE,
+	TM_ERROR,
+	TM_UNTYPED,
+	unpack,
+} from './message';
 
 // ID is the `segment:offset:length` breadcrumb; FROM carries the producer path.
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
@@ -139,11 +148,19 @@ export class SseInNode extends Node {
 			}
 			this.lastEventTime = Date.now();
 			const message = unpack( e.data );
-			// A typeless frame is malformed — reject it loudly here.
-			if ( ! message[ TYPE ] ) {
-				this.setState( 'ERROR', 'malformed typeless frame' );
+			// unpack() mints a fresh untyped message when parsing fails.
+			if ( message[ TYPE ] & TM_UNTYPED ) {
+				this.setState( 'ERROR', 'unparseable frame' );
 				Core.printLessOften(
-					'ERROR: SseInNode: dropped a malformed typeless SSE frame'
+					'ERROR: SseInNode: dropped an unparseable SSE frame'
+				);
+				return;
+			}
+			// Parsed fine but typed by nobody — a different bug from garbage.
+			if ( ! message[ TYPE ] ) {
+				this.setState( 'ERROR', 'typeless frame' );
+				Core.printLessOften(
+					'ERROR: SseInNode: dropped a typeless SSE frame'
 				);
 				return;
 			}

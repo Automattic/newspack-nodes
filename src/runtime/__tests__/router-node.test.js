@@ -33,9 +33,7 @@ test( 'setting a sink throws — the Router has none', () => {
 } );
 
 test( 'empty TO is dropped as "message not addressed" — no NOT_AVAILABLE bounce (Perl parity)', () => {
-	expectConsoleWarn(
-		'_router: WARNING: message not addressed - TYPE_UNKNOWN'
-	);
+	expectConsoleWarn( '_router: WARNING: message not addressed - TM_UNTYPED' );
 	const r = new RouterNode();
 	r.name = '_router';
 	const origin = new Node();
