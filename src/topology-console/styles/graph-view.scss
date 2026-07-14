@@ -694,7 +694,9 @@
 	stroke-width: 1.5;
 	opacity: 0.16;
 	cursor: grab;
-	transition: opacity 120ms ease, stroke-width 120ms ease;
+	transition:
+		opacity 120ms ease,
+		stroke-width 120ms ease;
 
 	@for $i from 0 through 5 {
 		&--#{ $i } {
