@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-07-14
+
 ### Fixed
 
 - **Drilling into a hull did nothing in live mode.** "Open request-builder.tsl" loaded the topology into the DRAFT but never left view mode, so the canvas kept rendering the live graph and the button looked inert. It now lands you in the editor, like New already does.
