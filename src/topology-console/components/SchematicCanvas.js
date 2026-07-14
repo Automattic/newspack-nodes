@@ -916,10 +916,11 @@ export default function SchematicCanvas( {
 		const isFaded =
 			( hoveredId && ! isHovered ) ||
 			!! ( hoveredHullMembers && ! hoveredHullMembers.has( n.id ) );
-		// Dim quiet nodes in LIVE mode only (edit has no rate stream).
+		// Idle dim: LIVE mode only, and never inside the hovered hull.
 		const isIdle =
 			! editMode &&
 			!! rateRef &&
+			! hoveredHullMembers?.has( n.id ) &&
 			isIdleRate( rateRef.current?.get( n.id )?.rate );
 		const isDragging = drag && drag.nodeId === n.id;
 		// Borrowed via `include`: locked, but its wiring stays editable.
@@ -1298,11 +1299,14 @@ export default function SchematicCanvas( {
 							( selectedId === e.from || selectedId === e.to );
 						// Hover dims the rest; selection highlights, no dim.
 						const touches = hoverTouches || selectTouches;
-						// A hovered hull dims every edge not inside it.
-						const inHoveredHull =
-							! hoveredHullMembers ||
-							( hoveredHullMembers.has( e.from ) &&
-								hoveredHullMembers.has( e.to ) );
+						// @longform A hovered hull lights the wires wholly inside
+						// it, so an idle group doesn't read as bright boxes on
+						// faded wire; every edge that leaves the hull dims.
+						const lit =
+							!! hoveredHullMembers &&
+							hoveredHullMembers.has( e.from ) &&
+							hoveredHullMembers.has( e.to );
+						const inHoveredHull = ! hoveredHullMembers || lit;
 						const dimmed =
 							( hoveredId && ! hoverTouches ) || ! inHoveredHull;
 						const isEdgeSelected =
@@ -1354,10 +1358,10 @@ export default function SchematicCanvas( {
 									className={ `topology-edge topology-edge--active${
 										flowing ? ' topology-edge--flowing' : ''
 									}${ touches ? ' is-touched' : '' }${
-										dimmed ? ' is-dimmed' : ''
-									}${ isEdgeSelected ? ' is-selected' : '' }${
-										e.virtual ? ' is-virtual' : ''
-									}${
+										lit ? ' is-lit' : ''
+									}${ dimmed ? ' is-dimmed' : '' }${
+										isEdgeSelected ? ' is-selected' : ''
+									}${ e.virtual ? ' is-virtual' : '' }${
 										e.registration ? ' is-registration' : ''
 									}` }
 									d={ d }

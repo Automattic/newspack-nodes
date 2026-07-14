@@ -820,7 +820,7 @@
 	// so an ACTIVE node would ignore the dim entirely.
 	&.is-faded {
 		animation: none;
-		opacity: 0.55;
+		opacity: 0.4;
 	}
 
 	// Overview / zoomed-out (LOD): skip the entrance fade so panning a huge graph
@@ -1081,6 +1081,12 @@
 	&.is-touched {
 		stroke: var(--oxide);
 		stroke-width: 2.2;
+		opacity: 1;
+	}
+
+	// Inside a hovered hull: cancel the idle (non-flowing) dim so the group
+	// reads as one thing rather than lit boxes strung on faded wire.
+	&.is-lit {
 		opacity: 1;
 	}
 

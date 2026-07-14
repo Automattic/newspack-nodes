@@ -1863,6 +1863,83 @@ describe( 'SchematicCanvas — hull interaction', () => {
 		).toContain( 'is-hovered' );
 	} );
 
+	// A hull's whole point is to read as ONE thing, so a hover lights it: idle
+	// dimming is suspended inside it and the wires between its members stop
+	// reading as idle. Every node here is idle (empty rate map) and the wire
+	// between them is non-flowing, which is the case that used to render the
+	// hovered group as bright boxes strung on faded wire. @longform
+	const liveHullProps = {
+		...hullProps,
+		parsed: {
+			...hullProps.parsed,
+			edges: [
+				{ from: 'inner-a', to: 'inner-b' },
+				{ from: 'inner-b', to: 'mine' },
+			],
+		},
+		editMode: false,
+		rateRef: { current: new Map() },
+	};
+
+	const idleNodes = ( container ) =>
+		[ ...container.querySelectorAll( 'g.topology-node.is-idle' ) ]
+			.map( ( n ) => n.textContent )
+			.join( ' ' );
+
+	it( 'a hovered hull suspends idle dimming on its members', () => {
+		const { container } = render(
+			<SchematicCanvas { ...liveHullProps } />
+		);
+
+		fireEvent.mouseEnter( container.querySelector( '.topology-hull' ) );
+
+		expect( idleNodes( container ) ).not.toContain( 'inner-a' );
+		expect( idleNodes( container ) ).not.toContain( 'inner-b' );
+		// Outside the hull the idle dim stays, under the stronger hover fade.
+		expect( idleNodes( container ) ).toContain( 'mine' );
+	} );
+
+	it( 'a hovered hull lights the idle wires BETWEEN its members', () => {
+		const { container } = render(
+			<SchematicCanvas { ...liveHullProps } />
+		);
+
+		fireEvent.mouseEnter( container.querySelector( '.topology-hull' ) );
+
+		// inner-a → inner-b is wholly inside the hull: lit despite no flow.
+		const lit = container.querySelectorAll( '.topology-edge.is-lit' );
+		expect( lit.length ).toBe( 1 );
+		// inner-b → mine leaves the hull, so it dims like everything else.
+		expect(
+			container.querySelectorAll( '.topology-edge.is-dimmed' ).length
+		).toBe( 1 );
+	} );
+
+	it( 'releasing the hover restores the idle dim', () => {
+		const { container } = render(
+			<SchematicCanvas { ...liveHullProps } />
+		);
+		const hull = container.querySelector( '.topology-hull' );
+
+		fireEvent.mouseEnter( hull );
+		fireEvent.mouseLeave( hull );
+
+		expect( idleNodes( container ) ).toContain( 'inner-a' );
+		expect(
+			container.querySelectorAll( '.topology-edge.is-lit' ).length
+		).toBe( 0 );
+	} );
+
+	// Selection fades nothing, so lighting its members would buy no contrast --
+	// it would only hide live idle state, and stickily: a hull stays selected.
+	it( 'SELECTING a hull does not suspend idle dimming', () => {
+		const { container } = render(
+			<SchematicCanvas { ...liveHullProps } selectedHull="performance" />
+		);
+
+		expect( idleNodes( container ) ).toContain( 'inner-a' );
+	} );
+
 	it( 'clicking a hull FILL selects the hull', () => {
 		const onSelectHull = jest.fn();
 		const { container } = render(
