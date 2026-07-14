@@ -1234,9 +1234,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		setDraft( ( g ) => ( { ...g, frontmatter: nextFrontmatter } ) );
 	}, [] );
 
+	// Opening a topology lands you in the editor, from live too — like New.
 	const handleOpenPick = useCallback(
 		async ( name ) => {
 			setOpenModalShown( false );
+			setMode( 'edit' );
 			try {
 				const resp = await fetchTopology( name );
 				const parsedGraph = parseTsl( resp.tsl || '' );

@@ -91,6 +91,17 @@ describe( 'Header', () => {
 		expect( queryByLabelText( 'Skin' ) ).toBeNull();
 	} );
 
+	it( 'offers OPEN in LIVE mode too — opening a topology lands you in the editor', () => {
+		const onOpen = jest.fn();
+		const { getByText, queryByText } = render(
+			<Header { ...baseProps } onOpen={ onOpen } onSave={ jest.fn() } />
+		);
+		fireEvent.click( getByText( 'OPEN' ) );
+		expect( onOpen ).toHaveBeenCalled();
+		// SAVE stays edit-only: there is no draft to save from live.
+		expect( queryByText( 'SAVE' ) ).toBeNull();
+	} );
+
 	it( 'shows NEW/OPEN/SAVE buttons in edit mode and wires them', () => {
 		const onNew = jest.fn();
 		const onOpen = jest.fn();

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Drilling into a hull did nothing in live mode.** "Open request-builder.tsl" loaded the topology into the DRAFT but never left view mode, so the canvas kept rendering the live graph and the button looked inert. It now lands you in the editor, like New already does.
+
+### Added
+
+- **OPEN is available in live mode**, not just edit. It was gated to edit mode, which is precisely why opening a topology never needed to switch modes — same root as the hull bug. Picking a topology from live now opens it in the editor. SAVE stays edit-only; there is no draft to save from live.
+
 ## [0.44.0] - 2026-07-14
 
 ### Fixed
