@@ -101,8 +101,7 @@ class Consumer_Node extends Timer_Node {
 		$this->ensure_offsetlog();
 
 		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
-		$this->ensure_deadletter( $this->deadletter_dir, '' !== $this->name ? "{$this->name}:deadletter" : '' );
-		$this->deadletter?->sink( $this->sink );
+		$this->ensure_deadletter();
 
 		// No I/O at construction: first poll loads cursor + restores snapshot.
 		$this->poll_cb = $this->poll_init( ... );
