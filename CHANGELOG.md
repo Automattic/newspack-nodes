@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A reader's offsetlog and dead-letter dirs are ARGUMENTS, with no derived fallback.** `Remote_Source` used to invent an implicit offsetlog dir (`<offsets_dir>/<name>.<remote_partition>`) and dead-letter dir (`<base>/deadletter/…`) when a topology declared none — the last splinter of the hardcode that [147] set out to remove. It meant an omitted dir silently kept checkpointing at a path the topology could not write (so it could not carry `<topology>`, and two fleets pulling one spoke partition shared a cursor), and it flatly contradicted the plugin's own `test_offsetlog_dir_defaults_to_empty`. Both dirs now follow Consumer's contract: empty means no cursor and no quarantine. **Every stock topology declares both** — a Consumer that omitted its dead-letter dir was silently dropping poison rather than quarantining it.
+
+  With the derivation gone, the offsetlog and the dead-letter queue turn out to be one shape in two geometries: a named, patron-linked Partition a node owns, whose dir is an argument and whose sink is its patron's. That shape now lives once, in the `Sidecar` trait, behind a `*_dir()` / `*_name()` seam pair. `ensure_offsetlog_partition()` and `ensure_deadletter_sibling()` are gone, and `Remote_Source` keeps only the two names it genuinely qualifies by remote partition.
+
 ### Fixed
 
 - **Retention was inert on every partition built with a bare segment count.** A live offsetlog dir held **249** segments where 10 were intended.
