@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.2] - 2026-07-14
+
 ### Changed
 
 - **Header button order is fixed and consistent across modes** — live: `NEW OPEN EDIT LIVE`; edit: `NEW OPEN SAVE DELETE SETTINGS EDIT LIVE`. Live is a strict PREFIX of edit, so no control moves under the cursor when you switch. Previously NEW was rendered twice (once per mode) and landed AFTER the edit-only buttons in live, while SETTINGS sat before DELETE.
