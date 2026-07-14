@@ -1490,6 +1490,38 @@ describe( 'SchematicCanvas', () => {
 			container.querySelector( '.topology-node__lock' )
 		).not.toBeNull();
 	} );
+
+	it( 'keeps the lock badge clear of the liveness LED', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{
+							id: 'shared-tee',
+							class: 'Tee',
+							origin: [ 'performance' ],
+						},
+					],
+					edges: [],
+				} }
+				positionOverrides={ { 'shared-tee': { x: 100, y: 100 } } }
+				hulls={ [] }
+				editMode
+			/>
+		);
+
+		const lock = container.querySelector( '.topology-node__lock' );
+		const led = container.querySelector( '.topology-node__led' );
+		// The lock is start-anchored 12px type, so it runs x → x + 12; the LED's
+		// left edge is cx − r. They used to overlap by ~1.5px.
+		const lockRight = Number( lock.getAttribute( 'x' ) ) + 12;
+		const ledLeft =
+			Number( led.getAttribute( 'cx' ) ) -
+			Number( led.getAttribute( 'r' ) );
+
+		expect( lockRight ).toBeLessThanOrEqual( ledLeft - 4 );
+	} );
 } );
 
 // Scale-gated LOD: stub the canvas measure so the zoomed-OUT tier is tested.

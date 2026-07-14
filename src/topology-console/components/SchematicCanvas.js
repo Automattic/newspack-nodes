@@ -1025,7 +1025,7 @@ export default function SchematicCanvas( {
 							{ isBorrowed && (
 								<text
 									className="topology-node__lock"
-									x={ NODE_W - 26 }
+									x={ NODE_W - 32 }
 									y={ 15 }
 								>
 									🔒

@@ -61,6 +61,7 @@ import {
 	withReplAnchor,
 } from './utils/draftGraph';
 import { snapToGrid } from './utils/autoLayout';
+import { stampOrigins } from './utils/stampOrigins';
 import { clusterLayout } from './utils/clusterLayout';
 import { augmentWithVirtualEdges } from './utils/virtualEdges';
 import { parseTsl } from './utils/parseTsl';
@@ -922,13 +923,17 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			.filter( ( h ) => h.nodeIds.length > 0 );
 	}, [ expandBaseline, mode, draft.nodes, parsed.nodes ] );
 
-	// Virtual node_name-verb edges are derived; the canvas dims them.
+	// Virtual edges are derived; origin is stamped (metadata carries none).
 	const canvasGraph = useMemo( () => {
+		const graph = stampOrigins(
+			baseCanvasGraph,
+			expandBaseline.hulls || {}
+		);
 		if ( mode !== 'edit' ) {
-			return baseCanvasGraph;
+			return graph;
 		}
-		return augmentWithVirtualEdges( baseCanvasGraph, catalog.classes );
-	}, [ baseCanvasGraph, mode, catalog.classes ] );
+		return augmentWithVirtualEdges( graph, catalog.classes );
+	}, [ baseCanvasGraph, mode, catalog.classes, expandBaseline ] );
 
 	// Runtime drift (roadmap [49]): live nodes not in the registered .tsl.
 	const canonicalNodes = useCanonicalNodes( topology );
