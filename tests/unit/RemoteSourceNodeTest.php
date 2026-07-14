@@ -1463,15 +1463,15 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->name( 'src-a' );
 		$node->sink( new Capture_Sink_Node() );
 		$node->arguments(
-			"zebra-vault firehose.p0 {$this->tmp}/offsets/firehose.combined.p0 {$this->tmp}/dead/firehose.combined.p0"
+			"zebra-vault firehose.p0 {$this->base_dir}/offsets/firehose.combined.p0 {$this->base_dir}/dead/firehose.combined.p0"
 		);
 
 		$this->assertSame(
-			"{$this->tmp}/offsets/firehose.combined.p0",
+			"{$this->base_dir}/offsets/firehose.combined.p0",
 			$this->read_private( $node, 'offsetlog_dir' )
 		);
 		$this->assertSame(
-			"{$this->tmp}/dead/firehose.combined.p0",
+			"{$this->base_dir}/dead/firehose.combined.p0",
 			$this->read_private( $node, 'deadletter_dir' )
 		);
 	}
