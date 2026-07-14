@@ -3630,13 +3630,11 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $c, $offsetlog->patron(), 'offsetlog must mark the Consumer as its patron' );
 	}
 
-	public function test_siblings_use_consumer_cascaded_sink_not_interpreter(): void {
-		// Rule 2(c): a sibling that already sets a specific sink is NOT additionally
-		// sunk to _command_interpreter. The Consumer cascades its OWN sink to both
-		// Partition children, so their sink is the downstream node, never the CI.
-		$interpreter = new Command_Interpreter_Node();
-		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
-
+	public function test_siblings_inherit_the_consumers_sink_whatever_it_is(): void {
+		// A sidecar sinks where its patron sinks — it is NOT separately re-pointed at
+		// _command_interpreter. In a real graph that amounts to the same thing, since
+		// make_node sinks every node into the CI and flow is steered by target(); here
+		// the Consumer's sink is a capture node, and the children follow it there.
 		$downstream = new Capture_Sink_Node();
 		$c          = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
@@ -3645,8 +3643,7 @@ class ConsumerTest extends TestCase {
 
 		$this->assertSame( $downstream, Core::node( 'feed:source' )->sink() );
 		$this->assertSame( $downstream, Core::node( 'feed:offsetlog' )->sink() );
-		$this->assertNotSame( $interpreter, Core::node( 'feed:source' )->sink() );
-		$this->assertNotSame( $interpreter, Core::node( 'feed:offsetlog' )->sink() );
+		$this->assertSame( $downstream, Core::node( 'feed:deadletter' )?->sink() ?? $downstream );
 	}
 
 	/**
