@@ -394,70 +394,81 @@ describe( 'GraphView — hull selection', () => {
 		expect( global.__inspectorProps.selectedHull ).toBeNull();
 	} );
 
-	it( 'scopes the hull rate series to the hull MEMBERS, not the whole graph', () => {
-		// Both are sources, so both feed the graph-wide In rate; only `inside` is
-		// a member. The deltas differ by an order of magnitude, so a series built
-		// from the wrong scope can't coincidentally match the right one.
-		const nodes = ( a, b ) => [
+	// useGraphRates only records a sample once a full second has elapsed, so a
+	// poll has to advance the clock the way a real one does.
+	const withClock = ( body ) => {
+		let t = 1_700_000_000_000;
+		const real = Date.now;
+		Date.now = () => t;
+		try {
+			body( () => ( t += 1000 ) );
+		} finally {
+			Date.now = real;
+		}
+	};
+
+	const hullNodesGraph = ( a, b ) => ( {
+		nodes: [
 			{ id: 'inside', count: a, has_target: true, accepts_fill: false },
 			{ id: 'outside', count: b, has_target: true, accepts_fill: false },
-		];
-		const hulls = [ { include: 'performance', nodeIds: [ 'inside' ] } ];
-		const view = ( ns ) => (
-			<GraphView
-				graph={ { nodes: ns, edges: [] } }
-				frame={ Frame }
-				resetKey="k"
-				hulls={ hulls }
-			/>
-		);
+		],
+		edges: [],
+	} );
+	const perfHull = [ { include: 'performance', nodeIds: [ 'inside' ] } ];
+	const hullView = ( graph_ ) => (
+		<GraphView
+			graph={ graph_ }
+			frame={ Frame }
+			resetKey="k"
+			hulls={ perfHull }
+		/>
+	);
 
-		const { rerender } = render( view( nodes( 10, 100 ) ) );
-		act( () => {
-			global.__canvasProps.onSelectHull( 'performance' );
+	it( 'scopes the hull rate series to the hull MEMBERS, not the whole graph', () => {
+		withClock( ( tick ) => {
+			// Both are sources, so both feed the graph-wide In rate; only `inside`
+			// is a member. The deltas differ by an order of magnitude, so a series
+			// built from the wrong scope can't coincidentally match the right one.
+			const { rerender } = render(
+				hullView( hullNodesGraph( 10, 100 ) )
+			);
+			act( () => {
+				global.__canvasProps.onSelectHull( 'performance' );
+			} );
+			// A second poll, one second on: `inside` +30/s, `outside` +400/s.
+			tick();
+			rerender( hullView( hullNodesGraph( 40, 500 ) ) );
+
+			const hullIn = global.__inspectorProps.hullRateSeries.in;
+			const graphIn = global.__inspectorProps.rateSeries.in;
+			expect( hullIn[ hullIn.length - 1 ] ).toBe( 30 );
+			expect( graphIn[ graphIn.length - 1 ] ).toBe( 430 );
 		} );
-		// A second poll: `inside` +30, `outside` +400.
-		rerender( view( nodes( 40, 500 ) ) );
-
-		const hullIn = global.__inspectorProps.hullRateSeries.in;
-		const graphIn = global.__inspectorProps.rateSeries.in;
-		expect( hullIn[ hullIn.length - 1 ] ).toBe( 30 );
-		expect( graphIn[ graphIn.length - 1 ] ).toBe( 430 );
 	} );
 
-	it( 'drops the hull series when the selection moves to another hull', () => {
-		const src = ( count ) => ( {
-			id: 'inside',
-			count,
-			has_target: true,
-			accepts_fill: false,
-		} );
-		const hulls = [
-			{ include: 'performance', nodeIds: [ 'inside' ] },
-			{ include: 'job-router', nodeIds: [ 'inside' ] },
-		];
-		const view = ( count ) => (
-			<GraphView
-				graph={ { nodes: [ src( count ) ], edges: [] } }
-				frame={ Frame }
-				resetKey="k"
-				hulls={ hulls }
-			/>
-		);
+	it( 'shows the history recorded BEFORE the hull was selected', () => {
+		withClock( ( tick ) => {
+			// Three polls with NO hull selected. useGraphRates is recording the
+			// whole time, so selecting the hull afterwards must reveal that
+			// history — not start a fresh accumulation from zero.
+			const { rerender } = render(
+				hullView( hullNodesGraph( 10, 100 ) )
+			);
+			tick();
+			rerender( hullView( hullNodesGraph( 40, 500 ) ) );
+			tick();
+			rerender( hullView( hullNodesGraph( 90, 900 ) ) );
 
-		const { rerender } = render( view( 10 ) );
-		act( () => {
-			global.__canvasProps.onSelectHull( 'performance' );
-		} );
-		rerender( view( 40 ) );
-		expect(
-			global.__inspectorProps.hullRateSeries.in.length
-		).toBeGreaterThan( 0 );
+			expect( global.__inspectorProps.hullRateSeries.in ).toEqual( [] );
 
-		// A new scope must not delta against the previous hull's baseline.
-		act( () => {
-			global.__canvasProps.onSelectHull( 'job-router' );
+			act( () => {
+				global.__canvasProps.onSelectHull( 'performance' );
+			} );
+
+			// Both prior polls' rates, immediately: +30/s then +50/s.
+			expect( global.__inspectorProps.hullRateSeries.in ).toEqual( [
+				30, 50,
+			] );
 		} );
-		expect( global.__inspectorProps.hullRateSeries.in ).toEqual( [] );
 	} );
 } );

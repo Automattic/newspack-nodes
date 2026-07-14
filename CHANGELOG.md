@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Nothing renders in edit mode: a draft graph has no counters, and the inspector already suppresses stats there rather than showing a permanently-zero panel.
 
+  The sparklines show the history that *already happened*, not one that starts when you click. `useGraphRates` has been recording a 60-sample rate history for every node since page load, so the hull series is DERIVED from those per-node histories (`utils/aggregateSeries`) rather than accumulated from the moment of selection — select a hull and the last minute is already drawn. The trade-off is that a derived series is not a record: when a node leaves the graph its history goes with it, so the scope's older samples shrink to match.
+
   The stats presentation (`SparklineRow`, `ProcessStatsView`, the rate/byte formatters) moved out of `Inspector` into `components/ProcessStats`, and the shared `Section`/`FieldRow` layout primitives into `components/InspectorFields`, so `HullPanel` — which `Inspector` imports — can render the same view without an import cycle.
 
 ### Fixed
