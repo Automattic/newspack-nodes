@@ -93,15 +93,14 @@ export function HeaderControls( {
 							{ __( 'NEW', 'newspack-nodes' ) }
 						</button>
 					) }
-					{ mode === 'edit' && (
-						<button
-							type="button"
-							className="topology-mode__btn topology-mode__btn--open"
-							onClick={ () => onOpen && onOpen() }
-						>
-							{ __( 'OPEN', 'newspack-nodes' ) }
-						</button>
-					) }
+					{ /* OPEN works from live too — picking a topology lands you in edit. */ }
+					<button
+						type="button"
+						className="topology-mode__btn topology-mode__btn--open"
+						onClick={ () => onOpen && onOpen() }
+					>
+						{ __( 'OPEN', 'newspack-nodes' ) }
+					</button>
 					{ mode === 'edit' && (
 						<button
 							type="button"
