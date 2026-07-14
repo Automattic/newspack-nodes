@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The borrowed-node lock vanished on the first `dump_metadata` poll in live mode.** A node's provenance (`origin` — which include provides it) lives in the parsed tsl; metadata nodes carry none. The lock badge read it straight off the node, so it painted on entry from the parsed graph and disappeared the moment the first poll swapped in metadata nodes. Provenance is now stamped onto the canvas graph from the expand baseline — the same membership map the hulls are drawn from, which is why the hulls never had this bug — so the lock, the Inspector's borrowed state, and the hulls can no longer disagree.
+
+- **The lock badge overlapped the liveness LED.** 12px type start-anchored at `NODE_W - 26` runs to `NODE_W - 14`; the LED's left edge is `NODE_W - 15.5`. Moved to `NODE_W - 32`, and a test pins the clearance rather than the magic number.
+
 - **Dark skins drew a near-black caret on a near-black select.** The chevron is a baked data-URI (an SVG background cannot read a CSS var), dark by default, with a rule repainting it light for the seven dark skins. That rule was written `.topology-app.topology-app.newspack-nodes-theme.theme-crt` — all four classes on ONE element — but the skin class lives on `<html>` (`shared/theme.js`), so it matched nothing. The base rule won, and every dark skin got the dark chevron. The same dead block carried `color-scheme: dark`, so dark skins were also drawing light native number-spinners and checkboxes.
 
   The selectors are ancestor-form now, and the console's duplicate `.topology-select` list is gone — it only existed because the shared rule was silently dead, and `.topology-select` is a `<select>` the shared rule reaches.
