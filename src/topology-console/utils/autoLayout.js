@@ -33,6 +33,47 @@ export function snapToGrid( x, y ) {
 	};
 }
 
+// @longform Snap a top-left POSITION to the lattice snapToGrid drops onto (that
+// one takes a pointer centre; a drag already carries a top-left). Half-node.
+export function snapPosition( x, y ) {
+	const sx = X_STEP / 2;
+	const sy = Y_STEP / 2;
+	return {
+		x: X_PAD + Math.round( ( x - X_PAD ) / sx ) * sx,
+		y: Y_PAD + Math.round( ( y - Y_PAD ) / sy ) * sy,
+	};
+}
+
+/**
+ * The delta a hull drag should commit: snap the ANCHOR member's absolute target,
+ * then move every member by that same delta.
+ *
+ * Snapping each member's own position would quantise away the cluster's internal
+ * offsets and reshape the group you grabbed. But snapping the raw delta instead
+ * only preserves whatever offset a member already had — an off-grid cluster
+ * could never be tidied by dragging its hull, and hull drags used to commit an
+ * unsnapped delta, so those clusters are out there. Anchoring gives both: the
+ * shape survives and the cluster lands on the grid.
+ *
+ * @param {Object<string, {x: number, y: number}>} origin Members' start positions.
+ * @param {number}                                 dx     Raw pointer dx.
+ * @param {number}                                 dy     Raw pointer dy.
+ * @return {{dx: number, dy: number}} The snapped delta to apply to every member.
+ */
+export function snapClusterDelta( origin, dx, dy ) {
+	// Top-left-most member, so the anchor is stable across drags of one hull.
+	const anchor = Object.values( origin ).reduce(
+		( a, p ) =>
+			! a || p.x < a.x || ( p.x === a.x && p.y < a.y ) ? p : a,
+		null
+	);
+	if ( ! anchor ) {
+		return { dx, dy };
+	}
+	const target = snapPosition( anchor.x + dx, anchor.y + dy );
+	return { dx: target.x - anchor.x, dy: target.y - anchor.y };
+}
+
 /**
  * Tuck a newly-appeared (undropped) node below the left-most-then-bottom-most
  * node. Empty map → the origin cell. `positions` should hold only on-screen nodes.
