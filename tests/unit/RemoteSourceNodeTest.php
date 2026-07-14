@@ -1171,22 +1171,18 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 4, 'offset' => 256 ], $sse->position() );
 	}
 
-	public function test_offsetlog_answers_to_the_interpreter_not_the_data_sink(): void {
-		// Unlike Consumer's, this offsetlog routes to the command interpreter: its
-		// replies and state notifications are control traffic, and must not be
-		// pushed down the relay's data pipeline.
-		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
-		$ci->name( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER );
-
+	public function test_offsetlog_inherits_its_patrons_sink(): void {
+		// A sidecar sinks where its patron sinks. make_node sinks every node into
+		// _command_interpreter and flow is steered by target(), so inheriting the
+		// patron's sink IS how the offsetlog's replies reach the interpreter.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
 
 		$offsetlog = $this->read_private( $node, 'offsetlog' );
 		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
-		$this->assertSame( $ci, $offsetlog->sink(), 'offsetlog sinks to the interpreter' );
-		$this->assertNotSame( $spy, $offsetlog->sink(), 'NOT the relay data sink' );
+		$this->assertSame( $node->sink(), $offsetlog->sink() );
 	}
 
 	public function test_fire_commits_node_cursor(): void {

@@ -16,8 +16,13 @@ class Offsetlog_Cursor_Double extends Node {
 
 	public function fill( array $message ): void {}
 
+	protected function offsetlog_name(): string {
+		return 'double:offsetlog';
+	}
+
 	public function build( string $dir ): ?Partition_Node {
-		return $this->ensure_offsetlog( $dir, 'double:offsetlog' );
+		$this->offsetlog_dir = $dir;
+		return $this->ensure_offsetlog();
 	}
 
 	/** @return array<array-key, mixed>|null */

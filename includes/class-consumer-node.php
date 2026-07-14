@@ -48,12 +48,6 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected bool $multi_writer = false;
 
-	/**
-	 * Raw token assigned by parse_schema_args() — the override normalizes it
-	 * (rtrim '/') into the derived $offsetlog_dir below.
-	 */
-	protected string $offsetlog_dir = '';
-
 	/** Seal-grace bookkeeping: the segment + size last seen caught-up, and when that size last changed. */
 	protected int $seal_segment     = -1;
 	protected float $seal_since = 0.0;
@@ -104,9 +98,7 @@ class Consumer_Node extends Timer_Node {
 		$this->source->sink( $this->sink );
 		$this->source->patron( $this );
 
-		$this->ensure_offsetlog( $this->offsetlog_dir, '' !== $this->name ? "{$this->name}:offsetlog" : '' );
-		// Offsetlog shares consumer's data sink (sink() keeps them in step).
-		$this->offsetlog?->sink( $this->sink );
+		$this->ensure_offsetlog();
 
 		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
 		$this->ensure_deadletter( $this->deadletter_dir, '' !== $this->name ? "{$this->name}:deadletter" : '' );

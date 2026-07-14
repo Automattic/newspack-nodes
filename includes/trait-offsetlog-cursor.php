@@ -40,20 +40,37 @@ trait Offsetlog_Cursor {
 	protected ?Partition_Node $offsetlog = null;
 
 	/**
-	 * Build + register the offsetlog Partition once (idempotent). The caller wires the
-	 * sink afterward: the target differs (Consumer shares its data sink; Remote_Source
-	 * routes to the command interpreter), so it is deliberately left out of here.
-	 *
-	 * @param string $dir  Segment directory. Empty → null (no durable cursor).
-	 * @param string $name Node name for the partition; '' leaves it unnamed (named later).
+	 * Durable read-cursor dir. An ARGUMENT, not a Config read: an offsetlog is a
+	 * reader's cursor, so a topology must be able to write the path — that's what
+	 * lets it carry `<topology>` and keeps two fleets pulling one spoke partition
+	 * off each other's cursor. Empty disables checkpointing.
 	 */
-	protected function ensure_offsetlog( string $dir = '', string $name = '' ): ?Partition_Node {
+	protected string $offsetlog_dir = '';
+
+	/** Where the offsetlog lives. Override to derive an implicit dir. */
+	protected function offsetlog_dir(): string {
+		return $this->offsetlog_dir;
+	}
+
+	/** What it answers to. Override to qualify the name (e.g. by remote partition). */
+	protected function offsetlog_name(): string {
+		return '' !== $this->name ? "{$this->name}:offsetlog" : '';
+	}
+
+	/**
+	 * Build + register the offsetlog Partition once (idempotent). The sidecar inherits
+	 * its patron's sink, which make_node always sets to _command_interpreter — flow is
+	 * steered by target(), so a sink is control-plane, and the offsetlog's belongs there.
+	 */
+	protected function ensure_offsetlog(): ?Partition_Node {
 		if ( null !== $this->offsetlog ) {
 			return $this->offsetlog;
 		}
+		$dir = $this->offsetlog_dir();
 		if ( '' === $dir ) {
 			return null;
 		}
+		$name      = $this->offsetlog_name();
 		$offsetlog = new Partition_Node();
 		if ( '' !== $name ) {
 			$offsetlog->name( $name );
@@ -67,6 +84,7 @@ trait Offsetlog_Cursor {
 			self::OFFSETLOG_MIN_LIFETIME,
 			self::OFFSETLOG_MAX_LIFETIME,
 		] ) );
+		$offsetlog->sink( $this->sink );
 		$this->offsetlog = $offsetlog;
 		return $this->offsetlog;
 	}

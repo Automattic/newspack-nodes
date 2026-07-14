@@ -41,18 +41,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Dead-letter quarantine dir; empty disables the DLQ. Consumer's contract. */
 	protected string $deadletter_dir = '';
 
-	/**
-	 * @api Dynamic entrypoint.
-	 * @return array<string,mixed>
-	 */
-	/**
-	 * Durable read-cursor dir. An ARGUMENT, not a Config read: an offsetlog is a
-	 * reader's cursor, so a topology must be able to write the path — that's what
-	 * lets it carry `<topology>` and keeps two fleets pulling one spoke partition
-	 * off each other's cursor. Empty disables checkpointing (Consumer's contract).
-	 */
-	protected string $offsetlog_dir = '';
-
 	private int $last_heartbeat_response = 0;
 
 	/**
@@ -312,7 +300,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( $this->position_restored ) {
 			return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 		}
-		if ( null === $this->ensure_offsetlog_partition() ) {
+		if ( null === $this->ensure_offsetlog() ) {
 			return [];
 		}
 		$this->position_restored = true;
@@ -351,7 +339,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public function checkpoint_shutdown(): void {
 		// Paused SEEK sets offset_set w/o poll_initialized; survives shutdown.
-		if ( null === $this->ensure_offsetlog_partition() || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
+		if ( null === $this->ensure_offsetlog() || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
 			return;
 		}
 		$graceful = $this->attempts <= 1 && ! $this->crawl;
@@ -367,7 +355,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @param array<array-key, mixed> $extra Per-call frame additions (the quarantine marker).
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
-		if ( null === $this->ensure_offsetlog_partition() ) {
+		if ( null === $this->ensure_offsetlog() ) {
 			return;
 		}
 		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
@@ -420,32 +408,24 @@ class Remote_Source_Node extends Remote_Link_Node {
 	// --- Durable offsetlog — per-node, keyed by NODE NAME ---
 
 	/**
-	 * Derive this node's offsetlog dir + name, then let Offsetlog_Cursor build it.
-	 * Unlike Consumer, the dir can be implicit (`<offsets_dir>/<name>.<remote_partition>`)
-	 * and the partition answers to the command interpreter rather than the data sink.
+	 * Unlike Consumer's, this dir may be implicit: a topology that hasn't declared one
+	 * falls back to `<offsets_dir>/<name>.<remote_partition>`. An unnamed node has no
+	 * cursor of its own to derive, so it gets no offsetlog.
 	 */
-	private function ensure_offsetlog_partition(): ?Partition_Node {
-		if ( null !== $this->offsetlog ) {
-			return $this->offsetlog;
-		}
+	protected function offsetlog_dir(): string {
 		if ( '' === $this->name ) {
-			return null;
+			return '';
 		}
-		$dir = $this->offsetlog_dir;
-		if ( '' === $dir ) {
-			// Back-compat: a topology that hasn't declared the dir yet.
-			$offsets_dir = Config::get_offsets_directory();
-			if ( '' === $offsets_dir ) {
-				return null;
-			}
-			$dir = "{$offsets_dir}/{$this->name}.{$this->remote_partition}";
+		if ( '' !== $this->offsetlog_dir ) {
+			return $this->offsetlog_dir;
 		}
-		$offsetlog = $this->ensure_offsetlog( $dir, "{$this->name}:{$this->remote_partition}:offsetlog" );
-		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null !== $offsetlog && null === $offsetlog->sink() && null !== $ci ) {
-			$offsetlog->sink( $ci );
-		}
-		return $offsetlog;
+		$offsets_dir = Config::get_offsets_directory();
+		return '' === $offsets_dir ? '' : "{$offsets_dir}/{$this->name}.{$this->remote_partition}";
+	}
+
+	/** One node pulls one remote partition, so the cursor is named for it. */
+	protected function offsetlog_name(): string {
+		return "{$this->name}:{$this->remote_partition}:offsetlog";
 	}
 
 	// --- Dead-letter sibling — per-node quarantine for poison messages ---
