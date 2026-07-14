@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-07-14
+
 ### Added
 
 - **`TM_UNTYPED` (1024) — the mint default for a message.** `new_message()` used to hand back `TYPE = 0`, so a message that was minted and never typed was indistinguishable in the drop audit from a naked array with no TYPE at all. Both printed `TYPE_UNKNOWN`, and a live `_router: WARNING: message not addressed - TYPE_UNKNOWN` told you nothing about which. Now a minted-but-untyped message reports `TM_UNTYPED` (our bug) and a naked array still reports `TYPE_UNKNOWN` (garbage).
