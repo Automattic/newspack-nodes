@@ -167,7 +167,7 @@ class CLI_Command {
 		if ( $attached && null !== $ipc ) {
 			// 1-partition IPC; skip allow_large_writes for concurrent appends.
 			$ipc_out = new Partition_Node();
-			$ipc_out->arguments( "{$ipc['input']} " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
+			$ipc_out->arguments( Worker_Base::ipc_partition_args( $ipc['input'] ) );
 			$ipc_out->name( $worker_id );
 			$ipc_out->sink( $interpreter );
 			$shell->path = $worker_id;

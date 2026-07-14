@@ -14,9 +14,10 @@
  *   - time_travel_on_pause() — extra halt on PAUSE (Remote_Source drops the stream).
  *
  * The trait OWNS the transport state (snapshot_node, line_mode, saved_line_mode,
- * rewound_to, stepped_since_seek), the checkpoint bookkeeping (checkpoint_segment/off,
- * last_checkpoint) and the offsetlog geometry (OFFSETLOG_SEGMENT_SIZE / NUM_SEGMENTS);
- * it READS the using class's live read cursor (cursor_segment/off). It also owns the shared
+ * rewound_to, stepped_since_seek) and the checkpoint bookkeeping (checkpoint_segment/off,
+ * last_checkpoint); the offsetlog itself — geometry, retention, construction — belongs to
+ * Offsetlog_Cursor, which every using class also mixes in.
+ * It READS the using class's live read cursor (cursor_segment/off). It also owns the shared
  * frame writer commit_checkpoint_frame(), whose base frame ({segment,offset} + graceful-gated
  * attempt accounting) both nodes commit identically — each contributing only its
  * node-specific extra fields via checkpoint_frame_extra().
@@ -34,17 +35,6 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 trait Time_Travel {
-
-	/**
-	 * Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces one
-	 * checkpoint = one segment = one frame, uniformly for stateless readers (small offset
-	 * records) and stateful/snapshot ones (offset + cache). Partition's do_rotate() adopts
-	 * the still-empty newest segment on the first commit, then rotates to a fresh segment
-	 * on every later commit (current_size ≥ 1 > the 1-byte threshold) — so segment_size=1
-	 * produces no empty-segment spam. Retain the last 10 keyframes (history depth).
-	 */
-	public const OFFSETLOG_SEGMENT_SIZE = 1;
-	public const OFFSETLOG_NUM_SEGMENTS = 10;
 
 	/**
 	 * Last (seg,off) committed to the offsetlog (-1/-1 before the first commit). Feeds the

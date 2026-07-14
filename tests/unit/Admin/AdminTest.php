@@ -701,7 +701,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_sanitize_remote_min_lifetime_clamps_to_range(): void {
-		// 0 = disabled (pure count-based), matching the hub max_lifespan; no 60s floor.
+		// 0 = disabled (pure count-based), matching the hub max_lifetime; no 60s floor.
 		$this->assertSame( 0, Admin::sanitize_remote_min_lifetime( '0' ) );
 		$this->assertSame( 10, Admin::sanitize_remote_min_lifetime( '10' ) );
 		$this->assertSame( 604800, Admin::sanitize_remote_min_lifetime( '999999999' ) );

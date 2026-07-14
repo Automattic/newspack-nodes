@@ -1363,7 +1363,7 @@ describe( 'Inspector (view mode)', () => {
 						arguments: [
 							{ name: 'dir', required: true },
 							{ name: 'segment_size' },
-							{ name: 'num_segments' },
+							{ name: 'max_segments' },
 						],
 					},
 				] }
@@ -1375,7 +1375,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( container.textContent ).toContain( '/tmp/logs/errors.p0' );
 		expect( container.textContent ).toContain( 'segment_size' );
 		expect( container.textContent ).toContain( '4096' );
-		expect( container.textContent ).toContain( 'num_segments' );
+		expect( container.textContent ).toContain( 'max_segments' );
 		expect( container.textContent ).toContain( '8' );
 		// Read-only: the section has no editable inputs.
 		expect(

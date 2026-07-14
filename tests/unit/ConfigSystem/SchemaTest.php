@@ -33,7 +33,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 				'pfx_',
 				[
 					new Field(
-						key: 'num_segments',
+						key: 'max_segments',
 						type: 'int',
 						label: 'Num Segments',
 						section: 'storage',
@@ -81,7 +81,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			// All real options (key !== ''), incl. the ui=false allowed_users;
 			// excludes the display-only total_storage (no key).
 			$this->assertSame(
-				[ 'num_segments', 'num_partitions', 'topologies', 'allowed_users' ],
+				[ 'max_segments', 'num_partitions', 'topologies', 'allowed_users' ],
 				$this->sample_schema()->overlay_keys()
 			);
 		}
@@ -89,7 +89,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 		public function test_setting_option_names_are_prefixed_and_exclude_ui_false_and_display(): void {
 			// Rendered options only: prefixed, no allowed_users (ui=false), no total_storage (no key).
 			$this->assertSame(
-				[ 'pfx_num_segments', 'pfx_num_partitions', 'pfx_topologies' ],
+				[ 'pfx_max_segments', 'pfx_num_partitions', 'pfx_topologies' ],
 				$this->sample_schema()->setting_option_names()
 			);
 		}
@@ -99,7 +99,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			// an empty save resets it to the file default); allowed_users is ui=false
 			// so never a setting. No bool here, so all three settings qualify.
 			$this->assertSame(
-				[ 'pfx_num_segments', 'pfx_num_partitions', 'pfx_topologies' ],
+				[ 'pfx_max_segments', 'pfx_num_partitions', 'pfx_topologies' ],
 				$this->sample_schema()->delete_on_blank_options()
 			);
 		}
@@ -119,14 +119,14 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 				$this->sample_schema()->rendered_fields()
 			);
 			$this->assertSame(
-				[ 'num_segments', 'num_partitions', 'total_storage', 'topologies' ],
+				[ 'max_segments', 'num_partitions', 'total_storage', 'topologies' ],
 				$ids
 			);
 		}
 
 		public function test_restart_for_returns_the_fields_groups(): void {
 			$schema = $this->sample_schema();
-			$this->assertSame( [ 'request-workers', 'job-workers' ], $schema->restart_for( 'num_segments' ) );
+			$this->assertSame( [ 'request-workers', 'job-workers' ], $schema->restart_for( 'max_segments' ) );
 			$this->assertSame( 'supervisor_only', $schema->restart_for( 'num_partitions' ) );
 			// A topology save restarts nothing (supervisor pulls it).
 			$this->assertSame( [], $schema->restart_for( 'topologies' ) );
@@ -150,7 +150,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			$GLOBALS['_registered_settings'] = [];
 			$this->sample_schema()->register_options( 'pfx_group' );
 
-			foreach ( [ 'pfx_num_segments', 'pfx_num_partitions', 'pfx_topologies' ] as $option ) {
+			foreach ( [ 'pfx_max_segments', 'pfx_num_partitions', 'pfx_topologies' ] as $option ) {
 				$this->assertArrayHasKey( $option, $GLOBALS['_registered_settings'] );
 				$this->assertSame( 'pfx_group', $GLOBALS['_registered_settings'][ $option ]['group'] );
 				$this->assertIsCallable( $GLOBALS['_registered_settings'][ $option ]['args']['sanitize_callback'] );
@@ -188,7 +188,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 
 			$this->assertArrayHasKey( 'storage', $GLOBALS['_registered_sections'] );
 			$this->assertArrayHasKey( 'topologies', $GLOBALS['_registered_sections'] );
-			foreach ( [ 'num_segments', 'num_partitions', 'total_storage', 'topologies' ] as $field_id ) {
+			foreach ( [ 'max_segments', 'num_partitions', 'total_storage', 'topologies' ] as $field_id ) {
 				$this->assertArrayHasKey( $field_id, $GLOBALS['_registered_fields'] );
 				$this->assertSame( 'pfx_page', $GLOBALS['_registered_fields'][ $field_id ]['page'] );
 			}

@@ -67,15 +67,15 @@ class Command_Interpreter_Node extends Node {
 	 */
 	public ?\Closure $authorize = null;
 
-	/** Set when drop_message logs during interpret(); squelches the redundant unauthorized. */
-	private bool $reason_logged = false;
-
 	/**
 	 * Per-instance verb table; defaults to self::$C, siblings install their own via commands().
 	 *
 	 * @var array<string,callable>|null
 	 */
 	protected ?array $commands = null;
+
+	/** Set when drop_message logs during interpret(); squelches the redundant unauthorized. */
+	private bool $reason_logged = false;
 
 	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
@@ -99,22 +99,6 @@ class Command_Interpreter_Node extends Node {
 			return;
 		}
 		$this->sink->fill( $message );
-	}
-
-	/**
-	 * Record that a reason was logged this interpret() so authorize's specific
-	 * "verification failed" isn't followed by a redundant generic "unauthorized".
-	 *
-	 * @param array<int, mixed> $message Message being dropped.
-	 */
-	public function drop_message( array $message, string $error ): void {
-		$this->reason_logged = true;
-		parent::drop_message( $message, $error );
-	}
-
-	/** Whether drop_message logged a reason since the last interpret() reset (opaque to flow analysis). */
-	private function logged_a_reason(): bool {
-		return $this->reason_logged;
 	}
 
 	/** @param array<int, mixed> $message Incoming command Message to interpret. */
@@ -189,6 +173,22 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
+	 * Record that a reason was logged this interpret() so authorize's specific
+	 * "verification failed" isn't followed by a redundant generic "unauthorized".
+	 *
+	 * @param array<int, mixed> $message Message being dropped.
+	 */
+	public function drop_message( array $message, string $error ): void {
+		$this->reason_logged = true;
+		parent::drop_message( $message, $error );
+	}
+
+	/** Whether drop_message logged a reason since the last interpret() reset (opaque to flow analysis). */
+	private function logged_a_reason(): bool {
+		return $this->reason_logged;
+	}
+
+	/**
 	 * Dispatch a verb by name. Result rides the Message VALUE unencoded (never JSON here).
 	 *
 	 * @param string                  $name     Verb name.
@@ -252,43 +252,6 @@ class Command_Interpreter_Node extends Node {
 			$node->debug_state( $this->debug_state() );
 		}
 		return $node;
-	}
-
-	/**
-	 * Resolve a shell type token to the first registered concrete Node-subclass FQCN.
-	 *
-	 * Walks the registered namespace prefixes and returns the first
-	 * `{$prefix}{$type}_Node` (or the bare `{$prefix}Node` for the base type)
-	 * that exists, is a Node, and is NOT abstract. Abstract matches are skipped so
-	 * a concrete `{$type}_Node` under a later-scanned prefix still resolves —
-	 * otherwise `make_node` would see the abstract first and return null. Null when
-	 * no namespace yields a concrete match.
-	 *
-	 * @param string $type Shell name (e.g. `Tee`, `Tap`, or the bare `Node`).
-	 * @return class-string<Node>|null
-	 */
-	public static function resolve_class( string $type ): ?string {
-		// Cache hits only; a miss resolves after later register_namespace().
-		if ( isset( self::$resolve_cache[ $type ] ) ) {
-			return self::$resolve_cache[ $type ];
-		}
-		foreach ( self::registered_namespaces() as $prefix ) {
-			// Base Node lacks `_Node`; `make_node Node` resolves directly.
-			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
-			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
-				return self::$resolve_cache[ $type ] = $fqcn;
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Read-only view of the registered namespace prefixes.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function registered_namespaces(): array {
-		return \array_keys( self::$namespaces );
 	}
 
 	/**
@@ -1132,6 +1095,43 @@ class Command_Interpreter_Node extends Node {
 			return self::render_node_schema( $topic, $fqcn::node_schema() );
 		}
 		return "no such topic: \"$topic\"";
+	}
+
+	/**
+	 * Resolve a shell type token to the first registered concrete Node-subclass FQCN.
+	 *
+	 * Walks the registered namespace prefixes and returns the first
+	 * `{$prefix}{$type}_Node` (or the bare `{$prefix}Node` for the base type)
+	 * that exists, is a Node, and is NOT abstract. Abstract matches are skipped so
+	 * a concrete `{$type}_Node` under a later-scanned prefix still resolves —
+	 * otherwise `make_node` would see the abstract first and return null. Null when
+	 * no namespace yields a concrete match.
+	 *
+	 * @param string $type Shell name (e.g. `Tee`, `Tap`, or the bare `Node`).
+	 * @return class-string<Node>|null
+	 */
+	public static function resolve_class( string $type ): ?string {
+		// Cache hits only; a miss resolves after later register_namespace().
+		if ( isset( self::$resolve_cache[ $type ] ) ) {
+			return self::$resolve_cache[ $type ];
+		}
+		foreach ( self::registered_namespaces() as $prefix ) {
+			// Base Node lacks `_Node`; `make_node Node` resolves directly.
+			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
+			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
+				return self::$resolve_cache[ $type ] = $fqcn;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Read-only view of the registered namespace prefixes.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function registered_namespaces(): array {
+		return \array_keys( self::$namespaces );
 	}
 
 	/**

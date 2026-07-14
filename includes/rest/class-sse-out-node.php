@@ -389,39 +389,6 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Build a Consumer tailing one concrete log-partition dir, stamped +
-	 * resume-keyed by its basename (matching the FROM the browser parses).
-	 *
-	 * @param array<array-key,mixed>|null $positions Saved positions by dir name.
-	 */
-	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
-		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$dir} " );
-		$consumer->next_offset(
-			isset( $positions[ $name ] ) ? self::position_arg( $positions[ $name ] ) : 'end'
-		);
-		$consumer->set_stamp_as( $name );
-		return $consumer;
-	}
-
-	/**
-	 * Name a Consumer by its dir-basename stamp, wire it into the SSE graph, and
-	 * add it to the live $consumers map. Skips a name already open (dedup).
-	 *
-	 * @param array<string,Consumer_Node> $consumers Live map, mutated in place.
-	 */
-	private function attach_consumer( Consumer_Node $c, array &$consumers, Node $route ): void {
-		$name = $c->stamped_as();
-		if ( '' === $name || isset( $consumers[ $name ] ) ) {
-			return;
-		}
-		$c->name( $name );
-		$c->sink( $route );
-		$c->patron( $this );
-		$consumers[ $name ] = $c;
-	}
-
-	/**
 	 * Self-heal glob subscriptions against the live filesystem: open a Consumer
 	 * for each newly-appeared matching dir (tail-seek — it appeared after connect)
 	 * and remove_node one whose dir vanished (partitions increasing OR decreasing).
@@ -468,6 +435,39 @@ class SSE_Out_Node extends Node {
 			$c->remove_node();
 			unset( $consumers[ $name ], $glob_owned[ $name ] );
 		}
+	}
+
+	/**
+	 * Build a Consumer tailing one concrete log-partition dir, stamped +
+	 * resume-keyed by its basename (matching the FROM the browser parses).
+	 *
+	 * @param array<array-key,mixed>|null $positions Saved positions by dir name.
+	 */
+	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
+		$consumer = new Consumer_Node();
+		$consumer->arguments( "{$dir} " );
+		$consumer->next_offset(
+			isset( $positions[ $name ] ) ? self::position_arg( $positions[ $name ] ) : 'end'
+		);
+		$consumer->set_stamp_as( $name );
+		return $consumer;
+	}
+
+	/**
+	 * Name a Consumer by its dir-basename stamp, wire it into the SSE graph, and
+	 * add it to the live $consumers map. Skips a name already open (dedup).
+	 *
+	 * @param array<string,Consumer_Node> $consumers Live map, mutated in place.
+	 */
+	private function attach_consumer( Consumer_Node $c, array &$consumers, Node $route ): void {
+		$name = $c->stamped_as();
+		if ( '' === $name || isset( $consumers[ $name ] ) ) {
+			return;
+		}
+		$c->name( $name );
+		$c->sink( $route );
+		$c->patron( $this );
+		$consumers[ $name ] = $c;
 	}
 
 	/**

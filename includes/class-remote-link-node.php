@@ -37,14 +37,14 @@ class Remote_Link_Node extends Timer_Node {
 
 	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
 	protected ?HTTP_Out_Node $http_out = null;
+
+	protected int $last_heartbeat_sent = 0;
 	protected string $remote_partition = '';
 
 	/** Patron SSE_In sibling (`<name>:sse-in`); null until first connect / Vault-resolved. */
 	protected ?SSE_In_Node $sse_in = null;
 
 	protected string $vault_id = '';
-
-	protected int $last_heartbeat_sent = 0;
 
 	/** Wall-second of the last housekeeping pass; fire() latches on it. */
 	private int $last_housekeeping_s = 0;

@@ -28,9 +28,6 @@ class Topology_Registry {
 	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name; cleared by reset_basename_cache(). */
 	private static array $frontmatter_cache = [];
 
-	/** @var array<string,array{statements:list<array{line:string,origin:?string,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
-	private static array $statements_cache = [];
-
 	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
@@ -40,6 +37,9 @@ class Topology_Registry {
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
 	private static array $segment_size_overrides_cache = [];
 
+	/** @var array<string,array{statements:list<array{line:string,origin:?string,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
+	private static array $statements_cache = [];
+
 	/** @var array<int,string> Plugin-registered stock dirs (first wins). */
 	private static array $stock_dirs = [];
 
@@ -48,129 +48,6 @@ class Topology_Registry {
 
 	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
 	private static array $write_set_cache = [];
-
-	/**
-	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
-	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
-	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered
-	 * once by the substrate (newspack-nodes.php). num_partitions defaults to the
-	 * operator-overridable substrate option (clamped 1..16); a topology's own
-	 * `var num_partitions` frontmatter overrides via synthesize_entry.
-	 *
-	 * @param array<string, array<string, mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
-	 * @return array<string, array<string, mixed>>
-	 */
-	public static function publish_catalog( array $topologies ): array {
-		$cfg_np     = \Newspack_Nodes\Config::value( 'num_partitions' );
-		$default_np = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
-		foreach ( self::list() as $name ) {
-			if ( isset( $topologies[ $name ] ) ) {
-				continue;
-			}
-			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
-			if ( null !== $entry ) {
-				$topologies[ $name ] = $entry;
-			}
-		}
-		return $topologies;
-	}
-
-	/**
-	 * Return the union of topology names across user + stock dirs.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function list(): array {
-		$names = [];
-		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
-			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$names[ \basename( $path, '.tsl' ) ] = true;
-			}
-		}
-		foreach ( self::$stock_dirs as $dir ) {
-			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$names[ \basename( $path, '.tsl' ) ] = true;
-			}
-		}
-		return \array_keys( $names );
-	}
-
-	/**
-	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
-	 *
-	 * @return array<string, mixed>|null
-	 */
-	public static function synthesize_entry(
-		string $name,
-		int $default_num_partitions = 1,
-		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
-	): ?array {
-		if ( null === self::resolve( $name ) ) {
-			return null;
-		}
-		$front = self::frontmatter( $name );
-		return [
-			'topology'       => $name,
-			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
-			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
-		];
-	}
-
-	/**
-	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
-	 */
-	public static function resolve( string $name ): ?string {
-		if ( '' !== self::$user_dir ) {
-			$user_path = self::$user_dir . '/' . $name . '.tsl';
-			if ( \is_file( $user_path ) ) {
-				return $user_path;
-			}
-		}
-		foreach ( self::$stock_dirs as $dir ) {
-			$path = $dir . '/' . $name . '.tsl';
-			if ( \is_file( $path ) ) {
-				return $path;
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Lightweight `var name = value` extractor for supervisor metadata reads (no topology execution).
-	 *
-	 * @return array<string,string>
-	 */
-	public static function frontmatter( string $name ): array {
-		if ( isset( self::$frontmatter_cache[ $name ] ) ) {
-			return self::$frontmatter_cache[ $name ];
-		}
-		$path = self::resolve( $name );
-		if ( null === $path ) {
-			return self::$frontmatter_cache[ $name ] = [];
-		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$contents = (string) \file_get_contents( $path );
-		$out      = [];
-		foreach ( \explode( "\n", $contents ) as $raw ) {
-			// Statements can also be `;`-separated on one line.
-			foreach ( \explode( ';', $raw ) as $stmt ) {
-				$stmt = \trim( $stmt );
-				if ( '' === $stmt || '#' === $stmt[0] ) {
-					continue;
-				}
-				if ( \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/', $stmt, $m ) ) {
-					$out[ $m[1] ] = \trim( $m[2] );
-				}
-			}
-		}
-		return self::$frontmatter_cache[ $name ] = $out;
-	}
 
 	/**
 	 * Add a topology to the persisted active set and spawn its fleet now.
@@ -217,6 +94,25 @@ class Topology_Registry {
 			'active'  => true,
 			'spawned' => $spawned,
 		];
+	}
+
+	/**
+	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
+	 */
+	public static function resolve( string $name ): ?string {
+		if ( '' !== self::$user_dir ) {
+			$user_path = self::$user_dir . '/' . $name . '.tsl';
+			if ( \is_file( $user_path ) ) {
+				return $user_path;
+			}
+		}
+		foreach ( self::$stock_dirs as $dir ) {
+			$path = $dir . '/' . $name . '.tsl';
+			if ( \is_file( $path ) ) {
+				return $path;
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -305,122 +201,22 @@ class Topology_Registry {
 	}
 
 	/**
-	 * One-line human summary of find_conflicts() output, shared by the admin
-	 * sanitizer's settings error and the supervisor's refusal log so the two
-	 * gates phrase a conflict identically. Empty input → empty string.
+	 * A topology's statements, includes flattened and verbs canonicalized.
 	 *
-	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
+	 * EVERY static reader goes through here. Scanning the raw file makes an
+	 * include-only topology (ELN's combined.tsl is two `include` lines) look
+	 * EMPTY — which silently disarmed the write_set conflict gate.
+	 *
+	 * THROWS on a broken include. The safety gates read through here: an empty
+	 * write set reads as "no conflict" to find_conflicts and as "every one of its
+	 * logs is an orphan" to Log_Cleaner. Fail loud; graph_for (a display helper)
+	 * catches this itself so one bad .tsl can't take out the dashboard.
+	 *
+	 * @return list<string>
+	 * @throws \RuntimeException On an unknown include, a cycle, or a conflicting make_node.
 	 */
-	public static function describe_conflicts( array $conflicts ): string {
-		return \implode(
-			', ',
-			\array_map(
-				static fn( array $c ): string => "{$c['a']} ↔ {$c['b']} ({$c['shared'][0]})",
-				$conflicts
-			)
-		);
-	}
-
-	/**
-	 * Drop the per-process option snapshot then the config snapshot so the next
-	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
-	 * set. Same pair, same order, as Supervisor::check_config(). Public so the
-	 * Topologies_CI delete verb (which mutates the active set on its own path)
-	 * shares this one definition instead of carrying a parallel copy.
-	 */
-	public static function invalidate_config_cache(): void {
-		\Newspack_Nodes\Config::invalidate_options_cache();
-		\Newspack_Nodes\Config::reset();
-	}
-
-	/**
-	 * First-level concrete dir names `$name` writes under logs_dir / offsets_dir,
-	 * layout-agnostic: each `write_set` token is expanded over `0..$num_partitions-1`
-	 * (substituting BOTH `<partition>` angle and `{partition}` curly), its
-	 * `<config:…>` tokens resolved, then the first path segment under the
-	 * respective root is taken — wherever the partition token sits in the path.
-	 * No `.p{N}` regex. `$num_partitions` is passed by the caller (keeps the
-	 * registry free of a Bootstrap dep); pass `Bootstrap::num_partitions_for($name)`.
-	 *
-	 * Each bucket is a `concrete dir name => enumerated partition index` map; the
-	 * partition number comes FROM the enumeration loop, never parsed back out of a
-	 * name. In the flat layout (`firehose.p<partition>`) every partition yields a
-	 * unique first-level name (1:1). In a nested layout (`<partition>` below the
-	 * first level) several partitions collapse to one first-level dir — the FIRST
-	 * seen is kept; nested layouts aren't represented per-partition here.
-	 *
-	 * @return array{logs: array<string,int>, offsets: array<string,int>}
-	 */
-	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
-		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
-		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
-		$logs         = [];
-		$offsets      = [];
-		foreach ( self::write_set( $name ) as $entry ) {
-			[ $kind, $token ] = \explode( ':', $entry, 2 );
-			// Explicit kind→root map; a new entry can't hit offsets.
-			$root = match ( $kind ) {
-				'partition' => $logs_root,
-				'offsetlog' => $offsets_root,
-				default     => '',
-			};
-			if ( '' === $root ) {
-				continue;
-			}
-			for ( $p = 0; $p < $num_partitions; $p++ ) {
-				$concrete = Core::resolve_partition_template( $token, $p, $name );
-				$prefix   = $root . '/';
-				if ( 0 !== \strpos( $concrete, $prefix ) ) {
-					continue;
-				}
-				$first = \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
-				if ( '' === $first ) {
-					continue;
-				}
-				// Keep FIRST partition seen (nested layout → one dir).
-				if ( 'partition' === $kind ) {
-					$logs[ $first ] ??= $p;
-				} else {
-					$offsets[ $first ] ??= $p;
-				}
-			}
-		}
-		return [
-			'logs'    => $logs,
-			'offsets' => $offsets,
-		];
-	}
-
-	/**
-	 * Per-Partition literal segment_size overrides from `$name`'s TSL (`{basename => int}`). Memoized.
-	 *
-	 * Token-substituted values are omitted; the caller falls back to the global default.
-	 *
-	 * @return array<string,int>
-	 */
-	public static function segment_size_overrides_for( string $name ): array {
-		if ( isset( self::$segment_size_overrides_cache[ $name ] ) ) {
-			return self::$segment_size_overrides_cache[ $name ];
-		}
-		$path = self::resolve( $name );
-		if ( null === $path ) {
-			return self::$segment_size_overrides_cache[ $name ] = [];
-		}
-		$overrides = [];
-		foreach ( self::flat_lines( $name ) as $line ) {
-			// basename + segment_size (flat: 1st arg after path), int-filtered.
-			if ( ! \preg_match(
-				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>\s+(\S+)/',
-				$line,
-				$m
-			) ) {
-				continue;
-			}
-			if ( \ctype_digit( $m[2] ) ) {
-				$overrides[ $m[1] ] = (int) $m[2];
-			}
-		}
-		return self::$segment_size_overrides_cache[ $name ] = $overrides;
+	private static function flat_lines( string $name ): array {
+		return \array_column( self::statements( $name )['statements'], 'line' );
 	}
 
 	/**
@@ -556,6 +352,51 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Rewrite the interpreter's verb ALIASES to their canonical form.
+	 *
+	 * `make` / `connect` / `disconnect` are real aliases in the interpreter's verb
+	 * table, and topologies use them (ELN's performance.tsl says `make Tee`). A
+	 * static reader that knows only the long form paints a graph the runtime never
+	 * builds, so normalize once here and every reader downstream sees one form.
+	 */
+	private static function canonical_verb( string $line ): string {
+		return (string) \preg_replace(
+			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/' ],
+			[ 'make_node ', 'connect_node ', 'disconnect_node ' ],
+			$line
+		);
+	}
+
+	/**
+	 * One-line human summary of find_conflicts() output, shared by the admin
+	 * sanitizer's settings error and the supervisor's refusal log so the two
+	 * gates phrase a conflict identically. Empty input → empty string.
+	 *
+	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
+	 */
+	public static function describe_conflicts( array $conflicts ): string {
+		return \implode(
+			', ',
+			\array_map(
+				static fn( array $c ): string => "{$c['a']} ↔ {$c['b']} ({$c['shared'][0]})",
+				$conflicts
+			)
+		);
+	}
+
+	/**
+	 * Drop the per-process option snapshot then the config snapshot so the next
+	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
+	 * set. Same pair, same order, as Supervisor::check_config(). Public so the
+	 * Topologies_CI delete verb (which mutates the active set on its own path)
+	 * shares this one definition instead of carrying a parallel copy.
+	 */
+	public static function invalidate_config_cache(): void {
+		\Newspack_Nodes\Config::invalidate_options_cache();
+		\Newspack_Nodes\Config::reset();
+	}
+
+	/**
 	 * Compose an include set into one graph with provenance — for the console.
 	 *
 	 * Informational only: the runtime is the Shell's `include`. `origin` is the
@@ -583,81 +424,6 @@ class Topology_Registry {
 			'tree'  => $tree,
 			'hulls' => self::hulls_for_tree( $tree ),
 		];
-	}
-
-	/**
-	 * Node set of EVERY topology in the tree, nested ones included.
-	 *
-	 * The canvas draws a hull per include at any depth, so it needs each one's
-	 * membership. `origin` (top-level) and `via` (first path) can't answer it —
-	 * a node two levels down belongs to both hulls. Depth-first, so the outer
-	 * topology precedes what it brings; the canvas paints in that order and the
-	 * nested hull lands on top of its parent.
-	 *
-	 * @param array<array-key,mixed> $tree Include tree from statements().
-	 * @return array<string, list<string>> Topology name => node names it provides.
-	 */
-	private static function hulls_for_tree( array $tree ): array {
-		$out = [];
-		foreach ( $tree as $name => $subtree ) {
-			$out[ (string) $name ] = self::declared_node_names( (string) $name );
-			if ( \is_array( $subtree ) ) {
-				foreach ( self::hulls_for_tree( $subtree ) as $child => $names ) {
-					$out[ $child ] = $names;
-				}
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * Every node a topology declares, its own includes flattened in.
-	 *
-	 * @return list<string>
-	 */
-	private static function declared_node_names( string $name ): array {
-		$names = [];
-		foreach ( self::flat_lines( $name ) as $line ) {
-			if ( \preg_match( '/^make_node\s+\S+\s+(\S+)/', $line, $m ) ) {
-				$names[ $m[1] ] = true;
-			}
-		}
-		return \array_keys( $names );
-	}
-
-	/**
-	 * A topology's statements, includes flattened and verbs canonicalized.
-	 *
-	 * EVERY static reader goes through here. Scanning the raw file makes an
-	 * include-only topology (ELN's combined.tsl is two `include` lines) look
-	 * EMPTY — which silently disarmed the write_set conflict gate.
-	 *
-	 * THROWS on a broken include. The safety gates read through here: an empty
-	 * write set reads as "no conflict" to find_conflicts and as "every one of its
-	 * logs is an orphan" to Log_Cleaner. Fail loud; graph_for (a display helper)
-	 * catches this itself so one bad .tsl can't take out the dashboard.
-	 *
-	 * @return list<string>
-	 * @throws \RuntimeException On an unknown include, a cycle, or a conflicting make_node.
-	 */
-	private static function flat_lines( string $name ): array {
-		return \array_column( self::statements( $name )['statements'], 'line' );
-	}
-
-	/**
-	 * Rewrite the interpreter's verb ALIASES to their canonical form.
-	 *
-	 * `make` / `connect` / `disconnect` are real aliases in the interpreter's verb
-	 * table, and topologies use them (ELN's performance.tsl says `make Tee`). A
-	 * static reader that knows only the long form paints a graph the runtime never
-	 * builds, so normalize once here and every reader downstream sees one form.
-	 */
-	private static function canonical_verb( string $line ): string {
-		return (string) \preg_replace(
-			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/' ],
-			[ 'make_node ', 'connect_node ', 'disconnect_node ' ],
-			$line
-		);
 	}
 
 	/**
@@ -723,6 +489,240 @@ class Topology_Registry {
 			'to'     => $edge[1],
 			'origin' => [ $origin ],
 		];
+	}
+
+	/**
+	 * Node set of EVERY topology in the tree, nested ones included.
+	 *
+	 * The canvas draws a hull per include at any depth, so it needs each one's
+	 * membership. `origin` (top-level) and `via` (first path) can't answer it —
+	 * a node two levels down belongs to both hulls. Depth-first, so the outer
+	 * topology precedes what it brings; the canvas paints in that order and the
+	 * nested hull lands on top of its parent.
+	 *
+	 * @param array<array-key,mixed> $tree Include tree from statements().
+	 * @return array<string, list<string>> Topology name => node names it provides.
+	 */
+	private static function hulls_for_tree( array $tree ): array {
+		$out = [];
+		foreach ( $tree as $name => $subtree ) {
+			$out[ (string) $name ] = self::declared_node_names( (string) $name );
+			if ( \is_array( $subtree ) ) {
+				foreach ( self::hulls_for_tree( $subtree ) as $child => $names ) {
+					$out[ $child ] = $names;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Every node a topology declares, its own includes flattened in.
+	 *
+	 * @return list<string>
+	 */
+	private static function declared_node_names( string $name ): array {
+		$names = [];
+		foreach ( self::flat_lines( $name ) as $line ) {
+			if ( \preg_match( '/^make_node\s+\S+\s+(\S+)/', $line, $m ) ) {
+				$names[ $m[1] ] = true;
+			}
+		}
+		return \array_keys( $names );
+	}
+
+	/**
+	 * First-level concrete dir names `$name` writes under logs_dir / offsets_dir,
+	 * layout-agnostic: each `write_set` token is expanded over `0..$num_partitions-1`
+	 * (substituting BOTH `<partition>` angle and `{partition}` curly), its
+	 * `<config:…>` tokens resolved, then the first path segment under the
+	 * respective root is taken — wherever the partition token sits in the path.
+	 * No `.p{N}` regex. `$num_partitions` is passed by the caller (keeps the
+	 * registry free of a Bootstrap dep); pass `Bootstrap::num_partitions_for($name)`.
+	 *
+	 * Each bucket is a `concrete dir name => enumerated partition index` map; the
+	 * partition number comes FROM the enumeration loop, never parsed back out of a
+	 * name. In the flat layout (`firehose.p<partition>`) every partition yields a
+	 * unique first-level name (1:1). In a nested layout (`<partition>` below the
+	 * first level) several partitions collapse to one first-level dir — the FIRST
+	 * seen is kept; nested layouts aren't represented per-partition here.
+	 *
+	 * @return array{logs: array<string,int>, offsets: array<string,int>}
+	 */
+	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
+		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
+		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
+		$logs         = [];
+		$offsets      = [];
+		foreach ( self::write_set( $name ) as $entry ) {
+			[ $kind, $token ] = \explode( ':', $entry, 2 );
+			// Explicit kind→root map; a new entry can't hit offsets.
+			$root = match ( $kind ) {
+				'partition' => $logs_root,
+				'offsetlog' => $offsets_root,
+				default     => '',
+			};
+			if ( '' === $root ) {
+				continue;
+			}
+			for ( $p = 0; $p < $num_partitions; $p++ ) {
+				$concrete = Core::resolve_partition_template( $token, $p, $name );
+				$prefix   = $root . '/';
+				if ( 0 !== \strpos( $concrete, $prefix ) ) {
+					continue;
+				}
+				$first = \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
+				if ( '' === $first ) {
+					continue;
+				}
+				// Keep FIRST partition seen (nested layout → one dir).
+				if ( 'partition' === $kind ) {
+					$logs[ $first ] ??= $p;
+				} else {
+					$offsets[ $first ] ??= $p;
+				}
+			}
+		}
+		return [
+			'logs'    => $logs,
+			'offsets' => $offsets,
+		];
+	}
+
+	/**
+	 * Per-Partition literal segment_size overrides from `$name`'s TSL (`{basename => int}`). Memoized.
+	 *
+	 * Token-substituted values are omitted; the caller falls back to the global default.
+	 *
+	 * @return array<string,int>
+	 */
+	public static function segment_size_overrides_for( string $name ): array {
+		if ( isset( self::$segment_size_overrides_cache[ $name ] ) ) {
+			return self::$segment_size_overrides_cache[ $name ];
+		}
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return self::$segment_size_overrides_cache[ $name ] = [];
+		}
+		$overrides = [];
+		foreach ( self::flat_lines( $name ) as $line ) {
+			// basename + segment_size (flat: 1st arg after path), int-filtered.
+			if ( ! \preg_match(
+				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>\s+(\S+)/',
+				$line,
+				$m
+			) ) {
+				continue;
+			}
+			if ( \ctype_digit( $m[2] ) ) {
+				$overrides[ $m[1] ] = (int) $m[2];
+			}
+		}
+		return self::$segment_size_overrides_cache[ $name ] = $overrides;
+	}
+
+	/**
+	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
+	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
+	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered
+	 * once by the substrate (newspack-nodes.php). num_partitions defaults to the
+	 * operator-overridable substrate option (clamped 1..16); a topology's own
+	 * `var num_partitions` frontmatter overrides via synthesize_entry.
+	 *
+	 * @param array<string, array<string, mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
+	 * @return array<string, array<string, mixed>>
+	 */
+	public static function publish_catalog( array $topologies ): array {
+		$cfg_np     = \Newspack_Nodes\Config::value( 'num_partitions' );
+		$default_np = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
+		foreach ( self::list() as $name ) {
+			if ( isset( $topologies[ $name ] ) ) {
+				continue;
+			}
+			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			if ( null !== $entry ) {
+				$topologies[ $name ] = $entry;
+			}
+		}
+		return $topologies;
+	}
+
+	/**
+	 * Return the union of topology names across user + stock dirs.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function list(): array {
+		$names = [];
+		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
+			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
+				$names[ \basename( $path, '.tsl' ) ] = true;
+			}
+		}
+		foreach ( self::$stock_dirs as $dir ) {
+			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
+				$names[ \basename( $path, '.tsl' ) ] = true;
+			}
+		}
+		return \array_keys( $names );
+	}
+
+	/**
+	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	public static function synthesize_entry(
+		string $name,
+		int $default_num_partitions = 1,
+		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
+	): ?array {
+		if ( null === self::resolve( $name ) ) {
+			return null;
+		}
+		$front = self::frontmatter( $name );
+		return [
+			'topology'       => $name,
+			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
+			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
+		];
+	}
+
+	/**
+	 * Lightweight `var name = value` extractor for supervisor metadata reads (no topology execution).
+	 *
+	 * @return array<string,string>
+	 */
+	public static function frontmatter( string $name ): array {
+		if ( isset( self::$frontmatter_cache[ $name ] ) ) {
+			return self::$frontmatter_cache[ $name ];
+		}
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return self::$frontmatter_cache[ $name ] = [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$contents = (string) \file_get_contents( $path );
+		$out      = [];
+		foreach ( \explode( "\n", $contents ) as $raw ) {
+			// Statements can also be `;`-separated on one line.
+			foreach ( \explode( ';', $raw ) as $stmt ) {
+				$stmt = \trim( $stmt );
+				if ( '' === $stmt || '#' === $stmt[0] ) {
+					continue;
+				}
+				if ( \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/', $stmt, $m ) ) {
+					$out[ $m[1] ] = \trim( $m[2] );
+				}
+			}
+		}
+		return self::$frontmatter_cache[ $name ] = $out;
 	}
 
 	/**

@@ -16,8 +16,8 @@ class Offsetlog_Cursor_Double extends Node {
 
 	public function fill( array $message ): void {}
 
-	public function build( string $dir, int $segment_size = 1, int $num_segments = 10 ): ?Partition_Node {
-		return $this->ensure_offsetlog( $dir, 'double:offsetlog', $segment_size, $num_segments );
+	public function build( string $dir ): ?Partition_Node {
+		return $this->ensure_offsetlog( $dir, 'double:offsetlog' );
 	}
 
 	/** @return array<array-key, mixed>|null */
@@ -76,7 +76,7 @@ class OffsetlogCursorTest extends TestCase {
 	public function test_read_returns_newest_frame_when_segment_holds_many_lines(): void {
 		$d = new Offsetlog_Cursor_Double();
 		// A big segment so both frames append as two lines in the same segment.
-		$d->build( "{$this->tmp}/offsets.p0", 64 * 1024, 4 );
+		$d->build( "{$this->tmp}/offsets.p0" );
 		$d->commit( [ 'segment' => 1, 'offset' => 10 ] );
 		$d->commit( [ 'segment' => 2, 'offset' => 20 ] );
 
@@ -93,7 +93,7 @@ class OffsetlogCursorTest extends TestCase {
 
 	public function test_read_falls_back_to_prior_segment_when_tail_empty(): void {
 		$d = new Offsetlog_Cursor_Double();
-		$d->build( "{$this->tmp}/offsets.p0", 64 * 1024, 4 );
+		$d->build( "{$this->tmp}/offsets.p0" );
 		\mkdir( "{$this->tmp}/offsets.p0", 0755, true );
 
 		$message                   = Message::new_message();
@@ -112,7 +112,7 @@ class OffsetlogCursorTest extends TestCase {
 
 	public function test_read_returns_null_for_unparseable_entry(): void {
 		$d = new Offsetlog_Cursor_Double();
-		$d->build( "{$this->tmp}/offsets.p0", 64 * 1024, 4 );
+		$d->build( "{$this->tmp}/offsets.p0" );
 		\mkdir( "{$this->tmp}/offsets.p0", 0755, true );
 		\file_put_contents( "{$this->tmp}/offsets.p0/0.log", "this is not a packed message\n" );
 		$this->assertNull( $d->read() );

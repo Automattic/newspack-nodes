@@ -108,6 +108,23 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( $dlq, $d->build_dlq( "{$this->tmp}/dlq.p0" ) );
 	}
 
+	public function test_deadletter_retention_is_count_based_with_no_time_aging(): void {
+		// The DLQ declares ALL FOUR retention axes. Passing a bare count would land
+		// it on min_segments and leave the lifetimes to inherit <config:*> — where a
+		// min_lifetime of an hour means the quarantine never prunes at all.
+		$d   = new Dead_Letter_Queue_Double();
+		$dlq = $d->build_dlq( "{$this->tmp}/dlq.p0" );
+
+		$this->assertSame( 2, $this->read_private( $dlq, 'min_segments' ), 'floor, not the retained count' );
+		$this->assertSame(
+			Dead_Letter_Queue_Double::DEADLETTER_MAX_SEGMENTS,
+			$this->read_private( $dlq, 'max_segments' ),
+			'the retained count is the COUNT rule'
+		);
+		$this->assertSame( 0, $this->read_private( $dlq, 'min_lifetime' ), 'no age floor: prune by count alone' );
+		$this->assertSame( 0, $this->read_private( $dlq, 'max_lifetime' ), 'poison never ages out on a timer' );
+	}
+
 	public function test_dead_letter_writes_the_message_to_the_partition(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );

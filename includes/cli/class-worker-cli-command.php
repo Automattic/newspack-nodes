@@ -218,6 +218,17 @@ class Worker_CLI_Command {
 	}
 
 	/**
+	 * Read a string from a topology entry, coercing scalars exactly as `(string)` would.
+	 *
+	 * @param mixed  $entry Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key   Key to read.
+	 */
+	private static function entry_string( $entry, string $key ): string {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
+		return Core::as_string( $value );
+	}
+
+	/**
 	 * Render rows via WP_CLI format_items, or a plain aligned dump without it.
 	 *
 	 * @param string                            $format  table|json|csv|yaml ('' = table).
@@ -237,17 +248,6 @@ class Worker_CLI_Command {
 				$columns
 			) ) );
 		}
-	}
-
-	/**
-	 * Read a string from a topology entry, coercing scalars exactly as `(string)` would.
-	 *
-	 * @param mixed  $entry Topology entry (array in practice; mixed per the filter contract).
-	 * @param string $key   Key to read.
-	 */
-	private static function entry_string( $entry, string $key ): string {
-		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
-		return Core::as_string( $value );
 	}
 
 	/**

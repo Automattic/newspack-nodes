@@ -21,8 +21,10 @@ namespace Newspack_Nodes;
 class Settings_Event_Writer {
 
 	public const SETTINGS_LOG_DIR      = 'settings.p0';
-	public const SETTINGS_MAX_LIFESPAN = 86400;
-	public const SETTINGS_NUM_SEGMENTS = 2;
+	public const SETTINGS_MAX_LIFETIME = 86400;
+	public const SETTINGS_MAX_SEGMENTS = 2;
+	public const SETTINGS_MIN_LIFETIME = 0;
+	public const SETTINGS_MIN_SEGMENTS = 2;
 	public const SETTINGS_SEGMENT_SIZE = 5242880;
 
 	/** Only options whose name starts with this prefix are watched. */
@@ -89,17 +91,31 @@ class Settings_Event_Writer {
 	private static function default_append( array $message ): void {
 		$writer = new Partition_Node();
 		$writer->name( 'settings:writer' );
-		$writer->arguments( Config::get_logs_directory()
-			. '/' . self::SETTINGS_LOG_DIR
-			. ' ' . self::SETTINGS_SEGMENT_SIZE
-			. ' ' . self::SETTINGS_NUM_SEGMENTS
-			. ' ' . self::SETTINGS_MAX_LIFESPAN );
+		$writer->arguments( self::partition_args( Config::get_logs_directory() . '/' . self::SETTINGS_LOG_DIR ) );
 		try {
 			$writer->fill( $message );
 			$writer->flush();
 		} finally {
 			$writer->remove_node();
 		}
+	}
+
+	/**
+	 * Full six-axis geometry for the settings log. This used to pass `2 86400` —
+	 * a LIFETIME in the max_segments slot, licensing 86400 segments. The day is
+	 * an AGE rule; the count is 2.
+	 *
+	 * @param string $dir Segment directory.
+	 */
+	public static function partition_args( string $dir ): string {
+		return \implode( ' ', [
+			$dir,
+			self::SETTINGS_SEGMENT_SIZE,
+			self::SETTINGS_MIN_SEGMENTS,
+			self::SETTINGS_MAX_SEGMENTS,
+			self::SETTINGS_MIN_LIFETIME,
+			self::SETTINGS_MAX_LIFETIME,
+		] );
 	}
 
 	/**

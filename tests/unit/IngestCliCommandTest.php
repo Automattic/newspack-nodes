@@ -363,7 +363,7 @@ class IngestCliCommandTest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// segment geometry (--segment_size / --num_segments) — the topicprobe re-segment case
+	// segment geometry (--segment_size / --max_segments) — the topicprobe re-segment case
 	// -------------------------------------------------------------------------
 
 	public function test_ingest_writes_at_the_requested_segment_size(): void {
@@ -378,11 +378,31 @@ class IngestCliCommandTest extends TestCase {
 
 		( new Ingest_CLI_Command() )->ingest(
 			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
-			[ 'num_partitions' => 1, 'segment_size' => 5000, 'num_segments' => 100, 'void_warranty' => true ]
+			[ 'num_partitions' => 1, 'segment_size' => 5000, 'max_segments' => 100, 'void_warranty' => true ]
 		);
 
 		$segments = \glob( "{$this->tmp}/dest/firehose.p0/*.log" ) ?: [];
 		$this->assertGreaterThan( 1, \count( $segments ), 'the small segment_size rotated into multiple segments' );
+	}
+
+	public function test_ingest_honors_max_segments_instead_of_inheriting_a_lifetime_floor(): void {
+		// --max_segments is a COUNT rule, and the count rule only fires on segments
+		// older than min_lifetime. Leaving min_lifetime to inherit <config:*> (an
+		// hour) protects every freshly-written segment, so the flag did nothing.
+		$src     = "{$this->tmp}/src.log";
+		$records = [];
+		for ( $i = 0; $i < 8; ++$i ) {
+			$records[] = [ "k{$i}", \str_repeat( 'x', 5000 ) ];
+		}
+		$this->write_packed_records( $src, $records );
+
+		( new Ingest_CLI_Command() )->ingest(
+			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
+			[ 'num_partitions' => 1, 'segment_size' => 5000, 'max_segments' => 3, 'void_warranty' => true ]
+		);
+
+		$segments = \glob( "{$this->tmp}/dest/firehose.p0/*.log" ) ?: [];
+		$this->assertCount( 3, $segments, '--max_segments prunes the oldest back to the requested count' );
 	}
 
 	public function test_ingest_rejects_non_numeric_segment_size(): void {

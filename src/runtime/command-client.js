@@ -22,18 +22,6 @@ export class CommandClient {
 	}
 
 	/**
-	 * Build a CommandClient from the PHP-localized `window.NewspackNodesData`.
-	 * The push-side boundary nodes lazily default their client to this so a
-	 * fresh palette-drop never needs the nonce threaded through construction.
-	 *
-	 * @return {CommandClient} A client bound to the localized REST base + nonce.
-	 */
-	static fromGlobal() {
-		const { restUrl, nonce } = nodesData();
-		return new CommandClient( { baseUrl: restUrl, nonce } );
-	}
-
-	/**
 	 * Send a single TM_COMMAND (local sync reply; 202 ack when attached).
 	 *
 	 * @param {Object} params See buildMessage().
@@ -68,6 +56,18 @@ export class CommandClient {
 			arguments: args,
 		};
 		return msg;
+	}
+
+	/**
+	 * Build a CommandClient from the PHP-localized `window.NewspackNodesData`.
+	 * The push-side boundary nodes lazily default their client to this so a
+	 * fresh palette-drop never needs the nonce threaded through construction.
+	 *
+	 * @return {CommandClient} A client bound to the localized REST base + nonce.
+	 */
+	static fromGlobal() {
+		const { restUrl, nonce } = nodesData();
+		return new CommandClient( { baseUrl: restUrl, nonce } );
 	}
 
 	/**

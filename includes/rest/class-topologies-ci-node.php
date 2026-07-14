@@ -135,22 +135,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `expand` verb handler — compose an include set for the console.
-	 *
-	 * @param string $args Space-separated topology names.
-	 *
-	 * @return array<int|string, mixed>
-	 */
-	public static function cmd_expand( string $args ): array {
-		$names = \preg_split( '/\s+/', \trim( $args ) ) ?: [];
-		$names = \array_values( \array_filter( $names, fn ( $n ) => '' !== $n ) );
-		foreach ( $names as $name ) {
-			self::require_valid_name( $name );
-		}
-		return Topology_Registry::expand( $names );
-	}
-
-	/**
 	 * A topology's DIRECT `include` lines, in declaration order.
 	 *
 	 * @return list<string>
@@ -162,60 +146,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 		}
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		return self::direct_includes_from_tsl( (string) \file_get_contents( $path ) );
-	}
-
-	/**
-	 * `include` lines parsed straight out of a TSL body string — used by save's
-	 * dry-run validation, where the body isn't on disk yet.
-	 *
-	 * @return list<string>
-	 */
-	private static function direct_includes_from_tsl( string $tsl ): array {
-		$out = [];
-		foreach ( \explode( "\n", $tsl ) as $raw ) {
-			if ( \preg_match( '/^\s*include\s+(\S+)/', $raw, $m ) ) {
-				$out[] = $m[1];
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * Throw if the saved body redeclares a borrowed node differently.
-	 *
-	 * `make_node` collapses an IDENTICAL redeclaration and throws on a
-	 * conflicting one, so a body whose own `make_node` clashes with a node an
-	 * `include` provides would save clean here and kill the worker at its next
-	 * spawn. Catch it at the boundary instead.
-	 *
-	 * @param string                                                                                          $tsl            The body being saved.
-	 * @param list<array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}> $borrowed_nodes expand()'s node records.
-	 * @throws \RuntimeException On a conflicting redeclaration.
-	 */
-	private static function assert_no_borrowed_node_conflict( string $tsl, array $borrowed_nodes ): void {
-		$borrowed = [];
-		foreach ( $borrowed_nodes as $node ) {
-			$borrowed[ $node['name'] ] = [
-				'class' => $node['class'],
-				'args'  => \implode( ' ', $node['args'] ),
-			];
-		}
-		foreach ( \explode( "\n", $tsl ) as $raw ) {
-			if ( ! \preg_match( '/^\s*make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $raw, $m ) ) {
-				continue;
-			}
-			$prior = $borrowed[ $m[2] ] ?? null;
-			if ( null === $prior ) {
-				continue;
-			}
-			$args = \trim( $m[3] );
-			if ( $prior['class'] === $m[1] && $prior['args'] === $args ) {
-				continue;
-			}
-			throw new \RuntimeException(
-				\esc_html( "make_node conflict: '{$m[2]}' is provided by an include as {$prior['class']} '{$prior['args']}', redeclared as {$m[1]} '{$args}'" )
-			);
-		}
 	}
 
 	/**
@@ -327,6 +257,76 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'shadows_stock'    => $shadows,
 			'restarted_fleets' => $restarted,
 		];
+	}
+
+	/**
+	 * `include` lines parsed straight out of a TSL body string — used by save's
+	 * dry-run validation, where the body isn't on disk yet.
+	 *
+	 * @return list<string>
+	 */
+	private static function direct_includes_from_tsl( string $tsl ): array {
+		$out = [];
+		foreach ( \explode( "\n", $tsl ) as $raw ) {
+			if ( \preg_match( '/^\s*include\s+(\S+)/', $raw, $m ) ) {
+				$out[] = $m[1];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Throw if the saved body redeclares a borrowed node differently.
+	 *
+	 * `make_node` collapses an IDENTICAL redeclaration and throws on a
+	 * conflicting one, so a body whose own `make_node` clashes with a node an
+	 * `include` provides would save clean here and kill the worker at its next
+	 * spawn. Catch it at the boundary instead.
+	 *
+	 * @param string                                                                                          $tsl            The body being saved.
+	 * @param list<array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}> $borrowed_nodes expand()'s node records.
+	 * @throws \RuntimeException On a conflicting redeclaration.
+	 */
+	private static function assert_no_borrowed_node_conflict( string $tsl, array $borrowed_nodes ): void {
+		$borrowed = [];
+		foreach ( $borrowed_nodes as $node ) {
+			$borrowed[ $node['name'] ] = [
+				'class' => $node['class'],
+				'args'  => \implode( ' ', $node['args'] ),
+			];
+		}
+		foreach ( \explode( "\n", $tsl ) as $raw ) {
+			if ( ! \preg_match( '/^\s*make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $raw, $m ) ) {
+				continue;
+			}
+			$prior = $borrowed[ $m[2] ] ?? null;
+			if ( null === $prior ) {
+				continue;
+			}
+			$args = \trim( $m[3] );
+			if ( $prior['class'] === $m[1] && $prior['args'] === $args ) {
+				continue;
+			}
+			throw new \RuntimeException(
+				\esc_html( "make_node conflict: '{$m[2]}' is provided by an include as {$prior['class']} '{$prior['args']}', redeclared as {$m[1]} '{$args}'" )
+			);
+		}
+	}
+
+	/**
+	 * `expand` verb handler — compose an include set for the console.
+	 *
+	 * @param string $args Space-separated topology names.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_expand( string $args ): array {
+		$names = \preg_split( '/\s+/', \trim( $args ) ) ?: [];
+		$names = \array_values( \array_filter( $names, fn ( $n ) => '' !== $n ) );
+		foreach ( $names as $name ) {
+			self::require_valid_name( $name );
+		}
+		return Topology_Registry::expand( $names );
 	}
 
 	/**
