@@ -38,9 +38,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	private const PUMP_DISARM_BYTES = 524288; // 512 KB.
 
-	/** Dead-letter quarantine dir; empty disables the DLQ. Consumer's contract. */
-	protected string $deadletter_dir = '';
-
 	private int $last_heartbeat_response = 0;
 
 	/**
@@ -93,7 +90,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	protected function init_position(): void {
 		$this->restore_position();
-		$this->ensure_deadletter_sibling();
+		$this->ensure_deadletter();
 	}
 
 	/**
@@ -407,57 +404,16 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	// --- Durable offsetlog — per-node, keyed by NODE NAME ---
 
-	/**
-	 * Unlike Consumer's, this dir may be implicit: a topology that hasn't declared one
-	 * falls back to `<offsets_dir>/<name>.<remote_partition>`. An unnamed node has no
-	 * cursor of its own to derive, so it gets no offsetlog.
-	 */
-	protected function offsetlog_dir(): string {
-		if ( '' === $this->name ) {
-			return '';
-		}
-		if ( '' !== $this->offsetlog_dir ) {
-			return $this->offsetlog_dir;
-		}
-		$offsets_dir = Config::get_offsets_directory();
-		return '' === $offsets_dir ? '' : "{$offsets_dir}/{$this->name}.{$this->remote_partition}";
+	/** One node pulls one remote partition, so its sidecars are named for it. */
+	protected function offsetlog_name(): string {
+		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:offsetlog" : '';
 	}
 
-	/** One node pulls one remote partition, so the cursor is named for it. */
-	protected function offsetlog_name(): string {
-		return "{$this->name}:{$this->remote_partition}:offsetlog";
+	protected function deadletter_name(): string {
+		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:deadletter" : '';
 	}
 
 	// --- Dead-letter sibling — per-node quarantine for poison messages ---
-
-	/**
-	 * Ensure the per-node deadletter Partition exists. Derives the dir
-	 * (`<base>/deadletter/<name>.<remote_partition>`), delegates the build to the
-	 * Dead_Letter_Queue trait, and routes its sink to the command interpreter.
-	 */
-	private function ensure_deadletter_sibling(): ?Partition_Node {
-		if ( null !== $this->deadletter ) {
-			return $this->deadletter;
-		}
-		if ( '' === $this->name ) {
-			return null;
-		}
-		$dir = $this->deadletter_dir;
-		if ( '' === $dir ) {
-			// Back-compat: a topology that hasn't declared the dir yet.
-			$base = \rtrim( Config::get_base_directory(), '/' );
-			$dir  = "{$base}/deadletter/{$this->name}.{$this->remote_partition}";
-		}
-		$deadletter = $this->ensure_deadletter(
-			$dir,
-			"{$this->name}:{$this->remote_partition}:deadletter"
-		);
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null !== $deadletter && null === $deadletter->sink() && null !== $ci ) {
-			$deadletter->sink( $ci );
-		}
-		return $deadletter;
-	}
 
 	// --- Status snapshot: only aggregated spokes publish (IPC = no-op) ---
 

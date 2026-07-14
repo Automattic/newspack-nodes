@@ -17,7 +17,8 @@ class Dead_Letter_Queue_Double extends Node {
 	public function fill( array $message ): void {}
 
 	public function build_dlq( string $dir ): ?Partition_Node {
-		return $this->ensure_deadletter( $dir, 'double:deadletter' );
+		$this->deadletter_dir = $dir;
+		return $this->ensure_deadletter();
 	}
 
 	public function set_dlq( Partition_Node $p ): void {

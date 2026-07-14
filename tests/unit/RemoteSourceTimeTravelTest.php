@@ -62,8 +62,12 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	}
 
 	/** Build a named, wired Remote_Source pulling firehose.p0 from the austin vault entry. */
-	private function make_remote( string $name = 'remote-austin', string $args = 'austin firehose.p0' ): Remote_Source_Node {
-		$node = new Remote_Source_Node();
+	private function make_remote( string $name = 'remote-austin', ?string $args = null ): Remote_Source_Node {
+		// The dirs are ARGUMENTS, like Consumer's — there is no derived fallback.
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$args  ??= "austin firehose.p0 {$offsets}/{$name}.firehose.p0 {$base}/deadletter/{$name}.firehose.p0";
+		$node    = new Remote_Source_Node();
 		$node->name( $name );
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'downstream' );

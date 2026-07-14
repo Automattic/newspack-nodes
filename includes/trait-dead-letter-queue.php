@@ -20,6 +20,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 trait Dead_Letter_Queue {
+	use Sidecar;
 
 	/**
 	 * Hard-crash threshold: after this many respawns at one cursor with NO reason
@@ -127,27 +128,33 @@ trait Dead_Letter_Queue {
 	 * @param string $dir  Quarantine segment directory. Empty → null.
 	 * @param string $name Node name for the partition; '' leaves it unnamed (named later).
 	 */
-	protected function ensure_deadletter( string $dir, string $name ): ?Partition_Node {
+	/** Where the quarantine lives. Empty disables the DLQ; it is an ARGUMENT, not derived. */
+	protected function deadletter_dir(): string {
+		return $this->deadletter_dir;
+	}
+
+	/** What it answers to. Override to qualify the name (e.g. by remote partition). */
+	protected function deadletter_name(): string {
+		return '' !== $this->name ? "{$this->name}:deadletter" : '';
+	}
+
+	protected function ensure_deadletter(): ?Partition_Node {
 		if ( null !== $this->deadletter ) {
 			return $this->deadletter;
 		}
+		$dir = $this->deadletter_dir();
 		if ( '' === $dir ) {
 			return null;
 		}
-		$deadletter = new Partition_Node();
-		if ( '' !== $name ) {
-			$deadletter->name( $name );
-		}
-		$deadletter->patron( $this );
 		// All four axes: an omitted one inherits <config:*> and never prunes.
-		$deadletter->arguments( \implode( ' ', [
-			$dir,
+		$deadletter = $this->make_sidecar( $dir, $this->deadletter_name(), [
 			self::DEADLETTER_SEGMENT_SIZE,
 			self::DEADLETTER_MIN_SEGMENTS,
 			self::DEADLETTER_MAX_SEGMENTS,
 			self::DEADLETTER_MIN_LIFETIME,
 			self::DEADLETTER_MAX_LIFETIME,
-		] ) );
+		] );
+		// Sole writer: the cap lifts so poison over PIPE_BUF still quarantines.
 		$deadletter->void_warranty();
 		$this->deadletter = $deadletter;
 		return $deadletter;

@@ -17,6 +17,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 trait Offsetlog_Cursor {
+	use Sidecar;
 
 	/**
 	 * Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces one
@@ -70,22 +71,13 @@ trait Offsetlog_Cursor {
 		if ( '' === $dir ) {
 			return null;
 		}
-		$name      = $this->offsetlog_name();
-		$offsetlog = new Partition_Node();
-		if ( '' !== $name ) {
-			$offsetlog->name( $name );
-		}
-		$offsetlog->patron( $this );
-		$offsetlog->arguments( \implode( ' ', [
-			$dir,
+		$this->offsetlog = $this->make_sidecar( $dir, $this->offsetlog_name(), [
 			self::OFFSETLOG_SEGMENT_SIZE,
 			self::OFFSETLOG_MIN_SEGMENTS,
 			self::OFFSETLOG_MAX_SEGMENTS,
 			self::OFFSETLOG_MIN_LIFETIME,
 			self::OFFSETLOG_MAX_LIFETIME,
-		] ) );
-		$offsetlog->sink( $this->sink );
-		$this->offsetlog = $offsetlog;
+		] );
 		return $this->offsetlog;
 	}
 

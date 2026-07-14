@@ -73,8 +73,9 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	/** Build a named Remote_Source wired to a capture sink + downstream target. */
-	private function make_remote( string $name = 'remote-austin', string $args = 'austin firehose.p0' ): array {
-		$node = new Remote_Source_Node();
+	private function make_remote( string $name = 'remote-austin', ?string $args = null ): array {
+		$args ??= $this->remote_args( $name );
+		$node   = new Remote_Source_Node();
 		$node->name( $name );
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
@@ -450,7 +451,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$probe->name( 'downstream' );
 		$node->sink( $probe );
 		$node->target( 'downstream' );
-		$node->arguments( 'austin firehose.p0' );
+		$node->arguments( $this->remote_args() );
 		$node->fire(); // enter crawl; offsetlog materialized (newest frame is the boot seed {7,0}).
 		$probe->offsetlog = $this->read_private( $node, 'offsetlog' );
 		$sse = Core::node( 'remote-austin:sse-in' );
@@ -838,7 +839,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$spy->name( 'downstream' );
 		$node->sink( $spy );
 		$node->target( 'downstream' );
-		$node->arguments( 'austin firehose.p0' );
+		$node->arguments( $this->remote_args() );
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
@@ -857,7 +858,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = new Remote_Source_Node();
 		$node->name( 'remote-austin' );
-		$node->arguments( 'austin firehose.p0' ); // no sink wired.
+		$node->arguments( $this->remote_args() ); // no sink wired.
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
@@ -953,7 +954,18 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	/** Build a named Remote_Source wired to a Relay_Sink_Spy downstream + target. */
-	private function make_remote_spy( string $name = 'remote-austin', string $args = 'austin firehose.p0' ): array {
+	/**
+	 * The dirs are ARGUMENTS, like Consumer's — there is no derived fallback, so a
+	 * node that wants a durable cursor or a quarantine must be told where they live.
+	 */
+	private function remote_args( string $name = 'remote-austin', string $vault = 'austin' ): string {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		return "{$vault} firehose.p0 {$offsets}/{$name}.firehose.p0 {$base}/deadletter/{$name}.firehose.p0";
+	}
+
+	private function make_remote_spy( string $name = 'remote-austin', ?string $args = null ): array {
+		$args ??= $this->remote_args( $name );
 		$node = new Remote_Source_Node();
 		$node->name( $name );
 		$spy = new Relay_Sink_Spy();
