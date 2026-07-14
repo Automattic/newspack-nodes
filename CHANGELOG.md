@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-07-14
+
 ### Fixed
 
 - **The borrowed-node lock vanished on the first `dump_metadata` poll in live mode.** A node's provenance (`origin` — which include provides it) lives in the parsed tsl; metadata nodes carry none. The lock badge read it straight off the node, so it painted on entry from the parsed graph and disappeared the moment the first poll swapped in metadata nodes. Provenance is now stamped onto the canvas graph from the expand baseline — the same membership map the hulls are drawn from, which is why the hulls never had this bug — so the lock, the Inspector's borrowed state, and the hulls can no longer disagree.
