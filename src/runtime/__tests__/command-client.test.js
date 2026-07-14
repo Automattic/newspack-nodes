@@ -83,3 +83,62 @@ describe( 'CommandClient.postBatch — unparseable response lines', () => {
 		expect( await client.postBatch( [], [] ) ).toHaveLength( 2 );
 	} );
 } );
+
+/**
+ * A non-2xx /command returns a WP REST error OBJECT, not JSONL — so unpack()
+ * blanked it and the failure surfaced as a ghost at _router instead of as the
+ * HTTP error it was. An expired nonce (401 rest_forbidden) or a deactivated
+ * plugin (404 rest_no_route) must SAY so.
+ */
+describe( 'CommandClient — HTTP failures', () => {
+	afterEach( () => {
+		delete global.fetch;
+		Core.reset();
+	} );
+
+	const failing = ( status, code ) => {
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: false,
+			status,
+			text: () =>
+				Promise.resolve(
+					JSON.stringify( {
+						code,
+						message: 'nope',
+						data: { status },
+					} )
+				),
+		} );
+		return new CommandClient( { baseUrl: '/wp-json/', nonce: 'N' } );
+	};
+
+	it( 'reports a 404 rest_no_route instead of routing a ghost', async () => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+
+		const messages = await failing( 404, 'rest_no_route' ).postBatch(
+			[],
+			[]
+		);
+
+		expect( messages ).toEqual( [] );
+		expect( warn ).toHaveBeenCalledWith(
+			'ERROR: CommandClient: /command failed - HTTP 404 rest_no_route'
+		);
+		warn.mockRestore();
+	} );
+
+	it( 'reports an expired nonce (401 rest_forbidden)', async () => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+
+		await failing( 401, 'rest_forbidden' ).postBatch( [], [] );
+
+		expect( warn ).toHaveBeenCalledWith(
+			'ERROR: CommandClient: /command failed - HTTP 401 rest_forbidden'
+		);
+		warn.mockRestore();
+	} );
+} );
