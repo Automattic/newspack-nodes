@@ -172,27 +172,29 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	}
 }
 
-// Dark skins: repaint the select chevron light (the default bakes in a dark fill
-// that vanishes on dark surfaces). Same skin list as the console; the extra
-// `.theme-*` class outranks the base chevron rule.
-.topology-app.topology-app.newspack-nodes-theme.theme-blueprint,
-.topology-app.topology-app.newspack-nodes-theme.theme-crt,
-.topology-app.topology-app.newspack-nodes-theme.theme-synthwave,
-.topology-app.topology-app.newspack-nodes-theme.theme-nord,
-.topology-app.topology-app.newspack-nodes-theme.theme-aurora,
-.topology-app.topology-app.newspack-nodes-theme.theme-neotokyo,
-.topology-app.topology-app.newspack-nodes-theme.theme-scada {
-	select,
-	.components-select-control__input {
-		background-image: url("#{ $np-chevron-light }");
-	}
+// @longform Dark skins: repaint the select chevron light (the default bakes in a
+// dark fill that vanishes on dark surfaces).
+// The skin class lives on <html> (shared/theme.js), NOT on the app root
+// — so these must be ANCESTOR selectors. Written as `.topology-app….theme-crt`
+// they matched nothing, the base rule's dark chevron won, and every dark skin
+// drew a near-black caret on a near-black field. The ancestor form also carries
+// the extra class the base rule has to be outranked by.
+$np-dark-skins: blueprint, crt, synthwave, nord, aurora, neotokyo, scada;
 
-	// Dark skins only: paint native UA sub-widgets dark (number spinners, the bare
-	// native checkbox). A light skin keeps its light native widgets — forcing
-	// `color-scheme: dark` there turned unchecked boxes + spinners black.
-	select,
-	input,
-	textarea {
-		color-scheme: dark;
+@each $skin in $np-dark-skins {
+	.theme-#{$skin} .topology-app.topology-app.newspack-nodes-theme {
+		select,
+		.components-select-control__input {
+			background-image: url("#{ $np-chevron-light }");
+		}
+
+		// Dark skins only: paint native UA sub-widgets dark (number spinners, the
+		// bare native checkbox). A light skin keeps its light native widgets —
+		// forcing `color-scheme: dark` there turned unchecked boxes + spinners black.
+		select,
+		input,
+		textarea {
+			color-scheme: dark;
+		}
 	}
 }

@@ -2190,17 +2190,8 @@
 // block. Palettes mirror the verified mock gallery.
 // =====================================================================
 
-// Dark-skin select chevron: the default chevron data-URI bakes in a dark
-// fill that vanishes on dark surfaces, so repaint it light for dark skins.
-.theme-blueprint .topology-app .topology-select,
-.theme-crt .topology-app .topology-select,
-.theme-synthwave .topology-app .topology-select,
-.theme-nord .topology-app .topology-select,
-.theme-aurora .topology-app .topology-select,
-.theme-neotokyo .topology-app .topology-select,
-.theme-scada .topology-app .topology-select {
-	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E");
-}
+// The dark-skin chevron repaint lives in shared/styles/_controls — .topology-select
+// is a <select>, so the shared rule reaches it. A second list here only drifts.
 
 // 00 — Newspack (Product · default). DESIGN.product.md: Cobalt + neutrals,
 // status colors only. Light surface, dark REPL (Swiss precedent).
