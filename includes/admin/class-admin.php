@@ -249,6 +249,8 @@ class Admin {
 		}
 	}
 
+	// -- Field callbacks ----------------------------------------------------
+
 	public static function num_partitions_callback(): void {
 		self::render_number( 'num_partitions', 1, 1, 16, \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
 	}
@@ -269,8 +271,6 @@ class Admin {
 		);
 		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
-
-	// -- Field callbacks ----------------------------------------------------
 
 	/**
 	 * Read an int config default, coercing scalars exactly as `(int)` would and falling back when non-scalar.

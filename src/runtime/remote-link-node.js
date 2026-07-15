@@ -19,7 +19,7 @@
  */
 
 import { Core } from './core';
-import { Node } from './node';
+import { Node, parseSchemaArgs } from './node';
 import { SseInNode } from './sse-in-node';
 import { CommandClient } from './command-client';
 import names from './reserved-node-names.json';
@@ -32,12 +32,23 @@ export class RemoteLinkNode extends Node {
 		this.sseIn = null;
 		this.httpOut = null;
 		this.heartbeat = null;
+		this.subscribe = '';
 		// A RemoteLink is a SUBSCRIPTION: SseIn re-homes records to target.
 		this.rehomeReceived = true;
 		// Optional hook fired with the SseIn's `connected` payload.
 		this.onConnected = null;
 		// Optional hook fired AFTER close() — reset stream-tied state.
 		this.onClose = null;
+	}
+
+	get arguments() {
+		return super.arguments;
+	}
+
+	set arguments( value ) {
+		super.arguments = value;
+		this.subscribe = '';
+		parseSchemaArgs( this, value );
 	}
 
 	// Open the inbound stream; optional `positions` seed seeks the cursor.
@@ -67,6 +78,7 @@ export class RemoteLinkNode extends Node {
 	 * Idempotent — the first send() or connect() builds them; later calls no-op.
 	 */
 	ensureChildren() {
+		this._assertConfigured();
 		if ( this.sseIn ) {
 			return;
 		}
@@ -94,9 +106,9 @@ export class RemoteLinkNode extends Node {
 		sse.register( 'CONNECTED', this.name, ( payload ) => {
 			const slot = sse.slot();
 			if ( Number.isInteger( slot ) && slot >= 0 ) {
-				hb.setSlot( slot );
+				hb.setSlot( slot, this );
 			} else {
-				hb.clearSlot();
+				hb.clearSlot( this );
 			}
 			this.onConnected?.( payload );
 			return true;
@@ -117,7 +129,7 @@ export class RemoteLinkNode extends Node {
 	// Close the inbound stream, forget the slot, then fire the onClose hook.
 	close() {
 		this.sseIn?.close();
-		this.heartbeat?.clearSlot();
+		this.heartbeat?.clearSlot( this );
 		this.onClose?.();
 	}
 
@@ -137,11 +149,30 @@ export class RemoteLinkNode extends Node {
 		return this.sseIn ? this.sseIn.largestMsgSent : super.largestMsgSent;
 	}
 
-	// `connect_node` points BOTH this node's target AND its composed SseIn.
+	// `connect_node` is a source link's start lifecycle on the canvas.
 	connectNode( target ) {
+		this._assertConfigured();
 		super.connectNode( target );
 		if ( this.sseIn ) {
 			this.sseIn.target = target;
+		}
+		if ( ! this.sseIn?._es ) {
+			this.connect();
+		}
+	}
+
+	// Removing the output edge closes the stream and its heartbeat slot.
+	disconnectNode( target = '' ) {
+		super.disconnectNode( target );
+		if ( this.sseIn ) {
+			this.sseIn.target = '';
+		}
+		this.close();
+	}
+
+	_assertConfigured() {
+		if ( '' === this.subscribe ) {
+			throw new Error( 'RemoteLink requires an SSE subscription' );
 		}
 	}
 

@@ -90,7 +90,7 @@ class TopologiesCITest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── connect_worker_input verb ──────────────────────────────────────────────
+	// ── schema + connect_worker_input verb ─────────────────────────────────────
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Topologies_CI_Node::node_schema();

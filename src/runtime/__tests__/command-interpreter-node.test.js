@@ -1066,6 +1066,88 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'list_nodes'
 			);
 		} );
+		it( 'a class topic renders its nodeSchema exactly like PHP help', () => {
+			const interpreter = makeInterpreter();
+			CommandInterpreterNode.includeNodes.SchemaProbe = class extends (
+				Node
+			) {
+				static nodeSchema() {
+					return {
+						category: 'Diagnostics',
+						description: 'Inspects non-default widgets.',
+						accepts_fill: false,
+						has_target: true,
+						arguments: [
+							{
+								name: 'source_endpoint',
+								type: 'string',
+								required: true,
+								description: 'Distinct source.',
+							},
+							{
+								name: 'retry_budget',
+								type: 'int',
+								default: 37,
+								description: 'Distinct retry budget.',
+							},
+							{
+								name: 'labels',
+								type: 'array',
+								default: [ 'non-default' ],
+								description: 'Labels.',
+							},
+						],
+						commands: [
+							{ name: 'probe', description: 'Inspect state.' },
+						],
+						requests: [
+							{ name: 'snapshot', description: 'Read snapshot.' },
+						],
+						registrations: [ 'non_default_event', 'other_event' ],
+					};
+				}
+			};
+			try {
+				expect( dispatch( interpreter, 'help', 'SchemaProbe' ) ).toBe(
+					[
+						'### SchemaProbe — Diagnostics ###',
+						'Inspects non-default widgets.',
+						'accepts_fill=false  has_target=true',
+						'ARGUMENTS',
+						'source_endpoint string required Distinct source.',
+						'retry_budget    int    =37      Distinct retry budget.',
+						'labels          array  =[]      Labels.',
+						'COMMANDS',
+						'probe Inspect state.',
+						'REQUESTS',
+						'snapshot Read snapshot.',
+						'REGISTRATIONS: non_default_event, other_event',
+					].join( '\n' )
+				);
+			} finally {
+				delete CommandInterpreterNode.includeNodes.SchemaProbe;
+			}
+		} );
+		it( 'renders the CommandInterpreter schema with PHP parity', () => {
+			const interpreter = makeInterpreter();
+			expect(
+				dispatch( interpreter, 'help', 'CommandInterpreter' )
+			).toBe(
+				[
+					'### CommandInterpreter — Hidden ###',
+					'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
+					'accepts_fill=false  has_target=false',
+				].join( '\n' )
+			);
+		} );
+		it( 'does not expose inherited object properties as node classes', () => {
+			const interpreter = makeInterpreter();
+			for ( const topic of [ 'constructor', 'toString', '__proto__' ] ) {
+				expect( dispatch( interpreter, 'help', topic ) ).toBe(
+					`no such topic: "${ topic }"`
+				);
+			}
+		} );
 		it( 'an unknown topic errors', () => {
 			const interpreter = makeInterpreter();
 			expect( dispatch( interpreter, 'help', 'zzz' ) ).toBe(
@@ -1262,6 +1344,16 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				/unknown class/i
 			);
 			expect( Core.node( 'x' ) ).toBeNull();
+		} );
+
+		it( 'rejects inherited object properties as unregistered types', () => {
+			const interp = makeInterpreter();
+			for ( const type of [ 'constructor', 'toString', '__proto__' ] ) {
+				expect( () =>
+					interp.makeNode( type, `prototype-${ type }` )
+				).toThrow( `unknown class: ${ type }` );
+				expect( Core.node( `prototype-${ type }` ) ).toBeNull();
+			}
 		} );
 
 		it( 'feeds trailing args through the arguments setter', () => {

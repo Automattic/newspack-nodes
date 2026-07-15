@@ -56,6 +56,7 @@ let posted;
 beforeEach( () => {
 	Core.reset();
 	global.EventSource = FakeEventSource;
+	FakeEventSource.last = null;
 	RemoteIpcNode.active = null;
 	posted = [];
 } );
@@ -71,7 +72,7 @@ function makeRemoteIpc( reader, interpreter ) {
 			return Promise.resolve( [] );
 		},
 	};
-	node.arguments = `${ reader } /wp-json/ NONCE`;
+	node.arguments = reader;
 	return node;
 }
 
@@ -109,6 +110,93 @@ describe( 'RemoteIpcNode', () => {
 		expect( node.sseIn.sink ).toBe( node.sink );
 		// Unnamed: the old per-worker `{reader}:sse-in` node is gone.
 		expect( Core.node( 'aggregator.p0:sse-in' ) ).toBe( null );
+	} );
+
+	it( 'a palette make preserves a distinct reader across dumpConfig replay and routes through it', () => {
+		const { interpreter } = mountExospine();
+		interpreter.dispatch(
+			'make_node',
+			'RemoteIpc violet-ipc-947 combined.p7'
+		);
+		interpreter.dispatch(
+			'connect_node',
+			'violet-ipc-947 cerulean-replies-619'
+		);
+		const first = Core.node( 'violet-ipc-947' );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=combined.p7' );
+		const config = first.dumpConfig();
+		expect( config ).toBe(
+			'make_node RemoteIpc violet-ipc-947 combined.p7\n' +
+				'connect_node violet-ipc-947 cerulean-replies-619\n'
+		);
+		first.removeNode();
+
+		for ( const line of config.trim().split( '\n' ) ) {
+			const [ verb, ...args ] = line.split( ' ' );
+			interpreter.dispatch( verb, args.join( ' ' ) );
+		}
+		const reopened = Core.node( 'violet-ipc-947' );
+		reopened.httpOut.client = {
+			postBatch: ( messages ) => {
+				posted.push( ...messages );
+				return Promise.resolve( [] );
+			},
+		};
+		dispatchConnected( reopened, { pid: 6262, slot: 13 } );
+		reopened.fill( command( { from: names.OUTPUT } ) );
+
+		expect( reopened.arguments ).toBe( 'combined.p7' );
+		expect( reopened.target ).toBe( 'cerulean-replies-619' );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=combined.p7' );
+		expect( posted[ 0 ][ FROM ] ).toBe( 'violet-ipc-947' );
+		expect( posted[ 0 ][ VALUE ] ).toEqual( {
+			name: 'connect_worker_input',
+			arguments: 'combined.p7',
+		} );
+		expect( posted[ 1 ][ TO ] ).toBe( 'combined.p7' );
+		expect( posted[ 1 ][ FROM ] ).toBe(
+			`${ names.SSE }:6262/${ names.OUTPUT }`
+		);
+	} );
+
+	it( 'declares its required reader and address-channel canvas ports', () => {
+		const schema = RemoteIpcNode.nodeSchema();
+		expect( schema.arguments ).toEqual( [
+			{
+				name: 'reader',
+				type: 'string',
+				required: true,
+				description: 'Remote worker reader, e.g. combined.p7.',
+			},
+		] );
+		// The Router addresses it by name; canvas does not wire its fill directly.
+		expect( schema.accepts_fill ).toBe( false );
+		// Its edge opens/closes the inherited RemoteLink stream lifecycle.
+		expect( schema.has_target ).toBe( true );
+	} );
+
+	it( 'fails make_node when the required reader is missing', () => {
+		const { interpreter } = mountExospine();
+		expect( () =>
+			interpreter.makeNode( 'RemoteIpc', 'local-only-ipc-863' )
+		).toThrow( 'Missing required argument: reader' );
+		expect( Core.node( 'local-only-ipc-863' ) ).toBeNull();
+	} );
+
+	it( 'clearing arguments cannot retain a stale reader', () => {
+		const { interpreter } = mountExospine();
+		const node = interpreter.makeNode(
+			'RemoteIpc',
+			'stale-reader-ipc-349',
+			'jobintake.p17'
+		);
+
+		expect( () => {
+			node.arguments = '';
+		} ).toThrow( 'Missing required argument: reader' );
+		expect( node.reader ).toBe( '' );
+		expect( node.target ).toBe( '' );
+		expect( node.sseIn ).toBeNull();
 	} );
 
 	it( 'shares the reserved `_http` + `_heartbeat` singletons across RemoteIpcs', () => {
@@ -150,6 +238,22 @@ describe( 'RemoteIpcNode', () => {
 		expect( aEs.closed ).toBe( true );
 		expect( RemoteIpcNode.active ).toBe( b );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=combined.p0' );
+	} );
+
+	it( 'disconnecting an inactive channel preserves the active heartbeat owner', () => {
+		const { interpreter } = mountExospine();
+		const inactive = makeRemoteIpc( 'inactive-reader.p13', interpreter );
+		inactive.fill( command() );
+		const active = makeRemoteIpc( 'active-reader.p47', interpreter );
+		active.fill( command() );
+		dispatchConnected( active, { pid: 947, slot: 47 } );
+		const activeStream = FakeEventSource.last;
+
+		inactive.disconnectNode( 'unused-view-349' );
+
+		expect( RemoteIpcNode.active ).toBe( active );
+		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 47 );
+		expect( activeStream.closed ).toBe( false );
 	} );
 
 	it( 'bundles connect_worker_input before the command, through the shared `_http`', () => {

@@ -226,7 +226,7 @@ export class CommandInterpreterNode extends Node {
 		}
 		const type = parts.shift();
 		// Unknown class returns a string; a collision throws → TM_ERROR.
-		if ( ! CommandInterpreterNode.includeNodes[ type ] ) {
+		if ( ! CommandInterpreterNode.resolveClass( type ) ) {
 			return `unknown class: ${ type }`;
 		}
 		const name = parts.shift();
@@ -236,13 +236,18 @@ export class CommandInterpreterNode extends Node {
 
 	// Programmatic build: create, name + sink a class; make_node delegates.
 	makeNode( type, name, args = '' ) {
-		const NodeClass = CommandInterpreterNode.includeNodes[ type ];
+		const NodeClass = CommandInterpreterNode.resolveClass( type );
 		if ( ! NodeClass ) {
 			throw new Error( `unknown class: ${ type }` );
 		}
 		const node = new NodeClass();
 		node.name = name;
-		node.arguments = String( args ?? '' ).trim();
+		try {
+			node.arguments = String( args ?? '' ).trim();
+		} catch ( error ) {
+			node.removeNode();
+			throw error;
+		}
 		node.sink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
 			node.debugState = this.debugState;
@@ -897,7 +902,164 @@ export class CommandInterpreterNode extends Node {
 		if ( key in HELP ) {
 			return HELP[ key ];
 		}
+		const NodeClass = CommandInterpreterNode.resolveClass( topic );
+		if ( NodeClass ) {
+			const schema = NodeClass.nodeSchema?.() ?? {
+				category: '',
+				description: '',
+				arguments: [],
+				commands: [],
+				registrations: [],
+				accepts_fill: true,
+				has_target: true,
+			};
+			return CommandInterpreterNode._renderNodeSchema( topic, schema );
+		}
 		return `no such topic: "${ topic }"`;
+	}
+
+	// Render nodeSchema() with the same sections and alignment as PHP help.
+	static _renderNodeSchema( type, schema ) {
+		const category =
+			null !== schema.category && undefined !== schema.category
+				? ` — ${ CommandInterpreterNode._schemaText(
+						schema.category
+				  ) }`
+				: '';
+		const out = [ `### ${ type }${ category } ###` ];
+		if ( null !== schema.description && undefined !== schema.description ) {
+			out.push(
+				CommandInterpreterNode._schemaText( schema.description )
+			);
+		}
+
+		const flags = [];
+		for ( const flag of [ 'accepts_fill', 'has_target' ] ) {
+			if ( null !== schema[ flag ] && undefined !== schema[ flag ] ) {
+				flags.push(
+					`${ flag }=${ schema[ flag ] ? 'true' : 'false' }`
+				);
+			}
+		}
+		if ( flags.length > 0 ) {
+			out.push( flags.join( '  ' ) );
+		}
+
+		const argRows = [];
+		for ( const arg of CommandInterpreterNode._schemaList(
+			schema,
+			'arguments'
+		) ) {
+			if (
+				null === arg ||
+				'object' !== typeof arg ||
+				Array.isArray( arg )
+			) {
+				continue;
+			}
+			let spec = '';
+			if ( arg.required ) {
+				spec = 'required';
+			} else if (
+				Object.prototype.hasOwnProperty.call( arg, 'default' )
+			) {
+				spec = `=${ CommandInterpreterNode._renderDefault(
+					arg.default
+				) }`;
+			}
+			argRows.push( [
+				CommandInterpreterNode._schemaText( arg.name ),
+				CommandInterpreterNode._schemaText( arg.type ),
+				spec,
+				CommandInterpreterNode._schemaText( arg.description ),
+			] );
+		}
+		if ( argRows.length > 0 ) {
+			out.push( 'ARGUMENTS' );
+			out.push(
+				CommandInterpreterNode._tabulate(
+					[ 'left', 'left', 'left', 'left' ],
+					null,
+					argRows
+				)
+			);
+		}
+
+		for ( const [ field, label ] of [
+			[ 'commands', 'COMMANDS' ],
+			[ 'requests', 'REQUESTS' ],
+		] ) {
+			const rows = [];
+			for ( const entry of CommandInterpreterNode._schemaList(
+				schema,
+				field
+			) ) {
+				if (
+					null === entry ||
+					'object' !== typeof entry ||
+					Array.isArray( entry )
+				) {
+					continue;
+				}
+				rows.push( [
+					CommandInterpreterNode._schemaText( entry.name ),
+					CommandInterpreterNode._schemaText( entry.description ),
+				] );
+			}
+			if ( rows.length > 0 ) {
+				out.push( label );
+				out.push(
+					CommandInterpreterNode._tabulate(
+						[ 'left', 'left' ],
+						null,
+						rows
+					)
+				);
+			}
+		}
+
+		const registrations = CommandInterpreterNode._schemaList(
+			schema,
+			'registrations'
+		);
+		if ( registrations.length > 0 ) {
+			out.push(
+				`REGISTRATIONS: ${ registrations
+					.map( CommandInterpreterNode._schemaText )
+					.join( ', ' ) }`
+			);
+		}
+		return out.join( '\n' );
+	}
+
+	static _schemaList( schema, key ) {
+		return Array.isArray( schema[ key ] ) ? [ ...schema[ key ] ] : [];
+	}
+
+	static _renderDefault( value ) {
+		if ( 'boolean' === typeof value ) {
+			return value ? 'true' : 'false';
+		}
+		if ( Array.isArray( value ) ) {
+			return '[]';
+		}
+		return CommandInterpreterNode._schemaText( value );
+	}
+
+	static _schemaText( value ) {
+		if ( 'boolean' === typeof value ) {
+			return value ? '1' : '';
+		}
+		if (
+			null === value ||
+			undefined === value ||
+			'object' === typeof value ||
+			'function' === typeof value ||
+			'symbol' === typeof value
+		) {
+			return '';
+		}
+		return String( value );
 	}
 
 	/**
@@ -1039,6 +1201,37 @@ export class CommandInterpreterNode extends Node {
 		const rem = seconds - d * 86400;
 		const clock = new Date( rem * 1000 ).toISOString().slice( 11, 19 );
 		return `${ d }d ${ clock }`;
+	}
+
+	static resolveClass( type ) {
+		if (
+			! Object.prototype.hasOwnProperty.call(
+				CommandInterpreterNode.includeNodes,
+				type
+			)
+		) {
+			return null;
+		}
+		const NodeClass = CommandInterpreterNode.includeNodes[ type ];
+		if (
+			'function' !== typeof NodeClass ||
+			( Node !== NodeClass && ! ( NodeClass.prototype instanceof Node ) )
+		) {
+			return null;
+		}
+		return NodeClass;
+	}
+
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
+			arguments: [],
+			commands: [],
+			accepts_fill: false,
+			has_target: false,
+		};
 	}
 }
 

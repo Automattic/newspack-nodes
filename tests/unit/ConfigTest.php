@@ -328,6 +328,24 @@ class ConfigTest extends TestCase {
 		}
 	}
 
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	#[\PHPUnit\Framework\Attributes\PreserveGlobalState( false )]
+	public function test_runtime_wordpress_content_root_is_allowed(): void {
+		$root = \sys_get_temp_dir() . '/nodes-portable-wp-content-' . \uniqid();
+		\mkdir( $root, 0755, true );
+		\define( 'WP_CONTENT_DIR', $root );
+		$path = $root . '/distinct-runtime-config.php';
+		\file_put_contents( $path, "<?php return [];\n" );
+
+		try {
+			$method = new \ReflectionMethod( Config::class, 'validate_config_path' );
+			$this->assertSame( \realpath( $path ), $method->invoke( null, $path ) );
+		} finally {
+			\unlink( $path );
+			\rmdir( $root );
+		}
+	}
+
 	// ── WP option overrides ────────────────────────────────────────────────
 
 	public function test_wp_option_override_takes_effect(): void {

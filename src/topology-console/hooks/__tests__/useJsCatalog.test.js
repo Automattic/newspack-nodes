@@ -21,6 +21,27 @@ describe( 'useJsCatalog', () => {
 		expect( byName.SseIn.category ).toBe( 'I/O' );
 	} );
 
+	it( 'surfaces both configured Remote channels in the I/O palette', () => {
+		const { result } = renderHook( () => useJsCatalog() );
+		const byName = Object.fromEntries(
+			result.current.classes.map( ( c ) => [ c.shell_name, c ] )
+		);
+
+		expect( byName.RemoteLink.category ).toBe( 'I/O' );
+		expect( byName.RemoteLink.arguments ).toEqual( [
+			{ name: 'subscribe', type: 'string', required: true },
+		] );
+		expect( byName.RemoteIpc.category ).toBe( 'I/O' );
+		expect( byName.RemoteIpc.arguments ).toEqual( [
+			{
+				name: 'reader',
+				type: 'string',
+				required: true,
+				description: 'Remote worker reader, e.g. combined.p7.',
+			},
+		] );
+	} );
+
 	it( 'each entry has shell_name + category (the Palette grouping fields)', () => {
 		const { result } = renderHook( () => useJsCatalog() );
 		for ( const c of result.current.classes ) {

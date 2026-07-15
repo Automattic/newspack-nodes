@@ -245,10 +245,6 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// schema
-	// ---------------------------------------------------------------------
-
-	// ---------------------------------------------------------------------
 	// not-found / bad-argument throw paths across the verbs.
 	// ---------------------------------------------------------------------
 
@@ -448,6 +444,10 @@ class VaultCINodeTest extends TestCase {
 		$this->assertSame( 12, $out['response']['lag'] );
 		$this->assertArrayNotHasKey( 'secret', $out['response'] );
 	}
+
+	// ---------------------------------------------------------------------
+	// schema
+	// ---------------------------------------------------------------------
 
 	public function test_node_schema_lists_verbs_without_logs_arg(): void {
 		$verbs = [];
