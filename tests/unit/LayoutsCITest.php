@@ -54,7 +54,7 @@ class LayoutsCITest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── get verb ──────────────────────────────────────────────────────────
+	// ── schema + get verb ─────────────────────────────────────────────────
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Layouts_CI_Node::node_schema();

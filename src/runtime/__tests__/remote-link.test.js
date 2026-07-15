@@ -50,6 +50,7 @@ class FakeEventSource {
 beforeEach( () => {
 	Core.reset();
 	global.EventSource = FakeEventSource;
+	FakeEventSource.last = null;
 } );
 
 function makeLink( subscribe = 'raw-logs' ) {
@@ -65,7 +66,7 @@ function makeLink( subscribe = 'raw-logs' ) {
 			return Promise.resolve( [] );
 		},
 	};
-	link.arguments = `${ subscribe } /wp-json/ NONCE`;
+	link.arguments = subscribe;
 	return { link, posted };
 }
 
@@ -131,13 +132,81 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.sseIn.target ).toBe( 'new:view' );
 	} );
 
-	it( 'connectNode before children exist seeds the SseIn via ensureChildren', () => {
+	it( 'connectNode before children exist starts the SseIn with its target', () => {
 		const { link } = makeLink();
 		link.connectNode( 'new:view' );
 		expect( link.target ).toBe( 'new:view' );
-		expect( link.sseIn ).toBe( null );
-		link.connect();
+		expect( link.sseIn ).toBeInstanceOf( SseInNode );
 		expect( link.sseIn.target ).toBe( 'new:view' );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=raw-logs' );
+	} );
+
+	it( 'a palette make + edge opens the configured subscription and dumpConfig replay reopens it', () => {
+		window.NewspackNodesData = {
+			restUrl: 'https://palette.example/wp-json/',
+			nonce: 'INDIGO-NONCE-863',
+		};
+		try {
+			const { interpreter } = mountExospine();
+			interpreter.dispatch(
+				'make_node',
+				'RemoteLink violet-link-947 gyroscope.p7'
+			);
+			interpreter.dispatch(
+				'connect_node',
+				'violet-link-947 indigo-view-863'
+			);
+
+			const first = Core.node( 'violet-link-947' );
+			expect( first.sseIn ).toBeInstanceOf( SseInNode );
+			expect( first.sseIn.target ).toBe( 'indigo-view-863' );
+			expect( FakeEventSource.last.url ).toContain(
+				'subscribe=gyroscope.p7'
+			);
+			const config = first.dumpConfig();
+			expect( config ).toBe(
+				'make_node RemoteLink violet-link-947 gyroscope.p7\n' +
+					'connect_node violet-link-947 indigo-view-863\n'
+			);
+
+			const firstStream = FakeEventSource.last;
+			first.removeNode();
+			for ( const line of config.trim().split( '\n' ) ) {
+				const [ verb, ...args ] = line.split( ' ' );
+				interpreter.dispatch( verb, args.join( ' ' ) );
+			}
+
+			const reopened = Core.node( 'violet-link-947' );
+			expect( reopened ).not.toBe( first );
+			expect( reopened.arguments ).toBe( 'gyroscope.p7' );
+			expect( reopened.target ).toBe( 'indigo-view-863' );
+			expect( FakeEventSource.last ).not.toBe( firstStream );
+			expect( FakeEventSource.last.url ).toContain(
+				'subscribe=gyroscope.p7'
+			);
+		} finally {
+			delete window.NewspackNodesData;
+		}
+	} );
+
+	it( 'disconnecting the canvas edge closes the palette-started stream', () => {
+		const { link } = makeLink( 'completed.p11' );
+		link.connectNode( 'cerulean-view-619' );
+		const stream = FakeEventSource.last;
+
+		link.disconnectNode( 'cerulean-view-619' );
+
+		expect( link.target ).toBe( '' );
+		expect( link.sseIn.target ).toBe( '' );
+		expect( stream.closed ).toBe( true );
+	} );
+
+	it( 'fails make_node when the required subscription is missing', () => {
+		const { interpreter } = mountExospine();
+		expect( () =>
+			interpreter.makeNode( 'RemoteLink', 'empty-link-439' )
+		).toThrow( 'Missing required argument: subscribe' );
+		expect( Core.node( 'empty-link-439' ) ).toBeNull();
 	} );
 
 	it( 'resumePositions() exposes the SseIn last-seen offset so a reconnect resumes', () => {
@@ -256,10 +325,46 @@ describe( 'RemoteLinkNode', () => {
 		const { link } = makeLink();
 		link.connect();
 		const hb = Core.node( names.HEARTBEAT );
-		hb.setSlot( 5 );
+		dispatchConnected( link, { pid: 5005, slot: 5 } );
 		link.close();
 		expect( hb.slot ).toBe( null );
 		expect( FakeEventSource.last.closed ).toBe( true );
+	} );
+
+	it( 'closing an inactive link preserves the active sibling heartbeat', () => {
+		const { link: first } = makeLink( 'completed.p11' );
+		first.name = 'inactive-link-349';
+		first.connect();
+		dispatchConnected( first, { pid: 349, slot: 13 } );
+
+		const { link: active } = makeLink( 'errors.p17' );
+		active.name = 'active-link-947';
+		active.connect();
+		dispatchConnected( active, { pid: 947, slot: 47 } );
+		const activeStream = FakeEventSource.last;
+
+		first.close();
+
+		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 47 );
+		expect( activeStream.closed ).toBe( false );
+	} );
+
+	it( 'closing the latest link restores the earlier live heartbeat slot', () => {
+		const { link: first } = makeLink( 'completed.p13' );
+		first.name = 'first-link-349';
+		first.connect();
+		dispatchConnected( first, { pid: 349, slot: 13 } );
+		const firstStream = FakeEventSource.last;
+
+		const { link: latest } = makeLink( 'errors.p47' );
+		latest.name = 'latest-link-947';
+		latest.connect();
+		dispatchConnected( latest, { pid: 947, slot: 47 } );
+
+		latest.close();
+
+		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 13 );
+		expect( firstStream.closed ).toBe( false );
 	} );
 
 	it( 'pid() is null before connect (no SseIn yet)', () => {

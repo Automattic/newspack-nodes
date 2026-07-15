@@ -108,6 +108,41 @@ describe( 'Heartbeat node', () => {
 			expect( sent ).toHaveLength( 0 );
 		} );
 
+		it( 'only the owning stream can clear a shared slot', () => {
+			const { node } = build();
+			const inactive = { name: 'inactive-link-349' };
+			const active = { name: 'active-link-947' };
+			node.setSlot( 47, active );
+
+			node.clearSlot( inactive );
+			expect( node.slot ).toBe( 47 );
+
+			node.clearSlot( active );
+			expect( node.slot ).toBeNull();
+		} );
+
+		it( 'keeps every live owner slot armed independently', () => {
+			const { node, sent } = build();
+			node.target = '_sse/workers';
+			const first = { name: 'first-link-349' };
+			const second = { name: 'second-link-947' };
+			node.setSlot( 13, first );
+			node.setSlot( 47, second );
+
+			node.fire();
+			expect(
+				sent.map( ( message ) => message[ VALUE ].arguments )
+			).toEqual( [ '13 10', '47 10' ] );
+
+			node.clearSlot( second );
+			sent.length = 0;
+			node.fire();
+			expect(
+				sent.map( ( message ) => message[ VALUE ].arguments )
+			).toEqual( [ '13 10' ] );
+			expect( node.slot ).toBe( 13 );
+		} );
+
 		it( 'does not throw when there is no sink', () => {
 			const { node } = build();
 			node.sink = null;

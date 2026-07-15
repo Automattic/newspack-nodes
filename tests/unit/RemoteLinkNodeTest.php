@@ -106,7 +106,7 @@ class RemoteLinkNodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// Patron lifecycle — ensure_patrons.
+	// Timer cadence + patron lifecycle — ensure_patrons.
 	// ---------------------------------------------------------------------
 
 	public function test_tick_is_100ms_but_housekeeping_latches_to_once_per_second(): void {

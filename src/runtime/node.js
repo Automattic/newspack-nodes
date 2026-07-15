@@ -448,30 +448,49 @@ function coerceArgument( token, type ) {
 /**
  * The Schema_Reflection positional walk (PHP trait `parse_schema_args`): assign each
  * token of `args` to its matching declared `nodeSchema().arguments` property on `node`,
- * coerced to the declared type. Opt-in — the base setter does not call it. No-ops on an
- * empty string or a node with no declared arguments; excess tokens are ignored; missing
- * optional tokens fall to their schema default.
+ * coerced to the declared type. Opt-in — the base setter does not call it. A node with no
+ * declared arguments is a no-op; excess tokens are ignored, missing optional tokens use
+ * their schema defaults only when input supplied an earlier token, and a missing required
+ * token throws even when the input is empty. Empty optional input preserves ctor defaults.
  *
  * @param {Node}   node A node whose ctor exposes a static nodeSchema().
  * @param {string} args Raw positional argument string.
  */
 export function parseSchemaArgs( node, args ) {
-	const raw = String( args ?? '' );
-	if ( '' === raw ) {
+	const declared = node.constructor.nodeSchema?.().arguments || [];
+	if ( declared.length === 0 ) {
 		return;
 	}
-	const declared = node.constructor.nodeSchema?.().arguments || [];
-	const tokens = raw.trim().split( /\s+/ );
+	const raw = String( args ?? '' ).trim();
+	const tokens = '' === raw ? [] : raw.split( /\s+/ );
 	for ( let i = 0; i < declared.length; i++ ) {
 		const spec = declared[ i ];
-		const { name, type = 'string' } = spec;
-		if ( ! ( name in node ) ) {
+		if (
+			null === spec ||
+			'object' !== typeof spec ||
+			Array.isArray( spec )
+		) {
 			continue;
+		}
+		const name =
+			null === spec.name || undefined === spec.name
+				? ''
+				: String( spec.name );
+		const type = spec.type ?? 'string';
+		if ( '' === name ) {
+			throw new Error(
+				`Invalid argument specification: missing name at position ${ i }`
+			);
+		}
+		if ( ! Object.prototype.hasOwnProperty.call( node, name ) ) {
+			throw new Error( `Invalid argument specification: ${ name }` );
 		}
 		if ( i < tokens.length ) {
 			node[ name ] = coerceArgument( tokens[ i ], type );
-		} else if ( 'default' in spec ) {
+		} else if ( '' !== raw && 'default' in spec ) {
 			node[ name ] = spec.default;
+		} else if ( spec.required ) {
+			throw new Error( `Missing required argument: ${ name }` );
 		}
 	}
 }

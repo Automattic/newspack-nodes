@@ -54,7 +54,7 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 		expect( n.flag ).toBe( false );
 	} );
 
-	it( 'empty arguments string is a no-op (leaves ctor values)', () => {
+	it( 'empty arguments string leaves optional constructor values alone', () => {
 		class CustomNode extends Node {
 			constructor() {
 				super();
@@ -74,9 +74,78 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 		}
 		const n = new CustomNode();
 		parseSchemaArgs( n, '' );
-		// Mirrors PHP parse_schema_args: '' short-circuits before any assignment.
 		expect( n.x ).toBe( 99 );
 		expect( n.y ).toBe( 'ctor' );
+	} );
+
+	it( 'missing required arguments fail at the schema boundary', () => {
+		const n = new TestArgsNode();
+		expect( () => parseSchemaArgs( n, '' ) ).toThrow(
+			'Missing required argument: name_field'
+		);
+	} );
+
+	it( 'rejects a schema argument without a matching node property', () => {
+		class TypoNode extends Node {
+			constructor() {
+				super();
+				this.actual_field = '';
+			}
+			static nodeSchema() {
+				return {
+					arguments: [
+						{
+							name: 'misspelled_field_947',
+							type: 'string',
+							required: true,
+						},
+					],
+					commands: [],
+				};
+			}
+		}
+
+		expect( () => parseSchemaArgs( new TypoNode(), 'configured' ) ).toThrow(
+			'Invalid argument specification: misspelled_field_947'
+		);
+	} );
+
+	it( 'rejects inherited node methods as configuration properties', () => {
+		class InheritedMethodNode extends Node {
+			static nodeSchema() {
+				return {
+					arguments: [
+						{
+							name: 'removeNode',
+							type: 'string',
+							required: true,
+						},
+					],
+					commands: [],
+				};
+			}
+		}
+		const node = new InheritedMethodNode();
+
+		expect( () => parseSchemaArgs( node, 'violet-cleanup-619' ) ).toThrow(
+			'Invalid argument specification: removeNode'
+		);
+		expect( typeof node.removeNode ).toBe( 'function' );
+	} );
+
+	it( 'rejects a schema argument without a name', () => {
+		class NamelessNode extends Node {
+			static nodeSchema() {
+				return {
+					arguments: [ { type: 'string', default: 'violet-863' } ],
+					commands: [],
+				};
+			}
+		}
+
+		expect( () => parseSchemaArgs( new NamelessNode(), '' ) ).toThrow(
+			'Invalid argument specification: missing name at position 0'
+		);
 	} );
 
 	it( 'bool coercion accepts truthy/falsy strings', () => {

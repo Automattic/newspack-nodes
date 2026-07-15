@@ -1,8 +1,9 @@
 /**
  * RemoteIpcNode — the per-worker interactive command channel (Remote_IPC), as
  * distinct from Remote_Source (durable aggregation, e.g. pulling `firehose.p0`).
- * One RemoteIpc per active worker, named `{topology}.p{N}`; `cd /{worker}` routes
- * commands straight to it (the worker's name IS the address — no `_sse/` prefix).
+ * The console mounts one per active worker under `{topology}.p{N}`; a palette
+ * node may use a different local name, while its required `reader` argument
+ * remains the remote worker address. `cd /{local-name}` routes commands to it.
  *
  * It EXTENDS RemoteLink — composing the same SseIn + HttpOut + Heartbeat children
  * and the connected→slot bridge — and adds the two halves of the worker-attach send
@@ -35,12 +36,22 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 	constructor() {
 		super();
+		this.reader = '';
 		// Attached IPC, not a subscription: keep worker TO=FROM, don't re-home.
 		this.rehomeReceived = false;
 	}
 
+	get arguments() {
+		return super.arguments;
+	}
+
+	set arguments( value ) {
+		this.reader = '';
+		super.arguments = value;
+	}
+
 	/**
-	 * Send path: a command routed in via TO={worker} (the Router peeled this
+	 * Send path: a command routed in via TO={local-name} (the Router peeled this
 	 * node's name). Boot/steal the live connection, then route the bundled
 	 * `[connect_worker_input, command]` pair through this link's own HttpOut as
 	 * one POST.
@@ -49,9 +60,9 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 */
 	fill( message ) {
 		this.counter++;
+		const reader = this.reader;
 		this.connect();
 
-		const reader = this.name;
 		const remainder = message[ TO ];
 		const command = message.slice();
 		if ( '' !== command[ FROM ] ) {
@@ -64,7 +75,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 		const connect = newMessage();
 		connect[ TYPE ] = TM_COMMAND;
-		connect[ FROM ] = reader;
+		connect[ FROM ] = this.name;
 		connect[ TO ] = 'topologies';
 		connect[ VALUE ] = { name: 'connect_worker_input', arguments: reader };
 
@@ -83,6 +94,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 	// Make this link's SseIn the live stream, replacing the prior holder.
 	connect() {
+		this._assertConfigured();
 		const current = RemoteIpcNode.active;
 		if ( current === this && this.sseIn?._es ) {
 			return;
@@ -92,6 +104,12 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		}
 		super.connect();
 		RemoteIpcNode.active = this;
+	}
+
+	_assertConfigured() {
+		if ( '' === this.reader ) {
+			throw new Error( 'RemoteIpc requires a remote worker reader' );
+		}
 	}
 
 	// Close the composed stream and release the live-connection claim.
@@ -112,7 +130,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		this.sseIn?.unregister( 'CONNECTED', this.name );
 		this.sseIn?.close();
 		if ( RemoteIpcNode.active === this ) {
-			this.heartbeat?.clearSlot();
+			this.heartbeat?.clearSlot( this );
 			RemoteIpcNode.active = null;
 		}
 		this.onClose?.();
@@ -130,7 +148,14 @@ export class RemoteIpcNode extends RemoteLinkNode {
 				'Per-worker interactive command channel (Remote_IPC): cd onto it and commands ride to the remote worker.',
 			accepts_fill: false,
 			has_target: true,
-			arguments: RemoteLinkNode.nodeSchema().arguments,
+			arguments: [
+				{
+					name: 'reader',
+					type: 'string',
+					required: true,
+					description: 'Remote worker reader, e.g. combined.p7.',
+				},
+			],
 			commands: [],
 		};
 	}

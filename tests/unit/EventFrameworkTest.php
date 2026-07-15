@@ -159,7 +159,7 @@ class EventFrameworkTest extends TestCase {
 		\curl_multi_close( $mh );
 	}
 
-	// --- pump(): in-job cooperative heartbeat -------------------------------
+	// --- pump(): test helpers + in-job cooperative heartbeat ----------------
 
 	/** A oneshot timer that runs an injected closure on fire — drives pump() from inside a live drain. */
 	private function fire_once( callable $cb ): Timer_Node {

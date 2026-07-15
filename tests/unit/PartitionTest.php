@@ -2695,7 +2695,7 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Rotation maintains the segments cache (one scan per rotation).
+	// Rotation-cache reflection helper + one-scan cases.
 	// ============================================================================
 
 	/**

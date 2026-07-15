@@ -24,7 +24,12 @@ describe( 'includeConsoleNodes', () => {
 	it( 'make_node resolves RemoteIpc (the per-worker command channel)', () => {
 		const interpreter = new CommandInterpreterNode();
 		interpreter.name = '_command_interpreter';
-		interpreter.dispatch( 'make_node', 'RemoteIpc aggregator.p0' );
-		expect( Core.node( 'aggregator.p0' ) ).toBeInstanceOf( RemoteIpcNode );
+		interpreter.dispatch(
+			'make_node',
+			'RemoteIpc violet-ipc-947 aggregator.p13'
+		);
+		const node = Core.node( 'violet-ipc-947' );
+		expect( node ).toBeInstanceOf( RemoteIpcNode );
+		expect( node.reader ).toBe( 'aggregator.p13' );
 	} );
 } );

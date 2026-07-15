@@ -30,6 +30,7 @@ export class HeartbeatNode extends TimerNode {
 		super();
 		// SSE slot to refresh; null until stream connects, cleared on close.
 		this.slot = null;
+		this._slots = new Map();
 	}
 
 	// Consume the heartbeat reply; it carries no canvas state, so swallow it.
@@ -40,37 +41,49 @@ export class HeartbeatNode extends TimerNode {
 
 	// Router TIMER subscriber: fire() pokes the slot, only while one is held.
 	fire() {
-		if ( null === this.slot || ! this.sink ) {
+		if ( 0 === this._slots.size || ! this.sink ) {
 			return;
 		}
-		this.counter++;
-		this.sink.fill( this._pollMessage() );
+		for ( const slot of this._slots.values() ) {
+			this.counter++;
+			this.sink.fill( this._pollMessage( slot ) );
+		}
 	}
 
 	// Poke TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
-	_pollMessage() {
+	_pollMessage( slot ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
 		m[ TO ] = this.target;
 		m[ VALUE ] = {
 			name: 'heartbeat',
-			arguments: `${ this.slot } ${ SLOT_TTL_S }`,
+			arguments: `${ slot } ${ SLOT_TTL_S }`,
 		};
 		m[ LOCAL ] = true;
 		return m;
 	}
 
 	// Record the slot the live SSE stream acquired; holding one arms the poke.
-	setSlot( slot ) {
+	setSlot( slot, owner = null ) {
+		this._slots.set( owner ?? this, slot );
 		this.slot = slot;
 		this.setTimer( POKE_INTERVAL_MS );
 	}
 
-	// Forget the slot and stop poking — the SSE stream closed.
-	clearSlot() {
-		this.slot = null;
-		this.stopTimer();
+	// Forget one owner's slot, or every slot for a legacy unowned clear.
+	clearSlot( owner = null ) {
+		if ( null === owner ) {
+			this._slots.clear();
+		} else if ( ! this._slots.delete( owner ) ) {
+			return false;
+		}
+		const remaining = [ ...this._slots.values() ];
+		this.slot = remaining.at( -1 ) ?? null;
+		if ( 0 === remaining.length ) {
+			this.stopTimer();
+		}
+		return true;
 	}
 
 	static nodeSchema() {

@@ -49,7 +49,7 @@ class RawLogsCITest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// list_logs verb — disk-discovered catalog.
+	// schema + list_logs verb — disk-discovered catalog.
 	// -------------------------------------------------------------------------
 
 	public function test_node_schema_declares_its_verbs(): void {
