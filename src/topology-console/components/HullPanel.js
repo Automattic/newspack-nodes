@@ -207,7 +207,7 @@ export default function HullPanel( {
 			{ shared.length > 0 && (
 				<>
 					<h4 className="topology-insp__section-title">
-						{ __( 'Shared with', 'newspack-nodes' ) }
+						{ __( 'Shared', 'newspack-nodes' ) }
 					</h4>
 					<ul
 						className="topology-hull-panel__list"
