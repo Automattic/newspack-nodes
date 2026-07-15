@@ -38,6 +38,27 @@ describe( 'augmentWithVirtualEdges', () => {
 		} );
 	} );
 
+	it( 'treats a config token resolved to empty as a cleared virtual target', () => {
+		const graph = {
+			nodes: [
+				{
+					id: 'request-builder',
+					class: 'Request_Builder',
+					verbInvocations: [
+						{
+							verb: 'set_errors_target',
+							args: [ '<wombat:disabled_errors_sink>' ],
+						},
+					],
+				},
+			],
+			edges: [],
+			resolvedConfigEdges: [],
+		};
+
+		expect( augmentWithVirtualEdges( graph, CLASSES ) ).toBe( graph );
+	} );
+
 	it( 'preserves existing (physical) edges', () => {
 		const graph = {
 			nodes: [

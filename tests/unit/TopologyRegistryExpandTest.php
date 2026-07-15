@@ -50,7 +50,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->assertSame( [ 'wombat-left' ], $byName['left-echo']['origin'] );
 		$this->assertSame( 'Echo', $byName['right-echo']['class'] );
 		$this->assertContains(
-			[ 'from' => 'left-echo', 'to' => 'shared-tee', 'origin' => [ 'wombat-left' ] ],
+			[ 'from' => 'left-echo', 'to' => 'shared-tee', 'origin' => [ 'wombat-left' ], 'roles' => [ 'connect' ] ],
 			$out['edges']
 		);
 		// The tree is DECLARED structure, not expansion order: wombat-right
@@ -81,8 +81,61 @@ class TopologyRegistryExpandTest extends TestCase {
 
 		$this->assertSame( [ 'giraffe-pattern' ], $byName['zebra-grep']['args'] );
 		$this->assertContains(
-			[ 'from' => 'zebra-grep', 'to' => 'zebra:partition', 'origin' => [ 'wombat-args' ] ],
+			[ 'from' => 'zebra-grep', 'to' => 'zebra:partition', 'origin' => [ 'wombat-args' ], 'roles' => [ 'config' ], 'config_slots' => [ 'set_errors_target' ] ],
 			$out['edges']
+		);
+	}
+
+	public function test_expand_resolves_a_config_token_in_a_named_target_slot(): void {
+		\Newspack_Nodes\Core::register_config_namespace(
+			'wombat_expand',
+			static fn ( string $key ): ?string => 'stats_sink' === $key ? 'violet-flame-stats-947' : null
+		);
+		$this->write_tsl(
+			'wombat-config-target',
+			"make_node Echo cerulean-flame-builder-619\n"
+			. "make_node Partition violet-flame-stats-947 /var/wombat/stats.p<partition> 1 2 0\n"
+			. "cmd cerulean-flame-builder-619:config set_stats_target <wombat_expand:stats_sink>\n"
+		);
+
+		$this->assertContains(
+			[
+				'from'         => 'cerulean-flame-builder-619',
+				'to'           => 'violet-flame-stats-947',
+				'origin'       => [ 'wombat-config-target' ],
+				'roles'        => [ 'config' ],
+				'config_slots' => [ 'set_stats_target' ],
+			],
+			Topology_Registry::expand( [ 'wombat-config-target' ] )['edges']
+		);
+	}
+
+	public function test_expand_empty_config_token_clears_only_its_named_target_slot(): void {
+		\Newspack_Nodes\Core::register_config_namespace(
+			'wombat_expand',
+			static fn ( string $key ): ?string => 'disabled_stats_sink' === $key ? '' : null
+		);
+		$this->write_tsl(
+			'wombat-empty-config-target',
+			"make_node Echo cerulean-flame-builder-619\n"
+			. "make_node Echo amber-completed-731\n"
+			. "make_node Echo violet-old-stats-947\n"
+			. "cmd cerulean-flame-builder-619:config set_stats_target violet-old-stats-947\n"
+			. "cmd cerulean-flame-builder-619:config set_completed_target amber-completed-731\n"
+			. "cmd cerulean-flame-builder-619:config set_stats_target <wombat_expand:disabled_stats_sink>\n"
+		);
+
+		$this->assertSame(
+			[
+				[
+					'from'         => 'cerulean-flame-builder-619',
+					'to'           => 'amber-completed-731',
+					'origin'       => [ 'wombat-empty-config-target' ],
+					'roles'        => [ 'config' ],
+					'config_slots' => [ 'set_completed_target' ],
+				],
+			],
+			Topology_Registry::expand( [ 'wombat-empty-config-target' ] )['edges']
 		);
 	}
 
@@ -145,6 +198,204 @@ class TopologyRegistryExpandTest extends TestCase {
 
 		$this->assertNotContains( 'zebra:tee->giraffe-sink', $edges );
 		$this->assertContains( 'zebra:tee->llama-sink', $edges );
+	}
+
+	public function test_expand_preserves_config_routing_and_reports_active_edge_roles(): void {
+		$this->write_tsl(
+			'wombat-roles',
+			"make_node Echo zebra-source\n"
+			. "make_node Tee zebra:tee\n"
+			. "make_node Echo giraffe-connect\n"
+			. "make_node Echo ibex-config\n"
+			. "cmd zebra-source:config set_errors_target ibex-config\n"
+			. "connect_node zebra-source giraffe-connect\n"
+			. "disconnect_node zebra-source ibex-config\n"
+		);
+
+		$out     = Topology_Registry::expand( [ 'wombat-roles' ] );
+		$by_name = [];
+		foreach ( $out['nodes'] as $node ) {
+			$by_name[ $node['name'] ] = $node;
+		}
+
+		$this->assertFalse( $by_name['zebra-source']['is_tee'] );
+		$this->assertTrue( $by_name['zebra:tee']['is_tee'] );
+		$this->assertSame(
+			[
+				[
+					'from'   => 'zebra-source',
+					'to'     => 'ibex-config',
+					'origin' => [ 'wombat-roles' ],
+					'roles'  => [ 'config' ],
+					'config_slots' => [ 'set_errors_target' ],
+				],
+			],
+			$out['edges']
+		);
+	}
+
+	public function test_expand_unions_origins_when_regular_includes_repeat_the_same_connection(): void {
+		$shared = "make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-target\n"
+			. "connect_node zebra-source giraffe-target\n";
+		$this->write_tsl( 'wombat-left', $shared );
+		$this->write_tsl( 'wombat-right', $shared );
+
+		$this->assertSame(
+			[
+				[
+					'from'   => 'zebra-source',
+					'to'     => 'giraffe-target',
+					'origin' => [ 'wombat-left', 'wombat-right' ],
+					'roles'  => [ 'connect' ],
+				],
+			],
+			Topology_Registry::expand( [ 'wombat-left', 'wombat-right' ] )['edges']
+		);
+	}
+
+	public function test_expand_uses_tap_fanout_and_targeted_disconnect_semantics(): void {
+		$this->write_tsl(
+			'wombat-tap-fanout',
+			"make_node Tap zebra-tap\n"
+			. "make_node Echo giraffe-removed\n"
+			. "make_node Echo ibex-kept-557\n"
+			. "connect_node zebra-tap giraffe-removed\n"
+			. "connect_node zebra-tap ibex-kept-557\n"
+			. "disconnect_node zebra-tap giraffe-removed\n"
+		);
+
+		$out = Topology_Registry::expand( [ 'wombat-tap-fanout' ] );
+
+		$this->assertTrue( $out['nodes'][0]['is_tee'] );
+		$this->assertSame(
+			[
+				[
+					'from'   => 'zebra-tap',
+					'to'     => 'ibex-kept-557',
+					'origin' => [ 'wombat-tap-fanout' ],
+					'roles'  => [ 'connect' ],
+				],
+			],
+			$out['edges']
+		);
+	}
+
+	public function test_expand_tracks_config_setters_as_independent_replacing_slots(): void {
+		$this->write_tsl(
+			'wombat-config-slots',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-old-errors\n"
+			. "make_node Echo llama-completed\n"
+			. "make_node Echo ibex-current-errors\n"
+			. "cmd zebra-source:config set_errors_target giraffe-old-errors\n"
+			. "cmd zebra-source:config set_completed_target llama-completed\n"
+			. "cmd zebra-source:config set_errors_target ibex-current-errors\n"
+		);
+
+		$this->assertSame(
+			[
+				[
+					'from'   => 'zebra-source',
+					'to'     => 'llama-completed',
+					'origin' => [ 'wombat-config-slots' ],
+					'roles'  => [ 'config' ],
+					'config_slots' => [ 'set_completed_target' ],
+				],
+				[
+					'from'   => 'zebra-source',
+					'to'     => 'ibex-current-errors',
+					'origin' => [ 'wombat-config-slots' ],
+					'roles'  => [ 'config' ],
+					'config_slots' => [ 'set_errors_target' ],
+				],
+			],
+			Topology_Registry::expand( [ 'wombat-config-slots' ] )['edges']
+		);
+	}
+
+	public function test_expand_empty_config_setter_clears_only_its_named_slot(): void {
+		$this->write_tsl(
+			'wombat-empty-config-slot',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-errors\n"
+			. "make_node Echo llama-completed\n"
+			. "cmd zebra-source:config set_errors_target giraffe-errors\n"
+			. "cmd zebra-source:config set_completed_target llama-completed\n"
+			. "cmd zebra-source:config set_errors_target\n"
+		);
+
+		$this->assertSame(
+			[
+				[
+					'from'   => 'zebra-source',
+					'to'     => 'llama-completed',
+					'origin' => [ 'wombat-empty-config-slot' ],
+					'roles'  => [ 'config' ],
+					'config_slots' => [ 'set_completed_target' ],
+				],
+			],
+			Topology_Registry::expand( [ 'wombat-empty-config-slot' ] )['edges']
+		);
+	}
+
+	public function test_expand_evaluates_a_shared_include_once_while_unioning_top_level_provenance(): void {
+		$this->write_tsl(
+			'wombat-shared',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-shared\n"
+			. "make_node Tee ibex-tee\n"
+			. "make_node Echo kudu-shared\n"
+			. "connect_node zebra-source giraffe-shared\n"
+			. "connect_node ibex-tee kudu-shared\n"
+		);
+		$this->write_tsl(
+			'wombat-left',
+			"include wombat-shared\n"
+			. "make_node Echo llama-left\n"
+			. "connect_node zebra-source llama-left\n"
+		);
+		$this->write_tsl(
+			'wombat-right',
+			"include wombat-shared\n"
+			. "make_node Echo okapi-right\n"
+		);
+
+		$out     = Topology_Registry::expand( [ 'wombat-left', 'wombat-right' ] );
+		$by_name = [];
+		foreach ( $out['nodes'] as $node ) {
+			$by_name[ $node['name'] ] = $node;
+		}
+
+		$this->assertSame( [ 'wombat-left', 'wombat-right' ], $by_name['zebra-source']['origin'] );
+		$this->assertSame( [ 'wombat-left', 'wombat-shared' ], $by_name['zebra-source']['via'] );
+		$this->assertNotContains(
+			[ 'from' => 'zebra-source', 'to' => 'giraffe-shared', 'origin' => [ 'wombat-left', 'wombat-right' ], 'roles' => [ 'connect' ] ],
+			$out['edges'],
+			'The right-hand include must not re-run a pragma-once shared connect after the left-hand rewire.'
+		);
+		$this->assertContains(
+			[ 'from' => 'zebra-source', 'to' => 'llama-left', 'origin' => [ 'wombat-left' ], 'roles' => [ 'connect' ] ],
+			$out['edges']
+		);
+		$this->assertContains(
+			[ 'from' => 'ibex-tee', 'to' => 'kudu-shared', 'origin' => [ 'wombat-left', 'wombat-right' ], 'roles' => [ 'connect' ] ],
+			$out['edges']
+		);
+	}
+
+	public function test_expand_deduplicates_repeated_direct_include_provenance(): void {
+		$this->write_tsl(
+			'wombat-repeated',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-target\n"
+			. "connect_node zebra-source giraffe-target\n"
+		);
+
+		$out = Topology_Registry::expand( [ 'wombat-repeated', 'wombat-repeated' ] );
+
+		$this->assertSame( [ 'wombat-repeated' ], $out['nodes'][0]['origin'] );
+		$this->assertSame( [ 'wombat-repeated' ], $out['edges'][0]['origin'] );
 	}
 
 	/**

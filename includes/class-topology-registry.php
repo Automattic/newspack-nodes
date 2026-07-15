@@ -37,7 +37,7 @@ class Topology_Registry {
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
 	private static array $segment_size_overrides_cache = [];
 
-	/** @var array<string,array{statements:list<array{line:string,origin:?string,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
+	/** @var array<string,array{statements:list<array{line:string,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
 	private static array $statements_cache = [];
 
 	/** @var array<int,string> Plugin-registered stock dirs (first wins). */
@@ -229,7 +229,7 @@ class Topology_Registry {
 	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
 	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
 	 *
-	 * @return array{statements: list<array{line: string, origin: ?string, via: list<string>}>, tree: array<string, mixed>}
+	 * @return array{statements: list<array{line: string, origin: ?string, origins: list<string>, via: list<string>}>, tree: array<string, mixed>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function statements( string $name, array $extra_includes = [] ): array {
@@ -275,7 +275,8 @@ class Topology_Registry {
 	 * @param string|null  $origin Directly-declared include this file sits under; null = the top-level file's own lines.
 	 * @param list<string> $via    Include path from the top level down to this file.
 	 * @param list<string> $stack  Ancestor resolved paths — a repeat is a cycle.
-	 * @param array{statements: list<array{line: string, origin: ?string, via: list<string>}>, expanded: array<string,array{0:int,1:int}>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string}>} $state Walker state, by reference.
+	 * @param array{statements: list<array{line: string, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state Walker state, by reference.
+	 * @param-out array{statements: list<array{line: string, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state
 	 *
 	 * @return array<string, mixed> This file's include subtree.
 	 */
@@ -284,9 +285,20 @@ class Topology_Registry {
 			throw new \RuntimeException( \esc_html( 'topology include cycle: ' . \implode( ' -> ', [ ...$via, $name ] ) ) );
 		}
 		if ( isset( $state['expanded'][ $path ] ) ) {
+			if ( null !== $origin ) {
+				foreach ( $state['expanded'][ $path ] as $index ) {
+					$statement = $state['statements'][ $index ];
+					if ( ! \in_array( $origin, $statement['origins'], true ) ) {
+						$state['statements'][ $index ] = [
+							...$statement,
+							'origins' => [ ...$statement['origins'], $origin ],
+						];
+					}
+				}
+			}
 			return $state['subtrees'][ $path ];
 		}
-		$first   = \count( $state['statements'] );
+		$members = [];
 		$stack[] = $path;
 		$subtree = [];
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
@@ -311,6 +323,7 @@ class Topology_Registry {
 					$stack,
 					$state
 				);
+				$members = [ ...$members, ...$state['expanded'][ $child_path ] ];
 				continue;
 			}
 			// Only the TOP-LEVEL file's frontmatter is honored.
@@ -332,21 +345,34 @@ class Topology_Registry {
 				$prior     = $state['defs'][ $node_name ] ?? null;
 				if ( null !== $prior ) {
 					if ( $prior['type'] === $def['type'] && $prior['args'] === $def['args'] ) {
+						$statement = $state['statements'][ $prior['index'] ];
+						if ( null !== $origin && ! \in_array( $origin, $statement['origins'], true ) ) {
+							$state['statements'][ $prior['index'] ] = [
+								...$statement,
+								'origins' => [ ...$statement['origins'], $origin ],
+							];
+						}
+						$members[] = $prior['index'];
 						continue;
 					}
 					throw new \RuntimeException(
 						\esc_html( "make_node conflict: '$node_name' declared as {$prior['type']} '{$prior['args']}' and as {$def['type']} '{$def['args']}'" )
 					);
 				}
-				$state['defs'][ $node_name ] = $def;
+				$state['defs'][ $node_name ] = [
+					...$def,
+					'index' => \count( $state['statements'] ),
+				];
 			}
+			$members[]             = \count( $state['statements'] );
 			$state['statements'][] = [
-				'line'   => $line,
-				'origin' => $origin,
-				'via'    => $via,
+				'line'    => $line,
+				'origin'  => $origin,
+				'origins' => null === $origin ? [] : [ $origin ],
+				'via'     => $via,
 			];
 		}
-		$state['expanded'][ $path ] = [ $first, \count( $state['statements'] ) ];
+		$state['expanded'][ $path ] = \array_values( \array_unique( $members ) );
 		$state['subtrees'][ $path ] = $subtree;
 		return $subtree;
 	}
@@ -405,42 +431,41 @@ class Topology_Registry {
 	 *
 	 * @param list<string> $include_names Directly-declared includes.
 	 *
-	 * @return array{nodes: list<array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}>, edges: list<array{from: string, to: string, origin: list<string>}>, tree: array<string,mixed>}
+	 * @return array{nodes: list<array{name: string, class: string, is_tee: bool, args: list<string>, origin: list<string>, via: list<string>}>, edges: list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function expand( array $include_names ): array {
-		$nodes = [];
-		$edges = [];
-		foreach ( $include_names as $include ) {
-			$walked = self::statements( '', [ $include ] );
-			foreach ( $walked['statements'] as $statement ) {
-				self::absorb_statement( $statement, $include, $nodes, $edges );
-			}
+		$nodes  = [];
+		$edges  = [];
+		$walked = self::statements( '', $include_names );
+		foreach ( $walked['statements'] as $statement ) {
+			self::absorb_statement( $statement, $statement['origins'], $nodes, $edges );
 		}
-		$tree = self::statements( '', $include_names )['tree'];
 		return [
 			'nodes' => \array_values( $nodes ),
-			'edges' => \array_values( $edges ),
-			'tree'  => $tree,
-			'hulls' => self::hulls_for_tree( $tree ),
+			'edges' => self::export_edges( $edges, $include_names ),
+			'tree'  => $walked['tree'],
+			'hulls' => self::hulls_for_tree( $walked['tree'] ),
 		];
 	}
 
 	/**
 	 * Fold one statement into the node/edge maps, unioning `origin` on a re-reach.
 	 *
-	 * @param array{line: string, origin: ?string, via: list<string>} $statement Walked statement.
-	 * @param string                                                  $origin    Top-level include being absorbed.
-	 * @param array<string, array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
-	 * @param array<string, array{from: string, to: string, origin: list<string>}>                                          $edges Edge map, by reference.
+	 * @param array{line: string, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
+	 * @param list<string>                                                            $origins   Top-level includes providing it.
+	 * @param array<string, array{name: string, class: string, is_tee: bool, args: list<string>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}>      $edges Edge-state map, by reference.
 	 */
-	private static function absorb_statement( array $statement, string $origin, array &$nodes, array &$edges ): void {
+	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges ): void {
 		$line = $statement['line'];
 		if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
 			$name = $m[2];
 			if ( isset( $nodes[ $name ] ) ) {
-				if ( ! \in_array( $origin, $nodes[ $name ]['origin'], true ) ) {
-					$nodes[ $name ]['origin'][] = $origin;
+				foreach ( $origins as $origin ) {
+					if ( ! \in_array( $origin, $nodes[ $name ]['origin'], true ) ) {
+						$nodes[ $name ]['origin'][] = $origin;
+					}
 				}
 				return;
 			}
@@ -448,47 +473,245 @@ class Topology_Registry {
 			$nodes[ $name ] = [
 				'name'   => $name,
 				'class'  => $m[1],
+				'is_tee' => self::type_is_tee( $m[1] ),
 				'args'   => $args,
-				'origin' => [ $origin ],
+				'origin' => $origins,
 				'via'    => $statement['via'],
 			];
 			return;
 		}
-		// Eval order: a disconnect removes what an earlier connect added.
 		if ( \preg_match( '/^disconnect_node\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
-			$target = $m[2] ?? '';
-			foreach ( \array_keys( $edges ) as $key ) {
-				[ $from, $to ] = \explode( "\0", $key );
-				$hit = '' !== $target
-					? ( $from === $m[1] && $to === $target )
-					: $from === $m[1];
-				if ( $hit ) {
-					unset( $edges[ $key ] );
-				}
-			}
+			$is_tee = $nodes[ $m[1] ]['is_tee'] ?? false;
+			self::disconnect_edge( $edges, $m[1], $m[2] ?? null, $is_tee );
 			return;
 		}
-		$edge = null;
 		if ( \preg_match( '/^connect_node\s+(\S+)\s+(\S+)/', $line, $m ) ) {
-			$edge = [ $m[1], $m[2] ];
-		} elseif ( \preg_match( '/^cmd\s+(\S+?):config\s+set_\w*target\s+(\S+)/', $line, $m ) ) {
-			$edge = [ $m[1], $m[2] ];
-		}
-		if ( null === $edge ) {
+			$is_tee = $nodes[ $m[1] ]['is_tee'] ?? false;
+			self::connect_edge( $edges, $m[1], $m[2], $origins, $is_tee );
 			return;
 		}
-		$key = $edge[0] . "\0" . $edge[1];
-		if ( isset( $edges[ $key ] ) ) {
-			if ( ! \in_array( $origin, $edges[ $key ]['origin'], true ) ) {
-				$edges[ $key ]['origin'][] = $origin;
+		if ( \preg_match( '/^cmd\s+(\S+?):config\s+(set_\w*target)(?:\s+(\S+))?$/', $line, $m ) ) {
+			self::set_config_edge( $edges, $m[1], Core::resolve_config_tokens( $m[3] ?? '' ), $m[2], $origins );
+		}
+	}
+
+	/**
+	 * True when a TSL class token resolves to Tee fan-out semantics.
+	 */
+	private static function type_is_tee( string $type ): bool {
+		if ( 'Tee' === $type ) {
+			return true;
+		}
+		$fqcn = Command_Interpreter_Node::resolve_class( $type );
+		return null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true );
+	}
+
+	/**
+	 * Ensure one insertion-ordered edge-state record and return its key.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function ensure_edge( array &$edges, string $source, string $target ): string {
+		$key = $source . "\0" . $target;
+		if ( ! isset( $edges[ $key ] ) ) {
+			$edges[ $key ] = [
+				'from'    => $source,
+				'to'      => $target,
+				'origins' => [
+					'connect' => [],
+					'config'  => [],
+				],
+			];
+		}
+		return $key;
+	}
+
+	/**
+	 * Add one connect relationship origin.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $origins Top-level includes providing the connection.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function add_connect_origins( array &$edges, string $source, string $target, array $origins ): void {
+		$key             = self::ensure_edge( $edges, $source, $target );
+		$edge            = $edges[ $key ];
+		$connect_origins = $edge['origins']['connect'];
+		foreach ( $origins as $origin ) {
+			if ( ! \in_array( $origin, $connect_origins, true ) ) {
+				$connect_origins[] = $origin;
 			}
-			return;
 		}
 		$edges[ $key ] = [
-			'from'   => $edge[0],
-			'to'     => $edge[1],
-			'origin' => [ $origin ],
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => $connect_origins,
+				'config'  => $edge['origins']['config'],
+			],
 		];
+	}
+
+	/**
+	 * Replace one named config-target slot without disturbing other setters.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $origins Top-level includes providing the configuration.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function set_config_edge( array &$edges, string $source, string $target, string $slot, array $origins ): void {
+		$current_key = $source . "\0" . $target;
+		foreach ( \array_keys( $edges ) as $key ) {
+			if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
+				continue;
+			}
+			$edge   = $edges[ $key ];
+			$config = $edge['origins']['config'];
+			unset( $config[ $slot ] );
+			if ( [] === $edge['origins']['connect'] && [] === $config ) {
+				unset( $edges[ $key ] );
+				continue;
+			}
+			$edges[ $key ] = [
+				'from'    => $edge['from'],
+				'to'      => $edge['to'],
+				'origins' => [
+					'connect' => $edge['origins']['connect'],
+					'config'  => $config,
+				],
+			];
+		}
+		if ( '' === $target ) {
+			return;
+		}
+		$key          = self::ensure_edge( $edges, $source, $target );
+		$edge         = $edges[ $key ];
+		$config       = $edge['origins']['config'];
+		$slot_origins = $config[ $slot ] ?? [];
+		foreach ( $origins as $origin ) {
+			if ( ! \in_array( $origin, $slot_origins, true ) ) {
+				$slot_origins[] = $origin;
+			}
+		}
+		$config[ $slot ] = $slot_origins;
+		$edges[ $key ]    = [
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => $edge['origins']['connect'],
+				'config'  => $config,
+			],
+		];
+	}
+
+	/**
+	 * Remove the runtime connect role while preserving independent config roles.
+	 *
+	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}} $edge Edge state.
+	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}|null
+	 */
+	private static function without_connect_role( array $edge ): ?array {
+		if ( [] === $edge['origins']['config'] ) {
+			return null;
+		}
+		return [
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => [],
+				'config'  => $edge['origins']['config'],
+			],
+		];
+	}
+
+	/**
+	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $origins Top-level includes providing the connection.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $is_tee ): void {
+		if ( ! $is_tee ) {
+			$current_key = $source . "\0" . $target;
+			foreach ( \array_keys( $edges ) as $key ) {
+				if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
+					continue;
+				}
+				$remaining = self::without_connect_role( $edges[ $key ] );
+				if ( null === $remaining ) {
+					unset( $edges[ $key ] );
+					continue;
+				}
+				$edges[ $key ] = $remaining;
+			}
+		}
+		self::add_connect_origins( $edges, $source, $target, $origins );
+	}
+
+	/**
+	 * Mirror runtime disconnect: regular Nodes clear their connect target;
+	 * Tees remove an explicit target, while an omitted target defaults to the
+	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
+	 * Configuration-target roles are independent and never removed here.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $is_tee ): void {
+		if ( $is_tee && null === $target ) {
+			return;
+		}
+		foreach ( \array_keys( $edges ) as $key ) {
+			$edge = $edges[ $key ];
+			if ( $edge['from'] !== $source || ( $is_tee && $edge['to'] !== $target ) ) {
+				continue;
+			}
+			$remaining = self::without_connect_role( $edge );
+			if ( null === $remaining ) {
+				unset( $edges[ $key ] );
+				continue;
+			}
+			$edges[ $key ] = $remaining;
+		}
+	}
+
+	/**
+	 * Export active edge state for the topology-console baseline contract.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map.
+	 * @param list<string> $origin_order Top-level include declaration order.
+	 * @return list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>
+	 */
+	private static function export_edges( array $edges, array $origin_order ): array {
+		$out          = [];
+		$origin_order = \array_values( \array_unique( $origin_order ) );
+		foreach ( $edges as $edge ) {
+			$roles          = [];
+			$config_origins = [];
+			if ( [] !== $edge['origins']['connect'] ) {
+				$roles[] = 'connect';
+			}
+			if ( [] !== $edge['origins']['config'] ) {
+				$roles[] = 'config';
+				foreach ( $edge['origins']['config'] as $origins ) {
+					$config_origins = [ ...$config_origins, ...$origins ];
+				}
+			}
+			$active_origins = \array_unique( [ ...$edge['origins']['connect'], ...$config_origins ] );
+			$exported       = [
+				'from'   => $edge['from'],
+				'to'     => $edge['to'],
+				'origin' => \array_values( \array_filter( $origin_order, static fn ( string $origin ): bool => \in_array( $origin, $active_origins, true ) ) ),
+				'roles'  => $roles,
+			];
+			if ( [] !== $edge['origins']['config'] ) {
+				$exported['config_slots'] = \array_keys( $edge['origins']['config'] );
+			}
+			$out[] = $exported;
+		}
+		return $out;
 	}
 
 	/**
@@ -731,7 +954,8 @@ class Topology_Registry {
 	 * the make_node `type` token + positional `args` list, (+ the log a
 	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
 	 * a name suffix), and edges from `connect_node` plus
-	 * `cmd <node>:config set_*_target <target>`. Memoized.
+	 * `cmd <node>:config set_*_target <target>`, with `disconnect_node` applied
+	 * in evaluation order. Memoized.
 	 *
 	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
 	 */
@@ -755,11 +979,8 @@ class Topology_Registry {
 				default     => 'logic',
 			};
 			// An unknown Tee subclass (e.g. Tap) also gets 'tee'.
-			if ( 'logic' === $kind ) {
-				$fqcn = Command_Interpreter_Node::resolve_class( $cls );
-				if ( null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true ) ) {
-					return 'tee';
-				}
+			if ( 'logic' === $kind && self::type_is_tee( $cls ) ) {
+				return 'tee';
 			}
 			return $kind;
 		};
@@ -768,6 +989,7 @@ class Topology_Registry {
 			return false === $slash ? $arg : \substr( $arg, $slash + 1 );
 		};
 		$nodes = [];
+		$types = [];
 		$edges = [];
 		try {
 			$walked = self::statements( $name );
@@ -783,6 +1005,7 @@ class Topology_Registry {
 			$line = $statement['line'];
 			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
 				$kind = $kind_of( $m[1] );
+				$types[ $m[2] ] = $m[1];
 				// Tokens 3.. = positional args; a CI reads the node's config.
 				$tokens = \preg_split( '/\s+/', $line ) ?: [];
 				$node   = [
@@ -810,17 +1033,26 @@ class Topology_Registry {
 				$nodes[] = $node;
 				continue;
 			}
-			if ( \preg_match( '/^connect_node\s+(\S+)\s+(\S+)/', $line, $m ) ) {
-				$edges[] = [ $m[1], $m[2] ];
+			if ( \preg_match( '/^disconnect_node\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
+				$is_tee = isset( $types[ $m[1] ] ) && self::type_is_tee( $types[ $m[1] ] );
+				self::disconnect_edge( $edges, $m[1], $m[2] ?? null, $is_tee );
 				continue;
 			}
-			if ( \preg_match( '/^cmd\s+(\S+?):config\s+set_\w*target\s+(\S+)/', $line, $m ) ) {
-				$edges[] = [ $m[1], $m[2] ];
+			if ( \preg_match( '/^connect_node\s+(\S+)\s+(\S+)/', $line, $m ) ) {
+				$is_tee = isset( $types[ $m[1] ] ) && self::type_is_tee( $types[ $m[1] ] );
+				self::connect_edge( $edges, $m[1], $m[2], [ $name ], $is_tee );
+				continue;
+			}
+			if ( \preg_match( '/^cmd\s+(\S+?):config\s+(set_\w*target)(?:\s+(\S+))?$/', $line, $m ) ) {
+				self::set_config_edge( $edges, $m[1], Core::resolve_config_tokens( $m[3] ?? '' ), $m[2], [ $name ] );
 			}
 		}
 		return self::$graph_cache[ $name ] = [
 			'nodes' => $nodes,
-			'edges' => $edges,
+			'edges' => \array_map(
+				static fn ( array $edge ): array => [ $edge['from'], $edge['to'] ],
+				\array_values( $edges )
+			),
 		];
 	}
 

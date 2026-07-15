@@ -996,4 +996,35 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( [], $result['includes'] );
 		$this->assertSame( [], $result['expanded']['nodes'] );
 	}
+
+	/** A flat topology keeps its own nodes editable while shipping resolved config routing for the console seed. */
+	public function test_get_ships_resolved_config_edges_without_putting_own_nodes_in_the_include_expansion(): void {
+		\Newspack_Nodes\Core::register_config_namespace(
+			'wombat_get_seed',
+			static fn ( string $key ): ?string => 'stats_sink' === $key ? 'violet-stats-sink-947' : null
+		);
+		\file_put_contents(
+			"{$this->stock}/flat-config-target.tsl",
+			"make_node Echo cerulean-flame-builder-619\n"
+			. "make_node Echo violet-stats-sink-947\n"
+			. "cmd cerulean-flame-builder-619:config set_stats_target <wombat_get_seed:stats_sink>\n"
+		);
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'flat-config-target' );
+
+		$this->assertSame( [], $result['includes'] );
+		$this->assertSame( [], $result['expanded']['nodes'], 'own nodes must not become borrowed include nodes' );
+		$this->assertSame(
+			[
+				[
+					'from'         => 'cerulean-flame-builder-619',
+					'to'           => 'violet-stats-sink-947',
+					'origin'       => [ 'flat-config-target' ],
+					'roles'        => [ 'config' ],
+					'config_slots' => [ 'set_stats_target' ],
+				],
+			],
+			$result['resolved_config_edges']
+		);
+	}
 }

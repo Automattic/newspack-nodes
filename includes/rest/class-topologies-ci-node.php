@@ -10,7 +10,10 @@
  *   list   — `{topologies: [{name, source, active, num_partitions, frontmatter}], user_dir}`.
  *            `source` is 'user'|'stock'|'both'; `active` follows the operator overlay;
  *            `num_partitions` is the canonical count (Bootstrap::num_partitions_for).
- *   get    — args `{name}`. Returns `{name, source, tsl}`; throws on miss.
+ *   get    — args `{name}`. Returns `{name, source, tsl, includes, expanded,
+ *            resolved_config_edges}`; throws on miss. `expanded` contains only
+ *            borrowed include members, while `resolved_config_edges` carries
+ *            the whole topology's token-resolved config routing for the seed.
  *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
  *            restarted_fleets}`. 1 MiB cap; dry-run validation via
  *            Shell::validate_line, plus include resolution (Topology_Registry::expand
@@ -123,14 +126,21 @@ class Topologies_CI_Node extends Service_CI_Node {
 		];
 
 		// Composed graph rides along: the console seeds its canvas from this.
-		$includes = self::direct_includes_from_tsl( $tsl );
+		$includes              = self::direct_includes_from_tsl( $tsl );
+		$resolved_config_edges = \array_values(
+			\array_filter(
+				Topology_Registry::expand( [ $name ] )['edges'],
+				static fn ( array $edge ): bool => \in_array( 'config', $edge['roles'], true )
+			)
+		);
 
 		return [
-			'name'     => $name,
-			'source'   => self::source_of( $sources ),
-			'tsl'      => $tsl,
-			'includes' => $includes,
-			'expanded' => Topology_Registry::expand( $includes ),
+			'name'                  => $name,
+			'source'                => self::source_of( $sources ),
+			'tsl'                   => $tsl,
+			'includes'              => $includes,
+			'expanded'              => Topology_Registry::expand( $includes ),
+			'resolved_config_edges' => $resolved_config_edges,
 		];
 	}
 

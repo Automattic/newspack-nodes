@@ -116,18 +116,20 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 		expect( byName( 'job-router' )?.workers ?? [] ).toHaveLength( 1 );
 	} );
 
-	// combined's `disconnect_node firehose:consumer` + tee rewiring leaves each
-	// target reachable BOTH directly and through the tee, so contraction yields a
-	// duplicate firehose:consumer→job-router edge. A handler must count once.
-	it( 'emits ONE worker per handler when a target is reachable twice', () => {
+	it( 'emits one worker when two valid Tee paths converge on the same handler', () => {
 		const graph = {
 			combined: {
 				...FANOUT_GRAPH.combined,
+				nodes: [
+					...FANOUT_GRAPH.combined.nodes,
+					{ name: 'nested:tee', kind: 'tee' },
+				],
 				edges: [
-					...FANOUT_GRAPH.combined.edges,
-					// The include's direct edges the disconnect did not remove.
-					[ 'firehose:consumer', 'request-builder' ],
-					[ 'firehose:consumer', 'job-router' ],
+					[ 'firehose:consumer', 'firehose:tee' ],
+					[ 'firehose:tee', 'nested:tee' ],
+					[ 'firehose:tee', 'job-router' ],
+					[ 'nested:tee', 'job-router' ],
+					[ 'job-router', 'jobs:partition' ],
 				],
 			},
 		};
@@ -135,11 +137,10 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 			{ ...FANOUT_DATA, graph },
 			EMPTY_PRIOR
 		);
-		const counts = workers.reduce( ( m, w ) => {
-			m[ w.handler ] = ( m[ w.handler ] || 0 ) + 1;
-			return m;
-		}, {} );
-		expect( counts ).toEqual( { 'request-builder': 1, 'job-router': 1 } );
+
+		expect( workers.map( ( worker ) => worker.handler ) ).toEqual( [
+			'job-router',
+		] );
 	} );
 } );
 

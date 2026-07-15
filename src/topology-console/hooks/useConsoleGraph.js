@@ -30,7 +30,12 @@ import {
 	fetchExpandedIncludes,
 	primeExpandedIncludes,
 } from './useExpandedIncludes';
-import { applyLoadedBaseline, withReplAnchor } from '../utils/draftGraph';
+import {
+	applyLoadedBaseline,
+	withReplAnchor,
+	withResolvedConfigEdges,
+} from '../utils/draftGraph';
+import { augmentWithVirtualEdges } from '../utils/virtualEdges';
 import { scopeFromCwd } from '../utils/scope';
 import {
 	loadHubTranscript,
@@ -49,8 +54,9 @@ const EMPTY_TRANSCRIPT = [];
  * @param {string[]} params.workers       Active worker readers (`['aggregator.p0', …]`); one RemoteIpc per entry.
  * @param {boolean}  params.streamEnabled Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this only gates the EventSource, so cd-ing off a worker stops streaming without rebuilding. Default true.
  * @param {Object}   params.debugLevelRef React ref holding the Dumper verbosity dial.
- * @return {{status: string, ssePid: ?number, shell: ?ShellNode}} Connection state +
- *   the anonymous Shell (the console drives typed input through it).
+ * @param {Function} params.loadCatalog   Load the PHP class catalog with `is_tee` flags.
+ * @return {Object} Connection state, the anonymous Shell, and any pre-metadata
+ *                  seed failure.
  */
 export function useConsoleGraph( {
 	topology,
@@ -59,9 +65,11 @@ export function useConsoleGraph( {
 	workers = [],
 	streamEnabled = true,
 	debugLevelRef,
+	loadCatalog,
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
+	const [ seedError, setSeedError ] = useState( null );
 
 	// Hidden tab throttles the heartbeat → slot TTLs out; gate on visibility.
 	const isPageVisible = usePageVisibility();
@@ -83,8 +91,11 @@ export function useConsoleGraph( {
 		if ( ! enabled ) {
 			setSsePid( null );
 			setShell( null );
+			setSeedError( null );
 			return undefined;
 		}
+		let seedCancelled = false;
+		setSeedError( null );
 
 		const reader = `${ topology }.p${ partition }`;
 
@@ -178,8 +189,8 @@ export function useConsoleGraph( {
 
 		// Paint the declared topology before SSE/dump_metadata arrives.
 		if ( topology ) {
-			fetchTopologyTsl( topology )
-				.then( async ( resp ) => {
+			const topologySeed = fetchTopologyTsl( topology ).then(
+				async ( resp ) => {
 					/**
 					 * Seed the COMPOSED graph. A topology that mostly `include`s
 					 * others owns few nodes of its own, so seeding the parsed file
@@ -187,14 +198,47 @@ export function useConsoleGraph( {
 					 * dump_metadata — the staged paint autofit can't survive.
 					 * `get` ships the expansion; expand() is the fallback.
 					 */
-					const parsedGraph = parseTsl( resp?.tsl || '' );
+					const parsedGraph = withResolvedConfigEdges(
+						parseTsl( resp?.tsl || '' ),
+						resp?.resolved_config_edges
+					);
 					const baseline =
 						resp?.expanded ??
 						( await fetchExpandedIncludes( parsedGraph.includes ) );
 					primeExpandedIncludes( parsedGraph.includes, baseline );
+					return { parsedGraph, baseline };
+				}
+			);
+			const catalog = Promise.resolve()
+				.then( () => {
+					if ( 'function' !== typeof loadCatalog ) {
+						throw new Error(
+							'PHP class catalog loader is unavailable.'
+						);
+					}
+					return loadCatalog();
+				} )
+				.then( ( loadedCatalog ) => {
+					if ( ! Array.isArray( loadedCatalog?.classes ) ) {
+						throw new Error( 'Invalid classes.list response.' );
+					}
+					return loadedCatalog;
+				} );
+			Promise.all( [ topologySeed, catalog ] )
+				.then( ( [ { parsedGraph, baseline }, loadedCatalog ] ) => {
+					if ( seedCancelled ) {
+						return;
+					}
 					// Anchor `_repl` in the seed so autofit includes it.
-					const seeded = withReplAnchor(
-						applyLoadedBaseline( parsedGraph, baseline )
+					const seeded = augmentWithVirtualEdges(
+						withReplAnchor(
+							applyLoadedBaseline(
+								parsedGraph,
+								baseline,
+								loadedCatalog.classes
+							)
+						),
+						loadedCatalog.classes
 					);
 					// Resolve LIVE metadata; skip if a reply already filled it.
 					const node = Core.node( names.METADATA );
@@ -208,8 +252,10 @@ export function useConsoleGraph( {
 						node.setState( 'metadata', seeded );
 					}
 				} )
-				.catch( () => {
-					// Best-effort seed; the live poll fills the canvas.
+				.catch( ( error ) => {
+					if ( ! seedCancelled ) {
+						setSeedError( error );
+					}
 				} );
 		}
 
@@ -217,6 +263,7 @@ export function useConsoleGraph( {
 		// The stream-gating effect owns the EventSource; cd-off can quiet it.
 
 		return () => {
+			seedCancelled = true;
 			// Each node owns teardown; unregister before removeNode.
 			dumper.unregister( 'transcript', transcriptListenerId );
 			dumper.removeNode();
@@ -235,7 +282,15 @@ export function useConsoleGraph( {
 		};
 		// `workersKey` is the stable projection of `workers` (id churn).
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ topology, partition, enabled, workersKey, generation ] );
+	}, [
+		topology,
+		partition,
+		enabled,
+		workersKey,
+		generation,
+		fetchTopologyTsl,
+		loadCatalog,
+	] );
 
 	// Stream open only while mounted, cwd is a worker, and the tab is visible.
 	useEffect( () => {
@@ -259,5 +314,5 @@ export function useConsoleGraph( {
 		status = 'connecting';
 	}
 
-	return { status, ssePid, shell };
+	return { status, ssePid, shell, seedError };
 }

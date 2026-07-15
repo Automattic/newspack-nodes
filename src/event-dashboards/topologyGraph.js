@@ -96,6 +96,17 @@ function logicalLogName( vertex ) {
 	return '' !== name ? name : vertex;
 }
 
+// @longform Resolve a graph log vertex for one worker partition. Worker rows
+// carry the concrete probe source, while a tree branch keeps the TSL tokenized
+// vertex.
+const concreteLogForPartition = ( vertex, partition ) => {
+	let concrete = vertex;
+	PARTITION_TOKENS.forEach( ( token ) => {
+		concrete = concrete.split( token ).join( String( partition ) );
+	} );
+	return concrete;
+};
+
 const lc = ( s ) => String( s ).toLowerCase();
 const byLower = ( a, b ) => {
 	const x = lc( a );
@@ -387,6 +398,21 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			}
 			workersByHandler.get( handler ).push( wk );
 		} );
+		const workersForBranch = ( handler, path ) => {
+			const workersForHandler = workersByHandler.get( handler ) || [];
+			const upstreamLog = [ ...path ]
+				.reverse()
+				.find( ( vertex ) => isLog.get( vertex ) );
+			if ( upstreamLog === undefined ) {
+				return workersForHandler;
+			}
+			return workersForHandler.filter(
+				( worker ) =>
+					! worker.source ||
+					worker.source ===
+						concreteLogForPartition( upstreamLog, worker.partition )
+			);
+		};
 
 		const catalogNames = [ ...logSlotsByName.keys() ];
 		const childrenOf = ( vertex ) =>
@@ -455,7 +481,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 				kind: 'node',
 				name: vertex,
 				key,
-				workers: workersByHandler.get( vertex ) || [],
+				workers: workersForBranch( vertex, path ),
 				children: makeKids( vertex, path, key ),
 			};
 		};
@@ -469,9 +495,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 				names: ids,
 				name: ids.join( ', ' ),
 				key,
-				workers: ids.flatMap(
-					( id ) => workersByHandler.get( id ) || []
-				),
+				workers: ids.flatMap( ( id ) => workersForBranch( id, path ) ),
 				children: makeSiblings( childrenOf( ids[ 0 ] ), nextPath, key ),
 			};
 		};

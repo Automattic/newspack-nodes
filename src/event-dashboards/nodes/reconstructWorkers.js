@@ -97,9 +97,7 @@ function consumerHandlers( graphTopo ) {
 		if ( 'consumer' !== node.kind ) {
 			return;
 		}
-		// @longform Only logic nodes are valid handlers; else consumer's own name.
-		// Dedup: a target reachable both directly AND through a contracted tee
-		// (combined's disconnect+rewire) would emit a duplicate worker badge.
+		// Distinct Tee branches can legitimately converge on one handler.
 		const downstream = [
 			...new Set(
 				( outAdj.get( node.name ) || [] ).filter(

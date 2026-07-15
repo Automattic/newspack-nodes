@@ -728,6 +728,33 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'echo', 'sink' );
 	} );
 
+	it( 'SingleTargetField: does not offer a config-only edge as its removable connection', () => {
+		const onRemoveEdge = jest.fn();
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'echo', class: 'Echo' },
+						{ id: 'ibex-config', class: 'Echo' },
+					],
+					edges: [
+						{
+							from: 'echo',
+							to: 'ibex-config',
+							roles: [ 'config' ],
+						},
+					],
+				} }
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+		const select = container.querySelector( '#topology-target-input-echo' );
+		expect( select.value ).toBe( '' );
+		fireEvent.change( select, { target: { value: '' } } );
+		expect( onRemoveEdge ).not.toHaveBeenCalled();
+	} );
+
 	it( 'SingleTargetField: includes a current target missing from the draft node list', () => {
 		const { container } = render(
 			<Inspector

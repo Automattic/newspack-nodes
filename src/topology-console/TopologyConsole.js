@@ -45,8 +45,8 @@ import {
 	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
 import {
-	addEdge,
 	addInclude,
+	connectDraftEdge,
 	draftIsDirty,
 	addNode,
 	applyLoadedBaseline,
@@ -59,6 +59,7 @@ import {
 	updateNodeArgs,
 	updateNodeVerbs,
 	withReplAnchor,
+	withResolvedConfigEdges,
 } from './utils/draftGraph';
 import { snapToGrid } from './utils/autoLayout';
 import { stampOrigins } from './utils/stampOrigins';
@@ -299,6 +300,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const topologyList = useTopologyList( { enabled: openModalShown } );
 	// Two catalogs: PHP (HTTP; workers/edit) and JS (browser make_node).
 	const phpCatalog = useClassCatalog( { enabled: true } );
+	const loadPhpCatalog = phpCatalog.load;
 	const jsCatalog = useJsCatalog();
 	const vaultCatalog = useVaults( { enabled: true } );
 	// Measure .topology-app so the REPL ceiling tracks real height.
@@ -344,7 +346,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	// SSE off in edit mode / off-worker cwd; same detection as poll gate.
-	const { status, ssePid, shell } = useConsoleGraph( {
+	const { status, ssePid, shell, seedError } = useConsoleGraph( {
 		topology,
 		partition,
 		enabled: mode !== 'edit',
@@ -352,7 +354,19 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		workers: pathOptions.filter( ( o ) => parseWorker( o ) ),
 		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
+		loadCatalog: loadPhpCatalog,
 	} );
+	useEffect( () => {
+		const error = seedError || phpCatalog.error;
+		if ( ! error ) {
+			return;
+		}
+		const msg =
+			( error && error.data && error.data.message ) ||
+			( error && error.message ) ||
+			__( 'Failed to load the PHP class catalog.', 'newspack-nodes' );
+		setToast( { kind: 'error', text: msg } );
+	}, [ seedError, phpCatalog.error ] );
 
 	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4).
 	const { graph: parsed, hasNodes: parsedHasNodes } = useGraphSource( {
@@ -836,9 +850,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setDraft( blank );
 				setBaseline( blank );
 				if ( topology ) {
-					fetchTopology( topology )
-						.then( async ( resp ) => {
-							const parsedGraph = parseTsl( resp.tsl || '' );
+					Promise.all( [
+						fetchTopology( topology ),
+						loadPhpCatalog(),
+					] )
+						.then( async ( [ resp, loadedCatalog ] ) => {
+							const parsedGraph = withResolvedConfigEdges(
+								parseTsl( resp.tsl || '' ),
+								resp.resolved_config_edges
+							);
 							const includeBaseline =
 								resp.expanded ??
 								( await fetchExpandedIncludes(
@@ -851,7 +871,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 							const loaded = withReplAnchor(
 								applyLoadedBaseline(
 									parsedGraph,
-									includeBaseline
+									includeBaseline,
+									loadedCatalog.classes
 								)
 							);
 							// Sync ref: re-fetch diffs vs THIS, not EMPTY.
@@ -890,7 +911,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[ mode, draft, baseline, topology, fetchTopology ]
+		[ mode, draft, baseline, topology, fetchTopology, loadPhpCatalog ]
 	);
 
 	// Source of truth: live `parsed` in view mode, frozen draft in edit mode.
@@ -1058,22 +1079,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				liveHandlers.onConnect( from, to );
 				return;
 			}
-			setDraft( ( g ) => {
-				// Non-Tee nodes have a single target slot; Tees fan out.
-				const fromNode = g.nodes.find( ( n ) => n.id === from );
-				if ( fromNode && fromNode.class !== 'Tee' ) {
-					let cleared = { ...g };
-					for ( const e of g.edges ) {
-						if ( e.from === from ) {
-							cleared = removeEdge( cleared, e.from, e.to );
-						}
-					}
-					return addEdge( cleared, { from, to } );
-				}
-				return addEdge( g, { from, to } );
-			} );
+			setDraft( ( graph ) =>
+				connectDraftEdge( graph, from, to, catalog.classes )
+			);
 		},
-		[ mode, liveHandlers ]
+		[ mode, liveHandlers, catalog.classes ]
 	);
 
 	const handleRemoveNode = useCallback(
@@ -1240,14 +1250,24 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			setOpenModalShown( false );
 			setMode( 'edit' );
 			try {
-				const resp = await fetchTopology( name );
-				const parsedGraph = parseTsl( resp.tsl || '' );
+				const [ resp, loadedCatalog ] = await Promise.all( [
+					fetchTopology( name ),
+					loadPhpCatalog(),
+				] );
+				const parsedGraph = withResolvedConfigEdges(
+					parseTsl( resp.tsl || '' ),
+					resp.resolved_config_edges
+				);
 				const includeBaseline =
 					resp.expanded ??
 					( await fetchExpandedIncludes( parsedGraph.includes ) );
 				primeExpandedIncludes( parsedGraph.includes, includeBaseline );
 				const next = withReplAnchor(
-					applyLoadedBaseline( parsedGraph, includeBaseline )
+					applyLoadedBaseline(
+						parsedGraph,
+						includeBaseline,
+						loadedCatalog.classes
+					)
 				);
 				// Sync ref: re-fetch diffs vs THIS, not EMPTY.
 				prevExpandBaselineRef.current = includeBaseline;
@@ -1277,7 +1297,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[ fetchTopology ]
+		[ fetchTopology, loadPhpCatalog ]
 	);
 
 	/**

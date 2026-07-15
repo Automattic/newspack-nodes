@@ -10,6 +10,8 @@
  * of a full connect list.
  */
 
+import { edgeHasConnectRole } from './draftGraph';
+
 function serializeArg( value ) {
 	const str = String( value );
 	if ( /\s/.test( str ) ) {
@@ -138,12 +140,18 @@ export function serializeTsl( graph, schemas = null, baseline = null ) {
 		return '';
 	}
 	const includes = graph.includes || [];
+	const configOverrides = graph.configOverrides || [];
 	const hasFrontmatter =
 		graph.frontmatter && Object.keys( graph.frontmatter ).length > 0;
 	const ownNodes = ( graph.nodes || [] ).filter(
 		( n ) => ! n.reserved && ! isBorrowed( n )
 	);
-	if ( ! ownNodes.length && ! hasFrontmatter && ! includes.length ) {
+	if (
+		! ownNodes.length &&
+		! hasFrontmatter &&
+		! includes.length &&
+		! configOverrides.length
+	) {
 		return '';
 	}
 	const lines = [];
@@ -164,10 +172,16 @@ export function serializeTsl( graph, schemas = null, baseline = null ) {
 			lines.push( emitVerb( n.name, inv, schemas, n.class ) );
 		}
 	}
+	for ( const override of configOverrides ) {
+		const head = `cmd ${ override.from }:config ${ override.slot }`;
+		lines.push(
+			override.to ? `${ head } ${ serializeArg( override.to ) }` : head
+		);
+	}
 	const edges = ( graph.edges || [] ).filter(
-		( e ) => ! reserved.has( e.from )
+		( e ) => ! reserved.has( e.from ) && edgeHasConnectRole( e )
 	);
-	const baseEdges = baseline?.edges || [];
+	const baseEdges = ( baseline?.edges || [] ).filter( edgeHasConnectRole );
 	const editedKeys = new Set( edges.map( edgeKey ) );
 	const baseKeys = new Set( baseEdges.map( edgeKey ) );
 	// Tee's connect_node APPENDS; a dropped baseline edge needs a disconnect.

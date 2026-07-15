@@ -757,6 +757,74 @@ it( 'overlays this topology worker rows onto a logic node entity by handler', ()
 	expect( rb.workers[ 0 ].behind ).toBe( 5 );
 } );
 
+it( 'shows only the worker for the input branch that reaches a repeated handler', () => {
+	const [ section ] = buildTopologySections(
+		{
+			combined: {
+				nodes: [
+					gn( 'firehose-reader', 'consumer', {
+						reads: 'firehose.p<partition>',
+					} ),
+					gn( 'jobintake-reader', 'consumer', {
+						reads: 'jobintake.p<partition>',
+					} ),
+					gn( 'job-router', 'logic' ),
+				],
+				edges: [
+					[ 'firehose-reader', 'job-router' ],
+					[ 'jobintake-reader', 'job-router' ],
+				],
+			},
+		},
+		[
+			w( {
+				type: 'combined',
+				handler: 'job-router',
+				source: 'firehose.p0',
+				partition: 0,
+				behind: 731,
+			} ),
+			w( {
+				type: 'combined',
+				handler: 'job-router',
+				source: 'jobintake.p0',
+				partition: 0,
+				behind: 863,
+			} ),
+		],
+		[
+			{
+				name: 'firehose.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'jobintake.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+
+	const firehose = section.tree.find(
+		( entity ) => entity.name === 'firehose'
+	);
+	const jobintake = section.tree.find(
+		( entity ) => entity.name === 'jobintake'
+	);
+	const firehoseRouter = firehose.children.find(
+		( entity ) => entity.name === 'job-router'
+	);
+	const jobintakeRouter = jobintake.children.find(
+		( entity ) => entity.name === 'job-router'
+	);
+
+	expect( firehoseRouter.workers ).toHaveLength( 1 );
+	expect( firehoseRouter.workers[ 0 ].source ).toBe( 'firehose.p0' );
+	expect( firehoseRouter.workers[ 0 ].behind ).toBe( 731 );
+	expect( jobintakeRouter.workers ).toHaveLength( 1 );
+	expect( jobintakeRouter.workers[ 0 ].source ).toBe( 'jobintake.p0' );
+	expect( jobintakeRouter.workers[ 0 ].behind ).toBe( 863 );
+} );
+
 it( 'gives a declared-but-unstaffed logic node an empty worker list', () => {
 	const [ section ] = buildTopologySections(
 		{
