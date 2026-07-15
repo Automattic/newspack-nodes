@@ -297,9 +297,6 @@ class BootstrapTest extends TestCase {
 		$conf_dir = $this->make_temp_dir();
 		$override = "{$conf_dir}/np-override.php";
 		\file_put_contents( $override, "<?php return [ 'topologies' => [ 'widget' ] ];\n" );
-		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-		$orig_allowed = $ref->getValue();
-		$ref->setValue( null, \array_merge( $orig_allowed, [ $conf_dir ] ) );
 
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $override );
@@ -310,7 +307,6 @@ class BootstrapTest extends TestCase {
 			$this->assertArrayHasKey( 'widget', $result, 'config-file topologies is the active set when no wp-option overlay' );
 		} finally {
 			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
-			$ref->setValue( null, $orig_allowed );
 			\Newspack_Nodes\Config::reset();
 			\Newspack_Nodes\Topology_Registry::reset();
 		}
@@ -328,9 +324,6 @@ class BootstrapTest extends TestCase {
 		$conf_dir = $this->make_temp_dir();
 		$override = "{$conf_dir}/np-override.php";
 		\file_put_contents( $override, "<?php return [ 'topologies' => [ 'widget' ] ];\n" );
-		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-		$orig_allowed = $ref->getValue();
-		$ref->setValue( null, \array_merge( $orig_allowed, [ $conf_dir ] ) );
 
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'other' ];
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $override );
@@ -343,7 +336,6 @@ class BootstrapTest extends TestCase {
 		} finally {
 			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
-			$ref->setValue( null, $orig_allowed );
 			\Newspack_Nodes\Config::reset();
 			\Newspack_Nodes\Topology_Registry::reset();
 		}
@@ -992,10 +984,6 @@ class BootstrapTest extends TestCase {
 		try {
 			$conf = "{$tmp}/empty-base.php";
 			\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
-			$ref  = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-			$dirs   = $ref->getValue();
-			$dirs[] = $tmp;
-			$ref->setValue( null, $dirs );
 			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
 			\update_option( 'newspack_nodes_base_directory', '' );
 			\Newspack_Nodes\Config::reset();

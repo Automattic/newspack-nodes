@@ -35,58 +35,72 @@ class ConfigUtilsTest extends TestCase {
 
 	public function test_validate_config_path_rejects_null_byte(): void {
 		$this->assertNull(
-			Config_Utils::validate_config_path( "/tmp/evil\0path.php", [ '/tmp' ] )
+			Config_Utils::validate_config_path( "/tmp/evil\0path.php" )
 		);
 	}
 
 	public function test_validate_config_path_rejects_non_php_extension(): void {
 		$this->assertNull(
-			Config_Utils::validate_config_path( '/tmp/config.txt', [ '/tmp' ] )
+			Config_Utils::validate_config_path( '/tmp/config.txt' )
 		);
 	}
 
 	public function test_validate_config_path_rejects_no_extension(): void {
 		$this->assertNull(
-			Config_Utils::validate_config_path( '/tmp/config', [ '/tmp' ] )
+			Config_Utils::validate_config_path( '/tmp/config' )
 		);
 	}
 
-	public function test_validate_config_path_returns_realpath_when_in_allowed_dir(): void {
+	public function test_validate_config_path_returns_canonical_readable_php_file(): void {
 		$path = $this->temp_dir . '/ok-config.php';
 		\file_put_contents( $path, "<?php return [];\n" );
-		$result = Config_Utils::validate_config_path( $path, [ $this->temp_dir ] );
+		$result = Config_Utils::validate_config_path( $path );
 		$this->assertSame( \realpath( $path ), $result );
 	}
 
-	public function test_validate_config_path_tries_multiple_allowed_dirs(): void {
-		// First allowed dir doesn't contain the file; second one does.
-		$path = $this->temp_dir . '/multi.php';
-		\file_put_contents( $path, "<?php return [];\n" );
+	public function test_validate_config_path_retains_legacy_three_argument_contract(): void {
+		$path = $this->temp_dir . '/legacy-contract-8317.php';
+		\file_put_contents( $path, "<?php return [ 'sentinel' => 'legacy-contract-4291' ];\n" );
+
 		$result = Config_Utils::validate_config_path(
 			$path,
-			[ '/nowhere/at/all', $this->temp_dir ]
+			[ '/definitely-not-the-config-parent-6137' ],
+			'LegacyConsumer'
 		);
+
 		$this->assertSame( \realpath( $path ), $result );
 	}
 
-	public function test_validate_config_path_rejects_when_outside_all_allowed_dirs(): void {
-		$path = $this->temp_dir . '/outside.php';
+	public function test_validate_config_path_rejects_missing_php_file(): void {
+		$this->assertNull(
+			Config_Utils::validate_config_path( $this->temp_dir . '/missing-8317.php' )
+		);
+	}
+
+	public function test_validate_config_path_rejects_unreadable_php_file(): void {
+		$path = $this->temp_dir . '/unreadable.php';
 		\file_put_contents( $path, "<?php return [];\n" );
-		// Use a sibling-but-separate directory as the only allowed dir.
-		$other = $this->make_temp_dir( 'newspack-nodes-test-other-' );
+		\chmod( $path, 0000 );
 		try {
-			$this->assertNull(
-				Config_Utils::validate_config_path( $path, [ $other ] )
-			);
+			$this->assertFalse( \is_readable( $path ) );
+			$this->assertNull( Config_Utils::validate_config_path( $path ) );
 		} finally {
-			$this->rmdir_recursive( $other );
+			\chmod( $path, 0644 );
 		}
 	}
 
-	public function test_validate_config_path_rejects_when_allowed_dirs_empty(): void {
-		$path = $this->temp_dir . '/orphan.php';
-		\file_put_contents( $path, "<?php return [];\n" );
-		$this->assertNull( Config_Utils::validate_config_path( $path, [] ) );
+	public function test_validate_config_path_rejects_directory_named_php(): void {
+		$path = $this->temp_dir . '/directory.php';
+		\mkdir( $path, 0755 );
+		$this->assertNull( Config_Utils::validate_config_path( $path ) );
+	}
+
+	public function test_validate_config_path_rejects_php_symlink_to_non_php_file(): void {
+		$target = $this->temp_dir . '/target.txt';
+		$link   = $this->temp_dir . '/config.php';
+		\file_put_contents( $target, "<?php return [];\n" );
+		$this->assertTrue( \symlink( $target, $link ) );
+		$this->assertNull( Config_Utils::validate_config_path( $link ) );
 	}
 
 	public function test_validate_config_path_uses_custom_error_log_prefix(): void {
@@ -94,7 +108,7 @@ class ConfigUtilsTest extends TestCase {
 		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
 			$captured .= $message;
 		} );
-		Config_Utils::validate_config_path( '/tmp/nope.txt', [ '/tmp' ], 'MyPrefix' );
+		Config_Utils::validate_config_path( '/tmp/nope.txt', [], 'MyPrefix' );
 		$this->assertStringContainsString( 'MyPrefix::validate_config_path()', $captured );
 	}
 
@@ -103,7 +117,7 @@ class ConfigUtilsTest extends TestCase {
 		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
 			$captured .= $message;
 		} );
-		Config_Utils::validate_config_path( '/tmp/nope.txt', [ '/tmp' ] );
+		Config_Utils::validate_config_path( '/tmp/nope.txt' );
 		$this->assertStringContainsString( 'Config_Utils::validate_config_path()', $captured );
 	}
 
@@ -115,7 +129,7 @@ class ConfigUtilsTest extends TestCase {
 		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
 			$captured .= $message;
 		} );
-		Config_Utils::validate_config_path( "/tmp/weird\t\x07config.txt", [ '/tmp' ] );
+		Config_Utils::validate_config_path( "/tmp/weird\t\x07config.txt" );
 		$this->assertStringNotContainsString( "\t", $captured );
 		$this->assertStringNotContainsString( "\x07", $captured );
 	}
@@ -151,7 +165,7 @@ class ConfigUtilsTest extends TestCase {
 	}
 
 	public function test_is_within_returns_null_when_outside_base(): void {
-		// `/etc` exists but isn't inside our temp_dir.
+		// /etc exists but isn't inside our temp_dir.
 		$this->assertNull( Config_Utils::is_within( '/etc', $this->temp_dir ) );
 	}
 
@@ -170,8 +184,8 @@ class ConfigUtilsTest extends TestCase {
 		// prefix as $this->temp_dir; without rtrim('/').'/' on the base, a
 		// substr_compare would falsely accept it. Construct a sibling whose
 		// directory name begins with the leaf component of $this->temp_dir.
-		$leaf       = \basename( $this->temp_dir );
-		$sibling    = \dirname( $this->temp_dir ) . '/' . $leaf . '-evil-sibling';
+		$leaf    = \basename( $this->temp_dir );
+		$sibling = \dirname( $this->temp_dir ) . '/' . $leaf . '-evil-sibling';
 		\mkdir( $sibling, 0755, true );
 		try {
 			$this->assertNull( Config_Utils::is_within( $sibling, $this->temp_dir ) );
@@ -313,9 +327,9 @@ class ConfigUtilsTest extends TestCase {
 	public function test_load_config_file_rejects_non_array_return(): void {
 		$conf = $this->temp_dir . '/string-return.php';
 		\file_put_contents( $conf, "<?php return 'not-an-array';\n" );
-		$config = [ 'existing' => 'value' ];
-		$result = Config_Utils::load_config_file( $config, $conf );
-		$this->assertSame( $config, $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'config must return array of scalar/array values only' );
+		Config_Utils::load_config_file( [ 'existing' => 'value' ], $conf );
 	}
 
 	public function test_load_config_file_rejects_array_with_object_value(): void {
@@ -324,40 +338,33 @@ class ConfigUtilsTest extends TestCase {
 			$conf,
 			"<?php return [ 'bad' => new \\stdClass() ];\n"
 		);
-		$config = [ 'existing' => 'value' ];
-		$result = Config_Utils::load_config_file( $config, $conf );
-		$this->assertSame( $config, $result );
-		$this->assertArrayNotHasKey( 'bad', $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'config must return array of scalar/array values only' );
+		Config_Utils::load_config_file( [ 'existing' => 'value' ], $conf );
 	}
 
 	public function test_load_config_file_rejects_when_returns_null(): void {
 		$conf = $this->temp_dir . '/null-return.php';
 		\file_put_contents( $conf, "<?php return null;\n" );
-		$config = [ 'existing' => 'value' ];
-		$result = Config_Utils::load_config_file( $config, $conf );
-		$this->assertSame( $config, $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'config must return array of scalar/array values only' );
+		Config_Utils::load_config_file( [ 'existing' => 'value' ], $conf );
 	}
 
-	public function test_load_config_file_uses_custom_error_log_prefix(): void {
+	public function test_load_config_file_uses_custom_exception_prefix(): void {
 		$conf = $this->temp_dir . '/bad-prefix-test.php';
 		\file_put_contents( $conf, "<?php return 'malicious_string';\n" );
-		$captured = '';
-		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
-			$captured .= $message;
-		} );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'CustomPrefix::load_config_file()' );
 		Config_Utils::load_config_file( [], $conf, 'CustomPrefix' );
-		$this->assertStringContainsString( 'CustomPrefix::load_config_file()', $captured );
 	}
 
-	public function test_load_config_file_default_error_log_prefix(): void {
+	public function test_load_config_file_uses_default_exception_prefix(): void {
 		$conf = $this->temp_dir . '/bad-default-prefix.php';
 		\file_put_contents( $conf, "<?php return 'malicious_string';\n" );
-		$captured = '';
-		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
-			$captured .= $message;
-		} );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Config_Utils::load_config_file()' );
 		Config_Utils::load_config_file( [], $conf );
-		$this->assertStringContainsString( 'Config_Utils::load_config_file()', $captured );
 	}
 
 	public function test_load_config_file_empty_array_merge(): void {

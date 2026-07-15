@@ -269,12 +269,6 @@ class JobIntakeTest extends TestCase {
 		$prev_env = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		$conf     = "{$this->tmp}/empty-base.php";
 		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
-		// Whitelist the temp dir on the substrate Config so the override file
-		// validates (Job_Intake reads the substrate's get_base_directory()).
-		$ref    = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-		$dirs   = $ref->getValue();
-		$dirs[] = $this->tmp;
-		$ref->setValue( null, $dirs );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
 		\update_option( 'newspack_nodes_base_directory', '' );
 		\Newspack_Nodes\Config::reset();
