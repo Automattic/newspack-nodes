@@ -97,10 +97,16 @@ function consumerHandlers( graphTopo ) {
 		if ( 'consumer' !== node.kind ) {
 			return;
 		}
-		// Only logic nodes are valid handlers; else consumer's own name.
-		const downstream = ( outAdj.get( node.name ) || [] ).filter(
-			( n ) => 'logic' === kindOf.get( n )
-		);
+		// @longform Only logic nodes are valid handlers; else consumer's own name.
+		// Dedup: a target reachable both directly AND through a contracted tee
+		// (combined's disconnect+rewire) would emit a duplicate worker badge.
+		const downstream = [
+			...new Set(
+				( outAdj.get( node.name ) || [] ).filter(
+					( n ) => 'logic' === kindOf.get( n )
+				)
+			),
+		];
 		out.push( {
 			name: node.name,
 			sourceTemplate: node.reads || '',
