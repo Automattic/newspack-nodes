@@ -1,5 +1,6 @@
 import { render, fireEvent } from '@testing-library/react';
 import TreeEntity from '../TreeEntity';
+import { buildTopologySections } from '../topologyGraph';
 
 // Count SegmentBar renders to prove a stable subtree is NOT re-rendered.
 let mockSegmentBarRenders = 0;
@@ -279,6 +280,84 @@ it( 'a node row shows a status-colored partition pill and R rate', () => {
 	expect( container.querySelector( '.connector-rate' ).textContent ).toMatch(
 		/R /
 	);
+} );
+
+it( 'renders each repeated handler branch with only its own source rate', () => {
+	const [ section ] = buildTopologySections(
+		{
+			combined: {
+				nodes: [
+					{
+						name: 'firehose-reader',
+						kind: 'consumer',
+						reads: 'firehose.p<partition>',
+					},
+					{
+						name: 'jobintake-reader',
+						kind: 'consumer',
+						reads: 'jobintake.p<partition>',
+					},
+					{ name: 'job-router', kind: 'logic' },
+				],
+				edges: [
+					[ 'firehose-reader', 'job-router' ],
+					[ 'jobintake-reader', 'job-router' ],
+				],
+			},
+		},
+		[
+			{
+				type: 'combined',
+				handler: 'job-router',
+				source: 'firehose.p0',
+				partition: 0,
+				status: 'running',
+				behind: 0,
+			},
+			{
+				type: 'combined',
+				handler: 'job-router',
+				source: 'jobintake.p0',
+				partition: 0,
+				status: 'running',
+				behind: 0,
+			},
+		],
+		[
+			{
+				name: 'firehose.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'jobintake.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	const { container } = render(
+		<div>
+			{ section.tree.map( ( entity ) => (
+				<TreeEntity
+					key={ entity.key }
+					entity={ entity }
+					depth={ 0 }
+					{ ...props }
+					byteRates={ {
+						'job-router-0-firehose.p0': 357,
+						'job-router-0-jobintake.p0': 941,
+					} }
+				/>
+			) ) }
+		</div>
+	);
+
+	const pills = container.querySelectorAll( '.worker-status-badge' );
+	const rates = [ ...container.querySelectorAll( '.connector-rate' ) ].map(
+		( node ) => node.textContent
+	);
+
+	expect( pills ).toHaveLength( 2 );
+	expect( rates ).toEqual( [ 'R 357 B/s', 'R 941 B/s' ] );
 } );
 
 it( 'folds only the instance whose position key is collapsed, not its twin', () => {

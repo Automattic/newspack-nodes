@@ -37,7 +37,15 @@ export function augmentWithVirtualEdges( graph, classes ) {
 				if ( argSpec.type !== 'node_name' ) {
 					return;
 				}
-				const targetName = inv.args && inv.args[ i ];
+				let targetName = inv.args && inv.args[ i ];
+				if ( /^<[a-zA-Z_]\w*:[a-zA-Z_]\w*>$/.test( targetName ) ) {
+					const resolved = ( graph.resolvedConfigEdges || [] ).find(
+						( edge ) =>
+							edge.from === node.id &&
+							( edge.config_slots || [] ).includes( inv.verb )
+					);
+					targetName = resolved?.to || '';
+				}
 				if ( ! targetName ) {
 					return;
 				}

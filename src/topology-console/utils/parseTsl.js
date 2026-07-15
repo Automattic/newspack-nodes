@@ -4,11 +4,11 @@
  * substitution patterns pass through unchanged and anything unrecognized is
  * silently dropped.
  *
- * `includes` and `disconnects` are the collapsed form's two halves: the caller
- * re-expands each include via `topologies expand` to get the borrowed baseline,
- * then SUBTRACTS `disconnects` from it — that's what makes a spliced edge
- * (drop a Grep between two borrowed endpoints) survive a reopen instead of the
- * re-expanded baseline resurrecting the edge the splice removed.
+ * `includes`, `edges`, and `disconnects` retain the public draft shape.
+ * `edgeOperations` also records connect/disconnect source order so hand-written
+ * TSL folds exactly like the interpreter after the include baseline is loaded.
+ * `configOverrides` retains target setters for borrowed nodes, which are not in
+ * the collapsed file's make_node set and therefore cannot own verbInvocations.
  */
 
 const VERB_ALIASES = {
@@ -53,6 +53,8 @@ export function parseTsl( text ) {
 	const frontmatter = {};
 	const includes = [];
 	const disconnects = [];
+	const edgeOperations = [];
+	const configOverrides = [];
 
 	const lines = String( text || '' ).split( '\n' );
 	for ( const raw of lines ) {
@@ -104,24 +106,48 @@ export function parseTsl( text ) {
 		} else if ( verb === 'cmd' && tokens.length >= 3 ) {
 			// Strip trailing `:config`; bare token is the owner node's name.
 			const target = tokens[ 1 ];
-			const colonIdx = target.indexOf( ':config' );
-			const ownerName =
-				colonIdx > 0 ? target.slice( 0, colonIdx ) : target;
+			const configTarget = target.endsWith( ':config' );
+			const ownerName = configTarget
+				? target.slice( 0, -':config'.length )
+				: target;
 			const owner = nodesByName.get( ownerName );
-			if ( ! owner ) {
-				continue;
+			if ( owner ) {
+				owner.verbInvocations.push( {
+					verb: tokens[ 2 ],
+					args: tokens.slice( 3 ),
+				} );
+			} else if (
+				configTarget &&
+				/^set_\w*target$/.test( tokens[ 2 ] )
+			) {
+				configOverrides.push( {
+					from: ownerName,
+					slot: tokens[ 2 ],
+					to: tokens[ 3 ] || '',
+				} );
 			}
-			owner.verbInvocations.push( {
-				verb: tokens[ 2 ],
-				args: tokens.slice( 3 ),
-			} );
 		} else if ( verb === 'connect_node' && tokens.length >= 3 ) {
-			edges.push( { from: tokens[ 1 ], to: tokens[ 2 ] } );
-		} else if ( verb === 'disconnect_node' && tokens.length >= 3 ) {
-			// Subtracts a re-expanded baseline edge; the caller applies it.
-			disconnects.push( { from: tokens[ 1 ], to: tokens[ 2 ] } );
+			const edge = { from: tokens[ 1 ], to: tokens[ 2 ] };
+			edges.push( edge );
+			edgeOperations.push( { type: 'connect', ...edge } );
+		} else if ( verb === 'disconnect_node' && tokens.length >= 2 ) {
+			// Defer source semantics until the included node record is loaded.
+			const disconnect = { from: tokens[ 1 ] };
+			if ( tokens.length >= 3 ) {
+				disconnect.to = tokens[ 2 ];
+			}
+			disconnects.push( disconnect );
+			edgeOperations.push( { type: 'disconnect', ...disconnect } );
 		}
 	}
 
-	return { nodes, edges, frontmatter, includes, disconnects };
+	return {
+		nodes,
+		edges,
+		frontmatter,
+		includes,
+		disconnects,
+		edgeOperations,
+		configOverrides,
+	};
 }

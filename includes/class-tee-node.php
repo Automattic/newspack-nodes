@@ -44,8 +44,8 @@ class Tee_Node extends Node {
 			} catch ( \Throwable $e ) {
 				if ( null === $deferred ) {
 					$deferred = $e;
-				} elseif ( $e instanceof Worker_Should_Stop ) {
-					// Worker_Should_Stop cooperative-stop: it takes priority.
+				} elseif ( $e instanceof Worker_Should_Stop
+						&& ! ( $deferred instanceof Worker_Should_Stop_Clean ) ) {
 					$deferred = $e;
 				}
 			}

@@ -247,6 +247,13 @@ jest.mock( '../hooks/useClassCatalog', () => ( {
 		formatters: globalThis.__catalog.formatters,
 		loading: false,
 		error: null,
+		load: ( ...args ) =>
+			globalThis.__catalog.load
+				? globalThis.__catalog.load( ...args )
+				: Promise.resolve( {
+						classes: globalThis.__catalog.classes,
+						formatters: globalThis.__catalog.formatters,
+				  } ),
 	} ),
 } ) );
 // Stub useVaults so vault.list doesn't hit unwrapCommandResponse's throw.
@@ -1762,6 +1769,36 @@ describe( 'TopologyConsole boot', () => {
 		expect( lastCanvasProps ).not.toBeNull();
 	} );
 
+	it( 'edit mode: handleConnect uses catalog Tee semantics for an own Tap', async () => {
+		globalThis.__catalog.classes = [
+			{ shell_name: 'Tap', is_tee: true, has_target: true },
+			{ shell_name: 'Echo', is_tee: false, has_target: true },
+		];
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl:
+				'make_node Tap a\n' +
+				'make_node Echo b\n' +
+				'make_node Echo c\n' +
+				'connect_node a c\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'connect-a-b' ) );
+		} );
+
+		expect( lastCanvasProps.parsed.edges ).toEqual(
+			expect.arrayContaining( [
+				expect.objectContaining( { from: 'a', to: 'c' } ),
+				{ from: 'a', to: 'b' },
+			] )
+		);
+	} );
+
 	it( 'live canvas: connect gesture dispatches connect_node via sendLine', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		await publishMeta();
@@ -2951,6 +2988,183 @@ describe( 'TopologyConsole boot', () => {
 		const toast = container.querySelector( '.topology-toast--success' );
 		expect( toast ).not.toBeNull();
 		expect( toast.textContent ).toMatch( /picked/ );
+	} );
+
+	it( 'handleOpenPick uses the PHP class catalog when opened from local view', async () => {
+		globalThis.__catalog.classes = [
+			{ shell_name: 'Tap', is_tee: true },
+			{ shell_name: 'Echo', is_tee: false },
+		];
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: [
+				'make_node Tap zebra-fanout',
+				'make_node Echo giraffe-target',
+				'make_node Echo llama-target',
+				'connect_node zebra-fanout giraffe-target',
+				'connect_node zebra-fanout llama-target',
+			].join( '\n' ),
+			name: 'picked',
+			source: 'user',
+			expanded: { nodes: [], edges: [] },
+		} );
+		const { getByText } = render( <TopologyConsole /> );
+
+		await act( async () => {
+			lastHeaderProps.onPathChange( '' );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'open' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'pick' ) );
+		} );
+
+		await waitFor( () => {
+			expect(
+				lastCanvasProps.parsed.edges.filter(
+					( edge ) => edge.from === 'zebra-fanout'
+				)
+			).toHaveLength( 2 );
+		} );
+	} );
+
+	it( 'handleOpenPick waits for a deferred PHP catalog before folding custom Tee edges', async () => {
+		let resolveCatalog;
+		globalThis.__catalog.load = jest.fn(
+			() =>
+				new Promise( ( resolve ) => {
+					resolveCatalog = resolve;
+				} )
+		);
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: [
+				'make_node WombatFanout357 zebra-fanout',
+				'make_node Echo giraffe-target',
+				'make_node Echo llama-target',
+				'connect_node zebra-fanout giraffe-target',
+				'connect_node zebra-fanout llama-target',
+			].join( '\n' ),
+			name: 'picked',
+			source: 'user',
+			expanded: { nodes: [], edges: [] },
+		} );
+		const { getByText } = render( <TopologyConsole /> );
+
+		await act( async () => {
+			lastHeaderProps.onPathChange( '' );
+			fireEvent.click( getByText( 'open' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'pick' ) );
+			await Promise.resolve();
+		} );
+		expect( hooks.fetchTopology ).toHaveBeenCalledWith( 'picked' );
+		expect( globalThis.__catalog.load ).toHaveBeenCalledTimes( 1 );
+
+		await act( async () => {
+			resolveCatalog( {
+				classes: [
+					{ shell_name: 'WombatFanout357', is_tee: true },
+					{ shell_name: 'Echo', is_tee: false },
+				],
+				formatters: [],
+			} );
+		} );
+
+		await waitFor( () => {
+			expect(
+				lastCanvasProps.parsed.edges.filter(
+					( edge ) => edge.from === 'zebra-fanout'
+				)
+			).toHaveLength( 2 );
+		} );
+	} );
+
+	it( 'mode change waits for a deferred PHP catalog before folding custom Tee edges', async () => {
+		let resolveCatalog;
+		globalThis.__catalog.load = jest.fn(
+			() =>
+				new Promise( ( resolve ) => {
+					resolveCatalog = resolve;
+				} )
+		);
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: [
+				'make_node WombatModeFanout863 zebra-fanout',
+				'make_node Echo giraffe-target',
+				'make_node Echo llama-target',
+				'connect_node zebra-fanout giraffe-target',
+				'connect_node zebra-fanout llama-target',
+			].join( '\n' ),
+			name: 'demo',
+			source: 'user',
+			expanded: { nodes: [], edges: [] },
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+			await Promise.resolve();
+		} );
+		expect( hooks.fetchTopology ).toHaveBeenCalledWith( 'demo' );
+		expect( globalThis.__catalog.load ).toHaveBeenCalledTimes( 1 );
+
+		await act( async () => {
+			resolveCatalog( {
+				classes: [
+					{ shell_name: 'WombatModeFanout863', is_tee: true },
+					{ shell_name: 'Echo', is_tee: false },
+				],
+				formatters: [],
+			} );
+		} );
+
+		await waitFor( () => {
+			expect(
+				lastCanvasProps.parsed.edges.filter(
+					( edge ) => edge.from === 'zebra-fanout'
+				)
+			).toHaveLength( 2 );
+		} );
+	} );
+
+	it( 'surfaces a PHP class catalog failure instead of opening with regular-node semantics', async () => {
+		globalThis.__catalog.load = jest
+			.fn()
+			.mockRejectedValue( new Error( 'catalog-sentinel-439 failed' ) );
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: [
+				'make_node WombatFailureFanout439 zebra-fanout',
+				'make_node Echo giraffe-target',
+				'make_node Echo llama-target',
+				'connect_node zebra-fanout giraffe-target',
+				'connect_node zebra-fanout llama-target',
+			].join( '\n' ),
+			name: 'picked',
+			source: 'user',
+			expanded: { nodes: [], edges: [] },
+		} );
+		const { container, getByText } = render( <TopologyConsole /> );
+
+		await act( async () => {
+			fireEvent.click( getByText( 'open' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'pick' ) );
+		} );
+
+		await waitFor( () => {
+			const toast = container.querySelector( '.topology-toast--error' );
+			expect( toast ).not.toBeNull();
+			expect( toast.textContent ).toContain(
+				'catalog-sentinel-439 failed'
+			);
+		} );
+		expect( globalThis.__catalog.load ).toHaveBeenCalledTimes( 1 );
+		expect(
+			container.querySelector( '.topology-toast--success' )
+		).toBeNull();
 	} );
 
 	it( 'handleOpenPick: open error toasts the error', async () => {

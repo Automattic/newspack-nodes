@@ -24,6 +24,7 @@ import { processStats } from '../utils/processStats';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
+import { edgeHasConnectRole } from '../utils/draftGraph';
 
 // A Consumer/Tail node: its dump_metadata carries both `frames` and a `cursor`.
 function isConsumerNode( node ) {
@@ -752,7 +753,8 @@ function EditForm( {
 						nodeNames={ nodeNames }
 						catalog={ catalog }
 						targets={ ( parsed?.edges || [] ).filter(
-							( e ) => e.from === node.id
+							( e ) =>
+								e.from === node.id && edgeHasConnectRole( e )
 						) }
 						onConnect={ onConnect }
 						onRemoveEdge={ onRemoveEdge }

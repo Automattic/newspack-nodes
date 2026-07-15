@@ -26,6 +26,29 @@ describe( 'serializeCtorArgs', () => {
 } );
 
 describe( 'serializeTsl', () => {
+	it( 'does not serialize a config-only baseline edge as a removable connect edge', () => {
+		const baseline = {
+			nodes: [],
+			edges: [
+				{
+					from: 'zebra-source',
+					to: 'ibex-config',
+					roles: [ 'config' ],
+				},
+			],
+		};
+		const graph = {
+			includes: [ 'wombat-base' ],
+			frontmatter: {},
+			nodes: [],
+			edges: [],
+		};
+
+		expect( serializeTsl( graph, null, baseline ) ).toBe(
+			'include wombat-base\n'
+		);
+	} );
+
 	it( 'emits frontmatter var lines first, in insertion order', () => {
 		const g = {
 			frontmatter: { num_partitions: '4', custom_thing: 'a b c' },

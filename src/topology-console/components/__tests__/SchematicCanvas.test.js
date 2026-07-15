@@ -87,6 +87,23 @@ describe( 'SchematicCanvas', () => {
 		expect( nodes ).toHaveLength( 2 );
 	} );
 
+	it( 'does not expose a config-only edge as an edit-mode removal hit target', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'a' }, { id: 'b' } ],
+					edges: [ { from: 'a', to: 'b', roles: [ 'config' ] } ],
+				} }
+				editMode
+				onSelectEdge={ () => {} }
+			/>
+		);
+
+		expect( container.querySelector( '.topology-edge' ) ).not.toBeNull();
+		expect( container.querySelector( '.topology-edge-hit' ) ).toBeNull();
+	} );
+
 	it( 'renders a paused cue on the card of a node polling PAUSED', () => {
 		const { container } = render(
 			<SchematicCanvas

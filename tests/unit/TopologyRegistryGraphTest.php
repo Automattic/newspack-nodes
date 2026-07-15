@@ -63,6 +63,45 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertContains( [ 'request-builder', 'errors:partition' ], $g['edges'] );
 	}
 
+	public function test_graph_for_resolves_a_config_token_in_a_named_target_slot(): void {
+		\Newspack_Nodes\Core::register_config_namespace(
+			'wombat_graph',
+			static fn ( string $key ): ?string => 'stats_sink' === $key ? 'indigo-flame-stats-863' : null
+		);
+		$this->write_tsl(
+			'wombat-config-target',
+			"make_node Echo amber-flame-builder-731\n"
+			. "make_node Partition indigo-flame-stats-863 /var/wombat/stats.p<partition> 1 2 0\n"
+			. "cmd amber-flame-builder-731:config set_stats_target <wombat_graph:stats_sink>\n"
+		);
+
+		$this->assertContains(
+			[ 'amber-flame-builder-731', 'indigo-flame-stats-863' ],
+			Topology_Registry::graph_for( 'wombat-config-target' )['edges']
+		);
+	}
+
+	public function test_graph_for_empty_config_token_clears_only_its_named_target_slot(): void {
+		\Newspack_Nodes\Core::register_config_namespace(
+			'wombat_graph',
+			static fn ( string $key ): ?string => 'disabled_stats_sink' === $key ? '' : null
+		);
+		$this->write_tsl(
+			'wombat-empty-config-target',
+			"make_node Echo amber-flame-builder-731\n"
+			. "make_node Echo green-completed-421\n"
+			. "make_node Echo violet-old-stats-947\n"
+			. "cmd amber-flame-builder-731:config set_stats_target violet-old-stats-947\n"
+			. "cmd amber-flame-builder-731:config set_completed_target green-completed-421\n"
+			. "cmd amber-flame-builder-731:config set_stats_target <wombat_graph:disabled_stats_sink>\n"
+		);
+
+		$this->assertSame(
+			[ [ 'amber-flame-builder-731', 'green-completed-421' ] ],
+			Topology_Registry::graph_for( 'wombat-empty-config-target' )['edges']
+		);
+	}
+
 	public function test_graph_for_consumer_carries_reader_from_offsetlog_arg(): void {
 		// `make_node Consumer <node> <source> <offsetlog>` — the offsetlog basename
 		// is the consumer's READER id, the unique key that disambiguates two
@@ -198,6 +237,148 @@ class TopologyRegistryGraphTest extends TestCase {
 			$by_name[ $n['name'] ] = $n;
 		}
 		$this->assertSame( 'tee', $by_name['firehose:tap']['kind'] );
+	}
+
+	public function test_graph_for_one_arg_disconnect_removes_included_edges_before_rewire(): void {
+		$this->write_tsl(
+			'wombat-base',
+			"make_node Consumer zebra:consumer /var/wombat/zebra.p<partition> /var/wombat/zebra-offset.p<partition>\n"
+			. "make_node Echo giraffe-direct\n"
+			. "connect_node zebra:consumer giraffe-direct\n"
+		);
+		$this->write_tsl(
+			'wombat-rewire',
+			"include wombat-base\n"
+			. "make_node Tee zebra:tee\n"
+			. "make_node Echo llama-handler\n"
+			. "disconnect_node zebra:consumer\n"
+			. "connect_node zebra:consumer zebra:tee\n"
+			. "connect_node zebra:tee llama-handler\n"
+		);
+
+		$this->assertSame(
+			[
+				[ 'zebra:consumer', 'zebra:tee' ],
+				[ 'zebra:tee', 'llama-handler' ],
+			],
+			Topology_Registry::graph_for( 'wombat-rewire' )['edges']
+		);
+	}
+
+	public function test_graph_for_regular_connect_replaces_the_current_connect_edge(): void {
+		$this->write_tsl(
+			'wombat-regular-reconnect',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-old\n"
+			. "make_node Echo llama-current\n"
+			. "connect_node zebra-source giraffe-old\n"
+			. "connect_node zebra-source llama-current\n"
+		);
+
+		$this->assertSame(
+			[ [ 'zebra-source', 'llama-current' ] ],
+			Topology_Registry::graph_for( 'wombat-regular-reconnect' )['edges']
+		);
+	}
+
+	public function test_graph_for_regular_disconnect_ignores_target_and_preserves_config_edges(): void {
+		$this->write_tsl(
+			'wombat-regular-disconnect',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-old\n"
+			. "make_node Echo llama-current\n"
+			. "make_node Echo ibex-errors\n"
+			. "cmd zebra-source:config set_errors_target ibex-errors\n"
+			. "connect_node zebra-source giraffe-old\n"
+			. "disconnect_node zebra-source ibex-errors\n"
+			. "connect_node zebra-source llama-current\n"
+		);
+
+		$this->assertSame(
+			[
+				[ 'zebra-source', 'ibex-errors' ],
+				[ 'zebra-source', 'llama-current' ],
+			],
+			Topology_Registry::graph_for( 'wombat-regular-disconnect' )['edges']
+		);
+	}
+
+	public function test_graph_for_config_setter_replaces_its_slot_while_distinct_slots_coexist(): void {
+		$this->write_tsl(
+			'wombat-config-slots',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-old-errors\n"
+			. "make_node Echo llama-completed\n"
+			. "make_node Echo ibex-current-errors\n"
+			. "cmd zebra-source:config set_errors_target giraffe-old-errors\n"
+			. "cmd zebra-source:config set_completed_target llama-completed\n"
+			. "cmd zebra-source:config set_errors_target ibex-current-errors\n"
+		);
+
+		$this->assertSame(
+			[
+				[ 'zebra-source', 'llama-completed' ],
+				[ 'zebra-source', 'ibex-current-errors' ],
+			],
+			Topology_Registry::graph_for( 'wombat-config-slots' )['edges']
+		);
+	}
+
+	public function test_graph_for_empty_config_setter_clears_only_its_named_slot(): void {
+		$this->write_tsl(
+			'wombat-empty-config-slot',
+			"make_node Echo zebra-source\n"
+			. "make_node Echo giraffe-errors\n"
+			. "make_node Echo llama-completed\n"
+			. "cmd zebra-source:config set_errors_target giraffe-errors\n"
+			. "cmd zebra-source:config set_completed_target llama-completed\n"
+			. "cmd zebra-source:config set_errors_target\n"
+		);
+
+		$this->assertSame(
+			[ [ 'zebra-source', 'llama-completed' ] ],
+			Topology_Registry::graph_for( 'wombat-empty-config-slot' )['edges']
+		);
+	}
+
+	public function test_graph_for_targeted_disconnect_preserves_other_edges_and_later_reconnect_order(): void {
+		$this->write_tsl(
+			'wombat-retarget',
+			"make_node Tee zebra:tee\n"
+			. "make_node Echo giraffe-handler\n"
+			. "make_node Echo llama-handler\n"
+			. "connect_node zebra:tee giraffe-handler\n"
+			. "connect_node zebra:tee llama-handler\n"
+			. "disconnect_node zebra:tee giraffe-handler\n"
+			. "disconnect_node zebra:tee\n"
+			. "connect_node zebra:tee giraffe-handler\n"
+		);
+
+		$this->assertSame(
+			[
+				[ 'zebra:tee', 'llama-handler' ],
+				[ 'zebra:tee', 'giraffe-handler' ],
+			],
+			Topology_Registry::graph_for( 'wombat-retarget' )['edges']
+		);
+	}
+
+	public function test_graph_for_applies_tee_fanout_and_targeted_disconnect_to_a_tap_subclass(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl(
+			'wombat-tap-fanout',
+			"make_node Tap zebra:tap\n"
+			. "make_node Echo giraffe-handler\n"
+			. "make_node Echo llama-handler\n"
+			. "connect_node zebra:tap giraffe-handler\n"
+			. "connect_node zebra:tap llama-handler\n"
+			. "disconnect_node zebra:tap giraffe-handler\n"
+		);
+
+		$this->assertSame(
+			[ [ 'zebra:tap', 'llama-handler' ] ],
+			Topology_Registry::graph_for( 'wombat-tap-fanout' )['edges']
+		);
 	}
 
 	public function test_graph_for_expands_includes_so_a_borrowed_partition_is_not_a_hole(): void {

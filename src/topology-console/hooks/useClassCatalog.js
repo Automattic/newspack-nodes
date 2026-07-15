@@ -1,9 +1,9 @@
 /**
- * useClassCatalog — lazily fetch the class catalog (one `classes.list` call
- * on first truthy `enabled`, then cached for the session).
+ * useClassCatalog — lazily fetch the class catalog once, either when enabled or
+ * when a caller needs to await the exact catalog used to fold a topology.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
@@ -12,24 +12,50 @@ export function useClassCatalog( { enabled = false } = {} ) {
 	const [ formatters, setFormatters ] = useState( [] );
 	const [ loading, setLoading ] = useState( false );
 	const [ error, setError ] = useState( null );
-	const fetched = useRef( false );
+	const request = useRef( null );
 
-	useEffect( () => {
-		if ( ! enabled || fetched.current ) {
-			return;
+	const load = useCallback( () => {
+		if ( request.current ) {
+			return request.current;
 		}
-		fetched.current = true;
+
 		setLoading( true );
-		getCommandClient()
-			.send( { to: 'classes', verb: 'list' } )
+		setError( null );
+		request.current = Promise.resolve()
+			.then( () =>
+				getCommandClient().send( { to: 'classes', verb: 'list' } )
+			)
 			.then( ( message ) => {
 				const body = unwrapCommandResponse( message );
-				setClasses( body?.classes || [] );
-				setFormatters( body?.formatters || [] );
+				if (
+					! Array.isArray( body?.classes ) ||
+					! Array.isArray( body?.formatters )
+				) {
+					throw new Error( 'Invalid classes.list response.' );
+				}
+				const loaded = {
+					classes: body.classes,
+					formatters: body.formatters,
+				};
+				setClasses( loaded.classes );
+				setFormatters( loaded.formatters );
+				return loaded;
 			} )
-			.catch( ( e ) => setError( e ) )
+			.catch( ( e ) => {
+				setError( e );
+				throw e;
+			} )
 			.finally( () => setLoading( false ) );
-	}, [ enabled ] );
+		return request.current;
+	}, [] );
 
-	return { classes, formatters, loading, error };
+	useEffect( () => {
+		if ( ! enabled ) {
+			return;
+		}
+		// Consume the rejection; this lifecycle call has no promise chain.
+		load().catch( () => {} );
+	}, [ enabled, load ] );
+
+	return { classes, formatters, loading, error, load };
 }

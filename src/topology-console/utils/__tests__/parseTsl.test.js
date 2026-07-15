@@ -8,6 +8,8 @@ describe( 'parseTsl', () => {
 			frontmatter: {},
 			includes: [],
 			disconnects: [],
+			edgeOperations: [],
+			configOverrides: [],
 		} );
 	} );
 
@@ -81,6 +83,27 @@ describe( 'parseTsl', () => {
 		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
 			{ verb: 'allow_large_writes', args: [] },
 			{ verb: 'with_index', args: [ 'request-index' ] },
+		] );
+	} );
+
+	it( 'retains config-target commands for borrowed nodes as ordered overrides', () => {
+		const graph = parseTsl(
+			'include quokka-routing\n' +
+				'cmd quokka-source:config set_errors_target vicuna-errors-357\n' +
+				'cmd quokka-source:config set_completed_target\n'
+		);
+
+		expect( graph.configOverrides ).toEqual( [
+			{
+				from: 'quokka-source',
+				slot: 'set_errors_target',
+				to: 'vicuna-errors-357',
+			},
+			{
+				from: 'quokka-source',
+				slot: 'set_completed_target',
+				to: '',
+			},
 		] );
 	} );
 
@@ -170,6 +193,38 @@ describe( 'parseTsl — disconnect_node', () => {
 		expect(
 			parseTsl( 'make_node Echo wombat-echo\n' ).disconnects
 		).toEqual( [] );
+	} );
+
+	it( 'retains a one-argument disconnect until the included source type is known', () => {
+		expect(
+			parseTsl( 'disconnect_node zebra:consumer\n' ).disconnects
+		).toEqual( [ { from: 'zebra:consumer' } ] );
+	} );
+
+	it( 'retains connect and disconnect statement order for runtime folding', () => {
+		const graph = parseTsl(
+			[
+				'connect_node zebra-source giraffe-target',
+				'disconnect_node zebra-source',
+				'connect_node zebra:tee ibex-target',
+				'disconnect_node zebra:tee ibex-target',
+			].join( '\n' )
+		);
+
+		expect( graph.edgeOperations ).toEqual( [
+			{
+				type: 'connect',
+				from: 'zebra-source',
+				to: 'giraffe-target',
+			},
+			{ type: 'disconnect', from: 'zebra-source' },
+			{ type: 'connect', from: 'zebra:tee', to: 'ibex-target' },
+			{
+				type: 'disconnect',
+				from: 'zebra:tee',
+				to: 'ibex-target',
+			},
+		] );
 	} );
 } );
 

@@ -32,6 +32,7 @@ describe( 'useClassCatalog', () => {
 			formatters: [],
 			loading: false,
 			error: null,
+			load: expect.any( Function ),
 		} );
 		expect( send ).not.toHaveBeenCalled();
 	} );
@@ -47,6 +48,11 @@ describe( 'useClassCatalog', () => {
 		expect( send ).toHaveBeenCalledWith( { to: 'classes', verb: 'list' } );
 		expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] );
 		expect( result.current.formatters ).toEqual( [ 'Plain' ] );
+		await expect( result.current.load() ).resolves.toEqual( {
+			classes: [ 'Echo', 'Tee' ],
+			formatters: [ 'Plain' ],
+		} );
+		expect( send ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'only fetches once even if enabled flips off and back on', async () => {
@@ -71,12 +77,15 @@ describe( 'useClassCatalog', () => {
 		expect( result.current.loading ).toBe( false );
 	} );
 
-	it( 'defaults classes/formatters to [] when payload is empty', async () => {
+	it( 'rejects a malformed payload instead of treating every class as regular', async () => {
 		unwrapCommandResponse.mockReturnValue( null );
 		const { result } = renderHook( () =>
 			useClassCatalog( { enabled: true } )
 		);
-		await waitFor( () => expect( result.current.loading ).toBe( false ) );
+		await waitFor( () => expect( result.current.error ).not.toBeNull() );
+		expect( result.current.error.message ).toBe(
+			'Invalid classes.list response.'
+		);
 		expect( result.current.classes ).toEqual( [] );
 		expect( result.current.formatters ).toEqual( [] );
 	} );

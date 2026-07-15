@@ -22,7 +22,9 @@ import { RemoteIpcNode } from '../../../runtime/remote-ipc-node';
 import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 
-// Mock the command client — no real fetch; defaults to null (seed no-op).
+// Mock the command client — no real fetch; beforeEach installs a valid empty
+// topology response so the background seed is a real no-op, not a swallowed
+// protocol failure.
 const mockSend = jest.fn().mockResolvedValue( null );
 const mockPostBatch = jest.fn().mockResolvedValue( [] );
 jest.mock( '../../utils/commandClient', () => ( {
@@ -103,10 +105,26 @@ beforeEach( () => {
 	global.EventSource = FakeEventSource;
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	mockSend.mockReset();
-	mockSend.mockResolvedValue( null );
+	mockSend.mockImplementation( ( message ) => {
+		if ( 'topologies' === message?.to && 'get' === message?.verb ) {
+			return Promise.resolve(
+				reply( {
+					name: 'demo',
+					source: 'user',
+					tsl: '',
+					expanded: { nodes: [], edges: [] },
+					resolved_config_edges: [],
+				} )
+			);
+		}
+		return Promise.resolve( null );
+	} );
 	mockPostBatch.mockReset();
 	mockPostBatch.mockResolvedValue( [] );
 } );
+
+const loadEmptyCatalog = () =>
+	Promise.resolve( { classes: [], formatters: [] } );
 
 const renderGraph = ( props = {} ) =>
 	renderHook(
@@ -116,6 +134,7 @@ const renderGraph = ( props = {} ) =>
 				partition: 0,
 				enabled: true,
 				debugLevelRef: { current: 0 },
+				loadCatalog: loadEmptyCatalog,
 				...p,
 			} ),
 		{ initialProps: props }
@@ -823,6 +842,256 @@ const reply = ( payload ) => {
 };
 
 describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
+	it( 'resolves a tokenized top-level override on a borrowed seed node', async () => {
+		mockSend.mockImplementation( ( msg ) => {
+			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						name: 'demo',
+						source: 'user',
+						tsl:
+							'include wombat-seed-base\n' +
+							'cmd cobalt-borrowed-source-619:config set_stats_target <wombat_seed:stats_sink>\n',
+						expanded: {
+							nodes: [
+								'cobalt-borrowed-source-619',
+								'amber-old-stats-731',
+								'violet-resolved-stats-947',
+							].map( ( name ) => ( {
+								name,
+								class: 'Echo',
+								args: [],
+								origin: [ 'wombat-seed-base' ],
+								via: [ 'wombat-seed-base' ],
+							} ) ),
+							edges: [
+								{
+									from: 'cobalt-borrowed-source-619',
+									to: 'amber-old-stats-731',
+									roles: [ 'config' ],
+									config_slots: [ 'set_stats_target' ],
+								},
+							],
+						},
+						resolved_config_edges: [
+							{
+								from: 'cobalt-borrowed-source-619',
+								to: 'violet-resolved-stats-947',
+								roles: [ 'config' ],
+								config_slots: [ 'set_stats_target' ],
+							},
+						],
+					} )
+				);
+			}
+			return Promise.resolve( null );
+		} );
+
+		renderGraph();
+
+		await waitFor( () => {
+			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			const source = seeded?.nodes.find(
+				( node ) => 'cobalt-borrowed-source-619' === node.id
+			);
+			expect( source?.origin ).toEqual( [ 'wombat-seed-base' ] );
+			expect( seeded?.edges ).toContainEqual( {
+				from: 'cobalt-borrowed-source-619',
+				to: 'violet-resolved-stats-947',
+				roles: [ 'config' ],
+				config_slots: [ 'set_stats_target' ],
+			} );
+		} );
+	} );
+
+	it( 'surfaces a missing resolved-edge contract as a seed error', async () => {
+		mockSend.mockImplementation( ( msg ) => {
+			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						name: 'demo',
+						source: 'user',
+						tsl: [
+							'make_node Echo indigo-source-863',
+							'cmd indigo-source-863:config set_errors_target <wombat_seed:required_errors_sink>',
+						].join( '\n' ),
+						expanded: { nodes: [], edges: [] },
+					} )
+				);
+			}
+			return Promise.resolve( null );
+		} );
+
+		const { result } = renderGraph();
+
+		await waitFor( () => {
+			expect( result.current.seedError?.message ).toBe(
+				'Missing resolved_config_edges in topologies get response.'
+			);
+		} );
+		expect(
+			Core.node( names.METADATA )?.setStateCache?.metadata
+		).toBeUndefined();
+	} );
+
+	it( 'resolves a flat topology own-node config target without making the node borrowed', async () => {
+		const loadCatalog = jest.fn().mockResolvedValue( {
+			classes: [
+				{
+					shell_name: 'Wombat_Flame_Builder_619',
+					is_tee: false,
+					commands: [
+						{
+							name: 'set_stats_target',
+							args: [ { type: 'node_name' } ],
+						},
+					],
+				},
+				{ shell_name: 'Echo', is_tee: false, commands: [] },
+			],
+			formatters: [],
+		} );
+		mockSend.mockImplementation( ( msg ) => {
+			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						name: 'demo',
+						source: 'user',
+						tsl: [
+							'make_node Wombat_Flame_Builder_619 cerulean-flame-builder-619',
+							'make_node Echo violet-stats-sink-947',
+							'cmd cerulean-flame-builder-619:config set_stats_target <wombat_seed:stats_sink>',
+						].join( '\n' ),
+						expanded: { nodes: [], edges: [] },
+						resolved_config_edges: [
+							{
+								from: 'cerulean-flame-builder-619',
+								to: 'violet-stats-sink-947',
+								origin: [ 'demo' ],
+								roles: [ 'config' ],
+								config_slots: [ 'set_stats_target' ],
+							},
+						],
+					} )
+				);
+			}
+			return Promise.resolve( null );
+		} );
+
+		renderGraph( { loadCatalog } );
+
+		await waitFor( () => {
+			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			const source = seeded?.nodes.find(
+				( node ) => 'cerulean-flame-builder-619' === node.id
+			);
+			expect( source?.borrowed ).not.toBe( true );
+			expect( seeded?.edges ).toContainEqual( {
+				from: 'cerulean-flame-builder-619',
+				to: 'violet-stats-sink-947',
+				virtual: true,
+			} );
+			expect( seeded?.edges ).not.toContainEqual(
+				expect.objectContaining( {
+					to: '<wombat_seed:stats_sink>',
+				} )
+			);
+		} );
+	} );
+
+	it( 'waits for the PHP catalog before folding a custom Tee seed', async () => {
+		let resolveCatalog;
+		const loadCatalog = jest.fn(
+			() =>
+				new Promise( ( resolve ) => {
+					resolveCatalog = resolve;
+				} )
+		);
+		mockSend.mockImplementation( ( msg ) => {
+			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						name: 'demo',
+						source: 'user',
+						tsl: [
+							'make_node WombatSeedFanout731 zebra-fanout',
+							'make_node Echo giraffe-target',
+							'make_node Echo llama-target',
+							'connect_node zebra-fanout giraffe-target',
+							'connect_node zebra-fanout llama-target',
+						].join( '\n' ),
+						expanded: { nodes: [], edges: [] },
+					} )
+				);
+			}
+			return Promise.resolve( null );
+		} );
+
+		const { result } = renderGraph( { loadCatalog } );
+		await waitFor( () => expect( loadCatalog ).toHaveBeenCalledTimes( 1 ) );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+		expect(
+			Core.node( names.METADATA )?.setStateCache?.metadata
+		).toBeUndefined();
+
+		await act( async () => {
+			resolveCatalog( {
+				classes: [
+					{ shell_name: 'WombatSeedFanout731', is_tee: true },
+					{ shell_name: 'Echo', is_tee: false },
+				],
+				formatters: [],
+			} );
+		} );
+
+		await waitFor( () => {
+			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			expect(
+				seeded.edges.filter( ( edge ) => edge.from === 'zebra-fanout' )
+			).toHaveLength( 2 );
+		} );
+		expect( result.current.seedError ).toBeNull();
+	} );
+
+	it( 'surfaces a catalog failure and leaves the pre-metadata seed gated', async () => {
+		const loadCatalog = jest
+			.fn()
+			.mockRejectedValue(
+				new Error( 'seed-catalog-sentinel-947 failed' )
+			);
+		mockSend.mockImplementation( ( msg ) => {
+			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				return Promise.resolve(
+					reply( {
+						name: 'demo',
+						source: 'user',
+						tsl: [
+							'make_node WombatFailedFanout947 zebra-fanout',
+							'make_node Echo giraffe-target',
+							'make_node Echo llama-target',
+							'connect_node zebra-fanout giraffe-target',
+							'connect_node zebra-fanout llama-target',
+						].join( '\n' ),
+						expanded: { nodes: [], edges: [] },
+					} )
+				);
+			}
+			return Promise.resolve( null );
+		} );
+
+		const { result } = renderGraph( { loadCatalog } );
+		await waitFor( () => {
+			expect( result.current.seedError?.message ).toBe(
+				'seed-catalog-sentinel-947 failed'
+			);
+		} );
+		expect(
+			Core.node( names.METADATA )?.setStateCache?.metadata
+		).toBeUndefined();
+	} );
+
 	it( 'seeds the EXPANDED graph, so an include-only topology paints in one shot', async () => {
 		// combined.tsl owns one node and borrows the rest. Seeding the parsed file
 		// alone paints that sliver + _repl, and everything else pops in on the next

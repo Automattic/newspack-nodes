@@ -46,6 +46,7 @@ jest.mock( '../hooks/useClassCatalog', () => ( {
 		formatters: [],
 		loading: false,
 		error: null,
+		load: () => Promise.resolve( { classes: [], formatters: [] } ),
 	} ),
 } ) );
 jest.mock( '../hooks/useLayout', () => ( {

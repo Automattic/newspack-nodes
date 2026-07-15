@@ -26,6 +26,7 @@ import {
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
 import { hullPath } from '../utils/hullPath';
+import { edgeHasConnectRole } from '../utils/draftGraph';
 
 // Exported so the palette drag ghost can render the same node-card geometry.
 export const NODE_W = 196;
@@ -1386,6 +1387,7 @@ export default function SchematicCanvas( {
 								{ /* Edit-only hit-target; no virtual/reg. */ }
 								{ editMode &&
 									onSelectEdge &&
+									edgeHasConnectRole( e ) &&
 									! e.virtual &&
 									! e.registration && (
 										<path
