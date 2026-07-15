@@ -126,15 +126,6 @@ abstract class TestCase extends PHPUnitTestCase {
 		);
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
 		if ( \class_exists( '\\Newspack_Nodes\\Config' ) ) {
-			// Whitelist this tmp directory so Config::validate_config_path()
-			// accepts the per-test config file. Runtime roots intentionally
-			// exclude arbitrary /tmp scratch directories.
-			$ref  = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
-			$dirs = $ref->getValue();
-			if ( ! \in_array( $dir, $dirs, true ) ) {
-				$dirs[] = $dir;
-				$ref->setValue( null, $dirs );
-			}
 			\Newspack_Nodes\Config::reset();
 		}
 	}

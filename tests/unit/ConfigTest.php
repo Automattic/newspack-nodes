@@ -5,9 +5,6 @@
  * keys (base_directory, num_partitions, max_segments, segment_size,
  * max_lifetime, memcache_servers).
  *
- * Reflection is used to exercise private surfaces (`validate_config_path`,
- * `validate_config_values`).
- *
  * @package Newspack_Nodes
  */
 
@@ -21,9 +18,6 @@ use Newspack_Nodes\Tests\TestCase;
 class ConfigTest extends TestCase {
 
 	private string $temp_dir;
-
-	/** Saved snapshot of `Config::$allowed_config_dirs` so tests can mutate freely. */
-	private array $saved_allowed_dirs = [];
 
 	/** Saved snapshot of `Config::$registered_keys` (a process-wide static). */
 	private array $saved_registered_keys = [];
@@ -40,9 +34,6 @@ class ConfigTest extends TestCase {
 		$GLOBALS['_wp_options'] = [];
 		// Clear any LOCAL_NEWSPACK_NODES_CONF leftover.
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
-		// Snapshot the allowlist; allow_dir() restores from this in tearDown.
-		$ref                      = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
-		$this->saved_allowed_dirs = $ref->getValue();
 		// Snapshot the declared-key registry; simulate_unwired_request() empties it.
 		$keys                        = new \ReflectionProperty( Config::class, 'registered_keys' );
 		$this->saved_registered_keys = $keys->getValue();
@@ -54,9 +45,6 @@ class ConfigTest extends TestCase {
 		Config::reset();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
 		$GLOBALS['_wp_options'] = [];
-		// Restore allowed_config_dirs in case allow_dir() was used.
-		$ref = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
-		$ref->setValue( null, $this->saved_allowed_dirs );
 		\remove_action( Config::DECLARE_ACTION, $this->consumer_declaration );
 		// Restore the declared-key registry (emptied by simulate_unwired_request).
 		$keys = new \ReflectionProperty( Config::class, 'registered_keys' );
@@ -164,7 +152,6 @@ class ConfigTest extends TestCase {
 	public function test_value_returns_schema_default_when_option_unset(): void {
 		// Declared-but-unset (no WP option) resolves the declared file default,
 		// distinct from the old `?? 1` fallback the migration drops.
-		$this->allow_dir( $this->temp_dir );
 		$conf = $this->temp_dir . '/np-default.php';
 		\file_put_contents( $conf, "<?php return [ 'num_partitions' => 9 ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
@@ -177,7 +164,6 @@ class ConfigTest extends TestCase {
 		// vault_verify_ssl is a config-file default, NOT a Settings_Schema key.
 		// The file IS a declaration, so value() must resolve it — returning the
 		// declared value, distinct from the old `?? true` silent fallback.
-		$this->allow_dir( $this->temp_dir );
 		$conf = $this->temp_dir . '/vault-ssl.php';
 		\file_put_contents( $conf, "<?php return [ 'vault_verify_ssl' => false ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
@@ -216,7 +202,6 @@ class ConfigTest extends TestCase {
 		// frontend request and value() threw "unknown config key". 7 is distinct
 		// from the shipped default (1), so a config that silently ignores the
 		// option overlay fails this too.
-		$this->allow_dir( $this->temp_dir );
 		$conf = $this->temp_dir . '/unwired.php';
 		\file_put_contents( $conf, "<?php return [ 'num_partitions' => 7 ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
@@ -294,56 +279,27 @@ class ConfigTest extends TestCase {
 
 	// ── File-overlay env override ──────────────────────────────────────────
 
-	public function test_local_env_override_loads_overlay(): void {
+	public function test_local_env_override_loads_external_file(): void {
 		$override_path = $this->temp_dir . '/override.php';
 		\file_put_contents(
 			$override_path,
-			"<?php return [ 'num_partitions' => 7, 'segment_size' => 4242 ];\n"
+			"<?php return [ 'operator_override_sentinel' => 'nodes-external-8317' ];\n"
 		);
-		// Allow temp_dir by hacking the allowlist via reflection.
-		$this->allow_dir( $this->temp_dir );
 
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $override_path );
 		Config::reset();
-		$config = Config::load_config();
-		$this->assertSame( 7, $config['num_partitions'] );
-		$this->assertSame( 4242, $config['segment_size'] );
+		$config = Config::load_config_defaults();
+		$this->assertSame( 'nodes-external-8317', $config['operator_override_sentinel'] );
 	}
 
-	public function test_local_env_override_outside_allowed_dirs_rejected(): void {
-		$ref = new \ReflectionMethod( Config::class, 'validate_config_path' );
+	public function test_invalid_explicit_local_env_override_throws(): void {
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=/definitely/missing/nodes-override-8317.php' );
+		Config::reset();
 
-		// /var/tmp is not in the allowlist (and isn't the plugin dir).
-		$outside_dir = '/var/tmp/newspack-nodes-test-evil-' . \uniqid();
-		@\mkdir( $outside_dir, 0755, true );
-		$path = $outside_dir . '/evil-config.php';
-		\file_put_contents( $path, "<?php return [];\n" );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'LOCAL_NEWSPACK_NODES_CONF' );
 
-		try {
-			$result = $ref->invoke( null, $path );
-			$this->assertNull( $result );
-		} finally {
-			@\unlink( $path );
-			@\rmdir( $outside_dir );
-		}
-	}
-
-	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
-	#[\PHPUnit\Framework\Attributes\PreserveGlobalState( false )]
-	public function test_runtime_wordpress_content_root_is_allowed(): void {
-		$root = \sys_get_temp_dir() . '/nodes-portable-wp-content-' . \uniqid();
-		\mkdir( $root, 0755, true );
-		\define( 'WP_CONTENT_DIR', $root );
-		$path = $root . '/distinct-runtime-config.php';
-		\file_put_contents( $path, "<?php return [];\n" );
-
-		try {
-			$method = new \ReflectionMethod( Config::class, 'validate_config_path' );
-			$this->assertSame( \realpath( $path ), $method->invoke( null, $path ) );
-		} finally {
-			\unlink( $path );
-			\rmdir( $root );
-		}
+		Config::load_config_defaults();
 	}
 
 	// ── WP option overrides ────────────────────────────────────────────────
@@ -445,18 +401,6 @@ class ConfigTest extends TestCase {
 		Config::ensure_path( "/tmp/evil\0path" );
 	}
 
-	// ── validate_config_path ──────────────────────────────────────────────
-
-	public function test_validate_config_path_rejects_non_php(): void {
-		$ref = new \ReflectionMethod( Config::class, 'validate_config_path' );
-		$this->assertNull( $ref->invoke( null, '/tmp/config.txt' ) );
-	}
-
-	public function test_validate_config_path_rejects_null_byte(): void {
-		$ref = new \ReflectionMethod( Config::class, 'validate_config_path' );
-		$this->assertNull( $ref->invoke( null, "/tmp/evil\0config.php" ) );
-	}
-
 	// ── validate_config_values ────────────────────────────────────────────
 
 	public function test_validate_config_values_rejects_objects(): void {
@@ -515,35 +459,31 @@ class ConfigTest extends TestCase {
 
 	// ── load_config_file rejects bogus return shape ────────────────────────
 
-	public function test_load_config_file_rejects_when_returns_non_array(): void {
-		// Bad local override returns a string — load_config_file must reject and
-		// not merge it. The merge detection: a string $config[$random_key] would
-		// crash other consumers, so we just verify load_config returns an array
-		// and doesn't contain the magic key the bad file tried to set.
+	public function test_explicit_local_env_override_returning_non_array_throws(): void {
 		$bad_config = "{$this->temp_dir}/bad-config.php";
-		\file_put_contents( $bad_config, "<?php return 'malicious_string_not_an_array';\n" );
-		$this->allow_dir( $this->temp_dir );
+		\file_put_contents( $bad_config, "<?php return 'nodes-invalid-shape-8317';\n" );
 		\putenv( "LOCAL_NEWSPACK_NODES_CONF={$bad_config}" );
+		Config::reset();
 
-		// load_config still returns an array; the bad file is rejected silently.
-		$config = Config::load_config();
-		$this->assertIsArray( $config );
-		// Spread-merging a string would have crashed before reaching here.
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'config must return array of scalar/array values only' );
+
+		Config::load_config_defaults();
 	}
 
-	public function test_load_config_file_rejects_when_returns_array_with_object(): void {
+	public function test_explicit_local_env_override_with_object_throws(): void {
 		$bad_config = "{$this->temp_dir}/object-config.php";
 		\file_put_contents(
 			$bad_config,
 			"<?php return [ 'malicious' => new \\stdClass() ];\n"
 		);
-		$this->allow_dir( $this->temp_dir );
 		\putenv( "LOCAL_NEWSPACK_NODES_CONF={$bad_config}" );
+		Config::reset();
 
-		$config = Config::load_config();
-		$this->assertIsArray( $config );
-		// validate_config_values rejected the file → key not merged.
-		$this->assertArrayNotHasKey( 'malicious', $config );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'config must return array of scalar/array values only' );
+
+		Config::load_config_defaults();
 	}
 
 	// ── is_within edge case ────────────────────────────────────────────────
@@ -575,7 +515,6 @@ class ConfigTest extends TestCase {
 		// Force config to a state where base_directory is empty: point at a
 		// per-test config file that explicitly sets it to empty string. WP
 		// option also empty so neither overlay populates it.
-		$this->allow_dir( $this->temp_dir );
 		$conf = $this->temp_dir . '/empty-base.php';
 		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
@@ -599,16 +538,4 @@ class ConfigTest extends TestCase {
 		$this->assertSame( $first, $second );
 	}
 
-	// ── Helpers ───────────────────────────────────────────────────────────
-
-	/**
-	 * Append a directory to the allowed-config-dirs allowlist for the
-	 * duration of the test.
-	 */
-	private function allow_dir( string $dir ): void {
-		$ref  = new \ReflectionProperty( Config::class, 'allowed_config_dirs' );
-		$dirs   = $ref->getValue();
-		$dirs[] = $dir;
-		$ref->setValue( null, $dirs );
-	}
 }

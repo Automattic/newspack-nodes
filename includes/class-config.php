@@ -30,14 +30,6 @@ class Config {
 	/** Action fired from reset() so dependent Configs can invalidate their caches. */
 	public const RESET_ACTION = 'newspack_nodes/config_reset';
 
-	/**
-	 * Allowed directories (or subdirectories) for local config override files.
-	 *
-	 * @var array<int, string>
-	 */
-	private static $allowed_config_dirs = [
-	];
-
 	/** @var array<string, mixed>|null Cached config (file defaults + WordPress options). */
 	private static $config = null;
 
@@ -144,6 +136,7 @@ class Config {
 	 * Load configuration from disk + WordPress options.
 	 *
 	 * @return array<string, mixed>
+	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
 	 */
 	public static function load_config(): array {
 		if ( null !== self::$config ) {
@@ -166,6 +159,7 @@ class Config {
 	 * Load configuration defaults from file only (no WordPress options).
 	 *
 	 * @return array<string, mixed>
+	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
 	 */
 	public static function load_config_defaults(): array {
 		if ( null !== self::$config_defaults ) {
@@ -177,40 +171,29 @@ class Config {
 			\dirname( __DIR__ ) . '/newspack-nodes-config.php',
 			'Newspack_Nodes\\Config'
 		);
-		// Local override (CLI/testing) via env var to allowed-dir config file.
+		// Operator-controlled local override (CLI/testing).
 		$local_config_file = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
-		if ( $local_config_file ) {
-			$validated_path = self::validate_config_path( $local_config_file );
-			if ( $validated_path ) {
-				$config = Config_Utils::load_config_file(
-					$config,
-					$validated_path,
-					'Newspack_Nodes\\Config'
+		if ( false !== $local_config_file && '' !== $local_config_file ) {
+			$validated_path = Config_Utils::validate_config_path(
+				$local_config_file,
+				[ DIRECTORY_SEPARATOR ],
+				'Newspack_Nodes\\Config'
+			);
+			if ( null === $validated_path ) {
+				throw new \RuntimeException(
+					'LOCAL_NEWSPACK_NODES_CONF does not name a canonical readable PHP config file'
 				);
 			}
+			$config = Config_Utils::load_config_file(
+				$config,
+				$validated_path,
+				'Newspack_Nodes\\Config'
+			);
 		}
 
 		self::$config_defaults = $config;
 
 		return self::$config_defaults;
-	}
-
-	/** Validate a config-override path against the allowed directories (plus the plugin dir). */
-	private static function validate_config_path( string $path ): ?string {
-		$dirs = [ ...self::$allowed_config_dirs, \dirname( __DIR__ ) ];
-		if ( \defined( 'WP_CONTENT_DIR' ) ) {
-			$dirs[] = WP_CONTENT_DIR;
-		}
-		if ( \defined( 'ABSPATH' ) && '/' !== ABSPATH ) {
-			$dirs[] = ABSPATH;
-		}
-		$dirs = \array_values(
-			\array_filter(
-				$dirs,
-				static fn ( string $dir ): bool => DIRECTORY_SEPARATOR !== \realpath( $dir )
-			)
-		);
-		return Config_Utils::validate_config_path( $path, $dirs, 'Newspack_Nodes\\Config' );
 	}
 
 	/**
