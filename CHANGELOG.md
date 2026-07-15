@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-07-15
+
 ### Fixed
 
 - **Config and test entry points no longer assume a particular container checkout.** The operator-controlled `LOCAL_NEWSPACK_NODES_CONF` override accepts any canonical readable PHP file instead of restricting it to the active plugin or WordPress roots, and an invalid explicit path or return value now fails loudly instead of silently loading site defaults. The shared validator retains its published three-argument call shape so Nodes and its independently released consumers can be upgraded in either order; its former containment primitive remains available as a deprecated compatibility helper. `tests/run.sh` runs the vendor PHPUnit for its own checkout, and the AI Newsletter example's coverage path is relative to its PHPUnit config.
