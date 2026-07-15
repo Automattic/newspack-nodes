@@ -280,6 +280,15 @@ class CliWorkerCommandTest extends TestCase {
 	// run
 	// -------------------------------------------------------------------------
 
+	public function test_run_synopsis_does_not_shadow_global_quiet(): void {
+		// Declaring `[--quiet]` in the command synopsis collides with WP-CLI's
+		// built-in global --quiet and makes registration warn. Rely on the
+		// global; the synopsis must not redeclare it.
+		$doc = ( new \ReflectionMethod( Worker_CLI_Command::class, 'run' ) )->getDocComment();
+		$this->assertIsString( $doc );
+		$this->assertStringNotContainsString( '--quiet', $doc );
+	}
+
 	public function test_run_requires_type(): void {
 		$this->expectException( \RuntimeException::class );
 		( new Worker_CLI_Command() )->run( [], [] );
@@ -510,10 +519,11 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'skipped', $GLOBALS['_test_wp_cli_success'][0] );
 	}
 
-	public function test_run_quiet_suppresses_logs_and_success(): void {
-		// `--quiet` short-circuits the non-essential WP_CLI::log + ::success
-		// calls. The command still drives execute() to completion (skipped),
-		// but the stream stays empty.
+	public function test_run_delegates_quiet_to_wp_cli_global(): void {
+		// Quiet is WP-CLI's global concern: its Quiet logger no-ops log/success
+		// when --quiet is set. The command no longer special-cases a `quiet`
+		// arg — so a stray one is ignored and the calls still fire (the runtime
+		// logger, not the command, decides whether they print).
 		$stock_dir = "{$this->tmp}/stock";
 		\mkdir( $stock_dir, 0755, true );
 		\file_put_contents( "{$stock_dir}/run-quiet-test.tsl", "# noop\n" );
@@ -530,12 +540,8 @@ class CliWorkerCommandTest extends TestCase {
 			[ 'partition' => 0, 'quiet' => true ]
 		);
 
-		// Quiet mode: neither 'Starting…' nor the success line are emitted.
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringNotContainsString( 'Starting run-quiet-test', $haystack );
-		$this->assertEmpty(
-			$GLOBALS['_test_wp_cli_success'],
-			'quiet mode must suppress WP_CLI::success after execute()'
-		);
+		$this->assertStringContainsString( 'Starting run-quiet-test', $haystack );
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
 	}
 }

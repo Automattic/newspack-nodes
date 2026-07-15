@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`wp nodes run` no longer declares a `--quiet` option.** It shadowed WP-CLI's built-in global `--quiet`, so WP-CLI warned at registration ("registering an argument '--quiet' that conflicts with a global argument of the same name"). Quiet is delegated to the global flag — WP-CLI's Quiet logger already suppresses the `log`/`success` output — so the command drops its redundant synopsis entry and manual guard.
+
 ## [0.46.0] - 2026-07-15
 
 ### Fixed
