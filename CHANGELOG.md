@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Worker-status tree showed 2-3 duplicate `P0` read-rate badges per node.** `reconstructWorkers` resolves a consumer's downstream handlers by contracting `tee` nodes out of the graph. In `combined`, `disconnect_node firehose:consumer` + the tee rewiring leaves each processor reachable BOTH directly and through the tee, so the contraction produced a duplicate `firehose:consumer→job-router` (and →request-builder) edge — one worker badge per edge. The downstream handler list is deduped now, so each node shows one badge per source it actually reads (job-router: firehose + jobintake; request-builder: firehose).
+
 ### Added
 
 - **Delete removes a selected hull's include.** A hull IS the include, so it now answers Delete/Backspace like a selected node or edge does — no round trip to the inspector's include tree. Only a DIRECTLY-declared include can go (a nested one has no `include` line in this topology to remove), and only in edit mode, since removing an include edits the draft. The selection clears with it.
