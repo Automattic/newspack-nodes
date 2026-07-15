@@ -397,9 +397,6 @@ class Worker_CLI_Command {
 	 * default: 0
 	 * ---
 	 *
-	 * [--quiet]
-	 * : Suppress informational output.
-	 *
 	 * ## EXAMPLES
 	 *
 	 *     # Run firehose-workers for partition 0
@@ -419,7 +416,6 @@ class Worker_CLI_Command {
 
 		$type      = $args[0] ?? '';
 		$partition = self::entry_int( $assoc_args, 'partition', 0 );
-		$quiet     = isset( $assoc_args['quiet'] );
 
 		if ( '' === $type ) {
 			\WP_CLI::error( 'Worker type required. Use: wp nodes run <type>' );
@@ -453,9 +449,7 @@ class Worker_CLI_Command {
 			Topology_Loader::load( $topology_name, $partition_arg, $interpreter );
 		};
 
-		if ( ! $quiet ) {
-			\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
-		}
+		\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
 
 		// Bootstrap::supervisor() so the HMAC salt matches the runtime.
 		$supervisor = Bootstrap::supervisor();
@@ -473,9 +467,7 @@ class Worker_CLI_Command {
 		$token     = $supervisor->generate_spawn_token( \time() );
 
 		$result = $wb->execute( $topology, $spawn_url, $token );
-		if ( ! $quiet ) {
-			\WP_CLI::success( 'Worker exited with status: ' . $result['status'] );
-		}
+		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] );
 	}
 
 	/**
