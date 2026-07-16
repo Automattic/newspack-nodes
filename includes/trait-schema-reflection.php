@@ -66,7 +66,7 @@ trait Schema_Reflection {
 	 */
 	private static function resolve_default( mixed $default, string $type ): mixed {
 		if ( \is_string( $default ) && \preg_match( '/<[a-zA-Z_]\w*:[a-zA-Z_]\w*>/', $default ) ) {
-			return self::coerce_argument( Core::resolve_config_tokens( $default ), $type );
+			return self::coerce_argument( Core::resolve_config_tokens( $default, true ), $type );
 		}
 		return $default;
 	}

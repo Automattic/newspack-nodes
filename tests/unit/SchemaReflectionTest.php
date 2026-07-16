@@ -43,6 +43,37 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( 7777, $node->count );
 	}
 
+	public function test_parse_schema_args_throws_on_unresolvable_token_default(): void {
+		// A schema default whose <ns:key> token can't resolve (unowned key — the
+		// exact <config:is_hub> footgun) is a developer bug: fail loud at
+		// construction, don't silently coerce '' (which for a bool default
+		// disables the feature). 'tconf' owns nothing, so it returns null.
+		Core::register_config_namespace( 'tconf', static fn ( string $k ) => null );
+
+		$node = new class extends Node {
+			use Schema_Reflection;
+
+			public bool $flag = false;
+
+			public function parse( array $args ): void {
+				$this->parse_schema_args( $args );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'arguments' => [
+						[ 'name' => 'flag', 'type' => 'bool', 'default' => '<tconf:is_hub>' ],
+					],
+				];
+			}
+		};
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'tconf:is_hub' );
+
+		$node->parse( [] );
+	}
+
 	public function test_parse_schema_args_leaves_a_non_token_default_verbatim(): void {
 		$node = new class extends Node {
 			use Schema_Reflection;

@@ -46,6 +46,33 @@ class ConfigTokenResolverTest extends TestCase {
 		$this->assertSame( '', Core::resolve_config_token( 'acme', 'topologies' ) );
 	}
 
+	public function test_strict_resolve_unknown_namespace_throws(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no-such-ns:foo' );
+		Core::resolve_config_token( 'no-such-ns', 'foo', true );
+	}
+
+	public function test_strict_resolve_null_from_resolver_throws(): void {
+		Core::register_config_namespace( 'acme', static fn ( string $key ) => null );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'acme:missing' );
+		Core::resolve_config_token( 'acme', 'missing', true );
+	}
+
+	public function test_strict_resolve_owned_empty_string_does_not_throw(): void {
+		// A resolver that RETURNS '' owns the key — its value is just empty
+		// (e.g. a "feature off" default). Strict mode must distinguish owned-empty
+		// ('') from unowned (null → throw), so a legit empty default keeps working.
+		Core::register_config_namespace( 'acme', static fn ( string $key ): string => '' );
+		$this->assertSame( '', Core::resolve_config_token( 'acme', 'anything', true ) );
+	}
+
+	public function test_strict_resolve_config_tokens_throws_on_unresolvable_token(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'nosuchns:foo' );
+		Core::resolve_config_tokens( 'prefix/<nosuchns:foo>/suffix', true );
+	}
+
 	public function test_interpolate_namespaced_token_uses_registered_resolver(): void {
 		Core::register_config_namespace( 'acme', static fn ( string $key ): string => 'bar' );
 		$shell = new Shell_Node();

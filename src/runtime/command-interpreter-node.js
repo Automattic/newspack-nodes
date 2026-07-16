@@ -171,6 +171,7 @@ export class CommandInterpreterNode extends Node {
 			);
 			return;
 		}
+		// External-compat seam: coerce a non-array `arguments` to [].
 		const args = Array.isArray( cmd.arguments ) ? cmd.arguments : [];
 		try {
 			const result = verb( this, args, message );
