@@ -25,14 +25,13 @@ trait Schema_Reflection {
 	 * make_node fails loudly). No-ops only for a node with no declared arguments —
 	 * the assignment half of Tachikoma's per-node arguments() parsing.
 	 *
-	 * @param string $args Raw positional argument string.
+	 * @param list<string> $args Raw positional argument tokens.
 	 */
-	protected function parse_schema_args( string $args ): void {
+	protected function parse_schema_args( array $args ): void {
 		$declared = static::node_schema()['arguments'] ?? [];
 		if ( ! \is_array( $declared ) || empty( $declared ) ) {
 			return;
 		}
-		$tokens = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
 		foreach ( $declared as $i => $arg_spec ) {
 			if ( ! \is_array( $arg_spec ) ) {
 				continue;
@@ -46,8 +45,8 @@ trait Schema_Reflection {
 			if ( ! \property_exists( $this, $name ) ) {
 				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: {$name}" ) );
 			}
-			if ( isset( $tokens[ $i ] ) ) {
-				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
+			if ( isset( $args[ $i ] ) ) {
+				$this->{$name} = self::coerce_argument( $args[ $i ], $type );
 			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
 				$this->{$name} = self::resolve_default( $arg_spec['default'], $type );
 			} elseif ( \array_key_exists( 'required', $arg_spec ) && $arg_spec['required'] ) {

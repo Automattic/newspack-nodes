@@ -25,13 +25,13 @@ class TopicTest extends TestCase {
 
 	public function test_constructor_does_not_create_partitions(): void {
 		$__topic = new Topic_Node();
-		$__topic->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$__topic->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$this->assertFalse( is_dir( "{$this->tmp}/firehose.p0" ) );
 	}
 
 	public function test_fill_routes_by_key(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$this->produce_into( $t, 'data', '/url1' );
 
 		// Key routing is deterministic; whichever partition got it contains the
@@ -52,7 +52,7 @@ class TopicTest extends TestCase {
 
 	public function test_same_key_routes_to_same_partition(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$this->produce_into( $t, 'first', '/url1' );
 		$this->produce_into( $t, 'second', '/url1' );
 
@@ -72,7 +72,7 @@ class TopicTest extends TestCase {
 
 	public function test_node_fill_TM_BYTESTREAM_routes_by_KEY(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
 		$message = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -90,7 +90,7 @@ class TopicTest extends TestCase {
 
 	public function test_num_partitions_contains_constructor_value(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 7 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "7", "65536", "2", "4", "86400", "0" ] );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( 7, $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 	}
@@ -103,7 +103,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 3 1048576 2 2 0 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "3", "1048576", "2", "2", "0", "0" ] );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( "{$this->tmp}/firehose.p{partition}", $ref->getProperty( 'dir_template' )->getValue( $t ) );
 		$this->assertSame( 3,        $ref->getProperty( 'num_partitions' )->getValue( $t ) );
@@ -114,7 +114,7 @@ class TopicTest extends TestCase {
 
 	public function test_child_partition_dir_substitutes_curly_partition_token(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 3 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "3", "65536", "2", "4", "86400", "0" ] );
 		$t->name( 'firehose' );
 
 		// Route three distinct keys; each materialized child must write to
@@ -141,7 +141,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_arguments_setter_resolves_config_defaults_for_missing_optional_tokens(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4" ] );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( 4,    $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $t ) );
@@ -153,12 +153,12 @@ class TopicTest extends TestCase {
 		// max(1, $n) clamps zero/negative to 1 — callers that pass bad config don't
 		// trip a divide-by-zero in hash_to_partition.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 0 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "0", "65536", "2", "4", "86400", "0" ] );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( 1, $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 
 		$t2 = new Topic_Node();
-		$t2->arguments( "{$this->tmp}/firehose.p{partition} -3 65536 2 4 86400 0" );
+		$t2->arguments( [ "{$this->tmp}/firehose.p{partition}", "-3", "65536", "2", "4", "86400", "0" ] );
 		$ref2 = new \ReflectionClass( $t );
 		$this->assertSame( 1, $ref2->getProperty( 'num_partitions' )->getValue( $t2 ) );
 	}
@@ -169,7 +169,7 @@ class TopicTest extends TestCase {
 		// TM_EOF) round-trip through Topic-as-transport in IPC scenarios,
 		// so Topic packs them like any other type instead of dropping.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 2 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
 		$types = [
 			Message::TM_REQUEST,
@@ -199,7 +199,7 @@ class TopicTest extends TestCase {
 
 	public function test_fill_pre_pinned_TO_routes_to_specified_partition(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
 		// TO=p2/... pins partition 2 regardless of KEY.
 		$message                   = Message::new_message();
@@ -220,7 +220,7 @@ class TopicTest extends TestCase {
 	public function test_fill_pre_pinned_TO_out_of_range_falls_through_to_key_routing(): void {
 		// TO=p99/... where 99 >= num_partitions(2) → falls through to KEY routing.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 2 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -239,7 +239,7 @@ class TopicTest extends TestCase {
 	public function test_fill_empty_key_uses_round_robin(): void {
 		// Round-robin counter is static — clear by getting baseline first.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
 		// Empty KEY → round-robin. Send 8 messages and confirm at least 2 partitions
 		// got data (deterministic round-robin, but counter is shared across tests).
@@ -264,7 +264,7 @@ class TopicTest extends TestCase {
 
 	public function test_sink_propagates_to_existing_partitions(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
 		// Materialize a partition first.
 		$this->produce_into( $t, 'data', 'k1' );
@@ -295,7 +295,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_materialized_partitions_are_named_and_patron_linked(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$t->name( 'firehose' );
 
 		$this->produce_into( $t, 'data', 'k1' );
@@ -315,7 +315,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_materialized_partition_inherits_topic_sink(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$t->name( 'firehose' );
 		$sink = new Capture_Sink_Node();
 		$t->sink( $sink );
@@ -336,7 +336,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_unnamed_topic_leaves_partition_unnamed_but_patron_linked(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
 		$this->produce_into( $t, 'data', 'k1' );
 		$idx = Partition_Node::hash_to_partition( 'k1', 4 );
@@ -351,7 +351,7 @@ class TopicTest extends TestCase {
 
 	public function test_remove_node_tears_down_partitions(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
 		// Materialize two partitions.
 		$this->produce_into( $t, 'a', 'k1' );
@@ -377,7 +377,7 @@ class TopicTest extends TestCase {
 		// Topic must lift that cap on every partition it materializes.
 		$t = new Topic_Node();
 		$t->name( 'firehose' );
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 2 4 0 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "1", "67108864", "2", "4", "0", "0" ] );
 		$t->void_warranty();
 
 		$big = str_repeat( 'x', 5000 );
@@ -393,7 +393,7 @@ class TopicTest extends TestCase {
 		// by the Partition (this is exactly what `ingest` must warn about in --dry-run).
 		$t = new Topic_Node();
 		$t->name( 'firehose' );
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 2 4 0 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "1", "67108864", "2", "4", "0", "0" ] );
 
 		$big = str_repeat( 'x', 5000 );
 		$this->produce_into( $t, $big, 'k1' );
@@ -402,13 +402,13 @@ class TopicTest extends TestCase {
 		$this->assertSame( '', file_exists( $path ) ? (string) file_get_contents( $path ) : '' );
 	}
 
-	public function test_arguments_null_returns_last_set_string(): void {
-		// arguments(null) is the getter — it returns the raw string last passed in,
+	public function test_arguments_null_returns_last_set_tokens(): void {
+		// arguments(null) is the getter — it returns the token list last passed in,
 		// not a re-parse. (The setter path stores it via parse_schema_args.)
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$this->assertSame(
-			"{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0",
+			[ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ],
 			$t->arguments()
 		);
 	}
@@ -419,7 +419,7 @@ class TopicTest extends TestCase {
 		// set_large_write_mode loop) AND any created later (apply at partition()).
 		$t = new Topic_Node();
 		$t->name( 'firehose' );
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 2 4 0 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "1", "67108864", "2", "4", "0", "0" ] );
 
 		// Materialize p0 BEFORE the opt-in so the existing-partition loop runs.
 		$this->produce_into( $t, 'small', 'k1' );
@@ -443,7 +443,7 @@ class TopicTest extends TestCase {
 		// is empty and the guard is never exercised).
 		$t = new Topic_Node();
 		$t->name( 'firehose' );
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 1 67108864 2 4 0 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "1", "67108864", "2", "4", "0", "0" ] );
 		$this->produce_into( $t, 'small', 'k1' );
 
 		$this->assertSame( $t, $t->allow_large_writes() );
@@ -467,7 +467,7 @@ class TopicTest extends TestCase {
 		// measured INDEPENDENTLY of the per-partition counters so the test can't
 		// tautologically restate the production aggregation.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$this->produce_into( $t, 'hello', 'k1' );
 		$this->produce_into( $t, 'a-longer-message', 'k2' );
 
@@ -498,7 +498,7 @@ class TopicTest extends TestCase {
 		// partitions — mirrors how sink() propagates to future children.
 		$t = new Topic_Node();
 		$t->name( 'firehose' );
-		$t->arguments( "{$this->tmp}/firehose.p{partition} 2 67108864 2 4 0 0" );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "2", "67108864", "2", "4", "0", "0" ] );
 		$t->void_warranty();
 
 		// Pin one oversize record to EACH partition via TO so both materialize after the call.
@@ -530,7 +530,7 @@ class TopicTest extends TestCase {
 	public function test_void_warranty_verb_reaches_partitions_made_later(): void {
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
-		$t->arguments( "{$this->tmp}/zebra.p{partition} 4 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
 		$this->assertSame( 'ok', $this->verb( $t, 'void_warranty' ) );
 
@@ -554,7 +554,7 @@ class TopicTest extends TestCase {
 	public function test_allow_large_writes_verb_is_dispatchable(): void {
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
-		$t->arguments( "{$this->tmp}/zebra.p{partition} 2 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
 		$this->assertSame( 'ok', $this->verb( $t, 'allow_large_writes' ) );
 	}
@@ -564,7 +564,7 @@ class TopicTest extends TestCase {
 		\Newspack_Nodes\Formatters::register( 'zebra-index', static fn ( $m ): string => 'z' );
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
-		$t->arguments( "{$this->tmp}/zebra.p{partition} 2 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
 		$this->assertStringContainsString(
 			'unknown formatter',
@@ -581,7 +581,7 @@ class TopicTest extends TestCase {
 		\Newspack_Nodes\Formatters::register( 'zebra-index', static fn ( $m ): string => 'z' );
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
-		$t->arguments( "{$this->tmp}/zebra.p{partition} 2 65536 2 4 86400 0" );
+		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 		$this->verb( $t, 'void_warranty' );
 		$this->verb( $t, 'with_index', 'zebra-index' );
 
@@ -594,6 +594,6 @@ class TopicTest extends TestCase {
 	/** Dispatch a verb through the node's own `{name}:config` interpreter. */
 	private function verb( Topic_Node $t, string $name, string $args = '' ): mixed {
 		$interpreter = $this->read_private( $t, 'interpreter' );
-		return $interpreter->dispatch( $name, $args );
+		return $interpreter->dispatch( $name, '' === $args ? [] : [ $args ] );
 	}
 }

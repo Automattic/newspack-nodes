@@ -282,10 +282,10 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( lastConnector.opts.nonce ).toBe( 'NONCE' );
 	} );
 
-	it( 'makes each RemoteIpc with a token-free (worker-only) argument string', () => {
+	it( 'makes each RemoteIpc with a token-free (worker-only) argument token', () => {
 		renderGraph( { topology: 'demo', partition: 3 } );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
-		expect( Core.node( 'demo.p3' ).arguments ).toBe( 'demo.p3' );
+		expect( Core.node( 'demo.p3' ).arguments ).toEqual( [ 'demo.p3' ] );
 	} );
 
 	it( 'sets the Shell cwd path to the bare session worker reader', () => {
@@ -521,7 +521,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 			expect.objectContaining( {
 				to: 'topologies',
 				verb: 'get',
-				args: 'demo',
+				args: [ 'demo' ],
 			} )
 		);
 		// parseTsl(tsl).nodes seeded the canvas graph before dump_metadata.
@@ -591,7 +591,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		const { FROM, TO, VALUE } = require( '../../../runtime/message' );
 		// connect_worker_input leads; the routed command follows.
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
-		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p0' );
+		expect( batch[ 0 ][ VALUE ].arguments ).toEqual( [ 'demo.p0' ] );
 		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
 		// RemoteIpc wrapped the bare `_output` FROM into the reply address.
@@ -653,7 +653,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = names.METADATA;
 		m[ TO ] = names.CWD;
-		m[ VALUE ] = { name: 'dump_metadata', arguments: '' };
+		m[ VALUE ] = { name: 'dump_metadata', arguments: [] };
 		m[ LOCAL ] = true;
 		return m;
 	};

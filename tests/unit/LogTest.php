@@ -37,7 +37,7 @@ class LogTest extends TestCase {
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		// Args: file segment_size min_segments max_segments [min_lifetime] [max_lifetime]. Lazy fopen.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 1024 2 3" );
+		$log->arguments( [ "{$this->tmp}/out.log", "1024", "2", "3" ] );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( "{$this->tmp}/out.log", $ref->getProperty( 'file' )->getValue( $log ) );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
@@ -49,7 +49,7 @@ class LogTest extends TestCase {
 		// Log inherits Partition's dual-rule cleanup; the two lifetime knobs are
 		// optional trailing args (default 0) so age retention is configurable too.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 1024 2 3 100 200" );
+		$log->arguments( [ "{$this->tmp}/out.log", "1024", "2", "3", "100", "200" ] );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( 100, $ref->getProperty( 'min_lifetime' )->getValue( $log ) );
 		$this->assertSame( 200, $ref->getProperty( 'max_lifetime' )->getValue( $log ) );
@@ -60,7 +60,7 @@ class LogTest extends TestCase {
 		// coerced to int; 1024/2 are the test-config values, distinct from the
 		// DEFAULT_* constants (67108864/4) they used to fall back to.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log" );
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
 		$this->assertSame( 2,    $ref->getProperty( 'max_segments' )->getValue( $log ) );
@@ -69,7 +69,7 @@ class LogTest extends TestCase {
 	public function test_fill_writes_raw_value_not_packed_envelope(): void {
 		// Log serializes the VALUE verbatim — no Message::packed framing, no added newline.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log" );
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$this->write_value( $log, "hello\n" );
 		$log->flush();
 
@@ -79,7 +79,7 @@ class LogTest extends TestCase {
 
 	public function test_fill_accumulates_multiple_values_in_one_segment(): void {
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 1048576 2 2" ); // large segment: both land in .0
+		$log->arguments( [ "{$this->tmp}/out.log", "1048576", "2", "2" ] ); // large segment: both land in .0
 		$this->write_value( $log, "first\n" );
 		$this->write_value( $log, "second\n" );
 		$log->flush();
@@ -90,7 +90,7 @@ class LogTest extends TestCase {
 	public function test_creates_missing_parent_directory(): void {
 		$path = "{$this->tmp}/nested/sub/out.log";
 		$log  = new Log_Node();
-		$log->arguments( $path );
+		$log->arguments( [ $path ] );
 		$this->write_value( $log, "x\n" );
 		$log->flush();
 
@@ -102,14 +102,14 @@ class LogTest extends TestCase {
 		// must report dirname(file) (not the empty base partition_dir) — Tail's
 		// get_batch() stat-defeats on this path.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/sub/out.log" );
+		$log->arguments( [ "{$this->tmp}/sub/out.log" ] );
 		$this->assertSame( "{$this->tmp}/sub", $log->partition_dir() );
 	}
 
 	public function test_segment_size_rolls_to_next_monotonic_segment(): void {
 		// segment_size=10: the second write crosses the cap and rotates to .1.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 10 2 4" );
+		$log->arguments( [ "{$this->tmp}/out.log", "10", "2", "4" ] );
 		$this->write_value( $log, "0123456789\n" ); // 11 bytes → lands in .0
 		$log->flush();
 		$this->write_value( $log, "after\n" );       // .0 is over cap → rotate to .1
@@ -122,7 +122,7 @@ class LogTest extends TestCase {
 	public function test_max_segments_retention_prunes_oldest(): void {
 		// max_segments=2, min_lifetime default 0 (count rule always fires) → keep 2 newest.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 1 2 2" ); // segment_size=1 → every write rotates
+		$log->arguments( [ "{$this->tmp}/out.log", "1", "2", "2" ] ); // segment_size=1 → every write rotates
 		foreach ( [ 'a', 'b', 'c', 'd' ] as $v ) {
 			$this->write_value( $log, $v );
 			$log->flush();
@@ -138,7 +138,7 @@ class LogTest extends TestCase {
 	public function test_TM_ERROR_is_dropped(): void {
 		// Control plane, not data — must not pollute the log. Mirrors Tachikoma Log.pm:69.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log" );
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_ERROR;
 		$message[ Message::VALUE ] = 'this should NOT land';
@@ -152,7 +152,7 @@ class LogTest extends TestCase {
 		// Append-only: EOF is a producer-shutdown signal; Log expects more data later
 		// and must NOT close/remove the node (overwrite mode is gone).
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log" );
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$log->name( 'mylog' );
 		$this->write_value( $log, "before-eof\n" );
 
@@ -171,7 +171,7 @@ class LogTest extends TestCase {
 		// Control plane: a request is not data and must not be written. Rotation is
 		// size-driven (segment_size), so Log has no rotate request.
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log" );
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$req                   = Message::new_message();
 		$req[ Message::TYPE ]  = Message::TM_REQUEST;
 		$req[ Message::VALUE ] = 'rotate';
@@ -186,7 +186,7 @@ class LogTest extends TestCase {
 		// An oversize VALUE is dropped, NOT written — a deliberate
 		// change from the old uncapped Log. Operators opt out via void_warranty().
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log" );
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$this->write_value( $log, \str_repeat( 'x', Partition_Node::MAX_LINE_SIZE + 1 ) );
 		$log->flush();
 
@@ -195,7 +195,7 @@ class LogTest extends TestCase {
 
 	public function test_void_warranty_lifts_cap_for_large_value(): void {
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log" );
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$log->void_warranty();
 		$big = \str_repeat( 'y', Partition_Node::MAX_LINE_SIZE + 100 );
 		$this->write_value( $log, $big );
@@ -207,7 +207,7 @@ class LogTest extends TestCase {
 	public function test_make_node_through_REPL_works_with_only_file(): void {
 		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make', "Log mylog {$this->tmp}/out.log" );
+		$interpreter->dispatch( 'make', [ 'Log', 'mylog', "{$this->tmp}/out.log" ] );
 
 		$node = \Newspack_Nodes\Core::node( 'mylog' );
 		$this->assertInstanceOf( Log_Node::class, $node );
@@ -219,7 +219,7 @@ class LogTest extends TestCase {
 
 	public function test_dump_config_round_trips_ctor_args(): void {
 		$log = new Log_Node();
-		$log->arguments( "{$this->tmp}/out.log 4096 2 5" );
+		$log->arguments( [ "{$this->tmp}/out.log", "4096", "2", "5" ] );
 		$log->name( 'mylog' );
 
 		$out = $log->dump_config();
@@ -253,7 +253,7 @@ class LogTest extends TestCase {
 		\set_error_handler( static fn (): bool => true, \E_WARNING );
 		try {
 			$log = new Log_Node();
-			$log->arguments( $path );
+			$log->arguments( [ $path ] );
 			$this->write_value( $log, "y\n" );
 			$log->flush();
 			$this->assertFileDoesNotExist( "{$path}.0" );

@@ -375,7 +375,7 @@ describe( 'useDebugGraph', () => {
 		expect( spy ).toHaveBeenCalledTimes( 1 );
 		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
 			name: 'dump_node',
-			arguments: 'a',
+			arguments: [ 'a' ],
 		} );
 		teardown();
 	} );
@@ -447,7 +447,7 @@ describe( 'useDebugGraph', () => {
 		expect( spy ).toHaveBeenCalledTimes( 1 );
 		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
 			name: 'debug_state',
-			arguments: 'a 1',
+			arguments: [ 'a', '1' ],
 		} );
 		teardown();
 	} );
@@ -526,7 +526,10 @@ describe( 'useDebugGraph', () => {
 		);
 		// make_node side-effect: node exists in Core with modal-provided args.
 		expect( Core.node( 'mypart' ) ).not.toBeNull();
-		expect( Core.node( 'mypart' ).arguments ).toBe( 'mytopic 8192' );
+		expect( Core.node( 'mypart' ).arguments ).toEqual( [
+			'mytopic',
+			'8192',
+		] );
 		// Position recorded under the user-chosen name (not the default).
 		expect( positionCalls ).toEqual( [
 			{ id: 'mypart', pos: { x: 60, y: 80 } },
@@ -559,7 +562,7 @@ describe( 'useDebugGraph', () => {
 		act( () => result.current.commitDrop( { name: 'p1', args: '   ' } ) );
 		// Node is created with EMPTY args — whitespace-only args were trimmed.
 		expect( Core.node( 'p1' ) ).not.toBeNull();
-		expect( Core.node( 'p1' ).arguments ).toBe( '' );
+		expect( Core.node( 'p1' ).arguments ).toEqual( [] );
 		teardown();
 	} );
 
@@ -744,7 +747,7 @@ describe( 'useDebugGraph', () => {
 		expect( spy ).toHaveBeenCalledTimes( 1 );
 		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
 			name: 'connect_node',
-			arguments: 'a b',
+			arguments: [ 'a', 'b' ],
 		} );
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
 		teardown();
@@ -813,7 +816,7 @@ describe( 'useDebugGraph', () => {
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onRemoveNode( 'a' ) );
 		expect( calls ).toEqual( [
-			{ path: '', name: 'remove_node', args: 'a' },
+			{ path: '', name: 'remove_node', args: [ 'a' ] },
 		] );
 		teardown();
 	} );

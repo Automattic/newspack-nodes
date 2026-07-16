@@ -100,12 +100,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `get` verb handler — one topology's TSL + metadata by name.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_get( string $args ): array {
-		$name = self::require_valid_name( \trim( $args ) );
+	public static function cmd_get( array $args ): array {
+		$name = self::require_valid_name( $args[0] ?? '' );
 
 		$path = Topology_Registry::resolve( $name );
 		if ( null === $path ) {
@@ -176,12 +176,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `save` verb handler — persist a topology's TSL (size-guarded).
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 * @param array<int|string, mixed> $envelope Verb argument.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_save( string $args, array $envelope = [] ): array {
+	public static function cmd_save( array $args, array $envelope = [] ): array {
 		// $envelope is the 7-field positional message array (a list).
 		if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 			throw new \RuntimeException(
@@ -326,12 +326,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `expand` verb handler — compose an include set for the console.
 	 *
-	 * @param string $args Space-separated topology names.
+	 * @param list<string> $args Space-separated topology names.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_expand( string $args ): array {
-		$names = \preg_split( '/\s+/', \trim( $args ) ) ?: [];
+	public static function cmd_expand( array $args ): array {
+		$names = $args;
 		$names = \array_values( \array_filter( $names, fn ( $n ) => '' !== $n ) );
 		foreach ( $names as $name ) {
 			self::require_valid_name( $name );
@@ -342,12 +342,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `delete` verb handler — remove a user topology by name.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_delete( string $args ): array {
-		$name = self::require_valid_name( \trim( $args ) );
+	public static function cmd_delete( array $args ): array {
+		$name = self::require_valid_name( $args[0] ?? '' );
 
 		$user_dir = Topology_Registry::user_dir();
 		if ( '' === $user_dir ) {
@@ -403,36 +403,36 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `activate` verb handler — activate a topology by name.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_activate( string $args ): array {
+	public static function cmd_activate( array $args ): array {
 		// Name-validate here; rest is shared Topology_Registry::activate.
-		return Topology_Registry::activate( self::require_valid_name( \trim( $args ) ) );
+		return Topology_Registry::activate( self::require_valid_name( $args[0] ?? '' ) );
 	}
 
 	/**
 	 * `deactivate` verb handler — deactivate a topology by name.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_deactivate( string $args ): array {
-		return Topology_Registry::deactivate( self::require_valid_name( \trim( $args ) ) );
+	public static function cmd_deactivate( array $args ): array {
+		return Topology_Registry::deactivate( self::require_valid_name( $args[0] ?? '' ) );
 	}
 
 	/**
 	 * `connect_worker_input` verb handler — wire a worker input edge.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return string
 	 */
-	public static function cmd_connect_worker_input( string $args ): string {
+	public static function cmd_connect_worker_input( array $args ): string {
 		// Mount the worker's input Partition into this request's graph.
-		Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
+		Bootstrap::register_worker_partition( $args[0] ?? '', Bootstrap::base_dir() );
 		return '';
 	}
 
@@ -446,13 +446,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'name'        => 'list',
 					'description' => 'List topologies with source (user/stock/both) and active state.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list(),
 				],
 				[
 					'name'        => 'get',
 					'description' => 'Read a topology .tsl by name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_get( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'save',
@@ -461,37 +461,37 @@ class Topologies_CI_Node extends Service_CI_Node {
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( self::arg_strings( $args ), $envelope ),
 				],
 				[
 					'name'        => 'delete',
 					'description' => 'Delete a user topology (stock copies are protected).',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_delete( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_delete( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'activate',
 					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_activate( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_activate( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'deactivate',
 					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_deactivate( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_deactivate( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'expand',
 					'description' => 'Compose an include set into one graph with provenance (informational).',
 					'args'        => [ [ 'name' => 'names', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_expand( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_expand( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'connect_worker_input',
 					'description' => "Mount the named worker's input partition into this request's graph.",
 					'args'        => [ [ 'name' => 'reader', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_connect_worker_input( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_connect_worker_input( self::arg_strings( $args ) ),
 				],
 			],
 		] );

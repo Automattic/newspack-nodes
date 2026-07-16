@@ -25,7 +25,7 @@ class SchemaReflectionTest extends TestCase {
 
 			public int $count = 0;
 
-			public function parse( string $args ): void {
+			public function parse( array $args ): void {
 				$this->parse_schema_args( $args );
 			}
 
@@ -38,7 +38,7 @@ class SchemaReflectionTest extends TestCase {
 			}
 		};
 
-		$node->parse( '' );
+		$node->parse( [] );
 
 		$this->assertSame( 7777, $node->count );
 	}
@@ -49,7 +49,7 @@ class SchemaReflectionTest extends TestCase {
 
 			public string $label = '';
 
-			public function parse( string $args ): void {
+			public function parse( array $args ): void {
 				$this->parse_schema_args( $args );
 			}
 
@@ -62,7 +62,7 @@ class SchemaReflectionTest extends TestCase {
 			}
 		};
 
-		$node->parse( '' );
+		$node->parse( [] );
 
 		$this->assertSame( 'plain-default', $node->label );
 	}
@@ -71,7 +71,7 @@ class SchemaReflectionTest extends TestCase {
 		$node = new class extends Node {
 			use Schema_Reflection;
 
-			public function parse( string $args ): void {
+			public function parse( array $args ): void {
 				$this->parse_schema_args( $args );
 			}
 
@@ -80,9 +80,9 @@ class SchemaReflectionTest extends TestCase {
 			}
 		};
 
-		$node->parse( 'ignored' );
+		$node->parse( [ 'ignored' ] );
 
-		$this->assertSame( '', $node->arguments() );
+		$this->assertSame( [], $node->arguments() );
 	}
 
 	public function test_parse_schema_args_skips_non_array_entries_and_coerces_float(): void {
@@ -91,7 +91,7 @@ class SchemaReflectionTest extends TestCase {
 
 			public float $ratio = 0.0;
 
-			public function parse( string $args ): void {
+			public function parse( array $args ): void {
 				$this->parse_schema_args( $args );
 			}
 
@@ -105,17 +105,17 @@ class SchemaReflectionTest extends TestCase {
 			}
 		};
 
-		$node->parse( 'ignored 2.5' );
+		$node->parse( [ 'ignored', '2.5' ] );
 
 		$this->assertSame( 2.5, $node->ratio );
-		$this->assertSame( 'ignored 2.5', $node->arguments() );
+		$this->assertSame( [ 'ignored', '2.5' ], $node->arguments() );
 	}
 
 	public function test_parse_schema_args_rejects_argument_spec_without_name(): void {
 		$node = new class extends Node {
 			use Schema_Reflection;
 
-			public function parse( string $args ): void {
+			public function parse( array $args ): void {
 				$this->parse_schema_args( $args );
 			}
 
@@ -127,14 +127,14 @@ class SchemaReflectionTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'missing name' );
 
-		$node->parse( 'value' );
+		$node->parse( [ 'value' ] );
 	}
 
 	public function test_parse_schema_args_rejects_argument_without_matching_property(): void {
 		$node = new class extends Node {
 			use Schema_Reflection;
 
-			public function parse( string $args ): void {
+			public function parse( array $args ): void {
 				$this->parse_schema_args( $args );
 			}
 
@@ -146,7 +146,7 @@ class SchemaReflectionTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'missing_property' );
 
-		$node->parse( 'value' );
+		$node->parse( [ 'value' ] );
 	}
 
 	public function test_auto_wire_interpreter_noops_for_command_interpreters(): void {

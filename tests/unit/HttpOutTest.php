@@ -41,7 +41,7 @@ class HttpOutTest extends TestCase {
 	private function make_node( string $id ): HTTP_Out_Node {
 		$node = new HTTP_Out_Node();
 		$node->name( 'remote:' . $id );
-		$node->arguments( $id );
+		$node->arguments( [ $id ] );
 		return $node;
 	}
 
@@ -281,7 +281,7 @@ class HttpOutTest extends TestCase {
 	public function test_arguments_round_trip_via_dump_config(): void {
 		$node = new HTTP_Out_Node();
 		$node->name( 'remote:austin' );
-		$node->arguments( 'austin' );
+		$node->arguments( [ 'austin' ] );
 		$this->assertSame( 'austin', $this->read_private( $node, 'vault_id' ) );
 		// dump_config emits a round-trippable `make_node` line ending in the args.
 		$this->assertStringEndsWith( 'austin', trim( $node->dump_config() ) );
@@ -531,9 +531,9 @@ class HttpOutTest extends TestCase {
 	}
 
 	public function test_arguments_null_returns_stored_vault_id(): void {
-		// arguments(null) is the getter — it returns the vault_id last set.
+		// arguments(null) is the getter — it returns the token list last set.
 		$node = $this->make_node( 'austin' );
-		$this->assertSame( 'austin', $node->arguments() );
+		$this->assertSame( [ 'austin' ], $node->arguments() );
 	}
 
 	public function test_fire_uses_real_libcurl_dispatch_when_no_seam_installed(): void {

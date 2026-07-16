@@ -17,7 +17,7 @@ describe( 'ShellNode.sendCommand', () => {
 		const shell = new ShellNode();
 		shell.sink = sink;
 
-		shell.sendCommand( 'some/path', 'connect_node', 'a b' );
+		shell.sendCommand( 'some/path', 'connect_node', [ 'a', 'b' ] );
 
 		expect( captured.length ).toBe( 1 );
 		const m = captured[ 0 ];
@@ -27,12 +27,12 @@ describe( 'ShellNode.sendCommand', () => {
 		expect( m[ LOCAL ] ).toBe( true );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'connect_node',
-			arguments: 'a b',
+			arguments: [ 'a', 'b' ],
 		} );
 	} );
 
 	it( 'is a no-op without sink', () => {
 		const shell = new ShellNode();
-		expect( () => shell.sendCommand( '', 'pwd', '' ) ).not.toThrow();
+		expect( () => shell.sendCommand( '', 'pwd', [] ) ).not.toThrow();
 	} );
 } );

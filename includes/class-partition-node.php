@@ -111,10 +111,10 @@ class Partition_Node extends Timer_Node {
 	 * normalize the values. partition_dir is the resolved $dir; a bare make_node
 	 * leaves it ''. Getter returns the raw string.
 	 *
-	 * @param string|null $args
-	 * @return string
+	 * @param list<string>|null $args
+	 * @return list<string>
 	 */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
@@ -424,7 +424,7 @@ class Partition_Node extends Timer_Node {
 			// Heartbeat cadence = stale_timeout/3 ms; 3 ticks per stale window.
 			$this->heartbeat_timer = new Timer_Node();
 			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
-			$this->heartbeat_timer->arguments( (string) \intdiv( $stale_timeout * 1000, 3 ) );
+			$this->heartbeat_timer->arguments( [ (string) \intdiv( $stale_timeout * 1000, 3 ) ] );
 			$this->heartbeat_timer->sink( $this->write_lock );
 			$this->heartbeat_timer->key( 'heartbeat' );
 			$this->heartbeat_timer->patron( $this );
@@ -1035,7 +1035,7 @@ class Partition_Node extends Timer_Node {
 	public static function read_latest_value_at( string $offsetlog_dir ): ?array {
 		try {
 			$offsetlog = new self();
-			$offsetlog->arguments( $offsetlog_dir );
+			$offsetlog->arguments( [ $offsetlog_dir ] );
 			$segments = $offsetlog->get_segments( true );
 			if ( empty( $segments ) ) {
 				return null;
@@ -1164,7 +1164,7 @@ class Partition_Node extends Timer_Node {
 		$index = [];
 		try {
 			$log = new self();
-			$log->arguments( $dir );
+			$log->arguments( [ $dir ] );
 			$segments = $log->get_segments( true );
 			if ( empty( $segments ) ) {
 				return [];
@@ -1205,14 +1205,14 @@ class Partition_Node extends Timer_Node {
 	 * released after that many ms of idle) instead of acquire-and-hold ([65]).
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string                   $args        Optional debounce_ms (default 0 = hold mode).
+	 * @param array<array-key, mixed>  $args        Optional debounce_ms (default 0 = hold mode).
 	 *
 	 * @return string
 	 */
-	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, string $args ): string {
+	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron   = $interpreter->patron();
-		$debounce = \max( 0, (int) \trim( $args ) );
+		$debounce = \max( 0, Core::as_int( $args[0] ?? '' ) );
 		$patron->allow_large_writes( 65000, $debounce );
 		return 'ok';
 	}
@@ -1235,12 +1235,12 @@ class Partition_Node extends Timer_Node {
 	 * `with_index` verb handler — set the patron's companion-index line-formatter by name.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string $args Verb argument.
+	 * @param array<array-key, mixed>  $args        Verb argument.
 	 *
 	 * @return string
 	 */
-	public static function cmd_with_index( Command_Interpreter_Node $interpreter, string $args ): string {
-		$args = \trim( $args );
+	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
+		$args = Core::as_string( $args[0] ?? '' );
 		if ( '' === $args ) {
 			return 'usage: with_index <formatter_name>';
 		}
@@ -1282,13 +1282,13 @@ class Partition_Node extends Timer_Node {
 					'args'        => [
 						[ 'name' => 'debounce_ms', 'type' => 'int', 'required' => false ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_allow_large_writes( $interpreter, $args ),
 				],
 				[
 					'name'        => 'void_warranty',
 					'description' => 'Lift the 4KB PIPE_BUF cap with NO write lock — caller asserts single-writer (corrupts under concurrent writers; use allow_large_writes otherwise).',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_void_warranty( $interpreter ),
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_void_warranty( $interpreter ),
 				],
 				[
 					'name'        => 'with_index',
@@ -1296,7 +1296,7 @@ class Partition_Node extends Timer_Node {
 					'args'        => [
 						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_with_index( $interpreter, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_with_index( $interpreter, $args ),
 				],
 			],
 			'registrations' => [ 'READY' ],

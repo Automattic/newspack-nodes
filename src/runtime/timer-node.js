@@ -51,8 +51,8 @@ export class TimerNode extends Node {
 		if ( TimerNode !== this.constructor ) {
 			return;
 		}
-		const raw =
-			null === value || undefined === value ? '' : String( value ).trim();
+		const tokens = Array.isArray( value ) ? value : [];
+		const raw = tokens.length ? String( tokens[ 0 ] ).trim() : '';
 		if ( '' === raw ) {
 			this.setTimer();
 		} else if ( /^[0-9]+$/.test( raw ) ) {

@@ -78,10 +78,10 @@ class Job_Worker_Node extends Node {
 	 * (cache_flush_interval), then clamp each knob
 	 * to a minimum of 1.
 	 *
-	 * @param string|null $args
-	 * @return string
+	 * @param list<string>|null $args
+	 * @return list<string>
 	 */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}

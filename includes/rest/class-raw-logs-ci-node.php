@@ -48,12 +48,12 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * `log_status` verb handler — segment counts and sizes for a single concrete partition dir.
 	 *
 	 * @param Command_Interpreter_Node $self Verb argument.
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_log_status( Command_Interpreter_Node $self, string $args ): array {
-		$log_key  = self::resolve_log_key( \trim( $args ) );
+	public static function cmd_log_status( Command_Interpreter_Node $self, array $args ): array {
+		$log_key  = self::resolve_log_key( $args[0] ?? '' );
 		$base_dir = RuntimeConfig::get_base_directory();
 		$log_base = $base_dir . '/logs';
 
@@ -66,7 +66,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			$partition->sink( $ci );
 		}
 		// Flat layout: the concrete dir IS one partition — stat it directly.
-		$partition->arguments( "{$log_base}/{$log_key}" );
+		$partition->arguments( [ "{$log_base}/{$log_key}" ] );
 		// finally: a throw can't leave the node registered (would collide).
 		try {
 			if ( null !== self::$on_probe ) {
@@ -134,13 +134,13 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'name'        => 'list_logs',
 					'description' => 'List the on-disk log keys.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list_logs(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list_logs(),
 				],
 				[
 					'name'        => 'log_status',
 					'description' => 'Segment counts and sizes for a single concrete partition dir (defaults to the firehose-ish/first-discovered dir).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_log_status( $self, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_log_status( $self, self::arg_strings( $args ) ),
 				],
 			],
 		] );

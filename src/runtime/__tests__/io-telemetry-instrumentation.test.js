@@ -40,7 +40,7 @@ beforeEach( () => {
 
 function makeConnector() {
 	const s = new SseInNode();
-	s.arguments = 'x / n';
+	s.arguments = [ 'x' ];
 	s.sink = { fill: () => {} };
 	return s;
 }

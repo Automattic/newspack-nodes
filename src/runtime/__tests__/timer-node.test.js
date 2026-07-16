@@ -99,7 +99,7 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 		const t = new TimerNode();
 		const sent = [];
 		t.name = 't3';
-		t.arguments = '250';
+		t.arguments = [ '250' ];
 		t.sink = { fill: ( m ) => sent.push( m ) };
 		expect( t.interval_ms ).toBe( 250 );
 		jest.advanceTimersByTime( 600 );
@@ -190,7 +190,7 @@ describe( 'Router-hitchhike mode (rides the _router TIMER via notify_timer)', ()
 		const t = new TimerNode();
 		const sent = [];
 		t.name = 'hb2';
-		t.arguments = '';
+		t.arguments = [];
 		t.sink = { fill: ( m ) => sent.push( m ) };
 		r.notifyTimer();
 		expect( sent ).toHaveLength( 1 );

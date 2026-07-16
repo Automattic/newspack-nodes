@@ -45,7 +45,7 @@ class ShellIncludeTest extends TestCase {
 		foreach ( $sink->captured as $message ) {
 			$value = $message[ Message::VALUE ] ?? '';
 			if ( \is_array( $value ) && isset( $value['name'] ) ) {
-				$lines[] = \trim( $value['name'] . ' ' . ( $value['arguments'] ?? '' ) );
+				$lines[] = \trim( $value['name'] . ' ' . \implode( ' ', $value['arguments'] ?? [] ) );
 			} else {
 				$lines[] = (string) $value;
 			}

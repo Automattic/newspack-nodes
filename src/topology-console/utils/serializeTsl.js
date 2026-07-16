@@ -10,15 +10,8 @@
  * of a full connect list.
  */
 
+import { serializeArg } from '../../runtime/node';
 import { edgeHasConnectRole } from './draftGraph';
-
-function serializeArg( value ) {
-	const str = String( value );
-	if ( /\s/.test( str ) ) {
-		return `'${ str }'`;
-	}
-	return str;
-}
 
 function trimTrailingEmpties( args ) {
 	const out = args.slice();

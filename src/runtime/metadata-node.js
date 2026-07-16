@@ -44,7 +44,7 @@ export function dumpMetadataPayload( only = '' ) {
 			sink: node.sink && node.sink.name ? node.sink.name : '',
 			target: node.target ?? '',
 			debug_state: node.debugState ?? 0,
-			arguments: node.arguments ?? '',
+			arguments: node.arguments ?? [],
 			lgst_msg: node.largestMsgSent ?? 0,
 			bytes_read: node.bytesRead ?? 0,
 			bytes_written: node.bytesWritten ?? 0,
@@ -140,7 +140,7 @@ export function parseMetadata( payload ) {
 			class: typeof meta.class === 'string' ? meta.class : 'Node',
 			debugState:
 				typeof meta.debug_state === 'number' ? meta.debug_state : 0,
-			arguments: typeof meta.arguments === 'string' ? meta.arguments : '',
+			arguments: Array.isArray( meta.arguments ) ? meta.arguments : [],
 			lgstMsg: typeof meta.lgst_msg === 'number' ? meta.lgst_msg : 0,
 			bytesRead:
 				typeof meta.bytes_read === 'number' ? meta.bytes_read : 0,
@@ -298,7 +298,7 @@ export class MetadataNode extends TimerNode {
 	}
 
 	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
-	_pollMessage( verb, args = '' ) {
+	_pollMessage( verb, args = [] ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;

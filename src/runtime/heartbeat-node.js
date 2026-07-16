@@ -58,7 +58,7 @@ export class HeartbeatNode extends TimerNode {
 		m[ TO ] = this.target;
 		m[ VALUE ] = {
 			name: 'heartbeat',
-			arguments: `${ slot } ${ SLOT_TTL_S }`,
+			arguments: [ String( slot ), String( SLOT_TTL_S ) ],
 		};
 		m[ LOCAL ] = true;
 		return m;

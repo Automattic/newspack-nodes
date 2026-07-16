@@ -86,24 +86,6 @@ function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
 }
 
 /**
- * Split a node's raw `arguments` string into `count` positional values for the
- * read-only Constructor view. The LAST declared arg captures any remainder, so a
- * free-form trailing argument (e.g. a forwarded command's own args) reads as one
- * value instead of spilling across rows.
- *
- * @param {string} raw   The node's space-separated arguments string.
- * @param {number} count Number of positional args the class declares.
- * @return {string[]} Positional values, length <= count.
- */
-function positionalArgs( raw, count ) {
-	const trimmed = ( raw || '' ).trim();
-	if ( ! trimmed || count <= 0 ) {
-		return [];
-	}
-	return absorbTrailingArgs( trimmed.split( /\s+/ ), count );
-}
-
-/**
  * Shared absorb-last core (positionalArgs is the string-input front door). parseTsl
  * whitespace-splits a `make_node`/`cmd` line's tail into a token array with no schema
  * knowledge, so a free-text arg with spaces (e.g. add_profile's `text`) arrives as many
@@ -1609,7 +1591,8 @@ export default function Inspector( {
 	// Read-only Constructor: declared args + given values (no live re-arg).
 	const argSpecs =
 		catalog.find( ( c ) => c.shell_name === node.class )?.arguments || [];
-	const argValues = positionalArgs( node.arguments, argSpecs.length );
+	// node.arguments is a token array; absorb the tail into the last slot.
+	const argValues = absorbTrailingArgs( node.arguments, argSpecs.length );
 
 	return (
 		<aside className="topology-inspector">

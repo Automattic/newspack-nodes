@@ -12,6 +12,7 @@ import {
 } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
+import { formatCommandArgs } from '../runtime/command-args';
 import CanvasFrame from './components/CanvasFrame';
 import ConsoleShell from './components/ConsoleShell';
 import { HeaderControls } from './components/Header';
@@ -1477,7 +1478,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				await getCommandClient().send( {
 					to: 'topologies',
 					verb: 'activate',
-					args: name,
+					args: formatCommandArgs( [ name ] ),
 				} )
 			);
 			reloadCatalog();

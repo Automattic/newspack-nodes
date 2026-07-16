@@ -4,6 +4,7 @@
  */
 
 import { useCallback } from '@wordpress/element';
+import { formatCommandArgs } from '../../runtime/command-args';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
@@ -12,7 +13,7 @@ export function useLayout() {
 		const message = await getCommandClient().send( {
 			to: 'layouts',
 			verb: 'get',
-			args: name,
+			args: formatCommandArgs( [ name ] ),
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );
@@ -21,8 +22,8 @@ export function useLayout() {
 		const message = await getCommandClient().send( {
 			to: 'layouts',
 			verb: 'save',
-			// `save <name> <positions-json>`: name then the rest-of-line JSON.
-			args: `${ name } ${ JSON.stringify( positions ) }`,
+			// save <name> <positions-json>: name + JSON blob as one token.
+			args: formatCommandArgs( [ name, JSON.stringify( positions ) ] ),
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

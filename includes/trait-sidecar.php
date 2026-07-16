@@ -32,7 +32,7 @@ trait Sidecar {
 			$partition->name( $name );
 		}
 		$partition->patron( $this );
-		$partition->arguments( \implode( ' ', [ $dir, ...$geometry ] ) );
+		$partition->arguments( \array_map( '\strval', [ $dir, ...$geometry ] ) );
 		$partition->sink( $this->sink );
 		return $partition;
 	}

@@ -57,7 +57,7 @@ describe( 'Heartbeat node', () => {
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
 			expect( m[ VALUE ].name ).toBe( 'heartbeat' );
-			expect( m[ VALUE ].arguments ).toBe( '3 10' );
+			expect( m[ VALUE ].arguments ).toEqual( [ '3', '10' ] );
 			expect( m[ TO ] ).toBe( '_sse/workers' );
 			expect( m[ FROM ] ).toBe( '_heartbeat' );
 			expect( m[ LOCAL ] ).toBe( true );
@@ -132,14 +132,17 @@ describe( 'Heartbeat node', () => {
 			node.fire();
 			expect(
 				sent.map( ( message ) => message[ VALUE ].arguments )
-			).toEqual( [ '13 10', '47 10' ] );
+			).toEqual( [
+				[ '13', '10' ],
+				[ '47', '10' ],
+			] );
 
 			node.clearSlot( second );
 			sent.length = 0;
 			node.fire();
 			expect(
 				sent.map( ( message ) => message[ VALUE ].arguments )
-			).toEqual( [ '13 10' ] );
+			).toEqual( [ [ '13', '10' ] ] );
 			expect( node.slot ).toBe( 13 );
 		} );
 

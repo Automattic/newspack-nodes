@@ -39,7 +39,7 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Shared default verb table the bare `_command_interpreter` starts from.
 	 *
-	 * @var array<string,callable>|null Verb → handler. Initialized lazily.
+	 * @var array<string, \Closure(Command_Interpreter_Node, list<string>, array<int,mixed>): mixed>|null Verb → handler. Initialized lazily.
 	 */
 	private static ?array $C = null;
 
@@ -109,9 +109,9 @@ class Command_Interpreter_Node extends Node {
 			return;
 		}
 		$name_raw  = $cmd['name'];
-		$args_raw  = $cmd['arguments'] ?? '';
+		$args_raw  = $cmd['arguments'] ?? [];
 		$cmd_name  = Core::as_string( $name_raw );
-		$cmd_args  = Core::as_string( $args_raw );
+		$cmd_args  = \is_array( $args_raw ) ? \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args_raw ) ) : [];
 
 		// Authorize every command (LOCAL taint client-side, HMAC on verifiers).
 		$this->reason_logged = false;
@@ -192,16 +192,31 @@ class Command_Interpreter_Node extends Node {
 	 * Dispatch a verb by name. Result rides the Message VALUE unencoded (never JSON here).
 	 *
 	 * @param string                  $name     Verb name.
-	 * @param string                  $args     Literal arguments tail (verbs parse it via Command_Args).
+	 * @param list<string>            $args     Pre-split argument tokens (verbs classify via Command_Args).
 	 * @param array<int,mixed>        $envelope Inbound TM_COMMAND message, or [] for inline calls.
 	 * @return mixed Verb result (string for most verbs; array for dump_metadata).
 	 */
-	public function dispatch( string $name, string $args = '', array $envelope = [] ): mixed {
+	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
 		$commands = $this->commands();
 		if ( ! isset( $commands[ $name ] ) ) {
 			throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
 		}
 		return ( $commands[ $name ] )( $this, $args, $envelope );
+	}
+
+	/**
+	 * Coerce a dispatch closure's raw `array $args` to the canonical argv shape —
+	 * a re-indexed list of strings. The verb dispatch closures are declared
+	 * `array $args` (an inline closure param can't carry a narrower phpdoc type),
+	 * so each verb handler normalizes at entry. The tokens are already strings at
+	 * runtime — interpret() coerces the wire arguments before dispatch — so this
+	 * is a static-analysis pin, not a behavioral coercion.
+	 *
+	 * @param array<array-key, mixed> $args
+	 * @return list<string>
+	 */
+	protected static function arg_strings( array $args ): array {
+		return \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
 	}
 
 	/**
@@ -230,23 +245,25 @@ class Command_Interpreter_Node extends Node {
 				': non-scalar positional arg filtered (assign object deps as public properties)'
 			);
 		}
-		$arg_string = \implode( ' ', $scalar_args );
+		$arg_tokens = \array_map( static fn ( $a ): string => (string) $a, \array_values( $scalar_args ) );
 
 		// Identical redeclaration collapses; a conflict throws.
 		$existing = Core::node( $name );
 		if ( null !== $existing ) {
-			if ( $existing::class === $fqcn && $existing->arguments() === $arg_string ) {
+			if ( $existing::class === $fqcn && $existing->arguments() === $arg_tokens ) {
 				return $existing;
 			}
+			$prior = \implode( ' ', $existing->arguments() );
+			$next  = \implode( ' ', $arg_tokens );
 			throw new \RuntimeException(
-				\esc_html( "make_node conflict: '$name' already declared as " . $existing::class . " '" . $existing->arguments() . "', redeclared as $type '$arg_string'" )
+				\esc_html( "make_node conflict: '$name' already declared as " . $existing::class . " '$prior', redeclared as $type '$next'" )
 			);
 		}
 
 		// Tachikoma sequence; object deps public props set post-construction.
 		$node = new $fqcn();
 		$node->name( $name );
-		$node->arguments( $arg_string );
+		$node->arguments( $arg_tokens );
 		$node->sink( $this );
 		if ( $this->debug_state() > 0 ) {
 			$node->debug_state( $this->debug_state() );
@@ -283,7 +300,7 @@ class Command_Interpreter_Node extends Node {
 		}
 		// Every interpreter answers `help`; base's richer one never overridden.
 		if ( ! isset( $this->commands['help'] ) ) {
-			$this->commands['help'] = static fn ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ): string => $self->default_help();
+			$this->commands['help'] = static fn ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): string => $self->default_help();
 		}
 		return $this->commands;
 	}
@@ -348,34 +365,34 @@ class Command_Interpreter_Node extends Node {
 			'status' => "status\n    note: local cli mode summary (no command sent).\n",
 		];
 		self::$C = [
-			'make_node'       => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_make_node( $self, $args ),
-			'make'            => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_make_node( $self, $args ),
-			'pwd'             => fn ( Command_Interpreter_Node $self, string $args, array $message ): string => self::cmd_pwd( $args, $message ),
-			'set_sink'        => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_set_sink( $args ),
-			'connect_node'    => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
-			'connect'         => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
-			'disconnect_node' => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
-			'disconnect'      => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
-			'register'        => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_register( $args ),
-			'unregister'      => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_unregister( $args ),
-			'remove_node'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
-			'remove'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
-			'rm'              => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
-			'list_nodes'      => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
-			'ls'              => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
-			'list_timers'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_list_timers(),
-			'list_handles'    => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_list_handles(),
-			'log'             => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_log( $self, $args ),
-			'dmesg'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dmesg(),
-			'dump_node'       => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
-			'dump'            => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
-			'dump_config'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dump_config( $args ),
-			'dump_metadata'   => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( \trim( $args ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
-			'stats'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_stats( $self, $args ),
-			'uptime'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_uptime(),
-			'debug_state'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_debug_state( $self, $args ),
-			'help'            => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_help( $args, $envelope ),
-			'reply_to'        => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_reply_to( $self, $args ),
+			'make_node'       => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_make_node( $self, self::arg_strings( $args ) ),
+			'make'            => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_make_node( $self, self::arg_strings( $args ) ),
+			'pwd'             => fn ( Command_Interpreter_Node $self, array $args, array $message ): string => self::cmd_pwd( self::arg_strings( $args ), $message ),
+			'set_sink'        => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_set_sink( self::arg_strings( $args ) ),
+			'connect_node'    => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_connect_node( self::arg_strings( $args ), $envelope ),
+			'connect'         => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_connect_node( self::arg_strings( $args ), $envelope ),
+			'disconnect_node' => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_disconnect_node( self::arg_strings( $args ), $envelope ),
+			'disconnect'      => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_disconnect_node( self::arg_strings( $args ), $envelope ),
+			'register'        => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_register( self::arg_strings( $args ) ),
+			'unregister'      => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_unregister( self::arg_strings( $args ) ),
+			'remove_node'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_remove_node( $self, self::arg_strings( $args ) ),
+			'remove'          => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_remove_node( $self, self::arg_strings( $args ) ),
+			'rm'              => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_remove_node( $self, self::arg_strings( $args ) ),
+			'list_nodes'      => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, self::arg_strings( $args ), $envelope ),
+			'ls'              => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, self::arg_strings( $args ), $envelope ),
+			'list_timers'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_timers(),
+			'list_handles'    => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_handles(),
+			'log'             => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_log( $self, self::arg_strings( $args ) ),
+			'dmesg'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dmesg(),
+			'dump_node'       => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
+			'dump'            => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
+			'dump_config'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dump_config( Core::as_string( $args[0] ?? '' ) ),
+			'dump_metadata'   => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( Core::as_string( $args[0] ?? '' ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
+			'stats'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_stats( $self, self::arg_strings( $args ) ),
+			'uptime'          => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_uptime(),
+			'debug_state'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_debug_state( $self, self::arg_strings( $args ) ),
+			'help'            => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_help( self::arg_strings( $args ), $envelope ),
+			'reply_to'        => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_reply_to( $self, self::arg_strings( $args ) ),
 		];
 	}
 
@@ -383,32 +400,35 @@ class Command_Interpreter_Node extends Node {
 	 * Shell entry: parse `<type> <name> [<args>...]` and delegate to make_node().
 	 *
 	 * No strict_types, so string tokens coerce to the ctor's typed params.
+	 *
+	 * @param list<string> $args
 	 */
-	private static function cmd_make_node( Command_Interpreter_Node $self, string $args ): string {
-		/** @var list<string> $parts Whitespace-split tokens; the /\s+/ split of a string never yields false. */
-		$parts = \preg_split( '/\s+/', \trim( $args ) );
-		if ( \count( $parts ) < 2 ) {
+	private static function cmd_make_node( Command_Interpreter_Node $self, array $args ): string {
+		if ( \count( $args ) < 2 ) {
 			return 'usage: make_node <type> <name> [<args>...]';
 		}
-		$type = $parts[0];
-		$name = $parts[1];
-		$node = $self->make_node( $type, $name, ...\array_slice( $parts, 2 ) );
+		$type = $args[0];
+		$name = $args[1];
+		$node = $self->make_node( $type, $name, ...\array_slice( $args, 2 ) );
 		return null === $node ? "unknown class: $type" : 'ok';
 	}
 
 	/**
 	 * `pwd` verb: return ` <cwd> -> <envelope.from>`.
 	 *
+	 * @param list<string>            $args     Verb arguments.
 	 * @param array<array-key, mixed> $envelope The command Message.
 	 */
-	private static function cmd_pwd( string $args, array $envelope ): string {
-		$cwd  = '' === $args ? '/' : $args;
+	private static function cmd_pwd( array $args, array $envelope ): string {
+		$path = $args[0] ?? '';
+		$cwd  = '' === $path ? '/' : $path;
 		$from = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 		return ' ' . $cwd . ' -> ' . $from;
 	}
 
-	private static function cmd_set_sink( string $args ): string {
-		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
+	/** @param list<string> $args */
+	private static function cmd_set_sink( array $args ): string {
+		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name || '' === $target ) {
 			return 'usage: set_sink <node> <target>';
 		}
@@ -423,9 +443,12 @@ class Command_Interpreter_Node extends Node {
 		return 'ok';
 	}
 
-	/** @param array<array-key, mixed> $envelope The command Message. */
-	private static function cmd_connect_node( string $args, array $envelope = [] ): string {
-		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
+	/**
+	 * @param list<string>            $args     Verb arguments.
+	 * @param array<array-key, mixed> $envelope The command Message.
+	 */
+	private static function cmd_connect_node( array $args, array $envelope = [] ): string {
+		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name ) {
 			return 'usage: connect_node <node> [<target>]';
 		}
@@ -445,9 +468,12 @@ class Command_Interpreter_Node extends Node {
 		return 'ok';
 	}
 
-	/** @param array<array-key, mixed> $envelope The command Message. */
-	private static function cmd_disconnect_node( string $args, array $envelope = [] ): string {
-		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
+	/**
+	 * @param list<string>            $args     Verb arguments.
+	 * @param array<array-key, mixed> $envelope The command Message.
+	 */
+	private static function cmd_disconnect_node( array $args, array $envelope = [] ): string {
+		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name ) {
 			return 'usage: disconnect_node <node> [<target>]';
 		}
@@ -467,9 +493,13 @@ class Command_Interpreter_Node extends Node {
 		return 'ok';
 	}
 
-	/** `register <source> <target> <event>` — source registers target as a node-name listener for event (Tachikoma register). */
-	private static function cmd_register( string $args ): string {
-		[ $source, $target, $event ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 3 ) ?: [], 3, '' );
+	/**
+	 * `register <source> <target> <event>` — source registers target as a node-name listener for event (Tachikoma register).
+	 *
+	 * @param list<string> $args
+	 */
+	private static function cmd_register( array $args ): string {
+		[ $source, $target, $event ] = \array_pad( $args, 3, '' );
 		if ( '' === $source ) {
 			return 'usage: register <source name> <target name> <event>';
 		}
@@ -487,9 +517,13 @@ class Command_Interpreter_Node extends Node {
 		return 'ok';
 	}
 
-	/** `unregister <source> <target> <event>` — drop target's node-name registration for event on source (Tachikoma unregister). */
-	private static function cmd_unregister( string $args ): string {
-		[ $source, $target, $event ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 3 ) ?: [], 3, '' );
+	/**
+	 * `unregister <source> <target> <event>` — drop target's node-name registration for event on source (Tachikoma unregister).
+	 *
+	 * @param list<string> $args
+	 */
+	private static function cmd_unregister( array $args ): string {
+		[ $source, $target, $event ] = \array_pad( $args, 3, '' );
 		if ( '' === $source ) {
 			return 'usage: unregister <source name> <target name> <event>';
 		}
@@ -506,18 +540,20 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * `remove_node <name>...` or `remove_node -a <regex>`. Refuses to destroy baseline scaffolding.
+	 *
+	 * @param list<string> $args
 	 */
-	private static function cmd_remove_node( Command_Interpreter_Node $self, string $args ): string {
-		$args = \trim( $args );
-		if ( '' === $args ) {
+	private static function cmd_remove_node( Command_Interpreter_Node $self, array $args ): string {
+		if ( empty( $args ) ) {
 			return 'usage: remove_node <node name>';
 		}
 
 		$list_matches = false;
-		if ( \str_starts_with( $args, '-a ' ) || '-a' === $args ) {
+		$glob         = '';
+		if ( '-a' === $args[0] ) {
 			$list_matches = true;
-			$args         = \trim( \substr( $args, 2 ) );
-			if ( '' === $args ) {
+			$glob         = $args[1] ?? '';
+			if ( '' === $glob ) {
 				return 'usage: remove_node -a <anchored regex glob>';
 			}
 		}
@@ -526,14 +562,13 @@ class Command_Interpreter_Node extends Node {
 			// Anchored `@regex@` so user-supplied / and ^$ don't need escaping.
 			$names = [];
 			foreach ( \array_keys( Core::$nodes_by_name ) as $candidate ) {
-				if ( @\preg_match( '@^' . $args . '$@', $candidate ) ) {
+				if ( @\preg_match( '@^' . $glob . '$@', $candidate ) ) {
 					$names[] = $candidate;
 				}
 			}
 			\sort( $names );
 		} else {
-			/** @var non-empty-list<string> $names Whitespace-split tokens; the /\s+/ split of a string never yields false. */
-			$names = \preg_split( '/\s+/', $args );
+			$names = $args;
 		}
 
 		$removed   = [];
@@ -573,9 +608,10 @@ class Command_Interpreter_Node extends Node {
 	 *
 	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
 	 *
+	 * @param list<string>            $args     Verb arguments.
 	 * @param array<array-key, mixed> $envelope The command Message.
 	 */
-	private static function cmd_list_nodes( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string {
+	private static function cmd_list_nodes( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
 		// Completion mode: bare node names only, ignoring -clst flags.
 		$is_completion = 'completion' === ( $envelope[ Message::KEY ] ?? '' );
 		$list_matches  = false;
@@ -584,7 +620,7 @@ class Command_Interpreter_Node extends Node {
 		$show_target   = false;
 		$argv          = [];
 
-		foreach ( \preg_split( '/\s+/', \trim( $args ) ) ?: [] as $tok ) {
+		foreach ( $args as $tok ) {
 			if ( '' === $tok ) {
 				continue;
 			}
@@ -699,9 +735,11 @@ class Command_Interpreter_Node extends Node {
 	 * (that's what distinguishes it from `echo`, which replies). Returns nothing;
 	 * the broadcast reaches the session via the wired stderr sink (worker `_repl`,
 	 * REPL `_output` JSONL body for POST /command).
+	 *
+	 * @param list<string> $args
 	 */
-	private static function cmd_log( Command_Interpreter_Node $self, string $args ): string {
-		$self->stderr( $args );
+	private static function cmd_log( Command_Interpreter_Node $self, array $args ): string {
+		$self->stderr( \implode( ' ', $args ) );
 		return '';
 	}
 
@@ -715,10 +753,12 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Snapshot a node's state via Node::dump_node(), optionally key-filtered and
 	 * sorted for stability, stringified with a class-name header (display-only).
+	 *
+	 * @param list<string> $args
 	 */
-	private static function cmd_dump_node( string $args ): string {
+	private static function cmd_dump_node( array $args ): string {
 		/** @var list<string> $parts Whitespace-split tokens; the /\s+/ split of a string never yields false. */
-		$parts = \preg_split( '/\s+/', \trim( $args ) );
+		$parts = $args;
 		$name  = $parts[0] ?? '';
 		if ( '' === $name ) {
 			return 'no node specified';
@@ -855,11 +895,13 @@ class Command_Interpreter_Node extends Node {
 	 * `stats [-a] [<regex>]` — tabular per-node counters (NAME, COUNT, LGST_MSG, READ, WRITTEN).
 	 *
 	 * Scope matches `cmd_list_nodes`: default=siblings, `-a`=all, `<name>`=that sink's children.
+	 *
+	 * @param list<string> $args
 	 */
-	private static function cmd_stats( Command_Interpreter_Node $self, string $args ): string {
+	private static function cmd_stats( Command_Interpreter_Node $self, array $args ): string {
 		$list_matches = false;
 		$argv         = [];
-		foreach ( \preg_split( '/\s+/', \trim( $args ) ) ?: [] as $tok ) {
+		foreach ( $args as $tok ) {
 			if ( '' === $tok ) {
 				continue;
 			}
@@ -998,9 +1040,11 @@ class Command_Interpreter_Node extends Node {
 	 * `debug_state [ <node name> [ <level> ] ]` — toggle or set a node's debug_state level.
 	 *
 	 * No args toggles this interpreter; numeric arg sets this interpreter; a name targets that node.
+	 *
+	 * @param list<string> $args
 	 */
-	private static function cmd_debug_state( Command_Interpreter_Node $self, string $args ): string {
-		[ $first, $second ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
+	private static function cmd_debug_state( Command_Interpreter_Node $self, array $args ): string {
+		[ $first, $second ] = \array_pad( $args, 2, '' );
 
 		if ( '' === $first ) {
 			$new = $self->debug_state() > 0 ? 0 : 1;
@@ -1046,9 +1090,10 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `help` — no args lists all command names tabulated; a topic returns that command's help.
 	 *
+	 * @param list<string>            $args     Verb arguments.
 	 * @param array<array-key, mixed> $envelope The command Message.
 	 */
-	private static function cmd_help( string $args, array $envelope = [] ): string {
+	private static function cmd_help( array $args, array $envelope = [] ): string {
 		// Completion: sorted verb names, newline-separated, no help text.
 		if ( 'completion' === ( $envelope[ Message::KEY ] ?? '' ) ) {
 			// From dispatch table, not help-topic, so aliases offered too.
@@ -1056,7 +1101,7 @@ class Command_Interpreter_Node extends Node {
 			\sort( $names );
 			return \implode( "\n", $names );
 		}
-		$topic = \trim( $args );
+		$topic = ( $args[0] ?? '' );
 		if ( '' === $topic ) {
 			$names = \array_keys( self::$H ?? [] );
 			\sort( $names );
@@ -1274,10 +1319,13 @@ class Command_Interpreter_Node extends Node {
 	 * replies TO=FROM — and re-enters via fill(). The LOCAL taint authorizes the
 	 * in-process mint (the `reply_to` command itself already passed the auth gate).
 	 * `reply_to` itself returns nothing; the output went to <path>.
+	 *
+	 * @param list<string> $args
 	 */
-	private static function cmd_reply_to( Command_Interpreter_Node $self, string $args ): string {
-		[ $path, $rest ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
-		[ $verb, $verb_args ] = \array_pad( \preg_split( '/\s+/', $rest, 2 ) ?: [], 2, '' );
+	private static function cmd_reply_to( Command_Interpreter_Node $self, array $args ): string {
+		$path      = $args[0] ?? '';
+		$verb      = $args[1] ?? '';
+		$verb_args = \array_slice( $args, 2 );
 		if ( '' === $path || '' === $verb ) {
 			return 'usage: reply_to <node path> <command>';
 		}

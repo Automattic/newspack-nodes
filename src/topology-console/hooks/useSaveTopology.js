@@ -4,6 +4,7 @@
  */
 
 import { useCallback } from '@wordpress/element';
+import { formatCommandArgs } from '../../runtime/command-args';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
@@ -13,7 +14,7 @@ export function useSaveTopology() {
 			to: 'topologies',
 			verb: 'save',
 			// `save <name> <tsl…>`: name then the rest-of-line .tsl body.
-			args: `${ name } ${ tsl }`,
+			args: formatCommandArgs( [ name, tsl ] ),
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

@@ -51,14 +51,20 @@ export class CommandClient {
 	 * message, and the per-session reply path is applied by the `_sse` node — the
 	 * client never hardcodes the `_http` prefix.
 	 *
-	 * @param {Object} params
-	 * @param {string} params.to     Target node path.
-	 * @param {string} params.verb   Command verb to dispatch.
-	 * @param {string} [params.args] Literal-string argument tail (the verb parses it), default ''.
-	 * @param {string} [params.key]  Optional Message KEY field.
+	 * @param {Object}   params
+	 * @param {string}   params.to     Target node path.
+	 * @param {string}   params.verb   Command verb to dispatch.
+	 * @param {string[]} [params.args] Argument tokens (the verb classifies them), default [].
+	 * @param {string}   [params.key]  Optional Message KEY field.
 	 * @return {Array} A 7-element positional Message.
 	 */
-	buildMessage( { to, verb, args = '', key = '' } ) {
+	buildMessage( { to, verb, args = [], key = '' } ) {
+		// Fail loud: a non-array args would coerce to [] (empty verb name).
+		if ( ! Array.isArray( args ) ) {
+			throw new Error(
+				`command args must be a token array, got ${ typeof args } for verb "${ verb }"`
+			);
+		}
 		const msg = newMessage();
 		msg[ TYPE ] = TM_COMMAND;
 		msg[ TO ] = to;

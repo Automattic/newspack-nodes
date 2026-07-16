@@ -62,7 +62,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$ipc_dir = "{$this->tmp}/ipc/test.p0";
 		\mkdir( "{$ipc_dir}/input", 0755, true );
 		$seed = new Consumer_Node();
-		$seed->arguments( "{$ipc_dir}/input {$ipc_dir}/input.offsets" );
+		$seed->arguments( [ "{$ipc_dir}/input", "{$ipc_dir}/input.offsets" ] );
 		$seed->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$seed->poll(); // a real prior worker polls (seeding the cursor) before it checkpoints.
 		$seed->checkpoint();
@@ -83,7 +83,7 @@ class WorkerScaffoldingTest extends TestCase {
 		// input partition's retained command history.
 		$ipc_dir = "{$this->tmp}/ipc/test.p0";
 		$input = new Partition_Node();
-		$input->arguments( "{$ipc_dir}/input" );
+		$input->arguments( [ "{$ipc_dir}/input" ] );
 		$message                                  = \Newspack_Nodes\Message::new_message();
 		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$message[ \Newspack_Nodes\Message::VALUE ] = "old-command\n";
@@ -102,7 +102,7 @@ class WorkerScaffoldingTest extends TestCase {
 		// All IPC logs (input + output) use a 1 MiB segment_size.
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
-		$parts = \explode( ' ', Core::node( '_repl' )->arguments() );
+		$parts = Core::node( '_repl' )->arguments();
 		$this->assertSame( (string) ( 1024 * 1024 ), $parts[1], 'IPC output Partition segment_size must be 1 MiB' );
 	}
 
@@ -121,7 +121,7 @@ class WorkerScaffoldingTest extends TestCase {
 		// strike. Only a hard crash — which never runs this shutdown path — leaves a
 		// non-graceful frame and lets attempts climb.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$msg                            = \Newspack_Nodes\Message::new_message();
 		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$msg[ \Newspack_Nodes\Message::VALUE ] = 'hello';
@@ -129,7 +129,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$source->flush();
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' ); // registers in Core::$nodes_by_name.
 		$c->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$this->pump_consumer( $c ); // advances → healthy attempts=1.
@@ -149,7 +149,7 @@ class WorkerScaffoldingTest extends TestCase {
 		// its durable work consumers through the fair-shot rule — stamping the reason —
 		// NOT the blanket graceful handoff used for a clean recycle (dead-letter [42]).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$msg                                   = \Newspack_Nodes\Message::new_message();
 		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$msg[ \Newspack_Nodes\Message::VALUE ] = 'poison';
@@ -157,7 +157,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$source->flush();
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' ); // registers in Core::$nodes_by_name.
 		$c->sink( new class() extends \Newspack_Nodes\Node {
 			public function fill( array $message ): void {
@@ -188,7 +188,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$this->pump_consumer( $c ); // load_offsetlog resumes at attempts=3 and writes that boot frame.
@@ -205,7 +205,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$this->pump_consumer( $c );
@@ -249,7 +249,7 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$input = new Partition_Node();
 
-		$input->arguments( "{$ipc_dir}/input" );
+		$input->arguments( [ "{$ipc_dir}/input" ] );
 		$this->write_ipc_line( $input, 'cmd1' );
 		$this->pump_consumer( $in );   // consume cmd1 before the recycle
 		$w->checkpoint_ipc_input();    // clean-recycle shutdown checkpoint
@@ -275,7 +275,7 @@ class WorkerScaffoldingTest extends TestCase {
 		// Unsigned command (no LOCAL, no auth) — refused.
 		$unsigned                   = \Newspack_Nodes\Message::new_message();
 		$unsigned[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND;
-		$unsigned[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink unsigned' ];
+		$unsigned[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => [ 'Capture_Sink', 'unsigned' ] ];
 		$interpreter->fill( $unsigned );
 		$this->assertNull( Core::node( 'unsigned' ), 'unsigned command must be refused by the worker verifier' );
 
@@ -284,7 +284,7 @@ class WorkerScaffoldingTest extends TestCase {
 		// the worker recomputes the same canonical — runs.
 		$signed                   = \Newspack_Nodes\Message::new_message();
 		$signed[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND;
-		$signed[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink signed', 'payload' => '' ];
+		$signed[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => [ 'Capture_Sink', 'signed' ], 'payload' => '' ];
 		\Newspack_Nodes\Command_Auth::sign( $signed );
 		$wire = \Newspack_Nodes\Message::unpacked( \Newspack_Nodes\Message::packed( $signed ) );
 		$interpreter->fill( $wire );
@@ -302,7 +302,7 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$local                   = \Newspack_Nodes\Message::new_message();
 		$local[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND;
-		$local[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink topo', 'payload' => '' ];
+		$local[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => [ 'Capture_Sink', 'topo' ], 'payload' => '' ];
 		$local[ \Newspack_Nodes\Message::LOCAL ] = true;
 		$interpreter->fill( $local );
 

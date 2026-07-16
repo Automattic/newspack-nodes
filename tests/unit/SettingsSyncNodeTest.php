@@ -16,7 +16,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		$result = $node->add_setting( 'newspack_nodes_num_partitions settings newspack_nodes_num_partitions' );
+		$result = $node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
 
 		$this->assertSame( 'ok', $result );
 
@@ -38,7 +38,7 @@ class SettingsSyncNodeTest extends TestCase {
 	public function test_dump_config_re_emits_add_setting_line(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
-		$node->add_setting( 'newspack_nodes_num_partitions settings newspack_nodes_num_partitions' );
+		$node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
 
 		$this->assertStringContainsString(
 			'cmd settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions',
@@ -50,7 +50,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		$result = $node->add_setting( 'only two' );
+		$result = $node->add_setting( [ 'only', 'two' ] );
 
 		$this->assertStringStartsWith( 'error:', $result );
 
@@ -78,7 +78,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$sibling = Core::node( 'settings-sync:config' );
 		$this->assertNotNull( $sibling );
 
-		$result = $sibling->dispatch( 'add_setting', 'newspack_nodes_num_partitions settings newspack_nodes_num_partitions' );
+		$result = $sibling->dispatch( 'add_setting', [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
 		$this->assertSame( 'ok', $result );
 
 		$ref = new \ReflectionProperty( $node, 'registry' );
@@ -99,7 +99,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_max_segments', 8 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
 
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
@@ -111,7 +111,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame( Message::TM_COMMAND, $out[ Message::TYPE ] );
 		$this->assertSame( 'spokes:tee/settings', $out[ Message::TO ] );
 		$this->assertSame( 'set', $out[ Message::VALUE ]['name'] );
-		$this->assertSame( 'newspack_nodes_max_segments 8', $out[ Message::VALUE ]['arguments'] );
+		$this->assertSame( [ 'newspack_nodes_max_segments', '8' ], $out[ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_add_setting_twice_for_same_local_pushes_to_each_remote(): void {
@@ -121,8 +121,8 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_max_segments', 5 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_remote_max_segments settings newspack_nodes_max_segments' );
-		$node->add_setting( 'newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments' );
+		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_remote_max_segments' ] );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -134,15 +134,15 @@ class SettingsSyncNodeTest extends TestCase {
 			static fn ( $m ) => $m[ Message::VALUE ]['arguments'],
 			$sink->captured
 		);
-		$this->assertContains( 'newspack_nodes_max_segments 5', $args );
-		$this->assertContains( 'newspack_nodes_remote_max_segments 5', $args );
+		$this->assertContains( [ 'newspack_nodes_max_segments', '5' ], $args );
+		$this->assertContains( [ 'newspack_nodes_remote_max_segments', '5' ], $args );
 	}
 
 	public function test_add_setting_dedupes_exact_duplicate_mappings(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
-		$node->add_setting( 'a settings b' );
-		$node->add_setting( 'a settings b' );
+		$node->add_setting( [ 'a', 'settings', 'b' ] );
+		$node->add_setting( [ 'a', 'settings', 'b' ] );
 
 		$ref = new \ReflectionProperty( $node, 'registry' );
 		$this->assertCount( 1, $ref->getValue( $node )['a'] );
@@ -156,7 +156,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_max_segments', 2 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
 
 		Settings_Sync_Node::$invalidate_options_cache = static function (): void {
 			$GLOBALS['_wp_options']['newspack_nodes_max_segments'] = 9;
@@ -171,7 +171,7 @@ class SettingsSyncNodeTest extends TestCase {
 		}
 
 		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( 'newspack_nodes_max_segments 9', $sink->captured[0][ Message::VALUE ]['arguments'] );
+		$this->assertSame( [ 'newspack_nodes_max_segments', '9' ], $sink->captured[0][ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_fill_scalarizes_array_value_to_json(): void {
@@ -182,7 +182,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_servers', [ 'a.com', 'b.com' ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_remote_servers settings newspack_nodes_remote_servers' );
+		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -200,7 +200,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_servers', [ 'advancedemail' => true, 'amazons3' => true ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_remote_servers settings newspack_nodes_remote_servers' );
+		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -221,7 +221,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_servers', [ "bad\xB1utf8" ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_remote_servers settings newspack_nodes_remote_servers' );
+		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -250,7 +250,7 @@ class SettingsSyncNodeTest extends TestCase {
 
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -260,14 +260,14 @@ class SettingsSyncNodeTest extends TestCase {
 		\remove_action( 'newspack_nodes/settings_sync/value', $filter );
 
 		$out = $sink->captured[0];
-		$this->assertSame( 'newspack_nodes_max_segments 99', $out[ Message::VALUE ]['arguments'] );
+		$this->assertSame( [ 'newspack_nodes_max_segments', '99' ], $out[ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_fill_ignores_non_struct_message(): void {
 		\update_option( 'newspack_nodes_max_segments', 8 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -282,8 +282,8 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_num_partitions', 4 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( 'newspack_nodes_max_segments settings newspack_nodes_max_segments' );
-		$node->add_setting( 'newspack_nodes_num_partitions settings newspack_nodes_num_partitions' );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
 
 		$node->fire();
 
@@ -301,7 +301,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		$node->arguments( '300' );
+		$node->arguments( [ '300' ] );
 
 		$ref = new \ReflectionObject( $node );
 		$this->assertSame( 300000, $node->interval_ms );
@@ -316,7 +316,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		$node->arguments( '' );
+		$node->arguments( [] );
 
 		$this->assertSame( 300000, $node->interval_ms );
 		$this->assertFalse( $node->oneshot );

@@ -69,7 +69,7 @@ class SSEOutTest extends TestCase {
 		// Flat layout: the bare-name `firehose` subscription fans out to the
 		// concrete `firehose.p0` dir.
 		$p = new Partition_Node();
-		$p->arguments( "{$base}/logs/firehose.p0" );
+		$p->arguments( [ "{$base}/logs/firehose.p0" ] );
 		$line1 = Message::new_message();
 		$line1[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line1[ Message::VALUE ] = "line-one\n";
@@ -162,7 +162,7 @@ class SSEOutTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( "{$base}/logs/firehose.p0" );
+		$p->arguments( [ "{$base}/logs/firehose.p0" ] );
 		$line = Message::new_message();
 		$line[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line[ Message::VALUE ] = "payload\n";
@@ -205,11 +205,11 @@ class SSEOutTest extends TestCase {
 		$base = $this->make_temp_dir( 'msg-stream-cmd-' );
 		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
 		$p = new Partition_Node();
-		$p->arguments( "{$base}/logs/firehose.p0" );
+		$p->arguments( [ "{$base}/logs/firehose.p0" ] );
 		$cmd = Message::new_message();
 		$cmd[ Message::TYPE ]  = Message::TM_COMMAND;
 		$cmd[ Message::TO ]    = Node_Names::COMMAND_INTERPRETER;
-		$cmd[ Message::VALUE ] = [ 'name' => 'reply_to', 'arguments' => '_sse uptime', 'payload' => '' ];
+		$cmd[ Message::VALUE ] = [ 'name' => 'reply_to', 'arguments' => [ '_sse', 'uptime' ], 'payload' => '' ];
 		Command_Auth::sign( $cmd );
 		$p->fill( $cmd );
 		$p->flush();

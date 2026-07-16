@@ -380,12 +380,12 @@ trait Time_Travel {
 	 * `set_snapshot_node` verb handler — set the patron's snapshot-target node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string                   $args        Verb argument.
+	 * @param array<array-key, mixed>  $args        Verb argument.
 	 */
-	public static function cmd_set_snapshot_node( Command_Interpreter_Node $interpreter, string $args ): string {
+	public static function cmd_set_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->set_snapshot_node( \trim( $args ) );
+		$patron->set_snapshot_node( Core::as_string( $args[0] ?? '' ) );
 		return 'ok';
 	}
 
@@ -395,12 +395,12 @@ trait Time_Travel {
 	 * other value disables it, so the default is "off" and an accidental enable is reversible.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string                   $args        Optional bool; only a truthy value enables.
+	 * @param array<array-key, mixed>  $args        Optional bool; only a truthy value enables.
 	 */
-	public static function cmd_set_line_mode( Command_Interpreter_Node $interpreter, string $args ): string {
+	public static function cmd_set_line_mode( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron  = $interpreter->patron();
-		$enabled = \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true );
+		$enabled = \in_array( \strtolower( Core::as_string( $args[0] ?? '' ) ), [ '1', 'true', 'yes', 'on' ], true );
 		$patron->set_line_mode( $enabled );
 		return 'ok';
 	}
@@ -409,12 +409,12 @@ trait Time_Travel {
 	 * `SEEK_FRAME` verb handler — seek the patron reader to a frame.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param string                   $args        Verb argument.
+	 * @param array<array-key, mixed>  $args        Verb argument.
 	 */
-	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, string $args ): string {
+	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		return $patron->seek_frame( (int) \trim( $args ) );
+		return $patron->seek_frame( Core::as_int( $args[0] ?? '' ) );
 	}
 
 	/**
@@ -466,7 +466,7 @@ trait Time_Travel {
 				'args'        => [
 					[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_snapshot_node( $interpreter, $args ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_set_snapshot_node( $interpreter, $args ),
 			],
 			[
 				'name'        => 'set_line_mode',
@@ -474,7 +474,7 @@ trait Time_Travel {
 				'args'        => [
 					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_line_mode( $interpreter, $args ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_set_line_mode( $interpreter, $args ),
 			],
 			[
 				'name'        => 'SEEK_FRAME',
@@ -484,21 +484,21 @@ trait Time_Travel {
 				'args'        => [
 					[ 'name' => 'segment', 'type' => 'int', 'required' => true ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_seek_frame( $interpreter, $args ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_seek_frame( $interpreter, $args ),
 			],
 			[
 				'name'        => 'PAUSE',
 				'description' => 'Time-travel: stop the poll timer; the reader holds its cursor until STEP / PLAY.',
 				'hidden'      => true,
 				'args'        => [],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_pause( $interpreter ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_pause( $interpreter ),
 			],
 			[
 				'name'        => 'PLAY',
 				'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
 				'hidden'      => true,
 				'args'        => [],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_play( $interpreter ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_play( $interpreter ),
 			],
 			[
 				// STEP mutates: auth-gated command path, not TM_REQUEST.
@@ -506,7 +506,7 @@ trait Time_Travel {
 				'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
 				'hidden'      => true,
 				'args'        => [],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_step( $interpreter ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_step( $interpreter ),
 			],
 		];
 	}

@@ -22,18 +22,17 @@ namespace Newspack_Nodes;
 class Command_Args {
 
 	/**
-	 * Parse a Tachikoma-style argument string.
+	 * Classify a pre-split token list. `--key=value` -> options[key]='value';
+	 * bare `--key` -> options[key]=true; everything else is a positional, in
+	 * order. Token boundaries are the array's — no tokenizing, no unescaping.
 	 *
-	 * `--key=value` -> options[key]='value'; bare `--key` -> options[key]=true;
-	 * everything else is a positional, in order. Double quotes group a value
-	 * containing whitespace; `\"` and `\\` escape inside quotes.
-	 *
+	 * @param list<string> $args
 	 * @return array{positional: list<string>, options: array<string,string|true>}
 	 */
-	public static function parse( string $args ): array {
+	public static function parse( array $args ): array {
 		$positional = [];
 		$options    = [];
-		foreach ( self::tokenize( $args ) as $tok ) {
+		foreach ( $args as $tok ) {
 			if ( \str_starts_with( $tok, '--' ) ) {
 				$body = \substr( $tok, 2 );
 				$eq   = \strpos( $body, '=' );
@@ -52,70 +51,24 @@ class Command_Args {
 		];
 	}
 
-	/**
-	 * Whitespace-split respecting double quotes and `\` escapes inside them.
-	 *
-	 * @return list<string>
-	 */
-	private static function tokenize( string $args ): array {
-		$tokens   = [];
-		$current  = '';
-		$has_tok  = false;
-		$in_quote = false;
-		$escaped  = false;
-		$length      = \strlen( $args );
-		for ( $i = 0; $i < $length; $i++ ) {
-			$ch = $args[ $i ];
-			if ( $escaped ) {
-				$current .= $ch;
-				$escaped  = false;
-				continue;
-			}
-			if ( $in_quote && '\\' === $ch ) {
-				$escaped = true;
-				continue;
-			}
-			if ( '"' === $ch ) {
-				$in_quote = ! $in_quote;
-				$has_tok  = true;
-				continue;
-			}
-			if ( ! $in_quote && \ctype_space( $ch ) ) {
-				if ( $has_tok ) {
-					$tokens[] = $current;
-					$current  = '';
-					$has_tok  = false;
-				}
-				continue;
-			}
-			$current .= $ch;
-			$has_tok  = true;
-		}
-		if ( $has_tok ) {
-			$tokens[] = $current;
-		}
-		return $tokens;
-	}
 
 	/**
-	 * Inverse of parse(): build a canonical argument string.
-	 *
-	 * Boolean true renders as a bare `--key`; false as `--key=false`; arrays
-	 * comma-joined; scalars stringified. Any value with whitespace, quotes, a
-	 * backslash, or empty is double-quoted (escaping `"` and `\`).
+	 * Inverse of parse(): build the token list. Boolean true renders as a bare
+	 * `--key`; false as `--key=false`; arrays comma-joined; scalars stringified.
+	 * No quoting — a value with spaces stays inside one token (its own array
+	 * element); the serialization anchor (dump_config) quotes when it must
+	 * materialize tokens back to a single line.
 	 *
 	 * @api
 	 * @param list<string>                                       $positional
 	 * @param array<string,string|int|float|bool|array<mixed>>   $options
+	 * @return list<string>
 	 */
-	public static function format( array $positional = [], array $options = [] ): string {
-		$parts = [];
-		foreach ( $positional as $p ) {
-			$parts[] = self::quote_if_needed( $p );
-		}
+	public static function format( array $positional = [], array $options = [] ): array {
+		$tokens = $positional;
 		foreach ( $options as $key => $value ) {
 			if ( true === $value ) {
-				$parts[] = '--' . $key;
+				$tokens[] = '--' . $key;
 				continue;
 			}
 			if ( \is_array( $value ) ) {
@@ -126,19 +79,8 @@ class Command_Args {
 			} else {
 				$value = (string) $value;
 			}
-			$parts[] = '--' . $key . '=' . self::quote_if_needed( $value );
+			$tokens[] = '--' . $key . '=' . $value;
 		}
-		return \implode( ' ', $parts );
-	}
-
-	/**
-	 * Double-quote a value that would otherwise tokenize wrong (whitespace,
-	 * quote, backslash, or empty), escaping `\` then `"`.
-	 */
-	private static function quote_if_needed( string $value ): string {
-		if ( '' === $value || \preg_match( '/[\s"\\\\]/', $value ) ) {
-			return '"' . \str_replace( [ '\\', '"' ], [ '\\\\', '\\"' ], $value ) . '"';
-		}
-		return $value;
+		return $tokens;
 	}
 }

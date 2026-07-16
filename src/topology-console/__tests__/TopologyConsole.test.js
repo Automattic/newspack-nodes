@@ -140,11 +140,9 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				heartbeat.name = reserved.HEARTBEAT;
 				heartbeat.sink = interpreter;
 				// One RemoteIpc/worker: SseIn+HttpOut(captures)+Heartbeat.
-				const remote = interpreter.makeNode(
-					'RemoteIpc',
+				const remote = interpreter.makeNode( 'RemoteIpc', reader, [
 					reader,
-					`${ reader } / `
-				);
+				] );
 				remote.target = reserved.OUTPUT;
 				remote.client = {
 					postBatch: ( entries ) => {
@@ -2439,7 +2437,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( globalThis.__activateSend ).toHaveBeenCalledWith( {
 			to: 'topologies',
 			verb: 'activate',
-			args: 'newname',
+			args: [ 'newname' ],
 		} );
 	} );
 
@@ -4293,7 +4291,7 @@ describe( 'TopologyConsole boot', () => {
 			expect( globalThis.__activateSend ).toHaveBeenCalledWith( {
 				to: 'topologies',
 				verb: 'expand',
-				args: 'performance',
+				args: [ 'performance' ],
 			} );
 
 			// The borrowed node landed with a COMPUTED position (not the

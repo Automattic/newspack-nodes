@@ -70,7 +70,7 @@ function buildListCommand( id ) {
 	m[ FROM ] = VIEW;
 	m[ TO ] = 'raw-logs';
 	m[ ID ] = id;
-	m[ VALUE ] = { name: 'list_logs', arguments: '' };
+	m[ VALUE ] = { name: 'list_logs', arguments: [] };
 	return m;
 }
 
@@ -101,7 +101,9 @@ export function useRawLogsGraph( opts = {} ) {
 		// Soft view-nodes; mountExospine snapshots Core for reinit() rebuild.
 		const build = ( { interpreter } ) => {
 			// ONE RemoteLink; baseUrl/nonce come from the global, not tokens.
-			const link = interpreter.makeNode( 'RemoteLink', LINK, 'raw-logs' );
+			const link = interpreter.makeNode( 'RemoteLink', LINK, [
+				'raw-logs',
+			] );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
 			link.client =

@@ -14,7 +14,7 @@ class GrepNodeTest extends TestCase {
 		// Ported from Tachikoma's Grep.pm: fill() forwards a message whose VALUE
 		// matches the regex to the sink; a miss is dropped (not forwarded).
 		$g = new Grep_Node();
-		$g->arguments( 'ERROR' );
+		$g->arguments( [ 'ERROR' ] );
 		$capture = new Capture_Sink_Node();
 		$g->sink( $capture );
 

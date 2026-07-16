@@ -26,7 +26,7 @@ describe( 'dumpMetadataPayload', () => {
 				target: 'b',
 				sink: '',
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 			} )
 		);
 	} );

@@ -38,7 +38,7 @@ class WorkerLifecycleTest extends TestCase {
 		$interpreter = $w->build_scaffolding();
 
 		$topology = function ( $interpreter, int $partition ) {
-			$interpreter->dispatch( 'make_node', 'Capture_Sink echo' );
+			$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'echo' ] );
 		};
 		$w->run_topology( $topology, $interpreter );
 
@@ -94,7 +94,7 @@ class WorkerLifecycleTest extends TestCase {
 		// Pre-seed a partition with two messages for the worker's Consumer to process.
 		$seed_dir = "{$this->tmp}/seed.p0";
 		$seed     = new Partition_Node();
-		$seed->arguments( $seed_dir );
+		$seed->arguments( [ $seed_dir ] );
 		$this->produce_into( $seed, 'lifecycle-msg-1' );
 		$this->produce_into( $seed, 'lifecycle-msg-2' );
 		unset( $seed );
@@ -114,7 +114,7 @@ class WorkerLifecycleTest extends TestCase {
 			$stopper->name( 'capture' );
 
 			// Real Consumer reading the seeded partition from offset 0, targeting the stopper.
-			$consumer = $interpreter->make_node( 'Consumer', 'seed_reader', "{$seed_dir} {$this->tmp}/seed.offsets" );
+			$consumer = $interpreter->make_node( 'Consumer', 'seed_reader', $seed_dir, "{$this->tmp}/seed.offsets" );
 			$consumer->target( 'capture' );
 		};
 

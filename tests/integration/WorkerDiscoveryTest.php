@@ -36,7 +36,7 @@ class WorkerDiscoveryTest extends TestCase {
 		Core::node( 'firehose-workers.p0' )->flush();
 
 		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$input_dir} " );
+		$consumer->arguments( [ "{$input_dir}" ] );
 		$consumer->next_offset( 'start' );
 		$got = [];
 		$consumer->sink( new Callback_Node( static function ( array &$m ) use ( &$got ): void {

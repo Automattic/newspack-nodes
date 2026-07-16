@@ -127,6 +127,11 @@ class Shell_Node extends Node {
 			for ( $i = 0; $i < $length; ++$i ) {
 				$ch = $line[ $i ];
 				if ( null !== $in_quote ) {
+					// An escaped quote must not close the run.
+					if ( '\\' === $ch && $i + 1 < $length ) {
+						$buf .= $ch . $line[ ++$i ];
+						continue;
+					}
 					$buf .= $ch;
 					if ( $ch === $in_quote ) {
 						$in_quote = null;
@@ -271,7 +276,7 @@ class Shell_Node extends Node {
 			case 'command_node':
 				$cmd_path  = $args[0] ?? '';
 				$cmd_verb  = $args[1] ?? '';
-				$cmd_args  = \implode( ' ', \array_slice( $args, 2 ) );
+				$cmd_args  = \array_slice( $args, 2 );
 				$message[ Message::TYPE ]  = Message::TM_COMMAND;
 				$message[ Message::TO ]    = $this->prefix( $cmd_path );
 				$message[ Message::VALUE ] = [
@@ -284,7 +289,7 @@ class Shell_Node extends Node {
 				$message[ Message::TO ]    = $this->path;
 				$message[ Message::VALUE ] = [
 					'name'      => 'pwd',
-					'arguments' => $this->path,
+					'arguments' => '' === $this->path ? [] : [ $this->path ],
 				];
 				break;
 			case 'ping':
@@ -334,7 +339,7 @@ class Shell_Node extends Node {
 				$message[ Message::TO ]    = $this->prefix( '' );
 				$message[ Message::VALUE ] = [
 					'name'      => $verb,
-					'arguments' => \implode( ' ', $args ),
+					'arguments' => $args,
 				];
 				break;
 		}
@@ -403,6 +408,11 @@ class Shell_Node extends Node {
 		for ( $i = 0; $i < $length; ++$i ) {
 			$ch = $line[ $i ];
 			if ( null !== $in_quote ) {
+				// Inside a quote, `\` escapes the next char.
+				if ( '\\' === $ch && $i + 1 < $length ) {
+					$buf .= $line[ ++$i ];
+					continue;
+				}
 				if ( $ch === $in_quote ) {
 					$in_quote = null;
 				} else {

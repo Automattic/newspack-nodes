@@ -119,7 +119,7 @@ class SettingsEventWriterTest extends TestCase {
 
 		$reader = new Partition_Node();
 		$reader->name( 'settings:reader' );
-		$reader->arguments( Config::get_logs_directory() . '/settings.p0' );
+		$reader->arguments( [ Config::get_logs_directory() . '/settings.p0' ] );
 		$values = $this->read_partition_values( $reader );
 		$reader->remove_node();
 

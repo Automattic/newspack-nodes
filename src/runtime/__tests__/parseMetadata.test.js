@@ -57,7 +57,7 @@ describe( 'parseMetadata', () => {
 				sink: '_command_interpreter',
 				target: 'beta',
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 			},
 		};
 		const { nodes, edges } = parseMetadata( payload );
@@ -68,7 +68,7 @@ describe( 'parseMetadata', () => {
 				sink: '_command_interpreter',
 				class: 'Echo',
 				debugState: 0,
-				arguments: '',
+				arguments: [],
 				lgstMsg: 0,
 				bytesRead: 0,
 				bytesWritten: 0,
@@ -130,7 +130,7 @@ describe( 'parseMetadata', () => {
 				sink: '_command_interpreter',
 				target: [ 'a', 'b', 'c' ],
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 			},
 		} );
 		expect( edges ).toEqual( [
@@ -160,7 +160,7 @@ describe( 'parseMetadata', () => {
 				sink: '_command_interpreter',
 				target: [],
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 			},
 		} );
 		// Backbone is plumbing; canvas shows the rest (_output + _repl).
@@ -179,7 +179,7 @@ describe( 'parseMetadata', () => {
 				sink: '',
 				target: '',
 				debug_state: 1,
-				arguments: '',
+				arguments: [],
 			},
 			beta: {
 				class: 'Echo',
@@ -187,7 +187,7 @@ describe( 'parseMetadata', () => {
 				sink: '',
 				target: '',
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 			},
 		} );
 		expect( nodes.find( ( n ) => n.id === 'alpha' ).debugState ).toBe( 1 );
@@ -202,7 +202,7 @@ describe( 'parseMetadata', () => {
 				sink: '',
 				target: '',
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 				lgst_msg: 1234,
 				bytes_read: 5678,
 				bytes_written: 9012,
@@ -320,7 +320,7 @@ describe( 'parseMetadata', () => {
 				sink: '',
 				target: '',
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 			},
 		} );
 		const alpha = nodes.find( ( n ) => n.id === 'alpha' );
@@ -337,7 +337,7 @@ describe( 'parseMetadata', () => {
 				sink: '',
 				target: '',
 				debug_state: 0,
-				arguments: '',
+				arguments: [],
 			},
 		} );
 		expect( edges ).toEqual( [] );

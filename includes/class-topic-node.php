@@ -55,10 +55,10 @@ class Topic_Node extends Node {
 	 * Store the raw string, parse positional tokens via parse_schema_args(), then
 	 * normalize (rtrim dir_template, clamp num_partitions to ≥1).
 	 *
-	 * @param string|null $args
-	 * @return string
+	 * @param list<string>|null $args
+	 * @return list<string>
 	 */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
@@ -148,7 +148,7 @@ class Topic_Node extends Node {
 				$p->name( "{$this->name}:p{$i}" );
 			}
 			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
-			$p->arguments( "{$child_dir} {$this->segment_size} {$this->min_segments} {$this->max_segments} {$this->min_lifetime} {$this->max_lifetime}" );
+			$p->arguments( [ $child_dir, (string) $this->segment_size, (string) $this->min_segments, (string) $this->max_segments, (string) $this->min_lifetime, (string) $this->max_lifetime ] );
 			// Keep Topic's sink + patron-link so dump_metadata hides it.
 			$p->sink( $this->sink );
 			$p->patron( $this );
@@ -179,12 +179,12 @@ class Topic_Node extends Node {
 	 * `allow_large_writes` verb — lift the cap on every partition, with the lock.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter.
-	 * @param string                   $args        Optional debounce_ms.
+	 * @param array<array-key, mixed>  $args        Optional debounce_ms.
 	 */
-	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, string $args ): string {
+	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->allow_large_writes( \max( 0, (int) \trim( $args ) ) );
+		$patron->allow_large_writes( \max( 0, Core::as_int( $args[0] ?? '' ) ) );
 		return 'ok';
 	}
 
@@ -204,10 +204,10 @@ class Topic_Node extends Node {
 	 * `with_index` verb — name the companion-index formatter for every partition.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter.
-	 * @param string                   $args        Formatter name.
+	 * @param array<array-key, mixed>  $args        Formatter name.
 	 */
-	public static function cmd_with_index( Command_Interpreter_Node $interpreter, string $args ): string {
-		$args = \trim( $args );
+	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
+		$args = Core::as_string( $args[0] ?? '' );
 		if ( '' === $args ) {
 			return 'usage: with_index <formatter_name>';
 		}
@@ -289,13 +289,13 @@ class Topic_Node extends Node {
 					'args'        => [
 						[ 'name' => 'debounce_ms', 'type' => 'int', 'required' => false ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_allow_large_writes( $interpreter, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_allow_large_writes( $interpreter, $args ),
 				],
 				[
 					'name'        => 'void_warranty',
 					'description' => 'Lift the 4KB cap on every partition with NO write lock — caller asserts single-writer. Propagates to partitions materialized later.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_void_warranty( $interpreter ),
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_void_warranty( $interpreter ),
 				],
 				[
 					'name'        => 'with_index',
@@ -303,7 +303,7 @@ class Topic_Node extends Node {
 					'args'        => [
 						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_with_index( $interpreter, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_with_index( $interpreter, $args ),
 				],
 			],
 			'registrations' => [ 'READY' ],

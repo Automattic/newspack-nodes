@@ -27,7 +27,7 @@ class CommandAuthTest extends TestCase {
 	}
 
 	/** Build a fresh TM_COMMAND with the canonical command VALUE. */
-	private function command( string $name = 'make_node', string $args = 'Tee t' ): array {
+	private function command( string $name = 'make_node', array $args = [ 'Tee', 't' ] ): array {
 		$m                    = Message::new_message();
 		$m[ Message::TYPE ]   = Message::TM_COMMAND;
 		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args ];
@@ -40,7 +40,7 @@ class CommandAuthTest extends TestCase {
 		Command_Auth::sign( $m );
 		$v = $m[ Message::VALUE ];
 		$this->assertSame( 'make_node', $v['name'] );
-		$this->assertSame( 'Tee t', $v['arguments'] );
+		$this->assertSame( [ 'Tee', 't' ], $v['arguments'] );
 		$this->assertIsArray( $v['auth'] );
 		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}$/', $v['auth']['nonce'] );
 		$this->assertIsString( $v['auth']['sig'] );
@@ -88,7 +88,7 @@ class CommandAuthTest extends TestCase {
 		$m = $this->command();
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
-		$m[ Message::VALUE ]['arguments'] = 'Tee evil';
+		$m[ Message::VALUE ]['arguments'] = [ 'Tee', 'evil' ];
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
@@ -208,7 +208,7 @@ class CommandAuthTest extends TestCase {
 	public function test_sign_refuses_unencodable_arguments(): void {
 		// Invalid UTF-8 makes wp_json_encode return false; signing must fail closed
 		// (no auth) rather than collapse onto an HMAC('') collision.
-		$m = $this->command( 'make_node', "\xB1\x31" );
+		$m = $this->command( 'make_node', [ "\xB1\x31" ] );
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );

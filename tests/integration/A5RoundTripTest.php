@@ -29,7 +29,7 @@ class A5RoundTripTest extends TestCase {
 		$interpreter = $w->build_scaffolding();
 
 		$topology = function ( $interpreter, int $partition ) {
-			$interpreter->dispatch( 'make_node', 'Capture_Sink target' );
+			$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'target' ] );
 		};
 		$w->run_topology( $topology, $interpreter );
 

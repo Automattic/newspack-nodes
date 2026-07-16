@@ -53,7 +53,16 @@ class VerbHarness {
 	 *                                     (correlation metadata; rarely needed).
 	 * @return mixed The verb's payload (structure for success verbs; error-message string for TM_ERROR).
 	 */
-	public static function fire( Command_Interpreter_Node $interpreter, string $name, string $verb, string $args = '', string $key = '' ): mixed {
+	/**
+	 * @param list<string>|string $args Argument tokens, or a convenience string
+	 *                                   the harness whitespace-splits (simulating
+	 *                                   what the Shell produces). Pass an explicit
+	 *                                   array to control exact token boundaries.
+	 */
+	public static function fire( Command_Interpreter_Node $interpreter, string $name, string $verb, array|string $args = [], string $key = '' ): mixed {
+		if ( \is_string( $args ) ) {
+			$args = '' === \trim( $args ) ? [] : ( \preg_split( '/\s+/', \trim( $args ) ) ?: [] );
+		}
 		$router = new Router_Node(); $router->name( '_router' );
 		$base   = new Command_Interpreter_Node(); $base->name( '_command_interpreter' ); $base->sink( $router );
 		$interpreter->name( $name );

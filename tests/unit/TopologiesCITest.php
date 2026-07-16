@@ -113,7 +113,7 @@ class TopologiesCITest extends TestCase {
 		// connect_worker_input returns '' (no reply), so call dispatch directly
 		// rather than VerbHarness::fire, which requires a response payload. The
 		// reader id rides as the command argument.
-		$result = ( new Topologies_CI_Node() )->dispatch( 'connect_worker_input', 'firehose-workers.p0' );
+		$result = ( new Topologies_CI_Node() )->dispatch( 'connect_worker_input', [ 'firehose-workers.p0' ] );
 
 		$this->assertSame( '', $result, 'connect_worker_input must not emit a reply' );
 		// The named worker's input Partition is now a node in the request graph,
@@ -343,7 +343,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'fresh ' . "make_node Echo e\n"
+			[ 'fresh', "make_node Echo e\n" ]
 		);
 
 		$this->assertSame( 'fresh', $result['name'] );
@@ -361,7 +361,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'roundtrip ' . "make_node Tee t\nmake_node Echo e\n"
+			[ 'roundtrip', "make_node Tee t\nmake_node Echo e\n" ]
 		);
 		VerbHarness::reset();
 
@@ -386,7 +386,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'shadowing ' . "make_node Echo u\n"
+			[ 'shadowing', "make_node Echo u\n" ]
 		);
 
 		$this->assertTrue( $result['shadows_stock'] );
@@ -404,7 +404,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			"clash-top include zebra-base\nmake_node Echo shared-tee\n"
+			[ 'clash-top', "include zebra-base\nmake_node Echo shared-tee\n" ]
 		);
 
 		$this->assertIsString( $result );
@@ -420,7 +420,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			"twin-top include zebra-base\nmake_node Grep shared-grep giraffe-pattern\n"
+			[ 'twin-top', "include zebra-base\nmake_node Grep shared-grep giraffe-pattern\n" ]
 		);
 
 		$this->assertIsArray( $result );
@@ -438,7 +438,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'bad-verb ' . $tsl
+			[ 'bad-verb', $tsl ]
 		);
 
 		$this->assertIsString( $result );
@@ -470,7 +470,7 @@ class TopologiesCITest extends TestCase {
 		$this->assertGreaterThan( 65536, \strlen( $body ) );
 		$this->assertLessThan( 1048576, \strlen( $body ) );
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'save', "big $body" );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'save', [ 'big', $body ] );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'big', $result['name'] );
@@ -482,7 +482,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'bad.name ' . "make_node Echo e\n"
+			[ 'bad.name', "make_node Echo e\n" ]
 		);
 
 		$this->assertIsString( $result );
@@ -508,7 +508,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'nope ' . "make_node Echo e\n"
+			[ 'nope', "make_node Echo e\n" ]
 		);
 
 		$this->assertIsString( $result );
@@ -539,7 +539,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'active-one ' . "make_node Echo e\n"
+			[ 'active-one', "make_node Echo e\n" ]
 		);
 
 		$this->assertSame( [ 'active-one' ], $result['restarted_fleets'] );
@@ -559,7 +559,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'dormant ' . "make_node Echo e\n"
+			[ 'dormant', "make_node Echo e\n" ]
 		);
 
 		$this->assertSame( [], $result['restarted_fleets'] );
@@ -574,7 +574,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'auto-mkdir ' . "make_node Echo e\n"
+			[ 'auto-mkdir', "make_node Echo e\n" ]
 		);
 
 		$this->assertDirectoryExists( $nested );
@@ -752,7 +752,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'armed ' . "make_node Partition p\n"
+			[ 'armed', "make_node Partition p\n" ]
 		);
 
 		$this->assertSame( 'armed', $result['name'] );
@@ -764,7 +764,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'to-remove ' . "make_node Partition p\n"
+			[ 'to-remove', "make_node Partition p\n" ]
 		);
 		VerbHarness::reset();
 
@@ -800,7 +800,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'orphan ' . "make_node Echo e\n"
+			[ 'orphan', "make_node Echo e\n" ]
 		);
 
 		$this->assertIsString( $result );
@@ -818,7 +818,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'fresh ' . "make_node Echo e\n"
+			[ 'fresh', "make_node Echo e\n" ]
 		);
 
 		$this->assertIsString( $result );
@@ -835,7 +835,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'fresh ' . "make_node Echo e\n"
+			[ 'fresh', "make_node Echo e\n" ]
 		);
 
 		$this->assertIsString( $result );
@@ -922,7 +922,7 @@ class TopologiesCITest extends TestCase {
 		\file_put_contents( "{$this->stock}/wombat-base.tsl", "make_node Tee shared-tee\n" );
 		\file_put_contents( "{$this->stock}/wombat-top.tsl", "include wombat-base\nmake_node Echo top-echo\n" );
 
-		$out = Topologies_CI_Node::cmd_expand( 'wombat-top' );
+		$out = Topologies_CI_Node::cmd_expand( [ 'wombat-top' ] );
 
 		$names = \array_column( $out['nodes'], 'name' );
 		$this->assertContains( 'shared-tee', $names );
@@ -946,7 +946,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_expand_verb_throws_on_unknown_topology(): void {
 		$this->expectException( \RuntimeException::class );
-		Topologies_CI_Node::cmd_expand( 'no-such-topology' );
+		Topologies_CI_Node::cmd_expand( [ 'no-such-topology' ] );
 	}
 
 	// ── save resolves includes ──────────────────────────────────────────────
@@ -956,7 +956,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'broken-include ' . "include no-such-topology\n"
+			[ 'broken-include', "include no-such-topology\n" ]
 		);
 
 		$this->assertIsString( $result, 'save must reject an unresolvable include, not write it to disk' );

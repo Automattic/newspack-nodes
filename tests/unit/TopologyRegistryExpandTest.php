@@ -433,11 +433,10 @@ class TopologyRegistryExpandTest extends TestCase {
 
 	/**
 	 * Only the TOP-LEVEL file's `var` frontmatter is honored (frontmatter() reads
-	 * that file alone). An included `var` is therefore ignored — which must be
-	 * LOUD, not silent: `var num_partitions = 4` in an included file vanishing
-	 * without a word is a fleet that quietly runs at the wrong width.
+	 * that file alone), so an included `var` is silently ignored: the line is
+	 * skipped without a word and the sibling nodes still parse.
 	 */
-	public function test_an_included_var_is_ignored_but_says_so(): void {
+	public function test_an_included_var_is_silently_ignored(): void {
 		$this->write_tsl( 'wombat-varbase', "var num_partitions = 7\nmake_node Echo zebra-echo\n" );
 		$this->write_tsl( 'wombat-vartop', "include wombat-varbase\n" );
 
@@ -448,14 +447,12 @@ class TopologyRegistryExpandTest extends TestCase {
 			}
 		);
 
-		Topology_Registry::expand( [ 'wombat-vartop' ] );
+		$out = Topology_Registry::expand( [ 'wombat-vartop' ] );
 
-		$this->assertStringContainsString(
-			'num_partitions',
-			$buf,
-			'an ignored included `var` must be reported, not swallowed'
-		);
-		$this->assertStringContainsString( 'wombat-varbase', $buf );
+		// The included `var` is skipped without a warning...
+		$this->assertSame( '', $buf, 'an included `var` is ignored silently' );
+		// ...and the sibling make_node still lands.
+		$this->assertSame( [ 'zebra-echo' ], $out['hulls']['wombat-varbase'] );
 	}
 
 	/**

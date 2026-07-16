@@ -21,26 +21,26 @@ class TestArgsNode extends Node {
 }
 
 describe( 'Node arguments accessor (trivial Tachikoma getter/setter)', () => {
-	it( 'setter stores the raw string WITHOUT parsing it onto properties', () => {
+	it( 'setter stores the token array WITHOUT parsing it onto properties', () => {
 		const n = new TestArgsNode();
-		n.arguments = 'hello 7 true';
+		n.arguments = [ 'hello', '7', 'true' ];
 		// Trivial store — no schema walk; declared props stay at ctor values.
 		expect( n.name_field ).toBe( '' );
 		expect( n.count ).toBe( 0 );
 		expect( n.flag ).toBe( false );
 	} );
 
-	it( 'getter returns the last-set raw string', () => {
+	it( 'getter returns the last-set token array', () => {
 		const n = new TestArgsNode();
-		n.arguments = 'hello 7 true';
-		expect( n.arguments ).toBe( 'hello 7 true' );
+		n.arguments = [ 'hello', '7', 'true' ];
+		expect( n.arguments ).toEqual( [ 'hello', '7', 'true' ] );
 	} );
 } );
 
 describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 	it( 'parses tokens and assigns to named properties', () => {
 		const n = new TestArgsNode();
-		parseSchemaArgs( n, 'hello 7 true' );
+		parseSchemaArgs( n, [ 'hello', '7', 'true' ] );
 		expect( n.name_field ).toBe( 'hello' );
 		expect( n.count ).toBe( 7 );
 		expect( n.flag ).toBe( true );
@@ -48,7 +48,7 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 
 	it( 'missing optional tokens use schema defaults', () => {
 		const n = new TestArgsNode();
-		parseSchemaArgs( n, 'hello' );
+		parseSchemaArgs( n, [ 'hello' ] );
 		expect( n.name_field ).toBe( 'hello' );
 		expect( n.count ).toBe( 0 );
 		expect( n.flag ).toBe( false );
@@ -73,14 +73,14 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 			}
 		}
 		const n = new CustomNode();
-		parseSchemaArgs( n, '' );
+		parseSchemaArgs( n, [] );
 		expect( n.x ).toBe( 99 );
 		expect( n.y ).toBe( 'ctor' );
 	} );
 
 	it( 'missing required arguments fail at the schema boundary', () => {
 		const n = new TestArgsNode();
-		expect( () => parseSchemaArgs( n, '' ) ).toThrow(
+		expect( () => parseSchemaArgs( n, [] ) ).toThrow(
 			'Missing required argument: name_field'
 		);
 	} );
@@ -105,9 +105,9 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 			}
 		}
 
-		expect( () => parseSchemaArgs( new TypoNode(), 'configured' ) ).toThrow(
-			'Invalid argument specification: misspelled_field_947'
-		);
+		expect( () =>
+			parseSchemaArgs( new TypoNode(), [ 'configured' ] )
+		).toThrow( 'Invalid argument specification: misspelled_field_947' );
 	} );
 
 	it( 'rejects inherited node methods as configuration properties', () => {
@@ -127,9 +127,9 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 		}
 		const node = new InheritedMethodNode();
 
-		expect( () => parseSchemaArgs( node, 'violet-cleanup-619' ) ).toThrow(
-			'Invalid argument specification: removeNode'
-		);
+		expect( () =>
+			parseSchemaArgs( node, [ 'violet-cleanup-619' ] )
+		).toThrow( 'Invalid argument specification: removeNode' );
 		expect( typeof node.removeNode ).toBe( 'function' );
 	} );
 
@@ -143,24 +143,24 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 			}
 		}
 
-		expect( () => parseSchemaArgs( new NamelessNode(), '' ) ).toThrow(
+		expect( () => parseSchemaArgs( new NamelessNode(), [] ) ).toThrow(
 			'Invalid argument specification: missing name at position 0'
 		);
 	} );
 
 	it( 'bool coercion accepts truthy/falsy strings', () => {
 		const n = new TestArgsNode();
-		parseSchemaArgs( n, 'x 0 yes' );
+		parseSchemaArgs( n, [ 'x', '0', 'yes' ] );
 		expect( n.flag ).toBe( true );
-		parseSchemaArgs( n, 'x 0 1' );
+		parseSchemaArgs( n, [ 'x', '0', '1' ] );
 		expect( n.flag ).toBe( true );
-		parseSchemaArgs( n, 'x 0 false' );
+		parseSchemaArgs( n, [ 'x', '0', 'false' ] );
 		expect( n.flag ).toBe( false );
 	} );
 
 	it( 'excess tokens are ignored', () => {
 		const n = new TestArgsNode();
-		parseSchemaArgs( n, 'hello 7 true extra extra2' );
+		parseSchemaArgs( n, [ 'hello', '7', 'true', 'extra', 'extra2' ] );
 		expect( n.name_field ).toBe( 'hello' );
 		expect( n.count ).toBe( 7 );
 		expect( n.flag ).toBe( true );
@@ -173,6 +173,6 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 			}
 		}
 		const n = new BareNode();
-		expect( () => parseSchemaArgs( n, 'whatever' ) ).not.toThrow();
+		expect( () => parseSchemaArgs( n, [ 'whatever' ] ) ).not.toThrow();
 	} );
 } );

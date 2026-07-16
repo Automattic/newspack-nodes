@@ -72,8 +72,12 @@ class RemoteSourceNodeTest extends TestCase {
 		Vault::get_instance()->reset_cache();
 	}
 
-	/** Build a named Remote_Source wired to a capture sink + downstream target. */
-	private function make_remote( string $name = 'remote-austin', ?string $args = null ): array {
+	/**
+	 * Build a named Remote_Source wired to a capture sink + downstream target.
+	 *
+	 * @param list<string>|null $args Positional ctor tokens (null = derive via remote_args).
+	 */
+	private function make_remote( string $name = 'remote-austin', ?array $args = null ): array {
 		$args ??= $this->remote_args( $name );
 		$node   = new Remote_Source_Node();
 		$node->name( $name );
@@ -957,14 +961,17 @@ class RemoteSourceNodeTest extends TestCase {
 	/**
 	 * The dirs are ARGUMENTS, like Consumer's — there is no derived fallback, so a
 	 * node that wants a durable cursor or a quarantine must be told where they live.
+	 *
+	 * @return list<string> Positional ctor tokens.
 	 */
-	private function remote_args( string $name = 'remote-austin', string $vault = 'austin' ): string {
+	private function remote_args( string $name = 'remote-austin', string $vault = 'austin' ): array {
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		return "{$vault} firehose.p0 {$offsets}/{$name}.firehose.p0 {$base}/deadletter/{$name}.firehose.p0";
+		return [ $vault, 'firehose.p0', "{$offsets}/{$name}.firehose.p0", "{$base}/deadletter/{$name}.firehose.p0" ];
 	}
 
-	private function make_remote_spy( string $name = 'remote-austin', ?string $args = null ): array {
+	/** @param list<string>|null $args Positional ctor tokens (null = derive via remote_args). */
+	private function make_remote_spy( string $name = 'remote-austin', ?array $args = null ): array {
 		$args ??= $this->remote_args( $name );
 		$node = new Remote_Source_Node();
 		$node->name( $name );
@@ -1120,7 +1127,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_missing_vault_entry_stays_disconnected_no_patrons(): void {
-		[ $node ] = $this->make_remote( 'remote-ghost', 'ghost firehose.p0' );
+		[ $node ] = $this->make_remote( 'remote-ghost', [ 'ghost', 'firehose.p0' ] );
 
 		$node->fire();
 
@@ -1168,7 +1175,7 @@ class RemoteSourceNodeTest extends TestCase {
 		\mkdir( $dir, 0755, true );
 		$pre = new Partition_Node();
 		$pre->name( 'preseed:offsetlog' );
-		$pre->arguments( $dir );
+		$pre->arguments( [ $dir ] );
 		$entry                       = Message::new_message();
 		$entry[ Message::TYPE ]      = Message::TM_STRUCT;
 		$entry[ Message::VALUE ]     = [ 'segment' => 4, 'offset' => 256, '_ts' => 123 ];
@@ -1488,9 +1495,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = new Remote_Source_Node();
 		$node->name( 'src-a' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->arguments(
-			"zebra-vault firehose.p0 {$this->base_dir}/offsets/firehose.combined.p0 {$this->base_dir}/dead/firehose.combined.p0"
-		);
+		$node->arguments( [ "zebra-vault", "firehose.p0", "{$this->base_dir}/offsets/firehose.combined.p0", "{$this->base_dir}/dead/firehose.combined.p0" ] );
 
 		$this->assertSame(
 			"{$this->base_dir}/offsets/firehose.combined.p0",
@@ -1507,7 +1512,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = new Remote_Source_Node();
 		$node->name( 'src-b' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->arguments( 'zebra-vault firehose.p0' );
+		$node->arguments( [ 'zebra-vault', 'firehose.p0' ] );
 
 		$this->assertSame( '', $this->read_private( $node, 'offsetlog_dir' ) );
 	}

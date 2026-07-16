@@ -61,8 +61,12 @@ class RemoteLinkNodeTest extends TestCase {
 		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 
-	/** Build a named base Remote_Link wired to a capture sink + downstream target. */
-	private function make_link( string $name = 'link-austin', string $args = 'austin firehose.p0' ): array {
+	/**
+	 * Build a named base Remote_Link wired to a capture sink + downstream target.
+	 *
+	 * @param list<string> $args Positional ctor tokens.
+	 */
+	private function make_link( string $name = 'link-austin', array $args = [ 'austin', 'firehose.p0' ] ): array {
 		$node = new Remote_Link_Node();
 		$node->name( $name );
 		$sink = new Capture_Sink_Node();
@@ -87,7 +91,7 @@ class RemoteLinkNodeTest extends TestCase {
 
 	public function test_arguments_null_returns_canonical_form(): void {
 		[ $node ] = $this->make_link();
-		$this->assertSame( 'austin firehose.p0', $node->arguments( null ) );
+		$this->assertSame( [ 'austin', 'firehose.p0' ], $node->arguments( null ) );
 	}
 
 	public function test_node_schema_is_visible_io_not_fillable(): void {
@@ -124,7 +128,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$sink->name( 'downstream' );
 		$node->sink( $sink );
 		$node->target( 'downstream' );
-		$node->arguments( 'austin firehose.p0' );
+		$node->arguments( [ 'austin', 'firehose.p0' ] );
 
 		Core::$now = 1000.0;
 		$node->fire();
@@ -168,7 +172,7 @@ class RemoteLinkNodeTest extends TestCase {
 	}
 
 	public function test_missing_vault_entry_stays_disconnected_no_patrons(): void {
-		[ $node ] = $this->make_link( 'link-ghost', 'ghost firehose.p0' );
+		[ $node ] = $this->make_link( 'link-ghost', [ 'ghost', 'firehose.p0' ] );
 
 		$node->fire();
 
@@ -441,7 +445,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
 		$node->sink( $sink );
-		$node->arguments( 'austin firehose.p0' ); // no target.
+		$node->arguments( [ 'austin', 'firehose.p0' ] ); // no target.
 		$node->fire();
 		$sse = Core::node( 'link-austin:sse-in' );
 

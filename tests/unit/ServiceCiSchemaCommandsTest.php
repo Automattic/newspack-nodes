@@ -38,7 +38,7 @@ class Schema_Driven_CI_Node extends Service_CI_Node {
 					'name'        => 'greet',
 					'description' => 'Return a fixed greeting.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => 'hello from greet',
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => 'hello from greet',
 				],
 			],
 			'requests'    => [
@@ -68,7 +68,7 @@ class Malformed_Verbs_CI_Node extends Service_CI_Node {
 					'name'        => 'good',
 					'description' => 'Well-formed verb with a callable handler.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => 'good result',
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => 'good result',
 				],
 				[
 					// Named verb, but NO handler key at all → not dispatchable.

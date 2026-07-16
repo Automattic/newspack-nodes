@@ -200,7 +200,7 @@ class Job_Intake {
 		if ( null === $p->sink() && null !== $ci ) {
 			$p->sink( $ci );
 		}
-		$p->arguments( "{$log_base}.p{$partition}" );
+		$p->arguments( [ "{$log_base}.p{$partition}" ] );
 		$p->allow_large_writes();
 		$this->partitions[ $partition ] = $p;
 		return $p;

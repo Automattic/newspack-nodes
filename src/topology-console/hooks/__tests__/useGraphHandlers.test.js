@@ -237,18 +237,18 @@ describe( 'useGraphHandlers', () => {
 		);
 	} );
 
-	it( 'onInspectorAction send_struct surfaces an honest error for unquotable JSON, not a misleading parse failure [#32]', () => {
+	it( 'onInspectorAction send_struct escapes JSON with every quote char so it still round-trips [#32]', () => {
 		const { result, dispatch, append } = renderHandlers( {} );
-		// Contains ', ` AND " — no safe shell wrapper exists.
+		// Contains ', ` AND " — the escape-aware tokenizer makes it representable.
 		result.current.onInspectorAction(
 			'send_struct',
 			'_output',
 			'{"x":"a\'b`c"}'
 		);
-		expect( dispatch ).not.toHaveBeenCalled();
-		expect( append ).toHaveBeenCalledWith(
+		expect( append ).not.toHaveBeenCalledWith(
 			expect.objectContaining( { kind: 'error' } )
 		);
+		expect( dispatch ).toHaveBeenCalled();
 	} );
 
 	it( 'onInspectorAction send_eof dispatches send_eof', () => {
@@ -435,7 +435,7 @@ describe( 'useGraphHandlers', () => {
 		expect( m[ LOCAL ] ).toBe( true );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'configure',
-			arguments: 'foo bar',
+			arguments: [ 'foo', 'bar' ],
 		} );
 		expect( append ).toHaveBeenCalledWith(
 			expect.objectContaining( {
@@ -465,7 +465,7 @@ describe( 'useGraphHandlers', () => {
 		const m = shell.sink.fills[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( 'n1' );
-		expect( m[ VALUE ] ).toEqual( { name: 'set_is_hub', arguments: '' } );
+		expect( m[ VALUE ] ).toEqual( { name: 'set_is_hub', arguments: [] } );
 		expect( append ).toHaveBeenCalledWith(
 			expect.objectContaining( {
 				kind: 'sent',

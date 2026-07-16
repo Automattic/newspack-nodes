@@ -573,11 +573,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * `restart` verb handler — request a graceful restart of matching worker(s).
 	 *
 	 * @param Workers_CI_Node $self Verb argument.
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_restart( Workers_CI_Node $self, string $args ): array {
+	public static function cmd_restart( Workers_CI_Node $self, array $args ): array {
 		$parsed    = Command_Args::parse( $args );
 		$types     = $parsed['positional'];
 		$partition = isset( $parsed['options']['partition'] ) ? (int) $parsed['options']['partition'] : -1;
@@ -601,15 +601,15 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * `heartbeat` verb handler — record a worker slot heartbeat.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_heartbeat( string $args ): array {
+	public static function cmd_heartbeat( array $args ): array {
 		if ( null === Core::$memd ) {
 			throw new \RuntimeException( 'cache not configured' );
 		}
-		$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
+		$parts = $args;
 		$slot  = isset( $parts[0] ) ? (int) $parts[0] : -1;
 		if ( $slot < 0 ) {
 			throw new \RuntimeException( 'slot required' );
@@ -630,19 +630,19 @@ class Workers_CI_Node extends Service_CI_Node {
 					'description' => 'List workers with heartbeat liveness.',
 					'args'        => [],
 					// $self is the Workers_CI_Node; reads its injected cli.
-					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_list( $self ),
+					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_list( $self ),
 				],
 				[
 					'name'        => 'dump_graph',
 					'description' => 'Full operator-grade fleet/supervisor/log metadata + per-topology .tsl graph.',
 					'args'        => [],
-					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_dump_graph(),
+					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_dump_graph(),
 				],
 				[
 					'name'        => 'cleanup_status',
 					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_cleanup_status(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_cleanup_status(),
 				],
 				[
 					'name'        => 'restart',
@@ -651,7 +651,7 @@ class Workers_CI_Node extends Service_CI_Node {
 						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
 					],
-					'handler'     => static fn ( Workers_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_restart( $self, $args ),
+					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_restart( $self, self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'heartbeat',
@@ -660,7 +660,7 @@ class Workers_CI_Node extends Service_CI_Node {
 						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
 						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_heartbeat( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_heartbeat( self::arg_strings( $args ) ),
 				],
 			],
 		] );

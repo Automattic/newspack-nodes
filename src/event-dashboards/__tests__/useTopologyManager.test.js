@@ -371,7 +371,7 @@ describe( 'useTopologyManager', () => {
 
 		const deactivateSend = sent.find( ( s ) => 'deactivate' === s.verb );
 		expect( deactivateSend ).toBeTruthy();
-		expect( deactivateSend.args ).toBe( 'a' );
+		expect( deactivateSend.args ).toEqual( [ 'a' ] );
 	} );
 
 	it( 'activate dispatches `topologies activate <name>`', async () => {
@@ -387,7 +387,7 @@ describe( 'useTopologyManager', () => {
 
 		const activateSend = sent.find( ( s ) => 'activate' === s.verb );
 		expect( activateSend ).toBeTruthy();
-		expect( activateSend.args ).toBe( 'b' );
+		expect( activateSend.args ).toEqual( [ 'b' ] );
 	} );
 
 	it( 'restart is exposed and dispatches the worker restart verb', async () => {
@@ -404,7 +404,7 @@ describe( 'useTopologyManager', () => {
 
 		const restartSend = sent.find( ( s ) => 'restart' === s.verb );
 		expect( restartSend ).toBeTruthy();
-		expect( restartSend.args ).toBe( 'a' );
+		expect( restartSend.args ).toEqual( [ 'a' ] );
 	} );
 
 	it( 'activate rejects when the server replies TM_ERROR', async () => {

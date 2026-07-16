@@ -53,7 +53,8 @@ class RemoteIpcNodeTest extends TestCase {
 		};
 	}
 
-	private function make_ipc( string $name = 'combined.p0', string $args = 'austin combined.p0' ): array {
+	/** @param list<string> $args Positional ctor tokens. */
+	private function make_ipc( string $name = 'combined.p0', array $args = [ 'austin', 'combined.p0' ] ): array {
 		$node = new Remote_IPC_Node();
 		$node->name( $name );
 		$sink = new Capture_Sink_Node();
@@ -132,8 +133,8 @@ class RemoteIpcNodeTest extends TestCase {
 	public function test_connect_steals_the_single_live_connection(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
-		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined.p0' );
-		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame.p0' );
+		[ $a ] = $this->make_ipc( 'combined.p0', [ 'austin', 'combined.p0' ] );
+		[ $b ] = $this->make_ipc( 'flame.p0', [ 'austin', 'flame.p0' ] );
 
 		$a->connect();
 		$this->assertSame( $a, Remote_IPC_Node::$active );
@@ -183,8 +184,8 @@ class RemoteIpcNodeTest extends TestCase {
 	public function test_only_the_active_link_ticks_a_heartbeat(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
-		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined.p0' );
-		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame.p0' );
+		[ $a ] = $this->make_ipc( 'combined.p0', [ 'austin', 'combined.p0' ] );
+		[ $b ] = $this->make_ipc( 'flame.p0', [ 'austin', 'flame.p0' ] );
 
 		$a->connect();
 		$this->feed_connected( Core::node( 'combined.p0:sse-in' ), 5, 4242 );
@@ -207,7 +208,7 @@ class RemoteIpcNodeTest extends TestCase {
 		// No vault entry → ensure_patrons never builds the HTTP_Out, so send bails
 		// before bundling — no patrons, no crash.
 		$this->stub_sse_connect();
-		[ $node ] = $this->make_ipc( 'combined.p0', 'ghost combined.p0' );
+		[ $node ] = $this->make_ipc( 'combined.p0', [ 'ghost', 'combined.p0' ] );
 
 		$cmd = $this->command( '_metadata', 'dump_metadata' );
 		$node->fill( $cmd );
@@ -232,8 +233,8 @@ class RemoteIpcNodeTest extends TestCase {
 	public function test_remove_node_of_dormant_link_leaves_active_claim_intact(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
-		[ $a ] = $this->make_ipc( 'combined.p0', 'austin combined.p0' );
-		[ $b ] = $this->make_ipc( 'flame.p0', 'austin flame.p0' );
+		[ $a ] = $this->make_ipc( 'combined.p0', [ 'austin', 'combined.p0' ] );
+		[ $b ] = $this->make_ipc( 'flame.p0', [ 'austin', 'flame.p0' ] );
 		$a->connect();
 		$this->assertSame( $a, Remote_IPC_Node::$active );
 

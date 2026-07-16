@@ -22,6 +22,40 @@ import {
 
 beforeEach( () => Core.reset() );
 
+test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb handler', () => {
+	// eslint-disable-next-line global-require
+	const { ShellNode } = require( '../shell-node' );
+
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = '_command_interpreter';
+	interpreter.sink = { fill: () => {} };
+	let received = null;
+	interpreter.commands( {
+		verb: ( self, args ) => {
+			received = args;
+			return 'ok';
+		},
+	} );
+
+	const shell = new ShellNode();
+	shell.sink = interpreter;
+	// Bare-verb form: TO is the (empty) cwd, so this interpreter interprets it.
+	// The quoted `a b` is ONE token; `--flag` a bare flag; `c` a positional.
+	shell.fill( "verb 'a b' c --flag" );
+
+	expect( received ).toEqual( [ 'a b', 'c', '--flag' ] );
+
+	// The `cmd <path> <verb>` form slices tokens[2:] into the envelope array.
+	const captured = [];
+	const shell2 = new ShellNode();
+	shell2.sink = { fill: ( m ) => captured.push( m ) };
+	shell2.fill( "cmd x verb 'a b' c" );
+	expect( captured[ 0 ][ VALUE ] ).toEqual( {
+		name: 'verb',
+		arguments: [ 'a b', 'c' ],
+	} );
+} );
+
 test( 'non-TM_COMMAND message passes straight through to sink', () => {
 	const sink = new Node();
 	const got = [];
@@ -62,7 +96,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.commands( {
-		echo: ( self, args ) => `echoed: ${ args }`,
+		echo: ( self, args ) => `echoed: ${ args.join( ' ' ) }`,
 	} );
 
 	const m = newMessage();
@@ -73,7 +107,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	// VALUE carries the command object directly — no inner JSON layer.
 	m[ VALUE ] = {
 		name: 'echo',
-		arguments: 'hi',
+		arguments: [ 'hi' ],
 	};
 	m[ LOCAL ] = true; // in-process command — carries the provenance taint
 	interpreter.fill( m );
@@ -86,7 +120,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	// Response VALUE is the { name, arguments, payload } object, not JSON.
 	expect( got[ 0 ][ VALUE ] ).toEqual( {
 		name: 'echo',
-		arguments: 'hi',
+		arguments: [ 'hi' ],
 		payload: 'echoed: hi',
 	} );
 } );
@@ -388,9 +422,17 @@ test( 'TM_PING with non-empty TO is forwarded as in-transit (no bounce)', () => 
 
 import { TeeNode } from '../tee-node';
 
-// Dispatch a built-in verb by name and return its raw result.
-const dispatch = ( interpreter, name, args = '', envelope = {} ) =>
-	interpreter.commands()[ name ]( interpreter, args, envelope );
+// Dispatch a built-in verb by name and return its raw result. Args are the
+// pre-split token array the interpreter hands verbs; a string convenience is
+// whitespace-tokenized here (verbs never re-split).
+const dispatch = ( interpreter, name, args = [], envelope = {} ) => {
+	let argv = args;
+	if ( ! Array.isArray( args ) ) {
+		const trimmed = String( args ).trim();
+		argv = '' === trimmed ? [] : trimmed.split( /\s+/ );
+	}
+	return interpreter.commands()[ name ]( interpreter, argv, envelope );
+};
 
 describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	const makeInterpreter = () => {
@@ -924,7 +966,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 					sink: '_command_interpreter',
 					target: '',
 					debug_state: 0,
-					arguments: '',
+					arguments: [],
 				} )
 			);
 		} );
@@ -1257,8 +1299,8 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( Core.node( 'Tee' ) ).toBeNull();
 		} );
 
-		it( 'feeds trailing tokens to the arguments setter as a raw string (no implicit walk)', () => {
-			// A node that skips parseSchemaArgs gets the raw string, no walk.
+		it( 'feeds trailing tokens to the arguments setter as a token array (no implicit walk)', () => {
+			// A node that skips parseSchemaArgs gets the raw tokens, no walk.
 			const interpreter = makeInterpreter();
 			CommandInterpreterNode.includeNodes.ArgSpy = class extends Node {
 				constructor() {
@@ -1274,7 +1316,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			};
 			dispatch( interpreter, 'make_node', 'ArgSpy s alpha beta' );
 			const node = Core.node( 's' );
-			expect( node.arguments ).toBe( 'alpha beta' );
+			expect( node.arguments ).toEqual( [ 'alpha', 'beta' ] );
 			expect( node.alpha_field ).toBe( '' );
 			delete CommandInterpreterNode.includeNodes.ArgSpy;
 		} );
@@ -1307,7 +1349,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			};
 			dispatch( interpreter, 'make_node', 'ArgWalk w alpha beta' );
 			const node = Core.node( 'w' );
-			expect( node.arguments ).toBe( 'alpha beta' );
+			expect( node.arguments ).toEqual( [ 'alpha', 'beta' ] );
 			expect( node.alpha_field ).toBe( 'alpha' );
 			expect( node.beta_field ).toBe( 'beta' );
 			delete CommandInterpreterNode.includeNodes.ArgWalk;
@@ -1358,8 +1400,8 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 
 		it( 'feeds trailing args through the arguments setter', () => {
 			const interp = makeInterpreter();
-			const node = interp.makeNode( 'Tee', 't', 'a b' );
-			expect( node.arguments ).toBe( 'a b' );
+			const node = interp.makeNode( 'Tee', 't', [ 'a', 'b' ] );
+			expect( node.arguments ).toEqual( [ 'a', 'b' ] );
 		} );
 
 		it( 'inherits the interpreter debug state for newly-made nodes', () => {

@@ -26,7 +26,7 @@ class CommandInterpreterTest extends TestCase {
 		$m                    = Message::new_message();
 		$m[ Message::TYPE ]   = Message::TM_COMMAND;
 		$m[ Message::FROM ]   = '_output/1';
-		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args ];
+		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => '' === $args ? [] : \preg_split( '/\s+/', $args ) ];
 		if ( $local ) {
 			$m[ Message::LOCAL ] = true;
 		}
@@ -294,7 +294,7 @@ class CommandInterpreterTest extends TestCase {
 		// for topology/setup code.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink direct' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'direct' ] );
 		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'direct' ) );
 	}
 
@@ -304,7 +304,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		$node = Core::node( 'alice' );
 		$this->assertNotNull( $node );
@@ -316,7 +316,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
 		$bob = Core::node( 'bob' );
 
 		$this->assertSame( $interpreter, $bob->sink() );
@@ -326,7 +326,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$result = $interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$result = $interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 		$this->assertSame( 'ok', $result );
 	}
 
@@ -337,18 +337,18 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice some args here' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice', 'some', 'args', 'here' ] );
 
-		$this->assertSame( 'some args here', Core::node( 'alice' )->arguments() );
+		$this->assertSame( [ 'some', 'args', 'here' ], Core::node( 'alice' )->arguments() );
 	}
 
 	public function test_make_node_sets_empty_arguments_with_no_trailing_tokens(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$this->assertSame( '', Core::node( 'alice' )->arguments() );
+		$this->assertSame( [], Core::node( 'alice' )->arguments() );
 	}
 
 	public function test_make_node_resolves_the_base_Node_class(): void {
@@ -359,7 +359,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$result = $interpreter->dispatch( 'make_node', 'Node router' );
+		$result = $interpreter->dispatch( 'make_node', [ 'Node', 'router' ] );
 
 		$this->assertSame( 'ok', $result );
 		$node = Core::node( 'router' );
@@ -437,31 +437,31 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( '_command_interpreter debug_state: 2', $interpreter->dispatch( 'debug_state', '2' ) );
+		$this->assertSame( '_command_interpreter debug_state: 2', $interpreter->dispatch( 'debug_state', [ '2' ] ) );
 		$this->assertSame( 2, $interpreter->debug_state() );
 	}
 
 	public function test_debug_state_with_node_name_toggles_that_node(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		$alice = Core::node( 'alice' );
 		$this->assertSame( 0, $alice->debug_state() );
 
-		$this->assertSame( 'alice debug_state: 1', $interpreter->dispatch( 'debug_state', 'alice' ) );
+		$this->assertSame( 'alice debug_state: 1', $interpreter->dispatch( 'debug_state', [ 'alice' ] ) );
 		$this->assertSame( 1, $alice->debug_state() );
 
-		$this->assertSame( 'alice debug_state: 0', $interpreter->dispatch( 'debug_state', 'alice' ) );
+		$this->assertSame( 'alice debug_state: 0', $interpreter->dispatch( 'debug_state', [ 'alice' ] ) );
 		$this->assertSame( 0, $alice->debug_state() );
 	}
 
 	public function test_debug_state_star_applies_to_all_nodes_and_reports_each(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'debug_state', '* 2' );
+		$out = $interpreter->dispatch( 'debug_state', [ '*', '2' ] );
 		$this->assertStringContainsString( 'Setting all nodes to debug_state: 2', $out );
 		$this->assertStringContainsString( 'alice debug_state: 2', $out );
 		$this->assertSame( 2, Core::node( 'alice' )->debug_state() );
@@ -470,9 +470,9 @@ class CommandInterpreterTest extends TestCase {
 	public function test_debug_state_with_node_name_and_level_sets_explicitly(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$this->assertSame( 'alice debug_state: 3', $interpreter->dispatch( 'debug_state', 'alice 3' ) );
+		$this->assertSame( 'alice debug_state: 3', $interpreter->dispatch( 'debug_state', [ 'alice', '3' ] ) );
 		$this->assertSame( 3, Core::node( 'alice' )->debug_state() );
 	}
 
@@ -480,7 +480,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( 'unknown node: nonexistent', $interpreter->dispatch( 'debug_state', 'nonexistent' ) );
+		$this->assertSame( 'unknown node: nonexistent', $interpreter->dispatch( 'debug_state', [ 'nonexistent' ] ) );
 	}
 
 	public function test_make_node_propagates_ci_debug_state_to_children(): void {
@@ -493,8 +493,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'debug_state', '1' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'debug_state', [ '1' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		$alice = Core::node( 'alice' );
 		$this->assertSame( 1, $alice->debug_state(), 'new node inherits interpreter level' );
@@ -507,7 +507,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		$this->assertSame( 0, Core::node( 'alice' )->debug_state() );
 	}
@@ -538,7 +538,7 @@ class CommandInterpreterTest extends TestCase {
 		// it travels through packed()/unpacked() as a nested object.
 		$message[ Message::VALUE ] = [
 			'name'      => 'make_node',
-			'arguments' => 'Capture_Sink alice',
+			'arguments' => [ 'Capture_Sink', 'alice' ],
 		];
 		$message[ Message::LOCAL ] = true; // in-process command — carries the provenance taint
 		$interpreter->fill( $message );
@@ -550,9 +550,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'set_sink', 'alice bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'set_sink', [ 'alice', 'bob' ] );
 
 		$this->assertSame( Core::node( 'bob' ), Core::node( 'alice' )->sink() );
 	}
@@ -561,9 +561,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'connect_node', 'alice bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'connect_node', [ 'alice', 'bob' ] );
 
 		$this->assertSame( 'bob', Core::node( 'alice' )->target() );
 	}
@@ -572,10 +572,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'connect_node', 'alice bob' );
-		$interpreter->dispatch( 'disconnect_node', 'alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'connect_node', [ 'alice', 'bob' ] );
+		$interpreter->dispatch( 'disconnect_node', [ 'alice' ] );
 
 		$this->assertSame( '', Core::node( 'alice' )->target() );
 	}
@@ -598,7 +598,7 @@ class CommandInterpreterTest extends TestCase {
 		$source = $this->emitter_with_event( 'source', 'EVT' );
 		( new Echo_Node() )->name( 'target' );
 
-		$this->assertSame( 'ok', $interpreter->dispatch( 'register', 'source target EVT' ) );
+		$this->assertSame( 'ok', $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
 		$this->assertSame( [ 'EVT' => [ 'target' ] ], $source->registered_listeners() );
 	}
 
@@ -607,7 +607,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		( new Echo_Node() )->name( 'target' );
 
-		$this->assertSame( 'unknown node: source', $interpreter->dispatch( 'register', 'source target EVT' ) );
+		$this->assertSame( 'unknown node: source', $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
 	}
 
 	public function test_register_unknown_target_returns_error(): void {
@@ -615,7 +615,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$this->emitter_with_event( 'source', 'EVT' );
 
-		$this->assertSame( 'unknown node: target', $interpreter->dispatch( 'register', 'source target EVT' ) );
+		$this->assertSame( 'unknown node: target', $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
 	}
 
 	public function test_register_missing_args_returns_usage(): void {
@@ -630,7 +630,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$this->emitter_with_event( 'source', 'EVT' );
 
-		$this->assertSame( 'usage: register <source name> <target name> <event>', $interpreter->dispatch( 'register', 'source' ) );
+		$this->assertSame( 'usage: register <source name> <target name> <event>', $interpreter->dispatch( 'register', [ 'source' ] ) );
 	}
 
 	public function test_register_undeclared_event_surfaces_as_command_error(): void {
@@ -641,7 +641,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no such event: NOPE' );
-		$interpreter->dispatch( 'register', 'source target NOPE' );
+		$interpreter->dispatch( 'register', [ 'source', 'target', 'NOPE' ] );
 	}
 
 	public function test_unregister_removes_a_previously_registered_listener(): void {
@@ -650,8 +650,8 @@ class CommandInterpreterTest extends TestCase {
 		$source = $this->emitter_with_event( 'source', 'EVT' );
 		( new Echo_Node() )->name( 'target' );
 
-		$interpreter->dispatch( 'register', 'source target EVT' );
-		$this->assertSame( 'ok', $interpreter->dispatch( 'unregister', 'source target EVT' ) );
+		$interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] );
+		$this->assertSame( 'ok', $interpreter->dispatch( 'unregister', [ 'source', 'target', 'EVT' ] ) );
 		$this->assertSame( [], $source->registered_listeners() );
 	}
 
@@ -666,10 +666,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 		$this->assertNotNull( Core::node( 'alice' ) );
 
-		$out = $interpreter->dispatch( 'remove_node', 'alice' );
+		$out = $interpreter->dispatch( 'remove_node', [ 'alice' ] );
 		$this->assertStringContainsString( 'removed alice', $out );
 		$this->assertNull( Core::node( 'alice' ) );
 	}
@@ -678,12 +678,12 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'remove', 'alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'remove', [ 'alice' ] );
 		$this->assertNull( Core::node( 'alice' ) );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'rm', 'bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'rm', [ 'bob' ] );
 		$this->assertNull( Core::node( 'bob' ) );
 	}
 
@@ -691,11 +691,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink carol' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'carol' ] );
 
-		$out = $interpreter->dispatch( 'remove_node', 'alice bob carol' );
+		$out = $interpreter->dispatch( 'remove_node', [ 'alice', 'bob', 'carol' ] );
 
 		$this->assertStringContainsString( 'removed alice', $out );
 		$this->assertStringContainsString( 'removed bob',   $out );
@@ -709,11 +709,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink worker-0' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink worker-1' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink leader' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'worker-0' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'worker-1' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'leader' ] );
 
-		$out = $interpreter->dispatch( 'remove_node', '-a worker-\\d+' );
+		$out = $interpreter->dispatch( 'remove_node', [ '-a', 'worker-\\d+' ] );
 
 		$this->assertStringContainsString( 'removed worker-0', $out );
 		$this->assertStringContainsString( 'removed worker-1', $out );
@@ -725,7 +725,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node', '-a will-never-match' );
+		$out = $interpreter->dispatch( 'remove_node', [ '-a', 'will-never-match' ] );
 		$this->assertSame( 'no matches', $out );
 	}
 
@@ -733,7 +733,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node', 'ghost' );
+		$out = $interpreter->dispatch( 'remove_node', [ 'ghost' ] );
 		$this->assertStringContainsString( "can't find node", $out );
 		$this->assertStringContainsString( 'ghost', $out );
 	}
@@ -744,7 +744,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node', '_command_interpreter' );
+		$out = $interpreter->dispatch( 'remove_node', [ '_command_interpreter' ] );
 		$this->assertStringContainsString( 'refusing', $out );
 		// The interpreter is still registered, ready to keep handling commands.
 		$this->assertNotNull( Core::node( '_command_interpreter' ) );
@@ -759,7 +759,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( 'helper-interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node', '_router' );
+		$out = $interpreter->dispatch( 'remove_node', [ '_router' ] );
 		$this->assertStringContainsString( 'refusing to destroy baseline', $out );
 		$this->assertNotNull( Core::node( '_router' ) );
 	}
@@ -772,7 +772,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( 'helper-interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node', \Newspack_Nodes\Node_Names::STDOUT );
+		$out = $interpreter->dispatch( 'remove_node', [ \Newspack_Nodes\Node_Names::STDOUT ] );
 		$this->assertStringContainsString( 'refusing to destroy baseline', $out );
 		$this->assertNotNull( Core::node( \Newspack_Nodes\Node_Names::STDOUT ) );
 	}
@@ -783,7 +783,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 		$stdout = new \Newspack_Nodes\Stdout_Node();
 		$stdout->name( \Newspack_Nodes\Node_Names::STDOUT );
 
@@ -798,7 +798,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 		$tap = new \Newspack_Nodes\Tap_Node();
 		$tap->name( \Newspack_Nodes\Node_Names::CONSOLE_TAP );
 
@@ -819,7 +819,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node', '-a' );
+		$out = $interpreter->dispatch( 'remove_node', [ '-a' ] );
 		$this->assertStringContainsString( 'usage:', $out );
 	}
 
@@ -839,7 +839,7 @@ class CommandInterpreterTest extends TestCase {
 		$verbs = \array_keys( $c_prop->getValue() );
 
 		foreach ( $verbs as $verb ) {
-			$out = $interpreter->dispatch( 'help', "$verb" );
+			$out = $interpreter->dispatch( 'help', [ "$verb" ] );
 			$this->assertStringNotContainsString(
 				'no such topic',
 				$out,
@@ -854,7 +854,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'help', 'Partition' );
+		$out = $interpreter->dispatch( 'help', [ 'Partition' ] );
 
 		$this->assertStringNotContainsString( 'no such topic', $out );
 		$this->assertStringContainsString( 'I/O', $out );            // category
@@ -881,7 +881,7 @@ class CommandInterpreterTest extends TestCase {
 			'include',
 		];
 		foreach ( $shell_builtins as $verb ) {
-			$out = $interpreter->dispatch( 'help', "$verb" );
+			$out = $interpreter->dispatch( 'help', [ "$verb" ] );
 			$this->assertStringNotContainsString(
 				'no such topic',
 				$out,
@@ -904,10 +904,10 @@ class CommandInterpreterTest extends TestCase {
 			// setter now leaves segment_size/max_segments/max_lifetime at their
 			// real schema defaults instead of overwriting them with placeholder
 			// strings — so this short form constructs successfully.
-			$interpreter->dispatch( 'make_node', "Partition mypart {$tmp} 0" );
+			$interpreter->dispatch( 'make_node', [ "Partition", "mypart", "{$tmp}", "0" ] );
 			$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, Core::node( 'mypart' ) );
 
-			$interpreter->dispatch( 'remove_node', 'mypart' );
+			$interpreter->dispatch( 'remove_node', [ 'mypart' ] );
 			$this->assertNull( Core::node( 'mypart' ) );
 		} finally {
 			$this->rmdir_recursive( $tmp );
@@ -918,8 +918,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
 
 		$out = $interpreter->dispatch( 'ls' );
 		$this->assertStringContainsString( 'alice', $out );
@@ -932,11 +932,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		// alice + bob auto-sink to _command_interpreter via make_node.
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
 
 		// Wire bob → alice so bob's sink is no longer the interpreter.
-		$interpreter->dispatch( 'set_sink', 'bob alice' );
+		$interpreter->dispatch( 'set_sink', [ 'bob', 'alice' ] );
 
 		$out = $interpreter->dispatch( 'ls' );
 		$this->assertStringContainsString( 'alice', $out );
@@ -947,11 +947,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'set_sink', 'bob alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'set_sink', [ 'bob', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-a' );
+		$out = $interpreter->dispatch( 'ls', [ '-a' ] );
 		$this->assertStringContainsString( 'alice', $out );
 		$this->assertStringContainsString( 'bob', $out );
 		$this->assertStringContainsString( '_command_interpreter', $out );
@@ -961,11 +961,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alex' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alex' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-a ^al' );
+		$out = $interpreter->dispatch( 'ls', [ '-a', '^al' ] );
 		$this->assertStringContainsString( 'alice', $out );
 		$this->assertStringContainsString( 'alex', $out );
 		$this->assertStringNotContainsString( 'bob', $out );
@@ -975,13 +975,13 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink hub' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink leaf1' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink leaf2' );
-		$interpreter->dispatch( 'set_sink', 'leaf1 hub' );
-		$interpreter->dispatch( 'set_sink', 'leaf2 hub' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'hub' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'leaf1' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'leaf2' ] );
+		$interpreter->dispatch( 'set_sink', [ 'leaf1', 'hub' ] );
+		$interpreter->dispatch( 'set_sink', [ 'leaf2', 'hub' ] );
 
-		$out = $interpreter->dispatch( 'ls', 'hub' );
+		$out = $interpreter->dispatch( 'ls', [ 'hub' ] );
 		$this->assertStringContainsString( 'leaf1', $out );
 		$this->assertStringContainsString( 'leaf2', $out );
 		$this->assertStringNotContainsString( 'hub' . "\n", "$out\n", 'hub itself is NOT listed (its sink is the interpreter, not hub)' );
@@ -991,7 +991,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'ls', 'nonexistent' );
+		$out = $interpreter->dispatch( 'ls', [ 'nonexistent' ] );
 		$this->assertStringContainsString( "can't find node", $out );
 	}
 
@@ -999,9 +999,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-c' );
+		$out = $interpreter->dispatch( 'ls', [ '-c' ] );
 		$this->assertStringContainsString( 'COUNT', $out );
 		$this->assertStringContainsString( 'NAME', $out );
 		$this->assertStringContainsString( 'alice', $out );
@@ -1026,7 +1026,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'help', 'dump' );
+		$out = $interpreter->dispatch( 'help', [ 'dump' ] );
 		$this->assertStringContainsString( 'dump_node', $out );
 		$this->assertStringContainsString( 'alias: dump', $out );
 	}
@@ -1035,7 +1035,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'help', 'ls' );
+		$out = $interpreter->dispatch( 'help', [ 'ls' ] );
 		$this->assertStringContainsString( 'list_nodes', $out );
 		$this->assertStringContainsString( '-c show', $out );
 	}
@@ -1044,7 +1044,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'help', 'nonsense' );
+		$out = $interpreter->dispatch( 'help', [ 'nonsense' ] );
 		$this->assertStringContainsString( 'no such topic', $out );
 	}
 
@@ -1059,7 +1059,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out   = $interpreter->dispatch( 'help', '', $this->completion_envelope() );
+		$out   = $interpreter->dispatch( 'help', [], $this->completion_envelope() );
 		$lines = \explode( "\n", $out );
 
 		$this->assertContains( 'list_nodes', $lines );
@@ -1153,12 +1153,12 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
 
 		// -c column flag must be ignored under completion. Completion lists ALL
 		// nodes (like `ls -a`), not just siblings, so `cd <tab>` can reach _-nodes.
-		$out   = $interpreter->dispatch( 'ls', '-c', $this->completion_envelope() );
+		$out   = $interpreter->dispatch( 'ls', [ '-c' ], $this->completion_envelope() );
 		$lines = \explode( "\n", $out );
 
 		$this->assertContains( 'alice', $lines );
@@ -1172,9 +1172,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out   = $interpreter->dispatch( 'ls', '-a', $this->completion_envelope() );
+		$out   = $interpreter->dispatch( 'ls', [ '-a' ], $this->completion_envelope() );
 		$lines = \explode( "\n", $out );
 
 		$this->assertContains( 'alice', $lines );
@@ -1186,9 +1186,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-c' );
+		$out = $interpreter->dispatch( 'ls', [ '-c' ] );
 		$this->assertStringContainsString( 'COUNT', $out );
 		$this->assertStringContainsString( 'NAME', $out );
 	}
@@ -1197,11 +1197,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		// dump_node stringifies here (display-only payload): the class name heads
 		// the dump, then the pretty snapshot.
-		$out = $interpreter->dispatch( 'dump_node', 'alice' );
+		$out = $interpreter->dispatch( 'dump_node', [ 'alice' ] );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'Capture_Sink_Node', $out );
 		$this->assertStringContainsString( '"name": "alice"', $out );
@@ -1212,9 +1212,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'dump', 'alice' );
+		$out = $interpreter->dispatch( 'dump', [ 'alice' ] );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( '"name": "alice"', $out );
 	}
@@ -1223,9 +1223,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'dump_node', 'alice name' );
+		$out = $interpreter->dispatch( 'dump_node', [ 'alice', 'name' ] );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'Capture_Sink_Node', $out ); // class header always shown
 		$this->assertStringContainsString( '"name": "alice"', $out );
@@ -1237,9 +1237,9 @@ class CommandInterpreterTest extends TestCase {
 		// "can't find key" error.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'dump_node', 'alice class' );
+		$out = $interpreter->dispatch( 'dump_node', [ 'alice', 'class' ] );
 		$this->assertIsString( $out );
 		$this->assertStringNotContainsString( "can't find key", $out );
 		$this->assertStringContainsString( 'Capture_Sink_Node', $out );
@@ -1249,7 +1249,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'dump_node', 'nonexistent' );
+		$out = $interpreter->dispatch( 'dump_node', [ 'nonexistent' ] );
 		$this->assertStringContainsString( "can't find node", $out );
 	}
 
@@ -1257,9 +1257,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'dump_node', 'alice no_such_key' );
+		$out = $interpreter->dispatch( 'dump_node', [ 'alice', 'no_such_key' ] );
 		$this->assertStringContainsString( "can't find key", $out );
 	}
 
@@ -1355,7 +1355,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		// alice is a sibling (sinks into _command_interpreter via make_node).
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 		$alice                       = Core::node( 'alice' );
 		$message                         = Message::new_message();
 		$message[ Message::VALUE ]       = 'twelve bytes';
@@ -1416,12 +1416,12 @@ class CommandInterpreterTest extends TestCase {
 
 		$alice = new Capture_Sink_Node();
 		$alice->name( 'alice' );
-		$alice->arguments( '/tmp/logs/errors.p0 4096 8' );
+		$alice->arguments( [ '/tmp/logs/errors.p0', '4096', '8' ] );
 
 		$decoded = $interpreter->dispatch( 'dump_metadata' );
 
 		$this->assertSame(
-			'/tmp/logs/errors.p0 4096 8',
+			[ '/tmp/logs/errors.p0', '4096', '8' ],
 			$decoded['alice']['arguments']
 		);
 	}
@@ -1435,7 +1435,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_repl/_output/_sse:346/_output';
-		$decoded                   = $interpreter->dispatch( 'dump_metadata', '', $envelope );
+		$decoded                   = $interpreter->dispatch( 'dump_metadata', [], $envelope );
 
 		$this->assertIsArray( $decoded );
 		$this->assertArrayHasKey( '_header', $decoded );
@@ -1451,7 +1451,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_repl/_output/_sse:346/_output';
-		$decoded                   = $interpreter->dispatch( 'dump_metadata', 'alice', $envelope );
+		$decoded                   = $interpreter->dispatch( 'dump_metadata', [ 'alice' ], $envelope );
 
 		$this->assertArrayNotHasKey( '_header', $decoded );
 	}
@@ -1496,7 +1496,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$sink        = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$interpreter->commands( [ 'echo' => fn ( $self, $args ) => "echoed: {$args}" ] );
+		$interpreter->commands( [ 'echo' => fn ( $self, $args ) => 'echoed: ' . \implode( ' ', $args ) ] );
 
 		$message = $this->command_message( 'echo', 'hi', true );
 		$interpreter->fill( $message );
@@ -1504,7 +1504,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertCount( 1, $sink->captured );
 		$value = $sink->captured[0][ Message::VALUE ];
 		$this->assertSame( 'echo', $value['name'] );
-		$this->assertSame( 'hi', $value['arguments'] );
+		$this->assertSame( [ 'hi' ], $value['arguments'] );
 		$this->assertSame( 'echoed: hi', $value['payload'] );
 	}
 
@@ -1516,7 +1516,7 @@ class CommandInterpreterTest extends TestCase {
 		$other = new Capture_Sink_Node();
 		$other->name( 'other' );
 
-		$decoded = $interpreter->dispatch( 'dump_metadata', 'keep' );
+		$decoded = $interpreter->dispatch( 'dump_metadata', [ 'keep' ] );
 
 		$this->assertSame( [ 'keep' ], \array_keys( $decoded ) );
 	}
@@ -1527,7 +1527,7 @@ class CommandInterpreterTest extends TestCase {
 		$keep = new Capture_Sink_Node();
 		$keep->name( 'keep' );
 
-		$this->assertSame( [], $interpreter->dispatch( 'dump_metadata', 'ghost' ) );
+		$this->assertSame( [], $interpreter->dispatch( 'dump_metadata', [ 'ghost' ] ) );
 	}
 
 	public function test_uptime_under_one_minute_shows_seconds_only(): void {
@@ -1590,9 +1590,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'connect_node', 'alice bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'connect_node', [ 'alice', 'bob' ] );
 
 		$dump = $interpreter->dispatch( 'dump_config' );
 		$this->assertStringContainsString( 'make_node Capture_Sink alice', $dump );
@@ -1608,10 +1608,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
 
-		$dump = $interpreter->dispatch( 'dump_config', 'ali' );
+		$dump = $interpreter->dispatch( 'dump_config', [ 'ali' ] );
 		$this->assertStringContainsString( 'make_node Capture_Sink alice', $dump );
 		$this->assertStringNotContainsString( 'bob', $dump );
 	}
@@ -1626,18 +1626,18 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Tee fanout' );
-		$interpreter->dispatch( 'make_node', 'Echo sink-a' );
-		$interpreter->dispatch( 'make_node', 'Echo sink-b' );
-		$interpreter->dispatch( 'make_node', 'Hook on-save save_post true' );
-		$interpreter->dispatch( 'connect_node', 'fanout sink-a' );
-		$interpreter->dispatch( 'connect_node', 'fanout sink-b' );
-		$interpreter->dispatch( 'connect_node', 'on-save fanout' );
+		$interpreter->dispatch( 'make_node', [ 'Tee', 'fanout' ] );
+		$interpreter->dispatch( 'make_node', [ 'Echo', 'sink-a' ] );
+		$interpreter->dispatch( 'make_node', [ 'Echo', 'sink-b' ] );
+		$interpreter->dispatch( 'make_node', [ 'Hook', 'on-save', 'save_post', 'true' ] );
+		$interpreter->dispatch( 'connect_node', [ 'fanout', 'sink-a' ] );
+		$interpreter->dispatch( 'connect_node', [ 'fanout', 'sink-b' ] );
+		$interpreter->dispatch( 'connect_node', [ 'on-save', 'fanout' ] );
 
 		$dump1 = $interpreter->dispatch( 'dump_config' );
 
 		foreach ( [ 'fanout', 'sink-a', 'sink-b', 'on-save' ] as $name ) {
-			$interpreter->dispatch( 'remove_node', $name );
+			$interpreter->dispatch( 'remove_node', [ $name ] );
 		}
 
 		foreach ( \explode( "\n", $dump1 ) as $line ) {
@@ -1645,10 +1645,9 @@ class CommandInterpreterTest extends TestCase {
 			if ( '' === $line ) {
 				continue;
 			}
-			$parts = \preg_split( '/\s+/', $line, 2 );
-			$verb  = $parts[0];
-			$args  = $parts[1] ?? '';
-			$interpreter->dispatch( $verb, $args );
+			$tokens = \preg_split( '/\s+/', $line );
+			$verb   = \array_shift( $tokens );
+			$interpreter->dispatch( $verb, $tokens );
 		}
 
 		$dump2 = $interpreter->dispatch( 'dump_config' );
@@ -1662,8 +1661,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink owner' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink sidecar' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'owner' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'sidecar' ] );
 		Core::node( 'sidecar' )->patron( Core::node( 'owner' ) );
 
 		$dump = $interpreter->dispatch( 'dump_config' );
@@ -1689,10 +1688,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( 'test_interpreter' );
 		$interpreter->commands(
 			[
-				'echo_args' => static fn ( Command_Interpreter_Node $self, string $args ) => "got: $args",
+				'echo_args' => static fn ( Command_Interpreter_Node $self, array $args ) => 'got: ' . \implode( ' ', $args ),
 			]
 		);
-		$result = $interpreter->dispatch( 'echo_args', 'hello world' );
+		$result = $interpreter->dispatch( 'echo_args', [ 'hello', 'world' ] );
 		$this->assertSame( 'got: hello world', $result );
 	}
 
@@ -1709,7 +1708,7 @@ class CommandInterpreterTest extends TestCase {
 		// Patron data node — visible.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink patron_node' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'patron_node' ] );
 		$patron = \Newspack_Nodes\Core::node( 'patron_node' );
 
 		// Non-interpreter plumbing node (e.g. mirrors Partition's Lock helper).
@@ -1732,7 +1731,7 @@ class CommandInterpreterTest extends TestCase {
 		// Patron data node — visible to the canvas.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink patron_node' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'patron_node' ] );
 		$patron = \Newspack_Nodes\Core::node( 'patron_node' );
 
 		// Sibling interpreter — should be filtered out of dump_metadata.
@@ -1797,7 +1796,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'make_node', 'Capture_Sink' );
+		$out = $interpreter->dispatch( 'make_node', [ 'Capture_Sink' ] );
 		$this->assertStringContainsString( 'usage: make_node', $out );
 	}
 
@@ -1807,7 +1806,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'make_node', 'NotARegisteredClass alice' );
+		$out = $interpreter->dispatch( 'make_node', [ 'NotARegisteredClass', 'alice' ] );
 		$this->assertSame( 'unknown class: NotARegisteredClass', $out );
 		$this->assertNull( Core::node( 'alice' ) );
 	}
@@ -1818,8 +1817,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$out = $interpreter->dispatch( 'set_sink', 'alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$out = $interpreter->dispatch( 'set_sink', [ 'alice' ] );
 		$this->assertStringContainsString( 'usage: set_sink', $out );
 	}
 
@@ -1835,14 +1834,14 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		// alice exists, ghost does not — both src and dst lookup go
 		// through Core::node, so either being null yields 'unknown node'.
-		$out = $interpreter->dispatch( 'set_sink', 'alice ghost' );
+		$out = $interpreter->dispatch( 'set_sink', [ 'alice', 'ghost' ] );
 		$this->assertSame( 'unknown node', $out );
 
-		$out = $interpreter->dispatch( 'set_sink', 'ghost alice' );
+		$out = $interpreter->dispatch( 'set_sink', [ 'ghost', 'alice' ] );
 		$this->assertSame( 'unknown node', $out );
 	}
 
@@ -1862,7 +1861,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'connect_node', 'ghost bob' );
+		$out = $interpreter->dispatch( 'connect_node', [ 'ghost', 'bob' ] );
 		$this->assertStringContainsString( 'unknown node: ghost', $out );
 	}
 
@@ -1873,10 +1872,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		// $interpreter->execute( verb, envelope=[] ) — empty envelope == empty FROM.
-		$out = $interpreter->dispatch( 'connect_node', 'alice' );
+		$out = $interpreter->dispatch( 'connect_node', [ 'alice' ] );
 		$this->assertStringContainsString( 'usage: connect_node', $out );
 	}
 
@@ -1888,13 +1887,13 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		// Hand-build the envelope and call execute with it.
 		$envelope                       = Message::new_message();
 		$envelope[ Message::FROM ]      = '_output/4242';
 
-		$out = $interpreter->dispatch( 'connect_node', 'alice', $envelope );
+		$out = $interpreter->dispatch( 'connect_node', [ 'alice' ], $envelope );
 		$this->assertSame( 'ok', $out );
 		$this->assertSame( '_output/4242', Core::node( 'alice' )->target() );
 	}
@@ -1913,7 +1912,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'disconnect_node', 'ghost' );
+		$out = $interpreter->dispatch( 'disconnect_node', [ 'ghost' ] );
 		$this->assertStringContainsString( 'unknown node: ghost', $out );
 	}
 
@@ -1925,11 +1924,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Tee fanout' );
+		$interpreter->dispatch( 'make_node', [ 'Tee', 'fanout' ] );
 		$tee = Core::node( 'fanout' );
 		$this->assertIsArray( $tee->target() );
 
-		$out = $interpreter->dispatch( 'disconnect_node', 'fanout' );
+		$out = $interpreter->dispatch( 'disconnect_node', [ 'fanout' ] );
 		$this->assertStringContainsString( 'usage: disconnect_node', $out );
 	}
 
@@ -1940,17 +1939,17 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Tee fanout' );
+		$interpreter->dispatch( 'make_node', [ 'Tee', 'fanout' ] );
 
 		// First wire two targets — one default, one explicit.
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/9999';
-		$interpreter->dispatch( 'connect_node', 'fanout', $envelope );
-		$interpreter->dispatch( 'connect_node', 'fanout other_target' );
+		$interpreter->dispatch( 'connect_node', [ 'fanout' ], $envelope );
+		$interpreter->dispatch( 'connect_node', [ 'fanout', 'other_target' ] );
 		$this->assertSame( [ '_output/9999', 'other_target' ], Core::node( 'fanout' )->target() );
 
 		// disconnect with the same envelope — should remove only the FROM.
-		$out = $interpreter->dispatch( 'disconnect_node', 'fanout', $envelope );
+		$out = $interpreter->dispatch( 'disconnect_node', [ 'fanout' ], $envelope );
 		$this->assertSame( 'ok', $out );
 		$this->assertSame( [ 'other_target' ], \array_values( Core::node( 'fanout' )->target() ) );
 	}
@@ -1966,7 +1965,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/abc';
 
-		$out = $interpreter->dispatch( 'pwd', '/some/path', $envelope );
+		$out = $interpreter->dispatch( 'pwd', [ '/some/path' ], $envelope );
 		$this->assertSame( ' /some/path -> _output/abc', $out );
 	}
 
@@ -1979,7 +1978,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/abc';
 
-		$out = $interpreter->dispatch( 'pwd', '', $envelope );
+		$out = $interpreter->dispatch( 'pwd', [], $envelope );
 		$this->assertSame( ' / -> _output/abc', $out );
 	}
 
@@ -2001,7 +2000,7 @@ class CommandInterpreterTest extends TestCase {
 			$interpreter = new Command_Interpreter_Node();
 			$interpreter->name( '_command_interpreter' );
 
-			$out = $interpreter->dispatch( 'log', 'hello from log verb' );
+			$out = $interpreter->dispatch( 'log', [ 'hello', 'from', 'log', 'verb' ] );
 			$this->assertSame( '', $out, 'log returns empty string — caller suppresses response' );
 			$this->assertCount( 1, $captured );
 			// log routes through the interpreter NODE's stderr, which tags the line
@@ -2054,9 +2053,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-s' );
+		$out = $interpreter->dispatch( 'ls', [ '-s' ] );
 		$this->assertStringContainsString( 'SINK', $out );
 		$this->assertStringContainsString( '_command_interpreter', $out );
 	}
@@ -2066,11 +2065,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'connect_node', 'alice bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'connect_node', [ 'alice', 'bob' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-t' );
+		$out = $interpreter->dispatch( 'ls', [ '-t' ] );
 		$this->assertStringContainsString( 'TARGET', $out );
 		$this->assertStringContainsString( '-> bob', $out );
 	}
@@ -2080,11 +2079,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'connect_node', 'alice bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'connect_node', [ 'alice', 'bob' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-l' );
+		$out = $interpreter->dispatch( 'ls', [ '-l' ] );
 		$this->assertStringContainsString( 'COUNT', $out );
 		$this->assertStringContainsString( 'TARGET', $out );
 		$this->assertStringContainsString( '-> bob', $out );
@@ -2098,7 +2097,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'ls', '-a never-going-to-match-anything' );
+		$out = $interpreter->dispatch( 'ls', [ '-a', 'never-going-to-match-anything' ] );
 		$this->assertStringContainsString( 'no matches', $out );
 	}
 
@@ -2107,11 +2106,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Tee fanout' );
-		$interpreter->dispatch( 'connect_node', 'fanout one' );
-		$interpreter->dispatch( 'connect_node', 'fanout two' );
+		$interpreter->dispatch( 'make_node', [ 'Tee', 'fanout' ] );
+		$interpreter->dispatch( 'connect_node', [ 'fanout', 'one' ] );
+		$interpreter->dispatch( 'connect_node', [ 'fanout', 'two' ] );
 
-		$out = $interpreter->dispatch( 'ls', '-t' );
+		$out = $interpreter->dispatch( 'ls', [ '-t' ] );
 		$this->assertStringContainsString( '-> one, two', $out );
 	}
 
@@ -2124,11 +2123,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
-		$interpreter->dispatch( 'set_sink', 'bob alice' );  // bob's sink isn't this interpreter.
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
+		$interpreter->dispatch( 'set_sink', [ 'bob', 'alice' ] );  // bob's sink isn't this interpreter.
 
-		$out = $interpreter->dispatch( 'stats', '-a' );
+		$out = $interpreter->dispatch( 'stats', [ '-a' ] );
 		$this->assertStringContainsString( 'NAME', $out );
 		$this->assertStringContainsString( 'alice', $out );
 		$this->assertStringContainsString( 'bob', $out, '-a includes non-sibling nodes' );
@@ -2141,11 +2140,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink alex' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink bob' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alex' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] );
 
-		$out = $interpreter->dispatch( 'stats', '-a ^al' );
+		$out = $interpreter->dispatch( 'stats', [ '-a', '^al' ] );
 		$this->assertStringContainsString( 'alice', $out );
 		$this->assertStringContainsString( 'alex', $out );
 		$this->assertStringNotContainsString( 'bob', $out );
@@ -2157,11 +2156,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'make_node', 'Capture_Sink hub' );
-		$interpreter->dispatch( 'make_node', 'Capture_Sink leaf1' );
-		$interpreter->dispatch( 'set_sink', 'leaf1 hub' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'hub' ] );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'leaf1' ] );
+		$interpreter->dispatch( 'set_sink', [ 'leaf1', 'hub' ] );
 
-		$out = $interpreter->dispatch( 'stats', 'hub' );
+		$out = $interpreter->dispatch( 'stats', [ 'hub' ] );
 		$this->assertStringContainsString( 'leaf1', $out );
 		// hub itself sinks into the interpreter, not into hub, so the row should
 		// be absent.
@@ -2178,7 +2177,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'debug_state', '1 2' );
+		$out = $interpreter->dispatch( 'debug_state', [ '1', '2' ] );
 		$this->assertSame( 'unknown node: 1', $out );
 	}
 
@@ -2215,7 +2214,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::VALUE ] = [ 'arguments' => 'nope' ];
+		$message[ Message::VALUE ] = [ 'arguments' => [ 'nope' ] ];
 		$interpreter->fill( $message );
 
 		$this->assertCount( 0, $downstream->captured );
@@ -2244,7 +2243,7 @@ class CommandInterpreterTest extends TestCase {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::FROM ]  = '_output/777';
-		$message[ Message::VALUE ] = [ 'name' => 'boom', 'arguments' => '' ];
+		$message[ Message::VALUE ] = [ 'name' => 'boom', 'arguments' => [] ];
 		$message[ Message::LOCAL ] = true;
 		$interpreter->fill( $message );
 
@@ -2284,7 +2283,7 @@ class CommandInterpreterTest extends TestCase {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::FROM ]  = '_output/55';
-		$message[ Message::VALUE ] = [ 'name' => 'give_array', 'arguments' => '' ];
+		$message[ Message::VALUE ] = [ 'name' => 'give_array', 'arguments' => [] ];
 		$message[ Message::LOCAL ] = true;
 		$interpreter->fill( $message );
 
@@ -2297,7 +2296,7 @@ class CommandInterpreterTest extends TestCase {
 		$empty                   = Message::new_message();
 		$empty[ Message::TYPE ]  = Message::TM_COMMAND;
 		$empty[ Message::FROM ]  = '_output/55';
-		$empty[ Message::VALUE ] = [ 'name' => 'give_empty', 'arguments' => '' ];
+		$empty[ Message::VALUE ] = [ 'name' => 'give_empty', 'arguments' => [] ];
 		$empty[ Message::LOCAL ] = true;
 		$interpreter->fill( $empty );
 
@@ -2318,7 +2317,7 @@ class CommandInterpreterTest extends TestCase {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::FROM ]  = '_output/77';
-		$message[ Message::VALUE ] = [ 'name' => 'i_do_not_exist', 'arguments' => '' ];
+		$message[ Message::VALUE ] = [ 'name' => 'i_do_not_exist', 'arguments' => [] ];
 		$message[ Message::LOCAL ] = true;
 		$interpreter->fill( $message );
 
@@ -2349,7 +2348,7 @@ class CommandInterpreterTest extends TestCase {
 		$message[ Message::FROM ]  = '_output/42';
 		$message[ Message::ID ]    = 'corr-id-123';
 		$message[ Message::KEY ]   = 'gui-tag-abc';
-		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink coverage_alice' ];
+		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => [ 'Capture_Sink', 'coverage_alice' ] ];
 		$message[ Message::LOCAL ] = true;
 		$interpreter->fill( $message );
 
@@ -2378,7 +2377,7 @@ class CommandInterpreterTest extends TestCase {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::TO ]    = 'some/path/ahead';
-		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink not_made' ];
+		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => [ 'Capture_Sink', 'not_made' ] ];
 		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -2399,7 +2398,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink ghost_response' ];
+		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => [ 'Capture_Sink', 'ghost_response' ] ];
 		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );

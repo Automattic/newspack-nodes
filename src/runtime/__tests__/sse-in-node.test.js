@@ -116,7 +116,7 @@ test( 'a terminal EventSource failure refreshes the REST nonce before reopening'
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
 	const sse = new SseInNode();
-	sse.arguments = 'completed.p17';
+	sse.arguments = [ 'completed.p17' ];
 	try {
 		sse.start();
 		const first = FakeEventSource.last;
@@ -163,7 +163,7 @@ test( 'a renewed stream gets no second nonce renewal until it connects', async (
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
 	const sse = new SseInNode();
-	sse.arguments = 'completed.p29';
+	sse.arguments = [ 'completed.p29' ];
 
 	try {
 		sse.start();
@@ -204,7 +204,7 @@ test( 'an explicitly closed stream stays closed on the next visible event', () =
 // ride the make_node args, they come from the localized global by default.
 function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
 	const sse = new SseInNode();
-	sse.arguments = subscribe.join( ',' );
+	sse.arguments = [ subscribe.join( ',' ) ];
 	sse.baseUrl = baseUrl;
 	sse.nonce = nonce;
 	const routed = [];
@@ -737,7 +737,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 
 	test( 'arguments setter parses subscribe and splits it on commas', () => {
 		const sse = new SseInNode();
-		sse.arguments = 'firehose,errors';
+		sse.arguments = [ 'firehose,errors' ];
 		expect( sse.subscribe ).toEqual( [ 'firehose', 'errors' ] );
 	} );
 
@@ -747,7 +747,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 			nonce: 'GNONCE',
 		};
 		const sse = new SseInNode();
-		sse.arguments = 'firehose';
+		sse.arguments = [ 'firehose' ];
 		expect( sse.baseUrl ).toBe( 'https://example.test/wp-json/' );
 		expect( sse.nonce ).toBe( 'GNONCE' );
 	} );
@@ -766,7 +766,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 
 	test( 'a single-topic subscribe still parses as a one-element array', () => {
 		const sse = new SseInNode();
-		sse.arguments = 'firehose';
+		sse.arguments = [ 'firehose' ];
 		expect( sse.subscribe ).toEqual( [ 'firehose' ] );
 	} );
 
@@ -777,7 +777,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 		};
 		// A bare palette-drop configures only subscribe; no nonce is threaded in.
 		const sse = new SseInNode();
-		sse.arguments = 'firehose,errors';
+		sse.arguments = [ 'firehose,errors' ];
 		sse.start();
 		expect( FakeEventSource.last.url ).toBe(
 			'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE'

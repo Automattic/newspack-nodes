@@ -135,7 +135,7 @@ export function useConsoleGraph( {
 		const remotes = [];
 		for ( const wr of readers ) {
 			// baseUrl/nonce resolve from the localized global, not tokens.
-			const remote = interpreter.makeNode( 'RemoteIpc', wr, wr );
+			const remote = interpreter.makeNode( 'RemoteIpc', wr, [ wr ] );
 			remote.target = names.OUTPUT;
 			remote.client = getCommandClient();
 			// The active worker's connect handshake drives the pid display.

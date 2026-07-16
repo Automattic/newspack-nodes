@@ -47,7 +47,9 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 	useVisibilityGatedLink( {
 		mountNodes: ( interpreter ) => {
 			// baseUrl/nonce resolve from the localized global, not tokens.
-			const link = interpreter.makeNode( 'RemoteLink', LINK, SUBSCRIBE );
+			const link = interpreter.makeNode( 'RemoteLink', LINK, [
+				SUBSCRIBE,
+			] );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
 			link.client = commandClient || CommandClient.fromGlobal();

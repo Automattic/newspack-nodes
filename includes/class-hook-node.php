@@ -21,7 +21,7 @@ class Hook_Node extends Node {
 	}
 
 	/** Assign hook_name / filter from positional tokens (no derived state). */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}

@@ -360,7 +360,7 @@ class SSE_Out_Node extends Node {
 			$ipc_output = "{$base}/ipc/{$sub}/output";
 			if ( \is_dir( $ipc_output ) ) {
 				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$ipc_output} " );
+				$consumer->arguments( [ $ipc_output ] );
 				$consumer->next_offset( 'end' );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
@@ -445,7 +445,7 @@ class SSE_Out_Node extends Node {
 	 */
 	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
 		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$dir} " );
+		$consumer->arguments( [ $dir ] );
 		$consumer->next_offset(
 			isset( $positions[ $name ] ) ? self::position_arg( $positions[ $name ] ) : 'end'
 		);

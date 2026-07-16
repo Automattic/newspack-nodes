@@ -542,9 +542,9 @@ class NodeTest extends TestCase {
 		// and returns the new value. dump_config() reads this field to emit
 		// the `make_node Foo bar <args>` line.
 		$n = new Capture_Sink_Node();
-		$this->assertSame( '', $n->arguments(), 'default is empty' );
-		$this->assertSame( '/path/to/foo 2', $n->arguments( '/path/to/foo 2' ) );
-		$this->assertSame( '/path/to/foo 2', $n->arguments(), 'value persists after set' );
+		$this->assertSame( [], $n->arguments(), 'default is empty' );
+		$this->assertSame( [ '/path/to/foo', '2' ], $n->arguments( [ '/path/to/foo', '2' ] ) );
+		$this->assertSame( [ '/path/to/foo', '2' ], $n->arguments(), 'value persists after set' );
 	}
 
 	public function test_dump_config_includes_stored_arguments(): void {
@@ -552,7 +552,7 @@ class NodeTest extends TestCase {
 		// arguments() is round-trippable through the config snippet.
 		$n = new Capture_Sink_Node();
 		$n->name( 'mynode' );
-		$n->arguments( '/var/log /partition 0' );
+		$n->arguments( [ '/var/log', '/partition', '0' ] );
 
 		$out = $n->dump_config();
 		$this->assertStringContainsString( 'make_node Capture_Sink mynode /var/log /partition 0', $out );
@@ -572,7 +572,7 @@ class NodeTest extends TestCase {
 				] );
 			}
 		};
-		$this->assertSame( '/tmp/x', $node->arguments( '/tmp/x' ) );
+		$this->assertSame( [ '/tmp/x' ], $node->arguments( [ '/tmp/x' ] ) );
 		$this->assertSame( '', $node->base, 'base arguments() must NOT auto-walk the schema' );
 	}
 
@@ -591,11 +591,11 @@ class NodeTest extends TestCase {
 					],
 				] );
 			}
-			public function parse( string $args ): void {
+			public function parse( array $args ): void {
 				$this->parse_schema_args( $args );
 			}
 		};
-		$node->parse( '/tmp/x 3' );
+		$node->parse( [ '/tmp/x', '3' ] );
 		$this->assertSame( '/tmp/x', $node->base );
 		$this->assertSame( 3, $node->partition );
 	}

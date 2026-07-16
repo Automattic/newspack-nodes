@@ -75,7 +75,7 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/** Assign vault_id from the positional token via the schema; gated on a non-empty string. */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}

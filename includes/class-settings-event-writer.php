@@ -106,9 +106,10 @@ class Settings_Event_Writer {
 	 * an AGE rule; the count is 2.
 	 *
 	 * @param string $dir Segment directory.
+	 * @return list<string>
 	 */
-	public static function partition_args( string $dir ): string {
-		return \implode( ' ', [
+	public static function partition_args( string $dir ): array {
+		return \array_map( '\strval', [
 			$dir,
 			self::SETTINGS_SEGMENT_SIZE,
 			self::SETTINGS_MIN_SEGMENTS,

@@ -128,7 +128,7 @@ describe( 'addSliceFetcher — optional argsFn (fire-time getter)', () => {
 		expect( Core.node( 'fetch-urls' ).command_args ).toBe( argsFn );
 	} );
 
-	test( 'without argsFn, command_args stays the static (empty) string', () => {
+	test( 'without argsFn, command_args stays the static (empty) token array', () => {
 		addSliceFetcher( interpreter, {
 			fetcher: 'fetch-counts',
 			receiver: 'countsIn',
@@ -138,7 +138,7 @@ describe( 'addSliceFetcher — optional argsFn (fire-time getter)', () => {
 			tee,
 			target: TARGET,
 		} );
-		expect( Core.node( 'fetch-counts' ).command_args ).toBe( '' );
+		expect( Core.node( 'fetch-counts' ).command_args ).toEqual( [] );
 	} );
 } );
 
@@ -194,9 +194,12 @@ describe( 'addSliceFetcher — optional transform', () => {
 			transform: {
 				name: 'urls:merge',
 				nodeClass: 'FakeTransform',
-				args: 'dedup 30',
+				args: [ 'dedup', '30' ],
 			},
 		} );
-		expect( Core.node( 'urls:merge' ).arguments ).toBe( 'dedup 30' );
+		expect( Core.node( 'urls:merge' ).arguments ).toEqual( [
+			'dedup',
+			'30',
+		] );
 	} );
 } );

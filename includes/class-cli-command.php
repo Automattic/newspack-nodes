@@ -177,7 +177,7 @@ class CLI_Command {
 			$reply_in->sink( $router );
 			$reply_in->target( Node_Names::OUTPUT );
 			$ipc_in = new Consumer_Node();
-			$ipc_in->arguments( "{$ipc['output']}" );
+			$ipc_in->arguments( [ $ipc['output'] ] );
 			$ipc_in->next_offset( 'end' );
 			$ipc_in->sink( $reply_in );
 		}
