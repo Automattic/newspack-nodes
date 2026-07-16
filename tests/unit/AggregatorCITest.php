@@ -102,84 +102,53 @@ class AggregatorCITest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// status verb
+	// build_snapshot (exercised via the servers_status slice)
 	// ---------------------------------------------------------------------
 
-	public function test_status_verb_returns_empty_map_when_no_remote_sources_wired(): void {
-		// Topology graph has the rewrite node only — no Remote_Source lines.
-		$this->seed_aggregator_topology( [] );
-
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'status' );
-
-		$this->assertSame( [], $result );
-	}
-
-	public function test_status_verb_discovers_wired_remote_sources_and_reads_np_remote_key(): void {
-		// Operator wired one Remote_Source; its substrate status snapshot lives
-		// under np:remote:<node-name>:<concrete remote_partition> — the same key
-		// Remote_Link writes.
-		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
-		$this->seed_vault( 'austin', [ 'url' => 'https://spoke.example/' ] );
-
-		Core::$memd->set(
-			'np:remote:spoke-a:firehose.p0',
-			[ 'connected' => true, 'last_http_code' => 200, 'current_backoff' => 1 ],
-			60
-		);
-
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'status' );
-
-		$this->assertIsArray( $result );
-		// Keyed by the wired NODE NAME (not the vault id).
-		$this->assertArrayHasKey( 'spoke-a', $result );
-		$this->assertSame( 'spoke-a', $result['spoke-a']['id'] );
-		$this->assertSame( 'austin', $result['spoke-a']['vault_id'] );
-		$this->assertStringStartsWith( 'https://spoke.example', $result['spoke-a']['url'] );
-		$this->assertArrayHasKey( 'partitions', $result['spoke-a'] );
-		$this->assertArrayHasKey( 0, $result['spoke-a']['partitions'] );
-		$this->assertTrue( $result['spoke-a']['partitions'][0]['connected'] );
-		$this->assertSame( 200, $result['spoke-a']['partitions'][0]['last_http_code'] );
-	}
-
-	public function test_status_verb_uses_empty_block_on_cache_miss(): void {
+	public function test_servers_status_uses_empty_block_on_cache_miss(): void {
 		$this->seed_aggregator_topology( [ [ 'spoke-b', 'other', 'firehose.p<partition>' ] ] );
 
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'status' );
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
 
-		$this->assertArrayHasKey( 'spoke-b', $result );
-		$this->assertSame( [], $result['spoke-b']['partitions'][0] );
+		$this->assertSame( 'spoke-b', $decoded[0]['id'] );
+		$this->assertSame( [], $decoded[0]['partitions'][0] );
 	}
 
-	public function test_status_verb_reads_every_configured_partition(): void {
+	public function test_servers_status_reads_every_configured_partition(): void {
 		// One Remote_Source whose remote_partition embeds the `<partition>` token
-		// fans across all configured partitions: with num_partitions=2 the verb
-		// reads np:remote:spoke-c:firehose.p0 AND ...firehose.p1, keying the
-		// result by partition index (0,1) — not a single wired partition.
+		// fans across all configured partitions: with num_partitions=2 the snapshot
+		// reads np:remote:spoke-c:firehose.p0 AND ...firehose.p1, keyed by partition
+		// index (0,1) — not a single wired partition.
 		$this->seed_aggregator_topology( [ [ 'spoke-c', 'cville', 'firehose.p<partition>' ] ], 2 );
 		Core::$memd->set( 'np:remote:spoke-c:firehose.p0', [ 'connected' => true ], 60 );
 		Core::$memd->set( 'np:remote:spoke-c:firehose.p1', [ 'connected' => false ], 60 );
 
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'status' );
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
 
-		$this->assertArrayHasKey( 'spoke-c', $result );
-		$this->assertSame( [ 0, 1 ], \array_keys( $result['spoke-c']['partitions'] ) );
-		$this->assertTrue( $result['spoke-c']['partitions'][0]['connected'] );
-		$this->assertFalse( $result['spoke-c']['partitions'][1]['connected'] );
+		$this->assertSame( 'spoke-c', $decoded[0]['id'] );
+		$this->assertSame( [ 0, 1 ], \array_keys( $decoded[0]['partitions'] ) );
+		$this->assertTrue( $decoded[0]['partitions'][0]['connected'] );
+		$this->assertFalse( $decoded[0]['partitions'][1]['connected'] );
 	}
 
-	public function test_status_verb_ignores_non_remote_source_nodes(): void {
+	public function test_servers_status_ignores_non_remote_source_nodes(): void {
 		// The rewrite node + Topic sink are in the graph too; only Remote_Source
-		// nodes become status entries.
+		// nodes become snapshot entries.
 		$this->seed_aggregator_topology( [ [ 'spoke-d', 'denver', 'firehose.p<partition>' ] ] );
 
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'status' );
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
 
-		$this->assertSame( [ 'spoke-d' ], \array_keys( $result ) );
+		$this->assertCount( 1, $decoded );
+		$this->assertSame( 'spoke-d', $decoded[0]['id'] );
 	}
 
 	// ---------------------------------------------------------------------
@@ -301,9 +270,9 @@ class AggregatorCITest extends TestCase {
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
-	public function test_status_verb_and_slice_verbs_agree_on_the_same_snapshot(): void {
-		// The de-god slices MUST derive from the same snapshot `status` produces,
-		// so the legacy `status` shim and the new dashboard never disagree.
+	public function test_slice_verbs_agree_on_the_same_snapshot(): void {
+		// summary and servers_status both derive from build_snapshot(), so the
+		// header counts must match the server-card list they summarize.
 		$this->seed_aggregator_topology(
 			[
 				[ 'spoke-a', 'austin', 'firehose.p<partition>' ],
@@ -312,8 +281,8 @@ class AggregatorCITest extends TestCase {
 		);
 		// Each VerbHarness::fire builds a fresh request-scope graph and Core::reset
 		// (which clears Core::$memd) clears its node registry between fires. Re-seed
-		// the memcache snapshot + auth before each fire so all three verbs read the
-		// same snapshot; the seeded topology lives in Topology_Registry and survives.
+		// the memcache snapshot + auth before each fire so both verbs read the same
+		// snapshot; the seeded topology lives in Topology_Registry and survives.
 		$reseed = function (): void {
 			Core::$memd = new InMemoryMemcached();
 			Core::$memd->set( 'np:remote:spoke-a:firehose.p0', [ 'connected' => true ], 60 );
@@ -321,141 +290,23 @@ class AggregatorCITest extends TestCase {
 		};
 
 		$reseed();
-		$status = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'status' );
-		VerbHarness::reset();
-		$reseed();
 		$servers_slice = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ), true );
 		VerbHarness::reset();
 		$reseed();
 		$summary = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
 
-		// servers_status is exactly status's values, re-indexed sequentially.
-		$this->assertEquals( \array_values( $status ), $servers_slice );
-		// summary's total matches the server count; connected matches the rollup.
-		$this->assertSame( \count( $status ), $summary['total'] );
+		// summary's total matches the server-card count; connected matches the rollup.
+		$this->assertSame( \count( $servers_slice ), $summary['total'] );
 		$this->assertSame( 1, $summary['connected'] );
-	}
-
-	// ---------------------------------------------------------------------
-	// health verb
-	// ---------------------------------------------------------------------
-
-	public function test_health_verb_reports_cache_available(): void {
-		// Core::$memd seeded in setUp().
-		$interpreter = new Aggregator_CI_Node();
-
-		$before = \time();
-		$result = VerbHarness::fire( $interpreter, 'aggregator', 'health' );
-		$after  = \time();
-
-		$this->assertIsArray( $result );
-		$this->assertTrue( $result['healthy'] );
-		$this->assertTrue( $result['cache'] );
-		$this->assertIsInt( $result['timestamp'] );
-		$this->assertGreaterThanOrEqual( $before, $result['timestamp'] );
-		$this->assertLessThanOrEqual( $after, $result['timestamp'] );
-	}
-
-	public function test_health_verb_reports_cache_unavailable_when_memd_null(): void {
-		Core::$memd  = null;
-		$interpreter = new Aggregator_CI_Node();
-
-		$result = VerbHarness::fire( $interpreter, 'aggregator', 'health' );
-
-		$this->assertTrue( $result['healthy'] );
-		$this->assertFalse( $result['cache'] );
-	}
-
-	// ---------------------------------------------------------------------
-	// servers verb
-	// ---------------------------------------------------------------------
-
-	public function test_servers_verb_returns_empty_sequential_array(): void {
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'servers' );
-
-		$this->assertSame( [], $result );
-	}
-
-	public function test_servers_verb_returns_sequential_array_of_public_shapes(): void {
-		$this->seed_vault( 'site-a', [
-			'url'           => 'https://a.example.com',
-			'auth_username' => 'admin',
-			'auth_password' => 'secret-pw-1',
-		] );
-
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'servers' );
-
-		$this->assertIsArray( $result );
-		// Sequential (not keyed by id) — distinguishes from Servers_CI.list.
-		$this->assertArrayHasKey( 0, $result );
-		$this->assertCount( 1, $result );
-		$this->assertSame( 'site-a', $result[0]['id'] );
-		$this->assertSame( 'https://a.example.com', $result[0]['url'] );
-		// `enabled` and `logs` are dropped — mirrors the substrate Vault_CI public shape.
-		$this->assertArrayNotHasKey( 'enabled', $result[0] );
-		$this->assertArrayNotHasKey( 'logs', $result[0] );
-		$this->assertTrue( $result[0]['has_credentials'] );
-		// Credentials are NOT leaked into the response.
-		$this->assertArrayNotHasKey( 'auth_username', $result[0] );
-		$this->assertArrayNotHasKey( 'auth_password', $result[0] );
-	}
-
-	public function test_servers_verb_reports_no_credentials(): void {
-		$this->seed_vault( 'plain', [ 'url' => 'https://plain.example.com' ] );
-
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'servers' );
-
-		$this->assertCount( 1, $result );
-		$this->assertFalse( $result[0]['has_credentials'] );
-	}
-
-	// ---------------------------------------------------------------------
-	// auth-gating
-	//
-	// Legacy AggregatorController + AggregatorStatusController both call
-	// read_permissions_check(), which enforces manage_options on every
-	// verb. Aggregator_CI mirrors that — even read-only verbs (status,
-	// health, servers) require manage_options.
-	// ---------------------------------------------------------------------
-
-	public function test_status_verb_rejects_unauthorized(): void {
-		$GLOBALS['_wp_test_current_user_can'] = [];
-		$interpreter                  = new Aggregator_CI_Node();
-		$result                       = VerbHarness::fire( $interpreter, 'aggregator', 'status' );
-
-		$this->assertIsString( $result );
-		$this->assertStringContainsString( 'permission denied', $result );
-	}
-
-	public function test_health_verb_rejects_unauthorized(): void {
-		$GLOBALS['_wp_test_current_user_can'] = [];
-		$interpreter                  = new Aggregator_CI_Node();
-		$result                       = VerbHarness::fire( $interpreter, 'aggregator', 'health' );
-
-		$this->assertIsString( $result );
-		$this->assertStringContainsString( 'permission denied', $result );
-	}
-
-	public function test_servers_verb_rejects_unauthorized(): void {
-		$GLOBALS['_wp_test_current_user_can'] = [];
-		$interpreter                  = new Aggregator_CI_Node();
-		$result                       = VerbHarness::fire( $interpreter, 'aggregator', 'servers' );
-
-		$this->assertIsString( $result );
-		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
 	// ---------------------------------------------------------------------
 	// schema-driven dispatch + Vault reach
 	//
-	// After the schema migration the three verbs live in node_schema()['commands']
-	// with handlers. The status/servers handlers read the substrate
-	// `Newspack_Nodes\Vault` singleton directly (no injected registry); the
-	// seeded-Vault test proves the dispatched handler actually read the option
-	// store, not a fresh/empty view.
+	// The `summary` / `servers_status` slice handlers derive from build_snapshot(),
+	// which reads the substrate `Newspack_Nodes\Vault` singleton directly (no
+	// injected registry); the seeded-Vault test proves the dispatched handler
+	// actually read the option store, not a fresh/empty view.
 	// ---------------------------------------------------------------------
 
 	public function test_node_schema_lists_all_verbs_with_handlers(): void {
@@ -464,36 +315,45 @@ class AggregatorCITest extends TestCase {
 			$verbs[ $verb['name'] ] = $verb;
 		}
 
-		foreach ( [ 'status', 'health', 'servers', 'summary', 'servers_status' ] as $name ) {
+		foreach ( [ 'summary', 'servers_status' ] as $name ) {
 			$this->assertArrayHasKey( $name, $verbs, "node_schema must list the '{$name}' verb" );
 			$this->assertIsCallable( $verbs[ $name ]['handler'] );
+		}
+		// The raw `status` / legacy `servers` / `health` verbs were removed — the
+		// de-god slices `summary` + `servers_status` are the only live surface.
+		foreach ( [ 'status', 'health', 'servers' ] as $removed ) {
+			$this->assertArrayNotHasKey( $removed, $verbs, "removed verb '{$removed}' must not be listed" );
 		}
 	}
 
 	public function test_all_verbs_declare_no_args(): void {
-		// status/health/servers/summary/servers_status read no $payload/$args —
-		// none of their handlers even declare a $payload param, so each stays args => [].
+		// summary/servers_status read no $payload/$args — neither handler even
+		// declares a $payload param, so each stays args => [].
 		$verbs = [];
 		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $verb ) {
 			$verbs[ $verb['name'] ] = $verb;
 		}
 
-		foreach ( [ 'status', 'health', 'servers', 'summary', 'servers_status' ] as $name ) {
+		foreach ( [ 'summary', 'servers_status' ] as $name ) {
 			$this->assertSame( [], $verbs[ $name ]['args'], "'{$name}' must declare no args" );
 		}
 	}
 
-	public function test_servers_verb_reads_the_vault(): void {
+	public function test_servers_status_reads_the_vault(): void {
 		// A server seeded into the substrate Vault must surface in the response,
-		// proving the dispatched handler reads `Vault::get_instance()` rather
-		// than a fresh/empty view.
+		// proving the dispatched handler reads the Vault singleton rather than a
+		// fresh/empty view.
+		$this->seed_aggregator_topology( [ [ 'spoke-a', 'sentinel', 'firehose.p<partition>' ] ] );
 		$this->seed_vault( 'sentinel', [ 'url' => 'https://sentinel.example/', 'enabled' => true ] );
 
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'servers' );
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
 
-		$this->assertCount( 1, $result );
-		$this->assertSame( 'sentinel', $result[0]['id'] );
+		$this->assertCount( 1, $decoded );
+		$this->assertSame( 'sentinel', $decoded[0]['vault_id'] );
+		$this->assertStringStartsWith( 'https://sentinel.example', $decoded[0]['url'] );
 	}
 
 	/**
@@ -503,12 +363,15 @@ class AggregatorCITest extends TestCase {
 	 * its verbs against the seeded Vault with no further wiring.
 	 */
 	public function test_constructible_via_no_arg_ctor(): void {
+		$this->seed_aggregator_topology( [ [ 'spoke-a', 'sentinel', 'firehose.p<partition>' ] ] );
 		$this->seed_vault( 'sentinel', [ 'url' => 'https://s.example/', 'enabled' => true ] );
 
-		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'servers' );
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
 
-		$this->assertSame( 'sentinel', $result[0]['id'] );
+		$this->assertSame( 'sentinel', $decoded[0]['vault_id'] );
 	}
 
 	/**
