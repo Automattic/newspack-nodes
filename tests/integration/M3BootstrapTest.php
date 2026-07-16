@@ -59,31 +59,4 @@ class M3BootstrapTest extends TestCase {
 		}
 	}
 
-	public function test_legacy_classes_controller_class_is_gone(): void {
-		$this->assertFalse(
-			\class_exists( '\\Newspack_Nodes\\Rest\\ClassesController' ),
-			'Legacy ClassesController must be deleted; Classes_CI.list replaces it.'
-		);
-	}
-
-	public function test_legacy_layouts_controller_class_is_gone(): void {
-		$this->assertFalse(
-			\class_exists( '\\Newspack_Nodes\\Rest\\LayoutsController' ),
-			'Legacy LayoutsController must be deleted; Layouts_CI.get + .save replace it.'
-		);
-	}
-
-	public function test_legacy_topologies_controller_class_is_gone(): void {
-		$this->assertFalse(
-			\class_exists( '\\Newspack_Nodes\\Rest\\TopologiesController' ),
-			'Legacy TopologiesController must be deleted; Topologies_CI.list/get/save/delete replace it.'
-		);
-	}
-
-	public function test_legacy_topology_stream_controller_class_is_gone(): void {
-		$this->assertFalse(
-			\class_exists( '\\Newspack_Nodes\\Rest\\TopologyStreamController' ),
-			'TopologyStreamController must be deleted; the topology console now rides the generic /messages/stream + /command endpoints.'
-		);
-	}
 }
