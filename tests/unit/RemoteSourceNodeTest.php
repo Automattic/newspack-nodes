@@ -1275,8 +1275,9 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'workers', $envelope[ Message::TO ] );
 		$value = $envelope[ Message::VALUE ];
 		$this->assertSame( 'heartbeat', $value['name'] );
-		// args: <slot> <ttl> — ttl must outlive the heartbeat interval.
-		[ $slot, $ttl ] = \explode( ' ', $value['arguments'] );
+		// args: [ <slot>, <ttl> ] — ttl must outlive the heartbeat interval.
+		$this->assertIsArray( $value['arguments'] );
+		[ $slot, $ttl ] = $value['arguments'];
 		$this->assertSame( '5', $slot );
 		$this->assertGreaterThan( Remote_Source_Node::HEARTBEAT_INTERVAL, (int) $ttl );
 	}

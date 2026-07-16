@@ -164,7 +164,7 @@ class Remote_Link_Node extends Timer_Node {
 		$message[ Message::TO ]    = 'workers';
 		$message[ Message::VALUE ] = [
 			'name'      => 'heartbeat',
-			'arguments' => $slot . ' ' . ( self::HEARTBEAT_INTERVAL * 3 ),
+			'arguments' => [ (string) $slot, (string) ( self::HEARTBEAT_INTERVAL * 3 ) ],
 		];
 		++$this->counter;
 		$this->http_out->fill( $message );

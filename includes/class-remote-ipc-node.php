@@ -61,7 +61,7 @@ class Remote_IPC_Node extends Remote_Link_Node {
 		$connect[ Message::TYPE ]  = Message::TM_COMMAND;
 		$connect[ Message::FROM ]  = $this->name;
 		$connect[ Message::TO ]    = 'topologies';
-		$connect[ Message::VALUE ] = [ 'name' => 'connect_worker_input', 'arguments' => $reader ];
+		$connect[ Message::VALUE ] = [ 'name' => 'connect_worker_input', 'arguments' => [ $reader ] ];
 
 		// Both ride HTTP_Out's batch -> one POST, same server process.
 		$this->http_out->fill( $connect );
