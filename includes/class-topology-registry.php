@@ -454,7 +454,7 @@ class Topology_Registry {
 	 *
 	 * @param array{line: string, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
-	 * @param array<string, array{name: string, class: string, is_tee: bool, args: list<string>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
+	 * @param array<string, array{name: string, class: string, is_tee: bool, args: list<string>, verbs: list<array{verb: string, args: list<string>}>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
 	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}>      $edges Edge-state map, by reference.
 	 */
 	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges ): void {
@@ -475,6 +475,7 @@ class Topology_Registry {
 				'class'  => $m[1],
 				'is_tee' => self::type_is_tee( $m[1] ),
 				'args'   => $args,
+				'verbs'  => [],
 				'origin' => $origins,
 				'via'    => $statement['via'],
 			];
@@ -490,8 +491,23 @@ class Topology_Registry {
 			self::connect_edge( $edges, $m[1], $m[2], $origins, $is_tee );
 			return;
 		}
-		if ( \preg_match( '/^cmd\s+(\S+?):config\s+(set_\w*target)(?:\s+(\S+))?$/', $line, $m ) ) {
-			self::set_config_edge( $edges, $m[1], Core::resolve_config_tokens( $m[3] ?? '' ), $m[2], $origins );
+		if ( \preg_match( '/^cmd\s+(\S+?)(:config)?\s+(\S+)(?:\s+(.*))?$/', $line, $m ) ) {
+			$node_name  = $m[1];
+			$has_config = '' !== $m[2];
+			$verb       = $m[3];
+			$rest       = \trim( $m[4] ?? '' );
+			// `:config set_*target` is a routing EDGE, not a config verb.
+			if ( $has_config && \preg_match( '/^set_\w*target$/', $verb ) ) {
+				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $rest ), $verb, $origins );
+				return;
+			}
+			// Every other verb rides on the node so the console can show it.
+			if ( isset( $nodes[ $node_name ] ) ) {
+				$nodes[ $node_name ]['verbs'][] = [
+					'verb' => $verb,
+					'args' => '' === $rest ? [] : ( \preg_split( '/\s+/', $rest ) ?: [] ),
+				];
+			}
 		}
 	}
 

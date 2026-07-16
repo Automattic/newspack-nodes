@@ -404,7 +404,10 @@ function borrowedNode( record ) {
 		target: '',
 		also: [],
 		ctorArgs: record.args || [],
-		verbInvocations: [],
+		verbInvocations: ( record.verbs || [] ).map( ( v ) => ( {
+			verb: v.verb,
+			args: v.args || [],
+		} ) ),
 		origin: record.origin || [],
 		via: record.via || [],
 		isTee: record.is_tee ?? 'Tee' === record.class,

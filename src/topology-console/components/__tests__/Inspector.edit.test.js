@@ -49,6 +49,95 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'echo' );
 	} );
 
+	it( "shows a borrowed node's configured verbs read-only", () => {
+		const borrowedProps = {
+			...baseProps,
+			selectedId: 'errors:partition',
+			parsed: {
+				nodes: [
+					{
+						id: 'errors:partition',
+						class: 'Partition',
+						origin: [ 'request-builder' ],
+						via: [ 'request-builder' ],
+						ctorArgs: [],
+						verbInvocations: [
+							{ verb: 'void_warranty', args: [] },
+							{ verb: 'with_index', args: [ 'quokka-idx' ] },
+						],
+					},
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'Partition',
+					arguments: [],
+					commands: [
+						{ name: 'allow_large_writes', args: [] },
+						{ name: 'void_warranty', args: [] },
+						{ name: 'with_index', args: [ { name: 'index' } ] },
+					],
+				},
+			],
+		};
+		const { getByLabelText, getByDisplayValue } = render(
+			<Inspector { ...borrowedProps } />
+		);
+
+		// Ticked verb: checked, but immutable here (borrowed).
+		const ticked = getByLabelText( 'void_warranty' );
+		expect( ticked.checked ).toBe( true );
+		expect( ticked.disabled ).toBe( true );
+		// Un-ticked verb still listed so you can see what's off.
+		expect( getByLabelText( 'allow_large_writes' ).checked ).toBe( false );
+		// A verb's arg value is shown read-only.
+		expect( getByDisplayValue( 'quokka-idx' ).disabled ).toBe( true );
+	} );
+
+	it( 'shows every invocation of a borrowed multiple-verb read-only', () => {
+		const borrowedProps = {
+			...baseProps,
+			selectedId: 'fanout:tap',
+			parsed: {
+				nodes: [
+					{
+						id: 'fanout:tap',
+						class: 'Tap',
+						origin: [ 'request-builder' ],
+						via: [ 'request-builder' ],
+						ctorArgs: [],
+						verbInvocations: [
+							{ verb: 'add_target', args: [ 'alpha-sink' ] },
+							{ verb: 'add_target', args: [ 'beta-sink' ] },
+						],
+					},
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'Tap',
+					arguments: [],
+					commands: [
+						{
+							name: 'add_target',
+							multiple: true,
+							args: [ { name: 'target' } ],
+						},
+					],
+				},
+			],
+		};
+		const { getByDisplayValue } = render(
+			<Inspector { ...borrowedProps } />
+		);
+
+		// Both invocations visible, not just the first.
+		expect( getByDisplayValue( 'alpha-sink' ).disabled ).toBe( true );
+		expect( getByDisplayValue( 'beta-sink' ).disabled ).toBe( true );
+	} );
+
 	it( 'hides verbs flagged hidden in node_schema from the edit Verbs list', () => {
 		const { getByText, queryByText } = render(
 			<Inspector

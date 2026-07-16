@@ -86,6 +86,39 @@ class TopologyRegistryExpandTest extends TestCase {
 		);
 	}
 
+	public function test_expand_carries_config_verbs_on_the_node_record(): void {
+		// A borrowed node's config verbs (the checkboxes the inspector shows —
+		// void_warranty here, plus a with_index that takes an arg) must ride on
+		// the node record so the console can show what's ticked. A set_*target
+		// stays an EDGE, never a verb.
+		$this->write_tsl(
+			'wombat-verbs',
+			"make_node Partition zebra:partition /var/wombat/zebra.log <partition> 1 2 0\n"
+			. "make_node Echo giraffe-errors\n"
+			. "cmd zebra:partition:config void_warranty\n"
+			. "cmd zebra:partition:config with_index quokka-idx\n"
+			. "cmd zebra:partition:config set_errors_target giraffe-errors\n"
+		);
+
+		$out    = Topology_Registry::expand( [ 'wombat-verbs' ] );
+		$byName = [];
+		foreach ( $out['nodes'] as $node ) {
+			$byName[ $node['name'] ] = $node;
+		}
+
+		$this->assertSame(
+			[
+				[ 'verb' => 'void_warranty', 'args' => [] ],
+				[ 'verb' => 'with_index', 'args' => [ 'quokka-idx' ] ],
+			],
+			$byName['zebra:partition']['verbs']
+		);
+		$this->assertContains(
+			[ 'from' => 'zebra:partition', 'to' => 'giraffe-errors', 'origin' => [ 'wombat-verbs' ], 'roles' => [ 'config' ], 'config_slots' => [ 'set_errors_target' ] ],
+			$out['edges']
+		);
+	}
+
 	public function test_expand_resolves_a_config_token_in_a_named_target_slot(): void {
 		\Newspack_Nodes\Core::register_config_namespace(
 			'wombat_expand',
