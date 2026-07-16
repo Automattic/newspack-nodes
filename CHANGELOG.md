@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`Config_Utils::is_within()`** (a `@deprecated` path-containment helper) and the ignored `$allowed_dirs` parameter on `Config_Utils::validate_config_path()`. `is_within()` carried an `@api` "external consumers" tag but had zero callers anywhere in the checkout; `$allowed_dirs` was documented "ignored" and both callers passed a no-op `[DIRECTORY_SEPARATOR]`. No runtime behavior change; noted here because `is_within()` was a published-API surface.
+
 ## [0.47.0] - 2026-07-16
 
 ### Changed

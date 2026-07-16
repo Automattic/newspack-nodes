@@ -176,7 +176,6 @@ class Config {
 		if ( false !== $local_config_file && '' !== $local_config_file ) {
 			$validated_path = Config_Utils::validate_config_path(
 				$local_config_file,
-				[ DIRECTORY_SEPARATOR ],
 				'Newspack_Nodes\\Config'
 			);
 			if ( null === $validated_path ) {

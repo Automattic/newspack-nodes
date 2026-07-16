@@ -58,19 +58,6 @@ class ConfigUtilsTest extends TestCase {
 		$this->assertSame( \realpath( $path ), $result );
 	}
 
-	public function test_validate_config_path_retains_legacy_three_argument_contract(): void {
-		$path = $this->temp_dir . '/legacy-contract-8317.php';
-		\file_put_contents( $path, "<?php return [ 'sentinel' => 'legacy-contract-4291' ];\n" );
-
-		$result = Config_Utils::validate_config_path(
-			$path,
-			[ '/definitely-not-the-config-parent-6137' ],
-			'LegacyConsumer'
-		);
-
-		$this->assertSame( \realpath( $path ), $result );
-	}
-
 	public function test_validate_config_path_rejects_missing_php_file(): void {
 		$this->assertNull(
 			Config_Utils::validate_config_path( $this->temp_dir . '/missing-8317.php' )
@@ -108,7 +95,7 @@ class ConfigUtilsTest extends TestCase {
 		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
 			$captured .= $message;
 		} );
-		Config_Utils::validate_config_path( '/tmp/nope.txt', [], 'MyPrefix' );
+		Config_Utils::validate_config_path( '/tmp/nope.txt', 'MyPrefix' );
 		$this->assertStringContainsString( 'MyPrefix::validate_config_path()', $captured );
 	}
 
@@ -132,66 +119,6 @@ class ConfigUtilsTest extends TestCase {
 		Config_Utils::validate_config_path( "/tmp/weird\t\x07config.txt" );
 		$this->assertStringNotContainsString( "\t", $captured );
 		$this->assertStringNotContainsString( "\x07", $captured );
-	}
-
-	// ── is_within ────────────────────────────────────────────────────────────
-
-	public function test_is_within_returns_realpath_when_inside_base(): void {
-		$sub = $this->temp_dir . '/sub';
-		\mkdir( $sub, 0755, true );
-		$this->assertSame(
-			\realpath( $sub ),
-			Config_Utils::is_within( $sub, $this->temp_dir )
-		);
-	}
-
-	public function test_is_within_accepts_path_equal_to_base(): void {
-		$this->assertSame(
-			\realpath( $this->temp_dir ),
-			Config_Utils::is_within( $this->temp_dir, $this->temp_dir )
-		);
-	}
-
-	public function test_is_within_returns_null_when_path_does_not_exist(): void {
-		$this->assertNull(
-			Config_Utils::is_within( '/never/existed/anywhere', $this->temp_dir )
-		);
-	}
-
-	public function test_is_within_returns_null_when_base_does_not_exist(): void {
-		$this->assertNull(
-			Config_Utils::is_within( $this->temp_dir, '/never/existed/anywhere' )
-		);
-	}
-
-	public function test_is_within_returns_null_when_outside_base(): void {
-		// /etc exists but isn't inside our temp_dir.
-		$this->assertNull( Config_Utils::is_within( '/etc', $this->temp_dir ) );
-	}
-
-	public function test_is_within_handles_trailing_slash_on_base(): void {
-		$sub = $this->temp_dir . '/with-slash';
-		\mkdir( $sub, 0755, true );
-		// Base passed with trailing slash — function should rtrim it.
-		$this->assertSame(
-			\realpath( $sub ),
-			Config_Utils::is_within( $sub, $this->temp_dir . '/' )
-		);
-	}
-
-	public function test_is_within_does_not_treat_sibling_as_within(): void {
-		// Make a sibling temp dir whose absolute path *starts with* the same
-		// prefix as $this->temp_dir; without rtrim('/').'/' on the base, a
-		// substr_compare would falsely accept it. Construct a sibling whose
-		// directory name begins with the leaf component of $this->temp_dir.
-		$leaf    = \basename( $this->temp_dir );
-		$sibling = \dirname( $this->temp_dir ) . '/' . $leaf . '-evil-sibling';
-		\mkdir( $sibling, 0755, true );
-		try {
-			$this->assertNull( Config_Utils::is_within( $sibling, $this->temp_dir ) );
-		} finally {
-			$this->rmdir_recursive( $sibling );
-		}
 	}
 
 	// ── validate_config_values ───────────────────────────────────────────────

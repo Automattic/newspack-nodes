@@ -486,29 +486,6 @@ class ConfigTest extends TestCase {
 		Config::load_config_defaults();
 	}
 
-	// ── is_within edge case ────────────────────────────────────────────────
-
-	public function test_is_within_returns_null_when_path_does_not_exist(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
-		// Both args nonexistent.
-		$this->assertNull( $ref->invoke( null, '/never/existed/anywhere', '/tmp' ) );
-		// Existing base, nonexistent path.
-		$this->assertNull( $ref->invoke( null, '/never/existed', $this->temp_dir ) );
-	}
-
-	public function test_is_within_returns_null_when_outside_base(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
-		// Real path exists but outside base.
-		$this->assertNull( $ref->invoke( null, '/etc', $this->temp_dir ) );
-	}
-
-	public function test_is_within_accepts_path_that_equals_base(): void {
-		// Path == base must be considered "within" (the base itself).
-		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
-		$result = $ref->invoke( null, $this->temp_dir, $this->temp_dir );
-		$this->assertSame( \realpath( $this->temp_dir ), $result );
-	}
-
 	// ── get_base_directory throws when not configured ──────────────────────
 
 	public function test_get_base_directory_throws_when_unconfigured(): void {
