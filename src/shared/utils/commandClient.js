@@ -11,12 +11,7 @@ export function getCommandClient() {
 	if ( instance ) {
 		return instance;
 	}
-	const data =
-		( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
-	instance = new CommandClient( {
-		baseUrl: data.restUrl || '/wp-json/',
-		nonce: data.nonce || '',
-	} );
+	instance = CommandClient.fromGlobal();
 	return instance;
 }
 

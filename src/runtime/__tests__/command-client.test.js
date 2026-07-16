@@ -8,6 +8,7 @@
 import { CommandClient } from '../command-client';
 import { Core } from '../core';
 import { TYPE, TM_BYTESTREAM } from '../message';
+import apiFetch from '@wordpress/api-fetch';
 
 describe( 'CommandClient.fromGlobal', () => {
 	afterEach( () => {
@@ -140,5 +141,120 @@ describe( 'CommandClient — HTTP failures', () => {
 			'ERROR: CommandClient: /command failed - HTTP 401 rest_forbidden'
 		);
 		warn.mockRestore();
+	} );
+
+	it( 'renews an invalid REST nonce and retries the command once', async () => {
+		const previousEndpoint = apiFetch.nonceEndpoint;
+		const previousMiddleware = apiFetch.nonceMiddleware;
+		window.NewspackNodesData = {
+			restUrl: 'https://example.test/wp-json/',
+			nonce: 'STALE-COMMAND-NONCE-271',
+		};
+		apiFetch.nonceEndpoint =
+			'https://example.test/wp-admin/admin-ajax.php?action=rest-nonce';
+		apiFetch.nonceMiddleware = { nonce: 'STALE-COMMAND-NONCE-271' };
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce( {
+				ok: false,
+				status: 403,
+				text: () =>
+					Promise.resolve(
+						JSON.stringify( {
+							code: 'rest_cookie_invalid_nonce',
+						} )
+					),
+			} )
+			.mockResolvedValueOnce( {
+				ok: true,
+				text: () => Promise.resolve( 'FRESH-COMMAND-NONCE-649' ),
+			} )
+			.mockResolvedValueOnce( {
+				ok: true,
+				status: 202,
+				text: () => Promise.resolve( '' ),
+			} );
+		const client = CommandClient.fromGlobal();
+
+		try {
+			expect( await client.postBatch( [], [] ) ).toEqual( [] );
+			expect( global.fetch ).toHaveBeenCalledTimes( 3 );
+			expect( global.fetch.mock.calls[ 0 ][ 1 ].headers ).toEqual(
+				expect.objectContaining( {
+					'X-WP-Nonce': 'STALE-COMMAND-NONCE-271',
+				} )
+			);
+			expect( global.fetch.mock.calls[ 2 ][ 1 ].headers ).toEqual(
+				expect.objectContaining( {
+					'X-WP-Nonce': 'FRESH-COMMAND-NONCE-649',
+				} )
+			);
+			expect( client.nonce ).toBe( 'FRESH-COMMAND-NONCE-649' );
+		} finally {
+			delete global.fetch;
+			delete window.NewspackNodesData;
+			apiFetch.nonceEndpoint = previousEndpoint;
+			apiFetch.nonceMiddleware = previousMiddleware;
+		}
+	} );
+
+	it( 'does not replace an explicit remote credential with the local nonce', async () => {
+		const previousEndpoint = apiFetch.nonceEndpoint;
+		const previousMiddleware = apiFetch.nonceMiddleware;
+		window.NewspackNodesData = {
+			restUrl: 'https://local.example/wp-json/',
+			nonce: 'LOCAL-PAGE-NONCE-433',
+		};
+		apiFetch.nonceEndpoint =
+			'https://local.example/wp-admin/admin-ajax.php?action=rest-nonce';
+		apiFetch.nonceMiddleware = { nonce: 'LOCAL-PAGE-NONCE-433' };
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce( {
+				ok: false,
+				status: 403,
+				text: () =>
+					Promise.resolve(
+						JSON.stringify( {
+							code: 'rest_cookie_invalid_nonce',
+						} )
+					),
+			} )
+			.mockResolvedValueOnce( {
+				ok: true,
+				text: () => Promise.resolve( 'LOCAL-FRESH-NONCE-881' ),
+			} )
+			.mockResolvedValueOnce( {
+				ok: false,
+				status: 403,
+				text: () =>
+					Promise.resolve(
+						JSON.stringify( {
+							code: 'rest_cookie_invalid_nonce',
+						} )
+					),
+			} );
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const client = new CommandClient( {
+			baseUrl: 'https://remote.example/wp-json/',
+			nonce: 'REMOTE-PRIVATE-NONCE-727',
+		} );
+
+		try {
+			expect( await client.postBatch( [], [] ) ).toEqual( [] );
+			expect( global.fetch ).toHaveBeenCalledTimes( 1 );
+			expect( global.fetch.mock.calls[ 0 ][ 0 ] ).toBe(
+				'https://remote.example/wp-json/newspack-nodes/v1/command'
+			);
+			expect( client.nonce ).toBe( 'REMOTE-PRIVATE-NONCE-727' );
+		} finally {
+			warn.mockRestore();
+			delete global.fetch;
+			delete window.NewspackNodesData;
+			apiFetch.nonceEndpoint = previousEndpoint;
+			apiFetch.nonceMiddleware = previousMiddleware;
+		}
 	} );
 } );

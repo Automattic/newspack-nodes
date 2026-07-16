@@ -22,7 +22,7 @@
  */
 import { Node, parseSchemaArgs } from './node';
 import { Core } from './core';
-import { nodesData } from './nodes-data';
+import { nodesData, refreshNodesNonce } from './nodes-data';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import {
 	TYPE,
@@ -63,9 +63,15 @@ export class SseInNode extends Node {
 		this._watchdogBase = 0;
 		this._watchdog = null;
 		this._lastForce = 0;
+		this._mayRenewNonce = true;
 		// Session identity from `connected` envelope; PLAIN fields (pid, slot).
 		this.sessionPid = null;
 		this.sessionSlot = null;
+		this._handleVisibilityChange = () => {
+			if ( 'visible' === document.visibilityState && this._es ) {
+				this._restart( 'visibility', true );
+			}
+		};
 		this.registrations.CONNECTED = {};
 	}
 
@@ -88,8 +94,15 @@ export class SseInNode extends Node {
 		super.removeNode();
 	}
 
-	start() {
+	start( mayRenewNonce = true ) {
 		this.close();
+		this._mayRenewNonce = mayRenewNonce;
+		if ( 'undefined' !== typeof document ) {
+			document.addEventListener(
+				'visibilitychange',
+				this._handleVisibilityChange
+			);
+		}
 		let url =
 			`${ this.baseUrl }newspack-nodes/v1/messages/stream` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
@@ -124,7 +137,7 @@ export class SseInNode extends Node {
 				Core.printLessOften(
 					'ERROR: SseInNode: disconnected - EventSource closed by browser'
 				);
-				this._forceReconnect();
+				this._recoverConnection();
 			}
 		} );
 		// Idle keepalive `event: heartbeat`: snoop for liveness, don't route.
@@ -212,6 +225,7 @@ export class SseInNode extends Node {
 			return;
 		}
 		this.setState( 'CONNECTED', raw );
+		this._mayRenewNonce = true;
 		// Stamp the live-stream connect time for the Overview SSE Uptime card.
 		IoTelemetry.markSseConnected();
 	}
@@ -242,6 +256,41 @@ export class SseInNode extends Node {
 			: null;
 	}
 
+	// Reopen immediately from the exact next record after the last seen frame.
+	_restart( reason, mayRenewNonce = this._mayRenewNonce ) {
+		this.setState( 'RECONNECTING', reason );
+		this.positions = this.resumePositions();
+		this.start( mayRenewNonce );
+	}
+
+	// Global credentials can be renewed; explicit remote credentials cannot.
+	_recoverConnection() {
+		const stream = this._es;
+		if ( ! stream ) {
+			return;
+		}
+		if ( this._nonce || ! this._mayRenewNonce ) {
+			this._forceReconnect();
+			return;
+		}
+		refreshNodesNonce()
+			.then( () => {
+				if ( this._es === stream ) {
+					this._restart( 'closed', false );
+				}
+			} )
+			.catch( ( error ) => {
+				if ( this._es !== stream ) {
+					return;
+				}
+				const message = error?.message ?? String( error );
+				this.setState( 'ERROR', message );
+				Core.printLessOften(
+					`ERROR: SseInNode: REST nonce renewal failed - ${ message }`
+				);
+			} );
+	}
+
 	// Reopen the stream, throttled to one attempt per watchdog interval.
 	_forceReconnect() {
 		const now = Date.now();
@@ -256,10 +305,16 @@ export class SseInNode extends Node {
 		this._lastForce = now;
 		// Resume from the last seen offset (no gap/replay); null → tail.
 		this.positions = this.resumePositions();
-		this.start();
+		this.start( this._mayRenewNonce );
 	}
 
 	close() {
+		if ( 'undefined' !== typeof document ) {
+			document.removeEventListener(
+				'visibilitychange',
+				this._handleVisibilityChange
+			);
+		}
 		if ( this._watchdog ) {
 			clearInterval( this._watchdog );
 			this._watchdog = null;

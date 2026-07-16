@@ -15,6 +15,7 @@
 import { SseInNode } from '../sse-in-node';
 import { IoTelemetry, byteLength } from '../io-telemetry';
 import { Core } from '../core';
+import apiFetch from '@wordpress/api-fetch';
 import {
 	newMessage,
 	TYPE,
@@ -57,6 +58,145 @@ FakeEventSource.CLOSED = 2;
 beforeEach( () => {
 	Core.reset();
 	global.EventSource = FakeEventSource;
+} );
+
+test( 'a visible event directly reopens a stream whose hidden event was frozen', () => {
+	Object.defineProperty( document, 'visibilityState', {
+		configurable: true,
+		value: 'visible',
+	} );
+	const { sse } = makeSseIn( { subscribe: [ 'completed.p17' ] } );
+	sse.start();
+	const first = FakeEventSource.last;
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = 'completed.p17/request-builder';
+	m[ ID ] = '23:9311:113';
+	m[ VALUE ] = 'frozen-tab-cursor';
+	first.dispatch( 'msg', JSON.stringify( m ) );
+
+	// The browser froze before delivering/committing the hidden transition.
+	Object.defineProperty( document, 'visibilityState', {
+		configurable: true,
+		value: 'hidden',
+	} );
+	Object.defineProperty( document, 'visibilityState', {
+		configurable: true,
+		value: 'visible',
+	} );
+	document.dispatchEvent( new Event( 'visibilitychange' ) );
+
+	const second = FakeEventSource.last;
+	expect( first.closed ).toBe( true );
+	expect( second ).not.toBe( first );
+	const positions = JSON.parse(
+		decodeURIComponent( second.url.split( 'positions=' )[ 1 ] )
+	);
+	expect( positions ).toEqual( {
+		'completed.p17': { segment: 23, offset: 9424 },
+	} );
+	sse.close();
+} );
+
+test( 'a terminal EventSource failure refreshes the REST nonce before reopening', async () => {
+	const previousEndpoint = apiFetch.nonceEndpoint;
+	const previousMiddleware = apiFetch.nonceMiddleware;
+	window.NewspackNodesData = {
+		restUrl: 'https://example.test/wp-json/',
+		nonce: 'STALE-NONCE-417',
+	};
+	apiFetch.nonceEndpoint =
+		'https://example.test/wp-admin/admin-ajax.php?action=rest-nonce';
+	apiFetch.nonceMiddleware = { nonce: 'STALE-NONCE-417' };
+	global.fetch = jest.fn().mockResolvedValue( {
+		ok: true,
+		text: () => Promise.resolve( 'FRESH-NONCE-863' ),
+	} );
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const sse = new SseInNode();
+	sse.arguments = 'completed.p17';
+	try {
+		sse.start();
+		const first = FakeEventSource.last;
+
+		first.dispatchError( FakeEventSource.CLOSED );
+		await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+
+		expect( global.fetch ).toHaveBeenCalledWith(
+			apiFetch.nonceEndpoint,
+			expect.objectContaining( { credentials: 'include' } )
+		);
+		expect( first.closed ).toBe( true );
+		expect( FakeEventSource.last ).not.toBe( first );
+		expect( FakeEventSource.last.url ).toContain(
+			'_wpnonce=FRESH-NONCE-863'
+		);
+		expect( window.NewspackNodesData.nonce ).toBe( 'FRESH-NONCE-863' );
+		expect( apiFetch.nonceMiddleware.nonce ).toBe( 'FRESH-NONCE-863' );
+	} finally {
+		sse.close();
+		warn.mockRestore();
+		delete global.fetch;
+		delete window.NewspackNodesData;
+		apiFetch.nonceEndpoint = previousEndpoint;
+		apiFetch.nonceMiddleware = previousMiddleware;
+	}
+} );
+
+test( 'a renewed stream gets no second nonce renewal until it connects', async () => {
+	const previousEndpoint = apiFetch.nonceEndpoint;
+	const previousMiddleware = apiFetch.nonceMiddleware;
+	window.NewspackNodesData = {
+		restUrl: 'https://example.test/wp-json/',
+		nonce: 'STALE-LOOP-NONCE-319',
+	};
+	apiFetch.nonceEndpoint =
+		'https://example.test/wp-admin/admin-ajax.php?action=rest-nonce';
+	apiFetch.nonceMiddleware = { nonce: 'STALE-LOOP-NONCE-319' };
+	global.fetch = jest.fn().mockResolvedValue( {
+		ok: true,
+		text: () => Promise.resolve( 'FRESH-LOOP-NONCE-947' ),
+	} );
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const sse = new SseInNode();
+	sse.arguments = 'completed.p29';
+
+	try {
+		sse.start();
+		FakeEventSource.last.dispatchError( FakeEventSource.CLOSED );
+		await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+		expect( global.fetch ).toHaveBeenCalledTimes( 1 );
+
+		FakeEventSource.last.dispatchError( FakeEventSource.CLOSED );
+		await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+		const throttledRetry = FakeEventSource.last;
+		throttledRetry.dispatchError( FakeEventSource.CLOSED );
+		await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+
+		expect( global.fetch ).toHaveBeenCalledTimes( 1 );
+		expect( FakeEventSource.last ).toBe( throttledRetry );
+	} finally {
+		sse.close();
+		warn.mockRestore();
+		delete global.fetch;
+		delete window.NewspackNodesData;
+		apiFetch.nonceEndpoint = previousEndpoint;
+		apiFetch.nonceMiddleware = previousMiddleware;
+	}
+} );
+
+test( 'an explicitly closed stream stays closed on the next visible event', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'errors.p11' ] } );
+	sse.start();
+	const first = FakeEventSource.last;
+	sse.close();
+	document.dispatchEvent( new Event( 'visibilitychange' ) );
+	expect( first.closed ).toBe( true );
+	expect( FakeEventSource.last ).toBe( first );
 } );
 
 // Build a configured SseIn. `subscribe` is the only positional argument; the

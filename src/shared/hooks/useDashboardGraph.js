@@ -81,17 +81,9 @@ export function useDashboardGraph( opts ) {
 	// Mount the graph once: clip it onto the exospine, then poll immediately.
 	useEffect( () => {
 		const build = ( { interpreter, http } ) => {
-			const data =
-				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
-				{};
-
 			// I/O boundary — assign the command client; injectable for tests.
 			http.client =
-				optsRef.current.commandClient ||
-				new CommandClient( {
-					baseUrl: data.restUrl || '/wp-json/',
-					nonce: data.nonce || '',
-				} );
+				optsRef.current.commandClient || CommandClient.fromGlobal();
 
 			// The consumer mounts its own view/transform nodes.
 			const cleanup = optsRef.current.mountNodes( interpreter );
