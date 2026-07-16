@@ -402,15 +402,8 @@ class Topology_Registry {
 	private static function normalize_lines( string $text ): array {
 		$out = [];
 		$cwd = '';
-		$acc = '';
-		foreach ( \explode( "\n", $text ) as $raw ) {
-			// Backslash continuation: strip the slash, accumulate, read next.
-			if ( \str_ends_with( \rtrim( $raw ), '\\' ) ) {
-				$acc .= \rtrim( \rtrim( $raw ), '\\' ) . ' ';
-				continue;
-			}
-			$line = \trim( $acc . $raw );
-			$acc  = '';
+		foreach ( self::join_continuations( $text ) as $joined ) {
+			$line = \trim( $joined );
 			if ( '' === $line || '#' === $line[0] ) {
 				continue;
 			}
@@ -418,6 +411,31 @@ class Topology_Registry {
 			if ( null !== $canonical ) {
 				$out[] = $canonical;
 			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Fold backslash continuations into logical lines (mirrors Shell_Node::parse):
+	 * a line ending in `\` drops the slash and joins the next. Neither trims nor
+	 * strips comments — callers do, since frontmatter() splits joined lines on
+	 * `;` first. An unterminated trailing continuation yields what accumulated.
+	 *
+	 * @return list<string>
+	 */
+	private static function join_continuations( string $text ): array {
+		$out = [];
+		$acc = '';
+		foreach ( \explode( "\n", $text ) as $raw ) {
+			if ( \str_ends_with( \rtrim( $raw ), '\\' ) ) {
+				$acc .= \rtrim( \rtrim( $raw ), '\\' ) . ' ';
+				continue;
+			}
+			$out[] = $acc . $raw;
+			$acc   = '';
+		}
+		if ( '' !== $acc ) {
+			$out[] = $acc;
 		}
 		return $out;
 	}
@@ -1037,7 +1055,7 @@ class Topology_Registry {
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$contents = (string) \file_get_contents( $path );
 		$out      = [];
-		foreach ( \explode( "\n", $contents ) as $raw ) {
+		foreach ( self::join_continuations( $contents ) as $raw ) {
 			// Statements can also be `;`-separated on one line.
 			foreach ( \explode( ';', $raw ) as $stmt ) {
 				$stmt = \trim( $stmt );

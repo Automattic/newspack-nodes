@@ -37,6 +37,13 @@ describe( 'parseTsl', () => {
 		expect( g.nodes[ 0 ].id ).toBe( 'echo' );
 	} );
 
+	it( 'joins a backslash-continued var (parity with PHP frontmatter)', () => {
+		const g = parseTsl(
+			'var num_partitions = \\\n    7\nmake_node Echo z\n'
+		);
+		expect( g.frontmatter ).toEqual( { num_partitions: '7' } );
+	} );
+
 	it( 'splits a line on ; to capture multiple vars (matches PHP frontmatter parser)', () => {
 		const g = parseTsl(
 			'var num_partitions = 4; var stale_timeout = 120\n'
