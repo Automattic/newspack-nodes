@@ -14,17 +14,11 @@ class Config_Utils {
 	/**
 	 * Resolve a config path to a canonical, readable PHP file; null otherwise.
 	 *
-	 * The allowed-directories parameter remains in the published call shape for
-	 * rolling compatibility, but operator-selected overrides are no longer
-	 * constrained to those directories.
-	 *
-	 * @param string   $path             Path to validate.
-	 * @param string[] $allowed_dirs     Deprecated compatibility parameter; ignored.
-	 * @param string   $error_log_prefix Disambiguates error_log lines across callers.
+	 * @param string $path             Path to validate.
+	 * @param string $error_log_prefix Disambiguates error_log lines across callers.
 	 */
 	public static function validate_config_path(
 		string $path,
-		array $allowed_dirs = [],
 		string $error_log_prefix = 'Config_Utils'
 	): ?string {
 		if ( false !== \strpos( $path, "\0" ) ) {
@@ -49,24 +43,6 @@ class Config_Utils {
 		}
 
 		return $real_path;
-	}
-
-	/**
-	 * Path containment check; returns the canonical real path, or null on failure.
-	 *
-	 * @api Published compatibility helper for consumers outside this repository.
-	 * @deprecated Config-file validation no longer constrains operator-selected paths.
-	 */
-	public static function is_within( string $path, string $base ): ?string {
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base );
-		if ( false === $real_path || false === $real_base ) {
-			return null;
-		}
-		$real_base = \rtrim( $real_base, '/' ) . '/';
-		$within    = 0 === \strpos( $real_path, $real_base )
-			|| $real_path === \rtrim( $real_base, '/' );
-		return $within ? $real_path : null;
 	}
 
 	/**
