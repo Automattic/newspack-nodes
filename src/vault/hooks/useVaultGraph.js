@@ -111,17 +111,9 @@ export function useVaultGraph( opts = {} ) {
 	// Mount the graph once: clip onto the exospine, then fire a list.
 	useEffect( () => {
 		const build = ( { interpreter, shell, http } ) => {
-			const data =
-				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
-				{};
-
 			// Shared _http singleton (mountExospine owns it); set its client.
 			http.client =
-				optsRef.current.commandClient ||
-				new CommandClient( {
-					baseUrl: data.restUrl || '/wp-json/',
-					nonce: data.nonce || '',
-				} );
+				optsRef.current.commandClient || CommandClient.fromGlobal();
 
 			// Per-concern reply edges: a receiver Tee fronts each view.
 			const listIn = interpreter.makeNode( 'Tee', LIST_RECV );

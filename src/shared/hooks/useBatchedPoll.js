@@ -77,17 +77,9 @@ export function useBatchedPoll( opts ) {
 
 	useEffect( () => {
 		const build = ( { interpreter, router, http } ) => {
-			const data =
-				( 'undefined' !== typeof window && window.NewspackNodesData ) ||
-				{};
-
 			// I/O boundary — assign the command client; injectable for tests.
 			http.client =
-				optsRef.current.commandClient ||
-				new CommandClient( {
-					baseUrl: data.restUrl || '/wp-json/',
-					nonce: data.nonce || '',
-				} );
+				optsRef.current.commandClient || CommandClient.fromGlobal();
 
 			// `_shell` Tap is a backbone fixture; no mounting needed here.
 

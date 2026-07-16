@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Long-lived dashboards recover their WordPress session when a tab becomes visible again.** `SseInNode` now treats visibility as a direct resumptive reconnect signal instead of depending on a React hidden-state commit or a background-throttled watchdog, and a terminal page-local stream renews the REST nonce before reopening at the exact saved offset. Each failed connection cycle gets one renewal; another terminal rejection falls back to the existing reconnect throttle until a real `CONNECTED` handshake or a new visibility wake-up, preventing permanent 404/429/CORS failures from spinning. Page-local `CommandClient`s use the same single-flight renewal and retry an invalid-nonce POST once, so non-SSE dashboard actions recover without a reload, while explicitly configured remote credentials are never replaced with the local site's nonce. Explicitly closed/paused streams remain closed.
+
 ## [0.46.1] - 2026-07-15
 
 ### Fixed

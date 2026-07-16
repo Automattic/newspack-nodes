@@ -46,18 +46,11 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 	// Shared lifecycle owns close-while-hidden + resume-on-refocus.
 	useVisibilityGatedLink( {
 		mountNodes: ( interpreter ) => {
-			const data =
-				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
-				{};
-			const baseUrl = data.restUrl || '/wp-json/';
-			const nonce = data.nonce || '';
-
 			// baseUrl/nonce resolve from the localized global, not tokens.
 			const link = interpreter.makeNode( 'RemoteLink', LINK, SUBSCRIBE );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
-			link.client =
-				commandClient || new CommandClient( { baseUrl, nonce } );
+			link.client = commandClient || CommandClient.fromGlobal();
 
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );

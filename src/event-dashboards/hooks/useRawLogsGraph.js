@@ -100,19 +100,12 @@ export function useRawLogsGraph( opts = {} ) {
 	useEffect( () => {
 		// Soft view-nodes; mountExospine snapshots Core for reinit() rebuild.
 		const build = ( { interpreter } ) => {
-			const data =
-				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
-				{};
-			const baseUrl = data.restUrl || '/wp-json/';
-			const nonce = data.nonce || '';
-
 			// ONE RemoteLink; baseUrl/nonce come from the global, not tokens.
 			const link = interpreter.makeNode( 'RemoteLink', LINK, 'raw-logs' );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
 			link.client =
-				optsRef.current.commandClient ||
-				new CommandClient( { baseUrl, nonce } );
+				optsRef.current.commandClient || CommandClient.fromGlobal();
 
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );

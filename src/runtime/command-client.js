@@ -12,7 +12,7 @@ import {
 } from './message';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
-import { nodesData } from './nodes-data';
+import { nodesData, refreshNodesNonce } from './nodes-data';
 
 // JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
@@ -27,9 +27,10 @@ function restErrorCode( text ) {
 }
 
 export class CommandClient {
-	constructor( { baseUrl, nonce } ) {
+	constructor( { baseUrl, nonce, renewNonce = null } ) {
 		this.baseUrl = baseUrl;
 		this.nonce = nonce;
+		this._renewNonce = renewNonce;
 	}
 
 	/**
@@ -78,7 +79,11 @@ export class CommandClient {
 	 */
 	static fromGlobal() {
 		const { restUrl, nonce } = nodesData();
-		return new CommandClient( { baseUrl: restUrl, nonce } );
+		return new CommandClient( {
+			baseUrl: restUrl,
+			nonce,
+			renewNonce: refreshNodesNonce,
+		} );
 	}
 
 	/**
@@ -96,7 +101,7 @@ export class CommandClient {
 		return this.#post( lines.join( '\n' ), messages.length );
 	}
 
-	async #post( body, outCount ) {
+	async #post( body, outCount, mayRenewNonce = true ) {
 		// Outbound boundary accounting: request bytes + message count.
 		IoTelemetry.recordOut( byteLength( body ), outCount );
 
@@ -113,10 +118,17 @@ export class CommandClient {
 		const text = await r.text();
 		// A non-2xx body is a REST error OBJECT, not JSONL. Say so.
 		if ( false === r.ok ) {
+			const code = restErrorCode( text );
+			if (
+				mayRenewNonce &&
+				this._renewNonce &&
+				'rest_cookie_invalid_nonce' === code
+			) {
+				this.nonce = await this._renewNonce();
+				return this.#post( body, outCount, false );
+			}
 			Core.printLessOften(
-				`ERROR: CommandClient: /command failed - HTTP ${
-					r.status
-				} ${ restErrorCode( text ) }`
+				`ERROR: CommandClient: /command failed - HTTP ${ r.status } ${ code }`
 			);
 			return [];
 		}
