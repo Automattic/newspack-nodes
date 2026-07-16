@@ -136,6 +136,22 @@ class TopologyRegistryTest extends TestCase {
 		);
 	}
 
+	public function test_frontmatter_joins_a_backslash_continued_var(): void {
+		// The runtime Shell joins continuations before the var branch, so a
+		// continued `var` is valid syntax the console must read the same way.
+		// Value 7 is distinct from the num_partitions default (1).
+		\file_put_contents(
+			"{$this->stock}/aggregator.tsl",
+			"var num_partitions = \\\n    7\nmake_node Echo zebra-echo\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[ 'num_partitions' => '7' ],
+			Topology_Registry::frontmatter( 'aggregator' )
+		);
+	}
+
 	public function test_frontmatter_returns_empty_for_unknown_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
 		$this->assertSame( [], Topology_Registry::frontmatter( 'no-such-topology' ) );
