@@ -9,13 +9,13 @@ import { newMessage, TYPE, FROM, VALUE, TM_COMMAND } from './message';
  * args = `<receiver> <command> [<command_args>...]` (Tachikoma positional style):
  *  - receiver — the local node the server's reply routes back TO (stamped as FROM).
  *  - command  — the verb to send.
- *  - command_args — the joined remainder, passed through as the command arguments.
+ *  - command_args — the remaining tokens, passed through as the command arguments.
  *
  * `command_args` may also be assigned a FUNCTION (a fire-time getter): when it is,
- * `fill()` CALLS it each tick to get the current args string. This lets a poll
+ * `fill()` CALLS it each tick to get the current args token array. This lets a poll
  * dashboard emit live arguments that track React UI state (filter / sort / page)
  * without re-wiring the graph — the getter reads the current state at fire time.
- * A non-string return coerces to ''. A static string stays byte-identical to the
+ * A non-array return coerces to []. A static token array stays byte-identical to the
  * pre-getter behavior (only callers that opt in pass a getter).
  *
  * `fill()` IGNORES the trigger payload — every message is just a trigger. The

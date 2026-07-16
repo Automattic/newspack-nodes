@@ -107,12 +107,12 @@ Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM
 ### 8b. `arguments()` Tachikoma-parity (v0.6.0)
 
 - Ctor must be parameter-less for `make_node`-buildable nodes; positional config is declared in `node_schema()['arguments']` as `[{name, type, default?, required?}]`.
-- Schema `default` must be a real typed value (real ints, floats, class constants). Placeholder strings (`'<config:foo>'`) against typed properties crash the schema walker.
-- `arguments()` overrides MUST short-circuit on `'' === $args` — otherwise `make_node Foo` (no args) re-derives against declaration-default props and writes filesystem-root junk like `/p0`. `Partition_Node` is the reference template.
-- Side effects (`set_timer`, `mkdir`, `fopen`, `Partition_Node` materialization) belong in the `arguments()` override gated on non-empty args, not in the constructor (AGENTS decision 5).
+- Schema `default` is a real typed value (real ints, floats, class constants) OR a `<ns:key>` token string (e.g. `'<config:max_segments>'`), which `parse_schema_args`'s `resolve_default()` resolves through its namespace resolver and coerces to the declared type — a schema default lives in PHP and never passes through the TSL loader, so a token default is resolved here rather than crashing the walker.
+- `arguments( ?array $args )` overrides take a **token array** (`list<string>`), not a string. Follow the `Partition_Node` reference: `if ( null === $args ) return parent::arguments();` (pure getter), else `parse_schema_args( $args )` then derive. There is NO `'' === $args` short-circuit — `parse_schema_args` fills each missing token from its schema `default` or **throws** on a missing `required` arg, so a bare `make_node Foo` fails loud instead of writing filesystem-root junk like `/p0`.
+- Per ADR-5, event-loop / filesystem work (`set_timer`, `mkdir`, `fopen`, `Partition_Node` materialization) stays OUT of both the constructor AND `arguments()` for request-scope nodes (Topic/Partition) — file handles open lazily on first `fill()`/`read_at()`.
 - Programmatic dependencies (objects, callables, streams) are public properties the caller sets after construction, NOT ctor params. `Workers_CI_Node::$cli` is the reference.
 - Schema field names are `'arguments'` and `'commands'`. A diff that reads or writes `'ctor'` or `'verbs'` is a regression (renamed in v0.6.0).
-- Schema `default`s are applied **only per-position when token list runs short**, NOT on `'' === $args` (the empty-args short-circuit returns before the schema walk). If you want a default that's visible both via `make_node Foo bar baz` *and* `make_node Foo` (no args), set it as the class property default too — not only on the schema entry.
+- Schema `default`s are applied **per-position when the token list runs short** (`isset( $args[$i] )` is false for that position) — `make_node Foo` (no args = empty token list) walks every position and each takes its schema `default` (or throws if `required`). The class property default and the schema `default` should agree so the value is consistent whether or not a token was supplied.
 
 ### 8c. `dump_config` round-trip
 

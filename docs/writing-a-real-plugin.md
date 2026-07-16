@@ -417,9 +417,11 @@ The verb also carries a typed schema arg, `type: 'vault_id'` — that type is wh
 	'args'        => [
 		[ 'name' => 'vault_id', 'type' => 'vault_id', 'required' => true ],
 	],
-	'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_vault_id( $interpreter, $args ),
+	'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_set_vault_id( $interpreter, $args ),
 ],
 ```
+
+A schema `handler` is a dispatch closure — it receives the pre-split **token array** `array $args` (`list<string>` argv), not a string. The static `cmd_set_vault_id` resolves the patron node and delegates the first token to the string instance method: `$patron->set_vault_id( Core::as_string( $args[0] ?? '' ) )`. The instance verb methods below (`set_vault_id`, `add_repo`) take a single `string` because each expects one scalar token — the array-to-scalar seam lives in the dispatch closure.
 
 ### Repos and feeds are ordered verbs, not options
 
