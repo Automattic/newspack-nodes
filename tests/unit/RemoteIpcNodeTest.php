@@ -78,7 +78,7 @@ class RemoteIpcNodeTest extends TestCase {
 		$m[ Message::TYPE ]  = Message::TM_COMMAND;
 		$m[ Message::FROM ]  = $from;
 		$m[ Message::TO ]    = $to;
-		$m[ Message::VALUE ] = [ 'name' => 'dump_metadata', 'arguments' => '' ];
+		$m[ Message::VALUE ] = [ 'name' => 'dump_metadata', 'arguments' => [] ];
 		return $m;
 	}
 
@@ -98,7 +98,7 @@ class RemoteIpcNodeTest extends TestCase {
 		// 1st rides a connect_worker_input {reader} to topologies (mounts the input).
 		$this->assertSame( 'topologies', $batch[0][ Message::TO ] );
 		$this->assertSame( 'connect_worker_input', $batch[0][ Message::VALUE ]['name'] );
-		$this->assertSame( 'combined.p0', $batch[0][ Message::VALUE ]['arguments'] );
+		$this->assertSame( [ 'combined.p0' ], $batch[0][ Message::VALUE ]['arguments'] );
 
 		// 2nd is the command, addressed to the worker reader + remainder.
 		$this->assertSame( 'combined.p0/dump_metadata', $batch[1][ Message::TO ] );

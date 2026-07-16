@@ -269,7 +269,8 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( 'workers', $envelope[ Message::TO ] );
 		$value = $envelope[ Message::VALUE ];
 		$this->assertSame( 'heartbeat', $value['name'] );
-		[ $slot, $ttl ] = \explode( ' ', $value['arguments'] );
+		$this->assertIsArray( $value['arguments'] );
+		[ $slot, $ttl ] = $value['arguments'];
 		$this->assertSame( '5', $slot );
 		$this->assertGreaterThan( Remote_Link_Node::HEARTBEAT_INTERVAL, (int) $ttl );
 	}
