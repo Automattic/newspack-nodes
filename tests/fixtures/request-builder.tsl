@@ -1,0 +1,70 @@
+# Parser stress fixture — substrate nodes only. Not meant to run; it exists to
+# prove the console's static parsers accept everything the runtime Shell does:
+# make/connect/command aliases, backslash continuations, and cd cwd-pathing.
+#
+#   Consumer (firehose) → Tap (fanout) ─→ Partition (requests:partition)
+#                                       ├→ Partition (errors:partition)
+#                                       ├→ Partition (gyroscope:partition)
+#                                       └→ Tee (completed:tee) ─→ Partition (completed:partition)
+#                                                              └→ Partition (gyroscope:partition)
+
+# `make` alias + a three-line backslash continuation.
+make      Consumer  firehose:consumer   <config:logs_dir>/firehose.p<partition>                    \
+                                        <config:offsets_dir>/firehose.<topology>.p<partition>      \
+                                        <config:deadletter_dir>/firehose.<topology>.p<partition>
+
+make      Tap       fanout
+
+# `make` alias, no args.
+make      Tee       completed:tee
+
+# `make_node` canonical + continuation with config tokens.
+make_node Partition requests:partition  <config:logs_dir>/requests.p<partition>     \
+                                        <config:segment_size>                       \
+                                        <config:min_segments> <config:max_segments> \
+                                        <config:min_lifetime> <config:max_lifetime>
+
+make_node Partition errors:partition    <config:logs_dir>/errors.p<partition>       \
+                                        <config:segment_size>                       \
+                                        <config:min_segments> <config:max_segments> \
+                                        <config:min_lifetime> <config:max_lifetime>
+
+make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p<partition>    \
+                                        1048576                                     \
+                                        <config:min_segments> <config:max_segments> \
+                                        0                     0
+
+make_node Partition completed:partition <config:logs_dir>/completed.p<partition>    \
+                                        1048576                                     \
+                                        <config:min_segments> <config:max_segments> \
+                                        0                     0
+
+# `cmd` canonical, explicit path at root cwd.
+cmd fanout:config set_multi_writer true
+connect firehose:consumer fanout
+
+# cd cwd block: bare set_*target verbs route to the cwd node.
+cd fanout:config
+    set_completed_target completed:tee
+    set_errors_target    errors:partition
+    set_inflight_target  gyroscope:partition
+cd ..
+
+# `connect` alias + a continuation on a connect line.
+connect fanout \
+        requests:partition
+
+# `command` alias (config verbs on the requests partition).
+command requests:partition:config with_index request-index
+command requests:partition:config void_warranty
+
+# `command` alias, non-config (bare) form.
+command errors:partition void_warranty
+
+# `connect_node` canonical.
+connect_node completed:tee completed:partition
+connect_node completed:tee gyroscope:partition
+
+# `command_node` alias.
+command_node gyroscope:partition:config void_warranty
+command_node completed:partition:config void_warranty

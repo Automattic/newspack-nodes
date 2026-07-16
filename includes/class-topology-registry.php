@@ -302,11 +302,7 @@ class Topology_Registry {
 		$stack[] = $path;
 		$subtree = [];
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		foreach ( \explode( "\n", (string) \file_get_contents( $path ) ) as $raw ) {
-			$line = \trim( $raw );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
-			}
+		foreach ( self::normalize_lines( (string) \file_get_contents( $path ) ) as $line ) {
 			if ( \preg_match( '/^include\s+(\S+)/', $line, $m ) ) {
 				$child_name = $m[1];
 				$child_path = self::resolve( $child_name );
@@ -335,7 +331,6 @@ class Topology_Registry {
 				);
 				continue;
 			}
-			$line = self::canonical_verb( $line );
 			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
 				$node_name = $m[2];
 				$def       = [
@@ -386,11 +381,104 @@ class Topology_Registry {
 	 * builds, so normalize once here and every reader downstream sees one form.
 	 */
 	private static function canonical_verb( string $line ): string {
+		// `command_node` precedes `command`: both share the `command` prefix.
 		return (string) \preg_replace(
-			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/' ],
-			[ 'make_node ', 'connect_node ', 'disconnect_node ' ],
+			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/', '/^command_node\s+/', '/^command\s+/' ],
+			[ 'make_node ', 'connect_node ', 'disconnect_node ', 'cmd ', 'cmd ' ],
 			$line
 		);
+	}
+
+	/**
+	 * Preprocess raw TSL into canonical single-line statements, mirroring the
+	 * runtime Shell: join backslash continuations, canonicalize the make /
+	 * connect / disconnect / command aliases, and resolve cd/chdir cwd so a bare
+	 * or explicit command line becomes `cmd <cwd-resolved-path> <verb> <args>`.
+	 * Comments and blank lines drop; include / var / make_node / connect_node /
+	 * disconnect_node pass through untouched.
+	 *
+	 * @return list<string>
+	 */
+	private static function normalize_lines( string $text ): array {
+		$out = [];
+		$cwd = '';
+		$acc = '';
+		foreach ( \explode( "\n", $text ) as $raw ) {
+			// Backslash continuation: strip the slash, accumulate, read next.
+			if ( \str_ends_with( \rtrim( $raw ), '\\' ) ) {
+				$acc .= \rtrim( \rtrim( $raw ), '\\' ) . ' ';
+				continue;
+			}
+			$line = \trim( $acc . $raw );
+			$acc  = '';
+			if ( '' === $line || '#' === $line[0] ) {
+				continue;
+			}
+			$canonical = self::canonical_line( $line, $cwd );
+			if ( null !== $canonical ) {
+				$out[] = $canonical;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Canonicalize one already-joined logical line against the running cwd. A
+	 * `cd`/`chdir` mutates $cwd and yields nothing; everything else returns the
+	 * canonical form the statement/graph parsers already understand.
+	 */
+	private static function canonical_line( string $line, string &$cwd ): ?string {
+		$line   = self::canonical_verb( $line );
+		$tokens = \preg_split( '/\s+/', $line ) ?: [];
+		$verb   = $tokens[0] ?? '';
+		if ( 'cd' === $verb || 'chdir' === $verb ) {
+			$cwd = self::cd_path( $cwd, $tokens[1] ?? '' );
+			return null;
+		}
+		// Structural keywords are not cwd-routed by the static parser.
+		if ( \in_array( $verb, [ 'make_node', 'connect_node', 'disconnect_node', 'include', 'var' ], true ) ) {
+			return $line;
+		}
+		if ( 'cmd' === $verb ) {
+			$path = self::prefix_path( $cwd, $tokens[1] ?? '' );
+			$rest = \implode( ' ', \array_slice( $tokens, 2 ) );
+			return \trim( "cmd {$path} {$rest}" );
+		}
+		// A bare verb inside a cwd is a command to that node.
+		if ( '' !== $cwd ) {
+			$rest = \implode( ' ', \array_slice( $tokens, 1 ) );
+			return \trim( "cmd {$cwd} {$verb} {$rest}" );
+		}
+		// Bare verb at root: a local command the static parser drops.
+		return $line;
+	}
+
+	/** Resolve a relative/absolute cwd path (mirrors Shell_Node::cd). */
+	private static function cd_path( string $cwd, string $path ): string {
+		if ( '/' !== $path && '' !== $path && '/' === $path[0] ) {
+			$cwd = $path;
+		} elseif ( '/' === $path ) {
+			$cwd = '';
+		} elseif ( '' !== $path && \preg_match( '#^[.][.]/?#', $path ) ) {
+			$cwd  = (string) \preg_replace( '#/?[^/]+$#', '', $cwd );
+			$path = (string) \preg_replace( '#^[.][.]/?#', '', $path );
+			$cwd  = self::cd_path( $cwd, $path );
+		} elseif ( '' !== $path ) {
+			$cwd .= '/' . $path;
+		}
+		return \trim( $cwd, '/' );
+	}
+
+	/** Slash-join the cwd with a command's path arg (mirrors Shell_Node::prefix). */
+	private static function prefix_path( string $cwd, string $path ): string {
+		$parts = [];
+		if ( '' !== $cwd ) {
+			$parts[] = $cwd;
+		}
+		if ( '' !== $path ) {
+			$parts[] = $path;
+		}
+		return \implode( '/', $parts );
 	}
 
 	/**
