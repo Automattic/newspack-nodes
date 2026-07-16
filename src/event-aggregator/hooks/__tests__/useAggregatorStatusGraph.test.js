@@ -26,6 +26,7 @@ import {
 	TM_RESPONSE,
 	Core,
 	useNodeState,
+	mountExospine,
 } from '@newspack-nodes/runtime';
 import { useAggregatorStatusGraph } from '../useAggregatorStatusGraph';
 
@@ -228,8 +229,11 @@ describe( 'useAggregatorStatusGraph — teardown', () => {
 	} );
 } );
 
-describe( 'useAggregatorStatusGraph — Core.reinit (Reset Graph)', () => {
-	test( 'Core.reinit re-renders the consumer so useNodeState re-subscribes to the fresh views', async () => {
+describe( 'useAggregatorStatusGraph — graphGeneration Reset Graph', () => {
+	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh views', async () => {
+		// Overlay owns the backbone; this dashboard is a reused mount whose
+		// spine.reinit is subscribed to graphGeneration (the real Reset trigger).
+		mountExospine();
 		const client = makeFakeClient();
 		const { result } = renderHook( () => {
 			useAggregatorStatusGraph( { commandClient: client } );
@@ -239,7 +243,7 @@ describe( 'useAggregatorStatusGraph — Core.reinit (Reset Graph)', () => {
 		const firstView = Core.node( SUMMARY_VIEW );
 
 		await act( async () => {
-			Core.reinit();
+			Core.bumpGraphGeneration();
 		} );
 		const freshView = Core.node( SUMMARY_VIEW );
 		expect( freshView ).not.toBe( firstView );

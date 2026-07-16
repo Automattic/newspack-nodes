@@ -131,8 +131,8 @@ export default function InspectorTab( {
 		s.path = '';
 		return s;
 	}, [] );
-	// Host rebuild handle from mountExospine; read each render once mounted.
-	const reinit = Core.reinit;
+	// Host Reset-Graph capability flag from mountExospine; read each render.
+	const canReinit = !! Core.rebuildable;
 	const {
 		transcript,
 		sendLine,
@@ -250,7 +250,7 @@ export default function InspectorTab( {
 		shell,
 		nodes: graph.nodes,
 		isLocalScope: ! cwd,
-		canRebuild: !! reinit,
+		canRebuild: canReinit,
 		markDirty,
 	} );
 

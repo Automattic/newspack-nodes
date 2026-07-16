@@ -93,8 +93,9 @@ function buildCommand( from, verb, args, id ) {
  *                                      defaults to a freshly-constructed CommandClient.
  * @return {{ addServer: Function, updateServer: Function, removeServer: Function,
  *   testServer: Function }} CRUD callbacks for the thin React view (each view's
- *   model is read via useNodeState). Reset Graph is driven by the overlay via
- *   `Core.reinit`, stashed by mountExospine.
+ *   model is read via useNodeState). Reset Graph is driven by a
+ *   `Core.bumpGraphGeneration()` bump — mountExospine subscribes this reused
+ *   mount's rebuild to it.
  */
 export function useVaultGraph( opts = {} ) {
 	const optsRef = useRef( opts );

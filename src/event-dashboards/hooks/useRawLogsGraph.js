@@ -81,7 +81,8 @@ function buildListCommand( id ) {
  *                                      CommandClient.
  * @return {{ selectLog: Function, setPaused: Function }} Control callbacks for
  *   the thin React view (the view's own state is read via useNodeState). Reset
- *   Graph is driven by the overlay via `Core.reinit`, stashed by mountExospine.
+ *   Graph is driven by a `Core.bumpGraphGeneration()` bump — mountExospine
+ *   subscribes this reused mount's rebuild to it.
  */
 export function useRawLogsGraph( opts = {} ) {
 	const optsRef = useRef( opts );
