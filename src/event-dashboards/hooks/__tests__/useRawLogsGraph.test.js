@@ -33,6 +33,7 @@ import {
 	TM_BYTESTREAM,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
+import { mountExospine } from '../../../runtime/exospine';
 import { Node } from '../../../runtime/node';
 import { useNodeState } from '../../../runtime/react';
 import names from '../../../runtime/reserved-node-names.json';
@@ -394,17 +395,20 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
 	} );
 
-	test( 'Core.reinit rebuilds the graph nodes fresh (backbone preserved)', async () => {
+	test( 'a graphGeneration bump rebuilds the graph nodes fresh (backbone preserved)', async () => {
+		// The overlay owns the backbone; this dashboard is a reused mount whose
+		// spine.reinit is subscribed to graphGeneration. A bump (the real Reset
+		// Graph trigger) rebuilds JUST its soft nodes, keeping the shared backbone.
+		mountExospine();
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		const firstView = Core.node( VIEW );
 		const firstHttp = Core.node( HTTP );
 		const backbone = Core.node( INTERPRETER );
 		expect( firstView ).not.toBeNull();
-		expect( typeof Core.reinit ).toBe( 'function' );
 
 		await act( async () => {
-			Core.reinit();
+			Core.bumpGraphGeneration();
 		} );
 
 		// Soft nodes rebuild fresh; the backbone (with _http) survives.
@@ -414,7 +418,8 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		expect( Core.node( INTERPRETER ) ).toBe( backbone );
 	} );
 
-	test( 'Core.reinit re-renders the consumer so useNodeState re-subscribes to the fresh view', async () => {
+	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh view', async () => {
+		mountExospine();
 		const client = makeFakeClient( { list_logs: oneLogReply() } );
 		const { result } = renderHook( () => {
 			const graph = useRawLogsGraph( { commandClient: client } );
@@ -425,7 +430,7 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		const firstView = Core.node( VIEW );
 
 		await act( async () => {
-			Core.reinit();
+			Core.bumpGraphGeneration();
 		} );
 		const freshView = Core.node( VIEW );
 		expect( freshView ).not.toBe( firstView );

@@ -18,8 +18,9 @@
  *   }, [] );
  *
  * Two rebuild granularities, both handled here so callers never touch them:
- *  - `reinit()` (also stashed on `Core.reinit`): tears down + rebuilds just the
- *    soft build nodes, keeping the backbone. The fine-grained rebuild.
+ *  - `reinit()` (the returned handle; also fired on this mount's graphGeneration
+ *    subscription when it reuses a backbone): tears down + rebuilds just the soft
+ *    build nodes, keeping the backbone. The fine-grained rebuild.
  *  - A `Core.bumpGraphGeneration()` bump: the FULL rebuild — tears down EVERYTHING
  *    this exospine owns (backbone + build nodes) and reconstructs it. The overlay's
  *    "Reset Graph" removes every node then bumps, so the whole graph comes back
@@ -173,10 +174,10 @@ export function mountExospine( build ) {
 			unsubscribe();
 		}
 		teardownBuilt();
-		// Only the owner tears the shared backbone down (and owns Core.reinit).
+		// Only the owner tears the backbone down (and owns the rebuild flag).
 		if ( ownsBackbone ) {
 			teardownBackbone();
-			Core.reinit = null;
+			Core.rebuildable = false;
 			Core.reinitNames = null;
 		}
 	};
@@ -187,7 +188,8 @@ export function mountExospine( build ) {
 	// Only a build-delegated graph exposes rebuild handles + rebuild sub.
 	if ( 'function' === typeof build ) {
 		if ( ownsBackbone ) {
-			Core.reinit = spine.reinit;
+			// Overlay Reset-Graph capability (owner build-delegated graph).
+			Core.rebuildable = true;
 			// Pre-subscribe bump: an open overlay rebuilds its poll.
 			Core.bumpGraphGeneration();
 			unsubscribe = Core.subscribeGraphGeneration( fullRebuild );

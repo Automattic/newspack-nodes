@@ -29,6 +29,7 @@ import {
 	TM_ERROR,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
+import { mountExospine } from '../../../runtime/exospine';
 import { useNodeState } from '../../../runtime/react';
 import {
 	formatCommandArgs,
@@ -405,8 +406,11 @@ describe( 'useVaultGraph — teardown', () => {
 	} );
 } );
 
-describe( 'useVaultGraph — Core.reinit (Reset Graph)', () => {
-	test( 'Core.reinit rebuilds the per-concern nodes fresh (backbone preserved)', async () => {
+describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
+	test( 'a graphGeneration bump rebuilds the per-concern nodes fresh (backbone preserved)', async () => {
+		// Overlay owns the backbone; this dashboard is a reused mount. A bump (the
+		// real Reset Graph trigger) fires its spine.reinit — soft nodes only.
+		mountExospine();
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
 		await act( async () => {} );
@@ -415,22 +419,22 @@ describe( 'useVaultGraph — Core.reinit (Reset Graph)', () => {
 		const firstHttp = Core.node( HTTP );
 		const backbone = Core.node( INTERPRETER );
 		expect( firstList ).not.toBeNull();
-		expect( typeof Core.reinit ).toBe( 'function' );
 
 		await act( async () => {
-			Core.reinit();
+			Core.bumpGraphGeneration();
 		} );
 
 		expect( Core.node( LIST_VIEW ) ).not.toBe( firstList );
 		expect( Core.node( TEST_VIEW ) ).not.toBe( firstTest );
-		// _http is a backbone singleton: kept across reinit, client reset.
+		// _http is a backbone singleton: kept across rebuild, client reset.
 		expect( Core.node( HTTP ) ).toBe( firstHttp );
 		expect( Core.node( HTTP ).client ).toBe( client );
 		expect( Core.node( LIST_VIEW ).sink ).toBe( Core.node( INTERPRETER ) );
 		expect( Core.node( INTERPRETER ) ).toBe( backbone );
 	} );
 
-	test( 'Core.reinit re-renders the consumer so useNodeState re-subscribes to the fresh list view', async () => {
+	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh list view', async () => {
+		mountExospine();
 		const client = makeFakeClient();
 		const { result } = renderHook( () => {
 			useVaultGraph( { commandClient: client } );
@@ -440,7 +444,7 @@ describe( 'useVaultGraph — Core.reinit (Reset Graph)', () => {
 		const firstView = Core.node( LIST_VIEW );
 
 		await act( async () => {
-			Core.reinit();
+			Core.bumpGraphGeneration();
 		} );
 		const freshView = Core.node( LIST_VIEW );
 		expect( freshView ).not.toBe( firstView );

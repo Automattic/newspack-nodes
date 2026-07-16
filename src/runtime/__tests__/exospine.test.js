@@ -273,25 +273,25 @@ describe( 'mountExospine — host-mount signal', () => {
 	} );
 } );
 
-describe( 'mountExospine — Core.reinit stash', () => {
-	test( 'stashes the spine reinit on Core.reinit (same function)', () => {
-		const spine = mountExospine( () => {} );
+describe( 'mountExospine — Core.rebuildable capability flag', () => {
+	test( 'sets Core.rebuildable for an owner build-delegated mount', () => {
+		mountExospine( () => {} );
 
-		expect( Core.reinit ).toBe( spine.reinit );
+		expect( Core.rebuildable ).toBe( true );
 	} );
 
-	test( 'does NOT stash Core.reinit for a bare mount (no build)', () => {
+	test( 'does NOT set Core.rebuildable for a bare mount (no build)', () => {
 		mountExospine();
 
-		expect( Core.reinit ).toBeNull();
+		expect( Core.rebuildable ).toBe( false );
 	} );
 
-	test( 'clears Core.reinit on teardown', () => {
+	test( 'clears Core.rebuildable on teardown', () => {
 		const { teardown } = mountExospine( () => {} );
 
 		teardown();
 
-		expect( Core.reinit ).toBeNull();
+		expect( Core.rebuildable ).toBe( false );
 	} );
 
 	test( 'stashes the build-registered names on Core.reinitNames', () => {
