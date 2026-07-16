@@ -459,6 +459,45 @@ describe( 'draftGraph', () => {
 	} );
 
 	describe( 'reconcileIncludes', () => {
+		it( "carries a borrowed node's config verbs into verbInvocations", () => {
+			const newBase = {
+				nodes: [
+					{
+						name: 'errors:partition',
+						class: 'Partition',
+						args: [],
+						verbs: [
+							{ verb: 'void_warranty', args: [] },
+							{ verb: 'with_index', args: [ 'quokka-idx' ] },
+						],
+						origin: [ 'request-builder' ],
+						via: [ 'request-builder' ],
+					},
+				],
+				edges: [],
+			};
+			const g0 = {
+				nodes: [],
+				edges: [],
+				frontmatter: {},
+				includes: [ 'request-builder' ],
+			};
+
+			const g1 = reconcileIncludes(
+				g0,
+				{ nodes: [], edges: [] },
+				newBase
+			);
+			const borrowed = g1.nodes.find(
+				( n ) => n.name === 'errors:partition'
+			);
+
+			expect( borrowed.verbInvocations ).toEqual( [
+				{ verb: 'void_warranty', args: [] },
+				{ verb: 'with_index', args: [ 'quokka-idx' ] },
+			] );
+		} );
+
 		it( 'adds new borrowed nodes/edges and drops departed ones, keeping own edits', () => {
 			const oldBase = { nodes: [], edges: [] };
 			const newBase = {

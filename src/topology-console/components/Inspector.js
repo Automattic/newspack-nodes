@@ -619,6 +619,73 @@ function RoutingChip( { label, virtual, onClear } ) {
 	);
 }
 
+// Read-only verb args (borrowed nodes): disabled inputs mirroring the ctor row.
+function LockedVerbArgs( { spec, invocation } ) {
+	const argSpecs = spec.args || [];
+	if ( ! invocation || argSpecs.length === 0 ) {
+		return null;
+	}
+	return (
+		<div className="topology-edit-verb__args">
+			{ argSpecs.map( ( arg, i ) => (
+				<input
+					key={ arg.name }
+					type="text"
+					className="topology-edit-row__input"
+					value={ invocation.args[ i ] ?? '' }
+					disabled
+					readOnly
+				/>
+			) ) }
+		</div>
+	);
+}
+
+// Single verb: a disabled checkbox, ticked when the borrowed node invokes it.
+function LockedVerb( { spec, invocation } ) {
+	return (
+		<div className="topology-edit-verb">
+			<div className="topology-edit-row">
+				<input
+					type="checkbox"
+					checked={ !! invocation }
+					disabled
+					readOnly
+					aria-label={ spec.name }
+				/>
+				<span
+					className="topology-edit-row__label"
+					title={ spec.description || undefined }
+				>
+					<code>{ spec.name }</code>
+				</span>
+			</div>
+			<LockedVerbArgs spec={ spec } invocation={ invocation } />
+		</div>
+	);
+}
+
+// `multiple` verb: one read-only row per invocation (none renders nothing).
+function LockedMultipleVerb( { spec, invocations } ) {
+	return (
+		<div className="topology-edit-verb-group">
+			{ invocations.map( ( invocation, i ) => (
+				<div className="topology-edit-verb" key={ i }>
+					<div className="topology-edit-row topology-edit-verb__head">
+						<span
+							className="topology-edit-row__label"
+							title={ spec.description || undefined }
+						>
+							<code>{ spec.name }</code>
+						</span>
+					</div>
+					<LockedVerbArgs spec={ spec } invocation={ invocation } />
+				</div>
+			) ) }
+		</div>
+	);
+}
+
 // Borrowed node: config is immutable here — wiring stays editable on canvas.
 function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
@@ -627,6 +694,11 @@ function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 		node.ctorArgs || [],
 		argumentSpecs.length
 	);
+	// Read-only mirror of the edit Verbs list: same hidden filter, no editing.
+	const commandSpecs = ( schema?.commands || [] ).filter(
+		( spec ) => ! spec.hidden
+	);
+	const verbInvocations = node.verbInvocations || [];
 
 	return (
 		<aside className="topology-inspector">
@@ -664,6 +736,29 @@ function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 					</div>
 				) ) }
 			</Section>
+			{ commandSpecs.length > 0 && (
+				<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
+					{ commandSpecs.map( ( cspec ) =>
+						cspec.multiple ? (
+							<LockedMultipleVerb
+								key={ cspec.name }
+								spec={ cspec }
+								invocations={ verbInvocations.filter(
+									( inv ) => inv.verb === cspec.name
+								) }
+							/>
+						) : (
+							<LockedVerb
+								key={ cspec.name }
+								spec={ cspec }
+								invocation={ verbInvocations.find(
+									( inv ) => inv.verb === cspec.name
+								) }
+							/>
+						)
+					) }
+				</Section>
+			) }
 			<IncludeTree
 				tree={ tree }
 				includes={ includes }

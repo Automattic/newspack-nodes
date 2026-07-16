@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The topology console inspector now shows a borrowed node's config verbs, read-only.** Selecting an included node in edit mode rendered its constructor args but dropped the whole Verbs section, so you couldn't see which checkboxes (`void_warranty`, `allow_large_writes`, `with_index`, …) an included topology had ticked. The root cause was two layers: `Topology_Registry::expand()` never carried a node's config verbs in its record (only `make_node` args and `set_*target` edges), and `LockedForm` had no Verbs section. `expand()` now collects each `cmd <node>[:config] <verb> <args>` into a `verbs` field (a `set_*target` still resolves to an edge, not a verb), the console maps it into the borrowed node's `verbInvocations`, and the inspector renders it read-only — disabled checkboxes for single verbs (ticked to match) and a row per invocation for `multiple` verbs. Editing a borrowed node's config stays where it belongs: the source topology.
+
 ## [0.46.2] - 2026-07-15
 
 ### Fixed
