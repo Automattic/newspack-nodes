@@ -63,20 +63,10 @@ use Newspack_Nodes\Vault;
 
 class Aggregator_CI_Node extends Service_CI_Node {
 	/**
-	 * `status` verb handler — per-node partition snapshot for each wired Remote_Source.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_status(): array {
-		self::require_manage_options();
-		return self::build_snapshot();
-	}
-
-	/**
 	 * Build the per-node partition snapshot, keyed by the wired Remote_Source
-	 * NODE NAME. The single source of truth the `status`, `summary`, and
-	 * `servers_status` verbs share — so the full-snapshot `status` verb and the
-	 * de-god dashboard slices can never disagree about what they saw.
+	 * NODE NAME. The single source of truth the `summary` and `servers_status`
+	 * verbs share — so the de-god dashboard slices can never disagree about
+	 * what they saw.
 	 *
 	 * Discovers each Remote_Source wired into the active `aggregator` topology
 	 * graph, then for every configured partition reads that node's substrate
@@ -128,42 +118,6 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		return $result;
 	}
 
-	/**
-	 * `health` verb handler — cache reachability + wall-clock timestamp.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_health(): array {
-		self::require_manage_options();
-		return [
-			'healthy'   => true,
-			'cache'     => null !== Core::$memd,
-			'timestamp' => \time(),
-		];
-	}
-
-	/**
-	 * `servers` verb handler — registered servers as a sequential array (the shape the aggregator tree relies on).
-	 *
-	 * @return array<int, mixed>
-	 */
-	public static function cmd_servers(): array {
-		self::require_manage_options();
-		$registry = Vault::fresh();
-		$out = [];
-		foreach ( $registry->get_all() as $id => $cfg ) {
-			$url_v   = $cfg['url'] ?? '';
-			$out[]   = [
-				'id'              => $id,
-				'url'             => Core::as_string( $url_v ),
-				'has_credentials' => ! empty( $cfg['auth_username'] ) && ! empty( $cfg['auth_password'] ),
-				'is_config'       => $registry->is_config_server( $id ),
-			];
-		}
-		// Sequential array (not id-keyed) — the aggregator tree relies on it.
-		return $out;
-	}
-
 	/** @api Used by the substrate to provide UI etc. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
@@ -171,12 +125,6 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			'description' => 'Hub-side aggregator dashboards: per-server status, cache health, registered servers.',
 			'arguments'   => [],
 			'commands'    => [
-				[
-					'name'        => 'status',
-					'description' => 'Per-node partition snapshot for each wired Remote_Source in the active aggregator topology.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_status(),
-				],
 				[
 					'name'        => 'summary',
 					'description' => 'De-god header slice: connected/total counts + snapshot clock (computed from the status snapshot).',
@@ -204,18 +152,6 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
 					'args'        => [],
 					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot() ) ),
-				],
-				[
-					'name'        => 'health',
-					'description' => 'Cache reachability + wall-clock timestamp.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_health(),
-				],
-				[
-					'name'        => 'servers',
-					'description' => 'Registered servers as a sequential array (legacy aggregator-tree contract).',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_servers(),
 				],
 			],
 		] );
