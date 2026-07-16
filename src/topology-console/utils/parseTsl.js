@@ -20,6 +20,104 @@ const VERB_ALIASES = {
 // Mirrors PHP Topology_Registry::frontmatter(); value = raw trimmed after `=`.
 const FRONTMATTER_RE = /^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/;
 
+const CD_VERBS = new Set( [ 'cd', 'chdir' ] );
+const STRUCTURAL = new Set( [
+	'make_node',
+	'connect_node',
+	'disconnect_node',
+	'include',
+	'var',
+] );
+
+// Canonicalize leading-verb aliases (command_node before command: prefix).
+function canonicalVerb( line ) {
+	return line
+		.replace( /^make\s+/, 'make_node ' )
+		.replace( /^connect\s+/, 'connect_node ' )
+		.replace( /^disconnect\s+/, 'disconnect_node ' )
+		.replace( /^command_node\s+/, 'cmd ' )
+		.replace( /^command\s+/, 'cmd ' );
+}
+
+// Resolve a relative/absolute cwd path (mirrors Shell_Node::cd).
+function cdPath( cwd, p ) {
+	if ( '/' !== p && '' !== p && '/' === p[ 0 ] ) {
+		cwd = p;
+	} else if ( '/' === p ) {
+		cwd = '';
+	} else if ( '' !== p && /^\.\.\/?/.test( p ) ) {
+		cwd = cwd.replace( /\/?[^/]+$/, '' );
+		cwd = cdPath( cwd, p.replace( /^\.\.\/?/, '' ) );
+	} else if ( '' !== p ) {
+		cwd += '/' + p;
+	}
+	return cwd.replace( /^\/+|\/+$/g, '' );
+}
+
+// Slash-join the cwd with a command's path arg (mirrors Shell_Node::prefix).
+function prefixPath( cwd, p ) {
+	const parts = [];
+	if ( '' !== cwd ) {
+		parts.push( cwd );
+	}
+	if ( '' !== p ) {
+		parts.push( p );
+	}
+	return parts.join( '/' );
+}
+
+/**
+ * Preprocess raw TSL into canonical single-line statements, mirroring the
+ * runtime Shell and Topology_Registry::normalize_lines: join backslash
+ * continuations, canonicalize make/connect/disconnect/command aliases, and
+ * resolve cd/chdir cwd so a bare or explicit command line becomes
+ * `cmd <cwd-resolved-path> <verb> <args>`.
+ *
+ * @param {string} text Raw TSL.
+ * @return {string[]} Canonical lines (comments/blanks/cd dropped).
+ */
+function normalizeLines( text ) {
+	const out = [];
+	let cwd = '';
+	let acc = '';
+	for ( const raw of String( text || '' ).split( '\n' ) ) {
+		// Backslash continuation: strip the slash, accumulate, read next.
+		if ( raw.trimEnd().endsWith( '\\' ) ) {
+			acc += raw.trimEnd().slice( 0, -1 ) + ' ';
+			continue;
+		}
+		const line = ( acc + raw ).trim();
+		acc = '';
+		if ( ! line || line.startsWith( '#' ) ) {
+			continue;
+		}
+		const canonicalized = canonicalVerb( line );
+		const tokens = tokenize( canonicalized );
+		const verb = tokens[ 0 ] || '';
+		if ( CD_VERBS.has( verb ) ) {
+			cwd = cdPath( cwd, tokens[ 1 ] || '' );
+			continue;
+		}
+		if ( STRUCTURAL.has( verb ) ) {
+			out.push( canonicalized );
+		} else if ( 'cmd' === verb ) {
+			const p = prefixPath( cwd, tokens[ 1 ] || '' );
+			out.push( `cmd ${ p } ${ tokens.slice( 2 ).join( ' ' ) }`.trim() );
+		} else if ( '' !== cwd ) {
+			// A bare verb inside a cwd is a command to that node.
+			out.push(
+				`cmd ${ cwd } ${ verb } ${ tokens
+					.slice( 1 )
+					.join( ' ' ) }`.trim()
+			);
+		} else {
+			// Bare verb at root: a local command the static parser drops.
+			out.push( canonicalized );
+		}
+	}
+	return out;
+}
+
 function tokenize( line ) {
 	// Single-quote-aware tokenization (serializer only emits single quotes).
 	const out = [];
@@ -56,7 +154,7 @@ export function parseTsl( text ) {
 	const edgeOperations = [];
 	const configOverrides = [];
 
-	const lines = String( text || '' ).split( '\n' );
+	const lines = normalizeLines( text );
 	for ( const raw of lines ) {
 		const line = raw.trim();
 		if ( ! line || line.startsWith( '#' ) ) {
