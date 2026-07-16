@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Schema-argument token defaults now fail loud on an unresolvable token.** `Core::resolve_config_token()` / `resolve_config_tokens()` gained a `$strict` flag and `Schema_Reflection::resolve_default()` resolves schema `<ns:key>` defaults strictly: an unknown namespace, a resolver that returns `null` (key not owned by its namespace), or a non-scalar now throws instead of silently coercing to `''`. This catches the wrong-namespace footgun where a `bool` default silently became `false`. Shell/TSL interpolation and the GC / workers-CI path-resolution callers stay non-strict (Tachikoma parity: an unset `<var>` / unowned `<ns:key>` still interpolates to `''`). A missing bundled geometry key (e.g. `<config:segment_size>`) — previously coerced to a dangerous `0` — now throws at node construction; owned-but-empty keys (an unset `<eln:stats_mirror_node>`) still resolve to `''` and never throw.
+- **`Command_Interpreter_Node` (JS) documents its `arguments` coercion as an explicit external-compatibility seam** — it guards a non-array `arguments` arriving from an older/foreign wire client, not first-party producers (which emit a token array and are asserted).
+
 ### Removed
 
 - **`Config_Utils::is_within()`** (a `@deprecated` path-containment helper) and the ignored `$allowed_dirs` parameter on `Config_Utils::validate_config_path()`. `is_within()` carried an `@api` "external consumers" tag but had zero callers anywhere in the checkout; `$allowed_dirs` was documented "ignored" and both callers passed a no-op `[DIRECTORY_SEPARATOR]`. No runtime behavior change; noted here because `is_within()` was a published-API surface.

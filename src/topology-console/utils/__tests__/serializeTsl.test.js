@@ -275,7 +275,7 @@ describe( 'serializeTsl', () => {
 								name: 'is_hub',
 								type: 'bool',
 								required: true,
-								default: '<config:is_hub>',
+								default: '<eln:is_hub>',
 							},
 						],
 					},
@@ -367,7 +367,7 @@ describe( 'serializeTsl', () => {
 			};
 			expect( serializeTsl( g, schemas ) ).toBe(
 				'make_node FlameBuilder fb\n' +
-					'cmd fb:config set_is_hub <config:is_hub>\n' +
+					'cmd fb:config set_is_hub <eln:is_hub>\n' +
 					'cmd fb:config configure_stats <partition>\n'
 			);
 		} );

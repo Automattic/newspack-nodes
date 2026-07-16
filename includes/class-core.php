@@ -92,28 +92,48 @@ class Core {
 		return self::resolve_config_tokens( $out );
 	}
 
-	/** Resolve every `<ns:key>` token in $path via resolve_config_token; an unknown token becomes ''. */
-	public static function resolve_config_tokens( string $path ): string {
+	/** Resolve every `<ns:key>` token in $path via resolve_config_token; $strict throws on an unresolvable token instead of ''. */
+	public static function resolve_config_tokens( string $path, bool $strict = false ): string {
 		return (string) \preg_replace_callback(
 			'/<([a-zA-Z_]\w*):([a-zA-Z_]\w*)>/',
-			static fn ( array $m ): string => self::resolve_config_token( $m[1], $m[2] ),
+			static fn ( array $m ): string => self::resolve_config_token( $m[1], $m[2], $strict ),
 			$path
 		);
 	}
 
-	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' (with a rate-limited warning) if the ns isn't registered or returns null. */
-	public static function resolve_config_token( string $ns, string $key ): string {
+	/**
+	 * Resolve a `<ns:key>` topology token via its namespace resolver.
+	 *
+	 * Non-strict (shell interpolation, GC / dashboard path resolution): an
+	 * unresolvable token becomes '' with a rate-limited warning — a resolver that
+	 * RETURNS '' owns the key and its value is just empty. Strict (schema-arg
+	 * defaults) throws instead, so a wrong-namespace or typo'd token — the
+	 * <config:is_hub> footgun — fails loud at construction rather than silently
+	 * coercing to a feature-off default. Owned-empty ('') never throws; only an
+	 * unregistered namespace, a resolver returning null (key not owned), or a
+	 * non-scalar result is "unresolvable".
+	 */
+	public static function resolve_config_token( string $ns, string $key, bool $strict = false ): string {
 		$resolver = self::$config_resolvers[ $ns ] ?? null;
 		if ( null === $resolver ) {
+			if ( $strict ) {
+				throw new \RuntimeException( \esc_html( "unresolvable config token <{$ns}:{$key}>: unknown namespace" ) );
+			}
 			self::print_less_often( 'resolve_config_token: unknown namespace ', "<{$ns}:{$key}>" );
 			return '';
 		}
 		$value = $resolver( $key );
 		if ( null === $value ) {
+			if ( $strict ) {
+				throw new \RuntimeException( \esc_html( "unresolvable config token <{$ns}:{$key}>: not owned by its namespace" ) );
+			}
 			self::print_less_often( 'resolve_config_token: resolver returned null for ', "<{$ns}:{$key}>" );
 			return '';
 		}
 		if ( ! \is_scalar( $value ) ) {
+			if ( $strict ) {
+				throw new \RuntimeException( \esc_html( "unresolvable config token <{$ns}:{$key}>: resolved to a non-scalar" ) );
+			}
 			self::print_less_often( 'resolve_config_token: resolver returned non-scalar for ', "<{$ns}:{$key}>" );
 			return '';
 		}
