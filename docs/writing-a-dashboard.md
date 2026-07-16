@@ -349,12 +349,13 @@ export class FetcherNode extends Node {
 	// args = `<receiver> <command> [<command_args>...]`
 	//   receiver — the local node the server's reply routes back TO (stamped as FROM)
 	//   command  — the verb to send (CONFIGURED on the node, never read from the message)
+	//   command_args — the remaining tokens as a flat token array (list<string>)
 
 	fill( _message ) {
 		const m = newMessage();
 		m[ TYPE ]  = TM_COMMAND;
 		m[ FROM ]  = this.receiver;                                    // reply routes back here
-		m[ VALUE ] = { name: this.command, arguments: this.command_args };
+		m[ VALUE ] = { name: this.command, arguments: this.command_args };  // arguments is a token array
 		super.fill( m );   // TO stamped from target, forwarded to sink
 	}
 }

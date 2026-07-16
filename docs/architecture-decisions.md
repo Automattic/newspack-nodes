@@ -355,13 +355,19 @@ lines (`dump_config()`) that reconstruct the same graph. That requires a fixed c
 order and a config representation that survives the trip.
 
 **Decision:** The v0.6.0 Tachikoma sequence: no-arg ctor → `name()` → `arguments()` →
-`sink()`. `make_node` instantiates `new $fqcn()`, then `name()`, then
-`arguments( implode( ' ', array_filter( $ctor_args, '\is_scalar' ) ) )`, then `sink( $this )`.
-The base `arguments()` stores the raw string and does NOT parse. A node wanting declared
-positional args assigned to props opts into `Schema_Reflection` and calls
-`parse_schema_args()` from its `arguments()` override (JS mirrors: base stores; consumers
-call `parseSchemaArgs( node, args )`). `parse_schema_args()` records the raw string into
-`$this->arguments` (so `dump_config()` round-trips) and is the single source of defaults: a
+`sink()`. `make_node` instantiates `new $fqcn()`, then `name()`, then `arguments( $arg_tokens )`
+— where `$arg_tokens` is the scalar positional args `array_map`ped to strings (`array_filter(
+$ctor_args, '\is_scalar' )`, re-indexed) — then `sink( $this )`. As of the args-array migration,
+`arguments()` takes and returns a **flat token array** (`list<string>` argv), NOT a space-joined
+string: `Node::arguments( ?array $args = null ): array`. Tokens are carried verbatim; the ONLY
+place they re-join into a single line is the serialization anchor `Node::serialize_args( array
+$tokens ): string` (used by `dump_config()`), which single-quotes any token bearing whitespace /
+quote / backtick / backslash / emptiness and escapes `\` and `'` so the round-trip is lossless
+for ANY token. The base `arguments()` stores the token array and does NOT parse. A node wanting
+declared positional args assigned to props opts into `Schema_Reflection` and calls
+`parse_schema_args( array $args )` from its `arguments()` override (JS mirrors: base stores;
+consumers call `parseSchemaArgs( node, args )`). `parse_schema_args()` records the token array
+into `$this->arguments` (so `dump_config()` round-trips) and is the single source of defaults: a
 missing token takes the schema `default`, or throws if `required` — `make_node Partition foo`
 with no dir throws `Missing required argument: partition_dir` instead of deriving
 filesystem-root junk. Derived state (Partition's `partition_dir`) computes after

@@ -121,7 +121,7 @@ Per-slot semantics (named here for documentation only — the wire is positional
 | `TO` (index 3) | string | CI shell-name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
 | `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `id`. |
 | `KEY` (index 5) | string | Routing/correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help`/`ls`). |
-| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; every verb (scalar and structured alike) reads its data from the `arguments` string. (The request-side `payload` slot was removed in 0.6.0.) |
+| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell/`CommandClient` tokenizes ONCE at the producer boundary and the tokens ride verbatim through the envelope, interpreter, and `make_node`. Every verb (scalar and structured alike) reads its data from that token array (`$args[0]`, `$args[1]`, …). (The request-side `payload` slot was removed in 0.6.0.) |
 
 The browser's `CommandClient` and the attached `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
 
@@ -157,7 +157,7 @@ The substrate plugin mounts 9 service CIs via `newspack_nodes/request_graph_read
 |---------------|-------|-------|
 | `classes` | `Classes_CI_Node` | `list` |
 | `layouts` | `Layouts_CI_Node` | `get`, `save` |
-| `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete`, `activate`, `deactivate`, `connect_worker_input` |
+| `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete`, `activate`, `deactivate`, `expand`, `connect_worker_input` |
 | `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `log_status` |
 | `workers` | `Workers_CI_Node` | `list`, `dump_graph`, `cleanup_status`, `restart`, `heartbeat` |
 | `vault` | `Vault_CI_Node` | `list`, `get`, `add`, `update`, `delete`, `test` |
@@ -175,9 +175,9 @@ Application plugins layer additional CIs onto the same endpoint (the first being
 
 **`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }` plus an optional `default` (e.g. `workers restart`'s `partition` and `workers heartbeat`'s `ttl` args carry one). This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
 
-**Every verb reads from the `arguments` string.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), `raw-logs log_status` (a log key), `workers heartbeat` (an SSE slot) — read it straight from the inner envelope's `arguments` string, so they're typeable in the REPL (e.g. `command_node topologies get Home`). Structured verbs read from the same string: `topologies save` / `layouts save` take `<name> <rest-of-line>` via `Service_CI_Node::split_first_token` (the rest-of-line carries the TSL body or positions JSON, newlines included); option-flag verbs like `workers restart` parse `<type>… [--partition=<n>]` via `Command_Args::parse`. There is no `payload` input slot.
+**Every verb reads from the `arguments` token array.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), `raw-logs log_status` (a log key), `workers heartbeat` (an SSE slot) — read `$args[0]` straight from the inner envelope's `arguments` list, so they're typeable in the REPL (e.g. `command_node topologies get Home`). Structured verbs read from the same list: `topologies save` / `layouts save` take `[ name, body ]` via `Service_CI_Node::split_first_token` (`$args[0]` is the name, `$args[1]` carries the whole TSL body or positions JSON — newlines included — as one discrete token, no rest-of-line splitting to guess at); option-flag verbs like `workers restart` classify `<type>… [--partition=<n>]` via `Command_Args::parse( list<string> $args )`, which sorts `--key=value` / bare `--key` flags out of the positional tokens. There is no `payload` input slot.
 
-Verb handlers receive three positional arguments — `( Command_Interpreter_Node $interpreter, string $arguments, array $envelope = [] )`. The `$envelope` is the full 7-field positional Message; the `save` verbs use it to enforce the 1 MiB body cap via `Message::packed_size( $envelope )`.
+Verb handlers receive three positional arguments — `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`, where `$args` is the pre-split token array (`list<string>` argv; each handler normalizes via `arg_strings()`). The `$envelope` is the full 7-field positional Message; the `save` verbs use it to enforce the 1 MiB body cap via `Message::packed_size( $envelope )`.
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [architecture-guide.md → Completion-query mode](architecture-guide.md#repl-wp-nodes-cli).
 
@@ -234,7 +234,7 @@ function my_app_mount_service_cis( \Newspack_Nodes\Command_Interpreter_Node $bas
 
 1. Resolves and instantiates (via no-arg `new $fqcn()`) the first `{$prefix}{$type}_Node` that exists and is a concrete `Node` subclass, looping the prefixes registered via `Command_Interpreter_Node::register_namespace()` at plugin load time. (So `make_node( 'My_Service_CI', ... )` resolves `My_App\My_Service_CI_Node` once `My_App\` is registered. There is no per-class `register_class` registry — applications register their *namespace prefix* once.)
 2. Calls `$node->name( $name )` so Router can find it.
-3. Calls `$node->arguments( implode( ' ', <scalar ctor args> ) )` — the space-joined scalar positional args are mapped onto the node's declared `node_schema()['arguments']` properties (so config round-trips through `dump_config()`). Non-scalar ctor args are filtered out (assign object dependencies as public properties after `make_node` returns instead).
+3. Calls `$node->arguments( $arg_tokens )` — the scalar positional args, `array_map`ped to strings and re-indexed, as a flat token array (`arguments()` takes and returns `list<string>`, not a space-joined string). They're mapped onto the node's declared `node_schema()['arguments']` properties (so config round-trips through `dump_config()`, which re-joins the tokens via `Node::serialize_args()`). Non-scalar ctor args are filtered out (assign object dependencies as public properties after `make_node` returns instead).
 4. Calls `$node->sink( $this )` so the node's reply routes back through the base CI → `_router` → `_output`.
 
 Skipping `make_node()` — by constructing and `name()`-ing the node by hand — leaves it unwired. Verb responses (which walk back via `TO=FROM`) have no path to the `HTTP_In_Node` egress (`_output`) and silently drop on the floor. Always go through `make_node()`.

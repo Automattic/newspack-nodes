@@ -57,7 +57,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * original handler runs. Gate-by-default: there are no public Service CI verbs,
 	 * so authorization lives here once instead of per-verb. The wrapper is
 	 * variadic-transparent — it preserves the handler's exact call signature
-	 * ( Command_Interpreter_Node, string, array ) — and self::require_manage_options()
+	 * ( Command_Interpreter_Node, array, array ) — and self::require_manage_options()
 	 * resolves through late static binding inside the closure.
 	 *
 	 * @param array<string,mixed> $schema
@@ -134,7 +134,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * Build a slice-verb handler from a shape callable, so a CI's read-only slice verbs are
 	 * 2–3 lines that share one memoized read instead of each repeating the json-encode dance.
 	 *
-	 * The returned handler matches the verb-handler signature ( Command_Interpreter_Node, string,
+	 * The returned handler matches the verb-handler signature ( Command_Interpreter_Node, array,
 	 * array ) — for a Service_CI verb the interpreter IS this node — passes that node to $shape,
 	 * and JSON-encodes whatever $shape returns. The shape closure reads the CI's memoized
 	 * snapshot (e.g. `$ci->items()`) and returns the one slice it owns. Authorization stays
@@ -155,7 +155,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * Defaults to `[a-zA-Z0-9_-]+` — the shape Layouts_CI and Topologies_CI
 	 * both require. Callers needing a wider charset pass a custom pattern.
 	 *
-	 * @param string $name    Name token, already split off the arguments string.
+	 * @param string $name    Name token — the first argument token ($args[0]).
 	 * @param string $pattern Regex with delimiters; default is the common file-name-safe pattern.
 	 * @return string The validated name.
 	 */
