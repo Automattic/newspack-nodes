@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-07-16
+
 ### Changed
 
 - **TM_COMMAND `arguments` and node-constructor `arguments` are now a flat token array (`list<string>` argv) end to end, instead of a single space-joined string.** Tokenization happens ONCE at the producer boundary (the Shell / REST command builder), the tokens are carried verbatim through the command envelope, the interpreter, and `make_node`, and they only re-join into a line at the single serialization anchor (`Node::serialize_args()` / the JS `serializeArg`). The old design tokenized → joined → re-split several times and lost quote grouping, so a quoted `cmd x verb 'a b'` reached the verb handler as two arguments; it now arrives as one token. `Command_Args::parse()` takes `list<string>` and `format()` returns `list<string>` (no more embedded quoting/unescaping); verb handlers receive `array $args` and read `$args[0]`, `$args[1]`, … ; `Node::arguments()` / `parse_schema_args()` take and return token arrays; `dump_config()` round-trips through `serialize_args()`. TM_INFO / TM_REQUEST / TM_BYTESTREAM VALUEs remain flat strings — only the structured `{name, arguments}` command envelope changed. The HMAC canonical (`Command_Auth`) signs the arguments array. PHP and JS runtimes mirror each other exactly.
