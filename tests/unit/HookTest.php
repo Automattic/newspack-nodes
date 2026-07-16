@@ -20,7 +20,7 @@ class HookTest extends TestCase {
 	 */
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$hook = new Hook_Node();
-		$hook->arguments( 'newspack_nodes/test_event true' );
+		$hook->arguments( [ 'newspack_nodes/test_event', 'true' ] );
 		$ref = new \ReflectionClass( $hook );
 		$this->assertSame( 'newspack_nodes/test_event', $ref->getProperty( 'hook_name' )->getValue( $hook ) );
 		$this->assertTrue( $ref->getProperty( 'filter' )->getValue( $hook ) );
@@ -28,7 +28,7 @@ class HookTest extends TestCase {
 
 	public function test_arguments_setter_applies_default_filter_false(): void {
 		$hook = new Hook_Node();
-		$hook->arguments( 'newspack_nodes/test_event' );
+		$hook->arguments( [ 'newspack_nodes/test_event' ] );
 		$ref = new \ReflectionClass( $hook );
 		$this->assertSame( 'newspack_nodes/test_event', $ref->getProperty( 'hook_name' )->getValue( $hook ) );
 		$this->assertFalse( $ref->getProperty( 'filter' )->getValue( $hook ) );
@@ -42,7 +42,7 @@ class HookTest extends TestCase {
 		} );
 
 		$hook = new Hook_Node();
-		$hook->arguments( 'newspack_nodes/test_action' );
+		$hook->arguments( [ 'newspack_nodes/test_action' ] );
 		$hook->sink( new Capture_Sink_Node() );
 		$message = Message::new_message();
 		$message[ Message::VALUE ] = 'data';
@@ -53,7 +53,7 @@ class HookTest extends TestCase {
 
 	public function test_action_mode_forwards_to_sink_unchanged(): void {
 		$hook = new Hook_Node();
-		$hook->arguments( 'newspack_nodes/test_action' );
+		$hook->arguments( [ 'newspack_nodes/test_action' ] );
 		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 
@@ -84,7 +84,7 @@ class HookTest extends TestCase {
 
 	public function test_fill_increments_counter_once_per_message(): void {
 		$hook = new Hook_Node();
-		$hook->arguments( 'newspack_nodes/test_action' );
+		$hook->arguments( [ 'newspack_nodes/test_action' ] );
 		$hook->sink( new Capture_Sink_Node() );
 
 		$message                   = Message::new_message();
@@ -100,7 +100,7 @@ class HookTest extends TestCase {
 		\add_filter( 'newspack_nodes/test_filter', static fn( $value ) => 'transformed' );
 
 		$hook = new Hook_Node();
-		$hook->arguments( 'newspack_nodes/test_filter true' );
+		$hook->arguments( [ 'newspack_nodes/test_filter', 'true' ] );
 		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 

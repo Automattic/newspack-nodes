@@ -144,14 +144,14 @@ class ServiceCITest extends TestCase {
 	public function test_split_first_token_preserves_verbatim_remainder(): void {
 		$this->assertSame(
 			[ 'save', "topology-name make_node Echo e\n" ],
-			ServiceCITestProbe::split_first_token_probe( "  save topology-name make_node Echo e\n" )
+			ServiceCITestProbe::split_first_token_probe( [ 'save', "topology-name make_node Echo e\n" ] )
 		);
 	}
 
 	public function test_split_first_token_returns_empty_remainder_for_lone_token(): void {
 		$this->assertSame(
 			[ 'status', '' ],
-			ServiceCITestProbe::split_first_token_probe( '  status  ' )
+			ServiceCITestProbe::split_first_token_probe( [ 'status' ] )
 		);
 	}
 
@@ -163,7 +163,7 @@ class ServiceCITest extends TestCase {
 		);
 		$interpreter = new ServiceCITestProbe();
 
-		$this->assertSame( '{"ok":1}', $handler( $interpreter, '' ) );
+		$this->assertSame( '{"ok":1}', $handler( $interpreter, [] ) );
 	}
 
 	public function test_slice_verb_passes_the_interpreter_to_the_shape(): void {
@@ -173,7 +173,7 @@ class ServiceCITest extends TestCase {
 			static fn ( Command_Interpreter_Node $self ): array => [ 'name' => $self->name() ]
 		);
 
-		$this->assertSame( '{"name":"probe-named"}', $handler( $ci, '' ) );
+		$this->assertSame( '{"name":"probe-named"}', $handler( $ci, [] ) );
 	}
 
 	public function test_slice_verb_handler_is_gated_when_registered_through_schema(): void {
@@ -212,7 +212,7 @@ class ServiceCITestProbe extends Service_CI_Node {
 		return self::require_valid_name( $name, $pattern );
 	}
 
-	public static function split_first_token_probe( string $args ): array {
+	public static function split_first_token_probe( array $args ): array {
 		return self::split_first_token( $args );
 	}
 
@@ -232,7 +232,7 @@ class ServiceCITestProbe extends Service_CI_Node {
 				[
 					'name'        => 'ping',
 					'description' => 'Probe verb that returns a sentinel; never self-gates.',
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string {
+					'handler'     => static function ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
 						return 'pong';
 					},
 				],

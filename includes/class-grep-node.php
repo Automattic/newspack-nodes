@@ -14,10 +14,11 @@ class Grep_Node extends Node {
 	/** Bracket-delimited PCRE (mirrors Grep.pm's qr{}); default matches everything. */
 	private string $pattern = '{.}';
 
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null !== $args ) {
 			$this->arguments = $args;
-			$pattern         = '' !== $args ? $args : '.';
+			$token           = $args[0] ?? '';
+			$pattern         = '' !== $token ? $token : '.';
 			$this->pattern   = '{' . $pattern . '}';
 		}
 		return $this->arguments;

@@ -38,19 +38,18 @@ export class FetcherNode extends Node {
 
 	set arguments( value ) {
 		super.arguments = value;
-		const raw =
-			null === value || undefined === value ? '' : String( value ).trim();
-		if ( '' === raw ) {
+		const tokens = Array.isArray( value ) ? value : [];
+		if ( 0 === tokens.length ) {
 			return;
 		}
-		const [ receiver, command, ...rest ] = raw.split( /\s+/ );
+		const [ receiver, command, ...rest ] = tokens;
 		this.receiver = receiver;
 		this.command = command ?? '';
-		this.command_args = rest.join( ' ' );
+		this.command_args = rest;
 	}
 
 	fill( _message ) {
-		// command_args may be a fire-time getter or static string; resolve now.
+		// command_args: fire-time getter or static token array.
 		const args =
 			'function' === typeof this.command_args
 				? this.command_args()
@@ -60,7 +59,7 @@ export class FetcherNode extends Node {
 		m[ FROM ] = this.receiver;
 		m[ VALUE ] = {
 			name: this.command,
-			arguments: 'string' === typeof args ? args : '',
+			arguments: Array.isArray( args ) ? args : [],
 		};
 		super.fill( m );
 	}

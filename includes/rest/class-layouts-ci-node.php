@@ -33,12 +33,12 @@ class Layouts_CI_Node extends Service_CI_Node {
 	/**
 	 * `get` verb handler — read a saved layout's node positions by name.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_get( string $args ): array {
-		$name = self::require_valid_name( \trim( $args ) );
+	public static function cmd_get( array $args ): array {
+		$name = self::require_valid_name( $args[0] ?? '' );
 		$path = self::layout_path( $name );
 
 		$positions = null;
@@ -62,12 +62,12 @@ class Layouts_CI_Node extends Service_CI_Node {
 	/**
 	 * `save` verb handler — persist node positions for a layout (1 MiB cap).
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 * @param array<int|string, mixed> $envelope Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_save( string $args, array $envelope = [] ): array {
+	public static function cmd_save( array $args, array $envelope = [] ): array {
 		// $envelope is the 7-field positional message array (a list).
 		if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 			throw new \RuntimeException(
@@ -165,7 +165,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'description' => 'Read saved node positions for a layout name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args ): array => self::cmd_get( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'save',
@@ -174,7 +174,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( self::arg_strings( $args ), $envelope ),
 				],
 			],
 		] );

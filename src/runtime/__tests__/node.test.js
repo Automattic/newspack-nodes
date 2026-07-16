@@ -72,8 +72,14 @@ test( 'command stamps FROM with the node name', () => {
 	// Mirrors PHP Node::command — the minter tags FROM with its own name.
 	const n = new Node();
 	n.name = 'alice';
-	const m = n.command( 'connect_node', 'a b' );
+	const m = n.command( 'connect_node', [ 'a', 'b' ] );
 	expect( m[ FROM ] ).toBe( 'alice' );
+} );
+
+test( 'command throws on a non-array args (fail loud, not silent [])', () => {
+	const n = new Node();
+	n.name = 'alice';
+	expect( () => n.command( 'connect_node', 'a b' ) ).toThrow( /token array/ );
 } );
 
 test( 'fill stamps TO from target when message TO is empty', () => {
@@ -401,7 +407,7 @@ test( 'disconnectNode with an explicit target still clears the base node target'
 test( 'dumpNode snapshots scalar state, renders the sink as a name, and masks internals', () => {
 	const n = new Node();
 	n.name = 'd';
-	n.arguments = 'a b';
+	n.arguments = [ 'a', 'b' ];
 	n.counter = 5;
 	const down = new Node();
 	down.name = 'downstream';
@@ -411,7 +417,7 @@ test( 'dumpNode snapshots scalar state, renders the sink as a name, and masks in
 
 	expect( snap.class ).toBe( 'Node' );
 	expect( snap.name ).toBe( 'd' );
-	expect( snap.arguments ).toBe( 'a b' );
+	expect( snap.arguments ).toEqual( [ 'a', 'b' ] );
 	expect( snap.counter ).toBe( 5 );
 	expect( snap.sink ).toBe( 'downstream' ); // live ref → sink's name
 	expect( snap.registrations ).toBe( '{...}' ); // internal structure masked

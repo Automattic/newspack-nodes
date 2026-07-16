@@ -113,13 +113,13 @@ class Command_Auth {
 	 */
 	private static function canonical( int $type, int $ts, array $value, string $nonce ): ?string {
 		$name      = $value['name']      ?? '';
-		$arguments = $value['arguments'] ?? '';
+		$arguments = $value['arguments'] ?? [];
 		$encoded   = \wp_json_encode(
 			[
 				$type,
 				$ts,
 				Core::as_string( $name ),
-				Core::as_string( $arguments ),
+				\is_array( $arguments ) ? \array_values( $arguments ) : [],
 				$nonce,
 			]
 		);

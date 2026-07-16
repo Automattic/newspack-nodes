@@ -30,15 +30,15 @@ class TimerTest extends TestCase {
 	public function test_arguments_getter_returns_stored_value(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
-		$timer->arguments( '250' );
-		$this->assertSame( '250', $timer->arguments() );
+		$timer->arguments( [ '250' ] );
+		$this->assertSame( [ '250' ], $timer->arguments() );
 		$timer->stop_timer();
 	}
 
 	public function test_arguments_null_is_pure_getter(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
-		$this->assertSame( '', $timer->arguments( null ) );
+		$this->assertSame( [], $timer->arguments( null ) );
 	}
 
 	public function test_arguments_empty_string_triggers_router_hitchhike(): void {
@@ -46,14 +46,14 @@ class TimerTest extends TestCase {
 		$router->name( '_router' );
 		$timer = new Timer_Node();
 		$timer->name( 'hb' );
-		$timer->arguments( '' );
+		$timer->arguments( [] );
 		$this->assertSame( 'router', $timer->timer_mode() );
 	}
 
 	public function test_arguments_numeric_starts_own_slot(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
-		$timer->arguments( '250' );
+		$timer->arguments( [ '250' ] );
 		$this->assertSame( 'event_framework', $timer->timer_mode() );
 		$timer->stop_timer();
 	}
@@ -63,7 +63,7 @@ class TimerTest extends TestCase {
 		$timer->name( 't' );
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'Bad arguments for Timer' );
-		$timer->arguments( 'fast' );
+		$timer->arguments( [ 'fast' ] );
 	}
 
 	public function test_fire_throws_when_it_must_emit_but_has_no_sink(): void {

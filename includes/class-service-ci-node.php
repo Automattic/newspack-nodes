@@ -94,7 +94,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 		}
 		// Pre-seed a gated help; base commands() would inject an ungated one.
 		if ( ! isset( $table['help'] ) ) {
-			$table['help'] = static function ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ): string {
+			$table['help'] = static function ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): string {
 				self::require_manage_options();
 				return $self->default_help();
 			};
@@ -117,20 +117,17 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	}
 
 	/**
-	 * Split an arguments string into its first whitespace-delimited token and the
-	 * VERBATIM remainder (everything after the first run of whitespace). The
-	 * remainder keeps its internal and trailing whitespace, so a verb carrying a
-	 * structured blob (`save <name> <tsl…>` / `<name> <positions-json>`) gets the
-	 * body intact — newlines and all. Leading whitespace is skipped; a lone token
-	 * with no body yields `''`.
+	 * A verb carrying a structured blob (`save <name> <tsl…>` / `<name>
+	 * <positions-json>`) receives it as a discrete slot: the producer places the
+	 * whole body — newlines and all — in the second token. So the name is the
+	 * first token and the body is the second, unambiguously (no rest-of-line
+	 * splitting to guess at). A lone token yields an empty body.
 	 *
-	 * @return array{0:string,1:string} [ first_token, remainder ]
+	 * @param list<string> $args
+	 * @return array{0:string,1:string} [ name, body ]
 	 */
-	protected static function split_first_token( string $args ): array {
-		if ( \preg_match( '/\A\s*(\S+)\s+(.*)\z/s', $args, $m ) ) {
-			return [ $m[1], $m[2] ];
-		}
-		return [ \trim( $args ), '' ];
+	protected static function split_first_token( array $args ): array {
+		return [ $args[0] ?? '', $args[1] ?? '' ];
 	}
 
 	/**
@@ -148,7 +145,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * @return \Closure The verb handler closure.
 	 */
 	protected static function slice_verb( callable $shape ): \Closure {
-		return static function ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ) use ( $shape ): string {
+		return static function ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ) use ( $shape ): string {
 			return (string) \wp_json_encode( $shape( $self ) );
 		};
 	}

@@ -68,7 +68,7 @@ class NodeLifecycleTest extends TestCase {
 			'Hook'               => [
 				static function () {
 					$h = new Hook_Node();
-					$h->arguments( 'the_content' );
+					$h->arguments( [ 'the_content' ] );
 					return $h;
 				},
 			],
@@ -77,14 +77,14 @@ class NodeLifecycleTest extends TestCase {
 			'Log'                => [
 				static function () use ( $base ) {
 					$l = new Log_Node();
-					$l->arguments( "{$base}/out.log" );
+					$l->arguments( [ "{$base}/out.log" ] );
 					return $l;
 				},
 			],
 			'Partition'          => [
 				static function () use ( $base ) {
 					$p = new Partition_Node();
-					$p->arguments( "{$base}/part" );
+					$p->arguments( [ "{$base}/part" ] );
 					return $p;
 				},
 			],
@@ -93,7 +93,7 @@ class NodeLifecycleTest extends TestCase {
 			'Tail'               => [
 				static function () use ( $base ) {
 					$t = new Tail_Node();
-					$t->arguments( "{$base}/tail.log" );
+					$t->arguments( [ "{$base}/tail.log" ] );
 					return $t;
 				},
 			],
@@ -102,7 +102,7 @@ class NodeLifecycleTest extends TestCase {
 			'Topic'              => [
 				static function () use ( $base ) {
 					$t = new Topic_Node();
-					$t->arguments( "{$base}/topic.p{partition} 2" );
+					$t->arguments( [ "{$base}/topic.p{partition}", "2" ] );
 					return $t;
 				},
 			],

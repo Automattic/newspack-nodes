@@ -335,7 +335,7 @@ class Worker_Base {
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
 		// Graph via make_node (name -> arguments -> sink=interpreter).
-		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, self::ipc_partition_args( "{$ipc_dir}/output" ) );
+		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, ...self::ipc_partition_args( "{$ipc_dir}/output" ) );
 		// allow_large_writes keys Lock/heartbeat off name+sink from make_node.
 		if ( $repl instanceof Partition_Node ) {
 			$repl->void_warranty();
@@ -356,9 +356,10 @@ class Worker_Base {
 	 * from the count rule and the scratch grows without bound.
 	 *
 	 * @param string $dir Segment directory.
+	 * @return list<string>
 	 */
-	public static function ipc_partition_args( string $dir ): string {
-		return \implode( ' ', [
+	public static function ipc_partition_args( string $dir ): array {
+		return \array_map( '\strval', [
 			$dir,
 			self::IPC_SEGMENT_SIZE,
 			self::IPC_MIN_SEGMENTS,
@@ -386,7 +387,7 @@ class Worker_Base {
 		}
 		// Anonymous pure source (never a routed TO); off Core's registry.
 		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$input_dir} {$ipc_dir}/input.offsets" );
+		$consumer->arguments( [ $input_dir, "{$ipc_dir}/input.offsets" ] );
 		// Tail-seek skips stale history; a respawn's checkpoint overrides it.
 		$consumer->next_offset( 'end' );
 		$consumer->set_stamp_as( Node_Names::REPL );
@@ -413,11 +414,12 @@ class Worker_Base {
 		$interpreter->make_node(
 			'Partition',
 			Node_Names::TOPICPROBE_LOG,
-			"{$probe_dir} " . self::TOPICPROBE_SEGMENT_SIZE
-				. ' ' . Partition_Node::DEFAULT_MIN_SEGMENTS
-				. ' ' . self::TOPICPROBE_MAX_SEGMENTS
-				. ' ' . self::TOPICPROBE_MIN_LIFETIME
-				. ' 0'
+			$probe_dir,
+			(string) self::TOPICPROBE_SEGMENT_SIZE,
+			(string) Partition_Node::DEFAULT_MIN_SEGMENTS,
+			(string) self::TOPICPROBE_MAX_SEGMENTS,
+			(string) self::TOPICPROBE_MIN_LIFETIME,
+			'0'
 		);
 		$probe = $interpreter->make_node( 'TopicProbe', Node_Names::TOPICPROBE, (string) self::TOPICPROBE_INTERVAL_S );
 		if ( $probe instanceof TopicProbe_Node ) {

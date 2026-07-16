@@ -166,7 +166,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			'bad name!'
+			[ 'bad name!' ]
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid name', $result );
@@ -285,7 +285,7 @@ class LayoutsCITest extends TestCase {
 			'42'        => [ 7, 8 ],
 		];
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', 'mixed ' . (string) \json_encode( $positions ) );
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'mixed', (string) \json_encode( $positions ) ] );
 
 		$clean = $result['positions'];
 		$this->assertArrayHasKey( 'keep_me', $clean );

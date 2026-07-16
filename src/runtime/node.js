@@ -52,24 +52,24 @@ export class Node {
 		this.setStateCache = {};
 		this.patron = null;
 		this.interpreter = null;
-		this._arguments = '';
+		this._arguments = [];
 		this.seedRegistrations();
 	}
 
 	/**
-	 * Get/set the node's raw argument string — the trivial Tachikoma getter/setter.
-	 * It stores the raw string and does NOT parse it. A node that wants positional
+	 * Get/set the node's argument token list — the trivial Tachikoma getter/setter.
+	 * It stores the token array and does NOT parse it. A node that wants positional
 	 * config calls parseSchemaArgs() from its own `set arguments` override (the
 	 * Schema_Reflection mirror), so a bare `make_node Foo` assigns nothing.
 	 *
-	 * @return {string} Last-set raw arguments string.
+	 * @return {string[]} Last-set argument tokens.
 	 */
 	get arguments() {
-		return this._arguments ?? '';
+		return this._arguments ?? [];
 	}
 
 	set arguments( value ) {
-		this._arguments = String( value ?? '' );
+		this._arguments = Array.isArray( value ) ? value : [];
 	}
 
 	fill( message ) {
@@ -340,8 +340,8 @@ export class Node {
 			this.constructor.name.replace( /Node$/, '' ) ||
 			this.constructor.name;
 		let out = `make_node ${ shellName } ${ this.name }`;
-		if ( this.arguments ) {
-			out += ` ${ this.arguments }`;
+		if ( this.arguments.length ) {
+			out += ` ${ serializeArgs( this.arguments ) }`;
 		}
 		out += '\n';
 
@@ -418,17 +418,52 @@ export class Node {
 	 * available on every Node so Shell.sendCommand and overlay callers can
 	 * issue commands without hand-building messages.
 	 *
-	 * @param {string} name Command verb (e.g. 'connect_node').
-	 * @param {string} args Positional argument string (the verb parses it).
+	 * @param {string}   name Command verb (e.g. 'connect_node').
+	 * @param {string[]} args Positional argument tokens (the verb classifies them).
 	 * @return {Array} A TM_COMMAND Message (the 7-field positional array).
 	 */
-	command( name, args = '' ) {
+	command( name, args = [] ) {
+		// Fail loud like buildMessage: a string here would drop the args to [].
+		if ( ! Array.isArray( args ) ) {
+			throw new Error(
+				`command args must be a token array, got ${ typeof args } for verb "${ name }"`
+			);
+		}
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
 		m[ VALUE ] = { name, arguments: args };
 		return m;
 	}
+}
+
+/**
+ * Quote+escape one token so the escape-aware tokenizer recovers it exactly: a
+ * bare quote char or backslash is a tokenizer metachar too, not just whitespace
+ * — quote on any, then escape the backslash and the wrapping `'`. Inverse of
+ * tokenize(); mirrors PHP Node::serialize_args.
+ *
+ * @param {string} token The token to serialize.
+ * @return {string} The token, quoted+escaped when it carries a metachar.
+ */
+export function serializeArg( token ) {
+	const s = String( token );
+	// An empty token would vanish on tokenize, so quote it too.
+	if ( '' !== s && ! /[\s'"`\\]/.test( s ) ) {
+		return s;
+	}
+	return "'" + s.replace( /\\/g, '\\\\' ).replace( /'/g, "\\'" ) + "'";
+}
+
+/**
+ * Serialization anchor for a node's argument tokens (mirror of PHP
+ * Node::serialize_args): the ONE place tokens re-join into a line.
+ *
+ * @param {string[]} tokens Argument tokens.
+ * @return {string} Space-joined line, each token quoted+escaped as needed.
+ */
+export function serializeArgs( tokens ) {
+	return tokens.map( serializeArg ).join( ' ' );
 }
 
 // Coerce a raw token to its declared schema type; unknown types pass through.
@@ -453,16 +488,15 @@ function coerceArgument( token, type ) {
  * their schema defaults only when input supplied an earlier token, and a missing required
  * token throws even when the input is empty. Empty optional input preserves ctor defaults.
  *
- * @param {Node}   node A node whose ctor exposes a static nodeSchema().
- * @param {string} args Raw positional argument string.
+ * @param {Node}     node A node whose ctor exposes a static nodeSchema().
+ * @param {string[]} args Positional argument tokens (pre-split, quote-resolved).
  */
 export function parseSchemaArgs( node, args ) {
 	const declared = node.constructor.nodeSchema?.().arguments || [];
 	if ( declared.length === 0 ) {
 		return;
 	}
-	const raw = String( args ?? '' ).trim();
-	const tokens = '' === raw ? [] : raw.split( /\s+/ );
+	const tokens = Array.isArray( args ) ? args : [];
 	for ( let i = 0; i < declared.length; i++ ) {
 		const spec = declared[ i ];
 		if (
@@ -486,8 +520,8 @@ export function parseSchemaArgs( node, args ) {
 			throw new Error( `Invalid argument specification: ${ name }` );
 		}
 		if ( i < tokens.length ) {
-			node[ name ] = coerceArgument( tokens[ i ], type );
-		} else if ( '' !== raw && 'default' in spec ) {
+			node[ name ] = coerceArgument( String( tokens[ i ] ), type );
+		} else if ( tokens.length > 0 && 'default' in spec ) {
 			node[ name ] = spec.default;
 		} else if ( spec.required ) {
 			throw new Error( `Missing required argument: ${ name }` );

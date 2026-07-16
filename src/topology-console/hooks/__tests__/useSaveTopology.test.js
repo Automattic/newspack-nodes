@@ -42,7 +42,7 @@ describe( 'useSaveTopology', () => {
 		expect( send ).toHaveBeenCalledWith( {
 			to: 'topologies',
 			verb: 'save',
-			args: 'demo make_node Echo e',
+			args: [ 'demo', 'make_node Echo e' ],
 		} );
 	} );
 

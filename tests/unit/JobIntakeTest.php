@@ -305,7 +305,7 @@ class JobIntakeTest extends TestCase {
 		$p = new Partition_Node();
 		$p->name( 'zebra:partition' );
 		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
-		$p->arguments( "{$this->tmp}/zebra.p0" );
+		$p->arguments( [ "{$this->tmp}/zebra.p0" ] );
 		$p->allow_large_writes();
 
 		$armed = \array_keys( $this->read_private( $router, 'registrations' )['TIMER'] ?? [] );

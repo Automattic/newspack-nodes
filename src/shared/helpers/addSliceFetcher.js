@@ -23,8 +23,8 @@
  * @param {string}   slice.viewClass   Registered class name for the view node.
  * @param {Object}   slice.tee         The fan-out Tee node the tick fans through.
  * @param {string}   slice.target      Egress path the Fetcher targets (`_shell/_http/<ci>`).
- * @param {Object}   [slice.transform] Optional `{ name, nodeClass, args }` node inserted on the receiver-Tee → view edge.
- * @param {Function} [slice.argsFn]    Optional fire-time getter `() => argsString`; assigned to the Fetcher's `command_args` so each tick emits live, UI-state-driven command args (filter / sort / page) without re-wiring.
+ * @param {Object}   [slice.transform] Optional `{ name, nodeClass, args }` (args a ctor-token array) node inserted on the receiver-Tee → view edge.
+ * @param {Function} [slice.argsFn]    Optional fire-time getter `() => argsTokens`; assigned to the Fetcher's `command_args` so each tick emits live, UI-state-driven command args (filter / sort / page) without re-wiring.
  * @return {string} The receiver Tee name.
  */
 export function addSliceFetcher(
@@ -42,11 +42,7 @@ export function addSliceFetcher(
 	}
 ) {
 	// Fetcher: turns the tick into ONE command (FROM=receiver) at the egress.
-	const f = interpreter.makeNode(
-		'Fetcher',
-		fetcher,
-		`${ receiver } ${ command }`
-	);
+	const f = interpreter.makeNode( 'Fetcher', fetcher, [ receiver, command ] );
 	// A getter makes the Fetcher emit live args each tick, else static (empty).
 	if ( argsFn ) {
 		f.command_args = argsFn;
@@ -60,7 +56,7 @@ export function addSliceFetcher(
 		const t = interpreter.makeNode(
 			transform.nodeClass,
 			transform.name,
-			transform.args || ''
+			transform.args || []
 		);
 		t.connectNode( view );
 		recv.connectNode( transform.name );

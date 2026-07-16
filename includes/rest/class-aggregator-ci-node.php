@@ -175,7 +175,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'name'        => 'status',
 					'description' => 'Per-node partition snapshot for each wired Remote_Source in the active aggregator topology.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_status(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_status(),
 				],
 				[
 					'name'        => 'summary',
@@ -209,13 +209,13 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'name'        => 'health',
 					'description' => 'Cache reachability + wall-clock timestamp.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_health(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_health(),
 				],
 				[
 					'name'        => 'servers',
 					'description' => 'Registered servers as a sequential array (legacy aggregator-tree contract).',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_servers(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_servers(),
 				],
 			],
 		] );

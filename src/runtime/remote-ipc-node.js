@@ -77,7 +77,10 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		connect[ TYPE ] = TM_COMMAND;
 		connect[ FROM ] = this.name;
 		connect[ TO ] = 'topologies';
-		connect[ VALUE ] = { name: 'connect_worker_input', arguments: reader };
+		connect[ VALUE ] = {
+			name: 'connect_worker_input',
+			arguments: [ reader ],
+		};
 
 		// One POST: ride a pre-existing lock, else open one around this pair.
 		const h = this.httpOut;

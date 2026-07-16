@@ -64,7 +64,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// list (id + size) and the cursor is the live source position.
 		Core::$now = 1000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -88,7 +88,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// position vs advanced past it.
 		Core::$now = 2000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -150,7 +150,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// and the cursor can't be on a (nonexistent) frame.
 		Core::$now = 2100.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -161,7 +161,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 	public function test_dump_metadata_empty_frames_when_no_offsetlog(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 " );
+		$c->arguments( [ "{$this->tmp}/data/p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 
 		$extra = $c->dump_metadata();
@@ -176,7 +176,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// did NOT scandir on the poll path.
 		Core::$now = 1500.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -200,7 +200,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// first commit, then rotates to a fresh segment on every commit after.
 		Core::$now = 7000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -235,7 +235,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// back to max_segments. One keyframe = one offsetlog segment.
 		Core::$now = 8000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -261,7 +261,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// max_lifetime are pruned down to the min_segments floor.
 		Core::$now = 8000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -286,7 +286,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// after older keyframes are pruned (load_offsetlog reads the newest segment).
 		Core::$now = 8500.0;
 		$c1 = new Consumer_Node();
-		$c1->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c1->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c1->name( 'firehose:consumer' );
 		$c1->sink( new Capture_Sink_Node() );
 
@@ -304,7 +304,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		// New worker: poll_init → load_offsetlog seeds from the newest frame (2:$total*100).
 		$c2 = new Consumer_Node();
-		$c2->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c2->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c2->name( 'firehose:consumer' );
 		$c2->sink( new Capture_Sink_Node() );
 		$c2->poll();
@@ -328,7 +328,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$node->state = [ 'in_flight' => [ 'r1' => 1 ] ];
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$c->set_snapshot_node( 'request-builder' );
@@ -354,7 +354,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// A paused consumer stays paused after seeking.
 		Core::$now = 3100.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->checkpoint_at( $c, 0, 30 );
@@ -369,7 +369,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_seek_frame_returns_error_when_segment_absent(): void {
 		Core::$now = 3200.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->checkpoint_at( $c, 0, 10 );
@@ -380,7 +380,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 	public function test_seek_frame_returns_error_when_no_offsetlog(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 " );
+		$c->arguments( [ "{$this->tmp}/data/p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$result = $c->seek_frame( 0 );
 		$this->assertStringContainsString( 'offsetlog', $result );
@@ -393,7 +393,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_pause_stops_the_timer(): void {
 		Core::$now = 4000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		// arguments() armed an EOF timer; confirm it is active before pausing.
@@ -409,13 +409,13 @@ class ConsumerTimeTravelTest extends TestCase {
 
 	public function test_step_emits_exactly_one_message_and_advances_cursor(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 		$this->produce_line( $source, 'b' );
 		$this->produce_line( $source, 'c' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -433,13 +433,13 @@ class ConsumerTimeTravelTest extends TestCase {
 
 	public function test_step_forces_line_mode_for_the_step(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 		$this->produce_line( $source, 'b' );
 
 		// Consumer NOT in line mode — a normal poll would drain both at once.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -455,11 +455,11 @@ class ConsumerTimeTravelTest extends TestCase {
 		// past messages) or leave an abandoned session stuck in line_mode.
 		Core::$now = 4500.0;
 		$source    = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		// arguments() armed an EOF timer; STEP must stop it.
@@ -473,11 +473,11 @@ class ConsumerTimeTravelTest extends TestCase {
 		// STEP stops the timer (it IS paused), so its dump_metadata polling signal
 		// must read PAUSED — consistent with pause() — not stay stale at ACTIVE.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		// arguments() set the signal ACTIVE; STEP must flip it to PAUSED.
@@ -492,11 +492,11 @@ class ConsumerTimeTravelTest extends TestCase {
 		// it dispatches through the auth-gated {name}:config interpreter. Its reply
 		// is the {seg,off,at_eof} array as a JSON string for the UI to parse.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'only' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -516,11 +516,11 @@ class ConsumerTimeTravelTest extends TestCase {
 		// bypasses interpret()'s auth gate): an unsigned, non-LOCAL STEP command is
 		// refused, emits no data message, and does NOT advance the cursor.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'guarded' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$data_cap = new Capture_Sink_Node();
 		$c->sink( $data_cap );
@@ -554,7 +554,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_step_at_eof_is_a_noop(): void {
 		// Empty source: STEP emits nothing and surfaces at_eof.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -571,11 +571,11 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_play_restores_prior_line_mode_true_and_rearms_timer(): void {
 		// Consumer legitimately runs line_mode=true; STEP→PLAY must leave it true.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->set_line_mode( true );
 		$c->sink( new Capture_Sink_Node() );
@@ -592,11 +592,11 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_play_restores_prior_line_mode_false(): void {
 		// Consumer runs line_mode=false; STEP forces it true, PLAY restores false.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -612,7 +612,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_play_rearms_with_busy_interval(): void {
 		Core::$now = 5200.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$c->pause();
@@ -634,7 +634,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_seek_frame_records_the_rewind_point(): void {
 		Core::$now = 9000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -651,7 +651,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_play_after_seek_truncates_offsetlog_after_rewind_point(): void {
 		Core::$now = 9100.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -677,7 +677,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_play_without_prior_seek_does_not_truncate(): void {
 		Core::$now = 9200.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -700,7 +700,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		// monotonic forward timeline.
 		Core::$now = 9300.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
@@ -742,7 +742,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	public function test_command_verbs_dispatch_through_config_interpreter(): void {
 		Core::$now = 6000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->checkpoint_at( $c, 3, 77 );
@@ -785,7 +785,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 	public function test_existing_get_lag_still_works(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -807,7 +807,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertNotContains( 'GET_OFFSET', $verbs );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );

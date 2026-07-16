@@ -73,20 +73,20 @@ class CommandTransitTest extends TestCase {
 		$cmd                       = Message::new_message();
 		$cmd[ Message::TYPE ]      = Message::TM_COMMAND;
 		$cmd[ Message::TIMESTAMP ] = \time();
-		$cmd[ Message::VALUE ]     = [ 'name' => 'make_node', 'arguments' => 'Tee proof' ];
+		$cmd[ Message::VALUE ]     = [ 'name' => 'make_node', 'arguments' => [ 'Tee', 'proof' ] ];
 		Command_Auth::sign( $cmd );
 		$this->assertIsArray( $cmd[ Message::VALUE ]['auth'] ?? null, 'precondition: the command was signed' );
 
 		// IPC hop: the Partition packs the command to a line (dropping LOCAL), so the
 		// Consumer that reads it back must verify the signature, not trust a taint.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/input.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/input.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$source->fill( $cmd );
 		$source->flush();
 
 		// Worker input Consumer: tails the partition, routes each line to the interpreter.
 		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$this->tmp}/input.p0 {$this->tmp}/offsets.p0" );
+		$consumer->arguments( [ "{$this->tmp}/input.p0", "{$this->tmp}/offsets.p0" ] );
 		$consumer->sink( $router );
 		$consumer->target( Node_Names::COMMAND_INTERPRETER );
 		$this->pump_consumer( $consumer );

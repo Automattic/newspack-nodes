@@ -44,7 +44,7 @@ export function useCompletion( { cwd, fill, append, skip = () => false } ) {
 			m[ FROM ] = names.COMPLETION;
 			m[ TO ] = cwd;
 			m[ KEY ] = 'completion';
-			m[ VALUE ] = { name: verb, arguments: '' };
+			m[ VALUE ] = { name: verb, arguments: [] };
 			m[ LOCAL ] = true;
 			fill( m );
 		},

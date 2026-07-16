@@ -401,7 +401,7 @@ class JobWorkerTest extends TestCase {
 
 	public function test_constructor_clamps_zero_or_negative_to_one(): void {
 		$jw = new Job_Worker_Node();
-		$jw->arguments( '0 0 -5' );
+		$jw->arguments( [ '0', '0', '-5' ] );
 
 		$this->register_job_handler( $jw, 'noop', fn () => null );
 		$message = $this->job_message( 'noop' );
@@ -606,7 +606,7 @@ class JobWorkerTest extends TestCase {
 
 	public function test_cache_flush_state_machine_emits_set_state_event(): void {
 		$jw = new Job_Worker_Node();
-		$jw->arguments( '3' );
+		$jw->arguments( [ '3' ] );
 		$this->register_job_handler( $jw, 'noop', fn () => null );
 
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'registrations' );
@@ -641,26 +641,26 @@ class JobWorkerTest extends TestCase {
 
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$jw = new Job_Worker_Node();
-		$jw->arguments( '7 120 480' );
+		$jw->arguments( [ '7', '120', '480' ] );
 		$ref = new \ReflectionClass( $jw );
 		$this->assertSame( 7,   $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
 	}
 
 	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
 		$jw = new Job_Worker_Node();
-		$jw->arguments( '' );
+		$jw->arguments( [] );
 		$ref = new \ReflectionClass( $jw );
 		$this->assertSame( Job_Worker_Node::CACHE_FLUSH_INTERVAL,   $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
 
 		$jw2 = new Job_Worker_Node();
-		$jw2->arguments( '5' );
+		$jw2->arguments( [ '5' ] );
 		$ref2 = new \ReflectionClass( $jw2 );
 		$this->assertSame( 5,                                       $ref2->getProperty( 'cache_flush_interval' )->getValue( $jw2 ) );
 	}
 
 	public function test_arguments_setter_normalizes_to_minimum_one(): void {
 		$jw = new Job_Worker_Node();
-		$jw->arguments( '0 -3 -5' );
+		$jw->arguments( [ '0', '-3', '-5' ] );
 		$ref = new \ReflectionClass( $jw );
 		$this->assertSame( 1, $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
 	}

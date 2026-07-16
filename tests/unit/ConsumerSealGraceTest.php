@@ -49,7 +49,7 @@ class ConsumerSealGraceTest extends TestCase {
 
 	private function make_consumer( string $dir, bool $multi_writer ): Consumer_Node {
 		$c = new Consumer_Node();
-		$c->arguments( "{$dir} {$this->tmp}/offsets" );
+		$c->arguments( [ "{$dir}", "{$this->tmp}/offsets" ] );
 		$c->set_multi_writer( $multi_writer );
 		$c->sink( new Capture_Sink_Node() );
 		return $c;
@@ -200,7 +200,7 @@ class ConsumerSealGraceTest extends TestCase {
 
 	public function test_multi_writer_defaults_off_and_setter_toggles_it(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/d {$this->tmp}/o" );
+		$c->arguments( [ "{$this->tmp}/d", "{$this->tmp}/o" ] );
 		$prop = new \ReflectionProperty( Consumer_Node::class, 'multi_writer' );
 		$this->assertFalse( $prop->getValue( $c ), 'default is single-writer (immediate advance)' );
 
@@ -210,15 +210,15 @@ class ConsumerSealGraceTest extends TestCase {
 
 	public function test_set_multi_writer_verb_enables_only_on_truthy_arg(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/d {$this->tmp}/o" );
+		$c->arguments( [ "{$this->tmp}/d", "{$this->tmp}/o" ] );
 		$interp = new \Newspack_Nodes\Command_Interpreter_Node();
 		$interp->patron( $c );
 
-		$this->assertSame( 'ok', Consumer_Node::cmd_set_multi_writer( $interp, 'true' ) );
+		$this->assertSame( 'ok', Consumer_Node::cmd_set_multi_writer( $interp, [ 'true' ] ) );
 		$prop = new \ReflectionProperty( Consumer_Node::class, 'multi_writer' );
 		$this->assertTrue( $prop->getValue( $c ) );
 
-		Consumer_Node::cmd_set_multi_writer( $interp, 'nope' );
+		Consumer_Node::cmd_set_multi_writer( $interp, [ 'nope' ] );
 		$this->assertFalse( $prop->getValue( $c ), 'non-truthy disables' );
 	}
 }

@@ -53,7 +53,7 @@ class TailTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/off/0.log", Message::packed( $frame ) . "\n" );
 
 		$t = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off" );
+		$t->arguments( [ "{$file}", "{$this->tmp}/off" ] );
 		$cap = new Capture_Sink_Node();
 		$t->sink( $cap );
 		$this->pump( $t );
@@ -65,7 +65,7 @@ class TailTest extends TestCase {
 
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$t = new Tail_Node();
-		$t->arguments( "{$this->tmp}/data.log {$this->tmp}/off" );
+		$t->arguments( [ "{$this->tmp}/data.log", "{$this->tmp}/off" ] );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( "{$this->tmp}/data.log", $ref->getProperty( 'source_file' )->getValue( $t ) );
 		$this->assertSame( "{$this->tmp}/off",      $ref->getProperty( 'offsetlog_dir' )->getValue( $t ) );
@@ -74,7 +74,7 @@ class TailTest extends TestCase {
 	public function test_source_is_a_log_reading_file_dot_seg_segments(): void {
 		// The Tail's source node is a Log_Node (file layout), not a Partition (dir layout).
 		$t = new Tail_Node();
-		$t->arguments( "{$this->tmp}/data.log {$this->tmp}/off" );
+		$t->arguments( [ "{$this->tmp}/data.log", "{$this->tmp}/off" ] );
 		$ref    = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
 		$source = $ref->getProperty( 'source' )->getValue( $t );
 		$this->assertInstanceOf( \Newspack_Nodes\Log_Node::class, $source );
@@ -86,7 +86,7 @@ class TailTest extends TestCase {
 		$file = "{$this->tmp}/data.log";
 		$this->write_segment( $file, 0, "old1\nold2\n" );
 		$t   = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off" );
+		$t->arguments( [ "{$file}", "{$this->tmp}/off" ] );
 		$cap = new Capture_Sink_Node();
 		$t->sink( $cap );
 
@@ -102,7 +102,7 @@ class TailTest extends TestCase {
 		$file = "{$this->tmp}/data.log";
 		$this->write_segment( $file, 0, "first\nsecond\nthird\n" );
 		$t   = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off" );
+		$t->arguments( [ "{$file}", "{$this->tmp}/off" ] );
 		$t->next_offset( 'start' ); // explicit seek beats the end default.
 		$cap = new Capture_Sink_Node();
 		$t->sink( $cap );
@@ -117,7 +117,7 @@ class TailTest extends TestCase {
 		$file = "{$this->tmp}/data.log";
 		$this->write_segment( $file, 0, "first\nsecond\n" );
 		$t = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off" );
+		$t->arguments( [ "{$file}", "{$this->tmp}/off" ] );
 		$t->next_offset( 'start' );
 		$t->set_line_mode( true );
 		$cap = new Capture_Sink_Node();
@@ -134,7 +134,7 @@ class TailTest extends TestCase {
 		$this->write_segment( $file, 0, "a\nb\n" );
 		$this->write_segment( $file, 1, "c\nd\n" );
 		$t   = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off" );
+		$t->arguments( [ "{$file}", "{$this->tmp}/off" ] );
 		$t->next_offset( 'start' );
 		$cap = new Capture_Sink_Node();
 		$t->sink( $cap );
@@ -151,7 +151,7 @@ class TailTest extends TestCase {
 		$this->write_segment( $file, 0, "one\ntwo\n" );
 
 		$t1  = new Tail_Node();
-		$t1->arguments( "{$file} {$offset}" );
+		$t1->arguments( [ "{$file}", "{$offset}" ] );
 		$t1->next_offset( 'start' );
 		$cap1 = new Capture_Sink_Node();
 		$t1->sink( $cap1 );
@@ -162,7 +162,7 @@ class TailTest extends TestCase {
 		\file_put_contents( "{$file}.0", "three\n", \FILE_APPEND );
 
 		$t2  = new Tail_Node();
-		$t2->arguments( "{$file} {$offset}" );
+		$t2->arguments( [ "{$file}", "{$offset}" ] );
 		$cap2 = new Capture_Sink_Node();
 		$t2->sink( $cap2 );
 		$this->pump( $t2 );
@@ -173,7 +173,7 @@ class TailTest extends TestCase {
 		$file = "{$this->tmp}/data.log";
 		$this->write_segment( $file, 0, "hello\n" );
 		$t = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off" );
+		$t->arguments( [ "{$file}", "{$this->tmp}/off" ] );
 		$t->next_offset( 'start' );
 		$t->connect_node( 'mysession' );
 		$cap = new Capture_Sink_Node();
@@ -189,7 +189,7 @@ class TailTest extends TestCase {
 		$file = "{$this->tmp}/data.log";
 		$this->write_segment( $file, 0, "x\n" );
 		$t = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off" );
+		$t->arguments( [ "{$file}", "{$this->tmp}/off" ] );
 		$t->next_offset( 'start' );
 		$cap = new Capture_Sink_Node();
 		$t->sink( $cap );
@@ -201,7 +201,7 @@ class TailTest extends TestCase {
 
 	public function test_missing_source_does_not_throw(): void {
 		$t = new Tail_Node();
-		$t->arguments( "{$this->tmp}/missing.log {$this->tmp}/off" );
+		$t->arguments( [ "{$this->tmp}/missing.log", "{$this->tmp}/off" ] );
 		$cap = new Capture_Sink_Node();
 		$t->sink( $cap );
 		$this->pump( $t ); // must not throw.
@@ -224,7 +224,7 @@ class TailTest extends TestCase {
 		// `:deadletter` sibling Partition just like a Consumer, so a Tail's poison
 		// (hard-crash crawl / cooperative-stop strike) is recoverable, not silently dropped.
 		$t = new Tail_Node();
-		$t->arguments( "{$this->tmp}/data.log {$this->tmp}/off {$this->tmp}/deadletter" );
+		$t->arguments( [ "{$this->tmp}/data.log", "{$this->tmp}/off", "{$this->tmp}/deadletter" ] );
 		$ref = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
 		$this->assertSame( "{$this->tmp}/deadletter", $ref->getProperty( 'deadletter_dir' )->getValue( $t ) );
 		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, $ref->getProperty( 'deadletter' )->getValue( $t ) );

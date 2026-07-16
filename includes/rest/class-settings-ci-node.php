@@ -72,11 +72,11 @@ class Settings_CI_Node extends Service_CI_Node {
 	/**
 	 * `set` verb handler — set one substrate integer setting by full option name, return the post-set snapshot.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_set( string $args ): array {
+	public static function cmd_set( array $args ): array {
 		self::require_manage_options();
 		// Positional: set <option> <value>; <option> is the full option key.
 		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
@@ -163,7 +163,7 @@ class Settings_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'description' => 'Return the six substrate-owned integer settings as a snapshot.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_get(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_get(),
 				],
 				[
 					'name'        => 'set',
@@ -172,7 +172,7 @@ class Settings_CI_Node extends Service_CI_Node {
 						[ 'name' => 'option', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'value', 'type' => 'int', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_set( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_set( self::arg_strings( $args ) ),
 				],
 			],
 		] );

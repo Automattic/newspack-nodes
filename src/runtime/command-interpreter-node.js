@@ -101,12 +101,6 @@ const HELP = {
 	status: 'status\n    note: local cli mode summary (no command sent).\n',
 };
 
-// Split on runs of whitespace, dropping empties (PHP preg_split '/\s+/').
-function splitArgs( args ) {
-	const t = String( args ?? '' ).trim();
-	return '' === t ? [] : t.split( /\s+/ );
-}
-
 /**
  * Verb dispatch over TM_COMMAND messages with empty TO (mirrors PHP
  * CommandInterpreter). Throws wrap as TM_ERROR, returns as TM_RESPONSE;
@@ -177,8 +171,9 @@ export class CommandInterpreterNode extends Node {
 			);
 			return;
 		}
+		const args = Array.isArray( cmd.arguments ) ? cmd.arguments : [];
 		try {
-			const result = verb( this, cmd.arguments ?? '', message );
+			const result = verb( this, args, message );
 			this._respond( message, cmd.name, result, TM_RESPONSE );
 		} catch ( e ) {
 			this._respond( message, cmd.name, e.message, TM_ERROR );
@@ -205,10 +200,11 @@ export class CommandInterpreterNode extends Node {
 		resp[ ID ] = message[ ID ];
 		resp[ KEY ] = message[ KEY ];
 		// Response VALUE echoes request `arguments` (targeted vs full reply).
-		const reqArgs =
+		const rawArgs =
 			message[ VALUE ] && typeof message[ VALUE ] === 'object'
-				? message[ VALUE ].arguments ?? ''
-				: '';
+				? message[ VALUE ].arguments
+				: undefined;
+		const reqArgs = Array.isArray( rawArgs ) ? rawArgs : [];
 		resp[ VALUE ] = { name, arguments: reqArgs, payload };
 		if ( this.sink ) {
 			this.sink.fill( resp );
@@ -217,25 +213,21 @@ export class CommandInterpreterNode extends Node {
 
 	// `make_node <type> <name> [args]`: spread tokens to ctor, name()+sink.
 	_cmdMakeNode( args ) {
-		const parts = String( args ?? '' )
-			.trim()
-			.split( /\s+/ )
-			.filter( Boolean );
-		if ( parts.length < 2 ) {
+		if ( args.length < 2 ) {
 			return 'usage: make_node <type> <name> [<ctor_args>...]';
 		}
-		const type = parts.shift();
+		const type = args[ 0 ];
 		// Unknown class returns a string; a collision throws → TM_ERROR.
 		if ( ! CommandInterpreterNode.resolveClass( type ) ) {
 			return `unknown class: ${ type }`;
 		}
-		const name = parts.shift();
-		this.makeNode( type, name, parts.join( ' ' ) );
+		const name = args[ 1 ];
+		this.makeNode( type, name, args.slice( 2 ) );
 		return 'ok';
 	}
 
 	// Programmatic build: create, name + sink a class; make_node delegates.
-	makeNode( type, name, args = '' ) {
+	makeNode( type, name, args = [] ) {
 		const NodeClass = CommandInterpreterNode.resolveClass( type );
 		if ( ! NodeClass ) {
 			throw new Error( `unknown class: ${ type }` );
@@ -243,7 +235,7 @@ export class CommandInterpreterNode extends Node {
 		const node = new NodeClass();
 		node.name = name;
 		try {
-			node.arguments = String( args ?? '' ).trim();
+			node.arguments = Array.isArray( args ) ? args : [];
 		} catch ( error ) {
 			node.removeNode();
 			throw error;
@@ -280,12 +272,12 @@ export class CommandInterpreterNode extends Node {
 	/**
 	 * Dispatch a verb by name (inline call path, mirrors PHP dispatch()).
 	 *
-	 * @param {string} name     Verb name.
-	 * @param {string} args     Literal arguments tail.
-	 * @param {Array}  envelope Inbound message, or [] for inline calls.
+	 * @param {string}   name     Verb name.
+	 * @param {string[]} args     Pre-split argument tokens.
+	 * @param {Array}    envelope Inbound message, or [] for inline calls.
 	 * @return {*} Verb result.
 	 */
-	dispatch( name, args = '', envelope = [] ) {
+	dispatch( name, args = [], envelope = [] ) {
 		const verb = this._commands[ name ];
 		if ( typeof verb !== 'function' ) {
 			throw new Error( `unknown command: ${ name }` );
@@ -323,7 +315,7 @@ export class CommandInterpreterNode extends Node {
 			list_timers: () => CommandInterpreterNode._cmdListTimers(),
 			list_handles: () => CommandInterpreterNode._cmdListHandles(),
 			log: ( self, args ) => {
-				self.stderr( args );
+				self.stderr( args.join( ' ' ) );
 				return '';
 			},
 			dmesg: () => CommandInterpreterNode._cmdDmesg(),
@@ -331,9 +323,9 @@ export class CommandInterpreterNode extends Node {
 				CommandInterpreterNode._cmdDumpNode( args ),
 			dump: ( self, args ) => CommandInterpreterNode._cmdDumpNode( args ),
 			dump_metadata: ( self, args ) =>
-				CommandInterpreterNode._cmdDumpMetadata( args ),
+				CommandInterpreterNode._cmdDumpMetadata( args[ 0 ] ?? '' ),
 			dump_config: ( self, args ) =>
-				CommandInterpreterNode._cmdDumpConfig( args ),
+				CommandInterpreterNode._cmdDumpConfig( args[ 0 ] ?? '' ),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreterNode._cmdUptime(),
 			debug_state: ( self, args ) => self._cmdDebugState( args ),
@@ -345,13 +337,8 @@ export class CommandInterpreterNode extends Node {
 
 	// `reply_to <path> <cmd>` — run <cmd> here but route its reply to <path>.
 	_cmdReplyTo( args ) {
-		const t = String( args ?? '' ).trim();
-		const i1 = t.search( /\s/ );
-		const path = -1 === i1 ? t : t.slice( 0, i1 );
-		const rest = -1 === i1 ? '' : t.slice( i1 ).trim();
-		const i2 = rest.search( /\s/ );
-		const verb = -1 === i2 ? rest : rest.slice( 0, i2 );
-		const verbArgs = -1 === i2 ? '' : rest.slice( i2 ).trim();
+		const path = args[ 0 ] ?? '';
+		const verb = args[ 1 ] ?? '';
 		if ( '' === path || '' === verb ) {
 			return 'usage: reply_to <node path> <command>';
 		}
@@ -362,7 +349,7 @@ export class CommandInterpreterNode extends Node {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = path;
-		m[ VALUE ] = { name: verb, arguments: verbArgs };
+		m[ VALUE ] = { name: verb, arguments: args.slice( 2 ) };
 		m[ LOCAL ] = true;
 		this.fill( m );
 		return '';
@@ -370,13 +357,14 @@ export class CommandInterpreterNode extends Node {
 
 	// `pwd` to ` <cwd> -> <envelope.from>`.
 	static _cmdPwd( args, envelope ) {
-		const cwd = '' === String( args ?? '' ).trim() ? '/' : args;
+		const path = args[ 0 ] ?? '';
+		const cwd = '' === path ? '/' : path;
 		const from = ( envelope && envelope[ FROM ] ) || '';
 		return ` ${ cwd } -> ${ from }`;
 	}
 
 	static _cmdSetSink( args ) {
-		const parts = splitArgs( args );
+		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		const target = parts.slice( 1 ).join( ' ' );
 		if ( '' === name || '' === target ) {
@@ -392,7 +380,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	static _cmdConnect( args, envelope = {} ) {
-		const parts = splitArgs( args );
+		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
 			return 'usage: connect_node <node> [<target>]';
@@ -415,7 +403,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	static _cmdDisconnect( args, envelope = {} ) {
-		const parts = splitArgs( args );
+		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
 			return 'usage: disconnect_node <node> [<target>]';
@@ -446,7 +434,7 @@ export class CommandInterpreterNode extends Node {
 
 	// register: arg order src/tgt/event, but Node.register takes event first.
 	static _cmdRegister( args ) {
-		const parts = splitArgs( args );
+		const parts = args;
 		const source = parts[ 0 ] ?? '';
 		if ( '' === source ) {
 			return 'usage: register <source name> <target name> <event>';
@@ -468,7 +456,7 @@ export class CommandInterpreterNode extends Node {
 
 	// unregister: drop tgt's registration on src; no target-existence check.
 	static _cmdUnregister( args ) {
-		const parts = splitArgs( args );
+		const parts = args;
 		const source = parts[ 0 ] ?? '';
 		if ( '' === source ) {
 			return 'usage: unregister <source name> <target name> <event>';
@@ -486,17 +474,17 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// `remove_node <name>...` or `remove_node -a <regex>`.
-	_cmdRemove( argsIn ) {
-		let args = String( argsIn ?? '' ).trim();
-		if ( '' === args ) {
+	_cmdRemove( args ) {
+		if ( 0 === args.length ) {
 			return 'usage: remove_node <node name>';
 		}
 
 		let listMatches = false;
-		if ( args.startsWith( '-a ' ) || '-a' === args ) {
+		let glob = '';
+		if ( '-a' === ( args[ 0 ] ?? '' ) ) {
 			listMatches = true;
-			args = args.slice( 2 ).trim();
-			if ( '' === args ) {
+			glob = args[ 1 ] ?? '';
+			if ( '' === glob ) {
 				return 'usage: remove_node -a <anchored regex glob>';
 			}
 		}
@@ -506,7 +494,7 @@ export class CommandInterpreterNode extends Node {
 			names = [];
 			let re = null;
 			try {
-				re = new RegExp( `^${ args }$` );
+				re = new RegExp( `^${ glob }$` );
 			} catch ( e ) {
 				re = null;
 			}
@@ -519,7 +507,7 @@ export class CommandInterpreterNode extends Node {
 			}
 			names.sort();
 		} else {
-			names = args.split( /\s+/ );
+			names = args;
 		}
 
 		const removed = [];
@@ -555,7 +543,7 @@ export class CommandInterpreterNode extends Node {
 		let showTarget = false;
 		const argv = [];
 
-		for ( const tok of splitArgs( args ) ) {
+		for ( const tok of args ) {
 			const m = /^-([aclst]+)$/.exec( tok );
 			if ( m ) {
 				for ( const opt of m[ 1 ] ) {
@@ -691,7 +679,7 @@ export class CommandInterpreterNode extends Node {
 
 	// dump_node <name> [<keys>]: class header + pretty-JSON of state.
 	static _cmdDumpNode( args ) {
-		const parts = splitArgs( args );
+		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
 			return 'no node specified';
@@ -772,7 +760,7 @@ export class CommandInterpreterNode extends Node {
 	_cmdStats( args ) {
 		let listMatches = false;
 		const argv = [];
-		for ( const tok of splitArgs( args ) ) {
+		for ( const tok of args ) {
 			if ( '-a' === tok ) {
 				listMatches = true;
 				continue;
@@ -818,7 +806,7 @@ export class CommandInterpreterNode extends Node {
 
 	// debug_state [<node> [<level>]] — toggle or set a node's debug level.
 	_cmdDebugState( args ) {
-		const parts = splitArgs( args );
+		const parts = args;
 		const first = parts[ 0 ] ?? '';
 
 		if ( '' === first ) {
@@ -874,7 +862,7 @@ export class CommandInterpreterNode extends Node {
 				.sort()
 				.join( '\n' );
 		}
-		const topic = String( args ?? '' ).trim();
+		const topic = args[ 0 ] ?? '';
 		if ( '' === topic ) {
 			const names = Object.keys( HELP ).sort();
 			const rows = [];

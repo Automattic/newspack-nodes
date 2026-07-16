@@ -116,9 +116,9 @@ class TopicProbeTest extends TestCase {
 		( new \Newspack_Nodes\Router_Node() )->name( '_router' ); // set_timer hitchhikes the Router TIMER
 		$probe = new TopicProbe_Node();
 		$probe->name( '_topicprobe' );
-		$this->assertSame( '5', $probe->arguments( '5' ) );
+		$this->assertSame( [ '5' ], $probe->arguments( [ '5' ] ) );
 		// The getter (null arg) returns the raw string last set, not a re-parse.
-		$this->assertSame( '5', $probe->arguments() );
+		$this->assertSame( [ '5' ], $probe->arguments() );
 		$ref = new \ReflectionProperty( $probe, 'interval_ms' );
 		$this->assertSame( 5000, $ref->getValue( $probe ) );
 	}
@@ -127,7 +127,7 @@ class TopicProbeTest extends TestCase {
 		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		$probe = new TopicProbe_Node();
 		$probe->name( '_topicprobe' );
-		$this->assertSame( '', $probe->arguments( '' ) );
+		$this->assertSame( [], $probe->arguments( [] ) );
 		$ref = new \ReflectionProperty( $probe, 'interval_ms' );
 		$this->assertSame( 15000, $ref->getValue( $probe ) );
 	}
@@ -135,7 +135,7 @@ class TopicProbeTest extends TestCase {
 	public function test_arguments_rejects_non_numeric(): void {
 		$probe = new TopicProbe_Node();
 		$this->expectException( \InvalidArgumentException::class );
-		$probe->arguments( 'every-15s' );
+		$probe->arguments( [ 'every-15s' ] );
 	}
 
 	public function test_fire_notifies_then_bails_before_sweeping_when_no_sink(): void {

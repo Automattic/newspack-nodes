@@ -82,7 +82,7 @@ export class DmesgNode extends TimerNode {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
 		m[ TO ] = this.target;
-		m[ VALUE ] = { name: verb, arguments: '' };
+		m[ VALUE ] = { name: verb, arguments: [] };
 		m[ LOCAL ] = true;
 		return m;
 	}

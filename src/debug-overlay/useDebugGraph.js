@@ -4,6 +4,7 @@ import { snapToGrid } from '../topology-console/utils/autoLayout';
 import { useGraphSource } from '../topology-console/hooks/useGraphSource';
 import { useGraphHandlers } from '../topology-console/hooks/useGraphHandlers';
 import { FROM, LOCAL, applyReplyFlags } from '../runtime/message';
+import { tokenize } from '../runtime/shell-node';
 import names from '../runtime/reserved-node-names.json';
 
 /**
@@ -63,7 +64,8 @@ export function useDebugGraph(
 				applyReplyFlags( parsed, flags );
 				shell.dispatch( parsed );
 			} else {
-				shell.sendCommand( path, name, args );
+				// Tokenize the raw arg tail at the producer boundary.
+				shell.sendCommand( path, name, tokenize( args || '' ) );
 			}
 		},
 		[ shell ]

@@ -10,7 +10,7 @@
  * to `_output` (the Dumper). TO=`prefix(path)` (path defaults to `_http/{reader}`).
  */
 
-import { Node } from './node';
+import { Node, serializeArg } from './node';
 import {
 	newMessage,
 	TYPE,
@@ -45,6 +45,11 @@ export function tokenize( line ) {
 	for ( let i = 0; i < line.length; i++ ) {
 		const ch = line[ i ];
 		if ( null !== inQuote ) {
+			// Inside a quote, `\` escapes the next char (see serializeArg).
+			if ( '\\' === ch && i + 1 < line.length ) {
+				buf += line[ ++i ];
+				continue;
+			}
 			if ( ch === inQuote ) {
 				inQuote = null;
 			} else {
@@ -75,26 +80,17 @@ export function tokenize( line ) {
 }
 
 /**
- * Inverse of tokenize() for a SINGLE token: wrap a value in a quote char it does
- * not contain, so tokenize() delivers it back as one intact token (the tokenizer
- * strips quotes and has no escape, so the wrapper must simply be absent from the
- * value). Used by the message composer to send JSON to `send_struct` without the
- * caller hand-escaping it [#32]: JSON always carries `"`, so prefer `'`, then a
- * backtick. A value containing ALL three quote chars can't be represented by a
- * tokenizer with no escape, so it returns null — the caller surfaces that honestly
- * rather than emitting a token that silently re-tokenizes wrong.
+ * Inverse of tokenize() for a SINGLE token: quote+escape a value so tokenize()
+ * delivers it back as one intact token. Used by the message composer to send
+ * JSON to `send_struct` without the caller hand-escaping it [#32]. With the
+ * escape-aware tokenizer this is exactly serializeArg, so any value — including
+ * one carrying every quote char — round-trips (never unrepresentable).
  *
  * @param {string} value The token to quote (e.g. a JSON string).
- * @return {string|null} The value wrapped in a safe quote char, or null if none exists.
+ * @return {string} The value quoted+escaped so tokenize() recovers it intact.
  */
 export function quoteToken( value ) {
-	const s = String( value );
-	for ( const q of [ "'", '`', '"' ] ) {
-		if ( ! s.includes( q ) ) {
-			return `${ q }${ s }${ q }`;
-		}
-	}
-	return null;
+	return serializeArg( value );
 }
 
 /**
@@ -111,6 +107,11 @@ export function splitStatements( line ) {
 	for ( let i = 0; i < line.length; i++ ) {
 		const ch = line[ i ];
 		if ( null !== inQuote ) {
+			// Keep `\`-escapes verbatim; an escaped quote must not close here.
+			if ( '\\' === ch && i + 1 < line.length ) {
+				buf += ch + line[ ++i ];
+				continue;
+			}
 			buf += ch;
 			if ( ch === inQuote ) {
 				inQuote = null;
@@ -298,7 +299,7 @@ export class ShellNode extends Node {
 				};
 			}
 			message[ TYPE ] = TM_COMMAND;
-			message[ VALUE ] = { name, arguments: join( 2 ) };
+			message[ VALUE ] = { name, arguments: args.slice( 2 ) };
 			return this.stampNoreply( message );
 		}
 
@@ -369,15 +370,15 @@ export class ShellNode extends Node {
 			message[ TO ] = this.path;
 			message[ VALUE ] = {
 				name: 'pwd',
-				arguments: this.path,
+				arguments: '' === this.path ? [] : [ this.path ],
 			};
 			return this.stampNoreply( message );
 		}
 
-		// Bare verb: TM_COMMAND at the cwd (path).
+		// Bare verb: TM_COMMAND at the cwd (path); args are the token tail.
 		message[ TYPE ] = TM_COMMAND;
 		message[ TO ] = this.prefix( '' );
-		message[ VALUE ] = { name: verb, arguments: join( 0 ) };
+		message[ VALUE ] = { name: verb, arguments: args };
 		return this.stampNoreply( message );
 	}
 
@@ -462,12 +463,12 @@ export class ShellNode extends Node {
 	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
 	 * callers issue commands as method calls instead of via parse().
 	 *
-	 * @param {string} path Routing target (TO). Empty = local interpreter.
-	 * @param {string} name Command verb (e.g. 'connect_node').
-	 * @param {string} args Positional argument string.
+	 * @param {string}   path Routing target (TO). Empty = local interpreter.
+	 * @param {string}   name Command verb (e.g. 'connect_node').
+	 * @param {string[]} args Positional argument tokens.
 	 * @return {void}
 	 */
-	sendCommand( path, name, args = '' ) {
+	sendCommand( path, name, args = [] ) {
 		const m = this.command( name, args );
 		m[ FROM ] = this.replyFrom( names.OUTPUT );
 		// `path` is RELATIVE to the cwd — prefix() joins them.

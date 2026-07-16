@@ -111,7 +111,7 @@ class HTTPInTest extends TestCase {
 		$echo->sink( $base_interpreter );
 		$echo->commands(
 			[
-				'echo' => static fn( $self, $args ): string => "got: {$args}",
+				'echo' => static fn( $self, $args ): string => 'got: ' . \implode( ' ', $args ),
 			]
 		);
 
@@ -121,7 +121,7 @@ class HTTPInTest extends TestCase {
 				'to'    => 'echo_service',
 				'from'  => '_http',
 				'id'    => 'cmd-1',
-				'value' => [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ],
+				'value' => [ 'name' => 'echo', 'arguments' => [ 'hi' ], 'payload' => '' ],
 			]
 		);
 
@@ -155,7 +155,7 @@ class HTTPInTest extends TestCase {
 				'to'    => '',
 				'from'  => '_http',
 				'id'    => 'cmd-log',
-				'value' => [ 'name' => 'log', 'arguments' => 'hello world', 'payload' => '' ],
+				'value' => [ 'name' => 'log', 'arguments' => [ 'hello', 'world' ], 'payload' => '' ],
 			]
 		);
 
@@ -186,7 +186,7 @@ class HTTPInTest extends TestCase {
 				'to'    => '',
 				'from'  => '_http',
 				'id'    => 'cmd-empty',
-				'value' => [ 'name' => 'help', 'arguments' => '', 'payload' => '' ],
+				'value' => [ 'name' => 'help', 'arguments' => [], 'payload' => '' ],
 			]
 		);
 
@@ -217,8 +217,8 @@ class HTTPInTest extends TestCase {
 		$echo->commands(
 			[
 				'echo' => static function ( $self, $args ) use ( &$ran ): string {
-					$ran[] = $args;
-					return "got: {$args}";
+					$ran[] = \implode( ' ', $args );
+					return 'got: ' . \implode( ' ', $args );
 				},
 			]
 		);
@@ -230,7 +230,7 @@ class HTTPInTest extends TestCase {
 		$stale[ Message::TO ]        = 'echo_service';
 		$stale[ Message::FROM ]      = '_http';
 		$stale[ Message::ID ]        = 'cmd-skew';
-		$stale[ Message::VALUE ]     = [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ];
+		$stale[ Message::VALUE ]     = [ 'name' => 'echo', 'arguments' => [ 'hi' ], 'payload' => '' ];
 
 		$req = new \WP_REST_Request();
 		$req->set_body( Message::packed( $stale ) );
@@ -263,16 +263,16 @@ class HTTPInTest extends TestCase {
 		$echo->commands(
 			[
 				'echo' => static function ( $self, $args ) use ( &$calls ): string {
-					$calls[] = $args;
-					return "got: {$args}";
+					$calls[] = \implode( ' ', $args );
+					return 'got: ' . \implode( ' ', $args );
 				},
 			]
 		);
 
 		$req = $this->make_batch_request(
 			[
-				[ 'type' => Message::TM_COMMAND, 'to' => 'echo_service', 'from' => '_http', 'id' => 'c1', 'value' => [ 'name' => 'echo', 'arguments' => 'one', 'payload' => '' ] ],
-				[ 'type' => Message::TM_COMMAND, 'to' => 'echo_service', 'from' => '_http', 'id' => 'c2', 'value' => [ 'name' => 'echo', 'arguments' => 'two', 'payload' => '' ] ],
+				[ 'type' => Message::TM_COMMAND, 'to' => 'echo_service', 'from' => '_http', 'id' => 'c1', 'value' => [ 'name' => 'echo', 'arguments' => [ 'one' ], 'payload' => '' ] ],
+				[ 'type' => Message::TM_COMMAND, 'to' => 'echo_service', 'from' => '_http', 'id' => 'c2', 'value' => [ 'name' => 'echo', 'arguments' => [ 'two' ], 'payload' => '' ] ],
 			]
 		);
 
@@ -293,7 +293,7 @@ class HTTPInTest extends TestCase {
 				'to'    => 'missing_service',
 				'from'  => '_http',
 				'id'    => 'cmd-2',
-				'value' => [ 'name' => 'whatever', 'arguments' => '', 'payload' => '' ],
+				'value' => [ 'name' => 'whatever', 'arguments' => [], 'payload' => '' ],
 			]
 		);
 
@@ -321,7 +321,7 @@ class HTTPInTest extends TestCase {
 				'type'  => Message::TM_COMMAND,
 				'to'    => 'echo_service',
 				'id'    => 'cmd-3',
-				'value' => [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ],
+				'value' => [ 'name' => 'echo', 'arguments' => [], 'payload' => '' ],
 			]
 		);
 
@@ -358,7 +358,7 @@ class HTTPInTest extends TestCase {
 				$echo->name( 'hook_echo' );
 				$echo->sink( $base_interpreter );
 				$echo->commands(
-					[ 'echo' => static fn( $self, $args ): string => "got: {$args}" ]
+					[ 'echo' => static fn( $self, $args ): string => 'got: ' . \implode( ' ', $args ) ]
 				);
 			}
 		);
@@ -369,7 +369,7 @@ class HTTPInTest extends TestCase {
 				'to'    => 'hook_echo',
 				'from'  => '_http',
 				'id'    => 'cmd-lazy-1',
-				'value' => [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ],
+				'value' => [ 'name' => 'echo', 'arguments' => [ 'hi' ], 'payload' => '' ],
 			]
 		);
 
@@ -428,7 +428,7 @@ class HTTPInTest extends TestCase {
 				'to'    => 'idem_echo',
 				'from'  => '_http',
 				'id'    => 'cmd-idem',
-				'value' => [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ],
+				'value' => [ 'name' => 'echo', 'arguments' => [], 'payload' => '' ],
 			]
 		);
 		$ctrl = new HTTP_In_Node();
@@ -484,7 +484,7 @@ class HTTPInTest extends TestCase {
 		// Mount a Partition under the worker's name — same as production
 		// bootstrap after scanning the locks/ dir.
 		$worker_partition = new Partition_Node();
-		$worker_partition->arguments( "{$input_dir}" );
+		$worker_partition->arguments( [ "{$input_dir}" ] );
 		$worker_partition->name( 'firehose-workers.p0' );
 
 		$req = $this->make_request(
@@ -493,7 +493,7 @@ class HTTPInTest extends TestCase {
 				'to'    => 'firehose-workers.p0/_command_interpreter',
 				'from'  => '_http/4242',  // attached: SSE process pid
 				'id'    => 'cmd-xyz',
-				'value' => [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ],
+				'value' => [ 'name' => 'dump_metadata', 'arguments' => [], 'payload' => '' ],
 			]
 		);
 
@@ -515,7 +515,7 @@ class HTTPInTest extends TestCase {
 		$worker_partition->flush();
 
 		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$input_dir} " );
+		$consumer->arguments( [ "{$input_dir}" ] );
 		$consumer->next_offset( 'start' );
 		$consumer->sink( $got = new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$this->pump_consumer( $consumer );

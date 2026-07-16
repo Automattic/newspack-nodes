@@ -60,15 +60,15 @@ class Remote_Link_Node extends Timer_Node {
 	 * Parse `<vault-id> <remote_partition>` and arm the recurring tick.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @param string|null $args
-	 * @return string
+	 * @param list<string>|null $args
+	 * @return list<string>
 	 */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
-		if ( '' !== $args ) {
+		if ( [] !== $args ) {
 			$this->set_timer( self::TICK_INTERVAL_MS );
 		}
 		return $args;
@@ -256,7 +256,7 @@ class Remote_Link_Node extends Timer_Node {
 		$http = new HTTP_Out_Node();
 		$http->name( "{$this->name}:http-out" );
 		$http->patron( $this );
-		$http->arguments( $this->vault_id );
+		$http->arguments( [ $this->vault_id ] );
 		$http->sink( $this->sink );
 		$this->http_out = $http;
 

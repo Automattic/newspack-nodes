@@ -29,7 +29,7 @@ class HookNodeTest extends TestCase {
 	public function test_filter_list_return_is_adopted_as_struct(): void {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
-		$node->arguments( 'eln_hook_list 1' ); // filter mode on.
+		$node->arguments( [ 'eln_hook_list', '1' ] ); // filter mode on.
 		$node->sink( $sink = new Capture_Sink_Node() );
 
 		// The filter receives the VALUE ('payload') and returns a list.
@@ -51,7 +51,7 @@ class HookNodeTest extends TestCase {
 	public function test_filter_scalar_return_is_adopted_as_bytestream(): void {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
-		$node->arguments( 'eln_hook_scalar 1' );
+		$node->arguments( [ 'eln_hook_scalar', '1' ] );
 		$node->sink( $sink = new Capture_Sink_Node() );
 
 		\add_filter( 'eln_hook_scalar', static fn( $value ) => 'transformed' );
@@ -70,7 +70,7 @@ class HookNodeTest extends TestCase {
 	public function test_filter_non_list_array_return_is_bytestream(): void {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
-		$node->arguments( 'eln_hook_assoc 1' );
+		$node->arguments( [ 'eln_hook_assoc', '1' ] );
 		$node->sink( $sink = new Capture_Sink_Node() );
 
 		// An associative (non-list) array is not structured-list data.

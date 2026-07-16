@@ -68,11 +68,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `get` verb handler — one server's public shape by id.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_get( string $args ): array {
+	public static function cmd_get( array $args ): array {
 		$registry = Vault::fresh();
 		$id       = self::positional_id( $args );
 		$server   = $registry->get( $id );
@@ -105,11 +105,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `add` verb handler — register a server; returns its id.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_add( string $args ): array {
+	public static function cmd_add( array $args ): array {
 		$parsed = Command_Args::parse( $args );
 		$opts   = $parsed['options'];
 		$id     = $parsed['positional'][0] ?? '';
@@ -147,11 +147,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `update` verb handler — update a server; returns its id.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_update( string $args ): array {
+	public static function cmd_update( array $args ): array {
 		$parsed = Command_Args::parse( $args );
 		$id     = $parsed['positional'][0] ?? '';
 		if ( '' === $id ) {
@@ -192,11 +192,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `delete` verb handler — remove a server; returns its id.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_delete( string $args ): array {
+	public static function cmd_delete( array $args ): array {
 		$registry = Vault::fresh();
 		$id       = self::positional_id( $args );
 		if ( null === $registry->get( $id ) ) {
@@ -226,11 +226,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `test` verb handler — probe a remote server's reachability.
 	 *
-	 * @param string $args Verb argument.
+	 * @param list<string> $args Verb argument.
 	 *
 	 * @return array<int|string, mixed>
 	 */
-	public static function cmd_test( string $args ): array {
+	public static function cmd_test( array $args ): array {
 		$registry = Vault::fresh();
 		$id       = self::positional_id( $args );
 		$server   = $registry->get( $id );
@@ -266,7 +266,7 @@ class Vault_CI_Node extends Service_CI_Node {
 			'redirection'         => 0,
 			'limit_response_size' => 1048576,
 			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
-			'body'                => self::command_body( 'discovery', 'get', '' ),
+			'body'                => self::command_body( 'discovery', 'get', [] ),
 		];
 
 		/** @var int|float|string|bool|null $raw_username */
@@ -354,10 +354,10 @@ class Vault_CI_Node extends Service_CI_Node {
 	 *
 	 * @param string $to   Target node path.
 	 * @param string $verb Command verb name.
-	 * @param string $args Argument tail (Command_Args grammar).
+	 * @param list<string> $args Argument tail (Command_Args grammar).
 	 * @return string Packed Message JSONL line.
 	 */
-	private static function command_body( string $to, string $verb, string $args = '' ): string {
+	private static function command_body( string $to, string $verb, array $args = [] ): string {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::FROM ]  = Node_Names::HTTP;
@@ -370,10 +370,10 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * Pull the single required positional id out of the args string, throwing
 	 * 'id required' when absent. Used by get/delete/test/update.
 	 *
-	 * @param string $args Verb arguments string.
+	 * @param list<string> $args Verb arguments string.
 	 * @return string Server id.
 	 */
-	private static function positional_id( string $args ): string {
+	private static function positional_id( array $args ): string {
 		$id = Command_Args::parse( $args )['positional'][0] ?? '';
 		if ( '' === $id ) {
 			throw new \RuntimeException( 'id required' );
@@ -392,7 +392,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'name'        => 'list',
 					'description' => 'All registered servers as a map keyed by id.',
 					'args'        => [],
-					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_list(),
 				],
 				[
 					'name'        => 'get',
@@ -400,7 +400,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_get( $args ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_get( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'add',
@@ -411,7 +411,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'auth_username', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_password', 'type' => 'string', 'required' => false ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_add( $args ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_add( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'update',
@@ -422,7 +422,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'auth_username', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_password', 'type' => 'string', 'required' => false ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_update( $args ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_update( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'delete',
@@ -430,7 +430,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_delete( $args ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_delete( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'test',
@@ -438,7 +438,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, string $args, array $envelope = [] ): array => self::cmd_test( $args ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_test( self::arg_strings( $args ) ),
 				],
 			],
 		] );

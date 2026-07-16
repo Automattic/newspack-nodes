@@ -31,12 +31,12 @@ class TopicProbe_Node extends Timer_Node {
 		$this->interval_ms = self::DEFAULT_INTERVAL_S * 1000;
 	}
 
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return $this->arguments;
 		}
 		$this->arguments = $args;
-		$trimmed         = \trim( $args );
+		$trimmed         = ( $args[0] ?? '' );
 		if ( '' !== $trimmed && ! \preg_match( '/^[0-9]+$/', $trimmed ) ) {
 			throw new \InvalidArgumentException( 'Bad arguments for TopicProbe' );
 		}

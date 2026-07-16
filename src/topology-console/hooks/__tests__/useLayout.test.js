@@ -34,7 +34,7 @@ describe( 'useLayout', () => {
 			expect( send ).toHaveBeenCalledWith( {
 				to: 'layouts',
 				verb: 'get',
-				args: 'demo',
+				args: [ 'demo' ],
 			} );
 		} );
 
@@ -69,7 +69,7 @@ describe( 'useLayout', () => {
 			expect( send ).toHaveBeenCalledWith( {
 				to: 'layouts',
 				verb: 'save',
-				args: `demo ${ JSON.stringify( { a: [ 5, 7 ] } ) }`,
+				args: [ 'demo', JSON.stringify( { a: [ 5, 7 ] } ) ],
 			} );
 		} );
 	} );

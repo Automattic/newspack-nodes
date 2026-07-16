@@ -31,7 +31,7 @@ describe( 'useCompletion', () => {
 		expect( m[ FROM ] ).toBe( names.COMPLETION );
 		expect( m[ TO ] ).toBe( '_http/w.p0' );
 		expect( m[ KEY ] ).toBe( 'completion' );
-		expect( m[ VALUE ] ).toEqual( { name: 'help', arguments: '' } );
+		expect( m[ VALUE ] ).toEqual( { name: 'help', arguments: [] } );
 		expect( m[ LOCAL ] ).toBe( true );
 	} );
 
@@ -39,7 +39,7 @@ describe( 'useCompletion', () => {
 		const { result, fill } = render( { cwd: '' } );
 		result.current.requestCompletion( 'foo ' );
 		const m = fill.mock.calls[ 0 ][ 0 ];
-		expect( m[ VALUE ] ).toEqual( { name: 'ls', arguments: '' } );
+		expect( m[ VALUE ] ).toEqual( { name: 'ls', arguments: [] } );
 	} );
 
 	it( 'no-ops when skip() returns true', () => {

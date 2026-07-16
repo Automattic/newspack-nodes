@@ -4,6 +4,7 @@
  */
 
 import { useCallback } from '@wordpress/element';
+import { formatCommandArgs } from '../../runtime/command-args';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
@@ -12,7 +13,7 @@ export function useDeleteTopology() {
 		const message = await getCommandClient().send( {
 			to: 'topologies',
 			verb: 'delete',
-			args: name,
+			args: formatCommandArgs( [ name ] ),
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

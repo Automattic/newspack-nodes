@@ -39,7 +39,7 @@ class ConsumerTest extends TestCase {
 	 */
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p2 {$this->tmp}/offsets.p2" );
+		$c->arguments( [ "{$this->tmp}/data.p2", "{$this->tmp}/offsets.p2" ] );
 		$ref = new \ReflectionClass( $c );
 		$this->assertSame( "{$this->tmp}/data.p2",      $ref->getProperty( 'source_dir' )->getValue( $c ) );
 		$this->assertSame( "{$this->tmp}/offsets.p2", $ref->getProperty( 'offsetlog_dir' )->getValue( $c ) );
@@ -51,7 +51,7 @@ class ConsumerTest extends TestCase {
 		// (dead-letter [42]); the Consumer auto-builds a `:deadletter` sibling
 		// Partition there, the same way it builds `:offsetlog`.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$ref = new \ReflectionClass( $c );
 		$this->assertSame( "{$this->tmp}/deadletter.p0", $ref->getProperty( 'deadletter_dir' )->getValue( $c ) );
 		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'deadletter' )->getValue( $c ) );
@@ -60,7 +60,7 @@ class ConsumerTest extends TestCase {
 	public function test_empty_deadletter_dir_skips_the_sibling(): void {
 		// No deadletter dir → no quarantine sibling; poison is logged and dropped.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$ref = new \ReflectionClass( $c );
 		$this->assertNull( $ref->getProperty( 'deadletter' )->getValue( $c ) );
 		$this->assertSame( '', $ref->getProperty( 'deadletter_dir' )->getValue( $c ) );
@@ -72,7 +72,7 @@ class ConsumerTest extends TestCase {
 		// directly, and dump_config already skips patron-owned nodes.
 		$c = new Consumer_Node();
 		$c->name( 'reader' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		$this->assertNotNull( Core::node( 'reader:source' ) );
 		$this->assertNull( Core::node( 'reader:source:config' ) );
@@ -81,7 +81,7 @@ class ConsumerTest extends TestCase {
 		// Control: a standalone Partition (no patron) keeps its :config.
 		$p = new Partition_Node();
 		$p->name( 'standalone' );
-		$p->arguments( "{$this->tmp}/data/s0" );
+		$p->arguments( [ "{$this->tmp}/data/s0" ] );
 		$this->assertNotNull( Core::node( 'standalone:config' ) );
 	}
 
@@ -91,7 +91,7 @@ class ConsumerTest extends TestCase {
 			public function probe_resolve_args(): array { return $this->resolve_args(); }
 			public function probe_default_offset(): ?string { return $this->default_offset(); }
 		};
-		$probe->arguments( "{$this->tmp}/src {$this->tmp}/off" );
+		$probe->arguments( [ "{$this->tmp}/src", "{$this->tmp}/off" ] );
 
 		$source = $probe->probe_make_source();
 		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, $source );
@@ -114,7 +114,7 @@ class ConsumerTest extends TestCase {
 				$this->cursor_offset  = 13;
 			}
 		};
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 
@@ -130,7 +130,7 @@ class ConsumerTest extends TestCase {
 	 */
 	public function test_arguments_setter_with_empty_offsetlog_skips_offsetlog_partition(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$ref = new \ReflectionClass( $c );
 		$this->assertNull( $ref->getProperty( 'offsetlog' )->getValue( $c ) );
 		$this->assertSame( '', $ref->getProperty( 'offsetlog_dir' )->getValue( $c ) );
@@ -143,7 +143,7 @@ class ConsumerTest extends TestCase {
 	 */
 	public function test_arguments_setter_applies_empty_default_for_missing_offsetlog(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$ref = new \ReflectionClass( $c );
 		$this->assertSame( '', $ref->getProperty( 'offsetlog_dir' )->getValue( $c ) );
 		$this->assertNull( $ref->getProperty( 'offsetlog' )->getValue( $c ) );
@@ -156,13 +156,13 @@ class ConsumerTest extends TestCase {
 		// is the node operators see in `stats` so it needs to surface the
 		// volume too.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$message_a  = $this->produce( 'first' );
 		$source->fill( $message_a );
 		$source->flush();
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
@@ -176,7 +176,7 @@ class ConsumerTest extends TestCase {
 		// READER (offsetlog dir basename) + cursor + partition END (last seg + size)
 		// + DISTANCE (backlog) + MSGS. No derived/extra fields.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$first  = $this->produce( 'first' );
 		$second = $this->produce( 'second' );
 		$source->fill( $first );
@@ -185,7 +185,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node();
 		$c->name( 'firehose' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets/firehose.job-router.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/firehose.job-router.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
@@ -209,14 +209,14 @@ class ConsumerTest extends TestCase {
 		// CACHE_SIZE = byte size of the newest offsetlog segment. After a checkpoint
 		// the offsetlog is non-empty, so the probe reports its real on-disk size.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$msg = $this->produce( 'first' );
 		$source->fill( $msg );
 		$source->flush();
 
 		$c = new Consumer_Node();
 		$c->name( 'firehose' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets/firehose.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/firehose.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 		$c->checkpoint();
@@ -231,13 +231,13 @@ class ConsumerTest extends TestCase {
 		// An ephemeral reader (empty offsetlog token) keeps no durable cursor, so
 		// there is no offsetlog segment to size → CACHE_SIZE is 0.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$msg = $this->produce( 'first' );
 		$source->fill( $msg );
 		$source->flush();
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
@@ -248,14 +248,14 @@ class ConsumerTest extends TestCase {
 		// Pin the writer→reader contract by index: the exact positions probe_stats()
 		// WRITES are the positions CLI::consumer_rows() READS back off the log.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$first = $this->produce( 'first' );
 		$source->fill( $first );
 		$source->flush();
 
 		$c = new Consumer_Node();
 		$c->name( 'firehose' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets/firehose.job-router.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/firehose.job-router.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
@@ -285,12 +285,12 @@ class ConsumerTest extends TestCase {
 
 	public function test_poll_emits_line_for_each_new_log_entry(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 		$this->produce_line( $source, 'second' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
@@ -321,12 +321,12 @@ class ConsumerTest extends TestCase {
 		// unpacked Message into the sink, then a single terminal TM_EOF — the whole
 		// messaging interface reqgrep consumes instead of hand-rolling read_at + decode.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 		$this->produce_line( $source, 'second' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
@@ -344,11 +344,11 @@ class ConsumerTest extends TestCase {
 
 	public function test_poll_does_not_re_emit_old_lines_on_second_call(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
@@ -368,13 +368,13 @@ class ConsumerTest extends TestCase {
 		// chop and cursor drift apart and get_batch re-reads already-emitted bytes
 		// (re-emitting whole lines, or mis-aligning a partial into unparseable garbage).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 		$this->produce_line( $source, 'b' );
 		$this->produce_line( $source, 'c' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->set_line_mode( true );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
@@ -387,12 +387,12 @@ class ConsumerTest extends TestCase {
 
 	public function test_line_mode_emits_at_most_one_entry_per_poll(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 		$this->produce_line( $source, 'b' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->set_line_mode( true );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
@@ -411,14 +411,14 @@ class ConsumerTest extends TestCase {
 		// segment boundaries and fresh get_batch reads — the path where a cursor that
 		// drifts from the buffer re-reads or mis-aligns into unparseable garbage.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", "32", "4", "86400" ] );
 		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
 		$this->assertGreaterThanOrEqual( 2, \count( $source->get_segments( true ) ), 'need multiple segments' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->set_line_mode( true );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
@@ -438,13 +438,13 @@ class ConsumerTest extends TestCase {
 		// hardcoded WORKER_INPUTS map. Worker_type comes from the env
 		// var the supervisor sets; target is what Node::target() holds.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE'] = 'firehose-workers';
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
 		$c->sink( new Capture_Sink_Node() );
@@ -477,11 +477,11 @@ class ConsumerTest extends TestCase {
 		// The dashboard must label both with the REAL log — so the checkpoint
 		// records the source log basename, not just the offset-dir name.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/firehose.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/firehose.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/firehose.p0 {$this->tmp}/offsets/firehose.job-router.p0" );
+		$c->arguments( [ "{$this->tmp}/firehose.p0", "{$this->tmp}/offsets/firehose.job-router.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
@@ -497,11 +497,11 @@ class ConsumerTest extends TestCase {
 
 	public function test_checkpoint_writes_offsetlog_entry(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 		$c->checkpoint();
@@ -523,11 +523,11 @@ class ConsumerTest extends TestCase {
 		// running checkpoint writes the healthy baseline of 1 (0 is reserved for a
 		// graceful-shutdown handoff at a genuinely un-attempted cursor).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 		$c->checkpoint();
@@ -543,11 +543,11 @@ class ConsumerTest extends TestCase {
 		// The respawn then resumes at attempts+1 = 1 (a virgin first attempt), so a
 		// clean recycle costs nothing, while a crashed in-flight interval costs one.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 		$c->checkpoint( graceful: true );
@@ -563,18 +563,18 @@ class ConsumerTest extends TestCase {
 		// threshold each respawn. Here consumer A checkpoints at the healthy baseline
 		// (1); a fresh consumer B on the SAME offsetlog must boot and record 2.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $a );
 		$a->checkpoint();
 		$this->assertSame( 1, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
 
 		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $b ); // first poll → poll_init → load_offsetlog boot-bump.
 
@@ -637,18 +637,18 @@ class ConsumerTest extends TestCase {
 		// region is behind it — its next interval checkpoint resets to the healthy
 		// baseline (1), so a later unrelated crash doesn't inherit a stale strike count.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $a );
 		$a->checkpoint();
 
 		// B respawns onto A's cursor → boots at attempts=2 and stays there while stuck.
 		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $b );
 		$this->assertSame( 2, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['attempts'] );
@@ -667,11 +667,11 @@ class ConsumerTest extends TestCase {
 		// (when the strike streak began, for the 900s state-wipe escalation). A healthy
 		// running checkpoint has neither: reason='' and first_crash_ts=null.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 		$c->checkpoint();
@@ -688,18 +688,18 @@ class ConsumerTest extends TestCase {
 		// WHEN the crash streak began so the 900s state-wipe can time it; later
 		// respawns carry that original timestamp forward rather than resetting it.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $a );
 		$a->checkpoint(); // healthy frame: attempts=1, first_crash_ts=null.
 
 		Core::$now = 5000.0;
 		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $b ); // recovery boot → streak begins now.
 		// Numeric compare: a whole-number float round-trips through the frame's JSON as int.
@@ -707,7 +707,7 @@ class ConsumerTest extends TestCase {
 
 		Core::$now = 6000.0; // a later respawn must NOT re-stamp.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 		$this->assertEquals( 5000.0, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['first_crash_ts'] );
@@ -720,11 +720,11 @@ class ConsumerTest extends TestCase {
 		// handoff MUST still write — else the next boot mistakes a clean recycle for a
 		// crash and climbs attempts.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 		$c->checkpoint(); // commits at the current cursor.
@@ -744,18 +744,18 @@ class ConsumerTest extends TestCase {
 		// not just attempts. Otherwise a stale timestamp rides into healthy frames and
 		// a later UNRELATED single crash >900s on the clock trips the state-wipe at once.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $a );
 		$a->checkpoint();
 
 		Core::$now = 5000.0;
 		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $b ); // recovery boot → first_crash_ts=5000.
 		$this->assertEquals( 5000.0, $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['first_crash_ts'] );
@@ -773,11 +773,11 @@ class ConsumerTest extends TestCase {
 		// advances past it — so one bad message can't wedge the partition, and it's
 		// recoverable via `wp nodes ingest` rather than silently dropped.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
 			public function fill( array $message ): void {
@@ -796,11 +796,11 @@ class ConsumerTest extends TestCase {
 		// flow, not poison: it must escape forward_line so the worker shuts down, and the
 		// in-flight message must NOT be quarantined.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'msg' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
 			public function fill( array $message ): void {
@@ -823,11 +823,11 @@ class ConsumerTest extends TestCase {
 		// quarantined entry must be the original message recoverable verbatim — not a
 		// metadata wrapper. The diagnostic why rides the rate-limited alert instead.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison-payload' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
 			public function fill( array $message ): void {
@@ -863,11 +863,11 @@ class ConsumerTest extends TestCase {
 		$boom->name( 'processor' );
 
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$c->sink( $interpreter );
 		$c->target( 'processor' );
@@ -882,11 +882,11 @@ class ConsumerTest extends TestCase {
 		// partition, which would loop forever: re-read poison → sink throws →
 		// dead_letter's write throws → escapes forward_line uncaught → never advances.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new class() extends Node {
 			public function fill( array $message ): void {
@@ -916,7 +916,7 @@ class ConsumerTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/data.p0/0.log", "this is not a packed message\n" );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -938,14 +938,14 @@ class ConsumerTest extends TestCase {
 		// DLQ, skips it, and advances — guaranteeing progress past a poison that kills
 		// the process before any catch can run. One accepted false-positive.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'head' );
 		$this->produce_line( $source, 'next' );
 
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -963,7 +963,7 @@ class ConsumerTest extends TestCase {
 		// offset — the next boot dead-letters precisely that message. A batched single
 		// checkpoint couldn't isolate which message in the batch killed the process.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		foreach ( [ 'head', 'A', 'B', 'C' ] as $v ) {
 			$this->produce_line( $source, $v );
 		}
@@ -971,7 +971,7 @@ class ConsumerTest extends TestCase {
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -990,7 +990,7 @@ class ConsumerTest extends TestCase {
 		// means the poison is behind us: drop back to coarse mode at the healthy
 		// baseline (attempts=1), so we don't pay per-message I/O forever.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'head' );
 		$this->produce_line( $source, 'A' );
 
@@ -998,7 +998,7 @@ class ConsumerTest extends TestCase {
 
 		Core::$now = 1000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c ); // crawls head-skip + A within the interval; still crawling.
@@ -1022,7 +1022,7 @@ class ConsumerTest extends TestCase {
 
 		Core::$now = 1000.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c ); // head is partial → not drained → not sacrificed.
@@ -1070,13 +1070,13 @@ class ConsumerTest extends TestCase {
 		// cursor for replay), the Consumer commits PAST it — offset+length from the ID —
 		// so a clean recycle resumes on the NEXT line and never replays/dedups it.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'A' );
 		$this->produce_line( $source, 'B' );
 		$this->produce_line( $source, 'C' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$this->stop_clean_on_value( $c, 'C' ); // C's chain completes, then signals stop.
 		try {
@@ -1103,13 +1103,13 @@ class ConsumerTest extends TestCase {
 		// Worker_Should_Stop like a clean one: commit past the in-flight message rather
 		// than replay it. That's the fix for the aggregator / Consumer→Partition dup.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'A' );
 		$this->produce_line( $source, 'B' );
 		$this->produce_line( $source, 'C' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->set_assume_clean_shutdown( true );
 		$this->stop_on_value( $c, 'C' ); // a PLAIN stop on C.
@@ -1131,7 +1131,7 @@ class ConsumerTest extends TestCase {
 	public function test_assume_clean_shutdown_round_trips_through_dump_config(): void {
 		// The verb re-emits on dump_config so a console-serialized graph replays it.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$this->assertStringNotContainsString( 'assume_clean_shutdown', $c->dump_config() );
 		$c->set_assume_clean_shutdown( true );
@@ -1144,11 +1144,11 @@ class ConsumerTest extends TestCase {
 		// shutdown stamps reason=timeout at the live attempt count (not the attempts=0
 		// graceful handoff), so the respawn climbs toward the dead-letter threshold.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$this->stop_on_value( $c, 'poison' );
 		try {
@@ -1170,12 +1170,12 @@ class ConsumerTest extends TestCase {
 		// timeout) did NOT get a fair shot — it's a clean handoff (attempts=0), not a
 		// strike. The next fresh worker boots ON it and gives it a full lifetime.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'A' );
 		$this->produce_line( $source, 'B' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$c->set_line_mode( true ); // one message per drain, so A advances the cursor before B stops.
 		$this->stop_on_value( $c, 'B' );
@@ -1196,10 +1196,10 @@ class ConsumerTest extends TestCase {
 		// A worker that booted, found nothing to do, and timed out has an empty buffer —
 		// no message is in flight, so nothing earned a strike. Clean handoff.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c ); // reaches EOF with an empty buffer.
@@ -1215,11 +1215,11 @@ class ConsumerTest extends TestCase {
 		// quarantined on a throw (or re-delivered after a cooperative stop) must NOT inflate
 		// the counter — otherwise a respawn double-counts the same re-delivered message.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'boom' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$c->sink( new class() extends Node {
 			public function fill( array $message ): void {
@@ -1233,11 +1233,11 @@ class ConsumerTest extends TestCase {
 
 	public function test_counter_not_incremented_when_dispatch_is_cooperatively_stopped(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'x' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$this->stop_on_value( $c, 'x' );
 		try {
@@ -1255,11 +1255,11 @@ class ConsumerTest extends TestCase {
 		// a healthy message. Only a message the worker was actively forwarding when the stop
 		// hit (stopped_in_fill) counts. The buffered head alone is not enough.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'just-arrived' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		// One poll: poll_init runs, get_batch reads the line into the buffer, but it is not
@@ -1282,7 +1282,7 @@ class ConsumerTest extends TestCase {
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 2, 500, 0 );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		// No poll(): the consumer never ran poll_init / load_offsetlog.
@@ -1301,11 +1301,11 @@ class ConsumerTest extends TestCase {
 		// Otherwise an end-seeking consumer's boot_cursor stays at 0:0 and the fair-shot
 		// proxy reports "advanced" for its whole first lifetime.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'pre-existing' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( 'end' ); // seek past the backlog before the first poll.
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
@@ -1321,7 +1321,7 @@ class ConsumerTest extends TestCase {
 		// budget: quarantine the message, then hand off a MARKER frame AT the head's start
 		// (attempts=0, quarantined) so the successor boots onto it, DROPS it, and advances.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison' );
 		$this->produce_line( $source, 'after' );
 
@@ -1329,7 +1329,7 @@ class ConsumerTest extends TestCase {
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::COOP_MAX_ATTEMPTS - 1, 'timeout' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$this->stop_on_value( $c, 'poison' );
 		try {
@@ -1352,14 +1352,14 @@ class ConsumerTest extends TestCase {
 		// already in the DLQ, so the successor DROPS it silently (no second DLQ entry, not
 		// forwarded) and advances onto the next line.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'condemned' );
 		$this->produce_line( $source, 'next' );
 
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 0, '', true ); // marker at {0,0}.
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -1376,14 +1376,14 @@ class ConsumerTest extends TestCase {
 		// its start, closing the sacrifice→checkpoint crash window (a re-boot in it DROPS instead
 		// of producing a second DLQ entry).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'head' );
 		$this->produce_line( $source, 'next' );
 
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
@@ -1399,11 +1399,11 @@ class ConsumerTest extends TestCase {
 		// NO quarantine marker, or the successor would silently drop a message that still had
 		// shots (data loss). The successor boots ONTO it and re-forwards it.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$this->stop_on_value( $c, 'poison' );
 		try {
@@ -1423,12 +1423,12 @@ class ConsumerTest extends TestCase {
 		// Fair-shot absence: a routine cooperative stop after the cursor advanced is a clean
 		// handoff (attempts=0) and NEVER a quarantine marker — the successor re-forwards.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'A' );
 		$this->produce_line( $source, 'B' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'jobs:consumer' );
 		$c->set_line_mode( true );
 		$this->stop_on_value( $c, 'B' );
@@ -1450,7 +1450,7 @@ class ConsumerTest extends TestCase {
 		// falsely claims a message is quarantined before it is on disk. A subclass records the
 		// state at the dead_letter call: no quarantine marker frame may exist yet.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'head' );
 		$this->produce_line( $source, 'next' );
 
@@ -1471,7 +1471,7 @@ class ConsumerTest extends TestCase {
 				parent::dead_letter( $message, $reason, $error );
 			}
 		};
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
@@ -1485,11 +1485,11 @@ class ConsumerTest extends TestCase {
 		// A memory stop whose FRESH baseline was already near the watermark is a leak or
 		// an undersized memory_limit, not a single poison message: alert, do not strike.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'innocent' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$this->stop_on_value( $c, 'innocent' );
 		Core::set_stderr_handler( static function () { /* swallow the alert */ } );
@@ -1510,11 +1510,11 @@ class ConsumerTest extends TestCase {
 		// A single message that drove a large memory delta from a HEALTHY baseline IS
 		// the culprit — it counts as a strike just like a timeout.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hog' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0 {$this->tmp}/deadletter.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$this->stop_on_value( $c, 'hog' );
 		try {
@@ -1536,13 +1536,13 @@ class ConsumerTest extends TestCase {
 		// them (single chop in a finally), so the fair-shot proxy sees the real in-flight
 		// message, not the innocent boot head.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'A' );
 		$this->produce_line( $source, 'B' );
 		$this->produce_line( $source, 'C' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$this->stop_on_value( $c, 'C' ); // A and B forward; C stops mid-batch.
 		try {
@@ -1563,20 +1563,20 @@ class ConsumerTest extends TestCase {
 		// Only 1/true/yes/on enable line mode; a bare/empty verb (or any other value)
 		// disables it — so an accidental click is reversible and the default is "off".
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( $c );
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, 'true' );
+		Consumer_Node::cmd_set_line_mode( $interpreter, [ 'true' ] );
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'an explicit truthy arg enables it' );
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, '' );
+		Consumer_Node::cmd_set_line_mode( $interpreter, [] );
 		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'a bare/empty verb disables it' );
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, 'on' );
+		Consumer_Node::cmd_set_line_mode( $interpreter, [ 'on' ] );
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ) );
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, 'false' );
+		Consumer_Node::cmd_set_line_mode( $interpreter, [ 'false' ] );
 		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'an explicit falsey arg disables it' );
 	}
 
@@ -1585,7 +1585,7 @@ class ConsumerTest extends TestCase {
 		// so fire() checkpoints at most every CHECKPOINT_INTERVAL_S (30s), not every
 		// poll. Each checkpoint appends one offsetlog entry, so entry-count == checkpoints.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new class() extends Consumer_Node {
@@ -1593,7 +1593,7 @@ class ConsumerTest extends TestCase {
 				$this->fire();
 			}
 		};
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
@@ -1624,7 +1624,7 @@ class ConsumerTest extends TestCase {
 		// aligned across a respawn. A >4KB cache also proves set_snapshot_node lifts
 		// the offsetlog's PIPE_BUF cap (void_warranty) — the worker is its sole writer.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$node       = new Snapshot_Probe();
@@ -1632,7 +1632,7 @@ class ConsumerTest extends TestCase {
 		$node->state = [ 'in_flight' => [ 'r1' => [ 'pad' => \str_repeat( 'x', 5000 ) ] ] ];
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$c->set_snapshot_node( 'request-builder' );
@@ -1643,7 +1643,7 @@ class ConsumerTest extends TestCase {
 		Core::reset();
 
 		$c2 = new Consumer_Node();
-		$c2->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c2->name( 'firehose:consumer' );
 		$c2->sink( new Capture_Sink_Node() );
 		// Order-independence (the bug this fixes): the snapshot node is named BEFORE
@@ -1676,7 +1676,7 @@ class ConsumerTest extends TestCase {
 		// re-committed to a fresh frame after restore. The newest DISK frame must
 		// therefore still carry the cache.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$node        = new Snapshot_Probe();
@@ -1684,7 +1684,7 @@ class ConsumerTest extends TestCase {
 		$node->state = [ 'in_flight' => [ 'r1' => 'keep-me' ] ];
 
 		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->name( 'firehose:consumer' );
 		$a->sink( new Capture_Sink_Node() );
 		$a->set_snapshot_node( 'request-builder' );
@@ -1694,7 +1694,7 @@ class ConsumerTest extends TestCase {
 		Core::reset(); // old worker dies; offsetlog (with cache) persists.
 
 		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->name( 'firehose:consumer' );
 		$b->sink( new Capture_Sink_Node() );
 		$b->set_snapshot_node( 'request-builder' );
@@ -1716,7 +1716,7 @@ class ConsumerTest extends TestCase {
 		// boot DISCARDS the resumable cache (starts the node stateless) rather than
 		// restoring the corrupt state and crashing again forever.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$node        = new Snapshot_Probe();
@@ -1725,7 +1725,7 @@ class ConsumerTest extends TestCase {
 
 		Core::$now = 1000.0;
 		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
 		$a->set_snapshot_node( 'request-builder' );
 		$this->pump_consumer( $a );
@@ -1734,7 +1734,7 @@ class ConsumerTest extends TestCase {
 		Core::reset();
 		Core::$now = 1000.0;
 		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
 		$b->set_snapshot_node( 'request-builder' );
 		( new Snapshot_Probe() )->name( 'request-builder' );
@@ -1744,7 +1744,7 @@ class ConsumerTest extends TestCase {
 		Core::reset();
 		Core::$now = 1000.0 + Consumer_Node::STATE_WIPE_AFTER_S + 1.0;
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$c->set_snapshot_node( 'request-builder' );
 		$node3 = new Snapshot_Probe();
@@ -1759,7 +1759,7 @@ class ConsumerTest extends TestCase {
 		// restore throws still advances the durable counter — and because that frame
 		// carries no cache, the next boot won't re-attempt the bad restore (self-heal).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$node        = new Snapshot_Probe();
@@ -1767,7 +1767,7 @@ class ConsumerTest extends TestCase {
 		$node->state = [ 'x' => 1 ];
 
 		$a = new Consumer_Node();
-		$a->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
 		$a->set_snapshot_node( 'request-builder' );
 		$this->pump_consumer( $a );
@@ -1775,7 +1775,7 @@ class ConsumerTest extends TestCase {
 
 		Core::reset();
 		$b = new Consumer_Node();
-		$b->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
 		$b->set_snapshot_node( 'request-builder' );
 		( new Throwing_Snapshot_Probe() )->name( 'request-builder' );
@@ -1794,11 +1794,11 @@ class ConsumerTest extends TestCase {
 
 	public function test_restart_resumes_from_last_checkpoint(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 
 		$c1 = new Consumer_Node();
-		$c1->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c1->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap1 = new Capture_Sink_Node();
 		$c1->sink( $cap1 );
 		$this->pump_consumer( $c1 );
@@ -1808,7 +1808,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'second' );
 
 		$c2 = new Consumer_Node();
-		$c2->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap2 = new Capture_Sink_Node();
 		$c2->sink( $cap2 );
 		$this->pump_consumer( $c2 );
@@ -1819,30 +1819,30 @@ class ConsumerTest extends TestCase {
 
 	public function test_has_checkpoint_false_without_offsetlog(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$this->assertFalse( $c->has_checkpoint() );
 	}
 
 	public function test_has_checkpoint_false_when_offsetlog_has_no_prior_entry(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$this->assertFalse( $c->has_checkpoint() );
 	}
 
 	public function test_has_checkpoint_true_after_resuming_from_offsetlog(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 
 		$c1 = new Consumer_Node();
-		$c1->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c1->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c1->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c1 );
 		$c1->checkpoint();
 		unset( $c1 );
 
 		$c2 = new Consumer_Node();
-		$c2->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c2->sink( new Capture_Sink_Node() );
 		// has_checkpoint is meaningful only after the first poll seeds the cursor
 		// from the offsetlog (construction does no I/O).
@@ -1870,7 +1870,7 @@ class ConsumerTest extends TestCase {
 		file_put_contents( "{$this->tmp}/data.p0/0.log", $half1 );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -1900,7 +1900,7 @@ class ConsumerTest extends TestCase {
 		file_put_contents( "{$this->tmp}/data.p0/0.log", '' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -1953,7 +1953,7 @@ class ConsumerTest extends TestCase {
 		unset( $chunk );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -1979,12 +1979,12 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_offset_end_seeks_to_tail(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'old1' );
 		$this->produce_line( $source, 'old2' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2000,11 +2000,11 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_offset_start_resets_to_zero(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'alpha' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2019,7 +2019,7 @@ class ConsumerTest extends TestCase {
 	public function test_next_offset_recent_picks_second_to_last_segment(): void {
 		// Force several segments.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", "32", "4", "86400" ] );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -2029,7 +2029,7 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 2, $count );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( 'recent' );
 
 		$ref = new \ReflectionClass( $c );
@@ -2043,11 +2043,11 @@ class ConsumerTest extends TestCase {
 		// to skip the offsetlog entirely — no per-session directories under
 		// offsets/, no checkpoint persistence, just tail.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$this->pump_consumer( $c );
@@ -2063,7 +2063,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_offset_explicit_array_position(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( [ 'segment' => 5, 'offset' => 100 ] );
 
 		$ref = new \ReflectionClass( $c );
@@ -2075,7 +2075,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_offset_array_clamps_negative_off_to_zero(): void {
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$ref = new \ReflectionClass( $c );
 		$offset = $ref->getProperty( 'cursor_offset' );
 
@@ -2092,7 +2092,7 @@ class ConsumerTest extends TestCase {
 		// Cursor parked on a segment id that no longer exists — poll() must
 		// recover by rewinding to the oldest available segment and reading from 0.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", "32", "4", "86400" ] );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -2101,7 +2101,7 @@ class ConsumerTest extends TestCase {
 		$this->assertNotEmpty( $segments );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2130,11 +2130,11 @@ class ConsumerTest extends TestCase {
 		// rewind to the segment start instead of waiting forever for the file
 		// to grow back past the stale offset.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'after-wipe' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2160,12 +2160,12 @@ class ConsumerTest extends TestCase {
 		// clamping to bytes_behind=0 / caught_up=true (which masked a wedged
 		// consumer as healthy).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'after-wipe' );
 		$segment_size = (int) $source->get_segments( true )[0]['size'];
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2195,12 +2195,12 @@ class ConsumerTest extends TestCase {
 		// and replay everything, so GET_LAG must report every segment as
 		// pending — not skip them all because their ids sit below the cursor.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'after-wipe' );
 		$segment_size = (int) $source->get_segments( true )[0]['size'];
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2223,7 +2223,7 @@ class ConsumerTest extends TestCase {
 		// Multi-segment drain: a single poll spanning into a new segment must
 		// reset cursor_offset to 0 when it crosses the boundary.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", "32", "4", "86400" ] );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -2232,7 +2232,7 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 2, count( $segments ), 'need multiple segments' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$this->pump_consumer( $c );
@@ -2257,11 +2257,11 @@ class ConsumerTest extends TestCase {
 		// have the Consumer's name stamped onto FROM so downstream nodes can
 		// reply via TO=FROM.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hi' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'my-consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -2276,11 +2276,11 @@ class ConsumerTest extends TestCase {
 		// set_stamp_as overrides the FROM stamp — used by the worker's IPC
 		// input Consumer to stamp as the OUTPUT partition's name (`_repl`).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'real-name' );
 		$c->set_stamp_as( '_repl' );
 		$cap = new Capture_Sink_Node();
@@ -2298,12 +2298,12 @@ class ConsumerTest extends TestCase {
 		// offset+length (the exact next boundary); it can't derive the on-disk length from the
 		// re-stamped wire bytes, so the producing Consumer — which read the bytes — stamps it.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 		$this->produce_line( $source, 'second' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$this->pump_consumer( $c );
@@ -2326,7 +2326,7 @@ class ConsumerTest extends TestCase {
 		// it to seg:offset (as Consumer used to do) breaks RequestBuilder's
 		// rid grouping and any multi-partition queue keyed on handler.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 		$message[ Message::TIMESTAMP ] = 1234567890.0;
@@ -2336,7 +2336,7 @@ class ConsumerTest extends TestCase {
 		$source->flush();
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$this->pump_consumer( $c );
@@ -2357,7 +2357,7 @@ class ConsumerTest extends TestCase {
 		// other sessions' traffic — a Consumer here would rewrite every reply's
 		// TO to _output and dump all sessions into the REPL.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 		$message[ Message::TIMESTAMP ] = 1234567890.0;
@@ -2367,7 +2367,7 @@ class ConsumerTest extends TestCase {
 		$source->flush();
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->target( Node_Names::OUTPUT );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -2420,7 +2420,7 @@ class ConsumerTest extends TestCase {
 		file_put_contents( "{$this->tmp}/offsets.p0/0.log", Message::packed( $message ) . "\n" );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		// Cursor must remain at the constructor default (0/0) when the offsetlog
 		// entry's VALUE doesn't match the expected schema.
@@ -2440,7 +2440,7 @@ class ConsumerTest extends TestCase {
 		file_put_contents( "{$this->tmp}/offsets.p0/0.log", "\n\n\n" );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		$ref = new \ReflectionClass( $c );
 		$segment = $ref->getProperty( 'cursor_segment' );
@@ -2457,11 +2457,11 @@ class ConsumerTest extends TestCase {
 		// Spec: "Skip if cursor hasn't advanced since the last commit — the
 		// saved entry is still the truth, no point appending a duplicate every tick."
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
@@ -2483,11 +2483,11 @@ class ConsumerTest extends TestCase {
 		// segment), so count total records across ALL segments rather than the
 		// growth of a single 0.log file.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
@@ -2519,11 +2519,11 @@ class ConsumerTest extends TestCase {
 	public function test_fire_polls_source_and_emits_messages(): void {
 		// fire() is the Timer hook. It must call poll() so new bytes get drained.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'fired' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2543,11 +2543,11 @@ class ConsumerTest extends TestCase {
 		// On the FIRST fire(), last_checkpoint=0 so (now - 0) >= 1 always
 		// holds — checkpoint() must run (provided the cursor advanced).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'cp' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$ref = new \ReflectionClass( $c );
 
@@ -2571,11 +2571,11 @@ class ConsumerTest extends TestCase {
 		// worker resumes from the last commit." Within that interval, fire()
 		// must NOT call checkpoint() — even if data was polled.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 		$ref = new \ReflectionClass( $c );
 
@@ -2606,11 +2606,11 @@ class ConsumerTest extends TestCase {
 		// Consumer constructed with empty offsetlog_dir → no offsetlog
 		// directory ever created, even after fire().
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
 
 		Core::$now = \microtime(true);
@@ -2628,11 +2628,11 @@ class ConsumerTest extends TestCase {
 		// After draining all available data, fire() must re-arm with
 		// POLL_INTERVAL_EOF_MS (=100) so we back off to 100ms idle ticks.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64*1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2675,7 +2675,7 @@ class ConsumerTest extends TestCase {
 				$p->setValue( $this, false );
 			}
 		};
-		$busy_consumer->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$busy_consumer->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		Core::$now = \microtime(true);
 		$ref  = new \ReflectionClass( $busy_consumer );
@@ -2707,12 +2707,12 @@ class ConsumerTest extends TestCase {
 		// handle_request() — NOT forward to sink. This is the introspection
 		// path that powers the GET_LAG verb.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'one' );
 		$this->produce_line( $source, 'two' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'my-consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
@@ -2745,7 +2745,7 @@ class ConsumerTest extends TestCase {
 		// Spec: GET_LAG reply payload for an empty source partition has
 		// bytes_behind=0, segments_behind=0, caught_up=true.
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2766,11 +2766,11 @@ class ConsumerTest extends TestCase {
 		// bytes_behind > 0 and caught_up=false. line_remainder bytes don't
 		// inflate the count (they're already "fetched", just not emitted yet).
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'pending' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		// Don't poll — leave the bytes behind so the lag computation has work.
@@ -2791,7 +2791,7 @@ class ConsumerTest extends TestCase {
 		// Multi-segment: a consumer parked on segment 0 with newer segments
 		// available must report segments_behind > 0.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", "32", "4", "86400" ] );
 		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
@@ -2800,7 +2800,7 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 2, \count( $segments ), 'need multi-segment for this test' );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2829,11 +2829,11 @@ class ConsumerTest extends TestCase {
 		// bytes-still-to-emit. (Without the subtraction, the read-ahead buffer
 		// would double-count.)
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		// Pretend we already have 3 bytes buffered (already read).
 		$ref = new \ReflectionClass( $c );
@@ -2859,7 +2859,7 @@ class ConsumerTest extends TestCase {
 	public function test_handle_request_unknown_verb_returns_error_payload(): void {
 		// Spec: unknown verbs reply with `[ 'error' => "unknown request verb: $VERB" ]`.
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2880,7 +2880,7 @@ class ConsumerTest extends TestCase {
 		// Spec: verb extraction is strtoupper(explode(' ', trim($value), 2)[0]).
 		// "get_lag extra args" → GET_LAG.
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -2904,7 +2904,7 @@ class ConsumerTest extends TestCase {
 		// name. Otherwise replies wouldn't route through the worker's _repl
 		// Partition.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'real-name' );
 		$c->set_stamp_as( '_repl' );
 
@@ -2941,11 +2941,11 @@ class ConsumerTest extends TestCase {
 
 		$source = new Partition_Node();
 
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
 		$c->sink( new Capture_Sink_Node() );
@@ -2976,11 +2976,11 @@ class ConsumerTest extends TestCase {
 
 		$source = new Partition_Node();
 
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
 		$c->sink( new Capture_Sink_Node() );
@@ -3012,11 +3012,11 @@ class ConsumerTest extends TestCase {
 
 		$source = new Partition_Node();
 
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
 		$c->sink( new Capture_Sink_Node() );
@@ -3044,11 +3044,11 @@ class ConsumerTest extends TestCase {
 
 		$source = new Partition_Node();
 
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
 		// Call resolve_downstream_targets directly via reflection so we test
@@ -3077,11 +3077,11 @@ class ConsumerTest extends TestCase {
 
 		$source = new Partition_Node();
 
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tap' );
 		$c->sink( new Capture_Sink_Node() );
@@ -3109,7 +3109,7 @@ class ConsumerTest extends TestCase {
 		$ref->setValue( $tap, 'unexpected-string' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tap' );
 		$c_ref = new \ReflectionClass( $c );
@@ -3126,7 +3126,7 @@ class ConsumerTest extends TestCase {
 		// since the checkpoint() path always sets `targets` to whatever it
 		// returns.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		$c_ref = new \ReflectionClass( $c );
 		$rdt   = $c_ref->getMethod( 'resolve_downstream_targets' );
@@ -3142,11 +3142,11 @@ class ConsumerTest extends TestCase {
 
 		$source = new Partition_Node();
 
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'just-a-processor' );
 		$c->sink( new Capture_Sink_Node() );
@@ -3171,12 +3171,12 @@ class ConsumerTest extends TestCase {
 		// Standalone coverage of set_stamp_as(): empty default falls back to
 		// $this->name, but once set it replaces it on every poll-emitted msg.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'one' );
 		$this->produce_line( $source, 'two' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'real' );
 		$c->set_stamp_as( 'override-stamp' );
 		$cap = new Capture_Sink_Node();
@@ -3203,9 +3203,9 @@ class ConsumerTest extends TestCase {
 		// emit a `make_node Consumer NAME <source_dir> <offsetlog>` line that
 		// re-creates this instance.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p2 {$this->tmp}/offsets.p2" );
+		$c->arguments( [ "{$this->tmp}/data.p2", "{$this->tmp}/offsets.p2" ] );
 		$this->assertSame(
-			"{$this->tmp}/data.p2 {$this->tmp}/offsets.p2",
+			[ "{$this->tmp}/data.p2", "{$this->tmp}/offsets.p2" ],
 			$c->arguments()
 		);
 	}
@@ -3214,8 +3214,8 @@ class ConsumerTest extends TestCase {
 		// Ephemeral consumer (no offsetlog) — arguments still reflect the
 		// trailing empty string so the make_node round-trip is unambiguous.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
-		$this->assertSame( "{$this->tmp}/data.p0 ", $c->arguments() );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
+		$this->assertSame( [ "{$this->tmp}/data.p0" ], $c->arguments() );
 	}
 
 	// ============================================================================
@@ -3273,7 +3273,7 @@ class ConsumerTest extends TestCase {
 		// `? 0` so absent off lands at 0 — matches the spec "explicit position
 		// with seg only".
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( [ 'segment' => 7 ] );
 
 		$ref = new \ReflectionClass( $c );
@@ -3287,7 +3287,7 @@ class ConsumerTest extends TestCase {
 	public function test_next_offset_array_defaults_seg_to_zero_when_missing(): void {
 		// Explicit-array form: off=42 with no 'segment' key. Defaults to 0.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( [ 'offset' => 42 ] );
 
 		$ref = new \ReflectionClass( $c );
@@ -3303,14 +3303,14 @@ class ConsumerTest extends TestCase {
 		// (which is also the newest in that case). Distinct from the
 		// already-tested multi-segment 'recent' path.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'only' );
 
 		$segments = $source->get_segments( true );
 		$this->assertCount( 1, $segments, 'precondition: single segment' );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( 'recent' );
 
 		$ref      = new \ReflectionClass( $c );
@@ -3325,7 +3325,7 @@ class ConsumerTest extends TestCase {
 		// 'end' on an empty source must NOT crash and must NOT advance the
 		// cursor (segments empty → switch case is a no-op).
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( 'end' );
 
 		$ref      = new \ReflectionClass( $c );
@@ -3339,7 +3339,7 @@ class ConsumerTest extends TestCase {
 	public function test_next_offset_recent_with_no_segments_leaves_cursor_at_default(): void {
 		// 'recent' on an empty source must early-exit cleanly.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->next_offset( 'recent' );
 
 		$ref      = new \ReflectionClass( $c );
@@ -3360,7 +3360,7 @@ class ConsumerTest extends TestCase {
 		// $this->offsetlog at null. Calling load_offsetlog() (via reflection)
 		// must return immediately without touching the filesystem.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 
 		$ref    = new \ReflectionMethod( Consumer_Node::class, 'load_offsetlog' );
 		$ref->invoke( $c );
@@ -3384,7 +3384,7 @@ class ConsumerTest extends TestCase {
 		// segment-deleted recovery branch since `empty($segments)` is the
 		// first early-exit.
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -3403,7 +3403,7 @@ class ConsumerTest extends TestCase {
 		// Cursor parked on a newer segment must skip older segments in the
 		// poll loop. The `$s['id'] < $this->cursor_segment → continue` branch.
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 32 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", "32", "4", "86400" ] );
 		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
@@ -3412,7 +3412,7 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 2, \count( $segments ) );
 
 		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
@@ -3449,7 +3449,7 @@ class ConsumerTest extends TestCase {
 		\file_put_contents( "{$seg_dir}/0.log", "[1,2,3]\n" . Message::packed( $good ) . "\n" );
 
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
@@ -3461,7 +3461,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_construct_ignores_unparseable_offsetlog_entry(): void {
 		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data.p0 " . ( 64 * 1024 ) . " 4 86400" );
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		// Write a real checkpoint, then corrupt that entry in place at the same
@@ -3469,7 +3469,7 @@ class ConsumerTest extends TestCase {
 		// unparseable offsetlog line. A fresh Consumer must seed past it without
 		// throwing, starting from the default cursor (0/0).
 		$c1 = new Consumer_Node();
-		$c1->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c1->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c1->sink( new Capture_Sink_Node() );
 		$c1->poll();
 		$c1->checkpoint();
@@ -3482,7 +3482,7 @@ class ConsumerTest extends TestCase {
 		\clearstatcache();
 
 		$c2  = new Consumer_Node();
-		$c2->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$ref = new \ReflectionObject( $c2 );
 		$segment = $ref->getProperty( 'cursor_segment' );
 		$offset = $ref->getProperty( 'cursor_offset' );
@@ -3492,7 +3492,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_named_consumer_registers_source_sibling(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$c->name( 'feed' );
 		$this->assertSame( $c, Core::node( 'feed' ) );
 		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:source' ) );
@@ -3500,7 +3500,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_named_consumer_registers_offsetlog_sibling_when_offsetlog_set(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:source' ) );
 		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:offsetlog' ) );
@@ -3508,14 +3508,14 @@ class ConsumerTest extends TestCase {
 
 	public function test_consumer_without_offsetlog_does_not_register_offsetlog_sibling(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$c->name( 'feed' );
 		$this->assertNull( Core::node( 'feed:offsetlog' ) );
 	}
 
 	public function test_renaming_consumer_renames_children_and_unregisters_old_names(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'old' );
 		// PHPUnit promotes E_WARNING to a failure, so a $node-typo undefined-
 		// variable in the parent:: call surfaces here without an extra guard.
@@ -3531,7 +3531,7 @@ class ConsumerTest extends TestCase {
 	public function test_naming_consumer_null_throws(): void {
 		// A named Consumer is committed until remove_node(); name(null) throws.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 		$this->expectException( \RuntimeException::class );
 		$c->name( null );
@@ -3540,7 +3540,7 @@ class ConsumerTest extends TestCase {
 	public function test_naming_consumer_empty_string_throws(): void {
 		// '' is the other "no value" input — name('') throws too.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 		$this->expectException( \RuntimeException::class );
 		$c->name( '' );
@@ -3550,7 +3550,7 @@ class ConsumerTest extends TestCase {
 		// remove_node() (not name(null)) is the teardown path; it cascades to
 		// both Partition children.
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:source' ) );
 		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:offsetlog' ) );
@@ -3565,7 +3565,7 @@ class ConsumerTest extends TestCase {
 		$squatter = new Partition_Node();
 		$squatter->name( 'feed:source' );
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$this->expectException( \RuntimeException::class );
 		$c->name( 'feed' );
 	}
@@ -3573,7 +3573,7 @@ class ConsumerTest extends TestCase {
 	public function test_sink_cascades_to_both_children(): void {
 		$downstream = new Capture_Sink_Node();
 		$c          = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 		$c->sink( $downstream );
 		$this->assertSame( $downstream, Core::node( 'feed:source' )->sink() );
@@ -3583,7 +3583,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_remove_node_removes_both_children(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 		$c->remove_node();
 		$this->assertNull( Core::node( 'feed' ) );
@@ -3593,7 +3593,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_consumer_named_zero_registers_zero_prefixed_children(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( '0' );
 		$this->assertSame( '0', $c->name() );
 		$this->assertSame( $c, Core::node( '0' ) );
@@ -3610,7 +3610,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_source_sibling_is_named_and_patron_set_to_consumer(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 " );
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
 		$c->name( 'feed' );
 
 		$source = Core::node( 'feed:source' );
@@ -3621,7 +3621,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_offsetlog_sibling_is_named_and_patron_set_to_consumer(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 
 		$offsetlog = Core::node( 'feed:offsetlog' );
@@ -3637,7 +3637,7 @@ class ConsumerTest extends TestCase {
 		// the Consumer's sink is a capture node, and the children follow it there.
 		$downstream = new Capture_Sink_Node();
 		$c          = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'feed' );
 		$c->sink( $downstream );
 
@@ -3672,7 +3672,7 @@ class ConsumerTest extends TestCase {
 	public function test_dump_config_roundtrips_set_snapshot_node(): void {
 		$c = new Consumer_Node();
 		$c->name( 'requests:consumer' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets/requests.flame-builder.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/requests.flame-builder.p0" ] );
 		$c->set_snapshot_node( 'flame-builder' );
 
 		$this->assertStringContainsString(
@@ -3685,7 +3685,7 @@ class ConsumerTest extends TestCase {
 	public function test_dump_config_omits_snapshot_node_when_unset(): void {
 		$c = new Consumer_Node();
 		$c->name( 'plain' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		$this->assertStringNotContainsString( 'set_snapshot_node', $c->dump_config() );
 	}
@@ -3693,7 +3693,7 @@ class ConsumerTest extends TestCase {
 	public function test_dump_config_roundtrips_set_multi_writer(): void {
 		$c = new Consumer_Node();
 		$c->name( 'firehose' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->set_multi_writer( true );
 
 		// Real round-trip: extract the emitted arg and replay it through the verb
@@ -3704,10 +3704,10 @@ class ConsumerTest extends TestCase {
 
 		$c2 = new Consumer_Node();
 		$c2->name( 'firehose2' );
-		$c2->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$interp = Core::node( 'firehose2:config' );
 		$this->assertInstanceOf( Command_Interpreter_Node::class, $interp );
-		Consumer_Node::cmd_set_multi_writer( $interp, $emitted_arg );
+		Consumer_Node::cmd_set_multi_writer( $interp, [ $emitted_arg ] );
 
 		$mw = new \ReflectionProperty( $c2, 'multi_writer' );
 		$mw->setAccessible( true );
@@ -3717,7 +3717,7 @@ class ConsumerTest extends TestCase {
 	public function test_dump_config_roundtrips_set_line_mode(): void {
 		$c = new Consumer_Node();
 		$c->name( 'reader' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->set_line_mode( true );
 
 		$this->assertStringContainsString(
@@ -3729,7 +3729,7 @@ class ConsumerTest extends TestCase {
 	public function test_dump_config_omits_line_mode_when_off(): void {
 		$c = new Consumer_Node();
 		$c->name( 'reader' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		$this->assertStringNotContainsString( 'set_line_mode', $c->dump_config() );
 	}
@@ -3741,7 +3741,7 @@ class ConsumerTest extends TestCase {
 		// `saved_line_mode ?? line_mode` branch against a "simplify to line_mode" regression.
 		$c = new Consumer_Node();
 		$c->name( 'stepper' );
-		$c->arguments( "{$this->tmp}/data.p0 {$this->tmp}/offsets.p0" );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		$ref   = new \ReflectionObject( $c );
 		$saved = $ref->getProperty( 'saved_line_mode' );

@@ -123,7 +123,7 @@ describe( 'useTopicProbeStream', () => {
 		);
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
-		expect( Core.node( LINK ).arguments ).toBe( 'topicprobe.p0' );
+		expect( Core.node( LINK ).arguments ).toEqual( [ 'topicprobe.p0' ] );
 	} );
 
 	it( "mode:'history' seeks from start (positions in the stream URL)", async () => {

@@ -68,7 +68,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	/**
 	 * @dataProvider verb_provider
 	 */
-	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload, string $args = '' ): void {
+	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload, array $args = [] ): void {
 		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
@@ -97,7 +97,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	 * get_body() / set_body() / set_header(), so unlike M2 (event-logger-
 	 * nodes) no anonymous-class subclass is needed here.
 	 */
-	private function build_request( string $to, string $verb, mixed $payload, string $args = '' ): \WP_REST_Request {
+	private function build_request( string $to, string $verb, mixed $payload, array $args = [] ): \WP_REST_Request {
 		// The controller requires a packed 7-element positional Message
 		// (`Message::unpacked()`), so build one rather than a keyed object.
 		$message                   = Message::new_message();
@@ -130,7 +130,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	public static function verb_provider(): array {
 		return [
 			'classes.list'    => [ 'classes',    'list', null ],
-			'layouts.get'     => [ 'layouts',    'get',  null, 'fresh' ],
+			'layouts.get'     => [ 'layouts',    'get',  null, [ 'fresh' ] ],
 			'topologies.list' => [ 'topologies', 'list', null ],
 		];
 	}

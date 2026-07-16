@@ -206,7 +206,7 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list rec
 		expect( add[ TO ] ).toBe( 'vault' );
 		expect( add[ FROM ] ).toBe( LIST_RECV );
 		expect( add[ VALUE ].payload ).toBeUndefined();
-		expect( add[ VALUE ].arguments ).toBe(
+		expect( add[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ], {
 				url: 'https://x',
 				auth_username: 'u',
@@ -243,7 +243,7 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list rec
 		expect( update ).toBeTruthy();
 		expect( update[ FROM ] ).toBe( LIST_RECV );
 		expect( update[ VALUE ].payload ).toBeUndefined();
-		expect( update[ VALUE ].arguments ).toBe(
+		expect( update[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ], { url: 'https://y' } )
 		);
 		expect( countVerbs( client.batches, 'list' ) ).toBeGreaterThan(
@@ -270,7 +270,7 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list rec
 		expect( del ).toBeTruthy();
 		expect( del[ FROM ] ).toBe( LIST_RECV );
 		expect( del[ VALUE ].payload ).toBeUndefined();
-		expect( del[ VALUE ].arguments ).toBe(
+		expect( del[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ] )
 		);
 		expect( countVerbs( client.batches, 'list' ) ).toBeGreaterThan(
@@ -301,7 +301,7 @@ describe( 'useVaultGraph — test probe lands in the test view', () => {
 		expect( t ).toBeTruthy();
 		expect( t[ FROM ] ).toBe( TEST_RECV );
 		expect( t[ VALUE ].payload ).toBeUndefined();
-		expect( t[ VALUE ].arguments ).toBe(
+		expect( t[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ] )
 		);
 		expect( returned ).toEqual( probe );

@@ -61,12 +61,16 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		};
 	}
 
-	/** Build a named, wired Remote_Source pulling firehose.p0 from the aspen vault entry. */
-	private function make_remote( string $name = 'remote-aspen', ?string $args = null ): Remote_Source_Node {
+	/**
+	 * Build a named, wired Remote_Source pulling firehose.p0 from the aspen vault entry.
+	 *
+	 * @param list<string>|null $args Positional ctor tokens (null = derive the default set).
+	 */
+	private function make_remote( string $name = 'remote-aspen', ?array $args = null ): Remote_Source_Node {
 		// The dirs are ARGUMENTS, like Consumer's — there is no derived fallback.
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$args  ??= "aspen firehose.p0 {$offsets}/{$name}.firehose.p0 {$base}/deadletter/{$name}.firehose.p0";
+		$args  ??= [ 'aspen', 'firehose.p0', "{$offsets}/{$name}.firehose.p0", "{$base}/deadletter/{$name}.firehose.p0" ];
 		$node    = new Remote_Source_Node();
 		$node->name( $name );
 		$sink = new Capture_Sink_Node();

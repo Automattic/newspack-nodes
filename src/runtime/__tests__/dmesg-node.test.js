@@ -56,7 +56,7 @@ describe( 'DmesgNode', () => {
 		expect( sent ).toHaveLength( 1 );
 		expect( sent[ 0 ][ VALUE ] ).toEqual( {
 			name: 'dmesg',
-			arguments: '',
+			arguments: [],
 		} );
 	} );
 } );

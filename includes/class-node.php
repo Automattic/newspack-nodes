@@ -36,7 +36,8 @@ class Node {
 	];
 
 	/** Cached config string; dump_config round-trips it back into the make_node line. */
-	protected string $arguments = '';
+	/** @var list<string> Constructor argument tokens (Tachikoma's raw `arguments`). */
+	protected array $arguments = [];
 
 	/** Only I/O nodes (Partition, Consumer) populate these; logic nodes stay at zero. */
 	protected int $bytes_read    = 0;
@@ -87,14 +88,38 @@ class Node {
 	 * override, then derives — gating both on a non-empty string so a bare
 	 * `make_node Foo` assigns nothing and triggers no side-effects.
 	 *
-	 * @param string|null $args New raw arguments string (null = pure getter).
-	 * @return string Last-set raw arguments string.
+	 * @param list<string>|null $args New argument tokens (null = pure getter).
+	 * @return list<string> Last-set argument tokens.
 	 */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null !== $args ) {
 			$this->arguments = $args;
 		}
 		return $this->arguments;
+	}
+
+	/**
+	 * Serialize argument tokens back to a single line, single-quoting any token
+	 * that contains whitespace so it re-parses as one token (mirrors the JS
+	 * serializeArg + the Shell's quote-aware tokenizer). The one place tokens
+	 * are re-joined — every other layer carries them as a list.
+	 *
+	 * @param list<string> $tokens
+	 */
+	public static function serialize_args( array $tokens ): string {
+		return \implode(
+			' ',
+			\array_map(
+				static function ( string $t ): string {
+					// Quote an empty or any-metachar token; escape \ and the '.
+					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\]/', $t ) ) {
+						return $t;
+					}
+					return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $t ) . "'";
+				},
+				$tokens
+			)
+		);
 	}
 
 	/**
@@ -517,8 +542,8 @@ class Node {
 	public function dump_config(): string {
 		$short = Command_Interpreter_Node::shell_name_for( $this );
 		$out   = "make_node $short {$this->name}";
-		if ( '' !== $this->arguments ) {
-			$out .= " {$this->arguments}";
+		if ( ! empty( $this->arguments ) ) {
+			$out .= ' ' . self::serialize_args( $this->arguments );
 		}
 		$out .= "\n";
 

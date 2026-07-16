@@ -58,7 +58,7 @@ describe( 'useExpandedIncludes', () => {
 		expect( send ).toHaveBeenCalledWith( {
 			to: 'topologies',
 			verb: 'expand',
-			args: 'performance job-router',
+			args: [ 'performance', 'job-router' ],
 		} );
 		expect( result.current.baseline.nodes ).toEqual( [
 			{ name: 'shared-tee' },

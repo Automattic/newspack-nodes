@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -14,6 +15,44 @@ class ShellTest extends TestCase {
 	public function test_tokenize_plain_words(): void {
 		$shell = new Shell_Node();
 		$this->assertSame( [ 'tell', 'foo', 'bar' ], $shell->tokenize( 'tell foo bar' ) );
+	}
+
+	public function test_tokenize_unescapes_quote_and_backslash_inside_quotes(): void {
+		$shell = new Shell_Node();
+		// Inside a quote, `\` escapes the next char so the wrapping quote (and a
+		// literal backslash) survive: `'it\'s'` -> `it's`, `'a\\b'` -> `a\b`.
+		$this->assertSame( [ "it's" ], $shell->tokenize( "'it\\'s'" ) );
+		$this->assertSame( [ 'a\\b' ], $shell->tokenize( "'a\\\\b'" ) );
+	}
+
+	/**
+	 * @dataProvider adversarial_tokens
+	 * @param list<string> $tokens
+	 */
+	public function test_serialize_args_round_trips_through_tokenize( array $tokens ): void {
+		$shell = new Shell_Node();
+		// serialize_args -> tokenize must recover the EXACT tokens, including
+		// ones carrying quote chars and backslashes (the pre-escape gap).
+		$line = 'X Y ' . Node::serialize_args( $tokens );
+		$back = \array_slice( $shell->tokenize( $line ), 2 );
+		$this->assertSame( $tokens, $back );
+	}
+
+	/** @return array<string,array{list<string>}> */
+	public static function adversarial_tokens(): array {
+		return [
+			'spaced'          => [ [ 'a b', 'c' ] ],
+			'single-quote'    => [ [ "it's" ] ],
+			'double-quote'    => [ [ 'pa"th' ] ],
+			'backtick'        => [ [ 'back`tick' ] ],
+			'backslash'       => [ [ 'a\\b' ] ],
+			'space-and-quote' => [ [ "a 'b" ] ],
+			'all-three-quotes'=> [ [ "q'\"`x" ] ],
+			'empty-leading'   => [ [ '', 'bval' ] ],
+			'empty-middle'    => [ [ 'a', '', 'c' ] ],
+			'single-empty'    => [ [ '' ] ],
+			'plain-path'      => [ [ '/logs/x.p0', '65536', '4' ] ],
+		];
 	}
 
 	public function test_tokenize_collapses_repeated_whitespace(): void {
@@ -170,7 +209,7 @@ class ShellTest extends TestCase {
 		// VALUE rides as a live PHP array — no JSON string to decode.
 		$cmd = $message[ Message::VALUE ];
 		$this->assertSame( 'ls', $cmd['name'] );
-		$this->assertSame( '', $cmd['arguments'] );
+		$this->assertSame( [], $cmd['arguments'] );
 	}
 
 	public function test_want_reply_false_stamps_noreply_on_parsed_commands(): void {
@@ -198,7 +237,18 @@ class ShellTest extends TestCase {
 
 		$cmd = $message[ Message::VALUE ];
 		$this->assertSame( 'make_node', $cmd['name'] );
-		$this->assertSame( 'Capture_Sink alice', $cmd['arguments'] );
+		$this->assertSame( [ 'Capture_Sink', 'alice' ], $cmd['arguments'] );
+	}
+
+	public function test_parse_cmd_preserves_a_quoted_arg_as_one_token(): void {
+		// The keystone: a quoted multi-word arg survives as ONE token all the way
+		// into VALUE['arguments'], instead of being flattened to a re-split string.
+		$shell   = new Shell_Node();
+		$message = $shell->parse( "cmd node:config set_label 'a b'" );
+
+		$cmd = $message[ Message::VALUE ];
+		$this->assertSame( 'set_label', $cmd['name'] );
+		$this->assertSame( [ 'a b' ], $cmd['arguments'] );
 	}
 
 	/**
@@ -606,7 +656,7 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'firehose-workers.p0', $message[ Message::TO ] );
 		$decoded = $message[ Message::VALUE ];
 		$this->assertSame( 'ls', $decoded['name'] );
-		$this->assertSame( '-al', $decoded['arguments'] );
+		$this->assertSame( [ '-al' ], $decoded['arguments'] );
 	}
 
 	// ── new verbs: tell_node / send_node / command_node / request_node ────
@@ -645,7 +695,7 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'jobs:partition/helper-node', $message[ Message::TO ] );
 		$decoded = $message[ Message::VALUE ];
 		$this->assertSame( 'ls', $decoded['name'] );
-		$this->assertSame( '-al', $decoded['arguments'] );
+		$this->assertSame( [ '-al' ], $decoded['arguments'] );
 	}
 
 	public function test_command_alias_works_like_command_node(): void {
@@ -688,7 +738,7 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'firehose-workers.p0', $message[ Message::TO ] );
 		$decoded = $message[ Message::VALUE ];
 		$this->assertSame( 'pwd', $decoded['name'] );
-		$this->assertSame( 'firehose-workers.p0', $decoded['arguments'] );
+		$this->assertSame( [ 'firehose-workers.p0' ], $decoded['arguments'] );
 	}
 
 	public function test_pwd_at_root_emits_with_empty_TO(): void {
@@ -697,7 +747,7 @@ class ShellTest extends TestCase {
 		$message = $shell->parse( 'pwd' );
 		$this->assertSame( '', $message[ Message::TO ] );
 		$decoded = $message[ Message::VALUE ];
-		$this->assertSame( '', $decoded['arguments'] );
+		$this->assertSame( [], $decoded['arguments'] );
 	}
 
 	// ── include_file branches ──────────────────────────────────────────────

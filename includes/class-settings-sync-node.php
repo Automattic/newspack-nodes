@@ -47,15 +47,16 @@ class Settings_Sync_Node extends Timer_Node {
 	 * self-schedule, so we explicitly call set_timer() here. A blank/absent
 	 * interval falls back to the default 300s sweep cadence.
 	 *
-	 * @param string|null $args Interval in seconds (digits), '' for the default, or null to read back.
-	 * @return string Last-set raw arguments string.
+	 * @param list<string>|null $args Interval in seconds (digits) at token 0, empty for the default, or null to read back.
+	 * @return list<string> Last-set argument tokens.
 	 */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return $this->arguments;
 		}
 		$this->arguments = $args;
-		$seconds         = '' === $args ? self::DEFAULT_INTERVAL_SECONDS : (int) $args;
+		$first           = $args[0] ?? '';
+		$seconds         = '' === $first ? self::DEFAULT_INTERVAL_SECONDS : (int) $first;
 		$this->set_timer( $seconds * 1000 );
 		return $this->arguments;
 	}
@@ -160,11 +161,11 @@ class Settings_Sync_Node extends Timer_Node {
 	 * option, once to its own `remote_*` copy); exact duplicates are idempotent
 	 * so re-running the topology doesn't fan out twice.
 	 *
-	 * @param string $args Whitespace-separated `<local_option> <TO> <remote_option>`.
+	 * @param array<array-key, mixed> $args Whitespace-separated `<local_option> <TO> <remote_option>`.
 	 * @return string 'ok', or an `error: …` string on arity mismatch.
 	 */
-	public function add_setting( string $args ): string {
-		$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [];
+	public function add_setting( array $args ): string {
+		$parts = \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
 		if ( 3 !== \count( $parts ) ) {
 			return 'error: add_setting requires <local_option> <TO> <remote_option>';
 		}
@@ -196,10 +197,10 @@ class Settings_Sync_Node extends Timer_Node {
 	 * inline closure).
 	 *
 	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
-	 * @param string                   $args        `<local_option> <TO> <remote_option>`.
+	 * @param array<array-key, mixed>  $args        `<local_option> <TO> <remote_option>`.
 	 * @return string Result line.
 	 */
-	public static function cmd_add_setting( Command_Interpreter_Node $interpreter, string $args ): string {
+	public static function cmd_add_setting( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		return $patron->add_setting( $args );
@@ -222,7 +223,7 @@ class Settings_Sync_Node extends Timer_Node {
 						[ 'name' => 'to',            'type' => 'string', 'required' => true ],
 						[ 'name' => 'remote_option', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_add_setting( $interpreter, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_add_setting( $interpreter, $args ),
 					'multiple' => true,
 				],
 			],

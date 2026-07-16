@@ -78,10 +78,10 @@ class Consumer_Node extends Timer_Node {
 	 * Partitions (the offsetlog is a flat segmented-log dir) and seed the in-memory
 	 * cursor from any existing offsetlog entries.
 	 *
-	 * @param string|null $args
-	 * @return string
+	 * @param list<string>|null $args
+	 * @return list<string>
 	 */
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
@@ -94,7 +94,7 @@ class Consumer_Node extends Timer_Node {
 		if ( '' !== $this->name ) {
 			$this->source->name( "{$this->name}:source" );
 		}
-		$this->source->arguments( $this->source_dir );
+		$this->source->arguments( [ $this->source_dir ] );
 		$this->source->sink( $this->sink );
 		$this->source->patron( $this );
 
@@ -685,12 +685,12 @@ class Consumer_Node extends Timer_Node {
 	 * so the default stays "off" (single-writer, immediate advance).
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param string                   $args        Optional bool; only a truthy value enables.
+	 * @param array<array-key, mixed>  $args        Optional bool; only a truthy value enables.
 	 */
-	public static function cmd_set_multi_writer( Command_Interpreter_Node $interpreter, string $args ): string {
+	public static function cmd_set_multi_writer( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = $interpreter->patron();
 		if ( $patron instanceof self ) {
-			$patron->set_multi_writer( \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true ) );
+			$patron->set_multi_writer( \in_array( \strtolower( Core::as_string( $args[0] ?? '' ) ), [ '1', 'true', 'yes', 'on' ], true ) );
 		}
 		return 'ok';
 	}
@@ -792,7 +792,7 @@ class Consumer_Node extends Timer_Node {
 					[
 						'name'        => 'set_multi_writer',
 						'description' => 'Enable the multi-writer seal-grace (shared logs, e.g. the firehose).',
-						'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_set_multi_writer( $interpreter, $args ),
+						'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_set_multi_writer( $interpreter, $args ),
 					],
 				]
 			),

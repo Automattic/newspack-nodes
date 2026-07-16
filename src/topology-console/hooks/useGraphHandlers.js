@@ -11,7 +11,7 @@ import {
 	TM_REQUEST,
 } from '../../runtime/message';
 import { generateNodeName } from '../utils/draftGraph';
-import { quoteToken } from '../../runtime/shell-node';
+import { quoteToken, tokenize } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
 import { canonicalReverseCwd } from '../../runtime/metadata-node';
@@ -187,19 +187,8 @@ export function useGraphHandlers( {
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( 'send_struct' === action ) {
-					// Quote JSON so the tokenizer delivers it intact [#32].
+					// Quote+escape JSON to survive the tokenizer [#32].
 					const json = quoteToken( payload );
-					if ( null === json ) {
-						// Value has all 3 quote types — unrepresentable, skip.
-						append( {
-							kind: 'error',
-							text: __(
-								"send_struct: value contains every quote char (', `, \") and can't be encoded for the shell — paste it at the prompt instead.",
-								'newspack-nodes'
-							),
-						} );
-						return;
-					}
 					dispatchVerb(
 						`send_struct ${ nodeId } ${ json }`,
 						'send_struct',
@@ -271,7 +260,8 @@ export function useGraphHandlers( {
 						m[ TYPE ] = TM_COMMAND;
 						m[ VALUE ] = {
 							name: verb,
-							arguments: positional || '',
+							// Tokenize once at the producer boundary.
+							arguments: tokenize( positional || '' ),
 						};
 						echo = `command_node ${ commandTarget } ${ verb }${
 							positional ? ' ' + positional : ''

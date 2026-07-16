@@ -266,7 +266,7 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
-		expect( Core.node( LINK ).arguments ).toBe( 'raw-logs' );
+		expect( Core.node( LINK ).arguments ).toEqual( [ 'raw-logs' ] );
 	} );
 } );
 
@@ -337,7 +337,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
 				);
 			expect( poke ).toBeTruthy();
-			expect( poke[ VALUE ].arguments ).toBe( '5 10' );
+			expect( poke[ VALUE ].arguments ).toEqual( [ '5', '10' ] );
 		} finally {
 			jest.useRealTimers();
 		}

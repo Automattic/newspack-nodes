@@ -160,7 +160,7 @@ class Classes_CI_Node extends Service_CI_Node {
 					'name'        => 'list',
 					'description' => 'List registered classes (with schemas) and formatters.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_list(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list(),
 				],
 			],
 		] );

@@ -117,16 +117,20 @@ trait Buffered_Pump {
 				'args'        => [
 					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => 'A truthy value (1/true/yes/on) enables; anything else disables.' ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => self::cmd_assume_clean_shutdown( $interpreter, $args ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_assume_clean_shutdown( $interpreter, $args ),
 			],
 		];
 	}
 
-	/** `assume_clean_shutdown` verb handler — only a truthy arg enables; anything else disables. */
-	public static function cmd_assume_clean_shutdown( Command_Interpreter_Node $interpreter, string $args ): string {
+	/**
+	 * `assume_clean_shutdown` verb handler — only a truthy arg enables; anything else disables.
+	 *
+	 * @param array<array-key, mixed> $args
+	 */
+	public static function cmd_assume_clean_shutdown( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->set_assume_clean_shutdown( \in_array( \strtolower( \trim( $args ) ), [ '1', 'true', 'yes', 'on' ], true ) );
+		$patron->set_assume_clean_shutdown( \in_array( \strtolower( Core::as_string( $args[0] ?? '' ) ), [ '1', 'true', 'yes', 'on' ], true ) );
 		return 'ok';
 	}
 

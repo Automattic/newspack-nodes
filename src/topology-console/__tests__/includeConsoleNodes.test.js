@@ -15,7 +15,7 @@ describe( 'includeConsoleNodes', () => {
 	it( 'make_node resolves a console node class registered via the side-effect import', () => {
 		const interpreter = new CommandInterpreterNode();
 		interpreter.name = '_command_interpreter';
-		interpreter.dispatch( 'make_node', 'Metadata mymeta' );
+		interpreter.dispatch( 'make_node', [ 'Metadata', 'mymeta' ] );
 		const node = Core.node( 'mymeta' );
 		expect( node ).toBeInstanceOf( MetadataNode );
 		expect( node.sink ).toBe( interpreter );
@@ -24,10 +24,11 @@ describe( 'includeConsoleNodes', () => {
 	it( 'make_node resolves RemoteIpc (the per-worker command channel)', () => {
 		const interpreter = new CommandInterpreterNode();
 		interpreter.name = '_command_interpreter';
-		interpreter.dispatch(
-			'make_node',
-			'RemoteIpc violet-ipc-947 aggregator.p13'
-		);
+		interpreter.dispatch( 'make_node', [
+			'RemoteIpc',
+			'violet-ipc-947',
+			'aggregator.p13',
+		] );
 		const node = Core.node( 'violet-ipc-947' );
 		expect( node ).toBeInstanceOf( RemoteIpcNode );
 		expect( node.reader ).toBe( 'aggregator.p13' );

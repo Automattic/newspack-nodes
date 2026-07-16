@@ -350,7 +350,7 @@ class BootstrapTest extends TestCase {
 
 		$this->assertTrue( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
 
-		$parts = \explode( ' ', \Newspack_Nodes\Core::node( 'demo.p0' )->arguments() );
+		$parts = \Newspack_Nodes\Core::node( 'demo.p0' )->arguments();
 		$this->assertSame( (string) ( 1024 * 1024 ), $parts[1], 'mounted IPC input Partition segment_size must be 1 MiB' );
 	}
 

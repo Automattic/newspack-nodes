@@ -62,7 +62,7 @@ class Status_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'description' => 'Return a single-shot health snapshot for the admin "is this thing alive?" panel.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array => self::cmd_get(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_get(),
 				],
 			],
 		] );

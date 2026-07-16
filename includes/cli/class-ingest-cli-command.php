@@ -121,7 +121,7 @@ class Ingest_CLI_Command {
 		if ( ! $dry_run ) {
 			$topic = new Topic_Node();
 			// Lifetimes 0: an inherited floor makes --max_segments a no-op.
-			$topic->arguments( \implode( ' ', [
+			$topic->arguments( \array_map( '\strval', [
 				$tpl,
 				$num_partitions,
 				$segment_size,

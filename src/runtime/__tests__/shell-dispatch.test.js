@@ -45,7 +45,7 @@ describe( 'ShellNode.dispatch', () => {
 		shell.sink = { fill: () => {} };
 		shell.onDispatch = ( m ) => seen.push( m[ VALUE ].name );
 
-		shell.sendCommand( '', 'make_node', 'Tee t' );
+		shell.sendCommand( '', 'make_node', [ 'Tee', 't' ] );
 
 		expect( seen ).toEqual( [ 'make_node' ] );
 	} );

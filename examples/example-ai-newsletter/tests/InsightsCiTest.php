@@ -36,7 +36,7 @@ final class InsightsCiTest extends TestCase {
 	private function write_snapshot( string $offsets, int $partition, array $items ): void {
 		$ol = new Partition_Node();
 		$ol->name( "t:ol:$partition" );
-		$ol->arguments( "$offsets/example-scored.p$partition" );
+		$ol->arguments( [ "$offsets/example-scored.p$partition" ] );
 		$ol->void_warranty(); // The real Consumer offsetlog runs large-writes on (set_snapshot_node).
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;

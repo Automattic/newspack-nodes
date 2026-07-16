@@ -33,7 +33,7 @@ test( 'send leaves FROM empty — the server HTTP_In stamps the _http boundary',
 	await client.send( {
 		to: 'performance',
 		verb: 'overview',
-		args: '--range=1h',
+		args: [ '--range=1h' ],
 	} );
 	expect( global.fetch ).toHaveBeenCalledTimes( 1 );
 	const [ url, opts ] = global.fetch.mock.calls[ 0 ];
@@ -55,7 +55,7 @@ test( 'send leaves FROM empty — the server HTTP_In stamps the _http boundary',
 	const value = msg[ VALUE ];
 	expect( value.name ).toBe( 'overview' );
 	// `arguments` is the whole CLI tail the verb parses — no payload slot.
-	expect( value.arguments ).toBe( '--range=1h' );
+	expect( value.arguments ).toEqual( [ '--range=1h' ] );
 	expect( value.payload ).toBeUndefined();
 } );
 
@@ -97,7 +97,7 @@ test( 'postBatch posts JSONL — one packed Message per line — to /command', a
 	const a = client.buildMessage( {
 		to: 'topologies',
 		verb: 'connect_worker_input',
-		args: 'demo.p0',
+		args: [ 'demo.p0' ],
 	} );
 	const b = client.buildMessage( { to: 'demo.p0', verb: 'dump_metadata' } );
 	await client.postBatch( [ a, b ] );

@@ -158,7 +158,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// is NOT glob-owned, and has no logs/ dir. Pattern-match removal would drop
 		// it; ownership-based removal must keep it.
 		$exact = new Consumer_Node();
-		$exact->arguments( "{$this->tmp}/ipc/firehose.p9/output " );
+		$exact->arguments( [ "{$this->tmp}/ipc/firehose.p9/output" ] );
 		$exact->set_stamp_as( 'firehose.p9' );
 		$exact->name( 'firehose.p9' );
 		$exact->sink( $route );
@@ -199,7 +199,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 		$this->assertStringStartsWith(
 			"{$this->tmp}/logs/firehose.p0",
-			$consumers[0]->arguments(),
+			$consumers[0]->arguments()[0],
 			'log fallback must tail the flat concrete partition dir, not the nested {name}.log/p{N}'
 		);
 	}
@@ -217,7 +217,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertCount( 1, $consumers );
 		$this->assertStringStartsWith(
 			"{$this->tmp}/ipc/demo-workers.p0/output",
-			$consumers[0]->arguments(),
+			$consumers[0]->arguments()[0],
 			'must tail the persisting IPC output dir, not fall back to the log feed'
 		);
 	}

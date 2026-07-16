@@ -11,7 +11,7 @@ import {
 	tokenize,
 	quoteToken,
 } from '../shell-node';
-import { Node } from '../node';
+import { Node, serializeArgs } from '../node';
 import {
 	TYPE,
 	FROM,
@@ -48,9 +48,8 @@ describe( 'quoteToken — tokenizer inverse for one intact token [#32]', () => {
 		expect( tokenize( quoteToken( json ) ) ).toEqual( [ json ] );
 	} );
 
-	it( 'uses a backtick when the value itself contains a single quote', () => {
+	it( 'escapes a single quote so a quote-bearing value round-trips', () => {
 		const v = '{ "msg": "it\'s here" }';
-		expect( quoteToken( v ) ).toBe( '`' + v + '`' );
 		expect( tokenize( quoteToken( v ) ) ).toEqual( [ v ] );
 	} );
 
@@ -59,9 +58,35 @@ describe( 'quoteToken — tokenizer inverse for one intact token [#32]', () => {
 		expect( quoteToken( json ) ).toBe( "'" + json + "'" );
 	} );
 
-	it( 'returns null when the value contains every quote char (not representable)', () => {
-		// No escape: a value with all ', `, " can't be wrapped by quoteToken.
-		expect( quoteToken( 'a\'b`c"d' ) ).toBeNull();
+	it( 'escapes so a value with every quote char is still representable', () => {
+		// With tokenizer escape support, quoteToken never fails — the wrapping
+		// quote and backslashes are escaped and the tokenizer recovers them.
+		const v = 'a\'b`c"d\\e';
+		expect( tokenize( quoteToken( v ) ) ).toEqual( [ v ] );
+	} );
+} );
+
+describe( 'tokenizer escape round-trip', () => {
+	it( 'tokenize unescapes the quote char and backslash inside quotes', () => {
+		expect( tokenize( "'it\\'s'" ) ).toEqual( [ "it's" ] );
+		expect( tokenize( "'a\\\\b'" ) ).toEqual( [ 'a\\b' ] );
+	} );
+
+	it.each( [
+		[ [ 'a b', 'c' ] ],
+		[ [ "it's" ] ],
+		[ [ 'pa"th' ] ],
+		[ [ 'back`tick' ] ],
+		[ [ 'a\\b' ] ],
+		[ [ "a 'b" ] ],
+		[ [ 'q\'"`x' ] ],
+		[ [ '', 'bval' ] ],
+		[ [ 'a', '', 'c' ] ],
+		[ [ '' ] ],
+		[ [ '/logs/x.p0', '65536', '4' ] ],
+	] )( 'serializeArgs round-trips %j through tokenize', ( tokens ) => {
+		const back = tokenize( 'X Y ' + serializeArgs( tokens ) ).slice( 2 );
+		expect( back ).toEqual( tokens );
 	} );
 } );
 
@@ -176,7 +201,7 @@ describe( 'Shell node — fill() reply path + TO', () => {
 		expect( m[ TO ] ).toBe( 'demo.p0' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'ls',
-			arguments: '-al',
+			arguments: [ '-al' ],
 		} );
 	} );
 
@@ -292,7 +317,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		expect( m[ TO ] ).toBe( '_http/demo.p0/firehose-in' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'dump_metadata',
-			arguments: '',
+			arguments: [],
 		} );
 	} );
 
@@ -310,7 +335,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		expect( m[ TO ] ).toBe( '_http/demo.p0' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'make_node',
-			arguments: 'Echo my_node',
+			arguments: [ 'Echo', 'my_node' ],
 		} );
 	} );
 
@@ -318,7 +343,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		const { m } = drive( 'help' );
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ VALUE ].name ).toBe( 'help' );
-		expect( m[ VALUE ].arguments ).toBe( '' );
+		expect( m[ VALUE ].arguments ).toEqual( [] );
 	} );
 } );
 
@@ -352,7 +377,7 @@ describe( 'Shell node — pwd', () => {
 		expect( m[ TO ] ).toBe( '_http/demo.p0' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'pwd',
-			arguments: '_http/demo.p0',
+			arguments: [ '_http/demo.p0' ],
 		} );
 	} );
 
@@ -363,7 +388,7 @@ describe( 'Shell node — pwd', () => {
 		expect( m[ TO ] ).toBe( '' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'pwd',
-			arguments: '',
+			arguments: [],
 		} );
 	} );
 } );
@@ -531,12 +556,12 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 		expect( shell.vars.x ).toBe( 'a b c' );
 	} );
 
-	it( 'bare verb args collapse whitespace runs and strip quotes', () => {
+	it( 'bare verb args are tokens; a quoted arg survives as ONE token', () => {
 		const { shell } = makeShell( { path: '' } );
 		const m = shell.parse( 'foo a   "b c"' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'foo',
-			arguments: 'a b c',
+			arguments: [ 'a', 'b c' ],
 		} );
 	} );
 
@@ -559,12 +584,12 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 		expect( filled[ 0 ][ VALUE ] ).toBe( 'hello world' );
 	} );
 
-	it( 'cmd args join slice(2) with single spaces', () => {
+	it( 'cmd args are slice(2) tokens; a quoted arg stays one token', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.fill( 'cmd n verb a   "b c"' );
 		expect( filled[ 0 ][ VALUE ] ).toEqual( {
 			name: 'verb',
-			arguments: 'a b c',
+			arguments: [ 'a', 'b c' ],
 		} );
 	} );
 
@@ -671,7 +696,7 @@ describe( 'Shell node — want_reply / TM_NOREPLY (script/topology mode)', () =>
 	it( 'sendCommand respects want_reply(false) and stamps TM_NOREPLY', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.wantReply( false );
-		shell.sendCommand( '', 'connect_node', 'a b' );
+		shell.sendCommand( '', 'connect_node', [ 'a', 'b' ] );
 		expect( filled ).toHaveLength( 1 );
 		expect( filled[ 0 ][ TYPE ] & TM_NOREPLY ).toBeTruthy();
 	} );

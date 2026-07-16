@@ -66,7 +66,7 @@ function makeLink( subscribe = 'raw-logs' ) {
 			return Promise.resolve( [] );
 		},
 	};
-	link.arguments = subscribe;
+	link.arguments = [ subscribe ];
 	return { link, posted };
 }
 
@@ -148,14 +148,15 @@ describe( 'RemoteLinkNode', () => {
 		};
 		try {
 			const { interpreter } = mountExospine();
-			interpreter.dispatch(
-				'make_node',
-				'RemoteLink violet-link-947 gyroscope.p7'
-			);
-			interpreter.dispatch(
-				'connect_node',
-				'violet-link-947 indigo-view-863'
-			);
+			interpreter.dispatch( 'make_node', [
+				'RemoteLink',
+				'violet-link-947',
+				'gyroscope.p7',
+			] );
+			interpreter.dispatch( 'connect_node', [
+				'violet-link-947',
+				'indigo-view-863',
+			] );
 
 			const first = Core.node( 'violet-link-947' );
 			expect( first.sseIn ).toBeInstanceOf( SseInNode );
@@ -173,12 +174,12 @@ describe( 'RemoteLinkNode', () => {
 			first.removeNode();
 			for ( const line of config.trim().split( '\n' ) ) {
 				const [ verb, ...args ] = line.split( ' ' );
-				interpreter.dispatch( verb, args.join( ' ' ) );
+				interpreter.dispatch( verb, args );
 			}
 
 			const reopened = Core.node( 'violet-link-947' );
 			expect( reopened ).not.toBe( first );
-			expect( reopened.arguments ).toBe( 'gyroscope.p7' );
+			expect( reopened.arguments ).toEqual( [ 'gyroscope.p7' ] );
 			expect( reopened.target ).toBe( 'indigo-view-863' );
 			expect( FakeEventSource.last ).not.toBe( firstStream );
 			expect( FakeEventSource.last.url ).toContain(
@@ -304,14 +305,14 @@ describe( 'RemoteLinkNode', () => {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = 'dash:view';
 		m[ TO ] = 'raw-logs';
-		m[ VALUE ] = { name: 'list_logs', arguments: '' };
+		m[ VALUE ] = { name: 'list_logs', arguments: [] };
 		link.send( m );
 		expect( posted ).toHaveLength( 1 );
 		expect( posted[ 0 ][ TO ] ).toBe( 'raw-logs' );
 		expect( posted[ 0 ][ FROM ] ).toBe( 'dash:view' );
 		expect( posted[ 0 ][ VALUE ] ).toEqual( {
 			name: 'list_logs',
-			arguments: '',
+			arguments: [],
 		} );
 	} );
 
@@ -430,7 +431,7 @@ describe( 'RemoteLinkNode', () => {
 			link.name = 'dash:link';
 			link.sink = interpreter;
 			// subscribe only — no baseUrl/nonce tokens, no injected client.
-			link.arguments = 'raw-logs';
+			link.arguments = [ 'raw-logs' ];
 			link.connect();
 			const http = Core.node( names.HTTP );
 			expect( http.client ).toBeInstanceOf( CommandClient );

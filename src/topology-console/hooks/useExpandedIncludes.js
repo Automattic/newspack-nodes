@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
+import { formatCommandArgs } from '../../runtime/command-args';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
@@ -87,7 +88,7 @@ export async function fetchExpandedIncludes( includes ) {
 	const message = await getCommandClient().send( {
 		to: 'topologies',
 		verb: 'expand',
-		args: key,
+		args: formatCommandArgs( includes ),
 	} );
 	const value = unwrapCommandResponse( message ) || {};
 	const baseline = {
@@ -102,6 +103,9 @@ export async function fetchExpandedIncludes( includes ) {
 
 export function useExpandedIncludes( includes ) {
 	const key = ( includes || [] ).join( ' ' );
+	// Latest includes for the effect (it depends on the stable key).
+	const includesRef = useRef( includes );
+	includesRef.current = includes;
 	const [ state, setState ] = useState( {
 		baseline: EMPTY,
 		error: null,
@@ -128,7 +132,11 @@ export function useExpandedIncludes( includes ) {
 		let cancelled = false;
 		setState( ( s ) => ( { ...s, loading: true, error: null } ) );
 		getCommandClient()
-			.send( { to: 'topologies', verb: 'expand', args: key } )
+			.send( {
+				to: 'topologies',
+				verb: 'expand',
+				args: formatCommandArgs( includesRef.current || [] ),
+			} )
 			.then( ( message ) => {
 				if ( cancelled ) {
 					return;

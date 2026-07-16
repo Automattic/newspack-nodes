@@ -72,7 +72,7 @@ function makeRemoteIpc( reader, interpreter ) {
 			return Promise.resolve( [] );
 		},
 	};
-	node.arguments = reader;
+	node.arguments = [ reader ];
 	return node;
 }
 
@@ -90,7 +90,7 @@ function command( { from = '', to = '' } = {} ) {
 	m[ TYPE ] = TM_COMMAND;
 	m[ FROM ] = from;
 	m[ TO ] = to;
-	m[ VALUE ] = { name: 'ls', arguments: '' };
+	m[ VALUE ] = { name: 'ls', arguments: [] };
 	return m;
 }
 
@@ -114,14 +114,15 @@ describe( 'RemoteIpcNode', () => {
 
 	it( 'a palette make preserves a distinct reader across dumpConfig replay and routes through it', () => {
 		const { interpreter } = mountExospine();
-		interpreter.dispatch(
-			'make_node',
-			'RemoteIpc violet-ipc-947 combined.p7'
-		);
-		interpreter.dispatch(
-			'connect_node',
-			'violet-ipc-947 cerulean-replies-619'
-		);
+		interpreter.dispatch( 'make_node', [
+			'RemoteIpc',
+			'violet-ipc-947',
+			'combined.p7',
+		] );
+		interpreter.dispatch( 'connect_node', [
+			'violet-ipc-947',
+			'cerulean-replies-619',
+		] );
 		const first = Core.node( 'violet-ipc-947' );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=combined.p7' );
 		const config = first.dumpConfig();
@@ -133,7 +134,7 @@ describe( 'RemoteIpcNode', () => {
 
 		for ( const line of config.trim().split( '\n' ) ) {
 			const [ verb, ...args ] = line.split( ' ' );
-			interpreter.dispatch( verb, args.join( ' ' ) );
+			interpreter.dispatch( verb, args );
 		}
 		const reopened = Core.node( 'violet-ipc-947' );
 		reopened.httpOut.client = {
@@ -145,13 +146,13 @@ describe( 'RemoteIpcNode', () => {
 		dispatchConnected( reopened, { pid: 6262, slot: 13 } );
 		reopened.fill( command( { from: names.OUTPUT } ) );
 
-		expect( reopened.arguments ).toBe( 'combined.p7' );
+		expect( reopened.arguments ).toEqual( [ 'combined.p7' ] );
 		expect( reopened.target ).toBe( 'cerulean-replies-619' );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=combined.p7' );
 		expect( posted[ 0 ][ FROM ] ).toBe( 'violet-ipc-947' );
 		expect( posted[ 0 ][ VALUE ] ).toEqual( {
 			name: 'connect_worker_input',
-			arguments: 'combined.p7',
+			arguments: [ 'combined.p7' ],
 		} );
 		expect( posted[ 1 ][ TO ] ).toBe( 'combined.p7' );
 		expect( posted[ 1 ][ FROM ] ).toBe(
@@ -188,11 +189,11 @@ describe( 'RemoteIpcNode', () => {
 		const node = interpreter.makeNode(
 			'RemoteIpc',
 			'stale-reader-ipc-349',
-			'jobintake.p17'
+			[ 'jobintake.p17' ]
 		);
 
 		expect( () => {
-			node.arguments = '';
+			node.arguments = [];
 		} ).toThrow( 'Missing required argument: reader' );
 		expect( node.reader ).toBe( '' );
 		expect( node.target ).toBe( '' );
@@ -263,12 +264,12 @@ describe( 'RemoteIpcNode', () => {
 		expect( posted ).toHaveLength( 2 );
 		expect( posted[ 0 ][ VALUE ] ).toEqual( {
 			name: 'connect_worker_input',
-			arguments: 'aggregator.p0',
+			arguments: [ 'aggregator.p0' ],
 		} );
 		expect( posted[ 0 ][ TO ] ).toBe( 'topologies' );
 		// The mount command is minted here → stamps its own name as FROM.
 		expect( posted[ 0 ][ FROM ] ).toBe( 'aggregator.p0' );
-		expect( posted[ 1 ][ VALUE ] ).toEqual( { name: 'ls', arguments: '' } );
+		expect( posted[ 1 ][ VALUE ] ).toEqual( { name: 'ls', arguments: [] } );
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0' );
 	} );
 

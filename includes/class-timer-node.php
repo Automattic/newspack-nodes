@@ -32,7 +32,7 @@ class Timer_Node extends Node {
 		parent::__construct();
 	}
 
-	public function arguments( ?string $args = null ): string {
+	public function arguments( ?array $args = null ): array {
 		$ref = new \ReflectionObject( $this );
 		if ( 'Timer_Node' !== $ref->getShortName() ) {
 			return parent::arguments( $args );
@@ -41,10 +41,11 @@ class Timer_Node extends Node {
 			return $this->arguments;
 		}
 		$this->arguments = $args;
-		if ( '' === $args ) {
+		$first           = $args[0] ?? '';
+		if ( '' === $first ) {
 			$this->set_timer();
-		} elseif ( preg_match( '/^[0-9]+$/', $args ) ) {
-			$this->set_timer( (int) $args );
+		} elseif ( preg_match( '/^[0-9]+$/', $first ) ) {
+			$this->set_timer( (int) $first );
 		} else {
 			throw new \InvalidArgumentException( 'Bad arguments for Timer' );
 		}

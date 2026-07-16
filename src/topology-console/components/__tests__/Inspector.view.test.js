@@ -643,6 +643,39 @@ describe( 'Inspector (view mode)', () => {
 		}
 	} );
 
+	it( 'renders array-valued constructor arguments without crashing [token-array]', () => {
+		// node.arguments is a token array (list<string>) post-migration; the
+		// read-only Constructor view must consume it as tokens, not a string.
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="lg"
+				parsed={ {
+					nodes: [
+						{
+							id: 'lg',
+							class: 'Log',
+							arguments: [ '/logs/x.p0', '4096' ],
+						},
+					],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'lg' ] ) }
+				catalog={ [
+					{
+						shell_name: 'Log',
+						arguments: [
+							{ name: 'file', type: 'string' },
+							{ name: 'segment_size', type: 'int' },
+						],
+					},
+				] }
+			/>
+		);
+		expect( container.textContent ).toContain( '/logs/x.p0' );
+		expect( container.textContent ).toContain( '4096' );
+	} );
+
 	it( 'renders bytes formatters in Throughput rows', () => {
 		const { container } = renderNode();
 		// lgstMsg = 4096 → "4.0 K"
@@ -1350,7 +1383,7 @@ describe( 'Inspector (view mode)', () => {
 		const part = {
 			id: 'errors',
 			class: 'Partition',
-			arguments: '/tmp/logs/errors.p0 4096 8',
+			arguments: [ '/tmp/logs/errors.p0', '4096', '8' ],
 		};
 		const { container } = render(
 			<Inspector
@@ -1387,7 +1420,7 @@ describe( 'Inspector (view mode)', () => {
 		const fetcher = {
 			id: 'f',
 			class: 'Fetcher',
-			arguments: 'overviewIn overview a b c',
+			arguments: [ 'overviewIn', 'overview', 'a', 'b', 'c' ],
 		};
 		const { container } = render(
 			<Inspector
@@ -1413,7 +1446,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'falls back to the schema default (dimmed) for an omitted optional argument', () => {
-		const part = { id: 'p', class: 'Partition', arguments: '/tmp/x' };
+		const part = { id: 'p', class: 'Partition', arguments: [ '/tmp/x' ] };
 		const { container } = render(
 			<Inspector
 				{ ...baseProps }
@@ -1447,7 +1480,7 @@ describe( 'Inspector (view mode)', () => {
 				{ ...baseProps }
 				selectedId="e"
 				parsed={ {
-					nodes: [ { id: 'e', class: 'Echo', arguments: '' } ],
+					nodes: [ { id: 'e', class: 'Echo', arguments: [] } ],
 					edges: [],
 				} }
 				catalog={ [ { shell_name: 'Echo', arguments: [] } ] }

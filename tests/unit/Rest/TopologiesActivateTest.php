@@ -162,7 +162,7 @@ class TopologiesActivateTest extends TestCase {
 		// `await activate(bad)` resolve as if it worked. Capture the raw response
 		// Message so the TM_ERROR flag is observable (VerbHarness collapses both
 		// shapes to the payload string and can't tell them apart).
-		$response = $this->fire_capturing_response( 'activate', 'does-not-exist' );
+		$response = $this->fire_capturing_response( 'activate', [ 'does-not-exist' ] );
 
 		$type = $response[ Message::TYPE ];
 		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'unknown activate must reply TM_ERROR' );
@@ -181,7 +181,7 @@ class TopologiesActivateTest extends TestCase {
 	 *
 	 * @return array<int,mixed> The captured response Message.
 	 */
-	private function fire_capturing_response( string $verb, string $args ): array {
+	private function fire_capturing_response( string $verb, array $args ): array {
 		$router  = new Router_Node();
 		$router->name( '_router' );
 		$capture = new Capture_Sink_Node();
@@ -219,7 +219,7 @@ class TopologiesActivateTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
 		Config::reset();
 
-		$response = $this->fire_capturing_response( 'activate', 'beta' );
+		$response = $this->fire_capturing_response( 'activate', [ 'beta' ] );
 
 		$type = $response[ Message::TYPE ];
 		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'conflicting activate must reply TM_ERROR' );
@@ -237,7 +237,7 @@ class TopologiesActivateTest extends TestCase {
 		// A malformed name (path traversal / slashes / whitespace) must be
 		// rejected by require_valid_name BEFORE any update_option or spawn —
 		// the active set is consumed downstream as file-name-safe basenames.
-		$response = $this->fire_capturing_response( 'activate', '../evil' );
+		$response = $this->fire_capturing_response( 'activate', [ '../evil' ] );
 
 		$type = $response[ Message::TYPE ];
 		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'malformed activate must reply TM_ERROR' );
@@ -318,7 +318,7 @@ class TopologiesActivateTest extends TestCase {
 	public function test_deactivate_rejects_a_malformed_name(): void {
 		// deactivate must also guard the name before array_diff + update_option,
 		// so a malformed basename can never reach the persisted active set.
-		$response = $this->fire_capturing_response( 'deactivate', 'bad/name' );
+		$response = $this->fire_capturing_response( 'deactivate', [ 'bad/name' ] );
 
 		$type = $response[ Message::TYPE ];
 		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'malformed deactivate must reply TM_ERROR' );
