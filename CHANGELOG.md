@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.1] - 2026-07-16
+
 ### Changed
 
 - **Retired the `Core.reinit` global; the overlay Reset-Graph capability is now the `Core.rebuildable` boolean.** `Core.reinit` was a function reference `mountExospine` stashed but never invoked — the Inspector only read it as a `!! reinit` truthiness check, and the actual dashboard reset already runs through `Core.bumpGraphGeneration()` (a reused mount's `spine.reinit` is subscribed to it). `mountExospine` now sets `Core.rebuildable = true` in the same owner-build-delegated condition; `InspectorTab` reads it; the returned `spine.reinit` handle is unchanged. Dashboard Reset-Graph tests now drive the real generation-bump path.
