@@ -293,9 +293,10 @@ class Node {
 		}
 		$value = $message[ Message::VALUE ];
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
-			// json-encode array VALUEs; (string) would emit "Array" and warn.
+			// @longform json-encode array VALUEs, substituting bad bytes: this
+			// line IS the drop diagnostic, so a blank payload hides the cause.
 			$value_str = \is_array( $value )
-				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
+				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )
 				: Core::as_string( $value );
 			$parts[] = 'payload: ' . $value_str;
 		}

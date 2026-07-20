@@ -25,8 +25,11 @@ class Grep_Node extends Node {
 	}
 
 	public function fill( array $message ): void {
-		$value   = $message[ Message::VALUE ];
-		$subject = \is_string( $value ) ? $value : (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES );
+		$value = $message[ Message::VALUE ];
+		// Substitute a bad byte; failing to '' would drop a matching message.
+		$subject = \is_string( $value )
+			? $value
+			: (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
 		if ( 1 === \preg_match( $this->pattern, $subject ) ) {
 			parent::fill( $message );
 		}

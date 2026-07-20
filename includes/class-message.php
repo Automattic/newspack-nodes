@@ -54,6 +54,9 @@ class Message {
 	public const TYPE      = 0;
 	public const VALUE     = 6;
 
+	/** Bound a logged/exception excerpt so a huge payload can't flood the log. */
+	private const EXCERPT_LENGTH = 200;
+
 	/**
 	 * Byte size of the whole packed Message; use this (not value_size) for PIPE_BUF / size checks.
 	 *
@@ -66,9 +69,19 @@ class Message {
 	/** @param array<int, mixed> $message The 7-field positional message array. */
 	public static function packed( array $message ): string {
 		// Canonical 7 fields; slicing drops LOCAL, never crosses processes.
-		$json = \wp_json_encode( \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 ), \JSON_UNESCAPED_SLASHES );
-		// Unencodable VALUE (e.g. invalid UTF-8) yields false; emit '' instead.
-		return false === $json ? '' : $json;
+		$fields = \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 );
+		// Substitute a bad byte rather than fail the whole encode.
+		$json = \wp_json_encode( $fields, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
+		if ( false !== $json ) {
+			return $json;
+		}
+		// Residual failure: log loudly, never emit '' (see class docblock).
+		$reason = \json_last_error_msg();
+		\error_log( 'Message::packed(): wp_json_encode failed: ' . $reason ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		$error_message                 = self::new_message();
+		$error_message[ self::TYPE ]   = self::TM_ERROR;
+		$error_message[ self::VALUE ]  = 'Message::packed(): ' . $reason;
+		return (string) \wp_json_encode( $error_message, \JSON_UNESCAPED_SLASHES );
 	}
 
 	/** @return array<int, mixed> The 7-field positional message array. */
@@ -88,10 +101,24 @@ class Message {
 	/** @return array<int, mixed> The 7-field positional message array. */
 	public static function unpacked( string $data ): array {
 		$decoded = \json_decode( $data, true );
+		if ( null === $decoded && \JSON_ERROR_NONE !== \json_last_error() ) {
+			$reason = 'Message::unpacked(): not valid JSON (' . \json_last_error_msg() . '): ' . self::excerpt( $data );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( $reason );
+		}
 		if ( \is_array( $decoded ) && 7 === \count( $decoded ) && \array_is_list( $decoded ) ) {
 			return $decoded;
 		}
-		throw new \InvalidArgumentException( 'Message::unpacked(): expected a 7-element positional array' );
+		$reason = 'Message::unpacked(): expected a 7-element positional array, got: ' . self::excerpt( $data );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		throw new \InvalidArgumentException( $reason );
+	}
+
+	/** Bounded excerpt of a raw frame for exception messages — never the whole payload. */
+	private static function excerpt( string $data ): string {
+		return \strlen( $data ) > self::EXCERPT_LENGTH
+			? \substr( $data, 0, self::EXCERPT_LENGTH ) . '…'
+			: $data;
 	}
 
 	/**
