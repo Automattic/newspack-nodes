@@ -17,13 +17,13 @@ return [
 	// Filesystem root for logs / locks / offsets / IPC dirs.
 	'base_directory'      => '/tmp/newspack-nodes',
 
-	// Retention: dual-rule; values reproduce the old 2-seg / 24h defaults.
+	// Retention: dual-rule; count-prune eligible after 1 hour, age-prune past 24 h.
 	'num_partitions'      => 1,
 	'segment_size'        => 64 * 1024 * 1024,
 	'min_segments'        => 2,
 	'max_segments'        => 2,
-	'min_lifetime'        => 86400,
-	'max_lifetime'        => 0,
+	'min_lifetime'        => 3600,
+	'max_lifetime'        => 86400,
 
 	// Memcache. Stats live here only, never on disk; per-partition prefix.
 	'memcache_servers'    => [
