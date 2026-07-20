@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Message::packed()` no longer destroys a frame carrying invalid UTF-8.** A VALUE with a bare non-UTF-8 byte (e.g. a logged SQL string built from a latin1 column) made `wp_json_encode()` return `false`, which `packed()` silently coerced to `''` — an empty wire frame a consumer's `unpacked('')` then rejected with a misleading "expected a 7-element positional array" error, three steps removed from the real cause. `packed()` now passes `JSON_INVALID_UTF8_SUBSTITUTE` so the bad byte is substituted (U+FFFD) instead of destroying the whole frame; a genuinely unencodable message (recursion depth, INF/NAN) now logs and emits a well-formed TM_ERROR frame instead of `''`. `Message::unpacked()` now distinguishes a JSON decode failure (names `json_last_error_msg()`) from a shape failure (wrong element count/list-ness), both with a bounded excerpt of the offending data.
+- **The same silent-swallow shape existed at two more call sites in this plugin; both now substitute rather than lose data.** `Grep_Node::fill()`'s array-VALUE stringify fallback and `Node::drop_message()`'s payload-diagnostic formatter both used a bare `(string)` cast around `wp_json_encode()`, which coerces an encode failure to `''` — in `Grep_Node` that silently dropped a message that should have matched its filter (default pattern `.` never matches an empty string); in `drop_message()` it printed a blank `payload: ` on the very audit line meant to explain a drop. Both now pass `JSON_INVALID_UTF8_SUBSTITUTE`.
+
 ## [0.47.1] - 2026-07-16
 
 ### Changed

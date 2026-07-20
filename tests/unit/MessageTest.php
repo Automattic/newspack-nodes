@@ -172,15 +172,77 @@ class MessageTest extends TestCase {
 	}
 
 	/**
-	 * packed() returns string, never false. An unencodable VALUE (invalid UTF-8)
-	 * makes wp_json_encode() return false; packed() must coerce that to '' and
-	 * never error or leak the false out of its string return contract.
+	 * A VALUE containing a bare non-UTF-8 byte (e.g. a logged SQL string built
+	 * from a latin1 column) must not destroy the whole frame. Before this fix,
+	 * wp_json_encode() returning false on invalid UTF-8 made packed() emit '' —
+	 * an empty wire frame that a consumer's unpacked('') then rejected with a
+	 * misleading "expected a 7-element positional array" error three steps from
+	 * the real cause. The frame must survive (mangled) and stay decodable.
 	 */
-	public function test_packed_returns_empty_string_for_unencodable_value(): void {
-		$m                     = Message::new_message();
-		$m[ Message::VALUE ]   = "\xB1\x31"; // invalid UTF-8 byte sequence; json_encode -> false.
-		$packed                = Message::packed( $m );
-		$this->assertSame( '', $packed );
+	public function test_packed_survives_invalid_utf8_value_instead_of_emitting_empty_frame(): void {
+		$m                   = Message::new_message();
+		$m[ Message::VALUE ] = "WHERE name = 'Caf\xE9'"; // bare 0xE9, distinct from any ASCII default.
+
+		$packed = Message::packed( $m );
+
+		$this->assertNotSame( '', $packed, 'the frame must not vanish on an encode failure' );
+		$decoded = \json_decode( $packed, true );
+		$this->assertIsArray( $decoded, 'the surviving frame must still be valid JSON' );
+	}
+
+	public function test_packed_survives_invalid_utf8_value_round_trips_through_unpacked(): void {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "WHERE name = 'Caf\xE9'";
+
+		$round_tripped = Message::unpacked( Message::packed( $m ) );
+
+		$this->assertCount( 7, $round_tripped );
+		$this->assertSame( $m[ Message::TYPE ], $round_tripped[ Message::TYPE ] );
+		// The bad byte is substituted (U+FFFD), not silently dropped or empty.
+		$this->assertStringContainsString( 'Caf', $round_tripped[ Message::VALUE ] );
+		$this->assertNotSame( '', $round_tripped[ Message::VALUE ] );
+	}
+
+	public function test_packed_still_byte_identical_for_ascii_message(): void {
+		// The flag change must not alter existing well-formed output.
+		$m                    = Message::new_message();
+		$m[ Message::TYPE ]   = Message::TM_BYTESTREAM;
+		$m[ Message::FROM ]   = 'producer';
+		$m[ Message::TO ]     = 'consumer';
+		$m[ Message::VALUE ]  = 'hello world';
+
+		$expected = \json_encode( \array_slice( $m, 0, Message::LAST_VALUE_INDEX + 1 ), \JSON_UNESCAPED_SLASHES );
+		$this->assertSame( $expected, Message::packed( $m ) );
+	}
+
+	public function test_unpacked_decode_failure_names_the_json_error(): void {
+		try {
+			Message::unpacked( 'not valid json' );
+			$this->fail( 'expected InvalidArgumentException' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( \json_last_error_msg(), $e->getMessage() );
+		}
+	}
+
+	public function test_unpacked_shape_failure_is_distinguishable_from_decode_failure(): void {
+		$decode_message = null;
+		try {
+			Message::unpacked( 'not valid json' );
+		} catch ( \InvalidArgumentException $e ) {
+			$decode_message = $e->getMessage();
+		}
+
+		$shape_message = null;
+		try {
+			Message::unpacked( '[1,2,3,4,5]' ); // valid JSON, wrong (5-element) shape.
+		} catch ( \InvalidArgumentException $e ) {
+			$shape_message = $e->getMessage();
+		}
+
+		$this->assertNotNull( $decode_message );
+		$this->assertNotNull( $shape_message );
+		$this->assertNotSame( $decode_message, $shape_message );
 	}
 
 	public function test_split_first_splits_on_first_slash(): void {
