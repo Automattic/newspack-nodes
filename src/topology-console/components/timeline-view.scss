@@ -16,9 +16,14 @@
 	&__filters {
 		flex: none;
 		display: flex;
+		align-items: center;
 		gap: 6px;
-		justify-content: flex-end;
 		margin-bottom: 8px;
+
+		// Actions (Trace) sit left; the first input pushes the filters right.
+		input:first-of-type {
+			margin-left: auto;
+		}
 	}
 
 	&__filter {

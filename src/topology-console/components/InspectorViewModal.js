@@ -55,8 +55,9 @@ function TimelineHost( { onAction } ) {
 		onAction?.( 'trace', '*', traceOn ? 0 : 1 );
 	};
 	return (
-		<>
-			<div className="topology-inspview__toolbar">
+		<TimelineView
+			transcript={ transcript }
+			actions={
 				<button
 					type="button"
 					className={ `button is-compact${
@@ -79,9 +80,8 @@ function TimelineHost( { onAction } ) {
 						? __( 'stop trace', 'newspack-nodes' )
 						: __( 'trace', 'newspack-nodes' ) }
 				</button>
-			</div>
-			<TimelineView transcript={ transcript } />
-		</>
+			}
+		/>
 	);
 }
 
