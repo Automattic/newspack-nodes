@@ -1,6 +1,6 @@
 # Newspack Nodes — Documentation Map
 
-Nine docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
+Ten docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
 
 ## Start here
 
@@ -25,3 +25,4 @@ Facts, not tutorials.
 - **[architecture-guide.md](architecture-guide.md)** — read when you need the full substrate design: message format, node contracts, drain loop, REPL.
 - **[architecture-decisions.md](architecture-decisions.md)** — read when you want to change a load-bearing behavior: the ADRs, why each was chosen, and the condition that would reopen it.
 - **[API.md](API.md)** — read when you're calling the runtime over HTTP: the three REST endpoints and their request/response shapes.
+- **[upgrading.md](upgrading.md)** — read when you're moving a consumer plugin across substrate versions: the breaking changes, with the fix beside each.
