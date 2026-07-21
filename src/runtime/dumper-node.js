@@ -163,10 +163,27 @@ export class DumperNode extends Node {
 		this._transcript = [];
 		// React subscribes to this via useNodeState( '_output', 'transcript' ).
 		this.registrations.transcript = {};
+		// One-shot command-reply capture: { verb, callback } or null.
+		this._captureReply = null;
+	}
+
+	/**
+	 * Grab the NEXT command reply whose VALUE.name matches `verb` — the live-save
+	 * flow reuses the transcript round-trip to snapshot `dump_config` output. The
+	 * reply still renders into the transcript; this only forks a copy to `callback`.
+	 * One-shot: cleared as soon as it fires (a new call supersedes any pending one).
+	 *
+	 * @param {string}   verb     Command name to match (e.g. 'dump_config').
+	 * @param {Function} callback (payload, isError) invoked once on the match.
+	 * @return {void}
+	 */
+	captureNextReply( verb, callback ) {
+		this._captureReply = { verb, callback };
 	}
 
 	fill( message ) {
 		this.counter++;
+		this._maybeCapture( message );
 		const level = this.debugLevelRef.current;
 		if ( level >= 2 ) {
 			// Level 2 replaces the render with the full envelope dump.
@@ -185,6 +202,29 @@ export class DumperNode extends Node {
 		}
 	}
 
+	// Fork a matching command reply to a one-shot capture, then clear it.
+	_maybeCapture( message ) {
+		const cap = this._captureReply;
+		if ( ! cap ) {
+			return;
+		}
+		const type = message[ TYPE ];
+		const isResponse = has( type, TM_RESPONSE );
+		const isError = has( type, TM_ERROR );
+		if ( ! has( type, TM_COMMAND ) || ( ! isResponse && ! isError ) ) {
+			return;
+		}
+		const value = message[ VALUE ];
+		const name = value && typeof value === 'object' ? value.name : null;
+		if ( name !== cap.verb ) {
+			return;
+		}
+		this._captureReply = null;
+		const payload =
+			value && typeof value === 'object' ? value.payload : value;
+		cap.callback( payload, isError );
+	}
+
 	// Append a caller-supplied entry (REPL echo of typed input / local info).
 	append( entry ) {
 		this._push( entry );
@@ -193,6 +233,8 @@ export class DumperNode extends Node {
 	_push( entry ) {
 		const next = this._transcript.concat( {
 			...entry,
+			// Epoch-seconds stamp so the Timeline view can order/show entries.
+			ts: entry.ts ?? Date.now() / 1000,
 			key: `${ Date.now() }-${ Math.random()
 				.toString( 36 )
 				.slice( 2, 7 ) }`,

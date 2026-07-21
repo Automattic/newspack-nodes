@@ -18,6 +18,7 @@ class CommandInterpreterTest extends TestCase {
 	protected function tearDown(): void {
 		// $default_authorize is static process state — reset so tests don't bleed.
 		Command_Interpreter_Node::$default_authorize = null;
+		Command_Interpreter_Node::$taillog_sources   = null;
 		parent::tearDown();
 	}
 
@@ -177,6 +178,138 @@ class CommandInterpreterTest extends TestCase {
 
 		$this->assertStringContainsString( 'sse0', $out, 'names the node holding a curl handle' );
 		$this->assertStringContainsString( 'COUNT', $out, 'has a COUNT (messages processed) column' );
+	}
+
+	public function test_runtime_stats_returns_structured_timer_and_handle_rows(): void {
+		Event_Framework::reset();
+		$router = new \Newspack_Nodes\Router_Node(); // real _router declares the TIMER event
+		$router->name( '_router' );
+		$timer = new Timer_Node();
+		$timer->name( 'tick0' );
+		$timer->set_timer( 250 ); // own-slot: distinct interval, active, numeric next_ms
+		$hitch = new Timer_Node();
+		$hitch->name( 'hitch0' );
+		$hitch->set_timer( 15000 ); // hitchhike: no own next_fire -> next_ms null
+
+		$sse = new Echo_Node();
+		$sse->name( 'sse0' );
+		$mh  = \curl_multi_init();
+		Event_Framework::instance()->register_curl_handle( $sse, $mh );
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'runtime_stats' );
+
+		$this->assertIsArray( $out );
+		$this->assertArrayHasKey( 'timers', $out );
+		$this->assertArrayHasKey( 'handles', $out );
+
+		$by_name = [];
+		foreach ( $out['timers'] as $row ) {
+			$by_name[ $row['name'] ] = $row;
+		}
+		$this->assertSame(
+			[ 'id', 'active', 'interval_ms', 'mode', 'next_ms', 'oneshot', 'fires', 'type', 'name' ],
+			\array_keys( $by_name['tick0'] ),
+			'timer rows are keyed, not positional'
+		);
+		$this->assertTrue( $by_name['tick0']['active'] );
+		$this->assertSame( 250, $by_name['tick0']['interval_ms'] );
+		$this->assertSame( 'event_framework', $by_name['tick0']['mode'] );
+		$this->assertIsInt( $by_name['tick0']['next_ms'], 'own-slot timer carries a numeric next_ms' );
+		$this->assertLessThanOrEqual( 250, $by_name['tick0']['next_ms'] );
+		$this->assertFalse( $by_name['tick0']['oneshot'] );
+		$this->assertSame( 'Timer_Node', $by_name['tick0']['type'] );
+		$this->assertNull( $by_name['hitch0']['next_ms'], 'a hitchhiker has no own next_fire; next_ms is null' );
+
+		$this->assertCount( 1, $out['handles'] );
+		$handle = $out['handles'][0];
+		$this->assertSame( [ 'id', 'count', 'type', 'name' ], \array_keys( $handle ), 'handle rows are keyed, not positional' );
+		$this->assertSame( 'sse0', $handle['name'] );
+		\curl_multi_close( $mh );
+	}
+
+	/** Write $lines (each padded to $width chars) as fixed-width $width+1-byte rows to a fresh temp file. */
+	private function write_fixed_width_log( int $count, int $width ): string {
+		$path  = \tempnam( \sys_get_temp_dir(), 'taillog' );
+		$lines = [];
+		for ( $i = 0; $i < $count; $i++ ) {
+			$lines[] = \str_pad( \sprintf( 'evlog-line-%04d', $i ), $width, '.' );
+		}
+		\file_put_contents( $path, \implode( "\n", $lines ) . "\n" );
+		return $path;
+	}
+
+	public function test_taillog_tails_the_last_bytes_and_drops_the_partial_first_line(): void {
+		// 40 rows x 60 bytes = 2400 bytes; a 1KB tail lands mid-row 22, so the
+		// first WHOLE row is 0023 — a value distinct from the 16KB default window.
+		$path = $this->write_fixed_width_log( 40, 59 );
+
+		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'php' => $path ];
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'php', '1' ] );
+
+		$this->assertStringStartsWith( 'evlog-line-0023', $out, 'the partial first row is dropped; output opens on the first WHOLE row' );
+		$this->assertStringNotContainsString( 'evlog-line-0000', $out, 'rows before the byte window are cut' );
+		$this->assertStringContainsString( 'evlog-line-0039', $out, 'the newest row is present' );
+
+		\unlink( $path );
+	}
+
+	public function test_taillog_returns_the_whole_file_when_smaller_than_the_window(): void {
+		// A file under the 16KB default window returns entire, first row intact.
+		$path = $this->write_fixed_width_log( 5, 59 );
+
+		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'php' => $path ];
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'php' ] );
+
+		$this->assertStringContainsString( 'evlog-line-0000', $out, 'no partial-line drop when the window starts at byte 0' );
+		$this->assertStringContainsString( 'evlog-line-0004', $out );
+
+		\unlink( $path );
+	}
+
+	public function test_taillog_with_no_source_lists_the_registry_with_availability(): void {
+		$present = $this->write_fixed_width_log( 3, 59 );
+		$missing = \sys_get_temp_dir() . '/taillog-does-not-exist-9271';
+
+		Command_Interpreter_Node::$taillog_sources = static fn (): array => [
+			'php'   => $present,
+			'debug' => $missing,
+		];
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [] );
+
+		$this->assertStringContainsString( 'SOURCE', $out, 'lists a SOURCE column' );
+		$this->assertStringContainsString( 'AVAILABLE', $out, 'lists an AVAILABLE column' );
+		$this->assertStringContainsString( $present, $out, 'names the resolved php path' );
+		$this->assertStringContainsString( $missing, $out, 'names the resolved debug path even though it is absent' );
+		$this->assertStringContainsString( '180', $out, 'reports the byte size of the present file (3 rows x 60 bytes)' );
+
+		\unlink( $present );
+	}
+
+	public function test_taillog_missing_file_returns_a_teaching_error_naming_the_path(): void {
+		$missing = \sys_get_temp_dir() . '/taillog-absent-4418.log';
+
+		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'debug' => $missing ];
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'debug' ] );
+
+		$this->assertStringContainsString( $missing, $out, 'the error names the resolved path (errors-as-docs)' );
+	}
+
+	public function test_taillog_rejects_an_unknown_source_name_never_a_path(): void {
+		$path = $this->write_fixed_width_log( 3, 59 );
+
+		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'php' => $path ];
+
+		// A caller-supplied path is NOT a registry name: no traversal.
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ '../../../../etc/passwd' ] );
+
+		$this->assertStringContainsString( 'unknown log source', $out );
+		$this->assertStringNotContainsString( 'root:', $out, 'never reads a caller-supplied path' );
+
+		\unlink( $path );
 	}
 
 	public function test_interpret_refuses_command_without_local_provenance(): void {

@@ -20,6 +20,18 @@ import {
  * TO and drops what it cannot peel.
  */
 export class RouterNode extends TimerNode {
+	/** Idle profile entries older than this are trimmed each tick (Tachikoma: 900). */
+	static PROFILE_TTL_S = 900;
+
+	/** Clock seam (tests script a time sequence); null → Core.now(). */
+	static clock = null;
+
+	/** Per-node self-time profiles keyed by name; null = profiling off. */
+	static _profiles = null;
+
+	/** Open dispatch frames (innermost last). */
+	static _profileStack = [];
+
 	constructor() {
 		super();
 		// Optional hooks to bracket each tick's notify (HttpOut lock/flush).
@@ -28,6 +40,18 @@ export class RouterNode extends TimerNode {
 		// Router self-starts its own 1s slot; isRouter skips the hitchhike.
 		this.isRouter = true;
 		this.setTimer( 1000 );
+	}
+
+	/**
+	 * Get/set the profile table; setting (even to null) resets the frame stack.
+	 * @param {...any} set
+	 */
+	static profiles( ...set ) {
+		if ( set.length > 0 ) {
+			RouterNode._profiles = set[ 0 ];
+			RouterNode._profileStack = [];
+		}
+		return RouterNode._profiles;
 	}
 
 	fill( message ) {
@@ -76,6 +100,16 @@ export class RouterNode extends TimerNode {
 			return;
 		}
 
+		if ( null !== RouterNode._profiles ) {
+			const before = this._pushProfile( head );
+			try {
+				// A throw must still pop, else later parents corrupt.
+				target.fill( message );
+			} finally {
+				this._popProfile( before );
+			}
+			return;
+		}
 		target.fill( message );
 	}
 
@@ -90,6 +124,74 @@ export class RouterNode extends TimerNode {
 		} finally {
 			if ( this.afterTimerNotify ) {
 				this.afterTimerNotify();
+			}
+			if ( null !== RouterNode._profiles ) {
+				this.trimProfiles();
+			}
+		}
+	}
+
+	/**
+	 * Open a dispatch frame; returns the start time for _popProfile().
+	 * @param {string} name Routed-to node name (the profile key).
+	 */
+	_pushProfile( name ) {
+		RouterNode._profileStack.push( name );
+		return null !== RouterNode.clock ? RouterNode.clock() : Core.now();
+	}
+
+	/**
+	 * Close the innermost frame; elapsed is subtracted from its parent (self-time).
+	 * @param {number} before Start time returned by _pushProfile().
+	 */
+	_popProfile( before ) {
+		if ( null === RouterNode._profiles ) {
+			return;
+		}
+		const name = RouterNode._profileStack.pop();
+		if ( undefined === name ) {
+			return;
+		}
+		const after =
+			null !== RouterNode.clock ? RouterNode.clock() : Core.now();
+		const profiles = RouterNode._profiles;
+		const info = profiles[ name ] ?? {
+			time: 0,
+			count: 0,
+			avg: 0,
+			oldest: 0,
+			timestamp: 0,
+		};
+		info.time += after - before;
+		info.count++;
+		info.avg = info.time / info.count;
+		info.oldest = 0 !== info.oldest ? info.oldest : before;
+		info.timestamp = after;
+		profiles[ name ] = info;
+
+		const stack = RouterNode._profileStack;
+		if ( stack.length > 0 ) {
+			const parent = stack[ stack.length - 1 ];
+			profiles[ parent ] ??= {
+				time: 0,
+				count: 0,
+				avg: 0,
+				oldest: 0,
+				timestamp: 0,
+			};
+			profiles[ parent ].time -= after - before;
+		}
+	}
+
+	/** Drop entries idle past PROFILE_TTL_S (run from fireCb while profiling). */
+	trimProfiles() {
+		const profiles = RouterNode._profiles ?? {};
+		for ( const key of Object.keys( profiles ) ) {
+			if (
+				Core.now() - profiles[ key ].timestamp >
+				RouterNode.PROFILE_TTL_S
+			) {
+				delete profiles[ key ];
 			}
 		}
 	}

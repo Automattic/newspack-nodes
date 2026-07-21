@@ -1,4 +1,4 @@
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import OverviewTab from '../tabs/OverviewTab';
 import { IoTelemetry, OVERVIEW_STORAGE_KEY } from '../../runtime/io-telemetry';
 
@@ -105,13 +105,66 @@ test( 'lists the classified messages below the charts (newest first)', () => {
 	const { getByTestId } = renderTab();
 	const list = getByTestId( 'overview-messages' );
 	const rows = [ ...list.querySelectorAll( '.nodes-overview__msg' ) ];
-	expect( rows.map( ( r ) => r.textContent ) ).toEqual( [
-		'ERROR: boom',
-		'WARNING: heads up',
-		'a trace line',
-	] );
+	expect(
+		rows.map(
+			( r ) => r.querySelector( '.nodes-overview__msg-text' ).textContent
+		)
+	).toEqual( [ 'ERROR: boom', 'WARNING: heads up', 'a trace line' ] );
 	expect( rows[ 0 ].className ).toContain( 'nodes-overview__msg--error' );
 	expect( rows[ 2 ].className ).toContain( 'nodes-overview__msg--debug' );
+} );
+
+test( 'labels the panel "Messages (this browser)" so it is not mistaken for server logs', () => {
+	IoTelemetry.recordWarning( 'WARNING: heads up' );
+	const { getByTestId } = renderTab();
+	expect(
+		getByTestId( 'overview-messages' ).querySelector( 'h3' ).textContent
+	).toBe( 'Messages (this browser)' );
+} );
+
+test( 'shows a relative timestamp per message from its stored ts', () => {
+	IoTelemetry.recordError( 1, 'ERROR: boom' );
+	// Backdate the stored ts 65s → formatAge renders "1m" (distinct from 0s).
+	IoTelemetry.messages[ 0 ].ts = Math.floor( Date.now() / 1000 ) - 65;
+	const { getByTestId } = renderTab();
+	const age = getByTestId( 'overview-messages' ).querySelector(
+		'.nodes-overview__msg-age'
+	);
+	expect( age ).not.toBeNull();
+	expect( age.textContent ).toContain( '1m' );
+	expect( age.textContent ).toContain( 'ago' );
+} );
+
+test( 'level-filter chips hide messages of a toggled-off level', () => {
+	IoTelemetry.recordError( 1, 'ERROR: boom' );
+	IoTelemetry.recordWarning( 'WARNING: heads up' );
+	IoTelemetry.recordDebug( 'a trace line' );
+	const { getByTestId } = renderTab();
+	const rows = () =>
+		getByTestId( 'overview-messages' ).querySelectorAll(
+			'.nodes-overview__msg'
+		);
+	// All three chips default on.
+	expect( rows() ).toHaveLength( 3 );
+	// Toggle the err chip off → the error line disappears, the rest stay.
+	fireEvent.click( getByTestId( 'overview-chip-error' ) );
+	expect( rows() ).toHaveLength( 2 );
+	expect(
+		getByTestId( 'overview-messages' ).querySelector(
+			'.nodes-overview__msg--error'
+		)
+	).toBeNull();
+	// Toggle it back on → the error line returns.
+	fireEvent.click( getByTestId( 'overview-chip-error' ) );
+	expect( rows() ).toHaveLength( 3 );
+} );
+
+test( 'renders the filter chips whenever there are messages', () => {
+	IoTelemetry.recordDebug( 'a trace line' );
+	const { getByTestId } = renderTab();
+	for ( const level of [ 'error', 'warning', 'debug' ] ) {
+		expect( getByTestId( `overview-chip-${ level }` ) ).toBeTruthy();
+	}
 } );
 
 test( 'omits the message list when there are no messages', () => {
@@ -141,4 +194,28 @@ test( 'clears any header extras the Console left on the shared header', () => {
 	const publishHeader = jest.fn();
 	renderTab( { publishHeader } );
 	expect( publishHeader ).toHaveBeenCalledWith( null );
+} );
+
+test( 'a same-instant message at ring capacity still renders (monotonic key)', () => {
+	// Frozen clock: every push shares one fractional ts (a burst logger).
+	jest.useFakeTimers( { now: 1700000000200 } );
+	try {
+		const { getByTestId } = renderTab();
+		act( () => {
+			for ( let i = 0; i < 200; i++ ) {
+				IoTelemetry.recordDebug( `filler ${ i }` );
+			}
+			IoTelemetry._notify();
+		} );
+		// Ring full + identical ts: the memo key must still move on a push.
+		act( () => {
+			IoTelemetry.recordWarning( 'WARNING: fresh straggler' );
+			IoTelemetry._notify();
+		} );
+		expect( getByTestId( 'overview-messages' ).textContent ).toContain(
+			'fresh straggler'
+		);
+	} finally {
+		jest.useRealTimers();
+	}
 } );

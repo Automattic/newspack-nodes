@@ -127,6 +127,8 @@ class IoTelemetryImpl {
 		if ( '' === text ) {
 			return;
 		}
+		// Monotonic per-push seq: a stable memo key even for same-ms bursts.
+		this.messageSeq = ( this.messageSeq ?? 0 ) + 1;
 		this.messages.push( { level, text, ts: nowSeconds() } );
 		while ( this.messages.length > MAX_MESSAGES ) {
 			this.messages.shift();
@@ -231,6 +233,7 @@ class IoTelemetryImpl {
 			debug: this.debug,
 			sseConnectedAt: this.sseConnectedAt,
 			messages: this.messages.slice(),
+			messageSeq: this.messageSeq ?? 0,
 		};
 	}
 

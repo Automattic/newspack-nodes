@@ -15,6 +15,7 @@ import { RemoteLinkNode } from './remote-link-node';
 import { RemoteIpcNode } from './remote-ipc-node';
 import { HttpOutNode } from './http-out-node';
 import { HeartbeatNode } from './heartbeat-node';
+import { RouterNode } from './router-node';
 import {
 	TYPE,
 	TIMESTAMP,
@@ -68,6 +69,13 @@ const HELP = {
 		'list_timers\n    note: all timers (ACTIVE, INTERVAL ms, MODE, ONESHOT, FIRES, TYPE, NAME).\n',
 	list_handles:
 		'list_handles\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n',
+	runtime_stats:
+		'runtime_stats\n    note: the list_timers + list_handles rows as one { timers, handles } struct (keyed rows) for the Runtime devtools tab.\n',
+	enable_profiling:
+		'enable_profiling\n    note: _router starts timing each dispatch (per-node self time).\n',
+	list_profiles:
+		'list_profiles [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n',
+	disable_profiling: 'disable_profiling\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
 	dump_config:
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
@@ -77,7 +85,7 @@ const HELP = {
 		"debug_state [ <node name> [ <level> ] ]\n    no args: toggle this CommandInterpreter's debug_state.\n",
 	pwd: 'pwd\n',
 	log: 'log <message>\n    note: prints <message> to stderr (server-side debug log).\n',
-	dmesg: 'dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n',
+	dmesg: 'dmesg\n    note: print the stderr tail for the current scope (last 100 lines).\n',
 	include: 'include <file>\n',
 	uptime: 'uptime\n',
 	stats: 'stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n',
@@ -315,6 +323,13 @@ export class CommandInterpreterNode extends Node {
 			ls: ( self, args, env ) => self._cmdList( args, env ),
 			list_timers: () => CommandInterpreterNode._cmdListTimers(),
 			list_handles: () => CommandInterpreterNode._cmdListHandles(),
+			runtime_stats: () => CommandInterpreterNode._cmdRuntimeStats(),
+			enable_profiling: () =>
+				CommandInterpreterNode._cmdEnableProfiling(),
+			list_profiles: ( self, args ) =>
+				CommandInterpreterNode._cmdListProfiles( args[ 0 ] ?? '' ),
+			disable_profiling: () =>
+				CommandInterpreterNode._cmdDisableProfiling(),
 			log: ( self, args ) => {
 				self.stderr( args.join( ' ' ) );
 				return '';
@@ -1105,21 +1120,15 @@ export class CommandInterpreterNode extends Node {
 
 	// `list_timers` — active timers; MODE = own-slot vs router-hitchhike.
 	static _cmdListTimers() {
-		const rows = [];
-		for ( const [ name, node ] of Core.nodes ) {
-			if ( ! ( node instanceof TimerNode ) ) {
-				continue;
-			}
-			rows.push( [
-				'inactive' === node.mode ? 'no' : 'yes',
-				String( node.interval_ms ?? 0 ),
-				node.mode,
-				node.oneshot ? 'yes' : 'no',
-				String( node.fire_count ?? 0 ),
-				node.constructor.name,
-				name,
-			] );
-		}
+		const rows = CommandInterpreterNode._timerRows().map( ( r ) => [
+			r.active ? 'yes' : 'no',
+			String( r.interval_ms ),
+			r.mode,
+			r.oneshot ? 'yes' : 'no',
+			String( r.fires ),
+			r.type,
+			r.name,
+		] );
 		rows.sort( ( a, b ) => a[ 6 ].localeCompare( b[ 6 ] ) );
 		return CommandInterpreterNode._tabulate(
 			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
@@ -1138,27 +1147,186 @@ export class CommandInterpreterNode extends Node {
 
 	// `list_handles` — nodes holding an EventSource; STATE = its readyState.
 	static _cmdListHandles() {
-		const states = [ 'CONNECTING', 'OPEN', 'CLOSED' ];
-		const rows = [];
-		for ( const [ name, node ] of Core.nodes ) {
-			if ( ! node._es ) {
-				continue;
-			}
-			const state =
-				states[ node._es.readyState ] ?? String( node._es.readyState );
-			rows.push( [
-				state,
-				String( node.counter ?? 0 ),
-				node.constructor.name,
-				name,
-			] );
-		}
+		const rows = CommandInterpreterNode._handleRows().map( ( r ) => [
+			r.id, // the EventSource readyState label (CONNECTING/OPEN/CLOSED)
+			String( r.count ),
+			r.type,
+			r.name,
+		] );
 		rows.sort( ( a, b ) => a[ 3 ].localeCompare( b[ 3 ] ) );
 		return CommandInterpreterNode._tabulate(
 			[ 'right', 'right', 'right', 'left' ],
 			[ 'STATE', 'COUNT', 'TYPE', 'NAME' ],
 			rows
 		);
+	}
+
+	// `runtime_stats` — timer + handle rows as one struct; keys mirror PHP.
+	static _cmdRuntimeStats() {
+		return {
+			timers: CommandInterpreterNode._timerRows(),
+			handles: CommandInterpreterNode._handleRows(),
+		};
+	}
+
+	// Keyed TimerNode rows for list_timers + runtime_stats; next_ms is null.
+	static _timerRows() {
+		const rows = [];
+		for ( const [ name, node ] of Core.nodes ) {
+			if ( ! ( node instanceof TimerNode ) ) {
+				continue;
+			}
+			rows.push( {
+				id: null,
+				active: 'inactive' !== node.mode,
+				interval_ms: node.interval_ms ?? 0,
+				mode: node.mode,
+				next_ms: null,
+				oneshot: !! node.oneshot,
+				fires: node.fire_count ?? 0,
+				type: node.constructor.name,
+				name,
+			} );
+		}
+		return rows;
+	}
+
+	// Keyed handle rows for list_handles + runtime_stats; id = readyState.
+	static _handleRows() {
+		const states = [ 'CONNECTING', 'OPEN', 'CLOSED' ];
+		const rows = [];
+		for ( const [ name, node ] of Core.nodes ) {
+			if ( ! node._es ) {
+				continue;
+			}
+			rows.push( {
+				id:
+					states[ node._es.readyState ] ??
+					String( node._es.readyState ),
+				count: node.counter ?? 0,
+				type: node.constructor.name,
+				name,
+			} );
+		}
+		return rows;
+	}
+
+	// enable_profiling — _router starts self-timing every dispatch.
+	static _cmdEnableProfiling() {
+		if ( null === Core.node( '_router' ) ) {
+			throw new Error( "can't find _router" );
+		}
+		if ( null !== RouterNode.profiles() ) {
+			return 'profiling already enabled\n';
+		}
+		RouterNode.profiles( {} );
+		return 'profiling enabled\n';
+	}
+
+	// disable_profiling — stop timing and drop the table.
+	static _cmdDisableProfiling() {
+		if ( null === Core.node( '_router' ) ) {
+			throw new Error( "can't find _router" );
+		}
+		if ( null === RouterNode.profiles() ) {
+			return 'profiling already disabled\n';
+		}
+		RouterNode.profiles( null );
+		return 'profiling disabled\n';
+	}
+
+	// list_profiles [glob] — per-node self-time, slowest avg first, --total--.
+	static _cmdListProfiles( glob ) {
+		if ( null === Core.node( '_router' ) ) {
+			throw new Error( "can't find _router" );
+		}
+		// Core.now() (not wall time) so a shadowed clock stays deterministic.
+		const start = Core.now();
+		const profiles = RouterNode.profiles() ?? {};
+		const entries = Object.entries( profiles ).sort(
+			( a, b ) => b[ 1 ].avg - a[ 1 ].avg
+		);
+
+		let count = 0;
+		const total = { time: 0, count: 0, timestamp: 0, oldest: 0 };
+		const rows = [];
+		for ( const [ key, info ] of entries ) {
+			if (
+				'' !== glob &&
+				'total' !== glob &&
+				! new RegExp( glob ).test( key )
+			) {
+				continue;
+			}
+			total.time += info.time;
+			total.count += info.count;
+			total.timestamp = Math.max( total.timestamp, info.timestamp );
+			total.oldest =
+				0 === total.oldest
+					? info.oldest
+					: Math.min( total.oldest, info.oldest );
+			if ( 'total' === glob ) {
+				continue;
+			}
+			rows.push(
+				CommandInterpreterNode._profileRow(
+					info.avg,
+					info.time,
+					info.count,
+					info.timestamp - info.oldest,
+					info.timestamp,
+					key
+				)
+			);
+			count++;
+		}
+		const avg = total.count > 0 ? total.time / total.count : 0;
+		rows.push(
+			CommandInterpreterNode._profileRow(
+				avg,
+				total.time,
+				total.count,
+				total.timestamp - total.oldest,
+				total.timestamp,
+				'--total--'
+			)
+		);
+
+		return (
+			CommandInterpreterNode._tabulate(
+				[
+					'right',
+					'right',
+					'right',
+					'right',
+					'right',
+					'right',
+					'left',
+				],
+				[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
+				rows
+			) +
+			`returned ${ count } profiles in ${ ( Core.now() - start ).toFixed(
+				4
+			) } seconds\n`
+		);
+	}
+
+	// One list_profiles row; `age` is the window (rate = count/window, else 1).
+	static _profileRow( avg, time, count, age, timestamp, what ) {
+		return [
+			avg.toFixed( 6 ),
+			time.toFixed( 2 ),
+			String( count ),
+			age.toFixed( 2 ),
+			( age > 0 && count > 1 ? count / age : 1 ).toFixed( 2 ),
+			String(
+				Math.trunc(
+					timestamp > 0 ? Math.max( 0, Core.now() - timestamp ) : 0
+				)
+			),
+			what,
+		];
 	}
 
 	// uptime — clock-time + elapsed-since-reset.

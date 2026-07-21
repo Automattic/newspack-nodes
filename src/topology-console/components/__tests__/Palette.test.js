@@ -363,6 +363,92 @@ describe( 'Palette', () => {
 	} );
 } );
 
+describe( 'Palette — search filter', () => {
+	const classes = [
+		{ shell_name: 'Echo', category: 'Generic', description: 'Echo node' },
+		{ shell_name: 'Tee', category: 'Generic' },
+		{ shell_name: 'Partition', category: 'Storage' },
+		{
+			shell_name: 'Zeta',
+			category: 'Generic',
+			description: 'quacks loudly',
+		},
+	];
+
+	const shellNames = ( container ) =>
+		Array.from(
+			container.querySelectorAll( '.topology-palette__item' )
+		).map( ( el ) => el.dataset.shellName );
+
+	it( 'renders a search input at the top of the palette', () => {
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		expect(
+			container.querySelector( '.topology-palette__search' )
+		).not.toBeNull();
+	} );
+
+	it( 'shows the full list when the query is empty', () => {
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		expect( shellNames( container ).sort() ).toEqual( [
+			'Echo',
+			'Partition',
+			'Tee',
+			'Zeta',
+		] );
+	} );
+
+	it( 'filters by shell name case-insensitively', () => {
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		fireEvent.change(
+			container.querySelector( '.topology-palette__search' ),
+			{ target: { value: 'PART' } }
+		);
+		expect( shellNames( container ) ).toEqual( [ 'Partition' ] );
+	} );
+
+	it( 'also matches on description text', () => {
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		// "quack" appears only in Zeta's description, not any shell name.
+		fireEvent.change(
+			container.querySelector( '.topology-palette__search' ),
+			{ target: { value: 'quack' } }
+		);
+		expect( shellNames( container ) ).toEqual( [ 'Zeta' ] );
+	} );
+
+	it( 'restores the full list when the query is cleared', () => {
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		const input = container.querySelector( '.topology-palette__search' );
+		fireEvent.change( input, { target: { value: 'part' } } );
+		expect( shellNames( container ) ).toEqual( [ 'Partition' ] );
+		fireEvent.change( input, { target: { value: '' } } );
+		expect( shellNames( container ) ).toHaveLength( 4 );
+	} );
+
+	it( 'keeps the footer count at the full registered total while filtering', () => {
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		fireEvent.change(
+			container.querySelector( '.topology-palette__search' ),
+			{ target: { value: 'part' } }
+		);
+		expect(
+			container.querySelector( '.topology-palette__count' ).textContent
+		).toBe( '4' );
+	} );
+} );
+
 describe( 'Palette — Topologies section is edit-only', () => {
 	const topologies = [
 		{ name: 'combined', includes: [] },

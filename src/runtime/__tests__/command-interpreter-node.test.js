@@ -1586,4 +1586,46 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		expect( out ).toContain( 'sse0' );
 		expect( out ).toContain( 'COUNT' );
 	} );
+
+	test( 'runtime_stats returns { timers, handles } as keyed rows (same source as the text tables)', () => {
+		const timer = new TimerNode();
+		timer.name = 'tick0';
+		timer.setTimer( 250 ); // own-slot: distinct interval, active
+		const sse = new SseInNode();
+		sse.name = 'sse0';
+		sse._es = { readyState: 1 }; // OPEN
+
+		const out = dispatch( new CommandInterpreterNode(), 'runtime_stats' );
+		timer.stopTimer();
+
+		expect( Object.keys( out ) ).toEqual( [ 'timers', 'handles' ] );
+		const tick = out.timers.find( ( r ) => r.name === 'tick0' );
+		expect( Object.keys( tick ) ).toEqual( [
+			'id',
+			'active',
+			'interval_ms',
+			'mode',
+			'next_ms',
+			'oneshot',
+			'fires',
+			'type',
+			'name',
+		] );
+		expect( tick.active ).toBe( true );
+		expect( tick.interval_ms ).toBe( 250 );
+		expect( tick.mode ).toBe( 'event_framework' );
+		expect( tick.next_ms ).toBeNull(); // browser has no event-framework next-fire clock
+		expect( tick.oneshot ).toBe( false );
+		expect( tick.type ).toBe( 'TimerNode' );
+
+		expect( out.handles ).toHaveLength( 1 );
+		expect( Object.keys( out.handles[ 0 ] ) ).toEqual( [
+			'id',
+			'count',
+			'type',
+			'name',
+		] );
+		expect( out.handles[ 0 ].name ).toBe( 'sse0' );
+		expect( out.handles[ 0 ].id ).toBe( 'OPEN' ); // EventSource readyState label
+	} );
 } );

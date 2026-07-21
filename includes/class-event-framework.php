@@ -24,7 +24,7 @@ class Event_Framework {
 	/** The drain's continue-predicate, parked for pump() to re-run from inside a long job. Null outside a drain. */
 	private ?\Closure $continue_predicate = null;
 
-	/** @var array<int,array{node:object,multi:\CurlMultiHandle,counter:int}> */
+	/** @var array<int,array{node:Node,multi:\CurlMultiHandle,counter:int}> */
 	private array $curl_handles = [];
 
 	/** True while inside `drain()`; lets callers detect "am I inside a worker event loop?" (false in web-request contexts). */
@@ -197,19 +197,19 @@ class Event_Framework {
 	}
 
 	/** @api Support for SSE streams. */
-	public function register_curl_handle( object $node, \CurlMultiHandle $multi ): void {
+	public function register_curl_handle( Node $node, \CurlMultiHandle $multi ): void {
 		$this->curl_handles[ \spl_object_id( $node ) ] = [ 'node' => $node, 'multi' => $multi, 'counter' => 0 ];
 	}
 
 	/** @api Support for SSE streams. */
-	public function unregister_curl_handle( object $node ): void {
+	public function unregister_curl_handle( Node $node ): void {
 		unset( $this->curl_handles[ \spl_object_id( $node ) ] );
 	}
 
 	/**
 	 * Registered curl handles, keyed by spl_object_id. Introspection for `list_handles`.
 	 *
-	 * @return array<int, array{node: object, multi: \CurlMultiHandle, counter: int}>
+	 * @return array<int, array{node: Node, multi: \CurlMultiHandle, counter: int}>
 	 */
 	public function curl_handles(): array {
 		return $this->curl_handles;
