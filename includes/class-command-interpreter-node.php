@@ -27,6 +27,22 @@ class Command_Interpreter_Node extends Node {
 	 */
 	public static ?\Closure $default_authorize = null;
 
+	/** `taillog` default / hard-cap tail window (KB). */
+	private const TAILLOG_DEFAULT_KB = 16;
+	private const TAILLOG_MAX_KB     = 64;
+
+	/**
+	 * `taillog` source-registry seam. Resolves the FIXED source-name → absolute-path
+	 * map — a NAME (`php` | `debug`), never a caller-supplied path, so there is no
+	 * traversal. Lazily-defaulted to the real resolver (`ini_get('error_log')` /
+	 * `WP_CONTENT_DIR`); tests reassign it to point at temp fixtures without the
+	 * container's ini/constants. A source whose backing location is unconfigured is
+	 * omitted from the map.
+	 *
+	 * @var (\Closure(): array<string, string>)|null
+	 */
+	public static ?\Closure $taillog_sources = null;
+
 	/**
 	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
 	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
@@ -331,6 +347,10 @@ class Command_Interpreter_Node extends Node {
 				. "    alias: ls\n",
 			'list_timers' => "list_timers\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n",
 			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n",
+			'runtime_stats' => "runtime_stats\n    note: the list_timers + list_handles rows as one { timers, handles } struct (keyed rows) for the Runtime devtools tab.\n",
+			'enable_profiling' => "enable_profiling\n    note: _router starts timing each dispatch (per-node self time).\n",
+			'list_profiles' => "list_profiles [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n",
+			'disable_profiling' => "disable_profiling\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
 			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
@@ -345,6 +365,7 @@ class Command_Interpreter_Node extends Node {
 			'pwd' => "pwd\n",
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
+			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME (php | debug), never a path — no traversal.\n          Returns the last min(max_kb, 64)KB (default 16), partial first line dropped. No args lists the sources with availability.\n",
 			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
@@ -382,8 +403,13 @@ class Command_Interpreter_Node extends Node {
 			'ls'              => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, self::arg_strings( $args ), $envelope ),
 			'list_timers'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_timers(),
 			'list_handles'    => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_handles(),
+			'runtime_stats'   => fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_runtime_stats(),
+			'enable_profiling' => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_enable_profiling(),
+			'list_profiles'   => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_profiles( Core::as_string( $args[0] ?? '' ) ),
+			'disable_profiling' => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_disable_profiling(),
 			'log'             => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_log( $self, self::arg_strings( $args ) ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dmesg(),
+			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_taillog( self::arg_strings( $args ) ),
 			'dump_node'       => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump'            => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump_config'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dump_config( Core::as_string( $args[0] ?? '' ) ),
@@ -751,6 +777,107 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
+	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
+	 * fixed registry NAME. No source lists the registry with per-source availability;
+	 * an unknown name or a missing/unreadable file returns a teaching error naming
+	 * the resolved path (errors-as-docs).
+	 *
+	 * @param list<string> $args
+	 */
+	private static function cmd_taillog( array $args ): string {
+		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
+		$registry = self::taillog_registry();
+
+		if ( '' === $source ) {
+			return self::taillog_list( $registry );
+		}
+		if ( ! isset( $registry[ $source ] ) ) {
+			$known = \implode( ', ', \array_keys( $registry ) );
+			return "unknown log source: \"$source\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
+		}
+		$path = $registry[ $source ];
+		if ( ! \is_file( $path ) || ! \is_readable( $path ) ) {
+			return "log unavailable: $path (missing or unreadable)";
+		}
+		$window = \max( 1, \min( \ctype_digit( $max_kb ) ? (int) $max_kb : self::TAILLOG_DEFAULT_KB, self::TAILLOG_MAX_KB ) );
+		return self::tail_file( $path, $window * 1024 );
+	}
+
+	/**
+	 * Resolve the FIXED `taillog` source registry (name → absolute path) via the
+	 * seam, defaulting to the real host resolution.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function taillog_registry(): array {
+		$resolve = self::$taillog_sources ?? static function (): array {
+			$sources = [];
+			$php     = \ini_get( 'error_log' );
+			// Only a real file — 'syslog' / relative / '' aren't tailable.
+			if ( \is_string( $php ) && '' !== $php && \is_file( $php ) ) {
+				$sources['php'] = $php;
+			}
+			// Constant may be undefined in tests — then debug is unavailable.
+			if ( \defined( 'WP_CONTENT_DIR' ) ) {
+				$sources['debug'] = \WP_CONTENT_DIR . '/debug.log';
+			}
+			return $sources;
+		};
+		return $resolve();
+	}
+
+	/**
+	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
+	 *
+	 * @param array<string,string> $registry Name → resolved path.
+	 */
+	private static function taillog_list( array $registry ): string {
+		$rows = [];
+		foreach ( $registry as $name => $path ) {
+			$available = \is_file( $path ) && \is_readable( $path );
+			$size      = $available ? \filesize( $path ) : false;
+			$rows[]    = [
+				$name,
+				$available ? 'yes' : 'no',
+				false === $size ? '-' : (string) $size,
+				$path,
+			];
+		}
+		return self::tabulate(
+			[ 'left', 'left', 'right', 'left' ],
+			[ 'SOURCE', 'AVAILABLE', 'BYTES', 'PATH' ],
+			$rows
+		);
+	}
+
+	/**
+	 * Read the last $max_bytes of $path from the end via fseek, dropping the (likely
+	 * partial) first line when the window starts past byte 0. Plain text out.
+	 *
+	 * @param string       $path      Registry-resolved log path.
+	 * @param positive-int $max_bytes Tail window (callers clamp to >= 1024).
+	 */
+	private static function tail_file( string $path, int $max_bytes ): string {
+		$size = \filesize( $path );
+		if ( false === $size ) {
+			return "log unavailable: $path (cannot read)";
+		}
+		// Read only the last window via the built-in's offset (kernel seek).
+		$start = $size > $max_bytes ? $size - $max_bytes : 0;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Bounded diagnostic read of a fixed-registry log path, never a URL.
+		$data = \file_get_contents( $path, false, null, $start, $max_bytes );
+		if ( false === $data ) {
+			return "log unavailable: $path (cannot read)";
+		}
+		// Dropped the partial first line (the window started mid-line).
+		if ( $start > 0 ) {
+			$nl   = \strpos( $data, "\n" );
+			$data = false === $nl ? '' : \substr( $data, $nl + 1 );
+		}
+		return $data;
+	}
+
+	/**
 	 * Snapshot a node's state via Node::dump_node(), optionally key-filtered and
 	 * sorted for stability, stringified with a class-name header (display-only).
 	 *
@@ -951,26 +1078,17 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_list_timers(): string {
 		$rows = [];
-		foreach ( Core::$nodes_by_name as $name => $node ) {
-			if ( ! $node instanceof Timer_Node ) {
-				continue;
-			}
-			$active = $node->timer_is_active();
-			if ( $active && $node->next_fire > 0.0 ) {
-				$next_ms = (string) (int) \round( ( $node->next_fire - Core::$now ) * 1000 );
-			} else {
-				$next_ms = '-'; // inactive, or hitchhike (no own next_fire)
-			}
-			$rows[]  = [
-				(string) \spl_object_id( $node ),
-				$active ? 'yes' : 'no',
-				(string) $node->interval_ms,
-				$node->timer_mode(),
-				$next_ms,
-				$node->oneshot ? 'yes' : 'no',
-				(string) $node->get_fire_count(),
-				( new \ReflectionClass( $node ) )->getShortName(),
-				$name,
+		foreach ( self::timer_rows() as $r ) {
+			$rows[] = [
+				(string) $r['id'],
+				$r['active'] ? 'yes' : 'no',
+				(string) $r['interval_ms'],
+				$r['mode'],
+				null === $r['next_ms'] ? '-' : (string) $r['next_ms'], // inactive/hitchhike -> no own next_fire
+				$r['oneshot'] ? 'yes' : 'no',
+				(string) $r['fires'],
+				$r['type'],
+				$r['name'],
 			];
 		}
 		\usort( $rows, static fn ( array $a, array $b ): int => $a[8] <=> $b[8] );
@@ -988,14 +1106,8 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_list_handles(): string {
 		$rows = [];
-		foreach ( Event_Framework::instance()->curl_handles() as $id => $entry ) {
-			$node   = $entry['node'];
-			$rows[] = [
-				(string) $id,
-				(string) $entry['counter'],
-				( new \ReflectionClass( $node ) )->getShortName(),
-				\method_exists( $node, 'name' ) ? Core::as_string( $node->name() ) : 'unknown',
-			];
+		foreach ( self::handle_rows() as $r ) {
+			$rows[] = [ (string) $r['id'], (string) $r['count'], $r['type'], $r['name'] ];
 		}
 		\usort( $rows, static fn ( array $a, array $b ): int => $a[3] <=> $b[3] );
 		return self::tabulate(
@@ -1003,6 +1115,151 @@ class Command_Interpreter_Node extends Node {
 			[ 'ID', 'COUNT', 'TYPE', 'NAME' ],
 			$rows
 		);
+	}
+
+	/**
+	 * `runtime_stats` — the list_timers + list_handles rows as one structured
+	 * reply for the Runtime devtools tab (TM_COMMAND array payload, like
+	 * dump_metadata). Single source of truth: the text verbs above and this both
+	 * derive from timer_rows() / handle_rows().
+	 *
+	 * @return array{timers:list<array<string,mixed>>,handles:list<array<string,mixed>>}
+	 */
+	private static function cmd_runtime_stats(): array {
+		return [
+			'timers'  => self::timer_rows(),
+			'handles' => self::handle_rows(),
+		];
+	}
+
+	/**
+	 * Structured rows for every registered Timer_Node — the one loop the
+	 * list_timers table and runtime_stats both build from. `next_ms` is ms until
+	 * the next fire, or null when there's no own next_fire (inactive/hitchhike).
+	 *
+	 * @return list<array{id:int,active:bool,interval_ms:int,mode:string,next_ms:int|null,oneshot:bool,fires:int,type:string,name:string}>
+	 */
+	private static function timer_rows(): array {
+		$rows = [];
+		foreach ( Core::$nodes_by_name as $name => $node ) {
+			if ( ! $node instanceof Timer_Node ) {
+				continue;
+			}
+			$active  = $node->timer_is_active();
+			$next_ms = ( $active && $node->next_fire > 0.0 )
+				? (int) \round( ( $node->next_fire - Core::$now ) * 1000 )
+				: null;
+			$rows[] = [
+				'id'          => \spl_object_id( $node ),
+				'active'      => $active,
+				'interval_ms' => $node->interval_ms,
+				'mode'        => $node->timer_mode(),
+				'next_ms'     => $next_ms,
+				'oneshot'     => $node->oneshot,
+				'fires'       => $node->get_fire_count(),
+				'type'        => ( new \ReflectionClass( $node ) )->getShortName(),
+				'name'        => $name,
+			];
+		}
+		return $rows;
+	}
+
+	/**
+	 * Structured rows for every registered cURL multi handle — the one loop the
+	 * list_handles table and runtime_stats both build from.
+	 *
+	 * @return list<array{id:int,count:int,type:string,name:string}>
+	 */
+	private static function handle_rows(): array {
+		$rows = [];
+		foreach ( Event_Framework::instance()->curl_handles() as $id => $entry ) {
+			$node   = $entry['node'];
+			$rows[] = [
+				'id'    => $id,
+				'count' => $entry['counter'],
+				'type'  => ( new \ReflectionClass( $node ) )->getShortName(),
+				'name'  => Core::as_string( $node->name() ),
+			];
+		}
+		return $rows;
+	}
+
+	/** `enable_profiling` — _router starts self-timing every dispatch. */
+	private static function cmd_enable_profiling(): string {
+		if ( null === Core::node( Node_Names::ROUTER ) ) {
+			throw new \RuntimeException( "can't find _router" );
+		}
+		if ( null !== Router_Node::profiles() ) {
+			return "profiling already enabled\n";
+		}
+		Router_Node::profiles( [] );
+		return "profiling enabled\n";
+	}
+
+	/** `disable_profiling` — stop timing and drop the table. */
+	private static function cmd_disable_profiling(): string {
+		if ( null === Core::node( Node_Names::ROUTER ) ) {
+			throw new \RuntimeException( "can't find _router" );
+		}
+		if ( null === Router_Node::profiles() ) {
+			return "profiling already disabled\n";
+		}
+		Router_Node::profiles( null );
+		return "profiling disabled\n";
+	}
+
+	/**
+	 * `list_profiles [glob]` — per-node self-time, slowest average first, with a
+	 * --total-- row (Tachikoma CommandInterpreter.pm list_profiles).
+	 */
+	private static function cmd_list_profiles( string $glob ): string {
+		if ( null === Core::node( Node_Names::ROUTER ) ) {
+			throw new \RuntimeException( "can't find _router" );
+		}
+		$start    = \microtime( true );
+		$profiles = Router_Node::profiles() ?? [];
+		\uasort( $profiles, static fn ( array $a, array $b ): int => $b['avg'] <=> $a['avg'] );
+
+		$count = 0;
+		$total = [ 'time' => 0.0, 'count' => 0, 'timestamp' => 0.0, 'oldest' => 0.0 ];
+		$rows  = [];
+		foreach ( $profiles as $key => $info ) {
+			if ( '' !== $glob && 'total' !== $glob && 1 !== @\preg_match( '{' . $glob . '}', $key ) ) {
+				continue;
+			}
+			$total['time']     += $info['time'];
+			$total['count']    += $info['count'];
+			$total['timestamp'] = \max( $total['timestamp'], $info['timestamp'] );
+			$total['oldest']    = 0.0 === $total['oldest'] ? $info['oldest'] : \min( $total['oldest'], $info['oldest'] );
+			if ( 'total' === $glob ) {
+				continue;
+			}
+			$age    = $info['timestamp'] - $info['oldest'];
+			$rows[] = self::profile_row( $info['avg'], $info['time'], $info['count'], $age, $info['timestamp'], $key );
+			++$count;
+		}
+		$age    = $total['timestamp'] - $total['oldest'];
+		$avg    = $total['count'] > 0 ? $total['time'] / $total['count'] : 0.0;
+		$rows[] = self::profile_row( $avg, $total['time'], $total['count'], $age, $total['timestamp'], '--total--' );
+
+		return self::tabulate(
+			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
+			$rows
+		) . \sprintf( "returned %d profiles in %.4f seconds\n", $count, \microtime( true ) - $start );
+	}
+
+	/** @return list<string> One list_profiles table row (rate = count/window, else 1). */
+	private static function profile_row( float $avg, float $time, int $count, float $age, float $timestamp, string $what ): array {
+		return [
+			\sprintf( '%.6f', $avg ),
+			\sprintf( '%.2f', $time ),
+			(string) $count,
+			\sprintf( '%.2f', $age ),
+			\sprintf( '%.2f', ( $age > 0.0 && $count > 1 ) ? $count / $age : 1 ),
+			(string) (int) ( $timestamp > 0.0 ? \max( 0.0, Core::$now - $timestamp ) : 0 ),
+			$what,
+		];
 	}
 
 	/**

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from '@wordpress/element';
+import { useEffect, useMemo, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 // Reuse the hub's d3 rate panel (pulls d3 in) — cheaper than reimplementing it.
 import { TopicsChart } from '../../event-dashboards/TopicsChart';
@@ -14,6 +14,13 @@ import { IoTelemetry } from '../../runtime/io-telemetry';
 // Ship the hub's card/overview layout styles so the overlay is self-contained.
 import '../../event-dashboards/styles/summary-cards.scss';
 import '../../event-dashboards/styles/overview.scss';
+
+// Message levels, in chip order: error / warning / debug.
+const MSG_LEVELS = [
+	{ level: 'error', label: 'err' },
+	{ level: 'warning', label: 'warn' },
+	{ level: 'debug', label: 'dbg' },
+];
 
 // One metric card — reuses the hub SummaryCards `.nodes-card` markup + styling.
 function Card( { id, label, value } ) {
@@ -66,6 +73,16 @@ export default function OverviewTab( { publishHeader } ) {
 	// The Overview owns no header controls — clear any the Console left behind.
 	useEffect( () => publishHeader?.( null ), [ publishHeader ] );
 
+	// Per-level message visibility; on by default, local component state.
+	const [ levels, setLevels ] = useState( {
+		error: true,
+		warning: true,
+		debug: true,
+	} );
+	const levelsKey = MSG_LEVELS.map( ( { level } ) =>
+		levels[ level ] ? 1 : 0
+	).join( '' );
+
 	// Uptimes read at render so they tick with the cards' 20Hz refresh.
 	const nowSec = Math.floor( Date.now() / 1000 );
 	const clientUptime = formatAge(
@@ -76,9 +93,7 @@ export default function OverviewTab( { publishHeader } ) {
 
 	// Memoize the <li> list: reconcile when messages change, not every tick.
 	const messages = totals.messages;
-	const messagesKey = `${ messages.length }:${
-		messages[ messages.length - 1 ]?.ts ?? 0
-	}`;
+	const messagesKey = totals.messageSeq;
 	const messageList = useMemo( () => {
 		if ( messages.length === 0 ) {
 			return null;
@@ -88,24 +103,52 @@ export default function OverviewTab( { publishHeader } ) {
 				className="nodes-overview__messages"
 				data-testid="overview-messages"
 			>
-				<h3>{ __( 'Messages', 'newspack-nodes' ) }</h3>
+				<h3>{ __( 'Messages (this browser)', 'newspack-nodes' ) }</h3>
+				<div className="nodes-overview__msg-filters">
+					{ MSG_LEVELS.map( ( { level, label } ) => (
+						<button
+							key={ level }
+							type="button"
+							data-testid={ `overview-chip-${ level }` }
+							aria-pressed={ levels[ level ] }
+							className={ `button button-small${
+								levels[ level ] ? ' button-primary' : ''
+							}` }
+							onClick={ () =>
+								setLevels( ( prev ) => ( {
+									...prev,
+									[ level ]: ! prev[ level ],
+								} ) )
+							}
+						>
+							{ label }
+						</button>
+					) ) }
+				</div>
 				<ul>
 					{ messages
 						.map( ( m, i ) => ( { m, i } ) )
+						.filter( ( { m } ) => levels[ m.level ] )
 						.reverse()
 						.map( ( { m, i } ) => (
 							<li
 								key={ i }
 								className={ `nodes-overview__msg nodes-overview__msg--${ m.level }` }
 							>
-								{ m.text }
+								<span className="nodes-overview__msg-text">
+									{ m.text }
+								</span>
+								<time className="nodes-overview__msg-age">
+									{ formatAge( Math.floor( m.ts ), nowSec ) }{ ' ' }
+									{ __( 'ago', 'newspack-nodes' ) }
+								</time>
 							</li>
 						) ) }
 				</ul>
 			</div>
 		);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ messagesKey ] );
+	}, [ messagesKey, levelsKey ] );
 
 	return (
 		// Fullbleed body; flex/overflow plumbing, visuals from classes.

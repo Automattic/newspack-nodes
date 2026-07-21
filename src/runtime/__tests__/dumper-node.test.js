@@ -320,6 +320,21 @@ describe( 'Dumper node — append / clear', () => {
 		expect( a.key ).not.toBe( b.key );
 	} );
 
+	it( 'stamps every pushed entry with a ts (epoch seconds) for the timeline', () => {
+		const nowMs = 1_777_123_456_000;
+		const spy = jest.spyOn( Date, 'now' ).mockReturnValue( nowMs );
+		try {
+			const { dumper } = makeDumper();
+			dumper.fill( msg( TM_BYTESTREAM, 'traced' ) );
+			dumper.append( { kind: 'sent', text: 'ls' } );
+			const [ recv, sent ] = dumper.setStateCache.transcript;
+			expect( recv.ts ).toBe( nowMs / 1000 );
+			expect( sent.ts ).toBe( nowMs / 1000 );
+		} finally {
+			spy.mockRestore();
+		}
+	} );
+
 	it( 'clear() empties the transcript and emits a fresh empty array', () => {
 		const { dumper } = makeDumper();
 		dumper.append( { kind: 'sent', text: 'a' } );
@@ -358,6 +373,62 @@ describe( 'Dumper node — append / clear', () => {
 		expect(
 			dumper.setStateCache.transcript[ TRANSCRIPT_MAX - 1 ].text
 		).toBe( `n${ TRANSCRIPT_MAX + 24 }` );
+	} );
+} );
+
+describe( 'Dumper — captureNextReply (one-shot command-reply capture)', () => {
+	const reply = ( name, payload, kind = TM_RESPONSE ) =>
+		msg( TM_COMMAND | kind, { name, payload } );
+
+	it( 'captures the next matching command reply payload via the callback', () => {
+		const { dumper } = makeDumper();
+		const seen = [];
+		dumper.captureNextReply( 'dump_config', ( payload, isError ) =>
+			seen.push( { payload, isError } )
+		);
+		dumper.fill( reply( 'dump_config', 'make_node Echo captured_e\n' ) );
+		expect( seen ).toEqual( [
+			{ payload: 'make_node Echo captured_e\n', isError: false },
+		] );
+	} );
+
+	it( 'is one-shot — a later reply does not re-fire the callback', () => {
+		const { dumper } = makeDumper();
+		let calls = 0;
+		dumper.captureNextReply( 'dump_config', () => calls++ );
+		dumper.fill( reply( 'dump_config', 'first\n' ) );
+		dumper.fill( reply( 'dump_config', 'second\n' ) );
+		expect( calls ).toBe( 1 );
+	} );
+
+	it( 'ignores replies whose command name differs from the requested verb', () => {
+		const { dumper } = makeDumper();
+		let fired = false;
+		dumper.captureNextReply( 'dump_config', () => ( fired = true ) );
+		dumper.fill( reply( 'ls', 'node-a\nnode-b\n' ) );
+		expect( fired ).toBe( false );
+	} );
+
+	it( 'surfaces a matching TM_ERROR reply with isError=true', () => {
+		const { dumper } = makeDumper();
+		const seen = [];
+		dumper.captureNextReply( 'dump_config', ( payload, isError ) =>
+			seen.push( { payload, isError } )
+		);
+		dumper.fill( reply( 'dump_config', 'boom', TM_ERROR ) );
+		expect( seen ).toEqual( [ { payload: 'boom', isError: true } ] );
+	} );
+
+	it( 'still renders the captured reply into the transcript (non-invasive)', () => {
+		const { dumper } = makeDumper();
+		dumper.captureNextReply( 'dump_config', () => {} );
+		dumper.fill( reply( 'dump_config', 'make_node Echo captured_e\n' ) );
+		expect( dumper.setStateCache.transcript ).toEqual( [
+			expect.objectContaining( {
+				kind: 'recv',
+				text: 'make_node Echo captured_e',
+			} ),
+		] );
 	} );
 } );
 

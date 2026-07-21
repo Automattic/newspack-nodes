@@ -17,6 +17,27 @@ class Router_Node extends Timer_Node {
 
 	public const DEFAULT_TICK_MS = 1000;
 
+	/** Idle profile entries older than this are trimmed each tick (Tachikoma: 900). */
+	public const PROFILE_TTL_S = 900;
+
+	/**
+	 * Clock seam (tests script a time sequence). Lazily defaults to microtime.
+	 *
+	 * @var (\Closure(): float)|null
+	 */
+	public static ?\Closure $clock = null;
+
+	/**
+	 * Per-node self-time profiles, keyed by node name; null = profiling off.
+	 * Port of Tachikoma Router.pm $PROFILES / @STACK (package globals).
+	 *
+	 * @var array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null
+	 */
+	private static ?array $profiles = null;
+
+	/** @var list<string> Open dispatch frames (innermost last). */
+	private static array $profile_stack = [];
+
 	private bool $handling_error = false;
 
 	public function __construct() {
@@ -45,6 +66,16 @@ class Router_Node extends Timer_Node {
 		}
 		$message[ Message::TO ] = $remaining;
 
+		if ( null !== self::$profiles ) {
+			$before = $this->push_profile( $node_name );
+			try {
+				// A throw must still pop, else later parents corrupt.
+				$target->fill( $message );
+			} finally {
+				$this->pop_profile( $before );
+			}
+			return;
+		}
 		$target->fill( $message );
 	}
 
@@ -52,7 +83,67 @@ class Router_Node extends Timer_Node {
 	public function fire_cb(): void {
 		$this->notify_timer();
 		Core::prune_logs();
+		if ( null !== self::$profiles ) {
+			$this->trim_profiles();
+		}
 		$this->fire_count++;
+	}
+
+	/**
+	 * Get/set the profile table. Setting (even to null) resets the frame stack.
+	 *
+	 * @param array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null ...$set New table (array to enable, null to disable) when given.
+	 * @return array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null
+	 */
+	public static function profiles( ?array ...$set ): ?array {
+		if ( \count( $set ) > 0 ) {
+			self::$profiles      = $set[0];
+			self::$profile_stack = [];
+		}
+		return self::$profiles;
+	}
+
+	/** Open a dispatch frame; returns the start time for pop_profile(). */
+	private function push_profile( string $name ): float {
+		self::$profile_stack[] = $name;
+		return null !== self::$clock ? ( self::$clock )() : \microtime( true );
+	}
+
+	/** Close the innermost frame; the elapsed is subtracted from its parent (self-time). */
+	private function pop_profile( float $before ): void {
+		if ( null === self::$profiles ) {
+			return;
+		}
+		$after = null !== self::$clock ? ( self::$clock )() : \microtime( true );
+		$name  = \array_pop( self::$profile_stack );
+		if ( null === $name ) {
+			return;
+		}
+		$info               = self::$profiles[ $name ]
+			?? [ 'time' => 0.0, 'count' => 0, 'avg' => 0.0, 'oldest' => 0.0, 'timestamp' => 0.0 ];
+		$info['time']      += $after - $before;
+		++$info['count'];
+		$info['avg']        = $info['time'] / $info['count'];
+		$info['oldest']     = 0.0 !== $info['oldest'] ? $info['oldest'] : $before;
+		$info['timestamp']  = $after;
+		self::$profiles[ $name ] = $info;
+
+		if ( [] !== self::$profile_stack ) {
+			$parent                = self::$profile_stack[ \count( self::$profile_stack ) - 1 ];
+			$parent_info           = self::$profiles[ $parent ]
+				?? [ 'time' => 0.0, 'count' => 0, 'avg' => 0.0, 'oldest' => 0.0, 'timestamp' => 0.0 ];
+			$parent_info['time']  -= $after - $before;
+			self::$profiles[ $parent ] = $parent_info;
+		}
+	}
+
+	/** Drop entries idle past PROFILE_TTL_S (run from fire_cb while profiling). */
+	public function trim_profiles(): void {
+		foreach ( self::$profiles ?? [] as $key => $info ) {
+			if ( Core::$now - $info['timestamp'] > self::PROFILE_TTL_S ) {
+				unset( self::$profiles[ $key ] );
+			}
+		}
 	}
 
 	/** @param array<int, mixed> $message Message that failed to route. */

@@ -465,6 +465,25 @@ jest.mock( '../components/Header', () => ( {
 				<button onClick={ () => props.onSave && props.onSave() }>
 					save
 				</button>
+				<button
+					onClick={ () => props.onDownload && props.onDownload() }
+				>
+					download
+				</button>
+				<button
+					onClick={ () =>
+						props.onUpload &&
+						props.onUpload( {
+							name: 'up.tsl',
+							text: () =>
+								Promise.resolve(
+									'make_node Echo uploaded_node\n'
+								),
+						} )
+					}
+				>
+					upload
+				</button>
 				<button onClick={ () => props.onOpen && props.onOpen() }>
 					open
 				</button>
@@ -944,6 +963,88 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'save' ) ); // open the Save modal
 		} );
 		expect( globalThis.__lastPromptModal.initialValue ).toBe( 'picked' );
+	} );
+
+	it( 'live SAVE captures the live graph dump_config and saves the captured TSL', async () => {
+		const { getByText, getByTestId } = render( <TopologyConsole /> );
+		await publishMeta();
+		// View mode + worker cwd: SAVE snapshots the live graph, not a draft.
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		// Simulate the worker's dump_config reply landing at the Dumper.
+		await fireMsg( {
+			type: TM_COMMAND | TM_RESPONSE,
+			to: names.OUTPUT,
+			value: {
+				name: 'dump_config',
+				payload: 'make_node Echo captured_echo\n',
+			},
+		} );
+		// The capture opens the name prompt; confirm it with 'newname'.
+		expect( getByTestId( 'prompt-modal' ) ).not.toBeNull();
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		expect( hooks.saveTopology ).toHaveBeenCalledWith( {
+			name: 'newname',
+			tsl: 'make_node Echo captured_echo\n',
+		} );
+	} );
+
+	it( 'DOWNLOAD saves the editor topology as <name>.tsl', async () => {
+		globalThis.__hooks.fetchTopology.mockResolvedValue( {
+			name: 'demo',
+			source: 'user',
+			tsl: 'make_node Echo e\n',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const createObjectURL = jest.fn( () => 'blob:mock' );
+		const revokeObjectURL = jest.fn();
+		window.URL.createObjectURL = createObjectURL;
+		window.URL.revokeObjectURL = revokeObjectURL;
+		const clicks = [];
+		const clickSpy = jest
+			.spyOn( window.HTMLAnchorElement.prototype, 'click' )
+			.mockImplementation( function download() {
+				clicks.push( { download: this.download, href: this.href } );
+			} );
+		try {
+			const { getByText } = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( getByText( 'edit' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'download' ) );
+			} );
+			expect( createObjectURL ).toHaveBeenCalledTimes( 1 );
+			expect( createObjectURL.mock.calls[ 0 ][ 0 ] ).toBeInstanceOf(
+				window.Blob
+			);
+			expect( clicks ).toHaveLength( 1 );
+			expect( clicks[ 0 ].download ).toBe( 'demo.tsl' );
+			expect( revokeObjectURL ).toHaveBeenCalledWith( 'blob:mock' );
+		} finally {
+			clickSpy.mockRestore();
+		}
+	} );
+
+	it( 'UPLOAD loads the chosen file TSL into the editor and marks it dirty', async () => {
+		const { getByText, getByTestId } = render( <TopologyConsole /> );
+		// New → a blank, clean draft (baseline === draft).
+		await act( async () => {
+			fireEvent.click( getByText( 'new' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'upload' ) );
+		} );
+		// Flush handleUpload's async file-read + catalog load.
+		await act( async () => {} );
+		// Leaving edit now prompts a discard confirm — proof the load went dirty.
+		await act( async () => {
+			fireEvent.click( getByText( 'view' ) );
+		} );
+		expect( getByTestId( 'confirm-modal' ) ).not.toBeNull();
 	} );
 
 	it( 'edit hides the delete button when the loaded topology is stock-only', async () => {

@@ -177,6 +177,8 @@ describe( 'cumulative counters', () => {
 			warnings: 0,
 			errors: 0,
 			debug: 0,
+			// Monotonic render key by design: never repeats across a reset.
+			messageSeq: expect.any( Number ),
 			sseConnectedAt: null,
 			messages: [],
 		} );

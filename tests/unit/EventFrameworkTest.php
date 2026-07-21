@@ -83,7 +83,7 @@ class EventFrameworkTest extends TestCase {
 	public function test_register_curl_handle_tracks_node_for_multi_dispatch(): void {
 		$ef = Event_Framework::instance();
 
-		$node = new class {
+		$node = new class extends \Newspack_Nodes\Node {
 			public int $curl_events = 0;
 			public function on_curl_message( array $info ): void { ++$this->curl_events; }
 		};
@@ -101,7 +101,7 @@ class EventFrameworkTest extends TestCase {
 	public function test_unregister_curl_handle_removes_registered_handle(): void {
 		$ef = Event_Framework::instance();
 
-		$node = new class {};
+		$node = new class extends \Newspack_Nodes\Node {};
 		$mh   = \curl_multi_init();
 		$ef->register_curl_handle( $node, $mh );
 
@@ -142,7 +142,7 @@ class EventFrameworkTest extends TestCase {
 		// (~100ms) and we exit on the should_continue gate.
 		$ef = Event_Framework::instance();
 
-		$curl_node = new class {
+		$curl_node = new class extends \Newspack_Nodes\Node {
 			public function on_curl_message( array $info ): void {}
 		};
 		$mh = \curl_multi_init();

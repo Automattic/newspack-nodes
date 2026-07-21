@@ -1,0 +1,114 @@
+// Transcript view toggle (Text | Timeline) + the parsed DEBUG-trace table.
+// Imported by ReplFooter so the toggle is styled in both views. Reuses the
+// REPL theme tokens; no new palette. The toggle mirrors `__actions`
+// (sticky, floated, opaque buttons) so scrolling text occludes cleanly.
+
+.topology-repl {
+	&__view-toggle {
+		position: sticky;
+		top: 4px;
+		float: left;
+		display: flex;
+		gap: 4px;
+		margin: 0 0 0 -8px;
+		z-index: 1;
+	}
+
+	&__view-btn {
+		background: var(--repl-bg);
+		border: 1px solid color-mix(in srgb, var(--repl-fg) 25%, transparent);
+		color: color-mix(in srgb, var(--repl-fg) 55%, transparent);
+		height: 22px;
+		padding: 0 8px;
+		font: 700 9px var(--font-terminal);
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		line-height: 1;
+		cursor: pointer;
+		border-radius: 0;
+		transition: all 100ms ease;
+
+		&:hover {
+			border-color: var(--brass);
+			color: var(--brass);
+		}
+
+		&.is-active {
+			border-color: var(--brass);
+			color: var(--brass);
+			background: color-mix(in srgb, var(--brass) 14%, var(--repl-bg));
+		}
+	}
+}
+
+.timeline-view {
+	font: 400 11px/1.5 var(--font-terminal);
+
+	&__filters {
+		display: flex;
+		gap: 6px;
+		justify-content: flex-end;
+		margin-bottom: 8px;
+	}
+
+	&__filter {
+		background: var(--repl-bg);
+		border: 1px solid color-mix(in srgb, var(--repl-fg) 25%, transparent);
+		color: var(--repl-fg);
+		-webkit-text-fill-color: var(--repl-fg);
+		font: inherit;
+		padding: 2px 6px;
+		border-radius: 0;
+		outline: none;
+
+		&:focus {
+			border-color: var(--brass);
+			box-shadow: none;
+		}
+
+		&::placeholder {
+			color: color-mix(in srgb, var(--repl-fg) 35%, transparent);
+		}
+	}
+
+	&__table {
+		width: 100%;
+		border-collapse: collapse;
+		table-layout: fixed;
+
+		th {
+			text-align: left;
+			font: 700 9px var(--font-terminal);
+			letter-spacing: 0.14em;
+			text-transform: uppercase;
+			color: color-mix(in srgb, var(--repl-fg) 50%, transparent);
+			padding: 2px 8px 2px 0;
+			border-bottom: 1px solid
+				color-mix(in srgb, var(--repl-fg) 18%, transparent);
+		}
+
+		td {
+			padding: 2px 8px 2px 0;
+			vertical-align: top;
+			overflow-wrap: anywhere;
+		}
+	}
+
+	&__time {
+		white-space: nowrap;
+		color: color-mix(in srgb, var(--repl-fg) 60%, transparent);
+	}
+
+	&__node {
+		color: var(--brass);
+	}
+
+	&__payload {
+		color: color-mix(in srgb, var(--repl-fg) 80%, transparent);
+	}
+
+	&__empty {
+		margin: 12px 0 0;
+		color: color-mix(in srgb, var(--repl-fg) 50%, transparent);
+	}
+}

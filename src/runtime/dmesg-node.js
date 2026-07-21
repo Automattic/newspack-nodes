@@ -21,9 +21,29 @@ import {
 const POLL_INTERVAL_MS = 10000;
 
 /**
- * Classify a dmesg tail by level, matching `Core.stderr`'s convention: a line
- * carrying `WARNING:` is a warning (wins over a co-occurring `ERROR:`), else
- * `ERROR:` is an error, else it's debug. Blank lines don't count.
+ * Classify ONE log line by `Core.stderr`'s convention: a line carrying
+ * `WARNING:` is a warning (wins over a co-occurring `ERROR:`), else `ERROR:` is
+ * an error, else it's debug. The single classifier the counts AND the Logs tab's
+ * per-line level chips both derive from.
+ *
+ * @param {string} line One log line.
+ * @return {'warning'|'error'|'debug'} The line's level.
+ */
+export function classifyLine( line ) {
+	if ( /\bWARNING:/.test( line ) ) {
+		return 'warning';
+	}
+	if ( /\bERROR:/.test( line ) ) {
+		return 'error';
+	}
+	return 'debug';
+}
+
+// Level → the countLevels tally key (plural for the error/warning buckets).
+const COUNT_KEY = { warning: 'warnings', error: 'errors', debug: 'debug' };
+
+/**
+ * Tally a dmesg tail's non-blank lines by level (via classifyLine).
  *
  * @param {string} text The dmesg output.
  * @return {{errors:number, warnings:number, debug:number}} Per-level line counts.
@@ -34,13 +54,7 @@ export function countLevels( text ) {
 		if ( '' === line.trim() ) {
 			continue;
 		}
-		if ( /\bWARNING:/.test( line ) ) {
-			counts.warnings++;
-		} else if ( /\bERROR:/.test( line ) ) {
-			counts.errors++;
-		} else {
-			counts.debug++;
-		}
+		counts[ COUNT_KEY[ classifyLine( line ) ] ]++;
 	}
 	return counts;
 }
@@ -49,40 +63,46 @@ export class DmesgNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.dmesg = {};
+		this.registrations.lines = {};
+		// runtime_stats and other object replies publish to `reply`.
+		this.registrations.reply = {};
+		// Poll verb + args; Logs/Runtime tabs retarget these.
+		this.verb = 'dmesg';
+		this.pollArgs = [];
 	}
 
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
-		let text = '';
-		if (
-			value &&
-			typeof value === 'object' &&
-			typeof value.payload === 'string'
-		) {
-			text = value.payload;
-		} else if ( typeof value === 'string' ) {
-			text = value;
+		// Reply envelope is { name, arguments, payload }; else raw VALUE.
+		const payload =
+			value && typeof value === 'object' ? value.payload : value;
+		// Object payload publishes raw; a string payload tails as text.
+		if ( payload && typeof payload === 'object' ) {
+			this.setState( 'reply', payload );
+			return;
 		}
+		const text = typeof payload === 'string' ? payload : '';
+		this.setState( 'lines', text );
 		this.setState( 'dmesg', countLevels( text ) );
 	}
 
-	// Router TIMER subscriber: fire() emits a dmesg poll to `_cwd` (live cwd).
+	// Router TIMER subscriber: emit the configured poll to `this.target`.
 	fire() {
 		if ( ! this.sink ) {
 			return;
 		}
 		this.counter++;
-		this.sink.fill( this._pollMessage( 'dmesg' ) );
+		this.sink.fill( this._pollMessage( this.verb, this.pollArgs ) );
 	}
 
 	// Poll TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
-	_pollMessage( verb ) {
+	_pollMessage( verb, args = [] ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
 		m[ TO ] = this.target;
-		m[ VALUE ] = { name: verb, arguments: [] };
+		m[ VALUE ] = { name: verb, arguments: args };
 		m[ LOCAL ] = true;
 		return m;
 	}
@@ -96,7 +116,7 @@ export class DmesgNode extends TimerNode {
 		return {
 			category: 'Hidden',
 			description:
-				'Polls `dmesg`; publishes error/warning/debug line counts for the inspector header.',
+				'Self-timed verb poller (default `dmesg`; configurable verb/args/target). Publishes level counts, the raw tail as `lines`, and an object payload as `reply`.',
 			accepts_fill: false,
 			arguments: [],
 			commands: [],

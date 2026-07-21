@@ -8,6 +8,7 @@
  * brand + (its own controls, or an empty slot the active tab portals into).
  */
 
+import { useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 const VERSION =
@@ -25,6 +26,8 @@ export function HeaderControls( {
 	canEdit,
 	onModeChange,
 	onSave,
+	onDownload,
+	onUpload,
 	onOpen,
 	onNew,
 	onDelete,
@@ -33,6 +36,8 @@ export function HeaderControls( {
 	settingsActive = false,
 	onClose,
 } ) {
+	// Hidden file input the UPLOAD button proxies its click onto.
+	const uploadInputRef = useRef( null );
 	return (
 		<>
 			{ /* Live feed only; hidden when there is a single option. */ }
@@ -105,14 +110,60 @@ export function HeaderControls( {
 							{ __( 'OPEN', 'newspack-nodes' ) }
 						</button>
 					) }
+					{ /* SAVE works from live too — it snapshots the live graph's
+					     dump_config; in edit it saves the draft. Same slot in both. */ }
+					<button
+						type="button"
+						className="topology-mode__btn topology-mode__btn--save"
+						onClick={ () => onSave && onSave() }
+					>
+						{ __( 'SAVE', 'newspack-nodes' ) }
+					</button>
 					{ mode === 'edit' && (
 						<button
 							type="button"
-							className="topology-mode__btn topology-mode__btn--save"
-							onClick={ () => onSave && onSave() }
+							className="topology-mode__btn topology-mode__btn--download"
+							onClick={ () => onDownload && onDownload() }
+							title={ __(
+								'Download the editor topology as a .tsl file',
+								'newspack-nodes'
+							) }
 						>
-							{ __( 'SAVE', 'newspack-nodes' ) }
+							{ __( 'DOWNLOAD', 'newspack-nodes' ) }
 						</button>
+					) }
+					{ mode === 'edit' && (
+						<>
+							<button
+								type="button"
+								className="topology-mode__btn topology-mode__btn--upload"
+								onClick={ () =>
+									uploadInputRef.current &&
+									uploadInputRef.current.click()
+								}
+								title={ __(
+									'Load a .tsl file into the editor (replaces the draft)',
+									'newspack-nodes'
+								) }
+							>
+								{ __( 'UPLOAD', 'newspack-nodes' ) }
+							</button>
+							<input
+								ref={ uploadInputRef }
+								type="file"
+								accept=".tsl,text/plain"
+								style={ { display: 'none' } }
+								onChange={ ( e ) => {
+									const file =
+										e.target.files && e.target.files[ 0 ];
+									if ( file && onUpload ) {
+										onUpload( file );
+									}
+									// Re-fire when the same file is re-picked.
+									e.target.value = '';
+								} }
+							/>
+						</>
 					) }
 					{ mode === 'edit' && canDelete && (
 						<button

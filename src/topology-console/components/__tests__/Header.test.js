@@ -91,15 +91,61 @@ describe( 'Header', () => {
 		expect( queryByLabelText( 'Skin' ) ).toBeNull();
 	} );
 
-	it( 'offers OPEN in LIVE mode too — opening a topology lands you in the editor', () => {
+	it( 'offers OPEN and SAVE in LIVE mode too — SAVE snapshots the live graph', () => {
 		const onOpen = jest.fn();
-		const { getByText, queryByText } = render(
-			<Header { ...baseProps } onOpen={ onOpen } onSave={ jest.fn() } />
+		const onSave = jest.fn();
+		const { getByText } = render(
+			<Header { ...baseProps } onOpen={ onOpen } onSave={ onSave } />
 		);
 		fireEvent.click( getByText( 'OPEN' ) );
 		expect( onOpen ).toHaveBeenCalled();
-		// SAVE stays edit-only: there is no draft to save from live.
+		// SAVE now works from live — it captures the live graph's dump_config.
+		fireEvent.click( getByText( 'SAVE' ) );
+		expect( onSave ).toHaveBeenCalled();
+	} );
+
+	it( 'shows DOWNLOAD in edit mode and wires onDownload', () => {
+		const onDownload = jest.fn();
+		const { getByText } = render(
+			<Header { ...baseProps } mode="edit" onDownload={ onDownload } />
+		);
+		fireEvent.click( getByText( 'DOWNLOAD' ) );
+		expect( onDownload ).toHaveBeenCalled();
+	} );
+
+	it( 'UPLOAD opens a .tsl file picker and hands the chosen file to onUpload', () => {
+		const onUpload = jest.fn();
+		const { getByText, container } = render(
+			<Header { ...baseProps } mode="edit" onUpload={ onUpload } />
+		);
+		const input = container.querySelector( 'input[type="file"]' );
+		expect( input.accept ).toBe( '.tsl,text/plain' );
+		// The UPLOAD button proxies the click onto the hidden file input.
+		const clickSpy = jest.spyOn( input, 'click' );
+		fireEvent.click( getByText( 'UPLOAD' ) );
+		expect( clickSpy ).toHaveBeenCalled();
+		// Choosing a file fires onUpload with the File.
+		const file = new File( [ 'make_node Echo up\n' ], 'up.tsl', {
+			type: 'text/plain',
+		} );
+		fireEvent.change( input, { target: { files: [ file ] } } );
+		expect( onUpload ).toHaveBeenCalledWith( file );
+	} );
+
+	it( 'hides SAVE / DOWNLOAD / UPLOAD in the debug overlay (onClose set)', () => {
+		const { queryByText } = render(
+			<Header
+				{ ...baseProps }
+				mode="edit"
+				onClose={ jest.fn() }
+				onSave={ jest.fn() }
+				onDownload={ jest.fn() }
+				onUpload={ jest.fn() }
+			/>
+		);
 		expect( queryByText( 'SAVE' ) ).toBeNull();
+		expect( queryByText( 'DOWNLOAD' ) ).toBeNull();
+		expect( queryByText( 'UPLOAD' ) ).toBeNull();
 	} );
 
 	it( 'shows NEW/OPEN/SAVE buttons in edit mode and wires them', () => {
@@ -243,19 +289,20 @@ describe( 'Header — mode button order', () => {
 			( b ) => ( b.textContent.trim().match( /^[A-Z]+/ ) ?? [ '' ] )[ 0 ]
 		);
 
-	it( 'live mode: NEW, OPEN, EDIT, LIVE', () => {
+	it( 'live mode: NEW, OPEN, SAVE, EDIT, LIVE', () => {
 		const { container } = render(
 			<Header { ...baseProps } onNew={ jest.fn() } onOpen={ jest.fn() } />
 		);
 		expect( labels( container ) ).toEqual( [
 			'NEW',
 			'OPEN',
+			'SAVE',
 			'EDIT',
 			'LIVE',
 		] );
 	} );
 
-	it( 'edit mode: NEW, OPEN, SAVE, DELETE, SETTINGS, EDIT, LIVE', () => {
+	it( 'edit mode: NEW, OPEN, SAVE, DOWNLOAD, UPLOAD, DELETE, SETTINGS, EDIT, LIVE', () => {
 		const { container } = render(
 			<Header
 				{ ...baseProps }
@@ -264,6 +311,8 @@ describe( 'Header — mode button order', () => {
 				onNew={ jest.fn() }
 				onOpen={ jest.fn() }
 				onSave={ jest.fn() }
+				onDownload={ jest.fn() }
+				onUpload={ jest.fn() }
 				onDelete={ jest.fn() }
 				onSettings={ jest.fn() }
 			/>
@@ -272,6 +321,8 @@ describe( 'Header — mode button order', () => {
 			'NEW',
 			'OPEN',
 			'SAVE',
+			'DOWNLOAD',
+			'UPLOAD',
 			'DELETE',
 			'SETTINGS',
 			'EDIT',

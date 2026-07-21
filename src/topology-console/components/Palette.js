@@ -58,6 +58,8 @@ export default function Palette( {
 	// Drag ghost following the cursor (or null); dragRef keeps handlers stable.
 	const [ ghost, setGhost ] = useState( null );
 	const dragRef = useRef( null );
+	// Case-insensitive filter over shell name + description; empty = full list.
+	const [ query, setQuery ] = useState( '' );
 
 	// accepts_fill/has_target default true; glyph marks only an ABSENT port.
 	const acceptsFillOf = ( c ) => c.accepts_fill !== false;
@@ -185,8 +187,17 @@ export default function Palette( {
 	const draggable = classes.filter(
 		( c ) => ! NON_DRAGGABLE_CATEGORIES.has( c.category )
 	);
-	const grouped = groupByCategory( draggable );
+	// Footer count is the catalog total (registered), not the filtered view.
 	const total = draggable.length;
+	const q = query.trim().toLowerCase();
+	const matches = q
+		? draggable.filter(
+				( c ) =>
+					c.shell_name.toLowerCase().includes( q ) ||
+					( c.description || '' ).toLowerCase().includes( q )
+		  )
+		: draggable;
+	const grouped = groupByCategory( matches );
 	const byName = new Map( topologies.map( ( t ) => [ t.name, t ] ) );
 
 	return (
@@ -202,6 +213,14 @@ export default function Palette( {
 					{ '‹' }
 				</button>
 			) }
+			<input
+				type="search"
+				className="topology-palette__search"
+				value={ query }
+				onChange={ ( e ) => setQuery( e.target.value ) }
+				placeholder="Filter nodes…"
+				aria-label="Filter node classes"
+			/>
 			{ editMode && topologies.length > 0 && (
 				<div>
 					<h3 className="topology-palette__group">Topologies</h3>

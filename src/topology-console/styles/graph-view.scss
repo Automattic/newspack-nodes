@@ -250,6 +250,25 @@
 		}
 	}
 
+	// Filter box — narrows the class list by shell name / description.
+	&__search {
+		margin: 4px 12px 8px;
+		padding: 5px 8px;
+		background: var(--paper);
+		border: 1px solid var(--ink-3);
+		font: 12px/1.2 var(--font-mono);
+		color: var(--ink);
+
+		&::placeholder {
+			color: var(--ink-3);
+		}
+
+		&:focus {
+			outline: none;
+			border-color: var(--ink);
+		}
+	}
+
 	&__group {
 		margin: 14px 16px 8px;
 		font: 700 9px/1 var(--font-mono);

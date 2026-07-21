@@ -1323,10 +1323,36 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ draft, baseline, handleOpenPick ]
 	);
 
-	// Shared canvas-background-click dismiss pattern (mirrored in the overlay).
+	// SAVE snapshots the live graph via dump_config (edit saves the draft).
 	const handleSave = useCallback( () => {
-		setSaveModal( {} );
-	}, [] );
+		if ( 'edit' === mode ) {
+			setSaveModal( {} );
+			return;
+		}
+		const dumper = Core.node( names.OUTPUT );
+		if ( ! shell || ! dumper ) {
+			return;
+		}
+		dumper.captureNextReply( 'dump_config', ( payload, isError ) => {
+			const tsl = String( payload ?? '' );
+			if ( isError || '' === tsl.trim() ) {
+				setToast( {
+					kind: 'error',
+					text: __(
+						'Could not capture the live topology.',
+						'newspack-nodes'
+					),
+				} );
+				return;
+			}
+			// Prefill a worker snapshot with its topology; local stays blank.
+			setSaveModal( {
+				tsl,
+				initialName: scope.isWorker ? scope.label : '',
+			} );
+		} );
+		sendLine( 'dump_config' );
+	}, [ mode, shell, sendLine, scope ] );
 
 	const handleOpen = useCallback( () => {
 		setOpenModalShown( true );
@@ -1389,8 +1415,65 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ catalog.classes ]
 	);
 
+	// DOWNLOAD: write the draft out as <name>.tsl via a Blob object URL.
+	const handleDownload = useCallback( () => {
+		const tsl = serializeTsl( draft, schemasByShellName, expandBaseline );
+		const blob = new window.Blob( [ tsl ], { type: 'text/plain' } );
+		const url = window.URL.createObjectURL( blob );
+		const a = document.createElement( 'a' );
+		a.href = url;
+		a.download = `${ editingName || 'untitled' }.tsl`;
+		document.body.appendChild( a );
+		a.click();
+		a.remove();
+		window.URL.revokeObjectURL( url );
+	}, [ draft, schemasByShellName, expandBaseline, editingName ] );
+
+	// UPLOAD: load a .tsl file's text into the draft; baseline stays → dirty.
+	const handleUpload = useCallback(
+		async ( file ) => {
+			try {
+				const [ text, loadedCatalog ] = await Promise.all( [
+					file.text(),
+					loadPhpCatalog(),
+				] );
+				const parsedGraph = parseTsl( text );
+				const includeBaseline = await fetchExpandedIncludes(
+					parsedGraph.includes
+				);
+				primeExpandedIncludes( parsedGraph.includes, includeBaseline );
+				const loaded = withReplAnchor(
+					applyLoadedBaseline(
+						parsedGraph,
+						includeBaseline,
+						loadedCatalog.classes
+					)
+				);
+				// Sync ref: the reconcile effect diffs vs THIS, not EMPTY.
+				prevExpandBaselineRef.current = includeBaseline;
+				setDraft( loaded );
+				setToast( {
+					kind: 'success',
+					text: sprintf(
+						// translators: %s: uploaded file name.
+						__( 'Loaded %s into the editor.', 'newspack-nodes' ),
+						file.name
+					),
+				} );
+			} catch ( e ) {
+				const msg =
+					( e && e.message ) ||
+					__( 'Upload failed', 'newspack-nodes' );
+				setToast( { kind: 'error', text: msg } );
+			}
+		},
+		[ loadPhpCatalog ]
+	);
+
 	const handleSaveConfirm = useCallback(
 		async ( name ) => {
+			// Live SAVE carries captured TSL; edit serializes the draft.
+			const capturedTsl = saveModal?.tsl;
 			setSaveModal( null );
 			// Snapshot new-vs-existing before the save reloads the catalog.
 			const isNewTopology = ! Object.prototype.hasOwnProperty.call(
@@ -1398,11 +1481,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				name
 			);
 			try {
-				const tsl = serializeTsl(
-					draft,
-					schemasByShellName,
-					expandBaseline
-				);
+				const tsl =
+					capturedTsl ??
+					serializeTsl( draft, schemasByShellName, expandBaseline );
 				const resp = await saveTopology( { name, tsl } );
 				const restartedCount = ( resp.restarted_fleets || [] ).length;
 				const fleetsPhrase = sprintf(
@@ -1456,6 +1537,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 		},
 		[
+			saveModal,
 			draft,
 			saveTopology,
 			topologyList,
@@ -1519,6 +1601,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			mode={ mode }
 			onModeChange={ handleModeChange }
 			onSave={ handleSave }
+			onDownload={ handleDownload }
+			onUpload={ handleUpload }
 			onOpen={ handleOpen }
 			onNew={ handleNew }
 			onSettings={ () => setSettingsOpen( ( v ) => ! v ) }
@@ -1674,8 +1758,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 						'newspack-nodes'
 					) }
 					placeholder={ __( 'my-topology', 'newspack-nodes' ) }
-					// Pre-fill the EDITED topology's name, not the live one.
-					initialValue={ editingName }
+					// Live: captured topology name; edit: the edited name.
+					initialValue={ saveModal.initialName ?? editingName }
 					pattern={ /^[a-zA-Z0-9_-]+$/ }
 					confirmLabel={ __( 'Save', 'newspack-nodes' ) }
 					onConfirm={ handleSaveConfirm }
