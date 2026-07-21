@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/upgrading.md` — a curated breaking-changes page for consumer-plugin authors.** One entry per consumer-facing contract change (topology args, verb tables, wire shapes, JS runtime globals), the fix beside each, seeded with the 0.47.x breaks. Standing rule recorded in the doc: a release that breaks a consumer contract adds its entry in the same commit as its CHANGELOG entry. Linked from the doc map's Reference bucket and README's Status section.
+
 ### Changed
 
+- **README's Status section states what is settled instead of promising renames.** The old line hardcoded a version (already one release stale) and told adopters to "expect schema-field renames." It now names the settled load-bearing contracts (`fill()`, the 7-field message, sink/target routing — ADR-1/2/7), confines pre-1.0 movement to the edges (verb tables, schema fields), and points at `docs/upgrading.md` for the curated break list.
 - **Shipped retention defaults now bound disk growth: `min_lifetime` 86400 → 900, `max_lifetime` 0 → 86400.** The old pair reproduced the legacy 2-seg/24h behavior: count-pruning couldn't fire until a segment was a full day old (an unbounded-growth window under sustained writes) and the age rule was disabled outright. A partition's oldest segments are now count-prune eligible after 15 minutes, and anything older than 24 hours is pruned down to `min_segments` regardless of count.
 
 ### Fixed

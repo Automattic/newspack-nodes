@@ -85,4 +85,4 @@ GPL-2.0-or-later
 
 ## Status
 
-v0.46.x. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime; the substrate's API is stabilizing toward 1.0 but still pre-1.0 — expect schema-field renames and incremental contract tightening. See [CHANGELOG.md](CHANGELOG.md) for the per-version history.
+Pre-1.0, converging on 1.0. The load-bearing contracts — `fill()`, the 7-field message, sink/target routing ([ADR-1/2/7](docs/architecture-decisions.md)) — are settled; what still moves before 1.0 is at the edges (verb tables, schema fields), and every change lands in [CHANGELOG.md](CHANGELOG.md), with breaking changes and their fixes curated in [docs/upgrading.md](docs/upgrading.md). The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime.
