@@ -312,6 +312,59 @@ class CommandInterpreterTest extends TestCase {
 		\unlink( $path );
 	}
 
+	public function test_taillog_sources_returns_a_struct_of_name_path_available_rows(): void {
+		$present = $this->write_fixed_width_log( 3, 59 );
+		$missing = \sys_get_temp_dir() . '/taillog-sources-absent-5573.log';
+
+		Command_Interpreter_Node::$taillog_sources = static fn (): array => [
+			'php'   => $present,
+			'debug' => $missing,
+		];
+
+		$rows = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'sources' ] );
+
+		$this->assertSame(
+			[
+				[
+					'name'      => 'php',
+					'path'      => $present,
+					'available' => true,
+				],
+				[
+					'name'      => 'debug',
+					'path'      => $missing,
+					'available' => false,
+				],
+			],
+			$rows,
+			'the reserved `sources` name returns an array a GUI reads to build its picker'
+		);
+
+		\unlink( $present );
+	}
+
+	public function test_taillog_sources_dedupes_two_names_resolving_to_the_same_real_file(): void {
+		// On this host php `error_log` IS wp-content/debug.log: two DISTINCT path
+		// strings (a symlink) pointing at ONE real file must collapse to one row,
+		// keeping `php` (the ini-configured aggregation point).
+		$real = $this->write_fixed_width_log( 3, 59 );
+		$link = $real . '.alias';
+		\symlink( $real, $link );
+
+		Command_Interpreter_Node::$taillog_sources = static fn (): array => [
+			'php'   => $real,
+			'debug' => $link,
+		];
+
+		$rows = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'sources' ] );
+
+		$this->assertIsArray( $rows );
+		$this->assertSame( [ 'php' ], \array_column( $rows, 'name' ), 'the duplicate `debug` alias of the same real file is dropped' );
+
+		\unlink( $link );
+		\unlink( $real );
+	}
+
 	public function test_interpret_refuses_command_without_local_provenance(): void {
 		$interpreter   = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

@@ -92,21 +92,6 @@ describe( 'DmesgNode', () => {
 		} );
 	} );
 
-	it( 'publishes the raw tail text as `lines` alongside the counts', () => {
-		const node = new DmesgNode();
-		node.name = '_logs:poller';
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-		m[ VALUE ] = { payload: 'ERROR: boom\nplain line' };
-		node.fill( m );
-		expect( node.setStateCache.lines ).toBe( 'ERROR: boom\nplain line' );
-		expect( node.setStateCache.dmesg ).toEqual( {
-			errors: 1,
-			warnings: 0,
-			debug: 1,
-		} );
-	} );
-
 	it( 'fire() emits the CONFIGURED verb + arguments to its target', () => {
 		const node = new DmesgNode();
 		node.name = '_logs:poller';

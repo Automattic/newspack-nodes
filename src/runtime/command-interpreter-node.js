@@ -70,7 +70,7 @@ const HELP = {
 	list_handles:
 		'list_handles\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n',
 	runtime_stats:
-		'runtime_stats\n    note: the list_timers + list_handles rows as one { timers, handles } struct (keyed rows) for the Runtime devtools tab.\n',
+		'runtime_stats\n    note: the list_timers + list_handles rows as one { timers, handles } struct (keyed rows) for the Runtime view.\n',
 	enable_profiling:
 		'enable_profiling\n    note: _router starts timing each dispatch (per-node self time).\n',
 	list_profiles:

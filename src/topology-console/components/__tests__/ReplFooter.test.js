@@ -214,7 +214,9 @@ describe( 'ReplFooter', () => {
 		expect( entries[ 1 ].textContent ).toBe( 'response line' );
 	} );
 
-	describe( 'transcript view toggle (Text | Timeline)', () => {
+	it( 'always renders the plain-text transcript — no Text|Timeline toggle', () => {
+		// The transcript is plain text again; the Timeline lives in the
+		// Inspector strip modal, not a footer toggle.
 		const debugTranscript = [
 			{ key: 1, ts: 1_777_000_000, kind: 'recv', text: 'ls output' },
 			{
@@ -224,115 +226,25 @@ describe( 'ReplFooter', () => {
 				text: 'request-builder: DEBUG: rotate seg=7',
 			},
 		];
-
-		const findToggleButton = ( container, label ) =>
-			Array.from(
-				container.querySelectorAll(
-					'.topology-repl__view-toggle button'
-				)
-			).find( ( b ) => b.textContent === label );
-
-		it( 'defaults to the text view (entries visible, no timeline table)', () => {
-			const { container } = render(
-				<ReplFooter
-					{ ...baseProps }
-					expanded
-					transcript={ debugTranscript }
-				/>
-			);
-			expect(
-				container.querySelector( '.topology-repl__entries' )
-			).not.toBeNull();
-			expect( container.querySelector( '.timeline-view' ) ).toBeNull();
-		} );
-
-		it( 'switching to Timeline swaps the entries list for the timeline table and persists the choice', () => {
-			const { container } = render(
-				<ReplFooter
-					{ ...baseProps }
-					expanded
-					transcript={ debugTranscript }
-				/>
-			);
-			fireEvent.click( findToggleButton( container, 'Timeline' ) );
-			expect(
-				container.querySelector( '.topology-repl__entries' )
-			).toBeNull();
-			expect(
-				container.querySelector( '.timeline-view' )
-			).not.toBeNull();
-			// The one DEBUG line is parsed into a timeline row.
-			expect(
-				container.querySelectorAll( '.timeline-view__row' )
-			).toHaveLength( 1 );
-			expect(
-				window.localStorage.getItem(
-					'newspack-nodes:console:transcript-view'
-				)
-			).toBe( 'timeline' );
-		} );
-
-		it( 'restores the Timeline choice from localStorage on the next mount', () => {
-			window.localStorage.setItem(
-				'newspack-nodes:console:transcript-view',
-				'timeline'
-			);
-			const { container } = render(
-				<ReplFooter
-					{ ...baseProps }
-					expanded
-					transcript={ debugTranscript }
-				/>
-			);
-			expect(
-				container.querySelector( '.timeline-view' )
-			).not.toBeNull();
-			expect(
-				container.querySelector( '.topology-repl__entries' )
-			).toBeNull();
-		} );
-
-		it( 'switching back to Text restores the entries list', () => {
-			window.localStorage.setItem(
-				'newspack-nodes:console:transcript-view',
-				'timeline'
-			);
-			const { container } = render(
-				<ReplFooter
-					{ ...baseProps }
-					expanded
-					transcript={ debugTranscript }
-				/>
-			);
-			fireEvent.click( findToggleButton( container, 'Text' ) );
-			expect(
-				container.querySelector( '.topology-repl__entries' )
-			).not.toBeNull();
-			expect( container.querySelector( '.timeline-view' ) ).toBeNull();
-			expect(
-				window.localStorage.getItem(
-					'newspack-nodes:console:transcript-view'
-				)
-			).toBe( 'text' );
-		} );
-
-		it( 'clicking a timeline filter keeps focus on the filter (not the prompt)', () => {
-			window.localStorage.setItem(
-				'newspack-nodes:console:transcript-view',
-				'timeline'
-			);
-			const { container } = render(
-				<ReplFooter
-					{ ...baseProps }
-					expanded
-					transcript={ debugTranscript }
-				/>
-			);
-			const filter = container.querySelector( '.timeline-view__filter' );
-			filter.focus();
-			fireEvent.click( filter );
-			expect( document.activeElement ).toBe( filter );
-		} );
+		const { container } = render(
+			<ReplFooter
+				{ ...baseProps }
+				expanded
+				transcript={ debugTranscript }
+			/>
+		);
+		expect(
+			container.querySelector( '.topology-repl__entries' )
+		).not.toBeNull();
+		expect(
+			container.querySelector( '.topology-repl__view-toggle' )
+		).toBeNull();
+		expect( container.querySelector( '.timeline-view' ) ).toBeNull();
+		expect(
+			container
+				.querySelector( '.topology-repl__transcript' )
+				.classList.contains( 'is-timeline' )
+		).toBe( false );
 	} );
 
 	it( 'Escape on document collapses when expanded', () => {

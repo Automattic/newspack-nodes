@@ -250,10 +250,18 @@
 		}
 	}
 
-	// Filter box — narrows the class list by shell name / description.
-	&__search {
+	// Wrap so the ✕ clear can overlay the input's right edge (see edit-row).
+	&__search-wrap {
+		position: relative;
+		display: flex;
 		margin: 4px 12px 8px;
-		padding: 5px 8px;
+	}
+
+	// Filter box — narrows the class list + topology tiles by name / description.
+	&__search {
+		flex: 1;
+		min-width: 0;
+		padding: 5px 22px 5px 8px;
 		background: var(--paper);
 		border: 1px solid var(--ink-3);
 		font: 12px/1.2 var(--font-mono);
@@ -266,6 +274,24 @@
 		&:focus {
 			outline: none;
 			border-color: var(--ink);
+		}
+	}
+
+	// ✕ clear button — shown only when the query is non-empty.
+	&__search-clear {
+		position: absolute;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		width: 22px;
+		background: transparent;
+		border: 0;
+		color: var(--ink-3);
+		font: 700 13px/1 var(--font-mono);
+		cursor: pointer;
+
+		&:hover {
+			color: var(--oxide);
 		}
 	}
 
@@ -3375,4 +3401,20 @@
 	gap: 8px;
 	padding: 10px 14px;
 	border-top: 1px solid var(--paper-shadow);
+}
+
+// The Inspector no-node strip modal (Runtime grids / Timeline). The rail is too
+// narrow for grids, so this dialog runs wide; its body is a bounded flex column
+// so the inner grid / timeline body owns the only scrollbar, not the dialog.
+.topology-modal.topology-modal--large {
+	width: min(92vw, 1000px);
+	max-width: min(92vw, 1000px);
+}
+
+.topology-modal__body.topology-inspview {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	height: min(70vh, 560px);
+	padding: 12px 14px;
 }

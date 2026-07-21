@@ -1,50 +1,20 @@
-// Transcript view toggle (Text | Timeline) + the parsed DEBUG-trace table.
-// Imported by ReplFooter so the toggle is styled in both views. Reuses the
-// REPL theme tokens; no new palette. The toggle mirrors `__actions`
-// (sticky, floated, opaque buttons) so scrolling text occludes cleanly.
-
-.topology-repl {
-	&__view-toggle {
-		position: sticky;
-		top: 4px;
-		float: left;
-		display: flex;
-		gap: 4px;
-		margin: 0 0 0 -8px;
-		z-index: 1;
-	}
-
-	&__view-btn {
-		background: var(--repl-bg);
-		border: 1px solid color-mix(in srgb, var(--repl-fg) 25%, transparent);
-		color: color-mix(in srgb, var(--repl-fg) 55%, transparent);
-		height: 22px;
-		padding: 0 8px;
-		font: 700 9px var(--font-terminal);
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		line-height: 1;
-		cursor: pointer;
-		border-radius: 0;
-		transition: all 100ms ease;
-
-		&:hover {
-			border-color: var(--brass);
-			color: var(--brass);
-		}
-
-		&.is-active {
-			border-color: var(--brass);
-			color: var(--brass);
-			background: color-mix(in srgb, var(--brass) 14%, var(--repl-bg));
-		}
-	}
-}
+// The parsed DEBUG-trace table shown in the Inspector strip's Timeline modal.
+// A fixed header sits outside the one scrollable body (the row body owns the
+// only scrollbar), so the header/body columns stay aligned via a shared grid
+// template without sticky positioning. Console light-surface tokens (the modal
+// body is --paper-2, not the dark REPL pane it used to live in).
 
 .timeline-view {
 	font: 400 11px/1.5 var(--font-terminal);
+	// Fills the modal body's flex column so only the row body scrolls.
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	color: var(--ink);
 
 	&__filters {
+		flex: none;
 		display: flex;
 		gap: 6px;
 		justify-content: flex-end;
@@ -52,63 +22,89 @@
 	}
 
 	&__filter {
-		background: var(--repl-bg);
-		border: 1px solid color-mix(in srgb, var(--repl-fg) 25%, transparent);
-		color: var(--repl-fg);
-		-webkit-text-fill-color: var(--repl-fg);
+		background: var(--paper);
+		border: 1px solid var(--ink-3);
+		color: var(--ink);
+		-webkit-text-fill-color: var(--ink);
 		font: inherit;
 		padding: 2px 6px;
 		border-radius: 0;
 		outline: none;
 
 		&:focus {
-			border-color: var(--brass);
+			border-color: var(--oxide);
 			box-shadow: none;
 		}
 
 		&::placeholder {
-			color: color-mix(in srgb, var(--repl-fg) 35%, transparent);
+			color: var(--ink-4);
 		}
 	}
 
-	&__table {
-		width: 100%;
-		border-collapse: collapse;
-		table-layout: fixed;
+	// Header row and body rows share ONE grid template so their columns stay
+	// aligned without a table or sticky positioning.
+	&__grid {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
 
-		th {
-			text-align: left;
-			font: 700 9px var(--font-terminal);
-			letter-spacing: 0.14em;
-			text-transform: uppercase;
-			color: color-mix(in srgb, var(--repl-fg) 50%, transparent);
-			padding: 2px 8px 2px 0;
-			border-bottom: 1px solid
-				color-mix(in srgb, var(--repl-fg) 18%, transparent);
-		}
+	&__head,
+	&__row {
+		display: grid;
+		grid-template-columns:
+			64px minmax(90px, 1fr) minmax(70px, 1fr) minmax(0, 2fr);
+		gap: 0 8px;
+	}
 
-		td {
-			padding: 2px 8px 2px 0;
-			vertical-align: top;
-			overflow-wrap: anywhere;
-		}
+	&__head {
+		flex: none;
+		border-bottom: 1px solid var(--paper-shadow);
+		// Reserve the same gutter as the body so classic (non-overlay)
+		// scrollbars can't shear the shared grid columns out of alignment.
+		overflow-y: auto;
+		scrollbar-gutter: stable;
+	}
+
+	&__col {
+		font: 700 9px var(--font-terminal);
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--ink-3);
+		padding: 2px 0;
+	}
+
+	// The ONLY scroll area; the fixed header above keeps the scrollbar beside
+	// the rows, never spanning a dead non-scrolling strip.
+	&__body {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		scrollbar-gutter: stable;
+	}
+
+	&__cell {
+		padding: 2px 0;
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 
 	&__time {
 		white-space: nowrap;
-		color: color-mix(in srgb, var(--repl-fg) 60%, transparent);
+		color: var(--ink-3);
 	}
 
 	&__node {
-		color: var(--brass);
+		color: var(--oxide);
 	}
 
 	&__payload {
-		color: color-mix(in srgb, var(--repl-fg) 80%, transparent);
+		color: var(--ink-2);
 	}
 
 	&__empty {
 		margin: 12px 0 0;
-		color: color-mix(in srgb, var(--repl-fg) 50%, transparent);
+		color: var(--ink-3);
 	}
 }

@@ -23,8 +23,7 @@ const POLL_INTERVAL_MS = 10000;
 /**
  * Classify ONE log line by `Core.stderr`'s convention: a line carrying
  * `WARNING:` is a warning (wins over a co-occurring `ERROR:`), else `ERROR:` is
- * an error, else it's debug. The single classifier the counts AND the Logs tab's
- * per-line level chips both derive from.
+ * an error, else it's debug. The single classifier the level counts derive from.
  *
  * @param {string} line One log line.
  * @return {'warning'|'error'|'debug'} The line's level.
@@ -63,10 +62,9 @@ export class DmesgNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.dmesg = {};
-		this.registrations.lines = {};
 		// runtime_stats and other object replies publish to `reply`.
 		this.registrations.reply = {};
-		// Poll verb + args; Logs/Runtime tabs retarget these.
+		// Poll verb + args; mounting views (e.g. RuntimeView) retarget these.
 		this.verb = 'dmesg';
 		this.pollArgs = [];
 	}
@@ -83,7 +81,6 @@ export class DmesgNode extends TimerNode {
 			return;
 		}
 		const text = typeof payload === 'string' ? payload : '';
-		this.setState( 'lines', text );
 		this.setState( 'dmesg', countLevels( text ) );
 	}
 
@@ -116,7 +113,7 @@ export class DmesgNode extends TimerNode {
 		return {
 			category: 'Hidden',
 			description:
-				'Self-timed verb poller (default `dmesg`; configurable verb/args/target). Publishes level counts, the raw tail as `lines`, and an object payload as `reply`.',
+				'Self-timed verb poller (default `dmesg`; configurable verb/args/target). Publishes level counts, and an object payload as `reply`.',
 			accepts_fill: false,
 			arguments: [],
 			commands: [],

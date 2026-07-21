@@ -8,7 +8,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/serializeTsl';
 
-export function ModalShell( { title, onDismiss, children } ) {
+export function ModalShell( { title, onDismiss, wide = false, children } ) {
 	const ref = useRef( null );
 
 	useEffect( () => {
@@ -52,7 +52,9 @@ export function ModalShell( { title, onDismiss, children } ) {
 				} }
 			>
 				<div
-					className="topology-modal"
+					className={ `topology-modal${
+						wide ? ' topology-modal--large' : ''
+					}` }
 					ref={ ref }
 					role="dialog"
 					aria-modal="true"

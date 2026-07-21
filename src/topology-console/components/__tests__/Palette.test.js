@@ -484,3 +484,91 @@ describe( 'Palette — Topologies section is edit-only', () => {
 		expect( screen.getByText( 'Topologies' ) ).toBeTruthy();
 	} );
 } );
+
+describe( 'Palette — search filters the Topologies section', () => {
+	const classes = [ { shell_name: 'Echo', category: 'Generic' } ];
+	// Names distinct from every other fixture here, so an unfiltered
+	// topologies list (the bug) fails this loudly instead of coinciding.
+	const topologies = [
+		{ name: 'aggregator', includes: [] },
+		{ name: 'flame-builder', includes: [] },
+		{ name: 'gyroscope', includes: [] },
+	];
+
+	const renderEditPalette = () =>
+		render(
+			<Palette
+				classes={ classes }
+				topologies={ topologies }
+				editMode
+				currentTopology="something-else"
+				declaredIncludes={ [] }
+				onDropTopology={ jest.fn() }
+			/>
+		);
+
+	it( 'narrows the topology tiles by name, case-insensitively', () => {
+		const { container } = renderEditPalette();
+		fireEvent.change(
+			container.querySelector( '.topology-palette__search' ),
+			{ target: { value: 'AGGRE' } }
+		);
+		expect(
+			screen.getByTestId( 'palette-topology-aggregator' )
+		).toBeTruthy();
+		expect(
+			screen.queryByTestId( 'palette-topology-flame-builder' )
+		).toBeNull();
+		expect(
+			screen.queryByTestId( 'palette-topology-gyroscope' )
+		).toBeNull();
+	} );
+
+	it( 'hides the Topologies header when no topology matches', () => {
+		const { container } = renderEditPalette();
+		fireEvent.change(
+			container.querySelector( '.topology-palette__search' ),
+			{ target: { value: 'zzz-no-such-topology' } }
+		);
+		expect( screen.queryByText( 'Topologies' ) ).toBeNull();
+	} );
+} );
+
+describe( 'Palette — search clear button', () => {
+	const classes = [
+		{ shell_name: 'Echo', category: 'Generic' },
+		{ shell_name: 'Tee', category: 'Generic' },
+		{ shell_name: 'Partition', category: 'Storage' },
+	];
+
+	const shellNames = ( container ) =>
+		Array.from(
+			container.querySelectorAll( '.topology-palette__item' )
+		).map( ( el ) => el.dataset.shellName );
+
+	it( 'shows no clear button while the query is empty', () => {
+		render( <Palette classes={ classes } loading={ false } /> );
+		expect(
+			screen.queryByRole( 'button', { name: /clear filter/i } )
+		).toBeNull();
+	} );
+
+	it( 'clears the query, restores the full list, and refocuses the input', () => {
+		const { container } = render(
+			<Palette classes={ classes } loading={ false } />
+		);
+		const input = container.querySelector( '.topology-palette__search' );
+		fireEvent.change( input, { target: { value: 'part' } } );
+		expect( shellNames( container ) ).toEqual( [ 'Partition' ] );
+
+		const clear = screen.getByRole( 'button', { name: /clear filter/i } );
+		fireEvent.click( clear );
+
+		expect( input.value ).toBe( '' );
+		expect( shellNames( container ) ).toHaveLength( 3 );
+		expect( document.activeElement ).toBe( input );
+		expect(
+			screen.queryByRole( 'button', { name: /clear filter/i } )
+		).toBeNull();
+	} );
+} );

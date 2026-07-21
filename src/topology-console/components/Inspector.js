@@ -5,6 +5,7 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
+import InspectorViewModal from './InspectorViewModal';
 import { CtorField } from './CtorField';
 import IncludeTree from './IncludeTree';
 import HullPanel from './HullPanel';
@@ -1403,6 +1404,8 @@ export default function Inspector( {
 	const [ registerOpen, setRegisterOpen ] = useState( false );
 	// Whether the no-node message-composer (roadmap [46]) is open.
 	const [ composeOpen, setComposeOpen ] = useState( false );
+	// Which no-node modal view is open ('runtime' | 'timeline' | null).
+	const [ stripModal, setStripModal ] = useState( null );
 
 	// A hull gets its own panel; a node selection still wins over it.
 	if ( ! selectedId && selectedHull ) {
@@ -1491,6 +1494,28 @@ export default function Inspector( {
 					>
 						{ __( 'Compose', 'newspack-nodes' ) }
 					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setStripModal( 'runtime' ) }
+						title={ __(
+							'Current-scope timers + handles as live sortable grids',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Runtime', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setStripModal( 'timeline' ) }
+						title={ __(
+							'DEBUG traces from the transcript as a filterable timeline',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Timeline', 'newspack-nodes' ) }
+					</button>
 				</div>
 				{ composeOpen && (
 					<ComposeModal
@@ -1504,6 +1529,12 @@ export default function Inspector( {
 							}
 						} }
 						onCancel={ () => setComposeOpen( false ) }
+					/>
+				) }
+				{ stripModal && (
+					<InspectorViewModal
+						view={ stripModal }
+						onDismiss={ () => setStripModal( null ) }
 					/>
 				) }
 			</aside>
