@@ -1567,6 +1567,27 @@
 	grid-column: span 2;
 }
 
+// Group headers inside the no-node strip: span the 2-col grid and separate the
+// Views / Toggles / Commands clusters. Styled from the strip's mono treatment
+// (matches .topology-insp__levels). The leading header drops the rule + gap so
+// it doesn't double the container's own margin-top.
+.topology-insp__group-label {
+	grid-column: span 2;
+	margin-top: 12px;
+	padding-top: 10px;
+	border-top: 1px solid var(--ink-4);
+	font: 700 9px var(--font-mono);
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	color: var(--ink-3);
+
+	&:first-child {
+		margin-top: 0;
+		padding-top: 0;
+		border-top: 0;
+	}
+}
+
 // Compact button — the dense inspector action/verb grids. Native `.button`
 // base (wp-admin) + the terminal-mono compact form; states via the shared
 // color-role mixins (the console doesn't wp-reskin).

@@ -11,9 +11,10 @@ use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Port of Tachikoma Router profiling (Router.pm push_profile/pop_profile/
- * trim_profiles + CommandInterpreter.pm enable_profiling/list_profiles/
- * disable_profiling). Self-time accounting: a nested router dispatch
- * subtracts the child's elapsed from the parent's open frame.
+ * trim_profiles + CommandInterpreter.pm list_profiles). The enable/disable
+ * pair is collapsed into a single `profile [on|off]` verb (debug_state-
+ * precedent) — a deliberate divergence. Self-time accounting: a nested
+ * router dispatch subtracts the child's elapsed from the parent's open frame.
  */
 #[CoversClass( Router_Node::class )]
 #[CoversClass( Command_Interpreter_Node::class )]
@@ -138,25 +139,30 @@ class RouterProfilingTest extends TestCase {
 		$this->assertArrayHasKey( 'fresh', $profiles );
 	}
 
-	public function test_enable_profiling_verb_enables_once(): void {
+	public function test_profile_verb_bare_toggles_both_directions(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$interpreter = new Command_Interpreter_Node();
 
-		$this->assertSame( "profiling enabled\n", $interpreter->dispatch( 'enable_profiling' ) );
+		// Bare `profile` toggles: off -> on -> off (debug_state-precedent).
+		$this->assertSame( "profiling enabled\n", $interpreter->dispatch( 'profile' ) );
 		$this->assertSame( [], Router_Node::profiles() );
-		$this->assertSame( "profiling already enabled\n", $interpreter->dispatch( 'enable_profiling' ) );
+		$this->assertSame( "profiling disabled\n", $interpreter->dispatch( 'profile' ) );
+		$this->assertNull( Router_Node::profiles() );
 	}
 
-	public function test_disable_profiling_verb_disables_once(): void {
+	public function test_profile_on_off_are_idempotent_set(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$interpreter = new Command_Interpreter_Node();
 
-		$this->assertSame( "profiling already disabled\n", $interpreter->dispatch( 'disable_profiling' ) );
-		Router_Node::profiles( [] );
-		$this->assertSame( "profiling disabled\n", $interpreter->dispatch( 'disable_profiling' ) );
+		// Explicit set (the form scripts + UI use): idempotent, never races.
+		$this->assertSame( "profiling enabled\n", $interpreter->dispatch( 'profile', [ 'on' ] ) );
+		$this->assertSame( [], Router_Node::profiles() );
+		$this->assertSame( "profiling already enabled\n", $interpreter->dispatch( 'profile', [ 'on' ] ) );
+		$this->assertSame( "profiling disabled\n", $interpreter->dispatch( 'profile', [ 'off' ] ) );
 		$this->assertNull( Router_Node::profiles() );
+		$this->assertSame( "profiling already disabled\n", $interpreter->dispatch( 'profile', [ 'off' ] ) );
 	}
 
 	public function test_list_profiles_renders_ranked_table_with_total_row(): void {

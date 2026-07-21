@@ -6,16 +6,19 @@ describe( 'parseMetadata', () => {
 			nodes: [],
 			edges: [],
 			pwd: '',
+			profiling: false,
 		} );
 		expect( parseMetadata( '' ) ).toEqual( {
 			nodes: [],
 			edges: [],
 			pwd: '',
+			profiling: false,
 		} );
 		expect( parseMetadata( 'not-json' ) ).toEqual( {
 			nodes: [],
 			edges: [],
 			pwd: '',
+			profiling: false,
 		} );
 	} );
 
@@ -26,6 +29,17 @@ describe( 'parseMetadata', () => {
 		} );
 		expect( pwd ).toBe( '_repl/_output/_sse:346/_output' );
 		expect( nodes.map( ( n ) => n.id ) ).toEqual( [ 'alpha' ] );
+	} );
+
+	it( 'surfaces _header.profiling as the parsed `profiling` flag (Profiling-toggle truth)', () => {
+		expect(
+			parseMetadata( { _header: { pwd: '_output', profiling: true } } )
+				.profiling
+		).toBe( true );
+		// Absent / false reads as false — the strip toggle stays off.
+		expect(
+			parseMetadata( { _header: { pwd: '_output' } } ).profiling
+		).toBe( false );
 	} );
 
 	it( 'canonicalizes the pwd reply-node segment to _output (the tail target)', () => {

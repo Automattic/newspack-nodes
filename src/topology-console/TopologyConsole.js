@@ -325,6 +325,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Dumper verbosity dial (0/1/2); a ref so it's read without re-binding.
 	const debugLevelRef = useRef( 0 );
+	// Reactive mirror of the dial so the Inspector's Verbose toggle reads it.
+	const [ debugLevel, setDebugLevel ] = useState( 0 );
 
 	// "reset graph" stashes the cwd so the shell sync can restore it.
 	const cwdRestoreRef = useRef( null );
@@ -759,6 +761,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				append: appendTranscript,
 				clear: clearTranscript,
 				debugLevelRef,
+				// Reactive mirror for the Inspector's Verbose toggle.
+				onDebugLevel: setDebugLevel,
 				setSkin: applySkin,
 				skins: THEMES,
 				// Read fresh so list_skins marks the live skin.
@@ -1682,6 +1686,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					onRemoveEdge: handleRemoveEdge,
 					onDropNode: handleDropNode,
 					onInspectorAction: handleInspectorAction,
+					// Live Dumper verbosity — the Verbose toggle reads it.
+					debugLevel,
 					composeTargets,
 					onRenameNode: handleRenameNode,
 					onUpdateArgs: handleUpdateArgs,

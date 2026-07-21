@@ -20,7 +20,7 @@ const EMPTY_TRANSCRIPT = [];
 // The strip's view keys → modal title. The key also picks the body below.
 const VIEW_TITLES = {
 	runtime: __( 'Runtime', 'newspack-nodes' ),
-	stats: __( 'Hot Nodes', 'newspack-nodes' ),
+	stats: __( 'Profiler', 'newspack-nodes' ),
 	timeline: __( 'Event Timeline', 'newspack-nodes' ),
 };
 

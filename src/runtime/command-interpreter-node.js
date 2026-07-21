@@ -71,11 +71,10 @@ const HELP = {
 		'list_handles\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n',
 	runtime_stats:
 		'runtime_stats\n    note: list_timers + list_handles rows plus the Router profile table as one { timers, handles, profiles, profiles_total } struct for the Runtime/Stats views (profiles null while profiling is off).\n',
-	enable_profiling:
-		'enable_profiling\n    note: _router starts timing each dispatch (per-node self time).\n',
+	profile:
+		'profile [ on | off ]\n    no args: toggle _router dispatch profiling (per-node self time).\n    on|off:  idempotent set — the form scripts and UI use, since a known desired state never races a stale toggle.\n    note: while on, _router times each dispatch; read the table with list_profiles.\n',
 	list_profiles:
 		'list_profiles [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n',
-	disable_profiling: 'disable_profiling\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
 	dump_config:
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
@@ -324,12 +323,10 @@ export class CommandInterpreterNode extends Node {
 			list_timers: () => CommandInterpreterNode._cmdListTimers(),
 			list_handles: () => CommandInterpreterNode._cmdListHandles(),
 			runtime_stats: () => CommandInterpreterNode._cmdRuntimeStats(),
-			enable_profiling: () =>
-				CommandInterpreterNode._cmdEnableProfiling(),
+			profile: ( self, args ) =>
+				CommandInterpreterNode._cmdProfile( args[ 0 ] ?? '' ),
 			list_profiles: ( self, args ) =>
 				CommandInterpreterNode._cmdListProfiles( args[ 0 ] ?? '' ),
-			disable_profiling: () =>
-				CommandInterpreterNode._cmdDisableProfiling(),
 			log: ( self, args ) => {
 				self.stderr( args.join( ' ' ) );
 				return '';
@@ -1242,28 +1239,39 @@ export class CommandInterpreterNode extends Node {
 		return rows;
 	}
 
-	// enable_profiling — _router starts self-timing every dispatch.
-	static _cmdEnableProfiling() {
+	/**
+	 * profile [on|off] — toggle or set _router dispatch profiling.
+	 *
+	 * Bare `profile` toggles (Tachikoma's `debug_state`-precedent); explicit
+	 * `on`/`off` is an idempotent set the form scripts + UI use, so a caller
+	 * that knows its desired state never races a stale toggle. A deliberate
+	 * single-verb divergence from Tachikoma's enable/disable pair.
+	 *
+	 * @param {string} arg '' (toggle), 'on', or 'off'.
+	 * @return {string} The reply line.
+	 */
+	static _cmdProfile( arg ) {
 		if ( null === Core.node( '_router' ) ) {
 			throw new Error( "can't find _router" );
 		}
-		if ( null !== RouterNode.profiles() ) {
-			return 'profiling already enabled\n';
+		const on = null !== RouterNode.profiles();
+		let want;
+		if ( '' === arg ) {
+			want = ! on;
+		} else if ( 'on' === arg ) {
+			want = true;
+		} else if ( 'off' === arg ) {
+			want = false;
+		} else {
+			return 'usage: profile [ on | off ]\n';
 		}
-		RouterNode.profiles( {} );
-		return 'profiling enabled\n';
-	}
-
-	// disable_profiling — stop timing and drop the table.
-	static _cmdDisableProfiling() {
-		if ( null === Core.node( '_router' ) ) {
-			throw new Error( "can't find _router" );
+		if ( want === on ) {
+			return want
+				? 'profiling already enabled\n'
+				: 'profiling already disabled\n';
 		}
-		if ( null === RouterNode.profiles() ) {
-			return 'profiling already disabled\n';
-		}
-		RouterNode.profiles( null );
-		return 'profiling disabled\n';
+		RouterNode.profiles( want ? {} : null );
+		return want ? 'profiling enabled\n' : 'profiling disabled\n';
 	}
 
 	// list_profiles [glob] — per-node self-time, slowest avg first, --total--.

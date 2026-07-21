@@ -52,6 +52,21 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
+	it( 'exposes a reactive debugLevel that tracks debug_level dispatch (the Verbose toggle reads it)', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		// Seeds from localStorage (empty → 0).
+		expect( result.current.debugLevel ).toBe( 0 );
+		// An explicit set to 2 (the Verbose toggle's command) is observable.
+		act( () => result.current.sendLine( 'debug_level 2' ) );
+		expect( result.current.debugLevel ).toBe( 2 );
+		act( () => result.current.sendLine( 'debug_level 0' ) );
+		expect( result.current.debugLevel ).toBe( 0 );
+		teardown();
+	} );
+
 	it( 'persists debug_state and transcript as they change [87]', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();

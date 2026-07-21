@@ -1,7 +1,7 @@
 /**
  * Port of Tachikoma Router profiling (see PHP RouterProfilingTest — the twins
  * must agree): push/pop self-time frames with parent subtraction, TTL trim,
- * and the enable_profiling / list_profiles / disable_profiling verbs.
+ * and the profile [on|off] / list_profiles verbs.
  */
 import { RouterNode } from '../router-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
@@ -141,19 +141,32 @@ test( 'a throwing fill still pops its frame and records elapsed', () => {
 	expect( calm.captured ).toHaveLength( 1 );
 } );
 
-test( 'enable_profiling / disable_profiling verbs toggle once each', () => {
+test( 'bare profile verb toggles both directions', () => {
 	const r = new RouterNode();
 	r.name = '_router';
 	const ci = new CommandInterpreterNode();
 
-	expect( ci.dispatch( 'enable_profiling' ) ).toBe( 'profiling enabled\n' );
+	expect( ci.dispatch( 'profile' ) ).toBe( 'profiling enabled\n' );
 	expect( RouterNode.profiles() ).toEqual( {} );
-	expect( ci.dispatch( 'enable_profiling' ) ).toBe(
+	expect( ci.dispatch( 'profile' ) ).toBe( 'profiling disabled\n' );
+	expect( RouterNode.profiles() ).toBeNull();
+} );
+
+test( 'profile on/off is an idempotent set with already-replies', () => {
+	const r = new RouterNode();
+	r.name = '_router';
+	const ci = new CommandInterpreterNode();
+
+	expect( ci.dispatch( 'profile', [ 'on' ] ) ).toBe( 'profiling enabled\n' );
+	expect( RouterNode.profiles() ).toEqual( {} );
+	expect( ci.dispatch( 'profile', [ 'on' ] ) ).toBe(
 		'profiling already enabled\n'
 	);
-	expect( ci.dispatch( 'disable_profiling' ) ).toBe( 'profiling disabled\n' );
+	expect( ci.dispatch( 'profile', [ 'off' ] ) ).toBe(
+		'profiling disabled\n'
+	);
 	expect( RouterNode.profiles() ).toBeNull();
-	expect( ci.dispatch( 'disable_profiling' ) ).toBe(
+	expect( ci.dispatch( 'profile', [ 'off' ] ) ).toBe(
 		'profiling already disabled\n'
 	);
 } );

@@ -1669,6 +1669,36 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( '_repl/_output/_sse:346/_output', $decoded['_header']['pwd'] );
 	}
 
+	public function test_dump_metadata_header_reports_profiling_enabled(): void {
+		// The console polls dump_metadata every tick; `_header.profiling` is the
+		// truth its Profiling toggle self-heals against (Router_Node::profiles()
+		// null-check). Enabled here so the assertion pins the non-default value.
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		Router_Node::profiles( [] );
+
+		$envelope                  = Message::new_message();
+		$envelope[ Message::FROM ] = '_repl/_output/_sse:346/_output';
+		$decoded                   = $interpreter->dispatch( 'dump_metadata', [], $envelope );
+
+		$this->assertTrue( $decoded['_header']['profiling'] );
+		Router_Node::profiles( null );
+	}
+
+	public function test_dump_metadata_header_reports_profiling_disabled(): void {
+		Router_Node::profiles( null );
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata', [], Message::new_message() );
+
+		$this->assertFalse( $decoded['_header']['profiling'] );
+	}
+
 	public function test_dump_metadata_single_node_refresh_omits_the_header(): void {
 		// A single-node refresh is a delta, not a full snapshot — no header.
 		$interpreter = new Command_Interpreter_Node();

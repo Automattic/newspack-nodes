@@ -50,6 +50,7 @@ import '../styles/graph-view.scss';
  * @param {Function}         props.onInspectorToggle   () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
  * @param {boolean}          props.local               When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
  * @param {Set<string>|null} props.driftIds            Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
+ * @param {number}           [props.debugLevel]        Live Dumper verbosity dial (0/1/2); the Inspector's no-node Verbose toggle reads it. Default 0.
  * @param {Array}            [props.composeTargets]    The Compose modal's full "To" list (derived from `parsed.nodes`: `_command_interpreter` + every node id + its `:config` sidecar); Inspector falls back to its own node-id list when omitted.
  * @param {Array}            [props.hulls]             One soft hull per directly-declared include: `{ include, nodeIds }[]`, forwarded to SchematicCanvas.
  * @param {Array}            [props.topologies]        `topologies list` entries (each carries `includes`); forwarded to the Palette's "Topologies" drag section.
@@ -96,6 +97,7 @@ export default function GraphView( {
 	onInspectorToggle,
 	driftIds = null,
 	local = false,
+	debugLevel = 0,
 	composeTargets,
 	hulls = [],
 	topologies = [],
@@ -323,6 +325,7 @@ export default function GraphView( {
 							rateSeries={ rateSeries }
 							hullRateSeries={ hullRateSeries }
 							local={ local }
+							debugLevel={ debugLevel }
 							onAction={ onInspectorAction }
 							onSelect={ handleSelectNode }
 							onHover={ setHoveredId }

@@ -7,6 +7,7 @@
 
 import { Core } from './core';
 import { TimerNode } from './timer-node';
+import { RouterNode } from './router-node';
 import reservedNames from './reserved-node-names.json';
 import {
 	newMessage,
@@ -59,9 +60,12 @@ export function dumpMetadataPayload( only = '' ) {
 			out[ name ].registrations = registrations;
 		}
 	}
-	// Reserved header with THIS session's reverse_cwd — FULL snapshot only.
+	// FULL-snapshot header: reverse_cwd + router profiling-toggle truth.
 	if ( '' === only ) {
-		out._header = { pwd: reservedNames.OUTPUT };
+		out._header = {
+			pwd: reservedNames.OUTPUT,
+			profiling: null !== RouterNode.profiles(),
+		};
 	}
 	return out;
 }
@@ -105,18 +109,19 @@ export function parseMetadata( payload ) {
 		try {
 			raw = JSON.parse( payload );
 		} catch ( e ) {
-			return { nodes: [], edges: [], pwd: '' };
+			return { nodes: [], edges: [], pwd: '', profiling: false };
 		}
 	} else {
-		return { nodes: [], edges: [], pwd: '' };
+		return { nodes: [], edges: [], pwd: '', profiling: false };
 	}
 
-	// `_header` is the reserved key: `pwd` = THIS session's reply path.
+	// `_header` reserved key: `pwd` = reply path, `profiling` = router state.
 	const rawPwd =
 		raw._header && typeof raw._header.pwd === 'string'
 			? raw._header.pwd
 			: '';
 	const pwd = canonicalReverseCwd( rawPwd );
+	const profiling = raw._header?.profiling === true;
 
 	const nodes = [];
 	const edges = [];
@@ -214,7 +219,7 @@ export function parseMetadata( payload ) {
 			}
 		}
 	}
-	return { nodes, edges, pwd };
+	return { nodes, edges, pwd, profiling };
 }
 
 /**

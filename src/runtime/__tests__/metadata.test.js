@@ -1,10 +1,14 @@
 import { Core } from '../core';
 import { Node } from '../node';
 import { TeeNode } from '../tee-node';
+import { RouterNode } from '../router-node';
 import { dumpMetadataPayload } from '../metadata-node';
 
 describe( 'dumpMetadataPayload', () => {
-	beforeEach( () => Core.reset() );
+	beforeEach( () => {
+		Core.reset();
+		RouterNode.profiles( null );
+	} );
 
 	it( 'reports the SHELL name (strips the _Node suffix), matching the worker tier', () => {
 		// Worker emits shell names (Tee); the in-browser tier must match them.
@@ -42,11 +46,21 @@ describe( 'dumpMetadataPayload', () => {
 		expect( payload.b ).toBeUndefined();
 	} );
 
-	it( 'stamps the local reply path (_output) into the _header section', () => {
+	it( 'stamps the local reply path (_output) + profiling state into the _header section', () => {
 		const a = new Node();
 		a.name = 'a';
 		const payload = dumpMetadataPayload();
-		// In-browser reply path is the bare Dumper _output.
-		expect( payload._header ).toEqual( { pwd: '_output' } );
+		// In-browser reply path is the bare Dumper _output; profiling off default.
+		expect( payload._header ).toEqual( {
+			pwd: '_output',
+			profiling: false,
+		} );
+	} );
+
+	it( 'reports profiling: true in the _header when the router is profiling', () => {
+		const a = new Node();
+		a.name = 'a';
+		RouterNode.profiles( {} );
+		expect( dumpMetadataPayload()._header.profiling ).toBe( true );
 	} );
 } );
