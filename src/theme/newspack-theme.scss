@@ -17,6 +17,8 @@
  * their own root rule using these tokens.
  */
 
+@use "@newspack-nodes/shared/styles/focus";
+
 .newspack-nodes-theme {
 	/* Primary — Cobalt */
 	--np-primary: #003da5;

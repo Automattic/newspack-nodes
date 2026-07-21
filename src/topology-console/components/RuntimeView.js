@@ -44,9 +44,12 @@ const HANDLE_COLS = [
 ];
 
 /**
+ * @param {Object}   props
+ * @param {Function} [props.onAction] Console action dispatcher; the Trace toggle
+ *                                    fires the all-nodes `trace` action through it.
  * @return {import('react').ReactElement} The Runtime modal view.
  */
-export default function RuntimeView() {
+export default function RuntimeView( { onAction } = {} ) {
 	const [ timerSort, onTimerSort ] = useSortState( 'name' );
 	const [ handleSort, onHandleSort ] = useSortState( 'name' );
 	// Bumped after mount so useNodeState rebinds to the freshly-created poller.
@@ -79,6 +82,22 @@ export default function RuntimeView() {
 	const data = useNodeState( POLLER, 'reply' );
 	const timers = data?.timers ?? [];
 	const handles = data?.handles ?? [];
+
+	// All-nodes Trace toggle; server truth = ANY node traced (metadata poll).
+	const metadata = useNodeState( names.METADATA, 'metadata' );
+	const serverTraceOn = ( metadata?.nodes ?? [] ).some(
+		( n ) => n.debugState > 0
+	);
+	// Optimistic override; each metadata poll reconciles it (server wins).
+	const [ traceOptimistic, setTraceOptimistic ] = useState( null );
+	useEffect( () => setTraceOptimistic( null ), [ metadata ] );
+	const traceOn = null !== traceOptimistic ? traceOptimistic : serverTraceOn;
+	const toggleTrace = () => {
+		setTraceOptimistic( ! traceOn );
+		if ( onAction ) {
+			onAction( 'trace', '*', traceOn ? 0 : 1 );
+		}
+	};
 
 	// Spinner: fires climbing vs the prior poll; the ref guards StrictMode.
 	const lastDataRef = useRef( null );
@@ -115,6 +134,30 @@ export default function RuntimeView() {
 
 	return (
 		<div className="nodes-runtime" data-testid="runtime-view">
+			<div className="nodes-runtime__toolbar">
+				<button
+					type="button"
+					className={ `button is-compact${
+						traceOn ? ' is-active' : ''
+					}` }
+					onClick={ toggleTrace }
+					title={
+						traceOn
+							? __(
+									'Stop tracing every node — `debug_state * 0`',
+									'newspack-nodes'
+							  )
+							: __(
+									'Trace every node — `debug_state * 1`',
+									'newspack-nodes'
+							  )
+					}
+				>
+					{ traceOn
+						? __( 'stop trace', 'newspack-nodes' )
+						: __( 'trace', 'newspack-nodes' ) }
+				</button>
+			</div>
 			<div className="nodes-runtime__section">
 				<h3 className="nodes-runtime__title">
 					{ __( 'Timers', 'newspack-nodes' ) }

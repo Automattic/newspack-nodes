@@ -1,0 +1,89 @@
+/**
+ * Overview-tab styles, co-located with OverviewTab.js. The tab borrows the
+ * hub's card/panel sheets for its base look; everything HERE is overlay-only
+ * and scoped under the panel so none of it bleeds into the hub dashboard's
+ * identical class names when both load on one page.
+ */
+
+.nodes-debug__panel {
+	// The classified-message list, below the rate charts. Level is a left
+	// border tint (+ red text for errors); debug lines are dimmed.
+	.nodes-overview__messages {
+		margin: 18px 0 4px;
+
+		// Match the stat-card labels: small uppercase muted heading rather
+		// than the browser-default serif h3 (reads unthemed in the overlay).
+		h3 {
+			margin: 0 0 8px;
+			font-size: 10px;
+			font-weight: 600;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			color: var(--ink-3);
+		}
+
+		ul {
+			margin: 0;
+			padding: 0;
+			list-style: none;
+			max-height: 320px;
+			overflow-y: auto;
+			font-family: monospace;
+			font-size: 12px;
+			line-height: 1.5;
+		}
+
+		.nodes-overview__msg {
+			padding: 2px 8px;
+			border-left: 3px solid transparent;
+			white-space: pre-wrap;
+			word-break: break-word;
+
+			&--debug {
+				opacity: 0.7;
+			}
+
+			&--warning {
+				border-left-color: var(--brass, #dba617);
+			}
+
+			&--error {
+				border-left-color: var(--oxide, #d63638);
+				color: var(--oxide, #d63638);
+			}
+
+			&-age {
+				margin-left: 0.75em;
+				opacity: 0.6;
+				white-space: nowrap;
+			}
+		}
+	}
+
+	.nodes-overview {
+		.nodes-card--byte-rate,
+		.nodes-card--total-bytes,
+		.nodes-card--message-rate,
+		.nodes-card--total-messages {
+			flex: 0 0 232px;
+		}
+
+		// "Reset stats" button, right-aligned below the charts.
+		&__toolbar {
+			display: flex;
+			justify-content: flex-end;
+			margin-bottom: 8px;
+		}
+	}
+
+	// In/out (↓/↑) card numbers: fixed-width right-aligned cells so the
+	// arrows hold position as the digit count changes instead of bouncing.
+	.nodes-card__io {
+		display: inline-block;
+		min-width: 99px;
+		max-width: 99px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-align: right;
+	}
+}

@@ -154,40 +154,34 @@ export default function Palette( {
 			onDrop( { shellName: name, x: local.x, y: local.y } );
 		}
 	};
-	// Collapsed: a slim rail with just the expand button (no reload needed).
+	// One toggle box for both states; glyph + labels flip on `collapsed`.
+	const toggle = onToggle && (
+		<button
+			type="button"
+			className="topology-palette__toggle"
+			onClick={ onToggle }
+			aria-label={ collapsed ? 'Expand palette' : 'Collapse palette' }
+			title={ collapsed ? 'Expand palette' : 'Collapse palette' }
+		>
+			{ collapsed ? '›' : '‹' }
+		</button>
+	);
+	// Collapsed: dock is a slim rail with only the expand chevron, no aside.
 	if ( collapsed ) {
 		return (
-			<aside className="topology-palette topology-palette--collapsed">
-				{ onToggle && (
-					<button
-						type="button"
-						className="topology-palette__toggle topology-palette__toggle--collapsed"
-						onClick={ onToggle }
-						aria-label="Expand palette"
-						title="Expand palette"
-					>
-						{ '›' }
-					</button>
-				) }
-			</aside>
+			<div className="topology-palette-dock topology-palette-dock--collapsed">
+				{ toggle }
+			</div>
 		);
 	}
 	if ( loading && ! classes.length ) {
 		return (
-			<aside className="topology-palette">
-				{ onToggle && (
-					<button
-						type="button"
-						className="topology-palette__toggle"
-						onClick={ onToggle }
-						aria-label="Collapse palette"
-						title="Collapse palette"
-					>
-						{ '‹' }
-					</button>
-				) }
-				<div className="topology-palette__footer">Loading…</div>
-			</aside>
+			<div className="topology-palette-dock">
+				{ toggle }
+				<aside className="topology-palette">
+					<div className="topology-palette__footer">Loading…</div>
+				</aside>
+			</div>
 		);
 	}
 	const draggable = classes.filter(
@@ -211,184 +205,182 @@ export default function Palette( {
 	const byName = new Map( topologies.map( ( t ) => [ t.name, t ] ) );
 
 	return (
-		<aside className="topology-palette">
-			{ onToggle && (
-				<button
-					type="button"
-					className="topology-palette__toggle"
-					onClick={ onToggle }
-					aria-label="Collapse palette"
-					title="Collapse palette"
-				>
-					{ '‹' }
-				</button>
-			) }
-			<div className="topology-palette__search-wrap">
-				<input
-					ref={ searchRef }
-					type="search"
-					className="topology-palette__search"
-					value={ query }
-					onChange={ ( e ) => setQuery( e.target.value ) }
-					placeholder="Filter nodes…"
-					aria-label="Filter node classes"
-				/>
-				{ query.length > 0 && (
-					<button
-						type="button"
-						className="topology-palette__search-clear"
-						onClick={ clearQuery }
-						aria-label="Clear filter"
-						title="Clear filter"
-					>
-						×
-					</button>
-				) }
-			</div>
-			{ editMode && shownTopologies.length > 0 && (
-				<div>
-					<h3 className="topology-palette__group">Topologies</h3>
-					{ shownTopologies.map( ( t ) => {
-						const disabled =
-							t.name === currentTopology ||
-							declaredIncludes.includes( t.name ) ||
-							includeClosure( t.name, byName ).has(
-								currentTopology
+		<div className="topology-palette-dock">
+			{ toggle }
+			<aside className="topology-palette">
+				<div className="topology-palette__search-wrap">
+					<input
+						ref={ searchRef }
+						type="search"
+						className="topology-palette__search"
+						value={ query }
+						onChange={ ( e ) => setQuery( e.target.value ) }
+						placeholder="Filter nodes…"
+						aria-label="Filter node classes"
+					/>
+					{ query.length > 0 && (
+						<button
+							type="button"
+							className="topology-palette__search-clear"
+							onClick={ clearQuery }
+							aria-label="Clear filter"
+							title="Clear filter"
+						>
+							×
+						</button>
+					) }
+				</div>
+				{ editMode && shownTopologies.length > 0 && (
+					<div>
+						<h3 className="topology-palette__group">Topologies</h3>
+						{ shownTopologies.map( ( t ) => {
+							const disabled =
+								t.name === currentTopology ||
+								declaredIncludes.includes( t.name ) ||
+								includeClosure( t.name, byName ).has(
+									currentTopology
+								);
+							return (
+								<div
+									key={ t.name }
+									data-testid={ `palette-topology-${ t.name }` }
+									className={ `topology-palette__item topology-palette__item--topology${
+										disabled ? ' is-disabled' : ''
+									}` }
+									title={
+										disabled
+											? 'Would form a cycle, or is already included'
+											: `include ${ t.name }`
+									}
+									onPointerDown={ ( e ) =>
+										disabled
+											? undefined
+											: onTopologyPointerDown( e, t )
+									}
+									onPointerMove={ onItemPointerMove }
+									onPointerUp={ onItemPointerUp }
+									onPointerCancel={ onItemPointerCancel }
+								>
+									<div className="topology-palette__hull-glyph" />
+									<div className="topology-palette__name">
+										{ t.name }
+									</div>
+								</div>
 							);
-						return (
+						} ) }
+					</div>
+				) }
+				{ Object.entries( grouped ).map( ( [ group, items ] ) => (
+					<div key={ group }>
+						<h3 className="topology-palette__group">{ group }</h3>
+						{ items.map( ( c ) => (
 							<div
-								key={ t.name }
-								data-testid={ `palette-topology-${ t.name }` }
-								className={ `topology-palette__item topology-palette__item--topology${
-									disabled ? ' is-disabled' : ''
-								}` }
-								title={
-									disabled
-										? 'Would form a cycle, or is already included'
-										: `include ${ t.name }`
-								}
+								key={ c.shell_name }
+								className={ `topology-palette__item topology-palette__item--${ c.shell_name.toLowerCase() }` }
+								data-shell-name={ c.shell_name }
+								title={ c.description || '' }
 								onPointerDown={ ( e ) =>
-									disabled
-										? undefined
-										: onTopologyPointerDown( e, t )
+									onItemPointerDown( e, c )
 								}
 								onPointerMove={ onItemPointerMove }
 								onPointerUp={ onItemPointerUp }
 								onPointerCancel={ onItemPointerCancel }
 							>
-								<div className="topology-palette__hull-glyph" />
+								<div
+									className={ glyphClass(
+										acceptsFillOf( c ),
+										hasTargetOf( c )
+									) }
+								/>
 								<div className="topology-palette__name">
-									{ t.name }
+									{ c.shell_name }
 								</div>
 							</div>
-						);
-					} ) }
+						) ) }
+					</div>
+				) ) }
+				<div className="topology-palette__footer">
+					<span className="topology-palette__count">{ total }</span>{ ' ' }
+					classes registered
 				</div>
-			) }
-			{ Object.entries( grouped ).map( ( [ group, items ] ) => (
-				<div key={ group }>
-					<h3 className="topology-palette__group">{ group }</h3>
-					{ items.map( ( c ) => (
-						<div
-							key={ c.shell_name }
-							className={ `topology-palette__item topology-palette__item--${ c.shell_name.toLowerCase() }` }
-							data-shell-name={ c.shell_name }
-							title={ c.description || '' }
-							onPointerDown={ ( e ) => onItemPointerDown( e, c ) }
-							onPointerMove={ onItemPointerMove }
-							onPointerUp={ onItemPointerUp }
-							onPointerCancel={ onItemPointerCancel }
-						>
-							<div
-								className={ glyphClass(
-									acceptsFillOf( c ),
-									hasTargetOf( c )
-								) }
+				{ ghost && ghost.kind === 'topology' && (
+					// Ghost = a rounded translucent hull blob, not a node card.
+					<div
+						className="topology-palette__drag-ghost topology-palette__drag-ghost--topology"
+						style={ { left: ghost.x, top: ghost.y } }
+					>
+						{ ghost.name }
+					</div>
+				) }
+				{ ghost && ghost.kind !== 'topology' && (
+					// Ghost = dropped node card; pointer-events:none, no hits.
+					<svg
+						className="topology-palette__drag-ghost"
+						style={ { left: ghost.x, top: ghost.y } }
+						width={ NODE_W + 2 * PORT_R }
+						height={ NODE_H + 6 }
+						viewBox={ `${ -PORT_R } 0 ${ NODE_W + 2 * PORT_R } ${
+							NODE_H + 6
+						}` }
+					>
+						<g className="topology-node">
+							<rect
+								className="topology-node__shadow"
+								x={ 3 }
+								y={ 3 }
+								width={ NODE_W }
+								height={ NODE_H }
 							/>
-							<div className="topology-palette__name">
-								{ c.shell_name }
-							</div>
-						</div>
-					) ) }
-				</div>
-			) ) }
-			<div className="topology-palette__footer">
-				<span className="topology-palette__count">{ total }</span>{ ' ' }
-				classes registered
-			</div>
-			{ ghost && ghost.kind === 'topology' && (
-				// Ghost = a rounded translucent hull blob, not a node card.
-				<div
-					className="topology-palette__drag-ghost topology-palette__drag-ghost--topology"
-					style={ { left: ghost.x, top: ghost.y } }
-				>
-					{ ghost.name }
-				</div>
-			) }
-			{ ghost && ghost.kind !== 'topology' && (
-				// Ghost = dropped node card; pointer-events:none, no hits.
-				<svg
-					className="topology-palette__drag-ghost"
-					style={ { left: ghost.x, top: ghost.y } }
-					width={ NODE_W + 2 * PORT_R }
-					height={ NODE_H + 6 }
-					viewBox={ `${ -PORT_R } 0 ${ NODE_W + 2 * PORT_R } ${
-						NODE_H + 6
-					}` }
-				>
-					<g className="topology-node">
-						<rect
-							className="topology-node__shadow"
-							x={ 3 }
-							y={ 3 }
-							width={ NODE_W }
-							height={ NODE_H }
-						/>
-						<rect
-							className="topology-node__bg"
-							width={ NODE_W }
-							height={ NODE_H }
-						/>
-						<rect
-							className="topology-node__header"
-							width={ NODE_W }
-							height={ 22 }
-						/>
-						<line
-							className="topology-node__divider"
-							x1={ 0 }
-							y1={ 22 }
-							x2={ NODE_W }
-							y2={ 22 }
-						/>
-						<text className="topology-node__type" x={ 11 } y={ 15 }>
-							{ ghost.shellName }
-						</text>
-						<circle
-							className="topology-node__led"
-							cx={ NODE_W - 12 }
-							cy={ 13 }
-							r={ 3.5 }
-						/>
-						{ ghost.acceptsFill && (
+							<rect
+								className="topology-node__bg"
+								width={ NODE_W }
+								height={ NODE_H }
+							/>
+							<rect
+								className="topology-node__header"
+								width={ NODE_W }
+								height={ 22 }
+							/>
+							<line
+								className="topology-node__divider"
+								x1={ 0 }
+								y1={ 22 }
+								x2={ NODE_W }
+								y2={ 22 }
+							/>
+							<text
+								className="topology-node__type"
+								x={ 11 }
+								y={ 15 }
+							>
+								{ ghost.shellName }
+							</text>
 							<circle
-								className="topology-port topology-port--in"
-								cx={ 0 }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
+								className="topology-node__led"
+								cx={ NODE_W - 12 }
+								cy={ 13 }
+								r={ 3.5 }
 							/>
-						) }
-						{ ghost.hasTarget && (
-							<circle
-								className="topology-port topology-port--out"
-								cx={ NODE_W }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
-							/>
-						) }
-					</g>
-				</svg>
-			) }
-		</aside>
+							{ ghost.acceptsFill && (
+								<circle
+									className="topology-port topology-port--in"
+									cx={ 0 }
+									cy={ NODE_H / 2 }
+									r={ PORT_R }
+								/>
+							) }
+							{ ghost.hasTarget && (
+								<circle
+									className="topology-port topology-port--out"
+									cx={ NODE_W }
+									cy={ NODE_H / 2 }
+									r={ PORT_R }
+								/>
+							) }
+						</g>
+					</svg>
+				) }
+			</aside>
+		</div>
 	);
 }

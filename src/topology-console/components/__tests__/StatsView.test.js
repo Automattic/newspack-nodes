@@ -97,7 +97,7 @@ test( 'shows "Enable profiling" (no profile columns) when off, and enabling turn
 	expect( RouterNode.profiles() ).not.toBeNull();
 } );
 
-test( 'joins AVG / TIME / COUNT by node name and renders a distinct total row when profiling is on', () => {
+test( 'joins AVG / TIME / COUNT by node name and pins a tfoot total row when profiling is on', () => {
 	seedMetadata( [
 		{
 			id: 'alpha',
@@ -118,13 +118,70 @@ test( 'joins AVG / TIME / COUNT by node name and renders a distinct total row wh
 	const row = grid.querySelector( 'tbody tr[data-name="alpha"]' );
 	expect( row.textContent ).toContain( '12' ); // baseline counter preserved
 	expect( row.textContent ).toContain( '0.001234' ); // joined profile avg
-	// Total sits OUTSIDE the sortable grid body, rendered distinctly.
+	// The total is a tfoot row: aligned with the columns, never in the sortable body.
 	expect(
 		grid.querySelector( 'tbody tr[data-name="--total--"]' )
 	).toBeNull();
-	const total = getByTestId( 'stats-total' );
-	expect( total.textContent ).toContain( '--total--' );
-	expect( total.textContent ).toContain( 'count 7' );
+	const foot = grid.querySelector( 'tfoot tr' );
+	expect( foot.textContent ).toContain( '--total--' );
+	expect( foot.textContent ).toContain( '7' ); // profiles_total.count
+} );
+
+test( 'the tfoot sums COUNTER/READ/WRITTEN, maxes LGST_MSG, and takes AVG/TIME/COUNT from profiles_total', () => {
+	seedMetadata( [
+		{
+			id: 'alpha',
+			count: 12,
+			lgstMsg: 4096,
+			bytesRead: 2048,
+			bytesWritten: 512,
+		},
+		{
+			id: 'bravo',
+			count: 30,
+			lgstMsg: 1000,
+			bytesRead: 100,
+			bytesWritten: 8,
+		},
+	] );
+	const { getByTestId } = render( <StatsView /> );
+	publish( {
+		profiles: [
+			{ name: 'alpha', avg: 0.001234, time: 0.37, count: 7 },
+			{ name: 'bravo', avg: 0.002, time: 0.63, count: 3 },
+		],
+		// The router aggregate — time here is DISTINCT from the visible-row sum
+		// (1.0), so this pins profiles_total.time, not a re-sum of the rows.
+		profiles_total: { avg: 0.005, time: 1.5, count: 10 },
+	} );
+	const foot = getByTestId( 'stats-grid' ).querySelector( 'tfoot tr' );
+	expect( foot.textContent ).toContain( '--total--' );
+	expect( foot.textContent ).toContain( '42' ); // COUNTER 12 + 30
+	expect( foot.textContent ).toContain( '2148' ); // READ 2048 + 100
+	expect( foot.textContent ).toContain( '520' ); // WRITTEN 512 + 8
+	expect( foot.textContent ).toContain( '4096' ); // LGST_MSG max( 4096, 1000 )
+	expect( foot.textContent ).toContain( '0.005000' ); // profiles_total.avg
+	expect( foot.textContent ).toContain( '1.50' ); // profiles_total.time
+	expect( foot.textContent ).toContain( '10' ); // profiles_total.count
+} );
+
+test( 'Enable flips the label to Disable optimistically at click, then reconciles to server truth', () => {
+	seedMetadata( [
+		{ id: 'alpha', count: 12, lgstMsg: 0, bytesRead: 0, bytesWritten: 0 },
+	] );
+	const { getByText, queryByText } = render( <StatsView /> );
+	publish( { profiles: null, profiles_total: null } ); // server: profiling off
+	// Silence the click's immediate re-poll so we observe the PURE optimistic
+	// flip; in the live app that re-poll is an async round-trip, not synchronous.
+	Core.node( POLLER ).fire = () => {};
+	fireEvent.click( getByText( 'Enable profiling' ) );
+	// Optimistic: the label swaps now, before any poll reply confirms it.
+	expect( getByText( 'Disable profiling' ) ).toBeTruthy();
+	expect( queryByText( 'Enable profiling' ) ).toBeNull();
+	// Server truth wins: a reply still reporting profiling off flips it back.
+	publish( { profiles: null, profiles_total: null } );
+	expect( getByText( 'Enable profiling' ) ).toBeTruthy();
+	expect( queryByText( 'Disable profiling' ) ).toBeNull();
 } );
 
 test( 'the "Disable profiling" button turns profiling off in the viewed scope', () => {

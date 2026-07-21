@@ -237,6 +237,30 @@ describe( 'Inspector (view mode)', () => {
 		expect( calls ).toContainEqual( [ 'command', null, 'list_handles' ] );
 	} );
 
+	it( 'exposes profiling verbs (list/enable/disable) as no-node inspector commands', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		fireEvent.click( getByText( 'profiles' ) );
+		expect( calls ).toContainEqual( [ 'command', null, 'list_profiles' ] );
+		fireEvent.click( getByText( 'profile on' ) );
+		expect( calls ).toContainEqual( [
+			'command',
+			null,
+			'enable_profiling',
+		] );
+		fireEvent.click( getByText( 'profile off' ) );
+		expect( calls ).toContainEqual( [
+			'command',
+			null,
+			'disable_profiling',
+		] );
+	} );
+
 	it( 'opens the wide Runtime modal from the no-node strip', () => {
 		Core.reset();
 		const { getByText } = render( <Inspector { ...baseProps } /> );
@@ -255,7 +279,7 @@ describe( 'Inspector (view mode)', () => {
 	it( 'opens the wide Stats (hot nodes) modal from the no-node strip', () => {
 		Core.reset();
 		const { getByText } = render( <Inspector { ...baseProps } /> );
-		fireEvent.click( getByText( 'Stats' ) );
+		fireEvent.click( getByText( 'Hot Nodes' ) );
 		const modal = document.body.querySelector( '.topology-modal' );
 		expect( modal.classList.contains( 'topology-modal--large' ) ).toBe(
 			true
@@ -287,12 +311,12 @@ describe( 'Inspector (view mode)', () => {
 		Core.reset();
 	} );
 
-	it( 'does NOT show the Runtime/Stats/Timeline strip modal buttons in edit mode', () => {
+	it( 'does NOT show the Runtime/Hot Nodes/Timeline strip modal buttons in edit mode', () => {
 		const { queryByText } = render(
 			<Inspector { ...baseProps } editMode={ true } />
 		);
 		expect( queryByText( 'Runtime' ) ).toBeNull();
-		expect( queryByText( 'Stats' ) ).toBeNull();
+		expect( queryByText( 'Hot Nodes' ) ).toBeNull();
 		expect( queryByText( 'Timeline' ) ).toBeNull();
 	} );
 

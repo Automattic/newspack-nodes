@@ -8,6 +8,7 @@
 // `.topology-app.newspack-nodes-theme` shell, so the shared rule reaches its
 // bare <select> — no bespoke refresh-select class needed).
 @use "@newspack-nodes/shared/styles/controls";
+@use "@newspack-nodes/shared/styles/focus";
 
 // =============================================================================
 // Design Tokens — Newspack (all-light chrome)

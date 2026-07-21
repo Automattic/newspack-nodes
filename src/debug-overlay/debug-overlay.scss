@@ -7,6 +7,8 @@
  * repl + inspector under the shared Header.
  */
 
+@use "@newspack-nodes/shared/styles/focus";
+
 // Floating action button — bottom-right, above WP admin chrome, dashboard
 // modals (@wordpress/components dialogs at ~100000), and the flame-graph
 // tooltip in newspack-event-logger-nodes (100001 !important). Six 9s leaves
@@ -89,17 +91,6 @@
 	.nodes-devtools__tabbar {
 		background: var(--paper-2);
 		border-bottom: 1px solid var(--paper-shadow);
-	}
-
-	// Soften the Console's side-panel inner dividers (palette → canvas, inspector
-	// → canvas) to the faint ink so they don't read as hard as the outer frame —
-	// theme-token based, so it tracks every skin.
-	.topology-palette {
-		border-right-color: var(--paper-shadow);
-	}
-
-	.topology-inspector-dock {
-		border-left-color: var(--paper-shadow);
 	}
 
 	// The InspectorTab's root wrapper. It now sits between the panel and
@@ -264,83 +255,3 @@
 	}
 }
 
-// The Overview tab's classified-message list, below the rate charts. Level is a
-// left border tint (+ red text for errors); debug lines are dimmed.
-.nodes-overview__messages {
-	margin: 18px 0 4px;
-
-	// Match the stat-card labels: small uppercase muted mono-ish heading rather
-	// than the browser-default serif h3 (which read as unthemed in the overlay).
-	h3 {
-		margin: 0 0 8px;
-		font-size: 10px;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--ink-3);
-	}
-
-	ul {
-		margin: 0;
-		padding: 0;
-		list-style: none;
-		max-height: 320px;
-		overflow-y: auto;
-		font-family: monospace;
-		font-size: 12px;
-		line-height: 1.5;
-	}
-
-	.nodes-overview__msg {
-		padding: 2px 8px;
-		border-left: 3px solid transparent;
-		white-space: pre-wrap;
-		word-break: break-word;
-
-		&--debug {
-			opacity: 0.7;
-		}
-
-		&--warning {
-			border-left-color: var(--brass, #dba617);
-		}
-
-		&--error {
-			border-left-color: var(--oxide, #d63638);
-			color: var(--oxide, #d63638);
-		}
-
-		&-age {
-			margin-left: 0.75em;
-			opacity: 0.6;
-			white-space: nowrap;
-		}
-	}
-}
-
-.nodes-overview {
-	.nodes-card--byte-rate,
-	.nodes-card--total-bytes,
-	.nodes-card--message-rate,
-	.nodes-card--total-messages {
-		flex: 0 0 232px;
-	}
-
-	// "Reset stats" button, right-aligned below the charts.
-	&__toolbar {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: 8px;
-	}
-}
-
-// In/out (↓/↑) card numbers: a fixed-width right-aligned cell each, so the
-// arrows hold position as the digit count changes instead of bouncing.
-.nodes-card__io {
-	display: inline-block;
-	min-width: 99px;
-	max-width: 99px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-align: right;
-}

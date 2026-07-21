@@ -90,10 +90,15 @@ export default function StatsView() {
 	// Profiling half: the runtime_stats reply this view's own poller publishes.
 	const data = useNodeState( POLLER, 'reply' );
 	const profiles = data?.profiles;
-	const profilingOn = Array.isArray( profiles );
+	const serverProfilingOn = Array.isArray( profiles );
+	// Optimistic override; each poll reply reconciles it (server truth wins).
+	const [ optimistic, setOptimistic ] = useState( null );
+	useEffect( () => setOptimistic( null ), [ data ] );
+	const profilingOn = null !== optimistic ? optimistic : serverProfilingOn;
 
 	// Send a scope command (enable/disable profiling) to _cwd, then re-poll.
 	const sendScopeCommand = ( verb ) => {
+		setOptimistic( 'enable_profiling' === verb );
 		const interpreter = interpreterRef.current;
 		if ( ! interpreter ) {
 			return;
@@ -142,7 +147,33 @@ export default function StatsView() {
 		[ profilingOn ]
 	);
 
+	// Pinned --total-- tfoot row: sums + LGST_MSG max + profile totals.
 	const total = data?.profiles_total;
+	const footer = useMemo( () => {
+		if ( 0 === rows.length ) {
+			return null;
+		}
+		const sum = ( key ) =>
+			rows.reduce( ( acc, r ) => acc + ( Number( r[ key ] ) || 0 ), 0 );
+		const max = ( key ) =>
+			rows.reduce(
+				( acc, r ) => Math.max( acc, Number( r[ key ] ) || 0 ),
+				0
+			);
+		const row = {
+			name: '--total--',
+			counter: sum( 'counter' ),
+			lgst_msg: max( 'lgst_msg' ),
+			read: sum( 'read' ),
+			written: sum( 'written' ),
+		};
+		if ( profilingOn && total ) {
+			row.avg = fmtAvg( total.avg );
+			row.time = fmtTime( total.time );
+			row.count = total.count;
+		}
+		return row;
+	}, [ rows, profilingOn, total ] );
 
 	return (
 		<div className="nodes-stats" data-testid="stats-view">
@@ -173,15 +204,8 @@ export default function StatsView() {
 				rows={ rows }
 				sort={ sort }
 				onSort={ onSort }
+				footer={ footer }
 			/>
-			{ profilingOn && total && (
-				<div className="nodes-stats__total" data-testid="stats-total">
-					<span className="nodes-stats__total-what">--total--</span>
-					<span>avg { fmtAvg( total.avg ) }</span>
-					<span>time { fmtTime( total.time ) }</span>
-					<span>count { total.count }</span>
-				</div>
-			) }
 		</div>
 	);
 }

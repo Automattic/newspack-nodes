@@ -1,3 +1,5 @@
+@use "@newspack-nodes/shared/styles/focus";
+
 .nodes-devtools__tabbar {
 	display: flex;
 	gap: 4px;
@@ -29,11 +31,6 @@
 			var(--nodes-devtools-fg, #fff) 88%,
 			transparent
 		);
-	}
-
-	&:focus-visible {
-		outline: 2px solid var(--cyan, #4493f8);
-		outline-offset: -2px;
 	}
 
 	&.is-active {

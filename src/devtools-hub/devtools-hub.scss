@@ -9,6 +9,7 @@
  */
 
 @use "@newspack-nodes/shared/styles/inputs";
+@use "@newspack-nodes/shared/styles/focus";
 
 .nodes-devtools-hub {
 	// The ONE shared brand header on top — give it the console's row height so it

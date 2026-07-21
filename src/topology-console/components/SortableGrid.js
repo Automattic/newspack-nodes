@@ -71,9 +71,11 @@ export function useSortState( key, dir = 'asc' ) {
  * @param {Object}   props.sort       { key, dir } sort state.
  * @param {Function} props.onSort     Called with a column key on header click.
  * @param {Function} [props.rowClass] Row → extra class name ('' for none).
+ * @param {Object}   [props.footer]   One keyed row rendered in a <tfoot>, aligned to
+ *                                    the columns and excluded from the sortable body.
  * @return {import('react').ReactElement} The grid table.
  */
-export function Grid( { testid, cols, rows, sort, onSort, rowClass } ) {
+export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 	const sorted = useMemo(
 		() => sortRows( rows, cols, sort ),
 		[ rows, cols, sort ]
@@ -123,6 +125,17 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass } ) {
 					);
 				} ) }
 			</tbody>
+			{ footer && (
+				<tfoot>
+					<tr className="nodes-runtime__foot">
+						{ cols.map( ( c ) => (
+							<td key={ c.key } className="nodes-runtime__td">
+								{ formatCell( footer[ c.key ] ) }
+							</td>
+						) ) }
+					</tr>
+				</tfoot>
+			) }
 		</table>
 	);
 }

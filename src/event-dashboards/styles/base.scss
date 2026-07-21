@@ -22,6 +22,7 @@
 
 @forward "@newspack-nodes/shared/styles/tokens";
 @forward "@newspack-nodes/shared/styles/mixins";
+@use "@newspack-nodes/shared/styles/focus";
 @use "@newspack-nodes/shared/styles/components";
 @use "@newspack-nodes/shared/styles/inputs";
 

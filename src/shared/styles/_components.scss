@@ -142,11 +142,6 @@
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 	}
 
-	&:focus {
-		outline: 2px solid $focus-color;
-		outline-offset: 2px;
-	}
-
 	.newspack-nodes-card-link-name {
 		font-weight: 500;
 		color: var(--ink);
