@@ -363,6 +363,111 @@ describe( 'Palette', () => {
 	} );
 } );
 
+describe( 'Palette — topology drag + include-closure edge cases', () => {
+	it( 'dragging an enabled topology tile onto the canvas projects coords and calls onDropTopology', () => {
+		const onDropTopology = jest.fn();
+		const svg = makeCanvasStub( { x: 12, y: 34 } );
+		document.elementFromPoint = jest.fn().mockReturnValue( svg );
+		render(
+			<Palette
+				classes={ [] }
+				topologies={ [ { name: 'job-router', includes: [] } ] }
+				editMode
+				currentTopology="something-else"
+				declaredIncludes={ [] }
+				onDropTopology={ onDropTopology }
+			/>
+		);
+		const tile = screen.getByTestId( 'palette-topology-job-router' );
+		fireEvent.pointerDown( tile, {
+			pointerId: 1,
+			clientX: 5,
+			clientY: 5,
+		} );
+		// The topology ghost is a rounded hull blob carrying the name.
+		const ghost = document.querySelector(
+			'.topology-palette__drag-ghost--topology'
+		);
+		expect( ghost ).not.toBeNull();
+		expect( ghost.textContent ).toBe( 'job-router' );
+		// A move while dragging repositions the existing ghost.
+		fireEvent.pointerMove( tile, {
+			pointerId: 1,
+			clientX: 50,
+			clientY: 60,
+		} );
+		fireEvent.pointerUp( tile, {
+			pointerId: 1,
+			clientX: 300,
+			clientY: 200,
+		} );
+		expect( onDropTopology ).toHaveBeenCalledWith( {
+			name: 'job-router',
+			x: 12,
+			y: 34,
+		} );
+		delete document.elementFromPoint;
+	} );
+
+	it( 'a drop over a canvas with no screen CTM is a no-op', () => {
+		const onDropNode = jest.fn();
+		const svg = makeCanvasStub();
+		svg.getScreenCTM = () => null;
+		document.elementFromPoint = jest.fn().mockReturnValue( svg );
+		const { container } = render(
+			<Palette
+				classes={ sampleClasses }
+				loading={ false }
+				onDropNode={ onDropNode }
+			/>
+		);
+		const echo = container.querySelector( '[data-shell-name="Echo"]' );
+		fireEvent.pointerDown( echo, {
+			pointerId: 1,
+			clientX: 5,
+			clientY: 5,
+		} );
+		fireEvent.pointerUp( echo, {
+			pointerId: 1,
+			clientX: 300,
+			clientY: 200,
+		} );
+		expect( onDropNode ).not.toHaveBeenCalled();
+		delete document.elementFromPoint;
+	} );
+
+	it( 'computes the include closure without revisiting a shared grandchild (diamond)', () => {
+		// diamond-root reaches shared-leaf through BOTH branches; the closure
+		// walk must skip the second visit rather than recurse into it again.
+		const topologies = [
+			{
+				name: 'diamond-root',
+				includes: [ 'left-branch', 'right-branch' ],
+			},
+			{ name: 'left-branch', includes: [ 'shared-leaf' ] },
+			{ name: 'right-branch', includes: [ 'shared-leaf' ] },
+			{ name: 'shared-leaf', includes: [] },
+		];
+		render(
+			<Palette
+				classes={ [] }
+				topologies={ topologies }
+				editMode
+				currentTopology="shared-leaf"
+				declaredIncludes={ [] }
+				onDropTopology={ jest.fn() }
+			/>
+		);
+		// diamond-root transitively includes shared-leaf (the current
+		// topology) → the ancestor guard disables it.
+		expect(
+			screen
+				.getByTestId( 'palette-topology-diamond-root' )
+				.className.includes( 'is-disabled' )
+		).toBe( true );
+	} );
+} );
+
 describe( 'Palette — search filter', () => {
 	const classes = [
 		{ shell_name: 'Echo', category: 'Generic', description: 'Echo node' },
