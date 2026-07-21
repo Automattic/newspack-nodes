@@ -7,6 +7,7 @@
  * `_output` transcript the console already holds.
  */
 
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { ModalShell } from './Modal';
 import RuntimeView from './RuntimeView';
@@ -24,29 +25,82 @@ const VIEW_TITLES = {
 	timeline: __( 'Event Timeline', 'newspack-nodes' ),
 };
 
-// Timeline-only transcript subscription; REPL lines can't re-render Runtime.
-function TimelineHost() {
+// Timeline-only transcript sub + the Trace toggle (traces feed the timeline).
+function TimelineHost( { onAction } ) {
 	const transcript =
 		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
-	return <TimelineView transcript={ transcript } />;
+	const metadata = useNodeState( names.METADATA, 'metadata' );
+	const serverTraceOn = ( metadata?.nodes ?? [] ).some(
+		( n ) => n.debugState > 0
+	);
+	// Override: agreement clears; one stale reply tolerated; two surrender.
+	const [ optimistic, setOptimistic ] = useState( null );
+	const disagreeRef = useRef( 0 );
+	useEffect( () => {
+		if ( null === optimistic ) {
+			return;
+		}
+		if ( serverTraceOn === optimistic || disagreeRef.current >= 1 ) {
+			disagreeRef.current = 0;
+			setOptimistic( null );
+			return;
+		}
+		disagreeRef.current += 1;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ metadata ] );
+	const traceOn = null !== optimistic ? optimistic : serverTraceOn;
+	const toggleTrace = () => {
+		disagreeRef.current = 0;
+		setOptimistic( ! traceOn );
+		onAction?.( 'trace', '*', traceOn ? 0 : 1 );
+	};
+	return (
+		<>
+			<div className="topology-inspview__toolbar">
+				<button
+					type="button"
+					className={ `button is-compact${
+						traceOn ? ' is-active' : ''
+					}` }
+					onClick={ toggleTrace }
+					title={
+						traceOn
+							? __(
+									'Stop tracing every node — `trace * 0`',
+									'newspack-nodes'
+							  )
+							: __(
+									'Trace every node — `trace * 1`',
+									'newspack-nodes'
+							  )
+					}
+				>
+					{ traceOn
+						? __( 'stop trace', 'newspack-nodes' )
+						: __( 'trace', 'newspack-nodes' ) }
+				</button>
+			</div>
+			<TimelineView transcript={ transcript } />
+		</>
+	);
 }
 
 // The one body per view key; each self-mounts what it needs while open.
 function ViewBody( { view, onAction } ) {
 	if ( 'runtime' === view ) {
-		return <RuntimeView onAction={ onAction } />;
+		return <RuntimeView />;
 	}
 	if ( 'stats' === view ) {
 		return <StatsView />;
 	}
-	return <TimelineHost />;
+	return <TimelineHost onAction={ onAction } />;
 }
 
 /**
  * @param {Object}      props
  * @param {string|null} props.view       'runtime' | 'stats' | 'timeline' | null (closed).
  * @param {Function}    props.onDismiss  Close the modal.
- * @param {Function}    [props.onAction] Console action dispatcher (Runtime's Trace toggle).
+ * @param {Function}    [props.onAction] Console action dispatcher (Timeline's Trace toggle).
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */
 export default function InspectorViewModal( { view, onDismiss, onAction } ) {

@@ -52,8 +52,10 @@
 	&__head,
 	&__row {
 		display: grid;
-		grid-template-columns:
-			64px minmax(90px, 1fr) minmax(70px, 1fr) minmax(0, 2fr);
+		grid-template-columns: 64px minmax(90px, 1fr) minmax(70px, 1fr) minmax(
+				0,
+				2fr
+			);
 		gap: 0 8px;
 	}
 

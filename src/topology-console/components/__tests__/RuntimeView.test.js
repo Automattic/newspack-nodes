@@ -8,7 +8,6 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
-import { MetadataNode } from '../../../runtime/metadata-node';
 import {
 	newMessage,
 	TYPE,
@@ -16,7 +15,6 @@ import {
 	TM_COMMAND,
 	TM_RESPONSE,
 } from '../../../runtime/message';
-import names from '../../../runtime/reserved-node-names.json';
 import RuntimeView from '../RuntimeView';
 
 const POLLER = 'runtime:poller';
@@ -33,15 +31,6 @@ function publish( timers, handles ) {
 
 // Seed / refresh the console `_metadata` graph the Trace toggle derives from.
 // Each call publishes a fresh state object so the reconcile effect re-runs.
-function seedMetadata( nodes ) {
-	let meta = Core.node( names.METADATA );
-	if ( ! meta ) {
-		meta = new MetadataNode();
-		meta.name = names.METADATA;
-	}
-	act( () => meta.setState( 'metadata', { nodes, edges: [], pwd: '' } ) );
-}
-
 // One PHP-shaped timer row; overrides the given fields.
 function timer( over ) {
 	return {
@@ -143,42 +132,4 @@ test( 'does NOT flag a spinner when next_ms <= 0 but fires are not climbing', ()
 		'tbody tr[data-name="stuck0"]'
 	);
 	expect( row.className ).not.toContain( 'spinner' );
-} );
-
-test( 'the Trace toggle flips to "stop trace" immediately on click and fires the all-nodes trace at level 1', () => {
-	seedMetadata( [ { id: 'alpha', debugState: 0 } ] ); // server: nothing traced
-	const onAction = jest.fn();
-	const { getByText, queryByText } = render(
-		<RuntimeView onAction={ onAction } />
-	);
-	const btn = getByText( 'trace' );
-	expect( btn.className ).not.toContain( 'is-active' );
-	fireEvent.click( btn );
-	// Optimistic: label + highlight swap now, before any metadata poll changes.
-	const active = getByText( 'stop trace' );
-	expect( active.className ).toContain( 'is-active' );
-	expect( queryByText( 'trace' ) ).toBeNull();
-	expect( onAction ).toHaveBeenCalledWith( 'trace', '*', 1 );
-} );
-
-test( 'the Trace toggle reads "stop trace" when ANY node is traced (the .some() rule)', () => {
-	seedMetadata( [
-		{ id: 'alpha', debugState: 0 },
-		{ id: 'beta', debugState: 4 },
-	] );
-	const { getByText } = render( <RuntimeView onAction={ jest.fn() } /> );
-	expect( getByText( 'stop trace' ) ).toBeTruthy();
-} );
-
-test( 'the Trace toggle self-heals to the metadata poll (server truth wins)', () => {
-	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
-	const { getByText, queryByText } = render(
-		<RuntimeView onAction={ jest.fn() } />
-	);
-	fireEvent.click( getByText( 'trace' ) );
-	expect( getByText( 'stop trace' ) ).toBeTruthy();
-	// A later poll still shows nothing traced → optimism reconciles off.
-	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
-	expect( getByText( 'trace' ) ).toBeTruthy();
-	expect( queryByText( 'stop trace' ) ).toBeNull();
 } );
