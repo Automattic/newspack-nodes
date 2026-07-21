@@ -153,6 +153,37 @@
 }
 
 // =============================================================================
+// Fleet deep-probe roll-up (on-demand)
+// =============================================================================
+
+.aggregator-fleet-probe-button {
+	margin-left: auto;
+}
+
+.aggregator-fleet-rollup {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin: 8px 0;
+	font-family: base.$mono-font;
+	font-size: 11px;
+	color: var(--ink-3);
+
+	&.is-error {
+		color: base.$error-text;
+		background: var(--oxide-subtle);
+		padding: 4px 8px;
+		border-radius: base.$border-radius-sm;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+}
+
+.aggregator-fleet-stat {
+	white-space: nowrap;
+}
+
+// =============================================================================
 // Partitions Grid
 // =============================================================================
 

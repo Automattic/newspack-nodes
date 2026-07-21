@@ -15,6 +15,9 @@ it( 'registers its per-slice view classes for make_node', () => {
 	expect(
 		CommandInterpreterNode.includeNodes.AggregatorServersView
 	).toBeDefined();
+	expect(
+		CommandInterpreterNode.includeNodes.AggregatorFleetView
+	).toBeDefined();
 } );
 
 it( 'no longer registers the retired AggregatorView god node', () => {

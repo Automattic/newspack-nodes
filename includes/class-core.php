@@ -214,6 +214,14 @@ class Core {
 		return $text . "\n";
 	}
 
+	/**
+	 * Run the stderr handler for one line, and fire the `newspack_nodes/stderr`
+	 * firehose action beside it. Both run under the $in_stderr re-entry guard: a
+	 * listener that itself calls stderr() hits this guard and short-circuits to
+	 * error_log, so it can't recurse or re-fire the action. Worker-context
+	 * listeners must write via a Topic/Partition directly, never back through
+	 * stderr(). The function_exists gate keeps Core loadable in WP-less bootstraps.
+	 */
 	public static function _stderr( string $text ): void {
 		if ( self::$in_stderr ) {
 			// Re-entry guard: go straight to error_log to avoid recursion.
@@ -223,6 +231,15 @@ class Core {
 		}
 		self::$in_stderr = true;
 		try {
+			if ( \function_exists( 'do_action' ) ) {
+				try {
+					\do_action( 'newspack_nodes/stderr', $text );
+				} catch ( \Throwable $e ) {
+					// A listener can't break the last-resort diagnostic path.
+					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					\error_log( 'newspack_nodes/stderr listener threw: ' . $e->getMessage() );
+				}
+			}
 			( self::$stderr_handler )( $text );
 		} finally {
 			// Reset even if handler throws, else stderr latches to fallback.

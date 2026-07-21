@@ -77,11 +77,14 @@ class Workers_CI_Node extends Service_CI_Node {
 	// dump_graph helpers: self-contained static builders for the payload.
 
 	/**
-	 * Build the full 7-field operator-grade envelope.
+	 * Build the full operator-grade envelope. Public so the substrate Alerts
+	 * evaluator reads the SAME `{workers[], consumers[], supervisor,
+	 * deadletter_segments}` snapshot without re-implementing the lock-dir /
+	 * heartbeat / probe reads.
 	 *
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
 	 */
-	private static function collect_dump_metadata(): array {
+	public static function collect_dump_metadata(): array {
 		$now            = \time();
 		$num_partitions = self::to_int( RuntimeConfig::value( 'num_partitions' ) );
 		$max_segments   = self::to_int( RuntimeConfig::value( 'max_segments' ) );
@@ -136,12 +139,22 @@ class Workers_CI_Node extends Service_CI_Node {
 			'supervisor'     => $supervisor,
 			'logs'           => $logs,
 			'log_partitions' => $log_partitions,
+			'deadletter_segments'  => self::count_deadletter_segments( $base_dir ),
 			'num_partitions' => $num_partitions,
 			'max_segments'   => $max_segments,
 			'segment_size'   => $segment_size,
 			'timestamp'      => $now,
 			'heartbeat_interval_s' => Worker_Base::HEARTBEAT_INTERVAL_S,
 		];
+	}
+
+	/**
+	 * Total quarantined dead-letter segments across every consumer's
+	 * `{base}/deadletter/<reader>/{seg}.log` sibling — the cheap DLQ-growth
+	 * signal. Absent dir globs to zero.
+	 */
+	private static function count_deadletter_segments( string $base_dir ): int {
+		return \count( @\glob( "{$base_dir}/deadletter/*/*.log" ) ?: [] );
 	}
 
 	/**

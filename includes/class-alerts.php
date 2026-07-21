@@ -1,0 +1,177 @@
+<?php
+/**
+ * Alerts: the substrate's fleet-health evaluator.
+ *
+ * ONE place computes the operator-facing alert conditions — worker down,
+ * consumer lag climbing, dead-letter growth — from the SAME snapshot
+ * Workers_CI already builds (lock-dir heartbeats, the TopicProbe cursor log,
+ * the on-disk quarantine dirs). It re-implements none of those reads.
+ *
+ * Three consumers of the result: WP Site Health tests + the admin notice call
+ * the pure `evaluate()`; `emit()` fires one `newspack_nodes/alert` action per
+ * alert (rate-limited) so an application can bridge them to its firehose.
+ * Thresholds are class constants — no new config keys.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes;
+
+use Newspack_Nodes\Rest\Workers_CI_Node;
+
+\defined( 'ABSPATH' ) || exit;
+
+class Alerts {
+
+	/** A degraded condition an operator should look at. */
+	public const SEVERITY_WARNING = 'warning';
+
+	/** A worker/supervisor that was running has stopped — needs attention now. */
+	public const SEVERITY_CRITICAL = 'critical';
+
+	/** A consumer more than this many bytes behind its partition end is lagging (64 MiB ≈ one default segment). */
+	public const CONSUMER_DISTANCE_THRESHOLD = 67108864;
+
+	/** Any quarantined dead-letter segment beyond this count is worth surfacing. */
+	public const DEADLETTER_SEGMENTS_THRESHOLD = 0;
+
+	/** Transient gate name for emit()'s rate limit. */
+	private const EMIT_GATE = 'newspack_nodes_alerts_emitted';
+
+	/** Minimum seconds between alert-action emission bursts. */
+	private const EMIT_INTERVAL_S = 300;
+
+	/**
+	 * Compute the current alerts (pure — no side effects). Each alert is
+	 * `{ key, severity, message, ... }`; `key` is stable per condition so a
+	 * consumer can dedupe.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function evaluate(): array {
+		$meta   = Workers_CI_Node::collect_dump_metadata();
+		$alerts = [];
+
+		foreach ( Core::arr( $meta['workers'] ?? [] ) as $worker ) {
+			$alert = self::worker_alert( Core::arr( $worker ) );
+			if ( null !== $alert ) {
+				$alerts[] = $alert;
+			}
+		}
+
+		$supervisor = Core::arr( $meta['supervisor'] ?? [] );
+		// Never-heartbeated supervisor stays silent (cron not yet fired).
+		if ( 'dead' === ( $supervisor['status'] ?? '' ) && null !== ( $supervisor['heartbeat_age'] ?? null ) ) {
+			$age      = Core::as_int( $supervisor['heartbeat_age'] );
+			$alerts[] = [
+				'key'      => 'supervisor_down',
+				'severity' => self::SEVERITY_CRITICAL,
+				'message'  => "Supervisor stopped heartbeating {$age}s ago.",
+			];
+		}
+
+		foreach ( Core::arr( $meta['consumers'] ?? [] ) as $consumer ) {
+			$consumer = Core::arr( $consumer );
+			$distance = Core::num_int( $consumer['distance'] ?? 0 );
+			if ( $distance <= self::CONSUMER_DISTANCE_THRESHOLD ) {
+				continue;
+			}
+			$reader   = Core::as_string( $consumer['reader'] ?? '' );
+			$source   = Core::as_string( $consumer['source'] ?? '' );
+			$alerts[] = [
+				'key'      => "consumer_lag:{$reader}",
+				'severity' => self::SEVERITY_WARNING,
+				'message'  => "Consumer {$reader} is {$distance} bytes behind on {$source}.",
+				'reader'   => $reader,
+				'distance' => $distance,
+			];
+		}
+
+		$deadletter = Core::as_int( $meta['deadletter_segments'] ?? 0 );
+		if ( $deadletter > self::DEADLETTER_SEGMENTS_THRESHOLD ) {
+			$alerts[] = [
+				'key'      => 'deadletter',
+				'severity' => self::SEVERITY_WARNING,
+				'message'  => "{$deadletter} dead-letter segment(s) quarantined; replay or clear them.",
+				'count'    => $deadletter,
+			];
+		}
+
+		return $alerts;
+	}
+
+	/**
+	 * Alert for one worker liveness row, or null when it's healthy. A dead
+	 * worker that was previously alive (stale heartbeat) is critical; one that
+	 * never started is a warning (it may still be spawning).
+	 *
+	 * @param array<array-key,mixed> $worker Liveness row from collect_dump_metadata.
+	 * @return array<string,mixed>|null
+	 */
+	private static function worker_alert( array $worker ): ?array {
+		if ( 'dead' !== ( $worker['status'] ?? '' ) ) {
+			return null;
+		}
+		$type      = Core::as_string( $worker['type'] ?? '' );
+		$partition = Core::as_int( $worker['partition'] ?? 0 );
+		$label     = "{$type}.p{$partition}";
+		if ( true === ( $worker['stale'] ?? false ) ) {
+			$age = Core::as_int( $worker['heartbeat_age'] ?? 0 );
+			return [
+				'key'       => "worker_down:{$label}",
+				'severity'  => self::SEVERITY_CRITICAL,
+				'message'   => "Worker {$label} stopped heartbeating {$age}s ago.",
+				'type'      => $type,
+				'partition' => $partition,
+			];
+		}
+		return [
+			'key'       => "worker_missing:{$label}",
+			'severity'  => self::SEVERITY_WARNING,
+			'message'   => "Worker {$label} is not running.",
+			'type'      => $type,
+			'partition' => $partition,
+		];
+	}
+
+	/**
+	 * Worst severity across a list: critical if any critical, else warning if
+	 * any warning, else '' (empty list / no alerts).
+	 *
+	 * @param array<int,array<string,mixed>> $alerts
+	 */
+	public static function worst_severity( array $alerts ): string {
+		$worst = '';
+		foreach ( $alerts as $alert ) {
+			$severity = Core::as_string( $alert['severity'] ?? '' );
+			if ( self::SEVERITY_CRITICAL === $severity ) {
+				return self::SEVERITY_CRITICAL;
+			}
+			if ( self::SEVERITY_WARNING === $severity ) {
+				$worst = self::SEVERITY_WARNING;
+			}
+		}
+		return $worst;
+	}
+
+	/**
+	 * Fire one `newspack_nodes/alert` action per current alert. Hooked to the
+	 * supervisor's periodic tick; a transient gate rate-limits emission so a
+	 * persisting condition doesn't re-firehose every ~15s tick.
+	 */
+	public static function emit(): void {
+		if ( ! \function_exists( 'do_action' ) ) {
+			return;
+		}
+		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
+			// Best-effort throttle window, not content dedup (TOCTOU OK).
+			if ( false !== \get_transient( self::EMIT_GATE ) ) {
+				return;
+			}
+			\set_transient( self::EMIT_GATE, 1, self::EMIT_INTERVAL_S );
+		}
+		foreach ( self::evaluate() as $alert ) {
+			\do_action( 'newspack_nodes/alert', $alert );
+		}
+	}
+}

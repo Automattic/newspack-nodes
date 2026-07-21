@@ -220,14 +220,73 @@ function PartitionStatus( { partition, status, now } ) {
 }
 
 /**
- * Server Card Component.
+ * Fleet roll-up panel: the on-demand deep-probe result for one spoke — worker
+ * live/stale/dead counts, worst consumer distance, dead-letter total. Shown only
+ * after a Probe click; an error probe surfaces the error line instead.
  *
  * @param {Object} props        Component props.
- * @param {Object} props.server Server status data.
- * @param {number} props.now    Server snapshot clock for relative-time calc.
+ * @param {Object} props.result Fleet-probe result: `{ ok, rollup | error }`.
  * @return {import('react').ReactElement} Rendered component.
  */
-function ServerCard( { server, now } ) {
+function FleetRollup( { result } ) {
+	if ( ! result.ok ) {
+		return (
+			<div
+				className="aggregator-fleet-rollup is-error"
+				title={ result.error }
+			>
+				{ result.error }
+			</div>
+		);
+	}
+	const {
+		workers = {},
+		worst_distance: worstDistance = 0,
+		deadletter_segments: dlq = 0,
+	} = result.rollup || {};
+	return (
+		<div className="aggregator-fleet-rollup">
+			<span className="aggregator-fleet-stat">
+				{ sprintf(
+					// translators: 1: live workers, 2: stale workers, 3: dead workers.
+					__(
+						'Workers %1$d live / %2$d stale / %3$d dead',
+						'newspack-nodes'
+					),
+					workers.live || 0,
+					workers.stale || 0,
+					workers.dead || 0
+				) }
+			</span>
+			<span className="aggregator-fleet-stat">
+				{ sprintf(
+					// translators: %d: worst consumer lag in bytes.
+					__( 'Worst lag %d B', 'newspack-nodes' ),
+					worstDistance
+				) }
+			</span>
+			<span className="aggregator-fleet-stat">
+				{ sprintf(
+					// translators: %d: number of quarantined dead-letter segments.
+					__( 'DLQ %d', 'newspack-nodes' ),
+					dlq
+				) }
+			</span>
+		</div>
+	);
+}
+
+/**
+ * Server Card Component.
+ *
+ * @param {Object}   props               Component props.
+ * @param {Object}   props.server        Server status data.
+ * @param {number}   props.now           Server snapshot clock for relative-time calc.
+ * @param {Object}   [props.probeResult] On-demand fleet-probe result for this spoke.
+ * @param {Function} props.onProbe       Fire an on-demand deep probe by server id.
+ * @return {import('react').ReactElement} Rendered component.
+ */
+function ServerCard( { server, now, probeResult, onProbe } ) {
 	const partitions = server.partitions || {};
 	const partitionKeys = Object.keys( partitions ).sort(
 		( a, b ) => Number( a ) - Number( b )
@@ -237,6 +296,14 @@ function ServerCard( { server, now } ) {
 	const connectedPartitions = partitionKeys.filter(
 		( p ) => partitions[ p ]?.connected === true
 	).length;
+
+	const [ probing, setProbing ] = useState( false );
+	const runProbe = () => {
+		setProbing( true );
+		Promise.resolve( onProbe( server.id ) )
+			.catch( () => {} )
+			.finally( () => setProbing( false ) );
+	};
 
 	return (
 		<div className="aggregator-server-card">
@@ -254,7 +321,19 @@ function ServerCard( { server, now } ) {
 						partitionKeys.length
 					) }
 				</div>
+				<button
+					type="button"
+					className="button aggregator-fleet-probe-button"
+					onClick={ runProbe }
+					disabled={ probing }
+				>
+					{ probing
+						? __( 'Probing…', 'newspack-nodes' )
+						: __( 'Probe', 'newspack-nodes' ) }
+				</button>
 			</div>
+
+			{ probeResult && <FleetRollup result={ probeResult } /> }
 
 			{ /* Partition Status Grid */ }
 			<div className="aggregator-partitions">
@@ -279,13 +358,16 @@ function ServerCard( { server, now } ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
-	// Mount the graph (owns the 2 poll slices + interval); returns the control.
-	const { setRefreshInterval, refreshInterval } = useAggregatorStatusGraph();
+	// Mount the graph (poll slices + interval) + the on-demand probe dispatch.
+	const { setRefreshInterval, refreshInterval, probe } =
+		useAggregatorStatusGraph();
 
 	// Two independent read surfaces — one per slice the graph publishes.
 	const summary = useNodeState( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
 	const serversSlice =
 		useNodeState( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
+	// On-demand fleet-probe roll-ups, keyed by server id.
+	const fleet = useNodeState( 'aggregator:fleet', 'view' ) ?? { probes: {} };
 	// Header strip reads the summary slice (counts + clock + refresh marker).
 	const { connected, total, serverNow, lastRefresh } = summary;
 	// Server cards read the servers slice (data + its own loading/error gate).
@@ -372,6 +454,8 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 								key={ server.id }
 								server={ server }
 								now={ serverNow }
+								probeResult={ fleet.probes?.[ server.id ] }
+								onProbe={ probe }
 							/>
 						) )
 					) : (

@@ -415,7 +415,8 @@ class VaultCINodeTest extends TestCase {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
-		$this->assertStringContainsString( 'non-JSON discovery payload', $out );
+		// Message generalized when the POST+parse moved to Service_CI_Node::probe_command().
+		$this->assertStringContainsString( 'non-array command payload', $out );
 	}
 
 	public function test_test_verb_whitelists_hooks_events_and_lag(): void {

@@ -24,11 +24,30 @@
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
  * to `_http.client`); production lazily defaults to the shared CommandClient.
  *
- * Returns ONLY the refresh control (`setRefreshInterval` / `refreshInterval`);
- * React reads each slice via its own useNodeState('<slice>:view','view').
+ * Alongside the polled slices it wires ONE on-demand concern — a `aggregator:fleet`
+ * result view behind its own `aggregator:fleetIn` receiver Tee — and returns a
+ * `probe(id)` that POSTs the `probe` verb (deep spoke roll-up) and settles when
+ * the reply lands on that view. It rides `_http` directly (unlocked between poll
+ * ticks → immediate POST; during a tick it batches with the poll).
+ *
+ * Returns the refresh control (`setRefreshInterval` / `refreshInterval`) + the
+ * `probe(id)` dispatch; React reads each slice via its own
+ * useNodeState('<slice>:view','view') and the fleet via
+ * useNodeState('aggregator:fleet','view').
  */
 
-import { useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useState } from '@wordpress/element';
+import {
+	Core,
+	newMessage,
+	TYPE,
+	TO,
+	FROM,
+	ID,
+	VALUE,
+	TM_COMMAND,
+	formatCommandArgs,
+} from '@newspack-nodes/runtime';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
@@ -36,6 +55,10 @@ import '../nodes/register';
 // Server CI mount + egress path the Fetchers target (owns _shell/_http).
 const SERVER = 'aggregator';
 const TARGET = `_shell/_http/${ SERVER }`;
+
+// On-demand deep-probe concern: receiver Tee + result view, keyed by server id.
+const FLEET_RECV = 'aggregator:fleetIn';
+const FLEET_VIEW = 'aggregator:fleet';
 
 // Refresh-interval options offered to the user (the select in the dashboard).
 export const REFRESH_OPTIONS = [
@@ -94,7 +117,7 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		useState( initialRefresh );
 
 	// De-god poll graph: each slice its own Fetcher→Tee→view; one POST/tick.
-	useBatchedPoll( {
+	const { interpreterRef } = useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
 			SLICES.forEach( ( slice ) =>
 				addSliceFetcher( interpreter, {
@@ -103,6 +126,10 @@ export function useAggregatorStatusGraph( opts = {} ) {
 					target: TARGET,
 				} )
 			);
+			// On-demand fleet-probe reply edge: receiver Tee → result view.
+			const fleetIn = interpreter.makeNode( 'Tee', FLEET_RECV );
+			interpreter.makeNode( 'AggregatorFleetView', FLEET_VIEW );
+			fleetIn.connectNode( FLEET_VIEW );
 		},
 		timerName: 'aggregator:timer',
 		teeName: 'aggregator:tee',
@@ -110,6 +137,35 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		// Refresh value (ms) = poll cadence; >1s hitchhikes TIMER, re-arms.
 		intervalMs: parseInt( refreshInterval, 10 ) || 0,
 	} );
+
+	// On-demand deep probe of one spoke; settles via the fleet replies map.
+	const probe = useCallback(
+		( id ) => {
+			const interpreter = interpreterRef.current;
+			if ( ! interpreter ) {
+				return Promise.reject( new Error( 'graph not mounted' ) );
+			}
+			const view = Core.node( FLEET_VIEW );
+			if ( ! view ) {
+				return Promise.reject( new Error( 'fleet view not mounted' ) );
+			}
+			const promise = new Promise( ( resolve, reject ) => {
+				view.replies.add( id, resolve, reject );
+			} );
+			const m = newMessage();
+			m[ TYPE ] = TM_COMMAND;
+			m[ FROM ] = FLEET_RECV;
+			m[ TO ] = TARGET;
+			m[ ID ] = id;
+			m[ VALUE ] = {
+				name: 'probe',
+				arguments: formatCommandArgs( [ id ] ),
+			};
+			interpreter.fill( m );
+			return promise;
+		},
+		[ interpreterRef ]
+	);
 
 	// Persist the refresh choice to localStorage.
 	useEffect( () => {
@@ -121,5 +177,5 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		setRefreshIntervalState( value );
 	};
 
-	return { setRefreshInterval, refreshInterval };
+	return { setRefreshInterval, refreshInterval, probe };
 }

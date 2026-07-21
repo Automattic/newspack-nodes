@@ -53,6 +53,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
@@ -62,6 +63,83 @@ use Newspack_Nodes\Vault;
 \defined( 'ABSPATH' ) || exit;
 
 class Aggregator_CI_Node extends Service_CI_Node {
+
+	/**
+	 * `probe` verb — on-demand deep probe of ONE spoke: POST its
+	 * `workers/dump_graph` (via the shared `probe_command()` + `$http_call`
+	 * seam) and roll the reply into a compact whitelisted shape. The polled
+	 * `summary`/`servers_status` slices carry connection health only; this
+	 * verb is the button-triggered depth (worker liveness, worst consumer lag,
+	 * dead-letter total). Never proxies raw remote JSON.
+	 *
+	 * @param list<string> $args Verb argument tokens (`<id>`).
+	 * @return array<string,mixed> Compact per-spoke roll-up.
+	 */
+	public static function cmd_probe( array $args ): array {
+		$id = Command_Args::parse( $args )['positional'][0] ?? '';
+		if ( '' === $id ) {
+			throw new \RuntimeException( 'id required' );
+		}
+		$server = Vault::fresh()->get( $id );
+		if ( null === $server ) {
+			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
+		}
+		return self::fleet_rollup( $id, self::probe_command( $server, 'workers', 'dump_graph' ) );
+	}
+
+	/**
+	 * Whitelist + roll up a spoke's `dump_graph` payload into named fields only:
+	 * worker live/stale/dead counts, worst consumer distance, dead-letter total,
+	 * supervisor status. A worker that is neither live nor stale is a
+	 * never-started `dead`.
+	 *
+	 * @param string                 $id      Spoke id.
+	 * @param array<array-key, mixed> $payload The spoke's dump_graph payload.
+	 * @return array<string, mixed> Compact roll-up.
+	 */
+	private static function fleet_rollup( string $id, array $payload ): array {
+		$workers = Core::arr( $payload['workers'] ?? [] );
+		$live    = 0;
+		$stale   = 0;
+		$dead    = 0;
+		foreach ( $workers as $worker ) {
+			$worker = Core::arr( $worker );
+			if ( true === ( $worker['live'] ?? false ) ) {
+				++$live;
+			} elseif ( true === ( $worker['stale'] ?? false ) ) {
+				++$stale;
+			} else {
+				++$dead;
+			}
+		}
+
+		$worst_distance = 0;
+		foreach ( Core::arr( $payload['consumers'] ?? [] ) as $consumer ) {
+			$distance = Core::num_int( Core::arr( $consumer )['distance'] ?? 0 );
+			if ( $distance > $worst_distance ) {
+				$worst_distance = $distance;
+			}
+		}
+
+		$supervisor = Core::arr( $payload['supervisor'] ?? [] );
+		$hb_age     = $supervisor['heartbeat_age'] ?? null;
+
+		return [
+			'id'                  => $id,
+			'workers'             => [
+				'total' => \count( $workers ),
+				'live'  => $live,
+				'stale' => $stale,
+				'dead'  => $dead,
+			],
+			'worst_distance'      => $worst_distance,
+			'deadletter_segments' => Core::num_int( $payload['deadletter_segments'] ?? 0 ),
+			'supervisor'          => [
+				'status'        => Core::as_string( $supervisor['status'] ?? 'unknown' ),
+				'heartbeat_age' => \is_numeric( $hb_age ) ? (int) $hb_age : null,
+			],
+		];
+	}
 	/**
 	 * Build the per-node partition snapshot, keyed by the wired Remote_Source
 	 * NODE NAME. The single source of truth the `summary` and `servers_status`
@@ -152,6 +230,14 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
 					'args'        => [],
 					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot() ) ),
+				],
+				[
+					'name'        => 'probe',
+					'description' => 'On-demand deep probe of one spoke: roll up worker live/stale/dead, worst consumer lag, and dead-letter total via its workers/dump_graph.',
+					'args'        => [
+						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_probe( self::arg_strings( $args ) ),
 				],
 			],
 		] );

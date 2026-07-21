@@ -33,6 +33,114 @@ namespace Newspack_Nodes;
 abstract class Service_CI_Node extends Command_Interpreter_Node {
 
 	/**
+	 * `wp_remote_post` seam shared by every Service CI that probes a spoke's
+	 * `/command` endpoint (Vault_CI `test`, Aggregator_CI `probe`). Lazily
+	 * defaulted at the call site (a Closure can't be a constant-expression
+	 * property default). Tests reassign in bootstrap to capture outbound args +
+	 * inject canned responses without short-circuiting the URL composition +
+	 * response-classification path. See `~/.claude/rules/test-seams.md`.
+	 *
+	 * Signature: `function ( string $url, array $args ): array|\WP_Error`.
+	 *
+	 * @var \Closure(string, array<string, mixed>): (array<string, mixed>|\WP_Error)|null
+	 */
+	public static ?\Closure $http_call = null;
+
+	/**
+	 * POST a packed TM_COMMAND to a spoke's `/command` endpoint with stored Basic
+	 * Auth and return the reply's decoded `payload` array. Throws a
+	 * RuntimeException on any failure (WP_Error, non-200, non-JSON body, TM_ERROR,
+	 * missing/ non-array payload). Callers whitelist the returned payload
+	 * themselves — this helper never surfaces raw remote JSON.
+	 *
+	 * @param array<string, mixed> $server    Decrypted vault server config (url, auth_*).
+	 * @param string               $to        Target node path on the spoke.
+	 * @param string               $verb      Command verb name.
+	 * @param list<string>         $verb_args Argument tail (Command_Args grammar).
+	 * @return array<array-key, mixed> The reply's `payload` array.
+	 */
+	protected static function probe_command( array $server, string $to, string $verb, array $verb_args = [] ): array {
+		$url  = \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) . '/wp-json/newspack-nodes/v1/command';
+		$args = [
+			// 5s bound: UI blocks on the probe; 1s misses slow spokes.
+			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+			'timeout'             => 5,
+			'sslverify'           => (bool) Config::value( 'vault_verify_ssl' ),
+			'redirection'         => 0,
+			'limit_response_size' => 1048576,
+			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
+			'body'                => self::command_body( $to, $verb, $verb_args ),
+		];
+
+		$username = Core::as_string( $server['auth_username'] ?? '' );
+		$password = Core::as_string( $server['auth_password'] ?? '' );
+		if ( '' !== $username && '' !== $password ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
+			$args['headers']['Authorization'] = 'Basic ' . \base64_encode( $username . ':' . $password );
+		}
+
+		$call = self::$http_call ?? static function ( string $u, array $a ) {
+			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string, mixed>|string, body?: array<string, mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
+			return \wp_remote_post( $u, $a );
+		};
+		$response = $call( $url, $args );
+
+		if ( $response instanceof \WP_Error ) {
+			throw new \RuntimeException( 'could not connect to server' );
+		}
+		$code = \wp_remote_retrieve_response_code( $response );
+		if ( 200 !== $code ) {
+			throw new \RuntimeException( \esc_html( "HTTP {$code} response from server" ) );
+		}
+
+		// Pick the reply (struct VALUE) from the JSONL stream; skip noise.
+		$envelope = null;
+		foreach ( \explode( "\n", \wp_remote_retrieve_body( $response ) ) as $line ) {
+			if ( '' === \trim( $line ) ) {
+				continue;
+			}
+			$decoded = \json_decode( $line, true, 16 );
+			if ( \is_array( $decoded ) && isset( $decoded[ Message::VALUE ] ) && \is_array( $decoded[ Message::VALUE ] ) ) {
+				$envelope = $decoded;
+			}
+		}
+		if ( null === $envelope ) {
+			throw new \RuntimeException( 'server returned malformed command envelope' );
+		}
+		if ( Core::num_int( $envelope[ Message::TYPE ] ?? 0 ) & Message::TM_ERROR ) {
+			throw new \RuntimeException( 'server returned TM_ERROR for probe' );
+		}
+		$value = $envelope[ Message::VALUE ];
+		if ( ! \array_key_exists( 'payload', $value ) ) {
+			throw new \RuntimeException( 'server returned malformed command response' );
+		}
+		$payload = $value['payload'];
+		$body    = '' === $payload ? [] : $payload;
+		if ( ! \is_array( $body ) ) {
+			throw new \RuntimeException( 'server returned non-array command payload' );
+		}
+		return $body;
+	}
+
+	/**
+	 * Build a packed `/command` request body for a spoke probe, using substrate
+	 * primitives only (mirror of the JS CommandClient + HTTP_In decode).
+	 *
+	 * @param string       $to   Target node path.
+	 * @param string       $verb Command verb name.
+	 * @param list<string> $args Argument tail (Command_Args grammar).
+	 * @return string Packed Message JSONL line.
+	 */
+	private static function command_body( string $to, string $verb, array $args = [] ): string {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = Node_Names::HTTP;
+		$message[ Message::TO ]    = $to;
+		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
+		return Message::packed( $message );
+	}
+
+	/**
 	 * Derive the dispatch table from the concrete subclass's node_schema() so each
 	 * verb is declared ONCE. Late static binding reads the subclass schema; the base
 	 * Command_Interpreter_Node has no ctor, so there's nothing to chain.

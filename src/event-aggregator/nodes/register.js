@@ -11,8 +11,10 @@
 import { CommandInterpreterNode } from '@newspack-nodes/runtime';
 import { AggregatorSummaryViewNode } from './aggregator-summary-view-node';
 import { AggregatorServersViewNode } from './aggregator-servers-view-node';
+import { AggregatorFleetViewNode } from './aggregator-fleet-view-node';
 
 CommandInterpreterNode.registerNodeClasses( {
 	AggregatorSummaryView: AggregatorSummaryViewNode,
 	AggregatorServersView: AggregatorServersViewNode,
+	AggregatorFleetView: AggregatorFleetViewNode,
 } );
