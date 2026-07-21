@@ -54,7 +54,6 @@ class Timer_Node extends Node {
 
 	public function fire_cb(): void {
 		// Driven ticks, not emits (counter's job); silent climber = spinner.
-		$this->fire_count++;
 		if ( $this->oneshot ) {
 			$this->stop_timer();
 		}
@@ -68,6 +67,7 @@ class Timer_Node extends Node {
 			}
 			$this->last_fire_time = Core::$now;
 		}
+		$this->fire_count++;
 		$this->fire();
 	}
 

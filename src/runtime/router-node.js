@@ -115,7 +115,7 @@ export class RouterNode extends TimerNode {
 
 	// fireCb (Router::fire_cb): bracket notifyTimer with lock/flush.
 	fireCb() {
-		this.fire_count++;
+		this.fireCount++;
 		if ( this.beforeTimerNotify ) {
 			this.beforeTimerNotify();
 		}

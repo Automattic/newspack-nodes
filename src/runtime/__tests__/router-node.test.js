@@ -126,12 +126,12 @@ test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no lo
 } );
 
 describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
-	test( "fireCb increments the router's own fire_count (list_timers FIRES)", () => {
+	test( "fireCb increments the router's own fireCount (list_timers FIRES)", () => {
 		const r = new RouterNode();
 		r.name = '_router';
 		r.fireCb();
 		r.fireCb();
-		expect( r.fire_count ).toBe( 2 );
+		expect( r.fireCount ).toBe( 2 );
 	} );
 
 	test( "self-started slot fires each registered node's fireCb once per interval", () => {
