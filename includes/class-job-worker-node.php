@@ -54,10 +54,22 @@ class Job_Worker_Node extends Node {
 	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
 	public const MAX_JOB_SIZE         = Job_Intake::MAX_JOB_SIZE;
 
+	/** Cap on the durable last-run message so a jobstats record stays under PIPE_BUF. */
+	public const MAX_STAT_MESSAGE_LEN = 1024;
+
 	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
 	/** @api Used by unit tests. */
 	private int $jobs_executed = 0;
 	private int $jobs_since_cache_flush = 0;
+
+	/**
+	 * Per-identity job-stats accumulator. Keyed by `handler:id` (top-level `id`
+	 * present) or `handler`; each entry holds cumulative counters + last-run detail.
+	 * The Job_Probe sweeps it via probe_stats() into the durable jobstats.p0 log.
+	 *
+	 * @var array<string,array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,last_status:string,last_message:string}>
+	 */
+	private array $job_stats = [];
 
 	/** @var array<string,callable> */
 	private array $local_handlers = [];
@@ -131,8 +143,14 @@ class Job_Worker_Node extends Node {
 		}
 		$parameters = $entry['parameters'] ?? [];
 
+		// Identity: top-level `id` distinguishes jobs sharing one handler name.
+		$id  = Core::as_string( $entry['id'] ?? '', '' );
+		$key = ( '' !== $id ) ? "{$handler}:{$id}" : $handler;
+		$ts  = Core::num_float( $entry['ts'] ?? 0, 0.0 );
+
 		// Apps hook request context on before/after_job; asymmetry deliberate.
 		$before_ok = false;
+		$outcome   = null;
 		try {
 			try {
 				\do_action( 'newspack_nodes/job_worker/before_job', $handler );
@@ -144,13 +162,26 @@ class Job_Worker_Node extends Node {
 				$this->print_less_often( 'before_job listener threw: ', $e->getMessage() );
 			}
 			if ( $before_ok ) {
-				// Handler throw is poison: let it propagate to the Consumer.
-				( $handlers[ $handler ] )( $parameters );
+				$started  = \microtime( true );
+				$queue_ms = $ts > 0 ? \max( 0.0, ( $started - $ts ) * 1000 ) : 0.0;
+				try {
+					$result  = ( $handlers[ $handler ] )( $parameters );
+					$outcome = $this->classify_outcome( $result );
+				} catch ( Worker_Should_Stop $e ) {
+					// Cooperative stop is not a job failure: record nothing.
+					throw $e;
+				} catch ( \Throwable $e ) {
+					// Poison: record first — the throw skips post-try.
+					$outcome = [ 'status' => 'error', 'message' => $e->getMessage(), 'items_ok' => 0, 'items_err' => 0 ];
+					$this->record_job_stats( $key, $handler, $started, $queue_ms, $outcome );
+					throw $e;
+				}
+				$this->record_job_stats( $key, $handler, $started, $queue_ms, $outcome );
 			}
 		} finally {
 			// after_job always fires; swallow throw so it can't mask the error.
 			try {
-				\do_action( 'newspack_nodes/job_worker/after_job', $handler );
+				\do_action( 'newspack_nodes/job_worker/after_job', $handler, $outcome );
 			} catch ( \Throwable $e ) {
 				$this->print_less_often( 'after_job listener threw: ', $e->getMessage() );
 			}
@@ -169,6 +200,112 @@ class Job_Worker_Node extends Node {
 			$this->set_state( 'CACHE_FLUSH', (string) $this->cache_flush_interval );
 			$this->jobs_since_cache_flush = 0;
 		}
+	}
+
+	/**
+	 * Classify a handler's return value into an outcome, honoring the pyrobase-cron
+	 * contract verbatim: `success_count` defaults to -1 (the "no stats reported"
+	 * sentinel) and `error_count` to 0. all-errors-no-items → error; any errors with
+	 * items → success "Completed with errors"; else a plain success. The -1 sentinel
+	 * never pollutes the items total (clamped to 0).
+	 *
+	 * @param mixed $result The handler's return value (often null / void).
+	 * @return array{status:string,message:string,items_ok:int,items_err:int}
+	 */
+	private function classify_outcome( mixed $result ): array {
+		$stats         = ( \is_array( $result ) && isset( $result['stats'] ) && \is_array( $result['stats'] ) ) ? $result['stats'] : [];
+		$success_count = Core::as_int( $stats['success_count'] ?? -1, -1 );
+		$error_count   = Core::as_int( $stats['error_count'] ?? 0, 0 );
+
+		if ( $error_count > 0 && 0 === $success_count ) {
+			$status  = 'error';
+			$message = "Job failed: {$error_count} error(s), no items processed";
+		} elseif ( $error_count > 0 ) {
+			$status    = 'success';
+			$processed = \max( 0, $success_count ); // Clamp the -1 sentinel out of the display.
+			$message   = "Completed with errors: {$processed} processed, {$error_count} error(s)";
+		} else {
+			$status  = 'success';
+			$message = 'Job completed successfully';
+		}
+
+		return [
+			'status'    => $status,
+			'message'   => $message,
+			'items_ok'  => \max( 0, $success_count ),
+			'items_err' => $error_count,
+		];
+	}
+
+	/**
+	 * Fold one run's outcome + duration into the per-identity accumulator. Cumulative
+	 * counters (never deltas) — the Job_Probe emits them raw and readers derive rates.
+	 *
+	 * @param string                                                                 $key      Job identity (`handler:id` or `handler`).
+	 * @param string                                                                 $handler  Handler name.
+	 * @param float                                                                  $started  microtime() at handler dispatch.
+	 * @param float                                                                  $queue_ms Queue latency (start − enqueue ts), ms.
+	 * @param array{status:string,message:string,items_ok:int,items_err:int}         $outcome  Classified outcome.
+	 */
+	private function record_job_stats( string $key, string $handler, float $started, float $queue_ms, array $outcome ): void {
+		$duration_ms = ( \microtime( true ) - $started ) * 1000;
+		$s           = $this->job_stats[ $key ] ?? [
+			'handler'          => $handler,
+			'runs'             => 0,
+			'errors'           => 0,
+			'duration_ms'      => 0.0,
+			'queue_ms'         => 0.0,
+			'items_ok'         => 0,
+			'items_err'        => 0,
+			'last_ts'          => 0,
+			'last_duration_ms' => 0,
+			'last_status'      => '',
+			'last_message'     => '',
+		];
+
+		++$s['runs'];
+		if ( 'error' === $outcome['status'] ) {
+			++$s['errors'];
+		}
+		$s['duration_ms']     += $duration_ms;
+		$s['queue_ms']        += $queue_ms;
+		$s['items_ok']        += $outcome['items_ok'];
+		$s['items_err']       += $outcome['items_err'];
+		$s['last_ts']          = (int) Core::$now;
+		$s['last_duration_ms'] = (int) \round( $duration_ms );
+		$s['last_status']      = $outcome['status'];
+		$s['last_message']     = \mb_substr( $outcome['message'], 0, self::MAX_STAT_MESSAGE_LEN );
+
+		$this->job_stats[ $key ] = $s;
+	}
+
+	/**
+	 * Probe seam: the accumulator as a LIST of positional Jobstats_Record snapshots
+	 * (one per identity), for the Job_Probe to sweep into jobstats.p0. Mirrors
+	 * Consumer_Node::probe_stats(), which yields ONE record; a worker owns many
+	 * identities, so this yields many. Empty until the first job runs.
+	 *
+	 * @return array<int,array<int,int|string>> Jobstats_Record-indexed positional arrays.
+	 */
+	public function probe_stats(): array {
+		$records = [];
+		foreach ( $this->job_stats as $key => $s ) {
+			$record                                    = [];
+			$record[ Jobstats_Record::KEY ]            = $key;
+			$record[ Jobstats_Record::HANDLER ]        = $s['handler'];
+			$record[ Jobstats_Record::RUNS ]           = $s['runs'];
+			$record[ Jobstats_Record::ERRORS ]         = $s['errors'];
+			$record[ Jobstats_Record::DURATION_MS ]    = (int) \round( $s['duration_ms'] );
+			$record[ Jobstats_Record::QUEUE_MS ]       = (int) \round( $s['queue_ms'] );
+			$record[ Jobstats_Record::ITEMS_OK ]       = $s['items_ok'];
+			$record[ Jobstats_Record::ITEMS_ERR ]      = $s['items_err'];
+			$record[ Jobstats_Record::LAST_TS ]        = $s['last_ts'];
+			$record[ Jobstats_Record::LAST_DURATION_MS ] = $s['last_duration_ms'];
+			$record[ Jobstats_Record::LAST_STATUS ]    = $s['last_status'];
+			$record[ Jobstats_Record::LAST_MESSAGE ]   = $s['last_message'];
+			$records[] = $record;
+		}
+		return $records;
 	}
 
 	/**

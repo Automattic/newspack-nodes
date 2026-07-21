@@ -8,9 +8,10 @@
 
 import { __ } from '@wordpress/i18n';
 
-// RawLogs + Overview pull in heavy trees; stubs keep this a pure registry test.
+// RawLogs + Overview + Jobs pull in heavy trees; stubs keep this a pure registry test.
 jest.mock( '../RawLogs', () => () => null );
 jest.mock( '../Overview', () => () => null );
+jest.mock( '../Jobs', () => () => null );
 
 test( 'importing tabs registers the overview tab first (order 0) on the hub host', () => {
 	const {
@@ -41,6 +42,22 @@ test( 'importing tabs no longer registers a separate topology-manager tab (merge
 	expect(
 		hubTabs.find( ( t ) => t.id === 'topology-manager' )
 	).toBeUndefined();
+} );
+
+test( 'importing tabs registers the Jobs tab on the hub host between Overview and Raw Logs', () => {
+	// resetModules forces tabs.js to re-run its registration side effect.
+	jest.resetModules();
+	require( '../tabs' );
+	const { getDevtoolsTabs } = require( '../../shared/devtools/tabRegistry' );
+	const hubTabs = getDevtoolsTabs( 'hub' );
+	const tab = hubTabs.find( ( t ) => t.id === 'jobs' );
+	expect( tab ).toBeTruthy();
+	expect( tab.host ).toBe( 'hub' );
+	expect( tab.slug ).toBe( 'jobs' );
+	expect( tab.order ).toBeGreaterThan( 0 ); // after Overview
+	expect( tab.order ).toBeLessThan( 20 ); // before Raw Logs
+	expect( tab.label ).toBe( __( 'Jobs', 'newspack-nodes' ) );
+	expect( typeof tab.component ).toBe( 'function' );
 } );
 
 test( 'importing tabs registers the raw-logs tab on the hub host at order 20, full-bleed', () => {

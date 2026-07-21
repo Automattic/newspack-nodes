@@ -45,6 +45,18 @@ class Worker_Base {
 	public const TOPICPROBE_MIN_LIFETIME = 86400;
 	public const TOPICPROBE_SEGMENT_SIZE = 1048576;
 
+	/**
+	 * Shared jobstats log: same geometry as topicprobe (1 MiB segments × 2, aged out
+	 * at 24h) — a day of per-handler job-outcome snapshots for the Jobs dashboard.
+	 * Single fixed partition (.p0); every worker process appends, so Log_Cleaner must
+	 * whitelist it (it's declared by no .tsl).
+	 */
+	public const JOBSTATS_INTERVAL_S   = 15;
+	public const JOBSTATS_LOG_DIR      = 'jobstats.p0';
+	public const JOBSTATS_MAX_SEGMENTS = 2;
+	public const JOBSTATS_MIN_LIFETIME = 86400;
+	public const JOBSTATS_SEGMENT_SIZE = 1048576;
+
 	protected string $base_dir;
 
 	/** Fresh post-reset memory baseline, captured before the drain — the memory-guard reference point. */
@@ -345,6 +357,7 @@ class Worker_Base {
 		$repl_in->sink( $interpreter );
 
 		$this->mount_topic_probe( $interpreter );
+		$this->mount_job_probe( $interpreter );
 
 		return $interpreter;
 	}
@@ -424,6 +437,39 @@ class Worker_Base {
 		$probe = $interpreter->make_node( 'TopicProbe', Node_Names::TOPICPROBE, (string) self::TOPICPROBE_INTERVAL_S );
 		if ( $probe instanceof TopicProbe_Node ) {
 			$probe->target( Node_Names::TOPICPROBE_LOG );
+		}
+	}
+
+	/**
+	 * Mount this worker's Job_Probe + the shared jobstats log. The probe sweeps this
+	 * process's Job_Workers every JOBSTATS_INTERVAL_S and routes one snapshot per job
+	 * identity to the log via target() (rule #2 — flow steered by TO, not a bespoke
+	 * sink). The log is shared across every worker process (multi-writer atomic
+	 * appends, the firehose pattern); 1 MiB segments × 2, aged out at 24h. Unconditional:
+	 * a worker with no Job_Worker in its graph simply emits nothing.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The graph's interpreter (make_node host).
+	 */
+	public function mount_job_probe( Command_Interpreter_Node $interpreter ): void {
+		$probe_dir = "{$this->base_dir}/logs/" . self::JOBSTATS_LOG_DIR;
+		if ( ! \is_dir( $probe_dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $probe_dir, 0755, true );
+		}
+		// Dual-rule retention: keep 2 segments, but retain anything under 24h.
+		$interpreter->make_node(
+			'Partition',
+			Node_Names::JOBSTATS_LOG,
+			$probe_dir,
+			(string) self::JOBSTATS_SEGMENT_SIZE,
+			(string) Partition_Node::DEFAULT_MIN_SEGMENTS,
+			(string) self::JOBSTATS_MAX_SEGMENTS,
+			(string) self::JOBSTATS_MIN_LIFETIME,
+			'0'
+		);
+		$probe = $interpreter->make_node( 'Job_Probe', Node_Names::JOBSTATS, (string) self::JOBSTATS_INTERVAL_S );
+		if ( $probe instanceof Job_Probe_Node ) {
+			$probe->target( Node_Names::JOBSTATS_LOG );
 		}
 	}
 

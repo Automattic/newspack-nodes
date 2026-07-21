@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Durable per-handler job stats ("jobstats") + a Jobs hub dashboard tab.** `Job_Worker_Node` now records outcome + duration on the before/after-job seam: the handler call is wrapped so a run is folded into a per-identity cumulative accumulator on BOTH the success and throw paths (poison still re-throws for the Consumer; a `Worker_Should_Stop` records nothing). The outcome honors the pyrobase-cron contract verbatim (`success_count` default -1, `error_count` default 0 → error / "completed with errors" / success), and `newspack_nodes/job_worker/after_job` gains a second `$outcome` arg (BC-safe). Identity is `handler:id` where a job carries an optional top-level `id` (falling back to `handler`); `Job_Intake::write_job()` gains an optional `$id` param (`queue_many` threads it), and the enqueue `ts` is threaded through for queue-latency derivation. A new `Job_Probe` timer node (mirroring `TopicProbe`) sweeps every worker's `probe_stats()` into a durable `jobstats.p0` log — one lean positional `Jobstats_Record` per identity per 15s tick, each write under PIPE_BUF — auto-mounted by `Worker_Base::build_scaffolding()` and GC-whitelisted in `Log_Cleaner`. The Jobs hub tab replays the 24h log via a `RemoteLink` into a `JobstatsView` (sharing the ring/throttle/TTL machinery with `TopicProbeView` through a new `ProbeStreamViewNode` base) and renders a per-handler table (runs, failures, avg/last duration, avg queued, last status/message, last run) plus runs/errors rate panels.
+
 ## [0.48.2] - 2026-07-21
 
 ### Fixed

@@ -122,6 +122,18 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $probe );
 	}
 
+	public function test_keeps_the_substrate_jobstats_log(): void {
+		// jobstats.p0 is auto-mounted by every worker (Worker_Base), not declared
+		// in any .tsl — the GC must spare it, else the sweep wipes it between
+		// jobstats writes (appear → delete → recreate churn).
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$jobstats = $this->seed_log_partition( 'jobstats', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $jobstats );
+	}
+
 	public function test_keeps_declared_log_dirs_all_partitions(): void {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 
@@ -411,9 +423,9 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		// topicprobe.p0 + settings.p0 ride along once a real declared set exists
-		// (substrate probe log + settings-sync log, both written outside any .tsl).
-		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'settings.p0', 'topicprobe.p0' ], $result );
+		// jobstats.p0 + topicprobe.p0 + settings.p0 ride along once a real declared
+		// set exists (substrate probe/jobstats/settings logs, all written outside .tsl).
+		$this->assertSame( [ 'firehose.p0', 'jobstats.p0', 'requests.p0', 'requests.p1', 'settings.p0', 'topicprobe.p0' ], $result );
 	}
 
 	public function test_declared_log_partitions_maps_names_to_enumerated_partitions(): void {
@@ -432,10 +444,11 @@ class LogCleanerTest extends TestCase {
 		\ksort( $map );
 
 		// requests is 2-partition; firehose producer + the whitelisted non-.tsl
-		// logs (topicprobe, settings) are partition 0.
+		// logs (jobstats, topicprobe, settings) are partition 0.
 		$this->assertSame(
 			[
 				'firehose.p0'  => 0,
+				'jobstats.p0'  => 0,
 				'requests.p0'  => 0,
 				'requests.p1'  => 1,
 				'settings.p0'  => 0,
@@ -471,7 +484,7 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'settings.p0', 'topicprobe.p0' ], $result );
+		$this->assertSame( [ 'firehose.p0', 'jobstats.p0', 'requests.p0', 'settings.p0', 'topicprobe.p0' ], $result );
 	}
 
 	// ── frontmatter-less, multi-partition: SPAWN-aligned partition count ─────

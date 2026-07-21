@@ -13,6 +13,7 @@
 import { __ } from '@wordpress/i18n';
 import { registerDevtoolsTab } from '@newspack-nodes/shared/devtools/tabRegistry';
 import Overview from './Overview';
+import Jobs from './Jobs';
 import RawLogs from './RawLogs';
 
 // Order 0 → hub's default first paint, ahead of the Console's graph build.
@@ -23,6 +24,16 @@ registerDevtoolsTab( {
 	slug: 'overview',
 	order: 0,
 	component: Overview,
+} );
+
+// Order 10 → between Overview (0) and the Console (15): the jobs board.
+registerDevtoolsTab( {
+	id: 'jobs',
+	label: __( 'Jobs', 'newspack-nodes' ),
+	host: 'hub',
+	slug: 'jobs',
+	order: 10,
+	component: Jobs,
 } );
 
 registerDevtoolsTab( {

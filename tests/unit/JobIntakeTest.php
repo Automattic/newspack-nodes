@@ -159,6 +159,55 @@ class JobIntakeTest extends TestCase {
 		$intake->close();
 	}
 
+	public function test_write_job_stamps_top_level_id_when_given(): void {
+		// Optional identity for durable jobstats — key stats per "handler:id".
+		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$intake->partition( 0 );
+		$this->assertTrue( $intake->write_job( 'cron', [ 'opt' => 1 ], null, 'import-films' ) );
+		$intake->close();
+
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertCount( 1, $lines );
+		$this->assertSame( 'import-films', $lines[0]['id'] );
+	}
+
+	public function test_write_job_rejects_an_overlong_id(): void {
+		// The id rides in every jobstats record KEY — bound it at the producer
+		// boundary so a runaway id can't bloat records toward the PIPE_BUF cap.
+		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$intake->partition( 0 );
+		$this->assertFalse( $intake->write_job( 'cron', [], null, str_repeat( 'z', 129 ) ) );
+		$this->assertTrue( $intake->write_job( 'cron', [], null, str_repeat( 'z', 128 ) ) );
+		$intake->close();
+
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertCount( 1, $lines, 'the overlong-id job was never written' );
+		$this->assertSame( str_repeat( 'z', 128 ), $lines[0]['id'] );
+	}
+
+	public function test_write_job_omits_id_key_when_not_given(): void {
+		// Wire consumers pass nothing → today's behavior (no `id` key at all).
+		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$intake->partition( 0 );
+		$this->assertTrue( $intake->write_job( 'cron', [ 'opt' => 1 ] ) );
+		$intake->close();
+
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertArrayNotHasKey( 'id', $lines[0] );
+	}
+
+	public function test_queue_many_threads_per_job_id(): void {
+		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$intake->partition( 0 );
+		$this->assertSame( 1, $intake->queue_many( [
+			[ 'handler' => 'cron', 'parameters' => [], 'id' => 'nightly' ],
+		] ) );
+		$intake->close();
+
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertSame( 'nightly', $lines[0]['id'] );
+	}
+
 	// --- queue_many batching ------------------------------------------------
 
 	public function test_queue_many_writes_a_batch(): void {

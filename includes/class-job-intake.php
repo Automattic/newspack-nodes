@@ -35,6 +35,9 @@ class Job_Intake {
 	 */
 	public const MAX_JOB_SIZE = 32 * 1024 * 1024;
 
+	/** Max chars for the optional per-job `id` (it rides in jobstats record KEYs). */
+	public const MAX_JOB_ID_LEN = 128;
+
 	/**
 	 * Valid handler name pattern (must match JobRouter and JobWorker).
 	 */
@@ -111,13 +114,14 @@ class Job_Intake {
 		foreach ( $jobs as $job ) {
 			$handler    = $job['handler'] ?? '';
 			$parameters = $job['parameters'] ?? [];
+			$id         = $job['id'] ?? null;
 
 			if ( ! \is_string( $handler ) || ! \is_array( $parameters ) ) {
 				continue;
 			}
 
 			/** @var array<string, mixed> $parameters */
-			if ( $this->write_job( $handler, $parameters, $key ) ) {
+			if ( $this->write_job( $handler, $parameters, $key, \is_string( $id ) ? $id : null ) ) {
 				++$written;
 			}
 		}
@@ -136,11 +140,19 @@ class Job_Intake {
 	 * @param string      $handler    Handler name (alphanumeric, underscores, hyphens, max 64 chars).
 	 * @param array<string, mixed>       $parameters Job parameters (can be large).
 	 * @param string|null $key        Optional partition key for consistent routing.
+	 * @param string|null $id         Optional per-job identity (top-level `id`) for durable
+	 *                                jobstats keying ("handler:id"); omitted entirely when null/empty.
 	 * @return bool True on success, false on validation failure, lock unavailable, or write error.
 	 */
-	public function write_job( string $handler, array $parameters, ?string $key = null ): bool {
+	public function write_job( string $handler, array $parameters, ?string $key = null, ?string $id = null ): bool {
 		// Validate handler name.
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
+			return false;
+		}
+
+		// The id rides in every jobstats KEY — bound it here.
+		if ( null !== $id && \strlen( $id ) > self::MAX_JOB_ID_LEN ) {
+			Core::stderr( '[Nodes] JobIntake: Job id exceeds ' . self::MAX_JOB_ID_LEN . ' chars for handler: ' . $handler );
 			return false;
 		}
 
@@ -163,6 +175,9 @@ class Job_Intake {
 			'parameters' => $parameters,
 			'ts'         => \microtime( true ),
 		];
+		if ( null !== $id && '' !== $id ) {
+			$job['id'] = $id;
+		}
 
 		$encoded = \wp_json_encode( $job );
 		if ( false === $encoded || \strlen( $encoded ) > self::MAX_JOB_SIZE ) {

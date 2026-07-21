@@ -91,9 +91,10 @@ class Log_Cleaner {
 			foreach ( self::producer_log_dirs() as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
-			// Whitelist the auto-mounted probe log; only if a set exists.
+			// Whitelist the auto-mounted probe logs; only if a set exists.
 			if ( ! empty( $logs ) ) {
 				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] ??= 0;
+				$logs[ Worker_Base::JOBSTATS_LOG_DIR ] ??= 0;
 				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] ??= 0;
 			}
 		}
