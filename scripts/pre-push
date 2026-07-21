@@ -72,12 +72,23 @@ fi
 
 step "checking $(dim "$range")"
 
-# JS tests are fast and can break from a sibling-repo shared-runtime change this
-# push never touched (the @newspack-nodes/* alias resolves to the nodes source),
-# so run the FULL suite on every push — before the scoped, file-type gates.
-step "test:js"
-npm run test:js --silent || fail "test:js failed — fix or push --no-verify"
+# JS tests run WITH COVERAGE on every push — they're fast, and a sibling
+# shared-runtime change this push never touched can still break them (the
+# @newspack-nodes/* alias resolves to the nodes source), which a file-type-scoped
+# gate would miss. The per-file JS gate then fails the push if any src file
+# dropped below 90% (coverage-gate-js.mjs skips cleanly for a plugin with no JS).
+step "test:js (with coverage)"
+npm run test:js:coverage --silent || fail "test:js failed — fix or push --no-verify"
 ok "test:js clean"
+
+jsgate="$(git rev-parse --show-toplevel)/scripts/coverage-gate-js.mjs"
+jssummary="$(git rev-parse --show-toplevel)/coverage/coverage-summary.json"
+if [[ -f "$jsgate" ]] && command -v node >/dev/null 2>&1; then
+	step "JS coverage gate (every src file ≥ 90%)"
+	node "$jsgate" "$jssummary" --threshold 90 >&2 \
+		|| fail "JS coverage gate failed — a src file is below 90% (see above)"
+	ok "JS coverage gate passed"
+fi
 
 # Classify the diff by file type. Exclude generated / vendored paths.
 changed="$(git diff --name-only "$range" 2>/dev/null || true)"
