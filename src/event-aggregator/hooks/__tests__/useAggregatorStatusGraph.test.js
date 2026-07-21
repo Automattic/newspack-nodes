@@ -20,6 +20,7 @@ import {
 	newMessage,
 	TO,
 	FROM,
+	ID,
 	VALUE,
 	TYPE,
 	TM_COMMAND,
@@ -252,5 +253,102 @@ describe( 'useAggregatorStatusGraph — graphGeneration Reset Graph', () => {
 			freshView.setState( 'view', { total: 7 } );
 		} );
 		expect( result.current ).toEqual( { total: 7 } );
+	} );
+} );
+
+describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
+	// Client that echoes m[ID] + a per-verb payload; probe → object roll-up.
+	function makeClient( { summary = {}, servers = [], rollup = {} } = {} ) {
+		return {
+			posted: [],
+			postBatch( messages ) {
+				this.posted.push( ...messages );
+				const replies = messages.map( ( m ) => {
+					const reply = newMessage();
+					reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+					reply[ TO ] = m[ FROM ];
+					reply[ ID ] = m[ ID ];
+					const name = m[ VALUE ]?.name;
+					let payload;
+					if ( 'probe' === name ) {
+						payload = rollup;
+					} else if ( 'summary' === name ) {
+						payload = JSON.stringify( summary );
+					} else {
+						payload = JSON.stringify( servers );
+					}
+					reply[ VALUE ] = { name, payload };
+					return reply;
+				} );
+				return Promise.resolve( replies );
+			},
+		};
+	}
+
+	test( 'mounts the on-demand fleet receiver Tee + result view', () => {
+		renderHook( () =>
+			useAggregatorStatusGraph( { commandClient: makeClient() } )
+		);
+		expect( Core.node( 'aggregator:fleetIn' ) ).toBeTruthy();
+		expect( Core.node( 'aggregator:fleet' ) ).toBeTruthy();
+	} );
+
+	test( 'probe(id) POSTs the probe verb FROM the fleet receiver, correlated by id', async () => {
+		const client = makeClient();
+		const { result } = renderHook( () =>
+			useAggregatorStatusGraph( { commandClient: client } )
+		);
+		await act( async () => {
+			await result.current.probe( 'spokeX' );
+		} );
+		const probeMsg = client.posted.find(
+			( m ) => 'probe' === m[ VALUE ]?.name
+		);
+		expect( probeMsg ).toBeTruthy();
+		expect( probeMsg[ FROM ] ).toBe( 'aggregator:fleetIn' );
+		expect( probeMsg[ ID ] ).toBe( 'spokeX' );
+		// TO started `_shell/_http/aggregator`; router peeled both hops before POST.
+		expect( probeMsg[ TO ] ).toBe( 'aggregator' );
+	} );
+
+	test( 'a probe reply resolves the caller AND files the roll-up in aggregator:fleet', async () => {
+		const rollup = {
+			id: 'spoke1',
+			workers: { total: 2, live: 2, stale: 0, dead: 0 },
+			worst_distance: 41,
+			deadletter_segments: 3,
+		};
+		const client = makeClient( { rollup } );
+		const { result } = renderHook( () =>
+			useAggregatorStatusGraph( { commandClient: client } )
+		);
+		let settled;
+		await act( async () => {
+			settled = await result.current.probe( 'spoke1' );
+		} );
+		expect( settled ).toEqual( rollup );
+		expect(
+			Core.node( 'aggregator:fleet' ).setStateCache.view.probes.spoke1
+		).toEqual( { ok: true, rollup } );
+	} );
+
+	test( 'probe rejects after unmount (graph gone)', async () => {
+		const { result, unmount } = renderHook( () =>
+			useAggregatorStatusGraph( { commandClient: makeClient() } )
+		);
+		unmount();
+		await expect( result.current.probe( 'x' ) ).rejects.toThrow(
+			'graph not mounted'
+		);
+	} );
+
+	test( 'probe rejects when the fleet view is absent', async () => {
+		const { result } = renderHook( () =>
+			useAggregatorStatusGraph( { commandClient: makeClient() } )
+		);
+		Core.nodes.delete( 'aggregator:fleet' );
+		await expect( result.current.probe( 'x' ) ).rejects.toThrow(
+			'fleet view not mounted'
+		);
 	} );
 } );

@@ -25,6 +25,7 @@ use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Vault;
@@ -48,6 +49,7 @@ class AggregatorCITest extends TestCase {
 		Vault::get_instance()->reset_cache();
 		Topology_Registry::reset();
 		Topology_Registry::register_user_dir( $this->tmp . '/topologies' );
+		Aggregator_CI_Node::$http_call = null;
 	}
 
 	protected function tearDown(): void {
@@ -56,6 +58,7 @@ class AggregatorCITest extends TestCase {
 		$GLOBALS['_wp_options']       = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		Vault::get_instance()->reset_cache();
+		Aggregator_CI_Node::$http_call = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -403,5 +406,75 @@ class AggregatorCITest extends TestCase {
 			"Aggregator_CI is absent from the class catalog — its node_schema category was dropped to ''/'Hidden', or class discovery is broken"
 		);
 		$this->assertSame( 'Service', $by_shell['Aggregator_CI'] );
+	}
+
+	// ── probe verb — on-demand per-spoke fleet roll-up ──────────────────────
+
+	/**
+	 * Stub the shared probe seam to return a spoke `workers/dump_graph` reply.
+	 *
+	 * @param array<string,mixed> $payload The dump_graph payload the spoke returns.
+	 */
+	private function stub_probe_reply( array $payload ): void {
+		Aggregator_CI_Node::$http_call = static function ( string $url, array $args ) use ( $payload ): array {
+			$reply                     = Message::new_message();
+			$reply[ Message::TYPE ]    = Message::TM_COMMAND | Message::TM_RESPONSE;
+			$reply[ Message::VALUE ]   = [ 'name' => 'dump_graph', 'payload' => $payload ];
+			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+		};
+	}
+
+	public function test_probe_verb_rolls_up_a_spoke_dump_graph(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Vault::get_instance()->reset_cache();
+		$this->stub_probe_reply(
+			[
+				'workers'             => [
+					[ 'type' => 'a', 'partition' => 0, 'status' => 'running', 'live' => true, 'stale' => false, 'heartbeat_age' => 1 ],
+					[ 'type' => 'b', 'partition' => 0, 'status' => 'dead', 'live' => false, 'stale' => true, 'heartbeat_age' => 240 ],
+					[ 'type' => 'c', 'partition' => 0, 'status' => 'dead', 'live' => false, 'stale' => false, 'heartbeat_age' => null ],
+				],
+				'consumers'           => [
+					[ 'reader' => 'x.p0', 'distance' => 512 ],
+					[ 'reader' => 'y.p0', 'distance' => 88_888 ],
+				],
+				'deadletter_segments' => 6,
+				'supervisor'          => [ 'status' => 'running', 'heartbeat_age' => 3 ],
+			]
+		);
+
+		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+
+		$this->assertSame( 'spoke1', $out['id'] );
+		$this->assertSame( [ 'total' => 3, 'live' => 1, 'stale' => 1, 'dead' => 1 ], $out['workers'] );
+		$this->assertSame( 88_888, $out['worst_distance'] );
+		$this->assertSame( 6, $out['deadletter_segments'] );
+		$this->assertSame( 'running', $out['supervisor']['status'] );
+		$this->assertSame( 3, $out['supervisor']['heartbeat_age'] );
+	}
+
+	public function test_probe_verb_requires_a_known_server(): void {
+		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'ghost' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'server not found', $out );
+	}
+
+	public function test_probe_verb_requires_an_id(): void {
+		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'id required', $out );
+	}
+
+	public function test_probe_verb_rejects_unauthorized(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'permission denied', $out );
 	}
 }

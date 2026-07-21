@@ -17,10 +17,9 @@
  * applications can react (settings-sync, supervisor restart, etc.) without the
  * substrate knowing those application concerns.
  *
- * Test seam: `Vault_CI::$http_call` is a static `\Closure` that defaults to
- * `\wp_remote_post` at the call site. Tests reassign in their bootstrap to
- * capture without short-circuiting the rest of the URL composition +
- * response-classification path. See `~/.claude/rules/test-seams.md`.
+ * The `test` verb's spoke POST + JSONL parse is the shared
+ * `Service_CI_Node::probe_command()` (with its `$http_call` test seam); this
+ * class only whitelists the returned discovery payload.
  *
  * @package Newspack_Nodes
  */
@@ -28,10 +27,6 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Command_Args;
-use Newspack_Nodes\Config;
-use Newspack_Nodes\Core;
-use Newspack_Nodes\Message;
-use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Vault;
 
@@ -39,17 +34,6 @@ use Newspack_Nodes\Vault;
 
 class Vault_CI_Node extends Service_CI_Node {
 
-	/**
-	 * `wp_remote_post` seam used by the `test` verb. Lazily-defaulted to a
-	 * closure that wraps the real WordPress call (can't default a Closure
-	 * on a class property — must be a constant expression). Tests reassign
-	 * to capture outbound args + inject canned responses.
-	 *
-	 * Signature: `function ( string $url, array $args ): array|\WP_Error`.
-	 *
-	 * @var \Closure(string, array<string, mixed>): (array<string, mixed>|\WP_Error)|null
-	 */
-	public static ?\Closure $http_call = null;
 	/**
 	 * `list` verb handler — registered servers (public shape).
 	 *
@@ -244,84 +228,15 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * HTTP probe of a remote spoke's discovery endpoint with stored Basic Auth.
 	 * Returns the response shape:
 	 *   { id, status: 'connected', response: {registered_hooks, custom_events, lag} }
-	 * Throws a RuntimeException with a short error string on any failure
-	 * (WP_Error, non-200, non-JSON body).
+	 * The POST + JSONL parse is the shared `probe_command()`; this method only
+	 * whitelists the discovery payload so we never proxy arbitrary remote JSON.
 	 *
 	 * @param string               $id     Server id.
 	 * @param array<string, mixed> $server Decrypted server config from the registry.
 	 * @return array<string, mixed> Sanitised probe response.
 	 */
 	private static function probe_remote( string $id, array $server ): array {
-		$verify_ssl = (bool) Config::value( 'vault_verify_ssl' );
-
-		// discovery.get via /command; build the body via the shared primitive.
-		/** @var int|float|string|bool|null $raw_server_url */
-		$raw_server_url = $server['url'];
-		$url            = \rtrim( (string) $raw_server_url, '/' ) . '/wp-json/newspack-nodes/v1/command';
-		$args = [
-			// 5s bound: UI blocks on the probe; 1s misses slow spokes.
-			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
-			'timeout'             => 5,
-			'sslverify'           => $verify_ssl,
-			'redirection'         => 0,
-			'limit_response_size' => 1048576,
-			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
-			'body'                => self::command_body( 'discovery', 'get', [] ),
-		];
-
-		/** @var int|float|string|bool|null $raw_username */
-		$raw_username = $server['auth_username'] ?? '';
-		/** @var int|float|string|bool|null $raw_password */
-		$raw_password = $server['auth_password'] ?? '';
-		$username     = (string) $raw_username;
-		$password     = (string) $raw_password;
-		if ( '' !== $username && '' !== $password ) {
-			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
-			$args['headers']['Authorization'] = 'Basic ' . \base64_encode( $username . ':' . $password );
-		}
-
-		$call = self::$http_call ?? static function ( string $u, array $a ) {
-			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string, mixed>|string, body?: array<string, mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
-			return \wp_remote_post( $u, $a );
-		};
-		$response = $call( $url, $args );
-
-		if ( $response instanceof \WP_Error ) {
-			throw new \RuntimeException( 'could not connect to server' );
-		}
-
-		$code = \wp_remote_retrieve_response_code( $response );
-		if ( 200 !== $code ) {
-			throw new \RuntimeException( \esc_html( "HTTP {$code} response from server" ) );
-		}
-
-		// Pick the reply (struct VALUE) from the JSONL stream; skip noise.
-		$envelope = null;
-		foreach ( \explode( "\n", \wp_remote_retrieve_body( $response ) ) as $line ) {
-			if ( '' === \trim( $line ) ) {
-				continue;
-			}
-			$decoded = \json_decode( $line, true, 16 );
-			if ( \is_array( $decoded ) && isset( $decoded[ Message::VALUE ] ) && \is_array( $decoded[ Message::VALUE ] ) ) {
-				$envelope = $decoded;
-			}
-		}
-		if ( null === $envelope ) {
-			throw new \RuntimeException( 'server returned malformed command envelope' );
-		}
-		$raw_type = $envelope[ Message::TYPE ] ?? 0;
-		if ( Core::num_int( $raw_type ) & Message::TM_ERROR ) {
-			throw new \RuntimeException( 'server returned TM_ERROR for discovery probe' );
-		}
-		$value = $envelope[ Message::VALUE ];
-		if ( ! \array_key_exists( 'payload', $value ) ) {
-			throw new \RuntimeException( 'server returned malformed command response' );
-		}
-		$payload = $value['payload'];
-		$body    = '' === $payload ? [] : $payload;
-		if ( ! \is_array( $body ) ) {
-			throw new \RuntimeException( 'server returned non-JSON discovery payload' );
-		}
+		$body = self::probe_command( $server, 'discovery', 'get' );
 
 		// Whitelist what we surface so we never proxy arbitrary remote JSON.
 		$safe = [];
@@ -346,24 +261,6 @@ class Vault_CI_Node extends Service_CI_Node {
 			'status'   => 'connected',
 			'response' => $safe,
 		];
-	}
-
-	/**
-	 * Build a packed /command request body for the spoke probe, using substrate
-	 * primitives only (mirror of the JS CommandClient + HTTP_In decode).
-	 *
-	 * @param string $to   Target node path.
-	 * @param string $verb Command verb name.
-	 * @param list<string> $args Argument tail (Command_Args grammar).
-	 * @return string Packed Message JSONL line.
-	 */
-	private static function command_body( string $to, string $verb, array $args = [] ): string {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = Node_Names::HTTP;
-		$message[ Message::TO ]    = $to;
-		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
-		return Message::packed( $message );
 	}
 
 	/**

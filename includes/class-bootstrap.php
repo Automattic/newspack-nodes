@@ -19,6 +19,9 @@ use Newspack_Nodes\Rest\Spawn_Controller;
 
 class Bootstrap {
 
+	/** Site Health test id (also the `test` field WP echoes back on the result). */
+	public const SITE_HEALTH_TEST = 'newspack_nodes_fleet';
+
 	/**
 	 * `\Memcached`-construction seam. Lazily-defaulted to a closure that builds
 	 * the real handle. Tests reassign in setUp to return an in-memory double so
@@ -103,6 +106,9 @@ class Bootstrap {
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
+		// Fleet alerting: Site Health test + rate-limited alert emission.
+		\add_filter( 'site_status_tests', [ self::class, 'register_site_health_tests' ] );
+		\add_action( 'newspack_nodes/supervisor_periodic', [ Alerts::class, 'emit' ] );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
@@ -451,6 +457,66 @@ class Bootstrap {
 	public static function remember_schedule_event_context( $event ) {
 		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
 		return $event;
+	}
+
+	/**
+	 * Register the substrate's ONE `direct` Site Health test. Direct (not async):
+	 * the check is a handful of filemtime/glob reads, no HTTP.
+	 *
+	 * @param array<string,mixed> $tests WP Site Health tests (`direct`/`async` buckets).
+	 * @return array<string,mixed>
+	 */
+	public static function register_site_health_tests( array $tests ): array {
+		if ( ! \is_array( $tests['direct'] ?? null ) ) {
+			$tests['direct'] = [];
+		}
+		$tests['direct'][ self::SITE_HEALTH_TEST ] = [
+			'label' => \__( 'Newspack Nodes fleet health', 'newspack-nodes' ),
+			'test'  => [ self::class, 'run_workers_health_test' ],
+		];
+		return $tests;
+	}
+
+	/**
+	 * Run the fleet Site Health test: map the Alerts evaluator's worst severity
+	 * to a WP Site Health status (critical → critical, warning → recommended,
+	 * none → good) and list every alert message in the description.
+	 *
+	 * @return array<string,mixed> WP Site Health result.
+	 */
+	public static function run_workers_health_test(): array {
+		$alerts = Alerts::evaluate();
+		$worst  = Alerts::worst_severity( $alerts );
+		$status = [
+			Alerts::SEVERITY_CRITICAL => 'critical',
+			Alerts::SEVERITY_WARNING  => 'recommended',
+		][ $worst ] ?? 'good';
+
+		if ( empty( $alerts ) ) {
+			$description = '<p>' . \esc_html__( 'All workers are heartbeating, consumers are keeping up, and no messages are quarantined.', 'newspack-nodes' ) . '</p>';
+			$label       = \__( 'Newspack Nodes fleet is healthy', 'newspack-nodes' );
+		} else {
+			$items = '';
+			foreach ( $alerts as $alert ) {
+				$items .= '<li>' . \esc_html( Core::as_string( $alert['message'] ?? '' ) ) . '</li>';
+			}
+			$description = '<ul>' . $items . '</ul>';
+			$label       = \__( 'Newspack Nodes fleet has alerts', 'newspack-nodes' );
+		}
+
+		return [
+			'label'       => $label,
+			'status'      => $status,
+			'badge'       => [
+				'label' => \__( 'Newspack Nodes', 'newspack-nodes' ),
+				'color' => [
+					'good'        => 'blue',
+					'recommended' => 'orange',
+				][ $status ] ?? 'red',
+			],
+			'description' => $description,
+			'test'        => self::SITE_HEALTH_TEST,
+		];
 	}
 
 	/**

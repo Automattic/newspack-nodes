@@ -102,16 +102,19 @@ function registerSlices( { summary = {}, servers = {} } = {} ) {
 
 describe( 'AggregatorStatus', () => {
 	let setRefreshInterval;
+	let probe;
 	const mounted = [];
 
 	beforeEach( () => {
 		Core.reset();
 		window.localStorage.clear();
 		setRefreshInterval = jest.fn();
+		probe = jest.fn().mockResolvedValue( {} );
 		useAggregatorStatusGraph.mockClear();
 		useAggregatorStatusGraph.mockReturnValue( {
 			setRefreshInterval,
 			refreshInterval: '2000',
+			probe,
 		} );
 	} );
 
@@ -353,5 +356,73 @@ describe( 'AggregatorStatus', () => {
 		} );
 		expect( container.textContent ).toContain( 'server1' );
 		jest.useRealTimers();
+	} );
+
+	it( 'renders one Probe button per server card', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		expect(
+			container.querySelectorAll( '.aggregator-fleet-probe-button' )
+				.length
+		).toBe( SAMPLE_SERVERS.length );
+	} );
+
+	it( 'clicking Probe fires the hook probe(id)', async () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const button = container.querySelector(
+			'.aggregator-fleet-probe-button'
+		);
+		await act( async () => {
+			button.dispatchEvent(
+				new window.MouseEvent( 'click', { bubbles: true } )
+			);
+		} );
+		expect( probe ).toHaveBeenCalledWith( 'server1' );
+	} );
+
+	it( 'renders the fleet roll-up when a probe result is present', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		fixtureNode( 'aggregator:fleet', {
+			probes: {
+				server1: {
+					ok: true,
+					rollup: {
+						workers: { total: 4, live: 3, stale: 1, dead: 0 },
+						worst_distance: 128,
+						deadletter_segments: 5,
+					},
+				},
+			},
+		} );
+		const { container } = mount();
+		expect( container.textContent ).toContain(
+			'3 live / 1 stale / 0 dead'
+		);
+		expect( container.textContent ).toContain( '128' );
+		expect( container.textContent ).toContain( 'DLQ 5' );
+	} );
+
+	it( 'renders the probe error line on a failed probe', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		fixtureNode( 'aggregator:fleet', {
+			probes: {
+				server1: { ok: false, error: 'could not connect to server' },
+			},
+		} );
+		const { container } = mount();
+		const err = container.querySelector(
+			'.aggregator-fleet-rollup.is-error'
+		);
+		expect( err ).toBeTruthy();
+		expect( err.textContent ).toContain( 'could not connect to server' );
 	} );
 } );

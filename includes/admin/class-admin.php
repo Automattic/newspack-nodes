@@ -75,6 +75,44 @@ class Admin {
 
 		// Read-only "Effective Configuration" panel below the settings form.
 		\add_action( 'newspack_nodes/settings_after_form', [ $this, 'render_effective_config_section' ] );
+
+		// One fleet-alert summary notice on the Nodes admin pages.
+		\add_action( 'admin_notices', [ $this, 'render_alert_notice' ] );
+	}
+
+	/**
+	 * Render ONE fleet-alert notice summarizing the Alerts evaluator's count +
+	 * worst severity, shown only on the substrate's own admin pages to
+	 * manage_options users. Nothing renders when the fleet is clean.
+	 */
+	public function render_alert_notice(): void {
+		if ( ! self::current_user_allowed() ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( ! \str_starts_with( $page, 'newspack-nodes' ) ) {
+			return;
+		}
+		$alerts = \Newspack_Nodes\Alerts::evaluate();
+		if ( empty( $alerts ) ) {
+			return;
+		}
+		$worst = \Newspack_Nodes\Alerts::worst_severity( $alerts );
+		$class = \Newspack_Nodes\Alerts::SEVERITY_CRITICAL === $worst ? 'notice-error' : 'notice-warning';
+		$message = \sprintf(
+			/* translators: 1: number of active fleet alerts, 2: worst severity (warning|critical). */
+			\__( 'Newspack Nodes: %1$d fleet alert(s), worst severity %2$s.', 'newspack-nodes' ),
+			\count( $alerts ),
+			$worst
+		);
+		\printf(
+			'<div class="notice %s"><p>%s <a href="%s">%s</a></p></div>',
+			\esc_attr( $class ),
+			\esc_html( $message ),
+			\esc_url( \admin_url( 'site-health.php' ) ),
+			\esc_html__( 'View fleet health', 'newspack-nodes' )
+		);
 	}
 
 	/**

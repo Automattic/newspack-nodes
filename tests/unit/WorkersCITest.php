@@ -946,6 +946,37 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	public function test_dump_graph_counts_deadletter_segments_across_all_dirs(): void {
+		// The DLQ-growth signal: dump_graph carries a `deadletter_segments` total,
+		// globbed from every `{base}/deadletter/*/*.log` quarantine dir. Both the
+		// substrate Alerts evaluator (local) and the fleet probe (remote) read it.
+		$base = $this->arrange_base_dir();
+		// Two consumers each quarantined poison; one rolled to a second segment.
+		\mkdir( "{$base}/deadletter/jobs.job-worker.p0", 0755, true );
+		\mkdir( "{$base}/deadletter/firehose.request-builder.p0", 0755, true );
+		\file_put_contents( "{$base}/deadletter/jobs.job-worker.p0/0.log", 'x' );
+		\file_put_contents( "{$base}/deadletter/jobs.job-worker.p0/1.log", 'x' );
+		\file_put_contents( "{$base}/deadletter/firehose.request-builder.p0/0.log", 'x' );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertArrayHasKey( 'deadletter_segments', $result );
+		$this->assertSame( 3, $result['deadletter_segments'] );
+	}
+
+	public function test_dump_graph_reports_zero_deadletter_when_dir_absent(): void {
+		// No quarantine dir on disk → a clean zero, never a warning/glob error.
+		$this->arrange_base_dir();
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertSame( 0, $result['deadletter_segments'] );
+	}
+
 	public function test_dump_metadata_includes_supervisor_descriptor(): void {
 		// The supervisor is a singleton — exactly one entry, always emitted,
 		// at the un-suffixed lock dir `supervisor.lock.d`. No `partition`
