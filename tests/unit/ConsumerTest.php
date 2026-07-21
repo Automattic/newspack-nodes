@@ -66,6 +66,45 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( '', $ref->getProperty( 'deadletter_dir' )->getValue( $c ) );
 	}
 
+	public function test_deadletter_triage_verbs_are_wired_into_the_schema(): void {
+		$verbs = \array_column( Consumer_Node::node_schema()['commands'], 'name' );
+		$this->assertContains( 'dl_list', $verbs );
+		$this->assertContains( 'dl_requeue', $verbs );
+		$this->assertContains( 'dl_purge', $verbs );
+	}
+
+	public function test_requeue_reinjects_a_dead_letter_record_into_the_source(): void {
+		$c = new Consumer_Node();
+		$c->name( 'reader' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'requeue-me';
+		$message[ Message::ID ]    = '2:64:40';
+		( new \ReflectionMethod( Consumer_Node::class, 'dead_letter' ) )->invoke( $c, $message, 'throw', null );
+
+		$row = $c->list_deadletter( 50 )['rows'][0];
+		$this->assertStringStartsWith( 'ok', $c->requeue_deadletter( $row['locator'] ) );
+
+		// The record landed back in the source Partition the Consumer tails.
+		$source = $this->read_private( $c, 'source' );
+		$this->assertSame( [ 'requeue-me' ], $this->read_partition_values( $source ) );
+	}
+
+	public function test_dump_metadata_reports_the_deadletter_segment_count(): void {
+		$c = new Consumer_Node();
+		$c->name( 'reader' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$this->assertSame( 0, $c->dump_metadata()['deadletter_segments'], 'no quarantine yet' );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'poison';
+		( new \ReflectionMethod( Consumer_Node::class, 'dead_letter' ) )->invoke( $c, $message, 'throw', null );
+		$this->assertSame( 1, $c->dump_metadata()['deadletter_segments'], 'one quarantine segment now' );
+	}
+
 	public function test_sidecar_partitions_have_no_config_interpreter(): void {
 		// Roadmap [83]: a patron-managed sidecar (the Consumer's source/offsetlog)
 		// shouldn't carry its own `{name}:config` — the patron configures it
@@ -3235,9 +3274,9 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
 		$this->assertSame(
-			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'assume_clean_shutdown', 'set_multi_writer' ],
+			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'assume_clean_shutdown', 'dl_list', 'dl_requeue', 'dl_purge', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
-			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (STEP is a mutating command, not a request), and set_multi_writer (seal-grace)'
+			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (STEP is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
 		);
 
 		// Three ctor params: source_dir (required), offsetlog_dir + deadletter_dir (default '').

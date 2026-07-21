@@ -543,10 +543,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * no SSE_In sync is needed.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
 	 */
 	public function dump_metadata(): array {
-		return $this->time_travel_metadata();
+		return $this->time_travel_metadata() + $this->deadletter_metadata();
 	}
 
 	/**
@@ -606,8 +606,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 					[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
 				]
 			),
-			// Time-travel verbs are shared with Consumer via Time_Travel trait.
-			'commands'    => \array_merge( self::time_travel_verbs(), self::pump_verbs() ),
+			// Time-travel + pump + DLQ triage verbs, shared with Consumer.
+			'commands'    => \array_merge( self::time_travel_verbs(), self::pump_verbs(), self::deadletter_verbs() ),
 		] );
 	}
 }
