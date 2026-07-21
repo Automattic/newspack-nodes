@@ -8,7 +8,7 @@
 #
 # Everything else is smart-scoped by file type touched in the push range:
 #
-#   PHP changed  → npm run lint:php  + deploy to container + phpunit in container
+#   PHP changed  → npm run lint:php  + deploy + coverage suite + per-class 90% gate
 #   JS changed   → npm run lint:js   + npm run build
 #   SCSS changed → npm run lint:scss + npm run build
 #
@@ -23,9 +23,15 @@ set -euo pipefail
 
 HOST=$(hostname -s)
 readonly HOST
+# --- Per-plugin config — the ONLY part that differs between the aligned hooks. -
+# This plugin runs from /services on ${HOST}-pyrobase1-1: the deploy installs a
+# release zip and runs PHPUnit straight from the /services source mount (never
+# /usr/src), and run-coverage.sh writes to ${PLUGIN_SLUG}-coverage/.
 readonly PLUGIN_SLUG="newspack-nodes"
 readonly DEPLOY_SCRIPT="/services/pyrobase/setup/${PLUGIN_SLUG}.sh"
 readonly CONTAINER="${HOST}-pyrobase1-1"
+readonly TEST_DIR_IN_CONTAINER="/services/pyrobase/sources/${PLUGIN_SLUG}/tests"
+readonly COVERAGE_DIR="${PLUGIN_SLUG}-coverage"
 
 red()    { printf '\033[31m%s\033[0m' "$*"; }
 green()  { printf '\033[32m%s\033[0m' "$*"; }
@@ -112,15 +118,17 @@ if [[ -n "$js_changed" || -n "$scss_changed" ]]; then
 fi
 
 # --- PHP tests run WITH COVERAGE in the docker container when available. ----
-# run-coverage.sh runs the phpunit suite (so a test failure still fails the
-# push — it's `bash -e`, phpunit's non-zero exit aborts it) AND emits the
-# clover the gate reads. The gate then fails the push if ANY class dropped
-# below 90% statement coverage — borrowed from tools/coverage-summary.py.
+# run-coverage.sh runs BOTH phpunit suites (main + mock) with vendor/bin/phpunit
+# v10 — NOT the container's v11 system binary, which is Application-class
+# incompatible — so a test failure still fails the push (it's `bash -e`;
+# phpunit's non-zero exit aborts it) AND it emits the merged clover the gate
+# reads. TEST_TMP lands that clover in the shared dndocker volume so the
+# host-side gate can read it back. The gate then fails the push if ANY
+# includes/ class dropped below 90% statement coverage.
 #
-# The configured CONTAINER only exists in some local dev environments — anyone
-# who clones this plugin standalone won't have it (nor the dndocker tools/), and
-# the silent skip is the right behavior. No dndocker-tree detection needed: the
-# container and the tool either exist or they don't.
+# The configured container only exists in some local dev environments; anyone who
+# clones this plugin standalone won't have it (nor the dndocker volume/tools),
+# and the silent skip is the right behavior.
 if [[ -n "$php_changed" ]]; then
 	if ! command -v docker >/dev/null 2>&1 \
 	   || ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER}$"; then
@@ -131,8 +139,8 @@ if [[ -n "$php_changed" ]]; then
 
 		step "coverage suite in container (phpunit + clover)"
 		out=/tmp/pre-push-coverage.out
-		if docker exec -u bend "$CONTAINER" \
-			"/services/pyrobase/sources/${PLUGIN_SLUG}/tests/run-coverage.sh" >"$out" 2>&1; then
+		if docker exec -u bend -e TEST_TMP=/volumes/pyrobase/tmp "$CONTAINER" \
+			"${TEST_DIR_IN_CONTAINER}/run-coverage.sh" >"$out" 2>&1; then
 			cov_rc=0
 		else
 			cov_rc=$?
@@ -141,12 +149,12 @@ if [[ -n "$php_changed" ]]; then
 		[[ "$cov_rc" -ne 0 ]] && fail "coverage suite failed (exit ${cov_rc}) — full output at ${out}"
 		ok "coverage suite clean"
 
-		# Per-class 90% gate via the repo-local, self-contained scripts/coverage-gate.py
-		# (clover parse borrowed from dndocker's tools/coverage-summary.py). The clover
-		# lands in the dndocker volume; skip gracefully off-dndocker or without python3.
+		# Per-class 90% gate via the repo-local, self-contained scripts/coverage-gate.py.
+		# run-coverage.sh writes the merged clover under $TEST_TMP/${COVERAGE_DIR}/;
+		# skip gracefully off-dndocker or without python3.
 		gate="$(git rev-parse --show-toplevel)/scripts/coverage-gate.py"
 		dndocker_root="$(cd "$(git rev-parse --show-toplevel)/../../../.." 2>/dev/null && pwd || true)"
-		clover="${dndocker_root}/volumes/pyrobase/tmp/${PLUGIN_SLUG}-coverage/clover.xml"
+		clover="${dndocker_root}/volumes/pyrobase/tmp/${COVERAGE_DIR}/clover.xml"
 		if [[ -f "$gate" && -f "$clover" ]] && command -v python3 >/dev/null 2>&1; then
 			step "coverage gate (every class ≥ 90%)"
 			python3 "$gate" "$clover" --threshold 90 >&2 \

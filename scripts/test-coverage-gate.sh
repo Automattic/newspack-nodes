@@ -3,8 +3,9 @@
 # Tests for scripts/coverage-gate.py — the self-contained per-class coverage gate
 # the pre-push hook runs. Feeds fixture clovers via a temp file; no real run needed.
 
+# shellcheck disable=SC2015 # pass()/bad() both return 0, so every `cond && pass || bad` below is a safe two-way branch, not if-then-else.
 set -u
-cd "$( dirname "$0" )"
+cd "$( dirname "$0" )" || exit 1
 GATE=./coverage-gate.py
 tmp="$( mktemp -d )"
 trap 'rm -f "$tmp"/*.xml; rmdir "$tmp"' EXIT
@@ -15,19 +16,19 @@ bad()  { echo "✗ $1"; fail=1; }
 cat > "$tmp/clover.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <coverage><project>
-  <file name="/services/pyrobase/sources/newspack-nodes/includes/class-low.php">
-    <class name="Newspack_Nodes\Low"><metrics methods="2" coveredmethods="1"/></class>
+  <file name="/plugin/includes/class-low.php">
+    <class name="Plugin\Low"><metrics methods="2" coveredmethods="1"/></class>
     <line num="10" type="stmt" count="0"/>
     <line num="11" type="stmt" count="0"/>
     <line num="12" type="stmt" count="1"/>
     <line num="13" type="stmt" count="0"/>
   </file>
-  <file name="/services/pyrobase/sources/newspack-nodes/includes/class-high.php">
-    <class name="Newspack_Nodes\High"><metrics methods="1" coveredmethods="1"/></class>
+  <file name="/plugin/includes/class-high.php">
+    <class name="Plugin\High"><metrics methods="1" coveredmethods="1"/></class>
     <line num="5" type="stmt" count="1"/>
     <line num="6" type="stmt" count="1"/>
   </file>
-  <file name="/services/pyrobase/sources/newspack-nodes/src/ignored.php">
+  <file name="/plugin/src/ignored.php">
     <class name="Ignored"><metrics methods="1" coveredmethods="0"/></class>
     <line num="1" type="stmt" count="0"/>
   </file>
