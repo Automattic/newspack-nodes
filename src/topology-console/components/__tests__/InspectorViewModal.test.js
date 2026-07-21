@@ -9,6 +9,7 @@ import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
 import { DumperNode } from '../../../runtime/dumper-node';
 import names from '../../../runtime/reserved-node-names.json';
+import { MetadataNode } from '../../../runtime/metadata-node';
 import InspectorViewModal from '../InspectorViewModal';
 
 beforeEach( () => Core.reset() );
@@ -73,6 +74,38 @@ test( 'the Timeline view parses the console `_output` transcript into rows', () 
 	expect(
 		rows[ 0 ].querySelector( '.timeline-view__event' ).textContent
 	).toBe( 'rotate' );
+} );
+
+function seedMetadata( nodes ) {
+	let meta = Core.node( names.METADATA );
+	if ( ! meta ) {
+		meta = new MetadataNode();
+		meta.name = names.METADATA;
+	}
+	act( () => meta.setState( 'metadata', { nodes, edges: [], pwd: '' } ) );
+}
+
+test( 'the Timeline view carries the all-nodes Trace toggle; Runtime does not', () => {
+	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
+	const onAction = jest.fn();
+	const { getByText, queryByText, rerender } = render(
+		<InspectorViewModal
+			view="timeline"
+			onDismiss={ () => {} }
+			onAction={ onAction }
+		/>
+	);
+	fireEvent.click( getByText( 'trace' ) );
+	expect( getByText( 'stop trace' ) ).not.toBeNull();
+	expect( onAction ).toHaveBeenCalledWith( 'trace', '*', 1 );
+	rerender(
+		<InspectorViewModal
+			view="runtime"
+			onDismiss={ () => {} }
+			onAction={ onAction }
+		/>
+	);
+	expect( queryByText( 'trace' ) ).toBeNull();
 } );
 
 test( 'ESC dismisses the modal', () => {
