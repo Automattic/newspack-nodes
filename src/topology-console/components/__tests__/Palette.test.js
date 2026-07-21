@@ -534,6 +534,58 @@ describe( 'Palette — search filters the Topologies section', () => {
 	} );
 } );
 
+describe( 'Palette — dock structure mirrors the inspector', () => {
+	// The palette must render as an outer `.topology-palette-dock` holding the
+	// toggle button AND the `<aside class="topology-palette">` as SIBLING direct
+	// children — structurally identical to `.topology-inspector-dock`, so the
+	// aside owns only its own padding/scroll and the dock owns grid placement.
+	it( 'wraps the aside in a dock; toggle and aside are sibling direct children of the dock', () => {
+		const { container } = render(
+			<Palette classes={ sampleClasses } onToggle={ jest.fn() } />
+		);
+		const dock = container.querySelector( '.topology-palette-dock' );
+		expect( dock ).not.toBeNull();
+		const toggle = container.querySelector( '.topology-palette__toggle' );
+		const aside = container.querySelector( 'aside.topology-palette' );
+		expect( toggle.parentElement ).toBe( dock );
+		expect( aside.parentElement ).toBe( dock );
+		// The toggle is a SIBLING of the aside, never nested inside it.
+		expect( aside.contains( toggle ) ).toBe( false );
+	} );
+
+	it( 'collapsed: dock gains --collapsed, keeps the toggle, and drops the aside entirely', () => {
+		const { container } = render(
+			<Palette
+				classes={ sampleClasses }
+				collapsed
+				onToggle={ jest.fn() }
+			/>
+		);
+		const dock = container.querySelector( '.topology-palette-dock' );
+		expect( dock ).not.toBeNull();
+		expect(
+			dock.classList.contains( 'topology-palette-dock--collapsed' )
+		).toBe( true );
+		// No aside in the collapsed rail — only the expand chevron remains.
+		expect(
+			container.querySelector( 'aside.topology-palette' )
+		).toBeNull();
+		const toggle = container.querySelector( '.topology-palette__toggle' );
+		expect( toggle.parentElement ).toBe( dock );
+	} );
+
+	it( 'loading placeholder renders inside the aside, under the dock', () => {
+		const { container } = render(
+			<Palette classes={ [] } loading onToggle={ jest.fn() } />
+		);
+		const dock = container.querySelector( '.topology-palette-dock' );
+		expect( dock ).not.toBeNull();
+		const aside = container.querySelector( 'aside.topology-palette' );
+		expect( aside.parentElement ).toBe( dock );
+		expect( aside.textContent ).toMatch( /Loading/ );
+	} );
+} );
+
 describe( 'Palette — search clear button', () => {
 	const classes = [
 		{ shell_name: 'Echo', category: 'Generic' },

@@ -1214,7 +1214,7 @@ export class CommandInterpreterNode extends Node {
 				mode: node.mode,
 				next_ms: null,
 				oneshot: !! node.oneshot,
-				fires: node.fire_count ?? 0,
+				fires: node.fireCount ?? 0,
 				type: node.constructor.name,
 				name,
 			} );

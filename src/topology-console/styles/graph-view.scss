@@ -14,6 +14,7 @@
 @use "../../theme/newspack-theme";
 @use "@newspack-nodes/shared/styles/controls";
 @use "@newspack-nodes/shared/styles/inputs";
+@use "@newspack-nodes/shared/styles/focus";
 
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
@@ -215,40 +216,51 @@
 	}
 }
 
-.topology-palette {
+// The palette lives in a dock wrapper (grid cell) so the collapse chevron can
+// pin to the corner and the palette body scrolls beneath it; collapsed, the
+// dock is the 28px rail (just the expand chevron), mirroring the inspector.
+.topology-palette-dock {
 	grid-area: palette;
-	border-right: 1px solid var(--paper-shadow);
-	background: var(--paper-2);
-	padding: 14px 0 0;
-	overflow-y: auto;
 	position: relative;
 	display: flex;
 	flex-direction: column;
+	min-height: 0;
+	background: var(--paper-2);
+	border-right: 1px solid var(--paper-shadow);
+	overflow: hidden;
 
-	// Slim collapsed rail: room for the expand-chevron and nothing else.
 	&--collapsed {
-		padding: 0;
-		overflow: hidden;
 		align-items: center;
-		justify-content: flex-start;
 	}
 
-	// Chevron button — collapse (open palette) or expand (collapsed rail).
-	// Shares %topology-panel-toggle with the inspector so both panels' hide/show
-	// controls are pixel-identical; only the positioning differs.
-	&__toggle {
+	// Chevron — collapse (open palette) or expand (collapsed rail). Pinned to
+	// the INNER (right) edge — the boundary with the canvas — mirroring how the
+	// inspector's chevron sits on its inner edge. Shares %topology-panel-toggle.
+	.topology-palette__toggle {
 		@extend %topology-panel-toggle;
-		position: sticky;
-		top: 0;
-		align-self: flex-end;
-		margin: 6px 6px 0;
-		z-index: 1;
-
-		&--collapsed {
-			align-self: center;
-			margin: 8px 0 0;
-		}
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		z-index: 2;
 	}
+
+	&--collapsed .topology-palette__toggle {
+		position: static;
+		margin-top: 8px;
+	}
+}
+
+.topology-palette {
+	flex: 1;
+	min-height: 0;
+	background: var(--paper-2);
+	// Extra top padding clears the inner-edge collapse chevron (top: 6px + 18px)
+	// so the body doesn't run under it; horizontal padding stays 0 because the
+	// content rows carry their own margins and the footer spans edge to edge.
+	padding: 32px 0 0;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
 
 	// Wrap so the ✕ clear can overlay the input's right edge (see edit-row).
 	&__search-wrap {
@@ -272,7 +284,6 @@
 		}
 
 		&:focus {
-			outline: none;
 			border-color: var(--ink);
 		}
 	}
@@ -1459,11 +1470,6 @@
 			color: var(--oxide);
 			text-decoration-style: solid;
 		}
-
-		&:focus-visible {
-			outline: 1px solid var(--oxide);
-			outline-offset: 2px;
-		}
 	}
 }
 
@@ -1799,19 +1805,10 @@
 }
 
 .topology-app .topology-edit-row__input:focus {
-	outline: none;
 	border-color: var(--ink);
 	// background-color (not the `background` shorthand) so the <select> chevron
 	// background-image below survives focus.
 	background-color: var(--paper);
-	// Kill WordPress admin's blue focus glow; the themed ring is on :focus-visible.
-	box-shadow: none;
-}
-
-// Themed focus ring (matches the header `.topology-select`) instead of WP's blue.
-.topology-app .topology-edit-row__input:focus-visible {
-	outline: 2px solid var(--oxide);
-	outline-offset: -1px;
 }
 
 // Native <select> option popups don't inherit the select's colors, so in dark
@@ -1924,17 +1921,6 @@
 .topology-app .topology-edit-add-chip:hover {
 	border-style: solid;
 	color: var(--ink);
-}
-
-// Themed focus ring instead of WP admin's blue dashed glow.
-.topology-app .topology-edit-add-chip:focus {
-	outline: none;
-	box-shadow: none;
-}
-
-.topology-app .topology-edit-add-chip:focus-visible {
-	outline: 2px solid var(--oxide);
-	outline-offset: -1px;
 }
 
 .topology-edit-verb {
@@ -2061,18 +2047,6 @@
 	background-size: 8px;
 	border-radius: 0;
 	cursor: pointer;
-
-	// Kill WordPress admin's focus glow (renders as white edges); the themed
-	// ring is on :focus-visible.
-	&:focus {
-		outline: none;
-		box-shadow: none;
-	}
-
-	&:focus-visible {
-		outline: 2px solid var(--oxide);
-		outline-offset: -1px;
-	}
 }
 
 .topology-overlay-mode {
@@ -3082,12 +3056,6 @@
 		padding: 6px 0;
 		caret-color: var(--brass);
 
-		// Kill WP-admin's blue focus ring; the brass caret already signals focus.
-		&:focus {
-			box-shadow: none;
-			outline: none;
-		}
-
 		&::placeholder {
 			color: color-mix(in srgb, var(--repl-fg) 35%, transparent);
 		}
@@ -3330,11 +3298,6 @@
 	color: var(--on-accent);
 	background: var(--oxide);
 	border-color: var(--oxide);
-}
-
-.topology-app .topology-modal__close:focus-visible {
-	outline: 2px solid var(--oxide);
-	outline-offset: 1px;
 }
 
 .topology-modal__body {

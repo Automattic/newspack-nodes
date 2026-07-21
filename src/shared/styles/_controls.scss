@@ -57,16 +57,8 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			opacity: 1;
 		}
 
-		// Kill WordPress admin's / emotion's focus glow; ring is on :focus-visible.
-		&:focus {
-			outline: none;
-			box-shadow: none;
-		}
-
-		&:focus-visible {
-			outline: 1px solid var(--oxide);
-			outline-offset: -1px;
-		}
+		// Focus rings + glow suppression are the plugin-wide policy's job now —
+		// see shared/styles/_focus.scss (imported by every entry).
 	}
 
 	// Selects get the dropdown triangle + room for it.

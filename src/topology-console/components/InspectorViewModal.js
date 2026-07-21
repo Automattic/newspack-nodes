@@ -32,9 +32,9 @@ function TimelineHost() {
 }
 
 // The one body per view key; each self-mounts what it needs while open.
-function ViewBody( { view } ) {
+function ViewBody( { view, onAction } ) {
 	if ( 'runtime' === view ) {
-		return <RuntimeView />;
+		return <RuntimeView onAction={ onAction } />;
 	}
 	if ( 'stats' === view ) {
 		return <StatsView />;
@@ -44,11 +44,12 @@ function ViewBody( { view } ) {
 
 /**
  * @param {Object}      props
- * @param {string|null} props.view      'runtime' | 'stats' | 'timeline' | null (closed).
- * @param {Function}    props.onDismiss Close the modal.
+ * @param {string|null} props.view       'runtime' | 'stats' | 'timeline' | null (closed).
+ * @param {Function}    props.onDismiss  Close the modal.
+ * @param {Function}    [props.onAction] Console action dispatcher (Runtime's Trace toggle).
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */
-export default function InspectorViewModal( { view, onDismiss } ) {
+export default function InspectorViewModal( { view, onDismiss, onAction } ) {
 	const title = VIEW_TITLES[ view ];
 	if ( ! title ) {
 		return null;
@@ -56,7 +57,7 @@ export default function InspectorViewModal( { view, onDismiss } ) {
 	return (
 		<ModalShell title={ title } onDismiss={ onDismiss } wide>
 			<div className="topology-modal__body topology-inspview">
-				<ViewBody view={ view } />
+				<ViewBody view={ view } onAction={ onAction } />
 			</div>
 		</ModalShell>
 	);

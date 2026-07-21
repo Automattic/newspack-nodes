@@ -2,6 +2,8 @@
 // scoped rules dress its surfaces from the universal theme tokens so the tab
 // re-skins under every theme (identical under Newspack). Buttons are styled
 // hub-wide in devtools-hub.scss.
+@use "@newspack-nodes/shared/styles/focus";
+
 .event-aggregator-servers-admin {
 	box-sizing: border-box;
 	min-height: 100%;

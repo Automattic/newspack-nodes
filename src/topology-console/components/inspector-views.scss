@@ -51,10 +51,36 @@
 		color: var(--oxide);
 		background: color-mix(in srgb, var(--oxide) 12%, transparent);
 	}
+
+	// The all-nodes Trace toggle sits above the grids, sibling to the Stats
+	// modal's profiling toggle.
+	&__toolbar {
+		display: flex;
+		gap: 8px;
+	}
+
+	// Pinned --total-- tfoot row: distinct from the sortable body.
+	&__foot td {
+		font-weight: 700;
+		color: var(--oxide);
+		border-top: 1px solid var(--paper-shadow);
+	}
 }
 
-// Hot-nodes stats view: reuses the sortable grid, adds a profiling toolbar and a
-// pinned total row (rendered outside the grid so it never sorts into the middle).
+// Compact toggle buttons in the modal-view toolbars (Stats profiling, Runtime
+// trace): the console's `.button.is-compact` is a full-width, left-aligned grid
+// cell built for the inspector rail; in these flex toolbars it must read as a
+// normal inline control instead. (Focus rings are the global policy's job —
+// shared/styles/focus.scss — not restyled here.) The `.topology-app` prefix
+// out-specifies the rail's own `.topology-app .button.is-compact` width rule.
+.topology-app .nodes-stats__toolbar .button.is-compact,
+.topology-app .nodes-runtime__toolbar .button.is-compact {
+	width: auto;
+	text-align: center;
+}
+
+// Hot-nodes stats view: reuses the sortable grid, adds a profiling toolbar; the
+// pinned --total-- row rides the grid's own <tfoot> so it never sorts into the body.
 .nodes-stats {
 	display: flex;
 	flex-direction: column;
@@ -68,19 +94,5 @@
 	&__toolbar {
 		display: flex;
 		gap: 8px;
-	}
-
-	&__total {
-		display: flex;
-		gap: 16px;
-		padding: 4px 8px;
-		font-weight: 700;
-		color: var(--oxide);
-		border-top: 1px solid var(--paper-shadow);
-	}
-
-	&__total-what {
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
 	}
 }

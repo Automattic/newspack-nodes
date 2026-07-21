@@ -14,6 +14,8 @@ import { IoTelemetry } from '../../runtime/io-telemetry';
 // Ship the hub's card/overview layout styles so the overlay is self-contained.
 import '../../event-dashboards/styles/summary-cards.scss';
 import '../../event-dashboards/styles/overview.scss';
+// Overlay-only additions, panel-scoped so they can't bleed into the hub.
+import './overview-tab.scss';
 
 // Message levels, in chip order: error / warning / debug.
 const MSG_LEVELS = [

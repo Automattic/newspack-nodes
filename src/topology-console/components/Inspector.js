@@ -1166,6 +1166,9 @@ const NO_NODE_COMMANDS = [
 	[ 'stats', 'stats' ],
 	[ 'timers', 'list_timers' ],
 	[ 'handles', 'list_handles' ],
+	[ 'profiles', 'list_profiles' ],
+	[ 'profile on', 'enable_profiling' ],
+	[ 'profile off', 'disable_profiling' ],
 	[ 'ping', 'ping' ],
 ];
 
@@ -1403,7 +1406,7 @@ export default function Inspector( {
 	const [ registerOpen, setRegisterOpen ] = useState( false );
 	// Whether the no-node message-composer (roadmap [46]) is open.
 	const [ composeOpen, setComposeOpen ] = useState( false );
-	// Which no-node modal view is open ('runtime' | 'stats' | 'timeline' | null).
+	// Which no-node modal view is open, or null when closed.
 	const [ stripModal, setStripModal ] = useState( null );
 
 	// A hull gets its own panel; a node selection still wins over it.
@@ -1539,7 +1542,7 @@ export default function Inspector( {
 							'newspack-nodes'
 						) }
 					>
-						{ __( 'Stats', 'newspack-nodes' ) }
+						{ __( 'Hot Nodes', 'newspack-nodes' ) }
 					</button>
 					<button
 						type="button"
@@ -1571,6 +1574,7 @@ export default function Inspector( {
 					<InspectorViewModal
 						view={ stripModal }
 						onDismiss={ () => setStripModal( null ) }
+						onAction={ onAction }
 					/>
 				) }
 			</aside>
