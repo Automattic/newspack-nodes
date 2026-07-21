@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.2] - 2026-07-21
+
+### Fixed
+
+- **Timeline modal: the Trace toggle sits in line with the filter inputs** instead of on its own toolbar row — TimelineView gained an `actions` slot leading the filters row, and the filter pair holds the right edge.
+
 ## [0.48.1] - 2026-07-21
 
 ### Fixed
