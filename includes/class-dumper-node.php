@@ -171,7 +171,8 @@ class Dumper_Node extends Node {
 		$ts_human = '' !== $ts && \is_numeric( $ts )
 			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
 			: '';
-		$value    = self::stringify_value( $message[ Message::VALUE ] ?? '' );
+		// Trim the value's trailing newline (else a blank line precedes `}`).
+		$value    = \rtrim( self::stringify_value( $message[ Message::VALUE ] ?? '' ), "\n" );
 
 		$lines = [
 			'Message {',

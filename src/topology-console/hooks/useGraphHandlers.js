@@ -206,8 +206,8 @@ export function useGraphHandlers( {
 				} else if ( 'trace' === action ) {
 					const level = 'number' === typeof payload ? payload : 1;
 					dispatch(
-						`debug_state ${ nodeId } ${ level }`,
-						'debug_state',
+						`trace ${ nodeId } ${ level }`,
+						'trace',
 						`${ nodeId } ${ level }`
 					);
 					// Reflect the level now; `*` fans in ONE publish.

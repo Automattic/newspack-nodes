@@ -469,7 +469,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			'dump_metadata',
 			'stats',
 			'uptime',
-			'debug_state',
+			'trace',
 			'help',
 		] ) {
 			expect( typeof cmds[ verb ] ).toBe( 'function' );
@@ -1045,19 +1045,27 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 	} );
 
-	describe( 'debug_state', () => {
+	// The verb is `trace` (renamed from `debug_state`); the reply strings still
+	// report the underlying `debug_state` node property, which is unchanged.
+	describe( 'trace (formerly debug_state)', () => {
+		it( 'the old `debug_state` verb name no longer resolves', () => {
+			const interpreter = makeInterpreter();
+			expect( () => interpreter.dispatch( 'debug_state' ) ).toThrow(
+				'unknown command: debug_state'
+			);
+		} );
 		it( 'no args toggles this interpreter', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'debug_state', '' ) ).toBe(
+			expect( dispatch( interpreter, 'trace', '' ) ).toBe(
 				'_command_interpreter debug_state: 1'
 			);
-			expect( dispatch( interpreter, 'debug_state', '' ) ).toBe(
+			expect( dispatch( interpreter, 'trace', '' ) ).toBe(
 				'_command_interpreter debug_state: 0'
 			);
 		} );
 		it( 'numeric arg sets this interpreter', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'debug_state', '3' ) ).toBe(
+			expect( dispatch( interpreter, 'trace', '3' ) ).toBe(
 				'_command_interpreter debug_state: 3'
 			);
 		} );
@@ -1065,7 +1073,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'n';
-			expect( dispatch( interpreter, 'debug_state', 'n 2' ) ).toBe(
+			expect( dispatch( interpreter, 'trace', 'n 2' ) ).toBe(
 				'n debug_state: 2'
 			);
 			expect( n.debugState ).toBe( 2 );
@@ -1074,10 +1082,10 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'n';
-			expect( dispatch( interpreter, 'debug_state', 'n' ) ).toBe(
+			expect( dispatch( interpreter, 'trace', 'n' ) ).toBe(
 				'n debug_state: 1'
 			);
-			expect( dispatch( interpreter, 'debug_state', 'n' ) ).toBe(
+			expect( dispatch( interpreter, 'trace', 'n' ) ).toBe(
 				'n debug_state: 0'
 			);
 		} );
@@ -1086,7 +1094,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const n = new Node();
 			n.name = 'n';
 			// Level 2 (distinct from the toggle default 1) over 2 nodes.
-			const out = dispatch( interpreter, 'debug_state', '* 2' );
+			const out = dispatch( interpreter, 'trace', '* 2' );
 			expect( out ).toBe( 'debug_state 2 on 2 nodes' );
 			expect( out ).not.toContain( 'n debug_state' );
 			expect( interpreter.debugState ).toBe( 2 );
@@ -1094,7 +1102,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'unknown node errors', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'debug_state', 'nope' ) ).toBe(
+			expect( dispatch( interpreter, 'trace', 'nope' ) ).toBe(
 				'unknown node: nope'
 			);
 		} );

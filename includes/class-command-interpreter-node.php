@@ -356,7 +356,7 @@ class Command_Interpreter_Node extends Node {
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
 			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
-			'debug_state' => "debug_state [ <node name> [ <level> ] ]\n"
+			'trace' => "trace [ <node name> [ <level> ] ]\n"
 				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
 				. "    name only:    toggle that node's debug_state.\n"
 				. "    name <n>:     set that node's debug_state to <n>.\n"
@@ -417,7 +417,7 @@ class Command_Interpreter_Node extends Node {
 			'dump_metadata'   => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( Core::as_string( $args[0] ?? '' ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
 			'stats'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_stats( $self, self::arg_strings( $args ) ),
 			'uptime'          => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_uptime(),
-			'debug_state'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_debug_state( $self, self::arg_strings( $args ) ),
+			'trace'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_trace( $self, self::arg_strings( $args ) ),
 			'help'            => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_help( self::arg_strings( $args ), $envelope ),
 			'reply_to'        => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_reply_to( $self, self::arg_strings( $args ) ),
 		];
@@ -1395,13 +1395,14 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `debug_state [ <node name> [ <level> ] ]` — toggle or set a node's debug_state level.
+	 * `trace [ <node name> [ <level> ] ]` — toggle or set a node's debug_state level.
 	 *
 	 * No args toggles this interpreter; numeric arg sets this interpreter; a name targets that node.
+	 * Renamed from the `debug_state` verb; the reply strings still report the unchanged property.
 	 *
 	 * @param list<string> $args
 	 */
-	private static function cmd_debug_state( Command_Interpreter_Node $self, array $args ): string {
+	private static function cmd_trace( Command_Interpreter_Node $self, array $args ): string {
 		[ $first, $second ] = \array_pad( $args, 2, '' );
 
 		if ( '' === $first ) {

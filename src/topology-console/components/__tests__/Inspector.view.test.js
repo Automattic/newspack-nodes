@@ -185,11 +185,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click( getByText( 'trace' ) );
 		expect( calls ).toContainEqual( [ 'trace', '*', 1 ] );
-		expect( calls ).not.toContainEqual( [
-			'command',
-			null,
-			'debug_state *',
-		] );
+		expect( calls ).not.toContainEqual( [ 'command', null, 'trace *' ] );
 	} );
 
 	it( 'no-node Trace reads "stop trace" when ANY node is traced, not just the first', () => {
@@ -322,6 +318,60 @@ describe( 'Inspector (view mode)', () => {
 		const btn = getByText( 'stop verbose' );
 		expect( btn.className ).toContain( 'is-active' );
 		fireEvent.click( btn );
+		expect( calls ).toContainEqual( [ 'command', null, 'debug_level 0' ] );
+	} );
+
+	// debug + verbose are the two lights on ONE dial (the Dumper's debug_level):
+	// debugOn = level >= 1, verboseOn = level >= 2. Verbose lit implies debug lit.
+	it( 'no-node Debug at level 1 is lit (verbose is NOT — dial, not two switches)', () => {
+		const { getByText } = render(
+			<Inspector { ...baseProps } debugLevel={ 1 } />
+		);
+		expect( getByText( 'stop debug' ).className ).toContain( 'is-active' );
+		expect( getByText( 'verbose' ).className ).not.toContain( 'is-active' );
+	} );
+
+	it( 'no-node Debug at level 2 is lit alongside verbose (verbose implies debug)', () => {
+		const { getByText } = render(
+			<Inspector { ...baseProps } debugLevel={ 2 } />
+		);
+		expect( getByText( 'stop debug' ).className ).toContain( 'is-active' );
+		expect( getByText( 'stop verbose' ).className ).toContain(
+			'is-active'
+		);
+	} );
+
+	it( 'no-node Debug is ONE toggle: fires `debug_level 1` when the live level is 0', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				debugLevel={ 0 }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		const btn = getByText( 'debug' );
+		expect( btn.className ).not.toContain( 'is-active' );
+		fireEvent.click( btn );
+		expect( calls ).toContainEqual( [ 'command', null, 'debug_level 1' ] );
+		// It is a toggle, not the old stateless dump of the bare verb.
+		expect( calls ).not.toContainEqual( [
+			'command',
+			null,
+			'debug_level',
+		] );
+	} );
+
+	it( 'no-node Debug at level 2 fires `debug_level 0`, collapsing the whole dial', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				debugLevel={ 2 }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		fireEvent.click( getByText( 'stop debug' ) );
 		expect( calls ).toContainEqual( [ 'command', null, 'debug_level 0' ] );
 	} );
 

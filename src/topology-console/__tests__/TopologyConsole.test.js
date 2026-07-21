@@ -1416,7 +1416,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch( /send_node n1 payload/ );
 	} );
 
-	it( 'Inspector trace action emits debug_state with level', async () => {
+	it( 'Inspector trace action emits the trace verb with level', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		await publishMeta();
 		fireEvent.click( getByText( 'select-n1' ) );
@@ -1427,7 +1427,7 @@ describe( 'TopologyConsole boot', () => {
 		const sent = Array.from( items ).find(
 			( i ) => i.dataset.kind === 'sent'
 		);
-		expect( sent.textContent ).toMatch( /debug_state n1 1/ );
+		expect( sent.textContent ).toMatch( /trace n1 1/ );
 	} );
 
 	it( 'Inspector request action emits request_node with verb', async () => {

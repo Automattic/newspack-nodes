@@ -72,8 +72,8 @@ describe( 'useDebugRepl', () => {
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 
-		// toggles the interpreter 0 → 1
-		act( () => result.current.sendLine( 'debug_state' ) );
+		// `trace` toggles the interpreter's debug_state 0 → 1
+		act( () => result.current.sendLine( 'trace' ) );
 		expect(
 			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
 		).toBe( '1' );

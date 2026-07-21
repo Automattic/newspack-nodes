@@ -11,8 +11,8 @@ import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import './timeline-view.scss';
 
-// DEBUG line; node token is \S+ (not [^\s:]+) so sidecar colons survive.
-const DEBUG_TRACE = /(\S+):\s+DEBUG:\s+(\S+)(?:\s+([\s\S]*))?$/;
+// DEBUG line; node \S+ (sidecar colons survive); payload line-scoped (.*).
+const DEBUG_TRACE = /(\S+):\s+DEBUG:\s+(\S+)(?:\s+(.*))?$/;
 
 // Entry ts (epoch seconds) → UTC HH:MM:SS, matching the console's UTC logs.
 function formatTime( ts ) {
@@ -22,11 +22,17 @@ function formatTime( ts ) {
 	return new Date( ts * 1000 ).toISOString().slice( 11, 19 );
 }
 
-// Keep only transcript entries matching the DEBUG convention, in order.
+// Keep DEBUG entries; scan per line so the verbose envelope `}` isn't captured.
 function parseRows( transcript ) {
 	const rows = [];
 	for ( const entry of transcript ) {
-		const match = DEBUG_TRACE.exec( entry?.text ?? '' );
+		let match = null;
+		for ( const line of ( entry?.text ?? '' ).split( '\n' ) ) {
+			match = DEBUG_TRACE.exec( line );
+			if ( match ) {
+				break;
+			}
+		}
 		if ( ! match ) {
 			continue;
 		}

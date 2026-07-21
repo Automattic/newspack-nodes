@@ -41,7 +41,7 @@ list_nodes -a [-clst] [<glob>]      # all nodes filtered by anchored regex
 dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
 dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments/lgst_msg/bytes_read/bytes_written/accepts_fill/has_target/has_config, plus `registrations` when non-empty (accepts_fill and has_target are port flags read from the node schema; has_config flags whether the node has a `:config` command sidecar) — one round-trip gives a visualizer the graph. Patron-linked (`{node}:config`) CIs are filtered out. NOT the same verb as `Workers_CI`'s `dump_graph` over REST (that returns `{workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp}`).
-debug_state [<node>] [<level>]      # toggle/set node's debug_state level (0/1/N). No args toggles the interpreter's own.
+trace [<node>] [<level>]            # toggle/set node's debug_state level (0/1/N). No args toggles the interpreter's own.
 list_timers                         # all Timer_Nodes: ID ACTIVE INTERVAL(ms) NEXT(ms) ONESHOT FIRES TYPE NAME — NEXT<=0 with a climbing FIRES = a drain spinner
 list_handles                        # registered cURL-multi handles the drain loop selects on: ID COUNT(msgs) TYPE NAME — a stuck SSE/HTTP egress shows here
 uptime                              # clock-time + days+HH:MM:SS since Core::reset() (worker spawn)

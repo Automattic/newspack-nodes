@@ -645,15 +645,26 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->dispatch( 'nope' );
 	}
 
+	public function test_old_debug_state_verb_name_no_longer_resolves(): void {
+		// The verb renamed to `trace`; the reply strings still report the
+		// unchanged `debug_state` node property, but the old verb is gone.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'unknown command: debug_state' );
+		$interpreter->dispatch( 'debug_state' );
+	}
+
 	public function test_debug_state_no_args_toggles_self(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$this->assertSame( 0, $interpreter->debug_state() );
 
-		$this->assertSame( '_command_interpreter debug_state: 1', $interpreter->dispatch( 'debug_state' ) );
+		$this->assertSame( '_command_interpreter debug_state: 1', $interpreter->dispatch( 'trace' ) );
 		$this->assertSame( 1, $interpreter->debug_state() );
 
-		$this->assertSame( '_command_interpreter debug_state: 0', $interpreter->dispatch( 'debug_state' ) );
+		$this->assertSame( '_command_interpreter debug_state: 0', $interpreter->dispatch( 'trace' ) );
 		$this->assertSame( 0, $interpreter->debug_state() );
 	}
 
@@ -661,7 +672,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( '_command_interpreter debug_state: 2', $interpreter->dispatch( 'debug_state', [ '2' ] ) );
+		$this->assertSame( '_command_interpreter debug_state: 2', $interpreter->dispatch( 'trace', [ '2' ] ) );
 		$this->assertSame( 2, $interpreter->debug_state() );
 	}
 
@@ -673,10 +684,10 @@ class CommandInterpreterTest extends TestCase {
 		$alice = Core::node( 'alice' );
 		$this->assertSame( 0, $alice->debug_state() );
 
-		$this->assertSame( 'alice debug_state: 1', $interpreter->dispatch( 'debug_state', [ 'alice' ] ) );
+		$this->assertSame( 'alice debug_state: 1', $interpreter->dispatch( 'trace', [ 'alice' ] ) );
 		$this->assertSame( 1, $alice->debug_state() );
 
-		$this->assertSame( 'alice debug_state: 0', $interpreter->dispatch( 'debug_state', [ 'alice' ] ) );
+		$this->assertSame( 'alice debug_state: 0', $interpreter->dispatch( 'trace', [ 'alice' ] ) );
 		$this->assertSame( 0, $alice->debug_state() );
 	}
 
@@ -687,7 +698,7 @@ class CommandInterpreterTest extends TestCase {
 
 		// Level 2 (distinct from the toggle default 1) over 2 nodes: the
 		// interpreter + alice. The reply is a one-liner, not a per-node roster.
-		$out = $interpreter->dispatch( 'debug_state', [ '*', '2' ] );
+		$out = $interpreter->dispatch( 'trace', [ '*', '2' ] );
 		$this->assertSame( 'debug_state 2 on 2 nodes', $out );
 		$this->assertStringNotContainsString( 'alice debug_state', $out );
 		$this->assertSame( 2, Core::node( 'alice' )->debug_state() );
@@ -699,7 +710,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$this->assertSame( 'alice debug_state: 3', $interpreter->dispatch( 'debug_state', [ 'alice', '3' ] ) );
+		$this->assertSame( 'alice debug_state: 3', $interpreter->dispatch( 'trace', [ 'alice', '3' ] ) );
 		$this->assertSame( 3, Core::node( 'alice' )->debug_state() );
 	}
 
@@ -707,20 +718,20 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( 'unknown node: nonexistent', $interpreter->dispatch( 'debug_state', [ 'nonexistent' ] ) );
+		$this->assertSame( 'unknown node: nonexistent', $interpreter->dispatch( 'trace', [ 'nonexistent' ] ) );
 	}
 
 	public function test_make_node_propagates_ci_debug_state_to_children(): void {
 		// When the CommandInterpreter has debug_state set, every node it
 		// creates via make_node inherits the same level. Lets the operator
 		// turn on tracing for an entire topology in one command:
-		//   debug_state 1
+		//   trace 1
 		//   make_node Foo bar
 		//   make_node Foo baz  ← also at level 1
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$interpreter->dispatch( 'debug_state', [ '1' ] );
+		$interpreter->dispatch( 'trace', [ '1' ] );
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		$alice = Core::node( 'alice' );
@@ -2424,17 +2435,17 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringNotContainsString( "\nhub ", "\n$out " );
 	}
 
-	// ── cmd_debug_state: numeric-arg-with-second-token branch ─────
+	// ── cmd_trace: numeric-arg-with-second-token branch ─────
 
 	public function test_debug_state_self_numeric_first_then_token_treats_as_node_name(): void {
-		// `debug_state 1 something` — first arg is numeric BUT there's a
-		// second token, so the "numeric-only first arg" branch is bypassed
-		// and the cmd treats `1` as a node name. Since there's no node
-		// named `1`, it falls into the `unknown node` arm.
+		// `trace 1 something` — first arg is numeric BUT there's a second
+		// token, so the "numeric-only first arg" branch is bypassed and the
+		// cmd treats `1` as a node name. Since there's no node named `1`, it
+		// falls into the `unknown node` arm.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'debug_state', [ '1', '2' ] );
+		$out = $interpreter->dispatch( 'trace', [ '1', '2' ] );
 		$this->assertSame( 'unknown node: 1', $out );
 	}
 

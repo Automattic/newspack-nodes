@@ -192,6 +192,16 @@ describe( 'buildDebugHeader1 / buildDebugHeader2 (positional)', () => {
 		expect( out ).toMatch( /from:\s+worker/ );
 		expect( out ).toMatch( /value:\s+payload/ );
 	} );
+
+	it( 'header2 trims a value trailing newline so a single newline (no blank line) precedes the closing brace', () => {
+		const m = newMessage();
+		m[ TYPE ] = TM_BYTESTREAM;
+		m[ VALUE ] = 'SEGMENT 1\n';
+		const out = buildDebugHeader2( m );
+		// The value sits directly above `}` — no whitespace-only wedge line.
+		expect( out ).toMatch( /value:\s+SEGMENT 1\n}$/ );
+		expect( out ).not.toMatch( /\n\s*\n}/ );
+	} );
 } );
 
 describe( 'Dumper node — transcript', () => {
