@@ -1732,6 +1732,115 @@ describe( 'Inspector (view mode)', () => {
 		);
 		expect( container.textContent ).not.toMatch( /Constructor/ );
 	} );
+
+	// A DLQ node: consumer-family (frames + cursor) with a non-empty deadletter_dir.
+	const dlqCatalog = [
+		{
+			shell_name: 'Consumer',
+			arguments: [ { name: 'source_dir' }, { name: 'deadletter_dir' } ],
+		},
+	];
+	const dlqNode = ( over = {} ) => ( {
+		id: 'firehose-consumer',
+		class: 'Consumer',
+		frames: [ { id: 5342, size: 120 } ],
+		cursor: { segment: 2, offset: 12 },
+		arguments: [ '/logs/firehose.p0', '/logs/deadletter.p0' ],
+		deadletter_segments: 2,
+		...over,
+	} );
+	const renderDlq = ( dlNode, extra = {} ) =>
+		render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="firehose-consumer"
+				parsed={ { nodes: [ dlNode ], edges: [] } }
+				nodeIds={ new Set( [ 'firehose-consumer' ] ) }
+				catalog={ dlqCatalog }
+				{ ...extra }
+			/>
+		);
+
+	it( 'shows a Triage button badged with the segment count for a DLQ node', () => {
+		const { getByText } = renderDlq( dlqNode() );
+		// deadletter_segments = 2 → the count rides the label.
+		expect( getByText( 'Triage (2)' ) ).not.toBeNull();
+	} );
+
+	it( 'hides the Triage button when the deadletter_dir argument is empty', () => {
+		const { queryByText } = renderDlq(
+			dlqNode( { arguments: [ '/logs/firehose.p0', '' ] } )
+		);
+		expect( queryByText( /Triage/ ) ).toBeNull();
+	} );
+
+	it( 'hides the Triage button for a non-consumer node (no frames + cursor)', () => {
+		const { queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="p"
+				parsed={ {
+					nodes: [
+						{
+							id: 'p',
+							class: 'Consumer',
+							arguments: [
+								'/logs/firehose.p0',
+								'/logs/deadletter.p0',
+							],
+						},
+					],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'p' ] ) }
+				catalog={ dlqCatalog }
+			/>
+		);
+		expect( queryByText( /Triage/ ) ).toBeNull();
+	} );
+
+	it( 'annotates the empty state and drops the count when no segments are quarantined', () => {
+		const { getByText, queryByText } = renderDlq(
+			dlqNode( { deadletter_segments: 0 } )
+		);
+		expect( getByText( 'Triage' ) ).not.toBeNull();
+		expect( queryByText( 'Triage (0)' ) ).toBeNull();
+		expect( getByText( 'No quarantined records.' ) ).not.toBeNull();
+	} );
+
+	it( 'opens the wide Triage modal and fetches the DLQ page for the node', () => {
+		Core.reset();
+		const onAction = jest.fn();
+		const { getByText } = renderDlq( dlqNode(), { onAction } );
+		fireEvent.click( getByText( 'Triage (2)' ) );
+		const modal = document.body.querySelector( '.topology-modal' );
+		expect( modal.classList.contains( 'topology-modal--large' ) ).toBe(
+			true
+		);
+		expect(
+			modal.querySelector( '[data-testid="triage-view"]' )
+		).toBeTruthy();
+		expect( onAction ).toHaveBeenCalledWith(
+			'invoke',
+			'firehose-consumer',
+			expect.objectContaining( { verb: 'dl_list' } )
+		);
+		Core.reset();
+	} );
+
+	it( 'closes the Triage modal on ESC', () => {
+		Core.reset();
+		const { getByText } = renderDlq( dlqNode() );
+		fireEvent.click( getByText( 'Triage (2)' ) );
+		expect(
+			document.body.querySelector( '[data-testid="triage-view"]' )
+		).toBeTruthy();
+		fireEvent.keyDown( document, { key: 'Escape' } );
+		expect(
+			document.body.querySelector( '[data-testid="triage-view"]' )
+		).toBeNull();
+		Core.reset();
+	} );
 } );
 
 // Activity window = 60 samples × poll interval (scales), not a fixed ~60s.

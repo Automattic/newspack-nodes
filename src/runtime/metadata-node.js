@@ -172,6 +172,10 @@ export function parseMetadata( payload ) {
 		if ( meta.cursor && typeof meta.cursor === 'object' ) {
 			node.cursor = meta.cursor;
 		}
+		// Dead-letter segment count (Triage badge); only when present.
+		if ( typeof meta.deadletter_segments === 'number' ) {
+			node.deadletter_segments = meta.deadletter_segments;
+		}
 		// Consumer poll state (`INIT`|`ACTIVE`|`PAUSED`); only when present.
 		if ( typeof meta.polling === 'string' ) {
 			node.polling = meta.polling;
