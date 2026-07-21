@@ -27,11 +27,9 @@
  */
 
 @mixin nodes-focus-policy {
-	// Exemption: the REPL prompt is terminal idiom — its caret IS the focus
-	// indicator (its base style carries outline: none for both focus states).
 	a[href],
 	button,
-	input:not(.topology-repl__input),
+	input,
 	select,
 	textarea,
 	summary,
@@ -48,6 +46,13 @@
 			outline-offset: 1px;
 			box-shadow: none;
 		}
+	}
+
+	// Ring exemption ONLY (glow-kill above still applies): the REPL prompt is
+	// terminal idiom — the caret is its focus indicator, never a ring.
+	input.topology-repl__input:focus-visible {
+		outline: none;
+		box-shadow: none;
 	}
 }
 
