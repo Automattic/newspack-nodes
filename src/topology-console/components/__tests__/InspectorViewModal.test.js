@@ -108,6 +108,55 @@ test( 'the Timeline view carries the all-nodes Trace toggle; Runtime does not', 
 	expect( queryByText( 'trace' ) ).toBeNull();
 } );
 
+test( 'the Trace override tolerates one stale poll and clears on agreement', () => {
+	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
+	const { getByText, queryByText } = render(
+		<InspectorViewModal
+			view="timeline"
+			onDismiss={ () => {} }
+			onAction={ () => {} }
+		/>
+	);
+	fireEvent.click( getByText( 'trace' ) );
+	// A stale in-flight poll still reporting untraced does not revert it.
+	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
+	expect( getByText( 'stop trace' ) ).not.toBeNull();
+	// An agreeing poll clears the override to matching server truth.
+	seedMetadata( [ { id: 'alpha', debugState: 4 } ] );
+	expect( getByText( 'stop trace' ) ).not.toBeNull();
+	expect( queryByText( 'trace' ) ).toBeNull();
+} );
+
+test( 'two disagreeing polls surrender the Trace override (verb failed)', () => {
+	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
+	const { getByText } = render(
+		<InspectorViewModal
+			view="timeline"
+			onDismiss={ () => {} }
+			onAction={ () => {} }
+		/>
+	);
+	fireEvent.click( getByText( 'trace' ) );
+	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
+	seedMetadata( [ { id: 'bravo', debugState: 0 } ] );
+	expect( getByText( 'trace' ) ).not.toBeNull();
+} );
+
+test( 'stop trace fires the all-nodes trace at level 0 when tracing', () => {
+	seedMetadata( [ { id: 'alpha', debugState: 3 } ] );
+	const onAction = jest.fn();
+	const { getByText } = render(
+		<InspectorViewModal
+			view="timeline"
+			onDismiss={ () => {} }
+			onAction={ onAction }
+		/>
+	);
+	fireEvent.click( getByText( 'stop trace' ) );
+	expect( onAction ).toHaveBeenCalledWith( 'trace', '*', 0 );
+	expect( getByText( 'trace' ) ).not.toBeNull();
+} );
+
 test( 'ESC dismisses the modal', () => {
 	const onDismiss = jest.fn();
 	render( <InspectorViewModal view="timeline" onDismiss={ onDismiss } /> );
