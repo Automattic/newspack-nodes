@@ -331,4 +331,165 @@ class TailFileFollowTest extends TestCase {
 		$src = ( new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class ) )->getProperty( 'source' )->getValue( $t );
 		$this->assertInstanceOf( \Newspack_Nodes\Log_Node::class, $src, 'omitted mode keeps the segmented Log source' );
 	}
+
+	public function test_file_mode_GET_LAG_reports_bytes_behind_from_live_file_size(): void {
+		// File mode has no segmented source, so it answers GET_LAG from the live
+		// file size here instead of deferring to Consumer. next_offset('start')
+		// leaves the whole file unread, so every byte is behind.
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "eleven-byte\n" ); // 12 bytes, distinct from any default.
+
+		$t = $this->follow( $path );
+		$t->next_offset( 'start' );
+		$t->name( 'debugtail' );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'lag-asker';
+		$req[ Message::ID ]    = 'req-77';
+		$req[ Message::KEY ]   = 'kk';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$t->fill( $req );
+
+		$this->assertCount( 1, $cap->captured, 'a GET_LAG request yields exactly one reply' );
+		$reply = $cap->captured[0];
+		$this->assertSame( Message::TM_STRUCT | Message::TM_RESPONSE, $reply[ Message::TYPE ] );
+		$this->assertSame( 'debugtail', $reply[ Message::FROM ], 'reply FROM is the Tail name' );
+		$this->assertSame( 'lag-asker', $reply[ Message::TO ], 'reply TO walks the breadcrumb back' );
+		$this->assertSame( 'req-77', $reply[ Message::ID ] );
+		$this->assertSame( 'kk', $reply[ Message::KEY ] );
+		$this->assertSame( 'GET_LAG', $reply[ Message::VALUE ]['verb'] );
+		$data = $reply[ Message::VALUE ]['data'];
+		$this->assertSame( 12, $data['bytes_behind'], 'the whole unread file is behind' );
+		$this->assertSame( 0, $data['segments_behind'], 'a single file has no segment backlog' );
+		$this->assertFalse( $data['caught_up'] );
+		$this->assertSame( 12, $data['end_size'] );
+		$this->assertSame( 12, $data['end_bytes'] );
+	}
+
+	public function test_file_mode_GET_LAG_reports_caught_up_after_draining(): void {
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "seven-7\n" ); // 8 bytes.
+
+		$t = $this->follow( $path );
+		$t->next_offset( 'start' );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		$this->pump( $t ); // Drain to EOF so nothing is behind.
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$t->fill( $req );
+
+		$reply = \end( $cap->captured );
+		$data  = $reply[ Message::VALUE ]['data'];
+		$this->assertSame( 0, $data['bytes_behind'] );
+		$this->assertTrue( $data['caught_up'], 'a fully-drained file reports caught_up' );
+	}
+
+	public function test_file_mode_unknown_request_verb_replies_with_error_payload(): void {
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "x\n" );
+
+		$t = $this->follow( $path );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'FROBNICATE now';
+		$t->fill( $req );
+
+		$this->assertCount( 1, $cap->captured );
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertSame( 'unknown request verb: FROBNICATE', $data['error'], 'only the first token is the verb, upper-cased' );
+	}
+
+	public function test_file_mode_request_without_a_sink_throws(): void {
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "x\n" );
+
+		$t = $this->follow( $path ); // No sink wired.
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'fill requires a wired sink' );
+		$t->fill( $req );
+	}
+
+	public function test_file_mode_non_request_message_passes_through_to_the_sink(): void {
+		// A non-TM_REQUEST message in file mode delegates to the parent producer
+		// fill, which forwards to the sink — the interpreter/routing path.
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "x\n" );
+
+		$t = $this->follow( $path );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'passthrough-payload';
+		$t->fill( $msg );
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( 'passthrough-payload', $cap->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_file_mode_probe_stats_reports_file_size_and_basenames(): void {
+		$path = "{$this->tmp}/debug.log";
+		$off  = "{$this->tmp}/off";
+		\file_put_contents( $path, "one\ntwo\n" ); // 8 bytes.
+
+		$t = $this->follow( $path, $off );
+		$t->next_offset( 'start' );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		$this->pump( $t );
+
+		$stats = $t->probe_stats();
+		$this->assertSame( 'debug.log', $stats[ \Newspack_Nodes\Probe_Record::SOURCE ], 'source is the followed filename basename' );
+		$this->assertSame( 'off', $stats[ \Newspack_Nodes\Probe_Record::READER ], 'reader is the offsetlog dir basename' );
+		$this->assertSame( 8, $stats[ \Newspack_Nodes\Probe_Record::END_SIZE ], 'end size is the live file size' );
+		$this->assertSame( 8, $stats[ \Newspack_Nodes\Probe_Record::END_BYTES ] );
+		$this->assertSame( 0, $stats[ \Newspack_Nodes\Probe_Record::DISTANCE ], 'a fully-read file has no distance' );
+		$this->assertSame( 0, $stats[ \Newspack_Nodes\Probe_Record::CACHE_SIZE ] );
+	}
+
+	public function test_file_mode_probe_stats_blank_source_and_reader_when_unset(): void {
+		// No offsetlog dir and a missing path: both basenames collapse to ''.
+		$t = $this->follow( "{$this->tmp}/never-created.log" ); // offsetlog '' by default.
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+
+		$stats = $t->probe_stats();
+		$this->assertSame( '', $stats[ \Newspack_Nodes\Probe_Record::READER ], 'no offsetlog dir means a blank reader' );
+		$this->assertSame( 0, $stats[ \Newspack_Nodes\Probe_Record::END_SIZE ], 'a missing file has size 0' );
+	}
+
+	public function test_file_mode_remove_node_closes_the_follow_handle(): void {
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "held-open\n" );
+
+		$t = $this->follow( $path );
+		$t->next_offset( 'start' );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		$this->pump( $t ); // First poll opens the follow handle (no I/O at construction, ADR-5).
+		$ref    = new \ReflectionObject( $t );
+		$handle = $ref->getProperty( 'follow_handle' );
+		$this->assertIsResource( $handle->getValue( $t ), 'a polled file-mode Tail holds an open follow handle' );
+
+		$t->remove_node();
+		$this->assertNull( $handle->getValue( $t ), 'remove_node closes and clears the follow handle' );
+	}
 }

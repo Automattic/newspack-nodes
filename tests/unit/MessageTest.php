@@ -245,6 +245,41 @@ class MessageTest extends TestCase {
 		$this->assertNotSame( $decode_message, $shape_message );
 	}
 
+	/**
+	 * When wp_json_encode fails for a reason JSON_INVALID_UTF8_SUBSTITUTE can't
+	 * repair — a float NAN (JSON_ERROR_INF_OR_NAN) — packed() must NOT emit '';
+	 * it logs and substitutes a self-describing TM_ERROR frame that still decodes.
+	 */
+	public function test_packed_emits_error_frame_when_encode_fails_unrecoverably(): void {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = \NAN; // Not a UTF-8 problem; SUBSTITUTE can't save it.
+
+		$packed = Message::packed( $m );
+
+		$this->assertNotSame( '', $packed, 'a failed encode must never vanish into an empty frame' );
+		$decoded = \json_decode( $packed, true );
+		$this->assertIsArray( $decoded );
+		$this->assertCount( 7, $decoded );
+		$this->assertSame( Message::TM_ERROR, $decoded[ Message::TYPE ], 'the substitute frame is typed TM_ERROR' );
+		$this->assertStringContainsString( 'Message::packed()', $decoded[ Message::VALUE ], 'the error VALUE names the failing call' );
+	}
+
+	/**
+	 * A raw frame longer than the excerpt bound is truncated with an ellipsis in
+	 * the thrown exception message — the whole payload never lands in a log line.
+	 */
+	public function test_unpacked_error_excerpt_is_bounded_with_ellipsis(): void {
+		$oversized = \str_repeat( 'Z', 500 ) . ' not json'; // 508 bytes, well past the 200-byte bound.
+		try {
+			Message::unpacked( $oversized );
+			$this->fail( 'expected InvalidArgumentException' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( '…', $e->getMessage(), 'an oversized frame is elided' );
+			$this->assertLessThan( \strlen( $oversized ), \strlen( $e->getMessage() ) - 60, 'the excerpt is bounded, not the whole payload' );
+		}
+	}
+
 	public function test_split_first_splits_on_first_slash(): void {
 		// Single source of truth for taking the leading path segment (Router
 		// dispatch + HTTP_Filter pid gate). Only the first slash splits.
