@@ -153,6 +153,11 @@ class Consumer_Node extends Timer_Node {
 		return new Partition_Node();
 	}
 
+	/** Requeue target: the source Partition this Consumer tails, so dl_requeue re-injects into it. */
+	protected function deadletter_requeue_target(): ?Partition_Node {
+		return $this->source;
+	}
+
 	/**
 	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
 	 * Consumer's schema args are source_dir + offsetlog_dir.
@@ -720,10 +725,10 @@ class Consumer_Node extends Timer_Node {
 	 * payload the inspector round-trips. Delegates to the Time_Travel trait, which
 	 * reads the cursor/checkpoint fields directly.
 	 *
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
 	 */
 	public function dump_metadata(): array {
-		return $this->time_travel_metadata();
+		return $this->time_travel_metadata() + $this->deadletter_metadata();
 	}
 
 	protected function check_name_availability( string $name ): void {
@@ -784,10 +789,11 @@ class Consumer_Node extends Timer_Node {
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
 			],
-			// Time-travel verbs via Time_Travel; set_multi_writer Consumer.
+			// Verbs: time-travel + pump + DLQ triage + set_multi_writer.
 			'commands'      => \array_merge(
 				self::time_travel_verbs(),
 				self::pump_verbs(),
+				self::deadletter_verbs(),
 				[
 					[
 						'name'        => 'set_multi_writer',

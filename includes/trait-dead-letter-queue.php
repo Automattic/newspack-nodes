@@ -52,6 +52,9 @@ trait Dead_Letter_Queue {
 	public const DEADLETTER_MIN_LIFETIME = 0;
 	public const DEADLETTER_MAX_LIFETIME = 0;
 
+	/** Newest-first page size for the `dl_list` triage verb when no limit is given. */
+	public const DEADLETTER_LIST_DEFAULT_LIMIT = 50;
+
 	/**
 	 * Times the message at the boot cursor has been attempted without advancing past
 	 * it (dead-letter [42]). 1 = healthy baseline (a running checkpoint); 0 = a
@@ -121,6 +124,12 @@ trait Dead_Letter_Queue {
 	protected ?Partition_Node $deadletter = null;
 
 	/**
+	 * Reason staged for the companion-index callback right before a :deadletter fill.
+	 * dead_letter() sets it synchronously; the index closure closes over $this to read it.
+	 */
+	protected string $deadletter_reason = '';
+
+	/**
 	 * Build + register the `:deadletter` sibling Partition once (idempotent). Empty
 	 * dir → null (log + drop). The using node asserts it's the sole writer, so the
 	 * 4 KB PIPE_BUF cap is lifted (void_warranty) — a poison message can exceed it.
@@ -156,6 +165,8 @@ trait Dead_Letter_Queue {
 		] );
 		// Sole writer: the cap lifts so poison over PIPE_BUF still quarantines.
 		$deadletter->void_warranty();
+		// Triage metadata rides in .idx; ingest replays only .log (verbatim).
+		$deadletter->with_index( $this->deadletter_index_row( ... ) );
 		$this->deadletter = $deadletter;
 		return $deadletter;
 	}
@@ -197,6 +208,8 @@ trait Dead_Letter_Queue {
 		$why     = null === $error ? '' : ': ' . $error->getMessage();
 		$outcome = 'dropped (no deadletter_dir)';
 		if ( null !== $this->deadletter ) {
+			// Staged for the .idx callback; cleared in the finally.
+			$this->deadletter_reason = $reason;
 			try {
 				$this->deadletter->fill( $message );
 				$this->deadletter->flush();
@@ -206,9 +219,181 @@ trait Dead_Letter_Queue {
 			} catch ( \Throwable $e ) {
 				// Quarantine failed: drop + advance, else the source loops.
 				$outcome = 'DROP — deadletter write failed: ' . $e->getMessage();
+			} finally {
+				$this->deadletter_reason = '';
 			}
 		}
 		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at ", $where, ' — ', $outcome, $why );
+	}
+
+	/**
+	 * Companion-index row for one quarantined record — the triage metadata written
+	 * BESIDE the byte-verbatim :deadletter record in the sibling .idx. `reason` is
+	 * staged by dead_letter() right before the fill; `attempts`/`first_crash_ts` are
+	 * the live fair-shot accounting; `locator` is the record's `segment:offset:length`
+	 * IN THE SIDECAR (paste it into dl_requeue); `source` is its origin breadcrumb
+	 * (Message::ID) — same shape, different log, hence the distinct labels.
+	 *
+	 * @param array<int, mixed>  $message  The quarantined Message.
+	 * @param array<string, int> $position Its {segment,offset,length} in the sidecar.
+	 */
+	private function deadletter_index_row( array $message, array $position ): string {
+		return (string) \wp_json_encode( [
+			'reason'         => $this->deadletter_reason,
+			'attempts'       => $this->attempts,
+			'first_crash_ts' => $this->first_crash_ts,
+			'ts'             => (int) Core::$now,
+			'source'         => Core::as_string( $message[ Message::ID ] ?? '' ),
+			'locator'        => "{$position['segment']}:{$position['offset']}:{$position['length']}",
+		] );
+	}
+
+	/**
+	 * The log a requeued dead-letter record is re-injected into — the source this node
+	 * tails. Null (the default) means no local source: a remote SSE pull cannot requeue.
+	 * Consumer overrides to return its source Partition.
+	 */
+	protected function deadletter_requeue_target(): ?Partition_Node {
+		return null;
+	}
+
+	/**
+	 * List quarantined records newest-first, capped at $limit. Each row is the .idx
+	 * triage metadata (reason, attempts, first_crash_ts, quarantine ts, source
+	 * breadcrumb, sidecar locator). `total` counts ALL indexed records (the badge
+	 * number), not the returned page. `unindexed_segments` counts .log segments with
+	 * no .idx companion — records dead-lettered BEFORE this feature; they don't
+	 * appear in `rows` but remain replayable via `wp nodes ingest` and rotate out
+	 * within DEADLETTER_MAX_SEGMENTS. The DLQ is count-bounded, so the full .idx
+	 * pass behind the totals stays cheap.
+	 *
+	 * @return array{rows: array<int, mixed>, total: int, unindexed_segments: int}
+	 */
+	public function list_deadletter( int $limit ): array {
+		$deadletter = $this->ensure_deadletter();
+		if ( null === $deadletter ) {
+			return [ 'rows' => [], 'total' => 0, 'unindexed_segments' => 0 ];
+		}
+		$rows         = [];
+		$total        = 0;
+		$indexed_segs = [];
+		$deadletter->scan_index(
+			static function ( string $line, int $segment ) use ( &$rows, &$total, &$indexed_segs, $limit ): bool {
+				$indexed_segs[ $segment ] = true;
+				++$total;
+				if ( \count( $rows ) < $limit ) {
+					$row = \json_decode( $line, true );
+					if ( \is_array( $row ) ) {
+						$rows[] = $row;
+					}
+				}
+				return true; // Full pass: total + unindexed count need every segment.
+			},
+			true
+		);
+		$unindexed = 0;
+		foreach ( $deadletter->get_segments() as $s ) {
+			if ( ! isset( $indexed_segs[ $s['id'] ] ) ) {
+				++$unindexed;
+			}
+		}
+		return [ 'rows' => $rows, 'total' => $total, 'unindexed_segments' => $unindexed ];
+	}
+
+	/**
+	 * Re-inject the dead-letter record at $locator (the `locator` field from
+	 * list_deadletter, its SIDECAR position) back into the source this node tails.
+	 * Reads the byte-verbatim record via read_message_at, applies the same PIPE_BUF
+	 * size guard `wp nodes ingest` uses, then appends it to the source's tail so the
+	 * reader reaches it again. On a SHARED source log every tailer re-receives the
+	 * record — including consumers that already processed it. Returns an ok/error
+	 * line for the verb reply.
+	 */
+	public function requeue_deadletter( string $locator ): string {
+		$deadletter = $this->ensure_deadletter();
+		if ( null === $deadletter ) {
+			return 'error: no dead-letter queue configured';
+		}
+		$target = $this->deadletter_requeue_target();
+		if ( null === $target ) {
+			return 'error: requeue unavailable — this node has no local source log to re-inject into';
+		}
+		$loc = $this->parse_deadletter_locator( $locator );
+		if ( null === $loc ) {
+			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list";
+		}
+		[ $segment, $offset, $length ] = $loc;
+		$message = $deadletter->read_message_at( $segment, $offset, $length );
+		if ( null === $message ) {
+			return "error: no dead-letter record at {$locator}";
+		}
+		$size = Message::packed_size( $message ) + 1;
+		if ( $size > Partition_Node::MAX_LINE_SIZE ) {
+			return "error: record is {$size} bytes (over the " . Partition_Node::MAX_LINE_SIZE
+				. "-byte PIPE_BUF cap); replay it via 'wp nodes ingest --void_warranty' instead";
+		}
+		$target->fill( $message );
+		$target->flush();
+		return "ok: requeued {$locator} ({$size} bytes) into the source";
+	}
+
+	/**
+	 * Delete every dead-letter segment (.log + its .idx), then refresh the warm segment
+	 * cache. Convenience only — the DLQ is count-rotated (DEADLETTER_MAX_SEGMENTS), so
+	 * quarantine can never grow unbounded and purge is never required for correctness.
+	 */
+	public function purge_deadletter(): string {
+		$deadletter = $this->ensure_deadletter();
+		if ( null === $deadletter ) {
+			return 'error: no dead-letter queue configured';
+		}
+		$removed  = 0;
+		$segments = $deadletter->get_segments( true );
+		foreach ( $segments as $s ) {
+			$log = $deadletter->get_segment_path( $s['id'] );
+			$idx = \substr( $log, 0, -4 ) . '.idx'; // {seg}.log → {seg}.idx.
+			// DLQ segment dir is base_dir-relative — not WP-managed.
+			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+			if ( @\unlink( $log ) ) {
+				++$removed;
+			}
+			@\unlink( $idx );
+			// phpcs:enable
+		}
+		$deadletter->get_segments( true ); // Re-scan so the warm cache reflects the purge.
+		// "X of Y" surfaces a failed unlink instead of hiding it.
+		return \sprintf( 'ok: purged %d of %d dead-letter segment(s)', $removed, \count( $segments ) );
+	}
+
+	/**
+	 * Parse a `segment:offset:length` sidecar locator into `[segment, offset, length]`,
+	 * or null when it isn't three non-negative integers.
+	 *
+	 * @return array{0:int,1:int,2:int}|null
+	 */
+	private function parse_deadletter_locator( string $locator ): ?array {
+		$parts = \explode( ':', $locator );
+		if ( 3 !== \count( $parts ) ) {
+			return null;
+		}
+		foreach ( $parts as $part ) {
+			if ( '' === $part || ! \ctype_digit( $part ) ) {
+				return null;
+			}
+		}
+		return [ (int) $parts[0], (int) $parts[1], (int) $parts[2] ];
+	}
+
+	/**
+	 * One cheap dump_metadata field so a UI can badge the DLQ: the sidecar segment count
+	 * from the warm cache. The DLQ is void_warranty (single-writer), so get_segments
+	 * serves the cache with no scandir once warm; an empty/absent dir short-circuits
+	 * before any scan. The using node merges this into dump_metadata().
+	 *
+	 * @return array{deadletter_segments:int}
+	 */
+	protected function deadletter_metadata(): array {
+		return [ 'deadletter_segments' => null === $this->deadletter ? 0 : \count( $this->deadletter->get_segments() ) ];
 	}
 
 	/**
@@ -299,5 +484,84 @@ trait Dead_Letter_Queue {
 		$this->attempts       = 1;
 		$this->first_crash_ts = null;
 		$this->poison_reason  = '';
+	}
+
+	// --- Triage verbs: dl_list / dl_requeue / dl_purge on {name}:config ---
+
+	/**
+	 * The triage verb table, merged into a using node's node_schema()['commands'] so
+	 * Consumer and Remote_Source both expose dl_list / dl_requeue / dl_purge on their
+	 * {name}:config interpreter (auto-wired by Schema_Reflection — no CI edits).
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function deadletter_verbs(): array {
+		return [
+			[
+				'name'        => 'dl_list',
+				'description' => 'List quarantined dead-letter records newest-first (reason, attempts, first_crash_ts, quarantine ts, source breadcrumb, sidecar locator). Optional limit (default ' . self::DEADLETTER_LIST_DEFAULT_LIMIT . ').',
+				'args'        => [
+					[ 'name' => 'limit', 'type' => 'int', 'required' => false ],
+				],
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_list( $interpreter, $args ),
+			],
+			[
+				'name'        => 'dl_requeue',
+				'description' => 'Re-inject the dead-letter record at <locator> (segment:offset:length from dl_list) back into the source log this node tails.',
+				'args'        => [
+					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
+				],
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_requeue( $interpreter, $args ),
+			],
+			[
+				'name'        => 'dl_purge',
+				'description' => 'Delete all dead-letter segments (.log + .idx). Convenience only — the queue is count-rotated, so this is not required for correctness.',
+				'args'        => [],
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_purge( $interpreter ),
+			],
+		];
+	}
+
+	/** The verbs run on a node's own {name}:config; a foreign patron is a wiring bug. */
+	private static function deadletter_patron( Command_Interpreter_Node $interpreter ): ?self {
+		$patron = $interpreter->patron();
+		return $patron instanceof self ? $patron : null;
+	}
+
+	/**
+	 * `dl_list` verb handler — reply the triage page as JSON.
+	 *
+	 * @param array<array-key, mixed> $args Optional limit token (default DEADLETTER_LIST_DEFAULT_LIMIT).
+	 */
+	public static function cmd_dl_list( Command_Interpreter_Node $interpreter, array $args ): string {
+		$patron = self::deadletter_patron( $interpreter );
+		if ( null === $patron ) {
+			return 'error: not a dead-letter node';
+		}
+		$raw   = Core::as_string( $args[0] ?? '' );
+		$limit = '' === $raw ? self::DEADLETTER_LIST_DEFAULT_LIMIT : \max( 1, Core::as_int( $raw ) );
+		return (string) \wp_json_encode( $patron->list_deadletter( $limit ) );
+	}
+
+	/**
+	 * `dl_requeue` verb handler — re-inject one record; reply the ok/error line.
+	 *
+	 * @param array<array-key, mixed> $args The sidecar locator from dl_list.
+	 */
+	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
+		$patron = self::deadletter_patron( $interpreter );
+		if ( null === $patron ) {
+			return 'error: not a dead-letter node';
+		}
+		return $patron->requeue_deadletter( Core::as_string( $args[0] ?? '' ) );
+	}
+
+	/** `dl_purge` verb handler — delete all dead-letter segments; reply the count. */
+	public static function cmd_dl_purge( Command_Interpreter_Node $interpreter ): string {
+		$patron = self::deadletter_patron( $interpreter );
+		if ( null === $patron ) {
+			return 'error: not a dead-letter node';
+		}
+		return $patron->purge_deadletter();
 	}
 }

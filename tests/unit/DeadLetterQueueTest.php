@@ -64,6 +64,13 @@ class Dead_Letter_Queue_Double extends Node {
 	public function leave_crawl(): void {
 		$this->exit_crawl();
 	}
+
+	/** Requeue seam: the log dl_requeue re-injects into. Null (default) exercises the "no local source" path. */
+	public ?Partition_Node $requeue_target = null;
+
+	protected function deadletter_requeue_target(): ?Partition_Node {
+		return $this->requeue_target;
+	}
 }
 
 #[CoversTrait( Dead_Letter_Queue::class )]
@@ -321,5 +328,162 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( 1, $this->read_private( $d, 'attempts' ) );
 		$this->assertNull( $this->read_private( $d, 'first_crash_ts' ) );
 		$this->assertSame( '', $this->read_private( $d, 'poison_reason' ) );
+	}
+
+	// ── Triage backend: reason/attempts .idx sidecar + list / requeue / purge ──
+
+	/** @return array<int, mixed> */
+	private function dl_message( string $value, string $id = '' ): array {
+		$m                     = Message::new_message();
+		$m[ Message::TYPE ]    = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ]   = $value;
+		$m[ Message::ID ]      = $id;
+		return $m;
+	}
+
+	public function test_dead_letter_writes_triage_metadata_beside_the_record(): void {
+		\Newspack_Nodes\Core::$now = 9999.0;
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		// Distinct-from-default fair-shot state so a hard-coded default can't pass.
+		( new \ReflectionProperty( Dead_Letter_Queue_Double::class, 'attempts' ) )->setValue( $d, 3 );
+		( new \ReflectionProperty( Dead_Letter_Queue_Double::class, 'first_crash_ts' ) )->setValue( $d, 4242.5 );
+
+		$d->quarantine( $this->dl_message( 'poison', '5:128:64' ), 'timeout' );
+
+		$page = $d->list_deadletter( 50 );
+		$this->assertSame( 1, $page['total'] );
+		$row = $page['rows'][0];
+		$this->assertSame( 'timeout', $row['reason'], 'the quarantine reason is durable, not just logged' );
+		$this->assertSame( 3, $row['attempts'] );
+		$this->assertSame( 4242.5, $row['first_crash_ts'] );
+		$this->assertSame( 9999, $row['ts'] );
+		$this->assertSame( '5:128:64', $row['source'], 'the record\'s source breadcrumb (Message::ID)' );
+		// ONE pasteable sidecar locator (first record: segment 0, offset 0, length > 0).
+		$this->assertMatchesRegularExpression( '/^0:0:[1-9][0-9]*$/', $row['locator'] );
+	}
+
+	public function test_a_stray_sidecar_fill_does_not_reuse_a_stale_reason(): void {
+		// The reason is staged per dead_letter() call; a fill that bypasses
+		// dead_letter() (nothing does this today) must index '' — never the
+		// previous quarantine's reason.
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'poison', '5:128:64' ), 'timeout' );
+
+		$sidecar = $this->read_private( $d, 'deadletter' );
+		\assert( $sidecar instanceof Partition_Node );
+		$sidecar->fill( $this->dl_message( 'stray', '6:0:10' ) );
+		$sidecar->flush();
+
+		$rows = $d->list_deadletter( 50 )['rows'];
+		$this->assertSame( '', $rows[0]['reason'], 'the stray (newest) row must not inherit "timeout"' );
+		$this->assertSame( 'timeout', $rows[1]['reason'] );
+	}
+
+	public function test_the_dlq_record_stays_byte_verbatim_replayable(): void {
+		// The .idx rides BESIDE the record; the .log record itself is the original,
+		// unwrapped message so `wp nodes ingest` replays it verbatim.
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$original                    = Message::new_message();
+		$original[ Message::TYPE ]   = Message::TM_STRUCT;
+		$original[ Message::VALUE ]  = [ 'k' => 'verbatim' ];
+		$d->quarantine( $original, 'throw' );
+
+		$log   = (string) \file_get_contents( "{$this->tmp}/dlq.p0/0.log" );
+		$first = \explode( "\n", $log )[0];
+		$this->assertSame( [ 'k' => 'verbatim' ], Message::unpacked( $first )[ Message::VALUE ] );
+	}
+
+	public function test_list_is_newest_first_and_capped_by_limit(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'a', '1:0:10' ), 'throw' );
+		$d->quarantine( $this->dl_message( 'b', '2:0:10' ), 'throw' );
+		$d->quarantine( $this->dl_message( 'c', '3:0:10' ), 'unparseable' );
+
+		$page = $d->list_deadletter( 2 );
+		$this->assertCount( 2, $page['rows'], 'the limit caps the returned rows' );
+		$this->assertSame( 3, $page['total'], 'total counts ALL indexed records, not the page' );
+		$this->assertSame( '3:0:10', $page['rows'][0]['source'], 'newest first' );
+		$this->assertSame( '2:0:10', $page['rows'][1]['source'] );
+	}
+
+	public function test_requeue_reads_the_sidecar_and_writes_to_the_target(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'reinject-me', '2:64:40' ), 'throw' );
+
+		$row = $d->list_deadletter( 50 )['rows'][0];
+		$loc = $row['locator'];
+
+		$target = new Partition_Node();
+		$target->arguments( [ "{$this->tmp}/source.p0" ] );
+		$d->requeue_target = $target;
+
+		$result = $d->requeue_deadletter( $loc );
+		$this->assertStringStartsWith( 'ok', $result );
+
+		$target->flush();
+		$log    = (string) \file_get_contents( "{$this->tmp}/source.p0/0.log" );
+		$values = \array_map(
+			static fn ( string $l ) => Message::unpacked( $l )[ Message::VALUE ],
+			\array_filter( \explode( "\n", $log ), static fn ( string $l ) => '' !== $l )
+		);
+		$this->assertSame( [ 'reinject-me' ], \array_values( $values ) );
+	}
+
+	public function test_requeue_without_a_target_reports_unavailable(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		// No requeue_target → the "no local source" branch, before any read.
+		$result = $d->requeue_deadletter( '0:0:10' );
+		$this->assertStringContainsString( 'unavailable', $result );
+	}
+
+	public function test_requeue_rejects_a_malformed_locator(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->requeue_target = ( new Partition_Node() );
+		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
+		$this->assertStringContainsString( 'malformed', $d->requeue_deadletter( 'not-a-locator' ) );
+	}
+
+	public function test_purge_removes_all_dead_letter_segments_and_indexes(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'poison', '1:0:10' ), 'throw' );
+		$this->assertSame( 1, $this->count_records( "{$this->tmp}/dlq.p0" ) );
+
+		$result = $d->purge_deadletter();
+		$this->assertSame( 'ok: purged 1 of 1 dead-letter segment(s)', $result );
+		$this->assertSame( 0, $this->count_records( "{$this->tmp}/dlq.p0" ) );
+		$this->assertSame( [], \glob( "{$this->tmp}/dlq.p0/*.idx" ) ?: [], 'the .idx companions are purged too' );
+	}
+
+	public function test_list_reports_unindexed_segments_for_pre_feature_records(): void {
+		// Two PRE-feature .log segments already on disk (no .idx companions) — the
+		// state after an upgrade. The newest (segment 1) gets adopted + partially
+		// indexed by the feature-era quarantine; segment 0 stays fully unindexed.
+		$dir = "{$this->tmp}/dlq.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", Message::packed( $this->dl_message( 'old-a' ) ) . "\n" );
+		\file_put_contents( "{$dir}/1.log", Message::packed( $this->dl_message( 'old-b' ) ) . "\n" );
+
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( $dir );
+		$d->quarantine( $this->dl_message( 'new-c', '9:0:10' ), 'throw' );
+
+		$page = $d->list_deadletter( 50 );
+		$this->assertSame( 1, $page['total'], 'only the feature-era record carries an .idx row' );
+		$this->assertSame( 1, $page['unindexed_segments'], 'segment 0 predates the feature and has no .idx' );
+	}
+
+	public function test_list_is_empty_without_a_configured_queue(): void {
+		$d    = new Dead_Letter_Queue_Double();
+		$page = $d->list_deadletter( 50 );
+		$this->assertSame( 0, $page['total'] );
+		$this->assertSame( [], $page['rows'] );
 	}
 }

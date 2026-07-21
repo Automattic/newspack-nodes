@@ -1517,4 +1517,39 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$this->assertSame( '', $this->read_private( $node, 'offsetlog_dir' ) );
 	}
+
+	// ── DLQ triage: list / purge on the remote-qualified sidecar; requeue is N/A ──
+
+	public function test_deadletter_triage_verbs_are_wired_into_the_schema(): void {
+		$verbs = \array_column( Remote_Source_Node::node_schema()['commands'], 'name' );
+		$this->assertContains( 'dl_list', $verbs );
+		$this->assertContains( 'dl_requeue', $verbs );
+		$this->assertContains( 'dl_purge', $verbs );
+	}
+
+	public function test_list_and_purge_operate_on_the_remote_qualified_sidecar(): void {
+		[ $node ] = $this->make_remote();
+		// The sidecar is named `{name}:{remote_partition}:deadletter`; build + quarantine.
+		( new \ReflectionMethod( Remote_Source_Node::class, 'ensure_deadletter' ) )->invoke( $node );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'remote-poison';
+		$message[ Message::ID ]    = '7:12:30';
+		( new \ReflectionMethod( Remote_Source_Node::class, 'dead_letter' ) )->invoke( $node, $message, 'timeout', null );
+
+		$page = $node->list_deadletter( 50 );
+		$this->assertSame( 1, $page['total'] );
+		$this->assertSame( 'timeout', $page['rows'][0]['reason'] );
+		$this->assertSame( '7:12:30', $page['rows'][0]['source'] );
+
+		$this->assertStringStartsWith( 'ok', $node->purge_deadletter() );
+		$this->assertSame( 0, $node->list_deadletter( 50 )['total'] );
+	}
+
+	public function test_requeue_is_unavailable_for_a_remote_source(): void {
+		// A remote SSE pull has no local source log, so requeue reports unavailable.
+		[ $node ] = $this->make_remote();
+		( new \ReflectionMethod( Remote_Source_Node::class, 'ensure_deadletter' ) )->invoke( $node );
+		$this->assertStringContainsString( 'unavailable', $node->requeue_deadletter( '0:0:10' ) );
+	}
 }
