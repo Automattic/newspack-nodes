@@ -208,7 +208,7 @@ test( 'list_profiles renders avg-descending rows, --total--, and a glob filter',
 	}
 	expect( out.indexOf( 'slowpoke' ) ).toBeLessThan( out.indexOf( 'zippy' ) );
 	expect( out ).toContain( '--total--' );
-	expect( out ).toContain( 'returned 2 profiles' );
+	expect( out ).toContain( '\nreturned 2 profiles' );
 
 	const filtered = ci.dispatch( 'list_profiles', [ 'zip' ] );
 	expect( filtered ).toContain( 'zippy' );

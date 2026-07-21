@@ -1047,8 +1047,7 @@ class Command_Interpreter_Node extends Node {
 				$out[ $name ] += $extra;
 			}
 		}
-		// FULL-snapshot header: profiling state (the console's Profiling-toggle
-		// truth, self-healed each poll) + reverse_cwd for GUI Connect/Disconnect.
+		// Full-snapshot header: Profiling-toggle truth + reverse_cwd for GUIs.
 		if ( '' === $only ) {
 			$out['_header'] = [ 'profiling' => null !== Router_Node::profiles() ];
 			if ( '' !== $pwd ) {
@@ -1348,7 +1347,7 @@ class Command_Interpreter_Node extends Node {
 			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
 			[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
 			$rows
-		) . \sprintf( "returned %d profiles in %.4f seconds\n", $count, \microtime( true ) - $start );
+		) . \sprintf( "\nreturned %d profiles in %.4f seconds\n", $count, \microtime( true ) - $start );
 	}
 
 	/** @return list<string> One list_profiles table row (rate = count/window, else 1). */
