@@ -208,6 +208,35 @@ Server-sent-events drain endpoint backed by `SSE_Out_Node` (which is both the `_
 
 Standard SSE stream (`Content-Type: text/event-stream`). The application controls slot gating via three optional Closure seams on `SSE_Out_Node` (`$acquire_slot`, `$release_slot`, `$check_slot`); unwired the endpoint allows a single shared slot. When the application's `$acquire_slot` returns `false`, the controller responds `429 Too Many Requests` before sending any SSE headers.
 
+## Log Stream
+
+```
+GET   /wp-json/newspack-nodes/v1/log/stream
+```
+
+Server-sent-events log-tail endpoint backed by `Log_Stream_Out_Node`, an `SSE_Out_Node` subclass. On the wire it mirrors `/messages/stream` exactly — same packed `msg` events, `connected` envelope, heartbeat cadence, flush framing, and slot pool — so any `/messages/stream` client works unchanged. The one difference is what a subscription resolves to: a fixed **`Log_Sources` registry NAME** opened as a `Tail_Node` reader instead of a Consumer. A caller can never supply a path — the subscribe param carries registry names only, so there is no traversal surface.
+
+The registry merges three families, in priority order (first name wins, then realpath-dedupe keeps the first):
+
+1. **Built-ins** — php `error_log` (only when it's a real file) and `WP_CONTENT_DIR/debug.log`, tailed in Tail file mode (`tail -F` logrotate semantics).
+2. **Config** — `log_sources` entries (`name=/absolute/path`, one per line in the substrate settings page), Tail file mode.
+3. **Active topologies** — every `Log` node in an active topology's graph, its path template resolved per partition via `Core::resolve_partition_template`, tailed in Tail segmented mode (`{file}.{seg}`). Named by lowercased writes-basename, plus a `.p{N}` suffix when the template is per-partition. A broken topology degrades to being skipped, never a 500.
+
+The same registry backs the REPL's `taillog` verb; its reserved `taillog sources` name returns the merged catalog as `{ name, path, mode, available }` rows for GUI pickers.
+
+**Permission**: `current_user_can( 'manage_options' )`. No nonce check — same posture as `/messages/stream`.
+
+### Query parameters
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `subscribe` | string | yes | CSV of registry NAMES (from the `Log_Sources` registry above). An unknown name throws the teaching `unknown log source` error listing the known names. No globs — registry sources are fixed for the life of a stream; Tail's missing-file grace covers a source that appears, rotates, or truncates mid-stream. |
+| `positions` | string | no | Optional resume positions. JSON object keyed by registry name; each value is a `{segment, offset}` object or one of the `start`/`recent`/`end` string forms. Round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot (the cursor self-validates against the live file and degrades to 0 on mismatch). Omit to start at `end` (live tail). |
+
+### Response
+
+Identical to `/messages/stream`: each line the Tail emits arrives as an SSE `msg` event carrying the packed 7-field Message (`TM_BYTESTREAM`, FROM stamped with the registry name), with the same `connected` envelope, heartbeat, 429 slot-gating, and flush behavior.
+
 ## Extensibility hooks
 
 ### `newspack_nodes/request_graph_ready`

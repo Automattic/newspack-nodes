@@ -19,6 +19,7 @@ use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Config_System\Settings_Renderer;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Settings_Schema;
 
 \defined( 'ABSPATH' ) || exit;
@@ -608,6 +609,26 @@ class Admin {
 	}
 
 	/**
+	 * Log sources field: newline-separated `name=/absolute/path` textarea. Extra
+	 * `/log/stream` + `taillog` sources layered over the built-ins and the
+	 * topology-inferred set (see Log_Sources).
+	 */
+	public static function log_sources_callback(): void {
+		$value = \get_option( 'newspack_nodes_log_sources', [] );
+		$value = Core::arr( $value );
+		$value = \array_map( static fn ( $entry ): string => Core::as_string( $entry ), $value );
+		$html  = Settings_Renderer::textarea(
+			'log_sources',
+			'newspack_nodes_log_sources',
+			\implode( "\n", $value ),
+			'',
+			\__( 'Extra log sources for the log stream and taillog (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included.', 'newspack-nodes' ),
+			self::reset_mark_name( 'log_sources' )
+		);
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
+	}
+
+	/**
 	 * Total-storage field: segment_size × max_segments × (count of on-disk log-partition dirs).
 	 */
 	public static function total_storage_callback(): void {
@@ -822,6 +843,31 @@ class Admin {
 			if ( \preg_match( '/^[a-zA-Z0-9._\-]+:\d{1,5}$/', $line ) ) {
 				$sanitized_lines[] = $line;
 			}
+		}
+		return $sanitized_lines;
+	}
+
+	/**
+	 * Sanitize log sources (newline-separated `name=/absolute/path`; the name/path
+	 * rule is Log_Sources::parse_entry — the ONE rule the registry reads with).
+	 *
+	 * Stores the typed (array) shape so the raw option overlay in Config::load_config()
+	 * yields an array directly, matching the memcache_servers pattern.
+	 *
+	 * @param mixed $value Newline-separated source list.
+	 * @return array<int,string> Validated `name=/absolute/path` entries, or empty array if all invalid.
+	 */
+	public static function sanitize_log_sources( $value ): array {
+		if ( ! \is_scalar( $value ) ) {
+			return [];
+		}
+		$sanitized_lines = [];
+		foreach ( \explode( "\n", (string) $value ) as $line ) {
+			$line = \trim( $line );
+			if ( '' === $line || null === Log_Sources::parse_entry( $line ) ) {
+				continue;
+			}
+			$sanitized_lines[] = $line;
 		}
 		return $sanitized_lines;
 	}

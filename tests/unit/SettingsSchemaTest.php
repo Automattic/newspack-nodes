@@ -28,6 +28,7 @@ class SettingsSchemaTest extends TestCase {
 		'max_lifetime',
 		'base_directory',
 		'memcache_servers',
+		'log_sources',
 		'remote_max_segments',
 		'remote_segment_size',
 		'remote_min_lifetime',
@@ -44,6 +45,7 @@ class SettingsSchemaTest extends TestCase {
 		'newspack_nodes_max_lifetime',
 		'newspack_nodes_base_directory',
 		'newspack_nodes_memcache_servers',
+		'newspack_nodes_log_sources',
 		'newspack_nodes_remote_max_segments',
 		'newspack_nodes_remote_segment_size',
 		'newspack_nodes_remote_min_lifetime',
@@ -59,6 +61,7 @@ class SettingsSchemaTest extends TestCase {
 		'total_storage',
 		'base_directory',
 		'memcache_servers',
+		'log_sources',
 		'remote_max_segments',
 		'remote_segment_size',
 		'remote_min_lifetime',
@@ -99,6 +102,8 @@ class SettingsSchemaTest extends TestCase {
 		$this->assertSame( [ 'Partition', 'Topic', 'Log' ], $schema->restart_for( 'segment_size' ) );
 		$this->assertSame( 'all', $schema->restart_for( 'memcache_servers' ) );
 		$this->assertSame( 'all', $schema->restart_for( 'base_directory' ) );
+		// Streams resolve the registry per-request; no worker holds it.
+		$this->assertSame( [], $schema->restart_for( 'log_sources' ) );
 		$this->assertSame( [], $schema->restart_for( 'topologies' ) );
 		$this->assertSame( [], $schema->restart_for( 'missing_option' ) );
 	}

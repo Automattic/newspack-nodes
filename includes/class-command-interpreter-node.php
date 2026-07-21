@@ -32,18 +32,6 @@ class Command_Interpreter_Node extends Node {
 	private const TAILLOG_MAX_KB     = 64;
 
 	/**
-	 * `taillog` source-registry seam. Resolves the FIXED source-name → absolute-path
-	 * map — a NAME (`php` | `debug`), never a caller-supplied path, so there is no
-	 * traversal. Lazily-defaulted to the real resolver (`ini_get('error_log')` /
-	 * `WP_CONTENT_DIR`); tests reassign it to point at temp fixtures without the
-	 * container's ini/constants. A source whose backing location is unconfigured is
-	 * omitted from the map.
-	 *
-	 * @var (\Closure(): array<string, string>)|null
-	 */
-	public static ?\Closure $taillog_sources = null;
-
-	/**
 	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
 	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
 	 * (Classes_CI) scans the composer classmap for FQCNs under these prefixes.
@@ -779,17 +767,18 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
-	 * fixed registry NAME. No source lists the registry with per-source availability;
-	 * the reserved name `sources` returns the registry as a struct (array) a GUI reads;
-	 * an unknown name or a missing/unreadable file returns a teaching error naming
-	 * the resolved path (errors-as-docs).
+	 * fixed registry NAME (the shared `Log_Sources` registry: built-ins + config
+	 * `log_sources` + active-topology Log nodes). No source lists the registry with
+	 * per-source availability; the reserved name `sources` returns the registry as
+	 * a struct (array) a GUI reads; an unknown name or a missing/unreadable file
+	 * returns a teaching error naming the resolved path (errors-as-docs).
 	 *
 	 * @param list<string> $args
-	 * @return string|list<array{name:string, path:string, available:bool}>
+	 * @return string|list<array{name:string, path:string, mode:string, available:bool}>
 	 */
 	private static function cmd_taillog( array $args ): string|array {
 		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
-		$registry = self::taillog_registry();
+		$registry = Log_Sources::registry();
 
 		if ( 'sources' === $source ) {
 			return self::taillog_sources_struct( $registry );
@@ -801,78 +790,31 @@ class Command_Interpreter_Node extends Node {
 			$known = \implode( ', ', \array_keys( $registry ) );
 			return "unknown log source: \"$source\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
 		}
-		$path = $registry[ $source ];
-		if ( ! \is_file( $path ) || ! \is_readable( $path ) ) {
-			return "log unavailable: $path (missing or unreadable)";
+		// Segmented sources tail their NEWEST {path}.{seg}; file mode the path.
+		$path = Log_Sources::tail_path( $registry[ $source ] );
+		if ( null === $path || ! \is_file( $path ) || ! \is_readable( $path ) ) {
+			return 'log unavailable: ' . ( $path ?? $registry[ $source ]['path'] ) . ' (missing or unreadable)';
 		}
 		$window = \max( 1, \min( \ctype_digit( $max_kb ) ? (int) $max_kb : self::TAILLOG_DEFAULT_KB, self::TAILLOG_MAX_KB ) );
 		return self::tail_file( $path, $window * 1024 );
 	}
 
 	/**
-	 * Resolve the FIXED `taillog` source registry (name → absolute path) via the
-	 * seam, defaulting to the real host resolution.
-	 *
-	 * @return array<string,string>
-	 */
-	private static function taillog_registry(): array {
-		$resolve = self::$taillog_sources ?? static function (): array {
-			$sources = [];
-			$php     = \ini_get( 'error_log' );
-			// Only a real file — 'syslog' / relative / '' aren't tailable.
-			if ( \is_string( $php ) && '' !== $php && \is_file( $php ) ) {
-				$sources['php'] = $php;
-			}
-			// Constant may be undefined in tests — then debug is unavailable.
-			if ( \defined( 'WP_CONTENT_DIR' ) ) {
-				$sources['debug'] = \WP_CONTENT_DIR . '/debug.log';
-			}
-			return $sources;
-		};
-		return self::dedupe_by_realpath( $resolve() );
-	}
-
-	/**
-	 * Collapse registry entries that resolve to the SAME real file — on this host
-	 * php `error_log` IS `wp-content/debug.log`, so `php` and `debug` would tail
-	 * identical content. Insertion order is priority: `php` precedes `debug` in the
-	 * resolver, so the ini-configured aggregation point is the survivor. A path that
-	 * doesn't yet exist (`realpath` false) can't be a duplicate and is kept.
-	 *
-	 * @param array<string,string> $registry Name → path (insertion order = priority).
-	 * @return array<string,string>
-	 */
-	private static function dedupe_by_realpath( array $registry ): array {
-		$deduped = [];
-		$seen    = [];
-		foreach ( $registry as $name => $path ) {
-			$real = \realpath( $path );
-			if ( false !== $real && isset( $seen[ $real ] ) ) {
-				continue;
-			}
-			if ( false !== $real ) {
-				$seen[ $real ] = true;
-			}
-			$deduped[ $name ] = $path;
-		}
-		return $deduped;
-	}
-
-	/**
-	 * The reserved `taillog sources` reply: one { name, path, available } row per
-	 * (deduped) registry entry, as a plain array a GUI reads to build its source
+	 * The reserved `taillog sources` reply: one { name, path, mode, available } row
+	 * per (deduped) registry entry, as a plain array a GUI reads to build its source
 	 * picker — mirrors the dump_metadata array-reply precedent.
 	 *
-	 * @param array<string,string> $registry Name → resolved path.
-	 * @return list<array{name:string, path:string, available:bool}>
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 * @return list<array{name:string, path:string, mode:string, available:bool}>
 	 */
 	private static function taillog_sources_struct( array $registry ): array {
 		$rows = [];
-		foreach ( $registry as $name => $path ) {
+		foreach ( $registry as $name => $entry ) {
 			$rows[] = [
 				'name'      => $name,
-				'path'      => $path,
-				'available' => \is_file( $path ) && \is_readable( $path ),
+				'path'      => $entry['path'],
+				'mode'      => $entry['mode'],
+				'available' => Log_Sources::is_available( $entry['path'], $entry['mode'] ),
 			];
 		}
 		return $rows;
@@ -881,18 +823,19 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
 	 *
-	 * @param array<string,string> $registry Name → resolved path.
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
 	 */
 	private static function taillog_list( array $registry ): string {
 		$rows = [];
-		foreach ( $registry as $name => $path ) {
-			$available = \is_file( $path ) && \is_readable( $path );
-			$size      = $available ? \filesize( $path ) : false;
-			$rows[]    = [
+		foreach ( $registry as $name => $entry ) {
+			// BYTES sizes what a tail reads: newest segment if segmented.
+			$tail   = Log_Sources::tail_path( $entry );
+			$size   = null !== $tail && \is_file( $tail ) ? \filesize( $tail ) : false;
+			$rows[] = [
 				$name,
-				$available ? 'yes' : 'no',
+				Log_Sources::is_available( $entry['path'], $entry['mode'] ) ? 'yes' : 'no',
 				false === $size ? '-' : (string) $size,
-				$path,
+				$entry['path'],
 			];
 		}
 		return self::tabulate(

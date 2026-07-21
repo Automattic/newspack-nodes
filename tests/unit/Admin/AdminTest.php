@@ -171,6 +171,53 @@ class AdminTest extends TestCase {
 		$this->assertFalse( $GLOBALS['_registered_settings']['newspack_nodes_memcache_servers']['args']['autoload'] );
 	}
 
+	public function test_sanitize_log_sources_keeps_valid_and_drops_invalid_lines(): void {
+		$admin = new Admin();
+		$admin->register_settings();
+
+		$cb = $GLOBALS['_registered_settings']['newspack_nodes_log_sources']['args']['sanitize_callback'];
+		$this->assertIsArray( $cb );
+		$this->assertSame( 'sanitize_log_sources', $cb[1] );
+
+		// Valid `name=/absolute/path` lines survive as the typed array shape.
+		$this->assertSame(
+			[ 'gyro=/var/log/gyro-8841.log', 'nuclear=/var/log/importers-22.log' ],
+			\call_user_func( $cb, "gyro=/var/log/gyro-8841.log\nnuclear=/var/log/importers-22.log" )
+		);
+
+		// Invalid lines silently dropped; valid ones survive.
+		$this->assertSame(
+			[ 'keeper=/var/log/keeper-4471.log' ],
+			\call_user_func(
+				$cb,
+				"keeper=/var/log/keeper-4471.log\nnoequals\nBad Name=/x/y.log\nrel=not/absolute\ndots=/a/../b.log\nsources=/x/reserved.log"
+			)
+		);
+
+		// Empty / null → empty array.
+		$this->assertSame( [], \call_user_func( $cb, '' ) );
+		$this->assertSame( [], \call_user_func( $cb, null ) );
+
+		// Extended option — not autoloaded.
+		$this->assertFalse( $GLOBALS['_registered_settings']['newspack_nodes_log_sources']['args']['autoload'] );
+	}
+
+	public function test_log_sources_callback_renders_textarea_with_saved_value(): void {
+		\update_option( 'newspack_nodes_log_sources', [ 'gyro=/var/log/gyro-8841.log' ] );
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->log_sources_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( '<textarea', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_log_sources"', $html );
+		$this->assertStringContainsString( 'id="log_sources"', $html );
+		$this->assertStringContainsString( 'gyro=/var/log/gyro-8841.log', $html );
+		$this->assertStringContainsString( 'one per line', $html );
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_log_sources]"', $html );
+	}
+
 	public function test_register_settings_base_directory_rejects_relative_and_traversal(): void {
 		$admin = new Admin();
 		$admin->register_settings();

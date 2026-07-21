@@ -38,8 +38,11 @@ class SSE_Out_Node extends Node {
 	// Idle heartbeat cadence (ms); data flushes every tick regardless. 2s.
 	public const HEARTBEAT_MS = 2000;
 
+	/** @var non-falsy-string */
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
-	public const ROUTE          = '/messages/stream';
+
+	/** @var non-falsy-string Late-static-bound so a subclass overrides just the route. */
+	public const ROUTE = '/messages/stream';
 
 	/**
 	 * Allow-list of event names emitted without sanitization (O(1) hot-path).
@@ -478,7 +481,7 @@ class SSE_Out_Node extends Node {
 	 * @param mixed $position Raw per-partition position.
 	 * @return array<array-key,mixed>|string
 	 */
-	private static function position_arg( $position ) {
+	protected static function position_arg( $position ) {
 		if ( \is_array( $position ) ) {
 			return $position;
 		}
@@ -576,8 +579,8 @@ class SSE_Out_Node extends Node {
 
 	public function register_routes(): void {
 		\register_rest_route(
-			self::REST_NAMESPACE,
-			self::ROUTE,
+			static::REST_NAMESPACE,
+			static::ROUTE,
 			[
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'stream' ],
