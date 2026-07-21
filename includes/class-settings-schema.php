@@ -123,6 +123,17 @@ class Settings_Schema {
 					render: [ Admin::class, 'memcache_servers_callback' ],
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
+				new Field(
+					key: 'log_sources',
+					type: 'array_strings',
+					label: static fn(): string => \__( 'Log Sources', 'newspack-nodes' ),
+					section: $storage,
+					// Registry resolves per-request; no restarts.
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_log_sources' ],
+					render: [ Admin::class, 'log_sources_callback' ],
+					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
+				),
 				// Remote storage geometry; registered + resettable.
 				new Field(
 					key: 'remote_max_segments',

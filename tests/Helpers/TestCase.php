@@ -65,6 +65,11 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Command_Interpreter_Node::$default_authorize = null;
 		}
 
+		// Log-source builtin seam is static process state; clear it likewise.
+		if ( \class_exists( '\Newspack_Nodes\Log_Sources' ) ) {
+			\Newspack_Nodes\Log_Sources::$builtin_sources = null;
+		}
+
 		// Bootstrap seams a class may set and not clear: a leaked supervisor_factory
 		// (BootstrapTest binds one to /tmp) misdirects kill_readers' restart-flag
 		// drops; a leaked supervisor_enabled_override=false disables the supervisor.

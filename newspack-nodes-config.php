@@ -17,7 +17,7 @@ return [
 	// Filesystem root for logs / locks / offsets / IPC dirs.
 	'base_directory'      => '/tmp/newspack-nodes',
 
-	// Retention: dual-rule; count-prune eligible after 1 hour, age-prune past 24 h.
+	// Retention: count-prune eligible after 1 h, age-prune past 24 h.
 	'num_partitions'      => 1,
 	'segment_size'        => 64 * 1024 * 1024,
 	'min_segments'        => 2,
@@ -29,6 +29,9 @@ return [
 	'memcache_servers'    => [
 		'127.0.0.1:11211',
 	],
+
+	// Extra /log/stream + taillog sources ('name=/absolute/path' entries).
+	'log_sources'         => [],
 
 	// Topologies (Topology_Registry names); each = a num_partitions fleet.
 	'topologies'          => [],

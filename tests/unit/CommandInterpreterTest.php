@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Echo_Node;
+use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
@@ -19,7 +20,7 @@ class CommandInterpreterTest extends TestCase {
 	protected function tearDown(): void {
 		// $default_authorize is static process state — reset so tests don't bleed.
 		Command_Interpreter_Node::$default_authorize = null;
-		Command_Interpreter_Node::$taillog_sources   = null;
+		Log_Sources::$builtin_sources                = null;
 		Router_Node::profiles( null );
 		parent::tearDown();
 	}
@@ -281,7 +282,7 @@ class CommandInterpreterTest extends TestCase {
 		// first WHOLE row is 0023 — a value distinct from the 16KB default window.
 		$path = $this->write_fixed_width_log( 40, 59 );
 
-		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'php' => $path ];
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'php', '1' ] );
 
@@ -296,7 +297,7 @@ class CommandInterpreterTest extends TestCase {
 		// A file under the 16KB default window returns entire, first row intact.
 		$path = $this->write_fixed_width_log( 5, 59 );
 
-		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'php' => $path ];
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'php' ] );
 
@@ -310,7 +311,7 @@ class CommandInterpreterTest extends TestCase {
 		$present = $this->write_fixed_width_log( 3, 59 );
 		$missing = \sys_get_temp_dir() . '/taillog-does-not-exist-9271';
 
-		Command_Interpreter_Node::$taillog_sources = static fn (): array => [
+		Log_Sources::$builtin_sources = static fn (): array => [
 			'php'   => $present,
 			'debug' => $missing,
 		];
@@ -329,7 +330,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_taillog_missing_file_returns_a_teaching_error_naming_the_path(): void {
 		$missing = \sys_get_temp_dir() . '/taillog-absent-4418.log';
 
-		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'debug' => $missing ];
+		Log_Sources::$builtin_sources = static fn (): array => [ 'debug' => $missing ];
 
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'debug' ] );
 
@@ -339,7 +340,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_taillog_rejects_an_unknown_source_name_never_a_path(): void {
 		$path = $this->write_fixed_width_log( 3, 59 );
 
-		Command_Interpreter_Node::$taillog_sources = static fn (): array => [ 'php' => $path ];
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		// A caller-supplied path is NOT a registry name: no traversal.
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ '../../../../etc/passwd' ] );
@@ -354,7 +355,7 @@ class CommandInterpreterTest extends TestCase {
 		$present = $this->write_fixed_width_log( 3, 59 );
 		$missing = \sys_get_temp_dir() . '/taillog-sources-absent-5573.log';
 
-		Command_Interpreter_Node::$taillog_sources = static fn (): array => [
+		Log_Sources::$builtin_sources = static fn (): array => [
 			'php'   => $present,
 			'debug' => $missing,
 		];
@@ -366,11 +367,13 @@ class CommandInterpreterTest extends TestCase {
 				[
 					'name'      => 'php',
 					'path'      => $present,
+					'mode'      => 'file',
 					'available' => true,
 				],
 				[
 					'name'      => 'debug',
 					'path'      => $missing,
+					'mode'      => 'file',
 					'available' => false,
 				],
 			],
@@ -381,6 +384,54 @@ class CommandInterpreterTest extends TestCase {
 		\unlink( $present );
 	}
 
+	public function test_taillog_sources_reflects_the_full_merged_registry(): void {
+		// The struct is the Log Viewer's catalog: a config `log_sources` entry
+		// must appear beside the built-ins, each row carrying its Tail mode.
+		$present = $this->write_fixed_width_log( 3, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
+		$this->use_base_dir(
+			$this->make_temp_dir( 'ci-taillog-merge-' ),
+			[ 'log_sources' => [ 'gyro=/var/log/gyro-6203.log' ] ]
+		);
+
+		$rows = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'sources' ] );
+
+		$this->assertIsArray( $rows );
+		$this->assertSame( [ 'php', 'gyro' ], \array_column( $rows, 'name' ) );
+		$this->assertSame( [ 'file', 'file' ], \array_column( $rows, 'mode' ) );
+
+		\unlink( $present );
+	}
+
+	public function test_taillog_tails_the_newest_segment_of_a_segmented_source(): void {
+		// A topology Log source is segmented ({file}.{seg}); `sources` reports
+		// it available, so `taillog <name>` must tail its NEWEST segment — never
+		// "log unavailable" on the bare base path the segments hang off.
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$tmp = $this->make_temp_dir( 'ci-taillog-seg-' );
+		\mkdir( "{$tmp}/topologies", 0755, true );
+		\file_put_contents(
+			"{$tmp}/topologies/seg-src.tsl",
+			"make_node Log gate:log <config:logs_dir>/gate-events.jsonl 1 2 7\n"
+		);
+		try {
+			\Newspack_Nodes\Topology_Registry::register_stock_dir( "{$tmp}/topologies" );
+			$this->use_base_dir( $tmp, [ 'topologies' => [ 'seg-src' ] ] );
+			\mkdir( "{$tmp}/logs", 0755, true );
+			\file_put_contents( "{$tmp}/logs/gate-events.jsonl.0", "old-row-0001\n" );
+			\file_put_contents( "{$tmp}/logs/gate-events.jsonl.1", \str_pad( 'new-row-7345', 976, '.' ) . "\n" );
+
+			$out = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [ 'gate-events.jsonl' ] );
+			$this->assertStringContainsString( 'new-row-7345', $out, 'tails the newest segment' );
+			$this->assertStringNotContainsString( 'old-row-0001', $out, 'older segments are not the tail' );
+
+			$list = ( new Command_Interpreter_Node() )->dispatch( 'taillog', [] );
+			$this->assertStringContainsString( '977', $list, 'BYTES reports the newest segment size, not "-"' );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+		}
+	}
+
 	public function test_taillog_sources_dedupes_two_names_resolving_to_the_same_real_file(): void {
 		// On this host php `error_log` IS wp-content/debug.log: two DISTINCT path
 		// strings (a symlink) pointing at ONE real file must collapse to one row,
@@ -389,7 +440,7 @@ class CommandInterpreterTest extends TestCase {
 		$link = $real . '.alias';
 		\symlink( $real, $link );
 
-		Command_Interpreter_Node::$taillog_sources = static fn (): array => [
+		Log_Sources::$builtin_sources = static fn (): array => [
 			'php'   => $real,
 			'debug' => $link,
 		];

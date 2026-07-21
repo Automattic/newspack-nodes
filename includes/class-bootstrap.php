@@ -11,6 +11,7 @@
 namespace Newspack_Nodes;
 
 use Newspack_Nodes\Rest\HTTP_In_Node;
+use Newspack_Nodes\Rest\Log_Stream_Out_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Rest\Spawn_Controller;
 
@@ -436,6 +437,7 @@ class Bootstrap {
 		SSE_Slot_Pool::wire();
 		( new Spawn_Controller( self::supervisor() ) )->register_routes();
 		( new SSE_Out_Node() )->register_routes();
+		( new Log_Stream_Out_Node() )->register_routes();
 		( new HTTP_In_Node() )->register_routes();
 	}
 
