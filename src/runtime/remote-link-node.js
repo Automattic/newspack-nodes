@@ -51,13 +51,6 @@ export class RemoteLinkNode extends Node {
 		parseSchemaArgs( this, value );
 	}
 
-	// Open the inbound stream; optional `positions` seed seeks the cursor.
-	connect( positions = null ) {
-		this.ensureChildren();
-		this.sseIn.positions = positions;
-		this.sseIn.start();
-	}
-
 	// Re-point the stream at a new subscription; optional `positions` seed.
 	setSubscribe( subscribe, positions = null ) {
 		this.ensureChildren();
@@ -71,6 +64,36 @@ export class RemoteLinkNode extends Node {
 	send( message ) {
 		this.ensureChildren();
 		this.httpOut.fill( message );
+	}
+
+	// Tear down OUR SseIn — close() first (removeNode won't close the stream).
+	removeNode() {
+		this.close();
+		this.sseIn?.unregister( 'CONNECTED', this.name );
+		this.sseIn?.removeNode();
+		this.sseIn = null;
+		this.httpOut = null;
+		this.heartbeat = null;
+		super.removeNode();
+	}
+
+	// `connect_node` is a source link's start lifecycle on the canvas.
+	connectNode( target ) {
+		this._assertConfigured();
+		super.connectNode( target );
+		if ( this.sseIn ) {
+			this.sseIn.target = target;
+		}
+		if ( ! this.sseIn?._es ) {
+			this.connect();
+		}
+	}
+
+	// Open the inbound stream; optional `positions` seed seeks the cursor.
+	connect( positions = null ) {
+		this.ensureChildren();
+		this.sseIn.positions = positions;
+		this.sseIn.start();
 	}
 
 	/**
@@ -115,15 +138,13 @@ export class RemoteLinkNode extends Node {
 		} );
 	}
 
-	// Tear down OUR SseIn — close() first (removeNode won't close the stream).
-	removeNode() {
+	// Removing the output edge closes the stream and its heartbeat slot.
+	disconnectNode( target = '' ) {
+		super.disconnectNode( target );
+		if ( this.sseIn ) {
+			this.sseIn.target = '';
+		}
 		this.close();
-		this.sseIn?.unregister( 'CONNECTED', this.name );
-		this.sseIn?.removeNode();
-		this.sseIn = null;
-		this.httpOut = null;
-		this.heartbeat = null;
-		super.removeNode();
 	}
 
 	// Close the inbound stream, forget the slot, then fire the onClose hook.
@@ -131,6 +152,12 @@ export class RemoteLinkNode extends Node {
 		this.sseIn?.close();
 		this.heartbeat?.clearSlot( this );
 		this.onClose?.();
+	}
+
+	_assertConfigured() {
+		if ( '' === this.subscribe ) {
+			throw new Error( 'RemoteLink requires an SSE subscription' );
+		}
 	}
 
 	// Composite stat delegation: surface the children's byte tallies.
@@ -147,33 +174,6 @@ export class RemoteLinkNode extends Node {
 	}
 	get largestMsgSent() {
 		return this.sseIn ? this.sseIn.largestMsgSent : super.largestMsgSent;
-	}
-
-	// `connect_node` is a source link's start lifecycle on the canvas.
-	connectNode( target ) {
-		this._assertConfigured();
-		super.connectNode( target );
-		if ( this.sseIn ) {
-			this.sseIn.target = target;
-		}
-		if ( ! this.sseIn?._es ) {
-			this.connect();
-		}
-	}
-
-	// Removing the output edge closes the stream and its heartbeat slot.
-	disconnectNode( target = '' ) {
-		super.disconnectNode( target );
-		if ( this.sseIn ) {
-			this.sseIn.target = '';
-		}
-		this.close();
-	}
-
-	_assertConfigured() {
-		if ( '' === this.subscribe ) {
-			throw new Error( 'RemoteLink requires an SSE subscription' );
-		}
 	}
 
 	// Resume seed (last `{segment,offset}` per sub/partition); null → tail.

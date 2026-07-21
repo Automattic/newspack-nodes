@@ -12,40 +12,6 @@ namespace Newspack_Nodes;
 class Config_Utils {
 
 	/**
-	 * Resolve a config path to a canonical, readable PHP file; null otherwise.
-	 *
-	 * @param string $path             Path to validate.
-	 * @param string $error_log_prefix Disambiguates error_log lines across callers.
-	 */
-	public static function validate_config_path(
-		string $path,
-		string $error_log_prefix = 'Config_Utils'
-	): ?string {
-		if ( false !== \strpos( $path, "\0" ) ) {
-			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: null byte in path" );
-			return null;
-		}
-		if ( '.php' !== \substr( $path, -4 ) ) {
-			$safe = \preg_replace( '/[\x00-\x1f\x7f]/', '', $path );
-			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: not .php file ({$safe})" );
-			return null;
-		}
-		$real_path = \realpath( $path );
-		if (
-			false === $real_path
-			|| ! \is_file( $real_path )
-			|| ! \is_readable( $real_path )
-			|| '.php' !== \substr( $real_path, -4 )
-		) {
-			$safe = \preg_replace( '/[\x00-\x1f\x7f]/', '', $path );
-			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: path is not a canonical readable PHP file ({$safe})" );
-			return null;
-		}
-
-		return $real_path;
-	}
-
-	/**
 	 * Load a PHP config file (validated scalar/array tree) and merge it into $config.
 	 *
 	 * @param array<string, mixed> $config           Existing config to merge into.
@@ -98,5 +64,39 @@ class Config_Utils {
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Resolve a config path to a canonical, readable PHP file; null otherwise.
+	 *
+	 * @param string $path             Path to validate.
+	 * @param string $error_log_prefix Disambiguates error_log lines across callers.
+	 */
+	public static function validate_config_path(
+		string $path,
+		string $error_log_prefix = 'Config_Utils'
+	): ?string {
+		if ( false !== \strpos( $path, "\0" ) ) {
+			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: null byte in path" );
+			return null;
+		}
+		if ( '.php' !== \substr( $path, -4 ) ) {
+			$safe = \preg_replace( '/[\x00-\x1f\x7f]/', '', $path );
+			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: not .php file ({$safe})" );
+			return null;
+		}
+		$real_path = \realpath( $path );
+		if (
+			false === $real_path
+			|| ! \is_file( $real_path )
+			|| ! \is_readable( $real_path )
+			|| '.php' !== \substr( $real_path, -4 )
+		) {
+			$safe = \preg_replace( '/[\x00-\x1f\x7f]/', '', $path );
+			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: path is not a canonical readable PHP file ({$safe})" );
+			return null;
+		}
+
+		return $real_path;
 	}
 }

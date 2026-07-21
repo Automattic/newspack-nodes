@@ -169,20 +169,6 @@ export class DumperNode extends Node {
 		this._captureReply = null;
 	}
 
-	/**
-	 * Grab the NEXT command reply whose VALUE.name matches `verb` — the live-save
-	 * flow reuses the transcript round-trip to snapshot `dump_config` output. The
-	 * reply still renders into the transcript; this only forks a copy to `callback`.
-	 * One-shot: cleared as soon as it fires (a new call supersedes any pending one).
-	 *
-	 * @param {string}   verb     Command name to match (e.g. 'dump_config').
-	 * @param {Function} callback (payload, isError) invoked once on the match.
-	 * @return {void}
-	 */
-	captureNextReply( verb, callback ) {
-		this._captureReply = { verb, callback };
-	}
-
 	fill( message ) {
 		this.counter++;
 		this._maybeCapture( message );
@@ -246,6 +232,20 @@ export class DumperNode extends Node {
 				? next.slice( next.length - TRANSCRIPT_MAX )
 				: next;
 		this.setState( 'transcript', this._transcript );
+	}
+
+	/**
+	 * Grab the NEXT command reply whose VALUE.name matches `verb` — the live-save
+	 * flow reuses the transcript round-trip to snapshot `dump_config` output. The
+	 * reply still renders into the transcript; this only forks a copy to `callback`.
+	 * One-shot: cleared as soon as it fires (a new call supersedes any pending one).
+	 *
+	 * @param {string}   verb     Command name to match (e.g. 'dump_config').
+	 * @param {Function} callback (payload, isError) invoked once on the match.
+	 * @return {void}
+	 */
+	captureNextReply( verb, callback ) {
+		this._captureReply = { verb, callback };
 	}
 
 	// Seed the transcript from a persisted snapshot; caps to TRANSCRIPT_MAX.

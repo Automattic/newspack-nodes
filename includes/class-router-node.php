@@ -89,20 +89,6 @@ class Router_Node extends Timer_Node {
 		$this->fire_count++;
 	}
 
-	/**
-	 * Get/set the profile table. Setting (even to null) resets the frame stack.
-	 *
-	 * @param array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null ...$set New table (array to enable, null to disable) when given.
-	 * @return array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null
-	 */
-	public static function profiles( ?array ...$set ): ?array {
-		if ( \count( $set ) > 0 ) {
-			self::$profiles      = $set[0];
-			self::$profile_stack = [];
-		}
-		return self::$profiles;
-	}
-
 	/** Open a dispatch frame; returns the start time for pop_profile(). */
 	private function push_profile( string $name ): float {
 		self::$profile_stack[] = $name;
@@ -198,6 +184,20 @@ class Router_Node extends Timer_Node {
 				$node->fire_cb();
 			}
 		}
+	}
+
+	/**
+	 * Get/set the profile table. Setting (even to null) resets the frame stack.
+	 *
+	 * @param array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null ...$set New table (array to enable, null to disable) when given.
+	 * @return array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null
+	 */
+	public static function profiles( ?array ...$set ): ?array {
+		if ( \count( $set ) > 0 ) {
+			self::$profiles      = $set[0];
+			self::$profile_stack = [];
+		}
+		return self::$profiles;
 	}
 
 	/**

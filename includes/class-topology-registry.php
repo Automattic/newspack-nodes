@@ -368,23 +368,6 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Rewrite the interpreter's verb ALIASES to their canonical form.
-	 *
-	 * `make` / `connect` / `disconnect` are real aliases in the interpreter's verb
-	 * table, and topologies use them (ELN's performance.tsl says `make Tee`). A
-	 * static reader that knows only the long form paints a graph the runtime never
-	 * builds, so normalize once here and every reader downstream sees one form.
-	 */
-	private static function canonical_verb( string $line ): string {
-		// `command_node` precedes `command`: both share the `command` prefix.
-		return (string) \preg_replace(
-			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/', '/^command_node\s+/', '/^command\s+/' ],
-			[ 'make_node ', 'connect_node ', 'disconnect_node ', 'cmd ', 'cmd ' ],
-			$line
-		);
-	}
-
-	/**
 	 * Preprocess raw TSL into canonical single-line statements, mirroring the
 	 * runtime Shell: join backslash continuations, canonicalize the make /
 	 * connect / disconnect / command aliases, and resolve cd/chdir cwd so a bare
@@ -464,6 +447,23 @@ class Topology_Registry {
 		}
 		// Bare verb at root: a local command the static parser drops.
 		return $line;
+	}
+
+	/**
+	 * Rewrite the interpreter's verb ALIASES to their canonical form.
+	 *
+	 * `make` / `connect` / `disconnect` are real aliases in the interpreter's verb
+	 * table, and topologies use them (ELN's performance.tsl says `make Tee`). A
+	 * static reader that knows only the long form paints a graph the runtime never
+	 * builds, so normalize once here and every reader downstream sees one form.
+	 */
+	private static function canonical_verb( string $line ): string {
+		// `command_node` precedes `command`: both share the `command` prefix.
+		return (string) \preg_replace(
+			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/', '/^command_node\s+/', '/^command\s+/' ],
+			[ 'make_node ', 'connect_node ', 'disconnect_node ', 'cmd ', 'cmd ' ],
+			$line
+		);
 	}
 
 	/** Resolve a relative/absolute cwd path (mirrors Shell_Node::cd). */
@@ -624,24 +624,75 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Ensure one insertion-ordered edge-state record and return its key.
+	 * Mirror runtime disconnect: regular Nodes clear their connect target;
+	 * Tees remove an explicit target, while an omitted target defaults to the
+	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
+	 * Configuration-target roles are independent and never removed here.
 	 *
 	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
 	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
 	 */
-	private static function ensure_edge( array &$edges, string $source, string $target ): string {
-		$key = $source . "\0" . $target;
-		if ( ! isset( $edges[ $key ] ) ) {
-			$edges[ $key ] = [
-				'from'    => $source,
-				'to'      => $target,
-				'origins' => [
-					'connect' => [],
-					'config'  => [],
-				],
-			];
+	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $is_tee ): void {
+		if ( $is_tee && null === $target ) {
+			return;
 		}
-		return $key;
+		foreach ( \array_keys( $edges ) as $key ) {
+			$edge = $edges[ $key ];
+			if ( $edge['from'] !== $source || ( $is_tee && $edge['to'] !== $target ) ) {
+				continue;
+			}
+			$remaining = self::without_connect_role( $edge );
+			if ( null === $remaining ) {
+				unset( $edges[ $key ] );
+				continue;
+			}
+			$edges[ $key ] = $remaining;
+		}
+	}
+
+	/**
+	 * Remove the runtime connect role while preserving independent config roles.
+	 *
+	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}} $edge Edge state.
+	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}|null
+	 */
+	private static function without_connect_role( array $edge ): ?array {
+		if ( [] === $edge['origins']['config'] ) {
+			return null;
+		}
+		return [
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => [],
+				'config'  => $edge['origins']['config'],
+			],
+		];
+	}
+
+	/**
+	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $origins Top-level includes providing the connection.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $is_tee ): void {
+		if ( ! $is_tee ) {
+			$current_key = $source . "\0" . $target;
+			foreach ( \array_keys( $edges ) as $key ) {
+				if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
+					continue;
+				}
+				$remaining = self::without_connect_role( $edges[ $key ] );
+				if ( null === $remaining ) {
+					unset( $edges[ $key ] );
+					continue;
+				}
+				$edges[ $key ] = $remaining;
+			}
+		}
+		self::add_connect_origins( $edges, $source, $target, $origins );
 	}
 
 	/**
@@ -668,6 +719,27 @@ class Topology_Registry {
 				'config'  => $edge['origins']['config'],
 			],
 		];
+	}
+
+	/**
+	 * Ensure one insertion-ordered edge-state record and return its key.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function ensure_edge( array &$edges, string $source, string $target ): string {
+		$key = $source . "\0" . $target;
+		if ( ! isset( $edges[ $key ] ) ) {
+			$edges[ $key ] = [
+				'from'    => $source,
+				'to'      => $target,
+				'origins' => [
+					'connect' => [],
+					'config'  => [],
+				],
+			];
+		}
+		return $key;
 	}
 
 	/**
@@ -720,78 +792,6 @@ class Topology_Registry {
 				'config'  => $config,
 			],
 		];
-	}
-
-	/**
-	 * Remove the runtime connect role while preserving independent config roles.
-	 *
-	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}} $edge Edge state.
-	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}|null
-	 */
-	private static function without_connect_role( array $edge ): ?array {
-		if ( [] === $edge['origins']['config'] ) {
-			return null;
-		}
-		return [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => [],
-				'config'  => $edge['origins']['config'],
-			],
-		];
-	}
-
-	/**
-	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param list<string> $origins Top-level includes providing the connection.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
-	 */
-	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $is_tee ): void {
-		if ( ! $is_tee ) {
-			$current_key = $source . "\0" . $target;
-			foreach ( \array_keys( $edges ) as $key ) {
-				if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
-					continue;
-				}
-				$remaining = self::without_connect_role( $edges[ $key ] );
-				if ( null === $remaining ) {
-					unset( $edges[ $key ] );
-					continue;
-				}
-				$edges[ $key ] = $remaining;
-			}
-		}
-		self::add_connect_origins( $edges, $source, $target, $origins );
-	}
-
-	/**
-	 * Mirror runtime disconnect: regular Nodes clear their connect target;
-	 * Tees remove an explicit target, while an omitted target defaults to the
-	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
-	 * Configuration-target roles are independent and never removed here.
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
-	 */
-	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $is_tee ): void {
-		if ( $is_tee && null === $target ) {
-			return;
-		}
-		foreach ( \array_keys( $edges ) as $key ) {
-			$edge = $edges[ $key ];
-			if ( $edge['from'] !== $source || ( $is_tee && $edge['to'] !== $target ) ) {
-				continue;
-			}
-			$remaining = self::without_connect_role( $edge );
-			if ( null === $remaining ) {
-				unset( $edges[ $key ] );
-				continue;
-			}
-			$edges[ $key ] = $remaining;
-		}
 	}
 
 	/**
@@ -962,110 +962,6 @@ class Topology_Registry {
 	}
 
 	/**
-	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
-	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
-	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered
-	 * once by the substrate (newspack-nodes.php). num_partitions defaults to the
-	 * operator-overridable substrate option (clamped 1..16); a topology's own
-	 * `var num_partitions` frontmatter overrides via synthesize_entry.
-	 *
-	 * @param array<string, array<string, mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
-	 * @return array<string, array<string, mixed>>
-	 */
-	public static function publish_catalog( array $topologies ): array {
-		$cfg_np     = \Newspack_Nodes\Config::value( 'num_partitions' );
-		$default_np = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
-		foreach ( self::list() as $name ) {
-			if ( isset( $topologies[ $name ] ) ) {
-				continue;
-			}
-			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
-			if ( null !== $entry ) {
-				$topologies[ $name ] = $entry;
-			}
-		}
-		return $topologies;
-	}
-
-	/**
-	 * Return the union of topology names across user + stock dirs.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function list(): array {
-		$names = [];
-		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
-			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$names[ \basename( $path, '.tsl' ) ] = true;
-			}
-		}
-		foreach ( self::$stock_dirs as $dir ) {
-			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$names[ \basename( $path, '.tsl' ) ] = true;
-			}
-		}
-		return \array_keys( $names );
-	}
-
-	/**
-	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
-	 *
-	 * @return array<string, mixed>|null
-	 */
-	public static function synthesize_entry(
-		string $name,
-		int $default_num_partitions = 1,
-		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
-	): ?array {
-		if ( null === self::resolve( $name ) ) {
-			return null;
-		}
-		$front = self::frontmatter( $name );
-		return [
-			'topology'       => $name,
-			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
-			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
-		];
-	}
-
-	/**
-	 * Lightweight `var name = value` extractor for supervisor metadata reads (no topology execution).
-	 *
-	 * @return array<string,string>
-	 */
-	public static function frontmatter( string $name ): array {
-		if ( isset( self::$frontmatter_cache[ $name ] ) ) {
-			return self::$frontmatter_cache[ $name ];
-		}
-		$path = self::resolve( $name );
-		if ( null === $path ) {
-			return self::$frontmatter_cache[ $name ] = [];
-		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$contents = (string) \file_get_contents( $path );
-		$out      = [];
-		foreach ( self::join_continuations( $contents ) as $raw ) {
-			// Statements can also be `;`-separated on one line.
-			foreach ( \explode( ';', $raw ) as $stmt ) {
-				$stmt = \trim( $stmt );
-				if ( '' === $stmt || '#' === $stmt[0] ) {
-					continue;
-				}
-				if ( \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/', $stmt, $m ) ) {
-					$out[ $m[1] ] = \trim( $m[2] );
-				}
-			}
-		}
-		return self::$frontmatter_cache[ $name ] = $out;
-	}
-
-	/**
 	 * Raw structural graph for `$name` from its TSL (+ every topology it
 	 * `include`s, flattened via statements()): nodes with a class-derived kind,
 	 * the make_node `type` token + positional `args` list, (+ the log a
@@ -1174,6 +1070,84 @@ class Topology_Registry {
 	}
 
 	/**
+	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
+	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
+	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered
+	 * once by the substrate (newspack-nodes.php). num_partitions defaults to the
+	 * operator-overridable substrate option (clamped 1..16); a topology's own
+	 * `var num_partitions` frontmatter overrides via synthesize_entry.
+	 *
+	 * @param array<string, array<string, mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
+	 * @return array<string, array<string, mixed>>
+	 */
+	public static function publish_catalog( array $topologies ): array {
+		$cfg_np     = \Newspack_Nodes\Config::value( 'num_partitions' );
+		$default_np = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
+		foreach ( self::list() as $name ) {
+			if ( isset( $topologies[ $name ] ) ) {
+				continue;
+			}
+			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			if ( null !== $entry ) {
+				$topologies[ $name ] = $entry;
+			}
+		}
+		return $topologies;
+	}
+
+	/**
+	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	public static function synthesize_entry(
+		string $name,
+		int $default_num_partitions = 1,
+		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
+	): ?array {
+		if ( null === self::resolve( $name ) ) {
+			return null;
+		}
+		$front = self::frontmatter( $name );
+		return [
+			'topology'       => $name,
+			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
+			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
+		];
+	}
+
+	/**
+	 * Lightweight `var name = value` extractor for supervisor metadata reads (no topology execution).
+	 *
+	 * @return array<string,string>
+	 */
+	public static function frontmatter( string $name ): array {
+		if ( isset( self::$frontmatter_cache[ $name ] ) ) {
+			return self::$frontmatter_cache[ $name ];
+		}
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return self::$frontmatter_cache[ $name ] = [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$contents = (string) \file_get_contents( $path );
+		$out      = [];
+		foreach ( self::join_continuations( $contents ) as $raw ) {
+			// Statements can also be `;`-separated on one line.
+			foreach ( \explode( ';', $raw ) as $stmt ) {
+				$stmt = \trim( $stmt );
+				if ( '' === $stmt || '#' === $stmt[0] ) {
+					continue;
+				}
+				if ( \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/', $stmt, $m ) ) {
+					$out[ $m[1] ] = \trim( $m[2] );
+				}
+			}
+		}
+		return self::$frontmatter_cache[ $name ] = $out;
+	}
+
+	/**
 	 * Register a plugin's topologies: a node-namespace prefix + a stock dir.
 	 *
 	 * Topologies are NOT owned by the registering plugin. The catalog is built
@@ -1244,6 +1218,32 @@ class Topology_Registry {
 			'name'   => $name,
 			'active' => false,
 		];
+	}
+
+	/**
+	 * Return the union of topology names across user + stock dirs.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function list(): array {
+		$names = [];
+		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
+			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
+				$names[ \basename( $path, '.tsl' ) ] = true;
+			}
+		}
+		foreach ( self::$stock_dirs as $dir ) {
+			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
+				$names[ \basename( $path, '.tsl' ) ] = true;
+			}
+		}
+		return \array_keys( $names );
 	}
 
 	/**
