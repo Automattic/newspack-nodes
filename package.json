@@ -19,6 +19,7 @@
 		"lint:phpstan": "vendor/bin/phpstan analyse -c phpstan-deadcode.neon --memory-limit=2G --no-progress",
 		"lint:deadcode": "npm run lint:phpstan",
 		"lint:scss": "stylelint --customSyntax postcss-scss 'src/**/*.scss'",
+		"lint:shell": "shellcheck scripts/pre-push scripts/*.sh",
 		"make-pot": "wp i18n make-pot . languages/newspack-nodes.pot --domain=newspack-nodes --exclude=node_modules,build,vendor,tests,release",
 		"test:js": "jest --passWithNoTests",
 		"test:js:coverage": "jest --passWithNoTests --coverage --collectCoverageFrom='src/**/*.{js,jsx}' --coverageReporters=json-summary --coverageReporters=text"
@@ -57,10 +58,12 @@
 		],
 		"*.scss": "stylelint --customSyntax postcss-scss",
 		"*.php": [
-			"phpcs",
+			"./vendor/bin/phpcs",
 			"sh -c 'npm run lint:phpstan --silent'",
 			"php scripts/lint-comment-length.php"
-		]
+		],
+		"*.sh": "shellcheck",
+		"scripts/pre-push": "shellcheck"
 	},
 	"browserslist": [
 		"extends @wordpress/browserslist-config"
