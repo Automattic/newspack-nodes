@@ -1,7 +1,7 @@
-// Inspector modal views (the Runtime grids). The Timeline view keeps its own
-// timeline-view.scss; this styles the current-scope timers + handles as two
-// sortable grids. Console theme tokens (mono type, --oxide spinner tint) so the
-// grids read as part of the console rather than the old overlay tab chrome.
+// Inspector modal views (the Runtime + Stats grids). The Timeline view keeps its
+// own timeline-view.scss; this styles the current-scope timers + handles and the
+// hot-nodes stats grid. Console theme tokens (mono type, --oxide spinner/total
+// tint) so the grids read as part of the console rather than overlay tab chrome.
 
 .nodes-runtime {
 	display: flex;
@@ -50,5 +50,37 @@
 	&__row--spinner {
 		color: var(--oxide);
 		background: color-mix(in srgb, var(--oxide) 12%, transparent);
+	}
+}
+
+// Hot-nodes stats view: reuses the sortable grid, adds a profiling toolbar and a
+// pinned total row (rendered outside the grid so it never sorts into the middle).
+.nodes-stats {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	gap: 10px;
+	font: 400 12px/1.4 var(--font-mono);
+	color: var(--ink);
+
+	&__toolbar {
+		display: flex;
+		gap: 8px;
+	}
+
+	&__total {
+		display: flex;
+		gap: 16px;
+		padding: 4px 8px;
+		font-weight: 700;
+		color: var(--oxide);
+		border-top: 1px solid var(--paper-shadow);
+	}
+
+	&__total-what {
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
 	}
 }

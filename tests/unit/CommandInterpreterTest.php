@@ -7,6 +7,7 @@ use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -19,6 +20,7 @@ class CommandInterpreterTest extends TestCase {
 		// $default_authorize is static process state — reset so tests don't bleed.
 		Command_Interpreter_Node::$default_authorize = null;
 		Command_Interpreter_Node::$taillog_sources   = null;
+		Router_Node::profiles( null );
 		parent::tearDown();
 	}
 
@@ -224,7 +226,43 @@ class CommandInterpreterTest extends TestCase {
 		$handle = $out['handles'][0];
 		$this->assertSame( [ 'id', 'count', 'type', 'name' ], \array_keys( $handle ), 'handle rows are keyed, not positional' );
 		$this->assertSame( 'sse0', $handle['name'] );
+
+		// Profiling is off by default → both profile datasets are present but null.
+		$this->assertArrayHasKey( 'profiles', $out );
+		$this->assertArrayHasKey( 'profiles_total', $out );
+		$this->assertNull( $out['profiles'], 'profiles is null while profiling is disabled' );
+		$this->assertNull( $out['profiles_total'], 'profiles_total is null while profiling is disabled' );
 		\curl_multi_close( $mh );
+	}
+
+	public function test_runtime_stats_joins_router_profiles_when_profiling_is_enabled(): void {
+		// Seed the Router self-time table directly (values distinct from the
+		// disabled-null default) — runtime_stats reads it verbatim.
+		Router_Node::profiles(
+			[
+				'alice' => [ 'time' => 0.30, 'count' => 3, 'avg' => 0.10, 'oldest' => 100.0, 'timestamp' => 130.0 ],
+				'bob'   => [ 'time' => 0.10, 'count' => 5, 'avg' => 0.02, 'oldest' => 100.0, 'timestamp' => 130.0 ],
+			]
+		);
+
+		$out = ( new Command_Interpreter_Node() )->dispatch( 'runtime_stats' );
+
+		$this->assertIsArray( $out['profiles'], 'enabled profiling yields a profiles row list' );
+		$by_name = \array_column( $out['profiles'], null, 'name' );
+		$this->assertSame(
+			[ 'name', 'avg', 'time', 'count' ],
+			\array_keys( $by_name['alice'] ),
+			'profile rows carry name/avg/time/count'
+		);
+		$this->assertEqualsWithDelta( 0.10, $by_name['alice']['avg'], 1e-9 );
+		$this->assertEqualsWithDelta( 0.30, $by_name['alice']['time'], 1e-9 );
+		$this->assertSame( 3, $by_name['alice']['count'] );
+		$this->assertEqualsWithDelta( 0.02, $by_name['bob']['avg'], 1e-9 );
+
+		// Total: summed time/count, avg = total time / total count (0.40 / 8).
+		$this->assertEqualsWithDelta( 0.40, $out['profiles_total']['time'], 1e-9 );
+		$this->assertSame( 8, $out['profiles_total']['count'] );
+		$this->assertEqualsWithDelta( 0.05, $out['profiles_total']['avg'], 1e-9 );
 	}
 
 	/** Write $lines (each padded to $width chars) as fixed-width $width+1-byte rows to a fresh temp file. */
@@ -642,15 +680,18 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 0, $alice->debug_state() );
 	}
 
-	public function test_debug_state_star_applies_to_all_nodes_and_reports_each(): void {
+	public function test_debug_state_star_sets_every_node_and_returns_a_terse_summary(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
+		// Level 2 (distinct from the toggle default 1) over 2 nodes: the
+		// interpreter + alice. The reply is a one-liner, not a per-node roster.
 		$out = $interpreter->dispatch( 'debug_state', [ '*', '2' ] );
-		$this->assertStringContainsString( 'Setting all nodes to debug_state: 2', $out );
-		$this->assertStringContainsString( 'alice debug_state: 2', $out );
+		$this->assertSame( 'debug_state 2 on 2 nodes', $out );
+		$this->assertStringNotContainsString( 'alice debug_state', $out );
 		$this->assertSame( 2, Core::node( 'alice' )->debug_state() );
+		$this->assertSame( 2, $interpreter->debug_state() );
 	}
 
 	public function test_debug_state_with_node_name_and_level_sets_explicitly(): void {

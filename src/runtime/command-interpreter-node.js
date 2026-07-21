@@ -70,7 +70,7 @@ const HELP = {
 	list_handles:
 		'list_handles\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n',
 	runtime_stats:
-		'runtime_stats\n    note: the list_timers + list_handles rows as one { timers, handles } struct (keyed rows) for the Runtime view.\n',
+		'runtime_stats\n    note: list_timers + list_handles rows plus the Router profile table as one { timers, handles, profiles, profiles_total } struct for the Runtime/Stats views (profiles null while profiling is off).\n',
 	enable_profiling:
 		'enable_profiling\n    note: _router starts timing each dispatch (per-node self time).\n',
 	list_profiles:
@@ -840,14 +840,13 @@ export class CommandInterpreterNode extends Node {
 				// Match PHP (int) + max(0,…): non-numeric → 0, never negative.
 				next = Math.max( 0, parseInt( second, 10 ) || 0 );
 			}
-			let output = `Setting all nodes to debug_state: ${ next }\n`;
-			const allNames = [ ...Core.nodes.keys() ].sort();
-			for ( const name of allNames ) {
-				const node = Core.node( name );
+			let count = 0;
+			for ( const [ , node ] of Core.nodes ) {
 				node.debugState = next;
-				output += `${ name } debug_state: ${ next }\n`;
+				count++;
 			}
-			return output;
+			// Terse summary, not a per-node roster (ls lists them).
+			return `debug_state ${ next } on ${ count } nodes`;
 		}
 		if ( /^\d+$/.test( first ) && '' === second ) {
 			this.debugState = parseInt( first, 10 );
@@ -1161,11 +1160,43 @@ export class CommandInterpreterNode extends Node {
 		);
 	}
 
-	// `runtime_stats` — timer + handle rows as one struct; keys mirror PHP.
+	// runtime_stats: timer+handle rows + Router profiles; keys mirror PHP.
 	static _cmdRuntimeStats() {
+		const { rows, total } = CommandInterpreterNode._profileDataset();
 		return {
 			timers: CommandInterpreterNode._timerRows(),
 			handles: CommandInterpreterNode._handleRows(),
+			profiles: rows,
+			profiles_total: total,
+		};
+	}
+
+	// Router self-time { rows, total } for runtime_stats; both null when off.
+	static _profileDataset() {
+		const profiles = RouterNode.profiles();
+		if ( null === profiles ) {
+			return { rows: null, total: null };
+		}
+		const rows = [];
+		let totalTime = 0;
+		let totalCount = 0;
+		for ( const [ name, info ] of Object.entries( profiles ) ) {
+			rows.push( {
+				name,
+				avg: info.avg,
+				time: info.time,
+				count: info.count,
+			} );
+			totalTime += info.time;
+			totalCount += info.count;
+		}
+		return {
+			rows,
+			total: {
+				avg: totalCount > 0 ? totalTime / totalCount : 0,
+				time: totalTime,
+				count: totalCount,
+			},
 		};
 	}
 

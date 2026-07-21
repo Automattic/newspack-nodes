@@ -44,12 +44,15 @@ const renderHandlers = ( opts ) => {
 
 describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () => {
 	let patched;
+	let fanned;
 	beforeEach( () => {
 		Core.reset();
 		patched = [];
+		fanned = [];
 		Core.registerNode( names.METADATA, {
 			name: names.METADATA,
 			optimisticPatch: ( name, p ) => patched.push( [ name, p ] ),
+			optimisticPatchAll: ( p ) => fanned.push( p ),
 		} );
 	} );
 	afterEach( () => Core.reset() );
@@ -150,6 +153,24 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		const { result } = renderHandlers( {} );
 		result.current.onInspectorAction( 'trace', 'x', 1 );
 		expect( patched ).toEqual( [ [ 'x', { debug_state: 1 } ] ] );
+	} );
+
+	it( 'onInspectorAction trace on "*" dispatches debug_state * and patches EVERY node (no-node Trace flips at once)', () => {
+		Core.node( names.METADATA ).rawMap = {
+			_header: { pwd: '' },
+			alice: { debug_state: 0 },
+			bob: { debug_state: 0 },
+		};
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onInspectorAction( 'trace', '*', 1 );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'debug_state * 1',
+			'debug_state',
+			'* 1'
+		);
+		// One fan publish (header exclusion is MetadataNode's own test).
+		expect( fanned ).toEqual( [ { debug_state: 1 } ] );
+		expect( patched ).toEqual( [] );
 	} );
 
 	it( 'a non-mutating inspector action (dump) does NOT patch', () => {

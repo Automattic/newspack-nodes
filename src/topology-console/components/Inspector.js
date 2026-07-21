@@ -1158,7 +1158,6 @@ const PROMPT_VERBS = {
 };
 
 const NO_NODE_COMMANDS = [
-	[ 'trace', 'debug_state *' ],
 	[ 'debug', 'debug_level' ],
 	[ 'verbose', 'debug_level 2' ],
 	[ 'dmesg', 'dmesg' ],
@@ -1404,7 +1403,7 @@ export default function Inspector( {
 	const [ registerOpen, setRegisterOpen ] = useState( false );
 	// Whether the no-node message-composer (roadmap [46]) is open.
 	const [ composeOpen, setComposeOpen ] = useState( false );
-	// Which no-node modal view is open ('runtime' | 'timeline' | null).
+	// Which no-node modal view is open ('runtime' | 'stats' | 'timeline' | null).
 	const [ stripModal, setStripModal ] = useState( null );
 
 	// A hull gets its own panel; a node selection still wins over it.
@@ -1443,8 +1442,8 @@ export default function Inspector( {
 				</aside>
 			);
 		}
-		const node = parsed.nodes[ 0 ];
-		const traceOn = node ? node.debugState > 0 : false;
+		// The button toggles EVERY node; any traced node reads as tracing.
+		const traceOn = parsed.nodes.some( ( n ) => n.debugState > 0 );
 		const live = ! streamStatus || streamStatus === 'open';
 		return (
 			<aside className="topology-inspector">
@@ -1469,13 +1468,39 @@ export default function Inspector( {
 					className="topology-insp__commands"
 					data-testid="inspector-commands"
 				>
+					{ /* Trace mirrors the per-node button: explicit level via the
+					     `trace` action (fans debug_state * across the scope), with
+					     an immediate highlight + label swap. */ }
+					<button
+						type="button"
+						className={ `button is-compact${
+							traceOn ? ' is-active' : ''
+						}` }
+						onClick={ () =>
+							onAction &&
+							onAction( 'trace', '*', traceOn ? 0 : 1 )
+						}
+						title={
+							traceOn
+								? __(
+										'Stop tracing every node — `debug_state * 0`',
+										'newspack-nodes'
+								  )
+								: __(
+										'Trace every node — `debug_state * 1`',
+										'newspack-nodes'
+								  )
+						}
+					>
+						{ traceOn
+							? __( 'stop trace', 'newspack-nodes' )
+							: __( 'trace', 'newspack-nodes' ) }
+					</button>
 					{ NO_NODE_COMMANDS.map( ( [ label, cmd ] ) => (
 						<button
 							key={ cmd }
 							type="button"
-							className={ `button is-compact${
-								label === 'trace' && traceOn ? ' is-active' : ''
-							}` }
+							className="button is-compact"
 							onClick={ () =>
 								onAction && onAction( 'command', null, cmd )
 							}
@@ -1504,6 +1529,17 @@ export default function Inspector( {
 						) }
 					>
 						{ __( 'Runtime', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setStripModal( 'stats' ) }
+						title={ __(
+							'Per-node throughput + Router profiling as a sortable hot-nodes grid',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Stats', 'newspack-nodes' ) }
 					</button>
 					<button
 						type="button"

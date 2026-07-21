@@ -210,8 +210,14 @@ export function useGraphHandlers( {
 						'debug_state',
 						`${ nodeId } ${ level }`
 					);
-					// Reflect the new trace level now (don't wait for poll).
-					patch( nodeId, { debug_state: level } );
+					// Reflect the level now; `*` fans in ONE publish.
+					if ( '*' === nodeId ) {
+						Core.node( names.METADATA )?.optimisticPatchAll( {
+							debug_state: level,
+						} );
+					} else {
+						patch( nodeId, { debug_state: level } );
+					}
 				} else if ( 'invoke' === action && payload ) {
 					if ( ! shell ) {
 						return;
