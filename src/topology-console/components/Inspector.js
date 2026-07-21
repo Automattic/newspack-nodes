@@ -2,7 +2,7 @@
  * Right-pane inspector for the selected node.
  */
 
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
 import InspectorViewModal from './InspectorViewModal';
@@ -1407,9 +1407,22 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 	// Which no-node modal view is open, or null when closed.
 	const [ stripModal, setStripModal ] = useState( null );
-	// Profiling toggle: optimistic override, cleared on server-truth change.
+	// Toggle override: agreement clears; one stale reply tolerated; two fail.
 	const [ profilingOptimistic, setProfilingOptimistic ] = useState( null );
-	useEffect( () => setProfilingOptimistic( null ), [ parsed?.profiling ] );
+	const profilingDisagreeRef = useRef( 0 );
+	useEffect( () => {
+		if ( null === profilingOptimistic ) {
+			return;
+		}
+		const agrees = !! parsed?.profiling === profilingOptimistic;
+		if ( agrees || profilingDisagreeRef.current >= 1 ) {
+			profilingDisagreeRef.current = 0;
+			setProfilingOptimistic( null );
+			return;
+		}
+		profilingDisagreeRef.current += 1;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ parsed ] );
 
 	// A hull gets its own panel; a node selection still wins over it.
 	if ( ! selectedId && selectedHull ) {
@@ -1568,6 +1581,7 @@ export default function Inspector( {
 							profilingOn ? ' is-active' : ''
 						}` }
 						onClick={ () => {
+							profilingDisagreeRef.current = 0;
 							setProfilingOptimistic( ! profilingOn );
 							if ( onAction ) {
 								onAction(

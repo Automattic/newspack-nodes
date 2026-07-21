@@ -83,16 +83,16 @@ test( 'renders per-node NAME / COUNTER / LGST_MSG / READ / WRITTEN from the alwa
 	expect( row.textContent ).toContain( '512' ); // written
 } );
 
-test( 'shows "Enable profiling" (no profile columns) when off, and enabling turns it on in the viewed scope', () => {
+test( 'shows "profiling" (no profile columns) when off, and enabling turns it on in the viewed scope', () => {
 	seedMetadata( [
 		{ id: 'alpha', count: 12, lgstMsg: 0, bytesRead: 0, bytesWritten: 0 },
 	] );
 	const { getByText, getByTestId, queryByText } = render( <StatsView /> );
 	publish( { profiles: null, profiles_total: null } );
 	expect( getByTestId( 'stats-grid' ).textContent ).not.toContain( 'AVG' );
-	expect( queryByText( 'Disable profiling' ) ).toBeNull();
+	expect( queryByText( 'stop profiling' ) ).toBeNull();
 	expect( RouterNode.profiles() ).toBeNull();
-	fireEvent.click( getByText( 'Enable profiling' ) );
+	fireEvent.click( getByText( 'profiling' ) );
 	// The command round-trips the graph to _cwd and enables profiling for real.
 	expect( RouterNode.profiles() ).not.toBeNull();
 } );
@@ -112,7 +112,7 @@ test( 'joins AVG / TIME / COUNT by node name and pins a tfoot total row when pro
 		profiles: [ { name: 'alpha', avg: 0.001234, time: 0.37, count: 7 } ],
 		profiles_total: { avg: 0.002, time: 0.37, count: 7 },
 	} );
-	expect( getByText( 'Disable profiling' ) ).toBeTruthy();
+	expect( getByText( 'stop profiling' ) ).toBeTruthy();
 	const grid = getByTestId( 'stats-grid' );
 	expect( grid.textContent ).toContain( 'AVG' );
 	const row = grid.querySelector( 'tbody tr[data-name="alpha"]' );
@@ -174,17 +174,51 @@ test( 'Enable flips the label to Disable optimistically at click, then reconcile
 	// Silence the click's immediate re-poll so we observe the PURE optimistic
 	// flip; in the live app that re-poll is an async round-trip, not synchronous.
 	Core.node( POLLER ).fire = () => {};
-	fireEvent.click( getByText( 'Enable profiling' ) );
+	fireEvent.click( getByText( 'profiling' ) );
 	// Optimistic: the label swaps now, before any poll reply confirms it.
-	expect( getByText( 'Disable profiling' ) ).toBeTruthy();
-	expect( queryByText( 'Enable profiling' ) ).toBeNull();
-	// Server truth wins: a reply still reporting profiling off flips it back.
-	publish( { profiles: null, profiles_total: null } );
-	expect( getByText( 'Enable profiling' ) ).toBeTruthy();
-	expect( queryByText( 'Disable profiling' ) ).toBeNull();
+	expect( getByText( 'stop profiling' ) ).toBeTruthy();
+	expect( queryByText( 'profiling' ) ).toBeNull();
+	// An agreeing reply confirms and clears the override to server truth.
+	publish( { profiles: [], profiles_total: { avg: 0, time: 0, count: 0 } } );
+	expect( getByText( 'stop profiling' ) ).toBeTruthy();
+	expect( queryByText( 'profiling' ) ).toBeNull();
 } );
 
-test( 'the "Disable profiling" button turns profiling off in the viewed scope', () => {
+test( 'a stale in-flight reply cannot flicker the optimistic toggle off', () => {
+	seedMetadata( [
+		{ id: 'alpha', count: 3, lgstMsg: 0, bytesRead: 0, bytesWritten: 0 },
+	] );
+	const { getByText, queryByText } = render( <StatsView /> );
+	publish( { profiles: null, profiles_total: null } );
+	// Silence the click's synchronous re-poll (live it is an async round-trip).
+	Core.node( POLLER ).fire = () => {};
+	fireEvent.click( getByText( 'profiling' ) );
+	expect( getByText( 'stop profiling' ) ).not.toBeNull();
+	// A reply minted BEFORE the click arrives late, carrying stale truth.
+	publish( { profiles: null, profiles_total: null } );
+	expect( queryByText( 'profiling' ) ).toBeNull();
+	expect( getByText( 'stop profiling' ) ).not.toBeNull();
+	// The next reply confirms; the override clears to agreeing server truth.
+	publish( { profiles: [], profiles_total: { avg: 0, time: 0, count: 0 } } );
+	expect( getByText( 'stop profiling' ) ).not.toBeNull();
+} );
+
+test( 'two disagreeing replies surrender the optimistic override (verb failed)', () => {
+	seedMetadata( [
+		{ id: 'alpha', count: 3, lgstMsg: 0, bytesRead: 0, bytesWritten: 0 },
+	] );
+	const { getByText } = render( <StatsView /> );
+	publish( { profiles: null, profiles_total: null } );
+	// Silence the re-poll; simulate a verb that failed server-side.
+	Core.node( POLLER ).fire = () => {};
+	fireEvent.click( getByText( 'profiling' ) );
+	publish( { profiles: null, profiles_total: null } );
+	publish( { profiles: null, profiles_total: null } );
+	// Server truth held after two full replies: the button stops lying.
+	expect( getByText( 'profiling' ) ).not.toBeNull();
+} );
+
+test( 'the "stop profiling" button turns profiling off in the viewed scope', () => {
 	RouterNode.profiles( {
 		alpha: { time: 0.3, count: 3, avg: 0.1, oldest: 100, timestamp: 130 },
 	} );
@@ -193,6 +227,6 @@ test( 'the "Disable profiling" button turns profiling off in the viewed scope', 
 		profiles: [ { name: 'alpha', avg: 0.1, time: 0.3, count: 3 } ],
 		profiles_total: { avg: 0.1, time: 0.3, count: 3 },
 	} );
-	fireEvent.click( getByText( 'Disable profiling' ) );
+	fireEvent.click( getByText( 'stop profiling' ) );
 	expect( RouterNode.profiles() ).toBeNull();
 } );

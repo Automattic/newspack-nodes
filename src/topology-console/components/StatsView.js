@@ -4,7 +4,7 @@
  * console ALREADY polls (`_metadata`); no new polling for those. Router profiling
  * (AVG / TIME / COUNT) is joined by node name from a runtime_stats poller mounted
  * only while the modal is open — RuntimeView's exact pattern. When profiling is
- * off an "Enable profiling" button turns it on in the viewed scope; on, "Disable
+ * off a "profiling" button turns it on in the viewed scope; on, "stop
  * profiling" plus a distinct total row.
  * Grid rows = the metadata baseline; --total-- = the router aggregate
  * (includes scaffolding self-time absent from the visible rows).
@@ -93,11 +93,25 @@ export default function StatsView() {
 	const serverProfilingOn = Array.isArray( profiles );
 	// Optimistic override; each poll reply reconciles it (server truth wins).
 	const [ optimistic, setOptimistic ] = useState( null );
-	useEffect( () => setOptimistic( null ), [ data ] );
+	// Override: agreement clears; one stale reply tolerated; two surrender.
+	const disagreeRef = useRef( 0 );
+	useEffect( () => {
+		if ( null === optimistic ) {
+			return;
+		}
+		if ( serverProfilingOn === optimistic || disagreeRef.current >= 1 ) {
+			disagreeRef.current = 0;
+			setOptimistic( null );
+			return;
+		}
+		disagreeRef.current += 1;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ data ] );
 	const profilingOn = null !== optimistic ? optimistic : serverProfilingOn;
 
 	// Set profiling in the viewed scope via explicit `profile on`/`off`.
 	const setProfiling = ( enable ) => {
+		disagreeRef.current = 0;
 		setOptimistic( enable );
 		const interpreter = interpreterRef.current;
 		if ( ! interpreter ) {
@@ -184,7 +198,7 @@ export default function StatsView() {
 						className="button is-compact is-active"
 						onClick={ () => setProfiling( false ) }
 					>
-						{ __( 'Disable profiling', 'newspack-nodes' ) }
+						{ __( 'stop profiling', 'newspack-nodes' ) }
 					</button>
 				) : (
 					<button
@@ -192,7 +206,7 @@ export default function StatsView() {
 						className="button is-compact"
 						onClick={ () => setProfiling( true ) }
 					>
-						{ __( 'Enable profiling', 'newspack-nodes' ) }
+						{ __( 'profiling', 'newspack-nodes' ) }
 					</button>
 				) }
 			</div>
