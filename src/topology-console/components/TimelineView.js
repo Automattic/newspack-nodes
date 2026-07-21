@@ -48,11 +48,12 @@ function parseRows( transcript ) {
 }
 
 /**
- * @param {Object} props
- * @param {Array}  props.transcript The Dumper transcript entries (`{ ts, kind, text, key }`).
+ * @param {Object}                    props
+ * @param {Array}                     props.transcript The Dumper transcript entries (`{ ts, kind, text, key }`).
+ * @param {import('react').ReactNode} [props.actions]  Controls rendered in line with the filter inputs (left side).
  * @return {import('react').ReactElement} The timeline grid + filters.
  */
-export default function TimelineView( { transcript = [] } ) {
+export default function TimelineView( { transcript = [], actions = null } ) {
 	const [ nodeFilter, setNodeFilter ] = useState( '' );
 	const [ eventFilter, setEventFilter ] = useState( '' );
 
@@ -67,6 +68,7 @@ export default function TimelineView( { transcript = [] } ) {
 	return (
 		<div className="timeline-view">
 			<div className="timeline-view__filters">
+				{ actions }
 				<input
 					type="text"
 					className="timeline-view__filter"

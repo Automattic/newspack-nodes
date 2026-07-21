@@ -74,15 +74,11 @@
 // shared/styles/focus.scss — not restyled here.) The `.topology-app` prefix
 // out-specifies the rail's own `.topology-app .button.is-compact` width rule.
 .topology-app .nodes-stats__toolbar .button.is-compact,
-.topology-app .topology-inspview__toolbar .button.is-compact {
+.topology-app .timeline-view__filters .button.is-compact {
 	width: auto;
 	text-align: center;
 }
 
-// The Timeline toolbar sits above the trace table inside the modal body.
-.topology-inspview__toolbar {
-	margin-bottom: 8px;
-}
 
 // Hot-nodes stats view: reuses the sortable grid, adds a profiling toolbar; the
 // pinned --total-- row rides the grid's own <tfoot> so it never sorts into the body.
