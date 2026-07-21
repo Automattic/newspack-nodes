@@ -42,18 +42,6 @@ export class RouterNode extends TimerNode {
 		this.setTimer( 1000 );
 	}
 
-	/**
-	 * Get/set the profile table; setting (even to null) resets the frame stack.
-	 * @param {...any} set
-	 */
-	static profiles( ...set ) {
-		if ( set.length > 0 ) {
-			RouterNode._profiles = set[ 0 ];
-			RouterNode._profileStack = [];
-		}
-		return RouterNode._profiles;
-	}
-
 	fill( message ) {
 		// One inbound miss increments counter by 2 via the bounce (PHP).
 		this.counter++;
@@ -208,6 +196,18 @@ export class RouterNode extends TimerNode {
 			}
 			node.fireCb();
 		}
+	}
+
+	/**
+	 * Get/set the profile table; setting (even to null) resets the frame stack.
+	 * @param {...any} set
+	 */
+	static profiles( ...set ) {
+		if ( set.length > 0 ) {
+			RouterNode._profiles = set[ 0 ];
+			RouterNode._profileStack = [];
+		}
+		return RouterNode._profiles;
 	}
 
 	// The Router has no sink: it routes by peeling TO; reject any set.

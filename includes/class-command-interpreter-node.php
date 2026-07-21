@@ -221,21 +221,6 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Coerce a dispatch closure's raw `array $args` to the canonical argv shape —
-	 * a re-indexed list of strings. The verb dispatch closures are declared
-	 * `array $args` (an inline closure param can't carry a narrower phpdoc type),
-	 * so each verb handler normalizes at entry. The tokens are already strings at
-	 * runtime — interpret() coerces the wire arguments before dispatch — so this
-	 * is a static-analysis pin, not a behavioral coercion.
-	 *
-	 * @param array<array-key, mixed> $args
-	 * @return list<string>
-	 */
-	protected static function arg_strings( array $args ): array {
-		return \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
-	}
-
-	/**
 	 * Construct a registered Node subclass, name it, sink it to this interpreter, and return it.
 	 *
 	 * @param string $type    Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
@@ -421,6 +406,21 @@ class Command_Interpreter_Node extends Node {
 			'help'            => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_help( self::arg_strings( $args ), $envelope ),
 			'reply_to'        => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_reply_to( $self, self::arg_strings( $args ) ),
 		];
+	}
+
+	/**
+	 * Coerce a dispatch closure's raw `array $args` to the canonical argv shape —
+	 * a re-indexed list of strings. The verb dispatch closures are declared
+	 * `array $args` (an inline closure param can't carry a narrower phpdoc type),
+	 * so each verb handler normalizes at entry. The tokens are already strings at
+	 * runtime — interpret() coerces the wire arguments before dispatch — so this
+	 * is a static-analysis pin, not a behavioral coercion.
+	 *
+	 * @param array<array-key, mixed> $args
+	 * @return list<string>
+	 */
+	protected static function arg_strings( array $args ): array {
+		return \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
 	}
 
 	/**

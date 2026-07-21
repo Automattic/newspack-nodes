@@ -125,45 +125,6 @@ class Tail_Node extends Consumer_Node {
 		$this->sink->fill( $reply );
 	}
 
-	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). Segmented mode only. */
-	protected function make_source(): Partition_Node {
-		return new Log_Node();
-	}
-
-	/** Seam: Tail's segmented args are source_file + offsetlog_dir. */
-	protected function resolve_args(): array {
-		return [ $this->source_file, $this->offsetlog_dir ];
-	}
-
-	/** Seam: a fresh Tail with no durable cursor starts at END. */
-	protected function default_offset(): ?string {
-		return 'end';
-	}
-
-	/**
-	 * Emit seam (overrides Consumer's Message-unpacking forward): emit one complete line's
-	 * raw bytes — newline restored — as a TM_BYTESTREAM, FROM-stamped at this I/O boundary.
-	 * The buffer/cursor scan that hands us each line stays in Buffered_Pump::drain_buffer(),
-	 * so both source shapes reuse it (and both get line_mode for free). $abs_offset is unused:
-	 * a Tail mints a fresh byte message rather than carrying the producer's seg:offset breadcrumb.
-	 *
-	 * @param string $line       One complete line (without its trailing newline).
-	 * @param int    $abs_offset The line's start offset (unused here).
-	 */
-	protected function forward_line( string $line, int $abs_offset ): void {
-		$bytes = $line . "\n";
-		$size  = \strlen( $bytes );
-		if ( $size > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $size;
-		}
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$message[ Message::VALUE ]     = $bytes;
-		parent::fill( $message );
-	}
-
 	/** Refill seam: segmented reads a Partition segment; file mode reads the followed inode. */
 	protected function get_batch(): void {
 		if ( self::MODE_FILE !== $this->source_mode ) {
@@ -233,21 +194,6 @@ class Tail_Node extends Consumer_Node {
 			return;
 		}
 		$this->cursor_offset = 'end' === $position ? $this->file_current_size() : 0;
-	}
-
-	/**
-	 * Frame extras. File mode has no source_dir, so the inherited source_log would be blank —
-	 * label the frame by the followed filename instead so dashboards aren't blank. The inode is
-	 * NOT added here: it already rides the frame's `segment` container slot.
-	 *
-	 * @return array<array-key, mixed>
-	 */
-	protected function checkpoint_frame_extra(): array {
-		$extra = parent::checkpoint_frame_extra();
-		if ( self::MODE_FILE === $this->source_mode ) {
-			$extra['source_log'] = '' !== $this->source_file ? \basename( $this->source_file ) : '';
-		}
-		return $extra;
 	}
 
 	/**
@@ -417,17 +363,6 @@ class Tail_Node extends Consumer_Node {
 		return \is_string( $byte ) ? $byte : '';
 	}
 
-	/** Current byte size of the followed path, or 0 when it is absent. */
-	private function file_current_size(): int {
-		$path = $this->source_file;
-		if ( '' === $path || ! \is_file( $path ) ) {
-			return 0;
-		}
-		\clearstatcache( true, $path );
-		$size = \filesize( $path );
-		return false === $size ? 0 : $size;
-	}
-
 	/** @return array{bytes_behind:int, segments_behind:int, caught_up:bool, end_segment:int, end_size:int, end_bytes:int} */
 	private function file_lag(): array {
 		$size         = $this->file_current_size();
@@ -442,6 +377,17 @@ class Tail_Node extends Consumer_Node {
 		];
 	}
 
+	/** Current byte size of the followed path, or 0 when it is absent. */
+	private function file_current_size(): int {
+		$path = $this->source_file;
+		if ( '' === $path || ! \is_file( $path ) ) {
+			return 0;
+		}
+		\clearstatcache( true, $path );
+		$size = \filesize( $path );
+		return false === $size ? 0 : $size;
+	}
+
 	/** Fail loud on an unknown mode token (errors-as-docs). */
 	private function assert_valid_source_mode(): void {
 		if ( self::MODE_SEGMENTED === $this->source_mode || self::MODE_FILE === $this->source_mode ) {
@@ -453,6 +399,60 @@ class Tail_Node extends Consumer_Node {
 			. self::MODE_FILE . "' (follow a single filename with logrotate semantics); it defaults to '"
 			. self::MODE_SEGMENTED . "' when omitted."
 		) );
+	}
+
+	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). Segmented mode only. */
+	protected function make_source(): Partition_Node {
+		return new Log_Node();
+	}
+
+	/** Seam: Tail's segmented args are source_file + offsetlog_dir. */
+	protected function resolve_args(): array {
+		return [ $this->source_file, $this->offsetlog_dir ];
+	}
+
+	/** Seam: a fresh Tail with no durable cursor starts at END. */
+	protected function default_offset(): ?string {
+		return 'end';
+	}
+
+	/**
+	 * Emit seam (overrides Consumer's Message-unpacking forward): emit one complete line's
+	 * raw bytes — newline restored — as a TM_BYTESTREAM, FROM-stamped at this I/O boundary.
+	 * The buffer/cursor scan that hands us each line stays in Buffered_Pump::drain_buffer(),
+	 * so both source shapes reuse it (and both get line_mode for free). $abs_offset is unused:
+	 * a Tail mints a fresh byte message rather than carrying the producer's seg:offset breadcrumb.
+	 *
+	 * @param string $line       One complete line (without its trailing newline).
+	 * @param int    $abs_offset The line's start offset (unused here).
+	 */
+	protected function forward_line( string $line, int $abs_offset ): void {
+		$bytes = $line . "\n";
+		$size  = \strlen( $bytes );
+		if ( $size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $size;
+		}
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::FROM ]      = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$message[ Message::VALUE ]     = $bytes;
+		parent::fill( $message );
+	}
+
+	/**
+	 * Frame extras. File mode has no source_dir, so the inherited source_log would be blank —
+	 * label the frame by the followed filename instead so dashboards aren't blank. The inode is
+	 * NOT added here: it already rides the frame's `segment` container slot.
+	 *
+	 * @return array<array-key, mixed>
+	 */
+	protected function checkpoint_frame_extra(): array {
+		$extra = parent::checkpoint_frame_extra();
+		if ( self::MODE_FILE === $this->source_mode ) {
+			$extra['source_log'] = '' !== $this->source_file ? \basename( $this->source_file ) : '';
+		}
+		return $extra;
 	}
 
 	public static function node_schema(): array {

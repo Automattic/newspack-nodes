@@ -99,30 +99,6 @@ class Node {
 	}
 
 	/**
-	 * Serialize argument tokens back to a single line, single-quoting any token
-	 * that contains whitespace so it re-parses as one token (mirrors the JS
-	 * serializeArg + the Shell's quote-aware tokenizer). The one place tokens
-	 * are re-joined — every other layer carries them as a list.
-	 *
-	 * @param list<string> $tokens
-	 */
-	public static function serialize_args( array $tokens ): string {
-		return \implode(
-			' ',
-			\array_map(
-				static function ( string $t ): string {
-					// Quote an empty or any-metachar token; escape \ and the '.
-					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\]/', $t ) ) {
-						return $t;
-					}
-					return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $t ) . "'";
-				},
-				$tokens
-			)
-		);
-	}
-
-	/**
 	 * Default: stamp TO from target if empty, then forward to sink.
 	 *
 	 * @param array<int, mixed> $message Message reference.
@@ -368,6 +344,58 @@ class Node {
 		}
 	}
 
+	/** Round-trippable graph snippet: make_node + optional set_sink + connect_node lines (suppresses set_sink for the default _command_interpreter). */
+	public function dump_config(): string {
+		$short = Command_Interpreter_Node::shell_name_for( $this );
+		$out   = "make_node $short {$this->name}";
+		if ( ! empty( $this->arguments ) ) {
+			$out .= ' ' . self::serialize_args( $this->arguments );
+		}
+		$out .= "\n";
+
+		if ( null !== $this->sink ) {
+			$sink_name = $this->sink->name();
+			if ( '' !== $sink_name && Node_Names::COMMAND_INTERPRETER !== $sink_name ) {
+				$out .= "set_sink {$this->name} $sink_name\n";
+			}
+		}
+
+		if ( \is_array( $this->target ) ) {
+			foreach ( $this->target as $owner ) {
+				$out .= "connect_node {$this->name} $owner\n";
+			}
+		} elseif ( '' !== $this->target ) {
+			$out .= "connect_node {$this->name} {$this->target}\n";
+		}
+
+		// Verb-configured nodes override dump_config() to emit their own lines.
+		return $out;
+	}
+
+	/**
+	 * Serialize argument tokens back to a single line, single-quoting any token
+	 * that contains whitespace so it re-parses as one token (mirrors the JS
+	 * serializeArg + the Shell's quote-aware tokenizer). The one place tokens
+	 * are re-joined — every other layer carries them as a list.
+	 *
+	 * @param list<string> $tokens
+	 */
+	public static function serialize_args( array $tokens ): string {
+		return \implode(
+			' ',
+			\array_map(
+				static function ( string $t ): string {
+					// Quote an empty or any-metachar token; escape \ and the '.
+					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\]/', $t ) ) {
+						return $t;
+					}
+					return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $t ) . "'";
+				},
+				$tokens
+			)
+		);
+	}
+
 	/** Patron getter/setter. */
 	public function patron( ?Node $node = null ): ?Node {
 		if ( null !== $node ) {
@@ -537,34 +565,6 @@ class Node {
 	 */
 	public function dump_metadata(): array {
 		return [];
-	}
-
-	/** Round-trippable graph snippet: make_node + optional set_sink + connect_node lines (suppresses set_sink for the default _command_interpreter). */
-	public function dump_config(): string {
-		$short = Command_Interpreter_Node::shell_name_for( $this );
-		$out   = "make_node $short {$this->name}";
-		if ( ! empty( $this->arguments ) ) {
-			$out .= ' ' . self::serialize_args( $this->arguments );
-		}
-		$out .= "\n";
-
-		if ( null !== $this->sink ) {
-			$sink_name = $this->sink->name();
-			if ( '' !== $sink_name && Node_Names::COMMAND_INTERPRETER !== $sink_name ) {
-				$out .= "set_sink {$this->name} $sink_name\n";
-			}
-		}
-
-		if ( \is_array( $this->target ) ) {
-			foreach ( $this->target as $owner ) {
-				$out .= "connect_node {$this->name} $owner\n";
-			}
-		} elseif ( '' !== $this->target ) {
-			$out .= "connect_node {$this->name} {$this->target}\n";
-		}
-
-		// Verb-configured nodes override dump_config() to emit their own lines.
-		return $out;
 	}
 
 	/**
