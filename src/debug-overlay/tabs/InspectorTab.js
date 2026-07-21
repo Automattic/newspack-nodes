@@ -141,6 +141,7 @@ export default function InspectorTab( {
 		cwd,
 		setPath,
 		ready: replReady,
+		debugLevel,
 	} = useDebugRepl( buildRepl, shell, applySkin );
 	// useDebugGraph runs first (via ref); useCanvasLayout then autolays out.
 	const cwdScope = cwd || 'local';
@@ -310,6 +311,8 @@ export default function InspectorTab( {
 						resetKey: storageKey,
 						// No cwd → local; header uses IoTelemetry vs metadata.
 						local: ! cwd,
+						// Live Dumper verbosity — the Verbose toggle reads it.
+						debugLevel,
 						interactive: true,
 						editMode: false,
 						showPalette: true,

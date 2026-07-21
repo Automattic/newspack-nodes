@@ -348,9 +348,11 @@ class Command_Interpreter_Node extends Node {
 			'list_timers' => "list_timers\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n",
 			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n",
 			'runtime_stats' => "runtime_stats\n    note: list_timers + list_handles rows plus the Router profile table as one { timers, handles, profiles, profiles_total } struct for the Runtime/Stats views (profiles null while profiling is off).\n",
-			'enable_profiling' => "enable_profiling\n    note: _router starts timing each dispatch (per-node self time).\n",
+			'profile' => "profile [ on | off ]\n"
+				. "    no args: toggle _router dispatch profiling (per-node self time).\n"
+				. "    on|off:  idempotent set — the form scripts and UI use, since a known desired state never races a stale toggle.\n"
+				. "    note: while on, _router times each dispatch; read the table with list_profiles.\n",
 			'list_profiles' => "list_profiles [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n",
-			'disable_profiling' => "disable_profiling\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
 			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
@@ -404,9 +406,8 @@ class Command_Interpreter_Node extends Node {
 			'list_timers'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_timers(),
 			'list_handles'    => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_handles(),
 			'runtime_stats'   => fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_runtime_stats(),
-			'enable_profiling' => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_enable_profiling(),
+			'profile'         => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_profile( Core::as_string( $args[0] ?? '' ) ),
 			'list_profiles'   => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_profiles( Core::as_string( $args[0] ?? '' ) ),
-			'disable_profiling' => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_disable_profiling(),
 			'log'             => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_log( $self, self::arg_strings( $args ) ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dmesg(),
 			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_taillog( self::arg_strings( $args ) ),
@@ -1046,9 +1047,13 @@ class Command_Interpreter_Node extends Node {
 				$out[ $name ] += $extra;
 			}
 		}
-		// FULL-snapshot header: reverse_cwd for GUI Connect/Disconnect.
-		if ( '' === $only && '' !== $pwd ) {
-			$out['_header'] = [ 'pwd' => $pwd ];
+		// FULL-snapshot header: profiling state (the console's Profiling-toggle
+		// truth, self-healed each poll) + reverse_cwd for GUI Connect/Disconnect.
+		if ( '' === $only ) {
+			$out['_header'] = [ 'profiling' => null !== Router_Node::profiles() ];
+			if ( '' !== $pwd ) {
+				$out['_header']['pwd'] = $pwd;
+			}
 		}
 		return $out;
 	}
@@ -1275,28 +1280,34 @@ class Command_Interpreter_Node extends Node {
 		return $rows;
 	}
 
-	/** `enable_profiling` — _router starts self-timing every dispatch. */
-	private static function cmd_enable_profiling(): string {
+	/**
+	 * `profile [on|off]` — toggle or set _router dispatch profiling.
+	 *
+	 * Bare `profile` toggles (Tachikoma's `debug_state`-precedent); explicit
+	 * `on`/`off` is an idempotent set the form scripts + UI use, so a caller
+	 * that knows its desired state never races a stale toggle. A deliberate
+	 * single-verb divergence from Tachikoma's enable_profiling/disable_profiling
+	 * pair; the reply strings are preserved.
+	 */
+	private static function cmd_profile( string $arg ): string {
 		if ( null === Core::node( Node_Names::ROUTER ) ) {
 			throw new \RuntimeException( "can't find _router" );
 		}
-		if ( null !== Router_Node::profiles() ) {
-			return "profiling already enabled\n";
+		$on = null !== Router_Node::profiles();
+		if ( '' === $arg ) {
+			$want = ! $on;
+		} elseif ( 'on' === $arg ) {
+			$want = true;
+		} elseif ( 'off' === $arg ) {
+			$want = false;
+		} else {
+			return "usage: profile [ on | off ]\n";
 		}
-		Router_Node::profiles( [] );
-		return "profiling enabled\n";
-	}
-
-	/** `disable_profiling` — stop timing and drop the table. */
-	private static function cmd_disable_profiling(): string {
-		if ( null === Core::node( Node_Names::ROUTER ) ) {
-			throw new \RuntimeException( "can't find _router" );
+		if ( $want === $on ) {
+			return $want ? "profiling already enabled\n" : "profiling already disabled\n";
 		}
-		if ( null === Router_Node::profiles() ) {
-			return "profiling already disabled\n";
-		}
-		Router_Node::profiles( null );
-		return "profiling disabled\n";
+		Router_Node::profiles( $want ? [] : null );
+		return $want ? "profiling enabled\n" : "profiling disabled\n";
 	}
 
 	/**

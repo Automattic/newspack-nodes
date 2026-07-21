@@ -1157,9 +1157,9 @@ const PROMPT_VERBS = {
 	send_struct: { label: 'Struct', noun: 'JSON' },
 };
 
+// COMMANDS group: stateless [label, verb] transcript-dumps.
 const NO_NODE_COMMANDS = [
 	[ 'debug', 'debug_level' ],
-	[ 'verbose', 'debug_level 2' ],
 	[ 'dmesg', 'dmesg' ],
 	[ 'config', 'dump_config' ],
 	[ 'metadata', 'dump_metadata' ],
@@ -1167,8 +1167,6 @@ const NO_NODE_COMMANDS = [
 	[ 'timers', 'list_timers' ],
 	[ 'handles', 'list_handles' ],
 	[ 'profiles', 'list_profiles' ],
-	[ 'profile on', 'enable_profiling' ],
-	[ 'profile off', 'disable_profiling' ],
 	[ 'ping', 'ping' ],
 ];
 
@@ -1381,6 +1379,7 @@ export default function Inspector( {
 	rateSeries,
 	hullRateSeries,
 	local = false,
+	debugLevel = 0,
 	onAction,
 	onSelect,
 	onHover,
@@ -1408,6 +1407,9 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 	// Which no-node modal view is open, or null when closed.
 	const [ stripModal, setStripModal ] = useState( null );
+	// Profiling toggle: optimistic override, cleared on server-truth change.
+	const [ profilingOptimistic, setProfilingOptimistic ] = useState( null );
+	useEffect( () => setProfilingOptimistic( null ), [ parsed?.profiling ] );
 
 	// A hull gets its own panel; a node selection still wins over it.
 	if ( ! selectedId && selectedHull ) {
@@ -1447,6 +1449,13 @@ export default function Inspector( {
 		}
 		// The button toggles EVERY node; any traced node reads as tracing.
 		const traceOn = parsed.nodes.some( ( n ) => n.debugState > 0 );
+		// Profiling: optimistic override until the metadata poll reconciles.
+		const profilingOn =
+			null !== profilingOptimistic
+				? profilingOptimistic
+				: !! parsed.profiling;
+		// Verbose = the live Dumper verbosity dial at level 2.
+		const verboseOn = ( debugLevel ?? 0 ) >= 2;
 		const live = ! streamStatus || streamStatus === 'open';
 		return (
 			<aside className="topology-inspector">
@@ -1471,9 +1480,63 @@ export default function Inspector( {
 					className="topology-insp__commands"
 					data-testid="inspector-commands"
 				>
-					{ /* Trace mirrors the per-node button: explicit level via the
-					     `trace` action (fans debug_state * across the scope), with
-					     an immediate highlight + label swap. */ }
+					{ /* VIEWS — buttons that open a modal (inspection panels +
+					     the composer), never a command down the transcript. */ }
+					<div className="topology-insp__group-label">
+						{ __( 'Views', 'newspack-nodes' ) }
+					</div>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setStripModal( 'runtime' ) }
+						title={ __(
+							'Current-scope timers + handles as live sortable grids',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Runtime', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setStripModal( 'stats' ) }
+						title={ __(
+							'Per-node throughput + Router profiling as a sortable grid',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Profiler', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setStripModal( 'timeline' ) }
+						title={ __(
+							'DEBUG traces from the transcript as a filterable timeline',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Timeline', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setComposeOpen( true ) }
+						title={ __(
+							'Compose a message — pick a target, type, and value (full CLI equivalence)',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Compose', 'newspack-nodes' ) }
+					</button>
+
+					{ /* TOGGLES — stateful two-state buttons. Each flips
+					     optimistically (label swap + is-active) and reconciles to
+					     server truth: Trace + Profiling against the metadata poll,
+					     Verbose against the live LOCAL debug_level. */ }
+					<div className="topology-insp__group-label">
+						{ __( 'Toggles', 'newspack-nodes' ) }
+					</div>
 					<button
 						type="button"
 						className={ `button is-compact${
@@ -1499,6 +1562,71 @@ export default function Inspector( {
 							? __( 'stop trace', 'newspack-nodes' )
 							: __( 'trace', 'newspack-nodes' ) }
 					</button>
+					<button
+						type="button"
+						className={ `button is-compact${
+							profilingOn ? ' is-active' : ''
+						}` }
+						onClick={ () => {
+							setProfilingOptimistic( ! profilingOn );
+							if ( onAction ) {
+								onAction(
+									'command',
+									null,
+									profilingOn ? 'profile off' : 'profile on'
+								);
+							}
+						} }
+						title={
+							profilingOn
+								? __(
+										'Stop _router profiling — `profile off`',
+										'newspack-nodes'
+								  )
+								: __(
+										'Profile every _router dispatch — `profile on`',
+										'newspack-nodes'
+								  )
+						}
+					>
+						{ profilingOn
+							? __( 'stop profiling', 'newspack-nodes' )
+							: __( 'profiling', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className={ `button is-compact${
+							verboseOn ? ' is-active' : ''
+						}` }
+						onClick={ () =>
+							onAction &&
+							onAction(
+								'command',
+								null,
+								verboseOn ? 'debug_level 0' : 'debug_level 2'
+							)
+						}
+						title={
+							verboseOn
+								? __(
+										'Quiet the Dumper — `debug_level 0`',
+										'newspack-nodes'
+								  )
+								: __(
+										'Verbose Dumper trace — `debug_level 2`',
+										'newspack-nodes'
+								  )
+						}
+					>
+						{ verboseOn
+							? __( 'stop verbose', 'newspack-nodes' )
+							: __( 'verbose', 'newspack-nodes' ) }
+					</button>
+
+					{ /* COMMANDS — stateless verb dumps into the transcript. */ }
+					<div className="topology-insp__group-label">
+						{ __( 'Commands', 'newspack-nodes' ) }
+					</div>
 					{ NO_NODE_COMMANDS.map( ( [ label, cmd ] ) => (
 						<button
 							key={ cmd }
@@ -1511,50 +1639,6 @@ export default function Inspector( {
 							{ label }
 						</button>
 					) ) }
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setComposeOpen( true ) }
-						title={ __(
-							'Compose a message — pick a target, type, and value (full CLI equivalence)',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Compose', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setStripModal( 'runtime' ) }
-						title={ __(
-							'Current-scope timers + handles as live sortable grids',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Runtime', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setStripModal( 'stats' ) }
-						title={ __(
-							'Per-node throughput + Router profiling as a sortable hot-nodes grid',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Hot Nodes', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setStripModal( 'timeline' ) }
-						title={ __(
-							'DEBUG traces from the transcript as a filterable timeline',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Timeline', 'newspack-nodes' ) }
-					</button>
 				</div>
 				{ composeOpen && (
 					<ComposeModal

@@ -237,7 +237,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( calls ).toContainEqual( [ 'command', null, 'list_handles' ] );
 	} );
 
-	it( 'exposes profiling verbs (list/enable/disable) as no-node inspector commands', () => {
+	it( 'exposes `profiles` (list_profiles) as a no-node command button', () => {
 		const calls = [];
 		const { getByText } = render(
 			<Inspector
@@ -247,18 +247,82 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click( getByText( 'profiles' ) );
 		expect( calls ).toContainEqual( [ 'command', null, 'list_profiles' ] );
-		fireEvent.click( getByText( 'profile on' ) );
-		expect( calls ).toContainEqual( [
-			'command',
-			null,
-			'enable_profiling',
-		] );
-		fireEvent.click( getByText( 'profile off' ) );
-		expect( calls ).toContainEqual( [
-			'command',
-			null,
-			'disable_profiling',
-		] );
+	} );
+
+	it( 'groups the no-node strip into Views / Toggles / Commands headers', () => {
+		const { getByText } = render(
+			<Inspector { ...baseProps } parsed={ { nodes: [], edges: [] } } />
+		);
+		expect( getByText( 'Views' ) ).not.toBeNull();
+		expect( getByText( 'Toggles' ) ).not.toBeNull();
+		expect( getByText( 'Commands' ) ).not.toBeNull();
+	} );
+
+	it( 'no-node Profiling is ONE toggle: fires `profile on` when off, then swaps to "stop profiling" + highlights optimistically', () => {
+		const calls = [];
+		const { getByText, queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ { nodes: [], edges: [], profiling: false } }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		// No `profile on` / `profile off` command pair remains in the strip.
+		expect( queryByText( 'profile on' ) ).toBeNull();
+		expect( queryByText( 'profile off' ) ).toBeNull();
+		const btn = getByText( 'profiling' );
+		expect( btn.className ).not.toContain( 'is-active' );
+		fireEvent.click( btn );
+		expect( calls ).toContainEqual( [ 'command', null, 'profile on' ] );
+		// Optimistic: label + highlight swap now, before a poll reply confirms.
+		const active = getByText( 'stop profiling' );
+		expect( active.className ).toContain( 'is-active' );
+		expect( queryByText( 'profiling' ) ).toBeNull();
+	} );
+
+	it( 'no-node Profiling reads server truth (parsed.profiling) and fires `profile off` when on', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ { nodes: [], edges: [], profiling: true } }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		const btn = getByText( 'stop profiling' );
+		expect( btn.className ).toContain( 'is-active' );
+		fireEvent.click( btn );
+		expect( calls ).toContainEqual( [ 'command', null, 'profile off' ] );
+	} );
+
+	it( 'no-node Verbose is ONE toggle: fires `debug_level 2` when the live level is 0', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				debugLevel={ 0 }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		const btn = getByText( 'verbose' );
+		expect( btn.className ).not.toContain( 'is-active' );
+		fireEvent.click( btn );
+		expect( calls ).toContainEqual( [ 'command', null, 'debug_level 2' ] );
+	} );
+
+	it( 'no-node Verbose reads the live debug level (2) and fires `debug_level 0` when on', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				debugLevel={ 2 }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		const btn = getByText( 'stop verbose' );
+		expect( btn.className ).toContain( 'is-active' );
+		fireEvent.click( btn );
+		expect( calls ).toContainEqual( [ 'command', null, 'debug_level 0' ] );
 	} );
 
 	it( 'opens the wide Runtime modal from the no-node strip', () => {
@@ -276,10 +340,10 @@ describe( 'Inspector (view mode)', () => {
 		Core.reset();
 	} );
 
-	it( 'opens the wide Stats (hot nodes) modal from the no-node strip', () => {
+	it( 'opens the wide Profiler modal from the no-node strip', () => {
 		Core.reset();
 		const { getByText } = render( <Inspector { ...baseProps } /> );
-		fireEvent.click( getByText( 'Hot Nodes' ) );
+		fireEvent.click( getByText( 'Profiler' ) );
 		const modal = document.body.querySelector( '.topology-modal' );
 		expect( modal.classList.contains( 'topology-modal--large' ) ).toBe(
 			true
@@ -311,12 +375,12 @@ describe( 'Inspector (view mode)', () => {
 		Core.reset();
 	} );
 
-	it( 'does NOT show the Runtime/Hot Nodes/Timeline strip modal buttons in edit mode', () => {
+	it( 'does NOT show the Runtime/Profiler/Timeline strip modal buttons in edit mode', () => {
 		const { queryByText } = render(
 			<Inspector { ...baseProps } editMode={ true } />
 		);
 		expect( queryByText( 'Runtime' ) ).toBeNull();
-		expect( queryByText( 'Hot Nodes' ) ).toBeNull();
+		expect( queryByText( 'Profiler' ) ).toBeNull();
 		expect( queryByText( 'Timeline' ) ).toBeNull();
 	} );
 

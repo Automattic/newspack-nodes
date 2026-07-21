@@ -103,6 +103,8 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	const dumperRef = useRef( null );
 	// Seeded from localStorage so verbosity survives a reload [87].
 	const debugLevelRef = useRef( loadDebugLevel() );
+	// Reactive mirror of the ref so the Verbose toggle reads the live level.
+	const [ debugLevel, setDebugLevel ] = useState( () => loadDebugLevel() );
 	// Last-persisted debug_state; sendLine writes only on change [87].
 	const lastDebugStateRef = useRef( loadDebugState() );
 	// Ref so the []-dep dispatchStatement calls the live skin applier.
@@ -214,7 +216,10 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			append: ( entry ) => dumper.append( entry ),
 			clear: () => dumper.clear(),
 			debugLevelRef,
-			onDebugLevel: saveDebugLevel, // persist verbosity across reloads [87].
+			onDebugLevel: ( level ) => {
+				saveDebugLevel( level ); // persist verbosity across reloads [87].
+				setDebugLevel( level ); // reactive mirror for the Verbose toggle.
+			},
 			setSkin: onSetSkinRef.current,
 			skins: THEMES,
 			currentSkin: getStoredTheme(),
@@ -255,7 +260,16 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	);
 
 	return useMemo(
-		() => ( { transcript, sendLine, append, clear, cwd, setPath, ready } ),
-		[ transcript, sendLine, append, clear, cwd, setPath, ready ]
+		() => ( {
+			transcript,
+			sendLine,
+			append,
+			clear,
+			cwd,
+			setPath,
+			ready,
+			debugLevel,
+		} ),
+		[ transcript, sendLine, append, clear, cwd, setPath, ready, debugLevel ]
 	);
 }

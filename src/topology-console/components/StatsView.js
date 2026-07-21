@@ -96,9 +96,9 @@ export default function StatsView() {
 	useEffect( () => setOptimistic( null ), [ data ] );
 	const profilingOn = null !== optimistic ? optimistic : serverProfilingOn;
 
-	// Send a scope command (enable/disable profiling) to _cwd, then re-poll.
-	const sendScopeCommand = ( verb ) => {
-		setOptimistic( 'enable_profiling' === verb );
+	// Set profiling in the viewed scope via explicit `profile on`/`off`.
+	const setProfiling = ( enable ) => {
+		setOptimistic( enable );
 		const interpreter = interpreterRef.current;
 		if ( ! interpreter ) {
 			return;
@@ -107,7 +107,7 @@ export default function StatsView() {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = POLLER;
 		m[ TO ] = names.CWD;
-		m[ VALUE ] = { name: verb, arguments: [] };
+		m[ VALUE ] = { name: 'profile', arguments: [ enable ? 'on' : 'off' ] };
 		m[ LOCAL ] = true;
 		interpreter.fill( m );
 		pollerRef.current?.fire();
@@ -182,9 +182,7 @@ export default function StatsView() {
 					<button
 						type="button"
 						className="button is-compact is-active"
-						onClick={ () =>
-							sendScopeCommand( 'disable_profiling' )
-						}
+						onClick={ () => setProfiling( false ) }
 					>
 						{ __( 'Disable profiling', 'newspack-nodes' ) }
 					</button>
@@ -192,7 +190,7 @@ export default function StatsView() {
 					<button
 						type="button"
 						className="button is-compact"
-						onClick={ () => sendScopeCommand( 'enable_profiling' ) }
+						onClick={ () => setProfiling( true ) }
 					>
 						{ __( 'Enable profiling', 'newspack-nodes' ) }
 					</button>
