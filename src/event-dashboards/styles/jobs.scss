@@ -1,0 +1,71 @@
+/**
+ * Jobs tab — per-handler job-outcome table + the two rate panels.
+ */
+
+@use "base";
+
+.nodes-jobs {
+	padding: 16px;
+	color: var(--ink);
+	font-family: base.$system-font;
+}
+
+.nodes-jobs__panels {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.nodes-jobs__empty {
+	padding: 24px;
+	text-align: center;
+	color: var(--ink-3);
+	background: var(--paper-2);
+	border-radius: var(--np-radius-md);
+}
+
+.nodes-jobs__table {
+	th,
+	td {
+		vertical-align: middle;
+	}
+
+	.nodes-jobs__handler {
+		font-family: base.$mono-font;
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.nodes-jobs__failures.is-nonzero {
+		color: var(--oxide);
+		font-weight: 600;
+	}
+
+	.nodes-jobs__message {
+		max-width: 340px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink-3);
+	}
+}
+
+.nodes-jobs__status {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+
+	&.is-success {
+		background: var(--sage-subtle);
+		color: var(--sage);
+	}
+
+	&.is-error {
+		background: var(--oxide-subtle);
+		color: var(--oxide);
+	}
+}

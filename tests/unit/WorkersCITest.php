@@ -507,9 +507,9 @@ class WorkersCITest extends TestCase {
 
 		$this->assertSame( $logs, $result['logs_dir'] );
 		$this->assertSame( [ '0-req', '1-req', 'ghost' ], $result['on_disk_basenames'] );
-		// topicprobe.p0 + settings.p0 are expected substrate logs (written outside
-		// any .tsl, GC-whitelisted in Log_Cleaner::declared_log_dirs).
-		$this->assertSame( [ '0-req', '1-req', 'settings.p0', 'topicprobe.p0' ], $result['expected_basenames'] );
+		// jobstats.p0 + topicprobe.p0 + settings.p0 are expected substrate logs
+		// (written outside any .tsl, GC-whitelisted in Log_Cleaner::declared_log_dirs).
+		$this->assertSame( [ '0-req', '1-req', 'jobstats.p0', 'settings.p0', 'topicprobe.p0' ], $result['expected_basenames'] );
 		$this->assertSame( [ 'ghost' ], $result['orphans'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();

@@ -63,4 +63,9 @@ class NodeNamesTest extends TestCase {
 		$this->assertSame( '_stdin', \Newspack_Nodes\Node_Names::STDIN );
 		$this->assertSame( '_stdout', \Newspack_Nodes\Node_Names::STDOUT );
 	}
+
+	public function test_jobstats_reserved_names(): void {
+		$this->assertSame( '_jobstats', \Newspack_Nodes\Node_Names::JOBSTATS );
+		$this->assertSame( '_jobstats:log', \Newspack_Nodes\Node_Names::JOBSTATS_LOG );
+	}
 }

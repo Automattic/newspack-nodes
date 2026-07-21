@@ -6,6 +6,8 @@
 	"DMESG": "_dmesg",
 	"HEARTBEAT": "_heartbeat",
 	"HTTP": "_http",
+	"JOBSTATS": "_jobstats",
+	"JOBSTATS_LOG": "_jobstats:log",
 	"METADATA": "_metadata",
 	"OUTPUT": "_output",
 	"REPL": "_repl",

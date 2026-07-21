@@ -22,6 +22,8 @@ final class Node_Names {
 	public const DMESG               = '_dmesg';
 	public const HEARTBEAT           = '_heartbeat';
 	public const HTTP                = '_http';
+	public const JOBSTATS            = '_jobstats';
+	public const JOBSTATS_LOG        = '_jobstats:log';
 	public const METADATA            = '_metadata';
 	public const OUTPUT              = '_output';
 	public const REPL                = '_repl';
