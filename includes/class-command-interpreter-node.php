@@ -365,7 +365,7 @@ class Command_Interpreter_Node extends Node {
 			'pwd' => "pwd\n",
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
-			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME (php | debug), never a path — no traversal.\n          Returns the last min(max_kb, 64)KB (default 16), partial first line dropped. No args lists the sources with availability.\n",
+			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME (php | debug), never a path — no traversal.\n          Returns the last min(max_kb, 64)KB (default 16), partial first line dropped. No args lists the sources with availability;\n          the reserved name `sources` returns them as a { name, path, available } struct for a GUI picker.\n",
 			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
@@ -409,7 +409,7 @@ class Command_Interpreter_Node extends Node {
 			'disable_profiling' => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_disable_profiling(),
 			'log'             => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_log( $self, self::arg_strings( $args ) ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dmesg(),
-			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_taillog( self::arg_strings( $args ) ),
+			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_taillog( self::arg_strings( $args ) ),
 			'dump_node'       => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump'            => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump_config'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dump_config( Core::as_string( $args[0] ?? '' ) ),
@@ -779,15 +779,20 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
 	 * fixed registry NAME. No source lists the registry with per-source availability;
+	 * the reserved name `sources` returns the registry as a struct (array) a GUI reads;
 	 * an unknown name or a missing/unreadable file returns a teaching error naming
 	 * the resolved path (errors-as-docs).
 	 *
 	 * @param list<string> $args
+	 * @return string|list<array{name:string, path:string, available:bool}>
 	 */
-	private static function cmd_taillog( array $args ): string {
+	private static function cmd_taillog( array $args ): string|array {
 		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
 		$registry = self::taillog_registry();
 
+		if ( 'sources' === $source ) {
+			return self::taillog_sources_struct( $registry );
+		}
 		if ( '' === $source ) {
 			return self::taillog_list( $registry );
 		}
@@ -823,7 +828,53 @@ class Command_Interpreter_Node extends Node {
 			}
 			return $sources;
 		};
-		return $resolve();
+		return self::dedupe_by_realpath( $resolve() );
+	}
+
+	/**
+	 * Collapse registry entries that resolve to the SAME real file — on this host
+	 * php `error_log` IS `wp-content/debug.log`, so `php` and `debug` would tail
+	 * identical content. Insertion order is priority: `php` precedes `debug` in the
+	 * resolver, so the ini-configured aggregation point is the survivor. A path that
+	 * doesn't yet exist (`realpath` false) can't be a duplicate and is kept.
+	 *
+	 * @param array<string,string> $registry Name → path (insertion order = priority).
+	 * @return array<string,string>
+	 */
+	private static function dedupe_by_realpath( array $registry ): array {
+		$deduped = [];
+		$seen    = [];
+		foreach ( $registry as $name => $path ) {
+			$real = \realpath( $path );
+			if ( false !== $real && isset( $seen[ $real ] ) ) {
+				continue;
+			}
+			if ( false !== $real ) {
+				$seen[ $real ] = true;
+			}
+			$deduped[ $name ] = $path;
+		}
+		return $deduped;
+	}
+
+	/**
+	 * The reserved `taillog sources` reply: one { name, path, available } row per
+	 * (deduped) registry entry, as a plain array a GUI reads to build its source
+	 * picker — mirrors the dump_metadata array-reply precedent.
+	 *
+	 * @param array<string,string> $registry Name → resolved path.
+	 * @return list<array{name:string, path:string, available:bool}>
+	 */
+	private static function taillog_sources_struct( array $registry ): array {
+		$rows = [];
+		foreach ( $registry as $name => $path ) {
+			$rows[] = [
+				'name'      => $name,
+				'path'      => $path,
+				'available' => \is_file( $path ) && \is_readable( $path ),
+			];
+		}
+		return $rows;
 	}
 
 	/**

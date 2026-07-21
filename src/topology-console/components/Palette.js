@@ -60,6 +60,12 @@ export default function Palette( {
 	const dragRef = useRef( null );
 	// Case-insensitive filter over shell name + description; empty = full list.
 	const [ query, setQuery ] = useState( '' );
+	const searchRef = useRef( null );
+
+	const clearQuery = () => {
+		setQuery( '' );
+		searchRef.current?.focus();
+	};
 
 	// accepts_fill/has_target default true; glyph marks only an ABSENT port.
 	const acceptsFillOf = ( c ) => c.accepts_fill !== false;
@@ -198,6 +204,10 @@ export default function Palette( {
 		  )
 		: draggable;
 	const grouped = groupByCategory( matches );
+	// Filter the tiles too; byName keeps the full DAG for cycle detection.
+	const shownTopologies = q
+		? topologies.filter( ( t ) => t.name.toLowerCase().includes( q ) )
+		: topologies;
 	const byName = new Map( topologies.map( ( t ) => [ t.name, t ] ) );
 
 	return (
@@ -213,18 +223,32 @@ export default function Palette( {
 					{ '‹' }
 				</button>
 			) }
-			<input
-				type="search"
-				className="topology-palette__search"
-				value={ query }
-				onChange={ ( e ) => setQuery( e.target.value ) }
-				placeholder="Filter nodes…"
-				aria-label="Filter node classes"
-			/>
-			{ editMode && topologies.length > 0 && (
+			<div className="topology-palette__search-wrap">
+				<input
+					ref={ searchRef }
+					type="search"
+					className="topology-palette__search"
+					value={ query }
+					onChange={ ( e ) => setQuery( e.target.value ) }
+					placeholder="Filter nodes…"
+					aria-label="Filter node classes"
+				/>
+				{ query.length > 0 && (
+					<button
+						type="button"
+						className="topology-palette__search-clear"
+						onClick={ clearQuery }
+						aria-label="Clear filter"
+						title="Clear filter"
+					>
+						×
+					</button>
+				) }
+			</div>
+			{ editMode && shownTopologies.length > 0 && (
 				<div>
 					<h3 className="topology-palette__group">Topologies</h3>
-					{ topologies.map( ( t ) => {
+					{ shownTopologies.map( ( t ) => {
 						const disabled =
 							t.name === currentTopology ||
 							declaredIncludes.includes( t.name ) ||

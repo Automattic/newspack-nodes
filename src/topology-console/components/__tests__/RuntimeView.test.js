@@ -1,13 +1,21 @@
+/**
+ * RuntimeView tests — the current-scope timers + handles grids shown inside the
+ * Inspector's Runtime modal. It mounts ONE `Dmesg` poller (verb `runtime_stats`,
+ * target `_cwd`) on the backbone and renders its `{ timers, handles }` reply as
+ * two click-to-sort grids; a drain spinner (next_ms <= 0 with fires climbing) is
+ * flagged. Ported from the retired Runtime devtools tab.
+ */
+
 import { render, fireEvent, act } from '@testing-library/react';
-import { Core } from '../../runtime/core';
+import { Core } from '../../../runtime/core';
 import {
 	newMessage,
 	TYPE,
 	VALUE,
 	TM_COMMAND,
 	TM_RESPONSE,
-} from '../../runtime/message';
-import RuntimeTab from '../tabs/RuntimeTab';
+} from '../../../runtime/message';
+import RuntimeView from '../RuntimeView';
 
 const POLLER = 'runtime:poller';
 
@@ -43,15 +51,22 @@ const rowNames = ( table ) =>
 	);
 
 test( 'mounts one runtime_stats poller on the backbone, targeting the current scope (_cwd)', () => {
-	render( <RuntimeTab publishHeader={ () => {} } /> );
+	render( <RuntimeView /> );
 	const poller = Core.node( POLLER );
 	expect( poller ).toBeTruthy();
 	expect( poller.verb ).toBe( 'runtime_stats' );
 	expect( poller.target ).toBe( '_cwd' );
 } );
 
+test( 'tears the poller down on unmount (poll only while the modal is open)', () => {
+	const { unmount } = render( <RuntimeView /> );
+	expect( Core.node( POLLER ) ).toBeTruthy();
+	unmount();
+	expect( Core.node( POLLER ) ).toBeFalsy();
+} );
+
 test( 'renders the timer + handle rows into two grids', () => {
-	const { getByTestId } = render( <RuntimeTab publishHeader={ () => {} } /> );
+	const { getByTestId } = render( <RuntimeView /> );
 	publish(
 		[ timer( {} ) ],
 		[ { id: 1, count: 42, type: 'SSE_Out_Node', name: 'sse0' } ]
@@ -65,7 +80,7 @@ test( 'renders the timer + handle rows into two grids', () => {
 } );
 
 test( 'sorts a grid numerically by a clicked column header, toggling asc then desc', () => {
-	const { getByTestId } = render( <RuntimeTab publishHeader={ () => {} } /> );
+	const { getByTestId } = render( <RuntimeView /> );
 	publish(
 		[
 			timer( { name: 'alpha', fires: 30 } ),
@@ -85,7 +100,7 @@ test( 'sorts a grid numerically by a clicked column header, toggling asc then de
 } );
 
 test( 'flags a spinner: next_ms <= 0 AND fires climbing across polls', () => {
-	const { getByTestId } = render( <RuntimeTab publishHeader={ () => {} } /> );
+	const { getByTestId } = render( <RuntimeView /> );
 	const calm = timer( { name: 'calm0', next_ms: 500, fires: 999 } );
 	// First poll seeds the fires baseline; second poll shows the climb.
 	publish(
@@ -108,7 +123,7 @@ test( 'flags a spinner: next_ms <= 0 AND fires climbing across polls', () => {
 } );
 
 test( 'does NOT flag a spinner when next_ms <= 0 but fires are not climbing', () => {
-	const { getByTestId } = render( <RuntimeTab publishHeader={ () => {} } /> );
+	const { getByTestId } = render( <RuntimeView /> );
 	publish( [ timer( { name: 'stuck0', next_ms: -5, fires: 10 } ) ], [] );
 	publish( [ timer( { name: 'stuck0', next_ms: -5, fires: 10 } ) ], [] );
 	const row = getByTestId( 'runtime-timers' ).querySelector(

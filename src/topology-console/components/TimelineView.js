@@ -9,9 +9,10 @@
 
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import './timeline-view.scss';
 
-// DEBUG line: required `<node>: ` midfix, the DEBUG: marker, event, payload.
-const DEBUG_TRACE = /([^\s:]+):\s+DEBUG:\s+(\S+)(?:\s+([\s\S]*))?$/;
+// DEBUG line; node token is \S+ (not [^\s:]+) so sidecar colons survive.
+const DEBUG_TRACE = /(\S+):\s+DEBUG:\s+(\S+)(?:\s+([\s\S]*))?$/;
 
 // Entry ts (epoch seconds) → UTC HH:MM:SS, matching the console's UTC logs.
 function formatTime( ts ) {
@@ -43,7 +44,7 @@ function parseRows( transcript ) {
 /**
  * @param {Object} props
  * @param {Array}  props.transcript The Dumper transcript entries (`{ ts, kind, text, key }`).
- * @return {import('react').ReactElement} The timeline table + filters.
+ * @return {import('react').ReactElement} The timeline grid + filters.
  */
 export default function TimelineView( { transcript = [] } ) {
 	const [ nodeFilter, setNodeFilter ] = useState( '' );
@@ -84,34 +85,41 @@ export default function TimelineView( { transcript = [] } ) {
 				/>
 			</div>
 			{ rows.length ? (
-				<table className="timeline-view__table">
-					<thead>
-						<tr>
-							<th>{ __( 'Time', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Node', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Event', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Payload', 'newspack-nodes' ) }</th>
-						</tr>
-					</thead>
-					<tbody>
+				// Fixed header outside the scroll body (shared grid).
+				<div className="timeline-view__grid">
+					<div className="timeline-view__head">
+						<span className="timeline-view__col">
+							{ __( 'Time', 'newspack-nodes' ) }
+						</span>
+						<span className="timeline-view__col">
+							{ __( 'Node', 'newspack-nodes' ) }
+						</span>
+						<span className="timeline-view__col">
+							{ __( 'Event', 'newspack-nodes' ) }
+						</span>
+						<span className="timeline-view__col">
+							{ __( 'Payload', 'newspack-nodes' ) }
+						</span>
+					</div>
+					<div className="timeline-view__body">
 						{ rows.map( ( row ) => (
-							<tr key={ row.key } className="timeline-view__row">
-								<td className="timeline-view__time">
+							<div key={ row.key } className="timeline-view__row">
+								<span className="timeline-view__cell timeline-view__time">
 									{ formatTime( row.ts ) }
-								</td>
-								<td className="timeline-view__node">
+								</span>
+								<span className="timeline-view__cell timeline-view__node">
 									{ row.node }
-								</td>
-								<td className="timeline-view__event">
+								</span>
+								<span className="timeline-view__cell timeline-view__event">
 									{ row.event }
-								</td>
-								<td className="timeline-view__payload">
+								</span>
+								<span className="timeline-view__cell timeline-view__payload">
 									{ row.payload }
-								</td>
-							</tr>
+								</span>
+							</div>
 						) ) }
-					</tbody>
-				</table>
+					</div>
+				</div>
 			) : (
 				<p className="timeline-view__empty">
 					{ __(

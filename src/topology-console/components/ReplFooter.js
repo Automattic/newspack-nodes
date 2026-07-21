@@ -6,8 +6,6 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { longestCommonPrefix } from '../../runtime/completion-node';
 import { loadHistory, saveHistory } from '../core/consolePersistence';
-import TimelineView from './TimelineView';
-import './timeline-view.scss';
 
 // Split value into the trailing whitespace token + the head before it.
 function splitTrailingToken( value ) {
@@ -63,18 +61,6 @@ function loadStoredHeight() {
 	}
 }
 
-// Transcript view (text|timeline); persisted like the other console keys.
-const VIEW_STORAGE_KEY = 'newspack-nodes:console:transcript-view';
-function loadStoredView() {
-	try {
-		return 'timeline' === window.localStorage.getItem( VIEW_STORAGE_KEY )
-			? 'timeline'
-			: 'text';
-	} catch ( _e ) {
-		return 'text';
-	}
-}
-
 export default function ReplFooter( {
 	prompt,
 	streamStatus,
@@ -123,16 +109,6 @@ export default function ReplFooter( {
 		() => loadStoredHeight() ?? defaultHeight()
 	);
 	const dragState = useRef( null );
-	// 'text' (entry list) vs 'timeline' (parsed DEBUG-trace table).
-	const [ view, setView ] = useState( loadStoredView );
-	const selectView = useCallback( ( next ) => {
-		setView( next );
-		try {
-			window.localStorage.setItem( VIEW_STORAGE_KEY, next );
-		} catch ( _e ) {
-			// Private-mode/quota errors are non-fatal; choice won't persist.
-		}
-	}, [] );
 
 	// Report canvas overlap so the consumer can feed autofit a bottom inset.
 	useEffect( () => {
@@ -509,51 +485,20 @@ export default function ReplFooter( {
 								✕
 							</button>
 						</div>
-						<div
-							className="topology-repl__view-toggle"
-							role="group"
-							aria-label={ __(
-								'Transcript view',
-								'newspack-nodes'
-							) }
-						>
-							<button
-								type="button"
-								className={ `topology-repl__view-btn${
-									'text' === view ? ' is-active' : ''
-								}` }
-								onClick={ () => selectView( 'text' ) }
-							>
-								{ __( 'Text', 'newspack-nodes' ) }
-							</button>
-							<button
-								type="button"
-								className={ `topology-repl__view-btn${
-									'timeline' === view ? ' is-active' : ''
-								}` }
-								onClick={ () => selectView( 'timeline' ) }
-							>
-								{ __( 'Timeline', 'newspack-nodes' ) }
-							</button>
+						<div className="topology-repl__entries">
+							{ transcript.map( ( entry ) => (
+								<pre
+									key={ entry.key }
+									className={ `topology-repl__entry topology-repl__entry--${ entry.kind }` }
+								>
+									{ entry.kind === 'sent'
+										? `${ entry.prompt ?? prompt }> ${
+												entry.text
+										  }`
+										: entry.text }
+								</pre>
+							) ) }
 						</div>
-						{ 'timeline' === view ? (
-							<TimelineView transcript={ transcript } />
-						) : (
-							<div className="topology-repl__entries">
-								{ transcript.map( ( entry ) => (
-									<pre
-										key={ entry.key }
-										className={ `topology-repl__entry topology-repl__entry--${ entry.kind }` }
-									>
-										{ entry.kind === 'sent'
-											? `${ entry.prompt ?? prompt }> ${
-													entry.text
-											  }`
-											: entry.text }
-									</pre>
-								) ) }
-							</div>
-						) }
 					</div>
 				</>
 			) }

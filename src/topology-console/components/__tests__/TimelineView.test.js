@@ -131,6 +131,51 @@ describe( 'TimelineView', () => {
 		).toBe( 'crawl' );
 	} );
 
+	it( 'captures a full colon-bearing sidecar node name, not just the suffix', () => {
+		// Substrate sidecar naming puts a colon INSIDE the node name
+		// (`scored:consumer`, `jobs:offsetlog`, `combined.p0:crawler`); the
+		// capture must take the whole space-free token before ` DEBUG: `.
+		const { container } = render(
+			<TimelineView
+				transcript={ [
+					{
+						key: 's',
+						ts: 1_777_000_050,
+						kind: 'recv',
+						text: `${ PREFIX }scored:consumer: DEBUG: enqueue id=99`,
+					},
+				] }
+			/>
+		);
+		const rows = rowsOf( container );
+		expect( rows ).toHaveLength( 1 );
+		expect(
+			rows[ 0 ].querySelector( '.timeline-view__node' ).textContent
+		).toBe( 'scored:consumer' );
+		expect(
+			rows[ 0 ].querySelector( '.timeline-view__event' ).textContent
+		).toBe( 'enqueue' );
+	} );
+
+	it( 'renders the column header outside the scrollable row body (no sticky)', () => {
+		const { container } = render(
+			<TimelineView transcript={ transcript } />
+		);
+		const head = container.querySelector( '.timeline-view__head' );
+		const body = container.querySelector( '.timeline-view__body' );
+		expect( head ).toBeTruthy();
+		expect( body ).toBeTruthy();
+		// Every parsed row lives in the scrollable body, never in the header.
+		expect( body.querySelectorAll( '.timeline-view__row' ) ).toHaveLength(
+			3
+		);
+		expect( head.querySelectorAll( '.timeline-view__row' ) ).toHaveLength(
+			0
+		);
+		// The header is a sibling of the body, not an ancestor of the rows.
+		expect( head.contains( rowsOf( container )[ 0 ] ) ).toBe( false );
+	} );
+
 	it( 'ignores free text containing DEBUG: without a node midfix', () => {
 		const { container } = render(
 			<TimelineView

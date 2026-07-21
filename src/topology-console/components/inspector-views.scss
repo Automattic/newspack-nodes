@@ -1,0 +1,54 @@
+// Inspector modal views (the Runtime grids). The Timeline view keeps its own
+// timeline-view.scss; this styles the current-scope timers + handles as two
+// sortable grids. Console theme tokens (mono type, --oxide spinner tint) so the
+// grids read as part of the console rather than the old overlay tab chrome.
+
+.nodes-runtime {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	gap: 14px;
+	font: 400 12px/1.4 var(--font-mono);
+	color: var(--ink);
+
+	&__title {
+		margin: 0 0 4px;
+		font: 700 9px var(--font-mono);
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		color: var(--ink-3);
+	}
+
+	&__grid {
+		width: 100%;
+		border-collapse: collapse;
+		font: inherit;
+	}
+
+	&__th {
+		text-align: left;
+		padding: 3px 8px;
+		cursor: pointer;
+		white-space: nowrap;
+		user-select: none;
+		color: var(--ink-2);
+		border-bottom: 1px solid var(--paper-shadow);
+
+		&.is-sorted {
+			color: var(--oxide);
+			font-weight: 700;
+		}
+	}
+
+	&__td {
+		padding: 3px 8px;
+		white-space: nowrap;
+	}
+
+	&__row--spinner {
+		color: var(--oxide);
+		background: color-mix(in srgb, var(--oxide) 12%, transparent);
+	}
+}

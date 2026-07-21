@@ -19,45 +19,26 @@ describe( 'debug-overlay tab registration', () => {
 		expect( console.fullBleed ).toBe( true );
 	} );
 
-	it( 'registers Overview as the default (first) overlay tab, then Console, Logs, Runtime', () => {
+	it( 'registers only Overview then Console — Runtime + Logs moved to the console modal', () => {
 		require( '../tabs/index.js' );
 		const overlayTabs = getDevtoolsTabs( 'overlay' );
 		expect( overlayTabs.map( ( t ) => t.id ) ).toEqual( [
 			'io-overview',
 			'console',
-			'logs',
-			'runtime',
 		] );
 		expect( overlayTabs.map( ( t ) => t.label ) ).toEqual( [
 			'Overview',
 			'Console',
-			'Logs',
-			'Runtime',
 		] );
 	} );
 
-	it( 'registers Runtime as a host:both tab (order 45) — last in both the overlay and the hub', () => {
+	it( 'no longer registers the Runtime or Logs tabs (nor a host:both tab)', () => {
 		require( '../tabs/index.js' );
-		require( '../../event-dashboards/tabs' ); // hub tabs, so we can check hub ordering
 		const overlay = getDevtoolsTabs( 'overlay' );
 		const hub = getDevtoolsTabs( 'hub' );
-		const runtime = overlay.find( ( t ) => t.id === 'runtime' );
-		expect( runtime ).toBeDefined();
-		expect( runtime.host ).toBe( 'both' );
-		expect( runtime.order ).toBe( 45 );
-		// The one order value lands it last in the overlay AND the hub list.
-		expect( overlay[ overlay.length - 1 ].id ).toBe( 'runtime' );
-		expect( hub[ hub.length - 1 ].id ).toBe( 'runtime' );
-	} );
-
-	it( 'registers Logs after Console (order 3) as a full-bleed tab', () => {
-		require( '../tabs/index.js' );
-		const logs = getDevtoolsTabs( 'overlay' ).find(
-			( t ) => t.id === 'logs'
-		);
-		expect( logs ).toBeDefined();
-		expect( logs.order ).toBe( 3 );
-		expect( logs.fullBleed ).toBe( true );
+		expect( overlay.find( ( t ) => t.id === 'runtime' ) ).toBeUndefined();
+		expect( overlay.find( ( t ) => t.id === 'logs' ) ).toBeUndefined();
+		expect( hub.find( ( t ) => t.id === 'runtime' ) ).toBeUndefined();
 	} );
 
 	it( 'does NOT collide with the hub Overview tab id in the shared registry', () => {

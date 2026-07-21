@@ -190,6 +190,50 @@ describe( 'Inspector (view mode)', () => {
 		expect( calls ).toContainEqual( [ 'command', null, 'list_handles' ] );
 	} );
 
+	it( 'opens the wide Runtime modal from the no-node strip', () => {
+		Core.reset();
+		const { getByText } = render( <Inspector { ...baseProps } /> );
+		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
+		fireEvent.click( getByText( 'Runtime' ) );
+		const modal = document.body.querySelector( '.topology-modal' );
+		expect( modal.classList.contains( 'topology-modal--large' ) ).toBe(
+			true
+		);
+		expect(
+			modal.querySelector( '[data-testid="runtime-view"]' )
+		).toBeTruthy();
+		Core.reset();
+	} );
+
+	it( 'opens the Timeline modal from the no-node strip', () => {
+		Core.reset();
+		const { getByText } = render( <Inspector { ...baseProps } /> );
+		fireEvent.click( getByText( 'Timeline' ) );
+		expect(
+			document.body.querySelector( '.topology-modal .timeline-view' )
+		).toBeTruthy();
+		Core.reset();
+	} );
+
+	it( 'closes the strip modal via its close button', () => {
+		Core.reset();
+		const { getByText } = render( <Inspector { ...baseProps } /> );
+		fireEvent.click( getByText( 'Runtime' ) );
+		fireEvent.click(
+			document.body.querySelector( '.topology-modal__close' )
+		);
+		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
+		Core.reset();
+	} );
+
+	it( 'does NOT show the Runtime/Timeline strip modal buttons in edit mode', () => {
+		const { queryByText } = render(
+			<Inspector { ...baseProps } editMode={ true } />
+		);
+		expect( queryByText( 'Runtime' ) ).toBeNull();
+		expect( queryByText( 'Timeline' ) ).toBeNull();
+	} );
+
 	it( 'no-node Compose opens a composer that dispatches the chosen verb', () => {
 		const onAction = jest.fn();
 		const { getByText } = render(

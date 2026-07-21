@@ -1,15 +1,15 @@
 /**
- * The Runtime tab — a live view of the current scope's Event_Framework: its
+ * RuntimeView — a live view of the current scope's Event_Framework: its
  * registered timers and its cURL/EventSource handles, each as a click-to-sort
  * grid. A timer that is due every tick (NEXT <= 0) whose FIRES keep climbing is
  * a drain spinner — those rows are flagged red with a ⚠.
  *
- * Wiring mirrors the Logs tab: ONE `Dmesg` poller (a router-TIMER-hitchhiking
- * TimerNode, now publishing an object reply as `reply`) is mounted on the
- * overlay backbone, its verb retargeted at `runtime_stats` and its poll routed
- * through `_cwd` — so it reports the current scope (browser-local in the overlay,
- * the cd'd worker in the hub console). The PHP and JS `runtime_stats` verbs emit
- * identical row keys, so this tab renders either side unchanged.
+ * Shown inside the Inspector's Runtime modal. It mounts ONE `Dmesg` poller (a
+ * router-TIMER-hitchhiking TimerNode publishing an object reply as `reply`) on
+ * the backbone while the modal is open, its verb retargeted at `runtime_stats`
+ * and its poll routed through `_cwd` — so it reports the current scope
+ * (browser-local at root, the cd'd worker when pivoted). The PHP and JS
+ * `runtime_stats` verbs emit identical row keys, so it renders either unchanged.
  */
 
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
@@ -18,8 +18,9 @@ import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { useNodeState } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
+import './inspector-views.scss';
 
-// The one poller node the tab mounts + reads.
+// The one poller node the view mounts + reads.
 const POLLER = 'runtime:poller';
 
 // Column specs per grid: numeric columns sort numerically (else lexically).
@@ -143,15 +144,10 @@ function Grid( { testid, cols, rows, sort, onSort, rowClass } ) {
 }
 
 /**
- * @param {Object}   props
- * @param {Function} props.publishHeader Publish header extras (the Runtime tab clears them — it has no cwd to navigate).
- * @return {import('react').ReactElement} The Runtime tab.
+ * @return {import('react').ReactElement} The Runtime modal view.
  */
-export default function RuntimeTab( { publishHeader } ) {
-	const [ timerSort, setTimerSort ] = useState( {
-		key: 'name',
-		dir: 'asc',
-	} );
+export default function RuntimeView() {
+	const [ timerSort, setTimerSort ] = useState( { key: 'name', dir: 'asc' } );
 	const [ handleSort, setHandleSort ] = useState( {
 		key: 'name',
 		dir: 'asc',
@@ -160,10 +156,7 @@ export default function RuntimeTab( { publishHeader } ) {
 	const [ , bumpBuild ] = useState( 0 );
 	const pollerRef = useRef( null );
 
-	// Owns no header controls — clear any the Console left behind.
-	useEffect( () => publishHeader?.( null ), [ publishHeader ] );
-
-	// Mount ONE poller on the overlay backbone; poll runtime_stats at _cwd.
+	// Mount ONE poller on the backbone; poll runtime_stats at _cwd.
 	useEffect( () => {
 		const build = ( { interpreter } ) => {
 			const poller = interpreter.makeNode( 'Dmesg', POLLER );
@@ -235,7 +228,7 @@ export default function RuntimeTab( { publishHeader } ) {
 			: '';
 
 	return (
-		<div className="nodes-runtime" data-testid="runtime-tab">
+		<div className="nodes-runtime" data-testid="runtime-view">
 			<div className="nodes-runtime__section">
 				<h3 className="nodes-runtime__title">
 					{ __( 'Timers', 'newspack-nodes' ) }
