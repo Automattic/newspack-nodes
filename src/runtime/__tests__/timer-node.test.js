@@ -90,7 +90,7 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 		t.sink = { fill: () => {} };
 		t.setTimer( 100 );
 		jest.advanceTimersByTime( 300 );
-		expect( t.fire_count ).toBe( 3 );
+		expect( t.fireCount ).toBe( 3 );
 		expect( t.counter ).toBe( 3 );
 		t.stopTimer();
 	} );
@@ -124,7 +124,7 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 	} );
 
 	test( 'fire_cb returns early when there is no sink (Perl parity: return if not sink)', () => {
-		// No sink: fire_cb bumps fire_count but returns before fire().
+		// No sink: fire_cb bumps fireCount but returns before fire().
 		const t = new TimerNode();
 		t.name = 't-nosink';
 		const ticks = [];
@@ -134,7 +134,8 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 		} );
 		t.setTimer( 100 );
 		jest.advanceTimersByTime( 300 );
-		expect( t.fire_count ).toBe( 3 );
+		// No sink -> no fire() -> fireCount stays 0 (fires, not ticks).
+		expect( t.fireCount ).toBe( 0 );
 		expect( ticks ).toHaveLength( 0 );
 		t.stopTimer();
 	} );
@@ -152,7 +153,7 @@ describe( 'Router-hitchhike mode (rides the _router TIMER via notify_timer)', ()
 		r.notifyTimer();
 		r.notifyTimer();
 		expect( sent ).toHaveLength( 2 );
-		expect( t.fire_count ).toBe( 2 );
+		expect( t.fireCount ).toBe( 2 );
 		t.stopTimer();
 	} );
 
@@ -261,7 +262,8 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 			r.notifyTimer();
 		}
 		expect( sent ).toHaveLength( 1 );
-		expect( t.fire_count ).toBe( 5 );
+		// fireCount counts throttled EMITS, not driven ticks (1 fire / 5 ticks).
+		expect( t.fireCount ).toBe( 1 );
 		// Five more ticks → one more emit at the 10s boundary.
 		for ( let i = 6; i <= 10; i++ ) {
 			jest.setSystemTime( i * 1000 );

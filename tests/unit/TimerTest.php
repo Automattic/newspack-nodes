@@ -229,8 +229,8 @@ class TimerTest extends TestCase {
 			$timer->fire_cb();
 		}
 		$this->assertCount( 2, $capture->captured );
-		// FIRES counts every driven tick, not just emits (JS console parity).
-		$this->assertSame( 10, $timer->get_fire_count() );
+		// FIRES counts actual emits, not driven ticks (2 fires / 10 ticks).
+		$this->assertSame( 2, $timer->get_fire_count() );
 		$timer->stop_timer();
 	}
 

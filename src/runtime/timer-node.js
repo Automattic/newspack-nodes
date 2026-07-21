@@ -31,7 +31,7 @@ export class TimerNode extends Node {
 		this.interval_ms = 0;
 		// 'inactive' | 'event_framework' (own slot) | 'router' (hitchhike).
 		this.mode = 'inactive';
-		this.fire_count = 0;
+		this.fireCount = 0;
 		this.oneshot = false;
 		// Router can't hitchhike its own TIMER; RouterNode self-arms instead.
 		this.isRouter = false;
@@ -64,7 +64,6 @@ export class TimerNode extends Node {
 
 	// fireCb (Timer::fire_cb): oneshot stops fully; no-op without a sink.
 	fireCb() {
-		this.fire_count++;
 		if ( this.oneshot ) {
 			this.stopTimer();
 		}
@@ -79,6 +78,7 @@ export class TimerNode extends Node {
 			}
 			this.lastFireTime = now;
 		}
+		this.fireCount++;
 		this.fire();
 	}
 
