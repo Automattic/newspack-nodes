@@ -213,7 +213,8 @@ class TailTest extends TestCase {
 		$names  = \array_column( $schema['arguments'], 'name' );
 		// Tail keeps its own source_file naming AND inherits the optional deadletter_dir
 		// so a Tail can quarantine poison (crawl head-sacrifice / cooperative-stop) too.
-		$this->assertSame( [ 'source_file', 'offsetlog_dir', 'deadletter_dir' ], $names );
+		// source_mode picks the source shape (segmented default vs single-file follow).
+		$this->assertSame( [ 'source_file', 'offsetlog_dir', 'deadletter_dir', 'source_mode' ], $names );
 		// Pure producer: no IN port, has an OUT target. (Inherited from Consumer.)
 		$this->assertFalse( $schema['accepts_fill'] ?? true );
 		$this->assertTrue( $schema['has_target'] ?? false );
