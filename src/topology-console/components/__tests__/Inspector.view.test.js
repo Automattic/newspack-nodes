@@ -172,8 +172,55 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click( getByText( 'dmesg' ) );
 		expect( calls ).toContainEqual( [ 'command', null, 'dmesg' ] );
+	} );
+
+	it( 'no-node Trace fires the trace action with an explicit level (like the per-node button), not a raw command', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ { nodes: [ { id: 'a', debugState: 0 } ], edges: [] } }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
 		fireEvent.click( getByText( 'trace' ) );
-		expect( calls ).toContainEqual( [ 'command', null, 'debug_state *' ] );
+		expect( calls ).toContainEqual( [ 'trace', '*', 1 ] );
+		expect( calls ).not.toContainEqual( [
+			'command',
+			null,
+			'debug_state *',
+		] );
+	} );
+
+	it( 'no-node Trace reads "stop trace" when ANY node is traced, not just the first', () => {
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'alpha', debugState: 0 },
+						{ id: 'beta', debugState: 4 },
+					],
+					edges: [],
+				} }
+			/>
+		);
+		expect( getByText( 'stop trace' ) ).not.toBeNull();
+	} );
+
+	it( 'no-node Trace highlights + swaps to "stop trace" when tracing, and toggles to level 0', () => {
+		const calls = [];
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ { nodes: [ { id: 'a', debugState: 1 } ], edges: [] } }
+				onAction={ ( ...a ) => calls.push( a ) }
+			/>
+		);
+		const btn = getByText( 'stop trace' );
+		expect( btn.className ).toContain( 'is-active' );
+		fireEvent.click( btn );
+		expect( calls ).toContainEqual( [ 'trace', '*', 0 ] );
 	} );
 
 	it( 'exposes list_timers/list_handles as no-node inspector commands', () => {
@@ -205,6 +252,20 @@ describe( 'Inspector (view mode)', () => {
 		Core.reset();
 	} );
 
+	it( 'opens the wide Stats (hot nodes) modal from the no-node strip', () => {
+		Core.reset();
+		const { getByText } = render( <Inspector { ...baseProps } /> );
+		fireEvent.click( getByText( 'Stats' ) );
+		const modal = document.body.querySelector( '.topology-modal' );
+		expect( modal.classList.contains( 'topology-modal--large' ) ).toBe(
+			true
+		);
+		expect(
+			modal.querySelector( '[data-testid="stats-view"]' )
+		).toBeTruthy();
+		Core.reset();
+	} );
+
 	it( 'opens the Timeline modal from the no-node strip', () => {
 		Core.reset();
 		const { getByText } = render( <Inspector { ...baseProps } /> );
@@ -226,11 +287,12 @@ describe( 'Inspector (view mode)', () => {
 		Core.reset();
 	} );
 
-	it( 'does NOT show the Runtime/Timeline strip modal buttons in edit mode', () => {
+	it( 'does NOT show the Runtime/Stats/Timeline strip modal buttons in edit mode', () => {
 		const { queryByText } = render(
 			<Inspector { ...baseProps } editMode={ true } />
 		);
 		expect( queryByText( 'Runtime' ) ).toBeNull();
+		expect( queryByText( 'Stats' ) ).toBeNull();
 		expect( queryByText( 'Timeline' ) ).toBeNull();
 	} );
 

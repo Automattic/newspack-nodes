@@ -42,6 +42,19 @@ test( 'the Runtime view mounts the runtime_stats poller inside a wide modal', ()
 	expect( poller.target ).toBe( '_cwd' );
 } );
 
+test( 'the Stats view mounts the runtime_stats poller inside a wide modal', () => {
+	render( <InspectorViewModal view="stats" onDismiss={ () => {} } /> );
+	const modal = document.body.querySelector( '.topology-modal' );
+	expect( modal ).toBeTruthy();
+	expect( modal.classList.contains( 'topology-modal--large' ) ).toBe( true );
+	expect(
+		document.body.querySelector( '[data-testid="stats-view"]' )
+	).toBeTruthy();
+	const poller = Core.node( 'stats:poller' );
+	expect( poller.verb ).toBe( 'runtime_stats' );
+	expect( poller.target ).toBe( '_cwd' );
+} );
+
 test( 'the Timeline view parses the console `_output` transcript into rows', () => {
 	seedTranscript( [
 		{

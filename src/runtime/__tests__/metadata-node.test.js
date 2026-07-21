@@ -95,6 +95,28 @@ describe( 'Metadata node', () => {
 		expect( node.counter ).toBe( 2 );
 	} );
 
+	describe( 'optimisticPatchAll', () => {
+		it( 'patches every non-header entry in ONE publish', () => {
+			const node = new MetadataNode();
+			node.rawMap = {
+				_header: { ts: 9 },
+				alpha: { class: 'Echo_Node', debug_state: 0 },
+				beta: { class: 'Tee_Node', debug_state: 0 },
+			};
+			let publishes = 0;
+			const origSetState = node.setState.bind( node );
+			node.setState = ( key, value ) => {
+				publishes++;
+				return origSetState( key, value );
+			};
+			node.optimisticPatchAll( { debug_state: 3 } );
+			expect( publishes ).toBe( 1 );
+			expect( node.rawMap.alpha.debug_state ).toBe( 3 );
+			expect( node.rawMap.beta.debug_state ).toBe( 3 );
+			expect( node.rawMap._header.debug_state ).toBeUndefined();
+		} );
+	} );
+
 	describe( 'fire() poll emission', () => {
 		it( 'emits a dump_metadata TM_COMMAND addressed to this.target (the _cwd indirection)', () => {
 			const node = new MetadataNode();

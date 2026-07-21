@@ -1,6 +1,7 @@
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { Node, parseSchemaArgs } from '../node';
 import { Core } from '../core';
+import { RouterNode } from '../router-node';
 import { TimerNode } from '../timer-node';
 import { SseInNode } from '../sse-in-node';
 import {
@@ -20,7 +21,10 @@ import {
 	newMessage,
 } from '../message';
 
-beforeEach( () => Core.reset() );
+beforeEach( () => {
+	Core.reset();
+	RouterNode.profiles( null ); // profiling is static process state; clear per test
+} );
 
 test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb handler', () => {
 	// eslint-disable-next-line global-require
@@ -1077,13 +1081,14 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'n debug_state: 0'
 			);
 		} );
-		it( '* applies a debug level to every registered node and reports each', () => {
+		it( '* sets every node and returns a terse summary, not a per-node roster', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'n';
+			// Level 2 (distinct from the toggle default 1) over 2 nodes.
 			const out = dispatch( interpreter, 'debug_state', '* 2' );
-			expect( out ).toContain( 'Setting all nodes to debug_state: 2' );
-			expect( out ).toContain( 'n debug_state: 2' );
+			expect( out ).toBe( 'debug_state 2 on 2 nodes' );
+			expect( out ).not.toContain( 'n debug_state' );
 			expect( interpreter.debugState ).toBe( 2 );
 			expect( n.debugState ).toBe( 2 );
 		} );
@@ -1598,7 +1603,12 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		const out = dispatch( new CommandInterpreterNode(), 'runtime_stats' );
 		timer.stopTimer();
 
-		expect( Object.keys( out ) ).toEqual( [ 'timers', 'handles' ] );
+		expect( Object.keys( out ) ).toEqual( [
+			'timers',
+			'handles',
+			'profiles',
+			'profiles_total',
+		] );
 		const tick = out.timers.find( ( r ) => r.name === 'tick0' );
 		expect( Object.keys( tick ) ).toEqual( [
 			'id',
@@ -1627,5 +1637,51 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		] );
 		expect( out.handles[ 0 ].name ).toBe( 'sse0' );
 		expect( out.handles[ 0 ].id ).toBe( 'OPEN' ); // EventSource readyState label
+
+		// Profiling off by default → both profile datasets present but null.
+		expect( out ).toHaveProperty( 'profiles', null );
+		expect( out ).toHaveProperty( 'profiles_total', null );
+	} );
+
+	test( 'runtime_stats joins the Router profile table when profiling is enabled', () => {
+		// Seed the self-time table directly (values distinct from the disabled
+		// null) — runtime_stats reads it verbatim.
+		RouterNode.profiles( {
+			alice: {
+				time: 0.3,
+				count: 3,
+				avg: 0.1,
+				oldest: 100,
+				timestamp: 130,
+			},
+			bob: {
+				time: 0.1,
+				count: 5,
+				avg: 0.02,
+				oldest: 100,
+				timestamp: 130,
+			},
+		} );
+
+		const out = dispatch( new CommandInterpreterNode(), 'runtime_stats' );
+
+		const byName = Object.fromEntries(
+			out.profiles.map( ( r ) => [ r.name, r ] )
+		);
+		expect( Object.keys( byName.alice ) ).toEqual( [
+			'name',
+			'avg',
+			'time',
+			'count',
+		] );
+		expect( byName.alice.avg ).toBeCloseTo( 0.1, 9 );
+		expect( byName.alice.time ).toBeCloseTo( 0.3, 9 );
+		expect( byName.alice.count ).toBe( 3 );
+		expect( byName.bob.avg ).toBeCloseTo( 0.02, 9 );
+
+		// Total: summed time/count, avg = total time / total count (0.4 / 8).
+		expect( out.profiles_total.time ).toBeCloseTo( 0.4, 9 );
+		expect( out.profiles_total.count ).toBe( 8 );
+		expect( out.profiles_total.avg ).toBeCloseTo( 0.05, 9 );
 	} );
 } );

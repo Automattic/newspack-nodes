@@ -323,6 +323,18 @@ export class MetadataNode extends TimerNode {
 		this.setState( 'metadata', parseMetadata( map ) );
 	}
 
+	// Fan one patch across every non-header entry in a SINGLE publish.
+	optimisticPatchAll( patch ) {
+		const map = { ...( this.rawMap || {} ) };
+		for ( const name of Object.keys( map ) ) {
+			if ( '_header' !== name ) {
+				map[ name ] = { ...map[ name ], ...patch };
+			}
+		}
+		this.rawMap = map;
+		this.setState( 'metadata', parseMetadata( map ) );
+	}
+
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

@@ -347,7 +347,7 @@ class Command_Interpreter_Node extends Node {
 				. "    alias: ls\n",
 			'list_timers' => "list_timers\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n",
 			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n",
-			'runtime_stats' => "runtime_stats\n    note: the list_timers + list_handles rows as one { timers, handles } struct (keyed rows) for the Runtime devtools tab.\n",
+			'runtime_stats' => "runtime_stats\n    note: list_timers + list_handles rows plus the Router profile table as one { timers, handles, profiles, profiles_total } struct for the Runtime/Stats views (profiles null while profiling is off).\n",
 			'enable_profiling' => "enable_profiling\n    note: _router starts timing each dispatch (per-node self time).\n",
 			'list_profiles' => "list_profiles [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n",
 			'disable_profiling' => "disable_profiling\n",
@@ -1169,17 +1169,57 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `runtime_stats` — the list_timers + list_handles rows as one structured
-	 * reply for the Runtime devtools tab (TM_COMMAND array payload, like
-	 * dump_metadata). Single source of truth: the text verbs above and this both
-	 * derive from timer_rows() / handle_rows().
+	 * `runtime_stats` — the list_timers + list_handles rows plus the Router
+	 * profiling table as one structured reply for the Runtime/Stats devtools
+	 * views (TM_COMMAND array payload, like dump_metadata). Single source of
+	 * truth: the text verbs above and this both derive from timer_rows() /
+	 * handle_rows() / profile_dataset(). `profiles`/`profiles_total` are null
+	 * while profiling is disabled.
 	 *
-	 * @return array{timers:list<array<string,mixed>>,handles:list<array<string,mixed>>}
+	 * @return array{timers:list<array<string,mixed>>,handles:list<array<string,mixed>>,profiles:list<array{name:string,avg:float,time:float,count:int}>|null,profiles_total:array{avg:float,time:float,count:int}|null}
 	 */
 	private static function cmd_runtime_stats(): array {
+		[ 'rows' => $profiles, 'total' => $total ] = self::profile_dataset();
 		return [
-			'timers'  => self::timer_rows(),
-			'handles' => self::handle_rows(),
+			'timers'         => self::timer_rows(),
+			'handles'        => self::handle_rows(),
+			'profiles'       => $profiles,
+			'profiles_total' => $total,
+		];
+	}
+
+	/**
+	 * The Router self-time table as `{ rows, total }` for runtime_stats. Both are
+	 * null while profiling is off; else one { name, avg, time, count } row per
+	 * profiled node plus the aggregate. `list_profiles` keeps its own text form.
+	 *
+	 * @return array{rows:list<array{name:string,avg:float,time:float,count:int}>|null,total:array{avg:float,time:float,count:int}|null}
+	 */
+	private static function profile_dataset(): array {
+		$profiles = Router_Node::profiles();
+		if ( null === $profiles ) {
+			return [ 'rows' => null, 'total' => null ];
+		}
+		$rows        = [];
+		$total_time  = 0.0;
+		$total_count = 0;
+		foreach ( $profiles as $name => $info ) {
+			$rows[]       = [
+				'name'  => $name,
+				'avg'   => $info['avg'],
+				'time'  => $info['time'],
+				'count' => $info['count'],
+			];
+			$total_time  += $info['time'];
+			$total_count += $info['count'];
+		}
+		return [
+			'rows'  => $rows,
+			'total' => [
+				'avg'   => $total_count > 0 ? $total_time / $total_count : 0.0,
+				'time'  => $total_time,
+				'count' => $total_count,
+			],
 		];
 	}
 
@@ -1361,21 +1401,17 @@ class Command_Interpreter_Node extends Node {
 		}
 
 		if ( '*' === $first ) {
-			if ( '' === $second ) {
-				$new = $self->debug_state() > 0 ? 0 : 1;
-			} else {
-				$new = \max( 0, (int) $second );
-			}
+			$new = '' === $second
+				? ( $self->debug_state() > 0 ? 0 : 1 )
+				: \max( 0, (int) $second );
 			$all_names = \array_keys( Core::$nodes_by_name );
-			\sort( $all_names );
-			$out = "Setting all nodes to debug_state: $new\n";
 			foreach ( $all_names as $name ) {
 				/** @var \Newspack_Nodes\Node $node Node from the registry. */
 				$node = Core::node( $name );
 				$node->debug_state( $new );
-				$out .= "$name debug_state: $new\n";
 			}
-			return $out;
+			// Terse summary, not a per-node roster (ls lists them).
+			return \sprintf( 'debug_state %d on %d nodes', $new, \count( $all_names ) );
 		}
 
 		if ( \ctype_digit( $first ) && '' === $second ) {

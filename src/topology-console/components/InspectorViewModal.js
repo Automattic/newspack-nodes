@@ -10,15 +10,17 @@
 import { __ } from '@wordpress/i18n';
 import { ModalShell } from './Modal';
 import RuntimeView from './RuntimeView';
+import StatsView from './StatsView';
 import TimelineView from './TimelineView';
 import { useNodeState } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 
 const EMPTY_TRANSCRIPT = [];
 
-// The strip's two view keys → modal title. The key also picks the body below.
+// The strip's view keys → modal title. The key also picks the body below.
 const VIEW_TITLES = {
 	runtime: __( 'Runtime', 'newspack-nodes' ),
+	stats: __( 'Hot Nodes', 'newspack-nodes' ),
 	timeline: __( 'Event Timeline', 'newspack-nodes' ),
 };
 
@@ -29,9 +31,20 @@ function TimelineHost() {
 	return <TimelineView transcript={ transcript } />;
 }
 
+// The one body per view key; each self-mounts what it needs while open.
+function ViewBody( { view } ) {
+	if ( 'runtime' === view ) {
+		return <RuntimeView />;
+	}
+	if ( 'stats' === view ) {
+		return <StatsView />;
+	}
+	return <TimelineHost />;
+}
+
 /**
  * @param {Object}      props
- * @param {string|null} props.view      'runtime' | 'timeline' | null (closed).
+ * @param {string|null} props.view      'runtime' | 'stats' | 'timeline' | null (closed).
  * @param {Function}    props.onDismiss Close the modal.
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */
@@ -43,7 +56,7 @@ export default function InspectorViewModal( { view, onDismiss } ) {
 	return (
 		<ModalShell title={ title } onDismiss={ onDismiss } wide>
 			<div className="topology-modal__body topology-inspview">
-				{ 'runtime' === view ? <RuntimeView /> : <TimelineHost /> }
+				<ViewBody view={ view } />
 			</div>
 		</ModalShell>
 	);
