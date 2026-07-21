@@ -157,6 +157,29 @@ test( 'stop trace fires the all-nodes trace at level 0 when tracing', () => {
 	expect( getByText( 'trace' ) ).not.toBeNull();
 } );
 
+test( 'the Triage view renders the node DLQ table inside a wide modal', () => {
+	const onAction = jest.fn();
+	render(
+		<InspectorViewModal
+			view="triage"
+			node={ { id: 'firehose-consumer' } }
+			onDismiss={ () => {} }
+			onAction={ onAction }
+		/>
+	);
+	const modal = document.body.querySelector( '.topology-modal' );
+	expect( modal.classList.contains( 'topology-modal--large' ) ).toBe( true );
+	expect(
+		document.body.querySelector( '[data-testid="triage-view"]' )
+	).toBeTruthy();
+	// It fetches the DLQ page for the passed-through node on mount.
+	expect( onAction ).toHaveBeenCalledWith(
+		'invoke',
+		'firehose-consumer',
+		expect.objectContaining( { verb: 'dl_list' } )
+	);
+} );
+
 test( 'ESC dismisses the modal', () => {
 	const onDismiss = jest.fn();
 	render( <InspectorViewModal view="timeline" onDismiss={ onDismiss } /> );

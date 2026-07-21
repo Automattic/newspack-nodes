@@ -258,6 +258,29 @@ describe( 'parseMetadata', () => {
 		expect( alpha ).not.toHaveProperty( 'cursor' );
 	} );
 
+	it( "threads a consumer's deadletter_segments count onto the node", () => {
+		// Distinct-from-default: 7, not the 0 the Triage badge falls back to.
+		const { nodes } = parseMetadata( {
+			'firehose-consumer': {
+				class: 'Consumer',
+				counter: 5,
+				target: '',
+				frames: [ { id: 0, size: 120 } ],
+				cursor: { segment: 1, offset: 12 },
+				deadletter_segments: 7,
+			},
+		} );
+		const c = nodes.find( ( n ) => n.id === 'firehose-consumer' );
+		expect( c.deadletter_segments ).toBe( 7 );
+	} );
+
+	it( 'omits deadletter_segments for a node whose payload lacks it', () => {
+		const { nodes } = parseMetadata( {
+			alpha: { class: 'Echo', counter: 1, target: 'beta' },
+		} );
+		expect( nodes[ 0 ] ).not.toHaveProperty( 'deadletter_segments' );
+	} );
+
 	it( "threads a consumer's polling signal onto the node when present", () => {
 		const { nodes } = parseMetadata( {
 			'firehose-consumer': {

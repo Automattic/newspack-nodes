@@ -1,0 +1,64 @@
+// Inspector Triage modal view: the selected consumer/tail/remote-source node's
+// dead-letter queue as a table with requeue + purge actions. Reuses the shared
+// grid classes (nodes-runtime__grid) for the table; this styles the header,
+// status line, empty state, and footer actions in the console's mono chrome.
+
+.triage-view {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	gap: 10px;
+	font: 400 12px/1.4 var(--font-mono);
+	color: var(--ink);
+
+	&__header {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 12px;
+	}
+
+	&__node {
+		font-weight: 700;
+		color: var(--oxide);
+	}
+
+	&__total {
+		color: var(--ink-2);
+	}
+
+	&__unindexed {
+		color: var(--ink-3);
+	}
+
+	&__status {
+		padding: 4px 8px;
+		background: color-mix(in srgb, var(--oxide) 10%, transparent);
+
+		&.is-error {
+			color: var(--oxide);
+			background: color-mix(in srgb, var(--oxide) 16%, transparent);
+		}
+	}
+
+	&__empty {
+		padding: 12px 0;
+		color: var(--ink-3);
+	}
+
+	&__footer {
+		display: flex;
+		gap: 8px;
+		margin-top: auto;
+		padding-top: 8px;
+	}
+}
+
+// Row Requeue buttons read as inline controls, not full-width rail cells (mirrors
+// the nodes-stats toolbar override); focus rings stay the global policy's job.
+.topology-app .triage-view__grid .button.is-compact {
+	width: auto;
+	text-align: center;
+}

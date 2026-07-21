@@ -13,6 +13,7 @@ import { ModalShell } from './Modal';
 import RuntimeView from './RuntimeView';
 import StatsView from './StatsView';
 import TimelineView from './TimelineView';
+import TriageView from './TriageView';
 import { useNodeState } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 
@@ -23,6 +24,7 @@ const VIEW_TITLES = {
 	runtime: __( 'Runtime', 'newspack-nodes' ),
 	stats: __( 'Profiler', 'newspack-nodes' ),
 	timeline: __( 'Event Timeline', 'newspack-nodes' ),
+	triage: __( 'Triage', 'newspack-nodes' ),
 };
 
 // Timeline-only transcript sub + the Trace toggle (traces feed the timeline).
@@ -86,24 +88,33 @@ function TimelineHost( { onAction } ) {
 }
 
 // The one body per view key; each self-mounts what it needs while open.
-function ViewBody( { view, onAction } ) {
+function ViewBody( { view, node, onAction } ) {
 	if ( 'runtime' === view ) {
 		return <RuntimeView />;
 	}
 	if ( 'stats' === view ) {
 		return <StatsView />;
 	}
+	if ( 'triage' === view ) {
+		return <TriageView node={ node } onAction={ onAction } />;
+	}
 	return <TimelineHost onAction={ onAction } />;
 }
 
 /**
  * @param {Object}      props
- * @param {string|null} props.view       'runtime' | 'stats' | 'timeline' | null (closed).
+ * @param {string|null} props.view       'runtime' | 'stats' | 'timeline' | 'triage' | null (closed).
+ * @param {Object}      [props.node]     The selected node — Triage's DLQ target.
  * @param {Function}    props.onDismiss  Close the modal.
- * @param {Function}    [props.onAction] Console action dispatcher (Timeline's Trace toggle).
+ * @param {Function}    [props.onAction] Console action dispatcher (Timeline Trace / Triage verbs).
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */
-export default function InspectorViewModal( { view, onDismiss, onAction } ) {
+export default function InspectorViewModal( {
+	view,
+	node,
+	onDismiss,
+	onAction,
+} ) {
 	const title = VIEW_TITLES[ view ];
 	if ( ! title ) {
 		return null;
@@ -111,7 +122,7 @@ export default function InspectorViewModal( { view, onDismiss, onAction } ) {
 	return (
 		<ModalShell title={ title } onDismiss={ onDismiss } wide>
 			<div className="topology-modal__body topology-inspview">
-				<ViewBody view={ view } onAction={ onAction } />
+				<ViewBody view={ view } node={ node } onAction={ onAction } />
 			</div>
 		</ModalShell>
 	);

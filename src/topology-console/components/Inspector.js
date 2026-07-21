@@ -1406,6 +1406,8 @@ export default function Inspector( {
 	const [ composeOpen, setComposeOpen ] = useState( false );
 	// Which no-node modal view is open, or null when closed.
 	const [ stripModal, setStripModal ] = useState( null );
+	// Whether the selected node's dead-letter Triage modal is open.
+	const [ triageOpen, setTriageOpen ] = useState( false );
 	// Toggle override: agreement clears; one stale reply tolerated; two fail.
 	const [ profilingOptimistic, setProfilingOptimistic ] = useState( null );
 	const profilingDisagreeRef = useRef( 0 );
@@ -1791,6 +1793,14 @@ export default function Inspector( {
 		catalog.find( ( c ) => c.shell_name === node.class )?.arguments || [];
 	// node.arguments is a token array; absorb the tail into the last slot.
 	const argValues = absorbTrailingArgs( node.arguments, argSpecs.length );
+	// DLQ Triage: consumer-family node with a non-empty deadletter_dir arg.
+	const deadletterIdx = argSpecs.findIndex(
+		( s ) => 'deadletter_dir' === s.name
+	);
+	const deadletterDir =
+		deadletterIdx >= 0 ? String( argValues[ deadletterIdx ] ?? '' ) : '';
+	const hasDeadletterQueue = isConsumer && '' !== deadletterDir.trim();
+	const deadletterSegments = node.deadletter_segments ?? 0;
 
 	return (
 		<aside className="topology-inspector">
@@ -2006,6 +2016,36 @@ export default function Inspector( {
 							} )
 						}
 					/>
+				</Section>
+			) }
+
+			{ hasDeadletterQueue && (
+				<Section title={ __( 'Dead-Letter Queue', 'newspack-nodes' ) }>
+					<button
+						type="button"
+						className="button is-compact topology-insp__actions-full"
+						onClick={ () => setTriageOpen( true ) }
+						title={ __(
+							'Inspect, requeue, and purge this node’s quarantined records',
+							'newspack-nodes'
+						) }
+					>
+						{ deadletterSegments > 0
+							? sprintf(
+									// translators: %d: dead-letter segment count.
+									__( 'Triage (%d)', 'newspack-nodes' ),
+									deadletterSegments
+							  )
+							: __( 'Triage', 'newspack-nodes' ) }
+					</button>
+					{ 0 === deadletterSegments && (
+						<span className="topology-edit-row__hint">
+							{ __(
+								'No quarantined records.',
+								'newspack-nodes'
+							) }
+						</span>
+					) }
 				</Section>
 			) }
 
@@ -2295,6 +2335,14 @@ export default function Inspector( {
 						}
 					} }
 					onCancel={ () => setRegisterOpen( false ) }
+				/>
+			) }
+			{ triageOpen && (
+				<InspectorViewModal
+					view="triage"
+					node={ node }
+					onDismiss={ () => setTriageOpen( false ) }
+					onAction={ onAction }
 				/>
 			) }
 		</aside>
