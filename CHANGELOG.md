@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-07-21
+
+### Fixed
+
+- **The all-nodes Trace toggle moved from the Runtime modal to the Timeline modal.** Traces are what populate the timeline — its empty state points at the Trace button — so the toggle now lives beside its output; Runtime is back to pure timers/handles grids. In transit the toggle's reconcile upgraded to the house rule (an agreeing poll clears the optimistic override, one stale in-flight reply is tolerated, a second disagreement surrenders), replacing the older clear-on-every-poll shape, and the modal toolbar class renamed to the view-neutral `topology-inspview__toolbar`.
+
 ## [0.48.0] - 2026-07-21
 
 ### Added
