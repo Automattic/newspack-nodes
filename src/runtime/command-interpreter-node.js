@@ -1345,9 +1345,9 @@ export class CommandInterpreterNode extends Node {
 				[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
 				rows
 			) +
-			`returned ${ count } profiles in ${ ( Core.now() - start ).toFixed(
-				4
-			) } seconds\n`
+			`\nreturned ${ count } profiles in ${ (
+				Core.now() - start
+			).toFixed( 4 ) } seconds\n`
 		);
 	}
 

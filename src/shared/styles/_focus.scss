@@ -27,9 +27,11 @@
  */
 
 @mixin nodes-focus-policy {
+	// Exemption: the REPL prompt is terminal idiom — its caret IS the focus
+	// indicator (its base style carries outline: none for both focus states).
 	a[href],
 	button,
-	input,
+	input:not(.topology-repl__input),
 	select,
 	textarea,
 	summary,

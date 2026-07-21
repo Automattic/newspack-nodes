@@ -199,7 +199,7 @@ class RouterProfilingTest extends TestCase {
 		$this->assertNotFalse( $zip );
 		$this->assertLessThan( $zip, $slow, 'sorted by avg descending: slowpoke first' );
 		$this->assertStringContainsString( '--total--', $out );
-		$this->assertStringContainsString( 'returned 2 profiles', $out );
+		$this->assertStringContainsString( "\nreturned 2 profiles", $out, 'trailer starts on its own line' );
 	}
 
 	public function test_throwing_fill_still_pops_its_frame_and_records_elapsed(): void {
