@@ -1159,7 +1159,6 @@ const PROMPT_VERBS = {
 
 // COMMANDS group: stateless [label, verb] transcript-dumps.
 const NO_NODE_COMMANDS = [
-	[ 'debug', 'debug_level' ],
 	[ 'dmesg', 'dmesg' ],
 	[ 'config', 'dump_config' ],
 	[ 'metadata', 'dump_metadata' ],
@@ -1467,7 +1466,8 @@ export default function Inspector( {
 			null !== profilingOptimistic
 				? profilingOptimistic
 				: !! parsed.profiling;
-		// Verbose = the live Dumper verbosity dial at level 2.
+		// One dial (debug_level): debug lit at >= 1, verbose at >= 2.
+		const debugOn = ( debugLevel ?? 0 ) >= 1;
 		const verboseOn = ( debugLevel ?? 0 ) >= 2;
 		const live = ! streamStatus || streamStatus === 'open';
 		return (
@@ -1562,11 +1562,11 @@ export default function Inspector( {
 						title={
 							traceOn
 								? __(
-										'Stop tracing every node — `debug_state * 0`',
+										'Stop tracing every node — `trace * 0`',
 										'newspack-nodes'
 								  )
 								: __(
-										'Trace every node — `debug_state * 1`',
+										'Trace every node — `trace * 1`',
 										'newspack-nodes'
 								  )
 						}
@@ -1606,6 +1606,35 @@ export default function Inspector( {
 						{ profilingOn
 							? __( 'stop profiling', 'newspack-nodes' )
 							: __( 'profiling', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className={ `button is-compact${
+							debugOn ? ' is-active' : ''
+						}` }
+						onClick={ () =>
+							onAction &&
+							onAction(
+								'command',
+								null,
+								debugOn ? 'debug_level 0' : 'debug_level 1'
+							)
+						}
+						title={
+							debugOn
+								? __(
+										'Quiet the Dumper — `debug_level 0`',
+										'newspack-nodes'
+								  )
+								: __(
+										'Per-message Dumper header — `debug_level 1`',
+										'newspack-nodes'
+								  )
+						}
+					>
+						{ debugOn
+							? __( 'stop debug', 'newspack-nodes' )
+							: __( 'debug', 'newspack-nodes' ) }
 					</button>
 					<button
 						type="button"
@@ -2098,11 +2127,11 @@ export default function Inspector( {
 					title={
 						traceOn
 							? __(
-									'Stop tracing — `debug_state <name> 0`',
+									'Stop tracing — `trace <name> 0`',
 									'newspack-nodes'
 							  )
 							: __(
-									'Start tracing — `debug_state <name> 1`',
+									'Start tracing — `trace <name> 1`',
 									'newspack-nodes'
 							  )
 					}

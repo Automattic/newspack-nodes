@@ -240,7 +240,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				}
 				setCwd( s.path );
 			}
-			// A `debug_state` verb mutates the interpreter; persist [87].
+			// `trace` mutates the interpreter's debug_state; persist [87].
 			const ci = Core.node( names.COMMAND_INTERPRETER );
 			const ds = ci ? ci.debugState ?? 0 : 0;
 			if ( ds !== lastDebugStateRef.current ) {

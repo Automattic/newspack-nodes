@@ -144,11 +144,11 @@ export default function RuntimeView( { onAction } = {} ) {
 					title={
 						traceOn
 							? __(
-									'Stop tracing every node — `debug_state * 0`',
+									'Stop tracing every node — `trace * 0`',
 									'newspack-nodes'
 							  )
 							: __(
-									'Trace every node — `debug_state * 1`',
+									'Trace every node — `trace * 1`',
 									'newspack-nodes'
 							  )
 					}

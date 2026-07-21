@@ -155,7 +155,7 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		expect( patched ).toEqual( [ [ 'x', { debug_state: 1 } ] ] );
 	} );
 
-	it( 'onInspectorAction trace on "*" dispatches debug_state * and patches EVERY node (no-node Trace flips at once)', () => {
+	it( 'onInspectorAction trace on "*" dispatches trace * and patches EVERY node (no-node Trace flips at once)', () => {
 		Core.node( names.METADATA ).rawMap = {
 			_header: { pwd: '' },
 			alice: { debug_state: 0 },
@@ -163,11 +163,7 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		};
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'trace', '*', 1 );
-		expect( dispatch ).toHaveBeenCalledWith(
-			'debug_state * 1',
-			'debug_state',
-			'* 1'
-		);
+		expect( dispatch ).toHaveBeenCalledWith( 'trace * 1', 'trace', '* 1' );
 		// One fan publish (header exclusion is MetadataNode's own test).
 		expect( fanned ).toEqual( [ { debug_state: 1 } ] );
 		expect( patched ).toEqual( [] );
@@ -223,13 +219,9 @@ describe( 'useGraphHandlers', () => {
 
 	it( 'onInspectorAction command dispatches a raw server command with its args (no node)', () => {
 		const { result, dispatch } = renderHandlers( {} );
-		result.current.onInspectorAction( 'command', null, 'debug_state *' );
-		// Args after verb must carry through, else `debug_state *` is arg-less.
-		expect( dispatch ).toHaveBeenCalledWith(
-			'debug_state *',
-			'debug_state',
-			'*'
-		);
+		result.current.onInspectorAction( 'command', null, 'trace *' );
+		// Args after verb must carry through, else `trace *` is arg-less.
+		expect( dispatch ).toHaveBeenCalledWith( 'trace *', 'trace', '*' );
 	} );
 
 	it( 'onInspectorAction command handles a verb with no args', () => {
@@ -284,29 +276,29 @@ describe( 'useGraphHandlers', () => {
 
 	it( 'onInspectorAction cmd dispatches a TM_COMMAND to the node with the phrase', () => {
 		const { result, dispatch } = renderHandlers( {} );
-		result.current.onInspectorAction( 'cmd', 'a', 'debug_state 1' );
+		result.current.onInspectorAction( 'cmd', 'a', 'trace 1' );
 		expect( dispatch ).toHaveBeenCalledWith(
-			'cmd a debug_state 1',
+			'cmd a trace 1',
 			'cmd',
-			'a debug_state 1'
+			'a trace 1'
 		);
 	} );
 
 	it( 'onInspectorAction forwards the Compose reply-flags as a 4th dispatch arg when supplied', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		const flags = { response: true, error: false };
-		result.current.onInspectorAction( 'cmd', 'a', 'debug_state 1', flags );
+		result.current.onInspectorAction( 'cmd', 'a', 'trace 1', flags );
 		expect( dispatch ).toHaveBeenCalledWith(
-			'cmd a debug_state 1',
+			'cmd a trace 1',
 			'cmd',
-			'a debug_state 1',
+			'a trace 1',
 			flags
 		);
 	} );
 
 	it( 'onInspectorAction omits the 4th dispatch arg entirely when no flags are supplied (back-compat)', () => {
 		const { result, dispatch } = renderHandlers( {} );
-		result.current.onInspectorAction( 'cmd', 'a', 'debug_state 1' );
+		result.current.onInspectorAction( 'cmd', 'a', 'trace 1' );
 		expect( dispatch.mock.calls[ 0 ] ).toHaveLength( 3 );
 	} );
 
@@ -384,21 +376,13 @@ describe( 'useGraphHandlers', () => {
 	it( 'onInspectorAction trace uses the numeric payload as the level', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'trace', 'a', 0 );
-		expect( dispatch ).toHaveBeenCalledWith(
-			'debug_state a 0',
-			'debug_state',
-			'a 0'
-		);
+		expect( dispatch ).toHaveBeenCalledWith( 'trace a 0', 'trace', 'a 0' );
 	} );
 
 	it( 'onInspectorAction trace defaults the level to 1 for a non-numeric payload', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'trace', 'a', undefined );
-		expect( dispatch ).toHaveBeenCalledWith(
-			'debug_state a 1',
-			'debug_state',
-			'a 1'
-		);
+		expect( dispatch ).toHaveBeenCalledWith( 'trace a 1', 'trace', 'a 1' );
 	} );
 
 	it( 'onDropNode stages the NewNodeModal via onDropStage', () => {

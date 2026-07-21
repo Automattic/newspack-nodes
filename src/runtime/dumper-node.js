@@ -84,7 +84,9 @@ export function buildDebugHeader2( message ) {
 					.replace( 'T', ' ' )
 					.replace( /\.\d+Z$/, ' UTC' ) })`
 			: '';
+	// Trim the value's trailing newline (else a blank line precedes `}`).
 	const indented = stringifyValue( message[ VALUE ] )
+		.replace( /\n+$/, '' )
 		.split( '\n' )
 		.map( ( line, i ) => ( i === 0 ? line : '               ' + line ) )
 		.join( '\n' );

@@ -157,6 +157,61 @@ describe( 'TimelineView', () => {
 		).toBe( 'enqueue' );
 	} );
 
+	// A debug_level 2 transcript entry is the Dumper's multi-line envelope dump
+	// (buildDebugHeader2), the DEBUG trace riding the `value:` line. The parse
+	// must stay line-scoped: the payload capture never crosses into the `}` line.
+	const VERBOSE_ENVELOPE = [
+		'Message {',
+		'    type:      TM_BYTESTREAM',
+		'    from:      combined',
+		'    to:        ',
+		'    id:        ',
+		'    key:       ',
+		'    timestamp: 1777000000 (2026-07-21 08:01:12 UTC)',
+		'    value:     2026-07-21 08:01:12 UTC 598fcf combined[5070]: _repl: DEBUG: SEGMENT 1',
+		'}',
+	].join( '\n' );
+
+	it( 'line-scopes a verbose envelope dump: parses the DEBUG line only, not the trailing "}"', () => {
+		const { container } = render(
+			<TimelineView
+				transcript={ [
+					{
+						key: 'v',
+						ts: 1_777_000_060,
+						kind: 'info',
+						text: VERBOSE_ENVELOPE,
+					},
+				] }
+			/>
+		);
+		const rows = rowsOf( container );
+		expect( rows ).toHaveLength( 1 );
+		// The node is the space-free token immediately before ` DEBUG:`.
+		expect(
+			rows[ 0 ].querySelector( '.timeline-view__node' ).textContent
+		).toBe( '_repl' );
+		expect(
+			rows[ 0 ].querySelector( '.timeline-view__event' ).textContent
+		).toBe( 'SEGMENT' );
+		// Payload is the DEBUG line's tail ONLY — the envelope `}` is not swallowed.
+		const payload = rows[ 0 ].querySelector(
+			'.timeline-view__payload'
+		).textContent;
+		expect( payload ).toBe( '1' );
+		expect( payload ).not.toContain( '}' );
+	} );
+
+	it( 'a plain DEBUG entry keeps its payload free of any envelope brace', () => {
+		const { container } = render(
+			<TimelineView transcript={ transcript } />
+		);
+		const payloads = rowsOf( container ).map(
+			( r ) => r.querySelector( '.timeline-view__payload' ).textContent
+		);
+		payloads.forEach( ( p ) => expect( p ).not.toContain( '}' ) );
+	} );
+
 	it( 'renders the column header outside the scrollable row body (no sticky)', () => {
 		const { container } = render(
 			<TimelineView transcript={ transcript } />

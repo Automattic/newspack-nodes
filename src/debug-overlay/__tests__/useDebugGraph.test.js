@@ -446,7 +446,7 @@ describe( 'useDebugGraph', () => {
 		);
 		expect( spy ).toHaveBeenCalledTimes( 1 );
 		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
-			name: 'debug_state',
+			name: 'trace',
 			arguments: [ 'a', '1' ],
 		} );
 		teardown();
@@ -661,7 +661,7 @@ describe( 'useDebugGraph', () => {
 		act( () =>
 			result.current.handlers.onInspectorAction( 'trace', 'a', 1 )
 		);
-		expect( sentLines( dumper ) ).toContain( 'debug_state a 1' );
+		expect( sentLines( dumper ) ).toContain( 'trace a 1' );
 		teardown();
 	} );
 

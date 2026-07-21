@@ -80,8 +80,7 @@ const HELP = {
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
 	dump_metadata:
 		'dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments`.\n',
-	debug_state:
-		"debug_state [ <node name> [ <level> ] ]\n    no args: toggle this CommandInterpreter's debug_state.\n",
+	trace: "trace [ <node name> [ <level> ] ]\n    no args: toggle this CommandInterpreter's debug_state.\n",
 	pwd: 'pwd\n',
 	log: 'log <message>\n    note: prints <message> to stderr (server-side debug log).\n',
 	dmesg: 'dmesg\n    note: print the stderr tail for the current scope (last 100 lines).\n',
@@ -341,7 +340,7 @@ export class CommandInterpreterNode extends Node {
 				CommandInterpreterNode._cmdDumpConfig( args[ 0 ] ?? '' ),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreterNode._cmdUptime(),
-			debug_state: ( self, args ) => self._cmdDebugState( args ),
+			trace: ( self, args ) => self._cmdTrace( args ),
 			help: ( self, args, env ) =>
 				CommandInterpreterNode._cmdHelp( args, env ),
 			reply_to: ( self, args ) => self._cmdReplyTo( args ),
@@ -817,8 +816,8 @@ export class CommandInterpreterNode extends Node {
 		return CommandInterpreterNode._tabulate( dirs, header, rows );
 	}
 
-	// debug_state [<node> [<level>]] — toggle or set a node's debug level.
-	_cmdDebugState( args ) {
+	// trace [<node> [<level>]] — toggle/set a node's debug_state level.
+	_cmdTrace( args ) {
 		const parts = args;
 		const first = parts[ 0 ] ?? '';
 

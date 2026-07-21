@@ -487,6 +487,23 @@ class DumperTest extends TestCase {
 		$this->assertStringContainsString( "\n}\n",                          $rendered );
 	}
 
+	public function test_debug_level_2_trims_trailing_newline_before_closing_brace(): void {
+		// A VALUE ending in a newline used to render a blank (indented) line
+		// wedged before `}`. Trim it so exactly one newline separates them.
+		[ $dumper, $cap ] = $this->fresh();
+		$dumper->set_debug_level( 2 );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = "SEGMENT 1\n";
+		$dumper->fill( $message );
+
+		$rendered = $this->rendered( $cap );
+		$this->assertStringContainsString( "value:     SEGMENT 1\n}", $rendered );
+		// No blank / whitespace-only line wedged before the closing brace.
+		$this->assertDoesNotMatchRegularExpression( "/\n[ \t]*\n\}/", $rendered );
+	}
+
 	public function test_debug_level_2_decodes_tm_command_payload(): void {
 		// TM_COMMAND payloads are JSON envelopes (`{"name":"ls","payload":...}`).
 		// Level 2 should decode and pretty-print so the user sees structure,
