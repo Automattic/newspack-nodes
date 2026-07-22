@@ -41,4 +41,13 @@
 		font-weight: 600;
 		color: var(--ink);
 	}
+
+	.nodes-config-audit__value {
+		font-family: base.$mono-font;
+		max-width: 320px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink-3);
+	}
 }

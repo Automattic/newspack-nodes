@@ -65,12 +65,68 @@ describe( 'ConfigAudit', () => {
 		).toBe( '—' );
 	} );
 
-	it( 'states plainly that only option names are logged', () => {
+	it( 'states that values are recorded only for allowlisted options', () => {
 		useNodeState.mockReturnValue( model() );
 		const { getByText } = render( <ConfigAudit /> );
 		expect(
-			getByText( 'Option names only — values are never logged.' )
+			getByText(
+				'Values are recorded only for allowlisted options; other changes record the option name only.'
+			)
 		).toBeTruthy();
+	} );
+
+	it( 'uses the canonical themed table class, not wp-list-table', () => {
+		useNodeState.mockReturnValue( model() );
+		const { container } = render( <ConfigAudit /> );
+		const table = container.querySelector( 'table' );
+		expect( table.classList.contains( 'newspack-nodes-table' ) ).toBe(
+			true
+		);
+		expect( table.classList.contains( 'wp-list-table' ) ).toBe( false );
+	} );
+
+	it( 'renders Old and New value cells, an em dash when a side is absent', () => {
+		useNodeState.mockReturnValue( {
+			entries: [
+				{
+					id: 2,
+					ts: TODAY_TS,
+					option: 'newspack_nodes_num_partitions',
+					old: '4',
+					new: '16',
+				},
+				// An add carries NEW only — Old shows the em dash.
+				{ id: 1, ts: FIXED_TS, option: 'newspack_added', new: '"hi"' },
+			],
+		} );
+		const { container } = render( <ConfigAudit /> );
+		const olds = [
+			...container.querySelectorAll( '.nodes-config-audit__old' ),
+		].map( ( el ) => el.textContent );
+		const news = [
+			...container.querySelectorAll( '.nodes-config-audit__new' ),
+		].map( ( el ) => el.textContent );
+		expect( olds ).toEqual( [ '4', '—' ] );
+		expect( news ).toEqual( [ '16', '"hi"' ] );
+	} );
+
+	it( 'exposes the full excerpt as a title on a value cell (none when absent)', () => {
+		useNodeState.mockReturnValue( {
+			entries: [
+				{ id: 1, ts: TODAY_TS, option: 'newspack_x', new: 'defval' },
+			],
+		} );
+		const { container } = render( <ConfigAudit /> );
+		expect(
+			container
+				.querySelector( '.nodes-config-audit__new' )
+				.getAttribute( 'title' )
+		).toBe( 'defval' );
+		expect(
+			container
+				.querySelector( '.nodes-config-audit__old' )
+				.getAttribute( 'title' )
+		).toBeNull();
 	} );
 
 	it( 'filters by option name and shows a matched / total count', () => {

@@ -146,6 +146,16 @@ describe( 'Jobs', () => {
 		expect( failing.textContent ).toBe( '5' );
 	} );
 
+	it( 'uses the canonical themed table class, not wp-list-table', () => {
+		useNodeState.mockReturnValue( model() );
+		const { container } = render( <Jobs /> );
+		const table = container.querySelector( 'table' );
+		expect( table.classList.contains( 'newspack-nodes-table' ) ).toBe(
+			true
+		);
+		expect( table.classList.contains( 'wp-list-table' ) ).toBe( false );
+	} );
+
 	it( 'shows an empty state when no jobs have run', () => {
 		useNodeState.mockReturnValue( { handlers: {} } );
 		const { container, queryByRole } = render( <Jobs /> );

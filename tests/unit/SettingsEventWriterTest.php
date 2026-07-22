@@ -30,6 +30,10 @@ class SettingsEventWriterTest extends TestCase {
 
 	protected function tearDown(): void {
 		Settings_Event_Writer::$append_seam = null;
+		// Filters registered via add_filter persist in $GLOBALS['_wp_actions'];
+		// drop the allowlist filter so a test that extended it can't leak into
+		// another test's allowlist decision.
+		unset( $GLOBALS['_wp_actions']['newspack_nodes/settings_audit_values_allowlist'] );
 		parent::tearDown();
 	}
 
@@ -57,6 +61,117 @@ class SettingsEventWriterTest extends TestCase {
 
 		$this->assertCount( 1, $this->captured );
 		$this->assertSame( [ 'option' => 'newspack_reset_to_default' ], $this->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_allowlist_defaults_to_settings_schema_option_names(): void {
+		// A schema option (num_partitions) is on the default allowlist, so its
+		// event carries old/new value excerpts — wp_json_encode of each side.
+		Settings_Event_Writer::on_update( 'newspack_nodes_num_partitions', 'seven', 'eleven' );
+
+		$this->assertSame(
+			[ 'option' => 'newspack_nodes_num_partitions', 'old' => '"seven"', 'new' => '"eleven"' ],
+			$this->captured[0][ Message::VALUE ]
+		);
+	}
+
+	public function test_allowlisted_add_records_new_only(): void {
+		Settings_Event_Writer::on_add( 'newspack_nodes_segment_size', 'freshsegment' );
+
+		$value = $this->captured[0][ Message::VALUE ];
+		$this->assertSame( 'newspack_nodes_segment_size', $value['option'] );
+		$this->assertSame( '"freshsegment"', $value['new'] );
+		$this->assertArrayNotHasKey( 'old', $value );
+	}
+
+	public function test_allowlisted_delete_records_old_fetched_via_get_option(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_max_lifetime'] = 'aboutToVanish';
+		Settings_Event_Writer::on_delete( 'newspack_nodes_max_lifetime' );
+
+		$value = $this->captured[0][ Message::VALUE ];
+		$this->assertSame( '"aboutToVanish"', $value['old'] );
+		$this->assertArrayNotHasKey( 'new', $value );
+	}
+
+	public function test_non_allowlisted_watched_option_stays_name_only(): void {
+		// Watched (newspack_*) but not a substrate schema option: today's exact
+		// byte-shape — the option name only, no old/new.
+		Settings_Event_Writer::on_update( 'newspack_some_plugin_thing', 'a', 'b' );
+
+		$this->assertSame(
+			[ 'option' => 'newspack_some_plugin_thing' ],
+			$this->captured[0][ Message::VALUE ]
+		);
+	}
+
+	public function test_filter_can_extend_the_values_allowlist(): void {
+		\add_filter(
+			'newspack_nodes/settings_audit_values_allowlist',
+			static function ( array $list ): array {
+				$list[] = 'newspack_custom_addon_setting';
+				return $list;
+			}
+		);
+		Settings_Event_Writer::on_update( 'newspack_custom_addon_setting', 'before', 'after' );
+
+		$value = $this->captured[0][ Message::VALUE ];
+		$this->assertSame( '"before"', $value['old'] );
+		$this->assertSame( '"after"', $value['new'] );
+	}
+
+	public function test_vault_option_never_records_values_even_if_filter_adds_it(): void {
+		// Security invariant: the encrypted vault option is hard-excluded AFTER the
+		// filter, so a filter trying to add it cannot leak its plaintext.
+		\add_filter(
+			'newspack_nodes/settings_audit_values_allowlist',
+			static function ( array $list ): array {
+				$list[] = 'newspack_nodes_vault';
+				return $list;
+			}
+		);
+		Settings_Event_Writer::on_update( 'newspack_nodes_vault', 'secret-old', 'secret-new' );
+
+		$this->assertSame(
+			[ 'option' => 'newspack_nodes_vault' ],
+			$this->captured[0][ Message::VALUE ]
+		);
+	}
+
+	public function test_multibyte_excerpts_are_halved_to_fit_the_pipe_buf_line(): void {
+		// 300 emoji per side: each capped to ~200 chars, but each emoji JSON-packs
+		// to a 12-byte surrogate pair, so the packed line blows past PIPE_BUF and the
+		// halving loop trims both sides until it fits — without dropping the event.
+		$big = \str_repeat( "\u{1F600}", 300 );
+		Settings_Event_Writer::on_update( 'newspack_nodes_base_directory', $big, $big );
+
+		$value = $this->captured[0][ Message::VALUE ];
+		$this->assertArrayHasKey( 'old', $value, 'the trimmed excerpt survives — not dropped to name-only' );
+		$this->assertArrayHasKey( 'new', $value );
+		$this->assertNotSame( '', $value['old'] );
+		$this->assertLessThan( 200, \mb_strlen( $value['old'] ), 'old excerpt trimmed below the char cap' );
+		$this->assertLessThan( 200, \mb_strlen( $value['new'] ), 'new excerpt trimmed below the char cap' );
+		$this->assertLessThan(
+			Partition_Node::MAX_LINE_SIZE,
+			Message::packed_size( $this->captured[0] ) + 1,
+			'the packed line fits under PIPE_BUF'
+		);
+	}
+
+	public function test_unfittable_record_drops_to_name_only_never_the_event(): void {
+		// A pathological (filter-allowlisted) option name alone exceeds PIPE_BUF, so
+		// no excerpt trimming can fit it: the writer drops to name-only rather than
+		// dropping the change event entirely.
+		$huge = 'newspack_' . \str_repeat( 'z', Partition_Node::MAX_LINE_SIZE );
+		\add_filter(
+			'newspack_nodes/settings_audit_values_allowlist',
+			static function ( array $list ) use ( $huge ): array {
+				$list[] = $huge;
+				return $list;
+			}
+		);
+		Settings_Event_Writer::on_update( $huge, 'x', 'y' );
+
+		$this->assertCount( 1, $this->captured, 'the event is still emitted' );
+		$this->assertSame( [ 'option' => $huge ], $this->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_non_watched_option_emits_nothing(): void {

@@ -27,7 +27,14 @@ class Settings_Schema {
 	/** @var Schema|null Memoized — the schema is pure structure (runtime values resolve inside the render callbacks). */
 	private static ?Schema $schema = null;
 
-	/** The substrate settings schema (memoized). */
+	/**
+	 * The substrate settings schema (memoized).
+	 *
+	 * Footgun: every ui-visible Field's option auto-joins the Config Audit
+	 * VALUES allowlist (Settings_Event_Writer logs old/new excerpts to the
+	 * durable settings.p0). Never add a credential-bearing Field here —
+	 * secrets belong in the Vault, which the writer hard-excludes.
+	 */
 	public static function get(): Schema {
 		if ( null !== self::$schema ) {
 			return self::$schema;

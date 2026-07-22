@@ -9,12 +9,12 @@ const PUBLISH_THROTTLE_MS = 500;
 /**
  * `settingsaudit:view` — the Config Audit timeline model over settings.p0.
  *
- * Each inbound frame is one option-NAME-only change event (`Settings_Event_Writer`
- * writes VALUE = `{ option }`; the instant is the Message TIMESTAMP). The view
- * appends `{ id, ts, option }` to a bounded list (oldest dropped past `maxEntries`)
- * and publishes a throttled newest-first snapshot via `setState('view', { entries })`.
- * Nothing is deduped — every change is its own event — and no value is ever kept:
- * the record carries only the name (that is a security decision, not a limitation).
+ * Each inbound frame is one settings-change event (`Settings_Event_Writer` writes
+ * VALUE = `{ option }` plus, for allowlisted options, `old`/`new` value excerpts;
+ * the instant is the Message TIMESTAMP). The view appends `{ id, ts, option, old?,
+ * new? }` to a bounded list (oldest dropped past `maxEntries`) and publishes a
+ * throttled newest-first snapshot via `setState('view', { entries })`. Nothing is
+ * deduped — every change is its own event.
  *
  * @param {number} [maxEntries] Ring cap (defaults to MAX_ENTRIES; injectable for tests).
  */
@@ -25,7 +25,7 @@ export class SettingsAuditViewNode extends Node {
 	constructor( maxEntries ) {
 		super();
 		this.maxEntries = maxEntries || MAX_ENTRIES;
-		// Oldest-first; snapshot() reverses to newest-first on publish.
+		// Arrival order; snapshot() sorts newest-first on publish.
 		this._entries = [];
 		this._seq = 0;
 		this._lastPublish = 0;
@@ -47,20 +47,29 @@ export class SettingsAuditViewNode extends Node {
 		}
 
 		this._seq += 1;
-		this._entries.push( {
+		const entry = {
 			id: this._seq,
 			ts: Number( message[ TIMESTAMP ] ) || 0,
 			option: value.option,
-		} );
+		};
+		if ( 'string' === typeof value.old ) {
+			entry.old = value.old;
+		}
+		if ( 'string' === typeof value.new ) {
+			entry.new = value.new;
+		}
+		this._entries.push( entry );
 		if ( this._entries.length > this.maxEntries ) {
 			this._entries.shift();
 		}
 		this._maybePublish();
 	}
 
-	// Newest-first fresh copy (distinct identity → memo sees a change).
+	// Newest-first fresh copy: sort ts desc, arrival-seq (id) desc as tiebreak.
 	snapshot() {
-		return this._entries.slice().reverse();
+		return this._entries
+			.slice()
+			.sort( ( a, b ) => b.ts - a.ts || b.id - a.id );
 	}
 
 	// Leading-edge throttle + trailing flush so a burst's newest entry lands.
