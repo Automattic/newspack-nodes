@@ -1,0 +1,44 @@
+/**
+ * Config Audit tab — the settings.p0 change timeline (option names only).
+ */
+
+@use "base";
+
+.nodes-config-audit {
+	padding: 16px;
+	color: var(--ink);
+	font-family: base.$system-font;
+}
+
+.nodes-config-audit__note {
+	margin: 8px 0 16px;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+
+.nodes-config-audit__empty {
+	padding: 24px;
+	text-align: center;
+	color: var(--ink-3);
+	background: var(--paper-2);
+	border-radius: var(--np-radius-md);
+}
+
+.nodes-config-audit__table {
+	th,
+	td {
+		vertical-align: middle;
+	}
+
+	.nodes-config-audit__time {
+		font-family: base.$mono-font;
+		color: var(--ink-3);
+		white-space: nowrap;
+	}
+
+	.nodes-config-audit__option {
+		font-family: base.$mono-font;
+		font-weight: 600;
+		color: var(--ink);
+	}
+}

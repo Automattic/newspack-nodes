@@ -16,6 +16,7 @@ import Overview from './Overview';
 import Jobs from './Jobs';
 import PartitionViewer from './PartitionViewer';
 import LogViewer from './LogViewer';
+import ConfigAudit from './ConfigAudit';
 
 // Order 0 → hub's default first paint, ahead of the Console's graph build.
 registerDevtoolsTab( {
@@ -58,4 +59,14 @@ registerDevtoolsTab( {
 	order: 25,
 	fullBleed: true,
 	component: LogViewer,
+} );
+
+// Order 30 → the config-audit timeline: the settings.p0 option-name change log.
+registerDevtoolsTab( {
+	id: 'config-audit',
+	label: __( 'Config Audit', 'newspack-nodes' ),
+	host: 'hub',
+	slug: 'config-audit',
+	order: 30,
+	component: ConfigAudit,
 } );

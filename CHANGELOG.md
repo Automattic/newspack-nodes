@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Config Audit hub tab.** A newest-first timeline of watched-option changes streamed from the `settings.p0` log via full replay (the SSE log-feed fallback — zero server changes), with an option-name filter and a change count. Option NAMES only — values are never logged, and the UI says so.
 - **Log Viewer hub tab + a shared log-browsing core.** A new Log Viewer tab live-tails plain log FILES over `GET /log/stream`, cataloged by the `taillog sources` interpreter builtin — a source picker with Live/Replay controls and raw-line rows. It rides a new `endpoint` override on `RemoteLink`/`SseIn` (a link can open any wire-compatible SSE route instead of `/messages/stream`, no subclassing) and a new shared browse core under `@newspack-nodes/shared`: `LogRowList` (ring-aware DOM-virtualized list that pulls only the on-screen window via `lineAt` — the ring is never materialized on the frame path, pinned by test), `LogBrowser` (Live/Replay + selectable segment/source sidebar), and `useLogPositions` (browse-model → SSE `positions` mapping: browse a segment, page back, replay from start).
 
 ### Changed
