@@ -4,7 +4,8 @@ import '../register';
 describe( 'event-dashboards node registration', () => {
 	it( 'registers the dashboard node classes for make_node', () => {
 		for ( const t of [
-			'RawLogsView',
+			'PartitionViewerView',
+			'LogViewerView',
 			'WorkerStatusTransform',
 			'WorkerStatusView',
 			'JobstatsView',

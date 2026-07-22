@@ -11,13 +11,6 @@
 @use "tokens" as *;
 @use "mixins" as *;
 
-// Scoped border-box baseline — applies only inside each dashboard's React
-// mount root, never leaking into the rest of wp-admin.
-#newspack-nodes-rawlogs *,
-#newspack-nodes-rawlogs *::before,
-#newspack-nodes-rawlogs *::after {
-	box-sizing: border-box;
-}
 
 // Loading container
 .newspack-nodes-performance-loading {

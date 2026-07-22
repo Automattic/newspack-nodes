@@ -2,9 +2,9 @@
  * Register the hub DevTools tabs the event-dashboards bundle owns: the Overview
  * landing (order 0 — the default first paint, ahead of the Console at order 15;
  * it folds in the per-topology detail tree)
- * and Raw Logs (order 20). Imported (for its side effect) by the event-dashboards
+ * and Partition Viewer (order 20). Imported (for its side effect) by the event-dashboards
  * bundle entry so the tabs register wherever the bundle loads (the Hub page
- * enqueues it via the `newspack_nodes/devtools_tab_bundles` filter). Raw Logs is
+ * enqueues it via the `newspack_nodes/devtools_tab_bundles` filter). Partition Viewer is
  * `fullBleed` — it owns its own full-height canvas/scroll like the Console — and
  * does NOT render its own debug overlay; the hub provides the overlay on every
  * non-console tab.
@@ -14,7 +14,8 @@ import { __ } from '@wordpress/i18n';
 import { registerDevtoolsTab } from '@newspack-nodes/shared/devtools/tabRegistry';
 import Overview from './Overview';
 import Jobs from './Jobs';
-import RawLogs from './RawLogs';
+import PartitionViewer from './PartitionViewer';
+import LogViewer from './LogViewer';
 
 // Order 0 → hub's default first paint, ahead of the Console's graph build.
 registerDevtoolsTab( {
@@ -37,12 +38,24 @@ registerDevtoolsTab( {
 } );
 
 registerDevtoolsTab( {
-	id: 'raw-logs',
-	label: __( 'Raw Logs', 'newspack-nodes' ),
+	id: 'partition-viewer',
+	label: __( 'Partition Viewer', 'newspack-nodes' ),
 	host: 'hub',
-	slug: 'raw-logs',
+	slug: 'partition-viewer',
 	param: 'log',
 	order: 20,
 	fullBleed: true,
-	component: RawLogs,
+	component: PartitionViewer,
+} );
+
+// Order 25 → the sibling Log Viewer: tails plain log FILES over /log/stream.
+registerDevtoolsTab( {
+	id: 'log-viewer',
+	label: __( 'Log Viewer', 'newspack-nodes' ),
+	host: 'hub',
+	slug: 'log-viewer',
+	param: 'source',
+	order: 25,
+	fullBleed: true,
+	component: LogViewer,
 } );

@@ -8,7 +8,7 @@ const MAX_LINE_LENGTH = 1000;
 const PARTITION_RE = /\.p(\d+)$/;
 
 /**
- * `rawlogs:view` — owns the Raw Logs view model.
+ * `partition:view` — owns the Partition Viewer view model.
  *
  * Two cadences, deliberately split for performance:
  * - HIGH frequency (the log stream): `_appendRow` writes each row into a fixed
@@ -22,7 +22,7 @@ const PARTITION_RE = /\.p(\d+)$/;
  * - LOW frequency (control + catalog): only `_control` publishes the small view
  *   model via `setState('view', { logs, selected, paused, connectionError })` —
  *   the dropdown + pause button + selected value + reconnect banner, consumed by
- *   `useNodeState('rawlogs:view','view')`.
+ *   `useNodeState('partition:view','view')`.
  *
  * `fill()` ALSO handles the canonical
  * command-reply shape (VALUE = `{ name, payload }`) using a pending-Map gate
@@ -36,12 +36,12 @@ const PARTITION_RE = /\.p(\d+)$/;
  * - a control (`VALUE = { action, … }`): `select` (set + clear), `pause`, `logs`,
  *   `connection` (the SSE connection-status surface, hook-minted).
  * - a raw SSE log envelope (anything else): shaped inline into `{ p, line }`
- *   (logic inlined from the deleted `rawlogs:transform`) and appended newest-first
+ *   (logic inlined from the deleted `partition:transform`) and appended newest-first
  *   to a capped buffer (unless paused), updating lines/second.
  *
  * @param {number} [maxLines] Buffer cap (defaults to MAX_LINES; injectable for tests).
  */
-export class RawLogsViewNode extends Node {
+export class PartitionViewerViewNode extends Node {
 	// View-model/infra node: never a user-added node (see useGraphReset).
 	static isSystemNode = true;
 	constructor( maxLines ) {
@@ -105,7 +105,7 @@ export class RawLogsViewNode extends Node {
 		}
 	}
 
-	// Clear buffer + counter + LPS window (matches RawLogs handleLogChange).
+	// Clear buffer + counter + LPS window on a log switch.
 	_clear() {
 		this.lines = [];
 		this.lineCounter = 0;
@@ -218,7 +218,8 @@ export class RawLogsViewNode extends Node {
 	static nodeSchema() {
 		return {
 			category: 'Hidden',
-			description: 'Raw Logs render-model sink (the React view node).',
+			description:
+				'Partition Viewer render-model sink (the React view node).',
 			// Terminal receiver: settles replies, no target → no out-port.
 			has_target: false,
 			arguments: [],

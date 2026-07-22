@@ -1,0 +1,56 @@
+/**
+ * Partition Viewer Styles
+ *
+ * Light Newspack toolbar/chrome above the shared `LogRowList` pane. The pane and
+ * its rows theme light/dark via the --paper/--ink tokens in LogRowList.scss (the
+ * light theme the old canvas renderer could not give); here we add only the root
+ * layout and the partition (`P<n>`) column the envelope rows carry.
+ */
+
+@use "base";
+
+.newspack-nodes-partition-viewer {
+	background: var(--paper-3);
+	color: var(--ink);
+	padding: 10px 20px;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	font-family: base.$system-font;
+}
+
+// The browse sidebar sits beside the scrolling log pane.
+.newspack-nodes-partition-viewer__body {
+	flex: 1;
+	display: flex;
+	min-height: 0;
+}
+
+// The partition column: a `P<n>` gutter drawn from each row's data-p attribute.
+.newspack-nodes-partition-rows .newspack-nodes-log-row {
+	position: relative;
+	padding: 0 8px 0 40px;
+
+	&::before {
+		content: "P" attr(data-p);
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: 32px;
+		height: 100%;
+		padding-right: 8px;
+		box-sizing: border-box;
+		text-align: right;
+		color: var(--ink-3, #949494);
+		font-size: 10px;
+		user-select: none;
+		border-right: 1px solid var(--paper-shadow, #3a3a3a);
+	}
+}
+
+// Responsive: the canonical search input is flex:1, so only the gap narrows.
+@media (max-width: 1200px) {
+	.newspack-nodes-toolbar {
+		gap: 8px;
+	}
+}

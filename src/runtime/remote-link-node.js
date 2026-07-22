@@ -33,6 +33,8 @@ export class RemoteLinkNode extends Node {
 		this.httpOut = null;
 		this.heartbeat = null;
 		this.subscribe = '';
+		// Override the SseIn REST route (e.g. /log/stream); '' keeps default.
+		this.endpoint = '';
 		// A RemoteLink is a SUBSCRIPTION: SseIn re-homes records to target.
 		this.rehomeReceived = true;
 		// Optional hook fired with the SseIn's `connected` payload.
@@ -108,6 +110,9 @@ export class RemoteLinkNode extends Node {
 
 		const sse = new SseInNode();
 		sse.arguments = this.arguments; // `{subscribe}`; baseUrl/nonce from global
+		if ( this.endpoint ) {
+			sse.endpoint = this.endpoint;
+		}
 		sse.sink = this.sink;
 		if ( this.target ) {
 			sse.target = this.target;

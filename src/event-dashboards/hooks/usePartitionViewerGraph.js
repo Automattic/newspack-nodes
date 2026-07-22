@@ -1,20 +1,20 @@
 /**
- * useRawLogsGraph — mounts the Raw Logs dashboard node graph onto the canonical
+ * usePartitionViewerGraph — mounts the Partition Viewer dashboard node graph onto the canonical
  * rule-#2 backbone (`_command_interpreter → _router`) using a SINGLE substrate
  * `RemoteLink` node instead of hand-wiring three I/O boundary nodes:
  *
- *   rawlogs:link        (RemoteLink — composes + registers three children:
- *                        `rawlogs:link:sse-in` (SseIn — EventSource ingress),
- *                        `rawlogs:link:http` (HttpOut — POST /command boundary),
- *                        `rawlogs:link:heartbeat` (Heartbeat — slot keep-alive),
+ *   partition:link        (RemoteLink — composes + registers three children:
+ *                        `partition:link:sse-in` (SseIn — EventSource ingress),
+ *                        `partition:link:http` (HttpOut — POST /command boundary),
+ *                        `partition:link:heartbeat` (Heartbeat — slot keep-alive),
  *                        and wires the `connected → slot` bridge to its own
  *                        heartbeat. `.client` is the injected CommandClient.)
  *
  * Plus the single dashboard view-model node:
  *
- *   rawlogs:view        (the view-model node React reads; envelope→row shaping
- *                        is inlined here — the former `rawlogs:route` and
- *                        `rawlogs:transform` chain is gone)
+ *   partition:view        (the view-model node React reads; envelope→row shaping
+ *                        is inlined here — the former `partition:route` and
+ *                        `partition:transform` chain is gone)
  *
  * EVERY node sinks into the interpreter; flow is steered ONLY by each node's `target`.
  *
@@ -26,7 +26,7 @@
  * `link.setSubscribe` already does close→resubscribe→reopen.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { CommandClient } from '../../runtime/command-client';
@@ -43,15 +43,15 @@ import {
 import '../nodes/register';
 
 // The RemoteLink node, the inspectable stream Tee, and the view-model node.
-const LINK = 'rawlogs:link';
-const TEE = 'rawlogs:stream';
-const VIEW = 'rawlogs:view';
+const LINK = 'partition:link';
+const TEE = 'partition:stream';
+const VIEW = 'partition:view';
 
 // Monotonic per-hook-instance ID counter for the list_logs correlator.
 let nextOpId = 0;
 function makeOpId() {
 	nextOpId += 1;
-	return `rawlogs-op-${ Date.now() }-${ nextOpId }`;
+	return `partition-op-${ Date.now() }-${ nextOpId }`;
 }
 
 // TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
@@ -63,7 +63,7 @@ const controlMsg = ( value ) => {
 	return m;
 };
 
-// list_logs TM_COMMAND, FROM=rawlogs:view so its reply (TO=VIEW) routes back.
+// list_logs TM_COMMAND, FROM=partition:view so its reply (TO=VIEW) routes back.
 function buildListCommand( id ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
@@ -71,6 +71,17 @@ function buildListCommand( id ) {
 	m[ TO ] = 'raw-logs';
 	m[ ID ] = id;
 	m[ VALUE ] = { name: 'list_logs', arguments: [] };
+	return m;
+}
+
+// log_status TM_COMMAND for one log, correlated like list_logs (reply → VIEW).
+function buildStatusCommand( id, log ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = VIEW;
+	m[ TO ] = 'raw-logs';
+	m[ ID ] = id;
+	m[ VALUE ] = { name: 'log_status', arguments: [ log ] };
 	return m;
 }
 
@@ -84,7 +95,7 @@ function buildListCommand( id ) {
  *   Graph is driven by a `Core.bumpGraphGeneration()` bump — mountExospine
  *   subscribes this reused mount's rebuild to it.
  */
-export function useRawLogsGraph( opts = {} ) {
+export function usePartitionViewerGraph( opts = {} ) {
 	const optsRef = useRef( opts );
 	optsRef.current = opts;
 
@@ -114,7 +125,7 @@ export function useRawLogsGraph( opts = {} ) {
 			tee.connectNode( VIEW );
 
 			// View-model node; envelope-to-row shaping inlined in fill().
-			const view = interpreter.makeNode( 'RawLogsView', VIEW );
+			const view = interpreter.makeNode( 'PartitionViewerView', VIEW );
 
 			linkRef.current = link;
 			viewRef.current = view;
@@ -191,5 +202,27 @@ export function useRawLogsGraph( opts = {} ) {
 		}
 	};
 
-	return { selectLog, setPaused };
+	// Fetch a log's segment metadata (log_status); stable for a fetch effect.
+	const fetchLogStatus = useCallback( ( log ) => {
+		const view = viewRef.current;
+		const link = linkRef.current;
+		if ( ! view || ! link ) {
+			return Promise.reject( new Error( 'graph not ready' ) );
+		}
+		const id = makeOpId();
+		const future = new Promise( ( resolve, reject ) => {
+			view.replies.add( id, resolve, reject );
+		} );
+		link.send( buildStatusCommand( id, log ) );
+		return future;
+	}, [] );
+
+	// Reposition the stream: null tails; a positions seed seeks.
+	const seek = useCallback( ( log, positions ) => {
+		if ( linkRef.current ) {
+			linkRef.current.setSubscribe( [ log ], positions );
+		}
+	}, [] );
+
+	return { selectLog, setPaused, fetchLogStatus, seek };
 }

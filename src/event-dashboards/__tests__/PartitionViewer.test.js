@@ -1,0 +1,400 @@
+/**
+ * PartitionViewer UI-surface tests — the thin DOM view over the partition node
+ * graph. The virtualized list (LogRowList) and browse sidebar (LogBrowser) are
+ * exercised by their own suites; here they are mocked to markers that capture the
+ * props PartitionViewer wires into them, so these tests cover the toolbar,
+ * deep-linking, callbacks, and the browse/seek wiring.
+ */
+
+import { render, fireEvent, act } from '@testing-library/react';
+import { Core } from '../../runtime/core';
+import PartitionViewer from '../PartitionViewer';
+
+// Capture the props PartitionViewer hands the shared list + sidebar each render.
+let logRowListProps;
+jest.mock( '@newspack-nodes/shared/components/LogRowList', () => ( {
+	__esModule: true,
+	default: ( props ) => {
+		logRowListProps = props;
+		return <div data-testid="log-row-list" />;
+	},
+} ) );
+
+let logBrowserProps;
+jest.mock( '@newspack-nodes/shared/components/LogBrowser', () => ( {
+	__esModule: true,
+	default: ( props ) => {
+		logBrowserProps = props;
+		return <div data-testid="log-browser" />;
+	},
+} ) );
+
+// Own suite exercises this hook; mock it — 1 call/render = a render probe.
+jest.mock( '../hooks/usePartitionViewerGraph', () => ( {
+	usePartitionViewerGraph: jest.fn(),
+} ) );
+
+const {
+	usePartitionViewerGraph,
+} = require( '../hooks/usePartitionViewerGraph' );
+
+// Stand-in partition:view node: model in setStateCache.view, ring on the node.
+function registerViewFixture( {
+	logs = [],
+	selected = '',
+	paused = false,
+	connectionError = false,
+	lines = [],
+} = {} ) {
+	const node = {
+		registrations: { view: {} },
+		setStateCache: {},
+		lines,
+		get linesCount() {
+			return this.lines.length;
+		},
+		lineAt( i ) {
+			return this.lines[ i ];
+		},
+		register( event, listener, cb ) {
+			this.registrations[ event ][ listener ] = cb;
+			if ( event in this.setStateCache ) {
+				cb( this.setStateCache[ event ] );
+			}
+		},
+		unregister( event, listener ) {
+			delete this.registrations[ event ]?.[ listener ];
+		},
+		setState( event, payload ) {
+			this.setStateCache[ event ] = payload;
+			Object.values( this.registrations[ event ] || {} ).forEach(
+				( cb ) => cb( payload )
+			);
+		},
+	};
+	node.setState( 'view', { logs, selected, paused, connectionError } );
+	Core.nodes.set( 'partition:view', node );
+	return node;
+}
+
+describe( 'PartitionViewer', () => {
+	let selectLog;
+	let setPaused;
+	let fetchLogStatus;
+	let seek;
+
+	// Wrap render in act so the async log_status fetch effect settles inside it.
+	async function renderViewer( props = {} ) {
+		let out;
+		await act( async () => {
+			out = render( <PartitionViewer { ...props } /> );
+		} );
+		return out;
+	}
+
+	beforeEach( () => {
+		Core.reset();
+		logRowListProps = undefined;
+		logBrowserProps = undefined;
+		selectLog = jest.fn();
+		setPaused = jest.fn();
+		fetchLogStatus = jest.fn().mockResolvedValue( { segments: [] } );
+		seek = jest.fn();
+		usePartitionViewerGraph.mockClear();
+		usePartitionViewerGraph.mockReturnValue( {
+			selectLog,
+			setPaused,
+			fetchLogStatus,
+			seek,
+		} );
+		window.history.replaceState( {}, '', '/' );
+	} );
+
+	it( 'renders a select populated from the view model', async () => {
+		registerViewFixture( {
+			logs: [
+				{ key: 'firehose', label: 'Firehose' },
+				{ key: 'errors', label: 'Errors' },
+			],
+			selected: 'firehose',
+		} );
+		const { container } = await renderViewer();
+		const select = container.querySelector( '.newspack-nodes-select' );
+		expect( select ).not.toBeNull();
+		expect( select.options.length ).toBe( 2 );
+		expect( select.value ).toBe( 'firehose' );
+	} );
+
+	it( 'shows "No logs available" when the view model has no logs', async () => {
+		registerViewFixture( { logs: [] } );
+		const { container } = await renderViewer();
+		expect( container.textContent ).toMatch( /No logs available/ );
+	} );
+
+	it( 'selecting a log calls selectLog and reflects it into ?log=', async () => {
+		registerViewFixture( {
+			logs: [
+				{ key: 'firehose', label: 'Firehose' },
+				{ key: 'errors', label: 'Errors' },
+			],
+			selected: 'firehose',
+		} );
+		const { container } = await renderViewer();
+		const select = container.querySelector( '.newspack-nodes-select' );
+		fireEvent.change( select, { target: { value: 'errors' } } );
+		expect( selectLog ).toHaveBeenCalledWith( 'errors' );
+		expect( window.location.search ).toContain( 'log=errors' );
+	} );
+
+	it( 'toggles pause through the graph callback', async () => {
+		registerViewFixture( { logs: [], paused: false } );
+		const { container } = await renderViewer();
+		const pause = container.querySelector( '.button.is-paused, .button' );
+		fireEvent.click( pause );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+	} );
+
+	it( 'wires LogRowList getNode at the live partition:view node', async () => {
+		const node = registerViewFixture( { logs: [] } );
+		await renderViewer();
+		expect( logRowListProps.getNode() ).toBe( node );
+		expect( logRowListProps.rowHeight ).toBe( 18 );
+		expect( logRowListProps.listClassName ).toBe(
+			'newspack-nodes-partition-rows'
+		);
+	} );
+
+	it( 'passes the toolbar filter text down to LogRowList', async () => {
+		registerViewFixture( { logs: [] } );
+		const { container } = await renderViewer();
+		const input = container.querySelector( '.newspack-nodes-search-input' );
+		fireEvent.change( input, { target: { value: 'zebra' } } );
+		expect( logRowListProps.filter ).toBe( 'zebra' );
+	} );
+
+	it( 'reflects the counts LogRowList reports up into the toolbar', async () => {
+		registerViewFixture( { logs: [] } );
+		const { container } = await renderViewer();
+		const input = container.querySelector( '.newspack-nodes-search-input' );
+		// A filter switches the toolbar to the "visible / total" phrasing.
+		fireEvent.change( input, { target: { value: 'x' } } );
+		act( () =>
+			logRowListProps.onStats( { total: 40, visible: 12, lps: 3.5 } )
+		);
+		expect( container.textContent ).toMatch( /12 \/ 40 lines/ );
+		expect( container.textContent ).toMatch( /3\.5 lines\/s/ );
+	} );
+
+	it( 'clear empties the ring and rebases the list via resetSignal', async () => {
+		const node = registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lines: [ { id: 1, partition: 0, content: 'a', isEven: false } ],
+		} );
+		const { container } = await renderViewer();
+		const before = logRowListProps.resetSignal;
+		const clear = container.querySelectorAll( '.button' );
+		fireEvent.click( clear[ clear.length - 1 ] );
+		expect( node.lines ).toEqual( [] );
+		expect( logRowListProps.resetSignal ).toBe( before + 1 );
+	} );
+
+	it( 'renderRow draws the partition gutter and content per envelope row', async () => {
+		registerViewFixture( { logs: [] } );
+		await renderViewer();
+		const { container } = render(
+			logRowListProps.renderRow( {
+				id: 7,
+				partition: 3,
+				content: 'GET /x 200',
+				isEven: true,
+			} )
+		);
+		const row = container.querySelector( '.newspack-nodes-log-row' );
+		expect( row.classList.contains( 'row-even' ) ).toBe( true );
+		expect( row.getAttribute( 'data-p' ) ).toBe( '3' );
+		expect( row.textContent ).toBe( 'GET /x 200' );
+	} );
+
+	it( 'portals the controls into the hub header slot when given one', async () => {
+		registerViewFixture( { logs: [] } );
+		const slot = document.createElement( 'div' );
+		document.body.appendChild( slot );
+		await renderViewer( { headerControlsSlot: slot } );
+		expect(
+			slot.querySelector( '.newspack-nodes-toolbar' )
+		).not.toBeNull();
+	} );
+
+	it( 'fetches the selected log segments and lists them in the browser', async () => {
+		fetchLogStatus.mockResolvedValue( {
+			segments: [
+				{ id: 4, size: 100 },
+				{ id: 5, size: 2048 },
+			],
+		} );
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		expect( fetchLogStatus ).toHaveBeenCalledWith( 'firehose' );
+		expect( logBrowserProps.items ).toEqual( [
+			{ id: 4, size: 100 },
+			{ id: 5, size: 2048 },
+		] );
+	} );
+
+	it( 'browsing a segment seeks the stream to it at offset 0', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		act( () => logBrowserProps.onSelectItem( { id: 7, size: 1 } ) );
+		expect( seek ).toHaveBeenCalledWith( 'firehose', {
+			firehose: { segment: 7, offset: 0 },
+		} );
+		expect( logBrowserProps.mode ).toBe( 'browse' );
+		expect( logBrowserProps.selectedKey ).toBe( 7 );
+	} );
+
+	it( 'replay seeks the stream to start', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		act( () => logBrowserProps.onReplay() );
+		expect( seek ).toHaveBeenCalledWith( 'firehose', {
+			firehose: 'start',
+		} );
+	} );
+
+	it( 'Live returns the stream to the tail (null positions)', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		act( () => logBrowserProps.onSelectItem( { id: 7, size: 1 } ) );
+		act( () => logBrowserProps.onFollow() );
+		expect( seek ).toHaveBeenLastCalledWith( 'firehose', null );
+		expect( logBrowserProps.mode ).toBe( 'live' );
+	} );
+
+	it( 'shapes each segment row: key, label, and a compact byte meta', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		expect( logBrowserProps.itemKey( { id: 9, size: 1 } ) ).toBe( 9 );
+		expect( logBrowserProps.itemLabel( { id: 9 } ) ).toBe( 'Segment 9' );
+		expect( logBrowserProps.itemMeta( { size: 0 } ) ).toBe( '0 B' );
+		expect( logBrowserProps.itemMeta( { size: 512 } ) ).toBe( '512 B' );
+		expect( logBrowserProps.itemMeta( { size: 2048 } ) ).toBe( '2.0 KB' );
+		expect( logBrowserProps.itemMeta( { size: 3 * 1024 * 1024 } ) ).toBe(
+			'3.0 MB'
+		);
+	} );
+
+	it( 'falls back to no segments when the log_status fetch fails', async () => {
+		fetchLogStatus.mockRejectedValue( new Error( 'boom' ) );
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		expect( logBrowserProps.items ).toEqual( [] );
+	} );
+
+	describe( '?log= deep-linking', () => {
+		it( 'seeds selectLog from ?log= once the log is available', async () => {
+			window.history.replaceState( {}, '', '/?log=errors' );
+			registerViewFixture( {
+				logs: [
+					{ key: 'firehose', label: 'Firehose' },
+					{ key: 'errors', label: 'Errors' },
+				],
+				selected: 'firehose',
+			} );
+			await renderViewer();
+			expect( selectLog ).toHaveBeenCalledWith( 'errors' );
+		} );
+
+		it( 'does not seed a ?log= that arrives only in a later catalog', async () => {
+			window.history.replaceState( {}, '', '/?log=errors' );
+			// First non-empty catalog lacks 'errors' — the seed chance is spent.
+			const node = registerViewFixture( {
+				logs: [ { key: 'firehose', label: 'Firehose' } ],
+				selected: 'firehose',
+			} );
+			await renderViewer();
+			expect( selectLog ).not.toHaveBeenCalledWith( 'errors' );
+
+			// 'errors' arrives later — it must NOT override the selection.
+			await act( async () =>
+				node.setState( 'view', {
+					logs: [
+						{ key: 'firehose', label: 'Firehose' },
+						{ key: 'errors', label: 'Errors' },
+					],
+					selected: 'firehose',
+					paused: false,
+					connectionError: false,
+				} )
+			);
+			expect( selectLog ).not.toHaveBeenCalledWith( 'errors' );
+		} );
+
+		it( 'seeds at most once even across re-renders', async () => {
+			window.history.replaceState( {}, '', '/?log=errors' );
+			registerViewFixture( {
+				logs: [
+					{ key: 'firehose', label: 'Firehose' },
+					{ key: 'errors', label: 'Errors' },
+				],
+				selected: 'firehose',
+			} );
+			const { rerender } = await renderViewer();
+			await act( async () => rerender( <PartitionViewer /> ) );
+			expect(
+				selectLog.mock.calls.filter( ( c ) => c[ 0 ] === 'errors' )
+					.length
+			).toBe( 1 );
+		} );
+
+		it( 'does not seed when ?log= matches the already-selected log', async () => {
+			window.history.replaceState( {}, '', '/?log=firehose' );
+			registerViewFixture( {
+				logs: [ { key: 'firehose', label: 'Firehose' } ],
+				selected: 'firehose',
+			} );
+			await renderViewer();
+			expect( selectLog ).not.toHaveBeenCalled();
+		} );
+
+		it( 'does not seed when ?log= is not among the available logs', async () => {
+			window.history.replaceState( {}, '', '/?log=ghost' );
+			registerViewFixture( {
+				logs: [ { key: 'firehose', label: 'Firehose' } ],
+				selected: 'firehose',
+			} );
+			await renderViewer();
+			expect( selectLog ).not.toHaveBeenCalled();
+		} );
+
+		it( 'does not seed when ?log= is absent', async () => {
+			registerViewFixture( {
+				logs: [
+					{ key: 'firehose', label: 'Firehose' },
+					{ key: 'errors', label: 'Errors' },
+				],
+				selected: 'firehose',
+			} );
+			await renderViewer();
+			expect( selectLog ).not.toHaveBeenCalled();
+		} );
+	} );
+} );
