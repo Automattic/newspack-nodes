@@ -6,7 +6,7 @@
  * lives in `useLogPositions`, which the consumer drives from these callbacks.
  *
  * @param {Object}   props
- * @param {string}   props.mode           'live' | 'browse' (from useLogPositions).
+ * @param {string}   props.mode           'live' | 'replay' (view-derived).
  * @param {Function} props.onFollow       Return to the live tail.
  * @param {Function} props.onReplay       Replay from the earliest record.
  * @param {Array}    props.items          Segments or sources.
