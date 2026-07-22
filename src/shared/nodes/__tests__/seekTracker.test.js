@@ -105,6 +105,45 @@ describe( 'SeekTracker', () => {
 	} );
 } );
 
+// File mode: the segment slot is an opaque inode (no ordering). A null end WITH a
+// positive byte size is a deterministic boundary — the first breadcrumb pins the
+// reference generation; catch up by byte size on that inode, or flip on rotation.
+// Distinct values: inode 4242, file size 977, rotation to inode 5151.
+describe( 'SeekTracker — file mode (opaque inode + byte boundary)', () => {
+	it( 'a null-end browse WITH a positive byte size enters file-mode replay', () => {
+		const t = new SeekTracker();
+		t.browse( null, 977 );
+		expect( t.mode ).toBe( 'replay' );
+	} );
+
+	it( 'flips to live when a record on the reference inode reaches the byte size', () => {
+		const t = new SeekTracker();
+		t.browse( null, 977 );
+		expect( t.track( '4242:0:500' ) ).toBe( true ); // pins inode 4242, 500<977
+		expect( t.mode ).toBe( 'replay' );
+		// 500 + 477 = 977 >= 977 → caught up to the seek-time file size.
+		expect( t.track( '4242:500:477' ) ).toBe( true );
+		expect( t.mode ).toBe( 'live' );
+	} );
+
+	it( 'stays in replay until the byte size is reached', () => {
+		const t = new SeekTracker();
+		t.browse( null, 977 );
+		t.track( '4242:0:500' ); // 500 < 977
+		expect( t.mode ).toBe( 'replay' );
+	} );
+
+	it( 'flips to live when the inode rotates (a different generation appeared)', () => {
+		const t = new SeekTracker();
+		t.browse( null, 977 );
+		expect( t.track( '4242:0:500' ) ).toBe( true ); // pins inode 4242
+		expect( t.mode ).toBe( 'replay' );
+		// A new inode 5151 means logrotate happened — we're on the live edge.
+		expect( t.track( '5151:0:100' ) ).toBe( true );
+		expect( t.mode ).toBe( 'live' );
+	} );
+} );
+
 describe( 'endPosition', () => {
 	it( 'captures the newest segment id and its byte size as the live boundary', () => {
 		expect(

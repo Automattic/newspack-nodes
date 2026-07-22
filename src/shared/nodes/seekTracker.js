@@ -60,19 +60,33 @@ export class SeekTracker {
 		// Live boundary captured at seek; replay catches up on reaching it.
 		this.endSegment = null;
 		this.endOffset = 0;
+		// File-mode reference generation (inode), pinned on the first record.
+		this.fileMode = false;
+		this.referenceSegment = null;
 	}
 
-	// Enter replay, capturing the live boundary (null end → no auto-flip).
+	/**
+	 * Enter replay, capturing the catch-up boundary. Segmented: (endSegment,
+	 * size). File mode: null segment + a positive byte size (catch up by size,
+	 * or on inode rotation). Null segment + 0/absent size → never auto-flips.
+	 *
+	 * @param {?number} endSegment The end segment id, or null for file mode.
+	 * @param {number}  endOffset  The catch-up byte boundary.
+	 */
 	browse( endSegment = null, endOffset = 0 ) {
 		this.mode = 'replay';
 		this.endSegment = endSegment;
 		this.endOffset = endOffset;
+		this.fileMode = null === endSegment && endOffset > 0;
+		this.referenceSegment = null;
 	}
 
 	// Return to the live tail; drop the catch-up boundary.
 	follow() {
 		this.mode = 'live';
 		this.endSegment = null;
+		this.fileMode = false;
+		this.referenceSegment = null;
 	}
 
 	// Fresh subscription: live from a clean slate (drops the highlight too).
@@ -80,6 +94,8 @@ export class SeekTracker {
 		this.mode = 'live';
 		this.endSegment = null;
 		this.lastReceivedSegment = null;
+		this.fileMode = false;
+		this.referenceSegment = null;
 	}
 
 	/**
@@ -98,18 +114,39 @@ export class SeekTracker {
 		const offsetEnd = Number( match[ 2 ] ) + Number( match[ 3 ] );
 		const segmentChanged = segment !== this.lastReceivedSegment;
 		this.lastReceivedSegment = segment;
+		// File-mode replay pins the first inode as the reference generation.
+		if (
+			this.fileMode &&
+			'replay' === this.mode &&
+			null === this.referenceSegment
+		) {
+			this.referenceSegment = segment;
+		}
 		// Caught up to the seek boundary: past it is live tail → flip live.
 		let modeChanged = false;
-		if (
-			'replay' === this.mode &&
-			null !== this.endSegment &&
-			( segment > this.endSegment ||
-				( segment === this.endSegment && offsetEnd >= this.endOffset ) )
-		) {
+		if ( 'replay' === this.mode && this._caughtUp( segment, offsetEnd ) ) {
 			this.mode = 'live';
 			this.endSegment = null;
+			this.fileMode = false;
+			this.referenceSegment = null;
 			modeChanged = true;
 		}
 		return segmentChanged || modeChanged;
+	}
+
+	// Whether a replayed record has reached the captured live boundary.
+	_caughtUp( segment, offsetEnd ) {
+		if ( this.fileMode ) {
+			// Opaque inode: caught up by size, or when a new inode rotates in.
+			return (
+				segment !== this.referenceSegment || offsetEnd >= this.endOffset
+			);
+		}
+		// Segmented: ordered ids — past the end segment, or reached its size.
+		return (
+			null !== this.endSegment &&
+			( segment > this.endSegment ||
+				( segment === this.endSegment && offsetEnd >= this.endOffset ) )
+		);
 	}
 }

@@ -340,7 +340,7 @@ class Command_Interpreter_Node extends Node {
 			'pwd' => "pwd\n",
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
-			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME (php | debug), never a path — no traversal.\n          Returns the last min(max_kb, 64)KB (default 16), partial first line dropped. No args lists the sources with availability;\n          the reserved name `sources` returns them as a { name, path, available } struct for a GUI picker.\n",
+			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME (php | debug), never a path — no traversal.\n          Returns the last min(max_kb, 64)KB (default 16), partial first line dropped. No args lists the sources with availability;\n          the reserved name `sources` returns them as a { name, path, mode, available, bytes } struct for a GUI picker.\n",
 			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
@@ -774,7 +774,7 @@ class Command_Interpreter_Node extends Node {
 	 * returns a teaching error naming the resolved path (errors-as-docs).
 	 *
 	 * @param list<string> $args
-	 * @return string|list<array{name:string, path:string, mode:string, available:bool}>
+	 * @return string|list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
 	 */
 	private static function cmd_taillog( array $args ): string|array {
 		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
@@ -800,12 +800,14 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * The reserved `taillog sources` reply: one { name, path, mode, available } row
-	 * per (deduped) registry entry, as a plain array a GUI reads to build its source
-	 * picker — mirrors the dump_metadata array-reply precedent.
+	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes }
+	 * row per (deduped) registry entry, as a plain array a GUI reads to build its
+	 * source picker — mirrors the dump_metadata array-reply precedent. `bytes` is the
+	 * byte size a tail would read (the Log Viewer's replay-catch-up boundary); null
+	 * when the source has no readable file.
 	 *
 	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
-	 * @return list<array{name:string, path:string, mode:string, available:bool}>
+	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
 	 */
 	private static function taillog_sources_struct( array $registry ): array {
 		$rows = [];
@@ -815,9 +817,26 @@ class Command_Interpreter_Node extends Node {
 				'path'      => $entry['path'],
 				'mode'      => $entry['mode'],
 				'available' => Log_Sources::is_available( $entry['path'], $entry['mode'] ),
+				'bytes'     => self::tail_bytes( $entry ),
 			];
 		}
 		return $rows;
+	}
+
+	/**
+	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
+	 * else the file. Null when there is no readable file (missing, or a segmented
+	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
+	 *
+	 * @param array{path: string, mode: string} $entry
+	 */
+	private static function tail_bytes( array $entry ): ?int {
+		$tail = Log_Sources::tail_path( $entry );
+		if ( null === $tail || ! \is_file( $tail ) ) {
+			return null;
+		}
+		$size = \filesize( $tail );
+		return false === $size ? null : $size;
 	}
 
 	/**
@@ -829,12 +848,11 @@ class Command_Interpreter_Node extends Node {
 		$rows = [];
 		foreach ( $registry as $name => $entry ) {
 			// BYTES sizes what a tail reads: newest segment if segmented.
-			$tail   = Log_Sources::tail_path( $entry );
-			$size   = null !== $tail && \is_file( $tail ) ? \filesize( $tail ) : false;
+			$size   = self::tail_bytes( $entry );
 			$rows[] = [
 				$name,
 				Log_Sources::is_available( $entry['path'], $entry['mode'] ) ? 'yes' : 'no',
-				false === $size ? '-' : (string) $size,
+				null === $size ? '-' : (string) $size,
 				$entry['path'],
 			];
 		}

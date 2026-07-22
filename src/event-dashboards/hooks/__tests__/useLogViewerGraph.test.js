@@ -17,6 +17,7 @@ import {
 	ID,
 	TM_COMMAND,
 	TM_RESPONSE,
+	TM_ERROR,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import names from '../../../runtime/reserved-node-names.json';
@@ -55,14 +56,17 @@ const VIEW = 'logviewer:view';
 const HTTP = names.HTTP;
 
 // CommandClient double: postBatch echoes a reply per verb name along FROM.
-function makeFakeClient( payloadByVerb = {} ) {
+// A verb in `errorVerbs` replies TM_ERROR so a rejected pending-reply is exercised.
+function makeFakeClient( payloadByVerb = {}, errorVerbs = [] ) {
 	const client = {
 		batches: [],
 		postBatch( messages ) {
 			client.batches.push( messages );
 			const replies = messages.map( ( m ) => {
 				const reply = newMessage();
-				reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+				reply[ TYPE ] = errorVerbs.includes( m[ VALUE ]?.name )
+					? TM_COMMAND | TM_RESPONSE | TM_ERROR
+					: TM_COMMAND | TM_RESPONSE;
 				reply[ TO ] = m[ FROM ];
 				reply[ ID ] = m[ ID ];
 				reply[ TIMESTAMP ] = 0;
@@ -82,9 +86,10 @@ function makeFakeClient( payloadByVerb = {} ) {
 }
 
 // debug listed first but unavailable; access is the first AVAILABLE source.
+// `bytes` is the source's current file size — the Log Viewer replay boundary.
 const sourcesReply = () => [
-	{ name: 'debug', path: '/d', mode: 'file', available: false },
-	{ name: 'access', path: '/a', mode: 'file', available: true },
+	{ name: 'debug', path: '/d', mode: 'file', available: false, bytes: null },
+	{ name: 'access', path: '/a', mode: 'file', available: true, bytes: 977 },
 ];
 
 function mountGraph( client ) {
@@ -160,7 +165,10 @@ describe( 'useLogViewerGraph', () => {
 			makeFakeClient( { taillog: sourcesReply() } )
 		);
 		await act( async () => {} );
-		act( () => result.current.seek( 'access', { access: 'start' } ) );
+		// Replay first captures the fresh byte size, then reopens the stream.
+		await act( async () =>
+			result.current.seek( 'access', { access: 'start' } )
+		);
 		const url = FakeEventSource.last.url;
 		expect( url ).toContain( 'positions=' );
 		const positions = JSON.parse(
@@ -169,6 +177,68 @@ describe( 'useLogViewerGraph', () => {
 			)
 		);
 		expect( positions ).toEqual( { access: 'start' } );
+	} );
+
+	test( 'replay captures the source byte size as the file-mode boundary', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { taillog: sourcesReply() } )
+		);
+		await act( async () => {} );
+		await act( async () =>
+			result.current.seek( 'access', { access: 'start' } )
+		);
+		const view = Core.node( VIEW );
+		expect( view.mode ).toBe( 'replay' );
+		expect( view.seek.fileMode ).toBe( true );
+		expect( view.seek.endOffset ).toBe( 977 );
+	} );
+
+	test( 'replay re-dispatches taillog sources for a FRESH size (mount catalog is stale)', async () => {
+		const client = makeFakeClient( { taillog: sourcesReply() } );
+		const { result } = mountGraph( client );
+		await act( async () => {} );
+		client.batches.length = 0; // ignore the mount-time catalog fetch
+		await act( async () =>
+			result.current.seek( 'access', { access: 'start' } )
+		);
+		const cmd = client.batches
+			.flat()
+			.find( ( m ) => 'taillog' === m[ VALUE ]?.name );
+		expect( cmd ).toBeTruthy();
+		expect( cmd[ VALUE ].arguments ).toEqual( [ 'sources' ] );
+	} );
+
+	test( 'a seek-time fetch failure replays with NO boundary (degraded; never auto-flips)', async () => {
+		// taillog errors → the fresh-size fetch rejects → the view enters replay
+		// with no byte boundary (file mode off), so it never auto-flips.
+		const { result } = mountGraph(
+			makeFakeClient( { taillog: sourcesReply() }, [ 'taillog' ] )
+		);
+		await act( async () => {} );
+		await act( async () =>
+			result.current.seek( 'access', { access: 'start' } )
+		);
+		const view = Core.node( VIEW );
+		expect( view.mode ).toBe( 'replay' );
+		expect( view.seek.fileMode ).toBe( false );
+	} );
+
+	test( 'replay on an EMPTY source flips straight to Live (nothing to replay)', async () => {
+		const empty = [
+			{
+				name: 'access',
+				path: '/a',
+				mode: 'file',
+				available: true,
+				bytes: 0,
+			},
+		];
+		const { result } = mountGraph( makeFakeClient( { taillog: empty } ) );
+		await act( async () => {} );
+		await act( async () =>
+			result.current.seek( 'access', { access: 'start' } )
+		);
+		expect( Core.node( VIEW ).mode ).toBe( 'live' );
 	} );
 
 	test( 'setPaused toggles the view paused flag', async () => {
