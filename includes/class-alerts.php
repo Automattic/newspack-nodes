@@ -10,7 +10,8 @@
  * Three consumers of the result: WP Site Health tests + the admin notice call
  * the pure `evaluate()`; `emit()` fires one `newspack_nodes/alert` action per
  * alert (rate-limited) so an application can bridge them to its firehose.
- * Thresholds are class constants — no new config keys.
+ * Thresholds are Config_System settings, read live each invocation (none of the
+ * three call sites holds them in memory across a worker's lifetime).
  *
  * @package Newspack_Nodes
  */
@@ -29,17 +30,8 @@ class Alerts {
 	/** A worker/supervisor that was running has stopped — needs attention now. */
 	public const SEVERITY_CRITICAL = 'critical';
 
-	/** A consumer more than this many bytes behind its partition end is lagging (64 MiB ≈ one default segment). */
-	public const CONSUMER_DISTANCE_THRESHOLD = 67108864;
-
-	/** Any quarantined dead-letter segment beyond this count is worth surfacing. */
-	public const DEADLETTER_SEGMENTS_THRESHOLD = 0;
-
 	/** Transient gate name for emit()'s rate limit. */
 	private const EMIT_GATE = 'newspack_nodes_alerts_emitted';
-
-	/** Minimum seconds between alert-action emission bursts. */
-	private const EMIT_INTERVAL_S = 300;
 
 	/**
 	 * Compute the current alerts (pure — no side effects). Each alert is
@@ -70,10 +62,11 @@ class Alerts {
 			];
 		}
 
+		$lag_threshold = Core::num_int( Config::value( 'alert_lag_threshold' ) );
 		foreach ( Core::arr( $meta['consumers'] ?? [] ) as $consumer ) {
 			$consumer = Core::arr( $consumer );
 			$distance = Core::num_int( $consumer['distance'] ?? 0 );
-			if ( $distance <= self::CONSUMER_DISTANCE_THRESHOLD ) {
+			if ( $distance <= $lag_threshold ) {
 				continue;
 			}
 			$reader   = Core::as_string( $consumer['reader'] ?? '' );
@@ -88,7 +81,7 @@ class Alerts {
 		}
 
 		$deadletter = Core::as_int( $meta['deadletter_segments'] ?? 0 );
-		if ( $deadletter > self::DEADLETTER_SEGMENTS_THRESHOLD ) {
+		if ( $deadletter > Core::num_int( Config::value( 'alert_deadletter_threshold' ) ) ) {
 			$alerts[] = [
 				'key'      => 'deadletter',
 				'severity' => self::SEVERITY_WARNING,
@@ -168,7 +161,7 @@ class Alerts {
 			if ( false !== \get_transient( self::EMIT_GATE ) ) {
 				return;
 			}
-			\set_transient( self::EMIT_GATE, 1, self::EMIT_INTERVAL_S );
+			\set_transient( self::EMIT_GATE, 1, Core::num_int( Config::value( 'alert_emit_interval' ) ) );
 		}
 		foreach ( self::evaluate() as $alert ) {
 			\do_action( 'newspack_nodes/alert', $alert );

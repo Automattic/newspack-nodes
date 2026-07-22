@@ -48,13 +48,14 @@ class AlertsTest extends TestCase {
 	 * Register a fleet of topologies (each one partition) + activate them so
 	 * Workers_CI::collect_dump_metadata enumerates them.
 	 *
-	 * @param array<int,string> $types Topology names.
+	 * @param array<int,string>   $types         Topology names.
+	 * @param array<string,mixed> $config_extras Extra config overlaid onto the local test config.
 	 * @return string Base dir.
 	 */
-	private function arrange( array $types ): string {
+	private function arrange( array $types, array $config_extras = [] ): string {
 		$this->tmp = '/tmp/alerts-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
-		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1 ] );
+		$this->use_base_dir( $this->tmp, \array_merge( [ 'num_partitions' => 1 ], $config_extras ) );
 		\add_filter(
 			'newspack_nodes/topologies',
 			static function ( array $topologies ) use ( $types ): array {
@@ -173,6 +174,45 @@ class AlertsTest extends TestCase {
 		$this->seed_probe_distance( $base, 'firehose', 1024 );
 
 		$this->assertSame( [], Alerts::evaluate() );
+	}
+
+	public function test_evaluate_honors_configured_lag_threshold(): void {
+		// Configured threshold well below the 64 MiB constant default.
+		$base = $this->arrange( [ 'live-workers' ], [ 'alert_lag_threshold' => 12345678 ] );
+		$this->seed_heartbeat( $base, 'live-workers', 0 );
+		// Above the configured 12345678, but below the old 67108864 constant.
+		$this->seed_probe_distance( $base, 'firehose', 12345679 );
+
+		$by_key = $this->alerts_by_key( Alerts::evaluate() );
+
+		$this->assertArrayHasKey( 'consumer_lag:firehose.p0', $by_key );
+		$this->assertSame( 12345679, $by_key['consumer_lag:firehose.p0']['distance'] );
+	}
+
+	public function test_evaluate_honors_configured_deadletter_threshold(): void {
+		// Raise the DLQ threshold above zero so a small quarantine stays quiet.
+		$base = $this->arrange( [ 'live-workers' ], [ 'alert_deadletter_threshold' => 5 ] );
+		$this->seed_heartbeat( $base, 'live-workers', 0 );
+		// 3 <= 5 configured, but 3 > 0 default — the constant would alert.
+		$this->seed_deadletter( $base, 'jobs.job-worker.p0', 3 );
+
+		$by_key = $this->alerts_by_key( Alerts::evaluate() );
+
+		$this->assertArrayNotHasKey( 'deadletter', $by_key );
+	}
+
+	public function test_emit_honors_configured_emit_interval(): void {
+		// 777s window, distinct from the 300s constant default.
+		$this->arrange( [ 'live-workers' ], [ 'alert_emit_interval' => 777 ] );
+
+		$before = \time();
+		Alerts::emit();
+
+		$stored = $GLOBALS['_wp_test_transients']['newspack_nodes_alerts_emitted'] ?? null;
+		$this->assertNotNull( $stored, 'emit must set the rate-limit transient' );
+		[ , $expires_at ] = $stored;
+		$this->assertGreaterThanOrEqual( $before + 777, $expires_at );
+		$this->assertLessThanOrEqual( $before + 779, $expires_at );
 	}
 
 	public function test_deadletter_segments_yield_a_warning(): void {

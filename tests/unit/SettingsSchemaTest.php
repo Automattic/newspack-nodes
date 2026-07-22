@@ -32,6 +32,9 @@ class SettingsSchemaTest extends TestCase {
 		'remote_max_segments',
 		'remote_segment_size',
 		'remote_min_lifetime',
+		'alert_lag_threshold',
+		'alert_deadletter_threshold',
+		'alert_emit_interval',
 		'topologies',
 		'allowed_users',
 	];
@@ -49,6 +52,9 @@ class SettingsSchemaTest extends TestCase {
 		'newspack_nodes_remote_max_segments',
 		'newspack_nodes_remote_segment_size',
 		'newspack_nodes_remote_min_lifetime',
+		'newspack_nodes_alert_lag_threshold',
+		'newspack_nodes_alert_deadletter_threshold',
+		'newspack_nodes_alert_emit_interval',
 	];
 
 	private const RENDERED_IDS = [
@@ -65,6 +71,9 @@ class SettingsSchemaTest extends TestCase {
 		'remote_max_segments',
 		'remote_segment_size',
 		'remote_min_lifetime',
+		'alert_lag_threshold',
+		'alert_deadletter_threshold',
+		'alert_emit_interval',
 	];
 
 	protected function setUp(): void {
@@ -106,6 +115,27 @@ class SettingsSchemaTest extends TestCase {
 		$this->assertSame( [], $schema->restart_for( 'log_sources' ) );
 		$this->assertSame( [], $schema->restart_for( 'topologies' ) );
 		$this->assertSame( [], $schema->restart_for( 'missing_option' ) );
+	}
+
+	/** The fleet-alert thresholds restart nothing — Alerts reads them live per invocation (supervisor tick / admin / Site Health). */
+	public function test_alert_thresholds_restart_nothing(): void {
+		$schema = Settings_Schema::get();
+
+		$this->assertSame( [], $schema->restart_for( 'alert_lag_threshold' ) );
+		$this->assertSame( [], $schema->restart_for( 'alert_deadletter_threshold' ) );
+		$this->assertSame( [], $schema->restart_for( 'alert_emit_interval' ) );
+	}
+
+	/** The three alert thresholds are registered + resettable options in the alerting section. */
+	public function test_alert_thresholds_are_overlaid_in_the_alerting_section(): void {
+		$schema = Settings_Schema::get();
+
+		foreach ( [ 'alert_lag_threshold', 'alert_deadletter_threshold', 'alert_emit_interval' ] as $key ) {
+			$field = $schema->field_for_short( $key );
+			$this->assertNotNull( $field, "alert field {$key} must exist" );
+			$this->assertSame( 'newspack_nodes_alerting_section', $field->section );
+			$this->assertContains( $key, $schema->overlay_keys() );
+		}
 	}
 
 	/** The remote-spoke geometry settings restart nothing — they push to spokes via the settings-sync graph. */

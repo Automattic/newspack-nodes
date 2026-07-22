@@ -33,6 +33,13 @@ return [
 	// Extra /log/stream + taillog sources ('name=/absolute/path' entries).
 	'log_sources'         => [],
 
+	// Fleet alerts, read live each tick: lag bytes (64 MiB = one segment).
+	'alert_lag_threshold' => 64 * 1024 * 1024,
+	// Dead-letter: warn past this many quarantined segments (0 = the first).
+	'alert_deadletter_threshold' => 0,
+	// Rate limit: minimum seconds between alert-emission bursts.
+	'alert_emit_interval' => 300,
+
 	// Topologies (Topology_Registry names); each = a num_partitions fleet.
 	'topologies'          => [],
 
