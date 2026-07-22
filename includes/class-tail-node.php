@@ -420,11 +420,13 @@ class Tail_Node extends Consumer_Node {
 	 * Emit seam (overrides Consumer's Message-unpacking forward): emit one complete line's
 	 * raw bytes — newline restored — as a TM_BYTESTREAM, FROM-stamped at this I/O boundary.
 	 * The buffer/cursor scan that hands us each line stays in Buffered_Pump::drain_buffer(),
-	 * so both source shapes reuse it (and both get line_mode for free). $abs_offset is unused:
-	 * a Tail mints a fresh byte message rather than carrying the producer's seg:offset breadcrumb.
+	 * so both source shapes reuse it (and both get line_mode for free). The ID carries this
+	 * Tail's OWN position breadcrumb — `segment:offset:length` (the inode rides the segment
+	 * slot in file mode) — which the browser seek tracker reads for its Replay→Live flip;
+	 * the empty default silently disabled that flip for every Tail-fed stream.
 	 *
 	 * @param string $line       One complete line (without its trailing newline).
-	 * @param int    $abs_offset The line's start offset (unused here).
+	 * @param int    $abs_offset The line's start offset within the current segment/generation.
 	 */
 	protected function forward_line( string $line, int $abs_offset ): void {
 		$bytes = $line . "\n";
@@ -436,6 +438,7 @@ class Tail_Node extends Consumer_Node {
 		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::FROM ]      = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$message[ Message::ID ]        = "{$this->cursor_segment}:{$abs_offset}:{$size}";
 		$message[ Message::VALUE ]     = $bytes;
 		parent::fill( $message );
 	}

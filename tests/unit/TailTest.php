@@ -80,6 +80,24 @@ class TailTest extends TestCase {
 		$this->assertInstanceOf( \Newspack_Nodes\Log_Node::class, $source );
 	}
 
+	public function test_segmented_mode_stamps_the_segment_offset_length_breadcrumb(): void {
+		// Same stamp as file mode, with the segment id in the first slot.
+		$base = "{$this->tmp}/gate-events.jsonl";
+		\file_put_contents( "{$base}.3", "row-one-4455\n" );
+
+		$cap = new Capture_Sink_Node();
+		$t   = new Tail_Node();
+		$t->arguments( [ $base ] );
+		$t->sink( $cap );
+		$t->next_offset( 'start' );
+		for ( $i = 0; $i < 12; $i++ ) {
+			$t->poll();
+		}
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( '3:0:13', $cap->captured[0][ Message::ID ] );
+	}
+
 	public function test_default_starts_at_end_then_emits_only_appended_bytes(): void {
 		// THE BUG FIX: a fresh Tail with no durable cursor starts at end-of-file —
 		// pre-existing content is NOT re-read; only bytes appended after start emit.
