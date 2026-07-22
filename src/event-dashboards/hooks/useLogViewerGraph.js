@@ -184,21 +184,58 @@ export function useLogViewerGraph( opts = {} ) {
 		}
 	};
 
-	// Reposition the source + set the view mode (positions replay, null tails).
-	const seek = ( name, positions ) => {
+	// Fetch a FRESH taillog-sources catalog at seek time (mount is stale).
+	const fetchSources = () => {
 		const view = viewRef.current;
-		if ( view ) {
-			view.fill(
-				controlMsg(
-					positions
-						? { action: 'browse', endSegment: null, endOffset: 0 }
+		const link = linkRef.current;
+		if ( ! view || ! link ) {
+			return Promise.reject( new Error( 'graph not ready' ) );
+		}
+		const id = makeOpId();
+		const future = new Promise( ( resolve, reject ) => {
+			view.replies.add( id, resolve, reject );
+		} );
+		link.send( buildSourcesCommand( id ) );
+		return future;
+	};
+
+	/**
+	 * Reposition the source + set the view mode. Live tail (null positions)
+	 * follows; Replay (positions) captures the source's CURRENT byte size as the
+	 * file-mode catch-up boundary. An empty source flips straight to Live; a
+	 * fetch failure replays with no boundary (never flips — the user clicks Live).
+	 *
+	 * @param {string}  name      The source name to (re)open.
+	 * @param {?Object} positions The SSE positions seed; null tails live.
+	 */
+	const seek = ( name, positions ) => {
+		const apply = ( control ) => {
+			viewRef.current?.fill( controlMsg( control ) );
+			linkRef.current?.setSubscribe( [ name ], positions );
+		};
+		if ( ! positions ) {
+			apply( { action: 'follow' } );
+			return;
+		}
+		fetchSources()
+			.then( ( catalog ) => {
+				const source = Array.isArray( catalog )
+					? catalog.find( ( s ) => s.name === name )
+					: null;
+				const bytes = source?.bytes ?? 0;
+				apply(
+					bytes > 0
+						? {
+								action: 'browse',
+								endSegment: null,
+								endOffset: bytes,
+						  }
 						: { action: 'follow' }
-				)
+				);
+			} )
+			.catch( () =>
+				apply( { action: 'browse', endSegment: null, endOffset: 0 } )
 			);
-		}
-		if ( linkRef.current ) {
-			linkRef.current.setSubscribe( [ name ], positions );
-		}
 	};
 
 	return { selectSource, setPaused, seek, sources };
