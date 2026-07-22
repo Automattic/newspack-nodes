@@ -92,7 +92,8 @@
 
 	button.button.is-paused {
 		background: var(--brass);
-		color: var(--ink);
+		// --on-accent, not --ink: dark skins' bright ink vanishes on brass.
+		color: var(--on-accent);
 		border-color: var(--brass);
 
 		&:hover:not(:disabled):not([disabled]) {
