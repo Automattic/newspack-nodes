@@ -86,7 +86,7 @@ export default function Jobs() {
 					{ __( 'No job activity yet.', 'newspack-nodes' ) }
 				</p>
 			) : (
-				<table className="nodes-jobs__table wp-list-table widefat striped">
+				<table className="nodes-jobs__table newspack-nodes-table">
 					<thead>
 						<tr>
 							<th>{ __( 'Job', 'newspack-nodes' ) }</th>

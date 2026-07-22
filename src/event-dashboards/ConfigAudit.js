@@ -2,10 +2,11 @@
  * Config Audit — the hub's change timeline over the durable settings.p0 log.
  *
  * A thin view over `useSettingsAuditStream` (full-replay) + the `settingsaudit:view`
- * model: a newest-first table of watched-option changes, each a Time (UTC) + the
- * option NAME. By design the log records option names ONLY — no value, actor, or
- * enrichment — so the table states that plainly. A text filter narrows by option
- * name; the count line reports matched / total.
+ * model: a newest-first table of watched-option changes, each a Time (UTC), the
+ * option NAME, and an Old → New value pair. The option name is recorded for every
+ * change; values ride only for options on the substrate's explicit allowlist, so
+ * non-allowlisted rows show the em dash — the note states that plainly. A text
+ * filter narrows by option name; the count line reports matched / total.
  */
 
 import { useState } from '@wordpress/element';
@@ -15,17 +16,31 @@ import { useNodeState } from '../runtime/react';
 import './styles/config-audit.scss';
 
 const VIEW_NODE = 'settingsaudit:view';
+const EM_DASH = '—';
 
 // UTC HH:MM:SS, prefixed with the UTC date only when the change wasn't today.
 function formatWhen( ts ) {
 	if ( ! ts ) {
-		return '—';
+		return EM_DASH;
 	}
 	const iso = new Date( ts * 1000 ).toISOString(); // YYYY-MM-DDTHH:MM:SS.sssZ
 	const date = iso.slice( 0, 10 );
 	const time = iso.slice( 11, 19 );
 	const today = new Date().toISOString().slice( 0, 10 );
 	return date === today ? time : `${ date } ${ time }`;
+}
+
+// Mono value cell: the excerpt (title = full text), em dash when absent.
+function valueCell( modifier, value ) {
+	const present = 'string' === typeof value && '' !== value;
+	return (
+		<td
+			className={ `nodes-config-audit__value ${ modifier }` }
+			title={ present ? value : undefined }
+		>
+			{ present ? value : EM_DASH }
+		</td>
+	);
 }
 
 /**
@@ -91,7 +106,7 @@ export default function ConfigAudit() {
 
 			<p className="nodes-config-audit__note">
 				{ __(
-					'Option names only — values are never logged.',
+					'Values are recorded only for allowlisted options; other changes record the option name only.',
 					'newspack-nodes'
 				) }
 			</p>
@@ -109,11 +124,13 @@ export default function ConfigAudit() {
 						  ) }
 				</p>
 			) : (
-				<table className="nodes-config-audit__table wp-list-table widefat striped">
+				<table className="nodes-config-audit__table newspack-nodes-table">
 					<thead>
 						<tr>
 							<th>{ __( 'Time (UTC)', 'newspack-nodes' ) }</th>
 							<th>{ __( 'Option', 'newspack-nodes' ) }</th>
+							<th>{ __( 'Old', 'newspack-nodes' ) }</th>
+							<th>{ __( 'New', 'newspack-nodes' ) }</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -125,6 +142,14 @@ export default function ConfigAudit() {
 								<td className="nodes-config-audit__option">
 									{ row.option }
 								</td>
+								{ valueCell(
+									'nodes-config-audit__old',
+									row.old
+								) }
+								{ valueCell(
+									'nodes-config-audit__new',
+									row.new
+								) }
 							</tr>
 						) ) }
 					</tbody>

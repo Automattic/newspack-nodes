@@ -32,6 +32,48 @@ describe( 'SettingsAuditViewNode', () => {
 		expect( entries[ 0 ].ts ).toBe( 1700000002 );
 	} );
 
+	it( 'sorts newest-first by ts even when frames arrive out of ts order', () => {
+		const v = new SettingsAuditViewNode();
+		v.fill( settingsMsg( { ts: 100, option: 'newspack_a' } ) );
+		v.fill( settingsMsg( { ts: 96, option: 'newspack_b' } ) );
+		v.fill( settingsMsg( { ts: 98, option: 'newspack_c' } ) );
+		expect( v.snapshot().map( ( e ) => e.ts ) ).toEqual( [ 100, 98, 96 ] );
+	} );
+
+	it( 'breaks a ts tie by arrival seq, newest arrival first', () => {
+		const v = new SettingsAuditViewNode();
+		v.fill( settingsMsg( { ts: 500, option: 'newspack_first' } ) );
+		v.fill( settingsMsg( { ts: 500, option: 'newspack_second' } ) );
+		expect( v.snapshot().map( ( e ) => e.option ) ).toEqual( [
+			'newspack_second',
+			'newspack_first',
+		] );
+	} );
+
+	it( 'carries optional old/new value excerpts onto the entry', () => {
+		const v = new SettingsAuditViewNode();
+		const m = newMessage();
+		m[ TYPE ] = TM_STRUCT;
+		m[ TIMESTAMP ] = 1700000000;
+		m[ VALUE ] = {
+			option: 'newspack_nodes_num_partitions',
+			old: '4',
+			new: '16',
+		};
+		v.fill( m );
+		const entry = v.snapshot()[ 0 ];
+		expect( entry.old ).toBe( '4' );
+		expect( entry.new ).toBe( '16' );
+	} );
+
+	it( 'leaves old/new undefined for a name-only frame', () => {
+		const v = new SettingsAuditViewNode();
+		v.fill( settingsMsg( { option: 'newspack_nameonly' } ) );
+		const entry = v.snapshot()[ 0 ];
+		expect( entry.old ).toBeUndefined();
+		expect( entry.new ).toBeUndefined();
+	} );
+
 	it( 'does NOT dedupe: the same option changed twice yields two rows', () => {
 		const v = new SettingsAuditViewNode();
 		v.fill( settingsMsg( { ts: 1700000010, option: 'newspack_gamma' } ) );

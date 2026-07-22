@@ -85,6 +85,38 @@
 	}
 }
 
+// Canonical themed dashboard table. Replaces the WP-core
+// `.wp-list-table.widefat.striped` trio, which hardcodes a light surface that
+// ignores the --paper/--ink theme tokens (so it renders light under a dark skin).
+// One class, applied verbatim; per-table BEM modifiers keep their column bits.
+.newspack-nodes-table {
+	width: 100%;
+	border-collapse: collapse;
+	background: var(--paper);
+	border: 1px solid var(--paper-shadow);
+	font-size: 13px;
+
+	th,
+	td {
+		padding: $space-sm 10px;
+		text-align: left;
+		border-bottom: 1px solid var(--paper-shadow);
+	}
+
+	th {
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	td {
+		color: var(--ink);
+	}
+
+	tbody tr:nth-child(odd) {
+		background: var(--paper-2);
+	}
+}
+
 // Stats grid
 .newspack-nodes-stats-grid {
 	display: grid;
