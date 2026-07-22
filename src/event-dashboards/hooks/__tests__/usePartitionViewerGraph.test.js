@@ -1,13 +1,13 @@
 /**
- * useRawLogsGraph tests — the Raw Logs dashboard graph clipped onto the
+ * usePartitionViewerGraph tests — the Partition Viewer dashboard graph clipped onto the
  * substrate's canonical rule-#2 backbone (`_command_interpreter → _router`) via
- * a SINGLE `RemoteLink` node plus the single `rawlogs:view` view-model node.
+ * a SINGLE `RemoteLink` node plus the single `partition:view` view-model node.
  *
  * RemoteLink composes an UNNAMED per-link SseIn (held as `link.sseIn`, NOT
  * registered in Core — no canvas churn) and SHARES the reserved-name `_http`
  * (HttpOut) + `_heartbeat` (Heartbeat) singletons, wiring the `connected → slot`
- * bridge to that shared heartbeat. The bespoke `rawlogs:route` /
- * `rawlogs:transform` nodes are gone — envelope→row shaping is inlined into the
+ * bridge to that shared heartbeat. The bespoke `partition:route` /
+ * `partition:transform` nodes are gone — envelope→row shaping is inlined into the
  * view itself.
  *
  * EventSource is faked via `global.EventSource`; SseInNode's connection logic
@@ -66,16 +66,16 @@ beforeEach( () => {
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 } );
 
-import { useRawLogsGraph } from '../useRawLogsGraph';
+import { usePartitionViewerGraph } from '../usePartitionViewerGraph';
 
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
-const LINK = 'rawlogs:link';
+const LINK = 'partition:link';
 // SseIn is UNNAMED (link.sseIn); HttpOut + Heartbeat are shared singletons.
 const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
-const VIEW = 'rawlogs:view';
-const TEE = 'rawlogs:stream';
+const VIEW = 'partition:view';
+const TEE = 'partition:stream';
 
 // CommandClient double: postBatch returns reply Messages addressed along FROM.
 function makeFakeClient( payloadByVerb = {} ) {
@@ -122,12 +122,14 @@ function connectedEnvelope( { pid = 4242, slot = 3 } = {} ) {
 }
 
 function mountGraph( client ) {
-	return renderHook( () => useRawLogsGraph( { commandClient: client } ) );
+	return renderHook( () =>
+		usePartitionViewerGraph( { commandClient: client } )
+	);
 }
 
 const oneLogReply = () => [ { key: 'firehose.p0', label: 'firehose.p0' } ];
 
-describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
+describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	test( 'mounts the backbone + one RemoteLink (composing three children) + the view', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
@@ -140,7 +142,7 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		// The composed SseIn is UNNAMED — held on the link, never registered.
 		const link = Core.node( LINK );
 		expect( link.sseIn ).toBeTruthy();
-		expect( Core.node( 'rawlogs:link:sse-in' ) ).toBeNull();
+		expect( Core.node( 'partition:link:sse-in' ) ).toBeNull();
 		// HttpOut + Heartbeat are SHARED singletons sinking into the backbone.
 		for ( const name of [ HTTP, HEARTBEAT ] ) {
 			const node = Core.node( name );
@@ -160,11 +162,11 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
 	} );
 
-	test( 'does NOT mount rawlogs:route or rawlogs:transform (chain collapsed into view)', async () => {
+	test( 'does NOT mount partition:route or partition:transform (chain collapsed into view)', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		expect( Core.node( 'rawlogs:route' ) ).toBeNull();
-		expect( Core.node( 'rawlogs:transform' ) ).toBeNull();
+		expect( Core.node( 'partition:route' ) ).toBeNull();
+		expect( Core.node( 'partition:transform' ) ).toBeNull();
 	} );
 
 	test( 'inserts an inspectable Tee on the stream edge: link → tee → view', async () => {
@@ -271,7 +273,7 @@ describe( 'useRawLogsGraph — exospine + RemoteLink wiring', () => {
 	} );
 } );
 
-describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
+describe( 'usePartitionViewerGraph — end-to-end routing through the exospine', () => {
 	test( 'a delivered log envelope routes composed sse-in → view (shaped inline)', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
@@ -293,7 +295,7 @@ describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
 	} );
 } );
 
-describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
+describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 	test( 'a `connected` envelope populates heartbeat.slot', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
@@ -345,7 +347,7 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 	} );
 } );
 
-describe( 'useRawLogsGraph — teardown', () => {
+describe( 'usePartitionViewerGraph — teardown', () => {
 	test( 'unmount tears down the RemoteLink + shared singletons + the backbone and closes the EventSource', async () => {
 		const { unmount } = mountGraph(
 			makeFakeClient( { list_logs: oneLogReply() } )
@@ -368,7 +370,7 @@ describe( 'useRawLogsGraph — teardown', () => {
 	} );
 } );
 
-describe( 'useRawLogsGraph — control callbacks', () => {
+describe( 'usePartitionViewerGraph — control callbacks', () => {
 	test( 'selectLog re-subscribes the EventSource and selects in the view', async () => {
 		const { result } = mountGraph(
 			makeFakeClient( { list_logs: oneLogReply() } )
@@ -393,6 +395,60 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+	} );
+
+	test( 'fetchLogStatus resolves a log_status reply addressed to raw-logs', async () => {
+		const client = makeFakeClient( {
+			list_logs: oneLogReply(),
+			log_status: {
+				log_id: 'firehose.p0',
+				segments: [
+					{ id: 4, size: 100 },
+					{ id: 5, size: 200 },
+				],
+				segment_count: 2,
+				total_size: 300,
+			},
+		} );
+		const { result } = mountGraph( client );
+		await act( async () => {} );
+		let status;
+		await act( async () => {
+			status = await result.current.fetchLogStatus( 'firehose.p0' );
+		} );
+		const statusMsg = client.batches
+			.flat()
+			.find( ( m ) => 'log_status' === m[ VALUE ]?.name );
+		expect( statusMsg[ TO ] ).toBe( 'raw-logs' );
+		expect( statusMsg[ VALUE ].arguments ).toEqual( [ 'firehose.p0' ] );
+		expect( status.segments ).toEqual( [
+			{ id: 4, size: 100 },
+			{ id: 5, size: 200 },
+		] );
+	} );
+
+	test( 'seek re-subscribes the stream at the given positions seed', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		const before = FakeEventSource.last;
+		act( () =>
+			result.current.seek( 'firehose.p0', {
+				'firehose.p0': { segment: 5, offset: 0 },
+			} )
+		);
+		expect( before.closed ).toBe( true );
+		const url = FakeEventSource.last.url;
+		expect( url ).toContain( 'positions=' );
+		const positions = JSON.parse(
+			decodeURIComponent(
+				url.split( 'positions=' )[ 1 ].split( '&' )[ 0 ]
+			)
+		);
+		expect( positions ).toEqual( {
+			'firehose.p0': { segment: 5, offset: 0 },
+		} );
 	} );
 
 	test( 'a graphGeneration bump rebuilds the graph nodes fresh (backbone preserved)', async () => {
@@ -422,7 +478,7 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		mountExospine();
 		const client = makeFakeClient( { list_logs: oneLogReply() } );
 		const { result } = renderHook( () => {
-			const graph = useRawLogsGraph( { commandClient: client } );
+			const graph = usePartitionViewerGraph( { commandClient: client } );
 			const view = useNodeState( VIEW, 'view' );
 			return { graph, view };
 		} );
@@ -443,7 +499,7 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 	} );
 } );
 
-describe( 'useRawLogsGraph — visibility-gated streaming', () => {
+describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 	const setVisibility = ( state ) => {
 		Object.defineProperty( document, 'visibilityState', {
 			value: state,

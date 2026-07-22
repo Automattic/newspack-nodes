@@ -4,7 +4,7 @@
  * Aggregates observed counts into per-second buckets over a sliding window
  * (O(1) per add via a running total — no O(n) window scan), divides the window
  * total by the window length to get an average rate, then low-pass filters that
- * with an exponential moving average. This is the smoothing the Raw Logs
+ * with an exponential moving average. This is the smoothing the Partition Viewer
  * lines/s readout uses; the overlay's live I/O counters share it so the two
  * read the same way and can't drift.
  *

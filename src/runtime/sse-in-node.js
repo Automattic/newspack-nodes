@@ -38,6 +38,9 @@ import {
 // ID is the `segment:offset:length` breadcrumb; FROM carries the producer path.
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
+// Default REST route opened; RemoteLink overrides it for /log/stream.
+const DEFAULT_STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
+
 // Heartbeat-timeout watchdog: force a fresh stream after STALE + GRACE silence.
 const HEARTBEAT_CADENCE_MS = 2000;
 const STALE_AFTER_MS = HEARTBEAT_CADENCE_MS * 3;
@@ -49,6 +52,8 @@ export class SseInNode extends Node {
 	constructor() {
 		super();
 		this.subscribe = [];
+		// REST route opened; /log/stream mirrors /messages/stream on the wire.
+		this.endpoint = DEFAULT_STREAM_ENDPOINT;
 		// Empty falls back to the localized global (see the getters below).
 		this._baseUrl = '';
 		this._nonce = '';
@@ -104,7 +109,7 @@ export class SseInNode extends Node {
 			);
 		}
 		let url =
-			`${ this.baseUrl }newspack-nodes/v1/messages/stream` +
+			`${ this.baseUrl }${ this.endpoint }` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
 			`&_wpnonce=${ this.nonce }`;
 		if ( this.positions && Object.keys( this.positions ).length > 0 ) {

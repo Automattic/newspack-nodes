@@ -18,9 +18,9 @@
  *     redundant re-render never tears a live seek down into a tail reconnect
  *     (nor re-runs a pre-connect side effect like the gyroscope view-clear).
  *
- * Raw Logs deliberately does NOT use this hook: its `list_logs`-driven,
- * user-selected-log `setSubscribe([selected], …)` flow is not visibility-gated
- * connect and does not fit the `mountNodes`/`onConnect` shape.
+ * The Partition/Log Viewers deliberately do NOT use this hook: their
+ * catalog-driven, user-selected `setSubscribe([selected], …)` flow is not
+ * visibility-gated connect and does not fit the `mountNodes`/`onConnect` shape.
  *
  * @param {Object}   o
  * @param {Function} o.mountNodes `(interpreter) => { link, view? }` — construct the

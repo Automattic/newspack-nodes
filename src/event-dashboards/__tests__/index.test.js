@@ -1,6 +1,6 @@
 /**
  * event-dashboards/index — registers the hub DevTools tabs (side-effect import
- * of `./tabs`) and mounts no standalone React tree. Raw Logs is now a hub tab,
+ * of `./tabs`) and mounts no standalone React tree. Partition Viewer is now a hub tab,
  * so the former `#newspack-nodes-rawlogs` standalone mount is gone. Assert the
  * entry never calls createRoot regardless of stray DOM nodes.
  */
@@ -36,13 +36,13 @@ describe( 'event-dashboards/index', () => {
 		expect( createRootMock ).not.toHaveBeenCalled();
 	} );
 
-	it( 'registers the raw-logs hub tab as a side effect of importing', () => {
+	it( 'registers the partition-viewer hub tab as a side effect of importing', () => {
 		require( '../index' );
 		const {
 			getDevtoolsTabs,
 		} = require( '../../shared/devtools/tabRegistry' );
 		const tab = getDevtoolsTabs( 'hub' ).find(
-			( t ) => t.id === 'raw-logs'
+			( t ) => t.id === 'partition-viewer'
 		);
 		expect( tab ).toBeTruthy();
 	} );

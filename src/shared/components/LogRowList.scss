@@ -1,0 +1,77 @@
+/**
+ * LogRowList — shared DOM-virtualized log pane.
+ *
+ * Themed with the --paper/--ink token families (with literal fallbacks) so the
+ * pane flips light/dark with the skin — the light-theme the canvas renderer
+ * could never give. Consumers apply `.newspack-nodes-log-row` to each row so its
+ * height matches the JS `rowHeight` (via the `--log-row-height` custom property
+ * the list sets on the container), keeping virtualization aligned.
+ */
+
+.newspack-nodes-log-rows {
+	flex: 1;
+	overflow-y: scroll;
+	overflow-x: hidden;
+	background: var(--paper-2, #1e1e1e);
+	border: 1px solid var(--paper-shadow, #3a3a3a);
+	border-radius: 6px;
+	-webkit-overflow-scrolling: touch;
+
+	&::-webkit-scrollbar {
+		width: 8px;
+	}
+
+	&::-webkit-scrollbar-track {
+		background: var(--paper-3, #1e1e1e);
+		border-radius: 4px;
+	}
+
+	&::-webkit-scrollbar-thumb {
+		background: var(--paper-shadow, #3a3a3a);
+		border-radius: 4px;
+
+		&:hover {
+			background: var(--ink-3, #949494);
+		}
+	}
+}
+
+.newspack-nodes-log-rows__content {
+	display: flex;
+	flex-direction: column;
+	will-change: transform;
+}
+
+.newspack-nodes-log-rows__empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	min-height: 60px;
+	color: var(--ink-3, #949494);
+	font-size: 14px;
+	font-style: italic;
+}
+
+.newspack-nodes-log-row {
+	height: var(--log-row-height, 18px);
+	line-height: var(--log-row-height, 18px);
+	box-sizing: border-box;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+	white-space: pre;
+	overflow: hidden;
+	color: var(--ink, #e0e0e0);
+
+	&.row-odd {
+		background: var(--paper-3, #2a2a2a);
+	}
+
+	&.row-even {
+		background: var(--paper-2, #262626);
+	}
+
+	&:hover {
+		background: var(--paper-shadow, #30363d);
+	}
+}
