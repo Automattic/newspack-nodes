@@ -42,6 +42,7 @@ const SOURCES = [
 function registerViewFixture( {
 	selected = '',
 	paused = false,
+	mode = 'live',
 	lines = [],
 } = {} ) {
 	const node = {
@@ -75,6 +76,7 @@ function registerViewFixture( {
 		selected,
 		paused,
 		connectionError: false,
+		mode,
 	} );
 	Core.nodes.set( 'logviewer:view', node );
 	return node;

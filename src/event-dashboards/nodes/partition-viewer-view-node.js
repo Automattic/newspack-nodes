@@ -1,11 +1,13 @@
 import { Node } from '../../runtime/node';
-import { FROM, KEY, VALUE } from '../../runtime/message';
+import { FROM, KEY, VALUE, ID } from '../../runtime/message';
 import { PendingReplies } from '../../shared/pendingReplies';
 import { RateSmoother } from '../rateSmoother';
 
 const MAX_LINES = 100000;
 const MAX_LINE_LENGTH = 1000;
 const PARTITION_RE = /\.p(\d+)$/;
+// Each record's Message ID position breadcrumb: `segment:offset:length`.
+const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
 /**
  * `partition:view` — owns the Partition Viewer view model.
@@ -59,6 +61,13 @@ export class PartitionViewerViewNode extends Node {
 		this.selected = '';
 		this.paused = false;
 		this.connectionError = false;
+		// Seek/live: 'live' tails the head, 'replay' browses until caught up.
+		this.mode = 'live';
+		this.lastReceivedSegment = null;
+		this.lastReceivedOffset = 0;
+		// Live boundary captured at seek; replay catches up on reaching it.
+		this.endSegment = null;
+		this.endOffset = 0;
 		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
 		this.replies = new PendingReplies();
 	}
@@ -92,6 +101,10 @@ export class PartitionViewerViewNode extends Node {
 	_control( value ) {
 		if ( 'select' === value.action ) {
 			this.selected = value.log;
+			// A fresh log tails live from a clean slate — drop browse cursor.
+			this.mode = 'live';
+			this.endSegment = null;
+			this.lastReceivedSegment = null;
 			this._clear();
 		} else if ( 'pause' === value.action ) {
 			this.paused = value.paused;
@@ -102,6 +115,14 @@ export class PartitionViewerViewNode extends Node {
 			}
 		} else if ( 'connection' === value.action ) {
 			this.connectionError = !! value.connectionError;
+		} else if ( 'browse' === value.action ) {
+			// Replaying: capture the live boundary to detect catch-up against.
+			this.mode = 'replay';
+			this.endSegment = value.endSegment ?? null;
+			this.endOffset = value.endOffset ?? 0;
+		} else if ( 'follow' === value.action ) {
+			this.mode = 'live';
+			this.endSegment = null;
 		}
 	}
 
@@ -120,7 +141,38 @@ export class PartitionViewerViewNode extends Node {
 			selected: this.selected,
 			paused: this.paused,
 			connectionError: this.connectionError,
+			mode: this.mode,
+			lastReceivedSegment: this.lastReceivedSegment,
 		} );
+	}
+
+	// Track the position breadcrumb; publishes on segment/catch-up change only.
+	_trackPosition( message ) {
+		const id = 'string' === typeof message[ ID ] ? message[ ID ] : '';
+		const match = ID_POSITION_RE.exec( id );
+		if ( ! match ) {
+			return;
+		}
+		const segment = Number( match[ 1 ] );
+		const offsetEnd = Number( match[ 2 ] ) + Number( match[ 3 ] );
+		const segmentChanged = segment !== this.lastReceivedSegment;
+		this.lastReceivedSegment = segment;
+		this.lastReceivedOffset = offsetEnd;
+		// Caught up to the seek boundary: past it is live tail → flip live.
+		let modeChanged = false;
+		if (
+			'replay' === this.mode &&
+			null !== this.endSegment &&
+			( segment > this.endSegment ||
+				( segment === this.endSegment && offsetEnd >= this.endOffset ) )
+		) {
+			this.mode = 'live';
+			this.endSegment = null;
+			modeChanged = true;
+		}
+		if ( segmentChanged || modeChanged ) {
+			this._publish();
+		}
 	}
 
 	// Shape a raw SSE log envelope into a row and append it to the buffer.
@@ -129,6 +181,7 @@ export class PartitionViewerViewNode extends Node {
 		if ( value === '' || value === null || value === undefined ) {
 			return;
 		}
+		this._trackPosition( message );
 		let line = 'string' === typeof value ? value : JSON.stringify( value );
 		const key = message[ KEY ];
 		if ( 'string' === typeof key && '' !== key ) {

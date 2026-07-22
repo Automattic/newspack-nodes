@@ -3,6 +3,7 @@ import {
 	KEY,
 	VALUE,
 	TYPE,
+	ID,
 	TM_BYTESTREAM,
 	TM_STRUCT,
 	newMessage,
@@ -150,7 +151,9 @@ test( 'the published model carries only { connectionError, logs, selected, pause
 	);
 	expect( Object.keys( v.setStateCache.view ).sort() ).toEqual( [
 		'connectionError',
+		'lastReceivedSegment',
 		'logs',
+		'mode',
 		'paused',
 		'selected',
 	] );
@@ -318,4 +321,70 @@ test( 'fill increments the node counter so the overlay shows throughput', () => 
 
 test( 'declares has_target:false (terminal receiver — no out-port)', () => {
 	expect( PartitionViewerViewNode.nodeSchema().has_target ).toBe( false );
+} );
+
+// --- Seek/live feedback: breadcrumb tracking + catch-up (Part B). ---
+
+// An envelope carrying a `segment:offset:length` ID position breadcrumb.
+function envelopeWithId( id, value = 'line', from = 'firehose.p0' ) {
+	const m = envelopeMsg( { from, value } );
+	m[ ID ] = id;
+	return m;
+}
+
+test( 'tracks the last-received segment from the ID breadcrumb and publishes it', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( envelopeWithId( '7:120:40' ) );
+	expect( v.lastReceivedSegment ).toBe( 7 );
+	expect( v.setStateCache.view.lastReceivedSegment ).toBe( 7 );
+} );
+
+test( 'does not re-publish while the received segment is unchanged (no per-record storm)', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( envelopeWithId( '7:0:40' ) ); // publishes: null → segment 7
+	const spy = jest.spyOn( v, 'setState' );
+	v.fill( envelopeWithId( '7:40:40' ) );
+	v.fill( envelopeWithId( '7:80:40' ) );
+	expect( spy ).not.toHaveBeenCalled();
+} );
+
+test( 'a browse control puts the view into replay mode', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	expect( v.mode ).toBe( 'replay' );
+	expect( v.setStateCache.view.mode ).toBe( 'replay' );
+} );
+
+test( 'flips to live when a replayed record reaches the captured end position', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill( envelopeWithId( '5:100:20' ) ); // behind the end segment
+	expect( v.mode ).toBe( 'replay' );
+	v.fill( envelopeWithId( '9:460:40' ) ); // 460 + 40 = 500 >= 500 → caught up
+	expect( v.mode ).toBe( 'live' );
+	expect( v.setStateCache.view.mode ).toBe( 'live' );
+} );
+
+test( 'stays in replay until the end position is reached', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill( envelopeWithId( '9:100:20' ) ); // 120 < 500
+	expect( v.mode ).toBe( 'replay' );
+} );
+
+test( 'follow returns the view to live', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill( controlMsg( { action: 'follow' } ) );
+	expect( v.mode ).toBe( 'live' );
+} );
+
+test( 'select resets mode to live and clears the last-received segment', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill( envelopeWithId( '5:0:20' ) );
+	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
+	expect( v.mode ).toBe( 'live' );
+	expect( v.lastReceivedSegment ).toBe( null );
+	expect( v.setStateCache.view.lastReceivedSegment ).toBe( null );
 } );

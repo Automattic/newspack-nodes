@@ -1,3 +1,4 @@
+/* global requestAnimationFrame */
 /**
  * Dumper node tests — the `_output` node. `_router` delivers typed-command
  * replies as POSITIONAL Messages; the Dumper renders each into the transcript,
@@ -48,6 +49,9 @@ function makeDumper( debugLevel = 0 ) {
 	const debugLevelRef = { current: debugLevel };
 	const dumper = new DumperNode();
 	dumper.debugLevelRef = debugLevelRef;
+	// Synchronous publish scheduler so a single fill() flushes in-line — the
+	// coalescing itself is proven in the flood suite with a manual scheduler.
+	dumper._schedule = ( cb ) => cb();
 	return { dumper, debugLevelRef };
 }
 
@@ -442,6 +446,99 @@ describe( 'Dumper — captureNextReply (one-shot command-reply capture)', () => 
 	} );
 } );
 
+describe( 'Dumper — flood coalescing (connected-to-firehose crash fix)', () => {
+	// A manual scheduler: capture the flush callback instead of running it, so
+	// the test controls exactly when (if) a publish happens.
+	function manualDumper() {
+		const debugLevelRef = { current: 0 };
+		const dumper = new DumperNode();
+		dumper.debugLevelRef = debugLevelRef;
+		let pending = null;
+		dumper._schedule = ( cb ) => {
+			pending = cb;
+			return 1;
+		};
+		dumper._cancelSchedule = () => {
+			pending = null;
+		};
+		return {
+			dumper,
+			flush: () => pending && pending(),
+			pending: () => pending,
+		};
+	}
+
+	it( 'coalesces 50k stream messages into ONE throttled publish, not one per message', () => {
+		const { dumper, flush, pending } = manualDumper();
+		let renders = 0;
+		dumper.register( 'transcript', 'test/counter', () => {
+			renders++;
+			return true;
+		} );
+		renders = 0;
+		for ( let i = 0; i < 50000; i++ ) {
+			dumper.fill( msg( TM_BYTESTREAM, `line-${ i }` ) );
+		}
+		// No per-message React render / localStorage write: nothing published yet.
+		expect( renders ).toBe( 0 );
+		// Exactly one flush is queued regardless of message count.
+		expect( pending() ).toBeInstanceOf( Function );
+		flush();
+		expect( renders ).toBe( 1 );
+	} );
+
+	it( 'keeps the transcript bounded under a 50k flood', () => {
+		const { dumper, flush } = manualDumper();
+		for ( let i = 0; i < 50000; i++ ) {
+			dumper.fill( msg( TM_BYTESTREAM, `line-${ i }` ) );
+		}
+		flush();
+		expect( dumper.setStateCache.transcript.length ).toBeLessThanOrEqual(
+			TRANSCRIPT_MAX + 1
+		);
+	} );
+
+	it( 'surfaces a rate-limited drop notice counting the flooded lines', () => {
+		const { dumper, flush } = manualDumper();
+		const total = 50000;
+		for ( let i = 0; i < total; i++ ) {
+			dumper.fill( msg( TM_BYTESTREAM, `line-${ i }` ) );
+		}
+		flush();
+		const t = dumper.setStateCache.transcript;
+		const notice = t[ t.length - 1 ];
+		expect( notice.kind ).toBe( 'info' );
+		expect( notice.text ).toMatch(
+			new RegExp( String( total - TRANSCRIPT_MAX ) )
+		);
+	} );
+
+	it( 'defers the publish to the animation-frame scheduler when none is injected', async () => {
+		const dumper = new DumperNode();
+		let renders = 0;
+		dumper.register( 'transcript', 'test/raf', () => {
+			renders++;
+			return true;
+		} );
+		dumper.fill( msg( TM_BYTESTREAM, 'frame' ) );
+		// Deferred: not published synchronously in the fill() call.
+		expect( renders ).toBe( 0 );
+		await new Promise( ( resolve ) =>
+			requestAnimationFrame( () => resolve() )
+		);
+		expect( renders ).toBe( 1 );
+		expect( dumper.setStateCache.transcript[ 0 ].text ).toBe( 'frame' );
+	} );
+
+	it( 'cancels a pending publish on removeNode (no post-teardown flush)', () => {
+		const { dumper, flush } = manualDumper();
+		dumper.fill( msg( TM_BYTESTREAM, 'pending' ) );
+		dumper.removeNode();
+		// After teardown, running the captured callback must be a no-op.
+		expect( () => flush() ).not.toThrow();
+	} );
+} );
+
 describe( 'Dumper — no-arg ctor + public-property dep', () => {
 	it( 'constructs with no args; debugLevelRef defaults to a safe ref', () => {
 		const dumper = new DumperNode();
@@ -460,6 +557,7 @@ describe( 'Dumper — no-arg ctor + public-property dep', () => {
 
 	it( 'accepts the debugLevelRef as a public property after construction', () => {
 		const dumper = new DumperNode();
+		dumper._schedule = ( cb ) => cb();
 		const debugLevelRef = { current: 2 };
 		dumper.debugLevelRef = debugLevelRef;
 		// Level 2 replaces the curated render with the full envelope dump.
@@ -471,6 +569,7 @@ describe( 'Dumper — no-arg ctor + public-property dep', () => {
 
 	it( 'still renders the transcript when no debugLevelRef is supplied', () => {
 		const dumper = new DumperNode();
+		dumper._schedule = ( cb ) => cb();
 		dumper.fill( msg( TM_BYTESTREAM, 'hello' ) );
 		expect( dumper.setStateCache.transcript[ 0 ] ).toEqual(
 			expect.objectContaining( { kind: 'recv', text: 'hello' } )

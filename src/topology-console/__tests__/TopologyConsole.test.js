@@ -1,4 +1,4 @@
-/* global globalThis */
+/* global globalThis, requestAnimationFrame */
 /**
  * TopologyConsole tests. useConsoleGraph is mocked to build the REAL receive
  * graph (Router → Dumper/_output, Metadata/_metadata, Uptime/_uptime) plus a
@@ -713,12 +713,17 @@ describe( 'TopologyConsole boot', () => {
 		__resetExpandedIncludesCacheForTests();
 	} );
 
-	// Simulate an SSE reply; the 2nd act() drains React's deferred batch.
+	// Simulate an SSE reply; the 2nd act() drains React's deferred batch, then
+	// flush the animation frame the Dumper coalesces data-plane frames onto.
 	const fireMsg = async ( opts ) => {
 		await act( async () => {
 			Core.node( names.ROUTER ).fill( posMsg( opts ) );
 		} );
-		await act( async () => {} );
+		await act( async () => {
+			await new Promise( ( resolve ) =>
+				requestAnimationFrame( () => resolve() )
+			);
+		} );
 	};
 
 	// Publish a dump_metadata snapshot so the layout graph is ready (≥1 node).
@@ -1303,13 +1308,22 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'transcript caps at TRANSCRIPT_MAX entries', async () => {
 		const { container } = render( <TopologyConsole /> );
-		await act( async () => {
-			for ( let i = 0; i < 250; i++ ) {
-				Core.node( names.ROUTER ).fill(
-					posMsg( { type: TM_BYTESTREAM, value: `msg-${ i }` } )
+		// Two sub-cap batches (125 < 200 each) across frames cap cleanly to the
+		// newest 200 with no flood drop (>cap-per-frame drops are unit-tested).
+		const fireBatch = async ( from, to ) => {
+			await act( async () => {
+				for ( let i = from; i < to; i++ ) {
+					Core.node( names.ROUTER ).fill(
+						posMsg( { type: TM_BYTESTREAM, value: `msg-${ i }` } )
+					);
+				}
+				await new Promise( ( resolve ) =>
+					requestAnimationFrame( () => resolve() )
 				);
-			}
-		} );
+			} );
+		};
+		await fireBatch( 0, 125 );
+		await fireBatch( 125, 250 );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
