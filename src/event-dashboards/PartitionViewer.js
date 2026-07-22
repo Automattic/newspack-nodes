@@ -29,6 +29,7 @@ import { usePartitionViewerGraph } from './hooks/usePartitionViewerGraph';
 import LogRowList from '@newspack-nodes/shared/components/LogRowList';
 import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import { endPosition } from '../shared/nodes/seekTracker';
 import useLogPositions, {
 	segmentPositions,
 	replayPositions,
@@ -51,22 +52,6 @@ const EMPTY_VIEW = {
 	connectionError: false,
 	mode: 'live',
 	lastReceivedSegment: null,
-};
-
-// The live boundary (newest segment id + its size) replay catch-up compares to.
-const endPosition = ( segments ) => {
-	let segment = null;
-	let offset = 0;
-	for ( const s of segments ) {
-		if (
-			'number' === typeof s?.id &&
-			( null === segment || s.id > segment )
-		) {
-			segment = s.id;
-			offset = s.size ?? 0;
-		}
-	}
-	return null === segment ? null : { segment, offset };
 };
 
 // Compact byte size for the segment sidebar meta column.
