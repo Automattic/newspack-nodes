@@ -40,8 +40,9 @@ class Settings_Schema {
 			return self::$schema;
 		}
 
-		$storage = 'newspack_nodes_storage_section';
-		$remote  = 'newspack_nodes_remote_section';
+		$storage  = 'newspack_nodes_storage_section';
+		$remote   = 'newspack_nodes_remote_section';
+		$alerting = 'newspack_nodes_alerting_section';
 
 		// Literal prefix so a schema-building worker never autoloads Admin.
 		self::$schema = new Schema(
@@ -172,6 +173,37 @@ class Settings_Schema {
 					render: [ Admin::class, 'remote_min_lifetime_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
+				// Fleet-alert thresholds; read live by Alerts, no restart.
+				new Field(
+					key: 'alert_lag_threshold',
+					type: 'int',
+					label: static fn(): string => \__( 'Consumer Lag Threshold', 'newspack-nodes' ),
+					section: $alerting,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
+					render: [ Admin::class, 'alert_lag_threshold_callback' ],
+					register_args: [ 'type' => 'integer', 'autoload' => false ],
+				),
+				new Field(
+					key: 'alert_deadletter_threshold',
+					type: 'int',
+					label: static fn(): string => \__( 'Dead-letter Threshold', 'newspack-nodes' ),
+					section: $alerting,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
+					render: [ Admin::class, 'alert_deadletter_threshold_callback' ],
+					register_args: [ 'type' => 'integer', 'autoload' => false ],
+				),
+				new Field(
+					key: 'alert_emit_interval',
+					type: 'int',
+					label: static fn(): string => \__( 'Alert Emit Interval', 'newspack-nodes' ),
+					section: $alerting,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
+					render: [ Admin::class, 'alert_emit_interval_callback' ],
+					register_args: [ 'type' => 'integer', 'autoload' => false ],
+				),
 				// ui:false overlay; registering lets Save wipe the active set.
 				new Field(
 					key: 'topologies',
@@ -193,6 +225,10 @@ class Settings_Schema {
 				$remote  => [
 					'title'    => static fn(): string => \__( 'Remote Servers', 'newspack-nodes' ),
 					'callback' => [ Admin::class, 'remote_settings_section_callback' ],
+				],
+				$alerting => [
+					'title'    => static fn(): string => \__( 'Fleet Alerts', 'newspack-nodes' ),
+					'callback' => [ Admin::class, 'alerting_section_callback' ],
 				],
 			]
 		);

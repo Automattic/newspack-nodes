@@ -360,6 +360,18 @@ class Admin {
 		self::render_number( 'remote_min_lifetime', 3600, 0, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
 	}
 
+	public static function alert_lag_threshold_callback(): void {
+		self::render_number( 'alert_lag_threshold', 64 * 1024 * 1024, 0, 10737418240, \__( 'Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag.', 'newspack-nodes' ) );
+	}
+
+	public static function alert_deadletter_threshold_callback(): void {
+		self::render_number( 'alert_deadletter_threshold', 0, 0, 4096, \__( 'Warn when more than this many dead-letter segments are quarantined. 0 = warn on the first.', 'newspack-nodes' ) );
+	}
+
+	public static function alert_emit_interval_callback(): void {
+		self::render_number( 'alert_emit_interval', 300, 1, 86400, \__( 'Minimum seconds between alert-action emission bursts (rate limit).', 'newspack-nodes' ) );
+	}
+
 	/**
 	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
 	 * page enqueues it and its `host: 'hub'` tabs (Topology Manager + Raw Logs)
@@ -958,6 +970,9 @@ class Admin {
 
 	public static function remote_settings_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Storage geometry pushed to remote spokes (may differ from hub settings). Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
+	}
+	public static function alerting_section_callback(): void {
+		echo '<p>' . \esc_html__( 'Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each supervisor tick; no worker restart. Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
 	}
 
 	/**
