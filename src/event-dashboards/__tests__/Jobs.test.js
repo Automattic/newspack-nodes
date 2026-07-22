@@ -36,6 +36,15 @@ function model() {
 		handlers: {
 			'cron:films': {
 				handler: 'cron',
+				// Windowed totals differ from the newest cumulative record so a
+				// table still reading `latest` (the bug) is caught.
+				windowed: {
+					runs: 12,
+					errors: 5,
+					avgDurationMs: 210,
+					itemsOk: 60,
+					itemsErr: 9,
+				},
 				latest: {
 					runs: 4,
 					errors: 1,
@@ -52,6 +61,13 @@ function model() {
 			},
 			evtemplate: {
 				handler: 'evtemplate',
+				windowed: {
+					runs: 40,
+					errors: 0,
+					avgDurationMs: 55,
+					itemsOk: 40,
+					itemsErr: 0,
+				},
 				latest: {
 					runs: 9,
 					errors: 0,
@@ -68,16 +84,22 @@ function model() {
 			},
 			slowjob: {
 				handler: 'slowjob',
+				windowed: {
+					runs: 6,
+					errors: 0,
+					// Exercises formatMs's zero branch on the Avg column.
+					avgDurationMs: 0,
+					itemsOk: 6,
+					itemsErr: 0,
+				},
 				latest: {
 					runs: 1,
 					errors: 0,
-					// Exercises formatMs's zero + seconds branches.
-					avgDurationMs: 0,
 					avgQueueMs: 0,
 					itemsOk: 1,
 					itemsErr: 0,
 					lastTs: 0, // never-run sentinel → "-"
-					lastDurationMs: 1500,
+					lastDurationMs: 1500, // ≥1s → seconds branch
 					lastStatus: 'success',
 					lastMessage: 'Job completed successfully',
 				},
@@ -110,6 +132,18 @@ describe( 'Jobs', () => {
 		// Sub-second durations show ms; ≥1s shows seconds; a never-run job shows "-".
 		expect( getByText( '1.5s' ) ).toBeTruthy();
 		expect( getAllByText( '-' ).length ).toBeGreaterThanOrEqual( 1 );
+	} );
+
+	it( 'renders WINDOWED runs/failures totals, not the latest cumulative record', () => {
+		useNodeState.mockReturnValue( model() );
+		const { getByText, container } = render( <Jobs /> );
+		// cron:films: windowed runs = 12 (latest cumulative is 4).
+		expect( getByText( '12' ) ).toBeTruthy();
+		// cron:films: windowed failures = 5 (latest cumulative is 1).
+		const failing = container.querySelector(
+			'.nodes-jobs__failures.is-nonzero'
+		);
+		expect( failing.textContent ).toBe( '5' );
 	} );
 
 	it( 'shows an empty state when no jobs have run', () => {

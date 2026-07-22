@@ -2,11 +2,13 @@
  * Jobs — the hub's per-handler job-outcome board over the durable jobstats.p0 log.
  *
  * A thin view over `useJobstatsStream` (history mode → 24h replay) + the
- * `jobstats:view` model. Per job identity it shows the cumulative run counts, the
- * average + last durations, the last outcome (status badge + one-line message), and
- * when it last ran — plus two Tachikoma-style rate panels (runs/s, errors/s) rolled
- * up per handler from the same per-identity series. The batteries-included answer to
- * "are my background jobs running, and are they failing?".
+ * `jobstats:view` model. Per job identity it shows the 24h windowed run + failure
+ * totals (summed over the same series the charts plot, so worker recycles don't
+ * collapse the count to the latest generation's 1), the average + last durations,
+ * the last outcome (status badge + one-line message), and when it last ran — plus
+ * two Tachikoma-style rate panels (runs/s, errors/s) rolled up per handler from the
+ * same per-identity series. The batteries-included answer to "are my background jobs
+ * running, and are they failing?".
  */
 
 import { useMemo, useDeferredValue } from '@wordpress/element';
@@ -51,12 +53,12 @@ export default function Jobs() {
 		[ deferred ]
 	);
 
-	// Identity rows, worst-first (failing jobs surface at the top).
+	// Identity rows, worst-first by windowed failures (matching the column).
 	const rows = Object.entries( handlers )
 		.map( ( [ key, h ] ) => ( { key, ...h } ) )
 		.sort(
 			( a, b ) =>
-				b.latest.errors - a.latest.errors ||
+				b.windowed.errors - a.windowed.errors ||
 				a.key.localeCompare( b.key )
 		);
 
@@ -101,6 +103,7 @@ export default function Jobs() {
 					<tbody>
 						{ rows.map( ( row ) => {
 							const l = row.latest;
+							const w = row.windowed;
 							return (
 								<tr key={ row.key } data-job-key={ row.key }>
 									<td className="nodes-jobs__name">
@@ -108,19 +111,19 @@ export default function Jobs() {
 											{ row.key }
 										</span>
 									</td>
-									<td>{ formatCount( l.runs ) }</td>
+									<td>{ formatCount( w.runs ) }</td>
 									<td
 										className={
-											l.errors > 0
+											w.errors > 0
 												? 'nodes-jobs__failures is-nonzero'
 												: 'nodes-jobs__failures'
 										}
 									>
-										{ formatCount( l.errors ) }
+										{ formatCount( w.errors ) }
 									</td>
-									<td>{ formatMs( l.avgDurationMs ) }</td>
+									<td>{ formatMs( w.avgDurationMs ) }</td>
 									<td>{ formatMs( l.lastDurationMs ) }</td>
-									<td>{ formatMs( l.avgQueueMs ) }</td>
+									<td>{ formatMs( w.avgQueueMs ) }</td>
 									<td>
 										<span
 											className={ `nodes-jobs__status is-${ l.lastStatus }` }

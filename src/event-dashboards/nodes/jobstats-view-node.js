@@ -18,12 +18,17 @@ import {
  * `jobstats:view` — owns the Jobstats stream view model.
  *
  * Each inbound frame is one job identity's lean POSITIONAL record (the
- * `Jobstats_Record` layout); the snapshot instant is the Message TIMESTAMP. The
- * view accumulates, PER identity `KEY`, a bounded series of `{ ts, runsRate,
- * errorsRate, itemsRate }` DERIVED from consecutive cumulative counters (Δ/Δ ts) —
- * a worker restart (counter reset) or the first sample yields rate 0, never
- * negative — plus the LATEST cumulative + last-run detail for the per-handler
- * table. Shares ProbeStreamViewNode's ring/throttle/TTL machinery; supplies only
+ * `Jobstats_Record` layout); the snapshot instant is the Message TIMESTAMP. Per
+ * identity `KEY` the view folds each record into a bounded series carrying, per
+ * sample, both a per-second RATE the charts plot and the raw positive Δ the table
+ * sums into WINDOWED totals. The Δ rule (in `_delta`) is the single source both
+ * consume: a worker restart (counter reset, new < prior) or the first sample counts
+ * the NEW record's value — a recycled generation's runs=1 is one new run, never
+ * negative, never eaten — unlike TopicProbe's throughput rates, which zero on
+ * restart. Windowed totals (runs, errors, items, delta-weighted avg duration) are
+ * summed over the retained window in `_entryView`, so they shrink with the series as
+ * old samples prune. Last-run detail + newest cumulative come from the latest
+ * record. Shares ProbeStreamViewNode's ring/throttle/TTL machinery; supplies only
  * the KEY identity + the jobstats field mapping.
  *
  * @param {number} [maxSamples] Per-identity ring cap.
@@ -51,6 +56,9 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 				_lastRuns: null,
 				_lastErrors: null,
 				_lastItems: null,
+				_lastItemsErr: null,
+				_lastDuration: null,
+				_lastQueue: null,
 				_lastTs: 0,
 				_lastSeen: 0,
 			};
@@ -61,48 +69,84 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 
 		const runs = Number( value[ RUNS ] ) || 0;
 		const errors = Number( value[ ERRORS ] ) || 0;
-		const items = Number( value[ ITEMS_OK ] ) || 0;
-		// Latest cumulative + last-run detail (the table reads these verbatim).
+		const itemsOk = Number( value[ ITEMS_OK ] ) || 0;
+		const itemsErr = Number( value[ ITEMS_ERR ] ) || 0;
+		const durationMs = Number( value[ DURATION_MS ] ) || 0;
+		const queueMs = Number( value[ QUEUE_MS ] ) || 0;
+		// Newest-record cumulative + last-run detail (newest table columns).
 		c.runs = runs;
 		c.errors = errors;
-		c.durationMs = Number( value[ DURATION_MS ] ) || 0;
-		c.queueMs = Number( value[ QUEUE_MS ] ) || 0;
-		c.itemsOk = items;
-		c.itemsErr = Number( value[ ITEMS_ERR ] ) || 0;
+		c.durationMs = durationMs;
+		c.itemsOk = itemsOk;
+		c.itemsErr = itemsErr;
 		c.lastTs = Number( value[ LAST_TS ] ) || 0;
 		c.lastDurationMs = Number( value[ LAST_DURATION_MS ] ) || 0;
 		c.lastStatus = String( value[ LAST_STATUS ] || '' );
 		c.lastMessage = String( value[ LAST_MESSAGE ] || '' );
 
-		// Rates from consecutive records (Δ/Δts); a reset (Δ<0) → 0.
+		// Per-record rate (charts) + raw Δ (windowed totals) from one `_delta`.
 		const dt = ts > c._lastTs ? ts - c._lastTs : 0;
 		const runsRate = this._rate( c._lastRuns, runs, dt );
 		const errorsRate = this._rate( c._lastErrors, errors, dt );
-		const itemsRate = this._rate( c._lastItems, items, dt );
+		const itemsRate = this._rate( c._lastItems, itemsOk, dt );
+		const runsDelta = this._delta( c._lastRuns, runs );
+		const errorsDelta = this._delta( c._lastErrors, errors );
+		const itemsOkDelta = this._delta( c._lastItems, itemsOk );
+		const itemsErrDelta = this._delta( c._lastItemsErr, itemsErr );
+		const durationDelta = this._delta( c._lastDuration, durationMs );
+		const queueDelta = this._delta( c._lastQueue, queueMs );
 		c._lastRuns = runs;
 		c._lastErrors = errors;
-		c._lastItems = items;
+		c._lastItems = itemsOk;
+		c._lastItemsErr = itemsErr;
+		c._lastDuration = durationMs;
+		c._lastQueue = queueMs;
 		c._lastTs = ts;
 
-		c.series.push( { ts, runsRate, errorsRate, itemsRate } );
+		c.series.push( {
+			ts,
+			runsRate,
+			errorsRate,
+			itemsRate,
+			runsDelta,
+			errorsDelta,
+			itemsOkDelta,
+			itemsErrDelta,
+			durationDelta,
+			queueDelta,
+		} );
 		this._capSeries( c.series );
 	}
 
-	// Δcounter/Δts, never negative; a null prior or a reset yields 0.
+	/**
+	 * Positive counter Δ — the single source of the reset rule for BOTH the rate
+	 * and the windowed totals. First sample OR a reset (new < prior) counts the
+	 * NEW record's value: a fresh worker generation's runs=1 is one new run, never
+	 * negative, never eaten. A normal increment is the plain difference.
+	 *
+	 * @param {number|null} prior   Prior cumulative value (null on first sample).
+	 * @param {number}      current This record's cumulative value.
+	 * @return {number} The non-negative delta contribution.
+	 */
+	_delta( prior, current ) {
+		return null === prior || current < prior ? current : current - prior;
+	}
+
+	// Rate = that positive Δ over Δts; first sample / no dt yields 0.
 	_rate( prior, current, dt ) {
-		return null !== prior && dt > 0 && current >= prior
-			? ( current - prior ) / dt
+		return null !== prior && dt > 0
+			? this._delta( prior, current ) / dt
 			: 0;
 	}
 
 	_entryView( c ) {
 		return {
 			handler: c.handler,
+			// Windowed rollup (Runs/Failures/Avg) — the retained-window truth.
+			windowed: this._windowedTotals( c.series ),
 			latest: {
 				runs: c.runs,
 				errors: c.errors,
-				avgDurationMs: c.runs > 0 ? c.durationMs / c.runs : 0,
-				avgQueueMs: c.runs > 0 ? c.queueMs / c.runs : 0,
 				itemsOk: c.itemsOk,
 				itemsErr: c.itemsErr,
 				lastTs: c.lastTs,
@@ -112,6 +156,40 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 			},
 			// Copy, not the live ref (else memo freezes + tears mid-burst).
 			series: c.series.slice(),
+		};
+	}
+
+	/**
+	 * Sum the retained series' positive Δs into windowed totals + a delta-weighted
+	 * mean duration + queue latency (Σ Δ / Σ Δruns; 0 when no runs). Derived
+	 * on each snapshot, NOT running-summed, so the base's prune (which shifts old
+	 * samples off `series`) shrinks these totals for free — no eviction bookkeeping.
+	 *
+	 * @param {Array<Object>} series The per-identity ring of derived samples.
+	 * @return {Object} { runs, errors, itemsOk, itemsErr, avgDurationMs }.
+	 */
+	_windowedTotals( series ) {
+		let runs = 0;
+		let errors = 0;
+		let itemsOk = 0;
+		let itemsErr = 0;
+		let durationMs = 0;
+		let queueMs = 0;
+		for ( const s of series ) {
+			runs += s.runsDelta;
+			errors += s.errorsDelta;
+			itemsOk += s.itemsOkDelta;
+			itemsErr += s.itemsErrDelta;
+			durationMs += s.durationDelta;
+			queueMs += s.queueDelta;
+		}
+		return {
+			runs,
+			errors,
+			itemsOk,
+			itemsErr,
+			avgDurationMs: runs > 0 ? durationMs / runs : 0,
+			avgQueueMs: runs > 0 ? queueMs / runs : 0,
 		};
 	}
 
