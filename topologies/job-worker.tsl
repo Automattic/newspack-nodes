@@ -13,3 +13,10 @@ make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:off
 cmd jobs:consumer:config set_line_mode true
 make_node Job_Worker job-worker
 connect_node jobs:consumer job-worker
+
+# Jobstats sweep: a 15s Job_Probe snapshots this process's Job_Workers into
+# the shared jobstats.p0 log (1 MiB x 2 segments, keep a day). The fixed .p0
+# dir is one multi-writer log every job-worker partition appends to.
+make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 2 86400 0
+make_node Job_Probe jobstats 15
+connect_node jobstats jobstats:log

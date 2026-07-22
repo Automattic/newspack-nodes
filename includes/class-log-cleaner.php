@@ -91,10 +91,11 @@ class Log_Cleaner {
 			foreach ( self::producer_log_dirs() as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
-			// Whitelist the auto-mounted probe logs; only if a set exists.
+			// @longform Whitelist the auto-mounted probe/settings logs (only if a
+			// set exists). jobstats is NOT here: TSL-declared by job-worker,
+			// so the active set covers it; inactive dirs GC normally.
 			if ( ! empty( $logs ) ) {
 				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] ??= 0;
-				$logs[ Worker_Base::JOBSTATS_LOG_DIR ] ??= 0;
 				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] ??= 0;
 			}
 		}
