@@ -20,16 +20,20 @@ class JobWorkerTest extends TestCase {
 
 	/**
 	 * Build a TM_STRUCT message in the canonical jobs.log shape:
-	 *   { k, handler, parameters, ts }
+	 *   { k, handler, parameters, id? }
 	 */
-	private function job_message( string $handler, array $parameters = [], string $kind = 'job' ): array {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = [
+	private function job_message( string $handler, array $parameters = [], string $kind = 'job', ?string $id = null ): array {
+		$entry = [
 			'k'          => $kind,
 			'handler'    => $handler,
 			'parameters' => $parameters,
 		];
+		if ( null !== $id ) {
+			$entry['id'] = $id;
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $entry;
 		return $message;
 	}
 
@@ -120,6 +124,71 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 1, $after, 'after_job must fire even when a before_job listener throws' );
 		$this->assertFalse( $handler_ran, 'handler is skipped when before_job throws' );
 		$this->assertSame( 1, $this->jobs_executed( $jw ) );
+	}
+
+	// --- Job identity threaded to handler + before/after actions -------------
+
+	public function test_two_param_handler_receives_the_top_level_id(): void {
+		$jw          = new Job_Worker_Node();
+		$captured_id = 'NO_ID';
+		$this->register_job_handler( $jw, 'cron', function ( $params, $id = 'NO_ID' ) use ( &$captured_id ) {
+			$captured_id = $id;
+		} );
+
+		$jw->fill( $this->job_message( 'cron', [ 'x' => 1 ], 'job', 'films-2026' ) );
+
+		$this->assertSame( 'films-2026', $captured_id );
+	}
+
+	public function test_single_param_handler_still_runs_when_id_present(): void {
+		// BC pin: a legacy one-arg handler ignores the extra id arg and still runs.
+		$jw       = new Job_Worker_Node();
+		$received = null;
+		$this->register_job_handler( $jw, 'legacy', function ( $params ) use ( &$received ) {
+			$received = $params;
+		} );
+
+		$jw->fill( $this->job_message( 'legacy', [ 'y' => 2 ], 'job', 'bc-1' ) );
+
+		$this->assertSame( [ 'y' => 2 ], $received );
+		$this->assertSame( 1, $this->jobs_executed( $jw ) );
+	}
+
+	public function test_handler_receives_empty_string_id_when_absent(): void {
+		// No top-level id ⇒ the handler's id arg is '' (same coercion as the jobstats key).
+		$jw          = new Job_Worker_Node();
+		$captured_id = 'NO_ID';
+		$this->register_job_handler( $jw, 'cron', function ( $params, $id = 'NO_ID' ) use ( &$captured_id ) {
+			$captured_id = $id;
+		} );
+
+		$jw->fill( $this->job_message( 'cron' ) );
+
+		$this->assertSame( '', $captured_id );
+	}
+
+	public function test_before_job_action_receives_the_id_as_second_arg(): void {
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'cron', fn ( $p ) => null );
+
+		$captured = 'MISSING';
+		add_action( 'newspack_nodes/job_worker/before_job', function ( $h, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; }, 10, 2 );
+
+		$jw->fill( $this->job_message( 'cron', [], 'job', 'events-77' ) );
+
+		$this->assertSame( 'events-77', $captured );
+	}
+
+	public function test_after_job_action_receives_the_id_as_third_arg(): void {
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'cron', fn ( $p ) => null );
+
+		$captured = 'MISSING';
+		add_action( 'newspack_nodes/job_worker/after_job', function ( $h, $outcome, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; }, 10, 3 );
+
+		$jw->fill( $this->job_message( 'cron', [], 'job', 'digest-9' ) );
+
+		$this->assertSame( 'digest-9', $captured );
 	}
 
 	public function test_no_actions_wired_still_dispatches(): void {

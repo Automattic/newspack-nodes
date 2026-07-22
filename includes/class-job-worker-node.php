@@ -23,11 +23,16 @@
  * The worker eager-loads both filters in its constructor via
  * load_handlers_from_filters().
  *
+ * Handler signature: `( array $parameters, string $id )` — $id is the entry's
+ * top-level `id` ('' when absent). Extra args are ignored by shorter callables,
+ * so a legacy one-arg `( $parameters )` handler keeps working.
+ *
  * Per-job request context (suspending a parent logger, rewriting $_SERVER to a
  * synthetic /jobs/{handler} URL, etc.) is NOT a substrate concern: fill() fires
- * `newspack_nodes/job_worker/{before,after}_job` actions around each handler so
- * applications can hook their own context. The cleanup action runs in a finally
- * block, even if the handler throws.
+ * `newspack_nodes/job_worker/before_job` ( $handler, $id ) and `…/after_job`
+ * ( $handler, $outcome, $id ) around each handler so applications can hook their
+ * own context. The cleanup action runs in a finally block, even if the handler
+ * throws. Extra args are BC-safe via accepted_args.
  *
  * SECURITY:
  * - Handler names must match HANDLER_NAME_PATTERN
@@ -153,7 +158,7 @@ class Job_Worker_Node extends Node {
 		$outcome   = null;
 		try {
 			try {
-				\do_action( 'newspack_nodes/job_worker/before_job', $handler );
+				\do_action( 'newspack_nodes/job_worker/before_job', $handler, $id );
 				$before_ok = true;
 			} catch ( Worker_Should_Stop $e ) {
 				throw $e;
@@ -165,7 +170,7 @@ class Job_Worker_Node extends Node {
 				$started  = \microtime( true );
 				$queue_ms = $ts > 0 ? \max( 0.0, ( $started - $ts ) * 1000 ) : 0.0;
 				try {
-					$result  = ( $handlers[ $handler ] )( $parameters );
+					$result  = ( $handlers[ $handler ] )( $parameters, $id );
 					$outcome = $this->classify_outcome( $result );
 				} catch ( Worker_Should_Stop $e ) {
 					// Cooperative stop is not a job failure: record nothing.
@@ -181,7 +186,7 @@ class Job_Worker_Node extends Node {
 		} finally {
 			// after_job always fires; swallow throw so it can't mask the error.
 			try {
-				\do_action( 'newspack_nodes/job_worker/after_job', $handler, $outcome );
+				\do_action( 'newspack_nodes/job_worker/after_job', $handler, $outcome, $id );
 			} catch ( \Throwable $e ) {
 				$this->print_less_often( 'after_job listener threw: ', $e->getMessage() );
 			}
