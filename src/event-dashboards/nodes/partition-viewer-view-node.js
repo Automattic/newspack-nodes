@@ -183,6 +183,7 @@ export class PartitionViewerViewNode extends Node {
 
 	// Write a shaped row into the ring (O(1)); no setState on this hot path.
 	_appendRow( partition, line ) {
+		// Belt: drops frames arriving in the pause-click→async-close window.
 		if ( this.paused ) {
 			return;
 		}

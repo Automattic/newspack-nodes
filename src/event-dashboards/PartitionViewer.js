@@ -29,6 +29,7 @@ import { usePartitionViewerGraph } from './hooks/usePartitionViewerGraph';
 import LogRowList from '@newspack-nodes/shared/components/LogRowList';
 import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import StalenessIndicator from '@newspack-nodes/shared/components/StalenessIndicator';
 import { endPosition } from '../shared/nodes/seekTracker';
 import useLogPositions, {
 	segmentPositions,
@@ -276,21 +277,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 						) }
 					</span>
 				) }
-				{ staleSec !== null && (
-					<span
-						style={ {
-							color: staleSec > 10 ? '#dba617' : '#757575',
-							fontSize: '11px',
-							marginLeft: '8px',
-						} }
-					>
-						{ sprintf(
-							// translators: %d: number of seconds since the last log line.
-							__( '%ds ago', 'newspack-nodes' ),
-							staleSec
-						) }
-					</span>
-				) }
+				<StalenessIndicator paused={ isPaused } staleSec={ staleSec } />
 			</span>
 
 			<button

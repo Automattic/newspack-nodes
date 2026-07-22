@@ -558,3 +558,193 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 		} );
 	} );
 } );
+
+describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => {
+	const setVisibility = ( state ) => {
+		Object.defineProperty( document, 'visibilityState', {
+			value: state,
+			configurable: true,
+		} );
+		act( () => {
+			document.dispatchEvent( new Event( 'visibilitychange' ) );
+		} );
+	};
+	afterEach( () => setVisibility( 'visible' ) );
+
+	test( 'setPaused(true) closes the EventSource (frees the server slot), not just the view flag', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		const open = FakeEventSource.last;
+		expect( open.closed ).toBe( false );
+		act( () => result.current.setPaused( true ) );
+		expect( open.closed ).toBe( true );
+		// The view flag is still published for the button + empty-state label.
+		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+	} );
+
+	test( 'setPaused(false) resumes at the paused offset (reopen carries &positions=), not a blind tail', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		// A streamed record stamps segment:offset in ID + partition dir in FROM.
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = 'p0';
+		env[ FROM ] = 'firehose.p0';
+		env[ ID ] = '7:2200:40';
+		env[ VALUE ] = 'a real log line';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+		act( () => result.current.setPaused( true ) );
+		const before = FakeEventSource.instances.length;
+		act( () => result.current.setPaused( false ) );
+		// A fresh EventSource opened, seeking the exact next record boundary.
+		expect( FakeEventSource.instances.length ).toBe( before + 1 );
+		const url = FakeEventSource.last.url;
+		expect( url ).toContain( 'positions=' );
+		const positions = JSON.parse(
+			decodeURIComponent(
+				url.split( 'positions=' )[ 1 ].split( '&' )[ 0 ]
+			)
+		);
+		expect( positions ).toEqual( {
+			'firehose.p0': { segment: 7, offset: 2200 + 40 },
+		} );
+	} );
+
+	test( 'a user pause outranks a visibility refocus: pause → hide → refocus stays CLOSED (no auto-resume)', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		const open = FakeEventSource.last;
+		act( () => result.current.setPaused( true ) );
+		expect( open.closed ).toBe( true );
+		const afterPause = FakeEventSource.instances.length;
+		// Hiding then refocusing the tab must NOT reopen a user-paused stream.
+		act( () => setVisibility( 'hidden' ) );
+		act( () => setVisibility( 'visible' ) );
+		expect( FakeEventSource.instances.length ).toBe( afterPause );
+		expect( FakeEventSource.last.closed ).toBe( true );
+	} );
+
+	test( 'reinit while paused re-publishes paused:true and does NOT reopen the stream', async () => {
+		mountExospine();
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		act( () => result.current.setPaused( true ) );
+		const afterPause = FakeEventSource.instances.length;
+		await act( async () => {
+			Core.bumpGraphGeneration();
+		} );
+		// The rebuilt view defaults paused:false; the hook re-applies the pause.
+		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+		// And no fresh EventSource opened for the rebuilt-while-paused graph.
+		expect( FakeEventSource.instances.length ).toBe( afterPause );
+	} );
+
+	const twoLogReply = () => [
+		{ key: 'firehose.p0', label: 'firehose.p0' },
+		{ key: 'errors.p0', label: 'errors.p0' },
+	];
+
+	test( 'selectLog while paused does NOT reopen the stream (stays closed, slot stays freed)', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: twoLogReply() } )
+		);
+		await act( async () => {} );
+		act( () => result.current.setPaused( true ) );
+		const closed = FakeEventSource.last;
+		const count = FakeEventSource.instances.length;
+		act( () => result.current.selectLog( 'errors.p0' ) );
+		// The dropdown change must NOT revive the EventSource while paused.
+		expect( FakeEventSource.instances.length ).toBe( count );
+		expect( closed.closed ).toBe( true );
+		// But the new selection is recorded for Play.
+		expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
+			'errors.p0'
+		);
+	} );
+
+	test( 'Play after a paused selectLog opens the NEW selection (tail, no stale offset)', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: twoLogReply() } )
+		);
+		await act( async () => {} );
+		// Stream firehose.p0 so a stale resume offset exists for the OLD dir.
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = 'p0';
+		env[ FROM ] = 'firehose.p0';
+		env[ ID ] = '2:100:20';
+		env[ VALUE ] = 'old line';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+		act( () => result.current.setPaused( true ) );
+		act( () => result.current.selectLog( 'errors.p0' ) );
+		const before = FakeEventSource.instances.length;
+		act( () => result.current.setPaused( false ) );
+		expect( FakeEventSource.instances.length ).toBe( before + 1 );
+		const url = FakeEventSource.last.url;
+		expect( url ).toContain( 'subscribe=errors.p0' );
+		// A fresh selection tails — the OLD dir's resume offset must not leak in.
+		expect( url ).not.toContain( 'positions=' );
+	} );
+
+	test( 'seek while paused does NOT reopen the stream', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		act( () => result.current.setPaused( true ) );
+		const count = FakeEventSource.instances.length;
+		act( () =>
+			result.current.seek(
+				'firehose.p0',
+				{ 'firehose.p0': { segment: 5, offset: 0 } },
+				{ segment: 5, offset: 200 }
+			)
+		);
+		expect( FakeEventSource.instances.length ).toBe( count );
+	} );
+
+	test( 'Play after a paused seek replays that segment and the tracker flips at the boundary', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		act( () => result.current.setPaused( true ) );
+		act( () =>
+			result.current.seek(
+				'firehose.p0',
+				{ 'firehose.p0': { segment: 5, offset: 0 } },
+				{ segment: 5, offset: 200 }
+			)
+		);
+		// The seek control still drove the view into replay while paused.
+		expect( Core.node( VIEW ).mode ).toBe( 'replay' );
+		act( () => result.current.setPaused( false ) );
+		// The reopened stream replays the seeked segment, not a stale offset.
+		const url = FakeEventSource.last.url;
+		const positions = JSON.parse(
+			decodeURIComponent(
+				url.split( 'positions=' )[ 1 ].split( '&' )[ 0 ]
+			)
+		);
+		expect( positions ).toEqual( {
+			'firehose.p0': { segment: 5, offset: 0 },
+		} );
+		// A replayed record reaching the boundary flips Replay → Live.
+		const caughtUp = newMessage();
+		caughtUp[ TYPE ] = TM_BYTESTREAM;
+		caughtUp[ KEY ] = 'p0';
+		caughtUp[ FROM ] = 'firehose.p0';
+		caughtUp[ ID ] = '5:300:50';
+		caughtUp[ VALUE ] = 'caught up';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( caughtUp ) ) );
+		expect( Core.node( VIEW ).mode ).toBe( 'live' );
+	} );
+} );
