@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
-import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
+import { useGatedSubscription } from './useGatedSubscription';
 import { CommandClient } from '../../runtime/command-client';
 import {
 	newMessage,
@@ -103,8 +103,11 @@ export function usePartitionViewerGraph( opts = {} ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	// A hidden tab throttles the heartbeat; gate the stream on visibility.
-	const isPageVisible = usePageVisibility();
+	// Pause/visibility gating + the record-then-reopen subscription control.
+	const { isPausedRef, resubscribe, setPaused } = useGatedSubscription( {
+		linkRef,
+		viewRef,
+	} );
 
 	// Bumped per (re)build so the view rebinds; monotonic, not a boolean latch.
 	const [ , bumpBuild ] = useState( 0 );
@@ -130,6 +133,11 @@ export function usePartitionViewerGraph( opts = {} ) {
 			linkRef.current = link;
 			viewRef.current = view;
 
+			// Re-publish a surviving pause to the fresh view on reinit.
+			if ( isPausedRef.current ) {
+				view.fill( controlMsg( { action: 'pause', paused: true } ) );
+			}
+
 			// Re-render so useNodeState re-subscribes to the new view.
 			bumpBuild( ( n ) => n + 1 );
 
@@ -147,8 +155,9 @@ export function usePartitionViewerGraph( opts = {} ) {
 					// Push the catalog into the view (defaults selected).
 					view.fill( controlMsg( { action: 'logs', logs } ) );
 					const selected = view.setStateCache?.view?.selected;
+					// Record the default; open only while active.
 					if ( selected ) {
-						link.setSubscribe( [ selected ] );
+						resubscribe( [ selected ], null );
 					}
 				} )
 				.catch( () => {
@@ -165,41 +174,14 @@ export function usePartitionViewerGraph( opts = {} ) {
 
 		const { teardown } = mountExospine( build );
 		return teardown;
+		// Mount once; the shared-hook deps are stable.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
-	// Visibility gate: close while hidden, reopen the selected log on refocus.
-	useEffect( () => {
-		const link = linkRef.current;
-		if ( ! link ) {
-			return;
-		}
-		if ( isPageVisible ) {
-			const selected = viewRef.current?.setStateCache?.view?.selected;
-			if ( selected ) {
-				// Resume from last offset, not a tail-seek dropping lines.
-				link.setSubscribe( [ selected ], link.resumePositions() );
-			}
-		} else {
-			link.close();
-		}
-	}, [ isPageVisible ] );
-
-	// selectLog: view sets the selection; the link re-opens for the new log.
+	// selectLog: view records the pick; resubscribe re-opens (tail) if active.
 	const selectLog = ( log ) => {
-		const view = viewRef.current;
-		const link = linkRef.current;
-		if ( view ) {
-			view.fill( controlMsg( { action: 'select', log } ) );
-		}
-		if ( link ) {
-			link.setSubscribe( [ log ] );
-		}
-	};
-
-	const setPaused = ( paused ) => {
-		if ( viewRef.current ) {
-			viewRef.current.fill( controlMsg( { action: 'pause', paused } ) );
-		}
+		viewRef.current?.fill( controlMsg( { action: 'select', log } ) );
+		resubscribe( [ log ], null );
 	};
 
 	// Fetch a log's segment metadata (log_status); stable for a fetch effect.
@@ -217,11 +199,10 @@ export function usePartitionViewerGraph( opts = {} ) {
 		return future;
 	}, [] );
 
-	// Reposition the stream + set the view mode (positions replay, null tails).
-	const seek = useCallback( ( log, positions, end = null ) => {
-		const view = viewRef.current;
-		if ( view ) {
-			view.fill(
+	// Set the view mode; resubscribe re-opens if active (mode rides control).
+	const seek = useCallback(
+		( log, positions, end = null ) => {
+			viewRef.current?.fill(
 				controlMsg(
 					positions
 						? {
@@ -232,11 +213,10 @@ export function usePartitionViewerGraph( opts = {} ) {
 						: { action: 'follow' }
 				)
 			);
-		}
-		if ( linkRef.current ) {
-			linkRef.current.setSubscribe( [ log ], positions );
-		}
-	}, [] );
+			resubscribe( [ log ], positions );
+		},
+		[ resubscribe ]
+	);
 
 	return { selectLog, setPaused, fetchLogStatus, seek };
 }

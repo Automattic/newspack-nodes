@@ -9,7 +9,9 @@
 import { renderHook, act } from '@testing-library/react';
 import {
 	newMessage,
+	pack,
 	TYPE,
+	KEY,
 	VALUE,
 	TIMESTAMP,
 	TO,
@@ -18,8 +20,10 @@ import {
 	TM_COMMAND,
 	TM_RESPONSE,
 	TM_ERROR,
+	TM_BYTESTREAM,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
+import { mountExospine } from '../../../runtime/exospine';
 import names from '../../../runtime/reserved-node-names.json';
 
 class FakeEventSource {
@@ -284,6 +288,158 @@ describe( 'useLogViewerGraph', () => {
 			act( () => setVisibility( 'visible' ) );
 			expect( FakeEventSource.instances.length ).toBe( before + 1 );
 			expect( FakeEventSource.last.url ).toContain( 'subscribe=access' );
+		} );
+	} );
+
+	describe( 'pause disconnects / play resumes', () => {
+		const setVisibility = ( state ) => {
+			Object.defineProperty( document, 'visibilityState', {
+				value: state,
+				configurable: true,
+			} );
+			act( () => {
+				document.dispatchEvent( new Event( 'visibilitychange' ) );
+			} );
+		};
+		afterEach( () => setVisibility( 'visible' ) );
+
+		test( 'setPaused(true) closes the EventSource (frees the server slot), not just the view flag', async () => {
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			const open = FakeEventSource.last;
+			expect( open.closed ).toBe( false );
+			act( () => result.current.setPaused( true ) );
+			expect( open.closed ).toBe( true );
+			expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+		} );
+
+		test( 'setPaused(false) resumes at the paused offset (reopen carries &positions=)', async () => {
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			// A streamed line stamps segment:offset in ID + the source in FROM.
+			const env = newMessage();
+			env[ TYPE ] = TM_BYTESTREAM;
+			env[ KEY ] = '';
+			env[ FROM ] = 'access';
+			env[ ID ] = '5:900:60';
+			env[ VALUE ] = 'a raw log line';
+			act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+			act( () => result.current.setPaused( true ) );
+			const before = FakeEventSource.instances.length;
+			act( () => result.current.setPaused( false ) );
+			expect( FakeEventSource.instances.length ).toBe( before + 1 );
+			const url = FakeEventSource.last.url;
+			expect( url ).toContain( 'positions=' );
+			const positions = JSON.parse(
+				decodeURIComponent(
+					url.split( 'positions=' )[ 1 ].split( '&' )[ 0 ]
+				)
+			);
+			expect( positions ).toEqual( {
+				access: { segment: 5, offset: 900 + 60 },
+			} );
+		} );
+
+		test( 'a user pause outranks a visibility refocus: pause → hide → refocus stays CLOSED', async () => {
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			const open = FakeEventSource.last;
+			act( () => result.current.setPaused( true ) );
+			expect( open.closed ).toBe( true );
+			const afterPause = FakeEventSource.instances.length;
+			act( () => setVisibility( 'hidden' ) );
+			act( () => setVisibility( 'visible' ) );
+			expect( FakeEventSource.instances.length ).toBe( afterPause );
+			expect( FakeEventSource.last.closed ).toBe( true );
+		} );
+
+		test( 'reinit while paused re-publishes paused:true and does NOT reopen the stream', async () => {
+			mountExospine();
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			act( () => result.current.setPaused( true ) );
+			const afterPause = FakeEventSource.instances.length;
+			await act( async () => {
+				Core.bumpGraphGeneration();
+			} );
+			expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+			expect( FakeEventSource.instances.length ).toBe( afterPause );
+		} );
+
+		test( 'selectSource while paused does NOT reopen the stream (stays closed)', async () => {
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			act( () => result.current.setPaused( true ) );
+			const closed = FakeEventSource.last;
+			const count = FakeEventSource.instances.length;
+			act( () => result.current.selectSource( 'debug' ) );
+			expect( FakeEventSource.instances.length ).toBe( count );
+			expect( closed.closed ).toBe( true );
+			expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
+				'debug'
+			);
+		} );
+
+		test( 'Play after a paused selectSource opens the NEW source (tail)', async () => {
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			act( () => result.current.setPaused( true ) );
+			act( () => result.current.selectSource( 'debug' ) );
+			const before = FakeEventSource.instances.length;
+			act( () => result.current.setPaused( false ) );
+			expect( FakeEventSource.instances.length ).toBe( before + 1 );
+			expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );
+		} );
+
+		test( 'seek while paused does NOT reopen the stream', async () => {
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			act( () => result.current.setPaused( true ) );
+			const count = FakeEventSource.instances.length;
+			await act( async () =>
+				result.current.seek( 'access', { access: 'start' } )
+			);
+			expect( FakeEventSource.instances.length ).toBe( count );
+		} );
+
+		test( 'Play after a paused seek replays the source and the tracker flips at the boundary', async () => {
+			const { result } = mountGraph(
+				makeFakeClient( { taillog: sourcesReply() } )
+			);
+			await act( async () => {} );
+			act( () => result.current.setPaused( true ) );
+			await act( async () =>
+				result.current.seek( 'access', { access: 'start' } )
+			);
+			// The seek control still drove the view into replay while paused.
+			expect( Core.node( VIEW ).mode ).toBe( 'replay' );
+			act( () => result.current.setPaused( false ) );
+			// The reopened stream replays from the seeked seed, not a stale tail.
+			const url = FakeEventSource.last.url;
+			expect( url ).toContain( 'positions=' );
+			// File-mode replay flips to Live once a record reaches the byte size.
+			const rec = newMessage();
+			rec[ TYPE ] = TM_BYTESTREAM;
+			rec[ KEY ] = '';
+			rec[ FROM ] = 'access';
+			rec[ ID ] = '1:900:100';
+			rec[ VALUE ] = 'caught up';
+			act( () => FakeEventSource.last.dispatch( 'msg', pack( rec ) ) );
+			expect( Core.node( VIEW ).mode ).toBe( 'live' );
 		} );
 	} );
 } );

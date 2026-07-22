@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
-import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
+import { useGatedSubscription } from './useGatedSubscription';
 import { CommandClient } from '../../runtime/command-client';
 import {
 	newMessage,
@@ -84,8 +84,11 @@ export function useLogViewerGraph( opts = {} ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	// A hidden tab throttles the heartbeat; gate the stream on visibility.
-	const isPageVisible = usePageVisibility();
+	// Pause/visibility gating + the record-then-reopen subscription control.
+	const { isPausedRef, resubscribe, setPaused } = useGatedSubscription( {
+		linkRef,
+		viewRef,
+	} );
 
 	// Bumped per (re)build so the view rebinds; monotonic, not a boolean latch.
 	const [ , bumpBuild ] = useState( 0 );
@@ -108,6 +111,12 @@ export function useLogViewerGraph( opts = {} ) {
 
 			linkRef.current = link;
 			viewRef.current = view;
+
+			// Re-publish a surviving pause to the fresh view on reinit.
+			if ( isPausedRef.current ) {
+				view.fill( controlMsg( { action: 'pause', paused: true } ) );
+			}
+
 			bumpBuild( ( n ) => n + 1 );
 
 			// Fetch the source catalog; its reply opens the default source.
@@ -132,7 +141,8 @@ export function useLogViewerGraph( opts = {} ) {
 						view.fill(
 							controlMsg( { action: 'select', log: chosen } )
 						);
-						link.setSubscribe( [ chosen ] );
+						// Record the default; open only while active.
+						resubscribe( [ chosen ], null );
 					}
 				} )
 				.catch( () => {
@@ -148,40 +158,14 @@ export function useLogViewerGraph( opts = {} ) {
 
 		const { teardown } = mountExospine( build );
 		return teardown;
+		// Mount once; the shared-hook deps are stable.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
-	// Visibility gate: close while hidden, reopen the source on refocus.
-	useEffect( () => {
-		const link = linkRef.current;
-		if ( ! link ) {
-			return;
-		}
-		if ( isPageVisible ) {
-			const selected = viewRef.current?.setStateCache?.view?.selected;
-			if ( selected ) {
-				link.setSubscribe( [ selected ], link.resumePositions() );
-			}
-		} else {
-			link.close();
-		}
-	}, [ isPageVisible ] );
-
-	// selectSource: view records the pick; the link re-opens (tail) for it.
+	// selectSource: records the pick; resubscribe re-opens if active.
 	const selectSource = ( name ) => {
-		const view = viewRef.current;
-		const link = linkRef.current;
-		if ( view ) {
-			view.fill( controlMsg( { action: 'select', log: name } ) );
-		}
-		if ( link ) {
-			link.setSubscribe( [ name ] );
-		}
-	};
-
-	const setPaused = ( paused ) => {
-		if ( viewRef.current ) {
-			viewRef.current.fill( controlMsg( { action: 'pause', paused } ) );
-		}
+		viewRef.current?.fill( controlMsg( { action: 'select', log: name } ) );
+		resubscribe( [ name ], null );
 	};
 
 	// Fetch a FRESH taillog-sources catalog at seek time (mount is stale).
@@ -211,7 +195,7 @@ export function useLogViewerGraph( opts = {} ) {
 	const seek = ( name, positions ) => {
 		const apply = ( control ) => {
 			viewRef.current?.fill( controlMsg( control ) );
-			linkRef.current?.setSubscribe( [ name ], positions );
+			resubscribe( [ name ], positions );
 		};
 		if ( ! positions ) {
 			apply( { action: 'follow' } );
