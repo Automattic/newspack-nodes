@@ -44,6 +44,24 @@ class TailFileFollowTest extends TestCase {
 		return $t;
 	}
 
+	public function test_file_mode_stamps_the_inode_offset_length_breadcrumb(): void {
+		// The seek tracker's Replay->Live flip reads Message::ID; a minted line
+		// must carry inode:offset:length (the empty default breaks the flip).
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "alpha-7788\nbeta-991122\n" );
+		$inode = \fileinode( $path );
+
+		$cap = new Capture_Sink_Node();
+		$t   = $this->follow( $path );
+		$t->sink( $cap );
+		$t->next_offset( 'start' );
+		$this->pump( $t );
+
+		$this->assertCount( 2, $cap->captured );
+		$this->assertSame( "{$inode}:0:11", $cap->captured[0][ Message::ID ] );
+		$this->assertSame( "{$inode}:11:12", $cap->captured[1][ Message::ID ] );
+	}
+
 	public function test_file_mode_defaults_to_end_then_emits_only_appended_bytes(): void {
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "seedline\n" );
