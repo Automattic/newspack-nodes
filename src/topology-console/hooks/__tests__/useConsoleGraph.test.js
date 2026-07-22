@@ -1,3 +1,4 @@
+/* global requestAnimationFrame */
 /**
  * useConsoleGraph tests — the in-browser node graph. SseIn is mocked with a fake
  * connector (the EventSource bits) so the session wrap/routing logic still runs;
@@ -432,7 +433,16 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 } );
 
 describe( 'useConsoleGraph — reply routing through _router', () => {
-	it( 'an SSE reply with TO=_output lands in the Dumper transcript', () => {
+	// Data-plane frames coalesce onto the next animation frame; flush it.
+	const flushFrame = () =>
+		act(
+			async () =>
+				await new Promise( ( resolve ) =>
+					requestAnimationFrame( () => resolve() )
+				)
+		);
+
+	it( 'an SSE reply with TO=_output lands in the Dumper transcript', async () => {
 		renderGraph();
 		// Packed `msg` via EventSource → route-by-TO, not empty-name stamp.
 		const {
@@ -448,6 +458,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ TO ] = names.OUTPUT;
 		m[ VALUE ] = 'hello from worker';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
+		await flushFrame();
 		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
 			expect.objectContaining( {
 				kind: 'recv',
@@ -456,7 +467,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		] );
 	} );
 
-	it( 'an SSE broadcast with empty TO lands in the Dumper transcript', () => {
+	it( 'an SSE broadcast with empty TO lands in the Dumper transcript', async () => {
 		renderGraph();
 		// Empty TO falls back to the connector's target (_output) in Node.fill.
 		const {
@@ -472,6 +483,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ TO ] = ''; // broadcast — unaddressed
 		m[ VALUE ] = 'broadcast from worker';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
+		await flushFrame();
 		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
 			expect.objectContaining( {
 				kind: 'recv',

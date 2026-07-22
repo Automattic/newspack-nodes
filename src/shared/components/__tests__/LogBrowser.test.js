@@ -111,3 +111,40 @@ it( 'shows the empty label when there are no items', () => {
 	const { container } = renderSegments( { items: [] } );
 	expect( container.textContent ).toMatch( /No segments/ );
 } );
+
+// --- Seek/live feedback: Replay highlight + last-received (activeKey) (Part B). ---
+
+it( 'marks Replay active while replaying (mode not live)', () => {
+	const { getByText } = renderSegments( { mode: 'replay' } );
+	expect( getByText( 'Replay' ).className ).toMatch( /is-active/ );
+	expect( getByText( 'Live' ).className ).not.toMatch( /is-active/ );
+} );
+
+it( 'leaves Replay inactive while live', () => {
+	const { getByText } = renderSegments( { mode: 'live' } );
+	expect( getByText( 'Replay' ).className ).not.toMatch( /is-active/ );
+} );
+
+it( 'highlights activeKey (the last-received segment) over selectedKey', () => {
+	const { container } = renderSegments( {
+		mode: 'replay',
+		selectedKey: 4,
+		activeKey: 8,
+	} );
+	const active = container.querySelector(
+		'.newspack-nodes-log-browser__item.is-active'
+	);
+	expect( active.textContent ).toMatch( /segment 8/ );
+} );
+
+it( 'falls back to selectedKey when activeKey is null', () => {
+	const { container } = renderSegments( {
+		mode: 'replay',
+		selectedKey: 5,
+		activeKey: null,
+	} );
+	const active = container.querySelector(
+		'.newspack-nodes-log-browser__item.is-active'
+	);
+	expect( active.textContent ).toMatch( /segment 5/ );
+} );

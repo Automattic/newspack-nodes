@@ -184,8 +184,18 @@ export function useLogViewerGraph( opts = {} ) {
 		}
 	};
 
-	// Reposition the current source: null tails; a positions seed replays.
+	// Reposition the source + set the view mode (positions replay, null tails).
 	const seek = ( name, positions ) => {
+		const view = viewRef.current;
+		if ( view ) {
+			view.fill(
+				controlMsg(
+					positions
+						? { action: 'browse', endSegment: null, endOffset: 0 }
+						: { action: 'follow' }
+				)
+			);
+		}
 		if ( linkRef.current ) {
 			linkRef.current.setSubscribe( [ name ], positions );
 		}

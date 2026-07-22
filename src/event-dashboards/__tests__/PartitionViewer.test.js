@@ -44,6 +44,8 @@ function registerViewFixture( {
 	selected = '',
 	paused = false,
 	connectionError = false,
+	mode = 'live',
+	lastReceivedSegment = null,
 	lines = [],
 } = {} ) {
 	const node = {
@@ -72,7 +74,14 @@ function registerViewFixture( {
 			);
 		},
 	};
-	node.setState( 'view', { logs, selected, paused, connectionError } );
+	node.setState( 'view', {
+		logs,
+		selected,
+		paused,
+		connectionError,
+		mode,
+		lastReceivedSegment,
+	} );
 	Core.nodes.set( 'partition:view', node );
 	return node;
 }
@@ -252,10 +261,12 @@ describe( 'PartitionViewer', () => {
 		} );
 		await renderViewer();
 		act( () => logBrowserProps.onSelectItem( { id: 7, size: 1 } ) );
-		expect( seek ).toHaveBeenCalledWith( 'firehose', {
-			firehose: { segment: 7, offset: 0 },
-		} );
-		expect( logBrowserProps.mode ).toBe( 'browse' );
+		// Third arg is the captured end (null here — no segments in this fixture).
+		expect( seek ).toHaveBeenCalledWith(
+			'firehose',
+			{ firehose: { segment: 7, offset: 0 } },
+			null
+		);
 		expect( logBrowserProps.selectedKey ).toBe( 7 );
 	} );
 
@@ -266,9 +277,44 @@ describe( 'PartitionViewer', () => {
 		} );
 		await renderViewer();
 		act( () => logBrowserProps.onReplay() );
-		expect( seek ).toHaveBeenCalledWith( 'firehose', {
-			firehose: 'start',
+		expect( seek ).toHaveBeenCalledWith(
+			'firehose',
+			{ firehose: 'start' },
+			null
+		);
+	} );
+
+	it( 'displays the view-derived mode + last-received segment (not the clicked one)', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			mode: 'replay',
+			lastReceivedSegment: 8,
 		} );
+		await renderViewer();
+		expect( logBrowserProps.mode ).toBe( 'replay' );
+		expect( logBrowserProps.activeKey ).toBe( 8 );
+	} );
+
+	it( 'captures the newest segment as the replay end so the view can catch up', async () => {
+		fetchLogStatus.mockResolvedValue( {
+			segments: [
+				{ id: 4, size: 100 },
+				{ id: 6, size: 2048 },
+			],
+		} );
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		act( () => logBrowserProps.onReplay() );
+		// Newest segment 6 @ 2048 bytes is the live boundary carried to the view.
+		expect( seek ).toHaveBeenCalledWith(
+			'firehose',
+			{ firehose: 'start' },
+			{ segment: 6, offset: 2048 }
+		);
 	} );
 
 	it( 'Live returns the stream to the tail (null positions)', async () => {

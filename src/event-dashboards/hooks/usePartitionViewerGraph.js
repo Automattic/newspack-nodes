@@ -217,8 +217,22 @@ export function usePartitionViewerGraph( opts = {} ) {
 		return future;
 	}, [] );
 
-	// Reposition the stream: null tails; a positions seed seeks.
-	const seek = useCallback( ( log, positions ) => {
+	// Reposition the stream + set the view mode (positions replay, null tails).
+	const seek = useCallback( ( log, positions, end = null ) => {
+		const view = viewRef.current;
+		if ( view ) {
+			view.fill(
+				controlMsg(
+					positions
+						? {
+								action: 'browse',
+								endSegment: end?.segment ?? null,
+								endOffset: end?.offset ?? 0,
+						  }
+						: { action: 'follow' }
+				)
+			);
+		}
 		if ( linkRef.current ) {
 			linkRef.current.setSubscribe( [ log ], positions );
 		}

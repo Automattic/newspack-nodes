@@ -49,6 +49,24 @@ const EMPTY_VIEW = {
 	selected: '',
 	paused: false,
 	connectionError: false,
+	mode: 'live',
+	lastReceivedSegment: null,
+};
+
+// The live boundary (newest segment id + its size) replay catch-up compares to.
+const endPosition = ( segments ) => {
+	let segment = null;
+	let offset = 0;
+	for ( const s of segments ) {
+		if (
+			'number' === typeof s?.id &&
+			( null === segment || s.id > segment )
+		) {
+			segment = s.id;
+			offset = s.size ?? 0;
+		}
+	}
+	return null === segment ? null : { segment, offset };
 };
 
 // Compact byte size for the segment sidebar meta column.
@@ -97,6 +115,9 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		selected: selectedLog,
 		paused: isPaused,
 		connectionError,
+		// Actual streaming state (from the view's breadcrumbs), not the click.
+		mode: displayMode,
+		lastReceivedSegment,
 	} = view;
 
 	// One-shot `?log=` seed: selects that log on FIRST catalog, then disarms.
@@ -133,8 +154,8 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 	// Re-read the live view node each frame so a graph reinit is picked up.
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
 
-	// Browse state (Live / segment / replay) + the selected log's segment list.
-	const { mode, segmentId, follow, browseSegment, replay } =
+	// Seek intent drives positions; displayed mode comes from the view.
+	const { segmentId, follow, browseSegment, replay } =
 		useLogPositions( selectedLog );
 	const [ segments, setSegments ] = useState( [] );
 	useEffect( () => {
@@ -159,18 +180,26 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		};
 	}, [ selectedLog, fetchLogStatus ] );
 
-	// Browse actions: update the browse state AND reposition the live stream.
+	// Browse: update seek intent, reposition, and carry the end for catch-up.
 	const handleFollow = () => {
 		follow();
 		seek( selectedLog, null );
 	};
 	const handleReplay = () => {
 		replay();
-		seek( selectedLog, replayPositions( selectedLog ) );
+		seek(
+			selectedLog,
+			replayPositions( selectedLog ),
+			endPosition( segments )
+		);
 	};
 	const handleBrowseSegment = ( segment ) => {
 		browseSegment( segment.id );
-		seek( selectedLog, segmentPositions( selectedLog, segment.id ) );
+		seek(
+			selectedLog,
+			segmentPositions( selectedLog, segment.id ),
+			endPosition( segments )
+		);
 	};
 
 	// Ticking "Xs ago" display, read off the link's last-frame clock.
@@ -325,11 +354,12 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 			<div className="newspack-nodes-partition-viewer__body">
 				<LogBrowser
-					mode={ mode }
+					mode={ displayMode }
 					onFollow={ handleFollow }
 					onReplay={ handleReplay }
 					items={ segments }
 					selectedKey={ segmentId }
+					activeKey={ lastReceivedSegment }
 					onSelectItem={ handleBrowseSegment }
 					itemKey={ ( s ) => s.id }
 					itemLabel={ ( s ) =>

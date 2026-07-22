@@ -43,6 +43,7 @@ const EMPTY_VIEW = {
 	selected: '',
 	paused: false,
 	connectionError: false,
+	mode: 'live',
 };
 
 // One raw log line row (no partition gutter; height from the shared class).
@@ -68,7 +69,13 @@ export default function LogViewer( { headerControlsSlot } ) {
 	const { selectSource, setPaused, seek, sources } = useLogViewerGraph();
 
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
-	const { selected: currentSource, paused: isPaused, connectionError } = view;
+	const {
+		selected: currentSource,
+		paused: isPaused,
+		connectionError,
+		// Displayed Live/Replay comes from the view's actual streaming state.
+		mode: displayMode,
+	} = view;
 
 	// One-shot `?source=` seed: selects it on FIRST catalog, then disarms.
 	const urlSourceRef = useRef( getQueryParam( 'source' ) );
@@ -100,8 +107,8 @@ export default function LogViewer( { headerControlsSlot } ) {
 	const [ resetSignal, setResetSignal ] = useState( 0 );
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
 
-	// Position within the current source: Live (tail) or Replay (from start).
-	const { mode, follow, replay } = useLogPositions( currentSource );
+	// Seek intent (Live tail / Replay); displayed mode comes from the view.
+	const { follow, replay } = useLogPositions( currentSource );
 	const handleFollow = () => {
 		follow();
 		seek( currentSource, null );
@@ -243,7 +250,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 
 			<div className="newspack-nodes-log-viewer__body">
 				<LogBrowser
-					mode={ mode }
+					mode={ displayMode }
 					onFollow={ handleFollow }
 					onReplay={ handleReplay }
 					items={ sources }

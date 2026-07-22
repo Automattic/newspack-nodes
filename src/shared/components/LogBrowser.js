@@ -10,7 +10,9 @@
  * @param {Function} props.onFollow       Return to the live tail.
  * @param {Function} props.onReplay       Replay from the earliest record.
  * @param {Array}    props.items          Segments or sources.
- * @param {*}        [props.selectedKey]  Key of the browsed item (or null).
+ * @param {*}        [props.selectedKey]  Key of the browsed item (the clicked one, or null).
+ * @param {*}        [props.activeKey]    Key of the item last RECEIVED from; wins over
+ *                                        selectedKey for the highlight when provided.
  * @param {Function} props.onSelectItem   `(item) => void` — browse that item.
  * @param {Function} props.itemKey        `(item) => string|number`.
  * @param {Function} props.itemLabel      `(item) => ReactNode`.
@@ -30,6 +32,7 @@ export default function LogBrowser( {
 	onReplay,
 	items,
 	selectedKey = null,
+	activeKey = null,
 	onSelectItem,
 	itemKey,
 	itemLabel,
@@ -39,6 +42,8 @@ export default function LogBrowser( {
 	emptyLabel,
 } ) {
 	const isLive = 'live' === mode;
+	// Last-received wins the highlight; else the clicked item.
+	const highlightKey = activeKey ?? selectedKey;
 	return (
 		<div className="newspack-nodes-log-browser">
 			<div className="newspack-nodes-log-browser__controls">
@@ -49,7 +54,11 @@ export default function LogBrowser( {
 				>
 					{ __( 'Live', 'newspack-nodes' ) }
 				</button>
-				<button type="button" className="button" onClick={ onReplay }>
+				<button
+					type="button"
+					className={ `button${ isLive ? '' : ' is-active' }` }
+					onClick={ onReplay }
+				>
 					{ __( 'Replay', 'newspack-nodes' ) }
 				</button>
 			</div>
@@ -68,8 +77,7 @@ export default function LogBrowser( {
 				<ul className="newspack-nodes-log-browser__list">
 					{ items.map( ( item ) => {
 						const key = itemKey( item );
-						// Highlight selectedKey (segments pass null in live).
-						const active = key === selectedKey;
+						const active = key === highlightKey;
 						return (
 							<li key={ key }>
 								<button
