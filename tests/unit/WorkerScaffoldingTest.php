@@ -55,24 +55,15 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->assertSame( 0, $ref->getProperty( 'max_lifetime' )->getValue( $log ) );
 	}
 
-	public function test_build_scaffolding_mounts_job_probe_targeting_the_log(): void {
-		// Every worker also runs a Job_Probe, sweeping its local Job_Workers into the
-		// shared jobstats log. Same target()-steered shape as the topic probe; the
-		// log is a 1 MiB / 2-segment / 24h Partition.
+	public function test_build_scaffolding_does_not_mount_job_probe(): void {
+		// The jobstats probe/log are no longer auto-mounted here: only the job-worker
+		// topology runs a Job_Worker, so the scaffolding sweep found nothing everywhere
+		// else. Jobstats is now wired declaratively in topologies/job-worker.tsl.
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 
-		$probe = Core::node( '_jobstats' );
-		$log   = Core::node( '_jobstats:log' );
-		$this->assertInstanceOf( \Newspack_Nodes\Job_Probe_Node::class, $probe );
-		$this->assertInstanceOf( Partition_Node::class, $log );
-		$this->assertSame( '_jobstats:log', $probe->target() );
-
-		$ref = new \ReflectionClass( Partition_Node::class );
-		$this->assertSame( 1024 * 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
-		$this->assertSame( 2, $ref->getProperty( 'max_segments' )->getValue( $log ) );
-		$this->assertSame( 86400, $ref->getProperty( 'min_lifetime' )->getValue( $log ) );
-		$this->assertSame( 0, $ref->getProperty( 'max_lifetime' )->getValue( $log ) );
+		$this->assertNull( Core::node( '_jobstats' ), 'jobstats probe must not be auto-mounted' );
+		$this->assertNull( Core::node( '_jobstats:log' ), 'jobstats log must not be auto-mounted' );
 	}
 
 	public function test_ipc_input_consumer_resumes_from_prior_offsetlog(): void {

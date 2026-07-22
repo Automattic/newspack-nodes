@@ -122,11 +122,25 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $probe );
 	}
 
-	public function test_keeps_the_substrate_jobstats_log(): void {
-		// jobstats.p0 is auto-mounted by every worker (Worker_Base), not declared
-		// in any .tsl — the GC must spare it, else the sweep wipes it between
-		// jobstats writes (appear → delete → recreate churn).
+	public function test_sweeps_jobstats_when_no_declaring_topology_is_active(): void {
+		// jobstats.p0 is now TSL-declared (topologies/job-worker.tsl), not whitelisted.
+		// When no active topology declares it, it is an orphan and GCs like any other
+		// deactivated topology's log — the correct behavior after revoking the mount.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$jobstats = $this->seed_log_partition( 'jobstats', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryDoesNotExist( $jobstats );
+	}
+
+	public function test_keeps_jobstats_when_a_declaring_topology_is_active(): void {
+		// A topology that declares the jobstats Partition (as job-worker.tsl does)
+		// protects jobstats.p0 through the ordinary declared-set path — no whitelist.
+		$this->declare_topology(
+			'jobs-workers',
+			"make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 2 86400 0\n"
+		);
 		$jobstats = $this->seed_log_partition( 'jobstats', 0 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
@@ -423,9 +437,10 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		// jobstats.p0 + topicprobe.p0 + settings.p0 ride along once a real declared
-		// set exists (substrate probe/jobstats/settings logs, all written outside .tsl).
-		$this->assertSame( [ 'firehose.p0', 'jobstats.p0', 'requests.p0', 'requests.p1', 'settings.p0', 'topicprobe.p0' ], $result );
+		// topicprobe.p0 + settings.p0 ride along once a real declared set exists
+		// (substrate probe/settings logs, written outside any .tsl). jobstats.p0 does
+		// NOT — it's TSL-declared by job-worker, which isn't active here.
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'settings.p0', 'topicprobe.p0' ], $result );
 	}
 
 	public function test_declared_log_partitions_maps_names_to_enumerated_partitions(): void {
@@ -444,11 +459,11 @@ class LogCleanerTest extends TestCase {
 		\ksort( $map );
 
 		// requests is 2-partition; firehose producer + the whitelisted non-.tsl
-		// logs (jobstats, topicprobe, settings) are partition 0.
+		// logs (topicprobe, settings) are partition 0. jobstats is TSL-declared by
+		// job-worker (not active here), so it does not ride along.
 		$this->assertSame(
 			[
 				'firehose.p0'  => 0,
-				'jobstats.p0'  => 0,
 				'requests.p0'  => 0,
 				'requests.p1'  => 1,
 				'settings.p0'  => 0,
@@ -484,7 +499,7 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		$this->assertSame( [ 'firehose.p0', 'jobstats.p0', 'requests.p0', 'settings.p0', 'topicprobe.p0' ], $result );
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'settings.p0', 'topicprobe.p0' ], $result );
 	}
 
 	// ── frontmatter-less, multi-partition: SPAWN-aligned partition count ─────
