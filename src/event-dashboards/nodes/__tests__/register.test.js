@@ -9,6 +9,7 @@ describe( 'event-dashboards node registration', () => {
 			'WorkerStatusTransform',
 			'WorkerStatusView',
 			'JobstatsView',
+			'SettingsAuditView',
 		] ) {
 			expect( CommandInterpreterNode.includeNodes[ t ] ).toBeDefined();
 		}
