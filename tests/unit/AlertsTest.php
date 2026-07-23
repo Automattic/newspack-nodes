@@ -74,7 +74,9 @@ class AlertsTest extends TestCase {
 
 	private function seed_heartbeat( string $base, string $type, int $age_seconds ): void {
 		$lock_dir = "{$base}/locks/{$type}.p0.lock.d";
-		\mkdir( $lock_dir, 0755, true );
+		if ( ! \is_dir( $lock_dir ) ) {
+			\mkdir( $lock_dir, 0755, true );
+		}
 		\touch( "{$lock_dir}/heartbeat", \time() - $age_seconds );
 	}
 
@@ -296,6 +298,84 @@ class AlertsTest extends TestCase {
 
 		$this->assertGreaterThan( 0, $after_first );
 		$this->assertCount( $after_first, $this->journal_messages( $base ) );
+	}
+
+	public function test_a_persisting_alert_is_journaled_once_not_per_window(): void {
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_heartbeat( $base, 'stale-workers', 120 );
+
+		Alerts::emit();
+		$after_first = \count( $this->journal_messages( $base ) );
+		// Next window opens (gate cleared); the condition persists unchanged.
+		unset( $GLOBALS['_wp_test_transients']['newspack_nodes_alerts_emitted'] );
+		Alerts::emit();
+
+		$this->assertGreaterThan( 0, $after_first );
+		$this->assertCount(
+			$after_first,
+			$this->journal_messages( $base ),
+			'an unchanged condition journals nothing — the journal records transitions, not heartbeats'
+		);
+	}
+
+	public function test_a_severity_change_journals_a_fresh_row(): void {
+		$base = $this->arrange( [ 'flap-workers' ] );
+		// Never-started worker: warning (worker_missing:flap-workers.p0).
+		Alerts::emit();
+		$first = \count( $this->journal_messages( $base ) );
+		$this->assertGreaterThan( 0, $first );
+
+		// The worker heartbeats once, then goes stale: worker_down (critical).
+		// Different KEY = a new alert raising; the old key resolves.
+		$this->seed_heartbeat( $base, 'flap-workers', 120 );
+		unset( $GLOBALS['_wp_test_transients']['newspack_nodes_alerts_emitted'] );
+		Alerts::emit();
+
+		$messages = $this->journal_messages( $base );
+		$keys     = \array_map( static fn ( $m ) => $m[ Message::KEY ], $messages );
+		$this->assertContains( 'worker_down:flap-workers.p0', $keys );
+	}
+
+	public function test_a_resolved_alert_journals_a_resolution_row(): void {
+		$base = $this->arrange( [ 'heal-workers' ] );
+		$this->seed_heartbeat( $base, 'heal-workers', 120 ); // stale → critical.
+		Alerts::emit();
+
+		// The worker recovers: fresh heartbeat, condition gone.
+		$this->seed_heartbeat( $base, 'heal-workers', 0 );
+		unset( $GLOBALS['_wp_test_transients']['newspack_nodes_alerts_emitted'] );
+		Alerts::emit();
+
+		$messages = $this->journal_messages( $base );
+		$resolved = \array_values( \array_filter(
+			$messages,
+			static fn ( $m ) => 'resolved' === ( (array) $m[ Message::VALUE ] )['severity']
+		) );
+		$this->assertCount( 1, $resolved );
+		$this->assertSame( 'worker_down:heal-workers.p0', $resolved[0][ Message::KEY ] );
+		$this->assertStringContainsString( 'resolved', ( (array) $resolved[0][ Message::VALUE ] )['m'] );
+
+		// Fully healthy + already reconciled: another window journals nothing.
+		unset( $GLOBALS['_wp_test_transients']['newspack_nodes_alerts_emitted'] );
+		$count = \count( $this->journal_messages( $base ) );
+		Alerts::emit();
+		$this->assertCount( $count, $this->journal_messages( $base ) );
+	}
+
+	public function test_a_gated_transition_is_journaled_when_the_window_opens(): void {
+		// The gate may swallow a tick, but the state option only advances on a
+		// real write — so the transition lands on the next open window.
+		$base = $this->arrange( [ 'late-workers' ] );
+		$this->seed_heartbeat( $base, 'late-workers', 0 );
+		Alerts::emit(); // healthy: nothing to journal, but the gate arms.
+		$this->seed_heartbeat( $base, 'late-workers', 120 );
+		Alerts::emit(); // gated: swallowed.
+		$this->assertCount( 0, $this->journal_messages( $base ) );
+
+		unset( $GLOBALS['_wp_test_transients']['newspack_nodes_alerts_emitted'] );
+		Alerts::emit();
+		$keys = \array_map( static fn ( $m ) => $m[ Message::KEY ], $this->journal_messages( $base ) );
+		$this->assertContains( 'worker_down:late-workers.p0', $keys );
 	}
 
 	public function test_emit_survives_a_throwing_journal_write(): void {
