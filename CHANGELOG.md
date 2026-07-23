@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-07-23
+
 ### Added
 - **Triage gains a per-record View: the `dl_show` verb decodes a quarantined
   record in place.** Every dead-letter node (Consumer, Tail, Remote_Source)
