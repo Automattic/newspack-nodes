@@ -13,21 +13,18 @@ import { useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { useSettingsAuditStream } from './hooks/useSettingsAuditStream';
 import { useNodeState } from '../runtime/react';
+import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/config-audit.scss';
 
 const VIEW_NODE = 'settingsaudit:view';
 const EM_DASH = '—';
 
-// UTC HH:MM:SS, prefixed with the UTC date only when the change wasn't today.
+// Local date + time + zone: audit rows span days, so no today-elision.
 function formatWhen( ts ) {
 	if ( ! ts ) {
 		return EM_DASH;
 	}
-	const iso = new Date( ts * 1000 ).toISOString(); // YYYY-MM-DDTHH:MM:SS.sssZ
-	const date = iso.slice( 0, 10 );
-	const time = iso.slice( 11, 19 );
-	const today = new Date().toISOString().slice( 0, 10 );
-	return date === today ? time : `${ date } ${ time }`;
+	return formatLocalDateTime( ts );
 }
 
 // Mono value cell: the excerpt (title = full text), em dash when absent.
