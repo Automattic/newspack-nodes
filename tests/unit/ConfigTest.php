@@ -349,6 +349,26 @@ class ConfigTest extends TestCase {
 		$this->assertNotSame( 99, $config['num_partitions'] );
 	}
 
+	// ── invalidate_options_cache: per-key purge ────────────────────────────
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_invalidate_options_cache_purges_each_schema_keys_own_cache_entry(): void {
+		// The aggregate `alloptions`/`notoptions` groups are only two of the cache
+		// entries a long-running process can hold stale — WP core also caches each
+		// option under its own key. A supervisor process that read `topologies`
+		// once and never saw invalidate_options_cache() purge THAT key would keep
+		// serving the stale value forever, no matter how often reset() runs.
+		$GLOBALS['_wp_cache_delete_calls'] = [];
+		require_once __DIR__ . '/../Helpers/wp-cache-delete-stub.php';
+
+		Config::invalidate_options_cache();
+
+		$deleted = \array_column( $GLOBALS['_wp_cache_delete_calls'], 0 );
+		$this->assertContains( 'alloptions', $deleted );
+		$this->assertContains( 'notoptions', $deleted );
+		$this->assertContains( 'newspack_nodes_topologies', $deleted, 'the per-key cache entry for a schema key must be purged too' );
+	}
+
 	// ── Path/directory accessors ───────────────────────────────────────────
 
 	public function test_get_base_directory_creates_dir(): void {
