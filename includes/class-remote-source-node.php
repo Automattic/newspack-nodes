@@ -607,7 +607,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 				]
 			),
 			// Time-travel + pump + DLQ triage verbs, shared with Consumer.
-			'commands'    => \array_merge( self::time_travel_verbs(), self::pump_verbs(), self::deadletter_verbs() ),
+			'commands'    => \array_merge( self::time_travel_verbs(), self::deadletter_verbs(), self::pump_verbs() ),
 		] );
 	}
 }
