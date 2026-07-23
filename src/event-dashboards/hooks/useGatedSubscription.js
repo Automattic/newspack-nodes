@@ -13,6 +13,14 @@
  * changing the selection WHILE PAUSED can never revive the closed EventSource.
  * Play/refocus re-applies the recorded target via `reopenSeed`, resuming the
  * same-dir tail from the last offset but honoring an explicit paused-time seek.
+ * An explicit seek is SINGLE-USE: the instant it's delivered (immediately if
+ * active, else on the next Play/refocus), the recorded target reverts to
+ * `positions: null` — so a LATER pause/play or visibility cycle resumes from
+ * wherever the live tail actually is (`resumePositions()`) instead of
+ * re-applying the same seek forever. This matters because a Replay's
+ * catch-up-to-live flip is a display-only signal (SeekTracker) that never
+ * re-calls `resubscribe` — without single-use consumption, pausing any time
+ * after a Replay would keep jumping back to the original replay start.
  *
  * @param {Object} o
  * @param {Object} o.linkRef A ref to the RemoteLink node (`setSubscribe`/`close`/`resumePositions`).
@@ -51,15 +59,27 @@ export function useGatedSubscription( { linkRef, viewRef } ) {
 
 	// The intended {subscribe, positions}: the reopen source of truth.
 	const pendingTargetRef = useRef( null );
-	// Record the target; setSubscribe only while active (Play re-applies it).
-	const resubscribe = useCallback(
+	// @longform setSubscribe, then immediately mark the target consumed: an
+	// explicit seek is single-use, so the NEXT reopen resumes live instead of
+	// re-applying it (see the module docblock).
+	const deliver = useCallback(
 		( subscribe, positions ) => {
-			pendingTargetRef.current = { subscribe, positions };
-			if ( isActiveRef.current ) {
-				linkRef.current?.setSubscribe( subscribe, positions );
-			}
+			pendingTargetRef.current = { subscribe, positions: null };
+			linkRef.current?.setSubscribe( subscribe, positions );
 		},
 		[ linkRef ]
+	);
+
+	// Record the target; deliver only while active (Play re-applies it).
+	const resubscribe = useCallback(
+		( subscribe, positions ) => {
+			if ( isActiveRef.current ) {
+				deliver( subscribe, positions );
+				return;
+			}
+			pendingTargetRef.current = { subscribe, positions };
+		},
+		[ deliver ]
 	);
 
 	// Open/resume (recorded target) while active; close when hidden OR paused.
@@ -74,9 +94,9 @@ export function useGatedSubscription( { linkRef, viewRef } ) {
 		}
 		const target = pendingTargetRef.current;
 		if ( target ) {
-			link.setSubscribe( target.subscribe, reopenSeed( link, target ) );
+			deliver( target.subscribe, reopenSeed( link, target ) );
 		}
-	}, [ isActive, linkRef ] );
+	}, [ isActive, linkRef, deliver ] );
 
 	// Pause closes the stream (isActive effect); flag drives button + label.
 	const setPaused = useCallback(
