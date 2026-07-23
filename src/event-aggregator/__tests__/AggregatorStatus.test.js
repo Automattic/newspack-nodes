@@ -396,7 +396,9 @@ describe( 'AggregatorStatus', () => {
 		} );
 		fixtureNode( 'aggregator:fleet', {
 			probes: {
-				server1: {
+				// Keyed by vault_id (what onProbe dispatches), NOT `id` — a
+				// lookup that regresses to server.id must render nothing.
+				'server1-vault-cred': {
 					ok: true,
 					rollup: {
 						workers: { total: 4, live: 3, stale: 1, dead: 0 },
@@ -420,7 +422,10 @@ describe( 'AggregatorStatus', () => {
 		} );
 		fixtureNode( 'aggregator:fleet', {
 			probes: {
-				server1: { ok: false, error: 'could not connect to server' },
+				'server1-vault-cred': {
+					ok: false,
+					error: 'could not connect to server',
+				},
 			},
 		} );
 		const { container } = mount();

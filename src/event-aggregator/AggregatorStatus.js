@@ -455,7 +455,9 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 								key={ server.id }
 								server={ server }
 								now={ serverNow }
-								probeResult={ fleet.probes?.[ server.id ] }
+								probeResult={
+									fleet.probes?.[ server.vault_id ]
+								}
 								onProbe={ probe }
 							/>
 						) )
