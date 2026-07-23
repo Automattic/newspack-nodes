@@ -792,8 +792,8 @@ class Consumer_Node extends Timer_Node {
 			// Verbs: time-travel + pump + DLQ triage + set_multi_writer.
 			'commands'      => \array_merge(
 				self::time_travel_verbs(),
-				self::pump_verbs(),
 				self::deadletter_verbs(),
+				self::pump_verbs(),
 				[
 					[
 						'name'        => 'set_multi_writer',
