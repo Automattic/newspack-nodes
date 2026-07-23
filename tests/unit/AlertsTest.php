@@ -3,9 +3,9 @@
  * AlertsTest: the substrate Alerts evaluator.
  *
  * Alerts::evaluate() computes worker-down / consumer-lag / dlq-growth alerts
- * from the SAME snapshot Workers_CI builds. Alerts::emit() fires one
- * `newspack_nodes/alert` action per alert, rate-limited so a persisting
- * condition doesn't re-firehose every supervisor tick.
+ * from the SAME snapshot Workers_CI builds. Alerts::emit() journals one
+ * entry per alert into the alerts.p0 partition, rate-limited so a persisting
+ * condition doesn't re-journal every supervisor tick.
  *
  * @package Newspack_Nodes
  */
@@ -26,6 +26,7 @@ class AlertsTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		Alerts::reset();
 		\Newspack_Nodes\Topology_Registry::reset();
 		$GLOBALS['_wp_options']          = [];
 		$GLOBALS['_wp_actions']          = [];
@@ -33,6 +34,7 @@ class AlertsTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		Alerts::reset();
 		\Newspack_Nodes\Topology_Registry::reset();
 		$GLOBALS['_wp_options']          = [];
 		$GLOBALS['_wp_actions']          = [];
@@ -113,6 +115,19 @@ class AlertsTest extends TestCase {
 		$out = [];
 		foreach ( $alerts as $alert ) {
 			$out[ $alert['key'] ] = $alert;
+		}
+		return $out;
+	}
+
+	/** @return array<int,array<int,mixed>> Unpacked alerts.p0 journal messages, write order. */
+	private function journal_messages( string $base ): array {
+		$out   = [];
+		$files = \glob( "{$base}/logs/alerts.p0/*.log" );
+		\sort( $files );
+		foreach ( $files as $file ) {
+			foreach ( \file( $file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES ) as $line ) {
+				$out[] = Message::unpacked( $line );
+			}
 		}
 		return $out;
 	}
@@ -236,36 +251,65 @@ class AlertsTest extends TestCase {
 		$this->assertSame( '', Alerts::worst_severity( [] ) );
 	}
 
-	public function test_emit_fires_alert_action_per_alert(): void {
+	public function test_emit_journals_one_entry_per_alert_to_alerts_p0(): void {
 		$base = $this->arrange( [ 'stale-workers' ] );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 );
 		$this->seed_deadletter( $base, 'jobs.job-worker.p0', 2 );
 
-		$fired = [];
-		\add_action( 'newspack_nodes/alert', static function ( array $alert ) use ( &$fired ): void {
-			$fired[] = $alert['key'];
-		} );
+		Alerts::emit();
+
+		$messages = $this->journal_messages( $base );
+		$by_key   = [];
+		foreach ( $messages as $message ) {
+			$by_key[ $message[ Message::KEY ] ] = $message;
+		}
+		$this->assertArrayHasKey( 'worker_down:stale-workers.p0', $by_key );
+		$this->assertArrayHasKey( 'deadletter', $by_key );
+	}
+
+	public function test_emit_journal_entry_shape_matches_the_errors_family_plus_severity(): void {
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_heartbeat( $base, 'stale-workers', 120 );
 
 		Alerts::emit();
 
-		$this->assertContains( 'worker_down:stale-workers.p0', $fired );
-		$this->assertContains( 'deadletter', $fired );
+		$messages = $this->journal_messages( $base );
+		$this->assertNotEmpty( $messages );
+		$message = $messages[0];
+		$this->assertSame( Message::TM_STRUCT, $message[ Message::TYPE ] );
+		$this->assertSame( 'alerts', $message[ Message::FROM ] );
+		$entry = (array) $message[ Message::VALUE ];
+		$this->assertSame( 1, $entry['n'] );
+		$this->assertSame( 'alert', $entry['k'] );
+		$this->assertSame( Alerts::SEVERITY_CRITICAL, $entry['severity'] );
+		$this->assertStringContainsString( 'stale-workers.p0', $entry['m'] );
+		$this->assertIsFloat( $entry['ts'] );
 	}
 
 	public function test_emit_is_rate_limited_within_the_window(): void {
 		$base = $this->arrange( [ 'stale-workers' ] );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 );
 
-		$fire_count = 0;
-		\add_action( 'newspack_nodes/alert', static function () use ( &$fire_count ): void {
-			++$fire_count;
-		} );
-
 		Alerts::emit();
-		$after_first = $fire_count;
+		$after_first = \count( $this->journal_messages( $base ) );
 		Alerts::emit(); // second call within the window is gated.
 
 		$this->assertGreaterThan( 0, $after_first );
-		$this->assertSame( $after_first, $fire_count );
+		$this->assertCount( $after_first, $this->journal_messages( $base ) );
+	}
+
+	public function test_emit_fires_no_wp_action(): void {
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_heartbeat( $base, 'stale-workers', 120 );
+
+		$fired = 0;
+		\add_action( 'newspack_nodes/alert', static function () use ( &$fired ): void {
+			++$fired;
+		} );
+
+		Alerts::emit();
+
+		$this->assertSame( 0, $fired, 'the alert action was deleted; journaling replaced it' );
+		$this->assertNotEmpty( $this->journal_messages( $base ) );
 	}
 }
