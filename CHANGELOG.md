@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Dead-letter alerts name the owning queue.** `deadletter` was one anonymous
+  fleet-wide total; it is now one alert per quarantined reader —
+  `deadletter:{reader}` keyed, count + reader in the message — so the journal
+  says WHICH consumer quarantined poison. `dump_graph` gains a
+  `deadletter_by_reader` breakdown beside the existing total.
 - **`Alerts::emit()` journals transitions, not heartbeats.** A row is written
   when a condition raises or changes severity, and a `resolved` row when it
   clears; a persisting condition journals nothing (previously it re-wrote an

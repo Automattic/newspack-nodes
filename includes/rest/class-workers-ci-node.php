@@ -133,13 +133,16 @@ class Workers_CI_Node extends Service_CI_Node {
 		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
 		$log_partitions = \count( @\glob( "{$log_base}/*", \GLOB_ONLYDIR ) ?: [] );
 
+		$deadletter_by_reader = self::deadletter_segments_by_reader( $base_dir );
+
 		return [
 			'workers'        => $workers,
 			'consumers'      => $consumers,
 			'supervisor'     => $supervisor,
 			'logs'           => $logs,
 			'log_partitions' => $log_partitions,
-			'deadletter_segments'  => self::count_deadletter_segments( $base_dir ),
+			'deadletter_segments'  => \array_sum( $deadletter_by_reader ),
+			'deadletter_by_reader' => $deadletter_by_reader,
 			'num_partitions' => $num_partitions,
 			'max_segments'   => $max_segments,
 			'segment_size'   => $segment_size,
@@ -149,12 +152,21 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Total quarantined dead-letter segments across every consumer's
-	 * `{base}/deadletter/<reader>/{seg}.log` sibling — the cheap DLQ-growth
-	 * signal. Absent dir globs to zero.
+	 * Quarantined dead-letter segments per consumer, from each reader's
+	 * `{base}/deadletter/<reader>/{seg}.log` sibling — the DLQ-growth signal,
+	 * keyed by the owning reader so alerts can name the queue. Readers with
+	 * an empty (fully triaged) dir are omitted; absent dirs glob to nothing.
+	 *
+	 * @return array<string,int> Reader id => quarantined segment count.
 	 */
-	private static function count_deadletter_segments( string $base_dir ): int {
-		return \count( @\glob( "{$base_dir}/deadletter/*/*.log" ) ?: [] );
+	private static function deadletter_segments_by_reader( string $base_dir ): array {
+		$by_reader = [];
+		foreach ( @\glob( "{$base_dir}/deadletter/*/*.log" ) ?: [] as $segment ) {
+			$reader               = \basename( \dirname( $segment ) );
+			$by_reader[ $reader ] = ( $by_reader[ $reader ] ?? 0 ) + 1;
+		}
+		\ksort( $by_reader );
+		return $by_reader;
 	}
 
 	/**

@@ -215,7 +215,7 @@ class AlertsTest extends TestCase {
 
 		$by_key = $this->alerts_by_key( Alerts::evaluate() );
 
-		$this->assertArrayNotHasKey( 'deadletter', $by_key );
+		$this->assertArrayNotHasKey( 'deadletter:jobs.job-worker.p0', $by_key );
 	}
 
 	public function test_emit_honors_configured_emit_interval(): void {
@@ -232,16 +232,33 @@ class AlertsTest extends TestCase {
 		$this->assertLessThanOrEqual( $before + 779, $expires_at );
 	}
 
-	public function test_deadletter_segments_yield_a_warning(): void {
+	public function test_deadletter_segments_yield_a_per_reader_warning(): void {
 		$base = $this->arrange( [ 'live-workers' ] );
 		$this->seed_heartbeat( $base, 'live-workers', 0 );
 		$this->seed_deadletter( $base, 'jobs.job-worker.p0', 4 );
 
 		$by_key = $this->alerts_by_key( Alerts::evaluate() );
 
-		$this->assertArrayHasKey( 'deadletter', $by_key );
-		$this->assertSame( Alerts::SEVERITY_WARNING, $by_key['deadletter']['severity'] );
-		$this->assertSame( 4, $by_key['deadletter']['count'] );
+		$this->assertArrayHasKey( 'deadletter:jobs.job-worker.p0', $by_key );
+		$alert = $by_key['deadletter:jobs.job-worker.p0'];
+		$this->assertSame( Alerts::SEVERITY_WARNING, $alert['severity'] );
+		$this->assertSame( 4, $alert['count'] );
+		$this->assertSame( 'jobs.job-worker.p0', $alert['reader'] );
+		$this->assertStringContainsString( 'jobs.job-worker.p0', $alert['message'], 'the message names the owning queue' );
+	}
+
+	public function test_each_quarantined_reader_alerts_independently(): void {
+		$base = $this->arrange( [ 'live-workers' ] );
+		$this->seed_heartbeat( $base, 'live-workers', 0 );
+		$this->seed_deadletter( $base, 'firehose.combined.p0', 1 );
+		$this->seed_deadletter( $base, 'requests.combined.p0', 3 );
+
+		$by_key = $this->alerts_by_key( Alerts::evaluate() );
+
+		$this->assertArrayHasKey( 'deadletter:firehose.combined.p0', $by_key );
+		$this->assertArrayHasKey( 'deadletter:requests.combined.p0', $by_key );
+		$this->assertSame( 1, $by_key['deadletter:firehose.combined.p0']['count'] );
+		$this->assertSame( 3, $by_key['deadletter:requests.combined.p0']['count'] );
 	}
 
 	public function test_worst_severity_prefers_critical(): void {
@@ -266,7 +283,7 @@ class AlertsTest extends TestCase {
 			$by_key[ $message[ Message::KEY ] ] = $message;
 		}
 		$this->assertArrayHasKey( 'worker_down:stale-workers.p0', $by_key );
-		$this->assertArrayHasKey( 'deadletter', $by_key );
+		$this->assertArrayHasKey( 'deadletter:jobs.job-worker.p0', $by_key );
 	}
 
 	public function test_emit_journal_entry_shape_matches_the_errors_family_plus_severity(): void {

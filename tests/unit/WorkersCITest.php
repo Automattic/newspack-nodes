@@ -965,6 +965,14 @@ class WorkersCITest extends TestCase {
 
 		$this->assertArrayHasKey( 'deadletter_segments', $result );
 		$this->assertSame( 3, $result['deadletter_segments'] );
+		// Per-reader breakdown: the Alerts evaluator names the owning queue.
+		$this->assertSame(
+			[
+				'firehose.request-builder.p0' => 1,
+				'jobs.job-worker.p0'          => 2,
+			],
+			$result['deadletter_by_reader']
+		);
 	}
 
 	public function test_dump_graph_reports_zero_deadletter_when_dir_absent(): void {
