@@ -136,9 +136,19 @@ class Settings_Event_Writer {
 	 * legible) truncated to EXCERPT_MAX_CHARS characters. Multibyte chars re-escape
 	 * larger when the whole record is packed — fit_to_line enforces the byte cap.
 	 *
+	 * A numeric string normalizes to its number first: `update_option()`'s $old
+	 * always comes back from the options table as a string (WP options are text
+	 * columns; every scalar round-trips as one), while an int-typed
+	 * Settings_Schema field's sanitizer hands $new a genuine PHP int — so an
+	 * unchanged value would otherwise excerpt as `"900"` on one side and `900`
+	 * on the other, a type artifact with no bearing on the setting's actual value.
+	 *
 	 * @param mixed $value Raw option value.
 	 */
 	private static function excerpt( $value ): string {
+		if ( \is_string( $value ) && \is_numeric( $value ) ) {
+			$value += 0;
+		}
 		$json = \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE );
 		if ( ! \is_string( $json ) ) {
 			return '';

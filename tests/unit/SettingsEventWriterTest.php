@@ -74,6 +74,20 @@ class SettingsEventWriterTest extends TestCase {
 		);
 	}
 
+	public function test_numeric_old_and_new_excerpt_the_same_regardless_of_php_type(): void {
+		// A WP option round-tripped through the DB always reads back as a string
+		// (`get_option()`'s $old); an int-typed Settings_Schema field's sanitizer
+		// (`absint()`) hands `on_update()` a genuine PHP int as $new. Without
+		// normalization the excerpts diverge on TYPE alone — `"900"` vs `900` —
+		// even though the setting's actual VALUE never changed.
+		Settings_Event_Writer::on_update( 'newspack_nodes_max_lifetime', '900', 900 );
+
+		$this->assertSame(
+			[ 'option' => 'newspack_nodes_max_lifetime', 'old' => '900', 'new' => '900' ],
+			$this->captured[0][ Message::VALUE ]
+		);
+	}
+
 	public function test_allowlisted_add_records_new_only(): void {
 		Settings_Event_Writer::on_add( 'newspack_nodes_segment_size', 'freshsegment' );
 
