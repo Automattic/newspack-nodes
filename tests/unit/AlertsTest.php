@@ -298,6 +298,24 @@ class AlertsTest extends TestCase {
 		$this->assertCount( $after_first, $this->journal_messages( $base ) );
 	}
 
+	public function test_emit_survives_a_throwing_journal_write(): void {
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_heartbeat( $base, 'stale-workers', 120 );
+
+		$throwing_journal = new class() extends \Newspack_Nodes\Partition_Node {
+			public function fill( array $message ): void {
+				throw new \RuntimeException( 'boom-777' );
+			}
+		};
+		$property = new \ReflectionProperty( Alerts::class, 'journal' );
+		$property->setAccessible( true );
+		$property->setValue( null, $throwing_journal );
+
+		Alerts::emit();
+
+		$this->assertTrue( true, 'emit() must not let a journal-write throw escape' );
+	}
+
 	public function test_emit_fires_no_wp_action(): void {
 		$base = $this->arrange( [ 'stale-workers' ] );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 );
