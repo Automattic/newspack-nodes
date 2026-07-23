@@ -32,6 +32,9 @@ const {
 const SAMPLE_SERVERS = [
 	{
 		id: 'server1',
+		// Distinct from `id`: the node NAME differs from the vault credential
+		// KEY in real topologies (e.g. `firehose:tw0` vs `tucson-weekly`).
+		vault_id: 'server1-vault-cred',
 		url: 'https://a.example.test',
 		partitions: {
 			0: {
@@ -382,7 +385,9 @@ describe( 'AggregatorStatus', () => {
 				new window.MouseEvent( 'click', { bubbles: true } )
 			);
 		} );
-		expect( probe ).toHaveBeenCalledWith( 'server1' );
+		// The probe verb takes the VAULT credential key, not the node name —
+		// they differ in real topologies, so this must not regress to `id`.
+		expect( probe ).toHaveBeenCalledWith( 'server1-vault-cred' );
 	} );
 
 	it( 'renders the fleet roll-up when a probe result is present', () => {

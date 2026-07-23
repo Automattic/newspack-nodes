@@ -300,7 +300,8 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
 	const [ probing, setProbing ] = useState( false );
 	const runProbe = () => {
 		setProbing( true );
-		Promise.resolve( onProbe( server.id ) )
+		// cmd_probe wants the vault credential key, not the node name.
+		Promise.resolve( onProbe( server.vault_id ) )
 			.catch( () => {} )
 			.finally( () => setProbing( false ) );
 	};
