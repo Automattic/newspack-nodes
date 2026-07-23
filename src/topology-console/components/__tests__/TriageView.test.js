@@ -68,8 +68,17 @@ test( 'dispatches dl_list at the node on mount and renders the returned records'
 	} );
 	reply( 'dl_list', listJson() );
 	const grid = getByTestId( 'triage-grid' );
-	// UTC HH:MM:SS from ts, plus reason / attempts / source / locator.
-	expect( grid.textContent ).toContain( '03:08:43' );
+	// Local `YYYY-MM-DD HH:MM:SS TZ` from ts (DLQ records can be days old),
+	// plus reason / attempts / source / locator.
+	const d = new Date( 1_777_000_123 * 1000 );
+	const expected = `${ d.toLocaleDateString(
+		'en-CA'
+	) } ${ d.toLocaleTimeString( 'en-US', {
+		hour12: false,
+		timeZoneName: 'short',
+	} ) }`;
+	expect( expected ).toMatch( /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+/ );
+	expect( grid.textContent ).toContain( expected );
 	expect( grid.textContent ).toContain( 'timeout' );
 	expect( grid.textContent ).toContain( '3' );
 	expect( grid.textContent ).toContain( '4:88:512' );
@@ -238,10 +247,12 @@ test( 'View buttons disable while a dl_show is in flight (single reply slot)', (
 		} )
 	);
 	fireEvent.click( getAllByText( 'View' )[ 0 ] );
-	getAllByText( 'View' ).forEach( ( b ) => expect( b ).toBeDisabled() );
+	getAllByText( 'View' ).forEach( ( b ) =>
+		expect( b.disabled ).toBe( true )
+	);
 	reply( 'dl_show', showJson() );
 	// Reply landed: the panel is open and the OTHER row's View re-enables.
-	expect( getByText( 'View' ) ).not.toBeDisabled();
+	expect( getByText( 'View' ).disabled ).toBe( false );
 	expect( getByText( 'Hide' ) ).not.toBeNull();
 } );
 

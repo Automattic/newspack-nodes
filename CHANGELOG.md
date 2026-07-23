@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replies the record's envelope fields (`type` + human-readable `type_flags`,
   timestamp, from/to/id/key, packed size) and full VALUE as JSON. The Triage
   modal's rows grow a View/Hide toggle that renders the decoded record in an
-  expandable panel under the row.
+  expandable panel under the row, and the TIME column now shows the local
+  date and timezone (`YYYY-MM-DD HH:MM:SS TZ`) — quarantined records can be
+  days old, so bare UTC HH:MM:SS was ambiguous.
 
 ### Changed
 - `Alerts::emit()` now journals fleet alerts directly into the substrate's own
