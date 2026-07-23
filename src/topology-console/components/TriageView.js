@@ -7,7 +7,13 @@
  * defensively into the table so a bad reply shows an error row, not a crash.
  */
 
-import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import {
+	Fragment,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import names from '../../runtime/reserved-node-names.json';
@@ -53,6 +59,10 @@ export default function TriageView( { node, onAction } ) {
 	const [ status, setStatus ] = useState( null );
 	// Two-click purge: first click arms this, second click fires dl_purge.
 	const [ confirmPurge, setConfirmPurge ] = useState( false );
+	// The open record panel, { locator, record } from dl_show, or null.
+	const [ shown, setShown ] = useState( null );
+	// dl_show in flight — the one-per-verb capture slot forbids a second.
+	const [ viewPending, setViewPending ] = useState( false );
 
 	// Ref to the latest onAction keeps runVerb stable across polls.
 	const onActionRef = useRef( onAction );
@@ -88,8 +98,9 @@ export default function TriageView( { node, onAction } ) {
 	);
 
 	const refresh = useCallback( () => {
-		// Any explicit refetch disarms a pending purge confirmation.
+		// Any explicit refetch disarms a pending purge confirmation + panel.
 		setConfirmPurge( false );
+		setShown( null );
 		runVerb( 'dl_list', '', {}, ( payload, isError ) => {
 			if ( isError ) {
 				setStatus( { text: String( payload ?? '' ), isError: true } );
@@ -105,6 +116,35 @@ export default function TriageView( { node, onAction } ) {
 	useEffect( () => {
 		refreshRef.current();
 	}, [ node.id ] );
+
+	const view = ( locator ) => {
+		setConfirmPurge( false );
+		setViewPending( true );
+		runVerb( 'dl_show', locator, { locator }, ( payload, isError ) => {
+			setViewPending( false );
+			if ( isError ) {
+				setStatus( { text: String( payload ?? '' ), isError: true } );
+				return;
+			}
+			let record = null;
+			try {
+				record = JSON.parse( String( payload ?? '' ) );
+			} catch ( e ) {
+				record = null;
+			}
+			if ( ! record || 'object' !== typeof record ) {
+				setStatus( {
+					text: __(
+						'Could not decode the record.',
+						'newspack-nodes'
+					),
+					isError: true,
+				} );
+				return;
+			}
+			setShown( { locator, record } );
+		} );
+	};
 
 	const requeue = ( locator ) => {
 		setConfirmPurge( false );
@@ -211,35 +251,75 @@ export default function TriageView( { node, onAction } ) {
 					</thead>
 					<tbody>
 						{ rows.map( ( r, i ) => (
-							<tr
-								key={ r.locator ?? i }
-								className="nodes-runtime__row"
-							>
-								<td className="nodes-runtime__td">
-									{ formatTime( r.ts ) }
-								</td>
-								<td className="nodes-runtime__td">
-									{ r.reason }
-								</td>
-								<td className="nodes-runtime__td">
-									{ r.attempts }
-								</td>
-								<td className="nodes-runtime__td">
-									{ r.source }
-								</td>
-								<td className="nodes-runtime__td">
-									<code>{ r.locator }</code>
-								</td>
-								<td className="nodes-runtime__td">
-									<button
-										type="button"
-										className="button is-compact"
-										onClick={ () => requeue( r.locator ) }
-									>
-										{ __( 'Requeue', 'newspack-nodes' ) }
-									</button>
-								</td>
-							</tr>
+							<Fragment key={ r.locator ?? i }>
+								<tr className="nodes-runtime__row">
+									<td className="nodes-runtime__td">
+										{ formatTime( r.ts ) }
+									</td>
+									<td className="nodes-runtime__td">
+										{ r.reason }
+									</td>
+									<td className="nodes-runtime__td">
+										{ r.attempts }
+									</td>
+									<td className="nodes-runtime__td">
+										{ r.source }
+									</td>
+									<td className="nodes-runtime__td">
+										<code>{ r.locator }</code>
+									</td>
+									<td className="nodes-runtime__td">
+										<button
+											type="button"
+											className="button is-compact"
+											disabled={ viewPending }
+											onClick={ () =>
+												shown?.locator === r.locator
+													? setShown( null )
+													: view( r.locator )
+											}
+										>
+											{ shown?.locator === r.locator
+												? __( 'Hide', 'newspack-nodes' )
+												: __(
+														'View',
+														'newspack-nodes'
+												  ) }
+										</button>
+										<button
+											type="button"
+											className="button is-compact"
+											onClick={ () =>
+												requeue( r.locator )
+											}
+										>
+											{ __(
+												'Requeue',
+												'newspack-nodes'
+											) }
+										</button>
+									</td>
+								</tr>
+								{ shown?.locator === r.locator && (
+									<tr className="nodes-runtime__row triage-view__record-row">
+										<td
+											className="nodes-runtime__td"
+											colSpan={ 6 }
+										>
+											<pre
+												className="triage-view__record"
+												data-testid="triage-record"
+											>
+												{ JSON.stringify(
+													shown.record,
+													null,
+													2
+												) }
+											</pre>
+										</td>
+									</tr>
+								) }
+							</Fragment>
 						) ) }
 					</tbody>
 				</table>

@@ -54,6 +54,14 @@
 		margin-top: auto;
 		padding-top: 8px;
 	}
+
+	&__record {
+		margin: 0;
+		padding: 8px 12px;
+		white-space: pre-wrap;
+		word-break: break-all;
+		color: var(--ink-2);
+	}
 }
 
 // Row Requeue buttons read as inline controls, not full-width rail cells (mirrors
@@ -61,4 +69,8 @@
 .topology-app .triage-view__grid .button.is-compact {
 	width: auto;
 	text-align: center;
+}
+
+.topology-app .triage-view__grid .button.is-compact + .button.is-compact {
+	margin-left: 6px;
 }

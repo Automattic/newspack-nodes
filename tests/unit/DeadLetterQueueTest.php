@@ -486,4 +486,53 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( 0, $page['total'] );
 		$this->assertSame( [], $page['rows'] );
 	}
+
+	public function test_show_returns_the_decoded_record_at_a_locator(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$m                        = Message::new_message();
+		$m[ Message::TYPE ]       = Message::TM_STRUCT;
+		$m[ Message::TIMESTAMP ]  = 7777.25;
+		$m[ Message::FROM ]       = 'origin-node';
+		$m[ Message::TO ]         = 'dest-node';
+		$m[ Message::ID ]         = '4:96:33';
+		$m[ Message::KEY ]        = 'poison-key-909';
+		$m[ Message::VALUE ]      = [ 'k' => 'job', 'payload' => 'unparseable-blob-909' ];
+		$d->quarantine( $m, 'unparseable' );
+
+		$locator = $d->list_deadletter( 1 )['rows'][0]['locator'];
+		$shown   = \json_decode( $d->show_deadletter( $locator ), true );
+
+		$this->assertSame( Message::TM_STRUCT, $shown['type'] );
+		$this->assertSame( 'TM_STRUCT', $shown['type_flags'] );
+		$this->assertSame( 7777.25, $shown['timestamp'] );
+		$this->assertSame( 'origin-node', $shown['from'] );
+		$this->assertSame( 'dest-node', $shown['to'] );
+		$this->assertSame( '4:96:33', $shown['id'] );
+		$this->assertSame( 'poison-key-909', $shown['key'] );
+		$this->assertSame( [ 'k' => 'job', 'payload' => 'unparseable-blob-909' ], $shown['value'] );
+		$this->assertGreaterThan( 0, $shown['size'], 'packed byte size rides along' );
+	}
+
+	public function test_show_rejects_a_malformed_locator(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$this->assertStringContainsString( 'malformed', $d->show_deadletter( 'not-a-locator' ) );
+	}
+
+	public function test_show_reports_a_missing_record(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$this->assertStringContainsString( 'no dead-letter record', $d->show_deadletter( '9:0:10' ) );
+	}
+
+	public function test_show_errors_without_a_configured_queue(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$this->assertStringContainsString( 'no dead-letter queue', $d->show_deadletter( '0:0:10' ) );
+	}
+
+	public function test_dl_show_is_in_the_shared_verb_table(): void {
+		$names = \array_column( Dead_Letter_Queue_Double::deadletter_verbs(), 'name' );
+		$this->assertContains( 'dl_show', $names );
+	}
 }

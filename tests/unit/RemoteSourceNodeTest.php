@@ -1523,6 +1523,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_deadletter_triage_verbs_are_wired_into_the_schema(): void {
 		$verbs = \array_column( Remote_Source_Node::node_schema()['commands'], 'name' );
 		$this->assertContains( 'dl_list', $verbs );
+		$this->assertContains( 'dl_show', $verbs );
 		$this->assertContains( 'dl_requeue', $verbs );
 		$this->assertContains( 'dl_purge', $verbs );
 	}

@@ -138,6 +138,113 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 	);
 } );
 
+const showJson = () =>
+	JSON.stringify( {
+		type: 256,
+		type_flags: 'TM_STRUCT',
+		timestamp: 1_777_000_000.5,
+		from: 'origin-node',
+		to: '',
+		id: '4:88:512',
+		key: 'poison-key-909',
+		value: { k: 'job', payload: 'blob-909' },
+		size: 133,
+	} );
+
+test( 'View dispatches dl_show with the row locator and renders the record', () => {
+	const onAction = jest.fn();
+	const { getByText, getByTestId } = render(
+		<TriageView node={ node } onAction={ onAction } />
+	);
+	reply( 'dl_list', listJson() );
+	onAction.mockClear();
+	fireEvent.click( getByText( 'View' ) );
+	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
+		verb: 'dl_show',
+		kind: 'command',
+		positional: '2:40:96',
+		byName: { locator: '2:40:96' },
+	} );
+	reply( 'dl_show', showJson() );
+	const detail = getByTestId( 'triage-record' );
+	expect( detail.textContent ).toContain( 'TM_STRUCT' );
+	expect( detail.textContent ).toContain( 'origin-node' );
+	expect( detail.textContent ).toContain( 'poison-key-909' );
+	expect( detail.textContent ).toContain( 'blob-909' );
+} );
+
+test( 'View toggles to Hide and closes the open record without a dispatch', () => {
+	const onAction = jest.fn();
+	const { getByText, queryByTestId } = render(
+		<TriageView node={ node } onAction={ onAction } />
+	);
+	reply( 'dl_list', listJson() );
+	fireEvent.click( getByText( 'View' ) );
+	reply( 'dl_show', showJson() );
+	expect( queryByTestId( 'triage-record' ) ).not.toBeNull();
+	onAction.mockClear();
+	fireEvent.click( getByText( 'Hide' ) );
+	expect( queryByTestId( 'triage-record' ) ).toBeNull();
+	expect( onAction ).not.toHaveBeenCalled();
+} );
+
+test( 'a dl_show error lands in the status line, not the record panel', () => {
+	const { getByText, queryByTestId } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listJson() );
+	fireEvent.click( getByText( 'View' ) );
+	reply( 'dl_show', 'error: no dead-letter record at 2:40:96', TM_ERROR );
+	expect( queryByTestId( 'triage-record' ) ).toBeNull();
+	expect( getByText( /no dead-letter record/ ) ).not.toBeNull();
+} );
+
+test( 'an unparseable dl_show reply is surfaced as an error, not rendered', () => {
+	const { getByText, queryByTestId } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listJson() );
+	fireEvent.click( getByText( 'View' ) );
+	reply( 'dl_show', 'not-json{' );
+	expect( queryByTestId( 'triage-record' ) ).toBeNull();
+	expect( getByText( /Could not decode the record/ ) ).not.toBeNull();
+} );
+
+test( 'View buttons disable while a dl_show is in flight (single reply slot)', () => {
+	// The `_output` capture slot is one-per-verb: a second dl_show armed
+	// before the first reply lands would mislabel row A's content as row B's.
+	const { getAllByText, getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply(
+		'dl_list',
+		listJson( {
+			rows: [
+				{
+					reason: 'timeout',
+					attempts: 1,
+					ts: 1,
+					source: 'a',
+					locator: '1:0:10',
+				},
+				{
+					reason: 'crash',
+					attempts: 2,
+					ts: 2,
+					source: 'b',
+					locator: '2:0:20',
+				},
+			],
+		} )
+	);
+	fireEvent.click( getAllByText( 'View' )[ 0 ] );
+	getAllByText( 'View' ).forEach( ( b ) => expect( b ).toBeDisabled() );
+	reply( 'dl_show', showJson() );
+	// Reply landed: the panel is open and the OTHER row's View re-enables.
+	expect( getByText( 'View' ) ).not.toBeDisabled();
+	expect( getByText( 'Hide' ) ).not.toBeNull();
+} );
+
 test( 'Purge is a two-click confirm before it dispatches dl_purge', () => {
 	const onAction = jest.fn();
 	const { getByText } = render(

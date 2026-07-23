@@ -21,7 +21,7 @@ return [
 	'num_partitions'      => 1,
 	'segment_size'        => 64 * 1024 * 1024,
 	'min_segments'        => 2,
-	'max_segments'        => 2,
+	'max_segments'        => 8,
 	'min_lifetime'        => 3600,
 	'max_lifetime'        => 86400,
 
@@ -49,7 +49,9 @@ return [
 	// Aggregator spoke list (hubs only; spokes leave empty).
 	'vault_verify_ssl'    => true,
 	'vault_require_ssl'   => true,
-	'remote_max_segments' => 2,
-	'remote_segment_size' => 10 * 1024 * 1024,
-	'remote_min_lifetime' => 3600,
+	'remote_min_segments' => 2,
+	'remote_max_segments' => 8,
+	'remote_segment_size' => 64 * 1024 * 1024,
+	'remote_min_lifetime' => 900,
+	'remote_max_lifetime' => 900,
 ];

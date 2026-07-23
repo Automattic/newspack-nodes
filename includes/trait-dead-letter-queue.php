@@ -338,6 +338,40 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
+	 * Decode the dead-letter record at $locator into named envelope fields for the
+	 * triage UI / REPL — JSON `{ type, type_flags, timestamp, from, to, id, key,
+	 * value, size }`. Read-only sibling of requeue_deadletter: same locator grammar,
+	 * same sidecar read, no side effects. Returns an error line on a bad locator.
+	 */
+	public function show_deadletter( string $locator ): string {
+		$deadletter = $this->ensure_deadletter();
+		if ( null === $deadletter ) {
+			return 'error: no dead-letter queue configured';
+		}
+		$loc = $this->parse_deadletter_locator( $locator );
+		if ( null === $loc ) {
+			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list";
+		}
+		[ $segment, $offset, $length ] = $loc;
+		$message = $deadletter->read_message_at( $segment, $offset, $length );
+		if ( null === $message ) {
+			return "error: no dead-letter record at {$locator}";
+		}
+		$type = Core::as_int( $message[ Message::TYPE ] ?? 0 );
+		return (string) \wp_json_encode( [
+			'type'       => $type,
+			'type_flags' => Dumper_Node::format_type_flags( $type ),
+			'timestamp'  => $message[ Message::TIMESTAMP ] ?? 0,
+			'from'       => Core::as_string( $message[ Message::FROM ] ?? '' ),
+			'to'         => Core::as_string( $message[ Message::TO ] ?? '' ),
+			'id'         => Core::as_string( $message[ Message::ID ] ?? '' ),
+			'key'        => Core::as_string( $message[ Message::KEY ] ?? '' ),
+			'value'      => $message[ Message::VALUE ] ?? null,
+			'size'       => Message::packed_size( $message ),
+		] );
+	}
+
+	/**
 	 * Delete every dead-letter segment (.log + its .idx), then refresh the warm segment
 	 * cache. Convenience only — the DLQ is count-rotated (DEADLETTER_MAX_SEGMENTS), so
 	 * quarantine can never grow unbounded and purge is never required for correctness.
@@ -506,6 +540,14 @@ trait Dead_Letter_Queue {
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_list( $interpreter, $args ),
 			],
 			[
+				'name'        => 'dl_show',
+				'description' => 'Decode the dead-letter record at <locator> (segment:offset:length from dl_list) — envelope fields + VALUE, read-only.',
+				'args'        => [
+					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
+				],
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_show( $interpreter, $args ),
+			],
+			[
 				'name'        => 'dl_requeue',
 				'description' => 'Re-inject the dead-letter record at <locator> (segment:offset:length from dl_list) back into the source log this node tails.',
 				'args'        => [
@@ -541,6 +583,19 @@ trait Dead_Letter_Queue {
 		$raw   = Core::as_string( $args[0] ?? '' );
 		$limit = '' === $raw ? self::DEADLETTER_LIST_DEFAULT_LIMIT : \max( 1, Core::as_int( $raw ) );
 		return (string) \wp_json_encode( $patron->list_deadletter( $limit ) );
+	}
+
+	/**
+	 * `dl_show` verb handler — decode one record; reply JSON or an error line.
+	 *
+	 * @param array<array-key, mixed> $args The sidecar locator from dl_list.
+	 */
+	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): string {
+		$patron = self::deadletter_patron( $interpreter );
+		if ( null === $patron ) {
+			return 'error: not a dead-letter node';
+		}
+		return $patron->show_deadletter( Core::as_string( $args[0] ?? '' ) );
 	}
 
 	/**

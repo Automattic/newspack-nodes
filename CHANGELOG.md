@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Triage gains a per-record View: the `dl_show` verb decodes a quarantined
+  record in place.** Every dead-letter node (Consumer, Tail, Remote_Source)
+  exposes `dl_show <locator>` beside `dl_list`/`dl_requeue`/`dl_purge` — the
+  read-only sibling of requeue (same locator grammar, same sidecar read): it
+  replies the record's envelope fields (`type` + human-readable `type_flags`,
+  timestamp, from/to/id/key, packed size) and full VALUE as JSON. The Triage
+  modal's rows grow a View/Hide toggle that renders the decoded record in an
+  expandable panel under the row.
+
 ### Changed
 - `Alerts::emit()` now journals fleet alerts directly into the substrate's own
   `alerts.p0` partition (KEY = alert key, errors-family entry shape plus
