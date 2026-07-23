@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `alerts.p0` partition (KEY = alert key, errors-family entry shape plus
   `severity`) instead of firing the `newspack_nodes/alert` action. Tail
   `alerts.p0` with a Consumer for push delivery.
+- The alerts journal basename is registered with
+  `newspack_nodes/registered_log_producers`, so `Log_Cleaner` spares
+  `alerts.p0` on installs where no topology declares it.
 
 ### Removed
 - The `newspack_nodes/alert` action. Its only listener (ELN's
