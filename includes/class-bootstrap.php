@@ -521,13 +521,14 @@ class Bootstrap {
 
 	/**
 	 * Declare the substrate's own non-topology log producers (Job_Intake's
-	 * jobintake.p<N>) so Log_Cleaner never sweeps them on ELN-less installs.
+	 * jobintake.p<N>, the Alerts journal's alerts.p0) so Log_Cleaner never
+	 * sweeps them on ELN-less installs.
 	 *
 	 * @param array<int, string> $producers Producers from prior contributors.
 	 * @return array<int, string>
 	 */
 	public static function register_log_producers( array $producers ): array {
-		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME ] ) ) );
+		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME, Alerts::LOG_BASENAME ] ) ) );
 	}
 
 	/**

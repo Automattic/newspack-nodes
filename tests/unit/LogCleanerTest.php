@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Alerts;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Cleaner;
@@ -403,11 +404,18 @@ class LogCleanerTest extends TestCase {
 		// SUBSTRATE must protect it from the GC sweep (ELN-less installs queue
 		// through it via nuclear-gyrobase / pyrobase).
 		$this->assertContains( 'jobintake', Bootstrap::register_log_producers( [] ) );
-		$this->assertSame(
-			[ 'firehose', 'jobintake' ],
-			Bootstrap::register_log_producers( [ 'firehose', 'jobintake' ] ),
-			'merge dedupes against contributors that already declare it'
-		);
+		$producers = Bootstrap::register_log_producers( [ 'firehose', 'jobintake' ] );
+		$this->assertContains( 'firehose', $producers );
+		$this->assertSame( \array_unique( $producers ), $producers, 'merge dedupes against contributors that already declare it' );
+	}
+
+	public function test_substrate_registers_alerts_as_a_producer(): void {
+		// The Alerts journal writes alerts.p0 outside any topology's write set
+		// too; the substrate must protect it the same way it protects jobintake.
+		$this->assertContains( Alerts::LOG_BASENAME, Bootstrap::register_log_producers( [] ) );
+		$producers = Bootstrap::register_log_producers( [ 'firehose', Alerts::LOG_BASENAME ] );
+		$this->assertContains( 'firehose', $producers );
+		$this->assertSame( \array_unique( $producers ), $producers, 'merge dedupes against contributors that already declare it' );
 	}
 
 	public function test_registered_jobintake_producer_protects_its_partition_dirs(): void {
