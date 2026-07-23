@@ -31,8 +31,14 @@ class Alerts {
 	/** A worker/supervisor that was running has stopped — needs attention now. */
 	public const SEVERITY_CRITICAL = 'critical';
 
+	/** A previously journaled condition that is no longer present. */
+	public const SEVERITY_RESOLVED = 'resolved';
+
 	/** Transient gate name for emit()'s rate limit. */
 	private const EMIT_GATE = 'newspack_nodes_alerts_emitted';
+
+	/** Option holding the last-journaled state (alert key => severity). */
+	private const STATE_OPTION = 'newspack_nodes_alerts_state';
 
 	/** Journal dir basename; Log_Cleaner spares `{basename}.p{N}` via Bootstrap. */
 	public const LOG_BASENAME = 'alerts';
@@ -155,13 +161,16 @@ class Alerts {
 	}
 
 	/**
-	 * Journal every current alert into `alerts.p0`. Hooked to the supervisor's
-	 * periodic tick; a transient gate rate-limits emission so a persisting
-	 * condition doesn't re-journal every ~15s tick. Entries mirror the errors
-	 * family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is the alert's
-	 * stable key so consumers can dedupe. Delivery/dashboards tail the dir.
-	 * The write is throw-guarded: a rotate-lock timeout or unwritable dir must
-	 * never unwind the supervisor tick that fired this — swallow and log.
+	 * Journal alert TRANSITIONS into `alerts.p0` — a row when a condition
+	 * raises or changes severity, and a `resolved` row when it clears. A
+	 * persisting condition journals nothing: the journal records state
+	 * changes, not heartbeats. Hooked to the supervisor's periodic tick; the
+	 * transient gate is a flap backstop (at most one batch per interval), and
+	 * the last-journaled state advances only on a successful write, so a
+	 * gated or failed tick reconciles on the next open window. Entries mirror
+	 * the errors family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is
+	 * the alert's stable key. The write is throw-guarded: a rotate-lock
+	 * timeout or unwritable dir must never unwind the supervisor tick.
 	 */
 	public static function emit(): void {
 		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
@@ -171,30 +180,64 @@ class Alerts {
 			}
 			\set_transient( self::EMIT_GATE, 1, Core::num_int( Config::value( 'alert_emit_interval' ) ) );
 		}
-		$alerts = self::evaluate();
-		if ( [] === $alerts ) {
+		$current = [];
+		foreach ( self::evaluate() as $alert ) {
+			$current[ Core::as_string( $alert['key'] ?? '' ) ] = $alert;
+		}
+		$last = \function_exists( 'get_option' ) ? Core::arr( \get_option( self::STATE_OPTION, [] ) ) : [];
+
+		$rows = [];
+		foreach ( $current as $key => $alert ) {
+			$severity = Core::as_string( $alert['severity'] ?? '' );
+			if ( ( $last[ $key ] ?? null ) !== $severity ) {
+				$rows[ $key ] = [
+					'm'        => Core::as_string( $alert['message'] ?? '' ),
+					'severity' => $severity,
+				];
+			}
+		}
+		foreach ( \array_keys( $last ) as $key ) {
+			if ( ! isset( $current[ $key ] ) ) {
+				$rows[ $key ] = [
+					'm'        => "resolved: {$key}",
+					'severity' => self::SEVERITY_RESOLVED,
+				];
+			}
+		}
+		if ( [] === $rows ) {
 			return;
 		}
 		try {
 			$journal = self::journal();
 			// Real clock: the supervisor loop never refreshes Core::$now.
 			$ts = \microtime( true );
-			foreach ( $alerts as $alert ) {
+			foreach ( $rows as $key => $row ) {
 				$message                       = Message::new_message();
 				$message[ Message::TYPE ]      = Message::TM_STRUCT;
 				$message[ Message::FROM ]      = 'alerts';
 				$message[ Message::TIMESTAMP ] = $ts;
-				$message[ Message::KEY ]       = Core::as_string( $alert['key'] ?? '' );
+				$message[ Message::KEY ]       = (string) $key;
 				$message[ Message::VALUE ]     = [
 					'n'        => 1,
 					'k'        => 'alert',
-					'm'        => Core::as_string( $alert['message'] ?? '' ),
+					'm'        => $row['m'],
 					'ts'       => $ts,
-					'severity' => Core::as_string( $alert['severity'] ?? '' ),
+					'severity' => $row['severity'],
 				];
 				$journal->fill( $message );
 			}
 			$journal->flush();
+			// Advance only after a durable write; failures retry next window.
+			if ( \function_exists( 'update_option' ) ) {
+				\update_option(
+					self::STATE_OPTION,
+					\array_map(
+						static fn ( array $alert ): string => Core::as_string( $alert['severity'] ?? '' ),
+						$current
+					),
+					false
+				);
+			}
 		} catch ( \Throwable $e ) {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( 'Alerts::emit journal write failed: ' . $e->getMessage() );

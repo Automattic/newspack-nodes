@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`Alerts::emit()` journals transitions, not heartbeats.** A row is written
+  when a condition raises or changes severity, and a `resolved` row when it
+  clears; a persisting condition journals nothing (previously it re-wrote an
+  identical row every `alert_emit_interval`). Last-journaled state lives in
+  the `newspack_nodes_alerts_state` option and only advances on a successful
+  write, so a gated or failed tick reconciles on the next window.
+
 ## [0.49.0] - 2026-07-23
 
 ### Added
