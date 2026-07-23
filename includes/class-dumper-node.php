@@ -212,8 +212,9 @@ class Dumper_Node extends Node {
 
 	/**
 	 * Render a TM-flag bitmask as a human-readable string (multi-flag types concatenated).
+	 * Public: the dead-letter `dl_show` verb reuses it as the ONE flags-to-names map.
 	 */
-	private static function format_type_flags( int $type ): string {
+	public static function format_type_flags( int $type ): string {
 		/** @var array<int, string> $map */
 		static $map = [
 			Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
