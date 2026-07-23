@@ -160,6 +160,8 @@ class Alerts {
 	 * condition doesn't re-journal every ~15s tick. Entries mirror the errors
 	 * family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is the alert's
 	 * stable key so consumers can dedupe. Delivery/dashboards tail the dir.
+	 * The write is throw-guarded: a rotate-lock timeout or unwritable dir must
+	 * never unwind the supervisor tick that fired this — swallow and log.
 	 */
 	public static function emit(): void {
 		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
@@ -173,25 +175,30 @@ class Alerts {
 		if ( [] === $alerts ) {
 			return;
 		}
-		$journal = self::journal();
-		// Real clock: the supervisor loop never refreshes Core::$now.
-		$ts = \microtime( true );
-		foreach ( $alerts as $alert ) {
-			$message                       = Message::new_message();
-			$message[ Message::TYPE ]      = Message::TM_STRUCT;
-			$message[ Message::FROM ]      = 'alerts';
-			$message[ Message::TIMESTAMP ] = $ts;
-			$message[ Message::KEY ]       = Core::as_string( $alert['key'] ?? '' );
-			$message[ Message::VALUE ]     = [
-				'n'        => 1,
-				'k'        => 'alert',
-				'm'        => Core::as_string( $alert['message'] ?? '' ),
-				'ts'       => $ts,
-				'severity' => Core::as_string( $alert['severity'] ?? '' ),
-			];
-			$journal->fill( $message );
+		try {
+			$journal = self::journal();
+			// Real clock: the supervisor loop never refreshes Core::$now.
+			$ts = \microtime( true );
+			foreach ( $alerts as $alert ) {
+				$message                       = Message::new_message();
+				$message[ Message::TYPE ]      = Message::TM_STRUCT;
+				$message[ Message::FROM ]      = 'alerts';
+				$message[ Message::TIMESTAMP ] = $ts;
+				$message[ Message::KEY ]       = Core::as_string( $alert['key'] ?? '' );
+				$message[ Message::VALUE ]     = [
+					'n'        => 1,
+					'k'        => 'alert',
+					'm'        => Core::as_string( $alert['message'] ?? '' ),
+					'ts'       => $ts,
+					'severity' => Core::as_string( $alert['severity'] ?? '' ),
+				];
+				$journal->fill( $message );
+			}
+			$journal->flush();
+		} catch ( \Throwable $e ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			\error_log( 'Alerts::emit journal write failed: ' . $e->getMessage() );
 		}
-		$journal->flush();
 	}
 
 	/**

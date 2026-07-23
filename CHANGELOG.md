@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Alerts::emit()` now journals fleet alerts directly into the substrate's own
   `alerts.p0` partition (KEY = alert key, errors-family entry shape plus
   `severity`) instead of firing the `newspack_nodes/alert` action. Tail
-  `alerts.p0` with a Consumer for push delivery.
+  `alerts.p0` with a Consumer for push delivery. The write is now
+  throw-guarded (`try`/`catch` around the journal fill+flush, logged to
+  `error_log`) so a rotate-lock timeout or unwritable dir can never unwind
+  the supervisor tick that fired it.
 - The alerts journal basename is registered with
   `newspack_nodes/registered_log_producers`, so `Log_Cleaner` spares
   `alerts.p0` on installs where no topology declares it.
