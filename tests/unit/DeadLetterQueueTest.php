@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Dead_Letter_Queue;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
@@ -450,6 +451,50 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertStringContainsString( 'malformed', $d->requeue_deadletter( 'not-a-locator' ) );
 	}
 
+	public function test_requeue_rejects_a_locator_with_a_non_digit_part(): void {
+		// Three colon-separated parts (passes the count check), but the
+		// middle isn't ctype_digit — exercises the per-part validation loop.
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->requeue_target = ( new Partition_Node() );
+		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
+		$this->assertStringContainsString( 'malformed', $d->requeue_deadletter( '0:abc:10' ) );
+	}
+
+	public function test_requeue_errors_without_a_configured_queue(): void {
+		$d      = new Dead_Letter_Queue_Double();
+		$result = $d->requeue_deadletter( '0:0:10' );
+		$this->assertStringContainsString( 'no dead-letter queue', $result );
+	}
+
+	public function test_requeue_reports_a_missing_record(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->requeue_target = ( new Partition_Node() );
+		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
+		$this->assertStringContainsString( 'no dead-letter record', $d->requeue_deadletter( '9:0:10' ) );
+	}
+
+	public function test_requeue_rejects_an_oversized_record(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		// Larger than Partition_Node::MAX_LINE_SIZE (4096) once packed.
+		$d->quarantine( $this->dl_message( \str_repeat( 'x', 5000 ), '1:0:5010' ), 'throw' );
+		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
+
+		$d->requeue_target = ( new Partition_Node() );
+		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
+
+		$result = $d->requeue_deadletter( $loc );
+		$this->assertStringContainsString( 'over the 4096-byte PIPE_BUF cap', $result );
+	}
+
+	public function test_purge_errors_without_a_configured_queue(): void {
+		$d      = new Dead_Letter_Queue_Double();
+		$result = $d->purge_deadletter();
+		$this->assertStringContainsString( 'no dead-letter queue', $result );
+	}
+
 	public function test_purge_removes_all_dead_letter_segments_and_indexes(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
@@ -534,5 +579,115 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_dl_show_is_in_the_shared_verb_table(): void {
 		$names = \array_column( Dead_Letter_Queue_Double::deadletter_verbs(), 'name' );
 		$this->assertContains( 'dl_show', $names );
+	}
+
+	// ── verb handlers: cmd_dl_list / cmd_dl_show / cmd_dl_requeue / cmd_dl_purge ──
+
+	public function test_cmd_dl_list_errors_when_no_patron_is_set(): void {
+		$interpreter = new Command_Interpreter_Node();
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
+
+		$this->assertSame( 'error: not a dead-letter node', $result );
+	}
+
+	public function test_cmd_dl_list_errors_when_patron_is_a_foreign_node(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( new Node() );
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
+
+		$this->assertSame( 'error: not a dead-letter node', $result );
+	}
+
+	public function test_cmd_dl_list_returns_the_triage_page_as_json(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'via-cmd', '1:0:10' ), 'throw' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $d );
+
+		$page = \json_decode( Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] ), true );
+
+		$this->assertSame( 1, $page['total'] );
+		$this->assertSame( '1:0:10', $page['rows'][0]['source'] );
+	}
+
+	public function test_cmd_dl_list_respects_the_limit_argument(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'a', '1:0:10' ), 'throw' );
+		$d->quarantine( $this->dl_message( 'b', '2:0:10' ), 'throw' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $d );
+
+		$page = \json_decode( Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [ '1' ] ), true );
+
+		$this->assertCount( 1, $page['rows'] );
+		$this->assertSame( 2, $page['total'] );
+	}
+
+	public function test_cmd_dl_show_errors_when_no_patron_is_set(): void {
+		$interpreter = new Command_Interpreter_Node();
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_show( $interpreter, [ '0:0:10' ] );
+
+		$this->assertSame( 'error: not a dead-letter node', $result );
+	}
+
+	public function test_cmd_dl_show_returns_the_decoded_record(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'shown-via-cmd', '1:0:10' ), 'throw' );
+		$loc         = $d->list_deadletter( 50 )['rows'][0]['locator'];
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $d );
+
+		$shown = \json_decode( Dead_Letter_Queue_Double::cmd_dl_show( $interpreter, [ $loc ] ), true );
+
+		$this->assertSame( 'shown-via-cmd', $shown['value'] );
+	}
+
+	public function test_cmd_dl_requeue_errors_when_no_patron_is_set(): void {
+		$interpreter = new Command_Interpreter_Node();
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_requeue( $interpreter, [ '0:0:10' ] );
+
+		$this->assertSame( 'error: not a dead-letter node', $result );
+	}
+
+	public function test_cmd_dl_requeue_writes_to_the_target(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'requeued-via-cmd', '1:0:10' ), 'throw' );
+		$loc                = $d->list_deadletter( 50 )['rows'][0]['locator'];
+		$d->requeue_target  = new Partition_Node();
+		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $d );
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_requeue( $interpreter, [ $loc ] );
+
+		$this->assertStringStartsWith( 'ok', $result );
+	}
+
+	public function test_cmd_dl_purge_errors_when_no_patron_is_set(): void {
+		$interpreter = new Command_Interpreter_Node();
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_purge( $interpreter );
+
+		$this->assertSame( 'error: not a dead-letter node', $result );
+	}
+
+	public function test_cmd_dl_purge_removes_segments(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'purged-via-cmd', '1:0:10' ), 'throw' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $d );
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_purge( $interpreter );
+
+		$this->assertSame( 'ok: purged 1 of 1 dead-letter segment(s)', $result );
 	}
 }
