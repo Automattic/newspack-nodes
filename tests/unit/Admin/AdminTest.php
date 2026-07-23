@@ -778,11 +778,13 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_remote_max_segments_callback_shows_value_when_overridden(): void {
-		\update_option( 'newspack_nodes_remote_max_segments', 8 );
+		// 5 is distinct from any config default (2 or 8), so a default-echo
+		// regression can't render it as a placeholder and still pass.
+		\update_option( 'newspack_nodes_remote_max_segments', 5 );
 		\ob_start();
 		Admin::remote_max_segments_callback();
 		$out = \ob_get_clean();
-		$this->assertStringContainsString( 'value="8"', $out );
+		$this->assertStringContainsString( 'value="5"', $out );
 	}
 
 	public function test_remote_segment_size_callback_renders_number_input(): void {
