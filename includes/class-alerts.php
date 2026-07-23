@@ -93,13 +93,19 @@ class Alerts {
 			];
 		}
 
-		$deadletter = Core::as_int( $meta['deadletter_segments'] ?? 0 );
-		if ( $deadletter > Core::num_int( Config::value( 'alert_deadletter_threshold' ) ) ) {
+		$deadletter_threshold = Core::num_int( Config::value( 'alert_deadletter_threshold' ) );
+		foreach ( Core::arr( $meta['deadletter_by_reader'] ?? [] ) as $reader => $count ) {
+			$reader = Core::as_string( $reader );
+			$count  = Core::as_int( $count );
+			if ( $count <= $deadletter_threshold ) {
+				continue;
+			}
 			$alerts[] = [
-				'key'      => 'deadletter',
+				'key'      => "deadletter:{$reader}",
 				'severity' => self::SEVERITY_WARNING,
-				'message'  => "{$deadletter} dead-letter segment(s) quarantined; replay or clear them.",
-				'count'    => $deadletter,
+				'message'  => "{$count} dead-letter segment(s) quarantined for {$reader}; replay or clear them.",
+				'reader'   => $reader,
+				'count'    => $count,
 			];
 		}
 
