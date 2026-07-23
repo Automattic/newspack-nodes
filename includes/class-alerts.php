@@ -8,10 +8,11 @@
  * the on-disk quarantine dirs). It re-implements none of those reads.
  *
  * Three consumers of the result: WP Site Health tests + the admin notice call
- * the pure `evaluate()`; `emit()` fires one `newspack_nodes/alert` action per
- * alert (rate-limited) so an application can bridge them to its firehose.
- * Thresholds are Config_System settings, read live each invocation (none of the
- * three call sites holds them in memory across a worker's lifetime).
+ * the pure `evaluate()`; `emit()` journals each alert into the substrate's
+ * `alerts.p0` partition (rate-limited) for delivery consumers and dashboards
+ * to tail. Thresholds are Config_System settings, read live each invocation
+ * (none of the three call sites holds them in memory across a worker's
+ * lifetime).
  *
  * @package Newspack_Nodes
  */
@@ -32,6 +33,12 @@ class Alerts {
 
 	/** Transient gate name for emit()'s rate limit. */
 	private const EMIT_GATE = 'newspack_nodes_alerts_emitted';
+
+	/** Journal dir basename; Log_Cleaner spares `{basename}.p{N}` via Bootstrap. */
+	public const LOG_BASENAME = 'alerts';
+
+	/** @var Partition_Node|null Process-cached anonymous alerts.p0 journal writer. */
+	private static ?Partition_Node $journal = null;
 
 	/**
 	 * Compute the current alerts (pure — no side effects). Each alert is
@@ -148,14 +155,13 @@ class Alerts {
 	}
 
 	/**
-	 * Fire one `newspack_nodes/alert` action per current alert. Hooked to the
-	 * supervisor's periodic tick; a transient gate rate-limits emission so a
-	 * persisting condition doesn't re-firehose every ~15s tick.
+	 * Journal every current alert into `alerts.p0`. Hooked to the supervisor's
+	 * periodic tick; a transient gate rate-limits emission so a persisting
+	 * condition doesn't re-journal every ~15s tick. Entries mirror the errors
+	 * family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is the alert's
+	 * stable key so consumers can dedupe. Delivery/dashboards tail the dir.
 	 */
 	public static function emit(): void {
-		if ( ! \function_exists( 'do_action' ) ) {
-			return;
-		}
 		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
 			// Best-effort throttle window, not content dedup (TOCTOU OK).
 			if ( false !== \get_transient( self::EMIT_GATE ) ) {
@@ -163,8 +169,55 @@ class Alerts {
 			}
 			\set_transient( self::EMIT_GATE, 1, Core::num_int( Config::value( 'alert_emit_interval' ) ) );
 		}
-		foreach ( self::evaluate() as $alert ) {
-			\do_action( 'newspack_nodes/alert', $alert );
+		$alerts = self::evaluate();
+		if ( [] === $alerts ) {
+			return;
 		}
+		$journal = self::journal();
+		// Real clock: the supervisor loop never refreshes Core::$now.
+		$ts = \microtime( true );
+		foreach ( $alerts as $alert ) {
+			$message                       = Message::new_message();
+			$message[ Message::TYPE ]      = Message::TM_STRUCT;
+			$message[ Message::FROM ]      = 'alerts';
+			$message[ Message::TIMESTAMP ] = $ts;
+			$message[ Message::KEY ]       = Core::as_string( $alert['key'] ?? '' );
+			$message[ Message::VALUE ]     = [
+				'n'        => 1,
+				'k'        => 'alert',
+				'm'        => Core::as_string( $alert['message'] ?? '' ),
+				'ts'       => $ts,
+				'severity' => Core::as_string( $alert['severity'] ?? '' ),
+			];
+			$journal->fill( $message );
+		}
+		$journal->flush();
+	}
+
+	/**
+	 * Build (once) the anonymous `alerts.p0` Partition. Path argument ONLY:
+	 * geometry comes from the schema's `<config:*>` defaults — the same source
+	 * ELN's `alerts:partition` TSL line resolves, so both writers on this dir
+	 * agree by construction. Never pass geometry literals here or in TSL.
+	 */
+	private static function journal(): Partition_Node {
+		if ( null !== self::$journal ) {
+			return self::$journal;
+		}
+		$partition = new Partition_Node();
+		$partition->arguments( [ Config::get_logs_directory() . '/' . self::LOG_BASENAME . '.p0' ] );
+		self::$journal = $partition;
+		return $partition;
+	}
+
+	/**
+	 * Drop the cached writer. Only tests need this — the process-lifetime cache
+	 * is correct in production (the logs dir is stable).
+	 *
+	 * @api Used by tests.
+	 */
+	public static function reset(): void {
+		self::$journal?->remove_node();
+		self::$journal = null;
 	}
 }

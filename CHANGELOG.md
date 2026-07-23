@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `Alerts::emit()` now journals fleet alerts directly into the substrate's own
+  `alerts.p0` partition (KEY = alert key, errors-family entry shape plus
+  `severity`) instead of firing the `newspack_nodes/alert` action. Tail
+  `alerts.p0` with a Consumer for push delivery.
+
+### Removed
+- The `newspack_nodes/alert` action. Its only listener (ELN's
+  `Diagnostics_Bridge::on_alert`) is deleted in tandem.
+
 ### Added
 
 - **Config Audit hub tab.** A truly newest-first timeline of watched-option changes streamed from the `settings.p0` log via full replay (the SSE log-feed fallback — zero server changes), with an option-name filter and a change count. Rows are sorted by change time descending with an arrival-seq tiebreak, so multi-writer timestamp interleave no longer buries a newer change below an older one. The option NAME is recorded for every change; bounded OLD→NEW value excerpts (JSON, ~200 chars/side, packed-fit under PIPE_BUF with a halving trim, dropping to name-only rather than dropping the event) ride ONLY for options on an explicit allowlist — `apply_filters( 'newspack_nodes/settings_audit_values_allowlist', … )`, defaulting to the substrate's own `Settings_Schema` option names — and the encrypted vault option is hard-excluded from values forever (a fail-closed security invariant, not a denylist). Non-allowlisted changes keep the prior name-only record byte-for-byte. The tab renders through the shared themed table class (below), with an Old → New monospace column pair (em dash when a side is absent; the full excerpt in a hover title). A numeric-string value now excerpts identically to its native-typed counterpart (`900` on both sides, not `"900"` → `900`) — `update_option()`'s old side always reads back as a string from the options table regardless of a field's declared type, so without normalization an unchanged int-typed setting looked like it had changed type on every edit.
