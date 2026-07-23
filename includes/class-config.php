@@ -360,11 +360,25 @@ class Config {
 		}
 	}
 
-	/** Drop WP's per-process option snapshots so workers see fresh writes. Pair with (and run before) Config::reset(), which reads through get_option. */
+	/**
+	 * Drop WP's per-process option snapshots so workers see fresh writes. Pair
+	 * with (and run before) Config::reset(), which reads through get_option.
+	 *
+	 * Purges the two aggregate groups AND each schema key's own cache entry —
+	 * WP core caches an option under its own key in addition to alloptions/
+	 * notoptions, so a long-running process (a supervisor tick_loop) that read
+	 * a key once would otherwise keep serving that stale value even after this
+	 * runs, no matter how often it's called.
+	 */
 	public static function invalidate_options_cache(): void {
-		if ( \function_exists( 'wp_cache_delete' ) ) {
-			\wp_cache_delete( 'alloptions', 'options' );
-			\wp_cache_delete( 'notoptions', 'options' );
+		if ( ! \function_exists( 'wp_cache_delete' ) ) {
+			return;
+		}
+		\wp_cache_delete( 'alloptions', 'options' );
+		\wp_cache_delete( 'notoptions', 'options' );
+		$schema = Settings_Schema::get();
+		foreach ( $schema->overlay_keys() as $key ) {
+			\wp_cache_delete( $schema->prefix() . $key, 'options' );
 		}
 	}
 }
