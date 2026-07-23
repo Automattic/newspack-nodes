@@ -3273,7 +3273,8 @@ class ConsumerTest extends TestCase {
 		$this->assertNotSame( '', $schema['description'] );
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
-		$this->assertSame(
+		// Set equality, NOT order: verb ordering is presentation, free to change.
+		$this->assertEqualsCanonicalizing(
 			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
 			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (STEP is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
