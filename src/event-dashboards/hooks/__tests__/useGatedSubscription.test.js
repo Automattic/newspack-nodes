@@ -92,6 +92,33 @@ describe( 'useGatedSubscription', () => {
 		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'b' ], null );
 	} );
 
+	test( 'an explicit seek is single-use: a LATER pause/play resumes live, not the stale seek', () => {
+		// Mirrors Replay-then-catch-up-then-pause: the stream keeps tailing
+		// live long after the seek was delivered (SeekTracker's Replay->Live
+		// flip is a display-only signal — it never re-calls resubscribe), so
+		// resumePositions() has since moved on to a live offset distinct from
+		// the original replay target.
+		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
+		const { result } = mount( link, { fill: jest.fn() } );
+
+		act( () =>
+			result.current.resubscribe( [ 'x.p0' ], {
+				'x.p0': { segment: 2, offset: 0 },
+			} )
+		);
+		expect( link.setSubscribe ).toHaveBeenLastCalledWith( [ 'x.p0' ], {
+			'x.p0': { segment: 2, offset: 0 },
+		} );
+		link.setSubscribe.mockClear();
+
+		act( () => result.current.setPaused( true ) );
+		act( () => result.current.setPaused( false ) );
+
+		expect( link.setSubscribe ).toHaveBeenLastCalledWith( [ 'x.p0' ], {
+			'x.p0': { segment: 9, offset: 40 },
+		} );
+	} );
+
 	test( 'setPaused(true) closes the link and publishes the pause control', () => {
 		const link = fakeLink();
 		const view = { fill: jest.fn() };
