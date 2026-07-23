@@ -60,6 +60,41 @@ class LogSourcesTest extends TestCase {
 		);
 	}
 
+	public function test_builtin_default_resolver_reads_ini_error_log_and_wp_content_dir(): void {
+		// Leave the seam null so the REAL resolver runs (ini_get + WP_CONTENT_DIR).
+		Log_Sources::$builtin_sources = null;
+		$php_log       = "{$this->tmp}/php-error-9302.log";
+		\file_put_contents( $php_log, "x\n" );
+		$original_ini  = \ini_get( 'error_log' );
+		\ini_set( 'error_log', $php_log );
+		if ( ! \defined( 'WP_CONTENT_DIR' ) ) {
+			\define( 'WP_CONTENT_DIR', "{$this->tmp}/wp-content" );
+		}
+
+		try {
+			$registry = Log_Sources::registry();
+		} finally {
+			\ini_set( 'error_log', false === $original_ini ? '' : $original_ini );
+		}
+
+		$this->assertSame( $php_log, $registry['php']['path'] );
+		$this->assertSame( \WP_CONTENT_DIR . '/debug.log', $registry['debug']['path'] );
+	}
+
+	public function test_builtin_default_resolver_omits_php_when_error_log_ini_is_not_a_real_file(): void {
+		Log_Sources::$builtin_sources = null;
+		$original_ini = \ini_get( 'error_log' );
+		\ini_set( 'error_log', "{$this->tmp}/does-not-exist-6614.log" );
+
+		try {
+			$registry = Log_Sources::registry();
+		} finally {
+			\ini_set( 'error_log', false === $original_ini ? '' : $original_ini );
+		}
+
+		$this->assertArrayNotHasKey( 'php', $registry );
+	}
+
 	// ── config log_sources ─────────────────────────────────────────────────
 
 	public function test_config_entries_parse_name_equals_path_as_file_mode(): void {
@@ -178,6 +213,45 @@ class LogSourcesTest extends TestCase {
 		// `<nope:x>` is unregistered: strict token validation throws, and the
 		// catch degrades to skipping the topology (never a '/dangling.log' ghost).
 		$this->activate_topology( 'lsrel', "make_node Log r:log <nope:x>/dangling.log 1 2 7\n" );
+
+		$this->assertSame( [], Log_Sources::registry() );
+	}
+
+	public function test_non_log_nodes_in_the_graph_are_skipped(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topology(
+			'lsrc-mixed',
+			"make_node Echo e\n"
+			. "make_node Log g:log <config:logs_dir>/echo-companion-91.log 1 2 7\n"
+		);
+
+		// The Echo node contributes nothing; only the Log node's source shows.
+		$this->assertSame( [ 'echo-companion-91.log' ], \array_keys( Log_Sources::registry() ) );
+	}
+
+	public function test_log_node_missing_its_path_argument_is_skipped(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topology(
+			'lsrc-incomplete',
+			"make_node Log incomplete\n"
+			. "make_node Log g:log <config:logs_dir>/present-55.log 1 2 7\n"
+		);
+
+		$this->assertSame( [ 'present-55.log' ], \array_keys( Log_Sources::registry() ) );
+	}
+
+	public function test_log_node_whose_derived_name_is_the_reserved_sources_word_is_skipped(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		// writes-basename of the path arg resolves to the reserved word "sources".
+		$this->activate_topology( 'lsrc-reserved', "make_node Log s:log <config:logs_dir>/sources 1 2 7\n" );
+
+		$this->assertSame( [], Log_Sources::registry() );
+	}
+
+	public function test_log_node_with_a_relative_path_is_skipped(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		// No leading '/' and no <ns:key> token to resolve — stays relative.
+		$this->activate_topology( 'lsrc-relative', "make_node Log r:log relative-path-77/x.log 1 2 7\n" );
 
 		$this->assertSame( [], Log_Sources::registry() );
 	}

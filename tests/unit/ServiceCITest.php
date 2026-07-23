@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
@@ -31,6 +33,8 @@ class ServiceCITest extends TestCase {
 
 	protected function tearDown(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
+		Service_CI_Node::$http_call = null;
+		unset( $GLOBALS['_wp_test_remote_post_response'] );
 		parent::tearDown();
 	}
 
@@ -190,6 +194,221 @@ class ServiceCITest extends TestCase {
 
 		$this->assertSame( '{"sliced":true}', $result );
 	}
+
+	// ── command_body ──────────────────────────────────────────────────────
+
+	public function test_command_body_builds_packed_tm_command_envelope(): void {
+		$method = new \ReflectionMethod( Service_CI_Node::class, 'command_body' );
+		$body   = $method->invoke( null, 'discovery', 'get', [ 'a', 'b' ] );
+		$decoded = Message::unpacked( $body );
+
+		$this->assertSame( Message::TM_COMMAND, $decoded[ Message::TYPE ] );
+		$this->assertSame( Node_Names::HTTP, $decoded[ Message::FROM ] );
+		$this->assertSame( 'discovery', $decoded[ Message::TO ] );
+		$this->assertSame(
+			[ 'name' => 'get', 'arguments' => [ 'a', 'b' ] ],
+			$decoded[ Message::VALUE ]
+		);
+	}
+
+	public function test_command_body_defaults_args_to_empty_list(): void {
+		$method  = new \ReflectionMethod( Service_CI_Node::class, 'command_body' );
+		$body    = $method->invoke( null, 'workers', 'dump_graph' );
+		$decoded = Message::unpacked( $body );
+
+		$this->assertSame( [], $decoded[ Message::VALUE ]['arguments'] );
+	}
+
+	// ── probe_command ────────────────────────────────────────────────────
+
+	private function reply_body( array $payload, int $extra_type = 0 ): string {
+		$reply = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE | $extra_type;
+		$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => $payload ];
+		return Message::packed( $reply );
+	}
+
+	public function test_probe_command_returns_reply_payload_on_success(): void {
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+			[ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [ 'lag' => 3 ] ) ];
+
+		$result = ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+
+		$this->assertSame( [ 'lag' => 3 ], $result );
+	}
+
+	public function test_probe_command_composes_url_from_trailing_slash(): void {
+		$seen_url = null;
+		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_url ): array {
+			$seen_url = $url;
+			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
+		};
+
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com/' ], 'discovery', 'get' );
+
+		$this->assertSame( 'https://e.com/wp-json/newspack-nodes/v1/command', $seen_url );
+	}
+
+	public function test_probe_command_adds_basic_auth_header_when_credentials_present(): void {
+		$seen_headers = null;
+		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_headers ): array {
+			$seen_headers = $args['headers'];
+			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
+		};
+
+		ServiceCITestProbe::probe_command_probe(
+			[ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ],
+			'discovery',
+			'get'
+		);
+
+		$this->assertSame(
+			'Basic ' . \base64_encode( 'u:p' ),
+			$seen_headers['Authorization']
+		);
+	}
+
+	public function test_probe_command_omits_auth_header_when_credentials_absent(): void {
+		$seen_headers = null;
+		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_headers ): array {
+			$seen_headers = $args['headers'];
+			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
+		};
+
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+
+		$this->assertArrayNotHasKey( 'Authorization', $seen_headers );
+	}
+
+	public function test_probe_command_forwards_to_and_verb_and_args_in_body(): void {
+		$seen_body = null;
+		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_body ): array {
+			$seen_body = Message::unpacked( $args['body'] );
+			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
+		};
+
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'workers', 'dump_graph', [ 'p0' ] );
+
+		$this->assertSame( 'workers', $seen_body[ Message::TO ] );
+		$this->assertSame(
+			[ 'name' => 'dump_graph', 'arguments' => [ 'p0' ] ],
+			$seen_body[ Message::VALUE ]
+		);
+	}
+
+	public function test_probe_command_throws_when_transport_returns_wp_error(): void {
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): \WP_Error =>
+			new \WP_Error( 'http_request_failed', 'Connection timed out' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'could not connect to server' );
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+	}
+
+	public function test_probe_command_throws_on_non_200_response(): void {
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+			[ 'response' => [ 'code' => 503 ], 'body' => '' ];
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'HTTP 503 response from server' );
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+	}
+
+	public function test_probe_command_throws_when_stream_has_no_struct_envelope(): void {
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+			[ 'response' => [ 'code' => 200 ], 'body' => "not json\n\n" ];
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'malformed command envelope' );
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+	}
+
+	public function test_probe_command_skips_bytestream_noise_and_finds_the_reply(): void {
+		$noise                   = Message::new_message();
+		$noise[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$noise[ Message::VALUE ] = 'diagnostic stderr line';
+
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array => [
+			'response' => [ 'code' => 200 ],
+			'body'     => Message::packed( $noise ) . "\n" . $this->reply_body( [ 'lag' => 7 ] ) . "\n",
+		];
+
+		$result = ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+
+		$this->assertSame( [ 'lag' => 7 ], $result );
+	}
+
+	public function test_probe_command_picks_the_last_matching_envelope_in_the_stream(): void {
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array => [
+			'response' => [ 'code' => 200 ],
+			'body'     => $this->reply_body( [ 'lag' => 1 ] ) . "\n" . $this->reply_body( [ 'lag' => 2 ] ) . "\n",
+		];
+
+		$result = ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+
+		$this->assertSame( [ 'lag' => 2 ], $result );
+	}
+
+	public function test_probe_command_throws_when_reply_carries_tm_error(): void {
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array => [
+			'response' => [ 'code' => 200 ],
+			'body'     => $this->reply_body( [], Message::TM_ERROR ),
+		];
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'server returned TM_ERROR for probe' );
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+	}
+
+	public function test_probe_command_throws_when_payload_key_missing(): void {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [ 'name' => 'get' ];
+
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+			[ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'server returned malformed command response' );
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+	}
+
+	public function test_probe_command_throws_on_non_array_payload(): void {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => 'a string, not an array' ];
+
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+			[ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'server returned non-array command payload' );
+		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+	}
+
+	public function test_probe_command_treats_empty_string_payload_as_empty_array(): void {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => '' ];
+
+		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+			[ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
+
+		$result = ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+
+		$this->assertSame( [], $result );
+	}
+
+	public function test_probe_command_uses_default_wp_remote_post_when_seam_is_null(): void {
+		$GLOBALS['_wp_test_remote_post_response'] = [
+			'response' => [ 'code' => 200 ],
+			'body'     => $this->reply_body( [ 'lag' => 9 ] ),
+		];
+
+		$result = ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
+
+		$this->assertSame( [ 'lag' => 9 ], $result );
+	}
 }
 
 /**
@@ -218,6 +437,10 @@ class ServiceCITestProbe extends Service_CI_Node {
 
 	public static function slice_verb_probe( callable $shape ): \Closure {
 		return self::slice_verb( $shape );
+	}
+
+	public static function probe_command_probe( array $server, string $to, string $verb, array $verb_args = [] ): array {
+		return self::probe_command( $server, $to, $verb, $verb_args );
 	}
 
 	/**
