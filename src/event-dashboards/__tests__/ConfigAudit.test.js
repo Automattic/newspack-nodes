@@ -44,15 +44,25 @@ describe( 'ConfigAudit', () => {
 		] );
 	} );
 
-	it( 'formats the time in UTC, prefixing the date only when not today', () => {
+	it( 'formats every row as local date + time + timezone', () => {
 		useNodeState.mockReturnValue( model() );
 		const { container } = render( <ConfigAudit /> );
 		const times = [
 			...container.querySelectorAll( '.nodes-config-audit__time' ),
 		].map( ( el ) => el.textContent );
-		// Today's row: bare HH:MM:SS. Not-today row: YYYY-MM-DD HH:MM:SS (UTC).
-		expect( times[ 0 ] ).toMatch( /^\d{2}:\d{2}:\d{2}$/ );
-		expect( times[ 1 ] ).toBe( '2023-11-14 22:14:02' );
+		// Both rows carry the full local date + zone — audit rows span days,
+		// and a bare clock time (formerly UTC, unlabeled) was ambiguous.
+		const d = new Date( FIXED_TS * 1000 );
+		const expected = `${ d.toLocaleDateString(
+			'en-CA'
+		) } ${ d.toLocaleTimeString( 'en-US', {
+			hour12: false,
+			timeZoneName: 'short',
+		} ) }`;
+		expect( times[ 0 ] ).toMatch(
+			/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+/
+		);
+		expect( times[ 1 ] ).toBe( expected );
 	} );
 
 	it( 'renders an em dash for an entry with no timestamp', () => {

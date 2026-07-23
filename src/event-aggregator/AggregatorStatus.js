@@ -24,6 +24,7 @@ import {
 	REFRESH_OPTIONS,
 } from './hooks/useAggregatorStatusGraph';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/aggregator-status.scss';
 
 // Slice-model defaults before first poll — drive the loading gates.
@@ -73,8 +74,8 @@ const formatTime = ( timestamp, now ) => {
 		);
 	}
 
-	const date = new Date( timestamp * 1000 );
-	return date.toLocaleTimeString();
+	// Older than an hour: a bare clock time could be any day.
+	return formatLocalDateTime( timestamp );
 };
 
 /**

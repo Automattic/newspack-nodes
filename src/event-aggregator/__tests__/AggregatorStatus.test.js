@@ -319,6 +319,42 @@ describe( 'AggregatorStatus', () => {
 		expect( container.textContent ).toContain( '1s ago' );
 	} );
 
+	it( 'renders an hour-old timestamp as a full local date + timezone', () => {
+		const ts = 1_777_000_123; // Fixed instant, far older than an hour.
+		registerSlices( {
+			summary: {
+				serverNow: ts + 90_000,
+				connected: 1,
+				total: 1,
+				loading: false,
+			},
+			servers: {
+				servers: [
+					{
+						id: 'srv',
+						url: 'https://s.example.test',
+						partitions: {
+							0: {
+								connected: true,
+								last_sse_heartbeat: ts,
+							},
+						},
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+		const d = new Date( ts * 1000 );
+		const expected = `${ d.toLocaleDateString(
+			'en-CA'
+		) } ${ d.toLocaleTimeString( 'en-US', {
+			hour12: false,
+			timeZoneName: 'short',
+		} ) }`;
+		expect( container.textContent ).toContain( expected );
+	} );
+
 	it( 'renders the refresh select bound to the graph callback', () => {
 		registerSlices( { servers: { servers: [], loading: false } } );
 		const { container } = mount();

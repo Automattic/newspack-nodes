@@ -17,7 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   modal's rows grow a View/Hide toggle that renders the decoded record in an
   expandable panel under the row, and the TIME column now shows the local
   date and timezone (`YYYY-MM-DD HH:MM:SS TZ`) — quarantined records can be
-  days old, so bare UTC HH:MM:SS was ambiguous.
+  days old, so bare UTC HH:MM:SS was ambiguous. The same treatment landed on
+  every other days-old wall-clock render via one shared
+  `formatLocalDateTime()` (`@newspack-nodes/shared/utils/formatUtils`): the
+  aggregator status board's over-an-hour fallback and the Config Audit rows
+  (formerly unlabeled UTC with the date elided for today). Live surfaces
+  (per-request log entry times, chart hovers, the message timeline) keep
+  their time-only formats deliberately.
 
 ### Changed
 - `Alerts::emit()` now journals fleet alerts directly into the substrate's own

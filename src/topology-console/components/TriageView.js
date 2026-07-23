@@ -17,19 +17,8 @@ import {
 import { __, sprintf } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import names from '../../runtime/reserved-node-names.json';
+import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './triage-view.scss';
-
-// Epoch seconds → local `YYYY-MM-DD HH:MM:SS TZ` (records can be days old).
-function formatTime( ts ) {
-	if ( 'number' !== typeof ts || ! Number.isFinite( ts ) ) {
-		return '—';
-	}
-	const d = new Date( ts * 1000 );
-	return `${ d.toLocaleDateString( 'en-CA' ) } ${ d.toLocaleTimeString(
-		'en-US',
-		{ hour12: false, timeZoneName: 'short' }
-	) }`;
-}
 
 // Parse the dl_list JSON reply; a malformed/shapeless reply flags parseError.
 function parseList( payload ) {
@@ -258,7 +247,7 @@ export default function TriageView( { node, onAction } ) {
 							<Fragment key={ r.locator ?? i }>
 								<tr className="nodes-runtime__row">
 									<td className="nodes-runtime__td">
-										{ formatTime( r.ts ) }
+										{ formatLocalDateTime( r.ts ) }
 									</td>
 									<td className="nodes-runtime__td">
 										{ r.reason }

@@ -289,6 +289,25 @@ export const getDurationClass = ( ms ) => {
 export const getStatusClass = ( status ) => getStatusCategory( status );
 
 /**
+ * Epoch seconds → local `YYYY-MM-DD HH:MM:SS TZ`. The one formatter for
+ * wall-clock timestamps that can be hours or days old (dead-letter records,
+ * config-audit rows, spoke heartbeats) — a bare clock time is ambiguous there.
+ *
+ * @param {number} ts Epoch seconds.
+ * @return {string} Formatted string, or an em dash for a non-finite ts.
+ */
+export const formatLocalDateTime = ( ts ) => {
+	if ( 'number' !== typeof ts || ! Number.isFinite( ts ) ) {
+		return '—';
+	}
+	const d = new Date( ts * 1000 );
+	return `${ d.toLocaleDateString( 'en-CA' ) } ${ d.toLocaleTimeString(
+		'en-US',
+		{ hour12: false, timeZoneName: 'short' }
+	) }`;
+};
+
+/**
  * Format a duration in milliseconds.
  *
  * @param {number} ms Milliseconds.

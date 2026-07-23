@@ -12,8 +12,32 @@ import {
 	getStatusClass,
 	getStatusColor,
 	getTextColor,
+	formatLocalDateTime,
 	hexToRgba,
 } from '../formatUtils';
+
+describe( 'formatLocalDateTime', () => {
+	it( 'renders local YYYY-MM-DD HH:MM:SS with a timezone label', () => {
+		const ts = 1_777_000_123; // Fixed instant; rendering is TZ-relative.
+		const d = new Date( ts * 1000 );
+		const expected = `${ d.toLocaleDateString(
+			'en-CA'
+		) } ${ d.toLocaleTimeString( 'en-US', {
+			hour12: false,
+			timeZoneName: 'short',
+		} ) }`;
+		expect( expected ).toMatch(
+			/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+/
+		);
+		expect( formatLocalDateTime( ts ) ).toBe( expected );
+	} );
+
+	it( 'renders an em dash for a non-finite or missing ts', () => {
+		expect( formatLocalDateTime( null ) ).toBe( '—' );
+		expect( formatLocalDateTime( NaN ) ).toBe( '—' );
+		expect( formatLocalDateTime( 'nope' ) ).toBe( '—' );
+	} );
+} );
 
 describe( 'hexToRgba', () => {
 	it( 'converts a 6-digit hex to rgba()', () => {
