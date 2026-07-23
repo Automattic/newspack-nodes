@@ -19,12 +19,16 @@ import { Core } from '../../runtime/core';
 import names from '../../runtime/reserved-node-names.json';
 import './triage-view.scss';
 
-// Record ts (epoch seconds) → UTC HH:MM:SS, like TimelineView.
+// Epoch seconds → local `YYYY-MM-DD HH:MM:SS TZ` (records can be days old).
 function formatTime( ts ) {
 	if ( 'number' !== typeof ts || ! Number.isFinite( ts ) ) {
 		return '—';
 	}
-	return new Date( ts * 1000 ).toISOString().slice( 11, 19 );
+	const d = new Date( ts * 1000 );
+	return `${ d.toLocaleDateString( 'en-CA' ) } ${ d.toLocaleTimeString(
+		'en-US',
+		{ hour12: false, timeZoneName: 'short' }
+	) }`;
 }
 
 // Parse the dl_list JSON reply; a malformed/shapeless reply flags parseError.
