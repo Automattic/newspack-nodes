@@ -789,10 +789,10 @@ class Consumer_Node extends Timer_Node {
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
 			],
-			// Verbs: time-travel + pump + DLQ triage + set_multi_writer.
+			// Verbs: DLQ triage + time-travel + pump + set_multi_writer.
 			'commands'      => \array_merge(
-				self::time_travel_verbs(),
 				self::deadletter_verbs(),
+				self::time_travel_verbs(),
 				self::pump_verbs(),
 				[
 					[

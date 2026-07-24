@@ -295,6 +295,26 @@ class TopologyRegistryTest extends TestCase {
 		);
 	}
 
+	public function test_segment_size_overrides_are_layout_agnostic(): void {
+		// The <partition> token sits anywhere — or nowhere: a hardwired .p0
+		// journal and a quoted deferred '<partition>' Topic-style path both
+		// carry their configured size (the .p<partition>-only regex lost them).
+		\file_put_contents(
+			"{$this->stock}/vicuna-layouts.tsl",
+			"make_node Partition pinned:p <config:logs_dir>/pinned.p0 1048576 2 7 0 0\n"
+			. "make_node Partition quoted:p <config:logs_dir>/quoted.p'<partition>' 8192 2\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[
+				'pinned' => 1048576,
+				'quoted' => 8192,
+			],
+			Topology_Registry::segment_size_overrides_for( 'vicuna-layouts' )
+		);
+	}
+
 	public function test_segment_size_overrides_return_empty_for_unknown_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
 

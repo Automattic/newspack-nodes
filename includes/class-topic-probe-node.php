@@ -18,6 +18,9 @@ namespace Newspack_Nodes;
 
 class TopicProbe_Node extends Timer_Node {
 
+	/** Shared probe-log dir basename (the topic-probe TSL declares the path). */
+	public const LOG_DIR = 'topicprobe.p0';
+
 	private const DEFAULT_INTERVAL_S = 15;
 
 	/**

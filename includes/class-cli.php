@@ -110,7 +110,7 @@ class CLI {
 	 */
 	public function read_probe_index(): array {
 		return Partition_Node::read_tail_index_by(
-			"{$this->base_dir}/logs/" . Worker_Base::TOPICPROBE_LOG_DIR,
+			"{$this->base_dir}/logs/" . TopicProbe_Node::LOG_DIR,
 			Probe_Record::READER
 		);
 	}

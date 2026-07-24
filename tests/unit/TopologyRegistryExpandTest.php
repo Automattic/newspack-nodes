@@ -34,6 +34,65 @@ class TopologyRegistryExpandTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
+	/**
+	 * Quote type carries interpolation semantics (double interpolates <...>,
+	 * single/backtick defer), so the console-facing records keep each authored
+	 * arg as ONE raw span -- never shredded on whitespace, never re-quoted.
+	 */
+	public function test_expand_keeps_quoted_args_as_raw_spans(): void {
+		$this->write_tsl(
+			'vicuna-quoted',
+			"make_node Topic vicuna-jobs <config:logs_dir>/jobs.p'<partition>' 4\n"
+			. 'cmd vicuna-jobs:config add_profile "Engineers care about uptime"' . "\n"
+		);
+
+		$out    = Topology_Registry::expand( [ 'vicuna-quoted' ] );
+		$byName = [];
+		foreach ( $out['nodes'] as $node ) {
+			$byName[ $node['name'] ] = $node;
+		}
+
+		$this->assertSame(
+			[ "<config:logs_dir>/jobs.p'<partition>'", '4' ],
+			$byName['vicuna-jobs']['args']
+		);
+		$this->assertSame(
+			[
+				[
+					'verb' => 'add_profile',
+					'args' => [ '"Engineers care about uptime"' ],
+				],
+			],
+			$byName['vicuna-jobs']['verbs']
+		);
+	}
+
+	public function test_graph_for_keeps_quoted_ctor_args_as_raw_spans(): void {
+		$this->write_tsl(
+			'vicuna-graphed',
+			"make_node Hook vicuna-hook wp_loaded \"a b c\"\n"
+		);
+
+		$graph  = Topology_Registry::graph_for( 'vicuna-graphed' );
+		$byName = [];
+		foreach ( $graph['nodes'] as $node ) {
+			$byName[ $node['name'] ] = $node;
+		}
+
+		$this->assertSame( [ 'wp_loaded', '"a b c"' ], $byName['vicuna-hook']['args'] );
+	}
+
+	public function test_frontmatter_splices_a_backslash_continuation_with_nothing(): void {
+		// bash semantics: the backslash-newline is removed outright, so `1\` +
+		// `6` reads 16 — a space join would corrupt it to `1 6`.
+		$this->write_tsl( 'vicuna-folded', "var num_partitions = 1\\\n6\nmake_node Echo vicuna-echo\n" );
+
+		$this->assertSame(
+			[ 'num_partitions' => '16' ],
+			Topology_Registry::frontmatter( 'vicuna-folded' )
+		);
+	}
+
 	public function test_expand_tags_a_diamond_shared_node_with_both_origins(): void {
 		$this->write_tsl( 'wombat-base', "make_node Tee shared-tee\n" );
 		$this->write_tsl( 'wombat-left', "include wombat-base\nmake_node Echo left-echo\nconnect_node left-echo shared-tee\n" );

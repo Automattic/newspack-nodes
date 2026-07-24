@@ -534,6 +534,8 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_list',
 				'description' => 'List quarantined dead-letter records newest-first (reason, attempts, first_crash_ts, quarantine ts, source breadcrumb, sidecar locator). Optional limit (default ' . self::DEADLETTER_LIST_DEFAULT_LIMIT . ').',
+				// Driven by the Inspector's Triage modal; hide the verb button.
+				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'limit', 'type' => 'int', 'required' => false ],
 				],
@@ -542,6 +544,8 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_show',
 				'description' => 'Decode the dead-letter record at <locator> (segment:offset:length from dl_list) — envelope fields + VALUE, read-only.',
+				// Driven by the Inspector's Triage modal; hide the verb button.
+				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
 				],
@@ -550,6 +554,8 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_requeue',
 				'description' => 'Re-inject the dead-letter record at <locator> (segment:offset:length from dl_list) back into the source log this node tails.',
+				// Driven by the Inspector's Triage modal; hide the verb button.
+				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
 				],
@@ -558,6 +564,8 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_purge',
 				'description' => 'Delete all dead-letter segments (.log + .idx). Convenience only — the queue is count-rotated, so this is not required for correctness.',
+				// Driven by the Inspector's Triage modal; hide the verb button.
+				'hidden'      => true,
 				'args'        => [],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_purge( $interpreter ),
 			],
