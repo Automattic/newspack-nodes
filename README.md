@@ -113,7 +113,8 @@ GPL-2.0-or-later
 
 The full suite — 3,000+ tests — runs on plain `phpunit` with WP stubs and an
 in-memory memcache double: no containers, no database, no memcached server, no
-WordPress install. `composer install && cd tests && ../vendor/bin/phpunit
+WordPress install. `npm install && composer install && npm run build` sets
+up a fresh clone. `composer install && cd tests && ../vendor/bin/phpunit
 --enforce-time-limit` works on a bare laptop (macOS included) and finishes in
 under a minute.
 
