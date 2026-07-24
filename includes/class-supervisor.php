@@ -59,6 +59,10 @@ class Supervisor extends Supervisor_Base {
 	 * or check_config=false (logging disabled / lock stolen — no respawn).
 	 */
 	public function run(): void {
+		if ( ! Bootstrap::fleet_site() ) {
+			Core::stderr( '[Nodes] Supervisor: multisite subsite; the fleet runs on the main site only' );
+			return;
+		}
 		$this->start_time = \microtime( true );
 
 		// Tag process as supervisor worker: stats-exclusion / log correlation.
