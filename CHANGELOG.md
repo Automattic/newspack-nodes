@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   newspack-intelligence ship paired releases (their TSLs name the verb).
 
 ### Added
+- **Metrics export nodes** — `Probe_To_Graphite_Node` (port of Tachikoma's
+  `TopicProbeToGraphite.pm` over `Probe_Record`: accumulates per reader,
+  emits `prefix.host.nodes.topics.<reader>.{distance,msgs} value ts` lines,
+  16 per message), `Graphite_Node` (UDP plaintext egress, `host:port`
+  argument, fire-and-forget), and `Newspack_Log_Node` (egress into
+  `do_action( 'newspack_log', … )` at log_level 2 — Newspack Manager ships
+  it to logstash/Kibana/Grafana; silent no-op without Manager). Wire in
+  TSL: `Consumer topicprobe.p0 → Probe_To_Graphite → Graphite`.
 - `Value_Timeout_Node::save_state()` / `restore_state()` — the window maps
   ride a Consumer's `add_snapshot_node` frame, so a respawn keeps mid-window
   suppressions AND the trailing re-emit (the cache-invalidation case: losing
