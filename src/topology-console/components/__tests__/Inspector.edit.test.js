@@ -95,6 +95,98 @@ describe( 'Inspector (edit mode)', () => {
 		expect( getByDisplayValue( 'quokka-idx' ).disabled ).toBe( true );
 	} );
 
+	it( 'shows a quoted borrowed verb arg as its VALUE, quotes stripped', () => {
+		// The stored token is the raw TSL span; quotes are tokenizer syntax
+		// and must not leak into the form field.
+		const borrowedProps = {
+			...baseProps,
+			selectedId: 'digest',
+			parsed: {
+				nodes: [
+					{
+						id: 'digest',
+						class: 'Digest_Builder',
+						origin: [ 'newspack-intelligence-digest' ],
+						via: [ 'newspack-intelligence-digest' ],
+						ctorArgs: [],
+						verbInvocations: [
+							{
+								verb: 'add_profile',
+								args: [ '"Engineers build tools."' ],
+							},
+						],
+					},
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'Digest_Builder',
+					arguments: [],
+					commands: [
+						{
+							name: 'add_profile',
+							multiple: true,
+							args: [ { name: 'text' } ],
+						},
+					],
+				},
+			],
+		};
+		const { getByDisplayValue } = render(
+			<Inspector { ...borrowedProps } />
+		);
+		expect( getByDisplayValue( 'Engineers build tools.' ).disabled ).toBe(
+			true
+		);
+	} );
+
+	it( 'absorbs a multi-token borrowed verb arg into its single declared slot', () => {
+		// An unquoted `add_profile Do not produce tables.` parses to 4 tokens;
+		// a one-arg verb must display the whole line, not just `Do`.
+		const borrowedProps = {
+			...baseProps,
+			selectedId: 'digest',
+			parsed: {
+				nodes: [
+					{
+						id: 'digest',
+						class: 'Digest_Builder',
+						origin: [ 'newspack-intelligence-digest' ],
+						via: [ 'newspack-intelligence-digest' ],
+						ctorArgs: [],
+						verbInvocations: [
+							{
+								verb: 'add_profile',
+								args: [ 'Do', 'not', 'produce', 'tables.' ],
+							},
+						],
+					},
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'Digest_Builder',
+					arguments: [],
+					commands: [
+						{
+							name: 'add_profile',
+							multiple: true,
+							args: [ { name: 'text' } ],
+						},
+					],
+				},
+			],
+		};
+		const { getByDisplayValue } = render(
+			<Inspector { ...borrowedProps } />
+		);
+		expect( getByDisplayValue( 'Do not produce tables.' ).disabled ).toBe(
+			true
+		);
+	} );
+
 	it( 'shows every invocation of a borrowed multiple-verb read-only', () => {
 		const borrowedProps = {
 			...baseProps,

@@ -1481,6 +1481,90 @@ describe( 'SchematicCanvas', () => {
 		expect( hull.getAttribute( 'd' ) ).toMatch( /^M / );
 	} );
 
+	it( 'paints a child include above its parent even when their hulls coincide', () => {
+		// job-router `include job-intake`: the child's members are a subset of
+		// the parent's, so the hulls nearly coincide and area can even TIE —
+		// depth must win the paint order or the parent swallows the child's
+		// clicks everywhere. Props deliberately list the child first.
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'jobintake:consumer', class: 'Consumer' },
+						{ id: 'jobs:partition', class: 'Partition' },
+						{ id: 'job-router', class: 'Job_Router' },
+					],
+					edges: [],
+				} }
+				positionOverrides={ {
+					'jobintake:consumer': { x: 100, y: 100 },
+					'jobs:partition': { x: 900, y: 100 },
+					'job-router': { x: 500, y: 100 },
+				} }
+				hulls={ [
+					{
+						include: 'job-intake',
+						depth: 1,
+						nodeIds: [ 'jobintake:consumer', 'jobs:partition' ],
+					},
+					{
+						include: 'job-router',
+						depth: 0,
+						nodeIds: [
+							'jobintake:consumer',
+							'jobs:partition',
+							'job-router',
+						],
+					},
+				] }
+				editMode
+			/>
+		);
+		const order = [ ...container.querySelectorAll( '.topology-hull' ) ].map(
+			( el ) => el.getAttribute( 'data-include' )
+		);
+		expect( order ).toEqual( [ 'job-router', 'job-intake' ] );
+	} );
+
+	it( 'paints equal-depth sibling hulls biggest-first so the smaller stays clickable', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'inner-probe', class: 'TopicProbe' },
+						{ id: 'outer-a', class: 'Echo' },
+						{ id: 'outer-b', class: 'Echo' },
+					],
+					edges: [],
+				} }
+				positionOverrides={ {
+					'inner-probe': { x: 400, y: 300 },
+					'outer-a': { x: 100, y: 100 },
+					'outer-b': { x: 900, y: 600 },
+				} }
+				hulls={ [
+					{
+						include: 'topic-probe',
+						depth: 1,
+						nodeIds: [ 'inner-probe' ],
+					},
+					{
+						include: 'flame-builder',
+						depth: 1,
+						nodeIds: [ 'outer-a', 'outer-b', 'inner-probe' ],
+					},
+				] }
+				editMode
+			/>
+		);
+		const order = [ ...container.querySelectorAll( '.topology-hull' ) ].map(
+			( el ) => el.getAttribute( 'data-include' )
+		);
+		expect( order ).toEqual( [ 'flame-builder', 'topic-probe' ] );
+	} );
+
 	it( 'marks a borrowed node locked', () => {
 		const { container } = render(
 			<SchematicCanvas

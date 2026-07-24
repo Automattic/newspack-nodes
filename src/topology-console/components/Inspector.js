@@ -7,6 +7,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
 import InspectorViewModal from './InspectorViewModal';
 import { CtorField } from './CtorField';
+import { tokenize } from '../../runtime/shell-node';
 import IncludeTree from './IncludeTree';
 import HullPanel from './HullPanel';
 import TimeTravelPanel from './TimeTravelPanel';
@@ -108,6 +109,23 @@ function absorbTrailingArgs( args, count ) {
 		...list.slice( 0, count - 1 ),
 		list.slice( count - 1 ).join( ' ' ),
 	];
+}
+
+/**
+ * Display form of a stored arg: the raw TSL span's VALUE — quote chars and
+ * escapes are tokenizer syntax, not data, so they never leak into a field.
+ * Storage keeps the span; an edited field writes back plain text, which the
+ * serializer re-quotes safely.
+ *
+ * @param {*} token Stored arg (raw span, plain value, or nullish).
+ * @return {*} The unwrapped display string; nullish passes through so
+ *             CtorField still falls back to its schema default.
+ */
+function argDisplayValue( token ) {
+	if ( token === undefined || token === null ) {
+		return token;
+	}
+	return tokenize( String( token ) ).join( ' ' );
 }
 
 // Remote/worker scope: roll up dump_metadata via processStats + rate series.
@@ -386,7 +404,7 @@ function VerbRow( {
 						<CtorField
 							key={ arg.name }
 							spec={ arg }
-							value={ invocation.args[ i ] }
+							value={ argDisplayValue( invocation.args[ i ] ) }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
 							vaults={ vaults }
@@ -615,7 +633,7 @@ function LockedVerbArgs( { spec, invocation } ) {
 					key={ arg.name }
 					type="text"
 					className="topology-edit-row__input"
-					value={ invocation.args[ i ] ?? '' }
+					value={ argDisplayValue( invocation.args[ i ] ) ?? '' }
 					disabled
 					readOnly
 				/>
@@ -681,7 +699,15 @@ function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 	const commandSpecs = ( schema?.commands || [] ).filter(
 		( spec ) => ! spec.hidden
 	);
-	const verbInvocations = node.verbInvocations || [];
+	const verbInvocations = ( node.verbInvocations || [] ).map( ( inv ) => {
+		const cspec = ( schema?.commands || [] ).find(
+			( c ) => c.name === inv.verb
+		);
+		return {
+			...inv,
+			args: absorbTrailingArgs( inv.args, ( cspec?.args || [] ).length ),
+		};
+	} );
 
 	return (
 		<aside className="topology-inspector">
@@ -712,7 +738,7 @@ function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 							id={ `topology-locked-ctor-${ spec.name }` }
 							type="text"
 							className="topology-edit-row__input"
-							value={ ctorArgs[ i ] ?? '' }
+							value={ argDisplayValue( ctorArgs[ i ] ) ?? '' }
 							disabled
 							readOnly
 						/>
@@ -854,7 +880,7 @@ function EditForm( {
 						<CtorField
 							key={ spec.name }
 							spec={ spec }
-							value={ ctorArgs[ i ] }
+							value={ argDisplayValue( ctorArgs[ i ] ) }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
 							vaults={ vaults }
@@ -1607,7 +1633,7 @@ export default function Inspector( {
 					>
 						{ profilingOn
 							? __( 'stop profiling', 'newspack-nodes' )
-							: __( 'profiling', 'newspack-nodes' ) }
+							: __( 'profile', 'newspack-nodes' ) }
 					</button>
 					<button
 						type="button"

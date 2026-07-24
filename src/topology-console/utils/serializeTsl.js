@@ -11,6 +11,28 @@
  */
 
 import { serializeArg } from '../../runtime/node';
+import { scanTokens } from '../../runtime/shell-node';
+
+/**
+ * Serialize one draft arg. parseTsl hands back RAW spans (quote chars intact)
+ * because the quote type carries interpolation semantics — double quotes
+ * interpolate `<…>`, single quotes/backticks defer. A value that already
+ * tokenizes to itself as one span is authored TSL: emit verbatim. Anything
+ * else (user-typed multi-word, live-record value, default) gets serializeArg's
+ * safe literal single-quoting.
+ *
+ * @param {string} value Draft arg value (raw span or plain value).
+ * @return {string} The arg as it should appear in the TSL line.
+ */
+function emitDraftArg( value ) {
+	const s = String( value );
+	const scanned = scanTokens( s );
+	const spans = scanned.tokens.map( ( t ) => t.raw );
+	// An UNBALANCED quote scans self-identical; verbatim corrupts the .tsl.
+	const stable =
+		1 === spans.length && spans[ 0 ] === s && ! scanned.openQuote;
+	return stable ? s : serializeArg( s );
+}
 import { edgeHasConnectRole } from './draftGraph';
 
 function trimTrailingEmpties( args ) {
@@ -87,13 +109,13 @@ function commandArgSpecFor( schemas, className, commandName ) {
  */
 export function serializeCtorArgs( ctorArgs, spec ) {
 	const filled = applyDefaults( ctorArgs || [], spec );
-	return trimTrailingEmpties( filled ).map( serializeArg ).join( ' ' );
+	return trimTrailingEmpties( filled ).map( emitDraftArg ).join( ' ' );
 }
 
 function emitMakeNode( node, schemas ) {
 	const spec = argumentsSpecFor( schemas, node.class );
 	const filled = applyDefaults( node.ctorArgs || [], spec );
-	const args = trimTrailingEmpties( filled ).map( serializeArg );
+	const args = trimTrailingEmpties( filled ).map( emitDraftArg );
 	const head = `make_node ${ node.class } ${ node.name }`;
 	return args.length ? `${ head } ${ args.join( ' ' ) }` : head;
 }
@@ -110,7 +132,7 @@ function isInterpreterClass( schemas, className ) {
 function emitVerb( name, invocation, schemas, className ) {
 	const spec = commandArgSpecFor( schemas, className, invocation.verb );
 	const filled = applyDefaults( invocation.args || [], spec );
-	const args = trimTrailingEmpties( filled ).map( serializeArg );
+	const args = trimTrailingEmpties( filled ).map( emitDraftArg );
 	// Interpreter nodes take verbs directly (no `:config`) → bare target.
 	const target = isInterpreterClass( schemas, className )
 		? name
@@ -168,7 +190,7 @@ export function serializeTsl( graph, schemas = null, baseline = null ) {
 	for ( const override of configOverrides ) {
 		const head = `cmd ${ override.from }:config ${ override.slot }`;
 		lines.push(
-			override.to ? `${ head } ${ serializeArg( override.to ) }` : head
+			override.to ? `${ head } ${ emitDraftArg( override.to ) }` : head
 		);
 	}
 	const edges = ( graph.edges || [] ).filter(

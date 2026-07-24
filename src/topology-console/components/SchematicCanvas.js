@@ -25,7 +25,7 @@ import {
 } from '../utils/viewportCull';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
-import { hullPath } from '../utils/hullPath';
+import { hullGeometry } from '../utils/hullPath';
 import { edgeHasConnectRole } from '../utils/draftGraph';
 
 // Exported so the palette drag ghost can render the same node-card geometry.
@@ -34,6 +34,15 @@ export const NODE_H = 84;
 export const PORT_R = 4.5;
 // Movement (SVG units) before a pointer-down counts as a drag, not a click.
 const DRAG_THRESHOLD = 3;
+
+// Stable per-include color; a paint-index color would shuffle on drag.
+function hullColorIndex( include ) {
+	let h = 0;
+	for ( let i = 0; i < include.length; i++ ) {
+		h = ( h * 31 + include.charCodeAt( i ) ) >>> 0;
+	}
+	return h % 6;
+}
 
 // Convert pointer (viewport) coords to SVG coords via the CTM scale.
 function screenToSvg( svg, clientX, clientY ) {
@@ -257,21 +266,32 @@ export default function SchematicCanvas( {
 	const hullPaths = useMemo(
 		() =>
 			hulls
-				.map( ( h ) => ( {
-					include: h.include,
-					d: hullPath(
-						h.nodeIds
-							.map( ( id ) => positionOverrides[ id ] )
-							.filter( Boolean )
-							.map( ( p ) => ( {
-								x: p.x,
-								y: p.y,
-								w: NODE_W,
-								h: NODE_H,
-							} ) )
-					),
-				} ) )
-				.filter( ( h ) => h.d ),
+				.map( ( h ) => {
+					const rects = h.nodeIds
+						.map( ( id ) => positionOverrides[ id ] )
+						.filter( Boolean )
+						.map( ( p ) => ( {
+							x: p.x,
+							y: p.y,
+							w: NODE_W,
+							h: NODE_H,
+						} ) );
+					const geo = hullGeometry( rects );
+					return {
+						include: h.include,
+						depth: h.depth ?? 0,
+						d: geo.d,
+						area: geo.area,
+					};
+				} )
+				.filter( ( h ) => h.d )
+				// Parents under children; equal depth paints biggest-first.
+				.sort(
+					( a, b ) =>
+						a.depth - b.depth ||
+						b.area - a.area ||
+						a.include.localeCompare( b.include )
+				),
 		[ hulls, positionOverrides ]
 	);
 	// Complete position map; render only positioned nodes (new ones lag).
@@ -1247,7 +1267,7 @@ export default function SchematicCanvas( {
 
 			{ /* One soft hull per include; overlapping where a node is shared. */ }
 			<g className="topology-hulls">
-				{ hullPaths.map( ( h, i ) => {
+				{ hullPaths.map( ( h ) => {
 					const isDragging = hullDrag?.include === h.include;
 					// SNAPPED: the outline lands where the drag drew it.
 					const snapped = isDragging
@@ -1259,9 +1279,9 @@ export default function SchematicCanvas( {
 					return (
 						<path
 							key={ h.include }
-							className={ `topology-hull topology-hull--${
-								i % 6
-							}${
+							className={ `topology-hull topology-hull--${ hullColorIndex(
+								h.include
+							) }${
 								hoveredHull === h.include ? ' is-hovered' : ''
 							}${
 								selectedHull === h.include ? ' is-selected' : ''

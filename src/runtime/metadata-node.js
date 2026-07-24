@@ -85,12 +85,10 @@ export function canonicalReverseCwd( rawPwd ) {
 	return ( rawPwd || '' ).replace( /\/[^/]+$/, `/${ reservedNames.OUTPUT }` );
 }
 
-// Process plumbing hidden from the canvas: backbone + per-worker TopicProbe.
+// Backbone-only hiding: the probe is TSL-declared and shows like any node.
 const SCAFFOLDING = new Set( [
 	reservedNames.COMMAND_INTERPRETER,
 	reservedNames.ROUTER,
-	reservedNames.TOPICPROBE,
-	reservedNames.TOPICPROBE_LOG,
 ] );
 
 /**

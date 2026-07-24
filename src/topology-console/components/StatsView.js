@@ -206,7 +206,7 @@ export default function StatsView() {
 						className="button is-compact"
 						onClick={ () => setProfiling( true ) }
 					>
-						{ __( 'profiling', 'newspack-nodes' ) }
+						{ __( 'profile', 'newspack-nodes' ) }
 					</button>
 				) }
 			</div>

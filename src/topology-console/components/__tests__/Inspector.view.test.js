@@ -266,14 +266,14 @@ describe( 'Inspector (view mode)', () => {
 		// No `profile on` / `profile off` command pair remains in the strip.
 		expect( queryByText( 'profile on' ) ).toBeNull();
 		expect( queryByText( 'profile off' ) ).toBeNull();
-		const btn = getByText( 'profiling' );
+		const btn = getByText( 'profile' );
 		expect( btn.className ).not.toContain( 'is-active' );
 		fireEvent.click( btn );
 		expect( calls ).toContainEqual( [ 'command', null, 'profile on' ] );
 		// Optimistic: label + highlight swap now, before a poll reply confirms.
 		const active = getByText( 'stop profiling' );
 		expect( active.className ).toContain( 'is-active' );
-		expect( queryByText( 'profiling' ) ).toBeNull();
+		expect( queryByText( 'profile' ) ).toBeNull();
 	} );
 
 	it( 'no-node Profiling reads server truth (parsed.profiling) and fires `profile off` when on', () => {
