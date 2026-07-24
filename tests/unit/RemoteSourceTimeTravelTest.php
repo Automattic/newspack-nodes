@@ -98,17 +98,17 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	public function test_node_schema_registers_the_time_travel_verbs(): void {
 		$schema = Remote_Source_Node::node_schema();
 		$verbs  = \array_column( $schema['commands'], 'name' );
-		foreach ( [ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP' ] as $verb ) {
+		foreach ( [ 'add_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP' ] as $verb ) {
 			$this->assertContains( $verb, $verbs, "Remote_Source must register the {$verb} verb" );
 		}
 	}
 
-	public function test_dump_config_roundtrips_set_snapshot_node(): void {
+	public function test_dump_config_roundtrips_add_snapshot_node(): void {
 		$node = $this->make_remote( 'remote-austin' );
-		$node->set_snapshot_node( 'flame-builder' );
+		$node->add_snapshot_node( 'flame-builder' );
 
 		$this->assertStringContainsString(
-			'cmd remote-austin:config set_snapshot_node flame-builder',
+			'cmd remote-austin:config add_snapshot_node flame-builder',
 			$node->dump_config(),
 			'Remote_Source shares the Time_Travel surface and must round-trip its snapshot node too'
 		);

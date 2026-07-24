@@ -331,7 +331,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
-		$c->set_snapshot_node( 'request-builder' );
+		$c->add_snapshot_node( 'request-builder' );
 
 		$this->checkpoint_at( $c, 2, 64 );
 		$frame_cache = $node->state;

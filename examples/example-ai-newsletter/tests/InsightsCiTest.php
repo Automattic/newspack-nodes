@@ -37,10 +37,10 @@ final class InsightsCiTest extends TestCase {
 		$ol = new Partition_Node();
 		$ol->name( "t:ol:$partition" );
 		$ol->arguments( [ "$offsets/example-scored.p$partition" ] );
-		$ol->void_warranty(); // The real Consumer offsetlog runs large-writes on (set_snapshot_node).
+		$ol->void_warranty(); // The real Consumer offsetlog runs large-writes on (add_snapshot_node).
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::VALUE ] = [ 'seg' => 0, 'off' => 0, 'cache' => [ 'items' => $items ] ];
+		$m[ Message::VALUE ] = [ 'seg' => 0, 'off' => 0, 'cache' => [ 'digest' => [ 'items' => $items ] ] ];
 		$ol->fill( $m );
 		$ol->flush();
 	}

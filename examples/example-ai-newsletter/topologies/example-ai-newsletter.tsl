@@ -8,7 +8,7 @@
 # summarizer adds a one-line summary; scorer adds a notional priority score and
 # appends each scored item to the durable `scored` partition. A Consumer
 # tails that log into the digest, and co-commits the digest's accumulated state
-# (save_state) into its offsetlog via `set_snapshot_node digest` — so a respawned
+# (save_state) into its offsetlog via `add_snapshot_node digest` — so a respawned
 # worker restores in lockstep with the cursor. Insights_CI_Demo reads that offsetlog
 # snapshot to serve the dashboard. `void_warranty` lifts the partition's 4KB
 # write cap (a scored batch can exceed PIPE_BUF); see ADR-4.
@@ -26,7 +26,7 @@ cmd digest:log:config void_warranty
 make_node Partition             scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>
 cmd scored:partition:config void_warranty
 make_node Consumer              scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition> <config:deadletter_dir>/example-scored.p<partition>
-cmd scored:consumer:config set_snapshot_node digest
+cmd scored:consumer:config add_snapshot_node digest
 make_node Scorer_Demo           scorer
 connect_node releases        summarizer
 connect_node community       summarizer

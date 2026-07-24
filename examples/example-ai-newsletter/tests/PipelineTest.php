@@ -105,7 +105,7 @@ final class PipelineTest extends TestCase {
 
 	public function test_digest_snapshot_is_durably_cocommitted_and_dashboard_readable(): void {
 		// Proves the dashboard's data path: a digest's accumulated state is co-committed into the
-		// Consumer's offsetlog (set_snapshot_node) and read back by Insights_CI. The restore_state
+		// Consumer's offsetlog (add_snapshot_node) and read back by Insights_CI. The restore_state
 		// side of a respawn is unit-covered in DigestBuilderTest; this pins the durable read.
 		$offsets         = $this->make_temp_dir( 'pipeline-respawn-' );
 		$this->created[] = $offsets;
@@ -119,7 +119,7 @@ final class PipelineTest extends TestCase {
 		$consumer = new Consumer_Node();
 		$consumer->name( 'scored:consumer' );
 		$consumer->arguments( [ "$offsets/src.log", "$offsets/example-scored.p0" ] );
-		$consumer->set_snapshot_node( 'digest' );
+		$consumer->add_snapshot_node( 'digest' );
 		$consumer->poll(); // seed the cursor (poll_init) before checkpointing, as a live worker does.
 		$consumer->checkpoint();
 

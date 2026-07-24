@@ -58,17 +58,26 @@ class Consumer_Node extends Timer_Node {
 
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
-	 * snapshot node usually doesn't exist yet when load_offsetlog() runs, so we
-	 * stash it and restore once set_snapshot_node() names the (now-built) node.
+	 * snapshot nodes usually don't exist yet when load_offsetlog() runs, so we
+	 * stash the map and restore on the first poll, after the topology is built.
 	 *
 	 * @var array<array-key, mixed>|null
 	 */
 	private ?array $loaded_cache = null;
 
+	/**
+	 * State loaded for snapshot names that could not restore (node absent at
+	 * boot). Folded back into every recommitted frame so an unresolvable
+	 * node's durable state survives until a live save_state() replaces it.
+	 *
+	 * @var array<string, array<array-key, mixed>>
+	 */
+	private array $snapshot_carry = [];
+
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
-		// Build {name}:config interpreter so set_snapshot_node dispatchable.
+		// Build {name}:config interpreter so add_snapshot_node dispatchable.
 		$this->auto_wire_interpreter();
 	}
 
@@ -263,14 +272,25 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected function init_position(): void {
 		$this->load_offsetlog();
-		if ( null !== $this->loaded_cache && '' !== $this->snapshot_node ) {
-			$node = Core::node( $this->snapshot_node );
-			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
-				$node->restore_state( $this->loaded_cache );
+		if ( null !== $this->loaded_cache && [] !== $this->snapshot_nodes ) {
+			$restored = false;
+			foreach ( $this->snapshot_nodes as $snapshot_name ) {
+				$node  = Core::node( $snapshot_name );
+				$state = $this->loaded_cache[ $snapshot_name ] ?? null;
+				if ( \is_array( $state ) && null !== $node && \method_exists( $node, 'restore_state' ) ) {
+					$node->restore_state( $state );
+					$restored = true;
+				} else {
+					$this->print_less_often( "WARNING: snapshot node '{$snapshot_name}' missing, stateless, or absent from the frame; skipping its restore" );
+					if ( \is_array( $state ) ) {
+						// Carry unrestored state into recommits: never drop it.
+						$this->snapshot_carry[ $snapshot_name ] = $state;
+					}
+				}
+			}
+			if ( $restored ) {
 				// Restore survived: recommit cache stateful; boot stateless.
 				$this->write_checkpoint_frame( false, true );
-			} else {
-				$this->print_less_often( "WARNING: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
 			}
 		}
 		$this->loaded_cache = null;
@@ -425,11 +445,17 @@ class Consumer_Node extends Timer_Node {
 	 * @param array<array-key, mixed> $extra      Per-call frame additions (the quarantine marker).
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
-		// Co-commit snapshot with offset as ONE record for lockstep respawn.
-		if ( $with_state && '' !== $this->snapshot_node ) {
-			$node = Core::node( $this->snapshot_node );
-			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
-				$extra['cache'] = $node->save_state();
+		// Co-commit snapshots with offset as ONE record for lockstep respawn.
+		if ( $with_state && [] !== $this->snapshot_nodes ) {
+			$cache = $this->snapshot_carry;
+			foreach ( $this->snapshot_nodes as $snapshot_name ) {
+				$node = Core::node( $snapshot_name );
+				if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
+					$cache[ $snapshot_name ] = $node->save_state();
+				}
+			}
+			if ( [] !== $cache ) {
+				$extra['cache'] = $cache;
 			}
 		}
 		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );

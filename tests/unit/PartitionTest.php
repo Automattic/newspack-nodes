@@ -2396,20 +2396,20 @@ class PartitionTest extends TestCase {
 		$this->assertNull( Partition_Node::read_latest_value_at( $this->tmp ) );
 	}
 
-	/** Write one snapshot record (`{ cache: { items: [...] } }`) into $offsets/$name. */
-	private function write_snapshot_cache( string $name, array $items ): void {
-		$this->write_value_record( "{$this->tmp}/$name", [ 'segment' => 0, 'offset' => 0, 'cache' => [ 'items' => $items ] ] );
+	/** Write one snapshot record (`{ cache: { <node>: { items: [...] } } }`) into $offsets/$name. */
+	private function write_snapshot_cache( string $name, array $items, string $node = 'digest' ): void {
+		$this->write_value_record( "{$this->tmp}/$name", [ 'segment' => 0, 'offset' => 0, 'cache' => [ $node => [ 'items' => $items ] ] ] );
 	}
 
 	public function test_read_latest_snapshot_cache_returns_empty_for_no_matching_dirs(): void {
-		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' ) );
+		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'digest' ) );
 	}
 
 	public function test_read_latest_snapshot_cache_flattens_items_across_dirs(): void {
 		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ], [ 'title' => 'b' ] ] );
 		$this->write_snapshot_cache( 'scored.p1', [ [ 'title' => 'c' ] ] );
 
-		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' );
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'digest' );
 
 		$this->assertEqualsCanonicalizing(
 			[ [ 'title' => 'a' ], [ 'title' => 'b' ], [ 'title' => 'c' ] ],
@@ -2421,7 +2421,7 @@ class PartitionTest extends TestCase {
 		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ] ] );
 		$this->write_snapshot_cache( 'other.p0', [ [ 'title' => 'z' ] ] );
 
-		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' );
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'digest' );
 
 		$this->assertSame( [ [ 'title' => 'a' ] ], $items );
 	}
@@ -2429,7 +2429,7 @@ class PartitionTest extends TestCase {
 	public function test_read_latest_snapshot_cache_drops_non_array_items(): void {
 		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ], 'not-an-array', [ 'title' => 'b' ] ] );
 
-		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' );
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'digest' );
 
 		$this->assertSame( [ [ 'title' => 'a' ], [ 'title' => 'b' ] ], $items );
 	}
@@ -2437,13 +2437,13 @@ class PartitionTest extends TestCase {
 	public function test_read_latest_snapshot_cache_returns_empty_when_cache_items_absent(): void {
 		$this->write_value_record( "{$this->tmp}/scored.p0", [ 'segment' => 0, 'offset' => 0 ] );
 
-		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*' ) );
+		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'digest' ) );
 	}
 
 	public function test_read_latest_snapshot_cache_honors_custom_cache_and_items_keys(): void {
-		$this->write_value_record( "{$this->tmp}/scored.p0", [ 'state' => [ 'rows' => [ [ 'n' => 1 ] ] ] ] );
+		$this->write_value_record( "{$this->tmp}/scored.p0", [ 'state' => [ 'digest' => [ 'rows' => [ [ 'n' => 1 ] ] ] ] ] );
 
-		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'state', 'rows' );
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'digest', 'state', 'rows' );
 
 		$this->assertSame( [ [ 'n' => 1 ] ], $items );
 	}
@@ -2451,7 +2451,7 @@ class PartitionTest extends TestCase {
 	public function test_read_latest_snapshot_cache_tolerates_trailing_slash_on_dir(): void {
 		$this->write_snapshot_cache( 'scored.p0', [ [ 'title' => 'a' ] ] );
 
-		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp . '/', 'scored.p*' );
+		$items = Partition_Node::read_latest_snapshot_cache( $this->tmp . '/', 'scored.p*', 'digest' );
 
 		$this->assertSame( [ [ 'title' => 'a' ] ], $items );
 	}

@@ -1657,10 +1657,95 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $first + 1, $entries(), 'checkpoint at the 30s boundary' );
 	}
 
+	public function test_partial_restore_carries_the_unresolvable_nodes_state_forward(): void {
+		// With [A, B] snapshotted but only A rebuilt at boot, the recommitted
+		// frame must still carry B's loaded state — a later boot where B exists
+		// restores it. Rebuilding the frame from live nodes alone would drop it.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'hello' );
+
+		$builder        = new Snapshot_Probe();
+		$builder->name( 'request-builder' );
+		$builder->state = [ 'in_flight' => [ 'r1' => 'a-state' ] ];
+		$gate           = new Snapshot_Probe();
+		$gate->name( 'value-gate' );
+		$gate->state = [ 'recently_sent' => [ 'warm' => 42.5 ] ];
+
+		$a = new Consumer_Node();
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$a->name( 'firehose:consumer' );
+		$a->sink( new Capture_Sink_Node() );
+		$a->add_snapshot_node( 'request-builder' );
+		$a->add_snapshot_node( 'value-gate' );
+		$this->pump_consumer( $a );
+		$a->checkpoint();
+
+		Core::reset();
+
+		$b = new Consumer_Node();
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$b->name( 'firehose:consumer' );
+		$b->sink( new Capture_Sink_Node() );
+		$b->add_snapshot_node( 'request-builder' );
+		$b->add_snapshot_node( 'value-gate' );
+		$builder2 = new Snapshot_Probe();
+		$builder2->name( 'request-builder' );
+		// 'value-gate' deliberately NOT rebuilt this boot.
+		$this->pump_consumer( $b );
+		$b->checkpoint();
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( [ 'recently_sent' => [ 'warm' => 42.5 ] ], $entry['cache']['value-gate'] ?? null, 'the unresolvable node state must ride every recommit until a live save_state replaces it' );
+		$this->assertSame( [ 'in_flight' => [ 'r1' => 'a-state' ] ], $entry['cache']['request-builder'] ?? null );
+	}
+
+	public function test_checkpoint_co_commits_multiple_snapshot_nodes_keyed_by_name(): void {
+		// add_snapshot_node composes: each named node's save_state() rides the ONE
+		// frame under its own name, and a respawn restores each by name. A name
+		// that no longer resolves skips loud without wedging the others.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'hello' );
+
+		$builder        = new Snapshot_Probe();
+		$builder->name( 'request-builder' );
+		$builder->state = [ 'in_flight' => [ 'r7' => 'req' ] ];
+		$gate           = new Snapshot_Probe();
+		$gate->name( 'value-gate' );
+		$gate->state = [ 'recently_sent' => [ 'warm_homepage' => 1000060.0 ] ];
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->add_snapshot_node( 'request-builder' );
+		$c->add_snapshot_node( 'value-gate' );
+		$this->pump_consumer( $c );
+		$c->checkpoint();
+
+		Core::reset();
+
+		$c2 = new Consumer_Node();
+		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c2->name( 'firehose:consumer' );
+		$c2->sink( new Capture_Sink_Node() );
+		$c2->add_snapshot_node( 'request-builder' );
+		$c2->add_snapshot_node( 'value-gate' );
+		$builder2 = new Snapshot_Probe();
+		$builder2->name( 'request-builder' );
+		// 'value-gate' is deliberately NOT rebuilt: it must skip loud, not wedge.
+		$this->pump_consumer( $c2 );
+
+		$this->assertSame( [ 'in_flight' => [ 'r7' => 'req' ] ], $builder2->state, 'each snapshot node restores its own state by name' );
+		$this->assertStringContainsString( 'add_snapshot_node request-builder', $c2->dump_config() );
+		$this->assertStringContainsString( 'add_snapshot_node value-gate', $c2->dump_config() );
+	}
+
 	public function test_checkpoint_co_commits_snapshot_node_state_and_restores_it(): void {
 		// Tachikoma snapshot pattern: the Consumer co-commits {offset, cache} as ONE
 		// offsetlog record, so the read offset and the named node's state stay
-		// aligned across a respawn. A >4KB cache also proves set_snapshot_node lifts
+		// aligned across a respawn. A >4KB cache also proves add_snapshot_node lifts
 		// the offsetlog's PIPE_BUF cap (void_warranty) — the worker is its sole writer.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
@@ -1674,7 +1759,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
-		$c->set_snapshot_node( 'request-builder' );
+		$c->add_snapshot_node( 'request-builder' );
 		$this->pump_consumer( $c );
 		$c->checkpoint();
 
@@ -1688,12 +1773,12 @@ class ConsumerTest extends TestCase {
 		// Order-independence (the bug this fixes): the snapshot node is named BEFORE
 		// it is built, exactly as a per-node-serialized topology emits it. Recording
 		// the name must NOT try to restore yet — there is no node to restore into.
-		$c2->set_snapshot_node( 'request-builder' );
+		$c2->add_snapshot_node( 'request-builder' );
 		$node2 = new Snapshot_Probe();
 		$node2->name( 'request-builder' );
 
 		// Construction + naming do no restore — state is still empty.
-		$this->assertSame( [], $node2->state, 'restore must be deferred, not run at set_snapshot_node time' );
+		$this->assertSame( [], $node2->state, 'restore must be deferred, not run at add_snapshot_node time' );
 
 		// The first poll (poll_init) loads the durable cursor and restores the
 		// snapshot into the by-then-built node — no warning, no discarded cache.
@@ -1726,7 +1811,7 @@ class ConsumerTest extends TestCase {
 		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->name( 'firehose:consumer' );
 		$a->sink( new Capture_Sink_Node() );
-		$a->set_snapshot_node( 'request-builder' );
+		$a->add_snapshot_node( 'request-builder' );
 		$this->pump_consumer( $a );
 		$a->checkpoint();
 
@@ -1736,16 +1821,16 @@ class ConsumerTest extends TestCase {
 		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->name( 'firehose:consumer' );
 		$b->sink( new Capture_Sink_Node() );
-		$b->set_snapshot_node( 'request-builder' );
+		$b->add_snapshot_node( 'request-builder' );
 		$node2 = new Snapshot_Probe();
 		$node2->name( 'request-builder' );
 		$this->pump_consumer( $b ); // poll_init: stateless boot frame → restore → stateful boot frame.
 
 		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
 		$this->assertSame(
-			[ 'in_flight' => [ 'r1' => 'keep-me' ] ],
+			[ 'request-builder' => [ 'in_flight' => [ 'r1' => 'keep-me' ] ] ],
 			$entry['cache'] ?? null,
-			'the newest on-disk frame after a stateful boot must carry the restored cache, not an empty pre-restore snapshot'
+			'the newest on-disk frame after a stateful boot must carry the restored cache, keyed by node name'
 		);
 	}
 
@@ -1766,7 +1851,7 @@ class ConsumerTest extends TestCase {
 		$a = new Consumer_Node();
 		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
-		$a->set_snapshot_node( 'request-builder' );
+		$a->add_snapshot_node( 'request-builder' );
 		$this->pump_consumer( $a );
 		$a->checkpoint(); // healthy frame with cache; first_crash_ts=null.
 
@@ -1775,7 +1860,7 @@ class ConsumerTest extends TestCase {
 		$b = new Consumer_Node();
 		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
-		$b->set_snapshot_node( 'request-builder' );
+		$b->add_snapshot_node( 'request-builder' );
 		( new Snapshot_Probe() )->name( 'request-builder' );
 		$this->pump_consumer( $b ); // recovery boot → first_crash_ts=1000, attempts=2, cache still committed.
 
@@ -1785,7 +1870,7 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->sink( new Capture_Sink_Node() );
-		$c->set_snapshot_node( 'request-builder' );
+		$c->add_snapshot_node( 'request-builder' );
 		$node3 = new Snapshot_Probe();
 		$node3->name( 'request-builder' );
 		$this->pump_consumer( $c );
@@ -1808,7 +1893,7 @@ class ConsumerTest extends TestCase {
 		$a = new Consumer_Node();
 		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$a->sink( new Capture_Sink_Node() );
-		$a->set_snapshot_node( 'request-builder' );
+		$a->add_snapshot_node( 'request-builder' );
 		$this->pump_consumer( $a );
 		$a->checkpoint();
 
@@ -1816,7 +1901,7 @@ class ConsumerTest extends TestCase {
 		$b = new Consumer_Node();
 		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$b->sink( new Capture_Sink_Node() );
-		$b->set_snapshot_node( 'request-builder' );
+		$b->add_snapshot_node( 'request-builder' );
 		( new Throwing_Snapshot_Probe() )->name( 'request-builder' );
 
 		try {
@@ -3275,7 +3360,7 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['commands'] );
 		// Set equality, NOT order: verb ordering is presentation, free to change.
 		$this->assertEqualsCanonicalizing(
-			[ 'set_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'set_multi_writer' ],
+			[ 'add_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
 			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (STEP is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
 		);
@@ -3690,7 +3775,7 @@ class ConsumerTest extends TestCase {
 	 * The time-travel transport verbs (SEEK_FRAME/PAUSE/PLAY/STEP) are driven by
 	 * the Inspector's Time Travel bar, so they carry hidden:true to keep them out
 	 * of the generic per-command verb-button list. Non-transport config verbs
-	 * (set_snapshot_node, set_line_mode) stay visible.
+	 * (add_snapshot_node, set_line_mode) stay visible.
 	 */
 	public function test_node_schema_marks_time_travel_verbs_hidden(): void {
 		$commands = [];
@@ -3703,7 +3788,7 @@ class ConsumerTest extends TestCase {
 			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic verb list" );
 		}
 
-		foreach ( [ 'set_snapshot_node', 'set_line_mode' ] as $verb ) {
+		foreach ( [ 'add_snapshot_node', 'set_line_mode' ] as $verb ) {
 			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
 			$this->assertArrayNotHasKey( 'hidden', $commands[ $verb ], "{$verb} must stay visible" );
 		}
@@ -3726,14 +3811,14 @@ class ConsumerTest extends TestCase {
 		}
 	}
 
-	public function test_dump_config_roundtrips_set_snapshot_node(): void {
+	public function test_dump_config_roundtrips_add_snapshot_node(): void {
 		$c = new Consumer_Node();
 		$c->name( 'requests:consumer' );
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/requests.flame-builder.p0" ] );
-		$c->set_snapshot_node( 'flame-builder' );
+		$c->add_snapshot_node( 'flame-builder' );
 
 		$this->assertStringContainsString(
-			'cmd requests:consumer:config set_snapshot_node flame-builder',
+			'cmd requests:consumer:config add_snapshot_node flame-builder',
 			$c->dump_config(),
 			'dump_config must round-trip the snapshot node so a console-serialized topology still co-commits save_state'
 		);
@@ -3744,7 +3829,7 @@ class ConsumerTest extends TestCase {
 		$c->name( 'plain' );
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
-		$this->assertStringNotContainsString( 'set_snapshot_node', $c->dump_config() );
+		$this->assertStringNotContainsString( 'add_snapshot_node', $c->dump_config() );
 	}
 
 	public function test_dump_config_roundtrips_set_multi_writer(): void {

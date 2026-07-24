@@ -126,7 +126,7 @@ cmd digest:log:config void_warranty
 make_node Partition        scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 cmd scored:partition:config void_warranty
 make_node Consumer         scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition>
-cmd scored:consumer:config set_snapshot_node digest
+cmd scored:consumer:config add_snapshot_node digest
 make_node Scorer           scorer
 connect_node releases    summarizer
 connect_node community   summarizer
@@ -141,7 +141,7 @@ Three new ideas, all using nodes the substrate ships:
 
 - **`<config:...>` and `<partition>` tokens.** The `Partition`/`Consumer` arguments interpolate runtime config (the substrate's `logs_dir`, `segment_size`, …) and the worker's partition index, so the same `.tsl` works for any partition count. They're substrate-registered token namespaces — you just use them.
 - **`scorer → scored:partition` writes the durable log;** `scored:consumer → digest` tails it straight back into the digest. The Consumer reads each scored record and `fill()`s it into the digest, exactly as a `connect_node` would.
-- **`cmd scored:consumer:config set_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog **under the record's `cache` key** — so a web request reads it straight back as `$value['cache']` (that's the `cache['items']` §2's reader pulls; your `save_state()` shape *is* the dashboard's read contract). On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
+- **`cmd scored:consumer:config add_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog **under the record's `cache` key** — so a web request reads it straight back as `$value['cache']` (that's the `cache['items']` §2's reader pulls; your `save_state()` shape *is* the dashboard's read contract). On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
 
 **The durable-snapshot recipe — lift these four lines.** This is the reusable pattern for *any* "make a worker's in-memory state readable from a web request" need; rename `scored` → your log name and `digest` → your state node:
 
@@ -149,7 +149,7 @@ Three new ideas, all using nodes the substrate ships:
 make_node Partition  <log>:partition <config:logs_dir>/<log>.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 cmd <log>:partition:config void_warranty
 make_node Consumer   <log>:consumer  <config:logs_dir>/<log>.p<partition> <config:offsets_dir>/<log>.p<partition>
-cmd <log>:consumer:config set_snapshot_node <state-node>
+cmd <log>:consumer:config add_snapshot_node <state-node>
 ```
 
 Then `connect_node <producer> <log>:partition` and `connect_node <log>:consumer <state-node>`. The four lines stay explicit on purpose: they're real nodes, so the topology console renders the durability and you can inspect the log and the read cursor live — a one-line macro would hide the `Partition`/`Consumer` and make the whole mechanism invisible on the canvas.
@@ -236,7 +236,7 @@ class Insights_CI_Node extends Service_CI_Node {
 
 	/** Read every `example-scored.p*` offset dir's latest snapshot, flatten the digest caches. */
 	public static function read_snapshot_items( string $offsets_dir ): array {
-		return \Newspack_Nodes\Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*' );
+		return \Newspack_Nodes\Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*', 'digest' );
 	}
 
 	/** Count items per source → { source: count }. */
