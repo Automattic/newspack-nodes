@@ -189,7 +189,7 @@ class TopologiesCITest extends TestCase {
 
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
 
-		$this->assertSame( 'permission denied: manage_options required', $result );
+		$this->assertSame( 'permission denied: manage capability required', $result );
 	}
 
 	public function test_list_marks_active_via_topologies_filter(): void {

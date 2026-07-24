@@ -195,8 +195,9 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 				continue;
 			}
 			$handler        = $verb['handler'];
-			$table[ $name ] = static function ( ...$args ) use ( $handler ) {
-				self::require_manage_options();
+			$role           = Core::as_string( $verb['capability'] ?? Capabilities::MANAGE, Capabilities::MANAGE );
+			$table[ $name ] = static function ( ...$args ) use ( $handler, $role ) {
+				Capabilities::require( $role );
 				return $handler( ...$args );
 			};
 		}
@@ -211,17 +212,12 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	}
 
 	/**
-	 * Authorisation gate. Throws a RuntimeException when the current user
-	 * lacks the `manage_options` capability; CommandInterpreter::interpret()
-	 * catches and wraps as TM_COMMAND|TM_ERROR.
-	 *
-	 * The `function_exists` guard keeps the helper usable in request-scope
-	 * unit tests where the cap stub may not be loaded.
+	 * Authorisation gate — the manage role via the Capabilities map.
+	 * CommandInterpreter::interpret() catches the throw and wraps it as
+	 * TM_COMMAND|TM_ERROR.
 	 */
 	protected static function require_manage_options(): void {
-		if ( \function_exists( 'current_user_can' ) && ! \current_user_can( 'manage_options' ) ) {
-			throw new \RuntimeException( 'permission denied: manage_options required' );
-		}
+		Capabilities::require( Capabilities::MANAGE );
 	}
 
 	/**

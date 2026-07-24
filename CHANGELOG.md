@@ -40,6 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (locks/IPC/logs carry no blog namespace), so `Bootstrap::fleet_site()`
   gates the supervisor loop and the spawn endpoint — single-site always
   runs; on multisite only the main site does, subsites no-op loud.
+- **Capability model** — two roles, `read` and `manage`, resolved through
+  one filterable map (`newspack_nodes/capability_map`), both defaulting to
+  `manage_options` so nothing changes out of the box. Schema verbs may
+  declare `'capability' => 'read'` (default `manage`); `Service_CI_Node`
+  wraps every handler with its declared role, and the SSE stream endpoint
+  checks `read` — so a site can grant read-only dashboards by filtering
+  `read` down to a lesser capability. `/command`, spawn, and the admin
+  pages stay `manage`; per-verb `read` marks land verb-by-verb
+  (`Classes_CI list` is the exemplar). The permission-denied message is now
+  role-based (`permission denied: <role> capability required`).
 - `Age_Sieve_Node` — port of Tachikoma's `AgeSieve.pm`: drops any message
   whose envelope TIMESTAMP age exceeds `max_age` (default 900s; optional
   `should_warn` enables the rate-limited drop warning). ELN's job-router

@@ -12,6 +12,8 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Capabilities;
+
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Supervisor;
@@ -56,7 +58,7 @@ class Spawn_Controller {
 		}
 
 		// Capability->nonce->rate-limit: rate-limiting first poisons the table.
-		if ( ! \function_exists( 'current_user_can' ) || ! \current_user_can( 'manage_options' ) ) {
+		if ( ! \function_exists( 'current_user_can' ) || ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return new \WP_Error(
 				'invalid_token',
 				'Invalid spawn token',
