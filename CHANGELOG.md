@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `do_action( 'newspack_log', … )` at log_level 2 — Newspack Manager ships
   it to logstash/Kibana/Grafana; silent no-op without Manager). Wire in
   TSL: `Consumer topicprobe.p0 → Probe_To_Graphite → Graphite`.
+- `Table_Node` — the keyed store (Tachikoma Table vocabulary) backed by
+  memcache: `<namespace> [ttl]` arguments, write-through `fill()` (KEY→VALUE,
+  keyless passes unstored), `get`/`rm` verbs, and cross-process
+  `Table_Node::lookup( $ns, $key )` so dashboards/REST/CLI read values
+  without querying a live worker. Fails loud without memcached.
 - `Value_Timeout_Node::save_state()` / `restore_state()` — the window maps
   ride a Consumer's `add_snapshot_node` frame, so a respawn keeps mid-window
   suppressions AND the trailing re-emit (the cache-invalidation case: losing
