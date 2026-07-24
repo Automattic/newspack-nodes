@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A write stall can no longer silently lose accepted messages.** `flush()`
+  reset the batch before writing; a short write (disk full, EIO, root-owned
+  segment) dropped the remainder with one rate-limited line AND left a torn
+  partial record desyncing every reader after it. Partition now truncates the
+  torn record off the segment (framing survives) and routes every unwritten
+  message through the dead-letter queue — a `{base}/deadletter/{dotted-dir}`
+  sidecar, replayable via `wp nodes ingest`; sidecars themselves never derive
+  a quarantine (that would recurse), and a multi-writer source's shared
+  quarantine keeps the rotate lock. Same recovery on the large-write path and
+  on an unopenable segment. `File_Writer` gained the `Partition_Node::$fwrite`
+  closure seam so the recovery path is covered by real tests.
 - **Spawn throttling now gates every spawn path.** The spawn endpoint checks
   and records the per-worker rate limit itself, so a crash-on-boot worker
   self-respawning as fast as FPM forks is rejected on its first respawn —

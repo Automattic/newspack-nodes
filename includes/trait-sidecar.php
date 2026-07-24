@@ -34,6 +34,8 @@ trait Sidecar {
 		$partition->patron( $this );
 		$partition->arguments( \array_map( '\strval', [ $dir, ...$geometry ] ) );
 		$partition->sink( $this->sink );
+		// A sidecar quarantining its own writes would recurse ([159]).
+		$partition->without_write_deadletter();
 		return $partition;
 	}
 }
