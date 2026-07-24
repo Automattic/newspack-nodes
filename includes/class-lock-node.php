@@ -85,7 +85,7 @@ class Lock_Node extends Node {
 
 	public function acquire( int $max_wait_ms = 0 ): bool {
 		$this->acquire_failure = '';
-		$deadline   = $max_wait_ms > 0 ? \microtime( true ) + ( $max_wait_ms / 1000.0 ) : 0;
+		$deadline   = $max_wait_ms > 0 ? Core::right_now() + ( $max_wait_ms / 1000.0 ) : 0;
 		$io_retried = false;
 		do {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -127,7 +127,7 @@ class Lock_Node extends Node {
 				return false;
 			}
 
-			if ( 0 === $max_wait_ms || \microtime( true ) >= $deadline ) {
+			if ( 0 === $max_wait_ms || Core::right_now() >= $deadline ) {
 				$this->acquire_failure = 'lock_held';
 				return false;
 			}

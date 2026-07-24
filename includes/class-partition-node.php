@@ -190,17 +190,21 @@ class Partition_Node extends Timer_Node {
 	public function fill( array $message ): void {
 		++$this->counter;
 
+		// One read/fill: cached if set, else one warming read; threaded down.
+		$now = Core::$now ?: Core::right_now();
+
 		// Debounced: hold lock for the burst; arm timer so fire() frees it.
 		if ( $this->debounce_lock_ms > 0 ) {
 			$this->ensure_debounced_lock();
-			$this->last_write_at = Core::$now;
+			$this->last_write_at = $now;
 			$this->set_timer( $this->debounce_lock_ms, true );
 		}
 
 		// No-event-loop heartbeat: throw if heartbeat() shows lost ownership.
 		if ( $this->allow_large_writes && $this->lock_held && null === $this->heartbeat_timer && null !== $this->write_lock ) {
-			$now = \microtime( true );
-			if ( $now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
+			// Staleness needs a REAL clock: no drain refreshes the cache here.
+			$hb_now = Core::right_now();
+			if ( $hb_now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
 				if ( ! $this->write_lock->heartbeat() ) {
 					throw new \RuntimeException(
 						\esc_html(
@@ -209,7 +213,7 @@ class Partition_Node extends Timer_Node {
 						)
 					);
 				}
-				$this->last_lock_heartbeat = $now;
+				$this->last_lock_heartbeat = $hb_now;
 			}
 		}
 
@@ -230,7 +234,7 @@ class Partition_Node extends Timer_Node {
 			$this->init_current_segment();
 		}
 
-		$this->maybe_rescan_segments();
+		$this->maybe_rescan_segments( $now );
 
 		// Large messages bypass the batch; flush it first to preserve ordering.
 		if ( $size > self::MAX_LINE_SIZE ) {
@@ -329,13 +333,14 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Drift / TOCTOU recovery: rescan and follow the newest segment if a peer rotated.
 	 */
-	protected function maybe_rescan_segments(): void {
-		$now = \microtime( true );
+	protected function maybe_rescan_segments( ?float $now = null ): void {
+		// fill() threads its read; else cached clock (no clobber) or warm.
+		$now = $now ?? ( Core::$now ?: Core::right_now() );
 		if ( $now - $this->last_segment_check < self::DRIFT_RESCAN_INTERVAL_SECONDS ) {
 			return;
 		}
 		$this->last_segment_check = $now;
-		$segments                 = $this->get_segments( true );
+		$segments                 = $this->get_segments( true, $now );
 		if ( empty( $segments ) ) {
 			return;
 		}
@@ -399,7 +404,7 @@ class Partition_Node extends Timer_Node {
 
 		// $survivors is already 0-indexed by id — no array_values() re-key.
 		$this->segments_cache      = $survivors;
-		$this->segments_cache_time = \microtime( true );
+		$this->segments_cache_time = Core::$now ?: Core::right_now();
 	}
 
 	/** Flush the residual batch, then close file handles + release write lock before normal Node teardown. */
@@ -472,7 +477,7 @@ class Partition_Node extends Timer_Node {
 		}
 
 		$this->lock_held           = true;
-		$this->last_lock_heartbeat = \microtime( true );
+		$this->last_lock_heartbeat = Core::right_now();
 
 		if ( $ef_running ) {
 			// Heartbeat cadence = stale_timeout/3 ms; 3 ticks per stale window.
@@ -507,7 +512,7 @@ class Partition_Node extends Timer_Node {
 			);
 		}
 		$this->lock_held           = true;
-		$this->last_lock_heartbeat = \microtime( true );
+		$this->last_lock_heartbeat = Core::right_now();
 		// Drop cached position/handle: the live disk end is authoritative now.
 		$this->close_handle();
 		$this->current_segment_id = null;
@@ -711,7 +716,7 @@ class Partition_Node extends Timer_Node {
 
 		// Keep cache warm: scan + new empty segment; cleanup prunes in place.
 		$this->segments_cache[]    = [ 'id' => $next_id, 'size' => 0 ];
-		$this->segments_cache_time = \microtime( true );
+		$this->segments_cache_time = Core::$now ?: Core::right_now();
 
 		$this->cleanup_segments();
 
@@ -762,7 +767,7 @@ class Partition_Node extends Timer_Node {
 		}
 		// Keep the pruned list as the warm cache instead of discarding it.
 		$this->segments_cache      = \array_values( $segments );
-		$this->segments_cache_time = \microtime( true );
+		$this->segments_cache_time = Core::$now ?: Core::right_now();
 
 		$deleted = $initial_count - $count;
 		if ( $deleted > 0 ) {
@@ -1029,11 +1034,13 @@ class Partition_Node extends Timer_Node {
 	 * An allow_large_writes (single-writer) log skips the TTL: with no peer able to
 	 * change the dir behind it, its cache never goes stale, so it serves warm.
 	 *
-	 * @param bool $force_refresh Skip the cache and rescan.
+	 * @param bool       $force_refresh Skip the cache and rescan.
+	 * @param float|null $now           Clock to age the cache against; null resolves it (fill threads its one read).
 	 * @return array<int,array{id:int,size:int}>
 	 */
-	public function get_segments( bool $force_refresh = false ): array {
-		$now = \microtime( true );
+	public function get_segments( bool $force_refresh = false, ?float $now = null ): array {
+		// fill() threads its read; else cached clock (no clobber) or warm.
+		$now = $now ?? ( Core::$now ?: Core::right_now() );
 		$cache_fresh = $this->allow_large_writes || ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL;
 		if ( ! $force_refresh && null !== $this->segments_cache && $cache_fresh ) {
 			return $this->segments_cache;

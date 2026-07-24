@@ -243,7 +243,7 @@ class SSE_Out_Node extends Node {
 
 			// Heartbeat every $interval ms so an idle-but-live stream ≠ dead.
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
-			$last_heartbeat     = \microtime( true );
+			$last_heartbeat     = Core::right_now();
 			Event_Framework::instance()->drain(
 				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, $glob_subs, $default_route, $heartbeat_interval, $slot, $partition ): bool {
 					$check = self::$check_slot;
@@ -253,7 +253,7 @@ class SSE_Out_Node extends Node {
 					if ( \connection_aborted() ) {
 						return false;
 					}
-					$now = \microtime( true );
+					$now = Core::$now; // the enclosing drain refreshes this each tick
 					if ( ( $now - $last_heartbeat ) >= $heartbeat_interval ) {
 						$this->send_sse_event( 'heartbeat', $this->build_heartbeat_msg( $now ) );
 						// Self-heal glob subs against the live filesystem.
@@ -501,8 +501,8 @@ class SSE_Out_Node extends Node {
 	private function build_connected_msg( int $slot, array $subs, int $interval ): array {
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_INFO;
-		// connected fires before the drain seeds Core::$now; use microtime().
-		$message[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
+		// connected fires before the drain seeds Core::$now; take a fresh read.
+		$message[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : Core::right_now();
 		$message[ Message::FROM ]      = '_stream';
 		$message[ Message::KEY ]       = 'connected';
 		// TM_INFO values are STRINGS: flat KEY VALUE, space-free tokens.

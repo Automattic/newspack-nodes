@@ -63,7 +63,7 @@ class Supervisor extends Supervisor_Base {
 			Core::stderr( '[Nodes] Supervisor: multisite subsite; the fleet runs on the main site only' );
 			return;
 		}
-		$this->start_time = \microtime( true );
+		$this->start_time = Core::right_now();
 
 		// Tag process as supervisor worker: stats-exclusion / log correlation.
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
@@ -262,7 +262,7 @@ class Supervisor extends Supervisor_Base {
 		$spawn_url         = \rest_url( 'newspack-nodes/v1/workers/spawn' );
 
 		while ( true ) {
-			$now = \microtime( true );
+			$now = Core::right_now(); // supervisor loop is Core::$now's only refresher here
 
 			if ( ( $now - $this->start_time ) >= self::MAX_SUPERVISOR_RUNTIME_S ) {
 				break;

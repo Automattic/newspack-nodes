@@ -64,7 +64,7 @@ class Job_Delay {
 		if ( ! \is_dir( $delay_dir ) ) {
 			return 0;
 		}
-		$now       = $now ?? \microtime( true );
+		$now       = $now ?? Core::right_now();
 		$intake    = new Job_Intake( $base_dir, $num_partitions );
 		$delivered = 0;
 		$held      = [];
@@ -135,7 +135,7 @@ class Job_Delay {
 					$not_before = Core::num_float( $entry['not_before'] ?? 0, 0.0 );
 					if ( ! $deliver( $entry, $not_before > 0.0 ? [ 'not_before' => $not_before ] : [] ) ) {
 						Core::stderr( '[Nodes] JobDelay: failed to circulate entry for handler: ' . Core::as_string( $entry['handler'] ?? '', '' ) );
-					} elseif ( $not_before <= \microtime( true ) ) {
+					} elseif ( $not_before <= Core::right_now() ) {
 						++$delivered; // Came due mid-sweep; write_job routed it live.
 					}
 				}

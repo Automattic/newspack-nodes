@@ -173,7 +173,7 @@ class Job_Worker_Node extends Node {
 				$this->print_less_often( 'before_job listener threw: ', $e->getMessage() );
 			}
 			if ( $before_ok ) {
-				$started  = \microtime( true );
+				$started  = Core::right_now(); // real wall clock: job duration must not use the frozen $now
 				$queue_ms = $ts > 0 ? \max( 0.0, ( $started - $ts ) * 1000 ) : 0.0;
 				try {
 					$result  = ( $handlers[ $handler ] )( $parameters, $id );
@@ -241,7 +241,7 @@ class Job_Worker_Node extends Node {
 		}
 		$backoff = (float) \min( self::RETRY_MAX_S, self::RETRY_BASE_S * ( 2 ** $attempt ) );
 		$options = [
-			'not_before' => \microtime( true ) + $backoff,
+			'not_before' => Core::right_now() + $backoff,
 			'retries'    => $retries,
 			'attempt'    => $attempt + 1,
 		];
@@ -365,7 +365,7 @@ class Job_Worker_Node extends Node {
 	 * @param array{status:string,message:string,items_ok:int,items_err:int}         $outcome  Classified outcome.
 	 */
 	private function record_job_stats( string $key, string $handler, float $started, float $queue_ms, array $outcome ): void {
-		$duration_ms = ( \microtime( true ) - $started ) * 1000;
+		$duration_ms = ( Core::right_now() - $started ) * 1000; // real elapsed; also un-freezes $now post-job
 		$s           = $this->job_stats[ $key ] ?? [
 			'handler'          => $handler,
 			'runs'             => 0,

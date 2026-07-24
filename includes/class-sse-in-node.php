@@ -124,7 +124,7 @@ class SSE_In_Node extends Node {
 			return false;
 		}
 
-		$now = Core::$now ?: \microtime( true );
+		$now = Core::$now ?: Core::right_now();
 		if ( $this->last_attempt > 0.0 && ( $now - $this->last_attempt ) < $this->current_backoff ) {
 			return false;
 		}
@@ -360,11 +360,11 @@ class SSE_In_Node extends Node {
 
 		// Any successful event receipt resets backoff and refreshes liveness.
 		$this->current_backoff = self::INITIAL_BACKOFF;
-		$this->last_event_time = Core::$now ?: \microtime( true );
+		$this->last_event_time = Core::$now ?: Core::right_now();
 
 		// Heartbeats prove liveness — record receipt, return before unpack.
 		if ( 'heartbeat' === $type ) {
-			$this->last_sse_heartbeat = (int) ( Core::$now ?: \microtime( true ) );
+			$this->last_sse_heartbeat = (int) ( Core::$now ?: Core::right_now() );
 			return true;
 		}
 
@@ -441,7 +441,7 @@ class SSE_In_Node extends Node {
 		if ( ! $this->connected || ! ( $this->handle instanceof \CurlHandle ) ) {
 			return;
 		}
-		$now     = Core::$now ?: \microtime( true );
+		$now     = Core::$now ?: Core::right_now();
 		$elapsed = $now - $this->last_event_time;
 		if ( $elapsed <= self::HEARTBEAT_TIMEOUT ) {
 			return;

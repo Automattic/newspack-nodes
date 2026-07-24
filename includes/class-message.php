@@ -88,8 +88,8 @@ class Message {
 	public static function new_message(): array {
 		return [
 			self::TYPE      => self::TM_UNTYPED,
-			// Cached per-tick clock; microtime() fallback outside drain loop.
-			self::TIMESTAMP => Core::$now ?: \microtime( true ),
+			// Cached per-tick clock; a warming fresh read outside the drain.
+			self::TIMESTAMP => Core::$now ?: Core::right_now(),
 			self::FROM      => '',
 			self::TO        => '',
 			self::ID        => '',

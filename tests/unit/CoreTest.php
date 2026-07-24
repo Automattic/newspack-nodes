@@ -160,6 +160,13 @@ class CoreTest extends TestCase {
 		$this->assertSame( 1234567890.123456, Core::$now );
 	}
 
+	public function test_right_now_refreshes_and_returns_the_cached_clock(): void {
+		Core::$now = 1.0; // distinct from the 0.0 default AND from any real microtime
+		$r = Core::right_now();
+		$this->assertGreaterThan( 1.0, $r, 'right_now() must read the live clock, not the seeded sentinel' );
+		$this->assertSame( $r, Core::$now, 'right_now() must store what it returns into Core::$now' );
+	}
+
 	public function test_reset_stamps_init_time_with_current_now(): void {
 		Core::$now = 0.0;
 		Core::reset();

@@ -67,8 +67,8 @@ class HTTP_In_Node extends Node {
 	/**
 	 * Clock seam for the rate limit. The PHPUnit suite assigns a fake
 	 * timestamp here so a test can simulate a 1 req/sec stream across many
-	 * seconds without sleeping. Production leaves it null and reads
-	 * `microtime( true )` live.
+	 * seconds without sleeping. Production leaves it null and reads the live
+	 * clock via Core::right_now().
 	 *
 	 * @var float|null
 	 */
@@ -152,7 +152,7 @@ class HTTP_In_Node extends Node {
 
 		$user_id = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 		// Bucket by floor(microtime): steady <BURST/s stays count=1.
-		$now     = self::$clock_now_seam ?? \microtime( true );
+		$now     = self::$clock_now_seam ?? Core::right_now();
 		$bucket  = (int) \floor( $now );
 		$key     = "newspack_nodes_cmd_rl:{$user_id}:{$bucket}";
 		$raw_count = \get_transient( $key );
