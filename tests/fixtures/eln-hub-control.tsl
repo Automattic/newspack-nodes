@@ -1,0 +1,49 @@
+# hub-control topology — single-instance control plane (hub side).
+#
+#   settings:consumer ─→ settings-sync ─┐
+#                                        ├─→ spokes:tee ─→ remote:<id> (operator-added)
+#   discovery-collector ─────────────────┘
+#
+# Runs ONCE (not per-partition): `var num_partitions = 1` mounts a single
+# instance regardless of the operator's data num_partitions. The pipeline is
+# correctly inert until an operator wires a per-spoke `make_node HTTP_Out
+# remote:<id>` from the topology console and connects spokes:tee to it.
+#
+# settings:consumer tails the settings.p0 log that Settings_Event_Writer
+# appends option-name-only events to on watched WP-option changes. Settings_Sync
+# reads each option's CURRENT value at consume time and emits one `set` command
+# per registered option; on its periodic tick (300s) it re-pushes every
+# registered option. discovery-collector fans `discovery.get` to every spoke on
+# its own 300s tick and union-merges the replies into the hub options.
+
+var num_partitions = 1;
+
+include topic-probe
+
+make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/<topology>.settings.p0 <config:deadletter_dir>/<topology>.settings.p0
+make_node Settings_Sync settings-sync 300
+make_node Tee spokes:tee
+make_node Discovery_Collector discovery-collector 300
+
+cmd settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions
+cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size
+cmd settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_min_segments
+cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_num_segments
+cmd settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_min_lifetime
+cmd settings-sync:config add_setting newspack_nodes_remote_max_lifetime settings newspack_nodes_lifetime
+# Also seed each spoke's OWN remote_* copy so it propagates onward to ITS spokes.
+cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_remote_segment_size
+cmd settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_remote_min_segments
+cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments
+cmd settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_remote_min_lifetime
+cmd settings-sync:config add_setting newspack_nodes_remote_max_lifetime settings newspack_nodes_remote_max_lifetime
+# The per-URL ruleset absorbed the former URL filters, hook lists, custom
+# events, significant events, and auto-tune thresholds (Task 10) — the hub now
+# fans out the single `rules` option instead of the seven retired settings.
+cmd settings-sync:config add_setting newspack_event_logger_nodes_rules performance newspack_event_logger_nodes_rules
+cmd settings-sync:config add_setting newspack_event_logger_nodes_log_memory performance newspack_event_logger_nodes_log_memory
+cmd settings-sync:config add_setting newspack_event_logger_nodes_flush_every_line performance newspack_event_logger_nodes_flush_every_line
+
+connect_node settings:consumer settings-sync
+connect_node settings-sync spokes:tee
+connect_node discovery-collector spokes:tee

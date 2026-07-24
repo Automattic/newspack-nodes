@@ -119,15 +119,53 @@ class Shell_Node extends Node {
 	}
 
 	/**
+	 * Verb aliases the interpreter's dispatch table resolves — the ONE table the
+	 * static front-end applies on the tokenized verb (make/connect/disconnect and
+	 * the command family), so a topology written with the short form reads the same
+	 * as the long form to every static analysis.
+	 *
+	 * @var array<string,string>
+	 */
+	private const VERB_ALIASES = [
+		'make'         => 'make_node',
+		'connect'      => 'connect_node',
+		'disconnect'   => 'disconnect_node',
+		'command'      => 'cmd',
+		'command_node' => 'cmd',
+	];
+
+	/**
+	 * Verbs never cwd-routed by the static front-end. Intentional divergence
+	 * from the runtime's default-case dispatch (which cwd-routes everything):
+	 * no shipped .tsl issues these after a `cd`, and static analysis needs
+	 * their positions stable regardless of cwd.
+	 */
+	private const STRUCTURAL_VERBS = [ 'make_node', 'connect_node', 'disconnect_node', 'include', 'var' ];
+
+	/**
 	 * Quote-aware statement splitter: comment lines returned whole, others split on unquoted `;`.
 	 *
 	 * @return array<int,string>
 	 */
 	public function split_statements( string $script ): array {
+		return \array_column( self::split_statements_indexed( $script ), 'text' );
+	}
+
+	/**
+	 * split_statements(), but each statement carries the 1-based first physical
+	 * line of its run — the only thing parse_statements() needs that
+	 * split_statements() didn't already compute.
+	 *
+	 * @return list<array{text:string,line:int}>
+	 */
+	private static function split_statements_indexed( string $script ): array {
 		$statements = [];
 		$buf        = '';
 		$in_quote   = null;
+		$stmt_line  = 0;
+		$line_no    = 0;
 		foreach ( \explode( "\n", $script ) as $line ) {
+			++$line_no;
 			if ( null !== $in_quote ) {
 				// Mid-quote: the newline is token content, keep accumulating.
 				$buf .= "\n";
@@ -138,7 +176,10 @@ class Shell_Node extends Node {
 				}
 				if ( '#' === $leading[0] ) {
 					// Whole-line comment — don't scan for `;` inside it.
-					$statements[] = \trim( $line );
+					$statements[] = [
+						'text' => \trim( $line ),
+						'line' => $line_no,
+					];
 					continue;
 				}
 			}
@@ -158,6 +199,9 @@ class Shell_Node extends Node {
 					continue;
 				}
 				if ( "'" === $ch || '"' === $ch || '`' === $ch ) {
+					if ( 0 === $stmt_line ) {
+						$stmt_line = $line_no;
+					}
 					$in_quote = $ch;
 					$buf     .= $ch;
 					continue;
@@ -165,27 +209,163 @@ class Shell_Node extends Node {
 				if ( ';' === $ch ) {
 					$trim = \trim( $buf );
 					if ( '' !== $trim ) {
-						$statements[] = $trim;
+						$statements[] = [
+							'text' => $trim,
+							'line' => $stmt_line,
+						];
 					}
-					$buf = '';
+					$buf       = '';
+					$stmt_line = 0;
 					continue;
+				}
+				if ( 0 === $stmt_line && ' ' !== $ch && "\t" !== $ch ) {
+					$stmt_line = $line_no;
 				}
 				$buf .= $ch;
 			}
 			if ( null === $in_quote ) {
 				$tail = \trim( $buf );
 				if ( '' !== $tail ) {
-					$statements[] = $tail;
+					$statements[] = [
+						'text' => $tail,
+						'line' => $stmt_line,
+					];
 				}
-				$buf = '';
+				$buf       = '';
+				$stmt_line = 0;
 			}
 		}
 		// EOF mid-quote: parse() holds the tail; flush_pending() judges it.
 		$tail = \trim( $buf );
 		if ( '' !== $tail ) {
-			$statements[] = $tail;
+			$statements[] = [
+				'text' => $tail,
+				'line' => $stmt_line,
+			];
 		}
 		return $statements;
+	}
+
+	/**
+	 * The one static TSL statement front-end: split → join backslash
+	 * continuations → tokenize → resolve verb aliases + cwd, keeping BOTH token
+	 * forms. A public static sibling of tokenize() / tokenize_spans() built from
+	 * the pieces the Shell already owns, with dispatch removed and no side
+	 * effects: no interpolation, no Core::$var reads, no node construction. Static
+	 * analysis (Topology_Registry) reads the list without executing it.
+	 *
+	 * Each statement is `{ verb, values, spans, raw, line }`: `verb` is the
+	 * canonical verb; `values` the quote-stripped tokens (`values[0] === verb`,
+	 * and for `cmd` `values[1]` is the cwd-resolved path); `spans` the same tokens
+	 * with quote chars + escapes verbatim (what a round-trip must emit, so a
+	 * deferred `'<partition>'` never becomes an eager `"<partition>"`); `raw` the
+	 * canonical single-line form (the sharing signature readers normalize); `line`
+	 * the 1-based first physical source line.
+	 *
+	 * @return list<array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}>
+	 * @throws \RuntimeException On an unterminated quote at end-of-input.
+	 */
+	public static function parse_statements( string $text ): array {
+		$shell      = new self();
+		$statements = [];
+		foreach ( self::join_statement_continuations( self::split_statements_indexed( $text ) ) as $joined ) {
+			$statement = self::build_statement( $shell, $joined['text'], $joined['line'] );
+			if ( null !== $statement ) {
+				$statements[] = $statement;
+			}
+		}
+		return $statements;
+	}
+
+	/**
+	 * Fold trailing-backslash continuations across the statement stream — the same
+	 * splice parse() performs, applied statelessly. The joined statement keeps the
+	 * FIRST physical line of its run; an unterminated trailing continuation yields
+	 * whatever accumulated.
+	 *
+	 * @param list<array{text:string,line:int}> $indexed
+	 * @return list<array{text:string,line:int}>
+	 */
+	private static function join_statement_continuations( array $indexed ): array {
+		$out      = [];
+		$acc      = '';
+		$acc_line = 0;
+		foreach ( $indexed as $statement ) {
+			if ( 0 === $acc_line ) {
+				$acc_line = $statement['line'];
+			}
+			$text = $statement['text'];
+			if ( \str_ends_with( $text, '\\' ) ) {
+				$acc .= \substr( $text, 0, -1 );
+				continue;
+			}
+			$out[]    = [
+				'text' => $acc . $text,
+				'line' => $acc_line,
+			];
+			$acc      = '';
+			$acc_line = 0;
+		}
+		if ( '' !== $acc ) {
+			$out[] = [
+				'text' => $acc,
+				'line' => $acc_line,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Tokenize one joined statement and resolve its verb alias + cwd into the
+	 * canonical `{ verb, values, spans, raw, line }` record. Returns null for a
+	 * comment/blank statement or a `cd`/`chdir` (which only mutates the shared
+	 * throwaway shell's cwd). Reuses the Shell's own cd()/prefix() so the static
+	 * and runtime paths route identically.
+	 *
+	 * @return array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}|null
+	 * @throws \RuntimeException On an unterminated quote at end-of-input.
+	 */
+	private static function build_statement( self $shell, string $text, int $line ): ?array {
+		if ( '' === $text || '#' === $text[0] ) {
+			return null;
+		}
+		$open_quote = null;
+		$scanned    = self::scan_tokens( $text, $open_quote );
+		if ( null !== $open_quote ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text loader/CLI message; escape at the view, not the runtime.
+			throw new \RuntimeException( 'got EOF while waiting for tokens: ' . \trim( $text ) );
+		}
+		if ( empty( $scanned ) ) {
+			return null;
+		}
+		$token_values = \array_column( $scanned, 'value' );
+		$token_spans  = \array_column( $scanned, 'raw' );
+		$verb         = self::VERB_ALIASES[ $token_values[0] ] ?? $token_values[0];
+
+		if ( 'cd' === $verb || 'chdir' === $verb ) {
+			$shell->path = $shell->cd( $shell->path, $token_values[1] ?? '' );
+			return null;
+		}
+		if ( 'cmd' === $verb ) {
+			$path   = $shell->prefix( $token_values[1] ?? '' );
+			$values = [ 'cmd', $path, ...\array_slice( $token_values, 2 ) ];
+			$spans  = [ 'cmd', $path, ...\array_slice( $token_spans, 2 ) ];
+		} elseif ( \in_array( $verb, self::STRUCTURAL_VERBS, true ) || '' === $shell->path ) {
+			// Structural verbs and root-level bare verbs are not cwd-routed.
+			$values = [ $verb, ...\array_slice( $token_values, 1 ) ];
+			$spans  = [ $verb, ...\array_slice( $token_spans, 1 ) ];
+		} else {
+			// A bare verb inside a cwd is a command to that node.
+			$values = [ 'cmd', $shell->path, $verb, ...\array_slice( $token_values, 1 ) ];
+			$spans  = [ 'cmd', $shell->path, $verb, ...\array_slice( $token_spans, 1 ) ];
+		}
+		return [
+			'verb'   => $values[0],
+			'values' => $values,
+			'spans'  => $spans,
+			'raw'    => \trim( \implode( ' ', $spans ) ),
+			'line'   => $line,
+		];
 	}
 
 	/**

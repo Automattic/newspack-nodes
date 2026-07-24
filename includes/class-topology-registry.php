@@ -37,7 +37,7 @@ class Topology_Registry {
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
 	private static array $segment_size_overrides_cache = [];
 
-	/** @var array<string,array{statements:list<array{line:string,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
+	/** @var array<string,array{statements:list<array{line:string,verb:string,values:list<string>,spans:list<string>,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
 	private static array $statements_cache = [];
 
 	/** @var array<int,string> Plugin-registered stock dirs (first wins). */
@@ -198,48 +198,55 @@ class Topology_Registry {
 		$seen  = [];
 		$meta  = [];
 		$nodes = [];
-		foreach ( self::flat_lines( $name ) as $line ) {
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			$verb   = $statement['verb'];
 			// Fleet-scope the cursor; logs carry no token, so they collide.
-			$line = \str_replace( '<topology>', $name, $line );
+			$values = \array_map(
+				static fn ( string $v ): string => \str_replace( '<topology>', $name, $v ),
+				$statement['values']
+			);
+			$class = $values[1] ?? '';
 			// @longform Partition+Topic share `partition:` (same-log
 			// collision). The full normalized line is the sharing signature:
 			// identical across topologies = one deliberately shared decl.
-			if ( \preg_match( '/^make_node\s+(?:Partition|Topic)\s+(\S+)\s+(\S+)/', $line, $m ) ) {
-				$entry          = 'partition:' . $m[2];
+			if ( 'make_node' === $verb && ( 'Partition' === $class || 'Topic' === $class ) ) {
+				$node_name      = $values[2] ?? '';
+				$entry          = 'partition:' . ( $values[3] ?? '' );
 				$seen[ $entry ] = true;
 				$meta[ $entry ] = [
-					'sig'      => (string) \preg_replace( '/\s+/', ' ', \trim( $line ) ),
+					'sig'      => (string) \preg_replace( '/\s+/', ' ', \trim( \str_replace( '<topology>', $name, $statement['line'] ) ) ),
 					'warranty' => $meta[ $entry ]['warranty'] ?? false,
 				];
-				$nodes[ $m[1] ] = $entry;
+				$nodes[ $node_name ] = $entry;
 				continue;
 			}
 			// A lifted write cap assumes a sole writer; mark the node's path.
-			if ( \preg_match( '/^cmd\s+(\S+):config\s+(?:void_warranty|allow_large_writes)\b/', $line, $m )
-				&& isset( $nodes[ $m[1] ] ) ) {
-				$entry          = $nodes[ $m[1] ];
-				$meta[ $entry ] = [
-					'sig'      => $meta[ $entry ]['sig'] ?? '',
-					'warranty' => true,
-				];
+			if ( 'cmd' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
+				&& \in_array( $values[2] ?? '', [ 'void_warranty', 'allow_large_writes' ], true ) ) {
+				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
+				if ( isset( $nodes[ $node_name ] ) ) {
+					$entry          = $nodes[ $node_name ];
+					$meta[ $entry ] = [
+						'sig'      => $meta[ $entry ]['sig'] ?? '',
+						'warranty' => true,
+					];
+				}
 				continue;
 			}
-			// offsetlog (3rd) + deadletter (4th): sole-writer logs.
-			if ( \preg_match( '/^make_node\s+Consumer\s+\S+\s+\S+\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
-				$seen[ 'offsetlog:' . $m[1] ] = true;
-				if ( isset( $m[2] ) ) { // 4th token: deadletter (\S+).
-					$seen[ 'deadletter:' . $m[2] ] = true;
+			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
+			if ( 'make_node' === $verb && 'Consumer' === $class && isset( $values[4] ) ) {
+				$seen[ 'offsetlog:' . $values[4] ] = true;
+				if ( isset( $values[5] ) ) {
+					$seen[ 'deadletter:' . $values[5] ] = true;
 				}
 			}
 			// Remote_Source: <node> <vault> <source> [offsetlog] [dlq]
-			if ( \preg_match( '/^make_node\s+Remote_Source\s+(\S+)\s+\S+\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?/', $line, $m ) ) {
+			if ( 'make_node' === $verb && 'Remote_Source' === $class ) {
 				// The offsetlog is an ARG now; the derived path is a fallback.
-				$offsetlog = isset( $m[3] )
-					? $m[3]
-					: '<config:offsets_dir>/' . $m[1] . '.' . $m[2];
+				$offsetlog = $values[5] ?? ( '<config:offsets_dir>/' . ( $values[2] ?? '' ) . '.' . ( $values[4] ?? '' ) );
 				$seen[ 'offsetlog:' . $offsetlog ] = true;
-				if ( isset( $m[4] ) ) {
-					$seen[ 'deadletter:' . $m[4] ] = true;
+				if ( isset( $values[6] ) ) {
+					$seen[ 'deadletter:' . $values[6] ] = true;
 				}
 			}
 		}
@@ -278,7 +285,7 @@ class Topology_Registry {
 	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
 	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
 	 *
-	 * @return array{statements: list<array{line: string, origin: ?string, origins: list<string>, via: list<string>}>, tree: array<string, mixed>}
+	 * @return array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, tree: array<string, mixed>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function statements( string $name, array $extra_includes = [] ): array {
@@ -324,8 +331,8 @@ class Topology_Registry {
 	 * @param string|null  $origin Directly-declared include this file sits under; null = the top-level file's own lines.
 	 * @param list<string> $via    Include path from the top level down to this file.
 	 * @param list<string> $stack  Ancestor resolved paths — a repeat is a cycle.
-	 * @param array{statements: list<array{line: string, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state Walker state, by reference.
-	 * @param-out array{statements: list<array{line: string, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state
+	 * @param array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state Walker state, by reference.
+	 * @param-out array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state
 	 *
 	 * @return array<string, mixed> This file's include subtree.
 	 */
@@ -351,9 +358,12 @@ class Topology_Registry {
 		$stack[] = $path;
 		$subtree = [];
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		foreach ( self::normalize_lines( (string) \file_get_contents( $path ) ) as $line ) {
-			if ( \preg_match( '/^include\s+(\S+)/', $line, $m ) ) {
-				$child_name = $m[1];
+		foreach ( Shell_Node::parse_statements( (string) \file_get_contents( $path ) ) as $statement ) {
+			$line   = $statement['raw'];
+			$verb   = $statement['verb'];
+			$values = $statement['values'];
+			if ( 'include' === $verb ) {
+				$child_name = $values[1] ?? '';
 				$child_path = self::resolve( $child_name );
 				if ( null === $child_path ) {
 					throw new \RuntimeException( \esc_html( "unknown topology in include: $child_name" ) );
@@ -372,14 +382,14 @@ class Topology_Registry {
 				continue;
 			}
 			// Only the TOP-LEVEL file's frontmatter is honored.
-			if ( null !== $origin && \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)/', $line, $m ) ) {
+			if ( null !== $origin && 'var' === $verb ) {
 				continue;
 			}
-			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
-				$node_name = $m[2];
+			if ( 'make_node' === $verb ) {
+				$node_name = $values[2] ?? '';
 				$def       = [
-					'type' => $m[1],
-					'args' => \trim( $m[3] ),
+					'type' => $values[1] ?? '',
+					'args' => \implode( ' ', \array_slice( $statement['spans'], 3 ) ),
 				];
 				$prior     = $state['defs'][ $node_name ] ?? null;
 				if ( null !== $prior ) {
@@ -406,6 +416,9 @@ class Topology_Registry {
 			$members[]             = \count( $state['statements'] );
 			$state['statements'][] = [
 				'line'    => $line,
+				'verb'    => $statement['verb'],
+				'values'  => $statement['values'],
+				'spans'   => $statement['spans'],
 				'origin'  => $origin,
 				'origins' => null === $origin ? [] : [ $origin ],
 				'via'     => $via,
@@ -414,139 +427,6 @@ class Topology_Registry {
 		$state['expanded'][ $path ] = \array_values( \array_unique( $members ) );
 		$state['subtrees'][ $path ] = $subtree;
 		return $subtree;
-	}
-
-	/**
-	 * Preprocess raw TSL into canonical single-line statements, mirroring the
-	 * runtime Shell: join backslash continuations, canonicalize the make /
-	 * connect / disconnect / command aliases, and resolve cd/chdir cwd so a bare
-	 * or explicit command line becomes `cmd <cwd-resolved-path> <verb> <args>`.
-	 * Comments and blank lines drop; include / var / make_node / connect_node /
-	 * disconnect_node pass through untouched.
-	 *
-	 * @return list<string>
-	 */
-	private static function normalize_lines( string $text ): array {
-		$out = [];
-		$cwd = '';
-		foreach ( self::join_continuations( $text ) as $joined ) {
-			$line = \trim( $joined );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
-			}
-			$canonical = self::canonical_line( $line, $cwd );
-			if ( null !== $canonical ) {
-				$out[] = $canonical;
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * Fold backslash continuations into logical lines (mirrors Shell_Node::parse):
-	 * a line ending in `\` drops the slash and joins the next. Neither trims nor
-	 * strips comments — callers do, since frontmatter() splits joined lines on
-	 * `;` first. An unterminated trailing continuation yields what accumulated.
-	 *
-	 * @return list<string>
-	 */
-	private static function join_continuations( string $text ): array {
-		$out = [];
-		$acc = '';
-		foreach ( \explode( "\n", $text ) as $raw ) {
-			$raw = \rtrim( $raw, "\r" );
-			if ( \str_ends_with( $raw, '\\' ) ) {
-				// bash splice: ONE \<newline> vanishes (runtime-Shell parity).
-				$acc .= \substr( $raw, 0, -1 );
-				continue;
-			}
-			$out[] = $acc . $raw;
-			$acc   = '';
-		}
-		if ( '' !== $acc ) {
-			$out[] = $acc;
-		}
-		return $out;
-	}
-
-	/**
-	 * Canonicalize one already-joined logical line against the running cwd. A
-	 * `cd`/`chdir` mutates $cwd and yields nothing; everything else returns the
-	 * canonical form the statement/graph parsers already understand.
-	 */
-	private static function canonical_line( string $line, string &$cwd ): ?string {
-		$line = self::canonical_verb( $line );
-		// @longform Structure (verb, path) reads unwrapped VALUES — the
-		// Shell routes on values, so a quoted path must not keep its quote
-		// chars. The arg TAIL rebuilds from raw spans, byte-verbatim.
-		$values = ( new Shell_Node() )->tokenize( $line );
-		$spans  = Shell_Node::tokenize_spans( $line );
-		$verb   = $values[0] ?? '';
-		if ( 'cd' === $verb || 'chdir' === $verb ) {
-			$cwd = self::cd_path( $cwd, $values[1] ?? '' );
-			return null;
-		}
-		// Structural keywords are not cwd-routed by the static parser.
-		if ( \in_array( $verb, [ 'make_node', 'connect_node', 'disconnect_node', 'include', 'var' ], true ) ) {
-			return $line;
-		}
-		if ( 'cmd' === $verb ) {
-			$path = self::prefix_path( $cwd, $values[1] ?? '' );
-			$rest = \implode( ' ', \array_slice( $spans, 2 ) );
-			return \trim( "cmd {$path} {$rest}" );
-		}
-		// A bare verb inside a cwd is a command to that node.
-		if ( '' !== $cwd ) {
-			$rest = \implode( ' ', \array_slice( $spans, 1 ) );
-			return \trim( "cmd {$cwd} {$verb} {$rest}" );
-		}
-		// Bare verb at root: a local command the static parser drops.
-		return $line;
-	}
-
-	/**
-	 * Rewrite the interpreter's verb ALIASES to their canonical form.
-	 *
-	 * `make` / `connect` / `disconnect` are real aliases in the interpreter's verb
-	 * table, and topologies use them (ELN's performance.tsl says `make Tee`). A
-	 * static reader that knows only the long form paints a graph the runtime never
-	 * builds, so normalize once here and every reader downstream sees one form.
-	 */
-	private static function canonical_verb( string $line ): string {
-		// `command_node` precedes `command`: both share the `command` prefix.
-		return (string) \preg_replace(
-			[ '/^make\s+/', '/^connect\s+/', '/^disconnect\s+/', '/^command_node\s+/', '/^command\s+/' ],
-			[ 'make_node ', 'connect_node ', 'disconnect_node ', 'cmd ', 'cmd ' ],
-			$line
-		);
-	}
-
-	/** Resolve a relative/absolute cwd path (mirrors Shell_Node::cd). */
-	private static function cd_path( string $cwd, string $path ): string {
-		if ( '/' !== $path && '' !== $path && '/' === $path[0] ) {
-			$cwd = $path;
-		} elseif ( '/' === $path ) {
-			$cwd = '';
-		} elseif ( '' !== $path && \preg_match( '#^[.][.]/?#', $path ) ) {
-			$cwd  = (string) \preg_replace( '#/?[^/]+$#', '', $cwd );
-			$path = (string) \preg_replace( '#^[.][.]/?#', '', $path );
-			$cwd  = self::cd_path( $cwd, $path );
-		} elseif ( '' !== $path ) {
-			$cwd .= '/' . $path;
-		}
-		return \trim( $cwd, '/' );
-	}
-
-	/** Slash-join the cwd with a command's path arg (mirrors Shell_Node::prefix). */
-	private static function prefix_path( string $cwd, string $path ): string {
-		$parts = [];
-		if ( '' !== $cwd ) {
-			$parts[] = $cwd;
-		}
-		if ( '' !== $path ) {
-			$parts[] = $path;
-		}
-		return \implode( '/', $parts );
 	}
 
 	/**
@@ -608,15 +488,17 @@ class Topology_Registry {
 	/**
 	 * Fold one statement into the node/edge maps, unioning `origin` on a re-reach.
 	 *
-	 * @param array{line: string, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
+	 * @param array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
 	 * @param array<string, array{name: string, class: string, is_tee: bool, args: list<string>, verbs: list<array{verb: string, args: list<string>}>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
 	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}>      $edges Edge-state map, by reference.
 	 */
 	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges ): void {
-		$line = $statement['line'];
-		if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $line, $m ) ) {
-			$name = $m[2];
+		$verb   = $statement['verb'];
+		$values = $statement['values'];
+		$spans  = $statement['spans'];
+		if ( 'make_node' === $verb ) {
+			$name = $values[2] ?? '';
 			if ( isset( $nodes[ $name ] ) ) {
 				foreach ( $origins as $origin ) {
 					if ( ! \in_array( $origin, $nodes[ $name ]['origin'], true ) ) {
@@ -625,43 +507,46 @@ class Topology_Registry {
 				}
 				return;
 			}
-			$args           = Shell_Node::tokenize_spans( \trim( $m[3] ) );
+			$class          = $values[1] ?? '';
 			$nodes[ $name ] = [
 				'name'   => $name,
-				'class'  => $m[1],
-				'is_tee' => self::type_is_tee( $m[1] ),
-				'args'   => $args,
+				'class'  => $class,
+				'is_tee' => self::type_is_tee( $class ),
+				'args'   => \array_slice( $spans, 3 ),
 				'verbs'  => [],
 				'origin' => $origins,
 				'via'    => $statement['via'],
 			];
 			return;
 		}
-		if ( \preg_match( '/^disconnect_node\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
-			$is_tee = $nodes[ $m[1] ]['is_tee'] ?? false;
-			self::disconnect_edge( $edges, $m[1], $m[2] ?? null, $is_tee );
+		if ( 'disconnect_node' === $verb ) {
+			$source = $values[1] ?? '';
+			$is_tee = $nodes[ $source ]['is_tee'] ?? false;
+			self::disconnect_edge( $edges, $source, $values[2] ?? null, $is_tee );
 			return;
 		}
-		if ( \preg_match( '/^connect_node\s+(\S+)\s+(\S+)/', $line, $m ) ) {
-			$is_tee = $nodes[ $m[1] ]['is_tee'] ?? false;
-			self::connect_edge( $edges, $m[1], $m[2], $origins, $is_tee );
+		if ( 'connect_node' === $verb ) {
+			$source = $values[1] ?? '';
+			$is_tee = $nodes[ $source ]['is_tee'] ?? false;
+			self::connect_edge( $edges, $source, $values[2] ?? '', $origins, $is_tee );
 			return;
 		}
-		if ( \preg_match( '/^cmd\s+(\S+?)(:config)?\s+(\S+)(?:\s+(.*))?$/', $line, $m ) ) {
-			$node_name  = $m[1];
-			$has_config = '' !== $m[2];
-			$verb       = $m[3];
-			$rest       = \trim( $m[4] ?? '' );
+		if ( 'cmd' === $verb ) {
+			$target     = $values[1] ?? '';
+			$has_config = \str_ends_with( $target, ':config' );
+			$node_name  = $has_config ? \substr( $target, 0, -\strlen( ':config' ) ) : $target;
+			$inner_verb = $values[2] ?? '';
 			// `:config set_*target` is a routing EDGE, not a config verb.
-			if ( $has_config && \preg_match( '/^set_\w*target$/', $verb ) ) {
-				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $rest ), $verb, $origins );
+			if ( $has_config && \preg_match( '/^set_\w*target$/', $inner_verb ) ) {
+				$edge_target = Core::resolve_config_tokens( \implode( ' ', \array_slice( $values, 3 ) ) );
+				self::set_config_edge( $edges, $node_name, $edge_target, $inner_verb, $origins );
 				return;
 			}
 			// Every other verb rides on the node so the console can show it.
 			if ( isset( $nodes[ $node_name ] ) ) {
 				$nodes[ $node_name ]['verbs'][] = [
-					'verb' => $verb,
-					'args' => Shell_Node::tokenize_spans( $rest ),
+					'verb' => $inner_verb,
+					'args' => \array_slice( $spans, 3 ),
 				];
 			}
 		}
@@ -918,9 +803,9 @@ class Topology_Registry {
 	 */
 	private static function declared_node_names( string $name ): array {
 		$names = [];
-		foreach ( self::flat_lines( $name ) as $line ) {
-			if ( \preg_match( '/^make_node\s+\S+\s+(\S+)/', $line, $m ) ) {
-				$names[ $m[1] ] = true;
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			if ( 'make_node' === $statement['verb'] ) {
+				$names[ $statement['values'][2] ?? '' ] = true;
 			}
 		}
 		return \array_keys( $names );
@@ -1076,49 +961,57 @@ class Topology_Registry {
 			];
 		}
 		foreach ( $walked['statements'] as $statement ) {
-			$line = $statement['line'];
-			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
-				$kind = $kind_of( $m[1] );
-				$types[ $m[2] ] = $m[1];
-				// Tokens 3.. = positional args; a CI reads the node's config.
-				$tokens = Shell_Node::tokenize_spans( $line );
+			$verb   = $statement['verb'];
+			$values = $statement['values'];
+			$spans  = $statement['spans'];
+			if ( 'make_node' === $verb ) {
+				$class          = $values[1] ?? '';
+				$node_name      = $values[2] ?? '';
+				$kind           = $kind_of( $class );
+				$types[ $node_name ] = $class;
+				// Spans 3.. = positional args; a CI reads the node's config.
+				$path   = $spans[3] ?? null;
 				$node   = [
-					'name' => $m[2],
+					'name' => $node_name,
 					'kind' => $kind,
-					'type' => $m[1],
-					'args' => \array_slice( $tokens, 3 ),
+					'type' => $class,
+					'args' => \array_slice( $spans, 3 ),
 				];
-				if ( ( 'partition' === $kind || 'topic' === $kind ) && isset( $m[3] ) ) {
-					$node['writes'] = $basename( $m[3] );
-				} elseif ( 'consumer' === $kind && isset( $m[3] ) ) {
-					$node['reads'] = $basename( $m[3] );
-					// token 4 = consumer's READER id; disambiguates source.
-					if ( isset( $tokens[4] ) ) {
-						$node['reader'] = $basename( $tokens[4] );
+				if ( ( 'partition' === $kind || 'topic' === $kind ) && null !== $path ) {
+					$node['writes'] = $basename( $path );
+				} elseif ( 'consumer' === $kind && null !== $path ) {
+					$node['reads'] = $basename( $path );
+					// span 4 = consumer's READER id; disambiguates source.
+					if ( isset( $spans[4] ) ) {
+						$node['reader'] = $basename( $spans[4] );
 					}
-				} elseif ( 'log' === $kind && isset( $m[3] ) ) {
+				} elseif ( 'log' === $kind && null !== $path ) {
 					// Carry raw path + sizes so dump_graph stats flat segments.
-					$node['writes']       = $basename( $m[3] );
-					$node['path']         = $m[3];
-					$node['segment_size'] = isset( $tokens[4] ) && \ctype_digit( $tokens[4] ) ? (int) $tokens[4] : 0;
-					// Count target = num_segments, token 6 of Log args.
-					$node['max_segments'] = isset( $tokens[6] ) && \ctype_digit( $tokens[6] ) ? (int) $tokens[6] : 0;
+					$node['writes']       = $basename( $path );
+					$node['path']         = $path;
+					$node['segment_size'] = isset( $spans[4] ) && \ctype_digit( $spans[4] ) ? (int) $spans[4] : 0;
+					// Count target = num_segments, span 6 of Log args.
+					$node['max_segments'] = isset( $spans[6] ) && \ctype_digit( $spans[6] ) ? (int) $spans[6] : 0;
 				}
 				$nodes[] = $node;
 				continue;
 			}
-			if ( \preg_match( '/^disconnect_node\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
-				$is_tee = isset( $types[ $m[1] ] ) && self::type_is_tee( $types[ $m[1] ] );
-				self::disconnect_edge( $edges, $m[1], $m[2] ?? null, $is_tee );
+			if ( 'disconnect_node' === $verb ) {
+				$source = $values[1] ?? '';
+				$is_tee = isset( $types[ $source ] ) && self::type_is_tee( $types[ $source ] );
+				self::disconnect_edge( $edges, $source, $values[2] ?? null, $is_tee );
 				continue;
 			}
-			if ( \preg_match( '/^connect_node\s+(\S+)\s+(\S+)/', $line, $m ) ) {
-				$is_tee = isset( $types[ $m[1] ] ) && self::type_is_tee( $types[ $m[1] ] );
-				self::connect_edge( $edges, $m[1], $m[2], [ $name ], $is_tee );
+			if ( 'connect_node' === $verb ) {
+				$source = $values[1] ?? '';
+				$is_tee = isset( $types[ $source ] ) && self::type_is_tee( $types[ $source ] );
+				self::connect_edge( $edges, $source, $values[2] ?? '', [ $name ], $is_tee );
 				continue;
 			}
-			if ( \preg_match( '/^cmd\s+(\S+?):config\s+(set_\w*target)(?:\s+(\S+))?$/', $line, $m ) ) {
-				self::set_config_edge( $edges, $m[1], Core::resolve_config_tokens( $m[3] ?? '' ), $m[2], [ $name ] );
+			if ( 'cmd' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
+				&& \preg_match( '/^set_\w*target$/', $values[2] ?? '' ) ) {
+				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
+				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );
 			}
 		}
 		return self::$graph_cache[ $name ] = [
@@ -1193,17 +1086,21 @@ class Topology_Registry {
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$contents = (string) \file_get_contents( $path );
 		$out      = [];
-		foreach ( self::join_continuations( $contents ) as $raw ) {
-			// Statements can also be `;`-separated on one line.
-			foreach ( \explode( ';', $raw ) as $stmt ) {
-				$stmt = \trim( $stmt );
-				if ( '' === $stmt || '#' === $stmt[0] ) {
-					continue;
-				}
-				if ( \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/', $stmt, $m ) ) {
-					$out[ $m[1] ] = \trim( $m[2] );
-				}
+		foreach ( Shell_Node::parse_statements( $contents ) as $statement ) {
+			if ( 'var' !== $statement['verb'] ) {
+				continue;
 			}
+			// Same first-`=` split Shell_Node::parse() applies to the var tail.
+			$assignment = \implode( ' ', \array_slice( $statement['values'], 1 ) );
+			$eq         = \strpos( $assignment, '=' );
+			if ( false === $eq ) {
+				continue;
+			}
+			$key = \trim( \substr( $assignment, 0, $eq ) );
+			if ( '' === $key ) {
+				continue;
+			}
+			$out[ $key ] = \trim( \substr( $assignment, $eq + 1 ) );
 		}
 		return self::$frontmatter_cache[ $name ] = $out;
 	}

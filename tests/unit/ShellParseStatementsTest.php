@@ -1,0 +1,177 @@
+<?php
+/**
+ * Shell_Node::parse_statements — the one static TSL statement front-end.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes\Tests\Unit;
+
+use Newspack_Nodes\Shell_Node;
+use Newspack_Nodes\Tests\TestCase;
+use PHPUnit\Framework\Attributes\CoversClass;
+
+#[CoversClass( Shell_Node::class )]
+class ShellParseStatementsTest extends TestCase {
+
+	/**
+	 * @param list<array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}> $statements
+	 * @return list<array{verb:string,values:list<string>,raw:string,line:int}>
+	 */
+	private function summarize( array $statements ): array {
+		return \array_map(
+			static fn ( array $s ): array => [
+				'verb'   => $s['verb'],
+				'values' => $s['values'],
+				'raw'    => $s['raw'],
+				'line'   => $s['line'],
+			],
+			$statements
+		);
+	}
+
+	/** make/connect/disconnect/command/command_node resolve to their canonical verbs. */
+	public function test_resolves_verb_aliases(): void {
+		$verbs = \array_column(
+			Shell_Node::parse_statements(
+				"make Tee a\nconnect a b\ndisconnect a b\ncommand a v\ncommand_node c w"
+			),
+			'verb'
+		);
+		$this->assertSame(
+			[ 'make_node', 'connect_node', 'disconnect_node', 'cmd', 'cmd' ],
+			$verbs
+		);
+	}
+
+	/** A bare verb inside a cd'd path becomes `cmd <resolved-path> <verb> <args>`. */
+	public function test_cwd_wraps_a_bare_verb_into_a_cmd(): void {
+		$statements = $this->summarize(
+			Shell_Node::parse_statements( "cd requests:partition\nvoid_warranty keep\ncd /\nset_multi_writer true" )
+		);
+		$this->assertSame(
+			[
+				[
+					'verb'   => 'cmd',
+					'values' => [ 'cmd', 'requests:partition', 'void_warranty', 'keep' ],
+					'raw'    => 'cmd requests:partition void_warranty keep',
+					'line'   => 2,
+				],
+				[
+					'verb'   => 'set_multi_writer',
+					'values' => [ 'set_multi_writer', 'true' ],
+					'raw'    => 'set_multi_writer true',
+					'line'   => 4,
+				],
+			],
+			$statements
+		);
+	}
+
+	/** An explicit `cmd` prefixes its path arg with the cwd and keeps the tail verbatim. */
+	public function test_cmd_resolves_path_against_cwd(): void {
+		$statements = $this->summarize(
+			Shell_Node::parse_statements( "cd n1\ncmd n2 set_x true" )
+		);
+		$this->assertSame(
+			[
+				[
+					'verb'   => 'cmd',
+					'values' => [ 'cmd', 'n1/n2', 'set_x', 'true' ],
+					'raw'    => 'cmd n1/n2 set_x true',
+					'line'   => 2,
+				],
+			],
+			$statements
+		);
+	}
+
+	/** Two statements on one physical line split on the unquoted `;`. */
+	public function test_splits_statements_on_unquoted_semicolon(): void {
+		$statements = $this->summarize(
+			Shell_Node::parse_statements( 'make_node Tee a; make_node Tee b' )
+		);
+		$this->assertSame(
+			[
+				[
+					'verb'   => 'make_node',
+					'values' => [ 'make_node', 'Tee', 'a' ],
+					'raw'    => 'make_node Tee a',
+					'line'   => 1,
+				],
+				[
+					'verb'   => 'make_node',
+					'values' => [ 'make_node', 'Tee', 'b' ],
+					'raw'    => 'make_node Tee b',
+					'line'   => 1,
+				],
+			],
+			$statements
+		);
+	}
+
+	/** A `;` inside a quoted span does not split the statement. */
+	public function test_quoted_semicolon_stays_in_one_statement(): void {
+		$statements = Shell_Node::parse_statements( 'cmd n do "a ; b"' );
+		$this->assertCount( 1, $statements );
+		$this->assertSame( [ 'cmd', 'n', 'do', 'a ; b' ], $statements[0]['values'] );
+		$this->assertSame( [ 'cmd', 'n', 'do', '"a ; b"' ], $statements[0]['spans'] );
+	}
+
+	/** A trailing backslash folds the next physical line into one logical statement. */
+	public function test_backslash_continuation_joins_lines(): void {
+		$statements = $this->summarize(
+			Shell_Node::parse_statements( "make_node Consumer c \\\n  <config:logs_dir>/f.p<partition>" )
+		);
+		$this->assertSame(
+			[
+				[
+					'verb'   => 'make_node',
+					'values' => [ 'make_node', 'Consumer', 'c', '<config:logs_dir>/f.p<partition>' ],
+					'raw'    => 'make_node Consumer c <config:logs_dir>/f.p<partition>',
+					'line'   => 1,
+				],
+			],
+			$statements
+		);
+	}
+
+	/** Comment and blank lines produce no statement, but still advance the line count. */
+	public function test_comments_and_blanks_are_dropped(): void {
+		$statements = $this->summarize(
+			Shell_Node::parse_statements( "# header\n\nmake_node Tee t" )
+		);
+		$this->assertSame(
+			[
+				[
+					'verb'   => 'make_node',
+					'values' => [ 'make_node', 'Tee', 't' ],
+					'raw'    => 'make_node Tee t',
+					'line'   => 3,
+				],
+			],
+			$statements
+		);
+	}
+
+	/** An unterminated quote at end-of-input fails loud (topology load is fatal). */
+	public function test_open_quote_at_eof_throws(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'got EOF while waiting for tokens' );
+		Shell_Node::parse_statements( 'make_node Tee "unterminated' );
+	}
+
+	/** A single-quoted `<partition>` survives byte-identical in spans; values strip the quotes. */
+	public function test_single_quoted_partition_token_span_is_verbatim(): void {
+		$statements = Shell_Node::parse_statements( "make_node Partition p '<partition>'" );
+		$this->assertCount( 1, $statements );
+		$this->assertSame(
+			[ 'make_node', 'Partition', 'p', "'<partition>'" ],
+			$statements[0]['spans']
+		);
+		$this->assertSame(
+			[ 'make_node', 'Partition', 'p', '<partition>' ],
+			$statements[0]['values']
+		);
+	}
+}
