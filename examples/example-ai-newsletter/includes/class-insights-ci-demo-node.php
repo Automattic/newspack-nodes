@@ -71,7 +71,7 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	 * @return array<int,array<array-key,mixed>>
 	 */
 	public static function read_snapshot_items( string $offsets_dir ): array {
-		return Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*' );
+		return Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*', 'digest' );
 	}
 
 	/**
@@ -112,10 +112,11 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	}
 
 	public static function node_schema(): array {
-		// Service_CI_Node::slice_verb() builds each handler: it passes this node (the
-		// interpreter IS the CI for a Service_CI verb) to the shape and JSON-encodes the
-		// result. commands_from_schema() wraps every handler with require_manage_options(),
-		// so the gate is centralized there — no per-slice gate needed.
+		// @longform Service_CI_Node::slice_verb() builds each handler: it
+		// passes this node (the interpreter IS the CI for a Service_CI verb)
+		// to the shape and JSON-encodes the result. commands_from_schema()
+		// wraps every handler with require_manage_options(), so the gate is
+		// centralized there — no per-slice gate needed.
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
 			'description' => 'Reads the scored-pipeline offsetlog snapshot; serves the dashboard insights slices.',

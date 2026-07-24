@@ -13,7 +13,7 @@
  *   - time_travel_resume()   — re-arm the node's own poll/tick timer on PLAY.
  *   - time_travel_on_pause() — extra halt on PAUSE (Remote_Source drops the stream).
  *
- * The trait OWNS the transport state (snapshot_node, line_mode, saved_line_mode,
+ * The trait OWNS the transport state (snapshot_nodes, line_mode, saved_line_mode,
  * rewound_to, stepped_since_seek) and the checkpoint bookkeeping (checkpoint_segment/off,
  * last_checkpoint); the offsetlog itself — geometry, retention, construction — belongs to
  * Offsetlog_Cursor, which every using class also mixes in.
@@ -51,12 +51,14 @@ trait Time_Travel {
 	protected float $last_checkpoint = 0.0;
 
 	/**
-	 * Name of a node whose state rides in the offsetlog alongside the cursor
-	 * (Tachikoma's snapshot cache). Empty = offset-only. Set via set_snapshot_node.
-	 * A node with no snapshot concern (Remote_Source) leaves it '' and the restore
-	 * branches no-op.
+	 * Names of nodes whose state rides in the offsetlog alongside the cursor
+	 * (Tachikoma's snapshot cache), keyed into the frame's `cache` map by name.
+	 * Empty = offset-only. Appended via add_snapshot_node. A node with no
+	 * snapshot concern (Remote_Source) leaves it [] and the restore branches no-op.
+	 *
+	 * @var list<string>
 	 */
-	private string $snapshot_node = '';
+	private array $snapshot_nodes = [];
 
 	private bool $line_mode = false;
 
@@ -103,11 +105,12 @@ trait Time_Travel {
 		if ( null === $entry ) {
 			return "error: no frame at segment {$segment}";
 		}
-		if ( '' !== $this->snapshot_node ) {
-			$node  = Core::node( $this->snapshot_node );
-			$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
-			if ( null !== $cache && null !== $node && \method_exists( $node, 'restore_state' ) ) {
-				$node->restore_state( $cache );
+		$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : [];
+		foreach ( $this->snapshot_nodes as $snapshot_name ) {
+			$node  = Core::node( $snapshot_name );
+			$state = $cache[ $snapshot_name ] ?? null;
+			if ( \is_array( $state ) && null !== $node && \method_exists( $node, 'restore_state' ) ) {
+				$node->restore_state( $state );
 			}
 		}
 		$this->next_offset( [ 'segment' => $entry['segment'], 'offset' => $entry['offset'] ] );
@@ -187,15 +190,19 @@ trait Time_Travel {
 	}
 
 	/**
-	 * Name the node whose state is snapshotted into the offsetlog alongside the
-	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot). Recording the name
-	 * is all this does — the restore is deferred so topology declaration order can't
-	 * forward-reference a node that doesn't exist yet. Lifts the offsetlog's PIPE_BUF
-	 * cap (void_warranty): the worker holding the topology lock is the offsetlog's
-	 * sole writer, so no per-write lock is needed.
+	 * Add a node whose state is snapshotted into the offsetlog alongside the
+	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot); states commit as
+	 * one `cache` map keyed by node name, all at the same cursor. Recording the
+	 * name is all this does — the restore is deferred so topology declaration
+	 * order can't forward-reference a node that doesn't exist yet. Lifts the
+	 * offsetlog's PIPE_BUF cap (void_warranty): the worker holding the topology
+	 * lock is the offsetlog's sole writer, so no per-write lock is needed.
 	 */
-	public function set_snapshot_node( string $name ): void {
-		$this->snapshot_node = $name;
+	public function add_snapshot_node( string $name ): void {
+		if ( '' === $name || \in_array( $name, $this->snapshot_nodes, true ) ) {
+			return;
+		}
+		$this->snapshot_nodes[] = $name;
 		$this->offsetlog?->void_warranty();
 	}
 
@@ -208,7 +215,7 @@ trait Time_Travel {
 	 * config the trait owns — so a `dump_config()` serialize/replay restores them
 	 * (without it, a console-serialized topology loses its snapshot node and the
 	 * downstream stateful node's save_state() stops co-committing). Only the durable
-	 * settings round-trip: `snapshot_node` and `line_mode` (the production value —
+	 * settings round-trip: `snapshot_nodes` and `line_mode` (the production value —
 	 * `saved_line_mode` holds it while a transient STEP session forces line_mode on).
 	 * The imperative verbs (SEEK_FRAME/PAUSE/PLAY/STEP) are runtime, not config.
 	 *
@@ -217,8 +224,8 @@ trait Time_Travel {
 	 */
 	protected function dump_time_travel_config( string $name ): string {
 		$out = '';
-		if ( '' !== $this->snapshot_node ) {
-			$out .= "cmd {$name}:config set_snapshot_node {$this->snapshot_node}\n";
+		foreach ( $this->snapshot_nodes as $snapshot_name ) {
+			$out .= "cmd {$name}:config add_snapshot_node {$snapshot_name}\n";
 		}
 		if ( $this->saved_line_mode ?? $this->line_mode ) {
 			$out .= "cmd {$name}:config set_line_mode 1\n";
@@ -377,15 +384,15 @@ trait Time_Travel {
 	// --- {name}:config verb handlers + the shared verb table ---
 
 	/**
-	 * `set_snapshot_node` verb handler — set the patron's snapshot-target node.
+	 * `add_snapshot_node` verb handler — append a snapshot-target node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
 	 * @param array<array-key, mixed>  $args        Verb argument.
 	 */
-	public static function cmd_set_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
+	public static function cmd_add_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->set_snapshot_node( Core::as_string( $args[0] ?? '' ) );
+		$patron->add_snapshot_node( Core::as_string( $args[0] ?? '' ) );
 		return 'ok';
 	}
 
@@ -461,12 +468,12 @@ trait Time_Travel {
 	public static function time_travel_verbs(): array {
 		return [
 			[
-				'name'        => 'set_snapshot_node',
-				'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor, so it resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
+				'name'        => 'add_snapshot_node',
+				'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor (keyed by name; repeatable), so each resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
 				'args'        => [
 					[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_set_snapshot_node( $interpreter, $args ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_add_snapshot_node( $interpreter, $args ),
 			],
 			[
 				'name'        => 'set_line_mode',

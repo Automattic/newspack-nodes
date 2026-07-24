@@ -188,7 +188,7 @@ class ClassesCITest extends TestCase {
 		// A `hidden: true` verb (Consumer's time-travel PAUSE, driven by the
 		// Inspector's transport bar) must carry that flag through the catalog strip
 		// so the inspector can omit its generic verb button. A non-hidden verb
-		// (set_snapshot_node) must NOT carry it (default-omit keeps payloads lean).
+		// (add_snapshot_node) must NOT carry it (default-omit keeps payloads lean).
 		$result  = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
 		$consumer = null;
 		foreach ( $result['classes'] as $entry ) {
@@ -210,10 +210,10 @@ class ClassesCITest extends TestCase {
 			'PAUSE must carry hidden:true through the catalog strip'
 		);
 
-		$this->assertArrayHasKey( 'set_snapshot_node', $by_name, 'set_snapshot_node verb must be in the catalog' );
+		$this->assertArrayHasKey( 'add_snapshot_node', $by_name, 'add_snapshot_node verb must be in the catalog' );
 		$this->assertArrayNotHasKey(
 			'hidden',
-			$by_name['set_snapshot_node'],
+			$by_name['add_snapshot_node'],
 			'a non-hidden verb must not carry the hidden key (default-omit keeps the payload lean)'
 		);
 	}

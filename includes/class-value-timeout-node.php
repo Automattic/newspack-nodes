@@ -116,6 +116,37 @@ class Value_Timeout_Node extends Timer_Node {
 		}
 	}
 
+	/**
+	 * Snapshot seam for `add_snapshot_node`: the two window maps ride the
+	 * Consumer's offsetlog frame, so a respawn restores mid-window state and
+	 * the trailing re-emit (often the thing that invalidates a cache) still
+	 * fires instead of being lost with the process.
+	 *
+	 * @return array<string, array<string, float>>
+	 */
+	public function save_state(): array {
+		return [
+			'recently_received' => $this->recently_received,
+			'recently_sent'     => $this->recently_sent,
+		];
+	}
+
+	/**
+	 * Restore the co-committed window maps (see save_state()).
+	 *
+	 * @param array<array-key, mixed> $state A save_state() payload.
+	 */
+	public function restore_state( array $state ): void {
+		foreach ( [ 'recently_received', 'recently_sent' ] as $map ) {
+			$restored = \is_array( $state[ $map ] ?? null ) ? $state[ $map ] : [];
+			$clean    = [];
+			foreach ( $restored as $value => $deadline ) {
+				$clean[ (string) $value ] = Core::num_float( $deadline, 0.0 );
+			}
+			$this->{$map} = $clean;
+		}
+	}
+
 	/** @api Introspection (Tachikoma accessor parity). */
 	public function timeout(): int {
 		return $this->timeout;

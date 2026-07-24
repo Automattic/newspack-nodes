@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING
+- **`set_snapshot_node` is deleted; `add_snapshot_node` replaces it.** A
+  Consumer (or Remote_Source) now carries a LIST of snapshot nodes; the
+  offsetlog frame's `cache` becomes a map keyed by node name
+  (`[ node => state, … ]`), each restored to its node by name on respawn
+  (unresolvable names skip loud; state a boot can't restore is carried into
+  recommitted frames, never dropped). `Partition_Node::read_latest_snapshot_cache()`
+  gains a required `$node` argument for the same reason. No migration shim:
+  frames written by 0.50.x carry the old whole-cache shape, so the first
+  respawn after upgrade skips that restore once — a bounded, self-healing
+  reset of in-flight snapshot state (request-builder/flame/digest
+  re-accumulate); the cursor keys are unchanged and resume normally. Stock
+  topologies and the bundled example are updated; event-logger-nodes and
+  newspack-intelligence ship paired releases (their TSLs name the verb).
+
 ### Added
+- `Value_Timeout_Node::save_state()` / `restore_state()` — the window maps
+  ride a Consumer's `add_snapshot_node` frame, so a respawn keeps mid-window
+  suppressions AND the trailing re-emit (the cache-invalidation case: losing
+  it could leave stale content served indefinitely).
 - **Job options** on `Job_Intake::queue()` / `write_job()` / static `queue()`:
   `not_before` / `delay` park a job in a new hardwired `jobdelay.p0` partition
   until due; `retries` opts a job into Job_Worker exponential-backoff retry

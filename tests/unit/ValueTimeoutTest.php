@@ -114,6 +114,27 @@ class ValueTimeoutTest extends TestCase {
 		$this->assertCount( 2, $this->sink->captured );
 	}
 
+	public function test_state_survives_a_worker_restart_and_still_re_emits(): void {
+		// The stale-cache case: the trailing emit meters post-processing, so the
+		// window maps must ride the Consumer's snapshot frame across a respawn.
+		$this->node->fill( $this->value_message( 'warm_homepage' ) );
+		Core::$now = 1000050.0;
+		$this->node->fill( $this->value_message( 'warm_homepage' ) );
+
+		// Worker dies; a successor restores the co-committed state.
+		$successor = new Capture_Sink_Node();
+		$restored  = new \Newspack_Nodes\Value_Timeout_Node();
+		$restored->name( 'value-gate-2' );
+		$restored->sink( $successor );
+		$restored->arguments( [ '60', '300' ] );
+		$restored->restore_state( $this->node->save_state() );
+
+		Core::$now = 1000061.0;
+		$restored->fire();
+
+		$this->assertSame( [ "warm_homepage\n" ], array_map( static fn ( $m ) => $m[ Message::VALUE ], $successor->captured ), 'the trailing re-emit must survive the restart' );
+	}
+
 	public function test_defaults_match_tachikoma(): void {
 		$node = new Value_Timeout_Node();
 		$node->name( 'value-gate-defaults' );

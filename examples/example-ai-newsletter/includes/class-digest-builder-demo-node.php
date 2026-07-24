@@ -60,14 +60,14 @@ class Digest_Builder_Demo_Node extends Node {
 		$response[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$response[ Message::FROM ]  = $this->name;
 		$response[ Message::VALUE ] = $draft;
-		// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
+		// parent::fill stamps TO from target, forwards to sink.
 		parent::fill( $response );
 		$this->items = [];
 	}
 
 	/**
 	 * Snapshot contract: the accumulated items the Consumer co-commits into its
-	 * offsetlog (via `set_snapshot_node digest`), so a respawned worker restores
+	 * offsetlog (via `add_snapshot_node digest`), so a respawned worker restores
 	 * this in lockstep with the cursor. Bounded — keep the digest small.
 	 *
 	 * @return array{items: array<int,array<array-key,mixed>>}

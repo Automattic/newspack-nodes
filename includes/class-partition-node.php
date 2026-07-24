@@ -976,7 +976,7 @@ class Partition_Node extends Timer_Node {
 	 * Glob a family of snapshot-offsetlog dirs and flatten their latest cached item lists.
 	 *
 	 * For every dir matching `$offsets_dir/$glob`, read the newest committed record's VALUE
-	 * (via read_latest_value_at), descend `VALUE[$cache_key][$items_key]`, and concatenate the
+	 * (via read_latest_value_at), descend `VALUE[$cache_key][$node][$items_key]`, and concatenate the
 	 * array-shaped items into one list. The per-dir read is fault-tolerant: a missing cache,
 	 * a non-array items list, or a non-array item is silently skipped. Callers memoize per
 	 * request — this re-globs and re-reads every call.
@@ -987,6 +987,7 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param string $offsets_dir Absolute path to the offsets base dir holding the snapshot dirs.
 	 * @param string $glob        A glob (relative to $offsets_dir) selecting the snapshot dirs, e.g. `scored.p*`.
+	 * @param string $node        Snapshot-node name keying this state in the frame's cache map.
 	 * @param string $cache_key   VALUE key holding the cache object. Default `cache`.
 	 * @param string $items_key   Cache key holding the items list. Default `items`.
 	 * @return array<int,array<array-key,mixed>> The flattened, array-shaped items across all matched dirs.
@@ -994,6 +995,7 @@ class Partition_Node extends Timer_Node {
 	public static function read_latest_snapshot_cache(
 		string $offsets_dir,
 		string $glob,
+		string $node,
 		string $cache_key = 'cache',
 		string $items_key = 'items'
 	): array {
@@ -1005,7 +1007,8 @@ class Partition_Node extends Timer_Node {
 		foreach ( $dirs as $dir ) {
 			$value = self::read_latest_value_at( $dir );
 			$cache = \is_array( $value ) && \is_array( $value[ $cache_key ] ?? null ) ? $value[ $cache_key ] : [];
-			$list  = $cache[ $items_key ] ?? null;
+			$state = \is_array( $cache[ $node ] ?? null ) ? $cache[ $node ] : [];
+			$list  = $state[ $items_key ] ?? null;
 			if ( ! \is_array( $list ) ) {
 				continue;
 			}
