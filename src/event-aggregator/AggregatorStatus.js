@@ -465,7 +465,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 					) : (
 						<div className="aggregator-status-empty">
 							{ __(
-								'No servers configured. Add servers in Event Logger settings.',
+								'No servers configured. Add a server in the Vault tab, then wire a Remote_Source into an active topology.',
 								'newspack-nodes'
 							) }
 						</div>

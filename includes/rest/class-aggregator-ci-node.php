@@ -9,8 +9,8 @@
  *
  * Verbs:
  *   status  — per-node partition snapshot keyed by the wired Remote_Source
- *             NODE NAME. Discovers each Remote_Source wired into the active
- *             `aggregator` topology graph (`Topology_Registry::graph_for`,
+ *             NODE NAME. Discovers every Remote_Source wired into ANY active
+ *             topology (`Topology_Registry::graph_for` per active name,
  *             filtered on node `type === 'Remote_Source'`), then for every
  *             configured partition reads that node's substrate status snapshot
  *             from memcache under `np:remote:<node-name>:<remote_partition>` —
@@ -146,7 +146,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * verbs share — so the de-god dashboard slices can never disagree about
 	 * what they saw.
 	 *
-	 * Discovers each Remote_Source wired into the active `aggregator` topology
+	 * Discovers every Remote_Source wired into ANY active topology
 	 * graph, then for every configured partition reads that node's substrate
 	 * status snapshot from memcache under `np:remote:<node-name>:<remote_partition>`
 	 * (the exact key Remote_Link writes). Cache misses default to an empty array.
@@ -156,41 +156,44 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	private static function build_snapshot(): array {
 		$registry = Vault::fresh();
 
-		// remote_partition has a <partition> token; fan across num_partitions.
-		$num_partitions = Bootstrap::num_partitions_for( 'aggregator' );
-
 		$result = [];
-		foreach ( Topology_Registry::graph_for( 'aggregator' )['nodes'] as $node ) {
-			if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
-				continue;
-			}
-			$name_v = $node['name'] ?? '';
-			$name   = Core::as_string( $name_v );
-			if ( '' === $name ) {
-				continue;
-			}
-			// args: <vault-id> <remote_partition> (Remote_Link 2-arg schema).
-			$node_args = $node['args'] ?? [];
-			$vault_id  = $node_args[0] ?? '';
-			$template  = $node_args[1] ?? '';
+		// Readers live in ANY active topology, whatever its name.
+		foreach ( \array_keys( Bootstrap::get_topologies() ) as $topology ) {
+			$topology = Core::as_string( $topology );
+			// remote_partition has a <partition> token; fan across the count.
+			$num_partitions = Bootstrap::num_partitions_for( $topology );
+			foreach ( Topology_Registry::graph_for( $topology )['nodes'] as $node ) {
+				if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
+					continue;
+				}
+				$name_v = $node['name'] ?? '';
+				$name   = Core::as_string( $name_v );
+				if ( '' === $name ) {
+					continue;
+				}
+				// args: <vault-id> <remote_partition> (2-arg schema).
+				$node_args = $node['args'] ?? [];
+				$vault_id  = $node_args[0] ?? '';
+				$template  = $node_args[1] ?? '';
 
-			// Rebuild the writer's exact key: np:remote:<node-name>:<concrete>.
-			$partitions = [];
-			for ( $p = 0; $p < $num_partitions; $p++ ) {
-				$concrete         = Core::resolve_partition_template( $template, $p );
-				$val              = \Newspack_Nodes\Cache_Backend::shared_first()?->get( "np:remote:{$name}:{$concrete}" );
-				$partitions[ $p ] = Core::arr( $val );
+				// Writer's exact key: np:remote:<name>:<concrete>.
+				$partitions = [];
+				for ( $p = 0; $p < $num_partitions; $p++ ) {
+					$concrete         = Core::resolve_partition_template( $template, $p );
+					$val              = \Newspack_Nodes\Cache_Backend::shared_first()?->get( "np:remote:{$name}:{$concrete}" );
+					$partitions[ $p ] = Core::arr( $val );
+				}
+
+				$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;
+				$url_v = \is_array( $entry ) ? ( $entry['url'] ?? null ) : null;
+
+				$result[ $name ] = [
+					'id'         => $name,
+					'vault_id'   => $vault_id,
+					'url'        => \is_scalar( $url_v ) ? \esc_url_raw( (string) $url_v ) : '',
+					'partitions' => $partitions,
+				];
 			}
-
-			$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;
-			$url_v = \is_array( $entry ) ? ( $entry['url'] ?? null ) : null;
-
-			$result[ $name ] = [
-				'id'         => $name,
-				'vault_id'   => $vault_id,
-				'url'        => \is_scalar( $url_v ) ? \esc_url_raw( (string) $url_v ) : '',
-				'partitions' => $partitions,
-			];
 		}
 
 		return $result;

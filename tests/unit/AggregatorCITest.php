@@ -86,6 +86,9 @@ class AggregatorCITest extends TestCase {
 		}
 		\file_put_contents( $this->tmp . '/topologies/aggregator.tsl', \implode( "\n", $lines ) . "\n" );
 		Topology_Registry::reset_basename_cache();
+		// The snapshot scans the ACTIVE set; a seeded topology must be active.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator' ];
+		\Newspack_Nodes\Config::reset();
 	}
 
 	/**
@@ -107,6 +110,32 @@ class AggregatorCITest extends TestCase {
 	// ---------------------------------------------------------------------
 	// build_snapshot (exercised via the servers_status slice)
 	// ---------------------------------------------------------------------
+
+	public function test_servers_status_discovers_remote_sources_in_any_active_topology(): void {
+		// Readers live in include-based overlays with their own names (e.g.
+		// aggregator-tw0); the dashboard must not be married to the literal
+		// topology name 'aggregator'.
+		$lines = [
+			'var num_partitions = 1',
+			'make_node Remote_Job_Rewrite remote-job-rewrite',
+			'make_node Remote_Source spoke-x9 xvault firehose.p<partition>',
+			'connect_node spoke-x9 remote-job-rewrite',
+		];
+		\file_put_contents( $this->tmp . '/topologies/aggregator-x9.tsl', \implode( "\n", $lines ) . "\n" );
+		Topology_Registry::reset_basename_cache();
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator-x9' ];
+		\Newspack_Nodes\Config::reset();
+		$this->seed_vault( 'xvault', [ 'url' => 'https://x9.example' ] );
+
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			true
+		);
+
+		$this->assertCount( 1, $decoded );
+		$this->assertSame( 'spoke-x9', $decoded[0]['id'] );
+		$this->assertSame( 'xvault', $decoded[0]['vault_id'] );
+	}
 
 	public function test_servers_status_uses_empty_block_on_cache_miss(): void {
 		$this->seed_aggregator_topology( [ [ 'spoke-b', 'other', 'firehose.p<partition>' ] ] );
