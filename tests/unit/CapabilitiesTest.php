@@ -38,6 +38,18 @@ class CapabilitiesTest extends TestCase {
 		Capabilities::cap_for( 'admin-ish' );
 	}
 
+	public function test_garbage_filter_return_fails_closed(): void {
+		add_filter( 'newspack_nodes/capability_map', static fn (): string => 'oops' );
+		$this->expectException( \InvalidArgumentException::class );
+		Capabilities::cap_for( Capabilities::READ );
+	}
+
+	public function test_require_passes_for_the_authorized(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		Capabilities::require( Capabilities::MANAGE );
+		$this->assertTrue( Capabilities::can( Capabilities::MANAGE ) );
+	}
+
 	public function test_require_throws_for_the_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 		$this->expectException( \RuntimeException::class );

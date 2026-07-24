@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-07-23
+
+### Changed
+- `wp nodes status` fleet rows are keyed by a **Worker** column — the exact
+  id `wp nodes cli` attaches to (`job-worker.p0`), replacing the separate
+  Topology/Partition columns — and the table output ends with the attach
+  hint, so the REPL is discoverable from the first status call.
+
 ### BREAKING
 - **`set_snapshot_node` is deleted; `add_snapshot_node` replaces it.** A
   Consumer (or Remote_Source) now carries a LIST of snapshot nodes; the
@@ -19,8 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   respawn after upgrade skips that restore once — a bounded, self-healing
   reset of in-flight snapshot state (request-builder/flame/digest
   re-accumulate); the cursor keys are unchanged and resume normally. Stock
-  topologies and the bundled example are updated; event-logger-nodes and
-  newspack-intelligence ship paired releases (their TSLs name the verb).
+  topologies and the bundled example are updated; pair with
+  event-logger-nodes ≥ 0.39.0 and newspack-intelligence ≥ 0.5.3 (their
+  TSLs name the verb).
 
 ### Added
 - **Metrics export nodes** — `Probe_To_Graphite_Node` (port of Tachikoma's

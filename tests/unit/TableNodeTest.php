@@ -93,6 +93,33 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( Table_Node::lookup( 'prices', 'absent' ) );
 	}
 
+	public function test_get_and_rm_verbs_operate_through_the_interpreter(): void {
+		[ $table ] = $this->table();
+		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
+
+		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
+		$ci->name( 'prices:table:config' );
+		$ci->patron( $table );
+		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
+
+		$this->assertSame( '{"usd":1250}', $verbs['get']( $ci, [ 'sku-9' ] ) );
+		$this->assertSame( 'ok', $verbs['rm']( $ci, [ 'sku-9' ] ) );
+		$this->assertSame( 'null', $verbs['get']( $ci, [ 'sku-9' ] ) );
+	}
+
+	public function test_verbs_refuse_a_foreign_patron(): void {
+		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
+		$ci->name( 'stray:config' );
+		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
+		$this->assertSame( 'error: no table patron', $verbs['get']( $ci, [ 'x' ] ) );
+		$this->assertSame( 'error: no table patron', $verbs['rm']( $ci, [ 'x' ] ) );
+	}
+
+	public function test_arguments_read_back(): void {
+		[ $table ] = $this->table( 'prices', '300' );
+		$this->assertSame( [ 'prices', '300' ], $table->arguments() );
+	}
+
 	public function test_rm_deletes_a_key(): void {
 		[ $table ] = $this->table();
 		$table->fill( $this->keyed( 'sku-9', 'gone-soon' ) );

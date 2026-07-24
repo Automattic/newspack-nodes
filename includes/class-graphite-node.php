@@ -13,9 +13,7 @@
 
 namespace Newspack_Nodes;
 
-if ( ! \defined( 'ABSPATH' ) ) {
-	exit;
-}
+\defined( 'ABSPATH' ) || exit;
 
 /**
  * Graphite node.
@@ -67,7 +65,7 @@ class Graphite_Node extends Node {
 		++$this->counter;
 		$write = self::$transport ?? static function ( string $endpoint, string $payload ): bool {
 			// phpcs:disable WordPress.WP.AlternativeFunctions, WordPressVIPMinimum.Functions.RestrictedFunctions -- raw UDP datagram socket; no WP_Filesystem equivalent.
-			$socket = @\fopen( $endpoint, 'w' );
+			$socket = @\stream_socket_client( $endpoint, $error_code, $error_message, 1.0 );
 			if ( false === $socket ) {
 				return false;
 			}

@@ -64,6 +64,12 @@ class AgeSieveTest extends TestCase {
 		$this->assertCount( 1, $sink->captured );
 	}
 
+	public function test_arguments_read_back_and_schema_names_both(): void {
+		[ $sieve ] = $this->sieve( [ '60', '1' ] );
+		$this->assertSame( [ '60', '1' ], $sieve->arguments() );
+		$this->assertSame( 'Filtering', \Newspack_Nodes\Age_Sieve_Node::node_schema()['category'] );
+	}
+
 	public function test_should_warn_drops_without_crashing(): void {
 		[ $sieve, $sink ] = $this->sieve( [ '60', '1' ] );
 		$sieve->fill( $this->stamped( Core::$now - 3600.0 ) );
