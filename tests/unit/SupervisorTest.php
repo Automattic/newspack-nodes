@@ -632,6 +632,9 @@ class SupervisorTest extends TestCase {
 		$first->check_config( $now );
 		$first->tick_for_test( $now, $token );
 		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] ?? [] );
+		// The ENDPOINT records the accepted spawn cross-process (spawn() does
+		// this in production; the curl seam swallowed the POST here).
+		$first->record_spawn( 'firehose-workers', 0, $now );
 
 		// Fresh supervisor (cron backstop after crash, or self-respawn).
 		$second = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );

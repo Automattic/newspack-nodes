@@ -228,6 +228,31 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'wp nodes cli <Worker>', $haystack, 'status must teach the attach command' );
 	}
 
+	public function test_status_renders_the_supervisor_row(): void {
+		// The supervisor is the process the whole safety net rests on; the
+		// fleet-health command must see supervisor.lock.d (it has no `.p<N>`).
+		$this->register_topology( 'aggregator', 1 );
+		$dir = "{$this->tmp}/locks/supervisor.lock.d";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/heartbeat", '4242' );
+		\file_put_contents( "{$dir}/started", (string) ( \time() - 90 ) );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'supervisor', $haystack );
+		$this->assertStringNotContainsString( 'supervisor.p', $haystack, 'the supervisor is not a partitioned worker' );
+	}
+
+	public function test_status_reports_a_missing_supervisor_as_down(): void {
+		$this->register_topology( 'aggregator', 1 );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertMatchesRegularExpression( '/supervisor\s+down/', $haystack );
+	}
+
 	public function test_status_marks_active_topology_without_a_lock_as_down(): void {
 		$this->register_topology( 'aggregator', 2 );
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
@@ -515,6 +540,38 @@ class CliWorkerCommandTest extends TestCase {
 	// -------------------------------------------------------------------------
 	// run — full path: descriptor lookup → topology resolution → execute()
 	// -------------------------------------------------------------------------
+
+	public function test_run_refuses_root(): void {
+		// Same footgun as `wp nodes cli`: a root run seeds root-owned IPC/lock
+		// dirs that lock out the web-user fleet.
+		CLI::$uid_provider = static fn (): int => 0;
+		try {
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessageMatches( '/root/' );
+			( new Worker_CLI_Command() )->run( [ 'anything' ], [] );
+		} finally {
+			CLI::$uid_provider = null;
+		}
+	}
+
+	public function test_run_prints_the_skip_reason(): void {
+		// `wp nodes run` is the debugging verb — dropping the reason hides the
+		// root-ownership footgun a third time. The success line must carry it.
+		$stock_dir = "{$this->tmp}/stock";
+		\mkdir( $stock_dir, 0755, true );
+		\file_put_contents( "{$stock_dir}/reason-topology.tsl", "# noop\n" );
+		Topology_Registry::register_stock_dir( $stock_dir );
+		$this->register_topology( 'reason-topology', 1, 'reason-topology' );
+
+		$lock_dir = "{$this->tmp}/locks/reason-topology.p0.lock.d";
+		\mkdir( $lock_dir, 0755, true );
+		\file_put_contents( "{$lock_dir}/heartbeat", (string) ( \getmypid() + 99999 ) );
+
+		( new Worker_CLI_Command() )->run( [ 'reason-topology' ], [ 'partition' => 0 ] );
+
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
+		$this->assertStringContainsString( 'lock_held', $GLOBALS['_test_wp_cli_success'][0], 'the skip reason must reach the operator' );
+	}
 
 	public function test_run_returns_skipped_status_when_lock_already_held(): void {
 		// Full run() path. We arrange a fresh-held lock so WorkerBase::execute()

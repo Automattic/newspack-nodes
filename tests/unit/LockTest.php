@@ -472,4 +472,46 @@ class LockTest extends TestCase {
 		$this->assertSame( [], $schema['arguments'] );
 		$this->assertSame( [], $schema['commands'] );
 	}
+
+	// ── acquire_failure() ──────────────────────────────────────────────────
+
+	public function test_acquire_failure_reports_contention_as_lock_held(): void {
+		$holder = new Lock_Node( "{$this->tmp}/contended.lock.d" );
+		$this->assertTrue( $holder->acquire() );
+
+		$loser = new Lock_Node( "{$this->tmp}/contended.lock.d" );
+		$this->assertFalse( $loser->acquire() );
+		$this->assertSame( 'lock_held', $loser->acquire_failure() );
+	}
+
+	public function test_acquire_failure_reports_mkdir_error_distinct_from_contention(): void {
+		// Permission-denied mkdir (root-owned locks dir) is NOT contention;
+		// diagnosing it as lock_held hides the real footgun three layers deep.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'permission checks are moot as root' );
+		}
+		$parent = "{$this->tmp}/readonly";
+		\mkdir( $parent, 0555, true );
+		$lock = new Lock_Node( "{$parent}/w.p3.lock.d" );
+		try {
+			$this->assertFalse( $lock->acquire() );
+		} finally {
+			\chmod( $parent, 0755 );
+		}
+		$this->assertStringContainsString( 'mkdir', $lock->acquire_failure() );
+		$this->assertStringContainsString( "{$parent}/w.p3.lock.d", $lock->acquire_failure(), 'the failing path must be named' );
+	}
+
+	public function test_acquire_failure_resets_on_success(): void {
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'permission checks are moot as root' );
+		}
+		$parent = "{$this->tmp}/flaky";
+		\mkdir( $parent, 0555, true );
+		$lock = new Lock_Node( "{$parent}/w.p0.lock.d" );
+		$this->assertFalse( $lock->acquire() );
+		\chmod( $parent, 0755 );
+		$this->assertTrue( $lock->acquire() );
+		$this->assertSame( '', $lock->acquire_failure() );
+	}
 }

@@ -33,6 +33,36 @@ class Worker_Base {
 	public const LOCK_CHECK_GRACE_S     = 0.25;
 	public const MEMORY_WATERMARK_PCT   = 0.80;
 
+	/**
+	 * DB-liveness seam. Lazily-defaulted to `$wpdb->check_connection( false )`
+	 * (duck-typed; passes when no $wpdb is loaded). Tests reassign to drive
+	 * consecutive failures without a real dead connection.
+	 * Signature: `function (): bool`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $db_probe = null;
+
+	/**
+	 * last-PHP-error seam. Lazily-defaulted to the real `error_get_last()`;
+	 * tests reassign to classify fatal shutdowns without raising one.
+	 * Signature: `function (): ?array`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $last_error = null;
+
+	/**
+	 * Fresh spawn-token minting for self_respawn(). Wired by
+	 * `Bootstrap::ensure_runtime_wired()` — the token captured at boot is
+	 * ~max_runtime stale by recycle time, far outside the endpoint's 20s HMAC
+	 * window. Null (bare tests) falls back to the token execute() was given.
+	 * Signature: `function (): string`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $token_provider = null;
+
 	protected string $base_dir;
 
 	/** Fresh post-reset memory baseline, captured before the drain — the memory-guard reference point. */
@@ -79,11 +109,15 @@ class Worker_Base {
 	 * @param callable $topology  Topology closure (signature: ($interpreter, $partition)).
 	 * @param string   $spawn_url Spawn endpoint URL for self-respawn.
 	 * @param string   $token     Current HMAC spawn token.
-	 * @return array{status: string, reason?: string}
+	 * @return array{status: string, reason?: string, error?: string}
 	 */
 	public function execute( callable $topology, string $spawn_url, string $token ): array {
 		if ( ! $this->acquire() ) {
-			return [ 'status' => 'skipped', 'reason' => 'lock_held' ];
+			$reason = null !== $this->lock ? ( $this->lock->acquire_failure() ?: 'lock_held' ) : 'lock_held';
+			if ( 'lock_held' !== $reason ) {
+				Core::print_less_often( "{$this->worker_type}.p{$this->partition}: spawn skipped: ", $reason );
+			}
+			return [ 'status' => 'skipped', 'reason' => $reason ];
 		}
 
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
@@ -180,18 +214,12 @@ class Worker_Base {
 
 	/** A catchable PHP fatal (OOM, uncaught error) is shutting us down — not a clean stop. */
 	protected function is_fatal_shutdown(): bool {
-		$error = $this->last_error();
-		return null !== $error
-			&& \in_array( $error['type'], [ \E_ERROR, \E_PARSE, \E_CORE_ERROR, \E_COMPILE_ERROR, \E_USER_ERROR ], true );
-	}
-
-	/**
-	 * Seam (tests override): the last PHP error, used to classify a fatal shutdown.
-	 *
-	 * @return array{type: int, message: string, file: string, line: int}|null
-	 */
-	protected function last_error(): ?array {
-		return \error_get_last();
+		$probe = self::$last_error ?? static fn (): ?array => \error_get_last();
+		$error = $probe();
+		if ( ! \is_array( $error ) || ! isset( $error['type'] ) ) {
+			return false;
+		}
+		return \in_array( $error['type'], [ \E_ERROR, \E_PARSE, \E_CORE_ERROR, \E_COMPILE_ERROR, \E_USER_ERROR ], true );
 	}
 
 	/**
@@ -303,6 +331,11 @@ class Worker_Base {
 	 * @param string $token     Current HMAC spawn token.
 	 */
 	public function self_respawn( string $spawn_url, string $token ): void {
+		// Boot-time tokens are stale here; mint at POST time when wired.
+		$provider = self::$token_provider;
+		if ( null !== $provider ) {
+			$token = Core::as_string( $provider() );
+		}
 		$err = Core::fire_and_forget_post( $spawn_url, [
 			'type'      => $this->worker_type,
 			'partition' => $this->partition,
@@ -481,8 +514,16 @@ class Worker_Base {
 		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
 	}
 
-	/** Cheap DB liveness probe; default always passes. N consecutive failures trigger shutdown. */
+	/** DB liveness probe (via the $db_probe seam); N consecutive failures trigger shutdown. */
 	protected function db_check_passes(): bool {
-		return true;
+		$probe = self::$db_probe ?? static function (): bool {
+			global $wpdb;
+			if ( ! \is_object( $wpdb ) || ! \method_exists( $wpdb, 'check_connection' ) ) {
+				return true;
+			}
+			// allow_bail=false: report, don't wp_die inside the drain.
+			return (bool) $wpdb->check_connection( false );
+		};
+		return (bool) $probe();
 	}
 }

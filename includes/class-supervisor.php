@@ -80,7 +80,7 @@ class Supervisor extends Supervisor_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
-		// Not a Node, runs no interpreter: bare new (no-interpreter exception).
+		// Lifecycle primitive: bare new, no interpreter yet (see Worker_Base).
 		$lock           = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
 		$this->own_lock = $lock;
 		if ( ! $lock->acquire() ) {
@@ -353,7 +353,8 @@ class Supervisor extends Supervisor_Base {
 				unset( $this->spawn_after[ $worker['type'] ] );
 			}
 			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
-			$this->record_spawn( $worker['type'], $worker['partition'], $now );
+			// Local only: the endpoint persists accepted spawns.
+			$this->record_spawn_local( $worker['type'], $worker['partition'], $now );
 		}
 	}
 

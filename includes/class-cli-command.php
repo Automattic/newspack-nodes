@@ -34,18 +34,6 @@ namespace Newspack_Nodes;
 class CLI_Command {
 
 	/**
-	 * uid-source seam. Lazily-defaulted to the real `posix_getuid()` (or -1 when
-	 * the extension is absent). Tests reassign it to simulate root (return 0) so
-	 * the refuse-as-root guard runs as real, covered code without the runner
-	 * actually being root; reset to null in tearDown.
-	 *
-	 * Signature: `function (): int`.
-	 *
-	 * @var (\Closure(): int)|null
-	 */
-	public static ?\Closure $uid_provider = null;
-
-	/**
 	 * Open an interactive REPL — bare mode (local graph) or attached mode (IPC to a worker).
 	 *
 	 * ## OPTIONS
@@ -75,10 +63,7 @@ class CLI_Command {
 	 */
 	private function prepare_repl( array $args ): array {
 		// Refuse root: root cli makes IPC dirs root-owned, locks out non-root.
-		$uid = ( self::$uid_provider ?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1 )();
-		if ( 0 === $uid ) {
-			\WP_CLI::error( 'wp nodes cli must run as the same user as the workers, not root.' );
-		}
+		CLI::refuse_root( 'cli' );
 
 		$cli = new CLI( $this->base_dir() );
 

@@ -415,4 +415,35 @@ class CliTest extends TestCase {
 
 	// ── format_duration() ──────────────────────────────────────────────────────
 
+	// ── supervisor_status() ────────────────────────────────────────────────────
+
+	public function test_supervisor_status_reads_the_supervisor_lock(): void {
+		$dir = "{$this->tmp}/locks/supervisor.lock.d";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/heartbeat", '4242' );
+		\file_put_contents( "{$dir}/started", (string) ( \time() - 137 ) );
+
+		$status = ( new CLI( $this->tmp ) )->supervisor_status();
+
+		$this->assertNotNull( $status, 'a supervisor lock dir must be visible to status' );
+		$this->assertFalse( $status['stale'] );
+		$this->assertEqualsWithDelta( \time() - 137, $status['started_at'], 2 );
+		$this->assertGreaterThan( 0, $status['heartbeat_at'] );
+	}
+
+	public function test_supervisor_status_marks_a_stale_heartbeat(): void {
+		$dir = "{$this->tmp}/locks/supervisor.lock.d";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/heartbeat", '4242' );
+		\touch( "{$dir}/heartbeat", \time() - 300 );
+
+		$status = ( new CLI( $this->tmp ) )->supervisor_status();
+		$this->assertNotNull( $status );
+		$this->assertTrue( $status['stale'] );
+	}
+
+	public function test_supervisor_status_is_null_without_a_lock_dir(): void {
+		$this->assertNull( ( new CLI( $this->tmp ) )->supervisor_status() );
+	}
+
 }

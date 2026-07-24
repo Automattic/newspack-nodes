@@ -1056,6 +1056,25 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_ensure_runtime_wired_installs_the_worker_token_provider(): void {
+		$wired_ref   = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$saved_wired = $wired_ref->getValue();
+		try {
+			$wired_ref->setValue( null, false );
+			\Newspack_Nodes\Worker_Base::$token_provider = null;
+			Bootstrap::ensure_runtime_wired();
+
+			$provider = \Newspack_Nodes\Worker_Base::$token_provider;
+			$this->assertNotNull( $provider, 'production wiring must mint self-respawn tokens at POST time' );
+			$this->assertTrue(
+				Bootstrap::supervisor()->validate_spawn_token( (string) $provider(), \time() ),
+				'the minted token must pass the current HMAC window'
+			);
+		} finally {
+			$wired_ref->setValue( null, $saved_wired );
+		}
+	}
+
 	// ── deactivate ─────────────────────────────────────────────────────────
 
 	public function test_deactivate_clears_supervisor_cron_hook(): void {
@@ -1131,13 +1150,21 @@ class BootstrapTest extends TestCase {
 		$after = 0;
 		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
 
-		try {
-			Bootstrap::run_supervisor_tick();
-		} catch ( \RuntimeException $e ) {
-			// Expected — propagated through finally.
-		}
+		$stderr = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$stderr ): void {
+			$stderr[] = $line;
+		} );
+
+		// Must NOT propagate: the cron tier is the safety net of last resort —
+		// a repeated fatal there kills the tier whose job is catching failures.
+		Bootstrap::run_supervisor_tick();
 
 		$this->assertSame( 1, $after, 'after_supervisor_run must fire from finally on throw' );
+		$this->assertStringContainsString(
+			'simulated supervisor failure',
+			\implode( "\n", $stderr ),
+			'the swallowed throwable must be logged, not silently dropped'
+		);
 
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],

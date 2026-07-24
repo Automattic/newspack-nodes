@@ -23,6 +23,9 @@ class Lock_Node extends Node {
 
 	public const STALE_TIMEOUT  = 60;
 	public const STARTED_FILE   = 'started';
+
+	/** Why the last acquire() failed; '' after a success. */
+	private string $acquire_failure = '';
 	private bool $is_held = false;
 
 	private string $lock_path;
@@ -37,7 +40,7 @@ class Lock_Node extends Node {
 	/**
 	 * Node entry point: KEY='heartbeat' refreshes the lock; anything else forwards via sink.
 	 *
-	 * @param array<int, mixed> $message Reference; not mutated by the heartbeat path.
+	 * @param array<int, mixed> $message Unused past the KEY check; never mutated.
 	 */
 	public function fill( array $message ): void {
 		if ( 'heartbeat' === $message[ Message::KEY ] ) {
@@ -81,7 +84,9 @@ class Lock_Node extends Node {
 	}
 
 	public function acquire( int $max_wait_ms = 0 ): bool {
-		$deadline = $max_wait_ms > 0 ? \microtime( true ) + ( $max_wait_ms / 1000.0 ) : 0;
+		$this->acquire_failure = '';
+		$deadline   = $max_wait_ms > 0 ? \microtime( true ) + ( $max_wait_ms / 1000.0 ) : 0;
+		$io_retried = false;
 		do {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			if ( @\mkdir( $this->lock_path, 0755, true ) ) {
@@ -92,10 +97,24 @@ class Lock_Node extends Node {
 				}
 				// Write failed; roll back the dir so we don't orphan it.
 				self::force_release_at( $this->lock_path );
+				$this->acquire_failure = "lock dir unwritable at {$this->lock_path}";
 				return false;
 			}
 
-			// mkdir failed because the dir exists. Decide whether to steal it.
+			if ( ! \is_dir( $this->lock_path ) ) {
+				if ( ! $io_retried ) {
+					// Holder may have released mid-check; one free retry.
+					$io_retried = true;
+					continue;
+				}
+				// Nothing holds the path: a real I/O error, NOT contention.
+				$err                   = \error_get_last();
+				$this->acquire_failure = "mkdir failed at {$this->lock_path}"
+					. ( null !== $err ? ": {$err['message']}" : '' );
+				return false;
+			}
+
+			// The dir exists — contention. Decide whether to steal it.
 			if ( $this->try_steal_orphan_or_stale() ) {
 				if ( $this->write_acquire_files() ) {
 					$this->is_held = true;
@@ -104,14 +123,21 @@ class Lock_Node extends Node {
 					return true;
 				}
 				self::force_release_at( $this->lock_path );
+				$this->acquire_failure = "lock dir unwritable at {$this->lock_path}";
 				return false;
 			}
 
 			if ( 0 === $max_wait_ms || \microtime( true ) >= $deadline ) {
+				$this->acquire_failure = 'lock_held';
 				return false;
 			}
 			\usleep( 100_000 );
 		} while ( true );
+	}
+
+	/** Why the last acquire() failed ('' after success): 'lock_held' = contention; anything else is an I/O diagnosis. */
+	public function acquire_failure(): string {
+		return $this->acquire_failure;
 	}
 
 	/**

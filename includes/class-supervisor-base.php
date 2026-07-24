@@ -171,6 +171,11 @@ class Supervisor_Base {
 		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
 	}
 
+	/**
+	 * Record an ACCEPTED spawn (in-memory + persisted). The spawn endpoint calls
+	 * this — the one gate every spawn crosses — so self-respawns and supervisor
+	 * posts share a single cross-process throttle window.
+	 */
 	public function record_spawn( string $type, int $partition, float $when ): void {
 		$key                          = "{$type}|{$partition}";
 		$this->last_spawn_time[ $key ] = $when;
@@ -178,16 +183,24 @@ class Supervisor_Base {
 	}
 
 	/**
-	 * Persist a spawn timestamp (memcache, transient fallback) so a respawn honors the rate limit.
+	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
+	 * here would make the endpoint (which records on accept) reject the very
+	 * POST this record announces.
+	 */
+	public function record_spawn_local( string $type, int $partition, float $when ): void {
+		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
+	}
+
+	/**
+	 * Persist a spawn timestamp (Cache_Backend, transient fallback) so a respawn honors the rate limit.
 	 */
 	protected function persist_spawn_ts( string $key, float $when ): void {
 		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;
 		$ttl       = self::MIN_SPAWN_INTERVAL_S * 2;
 
-		if ( \function_exists( 'wp_cache_set' ) ) {
-			// Short-TTL by design — spawn rate-limit gate, not durable cache.
-			// phpcs:ignore WordPressVIPMinimum.Performance.LowExpiryCacheTime.CacheTimeUndetermined
-			\wp_cache_set( $cache_key, (int) $when, 'newspack_nodes', $ttl );
+		$backend = Cache_Backend::shared_first();
+		if ( null !== $backend ) {
+			$backend->set( $cache_key, (int) $when, $ttl );
 			return;
 		}
 		if ( \function_exists( 'set_transient' ) ) {
@@ -211,17 +224,16 @@ class Supervisor_Base {
 	}
 
 	/**
-	 * Load a persisted spawn timestamp; null if absent or no cache API available.
+	 * Load a persisted spawn timestamp; null if absent. Reads the same single
+	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
 	 */
 	protected function load_spawn_ts( string $key ): ?float {
 		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;
 
-		if ( \function_exists( 'wp_cache_get' ) ) {
-			$found = false;
-			$value = \wp_cache_get( $cache_key, 'newspack_nodes', false, $found );
-			if ( $found && false !== $value && \is_scalar( $value ) ) {
-				return (float) $value;
-			}
+		$backend = Cache_Backend::shared_first();
+		if ( null !== $backend ) {
+			$value = $backend->get( $cache_key );
+			return \is_scalar( $value ) && false !== $value ? (float) $value : null;
 		}
 		if ( \function_exists( 'get_transient' ) ) {
 			$value = \get_transient( $cache_key );
