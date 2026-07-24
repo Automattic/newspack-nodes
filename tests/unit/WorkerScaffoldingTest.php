@@ -30,29 +30,15 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->assertNotNull( Core::node( '_router' ) );
 	}
 
-	public function test_build_scaffolding_mounts_topic_probe_targeting_the_log(): void {
-		// Every worker process runs its own TopicProbe, sweeping its local Consumers
-		// into the shared topicprobe log. It steers there with target() (rule #2:
-		// everything sinks into the interpreter; flow is routed by TO), and the log
-		// is a 5 MiB / 2-segment / 24h Partition.
+	public function test_build_scaffolding_does_not_mount_topic_probe(): void {
+		// The probe moved to TSL (`include topic-probe` per topology): worker
+		// scaffolding no longer hardwires it, so a graph without the include
+		// runs probe-free and the probe rides the ordinary declared-set path.
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 
-		$probe = Core::node( '_topicprobe' );
-		$log   = Core::node( '_topicprobe:log' );
-		$this->assertInstanceOf( TopicProbe_Node::class, $probe );
-		$this->assertInstanceOf( Partition_Node::class, $log );
-		$this->assertSame( '_topicprobe:log', $probe->target() );
-
-		// Assert RESOLVED retention props, not the raw arg string — a string
-		// check can't catch a token landing in the wrong parse slot. The probe
-		// log keeps 2 segments but retains anything under 24h (min_lifetime).
-		$ref = new \ReflectionClass( Partition_Node::class );
-		$this->assertSame( 1024 * 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
-		$this->assertSame( 2, $ref->getProperty( 'min_segments' )->getValue( $log ) );
-		$this->assertSame( 2, $ref->getProperty( 'max_segments' )->getValue( $log ) );
-		$this->assertSame( 86400, $ref->getProperty( 'min_lifetime' )->getValue( $log ) );
-		$this->assertSame( 0, $ref->getProperty( 'max_lifetime' )->getValue( $log ) );
+		$this->assertNull( Core::node( '_topicprobe' ) );
+		$this->assertNull( Core::node( '_topicprobe:log' ) );
 	}
 
 	public function test_build_scaffolding_does_not_mount_job_probe(): void {
