@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ceiling is the one retention actually enforces rather than an underestimate.
 
 ### Changed
+- **Config-toggle verbs are declared, not hand-rolled.** A node_schema command
+  entry with `'toggle' => '<property>'` now synthesizes the whole ritual the
+  three existing toggles (`set_multi_writer`, `assume_clean_shutdown`,
+  `set_line_mode`) each copy-pasted: the truthy-parse handler (one canonical
+  `Schema_Reflection::truthy()`, also backing bool arg coercion) and the
+  `dump_toggles()` round-trip fragment. The per-class handlers and dump
+  fragments are deleted; `set_line_mode` keeps its special dump (PAUSE parks
+  the live value in `saved_line_mode`) via `'dump' => false`.
 - **BREAKING: renamed the Partition/Topic/Log retention axes.** `max_lifetime` →
   `lifetime` (age rule, `0` = off) and `max_segments` → `num_segments` (count
   target; prune above it only for segments older than `min_lifetime`). The freed

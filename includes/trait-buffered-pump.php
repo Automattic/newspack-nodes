@@ -117,26 +117,9 @@ trait Buffered_Pump {
 				'args'        => [
 					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => 'A truthy value (1/true/yes/on) enables; anything else disables.' ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_assume_clean_shutdown( $interpreter, $args ),
+				'toggle'      => 'assume_clean_shutdown',
 			],
 		];
-	}
-
-	/**
-	 * `assume_clean_shutdown` verb handler — only a truthy arg enables; anything else disables.
-	 *
-	 * @param array<array-key, mixed> $args
-	 */
-	public static function cmd_assume_clean_shutdown( Command_Interpreter_Node $interpreter, array $args ): string {
-		/** @var self $patron */
-		$patron = $interpreter->patron();
-		$patron->set_assume_clean_shutdown( \in_array( \strtolower( Core::as_string( $args[0] ?? '' ) ), [ '1', 'true', 'yes', 'on' ], true ) );
-		return 'ok';
-	}
-
-	/** dump_config fragment: re-emit the verb when set, so a console dump → replay round-trips it. */
-	protected function dump_pump_config( string $name ): string {
-		return $this->assume_clean_shutdown ? "cmd {$name}:config assume_clean_shutdown 1\n" : '';
 	}
 
 	/** Timer-driven: poll, periodically checkpoint the cursor, then re-arm (busy/EOF cadence). */

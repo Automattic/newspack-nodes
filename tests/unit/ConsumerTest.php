@@ -1603,19 +1603,20 @@ class ConsumerTest extends TestCase {
 		// disables it — so an accidental click is reversible and the default is "off".
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$interpreter = new Command_Interpreter_Node();
-		$interpreter->patron( $c );
+		// The schema-synthesized toggle, via the auto-wired :config interpreter.
+		$wired = $this->read_private( $c, 'interpreter' );
+		$set   = $wired->commands()['set_line_mode'];
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, [ 'true' ] );
+		$set( $wired, [ 'true' ] );
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'an explicit truthy arg enables it' );
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, [] );
+		$set( $wired, [] );
 		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'a bare/empty verb disables it' );
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, [ 'on' ] );
+		$set( $wired, [ 'on' ] );
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ) );
 
-		Consumer_Node::cmd_set_line_mode( $interpreter, [ 'false' ] );
+		$set( $wired, [ 'false' ] );
 		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'an explicit falsey arg disables it' );
 	}
 
@@ -3849,7 +3850,7 @@ class ConsumerTest extends TestCase {
 		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$interp = Core::node( 'firehose2:config' );
 		$this->assertInstanceOf( Command_Interpreter_Node::class, $interp );
-		Consumer_Node::cmd_set_multi_writer( $interp, [ $emitted_arg ] );
+		$this->read_private( $c2, 'interpreter' )->commands()['set_multi_writer']( $interp, [ $emitted_arg ] );
 
 		$mw = new \ReflectionProperty( $c2, 'multi_writer' );
 		$mw->setAccessible( true );

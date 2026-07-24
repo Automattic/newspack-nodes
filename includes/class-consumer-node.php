@@ -702,28 +702,8 @@ class Consumer_Node extends Timer_Node {
 	public function dump_config(): string {
 		$out  = parent::dump_config();
 		$out .= $this->dump_time_travel_config( $this->name );
-		$out .= $this->dump_pump_config( $this->name );
-		if ( $this->multi_writer ) {
-			// Explicit `1`: bare/empty arg disables, flips multi_writer false.
-			$out .= "cmd {$this->name}:config set_multi_writer 1\n";
-		}
+		$out .= $this->dump_toggles();
 		return $out;
-	}
-
-	/**
-	 * `set_multi_writer` verb handler — toggle the patron's seal-grace. Only an
-	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; anything else disables,
-	 * so the default stays "off" (single-writer, immediate advance).
-	 *
-	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key, mixed>  $args        Optional bool; only a truthy value enables.
-	 */
-	public static function cmd_set_multi_writer( Command_Interpreter_Node $interpreter, array $args ): string {
-		$patron = $interpreter->patron();
-		if ( $patron instanceof self ) {
-			$patron->set_multi_writer( \in_array( \strtolower( Core::as_string( $args[0] ?? '' ) ), [ '1', 'true', 'yes', 'on' ], true ) );
-		}
-		return 'ok';
 	}
 
 	/** PLAY re-arm: the busy-cadence oneshot fire() loop. */
@@ -824,7 +804,7 @@ class Consumer_Node extends Timer_Node {
 					[
 						'name'        => 'set_multi_writer',
 						'description' => 'Enable the multi-writer seal-grace (shared logs, e.g. the firehose).',
-						'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_set_multi_writer( $interpreter, $args ),
+						'toggle'      => 'multi_writer',
 					],
 				]
 			),
