@@ -56,12 +56,12 @@ class ShellIncludeTest extends TestCase {
 	/**
 	 * @return list<string>
 	 */
-	private function run_script( string $script, bool $fatal_on_cycle = false ): array {
+	private function run_script( string $script, bool $fatal_errors = false ): array {
 		$shell = new Shell_Node();
 		$sink  = new Capture_Sink_Node();
 		$shell->sink( $sink );
 		$shell->want_reply( false );
-		$shell->fatal_on_cycle( $fatal_on_cycle );
+		$shell->fatal_errors( $fatal_errors );
 		$shell->eval_script( $script );
 		return $this->captured_lines( $sink );
 	}
@@ -99,7 +99,7 @@ class ShellIncludeTest extends TestCase {
 	}
 
 	public function test_include_cycle_throws_naming_the_chain_in_fatal_mode(): void {
-		// Loader-shaped: Topology_Loader turns fatal_on_cycle on so a cyclic
+		// Loader-shaped: Topology_Loader turns fatal_errors on so a cyclic
 		// .tsl fails loud at worker boot instead of booting a half-built graph.
 		$this->write_tsl( 'cycle-a', "include cycle-b\n" );
 		$this->write_tsl( 'cycle-b', "include cycle-a\n" );
@@ -111,7 +111,7 @@ class ShellIncludeTest extends TestCase {
 	}
 
 	public function test_include_cycle_logs_and_continues_by_default(): void {
-		// REPL-shaped: fatal_on_cycle defaults off, so an operator's `include`
+		// REPL-shaped: fatal_errors defaults off, so an operator's `include`
 		// typo logs and the session keeps running instead of dying.
 		$this->write_tsl( 'cycle-a', "include cycle-b\nmake_node Echo after-cycle\n" );
 		$this->write_tsl( 'cycle-b', "include cycle-a\n" );
@@ -128,7 +128,7 @@ class ShellIncludeTest extends TestCase {
 	}
 
 	public function test_include_of_unknown_topology_logs_and_continues_in_fatal_mode_too(): void {
-		// fatal_on_cycle only escalates a CYCLE detection; an unresolvable
+		// fatal_errors only escalates a real parse/cycle detection; an unresolvable
 		// name never reaches that branch, so fatal mode doesn't change this.
 		$lines = $this->run_script( "include no-such-topology\nmake_node Echo after-missing\n", true );
 

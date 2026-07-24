@@ -372,6 +372,27 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'token-abc', $posts[0]['body']['nonce'] );
 	}
 
+	public function test_execute_reports_a_topology_load_failure_cleanly_without_respawn(): void {
+		// A malformed .tsl fails LOUD but CLEAN: one stderr line, lock released,
+		// and NO self-respawn -- an immediate respawn would hot-loop on the same
+		// bad file; the supervisor retries on its own throttled tick.
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+
+		$worker   = new TestableWorker( $this->tmp, 'bad-topo', 0 );
+		$lock     = "{$this->tmp}/locks/bad-topo.p0.lock.d";
+		$topology = static function (): void {
+			throw new \RuntimeException( 'parse error: unterminated quote: cmd x add_profile Dont' );
+		};
+
+		$result = $worker->execute( $topology, 'http://example/spawn', 'tok' );
+
+		$this->assertSame( 'load_failed', $result['status'] );
+		$this->assertStringContainsString( 'unterminated quote', $result['error'] );
+		$this->assertFalse( \is_dir( $lock ), 'lock released for the next attempt' );
+		$this->assertSame( [], $posts, 'no self-respawn on a load failure' );
+	}
+
 	public function test_checkpoint_durable_consumers_checkpoints_remote_sources(): void {
 		// Bug C: Remote_Source isn't a Consumer_Node, so the shutdown handoff must reach
 		// it explicitly — otherwise its healthy cursor is lost on every ~10-min recycle.

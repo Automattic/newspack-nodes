@@ -39,9 +39,8 @@ class Topology_Loader {
 	): void {
 		$path = Topology_Registry::resolve( $name );
 		if ( null === $path ) {
-			throw new \RuntimeException(
-				\esc_html( "Topology_Loader: unknown topology '$name' (not in registry)" )
-			);
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( "Topology_Loader: unknown topology '$name' (not in registry)" );
 		}
 
 		// Bind the partition + fleet tokens; ns:key use registered resolvers.
@@ -53,10 +52,12 @@ class Topology_Loader {
 		// No boot console: TM_NOREPLY drops replies dead-ending on _output.
 		$shell->want_reply( false );
 		// A cyclic .tsl fails loud at boot; it must not half-build the graph.
-		$shell->fatal_on_cycle( true );
+		$shell->fatal_errors( true );
 
 		// Local-disk TSL only; remote-fetch phpcs rule doesn't apply.
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$shell->eval_script( (string) \file_get_contents( $path ) );
+		// EOF inside an open quote/continuation fails loud (fatal_errors on).
+		$shell->flush_pending();
 	}
 }

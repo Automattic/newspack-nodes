@@ -9,6 +9,7 @@ import {
 	ShellNode,
 	splitStatements,
 	tokenize,
+	tokenizeSpans,
 	quoteToken,
 } from '../shell-node';
 import { Node, serializeArgs } from '../node';
@@ -38,6 +39,97 @@ function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
 	shell.sink = sink;
 	return { shell, filled };
 }
+
+describe( 'tokenizeSpans — raw token spans (quote chars intact)', () => {
+	it( 'splits like tokenize but preserves each token verbatim', () => {
+		expect(
+			tokenizeSpans( 'cmd scorer:config add_profile "Engineers care"' )
+		).toEqual( [
+			'cmd',
+			'scorer:config',
+			'add_profile',
+			'"Engineers care"',
+		] );
+	} );
+
+	it( 'keeps single quotes and backticks so interpolation intent survives', () => {
+		expect(
+			tokenizeSpans(
+				"make_node Topic t <config:logs_dir>/jobs.p'<partition>' `lit`"
+			)
+		).toEqual( [
+			'make_node',
+			'Topic',
+			't',
+			"<config:logs_dir>/jobs.p'<partition>'",
+			'`lit`',
+		] );
+	} );
+
+	it( 'keeps escapes raw and aligns 1:1 with tokenize()', () => {
+		const line = "a 'it\\'s' \"x y\" z";
+		expect( tokenizeSpans( line ) ).toEqual( [
+			'a',
+			"'it\\'s'",
+			'"x y"',
+			'z',
+		] );
+		expect( tokenize( line ) ).toEqual( [ 'a', "it's", 'x y', 'z' ] );
+	} );
+
+	it( 'an empty quoted string is one raw span', () => {
+		expect( tokenizeSpans( "a '' b" ) ).toEqual( [ 'a', "''", 'b' ] );
+	} );
+} );
+
+describe( 'parse — backslash continuation splices with nothing', () => {
+	it( 'holds the line, then splices bash-style (hi\\ + bye = hibye)', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'echo hi\\' ) ).toBeNull();
+		expect( shell.hasPending() ).toBe( true );
+		expect( shell.pendingPrompt() ).toBe( '> ' );
+		const parsed = shell.parse( 'bye' );
+		expect( parsed ).toEqual( {
+			kind: 'local',
+			name: 'echo',
+			text: 'hibye',
+		} );
+		expect( shell.hasPending() ).toBe( false );
+	} );
+
+	it( 'flushPending reports a held backslash continuation at EOF', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'echo hi\\' ) ).toBeNull();
+		const flushed = shell.flushPending();
+		expect( flushed ).toEqual( {
+			kind: 'error',
+			text: expect.stringMatching( /got EOF while waiting for tokens/ ),
+		} );
+		expect( shell.hasPending() ).toBe( false );
+	} );
+} );
+
+describe( 'parse — an open quote continues onto the next line', () => {
+	it( 'holds the statement, then dispatches with the newline in the token', () => {
+		const { shell, filled } = makeShell();
+		expect( shell.parse( "tell node 'foo" ) ).toBeNull();
+		expect( filled ).toHaveLength( 0 );
+		const message = shell.parse( "bar'" );
+		expect( message[ VALUE ] ).toBe( 'foo\nbar' );
+	} );
+
+	it( 'flushPending reports EOF-inside-quote and clears the accumulator', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( "tell node 'foo" ) ).toBeNull();
+		expect( shell.pendingPrompt() ).toBe( "'> " );
+		const flushed = shell.flushPending();
+		expect( flushed ).toEqual( {
+			kind: 'error',
+			text: expect.stringMatching( /got EOF while waiting for tokens/ ),
+		} );
+		expect( shell.flushPending() ).toBeNull();
+	} );
+} );
 
 describe( 'quoteToken — tokenizer inverse for one intact token [#32]', () => {
 	it( 'wraps a JSON value so tokenize() returns it as a single token', () => {

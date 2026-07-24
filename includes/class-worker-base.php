@@ -32,18 +32,6 @@ class Worker_Base {
 	public const IPC_SEGMENT_SIZE       = 1048576;
 	public const LOCK_CHECK_GRACE_S     = 0.25;
 	public const MEMORY_WATERMARK_PCT   = 0.80;
-	public const TOPICPROBE_INTERVAL_S   = 15;
-
-	/**
-	 * Shared topicprobe log: 1 MiB segments × 2, aged out at 24h — a day of
-	 * consumer-stats snapshots for the dashboards' rate + backlog graphs. Single
-	 * fixed partition (.p0); every worker process appends to this one dir, so
-	 * Log_Cleaner must whitelist it (it's declared by no .tsl).
-	 */
-	public const TOPICPROBE_LOG_DIR      = 'topicprobe.p0';
-	public const TOPICPROBE_MAX_SEGMENTS = 2;
-	public const TOPICPROBE_MIN_LIFETIME = 86400;
-	public const TOPICPROBE_SEGMENT_SIZE = 1048576;
 
 	protected string $base_dir;
 
@@ -115,7 +103,23 @@ class Worker_Base {
 
 		try {
 			$interpreter = $this->build_scaffolding();
-			$this->run_topology( $topology, $interpreter );
+			try {
+				$this->run_topology( $topology, $interpreter );
+			} catch ( Worker_Should_Stop $e ) {
+				throw $e;
+			} catch ( \RuntimeException $e ) {
+				// @longform A malformed .tsl fails loud but CLEAN: one line,
+				// lock freed, NO self-respawn (a hot loop on the same bad
+				// file); the supervisor retries on its own throttled tick.
+				Core::stderr( "{$this->worker_type}.p{$this->partition}: topology load failed: " . $e->getMessage() );
+				$this->shutdown_handled = true;
+				Core::cleanup_all_nodes();
+				$this->release();
+				return [
+					'status' => 'load_failed',
+					'error'  => $e->getMessage(),
+				];
+			}
 
 			// Fresh baseline pre-processing — memory-guard for fair-shot.
 			$this->baseline_memory = \memory_get_usage( true );
@@ -344,8 +348,6 @@ class Worker_Base {
 		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );
 		$repl_in->sink( $interpreter );
 
-		$this->mount_topic_probe( $interpreter );
-
 		return $interpreter;
 	}
 
@@ -393,38 +395,6 @@ class Worker_Base {
 		$consumer->set_stamp_as( Node_Names::REPL );
 		$this->ipc_input_consumer = $consumer;
 		return $consumer;
-	}
-
-	/**
-	 * Mount this worker's TopicProbe + the shared topicprobe log. The probe sweeps
-	 * this process's Consumers every TOPICPROBE_INTERVAL_S and routes one snapshot
-	 * per tick to the log via target() (rule #2 — flow steered by TO, not a bespoke
-	 * sink). The log is shared across every worker process (multi-writer atomic
-	 * appends, the firehose pattern); 1 MiB segments × 2, aged out at 24h.
-	 *
-	 * @param Command_Interpreter_Node $interpreter The graph's interpreter (make_node host).
-	 */
-	public function mount_topic_probe( Command_Interpreter_Node $interpreter ): void {
-		$probe_dir = "{$this->base_dir}/logs/" . self::TOPICPROBE_LOG_DIR;
-		if ( ! \is_dir( $probe_dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $probe_dir, 0755, true );
-		}
-		// Dual-rule retention: keep 2 segments, but retain anything under 24h.
-		$interpreter->make_node(
-			'Partition',
-			Node_Names::TOPICPROBE_LOG,
-			$probe_dir,
-			(string) self::TOPICPROBE_SEGMENT_SIZE,
-			(string) Partition_Node::DEFAULT_MIN_SEGMENTS,
-			(string) self::TOPICPROBE_MAX_SEGMENTS,
-			(string) self::TOPICPROBE_MIN_LIFETIME,
-			'0'
-		);
-		$probe = $interpreter->make_node( 'TopicProbe', Node_Names::TOPICPROBE, (string) self::TOPICPROBE_INTERVAL_S );
-		if ( $probe instanceof TopicProbe_Node ) {
-			$probe->target( Node_Names::TOPICPROBE_LOG );
-		}
 	}
 
 	/** Invoke the topology closure (receives the interpreter + this worker's partition number). */
