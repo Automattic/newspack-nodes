@@ -7,7 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Multi-line continuations, Tachikoma-style.** An open quote continues the
+  statement onto the next line with the newline kept in the token (the REPL
+  shows a `'>`-style continuation prompt); backslash continuations now splice
+  with NOTHING (bash semantics — `hi\` + `bye` = `hibye`, previously joined
+  with a newline in the Shell and a space in the static TSL folds) and show a
+  bare `> ` prompt. EOF with a statement still open is a loud
+  `got EOF while waiting for tokens` — thrown at topology load
+  (`Shell_Node::fatal_errors()`, the widened rename of `fatal_on_cycle`),
+  reported and cleared in a REPL. `Shell_Node::flush_pending()` is the gate;
+  the topology loader, `include`, and the cli's stdin-close all call it.
+- **`tokenize_spans()` — raw token spans beside `tokenize()`.** One shared
+  scan-tokens state machine (PHP `Shell_Node` + byte-parity JS
+  `src/runtime/shell-node.js`) yields each token's unwrapped value AND its
+  raw span, quote chars and escapes intact. Quote TYPE carries interpolation
+  semantics (double interpolates `<…>`, single/backtick defer), so everything
+  that round-trips authored TSL — `Topology_Registry`'s static parse (which
+  previously shredded quoted args on whitespace: the `"Engineers` bug),
+  `parseTsl`/`serializeTsl`, the Inspector's arg fields — now carries spans
+  verbatim and never re-quotes an untouched arg.
+
 ### Changed
+- **Topology parse failures fail loud but CLEAN.** A malformed `.tsl` at
+  worker boot no longer escapes as an uncaught fatal with a full stack trace:
+  `Worker_Base::execute()` catches it, writes one stderr line, releases the
+  lock, returns `load_failed`, and deliberately does NOT self-respawn (the
+  supervisor retries on its throttled tick). Exception messages on the
+  log/CLI surface drop `esc_html()` (no more `Don&#039;t`).
+- **`Log_Cleaner` fails closed mid-deploy.** If any name in the active
+  topologies option is dropped by `get_topologies()` (its plugin momentarily
+  unregistered during a deploy — the window that twice deleted `errors.p0`),
+  the whole orphan sweep aborts with a rate-limited stderr note and retries
+  next tick. Undeclared dirs with inner writes younger than 1h stay spared
+  as a second belt.
+- **Identical shared partition declarations are not conflicts.** The topology
+  conflict gate exempts a partition BOTH topologies declare with a
+  byte-identical `make_node` line (the `include topic-probe` pattern) unless
+  either side lifts the write cap (`void_warranty`/`allow_large_writes`).
+  `topic-probe.tsl` ships as a stock include; the topicprobe whitelist is
+  gone from the GC.
+- **Dead-letter triage verbs are hidden from the generic verb list.**
+  `dl_list`/`dl_show`/`dl_requeue`/`dl_purge` carry `hidden: true` — the
+  Inspector's Triage modal drives them (locator args, two-click purge); the
+  REPL keeps them. Mirrors the time-travel transport verbs.
+- **Inspector arg fields show values, not tokenizer syntax.** Quote chars are
+  stripped at render (`argDisplayValue`), the read-only borrowed-node form
+  absorbs excess tokens into the last declared slot like the edit form, and
+  hulls stack children above their parents (include-tree depth first, true
+  polygon area as tiebreak) so inner topologies stay selectable.
+- **`errors`/`gyroscope`/`completed` journals are single-partition** —
+  hardwired `.p0` in the stock topologies; partitioning did nothing for them.
+
 - **Dead-letter alerts name the owning queue.** `deadletter` was one anonymous
   fleet-wide total; it is now one alert per quarantined reader —
   `deadletter:{reader}` keyed, count + reader in the message — so the journal

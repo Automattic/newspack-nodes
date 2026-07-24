@@ -30,16 +30,21 @@ import {
 import names from './reserved-node-names.json';
 
 /**
- * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the
- * quote chars; an empty quoted string still counts as a token. Mirrors PHP
- * Shell_Node::tokenize so verb/arg slicing matches byte-for-byte.
+ * The one tokenizer state machine ('/"/` + backslash escapes): splits on
+ * unquoted whitespace; an empty quoted string still counts as a token. Yields
+ * both forms per token — `value` (quote chars stripped, escapes resolved;
+ * mirrors PHP Shell_Node::tokenize byte-for-byte) and `raw` (the span
+ * verbatim, so quote TYPE survives: double quotes interpolate `<…>`, single
+ * quotes/backticks defer them — see interpolate()).
  *
- * @param {string} line Interpolated, trimmed line.
- * @return {string[]} Tokens with quote chars removed and runs collapsed.
+ * @param {string} line Trimmed line.
+ * @return {{tokens: Array<{value: string, raw: string}>, openQuote: ?string}}
+ *         Token pairs, plus the quote char of a run left open at EOL (or null).
  */
-export function tokenize( line ) {
+export function scanTokens( line ) {
 	const tokens = [];
 	let buf = '';
+	let raw = '';
 	let inQuote = null;
 	let inToken = false;
 	for ( let i = 0; i < line.length; i++ ) {
@@ -47,9 +52,11 @@ export function tokenize( line ) {
 		if ( null !== inQuote ) {
 			// Inside a quote, `\` escapes the next char (see serializeArg).
 			if ( '\\' === ch && i + 1 < line.length ) {
+				raw += ch + line[ i + 1 ];
 				buf += line[ ++i ];
 				continue;
 			}
+			raw += ch;
 			if ( ch === inQuote ) {
 				inQuote = null;
 			} else {
@@ -60,23 +67,50 @@ export function tokenize( line ) {
 		if ( '"' === ch || "'" === ch || '`' === ch ) {
 			inQuote = ch;
 			inToken = true; // empty quoted string still counts as a token.
+			raw += ch;
 			continue;
 		}
 		if ( ' ' === ch || '\t' === ch ) {
 			if ( inToken ) {
-				tokens.push( buf );
+				tokens.push( { value: buf, raw } );
 				buf = '';
+				raw = '';
 				inToken = false;
 			}
 			continue;
 		}
 		buf += ch;
+		raw += ch;
 		inToken = true;
 	}
 	if ( inToken ) {
-		tokens.push( buf );
+		tokens.push( { value: buf, raw } );
 	}
-	return tokens;
+	return { tokens, openQuote: inQuote };
+}
+
+/**
+ * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the
+ * quote chars; an empty quoted string still counts as a token. Mirrors PHP
+ * Shell_Node::tokenize so verb/arg slicing matches byte-for-byte.
+ *
+ * @param {string} line Interpolated, trimmed line.
+ * @return {string[]} Tokens with quote chars removed and runs collapsed.
+ */
+export function tokenize( line ) {
+	return scanTokens( line ).tokens.map( ( t ) => t.value );
+}
+
+/**
+ * tokenize(), but each token is its RAW span, quote chars and escapes intact.
+ * For TSL round-trips: the quote type carries interpolation semantics, so an
+ * editor must reproduce the authored span verbatim, never re-quote it.
+ *
+ * @param {string} line Trimmed line.
+ * @return {string[]} Raw spans, index-aligned with tokenize().
+ */
+export function tokenizeSpans( line ) {
+	return scanTokens( line ).tokens.map( ( t ) => t.raw );
 }
 
 /**
@@ -155,6 +189,12 @@ export class ShellNode extends Node {
 		this.showParse = false;
 		// Interactive REPLs want replies; a script/topology loader unsets it.
 		this._wantReply = true;
+		// Open-quote continuation (raw); resumes on the next line.
+		this.quoteContinuation = '';
+		// The open quote char while continuing ('' = none); drives the prompt.
+		this.pendingQuote = '';
+		// Backslash continuation: ONE trailing \<newline> splices with nothing.
+		this.lineContinuation = '';
 		// Dispatch tap: invoked with every outgoing Message before the sink.
 		this.onDispatch = null;
 	}
@@ -188,12 +228,34 @@ export class ShellNode extends Node {
 	 * @return {Object|Array|null} `{ kind: 'local'|'error', … }`, a Message, or null.
 	 */
 	parse( line ) {
+		let raw = line || '';
+		// Backslash splice first (bash: hi\ + bye = hibye), mirroring PHP.
+		if ( raw.endsWith( '\\' ) && '' === this.quoteContinuation ) {
+			this.lineContinuation += raw.slice( 0, -1 );
+			return null;
+		}
+		if ( '' !== this.lineContinuation ) {
+			raw = this.lineContinuation + raw;
+			this.lineContinuation = '';
+		}
+		if ( '' !== this.quoteContinuation ) {
+			raw = this.quoteContinuation + '\n' + raw;
+			this.quoteContinuation = '';
+		}
 		// Interpolate first so `<var>` can expand into leading whitespace.
-		const trimmed = this.interpolate( line || '' ).trim();
+		const trimmed = this.interpolate( raw ).trim();
 		if ( ! trimmed || '#' === trimmed[ 0 ] ) {
 			return null;
 		}
-		const tokens = tokenize( trimmed );
+		const scanned = scanTokens( trimmed );
+		if ( scanned.openQuote ) {
+			// Tachikoma parity: continue on the next line; interpolate ONCE.
+			this.quoteContinuation = raw;
+			this.pendingQuote = scanned.openQuote;
+			return null;
+		}
+		this.pendingQuote = '';
+		const tokens = scanned.tokens.map( ( t ) => t.value );
 		if ( 0 === tokens.length ) {
 			return null;
 		}
@@ -380,6 +442,46 @@ export class ShellNode extends Node {
 		message[ TO ] = this.prefix( '' );
 		message[ VALUE ] = { name: verb, arguments: args };
 		return this.stampNoreply( message );
+	}
+
+	/**
+	 * End-of-input gate: a held continuation at EOF is Tachikoma's
+	 * `got EOF while waiting for tokens` — report it and clear.
+	 *
+	 * @return {Object|null} An error signal, or null when nothing was pending.
+	 */
+	flushPending() {
+		const pending = (
+			this.quoteContinuation || this.lineContinuation
+		).trim();
+		this.quoteContinuation = '';
+		this.lineContinuation = '';
+		this.pendingQuote = '';
+		if ( '' === pending ) {
+			return null;
+		}
+		return {
+			kind: 'error',
+			text: `got EOF while waiting for tokens: ${ pending }`,
+		};
+	}
+
+	/** True while a quote/backslash continuation holds an open statement. */
+	hasPending() {
+		return '' !== this.quoteContinuation || '' !== this.lineContinuation;
+	}
+
+	/**
+	 * The continuation prompt while a statement is held: the open quote char
+	 * (`'> `) or a bare `> ` for a backslash splice; '' when nothing pends.
+	 *
+	 * @return {string} Prompt text for the host to render.
+	 */
+	pendingPrompt() {
+		if ( '' !== this.quoteContinuation ) {
+			return `${ this.pendingQuote }> `;
+		}
+		return '' !== this.lineContinuation ? '> ' : '';
 	}
 
 	/**

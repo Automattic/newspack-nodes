@@ -60,6 +60,17 @@ class ShellTest extends TestCase {
 		$this->assertSame( [ 'a', 'b', 'c' ], $shell->tokenize( "a   b\tc" ) );
 	}
 
+	public function test_tokenize_spans_keeps_quote_chars_and_escapes_raw(): void {
+		$this->assertSame(
+			[ 'cmd', 'scorer:config', 'add_profile', '"Engineers care"' ],
+			Shell_Node::tokenize_spans( 'cmd scorer:config add_profile "Engineers care"' )
+		);
+		$this->assertSame(
+			[ "<config:logs_dir>/jobs.p'<partition>'", "'it\\'s'" ],
+			Shell_Node::tokenize_spans( "<config:logs_dir>/jobs.p'<partition>'  'it\\'s'" )
+		);
+	}
+
 	public function test_tokenize_double_quoted_string_is_one_token(): void {
 		$shell = new Shell_Node();
 		$this->assertSame( [ 'send', 'node', 'hello world' ], $shell->tokenize( 'send node "hello world"' ) );
@@ -262,6 +273,55 @@ class ShellTest extends TestCase {
 		return $capture;
 	}
 
+	public function test_parse_continues_an_open_quote_across_lines(): void {
+		// Tachikoma parity: an open quote continues the statement onto the next
+		// line (the `'>` prompt), newline included in the token.
+		$shell = new Shell_Node();
+
+		$this->assertNull( $shell->parse( "tell node 'foo" ) );
+		$this->assertSame( "'> ", $shell->prompt, 'continuation prompt while the quote is open' );
+
+		$message = $shell->parse( "bar'" );
+		$this->assertNotNull( $message );
+		$this->assertSame( "foo\nbar", $message[ Message::VALUE ] );
+		$this->assertSame( '/> ', $shell->prompt, 'prompt restored after the quote closes' );
+	}
+
+	public function test_eval_script_carries_a_quoted_newline_through_one_statement(): void {
+		$capture = new Capture_Sink_Node();
+		$shell   = new Shell_Node();
+		$shell->sink( $capture );
+
+		$shell->eval_script( "tell node 'foo\nbar; baz'\n" );
+
+		$this->assertCount( 1, $capture->captured, 'a quoted ; or newline must not split the statement' );
+		$this->assertSame( "foo\nbar; baz", $capture->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_flush_pending_throws_on_eof_inside_a_quote_in_script_context(): void {
+		// Tachikoma: `ERROR: got EOF while waiting for tokens`.
+		$shell = new Shell_Node();
+		$shell->sink( new Capture_Sink_Node() );
+		$shell->fatal_errors( true );
+		$shell->eval_script( "cmd digest:config add_profile Don't produce tables." );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'got EOF while waiting for tokens' );
+		$shell->flush_pending();
+	}
+
+	public function test_flush_pending_reports_and_clears_interactively(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$this->assertNull( $shell->parse( "tell node 'foo" ) );
+		$shell->flush_pending();
+
+		$out = \implode( '', \array_column( $capture->captured, Message::VALUE ) );
+		$this->assertStringContainsString( 'got EOF while waiting for tokens', $out );
+		$this->assertSame( '/> ', $shell->prompt );
+		$this->assertNotNull( $shell->parse( "tell node ok" ), 'accumulator cleared; the next statement parses fresh' );
+	}
+
 	public function test_parse_status_writes_status_lines_to_output_returns_null(): void {
 		// `status` is a local-only builtin: it routes the shell's pre-populated
 		// $status_lines through the `_output` Dumper and returns null (no command
@@ -387,6 +447,22 @@ class ShellTest extends TestCase {
 		$message = $shell->parse( 'tell <who> hi');
 		$this->assertSame( 'bob', $message[ Message::TO ] );
 		$this->assertSame( 'hi', $message[ Message::VALUE ] );
+	}
+
+	public function test_backslash_continuation_splices_with_nothing_like_bash(): void {
+		// bash + Tachikoma: `echo hi\` + `bye` -> `hibye`, and the pending
+		// continuation shows a bare `> ` prompt.
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$this->assertNull( $shell->parse( 'echo hi\\' ) );
+		$this->assertSame( '> ', $shell->prompt, 'bare continuation prompt while pending' );
+
+		$this->assertNull( $shell->parse( 'bye' ), 'echo is a local builtin' );
+		$this->assertSame( '/> ', $shell->prompt, 'prompt restored' );
+
+		$out = \implode( '', \array_column( $capture->captured, Message::VALUE ) );
+		$this->assertSame( "hibye\n", $out );
 	}
 
 	public function test_backslash_continuation_yields_null_until_terminating_line(): void {

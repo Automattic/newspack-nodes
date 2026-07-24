@@ -27,12 +27,23 @@ class Shell_Node extends Node {
 	private string $continuation = '';
 
 	/**
-	 * Cycle handling: REPLs log-and-continue (safe default) so a typo'd
-	 * include doesn't kill the session; Topology_Loader turns this on so a
-	 * cyclic .tsl fails loud at worker boot rather than booting a half-built
-	 * graph. Mirrors the want_reply() setter shape.
+	 * Open-quote continuation accumulator (raw, pre-interpolation). Tachikoma
+	 * parity: an open quote continues the statement onto the next line, newline
+	 * included in the token; flush_pending() errors if EOF arrives first.
 	 */
-	private bool $fatal_on_cycle = false;
+	private string $quote_continuation = '';
+
+	/** Prompt to restore when the open quote closes ('' = none stashed). */
+	private string $prompt_stash = '';
+
+	/**
+	 * Script-context error handling: REPLs log-and-continue (safe default) so
+	 * a typo'd include or quote doesn't kill the session; Topology_Loader
+	 * turns this on so a cyclic include or an unterminated quote in a .tsl
+	 * fails loud at worker boot rather than booting a half-built or silently
+	 * mangled graph. Mirrors the want_reply() setter shape.
+	 */
+	private bool $fatal_errors = false;
 
 	/**
 	 * Resolved include paths on the current ancestor chain — a repeat is a cycle.
@@ -81,9 +92,12 @@ class Shell_Node extends Node {
 			throw new \RuntimeException( 'Shell::fill requires a valid message' );
 		}
 		if ( Message::TM_EOF === $type ) {
+			$sink = $this->sink;
+			// Stdin closed mid-statement: report before draining.
+			$this->flush_pending();
 			$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
 			$message[ Message::TO ]   = $this->path;
-			$this->sink->fill( $message );
+			$sink->fill( $message );
 			return;
 		}
 		if ( Message::TM_BYTESTREAM !== $type || ! \is_string( $value ) ) {
@@ -111,19 +125,24 @@ class Shell_Node extends Node {
 	 */
 	public function split_statements( string $script ): array {
 		$statements = [];
+		$buf        = '';
+		$in_quote   = null;
 		foreach ( \explode( "\n", $script ) as $line ) {
-			$leading = \ltrim( $line );
-			if ( '' === $leading ) {
-				continue;
+			if ( null !== $in_quote ) {
+				// Mid-quote: the newline is token content, keep accumulating.
+				$buf .= "\n";
+			} else {
+				$leading = \ltrim( $line );
+				if ( '' === $leading ) {
+					continue;
+				}
+				if ( '#' === $leading[0] ) {
+					// Whole-line comment — don't scan for `;` inside it.
+					$statements[] = \trim( $line );
+					continue;
+				}
 			}
-			if ( '#' === $leading[0] ) {
-				// Whole-line comment — don't scan for `;` inside it.
-				$statements[] = \trim( $line );
-				continue;
-			}
-			$buf      = '';
-			$in_quote = null;
-			$length      = \strlen( $line );
+			$length = \strlen( $line );
 			for ( $i = 0; $i < $length; ++$i ) {
 				$ch = $line[ $i ];
 				if ( null !== $in_quote ) {
@@ -153,10 +172,18 @@ class Shell_Node extends Node {
 				}
 				$buf .= $ch;
 			}
-			$tail = \trim( $buf );
-			if ( '' !== $tail ) {
-				$statements[] = $tail;
+			if ( null === $in_quote ) {
+				$tail = \trim( $buf );
+				if ( '' !== $tail ) {
+					$statements[] = $tail;
+				}
+				$buf = '';
 			}
+		}
+		// EOF mid-quote: parse() holds the tail; flush_pending() judges it.
+		$tail = \trim( $buf );
+		if ( '' !== $tail ) {
+			$statements[] = $tail;
 		}
 		return $statements;
 	}
@@ -167,15 +194,24 @@ class Shell_Node extends Node {
 	 * @return array<int, mixed>|null The 7-field positional Message, or null.
 	 */
 	public function parse( string $line ): ?array {
-		// Backslash continuation: accumulate, return null (caller reads next).
+		// Backslash splice: the \<newline> vanishes (bash: hi\+bye = hibye).
 		if ( \str_ends_with( $line, '\\' ) ) {
-			$this->continuation .= \substr( $line, 0, -1 ) . "\n";
+			$this->continuation .= \substr( $line, 0, -1 );
+			if ( '' === $this->prompt_stash ) {
+				$this->prompt_stash = $this->prompt;
+			}
+			$this->prompt = '> ';
 			return null;
 		}
 		if ( '' !== $this->continuation ) {
 			$line               = $this->continuation . $line;
 			$this->continuation = '';
 		}
+		if ( '' !== $this->quote_continuation ) {
+			$line                     = $this->quote_continuation . "\n" . $line;
+			$this->quote_continuation = '';
+		}
+		$raw = $line;
 
 		$line = $this->interpolate( $line );
 
@@ -185,7 +221,21 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		$tokens = $this->tokenize( $line );
+		$open_quote = null;
+		$tokens     = \array_column( self::scan_tokens( $line, $open_quote ), 'value' );
+		if ( null !== $open_quote ) {
+			// Continue on the next line (raw, so the join interpolates ONCE).
+			if ( '' === $this->prompt_stash ) {
+				$this->prompt_stash = $this->prompt;
+			}
+			$this->quote_continuation = $raw;
+			$this->prompt             = "{$open_quote}> ";
+			return null;
+		}
+		if ( '' !== $this->prompt_stash ) {
+			$this->prompt       = $this->prompt_stash;
+			$this->prompt_stash = '';
+		}
 		if ( empty( $tokens ) ) {
 			return null;
 		}
@@ -394,25 +444,33 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
+	 * The one tokenizer state machine ('/"/` + backslash escapes): splits on
+	 * unquoted whitespace; an empty quoted string still counts as a token.
+	 * Yields both forms per token — `value` (quote chars stripped, escapes
+	 * resolved) and `raw` (the span verbatim, so quote TYPE survives: double
+	 * quotes interpolate `<…>`, single quotes/backticks defer — see
+	 * interpolate()). Mirrors src/runtime/shell-node.js scanTokens.
 	 *
-	 * @return array<int, string>
+	 * @return list<array{value: string, raw: string}>
 	 */
-	public function tokenize( string $line ): array {
+	private static function scan_tokens( string $line, ?string &$open_quote = null ): array {
 		$tokens   = [];
 		$buf      = '';
+		$raw      = '';
 		$in_quote = null;
 		$in_token = false;
-		$length      = \strlen( $line );
+		$length   = \strlen( $line );
 
 		for ( $i = 0; $i < $length; ++$i ) {
 			$ch = $line[ $i ];
 			if ( null !== $in_quote ) {
 				// Inside a quote, `\` escapes the next char.
 				if ( '\\' === $ch && $i + 1 < $length ) {
+					$raw .= $ch . $line[ $i + 1 ];
 					$buf .= $line[ ++$i ];
 					continue;
 				}
+				$raw .= $ch;
 				if ( $ch === $in_quote ) {
 					$in_quote = null;
 				} else {
@@ -423,25 +481,56 @@ class Shell_Node extends Node {
 			if ( '"' === $ch || "'" === $ch || '`' === $ch ) {
 				$in_quote = $ch;
 				$in_token = true; // empty quoted string counts as a token.
+				$raw     .= $ch;
 				continue;
 			}
 			if ( ' ' === $ch || "\t" === $ch ) {
 				if ( $in_token ) {
-					$tokens[] = $buf;
+					$tokens[] = [
+						'value' => $buf,
+						'raw'   => $raw,
+					];
 					$buf      = '';
+					$raw      = '';
 					$in_token = false;
 				}
 				continue;
 			}
 			$buf      .= $ch;
+			$raw      .= $ch;
 			$in_token  = true;
 		}
 
 		if ( $in_token ) {
-			$tokens[] = $buf;
+			$tokens[] = [
+				'value' => $buf,
+				'raw'   => $raw,
+			];
 		}
 
+		$open_quote = $in_quote;
 		return $tokens;
+	}
+
+	/**
+	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
+	 *
+	 * @return list<string>
+	 */
+	public function tokenize( string $line ): array {
+		return \array_column( self::scan_tokens( $line ), 'value' );
+	}
+
+	/**
+	 * tokenize(), but each token is its RAW span, quote chars and escapes
+	 * intact. For static TSL parsing (Topology_Registry) and any editor
+	 * round-trip: the quote type carries interpolation semantics, so a span
+	 * must be reproduced verbatim, never re-quoted.
+	 *
+	 * @return list<string>
+	 */
+	public static function tokenize_spans( string $line ): array {
+		return \array_column( self::scan_tokens( $line ), 'raw' );
 	}
 
 	public function stdout( string $line ): void {
@@ -470,8 +559,9 @@ class Shell_Node extends Node {
 				' -> ',
 				\array_map( static fn ( string $p ): string => \basename( $p ), [ ...$this->include_stack, $key ] )
 			);
-			if ( $this->fatal_on_cycle ) {
-				throw new \RuntimeException( \esc_html( "topology include cycle: $chain" ) );
+			if ( $this->fatal_errors ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \RuntimeException( "topology include cycle: $chain" );
 			}
 			$this->print_less_often( 'Shell: include: cycle: ', $chain );
 			return;
@@ -493,10 +583,37 @@ class Shell_Node extends Node {
 				$line = \rtrim( $line, "\r\n" );
 				$this->eval_script( $line );
 			}
+			// A quote/continuation left open at include EOF never resolves.
+			$this->flush_pending();
 		} finally {
 			\array_pop( $this->include_stack );
 			\fclose( $fh );
 		}
+	}
+
+	/**
+	 * End-of-input gate: an accumulator still holding a statement means EOF
+	 * arrived inside an open quote or backslash continuation. Script context
+	 * (fatal_errors) throws — Tachikoma's `got EOF while waiting for tokens` —
+	 * so a mangled .tsl never half-loads; a REPL reports, clears, and resets
+	 * the prompt.
+	 */
+	public function flush_pending(): void {
+		$pending = '' !== $this->quote_continuation ? $this->quote_continuation : $this->continuation;
+		if ( '' === $pending ) {
+			return;
+		}
+		$this->quote_continuation = '';
+		$this->continuation       = '';
+		if ( '' !== $this->prompt_stash ) {
+			$this->prompt       = $this->prompt_stash;
+			$this->prompt_stash = '';
+		}
+		if ( $this->fatal_errors ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; esc_html() would render quotes as &#039;.
+			throw new \RuntimeException( 'got EOF while waiting for tokens: ' . \trim( $pending ) );
+		}
+		$this->stdout( 'got EOF while waiting for tokens: ' . \trim( $pending ) . "\n" );
 	}
 
 	/** A topology NAME resolves through the registry; a literal path is taken as-is. */
@@ -586,11 +703,11 @@ class Shell_Node extends Node {
 	}
 
 	/** Accessor: interactive sessions log-and-continue on a cycle; topology loads fail loud. */
-	public function fatal_on_cycle( ?bool $value = null ): bool {
+	public function fatal_errors( ?bool $value = null ): bool {
 		if ( null !== $value ) {
-			$this->fatal_on_cycle = $value;
+			$this->fatal_errors = $value;
 		}
-		return $this->fatal_on_cycle;
+		return $this->fatal_errors;
 	}
 
 	/**
