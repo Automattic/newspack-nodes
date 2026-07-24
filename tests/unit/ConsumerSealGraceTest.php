@@ -214,11 +214,12 @@ class ConsumerSealGraceTest extends TestCase {
 		$interp = new \Newspack_Nodes\Command_Interpreter_Node();
 		$interp->patron( $c );
 
-		$this->assertSame( 'ok', Consumer_Node::cmd_set_multi_writer( $interp, [ 'true' ] ) );
+		$set = $this->read_private( $c, 'interpreter' )->commands()['set_multi_writer'];
+		$this->assertSame( 'ok', $set( $interp, [ 'true' ] ) );
 		$prop = new \ReflectionProperty( Consumer_Node::class, 'multi_writer' );
 		$this->assertTrue( $prop->getValue( $c ) );
 
-		Consumer_Node::cmd_set_multi_writer( $interp, [ 'nope' ] );
+		$set( $interp, [ 'nope' ] );
 		$this->assertFalse( $prop->getValue( $c ), 'non-truthy disables' );
 	}
 }

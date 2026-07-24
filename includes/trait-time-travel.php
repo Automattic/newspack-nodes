@@ -397,22 +397,6 @@ trait Time_Travel {
 	}
 
 	/**
-	 * `set_line_mode` verb handler — toggle the patron's line-mode framing. Only an
-	 * explicit truthy arg (`1`/`true`/`yes`/`on`) enables it; a bare/empty verb or any
-	 * other value disables it, so the default is "off" and an accidental enable is reversible.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key, mixed>  $args        Optional bool; only a truthy value enables.
-	 */
-	public static function cmd_set_line_mode( Command_Interpreter_Node $interpreter, array $args ): string {
-		/** @var self $patron */
-		$patron  = $interpreter->patron();
-		$enabled = \in_array( \strtolower( Core::as_string( $args[0] ?? '' ) ), [ '1', 'true', 'yes', 'on' ], true );
-		$patron->set_line_mode( $enabled );
-		return 'ok';
-	}
-
-	/**
 	 * `SEEK_FRAME` verb handler — seek the patron reader to a frame.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
@@ -481,7 +465,9 @@ trait Time_Travel {
 				'args'        => [
 					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_set_line_mode( $interpreter, $args ),
+				'toggle'      => 'line_mode',
+				// dump_time_travel_config owns the dump (PAUSE parks it).
+				'dump'        => false,
 			],
 			[
 				'name'        => 'SEEK_FRAME',

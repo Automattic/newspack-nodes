@@ -248,4 +248,92 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( 'schema-probe:config', $interpreter->name() );
 		$this->assertSame( [ 'real', 'help' ], \array_keys( $interpreter->commands() ) );
 	}
+
+	// ── declarative toggle verbs: node_schema is the WHOLE ritual ──────────
+
+	/** Anon node class with one schema-declared toggle and NO handler/fragment. */
+	private function toggle_node(): Node {
+		return new class extends Node {
+			use Schema_Reflection;
+
+			protected bool $turbo_mode = false;
+
+			public function set_turbo_mode( bool $flag ): void {
+				$this->turbo_mode = $flag;
+			}
+
+			public function wire(): void {
+				$this->auto_wire_interpreter();
+			}
+
+			public function interpreter(): ?Command_Interpreter_Node {
+				return $this->interpreter;
+			}
+
+			public function dump(): string {
+				return $this->dump_toggles();
+			}
+
+			public static function node_schema(): array {
+				return [
+					'category'    => 'Test',
+					'description' => 'toggle probe',
+					'arguments'   => [],
+					'commands'    => [
+						[
+							'name'        => 'set_turbo_mode',
+							'description' => 'Truthy enables.',
+							'toggle'      => 'turbo_mode',
+						],
+					],
+				];
+			}
+		};
+	}
+
+	public function test_schema_toggle_synthesizes_the_verb_handler(): void {
+		$node = $this->toggle_node();
+		$node->name( 'toggle-probe' );
+		$node->wire();
+
+		$interpreter = $node->interpreter();
+		$this->assertNotNull( $interpreter );
+		$commands = $interpreter->commands();
+		$this->assertArrayHasKey( 'set_turbo_mode', $commands );
+
+		$this->assertSame( 'ok', $commands['set_turbo_mode']( $interpreter, [ 'yes' ] ) );
+		$this->assertTrue( $this->read_private( $node, 'turbo_mode' ) );
+
+		$commands['set_turbo_mode']( $interpreter, [ 'off' ] );
+		$this->assertFalse( $this->read_private( $node, 'turbo_mode' ), 'a non-truthy arg disables' );
+	}
+
+	public function test_schema_toggle_emits_the_dump_config_fragment(): void {
+		$node = $this->toggle_node();
+		$node->name( 'toggle-probe' );
+		$node->wire();
+
+		$this->assertSame( '', $node->dump(), 'default-off toggles emit nothing' );
+
+		$commands = $node->interpreter()->commands();
+		$commands['set_turbo_mode']( $node->interpreter(), [ '1' ] );
+		$this->assertSame( "cmd toggle-probe:config set_turbo_mode 1\n", $node->dump() );
+	}
+
+	public function test_truthy_is_the_one_canonical_bool_parse(): void {
+		$this->assertTrue( Schema_Reflection_Probe::truthy_probe( 'YES' ) );
+		$this->assertTrue( Schema_Reflection_Probe::truthy_probe( '1' ) );
+		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( '0' ) );
+		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( '' ) );
+		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( 'nope' ) );
+	}
+}
+
+/** Concrete host exposing Schema_Reflection::truthy() for the parse test. */
+class Schema_Reflection_Probe {
+	use Schema_Reflection;
+
+	public static function truthy_probe( string $token ): bool {
+		return self::truthy( $token );
+	}
 }

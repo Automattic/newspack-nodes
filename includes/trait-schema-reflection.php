@@ -76,9 +76,35 @@ trait Schema_Reflection {
 		return match ( $type ) {
 			'int'   => (int) $token,
 			'float' => (float) $token,
-			'bool'  => \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true ),
+			'bool'  => self::truthy( $token ),
 			default => $token,
 		};
+	}
+
+	/** THE bool parse for schema args and toggle verbs (JS mirror: node.js truthy). */
+	protected static function truthy( string $token ): bool {
+		return \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true );
+	}
+
+	/**
+	 * Round-trippable `cmd {name}:config <verb> 1` lines for every schema-declared
+	 * toggle currently ON — the dump_config fragment the old per-toggle ritual
+	 * (handler + fragment + truthy-parse) hand-rolled per class. node_schema()'s
+	 * `toggle` key is the whole declaration.
+	 */
+	protected function dump_toggles(): string {
+		$out      = '';
+		$commands = static::node_schema()['commands'] ?? [];
+		foreach ( \is_array( $commands ) ? $commands : [] as $verb ) {
+			if ( ! \is_array( $verb ) ) {
+				continue;
+			}
+			$prop = Core::as_string( $verb['toggle'] ?? '' );
+			if ( '' !== $prop && ( $verb['dump'] ?? true ) && ( $this->{$prop} ?? false ) ) {
+				$out .= "cmd {$this->name}:config " . Core::as_string( $verb['name'] ?? '' ) . " 1\n";
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -128,7 +154,22 @@ trait Schema_Reflection {
 				continue;
 			}
 			$name = Core::as_string( $verb['name'] ?? '' );
-			if ( '' === $name || ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
+			if ( '' === $name ) {
+				continue;
+			}
+			$prop = Core::as_string( $verb['toggle'] ?? '' );
+			if ( '' !== $prop ) {
+				// Declarative toggle: synthesize the truthy-set handler.
+				$table[ $name ] = static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $prop ): string {
+					$patron = $interpreter->patron();
+					if ( $patron instanceof static ) {
+						$patron->{"set_{$prop}"}( self::truthy( Core::as_string( $args[0] ?? '' ) ) );
+					}
+					return 'ok';
+				};
+				continue;
+			}
+			if ( ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
 				continue;
 			}
 			$table[ $name ] = $verb['handler'];
