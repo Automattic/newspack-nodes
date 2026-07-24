@@ -44,15 +44,52 @@ class TopologyRegistryConflictsTest extends TestCase {
 		$this->assertSame( [], Topology_Registry::find_conflicts( [ 'rb', 'jr' ] ) );
 	}
 
-	public function test_conflict_when_two_topologies_write_the_same_partition(): void {
+	public function test_conflict_when_two_topologies_write_the_same_partition_with_different_geometry(): void {
+		// Same path, DIFFERENT retention args: the two graphs would fight over
+		// rotation/pruning — a real conflict, refused.
 		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\nmake_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
-		$this->write_tsl( 'rb', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'rb', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1048576 2 4 0 0" );
 
 		$conflicts = Topology_Registry::find_conflicts( [ 'combined', 'rb' ] );
 		$this->assertCount( 1, $conflicts );
 		$this->assertSame( 'combined', $conflicts[0]['a'] );
 		$this->assertSame( 'rb', $conflicts[0]['b'] );
 		$this->assertContains( 'partition:<config:logs_dir>/requests.p<partition>', $conflicts[0]['shared'] );
+	}
+
+	public function test_identical_shared_partition_declaration_is_not_a_conflict(): void {
+		// The topic-probe pattern: every topology pulls the SAME declaration
+		// (typically via `include topic-probe`). Same path + byte-identical
+		// args = one shared multi-writer log — atomic ≤PIPE_BUF appends and
+		// the rotate lock make that safe, so it must not refuse the fleet.
+		$probe = "make_node Partition  _topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 2 86400 0";
+		$this->write_tsl( 'workers-a', "{$probe}\nmake_node Partition a:partition <config:logs_dir>/a.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'workers-b', "{$probe}\nmake_node Partition b:partition <config:logs_dir>/b.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+
+		$this->assertSame( [], Topology_Registry::find_conflicts( [ 'workers-a', 'workers-b' ] ) );
+	}
+
+	public function test_identical_declaration_with_void_warranty_still_conflicts(): void {
+		// Lifting the PIPE_BUF cap (void_warranty) means non-atomic writes —
+		// safe only with a sole writer, so sharing is refused even when the
+		// declarations match byte-for-byte.
+		$line = "make_node Partition big:partition <config:logs_dir>/big.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>";
+		$this->write_tsl( 'writer-a', "{$line}\ncmd big:partition:config void_warranty" );
+		$this->write_tsl( 'writer-b', $line );
+
+		$conflicts = Topology_Registry::find_conflicts( [ 'writer-a', 'writer-b' ] );
+		$this->assertCount( 1, $conflicts );
+		$this->assertContains( 'partition:<config:logs_dir>/big.p<partition>', $conflicts[0]['shared'] );
+	}
+
+	public function test_identical_declaration_with_allow_large_writes_still_conflicts(): void {
+		$line = "make_node Partition big:partition <config:logs_dir>/big.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>";
+		$this->write_tsl( 'writer-a', $line );
+		$this->write_tsl( 'writer-b', "{$line}\ncmd big:partition:config allow_large_writes" );
+
+		$conflicts = Topology_Registry::find_conflicts( [ 'writer-a', 'writer-b' ] );
+		$this->assertCount( 1, $conflicts );
+		$this->assertContains( 'partition:<config:logs_dir>/big.p<partition>', $conflicts[0]['shared'] );
 	}
 
 	public function test_conflict_when_two_consumers_share_an_offsetlog(): void {
@@ -187,14 +224,17 @@ class TopologyRegistryConflictsTest extends TestCase {
 	}
 
 	/** Two fleets WRITING one log is still a conflict — only the cursor is fleet-scoped. */
-	public function test_topology_token_does_not_excuse_a_shared_partition(): void {
-		$partition = "make_node Partition shared:partition <config:logs_dir>/requests.p<partition> 1 2 3 4 5\n";
-		$this->write_tsl( 'alpha-fleet', $partition );
-		$this->write_tsl( 'beta-fleet', $partition );
+	public function test_topology_token_does_not_excuse_a_disagreeing_partition(): void {
+		// `<topology>` fleet-scopes CURSORS only. A partition path carries no
+		// token, so two fleets declaring it with DIFFERENT geometry still
+		// collide. (Byte-identical declarations are the sanctioned sharing
+		// path — see the topic-probe tests above.)
+		$this->write_tsl( 'alpha-fleet', "make_node Partition shared:partition <config:logs_dir>/requests.p<partition> 1 2 3 4 5\n" );
+		$this->write_tsl( 'beta-fleet', "make_node Partition shared:partition <config:logs_dir>/requests.p<partition> 9 2 3 4 5\n" );
 
 		$this->assertNotEmpty(
 			Topology_Registry::find_conflicts( [ 'alpha-fleet', 'beta-fleet' ] ),
-			'two fleets writing one log is a real collision'
+			'two fleets disagreeing over one log is a real collision'
 		);
 	}
 

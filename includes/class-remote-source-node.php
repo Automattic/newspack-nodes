@@ -606,8 +606,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 					[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
 				]
 			),
-			// Time-travel + pump + DLQ triage verbs, shared with Consumer.
-			'commands'    => \array_merge( self::time_travel_verbs(), self::deadletter_verbs(), self::pump_verbs() ),
+			// DLQ triage + time-travel + pump verbs, shared with Consumer.
+			'commands'    => \array_merge( self::deadletter_verbs(), self::time_travel_verbs(), self::pump_verbs() ),
 		] );
 	}
 }

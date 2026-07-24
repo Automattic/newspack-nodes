@@ -215,7 +215,7 @@ class TopologiesActivateTest extends TestCase {
 		// regression that let the manager toggle create the conflict stays closed.
 		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
 		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\n{$partition}\n" );
-		\file_put_contents( "{$this->stock}/beta.tsl", "var num_partitions = 2\n{$partition}\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1048576 2 4 0 0\n" );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
 		Config::reset();
 

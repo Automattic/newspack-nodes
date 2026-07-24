@@ -5,7 +5,7 @@
  * Pins the load-bearing invariant of moving Job_Intake to the substrate: a job
  * written through `Job_Intake::queue()` into jobintake.log is drained by the
  * `job-intake` topology's Consumer into jobs.log, and the durable offsetlog
- * frame lands at `jobintake.jobs.p<N>` — the SAME cursor path the old ELN
+ * frame lands at `job-intake.jobintake.p<N>` — the `{topology}.{source}` cursor layout the
  * job-router leg used, so a real deploy resumes from the existing cursor with
  * no re-read and no gap.
  */
@@ -81,7 +81,7 @@ class JobIntakeTopologyCutoverTest extends TestCase {
 
 		// No durable offsetlog frame before the drain.
 		// `<topology>` scopes the cursor to the FLEET (job-intake here).
-		$offset_dir = "{$this->tmp}/offsets/jobintake.job-intake.p0";
+		$offset_dir = "{$this->tmp}/offsets/job-intake.jobintake.p0";
 		$this->assertNull( $this->last_offsetlog_frame( $offset_dir ), 'no checkpoint before draining' );
 
 		$this->pump_consumer( $consumer );
@@ -96,7 +96,7 @@ class JobIntakeTopologyCutoverTest extends TestCase {
 		$this->assertSame( 'process_image', $jobs[0]['handler'] );
 		$this->assertSame( $big, $jobs[0]['parameters']['data'] );
 
-		// The offsetlog frame advanced past 0 on the SAME jobintake.job-intake.p0 path.
+		// The offsetlog frame advanced past 0 on the SAME job-intake.jobintake.p0 path.
 		$frame = $this->last_offsetlog_frame( $offset_dir );
 		$this->assertNotNull( $frame, 'draining must commit a durable offsetlog frame' );
 		$this->assertGreaterThan( 0, Core::num_int( $frame['offset'] ?? 0 ), 'cursor advanced past the consumed job' );

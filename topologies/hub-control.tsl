@@ -18,7 +18,9 @@
 
 var num_partitions = 1;
 
-make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/settings.<topology>.p0 <config:deadletter_dir>/settings.<topology>.p0
+include topic-probe
+
+make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/<topology>.settings.p0 <config:deadletter_dir>/<topology>.settings.p0
 make_node Settings_Sync settings-sync 300
 make_node Tee spokes:tee
 

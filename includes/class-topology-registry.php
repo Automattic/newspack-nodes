@@ -50,6 +50,14 @@ class Topology_Registry {
 	private static array $write_set_cache = [];
 
 	/**
+	 * Per-topology `partition:` entry metadata for the sharing exemption:
+	 * `entry => { sig: normalized make_node line, warranty: cap lifted }`.
+	 *
+	 * @var array<string, array<string, array{sig: string, warranty: bool}>>
+	 */
+	private static array $write_meta_cache = [];
+
+	/**
 	 * Add a topology to the persisted active set and spawn its fleet now.
 	 *
 	 * The shared activation primitive both the `topologies activate` CI verb and
@@ -118,7 +126,13 @@ class Topology_Registry {
 	/**
 	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
 	 * processes that would write the same file (data log or cursor) and corrupt
-	 * it. Empty array = the set is safe to run together.
+	 * it. A partition BOTH declare with a byte-identical make_node line (the
+	 * `include topic-probe` pattern) is a deliberately shared multi-writer log —
+	 * atomic ≤PIPE_BUF appends + the rotate lock make that safe — and is NOT a
+	 * conflict, unless either side lifts the write cap (`void_warranty` /
+	 * `allow_large_writes`), which assumes a sole writer. Offsetlogs and
+	 * deadletter dirs stay sole-writer: any overlap conflicts.
+	 * Empty array = the set is safe to run together.
 	 *
 	 * @param array<string> $names
 	 * @return array<array{a: string, b: string, shared: array<string>}>
@@ -126,8 +140,10 @@ class Topology_Registry {
 	public static function find_conflicts( array $names ): array {
 		$names = \array_values( \array_unique( $names ) );
 		$sets  = [];
+		$metas = [];
 		foreach ( $names as $n ) {
-			$sets[ $n ] = self::write_set( $n );
+			$sets[ $n ]  = self::write_set( $n );
+			$metas[ $n ] = self::$write_meta_cache[ $n ] ?? [];
 		}
 		$conflicts = [];
 		$count     = \count( $names );
@@ -135,7 +151,19 @@ class Topology_Registry {
 			for ( $j = $i + 1; $j < $count; $j++ ) {
 				$a      = $names[ $i ];
 				$b      = $names[ $j ];
-				$shared = \array_values( \array_intersect( $sets[ $a ], $sets[ $b ] ) );
+				$shared = [];
+				foreach ( \array_intersect( $sets[ $a ], $sets[ $b ] ) as $entry ) {
+					$ma = $metas[ $a ][ $entry ] ?? null;
+					$mb = $metas[ $b ][ $entry ] ?? null;
+					if (
+						null !== $ma && null !== $mb
+						&& '' !== $ma['sig'] && $ma['sig'] === $mb['sig']
+						&& ! $ma['warranty'] && ! $mb['warranty']
+					) {
+						continue; // Identical shared declaration, cap intact.
+					}
+					$shared[] = $entry;
+				}
 				if ( ! empty( $shared ) ) {
 					$conflicts[] = [
 						'a'      => $a,
@@ -167,13 +195,33 @@ class Topology_Registry {
 		if ( null === self::resolve( $name ) ) {
 			return self::$write_set_cache[ $name ] = [];
 		}
-		$seen = [];
+		$seen  = [];
+		$meta  = [];
+		$nodes = [];
 		foreach ( self::flat_lines( $name ) as $line ) {
 			// Fleet-scope the cursor; logs carry no token, so they collide.
 			$line = \str_replace( '<topology>', $name, $line );
-			// Partition+Topic share `partition:` (same-log collision).
-			if ( \preg_match( '/^make_node\s+(?:Partition|Topic)\s+\S+\s+(\S+)/', $line, $m ) ) {
-				$seen[ 'partition:' . $m[1] ] = true;
+			// @longform Partition+Topic share `partition:` (same-log
+			// collision). The full normalized line is the sharing signature:
+			// identical across topologies = one deliberately shared decl.
+			if ( \preg_match( '/^make_node\s+(?:Partition|Topic)\s+(\S+)\s+(\S+)/', $line, $m ) ) {
+				$entry          = 'partition:' . $m[2];
+				$seen[ $entry ] = true;
+				$meta[ $entry ] = [
+					'sig'      => (string) \preg_replace( '/\s+/', ' ', \trim( $line ) ),
+					'warranty' => $meta[ $entry ]['warranty'] ?? false,
+				];
+				$nodes[ $m[1] ] = $entry;
+				continue;
+			}
+			// A lifted write cap assumes a sole writer; mark the node's path.
+			if ( \preg_match( '/^cmd\s+(\S+):config\s+(?:void_warranty|allow_large_writes)\b/', $line, $m )
+				&& isset( $nodes[ $m[1] ] ) ) {
+				$entry          = $nodes[ $m[1] ];
+				$meta[ $entry ] = [
+					'sig'      => $meta[ $entry ]['sig'] ?? '',
+					'warranty' => true,
+				];
 				continue;
 			}
 			// offsetlog (3rd) + deadletter (4th): sole-writer logs.
@@ -197,6 +245,7 @@ class Topology_Registry {
 		}
 		$out = \array_keys( $seen );
 		\sort( $out );
+		self::$write_meta_cache[ $name ] = $meta;
 		return self::$write_set_cache[ $name ] = $out;
 	}
 
@@ -405,8 +454,10 @@ class Topology_Registry {
 		$out = [];
 		$acc = '';
 		foreach ( \explode( "\n", $text ) as $raw ) {
-			if ( \str_ends_with( \rtrim( $raw ), '\\' ) ) {
-				$acc .= \rtrim( \rtrim( $raw ), '\\' ) . ' ';
+			$raw = \rtrim( $raw, "\r" );
+			if ( \str_ends_with( $raw, '\\' ) ) {
+				// bash splice: ONE \<newline> vanishes (runtime-Shell parity).
+				$acc .= \substr( $raw, 0, -1 );
 				continue;
 			}
 			$out[] = $acc . $raw;
@@ -424,11 +475,15 @@ class Topology_Registry {
 	 * canonical form the statement/graph parsers already understand.
 	 */
 	private static function canonical_line( string $line, string &$cwd ): ?string {
-		$line   = self::canonical_verb( $line );
-		$tokens = \preg_split( '/\s+/', $line ) ?: [];
-		$verb   = $tokens[0] ?? '';
+		$line = self::canonical_verb( $line );
+		// @longform Structure (verb, path) reads unwrapped VALUES — the
+		// Shell routes on values, so a quoted path must not keep its quote
+		// chars. The arg TAIL rebuilds from raw spans, byte-verbatim.
+		$values = ( new Shell_Node() )->tokenize( $line );
+		$spans  = Shell_Node::tokenize_spans( $line );
+		$verb   = $values[0] ?? '';
 		if ( 'cd' === $verb || 'chdir' === $verb ) {
-			$cwd = self::cd_path( $cwd, $tokens[1] ?? '' );
+			$cwd = self::cd_path( $cwd, $values[1] ?? '' );
 			return null;
 		}
 		// Structural keywords are not cwd-routed by the static parser.
@@ -436,13 +491,13 @@ class Topology_Registry {
 			return $line;
 		}
 		if ( 'cmd' === $verb ) {
-			$path = self::prefix_path( $cwd, $tokens[1] ?? '' );
-			$rest = \implode( ' ', \array_slice( $tokens, 2 ) );
+			$path = self::prefix_path( $cwd, $values[1] ?? '' );
+			$rest = \implode( ' ', \array_slice( $spans, 2 ) );
 			return \trim( "cmd {$path} {$rest}" );
 		}
 		// A bare verb inside a cwd is a command to that node.
 		if ( '' !== $cwd ) {
-			$rest = \implode( ' ', \array_slice( $tokens, 1 ) );
+			$rest = \implode( ' ', \array_slice( $spans, 1 ) );
 			return \trim( "cmd {$cwd} {$verb} {$rest}" );
 		}
 		// Bare verb at root: a local command the static parser drops.
@@ -570,7 +625,7 @@ class Topology_Registry {
 				}
 				return;
 			}
-			$args           = '' === \trim( $m[3] ) ? [] : ( \preg_split( '/\s+/', \trim( $m[3] ) ) ?: [] );
+			$args           = Shell_Node::tokenize_spans( \trim( $m[3] ) );
 			$nodes[ $name ] = [
 				'name'   => $name,
 				'class'  => $m[1],
@@ -606,7 +661,7 @@ class Topology_Registry {
 			if ( isset( $nodes[ $node_name ] ) ) {
 				$nodes[ $node_name ]['verbs'][] = [
 					'verb' => $verb,
-					'args' => '' === $rest ? [] : ( \preg_split( '/\s+/', $rest ) ?: [] ),
+					'args' => Shell_Node::tokenize_spans( $rest ),
 				];
 			}
 		}
@@ -945,17 +1000,23 @@ class Topology_Registry {
 			return self::$segment_size_overrides_cache[ $name ] = [];
 		}
 		$overrides = [];
+		$shell     = new Shell_Node();
 		foreach ( self::flat_lines( $name ) as $line ) {
-			// basename + segment_size (flat: 1st arg after path), int-filtered.
-			if ( ! \preg_match(
-				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>\s+(\S+)/',
-				$line,
-				$m
-			) ) {
+			// @longform Layout-agnostic: VALUE tokens (quotes stripped, so a
+			// deferred '<partition>' path reads uniformly), basename from the
+			// path's last component whether the token is .p<partition> or a
+			// pinned .p0, size from the 1st arg after the path, int-filtered.
+			$values = $shell->tokenize( $line );
+			if ( 'make_node' !== ( $values[0] ?? '' ) || 'Partition' !== ( $values[1] ?? '' ) ) {
 				continue;
 			}
-			if ( \ctype_digit( $m[2] ) ) {
-				$overrides[ $m[1] ] = (int) $m[2];
+			$path = $values[3] ?? '';
+			$size = $values[4] ?? '';
+			if ( ! \preg_match( '{/([A-Za-z0-9_-]+)\.p(?:<partition>|\d+)$}', $path, $m ) ) {
+				continue;
+			}
+			if ( \ctype_digit( $size ) ) {
+				$overrides[ $m[1] ] = (int) $size;
 			}
 		}
 		return self::$segment_size_overrides_cache[ $name ] = $overrides;
@@ -1020,7 +1081,7 @@ class Topology_Registry {
 				$kind = $kind_of( $m[1] );
 				$types[ $m[2] ] = $m[1];
 				// Tokens 3.. = positional args; a CI reads the node's config.
-				$tokens = \preg_split( '/\s+/', $line ) ?: [];
+				$tokens = Shell_Node::tokenize_spans( $line );
 				$node   = [
 					'name' => $m[2],
 					'kind' => $kind,
@@ -1190,6 +1251,7 @@ class Topology_Registry {
 	public static function reset_basename_cache(): void {
 		self::$segment_size_overrides_cache = [];
 		self::$write_set_cache              = [];
+		self::$write_meta_cache             = [];
 		self::$graph_cache                  = [];
 		self::$frontmatter_cache            = [];
 		self::$statements_cache             = [];

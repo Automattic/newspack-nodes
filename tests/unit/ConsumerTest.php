@@ -3709,6 +3709,23 @@ class ConsumerTest extends TestCase {
 		}
 	}
 
+	/**
+	 * The dead-letter triage verbs are driven by the Inspector's Triage modal
+	 * (dl_show/dl_requeue take a raw locator; dl_purge gets a two-click arm
+	 * there), so like the time-travel transport verbs they carry hidden:true.
+	 */
+	public function test_node_schema_marks_triage_verbs_hidden(): void {
+		$commands = [];
+		foreach ( Consumer_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
+		}
+
+		foreach ( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge' ] as $verb ) {
+			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
+			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic verb list" );
+		}
+	}
+
 	public function test_dump_config_roundtrips_set_snapshot_node(): void {
 		$c = new Consumer_Node();
 		$c->name( 'requests:consumer' );
