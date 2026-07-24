@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-07-23
+
+### BREAKING
+- **Consumer cursors re-keyed to `{topology}.{source}.pN`.** Offsetlog
+  paths in the stock topologies flip from `{source}.{topology}.pN`; there
+  is no migration shim, so on upgrade every consumer starts from its
+  default offset (a retained-log replay or a gap, per node) and the old
+  cursor dirs are GC'd after the grace window. Pin workers idle during
+  the upgrade if a replay is unacceptable.
+
 ### Added
 - **Multi-line continuations, Tachikoma-style.** An open quote continues the
   statement onto the next line with the newline kept in the token (the REPL
@@ -58,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   polygon area as tiebreak) so inner topologies stay selectable.
 - **`errors`/`gyroscope`/`completed` journals are single-partition** —
   hardwired `.p0` in the stock topologies; partitioning did nothing for them.
+- **`wp nodes status` sorts the reader list** (reader, source, partition) —
+  the probe snapshot's arrival order was noise.
 
 - **Dead-letter alerts name the owning queue.** `deadletter` was one anonymous
   fleet-wide total; it is now one alert per quarantined reader —
