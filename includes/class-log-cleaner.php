@@ -19,6 +19,9 @@ namespace Newspack_Nodes;
 
 class Log_Cleaner {
 
+	/** Undeclared dirs younger than this (newest inner mtime) are spared. */
+	public const DELETE_GRACE_S = 3600;
+
 	/**
 	 * Remove first-level `logs/*` + `offsets/*` dirs not in the config-declared set.
 	 *
@@ -77,7 +80,24 @@ class Log_Cleaner {
 
 		$logs    = [];
 		$offsets = [];
-		foreach ( \array_keys( Bootstrap::get_topologies() ) as $name ) {
+		$active  = Bootstrap::get_topologies();
+
+		// @longform get_topologies() silently DROPS an active-option name it
+		// cannot resolve or synthesize. Mid-deploy (plugin torn down, option
+		// intact) that leaves the declared set missing that plugin's dirs --
+		// sweeping against the degraded set deleted errors.p0 (twice).
+		$raw = Config::value( 'topologies' );
+		foreach ( ( \is_array( $raw ) ? $raw : [] ) as $name ) {
+			if ( \is_string( $name ) && '' !== $name && ! isset( $active[ $name ] ) ) {
+				Core::print_less_often( 'Log_Cleaner: skipping sweep: active topology unresolvable: ', $name );
+				return [
+					'logs'    => null,
+					'offsets' => null,
+				];
+			}
+		}
+
+		foreach ( \array_keys( $active ) as $name ) {
 			$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
 			foreach ( $resolved['logs'] as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
@@ -91,11 +111,8 @@ class Log_Cleaner {
 			foreach ( self::producer_log_dirs() as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
-			// @longform Whitelist the auto-mounted probe/settings logs (only if a
-			// set exists). jobstats is NOT here: TSL-declared by job-worker,
-			// so the active set covers it; inactive dirs GC normally.
+			// Whitelist the auto-mounted settings log (only if a set exists).
 			if ( ! empty( $logs ) ) {
-				$logs[ Worker_Base::TOPICPROBE_LOG_DIR ] ??= 0;
 				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] ??= 0;
 			}
 		}
@@ -168,11 +185,27 @@ class Log_Cleaner {
 			if ( isset( $declared[ \basename( $path ) ] ) ) {
 				continue;
 			}
+			// Grace: a recently-written dir is never a true orphan (deploys).
+			if ( \time() - self::newest_mtime( $path ) < self::DELETE_GRACE_S ) {
+				continue;
+			}
 			Supervisor_Base::delete_directory_recursive( $path, $base_dir );
 			if ( ! \is_dir( $path ) ) {
 				$deleted[] = $path;
 			}
 		}
+	}
+
+	/**
+	 * Newest mtime across a dir and its first-level entries. Appends touch
+	 * segment FILES (not the dir), so the dir mtime alone under-reports life.
+	 */
+	private static function newest_mtime( string $path ): int {
+		$newest = (int) @\filemtime( $path );
+		foreach ( @\glob( "{$path}/*" ) ?: [] as $entry ) {
+			$newest = \max( $newest, (int) @\filemtime( $entry ) );
+		}
+		return $newest;
 	}
 
 	/**

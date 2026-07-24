@@ -176,7 +176,7 @@ class SupervisorTest extends TestCase {
 		// workers than two fleets corrupting the same partition.
 		$stock = $this->make_temp_dir( 'supervisor-conflict-' );
 		\file_put_contents( "{$stock}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
-		\file_put_contents( "{$stock}/rb.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
+		\file_put_contents( "{$stock}/rb.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log 1048576 2 4 0 0" );
 		\Newspack_Nodes\Topology_Registry::reset();
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined', 'rb' ];
@@ -952,9 +952,9 @@ class SupervisorTest extends TestCase {
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
-		$active                                              = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
-		$active[]                                            = 'requests-workers';
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
+		// Exactly the resolvable active set: a stale option name would make the
+		// GC fail closed (the mid-deploy guard) and this test asserts the sweep.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'requests-workers' ];
 		\Newspack_Nodes\Config::reset();
 
 		// Declared (kept) + undeclared with a lock dir (still swept — orange is gone).
@@ -962,6 +962,8 @@ class SupervisorTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/logs/requests.p0/0.log", 'live' );
 		\mkdir( "{$this->tmp}/logs/ghost.p0", 0755, true );
 		\file_put_contents( "{$this->tmp}/logs/ghost.p0/0.log", 'stale' );
+		\touch( "{$this->tmp}/logs/ghost.p0/0.log", \time() - 7200 );
+		\touch( "{$this->tmp}/logs/ghost.p0", \time() - 7200 );
 		\mkdir( "{$this->tmp}/locks/ghost.p0.lock.d", 0755, true );
 		\file_put_contents( "{$this->tmp}/locks/ghost.p0.lock.d/heartbeat", (string) \getmypid() );
 

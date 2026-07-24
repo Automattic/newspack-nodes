@@ -81,6 +81,7 @@ class LogCleanerTest extends TestCase {
 		$dir = "{$this->tmp}/logs/{$name}.p{$partition}";
 		\mkdir( $dir, 0755, true );
 		\file_put_contents( "{$dir}/0.log", 'X' );
+		$this->age_dir( $dir );
 		return $dir;
 	}
 
@@ -89,7 +90,17 @@ class LogCleanerTest extends TestCase {
 		$dir = "{$this->tmp}/offsets/{$name}.p{$partition}";
 		\mkdir( $dir, 0755, true );
 		\file_put_contents( "{$dir}/0.log", 'offset' );
+		$this->age_dir( $dir );
 		return $dir;
+	}
+
+	/** Backdate a dir + its first-level files past the sweep's delete grace. */
+	private function age_dir( string $dir ): void {
+		$stale = \time() - 7200;
+		\touch( $dir, $stale );
+		foreach ( (array) \glob( "{$dir}/*" ) as $entry ) {
+			\touch( (string) $entry, $stale );
+		}
 	}
 
 	private function partition_tsl( string $basename, int $num_partitions = 1 ): string {
@@ -98,6 +109,24 @@ class LogCleanerTest extends TestCase {
 	}
 
 	// ── log-dir sweep ──────────────────────────────────────────────────────
+
+	public function test_aborts_the_sweep_when_an_active_topology_cannot_resolve(): void {
+		// Mid-deploy: the topologies OPTION persists while the owning plugin's
+		// stock dir is momentarily unregistered, so the declared set silently
+		// loses that plugin's dirs. Sweeping against the degraded set is what
+		// deleted errors.p0 (twice) -- an unresolvable ACTIVE name aborts.
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$active   = $GLOBALS['_wp_options']['newspack_nodes_topologies'];
+		$active[] = 'vicuna-unregistered';
+
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = $active;
+		Config::reset();
+
+		$ghost = $this->seed_log_partition( 'ghost', 0 );
+
+		$this->assertSame( [], Log_Cleaner::cleanup_orphan_partitions( $this->tmp ) );
+		$this->assertDirectoryExists( $ghost );
+	}
 
 	public function test_deletes_undeclared_flat_log_dir(): void {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
@@ -111,11 +140,30 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $kept );
 	}
 
-	public function test_keeps_the_substrate_topicprobe_log(): void {
-		// topicprobe.p0 is auto-mounted by every worker (Worker_Base), not declared
-		// in any .tsl — the GC must spare it as a substrate-reserved log, else the
-		// sweep wipes it between probe writes (appear → delete → recreate churn).
+	public function test_sweeps_topicprobe_when_no_declaring_topology_is_active(): void {
+		// topicprobe.p0 is TSL-declared now (the topic-probe include), not
+		// whitelisted — undeclared, it GCs like any other retired dir.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$probe = $this->seed_log_partition( 'topicprobe', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryDoesNotExist( $probe );
+	}
+
+	public function test_keeps_topicprobe_when_the_include_declares_it(): void {
+		// A topology pulling `include topic-probe` declares topicprobe.p0
+		// through the ordinary declared-set path — no whitelist.
+		\file_put_contents(
+			"{$this->stock}/topic-probe.tsl",
+			"make_node TopicProbe _topicprobe 15\n"
+			. "make_node Partition  _topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 2 86400 0\n"
+			. "connect_node _topicprobe _topicprobe:log\n"
+		);
+		$this->declare_topology(
+			'probing-workers',
+			"include topic-probe\n" . $this->partition_tsl( 'requests' )
+		);
 		$probe = $this->seed_log_partition( 'topicprobe', 0 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
@@ -260,6 +308,50 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $cursor );
 	}
 
+	public function test_a_recently_active_undeclared_dir_is_spared(): void {
+		// The delete grace: an undeclared dir with fresh writes is NEVER swept
+		// — the declared set can transiently lose entries mid-deploy/restart
+		// (this ate a healthy errors.p0 + alerts.p0), and an active dir is
+		// never a true orphan. It collects on a later sweep once quiet.
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$fresh = "{$this->tmp}/logs/undeclared-live.p0";
+		\mkdir( $fresh, 0755, true );
+		\file_put_contents( "{$fresh}/0.log", 'being written RIGHT NOW' );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $fresh );
+	}
+
+	public function test_the_spared_dir_is_swept_once_the_grace_expires(): void {
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$orphan = "{$this->tmp}/logs/undeclared-live.p0";
+		\mkdir( $orphan, 0755, true );
+		\file_put_contents( "{$orphan}/0.log", 'X' );
+		$this->age_dir( $orphan );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryDoesNotExist( $orphan );
+	}
+
+	public function test_an_old_dir_with_one_fresh_segment_is_spared(): void {
+		// Appends touch segment FILES, not the dir: an hour-quiet dir whose
+		// newest segment is fresh is still live. The guard reads the newest
+		// mtime across the dir and its first-level entries.
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$busy = "{$this->tmp}/logs/undeclared-busy.p0";
+		\mkdir( $busy, 0755, true );
+		\file_put_contents( "{$busy}/0.log", 'old' );
+		$this->age_dir( $busy );
+		\file_put_contents( "{$busy}/1.log", 'fresh append' );
+		\touch( $busy, \time() - 7200 ); // dir mtime stays stale; file is fresh.
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $busy );
+	}
+
 	public function test_sweeps_undeclared_non_partition_dir(): void {
 		// Layout-agnostic: keep ONLY declared first-level dirs. An undeclared dir
 		// whose name has no `.p{N}` suffix is now an orphan and IS swept.
@@ -267,6 +359,7 @@ class LogCleanerTest extends TestCase {
 
 		\mkdir( "{$this->tmp}/logs/notapartition", 0755, true );
 		\file_put_contents( "{$this->tmp}/logs/notapartition/info.json", '{}' );
+		$this->age_dir( "{$this->tmp}/logs/notapartition" );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
@@ -287,6 +380,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( "{$this->tmp}/logs/1-req", 0755, true );
 		\file_put_contents( "{$this->tmp}/logs/1-req/0.log", 'X' );
 		$ghost = $this->seed_log_partition( 'ghost', 9 );
+		$this->age_dir( $ghost );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
@@ -302,6 +396,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( "{$ghost}/sub/inner", 0755, true );
 		\file_put_contents( "{$ghost}/0.log", 'top' );
 		\file_put_contents( "{$ghost}/sub/inner/y.log", 'deep' );
+		$this->age_dir( $ghost );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
@@ -377,6 +472,7 @@ class LogCleanerTest extends TestCase {
 		);
 
 		\mkdir( "{$this->tmp}/offsets/notapartition", 0755, true );
+		$this->age_dir( "{$this->tmp}/offsets/notapartition" );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
@@ -445,10 +541,10 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		// topicprobe.p0 + settings.p0 ride along once a real declared set exists
+		// settings.p0 rides along once a real declared set exists
 		// (substrate probe/settings logs, written outside any .tsl). jobstats.p0 does
 		// NOT — it's TSL-declared by job-worker, which isn't active here.
-		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'settings.p0', 'topicprobe.p0' ], $result );
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'requests.p1', 'settings.p0' ], $result );
 	}
 
 	public function test_declared_log_partitions_maps_names_to_enumerated_partitions(): void {
@@ -475,7 +571,6 @@ class LogCleanerTest extends TestCase {
 				'requests.p0'  => 0,
 				'requests.p1'  => 1,
 				'settings.p0'  => 0,
-				'topicprobe.p0' => 0,
 			],
 			$map
 		);
@@ -507,7 +602,7 @@ class LogCleanerTest extends TestCase {
 		$result = Log_Cleaner::declared_log_dirs();
 		\sort( $result );
 
-		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'settings.p0', 'topicprobe.p0' ], $result );
+		$this->assertSame( [ 'firehose.p0', 'requests.p0', 'settings.p0' ], $result );
 	}
 
 	// ── frontmatter-less, multi-partition: SPAWN-aligned partition count ─────

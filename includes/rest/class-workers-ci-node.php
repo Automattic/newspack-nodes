@@ -393,7 +393,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * truth with the sweep:
 	 * every on-disk topology's resolved per-partition log dirs PLUS the
 	 * externally-written logs no .tsl declares (the PHP producers firehose /
-	 * jobintake, the auto-mounted topicprobe, the settings log). Sourcing the
+	 * jobintake, the settings log). Sourcing the
 	 * catalog from the same set the GC retains means a log a topology only
 	 * CONSUMES (written elsewhere) still resolves to a concrete entry and shows
 	 * its segments, instead of "No segments". A missing dir stats to empty
