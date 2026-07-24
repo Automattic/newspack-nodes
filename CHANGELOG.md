@@ -136,6 +136,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builder, class resolution, and the introspection verbs — Tachikoma-canonical
   — all stay. CI drops from 1,680 to 1,471 lines.
 ### Fixed
+- **The Aggregator dashboard discovers readers in ANY active topology.**
+  `Aggregator_CI` hardcoded `graph_for('aggregator')`, so Remote_Sources
+  wired in a differently-named topology (e.g. an include-based
+  `aggregator-tw0` overlay) rendered as "No servers configured." The
+  snapshot now scans the whole active set, and the empty-state copy points
+  at the Vault tab instead of the retired Event Logger settings.
 - **A write stall can no longer silently lose accepted messages.** `flush()`
   reset the batch before writing; a short write (disk full, EIO, root-owned
   segment) dropped the remainder with one rate-limited line AND left a torn
