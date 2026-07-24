@@ -40,6 +40,14 @@ function plugin_dir_path( string $file ): string {
 if ( ! function_exists( 'do_action' ) ) {
 	$GLOBALS['_wp_actions']              = [];
 	$GLOBALS['_wp_action_registrations'] = [];
+	// Tests drive these via $GLOBALS['_wp_test_is_multisite'] / '_wp_test_is_main_site'.
+	function is_multisite(): bool {
+		return (bool) ( $GLOBALS['_wp_test_is_multisite'] ?? false );
+	}
+	function is_main_site(): bool {
+		return (bool) ( $GLOBALS['_wp_test_is_main_site'] ?? true );
+	}
+
 	function do_action( string $hook, ...$args ): void {
 		foreach ( $GLOBALS['_wp_actions'][ $hook ] ?? [] as $cb ) {
 			$cb( ...$args );

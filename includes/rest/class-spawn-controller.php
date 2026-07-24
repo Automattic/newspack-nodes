@@ -41,6 +41,9 @@ class Spawn_Controller {
 	 * @return bool|\WP_Error
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
+		if ( ! Bootstrap::fleet_site() ) {
+			return new \WP_Error( 'newspack_nodes_not_fleet_site', 'multisite subsite: the fleet runs on the main site only', [ 'status' => 403 ] );
+		}
 		$raw_nonce = $req->get_param( 'nonce' );
 		$nonce     = Core::as_string( $raw_nonce );
 		if ( '' === $nonce ) {

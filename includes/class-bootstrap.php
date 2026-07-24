@@ -522,6 +522,14 @@ class Bootstrap {
 	}
 
 	/**
+	 * The fleet is network-global (locks/IPC/logs carry no blog namespace),
+	 * so exactly one site runs it: single-site always, multisite main only.
+	 */
+	public static function fleet_site(): bool {
+		return ! \function_exists( 'is_multisite' ) || ! \is_multisite() || \is_main_site();
+	}
+
+	/**
 	 * Declare the substrate's own non-topology log producers (Job_Intake's
 	 * jobintake.p<N> + jobdelay.p0, the Alerts journal's alerts.p0) so
 	 * Log_Cleaner never sweeps them on ELN-less installs.
