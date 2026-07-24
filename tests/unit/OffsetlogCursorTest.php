@@ -5,20 +5,33 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
-use Newspack_Nodes\Offsetlog_Cursor;
+use Newspack_Nodes\Durable_Reader;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversTrait;
 
-/** Minimal node that exercises the Offsetlog_Cursor trait in isolation. */
+/** Minimal node exercising Durable_Reader's cursor slice; pump seams stubbed. */
 class Offsetlog_Cursor_Double extends Node {
-	use Offsetlog_Cursor;
+	use Durable_Reader;
 
 	public function fill( array $message ): void {}
 
 	protected function offsetlog_name(): string {
 		return 'double:offsetlog';
 	}
+
+	protected function get_batch(): void {}
+	protected function init_position(): void {}
+	protected function checkpoint( bool $graceful = false ): void {}
+	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {}
+	protected function checkpoint_frame_extra(): array {
+		return [];
+	}
+	public function next_offset( $position ): void {}
+	protected function advance_one_message(): array {
+		return [];
+	}
+	protected function time_travel_resume(): void {}
 
 	public function build( string $dir ): ?Partition_Node {
 		$this->offsetlog_dir = $dir;
@@ -36,7 +49,7 @@ class Offsetlog_Cursor_Double extends Node {
 	}
 }
 
-#[CoversTrait( Offsetlog_Cursor::class )]
+#[CoversTrait( Durable_Reader::class )]
 class OffsetlogCursorTest extends TestCase {
 
 	private string $tmp;

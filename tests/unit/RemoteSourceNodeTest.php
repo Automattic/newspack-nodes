@@ -193,7 +193,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
 		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
 		// SSE_In hands each raw `msg` payload to the Remote_Source's delivery seam, which
-		// appends it to the Buffered_Pump buffer (a poison line is quarantined on drain), and
+		// appends it to the Durable_Reader buffer (a poison line is quarantined on drain), and
 		// keeps its downstream target for forward_line's TO.
 		$this->assertInstanceOf( \Closure::class, $sse->on_message, 'the raw-delivery seam is wired' );
 		$this->assertSame( 'downstream', $sse->target() );
@@ -985,7 +985,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/**
 	 * Push one TM_STRUCT stream message through the SSE_In parser (keyed `boom` to poison the
-	 * relay), then drive one pump tick to drain it. Under the Buffered_Pump model SSE_In's raw
+	 * relay), then drive one pump tick to drain it. Under the Durable_Reader pump model SSE_In's raw
 	 * `msg` payload only lands in the owner's buffer; the production tick drains it, so this makes
 	 * that tick explicit (crawl caps drain at one line per poll — one poll per delivered line).
 	 */

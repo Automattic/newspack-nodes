@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ceiling is the one retention actually enforces rather than an underestimate.
 
 ### Changed
+- **The durable-reader traits merged into one `Durable_Reader` unit.**
+  `Offsetlog_Cursor` + `Buffered_Pump` + `Time_Travel` were only ever consumed
+  together (Consumer, Remote_Source) and cross-required each other — false
+  modularity. `Sidecar`, `Dead_Letter_Queue` (also Partition's write-side
+  quarantine), and `Deferred_Clean_Stop` (application snapshot nodes) stay
+  separate because they have genuinely independent consumers.
 - **Config-toggle verbs are declared, not hand-rolled.** A node_schema command
   entry with `'toggle' => '<property>'` now synthesizes the whole ritual the
   three existing toggles (`set_multi_writer`, `assume_clean_shutdown`,
