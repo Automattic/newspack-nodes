@@ -13,10 +13,8 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Consumer_Node extends Timer_Node {
 	use Schema_Reflection;
-	use Offsetlog_Cursor;
+	use Durable_Reader;
 	use Dead_Letter_Queue;
-	use Time_Travel;
-	use Buffered_Pump;
 
 	/**
 	 * Bytes read per poll — one block, then yield the event loop (Tachikoma's
@@ -263,7 +261,7 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Buffered_Pump boot seam: Consumer's "where do I start" is a durable seek. Seed
+	 * Durable_Reader boot seam: Consumer's "where do I start" is a durable seek. Seed
 	 * the cursor from the offsetlog, restore the snapshot node's state (the whole
 	 * topology exists by the first poll), then apply the default_offset() seek when
 	 * there's no checkpoint and no explicit next_offset(). A durable checkpoint
@@ -527,7 +525,7 @@ class Consumer_Node extends Timer_Node {
 	 * Partition::process_get). Rolls to the next segment when the current one is
 	 * drained, sets at_eof when caught up, and bounds a single oversized line.
 	 *
-	 * The Buffered_Pump refill seam: Consumer's synchronous disk read. A push source
+	 * The Durable_Reader refill seam: Consumer's synchronous disk read. A push source
 	 * (Remote_Source_Node) implements the same abstract seam by arming its curl valve.
 	 */
 	protected function get_batch(): void {

@@ -368,7 +368,7 @@ class SseInCoverageTest extends TestCase {
 	}
 
 	public function test_arm_and_disarm_toggle_event_loop_registration(): void {
-		// The Buffered_Pump valve: arm registers the live handle with the drain loop,
+		// The Durable_Reader pump valve: arm registers the live handle with the drain loop,
 		// disarm unregisters it. Both are no-ops without a live handle.
 		[ $node ] = $this->configured_node();
 		$this->connect( $node );

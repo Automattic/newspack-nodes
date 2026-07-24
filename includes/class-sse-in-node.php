@@ -60,7 +60,7 @@ class SSE_In_Node extends Node {
 	 * Delivery seam. The owner (patron) sets this; every `msg` SSE event hands its RAW
 	 * `data:` payload (the packed line, byte-identical to the remote's on-disk encoding)
 	 * to it. Remote_IPC implements it as unpack + forward downstream; Remote_Source appends
-	 * the raw line to its Buffered_Pump buffer. A null seam drops the event.
+	 * the raw line to its Durable_Reader buffer. A null seam drops the event.
 	 * Signature: `function ( string $raw ): void`.
 	 *
 	 * @var \Closure|null
@@ -499,7 +499,7 @@ class SSE_In_Node extends Node {
 	 * The dual of disarm(); a buffering owner (Remote_Source) calls this when its buffer runs
 	 * dry of complete lines.
 	 *
-	 * @api Support for the Remote_Source Buffered_Pump valve.
+	 * @api Support for the Remote_Source Durable_Reader valve.
 	 */
 	public function arm(): void {
 		// Only register with a live handle; arming while disconnected respins.
@@ -514,7 +514,7 @@ class SSE_In_Node extends Node {
 	 * window closes, and the remote SSE server blocks on write. Real end-to-end backpressure.
 	 * A buffering owner calls this once its buffer holds a line.
 	 *
-	 * @api Support for the Remote_Source Buffered_Pump valve.
+	 * @api Support for the Remote_Source Durable_Reader valve.
 	 */
 	public function disarm(): void {
 		if ( $this->handle instanceof \CurlHandle ) {

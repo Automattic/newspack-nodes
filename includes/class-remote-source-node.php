@@ -3,7 +3,7 @@
  * Remote_Source: a self-sufficient, topology-visible SSE-pull aggregation node.
  *
  * Extends Remote_Link (the channel layer: SSE_In + HTTP_Out patrons, heartbeat,
- * reconnect, status) and `use`s Buffered_Pump (the durable message-path spine it
+ * reconnect, status) and `use`s Durable_Reader (the durable message-path spine it
  * shares with Consumer). SSE_In hands each raw `msg` payload to this node's delivery
  * seam, which appends it to the pump buffer; the tick drains it exactly like Consumer.
  * The only push-specific divergences are the refill seam (an async curl valve instead
@@ -20,10 +20,8 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Remote_Source_Node extends Remote_Link_Node {
-	use Offsetlog_Cursor;
+	use Durable_Reader;
 	use Dead_Letter_Queue;
-	use Time_Travel;
-	use Buffered_Pump;
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
@@ -43,7 +41,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/**
 	 * True once restore_position() has read the durable frame + seeded the cursor. Makes
 	 * restore_position idempotent: ensure_patrons calls it to seed SSE_In's connect position
-	 * BEFORE connect, and the Buffered_Pump boot seam (init_position) calls it again on the
+	 * BEFORE connect, and the Durable_Reader boot seam (init_position) calls it again on the
 	 * first poll — the second call is a no-op that returns the already-seeded cursor.
 	 */
 	private bool $position_restored = false;
@@ -59,9 +57,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * Per-tick work: the Remote_Link channel housekeeping (patrons, reconnect, heartbeat,
-	 * status) via parent::fire(), then the Buffered_Pump drain of whatever SSE_In accumulated
+	 * status) via parent::fire(), then the Durable_Reader drain of whatever SSE_In accumulated
 	 * into the buffer since last tick, plus the throttled cursor checkpoint. Defined directly
-	 * so it overrides both the inherited Remote_Link::fire and the Buffered_Pump trait fire —
+	 * so it overrides both the inherited Remote_Link::fire and the Durable_Reader pump fire —
 	 * Remote_Source rides Remote_Link's recurring TICK_INTERVAL_MS timer, not the pump's
 	 * self-re-arming cadence.
 	 *
@@ -80,7 +78,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 	}
 
-	// --- Buffered_Pump seams — the five push-specific overrides ---
+	// --- Durable_Reader pump seams — the five push-specific overrides ---
 
 	/**
 	 * Boot seam: seed the durable read position on the first poll. Delegates to the idempotent
@@ -288,7 +286,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * Read the latest committed frame, seed the node cursor + boot pin, resume the shared
 	 * poison/crash accounting (attempts+1, a hard-crash lineage → crawl), and arm the boot
 	 * head-skip. Idempotent: ensure_patrons calls it (to seed SSE_In's connect position before
-	 * connect) and the Buffered_Pump boot seam calls it again on the first poll. Empty on a
+	 * connect) and the Durable_Reader boot seam calls it again on the first poll. Empty on a
 	 * fresh offsetlog.
 	 *
 	 * @return array{segment?:int,offset?:int}
@@ -329,7 +327,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * Final cursor handoff at worker shutdown (bug C) — Remote_Source isn't a Consumer_Node, so
 	 * the worker's checkpoint_durable_consumers() reaches it here. Healthy → a clean graceful
 	 * commit (attempts=0) so progress survives the recycle; a hard-crash lineage in flight →
-	 * preserve its climbing/pinned frame. The cooperative-stop fair-shot is the Buffered_Pump
+	 * preserve its climbing/pinned frame. The cooperative-stop fair-shot is the Durable_Reader
 	 * trait's cooperative_stop() (buffer_head_line + stopped_in_fill).
 	 *
 	 * @api Invoked by Worker_Base::checkpoint_durable_consumers().
@@ -386,7 +384,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * Build the base patrons, then override SSE_In's delivery seam: each raw `msg` payload is
-	 * appended (with its newline) to the Buffered_Pump buffer for the tick to drain — the push
+	 * appended (with its newline) to the Durable_Reader buffer for the tick to drain — the push
 	 * source buffers rather than forwarding straight downstream (the base channel path). The
 	 * valve stays OPEN through normal flow and only closes once the buffer crosses the high-water
 	 * mark (An unparseable line reaches the buffer unparsed; forward_line owns its DLQ.)
