@@ -416,8 +416,12 @@ class Admin {
 		self::render_number( 'min_segments', 2, 2, 32, \__( 'Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime.', 'newspack-nodes' ) );
 	}
 
+	public static function num_segments_callback(): void {
+		self::render_number( 'num_segments', 8, 2, 32, \__( 'Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime.', 'newspack-nodes' ) );
+	}
+
 	public static function max_segments_callback(): void {
-		self::render_number( 'max_segments', 4, 2, 32, \__( 'Count rule: prune the oldest back to this many segments (younger ones are protected by min lifetime).', 'newspack-nodes' ) );
+		self::render_number( 'max_segments', 0, 0, 64, \__( 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments).', 'newspack-nodes' ) );
 	}
 
 	public static function segment_size_callback(): void {
@@ -425,11 +429,11 @@ class Admin {
 	}
 
 	public static function min_lifetime_callback(): void {
-		self::render_number( 'min_lifetime', 0, 0, 604800, \__( 'Floor for the count rule: keep segments younger than this many seconds even when over max segments. 0 = pure count-based.', 'newspack-nodes' ) );
+		self::render_number( 'min_lifetime', 0, 0, 604800, \__( 'Floor for the count rule: keep segments younger than this many seconds even when over num segments. 0 = pure count-based.', 'newspack-nodes' ) );
 	}
 
-	public static function max_lifetime_callback(): void {
-		self::render_number( 'max_lifetime', 0, 0, 604800, \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
+	public static function lifetime_callback(): void {
+		self::render_number( 'lifetime', 0, 0, 604800, \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_max_segments_callback(): void {
@@ -768,16 +772,22 @@ class Admin {
 	}
 
 	/**
-	 * Total-storage field: segment_size × max_segments × (count of on-disk log-partition dirs).
+	 * Total-storage field: the TRUE disk ceiling — segment_size × the effective
+	 * hard cap (max_segments, or 2 × num_segments when auto) × on-disk log-partition
+	 * dirs. Uses the hard cap, not the count target, so what's shown is the ceiling
+	 * cleanup_segments() actually enforces rather than an underestimate.
 	 */
 	public static function total_storage_callback(): void {
 		$defaults     = Config::load_config_defaults();
 		$segment_size = \get_option( 'newspack_nodes_segment_size', '' );
+		$num_segments = \get_option( 'newspack_nodes_num_segments', '' );
 		$max_segments = \get_option( 'newspack_nodes_max_segments', '' );
 
 		// Use config defaults for empty values.
 		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : Core::as_int( $segment_size );
-		$max_segments = '' === $max_segments ? self::default_int( $defaults, 'max_segments', 4 ) : Core::as_int( $max_segments );
+		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 8 ) : Core::as_int( $num_segments );
+		$max_segments = '' === $max_segments ? self::default_int( $defaults, 'max_segments', 0 ) : Core::as_int( $max_segments );
+		$max_segments = \Newspack_Nodes\Partition_Node::derive_max_segments( $num_segments, $max_segments );
 
 		// on_disk() is already per-partition; don't multiply by num_partitions.
 		$num_log_dirs = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
@@ -798,8 +808,8 @@ class Admin {
 		<p class="description">
 		<?php
 		\printf(
-			/* translators: 1: segment size in MB, 2: number of segments, 3: number of on-disk log partitions */
-			\esc_html__( 'Calculated as: %1$s MB segment × %2$s segments × %3$s log partitions', 'newspack-nodes' ),
+			/* translators: 1: segment size in MB, 2: hard-cap segment count, 3: number of on-disk log partitions */
+			\esc_html__( 'Calculated as: %1$s MB segment × %2$s hard-cap segments × %3$s log partitions', 'newspack-nodes' ),
 			\esc_html( (string) $segment_mb ),
 			\esc_html( (string) $max_segments ),
 			\esc_html( (string) $num_log_dirs )

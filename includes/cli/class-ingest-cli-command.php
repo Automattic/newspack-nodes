@@ -46,8 +46,8 @@ class Ingest_CLI_Command {
 	 * [--segment_size=<bytes>]
 	 * : Destination segment size in bytes. Defaults to the Partition default.
 	 *
-	 * [--max_segments=<n>]
-	 * : Destination segment-retention count (the COUNT rule). Defaults to the Partition default.
+	 * [--num_segments=<n>]
+	 * : Destination segment-retention count target (the COUNT rule). Defaults to the Partition default.
 	 *
 	 * [--allow_large_writes]
 	 * : Lift the 4KB PIPE_BUF cap to 10MB via a held per-partition write lock.
@@ -61,7 +61,7 @@ class Ingest_CLI_Command {
 	 * ## EXAMPLES
 	 *
 	 *     # Re-segment topicprobe.p0 down to 1 MiB segments
-	 *     wp nodes ingest '<config:logs_dir>/topicprobe.p<partition>' topicprobe.p0.old/*.log --num_partitions=1 --segment_size=1048576 --max_segments=2
+	 *     wp nodes ingest '<config:logs_dir>/topicprobe.p<partition>' topicprobe.p0.old/*.log --num_partitions=1 --segment_size=1048576 --num_segments=2
 	 *
 	 *     # Dry-run a firehose replay to check for oversize records
 	 *     wp nodes ingest firehose firehose.p0.old/*.log --dry-run
@@ -69,7 +69,7 @@ class Ingest_CLI_Command {
 	 * @when after_wp_load
 	 *
 	 * @param array<int, string>   $args       Positional: <topic> then one or more files.
-	 * @param array<string, mixed> $assoc_args --num_partitions / --segment_size / --max_segments / --allow_large_writes / --void_warranty / --dry-run.
+	 * @param array<string, mixed> $assoc_args --num_partitions / --segment_size / --num_segments / --allow_large_writes / --void_warranty / --dry-run.
 	 */
 	public function ingest( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -110,7 +110,7 @@ class Ingest_CLI_Command {
 
 		// Geometry defaults to Partition's; retention is by COUNT alone.
 		$segment_size = $this->int_flag( $assoc_args, 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE );
-		$max_segments = $this->int_flag( $assoc_args, 'max_segments', Partition_Node::DEFAULT_MAX_SEGMENTS );
+		$num_segments = $this->int_flag( $assoc_args, 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS );
 
 		\WP_CLI::log( "Destination: {$tpl} ({$num_partitions} partition(s), {$segment_size}-byte segments)" );
 
@@ -120,13 +120,13 @@ class Ingest_CLI_Command {
 		$topic = null;
 		if ( ! $dry_run ) {
 			$topic = new Topic_Node();
-			// Lifetimes 0: an inherited floor makes --max_segments a no-op.
+			// min_lifetime 0 makes the count rule prune to num_segments.
 			$topic->arguments( \array_map( '\strval', [
 				$tpl,
 				$num_partitions,
 				$segment_size,
 				Partition_Node::DEFAULT_MIN_SEGMENTS,
-				$max_segments,
+				$num_segments,
 				0,
 				0,
 			] ) );

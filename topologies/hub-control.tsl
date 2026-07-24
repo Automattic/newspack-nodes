@@ -27,9 +27,9 @@ make_node Tee spokes:tee
 cmd settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions
 cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size
 cmd settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_min_segments
-cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_max_segments
+cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_num_segments
 cmd settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_min_lifetime
-cmd settings-sync:config add_setting newspack_nodes_remote_max_lifetime settings newspack_nodes_max_lifetime
+cmd settings-sync:config add_setting newspack_nodes_remote_max_lifetime settings newspack_nodes_lifetime
 # Also seed each spoke's OWN remote_* copy so it propagates onward to ITS spokes.
 cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_remote_segment_size
 cmd settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_remote_min_segments

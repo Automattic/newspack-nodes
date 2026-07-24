@@ -15,10 +15,12 @@ class Partition_Node extends Timer_Node {
 	use Schema_Reflection;
 	use File_Writer;
 	use Dead_Letter_Queue;
-	public const DEFAULT_MAX_LIFETIME = 0;
-	public const DEFAULT_MAX_SEGMENTS = 4;
+	public const DEFAULT_LIFETIME     = 0;
+	/** Hard-cap default sentinel: 0 = derive as 2 × num_segments (see derive_max_segments()). */
+	public const DEFAULT_MAX_SEGMENTS = 0;
 	public const DEFAULT_MIN_LIFETIME = 0;
 	public const DEFAULT_MIN_SEGMENTS = 2;
+	public const DEFAULT_NUM_SEGMENTS = 4;
 
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 
@@ -84,10 +86,13 @@ class Partition_Node extends Timer_Node {
 	protected bool $lock_held = false;
 	protected int $lock_max_wait_ms = 0;
 	protected int $lock_stale_timeout = 0;
-	protected int $max_lifetime     = self::DEFAULT_MAX_LIFETIME;
+	protected int $lifetime         = self::DEFAULT_LIFETIME;
+	/** True HARD cap: prune oldest UNCONDITIONALLY above this (only the floor of 2 protects). 0 until arguments() derives it. */
 	protected int $max_segments     = self::DEFAULT_MAX_SEGMENTS;
 	protected int $min_lifetime     = self::DEFAULT_MIN_LIFETIME;
 	protected int $min_segments     = self::DEFAULT_MIN_SEGMENTS;
+	/** Count-rule target: prune above this only for segments older than min_lifetime. */
+	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
 
 	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
 	protected string $partition_dir = '';
@@ -123,11 +128,25 @@ class Partition_Node extends Timer_Node {
 		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
 		$this->segment_size   = \max( 1, $this->segment_size );
 		$this->min_segments   = \max( 2, $this->min_segments );
-		$this->max_segments   = \max( $this->min_segments, $this->max_segments );
+		$this->num_segments   = \max( $this->min_segments, $this->num_segments );
 		$this->min_lifetime   = \max( 0, $this->min_lifetime );
-		$this->max_lifetime   = \max( 0, $this->max_lifetime );
+		$this->lifetime       = \max( 0, $this->lifetime );
+		$this->max_segments   = self::derive_max_segments( $this->num_segments, $this->max_segments );
 		$this->deadletter_dir = self::derive_write_deadletter_dir( $this->partition_dir );
 		return $args;
+	}
+
+	/**
+	 * Resolve the hard-cap ceiling: an explicit value floored to num_segments, or —
+	 * when unset (0) — the derived default of twice the target count. The single
+	 * place the num_segments → max_segments derivation lives; the admin + CI disk-
+	 * ceiling displays call it so what they show matches what cleanup_segments()
+	 * actually enforces.
+	 */
+	public static function derive_max_segments( int $num_segments, int $max_segments ): int {
+		$num_segments = \max( 2, $num_segments ); // mirror arguments()' floor
+		$cap          = $max_segments > 0 ? $max_segments : 2 * $num_segments;
+		return \max( $num_segments, $cap );
 	}
 
 	/**
@@ -700,12 +719,15 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Dual-rule retention, oldest-first, above a hard floor of 2 segments. Prune
-	 * the oldest segment when EITHER rule fires:
-	 *   - age rule: older than max_lifetime (0 = off), keeping at least min_segments;
-	 *   - count rule: more than max_segments, keeping anything younger than min_lifetime.
-	 * So the age rule can prune below max_segments, and the count rule below
-	 * max_lifetime — each bounded by the other axis's floor.
+	 * Three-rule retention, oldest-first, above a hard floor of 2 segments. Prune
+	 * the oldest segment when ANY rule fires:
+	 *   - age rule: older than lifetime (0 = off), keeping at least min_segments;
+	 *   - count rule: more than num_segments, keeping anything younger than min_lifetime;
+	 *   - hard cap: more than max_segments — UNCONDITIONAL (min_lifetime does not
+	 *     protect; only the floor of 2 does), so a hot partition full of young
+	 *     segments can't grow past max_segments.
+	 * So the age rule can prune below num_segments, and the count rule below
+	 * lifetime — each bounded by the other axis's floor; the hard cap is the ceiling.
 	 */
 	public function cleanup_segments(): void {
 		// Use the warm cache; standalone callers (cold cache) force-scan.
@@ -717,15 +739,18 @@ class Partition_Node extends Timer_Node {
 		while ( $count > 2 ) {
 			$oldest = $segments[0];
 			$path   = $this->get_segment_path( $oldest['id'] );
-			$mtime  = @\filemtime( $path );
-			if ( false === $mtime ) {
-				break; // can't determine age → keep it (and stop, oldest-first).
-			}
-			$age         = $now - $mtime;
-			$age_prune   = $this->max_lifetime > 0 && $age > $this->max_lifetime && $count > $this->min_segments;
-			$count_prune = $count > $this->max_segments && $age >= $this->min_lifetime;
-			if ( ! $age_prune && ! $count_prune ) {
-				break;
+			// The hard cap needs no age: it must fire even on unreadable mtime.
+			if ( $count <= $this->max_segments ) {
+				$mtime = @\filemtime( $path );
+				if ( false === $mtime ) {
+					break; // can't determine age → keep it (and stop, oldest-first).
+				}
+				$age         = $now - $mtime;
+				$age_prune   = $this->lifetime > 0 && $age > $this->lifetime && $count > $this->min_segments;
+				$count_prune = $count > $this->num_segments && $age >= $this->min_lifetime;
+				if ( ! $age_prune && ! $count_prune ) {
+					break;
+				}
 			}
 			// Partition's segment dir is base_dir-relative — not WP-managed.
 			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
@@ -1356,10 +1381,11 @@ class Partition_Node extends Timer_Node {
 			'arguments'     => [
 				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true, 'description' => 'On-disk directory holding this partition\'s numbered {seg}.log segment files and .idx indexes.' ],
 				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => '<config:segment_size>', 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
-				[ 'name' => 'min_segments',  'type' => 'int',    'default'  => '<config:min_segments>', 'description' => 'Floor for the age rule: keep at least this many segments even when pruning by max_lifetime (clamped to a hard minimum of 2).' ],
-				[ 'name' => 'max_segments',  'type' => 'int',    'default'  => '<config:max_segments>', 'description' => 'Count rule: prune the oldest back to this many segments (kept younger ones are protected by min_lifetime).' ],
-				[ 'name' => 'min_lifetime',  'type' => 'int',    'default'  => '<config:min_lifetime>', 'description' => 'Floor for the count rule: keep segments younger than this many seconds even when over max_segments; 0 keeps nothing extra.' ],
-				[ 'name' => 'max_lifetime',  'type' => 'int',    'default'  => '<config:max_lifetime>', 'description' => 'Age rule: prune segments older than this many seconds down to min_segments; 0 disables age-based pruning.' ],
+				[ 'name' => 'min_segments',  'type' => 'int',    'default'  => '<config:min_segments>', 'description' => 'Floor for the age rule: keep at least this many segments even when pruning by lifetime (clamped to a hard minimum of 2).' ],
+				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => '<config:num_segments>', 'description' => 'Count-rule target: prune the oldest back to this many segments, but only ones older than min_lifetime.' ],
+				[ 'name' => 'min_lifetime',  'type' => 'int',    'default'  => '<config:min_lifetime>', 'description' => 'Floor for the count rule: keep segments younger than this many seconds even when over num_segments; 0 keeps nothing extra.' ],
+				[ 'name' => 'lifetime',      'type' => 'int',    'default'  => '<config:lifetime>', 'description' => 'Age rule: prune segments older than this many seconds down to min_segments; 0 disables age-based pruning.' ],
+				[ 'name' => 'max_segments',  'type' => 'int',    'default'  => '<config:max_segments>', 'description' => 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min_lifetime does not protect them; only the floor of 2 does). 0 = derive as 2 × num_segments.' ],
 			],
 			'commands'    => [
 				[

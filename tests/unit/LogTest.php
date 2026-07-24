@@ -35,13 +35,13 @@ class LogTest extends TestCase {
 	}
 
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
-		// Args: file segment_size min_segments max_segments [min_lifetime] [max_lifetime]. Lazy fopen.
+		// Args: file segment_size min_segments num_segments [min_lifetime] [lifetime] [max_segments]. Lazy fopen.
 		$log = new Log_Node();
 		$log->arguments( [ "{$this->tmp}/out.log", "1024", "2", "3" ] );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( "{$this->tmp}/out.log", $ref->getProperty( 'file' )->getValue( $log ) );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
-		$this->assertSame( 3,    $ref->getProperty( 'max_segments' )->getValue( $log ) );
+		$this->assertSame( 3,    $ref->getProperty( 'num_segments' )->getValue( $log ) );
 		$this->assertNull( $ref->getProperty( 'fh' )->getValue( $log ), 'handle is opened lazily on first write' );
 	}
 
@@ -52,7 +52,7 @@ class LogTest extends TestCase {
 		$log->arguments( [ "{$this->tmp}/out.log", "1024", "2", "3", "100", "200" ] );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( 100, $ref->getProperty( 'min_lifetime' )->getValue( $log ) );
-		$this->assertSame( 200, $ref->getProperty( 'max_lifetime' )->getValue( $log ) );
+		$this->assertSame( 200, $ref->getProperty( 'lifetime' )->getValue( $log ) );
 	}
 
 	public function test_arguments_resolves_config_defaults_for_missing_optional_tokens(): void {
@@ -63,7 +63,7 @@ class LogTest extends TestCase {
 		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $log ) );
-		$this->assertSame( 2,    $ref->getProperty( 'max_segments' )->getValue( $log ) );
+		$this->assertSame( 2,    $ref->getProperty( 'num_segments' )->getValue( $log ) );
 	}
 
 	public function test_fill_writes_raw_value_not_packed_envelope(): void {
@@ -119,8 +119,8 @@ class LogTest extends TestCase {
 		$this->assertSame( "after\n",      \file_get_contents( "{$this->tmp}/out.log.1" ) );
 	}
 
-	public function test_max_segments_retention_prunes_oldest(): void {
-		// max_segments=2, min_lifetime default 0 (count rule always fires) → keep 2 newest.
+	public function test_num_segments_retention_prunes_oldest(): void {
+		// num_segments=2, min_lifetime default 0 (count rule always fires) → keep 2 newest.
 		$log = new Log_Node();
 		$log->arguments( [ "{$this->tmp}/out.log", "1", "2", "2" ] ); // segment_size=1 → every write rotates
 		foreach ( [ 'a', 'b', 'c', 'd' ] as $v ) {
@@ -232,7 +232,7 @@ class LogTest extends TestCase {
 	public function test_node_schema_arguments_are_file_segment_size_and_retention_knobs(): void {
 		$args  = Log_Node::node_schema()['arguments'];
 		$names = \array_column( $args, 'name' );
-		$this->assertSame( [ 'file', 'segment_size', 'min_segments', 'max_segments', 'min_lifetime', 'max_lifetime' ], $names );
+		$this->assertSame( [ 'file', 'segment_size', 'min_segments', 'num_segments', 'min_lifetime', 'lifetime', 'max_segments' ], $names );
 	}
 
 	public function test_node_schema_inherits_large_write_verbs_and_is_terminal(): void {

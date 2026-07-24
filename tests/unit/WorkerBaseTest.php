@@ -521,7 +521,7 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 1, $worker->ipc_checkpoint_calls, 'execute shutdown must checkpoint the IPC input' );
 	}
 
-	public function test_ipc_partition_args_declare_all_four_retention_axes(): void {
+	public function test_ipc_partition_args_declare_all_five_retention_axes(): void {
 		// An IPC partition is scratch plumbing: bounded by COUNT, never age-pruned.
 		// Passing a bare count would land it on min_segments and inherit <config:*>
 		// lifetimes — a min_lifetime of an hour means the scratch never prunes.
@@ -529,9 +529,10 @@ class WorkerBaseTest extends TestCase {
 		$part->arguments( Worker_Base::ipc_partition_args( "{$this->tmp}/ipc" ) );
 
 		$this->assertSame( 2, $this->read_private( $part, 'min_segments' ) );
-		$this->assertSame( Worker_Base::IPC_MAX_SEGMENTS, $this->read_private( $part, 'max_segments' ) );
+		$this->assertSame( Worker_Base::IPC_NUM_SEGMENTS, $this->read_private( $part, 'num_segments' ), 'the retained count is the COUNT rule' );
+		$this->assertSame( Worker_Base::IPC_MAX_SEGMENTS, $this->read_private( $part, 'max_segments' ), 'the hard cap is the unconditional ceiling' );
 		$this->assertSame( 0, $this->read_private( $part, 'min_lifetime' ), 'no age floor: prune by count alone' );
-		$this->assertSame( 0, $this->read_private( $part, 'max_lifetime' ), 'IPC never ages out on a timer' );
+		$this->assertSame( 0, $this->read_private( $part, 'lifetime' ), 'IPC never ages out on a timer' );
 	}
 }
 

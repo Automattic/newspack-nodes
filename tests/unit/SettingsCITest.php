@@ -4,8 +4,8 @@
  * replaces the legacy SettingsController.
  *
  * Asserts value-equivalence with the legacy `update_setting` writer for the
- * six substrate-owned integer keys (num_partitions, segment_size,
- * min_segments, max_segments, min_lifetime, max_lifetime), plus the additive
+ * seven substrate-owned integer keys (num_partitions, segment_size,
+ * min_segments, num_segments, min_lifetime, lifetime, max_segments), plus the additive
  * `get` verb that returns the same surface as a snapshot. Substrate config is seeded via
  * `TestCase::use_base_dir()`, mirroring StatusCITest / AggregatorCITest.
  *
@@ -64,7 +64,7 @@ class SettingsCITest extends TestCase {
 	}
 
 	public function test_get_verb_falls_through_to_defaults_when_options_unset(): void {
-		// No WP options set — verb should still return a 6-key shape using
+		// No WP options set — verb should still return a 7-key shape using
 		// whatever the substrate Config defaults supply (driven by the
 		// per-test base_dir config file). num_partitions defaults to 1 from
 		// the substrate-config-defaults overlay.
@@ -74,10 +74,11 @@ class SettingsCITest extends TestCase {
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'num_partitions', $result );
 		$this->assertArrayHasKey( 'min_segments', $result );
-		$this->assertArrayHasKey( 'max_segments', $result );
+		$this->assertArrayHasKey( 'num_segments', $result );
 		$this->assertArrayHasKey( 'segment_size', $result );
 		$this->assertArrayHasKey( 'min_lifetime', $result );
-		$this->assertArrayHasKey( 'max_lifetime', $result );
+		$this->assertArrayHasKey( 'lifetime', $result );
+		$this->assertArrayHasKey( 'max_segments', $result );
 		$this->assertIsInt( $result['num_partitions'] );
 	}
 

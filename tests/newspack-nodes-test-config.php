@@ -16,8 +16,9 @@ return [
 	'num_partitions'   => 1,
 	'segment_size'     => 1024,
 	'min_segments'     => 2,
-	'max_segments'     => 2,
+	'num_segments'     => 2,
 	'min_lifetime'     => 0,
-	'max_lifetime'     => 0,
+	'lifetime'         => 0,
+	'max_segments'     => 0,
 	'memcache_servers' => [],
 ];

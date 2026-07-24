@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **True hard cap on Partition/Topic/Log segment retention (`max_segments`).**
+  A new, optional last positional arg (and `newspack_nodes_max_segments` setting)
+  that prunes the oldest segments UNCONDITIONALLY once the count exceeds it — only
+  the hard floor of 2 protects them, `min_lifetime` does NOT. This closes the
+  unbounded-growth hole where a hot partition full of young segments (age <
+  `min_lifetime`) could grow without limit past the count target. Unset (`0`)
+  derives to `2 × num_segments` via the shared `Partition_Node::derive_max_segments()`.
+  The admin "Total Log Storage" readout, the `workers` dump metadata, and the
+  `settings` CI now compute the disk ceiling from the hard cap, so the displayed
+  ceiling is the one retention actually enforces rather than an underestimate.
+
+### Changed
+- **BREAKING: renamed the Partition/Topic/Log retention axes.** `max_lifetime` →
+  `lifetime` (age rule, `0` = off) and `max_segments` → `num_segments` (count
+  target; prune above it only for segments older than `min_lifetime`). The freed
+  `max_segments` name now means the hard cap (above). Positional arg order is now
+  `dir, segment_size, min_segments, num_segments, min_lifetime, lifetime,
+  max_segments` (Log: `file, …` same tail). The `<config:max_lifetime>` /
+  `<config:max_segments>` topology tokens become `<config:lifetime>` /
+  `<config:num_segments>` / `<config:max_segments>`, and the `wp nodes ingest`
+  `--max_segments` flag is renamed `--num_segments`. A run-once activation
+  migration (`Retention_Settings_Migration`, guarded by a marker) renames the
+  stored options: the old `newspack_nodes_max_segments` VALUE (a target count)
+  moves to `newspack_nodes_num_segments`, NOT to the new hard-cap `max_segments`;
+  `newspack_nodes_max_lifetime` → `newspack_nodes_lifetime`. The marker guard
+  keeps an admin-set hard cap from being cannibalized on re-activation.
 ### Fixed
 - **A write stall can no longer silently lose accepted messages.** `flush()`
   reset the batch before writing; a short write (disk full, EIO, root-owned

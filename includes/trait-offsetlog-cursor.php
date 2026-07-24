@@ -27,15 +27,17 @@ trait Offsetlog_Cursor {
 	 * on every later commit (current_size ≥ 1 > the 1-byte threshold) — so segment_size=1
 	 * produces no empty-segment spam.
 	 *
-	 * Retention is the dual-rule scheme (see Partition_Node): keep at least 10 keyframes
-	 * and at most 30, holding anything younger than 5 minutes even when over the count,
-	 * and pruning anything older than 15 minutes back down to the floor.
+	 * Retention is the three-rule scheme (see Partition_Node): keep at least 10 keyframes
+	 * and a count target of 30, holding anything younger than 5 minutes even when over the
+	 * count, pruning anything older than 15 minutes back down to the floor, and a hard cap
+	 * of 60 that bounds a very hot cursor whose keyframes are all younger than 5 minutes.
 	 */
 	public const OFFSETLOG_SEGMENT_SIZE = 1;
 	public const OFFSETLOG_MIN_SEGMENTS = 10;
-	public const OFFSETLOG_MAX_SEGMENTS = 30;
+	public const OFFSETLOG_NUM_SEGMENTS = 30;
 	public const OFFSETLOG_MIN_LIFETIME = 300;
-	public const OFFSETLOG_MAX_LIFETIME = 900;
+	public const OFFSETLOG_LIFETIME     = 900;
+	public const OFFSETLOG_MAX_SEGMENTS = 60;
 
 	/** Durable offsetlog Partition; null until built (ephemeral nodes skip it). */
 	protected ?Partition_Node $offsetlog = null;
@@ -74,9 +76,10 @@ trait Offsetlog_Cursor {
 		$this->offsetlog = $this->make_sidecar( $dir, $this->offsetlog_name(), [
 			self::OFFSETLOG_SEGMENT_SIZE,
 			self::OFFSETLOG_MIN_SEGMENTS,
-			self::OFFSETLOG_MAX_SEGMENTS,
+			self::OFFSETLOG_NUM_SEGMENTS,
 			self::OFFSETLOG_MIN_LIFETIME,
-			self::OFFSETLOG_MAX_LIFETIME,
+			self::OFFSETLOG_LIFETIME,
+			self::OFFSETLOG_MAX_SEGMENTS,
 		] );
 		return $this->offsetlog;
 	}

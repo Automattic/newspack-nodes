@@ -102,10 +102,11 @@ class AdminTest extends TestCase {
 			'newspack_nodes_base_directory',
 			'newspack_nodes_num_partitions',
 			'newspack_nodes_min_segments',
+			'newspack_nodes_num_segments',
 			'newspack_nodes_max_segments',
 			'newspack_nodes_segment_size',
 			'newspack_nodes_min_lifetime',
-			'newspack_nodes_max_lifetime',
+			'newspack_nodes_lifetime',
 			'newspack_nodes_memcache_servers',
 		];
 		foreach ( $expected as $option ) {
@@ -130,10 +131,11 @@ class AdminTest extends TestCase {
 		$int_options = [
 			'newspack_nodes_num_partitions',
 			'newspack_nodes_min_segments',
+			'newspack_nodes_num_segments',
 			'newspack_nodes_max_segments',
 			'newspack_nodes_segment_size',
 			'newspack_nodes_min_lifetime',
-			'newspack_nodes_max_lifetime',
+			'newspack_nodes_lifetime',
 		];
 		foreach ( $int_options as $option ) {
 			$cb = $GLOBALS['_registered_settings'][ $option ]['args']['sanitize_callback'];
@@ -239,7 +241,7 @@ class AdminTest extends TestCase {
 		$this->assertArrayHasKey( 'newspack_nodes_storage_section', $GLOBALS['_registered_sections'] );
 
 		// Fields populated under the right page.
-		foreach ( [ 'num_partitions', 'min_segments', 'max_segments', 'segment_size', 'min_lifetime', 'max_lifetime', 'total_storage', 'base_directory', 'memcache_servers' ] as $field ) {
+		foreach ( [ 'num_partitions', 'min_segments', 'num_segments', 'max_segments', 'segment_size', 'min_lifetime', 'lifetime', 'total_storage', 'base_directory', 'memcache_servers' ] as $field ) {
 			$this->assertArrayHasKey( $field, $GLOBALS['_registered_fields'], "field $field not registered" );
 			$this->assertSame( Admin::SETTINGS_PAGE, $GLOBALS['_registered_fields'][ $field ]['page'] );
 		}
@@ -649,7 +651,25 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="small-text"', $html );
 	}
 
-	// ---- max_segments_callback (max=32 → small-text) ---------------------
+	// ---- num_segments_callback (count target, max=32 → small-text) -------
+
+	public function test_num_segments_callback_renders_number_input_with_bounds(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->num_segments_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="number"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_num_segments"', $html );
+		$this->assertStringContainsString( 'id="num_segments"', $html );
+		$this->assertStringContainsString( 'min="2"', $html );
+		$this->assertStringContainsString( 'max="32"', $html );
+		// max <= 999.
+		$this->assertStringContainsString( 'class="small-text"', $html );
+	}
+
+	// ---- max_segments_callback (hard cap, 0=auto..64 → small-text) -------
 
 	public function test_max_segments_callback_renders_number_input_with_bounds(): void {
 		$admin = new Admin();
@@ -661,8 +681,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'type="number"', $html );
 		$this->assertStringContainsString( 'name="newspack_nodes_max_segments"', $html );
 		$this->assertStringContainsString( 'id="max_segments"', $html );
-		$this->assertStringContainsString( 'min="2"', $html );
-		$this->assertStringContainsString( 'max="32"', $html );
+		$this->assertStringContainsString( 'min="0"', $html );
+		$this->assertStringContainsString( 'max="64"', $html );
 		// max <= 999.
 		$this->assertStringContainsString( 'class="small-text"', $html );
 	}
@@ -701,17 +721,17 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="regular-text"', $html );
 	}
 
-	// ---- max_lifetime_callback (max=604800 → regular-text) ---------------
+	// ---- lifetime_callback (max=604800 → regular-text) -------------------
 
-	public function test_max_lifetime_callback_renders_number_input_with_bounds(): void {
+	public function test_lifetime_callback_renders_number_input_with_bounds(): void {
 		$admin = new Admin();
 
 		\ob_start();
-		$admin->max_lifetime_callback();
+		$admin->lifetime_callback();
 		$html = \ob_get_clean();
 
 		$this->assertStringContainsString( 'type="number"', $html );
-		$this->assertStringContainsString( 'name="newspack_nodes_max_lifetime"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_lifetime"', $html );
 		$this->assertStringContainsString( 'min="0"', $html );
 		$this->assertStringContainsString( 'max="604800"', $html );
 		// max > 999 → regular-text branch.
@@ -889,9 +909,11 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	public function test_total_storage_callback_does_not_double_count_partitions(): void {
 		// `Log_Discovery::on_disk()` now returns CONCRETE per-partition dir
 		// names, so the partition dimension is already in the dir count. The
-		// estimate must be segment_size × max_segments × dir_count — NOT
-		// multiplied by num_partitions a second time.
+		// estimate must be segment_size × the hard cap × dir_count — NOT
+		// multiplied by num_partitions a second time. num_segments=3 < the hard
+		// cap (4), so the hard cap is the ceiling the estimate multiplies by.
 		\update_option( 'newspack_nodes_segment_size', 10 * 1024 * 1024 );
+		\update_option( 'newspack_nodes_num_segments', 3 );
 		\update_option( 'newspack_nodes_max_segments', 4 );
 		\update_option( 'newspack_nodes_num_partitions', 4 );
 		foreach ( [ 'firehose.p0', 'firehose.p1', 'firehose.p2' ] as $name ) {
@@ -912,8 +934,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_total_storage_callback_shows_gb_when_total_over_one_gigabyte(): void {
-		// Force a large enough total: 64MB segment × 4 segments × 4 on-disk dirs = 1 GB.
+		// Force a large enough total: 64MB segment × 4 hard-cap segments × 4 on-disk dirs = 1 GB.
 		\update_option( 'newspack_nodes_segment_size', 64 * 1024 * 1024 );
+		\update_option( 'newspack_nodes_num_segments', 3 );
 		\update_option( 'newspack_nodes_max_segments', 4 );
 		foreach ( [ 'firehose.p0', 'firehose.p1', 'jobs.p0', 'jobs.p1' ] as $name ) {
 			\mkdir( "{$this->base_dir}/logs/{$name}", 0755, true );

@@ -230,35 +230,56 @@ class ConsumerTimeTravelTest extends TestCase {
 		$offsetlog->cleanup_segments();
 	}
 
-	public function test_offsetlog_count_rule_prunes_back_to_max_segments(): void {
-		// Over max_segments AND past min_lifetime: the count rule prunes the oldest
-		// back to max_segments. One keyframe = one offsetlog segment.
+	public function test_offsetlog_count_rule_prunes_back_to_num_segments(): void {
+		// Over num_segments (but UNDER the hard cap) AND past min_lifetime: the count
+		// rule prunes the oldest back to num_segments. One keyframe = one segment.
 		Core::$now = 8000.0;
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 
-		$total = Consumer_Node::OFFSETLOG_MAX_SEGMENTS + 5;
+		$total = Consumer_Node::OFFSETLOG_NUM_SEGMENTS + 5;
 		for ( $i = 1; $i <= $total; $i++ ) {
 			$this->checkpoint_at( $c, 0, $i * 10 );
 		}
 		$offsetlog = $this->read_private( $c, 'offsetlog' );
-		$this->assertCount( $total, $offsetlog->get_segments( true ), 'nothing is younger than min_lifetime yet' );
+		$this->assertCount( $total, $offsetlog->get_segments( true ), 'nothing is younger than min_lifetime yet, and still under the hard cap' );
 
-		// Older than min_lifetime (300s), younger than max_lifetime (900s).
+		// Older than min_lifetime (300s), younger than lifetime (900s).
 		$this->age_offsetlog_segments( $offsetlog, 400 );
 
 		$this->assertCount(
+			Consumer_Node::OFFSETLOG_NUM_SEGMENTS,
+			$offsetlog->get_segments( true ),
+			'count rule prunes to exactly num_segments keyframes'
+		);
+	}
+
+	public function test_offsetlog_hard_cap_bounds_young_keyframes(): void {
+		// All keyframes younger than min_lifetime — the count rule can't fire — yet
+		// the hard cap still bounds growth at OFFSETLOG_MAX_SEGMENTS.
+		Core::$now = 8000.0;
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+
+		$total = Consumer_Node::OFFSETLOG_MAX_SEGMENTS + 10;
+		for ( $i = 1; $i <= $total; $i++ ) {
+			$this->checkpoint_at( $c, 0, $i * 10 );
+		}
+		$offsetlog = $this->read_private( $c, 'offsetlog' );
+		$this->assertCount(
 			Consumer_Node::OFFSETLOG_MAX_SEGMENTS,
 			$offsetlog->get_segments( true ),
-			'count rule prunes to exactly max_segments keyframes'
+			'hard cap bounds young keyframes even below min_lifetime'
 		);
 	}
 
 	public function test_offsetlog_age_rule_prunes_down_to_min_segments(): void {
-		// Under max_segments, so only the age rule can fire: segments older than
-		// max_lifetime are pruned down to the min_segments floor.
+		// Under num_segments, so only the age rule can fire: segments older than
+		// lifetime are pruned down to the min_segments floor.
 		Core::$now = 8000.0;
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
@@ -290,14 +311,14 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c1->name( 'firehose:consumer' );
 		$c1->sink( new Capture_Sink_Node() );
 
-		$total = Consumer_Node::OFFSETLOG_MAX_SEGMENTS + 5;
+		$total = Consumer_Node::OFFSETLOG_NUM_SEGMENTS + 5;
 		for ( $i = 1; $i <= $total; $i++ ) {
 			$this->checkpoint_at( $c1, 2, $i * 100 );
 		}
 		// Age them past min_lifetime so the count rule actually drops the oldest.
 		$offsetlog = $this->read_private( $c1, 'offsetlog' );
 		$this->age_offsetlog_segments( $offsetlog, 400 );
-		$this->assertCount( Consumer_Node::OFFSETLOG_MAX_SEGMENTS, $offsetlog->get_segments( true ) );
+		$this->assertCount( Consumer_Node::OFFSETLOG_NUM_SEGMENTS, $offsetlog->get_segments( true ) );
 
 		// Old worker process dies; the offsetlog files persist on disk.
 		Core::reset();
