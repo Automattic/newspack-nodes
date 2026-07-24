@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (locks/IPC/logs carry no blog namespace), so `Bootstrap::fleet_site()`
   gates the supervisor loop and the spawn endpoint — single-site always
   runs; on multisite only the main site does, subsites no-op loud.
+- `Age_Sieve_Node` — port of Tachikoma's `AgeSieve.pm`: drops any message
+  whose envelope TIMESTAMP age exceeds `max_age` (default 900s; optional
+  `should_warn` enables the rate-limited drop warning). ELN's job-router
+  topology now wires it between Job_Router and jobs:partition, replacing
+  Job_Router's own stale timeout.
 - `Value_Timeout_Node::save_state()` / `restore_state()` — the window maps
   ride a Consumer's `add_snapshot_node` frame, so a respawn keeps mid-window
   suppressions AND the trailing re-emit (the cache-invalidation case: losing
