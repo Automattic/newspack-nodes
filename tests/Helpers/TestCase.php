@@ -21,6 +21,12 @@ abstract class TestCase extends PHPUnitTestCase {
 	private array $saved_config_resolvers = [];
 
 	protected function setUp(): void {
+		// Pin the tier resolver to memcached-only: tests that seed Core::$memd
+		// must see their claims land there even where CLI APCu is enabled.
+		if ( \class_exists( '\\Newspack_Nodes\\Cache_Backend' ) ) {
+			\Newspack_Nodes\Cache_Backend::$apcu_usable = static fn (): bool => false;
+		}
+
 		parent::setUp();
 		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
 			Core::reset();

@@ -37,7 +37,7 @@ class Table_Node extends Node {
 	 * @param list<string>|null $args
 	 * @return list<string>
 	 * @throws \InvalidArgumentException Without a namespace argument.
-	 * @throws \LogicException Without memcached (the table has no backing store).
+	 * @throws \LogicException With no backing store (memcached or APCu).
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -48,8 +48,8 @@ class Table_Node extends Node {
 		if ( '' === $namespace ) {
 			throw new \InvalidArgumentException( 'Table requires a namespace argument' );
 		}
-		if ( null === Core::$memd ) {
-			throw new \LogicException( 'Table requires memcached (memcache_servers unconfigured)' );
+		if ( null === Cache_Backend::shared_first() ) {
+			throw new \LogicException( 'Table requires memcached or APCu' );
 		}
 		$this->namespace = $namespace;
 		$this->ttl       = \max( 0, Core::num_int( $args[1] ?? 0, 0 ) );
@@ -57,9 +57,10 @@ class Table_Node extends Node {
 	}
 
 	public function fill( array $message ): void {
-		$key = Core::as_string( $message[ Message::KEY ], '' );
-		if ( '' !== $key && null !== Core::$memd ) {
-			Core::$memd->set( self::KEY_PREFIX . "{$this->namespace}:{$key}", $message[ Message::VALUE ], $this->ttl );
+		$key     = Core::as_string( $message[ Message::KEY ], '' );
+		$backend = Cache_Backend::shared_first();
+		if ( '' !== $key && null !== $backend ) {
+			$backend->set( self::KEY_PREFIX . "{$this->namespace}:{$key}", $message[ Message::VALUE ], $this->ttl );
 		}
 		parent::fill( $message );
 	}
@@ -74,7 +75,9 @@ class Table_Node extends Node {
 	 */
 	public static function lookup( string $ns, string $key ): mixed {
 		if ( null === Core::$memd ) {
-			return null;
+			$backend = Cache_Backend::shared_first();
+			$value   = $backend?->get( self::KEY_PREFIX . "{$ns}:{$key}" );
+			return false === $value || null === $value ? null : $value;
 		}
 		$value = Core::$memd->get( self::KEY_PREFIX . "{$ns}:{$key}" );
 		if ( false === $value && \Memcached::RES_NOTFOUND === Core::$memd->getResultCode() ) {
@@ -89,7 +92,7 @@ class Table_Node extends Node {
 	 * @param string $key Entry key.
 	 */
 	public function rm( string $key ): string {
-		Core::$memd?->delete( self::KEY_PREFIX . "{$this->namespace}:{$key}" );
+		Cache_Backend::shared_first()?->delete( self::KEY_PREFIX . "{$this->namespace}:{$key}" );
 		return 'ok';
 	}
 

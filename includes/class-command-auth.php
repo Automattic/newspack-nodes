@@ -178,11 +178,12 @@ class Command_Auth {
 
 		// Strict single-use: claim the nonce; false = replay or no store.
 		$claim = self::$claim_nonce ?? static function ( string $nonce, int $ttl ): bool {
-			if ( ! Core::$memd instanceof \Memcached ) {
-				Core::print_less_often( 'Command_Auth: no memcache handle; refusing command (single-use unverifiable)' );
+			$backend = Cache_Backend::local_first();
+			if ( null === $backend ) {
+				Core::print_less_often( 'Command_Auth: no APCu and no memcache; refusing command (single-use unverifiable)' );
 				return false;
 			}
-			return Core::$memd->add( 'nodes-cmd-nonce:' . $nonce, 1, $ttl );
+			return $backend->add( 'nodes-cmd-nonce:' . $nonce, 1, $ttl );
 		};
 		return $claim( $nonce, self::NONCE_TTL_S );
 	}

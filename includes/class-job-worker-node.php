@@ -288,14 +288,15 @@ class Job_Worker_Node extends Node {
 	 * @param array{status:string,message:string,items_ok:int,items_err:int}|null   $outcome Classified outcome (null: job skipped by a before_job crash).
 	 */
 	private function settle_batch( string $batch, ?array $outcome ): void {
-		if ( null === Core::$memd ) {
-			$this->print_less_often( 'batch job settled without memcached: ', $batch );
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			$this->print_less_often( 'batch job settled with no claim store: ', $batch );
 			return;
 		}
 		if ( null === $outcome || 'error' === $outcome['status'] ) {
-			Core::$memd->increment( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
+			$backend->increment( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
 		}
-		$left = Core::$memd->decrement( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
+		$left = $backend->decrement( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
 		if ( false === $left ) {
 			$this->print_less_often( 'batch counter missing (evicted or never seeded): ', $batch );
 			return;
@@ -304,7 +305,7 @@ class Job_Worker_Node extends Node {
 			return;
 		}
 		\do_action( 'newspack_nodes/job_worker/batch_complete', $batch );
-		$errors = Core::as_int( Core::$memd->get( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch ), 0 );
+		$errors = Core::as_int( $backend->get( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch ), 0 );
 		try {
 			Alerts::journal_event(
 				"batch:{$batch}",
@@ -314,8 +315,8 @@ class Job_Worker_Node extends Node {
 		} catch ( \Throwable $e ) {
 			$this->print_less_often( 'batch completion journal failed: ', $e->getMessage() );
 		}
-		Core::$memd->delete( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
-		Core::$memd->delete( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
+		$backend->delete( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
+		$backend->delete( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
 	}
 
 	/**

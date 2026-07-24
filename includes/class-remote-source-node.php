@@ -457,7 +457,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @param array<string,mixed> $data
 	 */
 	private function write_status( array $data ): void {
-		$cache = Core::$memd;
+		$cache = Cache_Backend::shared_first();
 		if ( null === $cache ) {
 			return;
 		}

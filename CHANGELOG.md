@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Cache_Backend`** — the two-ordering tier resolver behind every
+  non-durable shared-state surface. `local_first()` (APCu → memcached)
+  now backs the command-auth nonce claim and the SSE slot pool: the web
+  pool rides shared memory (~µs vs a memcached round trip) and CLI
+  processes fall through to memcached automatically. `shared_first()`
+  (memcached → APCu) backs the unique/batch job counters, `Table_Node`,
+  and the remote status snapshot: configured memcached keeps its
+  cross-process scope, and a host with APCu but no memcached — the stock
+  Atomic posture — keeps auth, SSE, and job claims FUNCTIONAL instead of
+  failing closed (trading CLI visibility, the documented degraded mode).
+  The APCu arm matches memcached semantics (false on miss, decrement
+  clamps at zero, touch shimmed as re-store).
+
 ### Fixed
 - `Config::ensure_path()` accepts symlinked **ancestors** (macOS's `/tmp` and
   `/var` resolve under `/private`) and returns the canonical path; only a
