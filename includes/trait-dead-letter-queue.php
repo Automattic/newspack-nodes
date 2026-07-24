@@ -147,6 +147,16 @@ trait Dead_Letter_Queue {
 		return '' !== $this->name ? "{$this->name}:deadletter" : '';
 	}
 
+	/**
+	 * Whether this node is the ONLY writer of its quarantine (readers are; a
+	 * multi-writer Partition's shared write-quarantine is not). True lifts the
+	 * sidecar's PIPE_BUF cap via void_warranty (lockless rotation) — safe only
+	 * for a sole writer.
+	 */
+	protected function deadletter_sole_writer(): bool {
+		return true;
+	}
+
 	protected function ensure_deadletter(): ?Partition_Node {
 		if ( null !== $this->deadletter ) {
 			return $this->deadletter;
@@ -164,7 +174,9 @@ trait Dead_Letter_Queue {
 			self::DEADLETTER_MAX_LIFETIME,
 		] );
 		// Sole writer: the cap lifts so poison over PIPE_BUF still quarantines.
-		$deadletter->void_warranty();
+		if ( $this->deadletter_sole_writer() ) {
+			$deadletter->void_warranty();
+		}
 		// Triage metadata rides in .idx; ingest replays only .log (verbatim).
 		$deadletter->with_index( $this->deadletter_index_row( ... ) );
 		$this->deadletter = $deadletter;

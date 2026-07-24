@@ -104,6 +104,10 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Worker_Base::$db_probe       = null;
 			\Newspack_Nodes\Worker_Base::$token_provider = null;
 		}
+		// A leaked fwrite seam would silently corrupt every later write test.
+		if ( \class_exists( '\Newspack_Nodes\Partition_Node', false ) ) {
+			\Newspack_Nodes\Partition_Node::$fwrite = null;
+		}
 		// Restore the per-test config env that use_base_dir() may have repointed at a
 		// (now-deleted) temp config, and drop Config's memoized base/dirs. Otherwise a
 		// test that called use_base_dir() leaks its base_directory into a later test

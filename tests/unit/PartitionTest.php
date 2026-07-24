@@ -24,6 +24,174 @@ class PartitionTest extends TestCase {
 		parent::tearDown();
 	}
 
+	// ── write-stall dead-letter: flush must never silently lose a batch ─────
+
+	public function test_flush_write_stall_quarantines_unwritten_messages_and_truncates_the_torn_tail(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'stall' );
+		$p->arguments( [ "{$this->tmp}/logs/stall.p0", '1048576', '2', '4', '0', '0' ] );
+
+		$msgs = [];
+		foreach ( [ 'alpha-payload', 'beta-payload', 'gamma-payload' ] as $v ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$m[ Message::VALUE ] = $v;
+			$msgs[]              = $m;
+			$p->fill( $m );
+		}
+
+		$first_len = \strlen( Message::packed( $msgs[0] ) . "\n" );
+		// Tear 5 bytes into the SECOND record, then refuse further writes —
+		// only on the source segment (the quarantine's own disk stays healthy,
+		// the selective-EIO / bad-permissions scenario).
+		$budget                 = $first_len + 5;
+		Partition_Node::$fwrite = static function ( $fh, string $bytes ) use ( &$budget ) {
+			$uri = (string) ( \stream_get_meta_data( $fh )['uri'] ?? '' );
+			if ( ! \str_contains( $uri, '/logs/stall.p0/' ) ) {
+				return \fwrite( $fh, $bytes );
+			}
+			if ( $budget <= 0 ) {
+				return false;
+			}
+			$written = \fwrite( $fh, \substr( $bytes, 0, $budget ) );
+			$budget  = 0;
+			return $written;
+		};
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+		try {
+			$p->flush();
+		} finally {
+			Partition_Node::$fwrite = null;
+		}
+
+		// The torn partial record is truncated off — framing survives.
+		$log = (string) \file_get_contents( "{$this->tmp}/logs/stall.p0/0.log" );
+		$this->assertSame( $first_len, \strlen( $log ), 'the torn partial record must be truncated off' );
+		$this->assertStringContainsString( 'alpha-payload', $log );
+
+		// The unwritten messages are quarantined (replayable), not lost.
+		$dl = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.stall.p0/0.log" );
+		$this->assertStringContainsString( 'beta-payload', $dl );
+		$this->assertStringContainsString( 'gamma-payload', $dl );
+		$this->assertStringNotContainsString( 'alpha-payload', $dl, 'the durably-written record must not double-quarantine' );
+
+		// Recovery: a later write appends cleanly and every line still parses.
+		$m4                   = Message::new_message();
+		$m4[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m4[ Message::VALUE ] = 'delta-payload';
+		$p->fill( $m4 );
+		$p->flush();
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( "{$this->tmp}/logs/stall.p0/0.log" ) ) ) );
+		$this->assertCount( 2, $lines );
+		$this->assertSame( 'alpha-payload', Message::unpacked( $lines[0] )[ Message::VALUE ] );
+		$this->assertSame( 'delta-payload', Message::unpacked( $lines[1] )[ Message::VALUE ] );
+	}
+
+	public function test_flush_open_failure_quarantines_the_whole_batch(): void {
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'permission checks are moot as root' );
+		}
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'openfail' );
+		$p->arguments( [ "{$this->tmp}/logs/openfail.p0", '1048576', '2', '4', '0', '0' ] );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'omega-payload';
+		$p->fill( $m );
+
+		// A read-only segment dir: fopen fails, get_handle() returns null.
+		\mkdir( "{$this->tmp}/logs/openfail.p0", 0755, true );
+		\chmod( "{$this->tmp}/logs/openfail.p0", 0555 );
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+		try {
+			$p->flush();
+		} finally {
+			\chmod( "{$this->tmp}/logs/openfail.p0", 0755 );
+		}
+
+		$dl = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.openfail.p0/0.log" );
+		$this->assertStringContainsString( 'omega-payload', $dl, 'an unopenable segment must quarantine the batch, not drop it' );
+	}
+
+	public function test_large_write_stall_truncates_and_quarantines_the_message(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'bigstall' );
+		$p->arguments( [ "{$this->tmp}/logs/bigstall.p0", '1048576', '2', '4', '0', '0' ] );
+		$p->void_warranty();
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = \str_repeat( 'L', 6000 ) . '-large-tail';
+		// 100 bytes then stall (source segment only): the large path writes
+		// synchronously in fill().
+		$budget                 = 100;
+		Partition_Node::$fwrite = static function ( $fh, string $bytes ) use ( &$budget ) {
+			$uri = (string) ( \stream_get_meta_data( $fh )['uri'] ?? '' );
+			if ( ! \str_contains( $uri, '/logs/bigstall.p0/' ) ) {
+				return \fwrite( $fh, $bytes );
+			}
+			if ( $budget <= 0 ) {
+				return false;
+			}
+			$written = \fwrite( $fh, \substr( $bytes, 0, $budget ) );
+			$budget  = 0;
+			return $written;
+		};
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+		try {
+			$p->fill( $m );
+		} finally {
+			Partition_Node::$fwrite = null;
+		}
+
+		$this->assertSame( 0, \filesize( "{$this->tmp}/logs/bigstall.p0/0.log" ), 'the torn large record must be truncated off' );
+		$dl = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.bigstall.p0/0.log" );
+		$this->assertStringContainsString( '-large-tail', $dl );
+	}
+
+	public function test_write_deadletter_stays_locked_for_a_multi_writer_source(): void {
+		// A default source is multi-writer (ADR-4 lockless appends); its shared
+		// quarantine must keep the rotate lock — void_warranty's lockless
+		// rotation would race when every writer stalls at once (disk full).
+		$this->use_base_dir( $this->tmp );
+		$multi = new Partition_Node();
+		$multi->name( 'shared' );
+		$multi->arguments( [ "{$this->tmp}/logs/shared.p0", '1048576', '2', '4', '0', '0' ] );
+		$dl = ( new \ReflectionMethod( $multi, 'ensure_deadletter' ) )->invoke( $multi );
+		$this->assertNotNull( $dl );
+		$this->assertFalse( $this->read_node_prop( $dl, 'allow_large_writes' ) );
+
+		// A single-writer source (void_warranty) keeps a sole-writer quarantine.
+		$solo = new Partition_Node();
+		$solo->name( 'solo' );
+		$solo->arguments( [ "{$this->tmp}/logs/solo.p0", '1048576', '2', '4', '0', '0' ] );
+		$solo->void_warranty();
+		$dl_solo = ( new \ReflectionMethod( $solo, 'ensure_deadletter' ) )->invoke( $solo );
+		$this->assertNotNull( $dl_solo );
+		$this->assertTrue( $this->read_node_prop( $dl_solo, 'allow_large_writes' ) );
+	}
+
+	public function test_sidecar_partitions_do_not_derive_a_write_deadletter(): void {
+		// A sidecar quarantining into its own sidecar would recurse forever.
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'data' );
+		$p->arguments( [ "{$this->tmp}/logs/data.p0", '1048576', '2', '4', '0', '0' ] );
+		$this->assertSame(
+			"{$this->tmp}/deadletter/logs.data.p0",
+			$this->read_node_prop( $p, 'deadletter_dir' ),
+			'a data partition derives its write-quarantine under {base}/deadletter'
+		);
+
+		$maker = new \ReflectionMethod( $p, 'make_sidecar' );
+		$side  = $maker->invoke( $p, "{$this->tmp}/side", 'data:side', [ 1024, 2, 2, 0, 0 ] );
+		$this->assertSame( '', $this->read_node_prop( $side, 'deadletter_dir' ) );
+	}
+
 	public function test_constructor_does_not_create_partition_dir(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );

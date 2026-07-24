@@ -14,6 +14,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Partition_Node extends Timer_Node {
 	use Schema_Reflection;
 	use File_Writer;
+	use Dead_Letter_Queue;
 	public const DEFAULT_MAX_LIFETIME = 0;
 	public const DEFAULT_MAX_SEGMENTS = 4;
 	public const DEFAULT_MIN_LIFETIME = 0;
@@ -119,13 +120,47 @@ class Partition_Node extends Timer_Node {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
-		$this->partition_dir = \rtrim( $this->partition_dir, '/' );
-		$this->segment_size  = \max( 1, $this->segment_size );
-		$this->min_segments  = \max( 2, $this->min_segments );
-		$this->max_segments  = \max( $this->min_segments, $this->max_segments );
-		$this->min_lifetime  = \max( 0, $this->min_lifetime );
-		$this->max_lifetime  = \max( 0, $this->max_lifetime );
+		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
+		$this->segment_size   = \max( 1, $this->segment_size );
+		$this->min_segments   = \max( 2, $this->min_segments );
+		$this->max_segments   = \max( $this->min_segments, $this->max_segments );
+		$this->min_lifetime   = \max( 0, $this->min_lifetime );
+		$this->max_lifetime   = \max( 0, $this->max_lifetime );
+		$this->deadletter_dir = self::derive_write_deadletter_dir( $this->partition_dir );
 		return $args;
+	}
+
+	/**
+	 * Write-stall quarantine dir ([159]): `{base}/deadletter/{dir-under-base,
+	 * dotted}` — unique per partition dir, beside the read-side consumer DLQs.
+	 * Anything already under deadletter/ gets NONE (a quarantine quarantining
+	 * into a quarantine would chain forever on a full disk).
+	 */
+	private static function derive_write_deadletter_dir( string $dir ): string {
+		if ( '' === $dir ) {
+			return '';
+		}
+		$base = \rtrim( Config::get_base_directory(), '/' );
+		$rel  = \str_starts_with( $dir, "{$base}/" ) ? \substr( $dir, \strlen( $base ) + 1 ) : \ltrim( $dir, '/' );
+		if ( \str_starts_with( $rel, 'deadletter/' ) ) {
+			return '';
+		}
+		return "{$base}/deadletter/" . \str_replace( '/', '.', $rel );
+	}
+
+	/** Sidecars (offsetlogs, quarantines) never quarantine their own writes — that recurses. */
+	public function without_write_deadletter(): void {
+		$this->deadletter_dir = '';
+	}
+
+	/**
+	 * The write-quarantine is shared by every writer of this partition dir; it
+	 * is sole-writer only when the SOURCE is single-writer ([159] audit) — a
+	 * lockless (void_warranty) quarantine under multi-writer stalls would race
+	 * rotation exactly when every writer stalls at once (disk full).
+	 */
+	protected function deadletter_sole_writer(): bool {
+		return $this->allow_large_writes;
 	}
 
 	/**
@@ -186,14 +221,14 @@ class Partition_Node extends Timer_Node {
 			}
 			$fh = $this->get_handle();
 			if ( null === $fh ) {
-				$this->print_less_often( 'WARNING: large write failed to open ', (string) $this->current_log_path );
+				$this->quarantine_unwritten( [ [ 'message' => $message, 'size' => $size ] ], 0, 'segment open failed' );
 				return;
 			}
 			$offset              = $this->current_size;
 			$wrote               = $this->write_all( $fh, $record, $this->current_log_path );
 			$this->current_size += $wrote;
 			if ( $wrote < $size ) {
-				$this->print_less_often( 'WARNING: large write failed to write all ', (string) $size, ' bytes to ', (string) $this->current_log_path );
+				$this->recover_write_stall( $fh, $offset, [ [ 'message' => $message, 'size' => $size ] ], $wrote );
 				return;
 			}
 			if ( null !== $this->index_callback ) {
@@ -492,24 +527,72 @@ class Partition_Node extends Timer_Node {
 
 		$fh = $this->get_handle();
 		if ( null === $fh ) {
+			$this->quarantine_unwritten( $batch_args, 0, 'segment open failed' );
 			return;
 		}
 		$start_offset        = $this->current_size;
 		$wrote               = $this->write_all( $fh, $batch_bytes, $this->current_log_path );
 		$this->current_size += $wrote;
+		$kept                = \count( $batch_args );
 		if ( $wrote < $batch_len ) {
-			return;
+			$kept = $this->recover_write_stall( $fh, $start_offset, $batch_args, $wrote );
 		}
 
 		if ( null !== $this->index_callback ) {
 			$offset = $start_offset;
-			foreach ( $batch_args as $item ) {
+			foreach ( \array_slice( $batch_args, 0, $kept ) as $item ) {
 				$this->write_index_entry( $item['message'], $offset, $item['size'] );
 				$offset += $item['size'];
 			}
 		}
 
 		$this->touch_segments_cache();
+	}
+
+	/**
+	 * Write-stall recovery ([159]): a short write must never silently lose the
+	 * batch OR leave a torn record desyncing every reader after it. Truncate
+	 * the partial record off the segment, then quarantine every message that
+	 * didn't land in full. Returns the count of durable leading messages.
+	 *
+	 * @param resource                                                  $fh           Segment handle.
+	 * @param int                                                       $start_offset Segment size before this batch.
+	 * @param array<int, array{message: array<int, mixed>, size: int}>  $batch_args   Batched messages, in write order.
+	 * @param int                                                       $wrote        Bytes write_all() landed.
+	 * @return int Leading messages fully on disk.
+	 */
+	protected function recover_write_stall( $fh, int $start_offset, array $batch_args, int $wrote ): int {
+		$kept       = 0;
+		$kept_bytes = 0;
+		foreach ( $batch_args as $item ) {
+			if ( $kept_bytes + $item['size'] > $wrote ) {
+				break;
+			}
+			$kept_bytes += $item['size'];
+			++$kept;
+		}
+		if ( $kept_bytes < $wrote ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_ftruncate, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_ftruncate -- substrate-owned segment file under base_dir, not WP-managed.
+			@\ftruncate( $fh, \max( 0, $start_offset + $kept_bytes ) );
+			@\fseek( $fh, 0, \SEEK_END );
+		}
+		$this->current_size = $start_offset + $kept_bytes;
+		$this->quarantine_unwritten( $batch_args, $kept, 'write stalled' );
+		return $kept;
+	}
+
+	/**
+	 * Route messages [$from..] through the DLQ ([159]) — loud + replayable via
+	 * `wp nodes ingest`; with no quarantine dir the trait logs-and-drops loudly.
+	 *
+	 * @param array<int, array{message: array<int, mixed>, size: int}> $batch_args Batched messages.
+	 * @param int                                                      $from       First unwritten index.
+	 */
+	protected function quarantine_unwritten( array $batch_args, int $from, string $reason ): void {
+		$this->ensure_deadletter();
+		foreach ( \array_slice( $batch_args, $from ) as $item ) {
+			$this->dead_letter( $item['message'], $reason );
+		}
 	}
 
 	/**
