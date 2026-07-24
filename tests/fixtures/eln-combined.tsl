@@ -1,0 +1,14 @@
+# Combined topology: one worker runs request-builder, flame-builder, and
+# job-router together. ORDER MATTERS: job-router (included last) wires
+# firehose:consumer -> job-router directly; the connect_node below re-routes
+# it through firehose:tee so both request-builder and job-router feed from
+# the tee. jobs:sieve (Age_Sieve) sits downstream of job-router, unaffected.
+
+include request-builder
+include flame-builder
+include job-router
+make_node Tee firehose:tee
+disconnect_node firehose:consumer
+connect_node firehose:consumer firehose:tee
+connect_node firehose:tee request-builder
+connect_node firehose:tee job-router

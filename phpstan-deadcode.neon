@@ -28,6 +28,13 @@ parameters:
         -
             identifier: shipmonk.deadMethod
             path: includes/trait-deferred-clean-stop.php
+        # tokenize_spans is the PHP half of the JS-paired tokenizer surface
+        # (shell-node.js tokenizeSpans, live in parseTsl.js); parse_statements
+        # superseded its registry use but the public span API stays paired.
+        -
+            identifier: shipmonk.deadMethod
+            message: '#tokenize_spans#'
+            path: includes/class-shell-node.php
         -
             identifier: shipmonk.deadProperty.neverRead
             path: includes/trait-deferred-clean-stop.php

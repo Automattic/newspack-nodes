@@ -1,0 +1,18 @@
+# Job_Router topology
+#
+#   Tail (firehose.log)  ────┐
+#                            ├──→ Job_Router ──→ Age_Sieve ──→ Partition (jobs:partition)
+#   Tail (jobintake.log) ────┘
+
+include topic-probe
+include job-intake
+
+make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>
+make_node Job_Router job-router
+make_node Age_Sieve jobs:sieve 60 1
+cmd firehose:consumer:config set_multi_writer true
+disconnect_node jobintake:consumer
+connect_node jobintake:consumer job-router
+connect_node firehose:consumer job-router
+connect_node job-router jobs:sieve
+connect_node jobs:sieve jobs:partition

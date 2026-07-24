@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **One TSL statement front-end: `Shell_Node::parse_statements()`.** A public
+  static sibling of `tokenize()` / `tokenize_spans()` — split → join backslash
+  continuations → tokenize → resolve verb aliases + cwd, keeping BOTH token
+  forms — that `Topology_Registry` now consumes for every static analysis
+  (`walk`, `write_set`, `graph_for`, `expand`, `frontmatter`,
+  `declared_node_names`) and `Topologies_CI` save-validation reads. It replaces
+  the registry's hand-mirrored copy of the Shell's parsing pipeline
+  (`normalize_lines` / `join_continuations` / `canonical_line` /
+  `canonical_verb` / `cd_path` / `prefix_path`, all deleted) plus 20 per-verb
+  grammar regexes across the registry and `class-topologies-ci-node.php` — two
+  parsers of one grammar collapsed to one. Performs zero side effects: no
+  interpolation, no `Core::$var` reads, no node construction.
 - **True hard cap on Partition/Topic/Log segment retention (`max_segments`).**
   A new, optional last positional arg (and `newspack_nodes_max_segments` setting)
   that prunes the oldest segments UNCONDITIONALLY once the count exceeds it — only
@@ -20,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ceiling is the one retention actually enforces rather than an underestimate.
 
 ### Changed
+- **Static TSL analysis now splits statements on unquoted `;` (bug fix).** The
+  registry's old `normalize_lines()` split on newlines only, while the runtime
+  Shell splits on unquoted `;` too — so a `make_node a …; make_node b …` line
+  built two nodes at runtime but read as one malformed statement to the conflict
+  gate, the orphan sweep, and the console graph. `parse_statements()` matches
+  the runtime, so a trailing `;` on a `var` frontmatter line (e.g.
+  `var num_partitions = 1;`) is now stripped and a `;`-separated line is parsed
+  as the multiple statements it actually is. Frontmatter reads are unchanged
+  (the value was already `;`-split); a deployed user `.tsl` that relied on the
+  old one-statement misread of a `;`-joined line may now surface a real conflict
+  the gate had been missing — that is the gate working.
 - **The durable-reader traits merged into one `Durable_Reader` unit.**
   `Offsetlog_Cursor` + `Buffered_Pump` + `Time_Travel` were only ever consumed
   together (Consumer, Remote_Source) and cross-required each other — false

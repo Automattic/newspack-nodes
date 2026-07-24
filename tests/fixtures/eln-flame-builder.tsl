@@ -1,0 +1,22 @@
+# Flame_Builder topology.
+#
+#   Consumer (requests.log) ─→ FlameBuilder ─→ Partition (flames:partition)
+#                                            └→ Stats_Store (memcache, hidden via configure_stats)
+#                                            └→ Partition (flame-stats:partition — stats mirror = full aggregates + top-N per-URL (10 flame / 100 dim / 100 cat), snapshot-per-checkpoint; off unless <eln:stats_mirror_node> set)
+#                                            └→ flame-builder:auto-tuner (owned sibling, hidden)
+
+include topic-probe
+
+make_node Consumer requests:consumer <config:logs_dir>/requests.p<partition> <config:offsets_dir>/<topology>.requests.p<partition> <config:deadletter_dir>/<topology>.requests.p<partition>
+make_node Flame_Builder flame-builder
+make_node Partition flames:partition <config:logs_dir>/flames.p<partition>
+make_node Partition flame-stats:partition <config:logs_dir>/flame-stats.p<partition>
+cmd requests:consumer:config add_snapshot_node flame-builder
+cmd flame-builder:config configure_stats <partition>
+cmd flame-builder:config set_stats_target <eln:stats_mirror_node>
+cmd flame-builder:config set_is_hub <eln:is_hub>
+cmd flames:partition:config void_warranty
+cmd flames:partition:config with_index flame-index
+cmd flame-stats:partition:config void_warranty
+connect_node requests:consumer flame-builder
+connect_node flame-builder flames:partition

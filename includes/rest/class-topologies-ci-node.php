@@ -277,9 +277,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 */
 	private static function direct_includes_from_tsl( string $tsl ): array {
 		$out = [];
-		foreach ( \explode( "\n", $tsl ) as $raw ) {
-			if ( \preg_match( '/^\s*include\s+(\S+)/', $raw, $m ) ) {
-				$out[] = $m[1];
+		foreach ( Shell_Node::parse_statements( $tsl ) as $statement ) {
+			if ( 'include' === $statement['verb'] && '' !== ( $statement['values'][1] ?? '' ) ) {
+				$out[] = $statement['values'][1];
 			}
 		}
 		return $out;
@@ -305,20 +305,22 @@ class Topologies_CI_Node extends Service_CI_Node {
 				'args'  => \implode( ' ', $node['args'] ),
 			];
 		}
-		foreach ( \explode( "\n", $tsl ) as $raw ) {
-			if ( ! \preg_match( '/^\s*make_node\s+(\S+)\s+(\S+)\s*(.*)$/', $raw, $m ) ) {
+		foreach ( Shell_Node::parse_statements( $tsl ) as $statement ) {
+			if ( 'make_node' !== $statement['verb'] ) {
 				continue;
 			}
-			$prior = $borrowed[ $m[2] ] ?? null;
+			$node_name = $statement['values'][2] ?? '';
+			$prior     = $borrowed[ $node_name ] ?? null;
 			if ( null === $prior ) {
 				continue;
 			}
-			$args = \trim( $m[3] );
-			if ( $prior['class'] === $m[1] && $prior['args'] === $args ) {
+			$class = $statement['values'][1] ?? '';
+			$args  = \implode( ' ', \array_slice( $statement['spans'], 3 ) );
+			if ( $prior['class'] === $class && $prior['args'] === $args ) {
 				continue;
 			}
 			throw new \RuntimeException(
-				\esc_html( "make_node conflict: '{$m[2]}' is provided by an include as {$prior['class']} '{$prior['args']}', redeclared as {$m[1]} '{$args}'" )
+				\esc_html( "make_node conflict: '{$node_name}' is provided by an include as {$prior['class']} '{$prior['args']}', redeclared as {$class} '{$args}'" )
 			);
 		}
 	}

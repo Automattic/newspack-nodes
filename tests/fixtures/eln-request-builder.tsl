@@ -1,0 +1,31 @@
+# Request_Builder topology
+#
+#   Tail (firehose.log) → Request_Builder ─→ Partition (requests:partition)
+#                                         ├→ Partition (alerts:partition, fleet alerts)
+#                                         ├→ Partition (errors:partition)
+#                                         ├→ Partition (gyroscope:partition, requests that are still running)
+#                                         └→ Tee (completed:tee, finished requests) ─→ Partition (gyroscope:partition)
+#                                                                                   └→ Partition (completed:partition)
+
+include topic-probe
+
+make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>
+make_node Partition alerts:partition <config:logs_dir>/alerts.p0
+make_node Partition errors:partition <config:logs_dir>/errors.p0
+make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0
+make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0
+make_node Partition requests:partition <config:logs_dir>/requests.p<partition>
+make_node Request_Builder request-builder 100 3
+make_node Tee completed:tee
+cmd firehose:consumer:config add_snapshot_node request-builder
+cmd firehose:consumer:config set_multi_writer true
+cmd request-builder:config set_alerts_target alerts:partition
+cmd request-builder:config set_errors_target errors:partition
+cmd request-builder:config set_inflight_target gyroscope:partition
+cmd request-builder:config set_completed_target completed:tee
+cmd requests:partition:config void_warranty
+cmd requests:partition:config with_index request-index
+connect_node completed:tee completed:partition
+connect_node completed:tee gyroscope:partition
+connect_node firehose:consumer request-builder
+connect_node request-builder requests:partition
