@@ -20,16 +20,25 @@ class InMemoryMemcached extends \Memcached {
 	/** @var array<string,array{value:mixed,expires:int}> */
 	private array $store = [];
 
+	private int $result_code = \Memcached::RES_SUCCESS;
+
 	public function get( string $key, ?callable $cache_cb = null, int $get_flags = 0 ): mixed {
 		$entry = $this->store[ $key ] ?? null;
 		if ( null === $entry ) {
+			$this->result_code = \Memcached::RES_NOTFOUND;
 			return false;
 		}
 		if ( $entry['expires'] > 0 && \time() >= $entry['expires'] ) {
 			unset( $this->store[ $key ] );
+			$this->result_code = \Memcached::RES_NOTFOUND;
 			return false;
 		}
+		$this->result_code = \Memcached::RES_SUCCESS;
 		return $entry['value'];
+	}
+
+	public function getResultCode(): int {
+		return $this->result_code;
 	}
 
 	public function set( string $key, mixed $value, int $expiration = 0 ): bool {
