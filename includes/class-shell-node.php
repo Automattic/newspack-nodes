@@ -307,10 +307,9 @@ class Shell_Node extends Node {
 			$acc_line = 0;
 		}
 		if ( '' !== $acc ) {
-			$out[] = [
-				'text' => $acc,
-				'line' => $acc_line,
-			];
+			// Runtime parity: flush_pending() fails loud here too.
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- parse diagnostic, not HTML.
+			throw new \RuntimeException( "got EOF while waiting for tokens at line {$acc_line}" );
 		}
 		return $out;
 	}

@@ -30,6 +30,32 @@ import {
 import names from './reserved-node-names.json';
 
 /**
+ * Verb aliases the interpreter's dispatch table resolves — the ONE table the
+ * static front-end applies on the tokenized verb (make/connect/disconnect and
+ * the command family). Mirrors PHP Shell_Node::VERB_ALIASES.
+ */
+const VERB_ALIASES = {
+	make: 'make_node',
+	connect: 'connect_node',
+	disconnect: 'disconnect_node',
+	command: 'cmd',
+	command_node: 'cmd',
+};
+
+/**
+ * Verbs never cwd-routed by the static front-end. Mirrors PHP
+ * Shell_Node::STRUCTURAL_VERBS: static analysis needs their positions stable
+ * regardless of cwd, and no shipped .tsl issues them after a `cd`.
+ */
+const STRUCTURAL_VERBS = new Set( [
+	'make_node',
+	'connect_node',
+	'disconnect_node',
+	'include',
+	'var',
+] );
+
+/**
  * The one tokenizer state machine ('/"/` + backslash escapes): splits on
  * unquoted whitespace; an empty quoted string still counts as a token. Yields
  * both forms per token — `value` (quote chars stripped, escapes resolved;
@@ -170,6 +196,214 @@ export function splitStatements( line ) {
 	const tail = buf.trim();
 	if ( '' !== tail ) {
 		statements.push( tail );
+	}
+	return statements;
+}
+
+/**
+ * splitStatements over a whole script, each statement carrying the 1-based
+ * first physical line of its run — the only thing parseStatements needs that
+ * splitStatements didn't already compute. Mirrors PHP
+ * Shell_Node::split_statements_indexed (mid-quote newlines are token content).
+ *
+ * @param {string} script Raw TSL text.
+ * @return {Array<{text: string, line: number}>} Indexed statement runs.
+ */
+function splitStatementsIndexed( script ) {
+	const statements = [];
+	let buf = '';
+	let inQuote = null;
+	let stmtLine = 0;
+	let lineNo = 0;
+	for ( const line of String( script ).split( '\n' ) ) {
+		lineNo++;
+		if ( null !== inQuote ) {
+			// Mid-quote: the newline is token content, keep accumulating.
+			buf += '\n';
+		} else {
+			const leading = line.trim();
+			if ( '' === leading ) {
+				continue;
+			}
+			if ( '#' === leading[ 0 ] ) {
+				// Whole-line comment — don't scan for `;` inside it.
+				statements.push( { text: leading, line: lineNo } );
+				continue;
+			}
+		}
+		for ( let i = 0; i < line.length; i++ ) {
+			const ch = line[ i ];
+			if ( null !== inQuote ) {
+				// An escaped quote must not close the run.
+				if ( '\\' === ch && i + 1 < line.length ) {
+					buf += ch + line[ ++i ];
+					continue;
+				}
+				buf += ch;
+				if ( ch === inQuote ) {
+					inQuote = null;
+				}
+				continue;
+			}
+			if ( "'" === ch || '"' === ch || '`' === ch ) {
+				if ( 0 === stmtLine ) {
+					stmtLine = lineNo;
+				}
+				inQuote = ch;
+				buf += ch;
+				continue;
+			}
+			if ( ';' === ch ) {
+				const trimmed = buf.trim();
+				if ( '' !== trimmed ) {
+					statements.push( { text: trimmed, line: stmtLine } );
+				}
+				buf = '';
+				stmtLine = 0;
+				continue;
+			}
+			if ( 0 === stmtLine && ' ' !== ch && '\t' !== ch ) {
+				stmtLine = lineNo;
+			}
+			buf += ch;
+		}
+		if ( null === inQuote ) {
+			const tail = buf.trim();
+			if ( '' !== tail ) {
+				statements.push( { text: tail, line: stmtLine } );
+			}
+			buf = '';
+			stmtLine = 0;
+		}
+	}
+	// EOF mid-quote: buildStatement gets the tail and throws on the open quote.
+	const tail = buf.trim();
+	if ( '' !== tail ) {
+		statements.push( { text: tail, line: stmtLine } );
+	}
+	return statements;
+}
+
+/**
+ * Fold trailing-backslash continuations across the statement stream — the same
+ * splice parse() performs, applied statelessly. The joined statement keeps the
+ * FIRST physical line of its run. Mirrors PHP
+ * Shell_Node::join_statement_continuations.
+ *
+ * @param {Array<{text: string, line: number}>} indexed Indexed statements.
+ * @return {Array<{text: string, line: number}>} Continuation-joined statements.
+ */
+function joinStatementContinuations( indexed ) {
+	const out = [];
+	let acc = '';
+	let accLine = 0;
+	for ( const statement of indexed ) {
+		if ( 0 === accLine ) {
+			accLine = statement.line;
+		}
+		const { text } = statement;
+		if ( text.endsWith( '\\' ) ) {
+			acc += text.slice( 0, -1 );
+			continue;
+		}
+		out.push( { text: acc + text, line: accLine } );
+		acc = '';
+		accLine = 0;
+	}
+	if ( '' !== acc ) {
+		// Runtime parity: a dangling continuation at EOF fails loud.
+		throw new Error(
+			`got EOF while waiting for tokens at line ${ accLine }`
+		);
+	}
+	return out;
+}
+
+/**
+ * Tokenize one joined statement and resolve its verb alias + cwd into the
+ * canonical `{ verb, values, spans, raw, line }` record — mirrors PHP
+ * Shell_Node::build_statement. Returns null for a comment/blank or a cd/chdir
+ * (which only mutates the throwaway shell's cwd). Reuses the ShellNode's own
+ * cd()/prefix() so the static and runtime paths route identically.
+ *
+ * @param {ShellNode} shell The shared throwaway shell carrying the cwd.
+ * @param {string}    text  One joined statement.
+ * @param {number}    line  1-based first physical source line.
+ * @return {?{verb: string, values: string[], spans: string[], raw: string, line: number}}
+ *         The canonical statement record, or null for a comment/blank/cd.
+ * @throws {Error} On an unterminated quote at end-of-input.
+ */
+function buildStatement( shell, text, line ) {
+	if ( '' === text || '#' === text[ 0 ] ) {
+		return null;
+	}
+	const scanned = scanTokens( text );
+	if ( scanned.openQuote ) {
+		throw new Error( `got EOF while waiting for tokens: ${ text.trim() }` );
+	}
+	if ( 0 === scanned.tokens.length ) {
+		return null;
+	}
+	const tokenValues = scanned.tokens.map( ( t ) => t.value );
+	const verb = VERB_ALIASES[ tokenValues[ 0 ] ] ?? tokenValues[ 0 ];
+
+	if ( 'cd' === verb || 'chdir' === verb ) {
+		shell.path = shell.cd( shell.path, tokenValues[ 1 ] ?? '' );
+		return null;
+	}
+	const tokenSpans = scanned.tokens.map( ( t ) => t.raw );
+	let values;
+	let spans;
+	if ( 'cmd' === verb ) {
+		const path = shell.prefix( tokenValues[ 1 ] ?? '' );
+		values = [ 'cmd', path, ...tokenValues.slice( 2 ) ];
+		spans = [ 'cmd', path, ...tokenSpans.slice( 2 ) ];
+	} else if ( STRUCTURAL_VERBS.has( verb ) || '' === shell.path ) {
+		// Structural verbs and root-level bare verbs are not cwd-routed.
+		values = [ verb, ...tokenValues.slice( 1 ) ];
+		spans = [ verb, ...tokenSpans.slice( 1 ) ];
+	} else {
+		// A bare verb inside a cwd is a command to that node.
+		values = [ 'cmd', shell.path, verb, ...tokenValues.slice( 1 ) ];
+		spans = [ 'cmd', shell.path, verb, ...tokenSpans.slice( 1 ) ];
+	}
+	return {
+		verb: values[ 0 ],
+		values,
+		spans,
+		raw: spans.join( ' ' ).trim(),
+		line,
+	};
+}
+
+/**
+ * The one static TSL statement front-end (JS side): split → join backslash
+ * continuations → tokenize → resolve verb aliases + cwd, keeping BOTH token
+ * forms. Mirrors PHP Shell_Node::parse_statements byte-for-byte and is
+ * parity-pinned against it (tests/fixtures/statements). No side effects: no
+ * interpolation, no vars, no node construction.
+ *
+ * Each statement is `{ verb, values, spans, raw, line }`: `verb` the canonical
+ * verb; `values` the quote-stripped tokens (`values[0] === verb`, and for `cmd`
+ * `values[1]` is the cwd-resolved path); `spans` the same tokens with quote
+ * chars + escapes verbatim; `raw` the canonical single-line form; `line` the
+ * 1-based first physical source line.
+ *
+ * @param {string} text Raw TSL text.
+ * @return {Array<{verb: string, values: string[], spans: string[], raw: string, line: number}>}
+ *         The canonical statement list, comments/blanks/cd dropped.
+ * @throws {Error} On an unterminated quote at end-of-input.
+ */
+export function parseStatements( text ) {
+	const shell = new ShellNode();
+	const statements = [];
+	for ( const joined of joinStatementContinuations(
+		splitStatementsIndexed( text )
+	) ) {
+		const statement = buildStatement( shell, joined.text, joined.line );
+		if ( null !== statement ) {
+			statements.push( statement );
+		}
 	}
 	return statements;
 }

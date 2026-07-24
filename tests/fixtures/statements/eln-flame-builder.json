@@ -1,0 +1,230 @@
+[
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "topic-probe"
+        ],
+        "spans": [
+            "include",
+            "topic-probe"
+        ],
+        "raw": "include topic-probe",
+        "line": 8
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Consumer",
+            "requests:consumer",
+            "<config:logs_dir>/requests.p<partition>",
+            "<config:offsets_dir>/<topology>.requests.p<partition>",
+            "<config:deadletter_dir>/<topology>.requests.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Consumer",
+            "requests:consumer",
+            "<config:logs_dir>/requests.p<partition>",
+            "<config:offsets_dir>/<topology>.requests.p<partition>",
+            "<config:deadletter_dir>/<topology>.requests.p<partition>"
+        ],
+        "raw": "make_node Consumer requests:consumer <config:logs_dir>/requests.p<partition> <config:offsets_dir>/<topology>.requests.p<partition> <config:deadletter_dir>/<topology>.requests.p<partition>",
+        "line": 10
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Flame_Builder",
+            "flame-builder"
+        ],
+        "spans": [
+            "make_node",
+            "Flame_Builder",
+            "flame-builder"
+        ],
+        "raw": "make_node Flame_Builder flame-builder",
+        "line": 11
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "flames:partition",
+            "<config:logs_dir>/flames.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "flames:partition",
+            "<config:logs_dir>/flames.p<partition>"
+        ],
+        "raw": "make_node Partition flames:partition <config:logs_dir>/flames.p<partition>",
+        "line": 12
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "flame-stats:partition",
+            "<config:logs_dir>/flame-stats.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "flame-stats:partition",
+            "<config:logs_dir>/flame-stats.p<partition>"
+        ],
+        "raw": "make_node Partition flame-stats:partition <config:logs_dir>/flame-stats.p<partition>",
+        "line": 13
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "requests:consumer:config",
+            "add_snapshot_node",
+            "flame-builder"
+        ],
+        "spans": [
+            "cmd",
+            "requests:consumer:config",
+            "add_snapshot_node",
+            "flame-builder"
+        ],
+        "raw": "cmd requests:consumer:config add_snapshot_node flame-builder",
+        "line": 14
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "flame-builder:config",
+            "configure_stats",
+            "<partition>"
+        ],
+        "spans": [
+            "cmd",
+            "flame-builder:config",
+            "configure_stats",
+            "<partition>"
+        ],
+        "raw": "cmd flame-builder:config configure_stats <partition>",
+        "line": 15
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "flame-builder:config",
+            "set_stats_target",
+            "<eln:stats_mirror_node>"
+        ],
+        "spans": [
+            "cmd",
+            "flame-builder:config",
+            "set_stats_target",
+            "<eln:stats_mirror_node>"
+        ],
+        "raw": "cmd flame-builder:config set_stats_target <eln:stats_mirror_node>",
+        "line": 16
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "flame-builder:config",
+            "set_is_hub",
+            "<eln:is_hub>"
+        ],
+        "spans": [
+            "cmd",
+            "flame-builder:config",
+            "set_is_hub",
+            "<eln:is_hub>"
+        ],
+        "raw": "cmd flame-builder:config set_is_hub <eln:is_hub>",
+        "line": 17
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "flames:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "flames:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd flames:partition:config void_warranty",
+        "line": 18
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "flames:partition:config",
+            "with_index",
+            "flame-index"
+        ],
+        "spans": [
+            "cmd",
+            "flames:partition:config",
+            "with_index",
+            "flame-index"
+        ],
+        "raw": "cmd flames:partition:config with_index flame-index",
+        "line": 19
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "flame-stats:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "flame-stats:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd flame-stats:partition:config void_warranty",
+        "line": 20
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "requests:consumer",
+            "flame-builder"
+        ],
+        "spans": [
+            "connect_node",
+            "requests:consumer",
+            "flame-builder"
+        ],
+        "raw": "connect_node requests:consumer flame-builder",
+        "line": 21
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "flame-builder",
+            "flames:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "flame-builder",
+            "flames:partition"
+        ],
+        "raw": "connect_node flame-builder flames:partition",
+        "line": 22
+    }
+]

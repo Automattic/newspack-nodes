@@ -1,0 +1,62 @@
+[
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "topic-probe"
+        ],
+        "spans": [
+            "include",
+            "topic-probe"
+        ],
+        "raw": "include topic-probe",
+        "line": 27
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Remote_Job_Rewrite",
+            "remote-job-rewrite"
+        ],
+        "spans": [
+            "make_node",
+            "Remote_Job_Rewrite",
+            "remote-job-rewrite"
+        ],
+        "raw": "make_node Remote_Job_Rewrite remote-job-rewrite",
+        "line": 28
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Topic",
+            "firehose:topic",
+            "<config:logs_dir>/firehose.p{partition}"
+        ],
+        "spans": [
+            "make_node",
+            "Topic",
+            "firehose:topic",
+            "<config:logs_dir>/firehose.p{partition}"
+        ],
+        "raw": "make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition}",
+        "line": 29
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "remote-job-rewrite",
+            "firehose:topic"
+        ],
+        "spans": [
+            "connect_node",
+            "remote-job-rewrite",
+            "firehose:topic"
+        ],
+        "raw": "connect_node remote-job-rewrite firehose:topic",
+        "line": 30
+    }
+]
