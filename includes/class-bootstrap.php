@@ -109,6 +109,8 @@ class Bootstrap {
 		// Fleet alerting: Site Health test + rate-limited alert emission.
 		\add_filter( 'site_status_tests', [ self::class, 'register_site_health_tests' ] );
 		\add_action( 'newspack_nodes/supervisor_periodic', [ Alerts::class, 'emit' ] );
+		// Delayed-jobs sweep: circulate jobdelay.p0, deliver due entries.
+		\add_action( 'newspack_nodes/supervisor_periodic', [ Job_Delay::class, 'sweep_action' ] );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
@@ -521,14 +523,14 @@ class Bootstrap {
 
 	/**
 	 * Declare the substrate's own non-topology log producers (Job_Intake's
-	 * jobintake.p<N>, the Alerts journal's alerts.p0) so Log_Cleaner never
-	 * sweeps them on ELN-less installs.
+	 * jobintake.p<N> + jobdelay.p0, the Alerts journal's alerts.p0) so
+	 * Log_Cleaner never sweeps them on ELN-less installs.
 	 *
 	 * @param array<int, string> $producers Producers from prior contributors.
 	 * @return array<int, string>
 	 */
 	public static function register_log_producers( array $producers ): array {
-		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME, Alerts::LOG_BASENAME ] ) ) );
+		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME, Job_Intake::DELAY_BASENAME, Alerts::LOG_BASENAME ] ) ) );
 	}
 
 	/**

@@ -74,6 +74,27 @@ class InMemoryMemcached extends \Memcached {
 		return $out;
 	}
 
+	public function increment( string $key, int $offset = 1, int $initial_value = 0, int $expiry = 0 ): int|false {
+		$value = $this->get( $key );
+		if ( false === $value || ! \is_int( $value ) ) {
+			return false;
+		}
+		$value += $offset;
+		$this->set( $key, $value, $this->store[ $key ]['expires'] );
+		return $value;
+	}
+
+	public function decrement( string $key, int $offset = 1, int $initial_value = 0, int $expiry = 0 ): int|false {
+		$value = $this->get( $key );
+		if ( false === $value || ! \is_int( $value ) ) {
+			return false;
+		}
+		// Real memcached clamps decrement at zero; keep that property.
+		$value = \max( 0, $value - $offset );
+		$this->set( $key, $value, $this->store[ $key ]['expires'] );
+		return $value;
+	}
+
 	/** Test helper: live (non-expired) keys, sorted. */
 	public function keys(): array {
 		$now  = \time();

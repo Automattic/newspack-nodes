@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Job options** on `Job_Intake::queue()` / `write_job()` / static `queue()`:
+  `not_before` / `delay` park a job in a new hardwired `jobdelay.p0` partition
+  until due; `retries` opts a job into Job_Worker exponential-backoff retry
+  (30s base, doubling, 1h cap — exhausted retries fall back to the poison /
+  dead-letter path); `unique` + `unique_ttl` dedup the enqueue atomically via
+  memcache within the ttl window. Unknown option keys throw; `unique`/batch
+  without memcached throw (`LogicException` family, so the static `queue()`
+  lock-contention catch can never swallow the misconfig).
+- **Delayed-jobs sweep** (`Job_Delay::sweep()`) on the existing
+  `newspack_nodes/supervisor_periodic` tick: drains `jobdelay.p0` with a
+  durable-cursor Consumer, delivers due entries into the live jobintake
+  (partition key re-hashed at delivery), and circulates the rest back to the
+  tail. Granularity is the supervisor tick; delivery is at-least-once.
+  `jobdelay` is registered as a GC-protected log producer.
+- **Batch fan-in**: `queue_many( $jobs, $key, $batch )` seeds an atomic
+  memcache counter and tags every entry; the Job_Worker decrements per settled
+  job and the decrement that reaches 0 fires
+  `newspack_nodes/job_worker/batch_complete` and journals a `batch:{id}` row
+  into `alerts.p0` (`resolved`, or `warning` when members failed), then reaps
+  the counters so the batch id can be reused. Retry-scheduled jobs do not
+  settle their batch.
+- `Alerts::journal_event( $key, $text, $severity )` — public single-row
+  alerts.p0 journal writer; `Alerts::emit()` now writes its transition rows
+  through it.
+- `Value_Timeout_Node` — port of Tachikoma's `PayloadTimeout.pm` (named for
+  the substrate's PAYLOAD→VALUE field rename): value-keyed dedup window with
+  a trailing re-emit, for coalescing repeated triggers in-graph
+  (`make_node Value_Timeout <name> [timeout] [expires] [interval]`).
+
 ## [0.50.0] - 2026-07-23
 
 ### BREAKING

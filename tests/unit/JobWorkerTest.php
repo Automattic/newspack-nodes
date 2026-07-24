@@ -1,10 +1,12 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Job_Worker_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -22,12 +24,12 @@ class JobWorkerTest extends TestCase {
 	 * Build a TM_STRUCT message in the canonical jobs.log shape:
 	 *   { k, handler, parameters, id? }
 	 */
-	private function job_message( string $handler, array $parameters = [], string $kind = 'job', ?string $id = null ): array {
+	private function job_message( string $handler, array $parameters = [], string $kind = 'job', ?string $id = null, array $extra = [] ): array {
 		$entry = [
 			'k'          => $kind,
 			'handler'    => $handler,
 			'parameters' => $parameters,
-		];
+		] + $extra;
 		if ( null !== $id ) {
 			$entry['id'] = $id;
 		}
@@ -754,5 +756,198 @@ class JobWorkerTest extends TestCase {
 
 		$this->assertTrue( $escaped, 'Worker_Should_Stop propagates past the per-job Throwable catch' );
 		$this->assertSame( 1, $after, 'after_job cleanup still fires before the stop propagates' );
+	}
+
+	// --- Retry with backoff --------------------------------------------------
+
+	/** Point Config at a temp base dir so the retry requeue writes a real jobdelay.p0. */
+	private function arrange_retry_base(): string {
+		$tmp = $this->make_temp_dir( 'newspack-jobworker-retry-' );
+		mkdir( "{$tmp}/locks", 0755, true );
+		mkdir( "{$tmp}/logs", 0755, true );
+		$this->use_base_dir( $tmp, [ 'num_partitions' => 1 ] );
+		return $tmp;
+	}
+
+	private function read_jobdelay_lines( string $tmp ): array {
+		$lines = [];
+		$pdir  = "{$tmp}/logs/jobdelay.p0";
+		if ( ! is_dir( $pdir ) ) {
+			return $lines;
+		}
+		foreach ( glob( "{$pdir}/*.log" ) as $f ) {
+			foreach ( preg_split( '/\n/', rtrim( (string) file_get_contents( $f ), "\n" ) ) as $line ) {
+				if ( '' !== $line ) {
+					$lines[] = Message::unpacked( $line )[ Message::VALUE ];
+				}
+			}
+		}
+		return $lines;
+	}
+
+	public function test_handler_throw_with_retries_left_requeues_with_backoff_and_swallows(): void {
+		$tmp = $this->arrange_retry_base();
+		$jw  = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'flaky', function () { throw new \RuntimeException( 'transient 503' ); } );
+
+		$before = \microtime( true );
+		$jw->fill( $this->job_message( 'flaky', [ 'p' => 7 ], 'job', 'idr', [ 'retries' => 3 ] ) );
+
+		$lines = $this->read_jobdelay_lines( $tmp );
+		$this->assertCount( 1, $lines, 'the failed attempt must land back in jobdelay' );
+		$this->assertSame( 'flaky', $lines[0]['handler'] );
+		$this->assertSame( [ 'p' => 7 ], $lines[0]['parameters'] );
+		$this->assertSame( 'idr', $lines[0]['id'] );
+		$this->assertSame( 3, $lines[0]['retries'] );
+		$this->assertSame( 1, $lines[0]['attempt'] );
+		$this->assertGreaterThanOrEqual( $before + Job_Worker_Node::RETRY_BASE_S, $lines[0]['not_before'] );
+		$this->assertLessThanOrEqual( \microtime( true ) + Job_Worker_Node::RETRY_BASE_S + 1.0, $lines[0]['not_before'] );
+		// Deliberate asymmetry with the poison path: the handler RAN (and
+		// consumed memory), so the GC/cache-flush cadence must advance.
+		$this->assertSame( 1, $this->jobs_executed( $jw ) );
+	}
+
+	public function test_retry_backoff_doubles_with_attempt(): void {
+		$tmp = $this->arrange_retry_base();
+		$jw  = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'flaky', function () { throw new \RuntimeException( 'still down' ); } );
+
+		$before = \microtime( true );
+		$jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'retries' => 5, 'attempt' => 2 ] ) );
+
+		$lines = $this->read_jobdelay_lines( $tmp );
+		$this->assertCount( 1, $lines );
+		$this->assertSame( 3, $lines[0]['attempt'] );
+		$expected = Job_Worker_Node::RETRY_BASE_S * 4;
+		$this->assertGreaterThanOrEqual( $before + $expected, $lines[0]['not_before'] );
+		$this->assertLessThanOrEqual( \microtime( true ) + $expected + 1.0, $lines[0]['not_before'] );
+	}
+
+	public function test_retry_exhausted_rethrows_for_quarantine(): void {
+		$tmp = $this->arrange_retry_base();
+		$jw  = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'flaky', function () { throw new \RuntimeException( 'permanent' ); } );
+
+		try {
+			$jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'retries' => 3, 'attempt' => 3 ] ) );
+			$this->fail( 'exhausted retries must fall back to the poison path' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'permanent', $e->getMessage() );
+		}
+		$this->assertSame( [], $this->read_jobdelay_lines( $tmp ) );
+	}
+
+	public function test_worker_should_stop_is_never_retried(): void {
+		$tmp = $this->arrange_retry_base();
+		$jw  = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'stopper', function () { throw new Worker_Should_Stop( 'drain over' ); } );
+
+		try {
+			$jw->fill( $this->job_message( 'stopper', [], 'job', null, [ 'retries' => 3 ] ) );
+			$this->fail( 'cooperative stop must propagate, not retry' );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->assertSame( 'drain over', $e->getMessage() );
+		}
+		$this->assertSame( [], $this->read_jobdelay_lines( $tmp ) );
+	}
+
+	// --- Batch fan-in --------------------------------------------------------
+
+	private function read_alerts_lines( string $tmp ): array {
+		$lines = [];
+		foreach ( glob( "{$tmp}/logs/alerts.p0/*.log" ) ?: [] as $f ) {
+			foreach ( preg_split( '/\n/', rtrim( (string) file_get_contents( $f ), "\n" ) ) as $line ) {
+				if ( '' !== $line ) {
+					$message = Message::unpacked( $line );
+					$lines[] = [ 'key' => $message[ Message::KEY ], 'value' => $message[ Message::VALUE ] ];
+				}
+			}
+		}
+		return $lines;
+	}
+
+	public function test_batch_decrements_and_last_job_signals_completion(): void {
+		$tmp        = $this->arrange_retry_base();
+		$prev       = Core::$memd;
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		\Newspack_Nodes\Alerts::reset();
+		try {
+			$memd->set( 'nodes-job-batch:bX', 2, 0 );
+			$memd->set( 'nodes-job-batch-err:bX', 0, 0 );
+
+			$jw = new Job_Worker_Node();
+			$this->register_job_handler( $jw, 'member', fn () => null );
+
+			$completed = [];
+			add_action( 'newspack_nodes/job_worker/batch_complete', function ( $batch ) use ( &$completed ) { $completed[] = $batch; } );
+
+			$jw->fill( $this->job_message( 'member', [], 'job', null, [ 'batch' => 'bX' ] ) );
+			$this->assertSame( 1, $memd->get( 'nodes-job-batch:bX' ) );
+			$this->assertSame( [], $completed );
+
+			$jw->fill( $this->job_message( 'member', [], 'job', null, [ 'batch' => 'bX' ] ) );
+			$this->assertSame( [ 'bX' ], $completed );
+
+			$alerts = $this->read_alerts_lines( $tmp );
+			$this->assertCount( 1, $alerts );
+			$this->assertSame( 'batch:bX', $alerts[0]['key'] );
+			$this->assertSame( 'resolved', $alerts[0]['value']['severity'] );
+			$this->assertSame( 'alert', $alerts[0]['value']['k'] );
+		} finally {
+			Core::$memd = $prev;
+			\Newspack_Nodes\Alerts::reset();
+		}
+	}
+
+	public function test_batch_with_error_outcomes_completes_as_warning(): void {
+		$tmp        = $this->arrange_retry_base();
+		$prev       = Core::$memd;
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		\Newspack_Nodes\Alerts::reset();
+		try {
+			$memd->set( 'nodes-job-batch:bE', 1, 0 );
+			$memd->set( 'nodes-job-batch-err:bE', 0, 0 );
+
+			$jw = new Job_Worker_Node();
+			$this->register_job_handler( $jw, 'member', fn () => [ 'stats' => [ 'success_count' => 0, 'error_count' => 2 ] ] );
+
+			$jw->fill( $this->job_message( 'member', [], 'job', null, [ 'batch' => 'bE' ] ) );
+
+			$alerts = $this->read_alerts_lines( $tmp );
+			$this->assertCount( 1, $alerts );
+			$this->assertSame( 'warning', $alerts[0]['value']['severity'] );
+			// Completion reaps both counters so the batch id can be reused.
+			$this->assertFalse( $memd->get( 'nodes-job-batch:bE' ) );
+			$this->assertFalse( $memd->get( 'nodes-job-batch-err:bE' ) );
+		} finally {
+			Core::$memd = $prev;
+			\Newspack_Nodes\Alerts::reset();
+		}
+	}
+
+	public function test_retry_scheduled_job_does_not_decrement_its_batch(): void {
+		$this->arrange_retry_base();
+		$prev       = Core::$memd;
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		try {
+			$memd->set( 'nodes-job-batch:bY', 1, 0 );
+			$memd->set( 'nodes-job-batch-err:bY', 0, 0 );
+
+			$jw = new Job_Worker_Node();
+			$this->register_job_handler( $jw, 'flaky', function () { throw new \RuntimeException( 'transient' ); } );
+
+			$completed = [];
+			add_action( 'newspack_nodes/job_worker/batch_complete', function ( $batch ) use ( &$completed ) { $completed[] = $batch; } );
+
+			$jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'batch' => 'bY', 'retries' => 2 ] ) );
+
+			$this->assertSame( 1, $memd->get( 'nodes-job-batch:bY' ), 'a retry-scheduled job is not finished; the batch must stay open' );
+			$this->assertSame( [], $completed );
+		} finally {
+			Core::$memd = $prev;
+		}
 	}
 }
