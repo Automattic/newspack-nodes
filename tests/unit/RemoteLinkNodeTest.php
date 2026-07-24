@@ -30,7 +30,7 @@ class RemoteLinkNodeTest extends TestCase {
 		Core::$memd                   = null;
 		SSE_In_Node::$curl_dispatch   = null;
 		HTTP_Out_Node::$curl_dispatch = null;
-		// The SSE_In patrons register CurlMultiHandles with the process-lifetime
+		// The SSE_In patrons register easy cURL handles on the process-lifetime
 		// Event_Framework singleton; reset it so handles don't leak into later suites.
 		Event_Framework::reset();
 		Vault::get_instance()->reset_cache();
@@ -46,7 +46,7 @@ class RemoteLinkNodeTest extends TestCase {
 
 	/** Install an SSE_In connect seam returning a real idle handle (never transferred). */
 	private function stub_sse_connect(): void {
-		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};

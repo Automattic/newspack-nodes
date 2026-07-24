@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moves to `newspack_nodes_num_segments`, NOT to the new hard-cap `max_segments`;
   `newspack_nodes_max_lifetime` → `newspack_nodes_lifetime`. The marker guard
   keeps an admin-set hard cap from being cannibalized on re-activation.
+- **One shared cURL multi handle for the whole drain loop.** The drain tick did
+  `curl_multi_select()` once *per registered handle*, so its worst-case blocking
+  wait scaled with the handle count (N × timeout per tick). `Event_Framework` now
+  owns a single lazily-created multi handle; nodes register their *easy* handles
+  (`register_curl_easy()` / `unregister_curl_easy()`) and the tick does one
+  `curl_multi_select` + one `curl_multi_exec`, routing each completion to the
+  owning node (looked up by the easy handle) via `on_curl_message()`. `SSE_In_Node`
+  and `HTTP_Out_Node` no longer own per-node multi handles; their backpressure
+  arm/disarm and reconnect paths add/remove the easy handle on the shared multi.
+  The `register_curl_handle()` / `unregister_curl_handle()` whole-multi API is
+  removed; the `$curl_dispatch` seam no longer takes a multi argument.
 ### Fixed
 - **A write stall can no longer silently lose accepted messages.** `flush()`
   reset the batch before writing; a short write (disk full, EIO, root-owned
