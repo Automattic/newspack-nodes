@@ -2,9 +2,9 @@
 /**
  * Admin: substrate-side WP-Settings-API surface.
  *
- * Owns ONLY substrate options (base_directory, num_partitions, min_segments,
- * max_segments, segment_size, min_lifetime, max_lifetime, memcache_servers).
- * Saving layout/memcache options triggers a per-partition worker-restart request.
+ * Owns ONLY substrate options — the field list lives in `Settings_Schema`
+ * (the single source of truth), never here. Saving a restart-classified field
+ * triggers a per-partition worker-restart request via `Restart_Planner`.
  *
  * @package Newspack_Nodes
  */
@@ -168,18 +168,8 @@ class Admin {
 			return null;
 		}
 
-		// Prefer wp-scripts manifest deps+hash; else static deps + filemtime.
-		$fallback   = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
-		$asset_path = "{$dir}/index.asset.php";
-		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
-		if ( \is_array( $asset ) ) {
-			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
-			$deps          = \array_values( \array_filter( $manifest_deps, '\is_string' ) );
-			$version       = \is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback;
-		} else {
-			$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
-			$version = (string) ( \filemtime( $js_path ) ?: $fallback );
-		}
+		$fallback           = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
+		[ $deps, $version ] = self::bundle_manifest( $dir, $js_path, $fallback );
 
 		$handle = $args['handle'];
 		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
@@ -194,18 +184,54 @@ class Admin {
 			}
 		}
 
-		$rest_url  = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce     = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		$localized = \array_merge(
+		\wp_localize_script( $handle, 'NewspackNodesData', self::localize_data( $args['localize'] ?? [] ) );
+
+		return $handle;
+	}
+
+	/**
+	 * Deps + version for a built bundle — wp-scripts manifest first, else static
+	 * deps + filemtime, else the fallback. The ONE resolver the eager enqueue
+	 * and the lazy tab recipe both use (they must never drift).
+	 *
+	 * @param string $dir      Filesystem path to the build subdir.
+	 * @param string $js_path  Path to the bundle's index.js.
+	 * @param string $fallback Version when neither manifest nor mtime resolve.
+	 * @return array{0: list<string>, 1: string} [deps, version].
+	 */
+	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
+		$asset_path = "{$dir}/index.asset.php";
+		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
+		if ( \is_array( $asset ) ) {
+			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
+			return [
+				\array_values( \array_filter( $manifest_deps, '\is_string' ) ),
+				\is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback,
+			];
+		}
+		return [
+			[ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ],
+			(string) ( \filemtime( $js_path ) ?: $fallback ),
+		];
+	}
+
+	/**
+	 * The `NewspackNodesData` payload: shared restUrl/nonce under per-bundle
+	 * extras — one shape for enqueued and lazily-injected bundles alike.
+	 *
+	 * @param array<string, mixed> $localize Per-bundle extras (string keys).
+	 * @return array<string, mixed>
+	 */
+	private static function localize_data( array $localize ): array {
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		return \array_merge(
 			[
 				'restUrl' => \esc_url_raw( $rest_url ),
 				'nonce'   => $nonce,
 			],
-			$args['localize'] ?? []
+			$localize
 		);
-		\wp_localize_script( $handle, 'NewspackNodesData', $localized );
-
-		return $handle;
 	}
 
 	/**
@@ -265,11 +291,18 @@ class Admin {
 	 * per-bundle page-gate + existence/manifest handling is `enqueue_react_page`'s.
 	 */
 	public function enqueue_devtools_tab_bundles( string $hook = '' ): void {
+		// Hub-only: the lazy branch stats/hashes build files on every fire.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( self::HUB_MENU_SLUG !== $page ) {
+			return;
+		}
 		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
 		if ( ! \is_array( $bundles ) ) {
 			return;
 		}
 		$pages = [ self::HUB_MENU_SLUG ];
+		$lazy  = [];
 		foreach ( $bundles as $bundle ) {
 			if ( ! \is_array( $bundle ) || ! isset( $bundle['handle'], $bundle['dir'], $bundle['url'] ) ) {
 				continue;
@@ -277,17 +310,66 @@ class Admin {
 			if ( ! \is_scalar( $bundle['handle'] ) || ! \is_scalar( $bundle['dir'] ) || ! \is_scalar( $bundle['url'] ) ) {
 				continue;
 			}
-			$localize = $bundle['localize'] ?? null;
+			$raw      = $bundle['localize'] ?? null;
+			$localize = \is_array( $raw ) ? \array_filter( $raw, '\is_string', \ARRAY_FILTER_USE_KEY ) : [];
+
+			// A `lazy` bundle ships on tab-click, not up front.
+			if ( ! empty( $bundle['lazy'] ) ) {
+				$entry = self::lazy_tab_script( (string) $bundle['dir'], (string) $bundle['url'], $localize );
+				if ( null !== $entry ) {
+					$lazy[ (string) $bundle['handle'] ] = $entry;
+				}
+				continue;
+			}
 			self::enqueue_react_page(
 				[
 					'handle'   => (string) $bundle['handle'],
 					'page'     => $pages,
 					'dir'      => (string) $bundle['dir'],
 					'url'      => (string) $bundle['url'],
-					'localize' => \is_array( $localize ) ? \array_filter( $localize, '\is_string', \ARRAY_FILTER_USE_KEY ) : [],
+					'localize' => $localize,
 				]
 			);
 		}
+
+		if ( [] !== $lazy ) {
+			\wp_localize_script( 'newspack-nodes-devtools-hub', 'NewspackNodesLazyTabs', $lazy );
+		}
+	}
+
+	/**
+	 * Build the on-demand load recipe for one lazy DevTools tab bundle: the
+	 * versioned script URL, the optional style URL, and the localize payload the
+	 * bundle reads (the same `NewspackNodesData` — restUrl/nonce + per-tab extras —
+	 * it would receive if enqueued). Returns null when the bundle has no built
+	 * `index.js` (so a missing build never poisons the lazy map).
+	 *
+	 * @param string               $dir      Filesystem path to the build subdir.
+	 * @param string               $url      Public URL of the build subdir.
+	 * @param array<string, mixed> $localize Per-tab localize payload (string keys only).
+	 * @return array{src:string, data:array<string,mixed>, style?:string}|null
+	 */
+	private static function lazy_tab_script( string $dir, string $url, array $localize ): ?array {
+		$dir = \rtrim( $dir, '/' );
+		$url = \rtrim( $url, '/' );
+		$js  = "{$dir}/index.js";
+		if ( ! \file_exists( $js ) ) {
+			return null;
+		}
+
+		[ , $version ] = self::bundle_manifest( $dir, $js, \NEWSPACK_NODES_VERSION );
+		$entry         = [
+			'src'  => "{$url}/index.js?ver=" . \rawurlencode( $version ),
+			'data' => self::localize_data( $localize ),
+		];
+
+		$css = "{$dir}/index.css";
+		if ( \file_exists( $css ) ) {
+			$style_version   = self::css_cache_version( $css, $version );
+			$entry['style'] = "{$url}/index.css?ver=" . \rawurlencode( $style_version );
+		}
+
+		return $entry;
 	}
 
 	// -- Field callbacks ----------------------------------------------------
@@ -397,9 +479,10 @@ class Admin {
 	 * @param string               $handle   Script handle.
 	 * @param string               $subdir   Build subdir under `build/`.
 	 * @param array<string,mixed>  $localize Optional localize payload.
+	 * @param bool                 $lazy     Load on first tab activation instead of up front.
 	 * @return array<int,mixed>
 	 */
-	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [] ): array {
+	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [], bool $lazy = false ): array {
 		$bundle = [
 			'handle' => $handle,
 			'dir'    => self::build_dir( $subdir ),
@@ -407,6 +490,9 @@ class Admin {
 		];
 		if ( [] !== $localize ) {
 			$bundle['localize'] = $localize;
+		}
+		if ( $lazy ) {
+			$bundle['lazy'] = true;
 		}
 		$bundles[] = $bundle;
 		return $bundles;
@@ -420,7 +506,7 @@ class Admin {
 	 * @return array<int,mixed> Bundles with the vault bundle appended.
 	 */
 	public function register_vault_tab_bundle( array $bundles ): array {
-		return self::append_tab_bundle( $bundles, 'newspack-nodes-vault', 'vault' );
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-vault', 'vault', [], true );
 	}
 
 	/**
@@ -431,7 +517,7 @@ class Admin {
 	 * @return array<int,mixed> Bundles with the aggregator bundle appended.
 	 */
 	public function register_aggregator_tab_bundle( array $bundles ): array {
-		return self::append_tab_bundle( $bundles, 'newspack-nodes-aggregator-tab', 'event-aggregator' );
+		return self::append_tab_bundle( $bundles, 'newspack-nodes-aggregator-tab', 'event-aggregator', [], true );
 	}
 
 	/**
@@ -473,7 +559,8 @@ class Admin {
 				'topologyWorkers'     => $topology_workers,
 				'activeTopologies'    => $active_topologies,
 				'configNumPartitions' => $default_np,
-			]
+			],
+			true
 		);
 	}
 

@@ -18,10 +18,14 @@ import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
 import Header from '../topology-console/components/Header';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
+import { registerLazyTabs } from './lazyTabs';
 import './devtools-hub.scss';
 
 // Overlay rides every tab; Console uses buildRepl=false (`_output` clash).
 const CONSOLE_TAB_ID = 'topology-console';
+
+// Runs after event-dashboards (enqueued first) registered the order-0 Overview.
+registerLazyTabs();
 
 export default function DevToolsHub() {
 	const menuWidth = useAdminMenuWidth();
