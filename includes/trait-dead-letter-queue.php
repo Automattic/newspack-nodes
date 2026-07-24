@@ -45,12 +45,13 @@ trait Dead_Letter_Queue {
 	 */
 	public const CHECKPOINT_INTERVAL_S = 30;
 
-	/** DLQ sibling retention: 1 MiB segments × 16, rotate by count (no time-based aging). */
+	/** DLQ sibling retention: 1 MiB segments, count target 16, hard cap 32; rotate by count (no time-based aging). */
 	public const DEADLETTER_SEGMENT_SIZE = 1048576;
 	public const DEADLETTER_MIN_SEGMENTS = 2;
-	public const DEADLETTER_MAX_SEGMENTS = 16;
+	public const DEADLETTER_NUM_SEGMENTS = 16;
 	public const DEADLETTER_MIN_LIFETIME = 0;
-	public const DEADLETTER_MAX_LIFETIME = 0;
+	public const DEADLETTER_LIFETIME     = 0;
+	public const DEADLETTER_MAX_SEGMENTS = 32;
 
 	/** Newest-first page size for the `dl_list` triage verb when no limit is given. */
 	public const DEADLETTER_LIST_DEFAULT_LIMIT = 50;
@@ -165,13 +166,14 @@ trait Dead_Letter_Queue {
 		if ( '' === $dir ) {
 			return null;
 		}
-		// All four axes: an omitted one inherits <config:*> and never prunes.
+		// All five axes explicit; an omitted one inherits <config:*> forever.
 		$deadletter = $this->make_sidecar( $dir, $this->deadletter_name(), [
 			self::DEADLETTER_SEGMENT_SIZE,
 			self::DEADLETTER_MIN_SEGMENTS,
-			self::DEADLETTER_MAX_SEGMENTS,
+			self::DEADLETTER_NUM_SEGMENTS,
 			self::DEADLETTER_MIN_LIFETIME,
-			self::DEADLETTER_MAX_LIFETIME,
+			self::DEADLETTER_LIFETIME,
+			self::DEADLETTER_MAX_SEGMENTS,
 		] );
 		// Sole writer: the cap lifts so poison over PIPE_BUF still quarantines.
 		if ( $this->deadletter_sole_writer() ) {
@@ -276,7 +278,7 @@ trait Dead_Letter_Queue {
 	 * number), not the returned page. `unindexed_segments` counts .log segments with
 	 * no .idx companion — records dead-lettered BEFORE this feature; they don't
 	 * appear in `rows` but remain replayable via `wp nodes ingest` and rotate out
-	 * within DEADLETTER_MAX_SEGMENTS. The DLQ is count-bounded, so the full .idx
+	 * within DEADLETTER_NUM_SEGMENTS. The DLQ is count-bounded, so the full .idx
 	 * pass behind the totals stays cheap.
 	 *
 	 * @return array{rows: array<int, mixed>, total: int, unindexed_segments: int}
@@ -385,7 +387,7 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * Delete every dead-letter segment (.log + its .idx), then refresh the warm segment
-	 * cache. Convenience only — the DLQ is count-rotated (DEADLETTER_MAX_SEGMENTS), so
+	 * cache. Convenience only — the DLQ is count-rotated (DEADLETTER_NUM_SEGMENTS), so
 	 * quarantine can never grow unbounded and purge is never required for correctness.
 	 */
 	public function purge_deadletter(): string {

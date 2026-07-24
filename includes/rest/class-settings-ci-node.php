@@ -6,9 +6,9 @@
  * M2 service CIs.
  *
  * Verbs:
- *   get — returns the six substrate-owned integer settings as a snapshot
- *         (num_partitions, segment_size, min_segments, max_segments,
- *         min_lifetime, max_lifetime). The matching getter dashboards diff against.
+ *   get — returns the seven substrate-owned integer settings as a snapshot
+ *         (num_partitions, segment_size, min_segments, num_segments,
+ *         min_lifetime, lifetime, max_segments). The matching getter dashboards diff against.
  *   set — applies a single setting by its full `newspack_nodes_*` option name
  *         (the positional grammar Settings_Sync_Node fans out to spokes),
  *         writes via `update_option()`, then returns the post-set snapshot.
@@ -50,9 +50,10 @@ class Settings_CI_Node extends Service_CI_Node {
 		'num_partitions' => 1,
 		'segment_size'   => 1,
 		'min_segments'   => 1,
-		'max_segments'   => 1,
+		'num_segments'   => 1,
 		'min_lifetime'   => 0,
-		'max_lifetime'   => 0,
+		'lifetime'       => 0,
+		'max_segments'   => 0,
 	];
 
 	/**
@@ -99,9 +100,9 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the canonical six-key snapshot from the substrate Config.
+	 * Build the canonical seven-key snapshot from the substrate Config.
 	 *
-	 * @return array{num_partitions:int,segment_size:int,min_segments:int,max_segments:int,min_lifetime:int,max_lifetime:int}
+	 * @return array{num_partitions:int,segment_size:int,min_segments:int,num_segments:int,min_lifetime:int,lifetime:int,max_segments:int}
 	 */
 	private static function snapshot(): array {
 		/** @var int|float|string|bool|null $num_partitions */
@@ -110,19 +111,22 @@ class Settings_CI_Node extends Service_CI_Node {
 		$segment_size = RuntimeConfig::value( 'segment_size' );
 		/** @var int|float|string|bool|null $min_segments */
 		$min_segments = RuntimeConfig::value( 'min_segments' );
-		/** @var int|float|string|bool|null $max_segments */
-		$max_segments = RuntimeConfig::value( 'max_segments' );
+		/** @var int|float|string|bool|null $num_segments */
+		$num_segments = RuntimeConfig::value( 'num_segments' );
 		/** @var int|float|string|bool|null $min_lifetime */
 		$min_lifetime = RuntimeConfig::value( 'min_lifetime' );
-		/** @var int|float|string|bool|null $max_lifetime */
-		$max_lifetime = RuntimeConfig::value( 'max_lifetime' );
+		/** @var int|float|string|bool|null $lifetime */
+		$lifetime = RuntimeConfig::value( 'lifetime' );
+		/** @var int|float|string|bool|null $max_segments */
+		$max_segments = RuntimeConfig::value( 'max_segments' );
 		return [
 			'num_partitions' => (int) $num_partitions,
 			'segment_size'   => (int) $segment_size,
 			'min_segments'   => (int) $min_segments,
-			'max_segments'   => (int) $max_segments,
+			'num_segments'   => (int) $num_segments,
 			'min_lifetime'   => (int) $min_lifetime,
-			'max_lifetime'   => (int) $max_lifetime,
+			'lifetime'       => (int) $lifetime,
+			'max_segments'   => (int) $max_segments,
 		];
 	}
 
@@ -156,12 +160,12 @@ class Settings_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
-			'description' => 'Substrate-level integer settings: get / update num_partitions, segment_size, min_segments, max_segments, min_lifetime, max_lifetime.',
+			'description' => 'Substrate-level integer settings: get / update num_partitions, segment_size, min_segments, num_segments, min_lifetime, lifetime, max_segments.',
 			'arguments'   => [],
 			'commands'    => [
 				[
 					'name'        => 'get',
-					'description' => 'Return the six substrate-owned integer settings as a snapshot.',
+					'description' => 'Return the seven substrate-owned integer settings as a snapshot.',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_get(),
 				],

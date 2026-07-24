@@ -80,10 +80,10 @@ class SettingsEventWriterTest extends TestCase {
 		// (`absint()`) hands `on_update()` a genuine PHP int as $new. Without
 		// normalization the excerpts diverge on TYPE alone — `"900"` vs `900` —
 		// even though the setting's actual VALUE never changed.
-		Settings_Event_Writer::on_update( 'newspack_nodes_max_lifetime', '900', 900 );
+		Settings_Event_Writer::on_update( 'newspack_nodes_lifetime', '900', 900 );
 
 		$this->assertSame(
-			[ 'option' => 'newspack_nodes_max_lifetime', 'old' => '900', 'new' => '900' ],
+			[ 'option' => 'newspack_nodes_lifetime', 'old' => '900', 'new' => '900' ],
 			$this->captured[0][ Message::VALUE ]
 		);
 	}
@@ -98,8 +98,8 @@ class SettingsEventWriterTest extends TestCase {
 	}
 
 	public function test_allowlisted_delete_records_old_fetched_via_get_option(): void {
-		$GLOBALS['_wp_options']['newspack_nodes_max_lifetime'] = 'aboutToVanish';
-		Settings_Event_Writer::on_delete( 'newspack_nodes_max_lifetime' );
+		$GLOBALS['_wp_options']['newspack_nodes_lifetime'] = 'aboutToVanish';
+		Settings_Event_Writer::on_delete( 'newspack_nodes_lifetime' );
 
 		$value = $this->captured[0][ Message::VALUE ];
 		$this->assertSame( '"aboutToVanish"', $value['old'] );
@@ -213,18 +213,20 @@ class SettingsEventWriterTest extends TestCase {
 		$this->assertSame( [ 'option' => 'newspack_deleted_via_hook' ], $this->captured[2][ Message::VALUE ] );
 	}
 
-	public function test_writer_partition_args_declare_all_four_retention_axes(): void {
+	public function test_writer_partition_args_declare_the_retention_axes(): void {
 		// The settings log used to pass `2 86400` — a LIFETIME landing on the
-		// max_segments slot, licensing 86400 segments. All four axes, explicitly.
+		// num_segments slot, licensing 86400 segments. The count target is 2, the
+		// day-long lifespan is the AGE rule; the hard cap derives to 2 × num_segments.
 		$part = new Partition_Node();
 		$part->arguments( Settings_Event_Writer::partition_args( '/tmp/settings.p0' ) );
 
 		$this->assertSame( 2, $this->read_private( $part, 'min_segments' ) );
-		$this->assertSame( 2, $this->read_private( $part, 'max_segments' ), 'a count, not a duration' );
+		$this->assertSame( 2, $this->read_private( $part, 'num_segments' ), 'a count target, not a duration' );
+		$this->assertSame( 4, $this->read_private( $part, 'max_segments' ), 'hard cap derives to 2 × num_segments' );
 		$this->assertSame( 0, $this->read_private( $part, 'min_lifetime' ) );
 		$this->assertSame(
-			Settings_Event_Writer::SETTINGS_MAX_LIFETIME,
-			$this->read_private( $part, 'max_lifetime' ),
+			Settings_Event_Writer::SETTINGS_LIFETIME,
+			$this->read_private( $part, 'lifetime' ),
 			'the day-long lifespan is the AGE rule'
 		);
 	}

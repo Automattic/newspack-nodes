@@ -98,7 +98,7 @@ class TopicTest extends TestCase {
 	/**
 	 * Tachikoma-parity constructible: no-arg ctor + arguments() setter walks
 	 * the node_schema and assigns dir_template / num_partitions / segment_size /
-	 * min_segments / max_segments / min_lifetime / max_lifetime to real int properties (not placeholder
+	 * min_segments / num_segments / min_lifetime / lifetime to real int properties (not placeholder
 	 * strings, which would TypeError the typed-int property assignment).
 	 */
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
@@ -108,7 +108,7 @@ class TopicTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/firehose.p{partition}", $ref->getProperty( 'dir_template' )->getValue( $t ) );
 		$this->assertSame( 3,        $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 		$this->assertSame( 1048576,  $ref->getProperty( 'segment_size' )->getValue( $t ) );
-		$this->assertSame( 2,        $ref->getProperty( 'max_segments' )->getValue( $t ) );
+		$this->assertSame( 2,        $ref->getProperty( 'num_segments' )->getValue( $t ) );
 		$this->assertSame( 0,        $ref->getProperty( 'min_lifetime' )->getValue( $t ) );
 	}
 
@@ -135,7 +135,7 @@ class TopicTest extends TestCase {
 	 * Optional args default to `<config:*>` tokens; `arguments()` with only the
 	 * required token resolves each omitted arg from config and coerces it to the
 	 * typed `int` property (never a raw token string, which would TypeError).
-	 * The test-config values (segment_size 1024, max_segments 2) are distinct
+	 * The test-config values (segment_size 1024, num_segments 2) are distinct
 	 * from the DEFAULT_* constants (67108864, 4), proving the value came from
 	 * config. num_partitions here is the explicit positional token (4).
 	 */
@@ -145,7 +145,7 @@ class TopicTest extends TestCase {
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( 4,    $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $t ) );
-		$this->assertSame( 2,    $ref->getProperty( 'max_segments' )->getValue( $t ) );
+		$this->assertSame( 2,    $ref->getProperty( 'num_segments' )->getValue( $t ) );
 		$this->assertSame( 0,    $ref->getProperty( 'min_lifetime' )->getValue( $t ) );
 	}
 

@@ -172,7 +172,7 @@ class WorkersCITest extends TestCase {
 			$lines .= "var num_partitions = {$num_partitions}\n";
 		}
 		foreach ( $basenames as $basename ) {
-			$lines .= "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n";
+			$lines .= "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n";
 		}
 		\file_put_contents( "{$stock}/{$topology}.tsl", $lines );
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
@@ -584,14 +584,16 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_metadata_max_segments_envelope_sources_from_config(): void {
-		// Post-retention-split the storage-estimate envelope reports max_segments
-		// (the count-rule ceiling), read straight from config — not a default.
+		// The storage-estimate envelope reports the TRUE ceiling — the hard cap,
+		// derived when unset — read from config, not a default. num_segments=3 <
+		// max_segments=5, so the explicit hard cap (5) is the ceiling.
 		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/workers-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir(
 			$this->tmp,
 			[
 				'num_partitions' => 1,
+				'num_segments'   => 3,
 				'max_segments'   => 5,
 				'segment_size'   => 16 * 1024 * 1024,
 			]
@@ -783,8 +785,8 @@ class WorkersCITest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
-			"make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
-			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
+			"make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
+			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -822,8 +824,8 @@ class WorkersCITest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
-			"make_node Partition job:partition <config:logs_dir>/job.p<partition> 2048 <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
-			. "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
+			"make_node Partition job:partition <config:logs_dir>/job.p<partition> 2048 <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
+			. "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -870,7 +872,7 @@ class WorkersCITest extends TestCase {
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
 			"var num_partitions = 1\n"
-			. "make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
+			. "make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 

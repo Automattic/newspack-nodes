@@ -192,6 +192,35 @@ class PartitionTest extends TestCase {
 		$this->assertSame( '', $this->read_node_prop( $side, 'deadletter_dir' ) );
 	}
 
+	public function test_hard_cap_fires_even_when_the_oldest_mtime_is_unreadable(): void {
+		// The unconditional cap must not silently disable on a stat failure.
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/capstat.p0";
+		\mkdir( $dir, 0755, true );
+		for ( $i = 0; $i < 7; $i++ ) {
+			\file_put_contents( "{$dir}/{$i}.log", 'x' );
+		}
+		$p = new Partition_Node();
+		$p->name( 'capstat' );
+		// num_segments=3, hard cap=5, min_lifetime=900 protects young segments.
+		$p->arguments( [ $dir, '1048576', '2', '3', '900', '0', '5' ] );
+		// Unreadable oldest mtime: stat fails for 0.log via a vanished file.
+		Partition_Node::$scandir = static fn ( string $d ) => \scandir( $d );
+		\unlink( "{$dir}/0.log" );
+		\file_put_contents( "{$dir}/0.log", 'x' ); // recreate; mtime readable
+		\touch( "{$dir}/0.log", \time() - 10 ); // young: min_lifetime protects
+		Partition_Node::$scandir = null;
+		$p->cleanup_segments();
+		$this->assertCount( 5, \glob( "{$dir}/*.log" ), 'the hard cap prunes young segments unconditionally' );
+	}
+
+	public function test_derive_max_segments_floors_num_segments_like_arguments_does(): void {
+		// The displays call this raw; a num_segments below the floor must not
+		// under-report the ceiling the runtime actually enforces.
+		$this->assertSame( 4, Partition_Node::derive_max_segments( 1, 0 ), 'floors to 2, derives 2x' );
+		$this->assertSame( 14, Partition_Node::derive_max_segments( 7, 14 ) );
+	}
+
 	public function test_constructor_does_not_create_partition_dir(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
@@ -207,28 +236,28 @@ class PartitionTest extends TestCase {
 	/**
 	 * Tachikoma-parity constructible: no-arg ctor + arguments() setter walks
 	 * the node_schema and assigns dir / segment_size / min_segments /
-	 * max_segments / min_lifetime / max_lifetime; the override resolves
+	 * num_segments / min_lifetime / lifetime; the override resolves
 	 * partition_dir from the passed dir.
 	 */
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$p = new Partition_Node();
-		// Distinct values per slot so a min/max swap or an ignored token fails.
+		// Distinct values per slot so a min/num swap or an ignored token fails.
 		$p->arguments( [ "{$this->tmp}.p0", "1048576", "3", "5", "100", "200" ] );
 		$this->assertSame( "{$this->tmp}.p0", $p->partition_dir() );
 		$ref = new \ReflectionClass( $p );
 		$this->assertSame( "{$this->tmp}.p0", $ref->getProperty( 'partition_dir' )->getValue( $p ) );
 		$this->assertSame( 1048576,           $ref->getProperty( 'segment_size' )->getValue( $p ) );
 		$this->assertSame( 3,                 $ref->getProperty( 'min_segments' )->getValue( $p ) );
-		$this->assertSame( 5,                 $ref->getProperty( 'max_segments' )->getValue( $p ) );
+		$this->assertSame( 5,                 $ref->getProperty( 'num_segments' )->getValue( $p ) );
 		$this->assertSame( 100,               $ref->getProperty( 'min_lifetime' )->getValue( $p ) );
-		$this->assertSame( 200,               $ref->getProperty( 'max_lifetime' )->getValue( $p ) );
+		$this->assertSame( 200,               $ref->getProperty( 'lifetime' )->getValue( $p ) );
 	}
 
 	/**
 	 * Optional retention args default to `<config:*>` tokens; `arguments()` with
 	 * only the required token resolves each from config and coerces it to the
 	 * typed `int` property (never a raw token string, which would TypeError).
-	 * The test-config values (segment_size 1024, max_segments 2) are distinct
+	 * The test-config values (segment_size 1024, num_segments 2) are distinct
 	 * from the DEFAULT_* constants (67108864, 4), proving the value came from
 	 * config, not the constant.
 	 */
@@ -238,21 +267,21 @@ class PartitionTest extends TestCase {
 		$this->assertSame( "{$this->tmp}.p2", $p->partition_dir() );
 		$ref = new \ReflectionClass( $p );
 		$this->assertSame( 1024, $ref->getProperty( 'segment_size' )->getValue( $p ) );
-		$this->assertSame( 2,    $ref->getProperty( 'max_segments' )->getValue( $p ) );
+		$this->assertSame( 2,    $ref->getProperty( 'num_segments' )->getValue( $p ) );
 		$this->assertSame( 0,    $ref->getProperty( 'min_lifetime' )->getValue( $p ) );
 	}
 
 	/**
 	 * arguments() override re-normalizes after the base walker — dir gets
-	 * trailing slashes stripped, segment_size clamped to ≥1, min/max_segments to
-	 * ≥2, min/max_lifetime to ≥0; partition_dir is the resolved dir.
+	 * trailing slashes stripped, segment_size clamped to ≥1, min/num_segments to
+	 * ≥2, min_lifetime/lifetime to ≥0; partition_dir is the resolved dir.
 	 */
 	public function test_arguments_setter_normalizes_and_rederives_partition_dir(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p1/", "0", "2", "1", "-5", "0" ] );
 		$ref = new \ReflectionClass( $p );
 		$this->assertSame( 1,                 $ref->getProperty( 'segment_size' )->getValue( $p ) );
-		$this->assertSame( 2,                 $ref->getProperty( 'max_segments' )->getValue( $p ) );
+		$this->assertSame( 2,                 $ref->getProperty( 'num_segments' )->getValue( $p ) );
 		$this->assertSame( 0,                 $ref->getProperty( 'min_lifetime' )->getValue( $p ) );
 		$this->assertSame( "{$this->tmp}.p1", $p->partition_dir() );
 	}
@@ -647,9 +676,10 @@ class PartitionTest extends TestCase {
 		$this->assertGreaterThan( 1, \count( $p->get_segments( true ) ) );
 	}
 
-	public function test_retention_min_lifetime_blocks_count_prune_far_over_max_segments(): void {
-		// max_segments=5 but min_lifetime=86400: freshly-written young segments are
-		// kept despite count far exceeding max_segments (count rule gated on age).
+	public function test_retention_min_lifetime_blocks_count_prune_far_over_num_segments(): void {
+		// num_segments=5 but min_lifetime=86400: freshly-written young segments are
+		// kept despite count far exceeding num_segments (count rule gated on age),
+		// up to the derived hard cap (2 × num_segments = 10).
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "5", "86400", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
@@ -657,12 +687,12 @@ class PartitionTest extends TestCase {
 		}
 		$p->cleanup_segments();
 		$segments = $p->get_segments( true );
-		$this->assertGreaterThan( 5, count( $segments ), 'min_lifetime protects young segments even when count >> max_segments' );
+		$this->assertGreaterThan( 5, count( $segments ), 'min_lifetime protects young segments even when count >> num_segments' );
 	}
 
-	public function test_retention_count_prune_to_max_segments_two(): void {
-		// max_segments=2, min_lifetime=0: the count rule always fires (age>=0), so
-		// the oldest are pruned down to max_segments.
+	public function test_retention_count_prune_to_num_segments_two(): void {
+		// num_segments=2, min_lifetime=0: the count rule always fires (age>=0), so
+		// the oldest are pruned down to num_segments.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
@@ -673,8 +703,8 @@ class PartitionTest extends TestCase {
 		$this->assertLessThanOrEqual( 2, count( $segments ) );
 	}
 
-	public function test_retention_prunes_to_max_segments_by_count(): void {
-		// min_seg=2 max_seg=4 min_life=0 max_life=0 → pure count prune to max_segments.
+	public function test_retention_prunes_to_num_segments_by_count(): void {
+		// min_seg=2 num_seg=4 min_life=0 lifetime=0 → pure count prune to num_segments.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "4", "0", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
@@ -686,7 +716,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_retention_min_lifetime_protects_young_from_count_prune(): void {
-		// max_seg=2 but min_life=86400 → young segments kept despite exceeding max_segments.
+		// num_seg=2 but min_life=86400 → young segments kept despite exceeding num_segments.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "86400", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
@@ -696,8 +726,8 @@ class PartitionTest extends TestCase {
 		$this->assertGreaterThan( 2, \count( $p->get_segments( true ) ), 'min_lifetime protects young segments from the count prune' );
 	}
 
-	public function test_retention_max_lifetime_prunes_old_below_max_segments_to_min_segments(): void {
-		// min_seg=2 max_seg=3 min_life=100000 max_life=5: aged segments prune to
+	public function test_retention_lifetime_prunes_old_below_num_segments_to_min_segments(): void {
+		// min_seg=2 num_seg=3 min_life=100000 lifetime=5: aged segments prune to
 		// min_segments via the age rule, EVEN THOUGH the huge min_lifetime would keep
 		// them under the count rule. (The old age gate, keyed on the min_lifetime
 		// position, would keep all of them — this is the genuinely-new behavior.)
@@ -710,7 +740,7 @@ class PartitionTest extends TestCase {
 			\touch( $p->get_segment_path( $seg['id'] ), \time() - 3600 );
 		}
 		$p->cleanup_segments();
-		$this->assertSame( 2, \count( $p->get_segments( true ) ), 'max_lifetime prunes old segments down to min_segments' );
+		$this->assertSame( 2, \count( $p->get_segments( true ) ), 'lifetime prunes old segments down to min_segments' );
 	}
 
 	public function test_retention_age_rule_respects_a_raised_min_segments_floor(): void {
@@ -729,8 +759,22 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 3, \count( $p->get_segments( true ) ), 'age rule stops at the configured min_segments (3), not the hard floor 2' );
 	}
 
+	public function test_retention_hard_cap_prunes_young_segments_over_max_segments(): void {
+		// num_segments=3 target, min_lifetime=900 would keep freshly-written young
+		// segments under the count rule, but the hard cap (max_segments=5, the 7th
+		// arg) prunes the oldest UNCONDITIONALLY once the count exceeds it — young
+		// or not, min_lifetime does not protect them. >5 young segments → exactly 5.
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "900", "0", "5" ] );
+		for ( $i = 0; $i < 20; ++$i ) {
+			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
+		}
+		$p->cleanup_segments();
+		$this->assertSame( 5, \count( $p->get_segments( true ) ), 'hard cap prunes young segments down to max_segments regardless of min_lifetime' );
+	}
+
 	public function test_retention_hard_floor_of_two_segments(): void {
-		// Aggressive age prune (max_life=1, min_seg clamps to 2) never drops below 2.
+		// Aggressive age prune (lifetime=1, min_seg clamps to 2) never drops below 2.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "0", "1" ] );
 		for ( $i = 0; $i < 8; ++$i ) {
@@ -773,7 +817,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_cleanup_emits_CLEANUP_state_only_when_deletions_happen(): void {
-		// min_lifetime=0 → cleanup always deletes once count > max_segments.
+		// min_lifetime=0 → cleanup always deletes once count > num_segments.
 		$router = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$router->name( '_router' );
 
@@ -967,14 +1011,14 @@ class PartitionTest extends TestCase {
 	// ============================================================================
 
 	public function test_rotation_invokes_cleanup_segments(): void {
-		// max_segments=2, min_lifetime=0 (always-eligible) so cleanup runs aggressively.
+		// num_segments=2, min_lifetime=0 (always-eligible) so cleanup runs aggressively.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "2", "0", "0" ] );
 		// Each fill rotates to a new segment because packed-message line + previous offset > 32.
 		for ( $i = 0; $i < 6; $i++ ) {
 			$this->produce_into( $p, str_repeat( chr( 97 + $i ), 30 ) );
 		}
-		// With cleanup at rotation, we should be at most max_segments+1 (the active write target
+		// With cleanup at rotation, we should be at most num_segments+1 (the active write target
 		// plus a freshly-rotated tail that hasn't been cleaned yet).
 		$segments = $p->get_segments( true );
 		$this->assertLessThanOrEqual( 3, count( $segments ), 'auto-cleanup at rotation should keep segments bounded' );
@@ -1287,7 +1331,7 @@ class PartitionTest extends TestCase {
 	public function test_partition_node_schema_declares_ctor_and_verbs(): void {
 		$schema = Partition_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
-		$this->assertSame( 6, \count( $schema['arguments'] ) );
+		$this->assertSame( 7, \count( $schema['arguments'] ) );
 		$verb_names = \array_column( $schema['commands'], 'name' );
 		$this->assertContains( 'allow_large_writes', $verb_names );
 		$this->assertContains( 'with_index', $verb_names );
@@ -1783,10 +1827,10 @@ class PartitionTest extends TestCase {
 
 	public function test_cleanup_segments_under_age_threshold_short_circuits(): void {
 		// cleanup_segments has TWO break conditions: false mtime AND a fresh
-		// segment younger than max_lifetime. Exercise the age-gate branch: a
-		// reasonably-large max_lifetime (1 hour) ensures all segments are
-		// "young" and the loop breaks on the first iteration without
-		// kept, even with count >> max_segments.
+		// segment younger than min_lifetime. Exercise the count-gate branch: a
+		// reasonably-large min_lifetime (1 hour) ensures all segments are
+		// "young" so the count rule can't fire and the loop breaks on the
+		// first iteration, even with count >> num_segments.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "3600", "0" ] );
 		for ( $i = 0; $i < 5; ++$i ) {
@@ -1794,7 +1838,7 @@ class PartitionTest extends TestCase {
 		}
 
 		$before = \count( $p->get_segments( true ) );
-		$this->assertGreaterThan( 2, $before, 'fixture must have more segments than max_segments' );
+		$this->assertGreaterThan( 2, $before, 'fixture must have more segments than num_segments' );
 
 		$p->cleanup_segments();
 
@@ -2941,7 +2985,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_cleanup_prunes_and_leaves_cache_warm(): void {
-		// max_segments=2, min_lifetime=0 → cleanup deletes the oldest beyond 2.
+		// num_segments=2, min_lifetime=0 → cleanup deletes the oldest beyond 2.
 		// After pruning, segments_cache must be non-null and match the surviving
 		// on-disk segments (not nulled-after-prune).
 		$p = new Partition_Node();
@@ -2956,7 +3000,7 @@ class PartitionTest extends TestCase {
 		$this->assertNotNull( $cache, 'cleanup must leave segments_cache warm, not null' );
 		$truth = $p->get_segments( true );
 		$this->assertSame( $truth, $cache, 'pruned cache must equal the surviving on-disk segments' );
-		$this->assertLessThanOrEqual( 2, \count( $cache ), 'cleanup must prune down to max_segments' );
+		$this->assertLessThanOrEqual( 2, \count( $cache ), 'cleanup must prune down to num_segments' );
 	}
 
 	public function test_cleanup_falls_back_to_scan_when_cache_null(): void {
@@ -2999,7 +3043,7 @@ class PartitionTest extends TestCase {
 	// ============================================================================
 
 	/**
-	 * Build a keyframe-style Partition (segment_size=1, max_segments large) so each
+	 * Build a keyframe-style Partition (segment_size=1, num_segments large) so each
 	 * fill rotates to a fresh segment — exactly the offsetlog's one-record-per-segment
 	 * layout. Returns the Partition with $count segments (ids 0..$count-1).
 	 */

@@ -68,13 +68,13 @@ class Settings_Schema {
 					render: [ Admin::class, 'min_segments_callback' ],
 				),
 				new Field(
-					key: 'max_segments',
+					key: 'num_segments',
 					type: 'int',
-					label: static fn(): string => \__( 'Max Segments', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Num Segments', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
-					render: [ Admin::class, 'max_segments_callback' ],
+					render: [ Admin::class, 'num_segments_callback' ],
 				),
 				new Field(
 					key: 'segment_size',
@@ -95,13 +95,23 @@ class Settings_Schema {
 					render: [ Admin::class, 'min_lifetime_callback' ],
 				),
 				new Field(
-					key: 'max_lifetime',
+					key: 'lifetime',
 					type: 'int',
-					label: static fn(): string => \__( 'Max Lifetime', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Lifetime', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
-					render: [ Admin::class, 'max_lifetime_callback' ],
+					render: [ Admin::class, 'lifetime_callback' ],
+				),
+				// True hard cap; 0 = auto (2x num_segments).
+				new Field(
+					key: 'max_segments',
+					type: 'int',
+					label: static fn(): string => \__( 'Max Segments (hard cap)', 'newspack-nodes' ),
+					section: $storage,
+					restart: [ 'Partition', 'Topic', 'Log' ],
+					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
+					render: [ Admin::class, 'max_segments_callback' ],
 				),
 				// Display-only readout (no option, no reset).
 				new Field(

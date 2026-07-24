@@ -87,7 +87,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	public static function collect_dump_metadata(): array {
 		$now            = \time();
 		$num_partitions = self::to_int( RuntimeConfig::value( 'num_partitions' ) );
-		$max_segments   = self::to_int( RuntimeConfig::value( 'max_segments' ) );
+		// TRUE disk ceiling: the hard cap (or its 2x num_segments default).
+		$max_segments   = \Newspack_Nodes\Partition_Node::derive_max_segments(
+			self::to_int( RuntimeConfig::value( 'num_segments' ) ),
+			self::to_int( RuntimeConfig::value( 'max_segments' ) )
+		);
 		$segment_size   = self::to_int( RuntimeConfig::value( 'segment_size' ) );
 		$base_dir       = RuntimeConfig::get_base_directory();
 		$log_base       = $base_dir . '/logs';

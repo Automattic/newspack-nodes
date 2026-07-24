@@ -25,10 +25,11 @@ class Worker_Base {
 
 	public const DEFAULT_MAX_RUNTIME    = 595;
 	public const HEARTBEAT_INTERVAL_S   = 10;
-	public const IPC_MAX_LIFETIME       = 0;
-	public const IPC_MAX_SEGMENTS       = 2;
+	public const IPC_LIFETIME           = 0;
+	public const IPC_MAX_SEGMENTS       = 4;
 	public const IPC_MIN_LIFETIME       = 0;
 	public const IPC_MIN_SEGMENTS       = 2;
+	public const IPC_NUM_SEGMENTS       = 2;
 	public const IPC_SEGMENT_SIZE       = 1048576;
 	public const LOCK_CHECK_GRACE_S     = 0.25;
 	public const MEMORY_WATERMARK_PCT   = 0.80;
@@ -385,8 +386,8 @@ class Worker_Base {
 	}
 
 	/**
-	 * Full six-axis geometry for an IPC scratch partition: bounded by COUNT, never
-	 * age-pruned. Declaring all four retention axes is the point — an omitted one
+	 * Full seven-slot geometry for an IPC scratch partition: bounded by COUNT, never
+	 * age-pruned. Declaring all five retention axes is the point — an omitted one
 	 * inherits `<config:*>`, where a min_lifetime of an hour protects every segment
 	 * from the count rule and the scratch grows without bound.
 	 *
@@ -398,9 +399,10 @@ class Worker_Base {
 			$dir,
 			self::IPC_SEGMENT_SIZE,
 			self::IPC_MIN_SEGMENTS,
-			self::IPC_MAX_SEGMENTS,
+			self::IPC_NUM_SEGMENTS,
 			self::IPC_MIN_LIFETIME,
-			self::IPC_MAX_LIFETIME,
+			self::IPC_LIFETIME,
+			self::IPC_MAX_SEGMENTS,
 		] );
 	}
 
