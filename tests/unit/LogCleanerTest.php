@@ -651,7 +651,7 @@ class LogCleanerTest extends TestCase {
 	 * cleaner skips the sweep entirely (fail-safe), so an include-only topology
 	 * alone is never at risk. It takes a neighbour that DOES declare dirs to make
 	 * the set non-empty, run the sweep, and delete the borrowed dirs. That is the
-	 * live fleet exactly: combined (include-only) beside job-worker + hub-control.
+	 * live fleet exactly: combined (include-only) beside job-worker + settings-sync.
 	 */
 	public function test_keeps_the_dirs_an_included_topology_declares(): void {
 		$this->declare_topology( 'neighbour', $this->partition_tsl( 'neighbour' ) );

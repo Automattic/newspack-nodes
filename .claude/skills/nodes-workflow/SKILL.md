@@ -64,7 +64,7 @@ npm run lint:phpstan   # alias: npm run lint:deadcode
 # Restart workers so they pick up the new code (otherwise the old class lives
 # in the running PHP process for ~10 more minutes). Run `wp nodes types`
 # first to see what topologies are actually live — the substrate ships two
-# builtin topologies (`job-worker` and `hub-control`, registered via
+# builtin topologies (`job-worker` and `settings-sync`, registered via
 # `Topology_Registry::register_builtin_dir`); the rest come from application
 # plugins and are deployment-specific — `wp nodes types` / `wp nodes status` is
 # the source of truth.

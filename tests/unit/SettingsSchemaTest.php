@@ -30,9 +30,10 @@ class SettingsSchemaTest extends TestCase {
 		'base_directory',
 		'memcache_servers',
 		'log_sources',
-		'remote_max_segments',
+		'remote_num_segments',
 		'remote_segment_size',
 		'remote_min_lifetime',
+		'remote_max_segments',
 		'alert_lag_threshold',
 		'alert_deadletter_threshold',
 		'alert_emit_interval',
@@ -51,9 +52,10 @@ class SettingsSchemaTest extends TestCase {
 		'newspack_nodes_base_directory',
 		'newspack_nodes_memcache_servers',
 		'newspack_nodes_log_sources',
-		'newspack_nodes_remote_max_segments',
+		'newspack_nodes_remote_num_segments',
 		'newspack_nodes_remote_segment_size',
 		'newspack_nodes_remote_min_lifetime',
+		'newspack_nodes_remote_max_segments',
 		'newspack_nodes_alert_lag_threshold',
 		'newspack_nodes_alert_deadletter_threshold',
 		'newspack_nodes_alert_emit_interval',
@@ -71,9 +73,10 @@ class SettingsSchemaTest extends TestCase {
 		'base_directory',
 		'memcache_servers',
 		'log_sources',
-		'remote_max_segments',
+		'remote_num_segments',
 		'remote_segment_size',
 		'remote_min_lifetime',
+		'remote_max_segments',
 		'alert_lag_threshold',
 		'alert_deadletter_threshold',
 		'alert_emit_interval',
@@ -145,28 +148,30 @@ class SettingsSchemaTest extends TestCase {
 	public function test_remote_settings_restart_nothing(): void {
 		$schema = Settings_Schema::get();
 
-		$this->assertSame( [], $schema->restart_for( 'remote_max_segments' ) );
+		$this->assertSame( [], $schema->restart_for( 'remote_num_segments' ) );
 		$this->assertSame( [], $schema->restart_for( 'remote_segment_size' ) );
 		$this->assertSame( [], $schema->restart_for( 'remote_min_lifetime' ) );
+		$this->assertSame( [], $schema->restart_for( 'remote_max_segments' ) );
 	}
 
 	/**
-	 * The three remote-spoke settings are registered + resettable options and now
+	 * The four remote-spoke settings are registered + resettable options and now
 	 * overlay the config file uniformly like every other setting (the per-field
 	 * overlay opt-out is gone).
 	 */
 	public function test_remote_settings_are_overlaid_like_every_setting(): void {
 		$schema = Settings_Schema::get();
 
-		foreach ( [ 'remote_max_segments', 'remote_segment_size', 'remote_min_lifetime' ] as $key ) {
+		foreach ( [ 'remote_num_segments', 'remote_segment_size', 'remote_min_lifetime', 'remote_max_segments' ] as $key ) {
 			$field = $schema->field_for_short( $key );
 			$this->assertNotNull( $field, "remote field {$key} must exist" );
 			$this->assertSame( 'newspack_nodes_remote_section', $field->section );
 		}
 
-		$this->assertContains( 'remote_max_segments', $schema->overlay_keys() );
+		$this->assertContains( 'remote_num_segments', $schema->overlay_keys() );
 		$this->assertContains( 'remote_segment_size', $schema->overlay_keys() );
 		$this->assertContains( 'remote_min_lifetime', $schema->overlay_keys() );
+		$this->assertContains( 'remote_max_segments', $schema->overlay_keys() );
 	}
 
 	public function test_prefix_is_the_substrate_prefix_and_get_is_memoized(): void {

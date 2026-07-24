@@ -84,6 +84,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moves to `newspack_nodes_num_segments`, NOT to the new hard-cap `max_segments`;
   `newspack_nodes_max_lifetime` → `newspack_nodes_lifetime`. The marker guard
   keeps an admin-set hard cap from being cannibalized on re-activation.
+  The marker is now a VERSION, not a boolean, and each generation is gated
+  independently (`< 1` / `< 2` / `< 3`): the legacy marker `'1'` is ambiguous —
+  released 0.39.0 stamped it after the FIRST rename only — so a released install
+  still gets the axis rename instead of having its stored count silently reread
+  as the hard cap.
+  The `remote_*` spoke-geometry family got the SAME rename (a third generation,
+  which the versioned marker lets already-migrated installs still receive):
+  `remote_max_segments` → `remote_num_segments` (count target) and
+  `remote_max_lifetime` → `remote_lifetime`, so each `remote_<axis>` names the
+  exact spoke axis it sets. The freed `remote_max_segments` name is now the
+  **remote hard cap** (`0` = spoke derives `2 × num_segments`), a new
+  registered/resettable setting (`0–64`) the hub pushes so it can cap a spoke's
+  disk unconditionally. `settings-sync.tsl` (formerly `hub-control.tsl`, see
+  below) pushes all six axes to the spoke's stripped option AND to the spoke's
+  own `remote_*` copy for onward propagation. Hub and spokes must upgrade
+  together: sync pushes options BY NAME, so a hub on the new names writing a
+  spoke on the old names (or vice-versa) silently no-ops that axis until both
+  sides match.
+- **The substrate `hub-control` topology is renamed `settings-sync`.** It only
+  ever wired the settings-sync + spokes-tee plane (discovery-collector is an ELN
+  class), so the name now says what it does. ELN keeps the topology NAME
+  `hub-control` — its file is now a thin overlay that `include settings-sync`s
+  the substrate plane and layers on its discovery-collector + app-key pushes, so
+  the two plugins stop maintaining the same graph twice. On a substrate-only
+  install that activates the control plane, the worker type is now `settings-sync`
+  (a fresh `settings-sync.settings.p0` offsetlog cursor — no ELN install is
+  affected, they stay on the `hub-control` name and cursor).
 - **One shared cURL multi handle for the whole drain loop.** The drain tick did
   `curl_multi_select()` once *per registered handle*, so its worst-case blocking
   wait scaled with the handle count (N × timeout per tick). `Event_Framework` now

@@ -1209,7 +1209,7 @@ class Topology_Registry {
 	 * Register the substrate's own bundled dir as the lowest-priority fallback:
 	 * appended to the END so every consumer-registered stock dir resolves first
 	 * regardless of load-time ordering. Consumers override a builtin topology
-	 * (e.g. hub-control) simply by shipping a same-named .tsl; nodes-only
+	 * (e.g. job-worker) simply by shipping a same-named .tsl; nodes-only
 	 * deployments still resolve via this fallback. Pushed once (idempotent).
 	 */
 	public static function register_builtin_dir( string $path ): void {

@@ -51,8 +51,10 @@ return [
 	'vault_verify_ssl'    => true,
 	'vault_require_ssl'   => true,
 	'remote_min_segments' => 2,
-	'remote_max_segments' => 8,
+	'remote_num_segments' => 8,
 	'remote_segment_size' => 64 * 1024 * 1024,
 	'remote_min_lifetime' => 900,
-	'remote_max_lifetime' => 900,
+	'remote_lifetime'     => 900,
+	// Remote hard cap; 0 = spoke derives 2x remote num segments.
+	'remote_max_segments' => 0,
 ];

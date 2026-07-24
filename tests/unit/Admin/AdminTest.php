@@ -252,9 +252,10 @@ class AdminTest extends TestCase {
 		$admin->register_settings();
 
 		foreach ( [
-			'newspack_nodes_remote_max_segments',
+			'newspack_nodes_remote_num_segments',
 			'newspack_nodes_remote_segment_size',
 			'newspack_nodes_remote_min_lifetime',
+			'newspack_nodes_remote_max_segments',
 		] as $option ) {
 			$this->assertArrayHasKey( $option, $GLOBALS['_registered_settings'], "missing option: $option" );
 			$this->assertSame( 'string', $GLOBALS['_registered_settings'][ $option ]['args']['type'] );
@@ -266,7 +267,7 @@ class AdminTest extends TestCase {
 		$admin->register_settings();
 
 		$this->assertArrayHasKey( 'newspack_nodes_remote_section', $GLOBALS['_registered_sections'] );
-		foreach ( [ 'remote_max_segments', 'remote_segment_size', 'remote_min_lifetime' ] as $field ) {
+		foreach ( [ 'remote_num_segments', 'remote_segment_size', 'remote_min_lifetime', 'remote_max_segments' ] as $field ) {
 			$this->assertArrayHasKey( $field, $GLOBALS['_registered_fields'], "field $field not registered" );
 			$this->assertSame( Admin::SETTINGS_PAGE, $GLOBALS['_registered_fields'][ $field ]['page'] );
 		}
@@ -740,15 +741,28 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- remote_* sanitizers ---------------------------------------------
 
+	public function test_sanitize_remote_num_segments_returns_empty_for_empty_and_null(): void {
+		$this->assertSame( '', Admin::sanitize_remote_num_segments( '' ) );
+		$this->assertSame( '', Admin::sanitize_remote_num_segments( null ) );
+	}
+
+	public function test_sanitize_remote_num_segments_clamps_to_range(): void {
+		$this->assertSame( 2, Admin::sanitize_remote_num_segments( '1' ) );
+		$this->assertSame( 16, Admin::sanitize_remote_num_segments( '500' ) );
+		$this->assertSame( 8, Admin::sanitize_remote_num_segments( '8' ) );
+	}
+
 	public function test_sanitize_remote_max_segments_returns_empty_for_empty_and_null(): void {
 		$this->assertSame( '', Admin::sanitize_remote_max_segments( '' ) );
 		$this->assertSame( '', Admin::sanitize_remote_max_segments( null ) );
 	}
 
-	public function test_sanitize_remote_max_segments_clamps_to_range(): void {
-		$this->assertSame( 2, Admin::sanitize_remote_max_segments( '1' ) );
-		$this->assertSame( 16, Admin::sanitize_remote_max_segments( '500' ) );
-		$this->assertSame( 8, Admin::sanitize_remote_max_segments( '8' ) );
+	public function test_sanitize_remote_max_segments_hard_cap_clamps_to_range(): void {
+		// The hard cap allows the 0 = auto sentinel and reaches 64 — distinct from
+		// the count target's [2, 16] band so a wrong-sanitizer wiring is caught.
+		$this->assertSame( 0, Admin::sanitize_remote_max_segments( '0' ) );
+		$this->assertSame( 64, Admin::sanitize_remote_max_segments( '500' ) );
+		$this->assertSame( 21, Admin::sanitize_remote_max_segments( '21' ) );
 	}
 
 	public function test_sanitize_remote_segment_size_returns_empty_for_empty_and_null(): void {
@@ -785,26 +799,48 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'remote spokes', $out );
 	}
 
-	public function test_remote_max_segments_callback_renders_number_input(): void {
+	public function test_remote_num_segments_callback_renders_number_input(): void {
+		\ob_start();
+		Admin::remote_num_segments_callback();
+		$out = \ob_get_clean();
+		$this->assertStringContainsString( 'name="newspack_nodes_remote_num_segments"', $out );
+		$this->assertStringContainsString( 'type="number"', $out );
+		$this->assertStringContainsString( 'min="2"', $out );
+		$this->assertStringContainsString( 'max="16"', $out );
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_remote_num_segments]"', $out );
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $out );
+	}
+
+	public function test_remote_num_segments_callback_shows_value_when_overridden(): void {
+		// 5 is distinct from any config default (2 or 8), so a default-echo
+		// regression can't render it as a placeholder and still pass.
+		\update_option( 'newspack_nodes_remote_num_segments', 5 );
+		\ob_start();
+		Admin::remote_num_segments_callback();
+		$out = \ob_get_clean();
+		$this->assertStringContainsString( 'value="5"', $out );
+	}
+
+	public function test_remote_max_segments_callback_renders_hard_cap_number_input(): void {
 		\ob_start();
 		Admin::remote_max_segments_callback();
 		$out = \ob_get_clean();
 		$this->assertStringContainsString( 'name="newspack_nodes_remote_max_segments"', $out );
 		$this->assertStringContainsString( 'type="number"', $out );
-		$this->assertStringContainsString( 'min="2"', $out );
-		$this->assertStringContainsString( 'max="16"', $out );
+		$this->assertStringContainsString( 'min="0"', $out );
+		$this->assertStringContainsString( 'max="64"', $out );
 		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_remote_max_segments]"', $out );
 		$this->assertStringContainsString( 'data-nn-reset-toggle', $out );
 	}
 
 	public function test_remote_max_segments_callback_shows_value_when_overridden(): void {
-		// 5 is distinct from any config default (2 or 8), so a default-echo
-		// regression can't render it as a placeholder and still pass.
-		\update_option( 'newspack_nodes_remote_max_segments', 5 );
+		// 21 is distinct from the count band (2-16) and the 0 default, so a
+		// wrong-callback wiring can't render it and still pass.
+		\update_option( 'newspack_nodes_remote_max_segments', 21 );
 		\ob_start();
 		Admin::remote_max_segments_callback();
 		$out = \ob_get_clean();
-		$this->assertStringContainsString( 'value="5"', $out );
+		$this->assertStringContainsString( 'value="21"', $out );
 	}
 
 	public function test_remote_segment_size_callback_renders_number_input(): void {

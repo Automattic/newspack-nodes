@@ -154,13 +154,13 @@ class Settings_Schema {
 				),
 				// Remote storage geometry; registered + resettable.
 				new Field(
-					key: 'remote_max_segments',
+					key: 'remote_num_segments',
 					type: 'int',
-					label: static fn(): string => \__( 'Remote Max Segments', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Remote Num Segments', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
-					sanitize: [ Admin::class, 'sanitize_remote_max_segments' ],
-					render: [ Admin::class, 'remote_max_segments_callback' ],
+					sanitize: [ Admin::class, 'sanitize_remote_num_segments' ],
+					render: [ Admin::class, 'remote_num_segments_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
 				new Field(
@@ -181,6 +181,17 @@ class Settings_Schema {
 					restart: [],
 					sanitize: [ Admin::class, 'sanitize_remote_min_lifetime' ],
 					render: [ Admin::class, 'remote_min_lifetime_callback' ],
+					register_args: [ 'type' => 'string' ],
+				),
+				// Remote hard cap for spokes; 0 = spoke derives 2x its count.
+				new Field(
+					key: 'remote_max_segments',
+					type: 'int',
+					label: static fn(): string => \__( 'Remote Max Segments (hard cap)', 'newspack-nodes' ),
+					section: $remote,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_remote_max_segments' ],
+					render: [ Admin::class, 'remote_max_segments_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
 				// Fleet-alert thresholds; read live by Alerts, no restart.

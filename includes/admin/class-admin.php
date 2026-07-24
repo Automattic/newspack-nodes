@@ -436,8 +436,12 @@ class Admin {
 		self::render_number( 'lifetime', 0, 0, 604800, \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
 	}
 
+	public static function remote_num_segments_callback(): void {
+		self::render_number( 'remote_num_segments', 2, 2, 16, \__( 'Count-rule target: number of log segments to keep on remote servers (2-16).', 'newspack-nodes' ) );
+	}
+
 	public static function remote_max_segments_callback(): void {
-		self::render_number( 'remote_max_segments', 2, 2, 16, \__( 'Number of log segments on remote servers (2-16).', 'newspack-nodes' ) );
+		self::render_number( 'remote_max_segments', 0, 0, 64, \__( 'True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_segment_size_callback(): void {
@@ -1022,16 +1026,30 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize the remote max_segments setting: clamp to [2, 16], or '' when unset.
+	 * Sanitize the remote num_segments count target: clamp to [2, 16], or '' when unset.
 	 *
 	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
 	 * @return int|string Clamped segment count, or '' when blank/unset.
+	 */
+	public static function sanitize_remote_num_segments( int|string|null $value ): int|string {
+		if ( '' === $value || null === $value ) {
+			return '';
+		}
+		return \max( 2, \min( 16, \absint( $value ) ) );
+	}
+
+	/**
+	 * Sanitize the remote max_segments hard cap: clamp to [0, 64], or '' when unset.
+	 * 0 = automatic (spoke derives twice remote num_segments), matching the local hard cap.
+	 *
+	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
+	 * @return int|string Clamped hard cap, or '' when blank/unset.
 	 */
 	public static function sanitize_remote_max_segments( int|string|null $value ): int|string {
 		if ( '' === $value || null === $value ) {
 			return '';
 		}
-		return \max( 2, \min( 16, \absint( $value ) ) );
+		return \max( 0, \min( 64, \absint( $value ) ) );
 	}
 
 	/**
