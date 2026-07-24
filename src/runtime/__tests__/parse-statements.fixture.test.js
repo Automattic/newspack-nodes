@@ -25,10 +25,10 @@ const TSL_SOURCES = {
 	'eln-request-builder': 'tests/fixtures/eln-request-builder.tsl',
 	'example-ai-newsletter':
 		'examples/example-ai-newsletter/topologies/example-ai-newsletter.tsl',
-	'hub-control': 'topologies/hub-control.tsl',
 	'job-intake': 'topologies/job-intake.tsl',
 	'job-worker': 'topologies/job-worker.tsl',
 	'request-builder': 'tests/fixtures/request-builder.tsl',
+	'settings-sync': 'topologies/settings-sync.tsl',
 	'topic-probe': 'topologies/topic-probe.tsl',
 };
 

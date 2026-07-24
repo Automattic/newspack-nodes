@@ -72,7 +72,7 @@ class StatusCITest extends TestCase {
 		$this->use_base_dir( $this->tmp, [
 			'num_partitions' => 4,
 		] );
-		$this->activate_topologies( [ 'hub-control', 'job-worker' ] );
+		$this->activate_topologies( [ 'settings-sync', 'job-worker' ] );
 		Core::$memd = new InMemoryMemcached();
 		$interpreter         = new Status_CI_Node();
 
@@ -84,7 +84,7 @@ class StatusCITest extends TestCase {
 		$this->assertSame( 'ok', $result['status'] );
 		$this->assertSame( \NEWSPACK_NODES_VERSION, $result['runtime_version'] );
 		$this->assertSame( 4, $result['num_partitions'] );
-		$this->assertSame( [ 'hub-control', 'job-worker' ], $result['topologies'] );
+		$this->assertSame( [ 'settings-sync', 'job-worker' ], $result['topologies'] );
 		$this->assertTrue( $result['cache_available'] );
 		$this->assertIsInt( $result['timestamp'] );
 		$this->assertGreaterThanOrEqual( $before, $result['timestamp'] );

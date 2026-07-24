@@ -103,7 +103,7 @@ wp nodes run <type> [--partition=<N>] [--quiet]
 
 # Force-restart (sends a restart flag-file via Lock). Run `wp nodes types`
 # first to discover what's live: the substrate ships two builtin topologies
-# (`job-worker` and `hub-control`, registered via `Topology_Registry::register_builtin_dir`
+# (`job-worker` and `settings-sync`, registered via `Topology_Registry::register_builtin_dir`
 # from its own `topologies/` dir); the rest come from application plugins and are
 # deployment-specific. `wp nodes types` / `wp nodes status` is the source of truth.
 wp nodes restart all --all-partitions          # every type, every partition
