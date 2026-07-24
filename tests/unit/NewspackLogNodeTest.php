@@ -69,6 +69,21 @@ class NewspackLogNodeTest extends TestCase {
 		$this->assertSame( 'eve.host.nodes.topics.r.distance 120 1000000', $seen[0][1] );
 	}
 
+	public function test_control_messages_are_dropped(): void {
+		$seen = 0;
+		add_action( 'newspack_log', function () use ( &$seen ) { ++$seen; } );
+		$node = new Newspack_Log_Node();
+		$node->name( 'newspack-log' );
+		$node->arguments( [ 'nodes_metrics' ] );
+
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF;
+		$node->fill( $message );
+
+		$this->assertSame( 0, $seen );
+		$this->assertSame( [ 'nodes_metrics' ], $node->arguments() );
+	}
+
 	public function test_code_argument_is_required(): void {
 		$node = new Newspack_Log_Node();
 		$node->name( 'newspack-log' );

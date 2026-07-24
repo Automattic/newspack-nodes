@@ -71,7 +71,7 @@ class JobDelayTest extends TestCase {
 
 	public function test_sweep_delivers_due_entry_stripped_and_keyed(): void {
 		$now = \microtime( true );
-		$this->seed_delayed( 'due_h', $now + 30.0, 'affkey', 'id9', [ 'retries' => 4 ] );
+		$this->seed_delayed( 'due_h', $now + 30.0, 'affkey', 'id9', [ 'retries' => 4, 'batch' => 'bD' ] );
 
 		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $now + 60.0 ) );
 
@@ -81,6 +81,7 @@ class JobDelayTest extends TestCase {
 		$this->assertSame( 'due_h', $lines[0]['handler'] );
 		$this->assertSame( 'id9', $lines[0]['id'] );
 		$this->assertSame( 4, $lines[0]['retries'] );
+		$this->assertSame( 'bD', $lines[0]['batch'], 'batch identity survives the delay hop' );
 		$this->assertSame( 'affkey', $lines[0]['key'], 'delivered entries keep their key so a later retry re-parks correctly' );
 		$this->assertArrayNotHasKey( 'not_before', $lines[0] );
 	}
@@ -120,6 +121,78 @@ class JobDelayTest extends TestCase {
 			Job_Delay::sweep( $this->tmp, 2, $now + 7200.0 ),
 			'an aborted circulation must leave the cursor behind the entry, never checkpoint past it'
 		);
+	}
+
+	public function test_sweep_action_runs_the_sweep_and_swallows_failures(): void {
+		// Happy path: config points at the test base; nothing delayed -> no-op.
+		Job_Delay::sweep_action();
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/jobdelay.p0" );
+
+		// Failure path: unconfigure the base; the tick wrapper eats the throw.
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=/nonexistent-conf-913.php' );
+		\Newspack_Nodes\Config::reset();
+		try {
+			Job_Delay::sweep_action();
+			$this->assertTrue( true, 'supervisor tick must survive a sweep failure' );
+		} finally {
+			$this->use_base_dir( $this->tmp, [ 'num_partitions' => 2 ] );
+		}
+	}
+
+	public function test_undeliverable_due_entry_drops_loud_not_forever(): void {
+		// Hand-pack an entry whose handler fails validation at delivery time.
+		$p = new \Newspack_Nodes\Partition_Node();
+		$p->name( 'seed:jobdelay' );
+		$p->arguments( [ "{$this->tmp}/logs/jobdelay.p0" ] );
+		$p->allow_large_writes();
+		$m                                        = \Newspack_Nodes\Message::new_message();
+		$m[ \Newspack_Nodes\Message::TYPE ]      = \Newspack_Nodes\Message::TM_STRUCT;
+		$m[ \Newspack_Nodes\Message::TIMESTAMP ] = \microtime( true );
+		$m[ \Newspack_Nodes\Message::VALUE ]     = [ 'k' => 'job', 'handler' => 'Bad Name!', 'parameters' => [], 'ts' => \microtime( true ), 'not_before' => \microtime( true ) - 5.0 ];
+		$p->fill( $m );
+		$p->remove_node();
+
+		// A second invalid entry that is NOT yet due: its circulation also
+		// fails validation and drops loud instead of wedging the sweep.
+		$p2 = new \Newspack_Nodes\Partition_Node();
+		$p2->name( 'seed:jobdelay2' );
+		$p2->arguments( [ "{$this->tmp}/logs/jobdelay.p0" ] );
+		$p2->allow_large_writes();
+		$m2                                        = \Newspack_Nodes\Message::new_message();
+		$m2[ \Newspack_Nodes\Message::TYPE ]      = \Newspack_Nodes\Message::TM_STRUCT;
+		$m2[ \Newspack_Nodes\Message::TIMESTAMP ] = \microtime( true );
+		$m2[ \Newspack_Nodes\Message::VALUE ]     = [ 'k' => 'alert', 'm' => 'not a job at all' ];
+		$p2->fill( $m2 );
+		$m3                                    = \Newspack_Nodes\Message::new_message();
+		$m3[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_STRUCT;
+		$m3[ \Newspack_Nodes\Message::TIMESTAMP ] = \microtime( true );
+		$m3[ \Newspack_Nodes\Message::VALUE ] = [ 'k' => 'job', 'handler' => 'Also Bad!', 'parameters' => [], 'ts' => \microtime( true ), 'not_before' => \microtime( true ) + 3600.0 ];
+		$p2->fill( $m3 );
+		$p2->remove_node();
+
+		$this->assertSame( 0, Job_Delay::sweep( $this->tmp, 2, \microtime( true ) ) );
+		$this->assertSame( [], $this->read_all_jobintake_lines() );
+		// Dropped for good: a later sweep does not resurrect it.
+		$this->assertSame( 0, Job_Delay::sweep( $this->tmp, 2, \microtime( true ) + 60.0 ) );
+	}
+
+	public function test_entry_coming_due_mid_sweep_delivers_on_reappend(): void {
+		$real = \microtime( true );
+		// Hand-pack an already-due entry (write_job would route it live): due
+		// by the wall clock, not yet due by the sweep's (older) clock.
+		$p = new \Newspack_Nodes\Partition_Node();
+		$p->name( 'seed:midsweep' );
+		$p->arguments( [ "{$this->tmp}/logs/jobdelay.p0" ] );
+		$p->allow_large_writes();
+		$m                                       = \Newspack_Nodes\Message::new_message();
+		$m[ \Newspack_Nodes\Message::TYPE ]      = \Newspack_Nodes\Message::TM_STRUCT;
+		$m[ \Newspack_Nodes\Message::TIMESTAMP ] = $real;
+		$m[ \Newspack_Nodes\Message::VALUE ]     = [ 'k' => 'job', 'handler' => 'midsweep_h', 'parameters' => [], 'ts' => $real, 'not_before' => $real - 50.0 ];
+		$p->fill( $m );
+		$p->remove_node();
+
+		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $real - 100.0 ) );
+		$this->assertSame( [ 'midsweep_h' ], array_column( $this->read_all_jobintake_lines(), 'handler' ) );
 	}
 
 	public function test_short_delay_is_not_blocked_by_long_delay_ahead_of_it(): void {

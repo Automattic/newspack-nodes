@@ -215,6 +215,19 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/\b\d+s ago\b/', $haystack, 'heartbeat age' );
 	}
 
+	public function test_status_names_the_attachable_worker_id(): void {
+		// The Worker column is the exact id `wp nodes cli` takes — without it
+		// a new user has no path from status output to a REPL.
+		$this->register_topology( 'aggregator', 2 );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'aggregator.p0', $haystack );
+		$this->assertStringContainsString( 'aggregator.p1', $haystack );
+		$this->assertStringContainsString( 'wp nodes cli <Worker>', $haystack, 'status must teach the attach command' );
+	}
+
 	public function test_status_marks_active_topology_without_a_lock_as_down(): void {
 		$this->register_topology( 'aggregator', 2 );
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );

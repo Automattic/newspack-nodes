@@ -54,6 +54,42 @@ class GraphiteNodeTest extends TestCase {
 		$node->arguments( [] );
 	}
 
+	public function test_default_transport_writes_a_real_udp_datagram(): void {
+		Graphite_Node::$transport = null; // exercise the production fopen/fwrite path
+		$node = new Graphite_Node();
+		$node->name( 'graphite' );
+		$node->arguments( [ '127.0.0.1:19871' ] );
+
+		// Connectionless UDP: the write succeeds with no listener.
+		$node->fill( $this->bytes( "eve.h.nodes.topics.r.distance 1 1000000\n" ) );
+		$this->assertSame( 1, $this->read_private( $node, 'counter' ) );
+	}
+
+	public function test_unresolvable_endpoint_degrades_loud_not_fatal(): void {
+		Graphite_Node::$transport = null;
+		$node = new Graphite_Node();
+		$node->name( 'graphite' );
+		$node->arguments( [ 'no-such-host.invalid:19871' ] );
+
+		$node->fill( $this->bytes( "line 1 1000000\n" ) );
+		$this->assertSame( 1, $this->read_private( $node, 'counter' ), 'a failed write logs; it never throws into the drain' );
+	}
+
+	public function test_empty_payload_is_skipped(): void {
+		$node = new Graphite_Node();
+		$node->name( 'graphite' );
+		$node->arguments( [ '127.0.0.1:19871' ] );
+		$node->fill( $this->bytes( '' ) );
+		$this->assertSame( [], $this->writes );
+	}
+
+	public function test_arguments_read_back(): void {
+		$node = new Graphite_Node();
+		$node->name( 'graphite' );
+		$node->arguments( [ '127.0.0.1:19871' ] );
+		$this->assertSame( [ '127.0.0.1:19871' ], $node->arguments() );
+	}
+
 	public function test_non_bytestream_is_dropped(): void {
 		$node = new Graphite_Node();
 		$node->name( 'graphite' );

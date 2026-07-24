@@ -17,9 +17,7 @@
 
 namespace Newspack_Nodes;
 
-if ( ! \defined( 'ABSPATH' ) ) {
-	exit;
-}
+\defined( 'ABSPATH' ) || exit;
 
 /**
  * NewspackLog node.

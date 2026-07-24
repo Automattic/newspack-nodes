@@ -157,8 +157,7 @@ class Worker_CLI_Command {
 		foreach ( \array_keys( Topology_Registry::describe() ) as $name ) {
 			if ( ! isset( $active[ $name ] ) ) {
 				$rows[] = [
-					'Topology'  => $name,
-					'Partition' => '-',
+					'Worker'    => $name,
 					'State'     => 'inactive',
 					'Heartbeat' => '-',
 					'Uptime'    => '-',
@@ -190,10 +189,13 @@ class Worker_CLI_Command {
 		}
 		$format = self::entry_string( $assoc_args, 'format' );
 		if ( ! empty( $rows ) ) {
-			self::render( $format, $rows, [ 'Topology', 'Partition', 'State', 'Heartbeat', 'Uptime' ] );
+			self::render( $format, $rows, [ 'Worker', 'State', 'Heartbeat', 'Uptime' ] );
 		}
 		if ( ! empty( $consumers ) ) {
 			self::render( $format, $consumers, [ 'Reader', 'Source', 'Partition', 'Behind', 'Msgs' ] );
+		}
+		if ( '' === $format ) {
+			\WP_CLI::log( 'Attach a REPL to a live worker with: wp nodes cli <Worker>' );
 		}
 	}
 
@@ -215,8 +217,7 @@ class Worker_CLI_Command {
 			$state = $w['stale'] ? 'stale' : 'live';
 		}
 		return [
-			'Topology'  => $name,
-			'Partition' => $p,
+			'Worker'    => "{$name}.p{$p}",
 			'State'     => $state,
 			'Heartbeat' => $heartbeat_at > 0 ? CLI::format_duration( $now - $heartbeat_at ) . ' ago' : '-',
 			'Uptime'    => $started_at > 0 ? CLI::format_duration( $now - $started_at ) : '-',
