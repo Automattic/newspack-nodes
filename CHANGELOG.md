@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grammar regexes across the registry and `class-topologies-ci-node.php` — two
   parsers of one grammar collapsed to one. Performs zero side effects: no
   interpolation, no `Core::$var` reads, no node construction.
+- **JS `parseStatements()` — the browser side of the one front-end.** A new
+  export in `src/runtime/shell-node.js` mirroring `Shell_Node::parse_statements`
+  byte-for-byte (statement splitting, backslash continuation, alias
+  canonicalization, cd/prefix cwd, both token forms, 1-based lines, no
+  interpolation; throws on an unterminated quote). The topology console's
+  `parseTsl` is rewritten on top of it — its duplicated `normalizeLines` /
+  `canonicalVerb` / `cdPath` / `prefixPath` / `FRONTMATTER_RE` deleted, so the
+  three copies of the TSL grammar (Shell, registry, console) collapse to one
+  per language. Parity is pinned by committed shared fixtures
+  (`tests/fixtures/statements/*.json`, generated once from the PHP front-end):
+  `StatementFrontEndParityTest` asserts PHP still reproduces them and the jest
+  suite asserts JS reproduces the identical JSON, so drift in either tokenizer
+  fails one side immediately.
 - **True hard cap on Partition/Topic/Log segment retention (`max_segments`).**
   A new, optional last positional arg (and `newspack_nodes_max_segments` setting)
   that prunes the oldest segments UNCONDITIONALLY once the count exceeds it — only
@@ -82,6 +95,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arm/disarm and reconnect paths add/remove the easy handle on the shared multi.
   The `register_curl_handle()` / `unregister_curl_handle()` whole-multi API is
   removed; the `$curl_dispatch` seam no longer takes a multi argument.
+- **`Command_Interpreter_Node` sheds its two non-Tachikoma concerns
+  (behavior-preserving).** The `taillog` file-I/O cluster (`cmd_taillog` +
+  `taillog_sources_struct` / `taillog_list` / `tail_bytes` / `tail_file` +
+  the `TAILLOG_*` window constants) moves to `Log_Sources::taillog()` — file
+  I/O over a registry that class already owns; the `taillog` verb becomes a
+  one-line delegation. The `node_schema()` help rendering (`render_node_schema`
+  / `schema_list` / `render_default`) moves to a new `Node_Schema_Help` static
+  class — errors-as-docs presentation over a `Schema_Reflection`-owned schema;
+  `help <NodeType>` delegates. `tabulate()` is promoted `private` →
+  `public static` so both new homes (and `Service_CI_Node` subclasses) share
+  the one renderer instead of growing copies. The verb surface, the graph
+  builder, class resolution, and the introspection verbs — Tachikoma-canonical
+  — all stay. CI drops from 1,680 to 1,471 lines.
 ### Fixed
 - **A write stall can no longer silently lose accepted messages.** `flush()`
   reset the batch before writing; a short write (disk full, EIO, root-owned

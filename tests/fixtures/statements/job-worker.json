@@ -1,0 +1,159 @@
+[
+    {
+        "verb": "var",
+        "values": [
+            "var",
+            "stale_timeout",
+            "=",
+            "600"
+        ],
+        "spans": [
+            "var",
+            "stale_timeout",
+            "=",
+            "600"
+        ],
+        "raw": "var stale_timeout = 600",
+        "line": 8
+    },
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "topic-probe"
+        ],
+        "spans": [
+            "include",
+            "topic-probe"
+        ],
+        "raw": "include topic-probe",
+        "line": 10
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Consumer",
+            "jobs:consumer",
+            "<config:logs_dir>/jobs.p<partition>",
+            "<config:offsets_dir>/<topology>.jobs.p<partition>",
+            "<config:deadletter_dir>/<topology>.jobs.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Consumer",
+            "jobs:consumer",
+            "<config:logs_dir>/jobs.p<partition>",
+            "<config:offsets_dir>/<topology>.jobs.p<partition>",
+            "<config:deadletter_dir>/<topology>.jobs.p<partition>"
+        ],
+        "raw": "make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/<topology>.jobs.p<partition> <config:deadletter_dir>/<topology>.jobs.p<partition>",
+        "line": 14
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "jobs:consumer:config",
+            "set_line_mode",
+            "true"
+        ],
+        "spans": [
+            "cmd",
+            "jobs:consumer:config",
+            "set_line_mode",
+            "true"
+        ],
+        "raw": "cmd jobs:consumer:config set_line_mode true",
+        "line": 15
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Job_Worker",
+            "job-worker"
+        ],
+        "spans": [
+            "make_node",
+            "Job_Worker",
+            "job-worker"
+        ],
+        "raw": "make_node Job_Worker job-worker",
+        "line": 16
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "jobs:consumer",
+            "job-worker"
+        ],
+        "spans": [
+            "connect_node",
+            "jobs:consumer",
+            "job-worker"
+        ],
+        "raw": "connect_node jobs:consumer job-worker",
+        "line": 17
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "jobstats:log",
+            "<config:logs_dir>/jobstats.p0",
+            "1048576",
+            "2",
+            "2",
+            "86400",
+            "0"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "jobstats:log",
+            "<config:logs_dir>/jobstats.p0",
+            "1048576",
+            "2",
+            "2",
+            "86400",
+            "0"
+        ],
+        "raw": "make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 2 86400 0",
+        "line": 22
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Job_Probe",
+            "jobstats",
+            "15"
+        ],
+        "spans": [
+            "make_node",
+            "Job_Probe",
+            "jobstats",
+            "15"
+        ],
+        "raw": "make_node Job_Probe jobstats 15",
+        "line": 23
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "jobstats",
+            "jobstats:log"
+        ],
+        "spans": [
+            "connect_node",
+            "jobstats",
+            "jobstats:log"
+        ],
+        "raw": "connect_node jobstats jobstats:log",
+        "line": 24
+    }
+]

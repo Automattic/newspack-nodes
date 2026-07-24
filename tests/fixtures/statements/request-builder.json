@@ -1,0 +1,366 @@
+[
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Consumer",
+            "firehose:consumer",
+            "<config:logs_dir>/firehose.p<partition>",
+            "<config:offsets_dir>/firehose.<topology>.p<partition>",
+            "<config:deadletter_dir>/firehose.<topology>.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Consumer",
+            "firehose:consumer",
+            "<config:logs_dir>/firehose.p<partition>",
+            "<config:offsets_dir>/firehose.<topology>.p<partition>",
+            "<config:deadletter_dir>/firehose.<topology>.p<partition>"
+        ],
+        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.<topology>.p<partition> <config:deadletter_dir>/firehose.<topology>.p<partition>",
+        "line": 12
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Tap",
+            "fanout"
+        ],
+        "spans": [
+            "make_node",
+            "Tap",
+            "fanout"
+        ],
+        "raw": "make_node Tap fanout",
+        "line": 16
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Tee",
+            "completed:tee"
+        ],
+        "spans": [
+            "make_node",
+            "Tee",
+            "completed:tee"
+        ],
+        "raw": "make_node Tee completed:tee",
+        "line": 19
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "requests:partition",
+            "<config:logs_dir>/requests.p<partition>",
+            "<config:segment_size>",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "<config:min_lifetime>",
+            "<config:max_lifetime>"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "requests:partition",
+            "<config:logs_dir>/requests.p<partition>",
+            "<config:segment_size>",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "<config:min_lifetime>",
+            "<config:max_lifetime>"
+        ],
+        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>",
+        "line": 22
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "errors:partition",
+            "<config:logs_dir>/errors.p<partition>",
+            "<config:segment_size>",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "<config:min_lifetime>",
+            "<config:max_lifetime>"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "errors:partition",
+            "<config:logs_dir>/errors.p<partition>",
+            "<config:segment_size>",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "<config:min_lifetime>",
+            "<config:max_lifetime>"
+        ],
+        "raw": "make_node Partition errors:partition <config:logs_dir>/errors.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>",
+        "line": 27
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "gyroscope:partition",
+            "<config:logs_dir>/gyroscope.p<partition>",
+            "1048576",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "0",
+            "0"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "gyroscope:partition",
+            "<config:logs_dir>/gyroscope.p<partition>",
+            "1048576",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "0",
+            "0"
+        ],
+        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p<partition> 1048576 <config:min_segments> <config:max_segments> 0 0",
+        "line": 32
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "completed:partition",
+            "<config:logs_dir>/completed.p<partition>",
+            "1048576",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "0",
+            "0"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "completed:partition",
+            "<config:logs_dir>/completed.p<partition>",
+            "1048576",
+            "<config:min_segments>",
+            "<config:max_segments>",
+            "0",
+            "0"
+        ],
+        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:min_segments> <config:max_segments> 0 0",
+        "line": 37
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "fanout:config",
+            "set_multi_writer",
+            "true"
+        ],
+        "spans": [
+            "cmd",
+            "fanout:config",
+            "set_multi_writer",
+            "true"
+        ],
+        "raw": "cmd fanout:config set_multi_writer true",
+        "line": 43
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "firehose:consumer",
+            "fanout"
+        ],
+        "spans": [
+            "connect_node",
+            "firehose:consumer",
+            "fanout"
+        ],
+        "raw": "connect_node firehose:consumer fanout",
+        "line": 44
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "fanout:config",
+            "set_completed_target",
+            "completed:tee"
+        ],
+        "spans": [
+            "cmd",
+            "fanout:config",
+            "set_completed_target",
+            "completed:tee"
+        ],
+        "raw": "cmd fanout:config set_completed_target completed:tee",
+        "line": 48
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "fanout:config",
+            "set_errors_target",
+            "errors:partition"
+        ],
+        "spans": [
+            "cmd",
+            "fanout:config",
+            "set_errors_target",
+            "errors:partition"
+        ],
+        "raw": "cmd fanout:config set_errors_target errors:partition",
+        "line": 49
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "fanout:config",
+            "set_inflight_target",
+            "gyroscope:partition"
+        ],
+        "spans": [
+            "cmd",
+            "fanout:config",
+            "set_inflight_target",
+            "gyroscope:partition"
+        ],
+        "raw": "cmd fanout:config set_inflight_target gyroscope:partition",
+        "line": 50
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "fanout",
+            "requests:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "fanout",
+            "requests:partition"
+        ],
+        "raw": "connect_node fanout requests:partition",
+        "line": 54
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "requests:partition:config",
+            "with_index",
+            "request-index"
+        ],
+        "spans": [
+            "cmd",
+            "requests:partition:config",
+            "with_index",
+            "request-index"
+        ],
+        "raw": "cmd requests:partition:config with_index request-index",
+        "line": 58
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "requests:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "requests:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd requests:partition:config void_warranty",
+        "line": 59
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "errors:partition",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "errors:partition",
+            "void_warranty"
+        ],
+        "raw": "cmd errors:partition void_warranty",
+        "line": 62
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "completed:tee",
+            "completed:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "completed:tee",
+            "completed:partition"
+        ],
+        "raw": "connect_node completed:tee completed:partition",
+        "line": 65
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "completed:tee",
+            "gyroscope:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "completed:tee",
+            "gyroscope:partition"
+        ],
+        "raw": "connect_node completed:tee gyroscope:partition",
+        "line": 66
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "gyroscope:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "gyroscope:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd gyroscope:partition:config void_warranty",
+        "line": 69
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "completed:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "completed:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd completed:partition:config void_warranty",
+        "line": 70
+    }
+]

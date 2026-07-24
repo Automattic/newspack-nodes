@@ -1,0 +1,173 @@
+[
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "topic-probe"
+        ],
+        "spans": [
+            "include",
+            "topic-probe"
+        ],
+        "raw": "include topic-probe",
+        "line": 7
+    },
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "job-intake"
+        ],
+        "spans": [
+            "include",
+            "job-intake"
+        ],
+        "raw": "include job-intake",
+        "line": 8
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Consumer",
+            "firehose:consumer",
+            "<config:logs_dir>/firehose.p<partition>",
+            "<config:offsets_dir>/<topology>.firehose.p<partition>",
+            "<config:deadletter_dir>/<topology>.firehose.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Consumer",
+            "firehose:consumer",
+            "<config:logs_dir>/firehose.p<partition>",
+            "<config:offsets_dir>/<topology>.firehose.p<partition>",
+            "<config:deadletter_dir>/<topology>.firehose.p<partition>"
+        ],
+        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>",
+        "line": 10
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Job_Router",
+            "job-router"
+        ],
+        "spans": [
+            "make_node",
+            "Job_Router",
+            "job-router"
+        ],
+        "raw": "make_node Job_Router job-router",
+        "line": 11
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Age_Sieve",
+            "jobs:sieve",
+            "60",
+            "1"
+        ],
+        "spans": [
+            "make_node",
+            "Age_Sieve",
+            "jobs:sieve",
+            "60",
+            "1"
+        ],
+        "raw": "make_node Age_Sieve jobs:sieve 60 1",
+        "line": 12
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "firehose:consumer:config",
+            "set_multi_writer",
+            "true"
+        ],
+        "spans": [
+            "cmd",
+            "firehose:consumer:config",
+            "set_multi_writer",
+            "true"
+        ],
+        "raw": "cmd firehose:consumer:config set_multi_writer true",
+        "line": 13
+    },
+    {
+        "verb": "disconnect_node",
+        "values": [
+            "disconnect_node",
+            "jobintake:consumer"
+        ],
+        "spans": [
+            "disconnect_node",
+            "jobintake:consumer"
+        ],
+        "raw": "disconnect_node jobintake:consumer",
+        "line": 14
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "jobintake:consumer",
+            "job-router"
+        ],
+        "spans": [
+            "connect_node",
+            "jobintake:consumer",
+            "job-router"
+        ],
+        "raw": "connect_node jobintake:consumer job-router",
+        "line": 15
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "firehose:consumer",
+            "job-router"
+        ],
+        "spans": [
+            "connect_node",
+            "firehose:consumer",
+            "job-router"
+        ],
+        "raw": "connect_node firehose:consumer job-router",
+        "line": 16
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "job-router",
+            "jobs:sieve"
+        ],
+        "spans": [
+            "connect_node",
+            "job-router",
+            "jobs:sieve"
+        ],
+        "raw": "connect_node job-router jobs:sieve",
+        "line": 17
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "jobs:sieve",
+            "jobs:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "jobs:sieve",
+            "jobs:partition"
+        ],
+        "raw": "connect_node jobs:sieve jobs:partition",
+        "line": 18
+    }
+]

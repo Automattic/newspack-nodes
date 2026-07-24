@@ -1,0 +1,336 @@
+[
+    {
+        "verb": "var",
+        "values": [
+            "var",
+            "num_partitions",
+            "=",
+            "1"
+        ],
+        "spans": [
+            "var",
+            "num_partitions",
+            "=",
+            "1"
+        ],
+        "raw": "var num_partitions = 1",
+        "line": 15
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Releases_Source_Demo",
+            "releases"
+        ],
+        "spans": [
+            "make_node",
+            "Releases_Source_Demo",
+            "releases"
+        ],
+        "raw": "make_node Releases_Source_Demo releases",
+        "line": 17
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Community_Source_Demo",
+            "community"
+        ],
+        "spans": [
+            "make_node",
+            "Community_Source_Demo",
+            "community"
+        ],
+        "raw": "make_node Community_Source_Demo community",
+        "line": 18
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Summarizer_Demo",
+            "summarizer"
+        ],
+        "spans": [
+            "make_node",
+            "Summarizer_Demo",
+            "summarizer"
+        ],
+        "raw": "make_node Summarizer_Demo summarizer",
+        "line": 19
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Digest_Builder_Demo",
+            "digest"
+        ],
+        "spans": [
+            "make_node",
+            "Digest_Builder_Demo",
+            "digest"
+        ],
+        "raw": "make_node Digest_Builder_Demo digest",
+        "line": 20
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Tee",
+            "digest:tee"
+        ],
+        "spans": [
+            "make_node",
+            "Tee",
+            "digest:tee"
+        ],
+        "raw": "make_node Tee digest:tee",
+        "line": 21
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Log",
+            "digest:log",
+            "/tmp/example-ai-newsletter/digest.md",
+            "1",
+            "2",
+            "7",
+            "0",
+            "0"
+        ],
+        "spans": [
+            "make_node",
+            "Log",
+            "digest:log",
+            "/tmp/example-ai-newsletter/digest.md",
+            "1",
+            "2",
+            "7",
+            "0",
+            "0"
+        ],
+        "raw": "make_node Log digest:log /tmp/example-ai-newsletter/digest.md 1 2 7 0 0",
+        "line": 22
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "digest:log:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "digest:log:config",
+            "void_warranty"
+        ],
+        "raw": "cmd digest:log:config void_warranty",
+        "line": 23
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "scored:partition",
+            "<config:logs_dir>/example-scored.p<partition>",
+            "<config:segment_size>",
+            "<config:min_segments>",
+            "<config:num_segments>",
+            "<config:min_lifetime>",
+            "<config:lifetime>"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "scored:partition",
+            "<config:logs_dir>/example-scored.p<partition>",
+            "<config:segment_size>",
+            "<config:min_segments>",
+            "<config:num_segments>",
+            "<config:min_lifetime>",
+            "<config:lifetime>"
+        ],
+        "raw": "make_node Partition scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>",
+        "line": 26
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "scored:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "scored:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd scored:partition:config void_warranty",
+        "line": 27
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Consumer",
+            "scored:consumer",
+            "<config:logs_dir>/example-scored.p<partition>",
+            "<config:offsets_dir>/example-scored.p<partition>",
+            "<config:deadletter_dir>/example-scored.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Consumer",
+            "scored:consumer",
+            "<config:logs_dir>/example-scored.p<partition>",
+            "<config:offsets_dir>/example-scored.p<partition>",
+            "<config:deadletter_dir>/example-scored.p<partition>"
+        ],
+        "raw": "make_node Consumer scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition> <config:deadletter_dir>/example-scored.p<partition>",
+        "line": 28
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "scored:consumer:config",
+            "add_snapshot_node",
+            "digest"
+        ],
+        "spans": [
+            "cmd",
+            "scored:consumer:config",
+            "add_snapshot_node",
+            "digest"
+        ],
+        "raw": "cmd scored:consumer:config add_snapshot_node digest",
+        "line": 29
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Scorer_Demo",
+            "scorer"
+        ],
+        "spans": [
+            "make_node",
+            "Scorer_Demo",
+            "scorer"
+        ],
+        "raw": "make_node Scorer_Demo scorer",
+        "line": 30
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "releases",
+            "summarizer"
+        ],
+        "spans": [
+            "connect_node",
+            "releases",
+            "summarizer"
+        ],
+        "raw": "connect_node releases summarizer",
+        "line": 31
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "community",
+            "summarizer"
+        ],
+        "spans": [
+            "connect_node",
+            "community",
+            "summarizer"
+        ],
+        "raw": "connect_node community summarizer",
+        "line": 32
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "summarizer",
+            "scorer"
+        ],
+        "spans": [
+            "connect_node",
+            "summarizer",
+            "scorer"
+        ],
+        "raw": "connect_node summarizer scorer",
+        "line": 33
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "scorer",
+            "scored:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "scorer",
+            "scored:partition"
+        ],
+        "raw": "connect_node scorer scored:partition",
+        "line": 34
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "scored:consumer",
+            "digest"
+        ],
+        "spans": [
+            "connect_node",
+            "scored:consumer",
+            "digest"
+        ],
+        "raw": "connect_node scored:consumer digest",
+        "line": 35
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "digest",
+            "digest:tee"
+        ],
+        "spans": [
+            "connect_node",
+            "digest",
+            "digest:tee"
+        ],
+        "raw": "connect_node digest digest:tee",
+        "line": 36
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "digest:tee",
+            "digest:log"
+        ],
+        "spans": [
+            "connect_node",
+            "digest:tee",
+            "digest:log"
+        ],
+        "raw": "connect_node digest:tee digest:log",
+        "line": 37
+    }
+]

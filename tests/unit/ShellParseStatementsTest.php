@@ -174,4 +174,19 @@ class ShellParseStatementsTest extends TestCase {
 			$statements[0]['values']
 		);
 	}
+
+	public function test_trailing_continuation_at_eof_fails_loud_like_the_runtime(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/EOF while waiting/' );
+		Shell_Node::parse_statements( "make_node Tee dangling \\" );
+	}
+
+	public function test_var_values_are_quote_stripped_like_every_other_token(): void {
+		// The legacy static regex captured quotes verbatim; the runtime never
+		// did. One semantics now — enumerated as the FIX, not papered over.
+		$statements = Shell_Node::parse_statements( "var greeting = \"hello and more\"\n" );
+		$this->assertSame( 'var', $statements[0]['verb'] );
+		$this->assertSame( [ 'var', 'greeting', '=', 'hello and more' ], $statements[0]['values'] );
+		$this->assertSame( '"hello and more"', $statements[0]['spans'][3], 'the span keeps the quotes verbatim' );
+	}
 }

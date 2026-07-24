@@ -1,0 +1,369 @@
+[
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "topic-probe"
+        ],
+        "spans": [
+            "include",
+            "topic-probe"
+        ],
+        "raw": "include topic-probe",
+        "line": 10
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Consumer",
+            "firehose:consumer",
+            "<config:logs_dir>/firehose.p<partition>",
+            "<config:offsets_dir>/<topology>.firehose.p<partition>",
+            "<config:deadletter_dir>/<topology>.firehose.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Consumer",
+            "firehose:consumer",
+            "<config:logs_dir>/firehose.p<partition>",
+            "<config:offsets_dir>/<topology>.firehose.p<partition>",
+            "<config:deadletter_dir>/<topology>.firehose.p<partition>"
+        ],
+        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>",
+        "line": 12
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "alerts:partition",
+            "<config:logs_dir>/alerts.p0"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "alerts:partition",
+            "<config:logs_dir>/alerts.p0"
+        ],
+        "raw": "make_node Partition alerts:partition <config:logs_dir>/alerts.p0",
+        "line": 13
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "errors:partition",
+            "<config:logs_dir>/errors.p0"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "errors:partition",
+            "<config:logs_dir>/errors.p0"
+        ],
+        "raw": "make_node Partition errors:partition <config:logs_dir>/errors.p0",
+        "line": 14
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "gyroscope:partition",
+            "<config:logs_dir>/gyroscope.p0",
+            "1048576",
+            "<config:min_segments>",
+            "<config:num_segments>",
+            "0",
+            "0"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "gyroscope:partition",
+            "<config:logs_dir>/gyroscope.p0",
+            "1048576",
+            "<config:min_segments>",
+            "<config:num_segments>",
+            "0",
+            "0"
+        ],
+        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0",
+        "line": 15
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "completed:partition",
+            "<config:logs_dir>/completed.p0",
+            "1048576",
+            "<config:min_segments>",
+            "<config:num_segments>",
+            "0",
+            "0"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "completed:partition",
+            "<config:logs_dir>/completed.p0",
+            "1048576",
+            "<config:min_segments>",
+            "<config:num_segments>",
+            "0",
+            "0"
+        ],
+        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0",
+        "line": 16
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "requests:partition",
+            "<config:logs_dir>/requests.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "requests:partition",
+            "<config:logs_dir>/requests.p<partition>"
+        ],
+        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>",
+        "line": 17
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Request_Builder",
+            "request-builder",
+            "100",
+            "3"
+        ],
+        "spans": [
+            "make_node",
+            "Request_Builder",
+            "request-builder",
+            "100",
+            "3"
+        ],
+        "raw": "make_node Request_Builder request-builder 100 3",
+        "line": 18
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Tee",
+            "completed:tee"
+        ],
+        "spans": [
+            "make_node",
+            "Tee",
+            "completed:tee"
+        ],
+        "raw": "make_node Tee completed:tee",
+        "line": 19
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "firehose:consumer:config",
+            "add_snapshot_node",
+            "request-builder"
+        ],
+        "spans": [
+            "cmd",
+            "firehose:consumer:config",
+            "add_snapshot_node",
+            "request-builder"
+        ],
+        "raw": "cmd firehose:consumer:config add_snapshot_node request-builder",
+        "line": 20
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "firehose:consumer:config",
+            "set_multi_writer",
+            "true"
+        ],
+        "spans": [
+            "cmd",
+            "firehose:consumer:config",
+            "set_multi_writer",
+            "true"
+        ],
+        "raw": "cmd firehose:consumer:config set_multi_writer true",
+        "line": 21
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "request-builder:config",
+            "set_alerts_target",
+            "alerts:partition"
+        ],
+        "spans": [
+            "cmd",
+            "request-builder:config",
+            "set_alerts_target",
+            "alerts:partition"
+        ],
+        "raw": "cmd request-builder:config set_alerts_target alerts:partition",
+        "line": 22
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "request-builder:config",
+            "set_errors_target",
+            "errors:partition"
+        ],
+        "spans": [
+            "cmd",
+            "request-builder:config",
+            "set_errors_target",
+            "errors:partition"
+        ],
+        "raw": "cmd request-builder:config set_errors_target errors:partition",
+        "line": 23
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "request-builder:config",
+            "set_inflight_target",
+            "gyroscope:partition"
+        ],
+        "spans": [
+            "cmd",
+            "request-builder:config",
+            "set_inflight_target",
+            "gyroscope:partition"
+        ],
+        "raw": "cmd request-builder:config set_inflight_target gyroscope:partition",
+        "line": 24
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "request-builder:config",
+            "set_completed_target",
+            "completed:tee"
+        ],
+        "spans": [
+            "cmd",
+            "request-builder:config",
+            "set_completed_target",
+            "completed:tee"
+        ],
+        "raw": "cmd request-builder:config set_completed_target completed:tee",
+        "line": 25
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "requests:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "requests:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd requests:partition:config void_warranty",
+        "line": 26
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "requests:partition:config",
+            "with_index",
+            "request-index"
+        ],
+        "spans": [
+            "cmd",
+            "requests:partition:config",
+            "with_index",
+            "request-index"
+        ],
+        "raw": "cmd requests:partition:config with_index request-index",
+        "line": 27
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "completed:tee",
+            "completed:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "completed:tee",
+            "completed:partition"
+        ],
+        "raw": "connect_node completed:tee completed:partition",
+        "line": 28
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "completed:tee",
+            "gyroscope:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "completed:tee",
+            "gyroscope:partition"
+        ],
+        "raw": "connect_node completed:tee gyroscope:partition",
+        "line": 29
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "firehose:consumer",
+            "request-builder"
+        ],
+        "spans": [
+            "connect_node",
+            "firehose:consumer",
+            "request-builder"
+        ],
+        "raw": "connect_node firehose:consumer request-builder",
+        "line": 30
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "request-builder",
+            "requests:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "request-builder",
+            "requests:partition"
+        ],
+        "raw": "connect_node request-builder requests:partition",
+        "line": 31
+    }
+]

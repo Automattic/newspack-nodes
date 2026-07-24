@@ -1,0 +1,114 @@
+[
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "request-builder"
+        ],
+        "spans": [
+            "include",
+            "request-builder"
+        ],
+        "raw": "include request-builder",
+        "line": 7
+    },
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "flame-builder"
+        ],
+        "spans": [
+            "include",
+            "flame-builder"
+        ],
+        "raw": "include flame-builder",
+        "line": 8
+    },
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "job-router"
+        ],
+        "spans": [
+            "include",
+            "job-router"
+        ],
+        "raw": "include job-router",
+        "line": 9
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Tee",
+            "firehose:tee"
+        ],
+        "spans": [
+            "make_node",
+            "Tee",
+            "firehose:tee"
+        ],
+        "raw": "make_node Tee firehose:tee",
+        "line": 10
+    },
+    {
+        "verb": "disconnect_node",
+        "values": [
+            "disconnect_node",
+            "firehose:consumer"
+        ],
+        "spans": [
+            "disconnect_node",
+            "firehose:consumer"
+        ],
+        "raw": "disconnect_node firehose:consumer",
+        "line": 11
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "firehose:consumer",
+            "firehose:tee"
+        ],
+        "spans": [
+            "connect_node",
+            "firehose:consumer",
+            "firehose:tee"
+        ],
+        "raw": "connect_node firehose:consumer firehose:tee",
+        "line": 12
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "firehose:tee",
+            "request-builder"
+        ],
+        "spans": [
+            "connect_node",
+            "firehose:tee",
+            "request-builder"
+        ],
+        "raw": "connect_node firehose:tee request-builder",
+        "line": 13
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "firehose:tee",
+            "job-router"
+        ],
+        "spans": [
+            "connect_node",
+            "firehose:tee",
+            "job-router"
+        ],
+        "raw": "connect_node firehose:tee job-router",
+        "line": 14
+    }
+]

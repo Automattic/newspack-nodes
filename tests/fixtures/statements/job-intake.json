@@ -1,0 +1,83 @@
+[
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "topic-probe"
+        ],
+        "spans": [
+            "include",
+            "topic-probe"
+        ],
+        "raw": "include topic-probe",
+        "line": 8
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Consumer",
+            "jobintake:consumer",
+            "<config:logs_dir>/jobintake.p<partition>",
+            "<config:offsets_dir>/<topology>.jobintake.p<partition>",
+            "<config:deadletter_dir>/<topology>.jobintake.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Consumer",
+            "jobintake:consumer",
+            "<config:logs_dir>/jobintake.p<partition>",
+            "<config:offsets_dir>/<topology>.jobintake.p<partition>",
+            "<config:deadletter_dir>/<topology>.jobintake.p<partition>"
+        ],
+        "raw": "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/<topology>.jobintake.p<partition> <config:deadletter_dir>/<topology>.jobintake.p<partition>",
+        "line": 10
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "jobs:partition",
+            "<config:logs_dir>/jobs.p<partition>"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "jobs:partition",
+            "<config:logs_dir>/jobs.p<partition>"
+        ],
+        "raw": "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition>",
+        "line": 11
+    },
+    {
+        "verb": "cmd",
+        "values": [
+            "cmd",
+            "jobs:partition:config",
+            "void_warranty"
+        ],
+        "spans": [
+            "cmd",
+            "jobs:partition:config",
+            "void_warranty"
+        ],
+        "raw": "cmd jobs:partition:config void_warranty",
+        "line": 12
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "jobintake:consumer",
+            "jobs:partition"
+        ],
+        "spans": [
+            "connect_node",
+            "jobintake:consumer",
+            "jobs:partition"
+        ],
+        "raw": "connect_node jobintake:consumer jobs:partition",
+        "line": 13
+    }
+]
