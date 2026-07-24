@@ -45,10 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `manage_options` so nothing changes out of the box. Schema verbs may
   declare `'capability' => 'read'` (default `manage`); `Service_CI_Node`
   wraps every handler with its declared role, and the SSE stream endpoint
-  checks `read` — so a site can grant read-only dashboards by filtering
-  `read` down to a lesser capability. `/command`, spawn, and the admin
-  pages stay `manage`; per-verb `read` marks land verb-by-verb
-  (`Classes_CI list` is the exemplar). The permission-denied message is now
+  checks `read` — the one live `read` grant today, and it exposes the RAW
+  log firehose + worker IPC output, not just shaped dashboards; relax
+  `read` knowing that. `/command`, spawn, and the admin pages stay
+  `manage`, which also means per-verb `read` marks (`Classes_CI list`
+  carries the first) are inert until a read-tier command transport exists —
+  they mark intent, not a grant. The permission-denied message is now
   role-based (`permission denied: <role> capability required`).
 - `Age_Sieve_Node` — port of Tachikoma's `AgeSieve.pm`: drops any message
   whose envelope TIMESTAMP age exceeds `max_age` (default 900s; optional
