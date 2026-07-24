@@ -54,7 +54,8 @@ class Digest_Builder_Demo_Node extends Node {
 			$summary = $item['summary'] ?? '';
 			$lines[] = '- ' . Core::str( $summary );
 		}
-		$draft = \implode( "\n", $lines ) . "\n";
+		$draft   = \implode( "\n", $lines ) . "\n";
+		$flushed = \count( $this->items );
 
 		$response                   = Message::new_message();
 		$response[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -63,6 +64,16 @@ class Digest_Builder_Demo_Node extends Node {
 		// parent::fill stamps TO from target, forwards to sink.
 		parent::fill( $response );
 		$this->items = [];
+
+		// Reply { flushed } TO=FROM per Consumer_Node::handle_request.
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::KEY ]   = $message[ Message::KEY ];
+		$reply[ Message::VALUE ] = [ 'flushed' => $flushed ];
+		parent::fill( $reply );
 	}
 
 	/**

@@ -8,7 +8,7 @@ The finished code is in [`examples/example-ai-newsletter/`](../examples/example-
 
 Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guide assumes the digest pipeline (sources → summarizer → digest) and the `fill`/`sink`/`target`/`node_schema` vocabulary.
 
-> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted service CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-intelligence`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted service CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
 
 > **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `Fetcher`, `read_latest_value_at`, `useBatchedPoll`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** §4's poll/batch wiring was the last seam this guide still showed hand-wired; it became `useBatchedPoll` + `addSliceFetcher` the moment a third caller copied it. Where a step is one call today, this guide says what it replaced, so you can see the seam.
 
@@ -123,7 +123,7 @@ make_node Digest_Builder   digest
 make_node Tee              digest:tee
 make_node Log              digest:log /tmp/example-ai-newsletter/digest.md 1 7
 cmd digest:log:config void_warranty
-make_node Partition        scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition        scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>
 cmd scored:partition:config void_warranty
 make_node Consumer         scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition>
 cmd scored:consumer:config add_snapshot_node digest
@@ -146,7 +146,7 @@ Three new ideas, all using nodes the substrate ships:
 **The durable-snapshot recipe — lift these four lines.** This is the reusable pattern for *any* "make a worker's in-memory state readable from a web request" need; rename `scored` → your log name and `digest` → your state node:
 
 ```
-make_node Partition  <log>:partition <config:logs_dir>/<log>.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition  <log>:partition <config:logs_dir>/<log>.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>
 cmd <log>:partition:config void_warranty
 make_node Consumer   <log>:consumer  <config:logs_dir>/<log>.p<partition> <config:offsets_dir>/<log>.p<partition>
 cmd <log>:consumer:config add_snapshot_node <state-node>

@@ -62,6 +62,27 @@ final class DigestBuilderTest extends TestCase {
 		$this->assertStringNotContainsString( 'sum:a', $out2[1][ Message::VALUE ] );
 	}
 
+	public function test_flush_request_replies_with_flushed_count(): void {
+		$sink = new Capture_Sink_Node();
+		$node = new Digest_Builder_Demo_Node();
+		$node->sink( $sink );
+
+		foreach ( [ 'a', 'b', 'c', 'd', 'e' ] as $s ) {
+			$message = $this->summary( $s );
+			$node->fill( $message );
+		}
+		$req = $this->flush_request();
+		$node->fill( $req );
+
+		$replies = array_values( array_filter(
+			$sink->captured,
+			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_RESPONSE )
+		) );
+		$this->assertCount( 1, $replies, 'FLUSH replies once with the flushed count' );
+		$this->assertSame( '_repl', $replies[0][ Message::TO ], 'reply routes back TO the requester' );
+		$this->assertSame( 5, $replies[0][ Message::VALUE ]['flushed'], 'all five accumulated items counted' );
+	}
+
 	public function test_flush_request_verb_is_documented_in_schema(): void {
 		// FLUSH is a runtime trigger: a TM_REQUEST handled in fill(), documented
 		// under node_schema()['requests'] (NOT a TM_COMMAND verb under 'commands').

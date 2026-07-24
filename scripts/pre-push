@@ -90,6 +90,15 @@ if [[ -f "$jsgate" ]] && command -v node >/dev/null 2>&1; then
 	ok "JS coverage gate passed"
 fi
 
+# Doc-drift lint — cheap grep assertions, runs on EVERY push (docs-only
+# included) so the prose can't drift from the runtime.
+docslint="$(git rev-parse --show-toplevel)/scripts/lint-docs.sh"
+if [[ -f "$docslint" ]]; then
+	step "lint-docs (doc-vs-runtime drift)"
+	bash "$docslint" || fail "lint-docs failed — docs drifted from the runtime (see above)"
+	ok "lint-docs clean"
+fi
+
 # Classify the diff by file type. Exclude generated / vendored paths.
 changed="$(git diff --name-only "$range" 2>/dev/null || true)"
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"
