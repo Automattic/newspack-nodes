@@ -276,6 +276,26 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'requests.p1', $haystack );
 	}
 
+	public function test_status_sorts_the_reader_list(): void {
+		// Probe-snapshot order is arrival order; the table sorts by reader,
+		// then source, then partition.
+		$this->seed_consumer_checkpoint( 'zebra-reader', 0, [ 'source' => 'zeta.p0', 'distance' => 0 ] );
+		$this->seed_consumer_checkpoint( 'apple-reader', 1, [ 'source' => 'alpha.p1', 'distance' => 0 ] );
+		$this->seed_consumer_checkpoint( 'mango-reader', 0, [ 'source' => 'mid.p0', 'distance' => 0 ] );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$apple = \strpos( $haystack, 'apple-reader' );
+		$mango = \strpos( $haystack, 'mango-reader' );
+		$zebra = \strpos( $haystack, 'zebra-reader' );
+		$this->assertNotFalse( $apple );
+		$this->assertNotFalse( $mango );
+		$this->assertNotFalse( $zebra );
+		$this->assertLessThan( $mango, $apple, 'apple before mango' );
+		$this->assertLessThan( $zebra, $mango, 'mango before zebra' );
+	}
+
 	// -------------------------------------------------------------------------
 	// run
 	// -------------------------------------------------------------------------

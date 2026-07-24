@@ -166,7 +166,7 @@ class Worker_CLI_Command {
 			}
 		}
 
-		// One row per active Consumer from the TopicProbe snapshot.
+		// One row per active Consumer, sorted (probe order = arrival order).
 		$consumers = [];
 		foreach ( $this->cli()->consumer_rows() as $cr ) {
 			$consumers[] = [
@@ -177,6 +177,12 @@ class Worker_CLI_Command {
 				'Msgs'      => $cr['msgs'],
 			];
 		}
+		\usort(
+			$consumers,
+			static fn ( array $a, array $b ): int =>
+				[ $a['Reader'], $a['Source'], $a['Partition'] ]
+				<=> [ $b['Reader'], $b['Source'], $b['Partition'] ]
+		);
 
 		if ( empty( $rows ) && empty( $consumers ) ) {
 			\WP_CLI::warning( 'No topologies registered or running. base_dir=' . $this->base_dir() );
