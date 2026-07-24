@@ -32,6 +32,19 @@ Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
 
 ## Build / Test
 
+Fresh clone, once:
+
+```bash
+npm install                  # JS toolchain (esbuild, jest, eslint, husky hooks)
+composer install             # PHP deps + the classmap autoloader
+npm run build                # compile the dashboard bundles into build/
+```
+
+After adding/renaming a Node class, regenerate the classmap (`make_node` and
+the console palette read it): `composer build:autoloaders` (= `composer
+install --optimize-autoloader`) or `composer dump-autoload -o`. `composer
+update` only when you mean to move dependency versions.
+
 ```bash
 # Run unit + integration tests. Always pass `--enforce-time-limit` so a
 # test that accidentally blocks on stdin (readline mode without a TTY)
