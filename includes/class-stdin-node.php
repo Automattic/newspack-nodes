@@ -39,7 +39,7 @@ class Stdin_Node extends Timer_Node {
 	 * Timer override: drain one line via drain_once(), re-arm (busy/EOF/idle cadence).
 	 */
 	public function fire(): void {
-		if ( $this->eof_sent && \microtime( true ) >= $this->eof_deadline_at ) {
+		if ( $this->eof_sent && Core::$now >= $this->eof_deadline_at ) {
 			$this->exit = true;
 			return;
 		}
@@ -88,7 +88,7 @@ class Stdin_Node extends Timer_Node {
 		}
 		$this->emit_eof();
 		$this->eof_sent        = true;
-		$this->eof_deadline_at = \microtime( true ) + $this->eof_deadline_s;
+		$this->eof_deadline_at = Core::right_now() + $this->eof_deadline_s;
 	}
 
 	/** Emit the TM_EOF marker to the sink. Overridden by TTY_In_Node to drive the shell. */

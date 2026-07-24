@@ -1149,7 +1149,7 @@ class Command_Interpreter_Node extends Node {
 		if ( null === Core::node( Node_Names::ROUTER ) ) {
 			throw new \RuntimeException( "can't find _router" );
 		}
-		$start    = \microtime( true );
+		$start    = Core::right_now();
 		$profiles = Router_Node::profiles() ?? [];
 		\uasort( $profiles, static fn ( array $a, array $b ): int => $b['avg'] <=> $a['avg'] );
 
@@ -1179,7 +1179,7 @@ class Command_Interpreter_Node extends Node {
 			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
 			[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
 			$rows
-		) . \sprintf( "\nreturned %d profiles in %.4f seconds\n", $count, \microtime( true ) - $start );
+		) . \sprintf( "\nreturned %d profiles in %.4f seconds\n", $count, Core::right_now() - $start );
 	}
 
 	/** @return list<string> One list_profiles table row (rate = count/window, else 1). */

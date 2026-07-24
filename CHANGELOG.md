@@ -45,6 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ceiling is the one retention actually enforces rather than an underestimate.
 
 ### Changed
+- **Cached-clock discipline: one `\microtime()` call site, `Core::right_now()`.**
+  Applied the Tachikoma `$Tachikoma::Now` / `$Tachikoma::Right_Now` pattern —
+  the drain loop refreshes `Core::$now` once per tick and everything reads that
+  cached value; a genuinely-fresh timestamp routes through the new
+  `Core::right_now()` (the single site that reads `\microtime(true)` and updates
+  `Core::$now` as a side benefit, so the cached clock stays warm). `Partition_Node::fill()`
+  now takes ONE clock read per message and threads it through
+  `maybe_rescan_segments()` / `get_segments()` (both gained an optional `?float $now`),
+  replacing up to three per-message `\microtime()` calls; the drain-loop clock
+  updates, `pump()`, `Worker_Base::should_continue()`, the SSE/stdin timer
+  predicates, `Message::new_message()`, the job-intake/-delay/-worker timing
+  stamps, and the cold supervisor/lock/spawn/rate-limit paths all route through
+  the cached clock or `right_now()`. Behavior-preserving (SEGMENT_CACHE_TTL,
+  DRIFT_RESCAN, and heartbeat cadence unchanged); the Router profiling frames
+  deliberately keep a bare `\microtime()` so measuring a dispatch never perturbs
+  the message-stamping clock.
 - **Static TSL analysis now splits statements on unquoted `;` (bug fix).** The
   registry's old `normalize_lines()` split on newlines only, while the runtime
   Shell splits on unquoted `;` too — so a `make_node a …; make_node b …` line

@@ -225,9 +225,10 @@ class Job_Intake {
 		if ( isset( $options['not_before'] ) && isset( $options['delay'] ) ) {
 			throw new \InvalidArgumentException( 'pass not_before OR delay, not both' );
 		}
+		$now        = Core::right_now(); // one request-scope read, threaded through this write_job
 		$not_before = Core::num_float( $options['not_before'] ?? 0, 0.0 );
 		if ( isset( $options['delay'] ) ) {
-			$not_before = \microtime( true ) + Core::num_float( $options['delay'], 0.0 );
+			$not_before = $now + Core::num_float( $options['delay'], 0.0 );
 		}
 
 		if ( isset( $options['unique'] ) && ! $this->claim_unique( $handler, $options ) ) {
@@ -251,7 +252,7 @@ class Job_Intake {
 			'k'          => 'job',
 			'handler'    => $handler,
 			'parameters' => $parameters,
-			'ts'         => \microtime( true ),
+			'ts'         => $now,
 		];
 		if ( null !== $id && '' !== $id ) {
 			$job['id'] = $id;
@@ -273,7 +274,7 @@ class Job_Intake {
 
 		// Still-future job: park it in jobdelay.p0 instead of the live intake.
 		$basename = self::LOG_BASENAME;
-		if ( $not_before > \microtime( true ) ) {
+		if ( $not_before > $now ) {
 			$job['not_before'] = $not_before;
 			$basename          = self::DELAY_BASENAME;
 			$partition         = 0;

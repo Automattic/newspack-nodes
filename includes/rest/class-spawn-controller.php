@@ -131,7 +131,7 @@ class Spawn_Controller {
 		}
 
 		// The one throttle every spawn path crosses (Tachikoma-style).
-		$now = \microtime( true );
+		$now = Core::right_now();
 		if ( $this->supervisor->is_recently_spawned( $type, $partition, $now ) ) {
 			return new \WP_Error(
 				'spawn_throttled',

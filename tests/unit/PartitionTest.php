@@ -24,6 +24,36 @@ class PartitionTest extends TestCase {
 		parent::tearDown();
 	}
 
+	// ── clock threading: request-scope cache aging must follow the real clock ─
+
+	public function test_get_segments_ages_the_cache_by_the_threaded_clock_in_request_scope(): void {
+		Event_Framework::reset(); // request scope: EF not running, so get_segments uses the fresh clock
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/aging.p0";
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		\mkdir( $dir, 0755, true );
+
+		$p = new Partition_Node();
+		$p->name( 'aging' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0' ] );
+
+		$scans = 0;
+		Partition_Node::$scandir = static function ( string $d ) use ( &$scans ) {
+			++$scans;
+			return \scandir( $d );
+		};
+		try {
+			// Clock threaded straight in — values distinct from the 0.0/0.25 defaults.
+			$p->get_segments( false, 500.0 );  // cold cache → scan #1, stamp 500.0
+			$p->get_segments( false, 500.10 ); // +0.10s < 0.25 TTL → warm cache served
+			$this->assertSame( 1, $scans, 'within SEGMENT_CACHE_TTL the threaded clock must serve the warm cache' );
+			$p->get_segments( false, 500.50 ); // +0.50s ≥ 0.25 TTL → aged out → scan #2
+			$this->assertSame( 2, $scans, 'past SEGMENT_CACHE_TTL the threaded clock must force a rescan' );
+		} finally {
+			Partition_Node::$scandir = null;
+		}
+	}
+
 	// ── write-stall dead-letter: flush must never silently lose a batch ─────
 
 	public function test_flush_write_stall_quarantines_unwritten_messages_and_truncates_the_torn_tail(): void {
@@ -219,6 +249,33 @@ class PartitionTest extends TestCase {
 		// under-report the ceiling the runtime actually enforces.
 		$this->assertSame( 4, Partition_Node::derive_max_segments( 1, 0 ), 'floors to 2, derives 2x' );
 		$this->assertSame( 14, Partition_Node::derive_max_segments( 7, 14 ) );
+	}
+
+	public function test_large_write_heartbeat_uses_a_real_clock_outside_the_drain(): void {
+		// A long no-drain run (wp nodes ingest) freezes Core::$now; the lock
+		// heartbeat must still advance or stale-takeover goes undetected.
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'hbclock' );
+		$p->arguments( [ "{$this->tmp}/logs/hbclock.p0", '1048576', '2', '4', '0', '0' ] );
+		$p->allow_large_writes();
+		Core::$now = 500.0; // frozen cached clock, far from the real one.
+		$ref = new \ReflectionClass( Partition_Node::class );
+		$ref->getProperty( 'lock_stale_timeout' )->setValue( $p, 1 );
+		$ref->getProperty( 'last_lock_heartbeat' )->setValue( $p, 500.0 );
+		\usleep( 400000 ); // past the stale_timeout/3 cadence in REAL time.
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'hb-probe';
+		$p->fill( $m );
+
+		$this->assertGreaterThan(
+			501.0,
+			$ref->getProperty( 'last_lock_heartbeat' )->getValue( $p ),
+			'a frozen cached clock must not freeze lock heartbeating'
+		);
+		Core::$now = 0.0;
 	}
 
 	public function test_constructor_does_not_create_partition_dir(): void {
@@ -2966,11 +3023,11 @@ class PartitionTest extends TestCase {
 		// post-create list is known, so cleanup must NOT force a second scan.
 		$p = new class() extends Partition_Node {
 			public int $forced_scans = 0;
-			public function get_segments( bool $force_refresh = false ): array {
+			public function get_segments( bool $force_refresh = false, ?float $now = null ): array {
 				if ( $force_refresh ) {
 					++$this->forced_scans;
 				}
-				return parent::get_segments( $force_refresh );
+				return parent::get_segments( $force_refresh, $now );
 			}
 		};
 		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "8", "86400", "0" ] );

@@ -92,6 +92,7 @@ class Router_Node extends Timer_Node {
 	/** Open a dispatch frame; returns the start time for pop_profile(). */
 	private function push_profile( string $name ): float {
 		self::$profile_stack[] = $name;
+		// Bare microtime, NOT right_now(): must not perturb Core::$now.
 		return null !== self::$clock ? ( self::$clock )() : \microtime( true );
 	}
 
@@ -100,6 +101,7 @@ class Router_Node extends Timer_Node {
 		if ( null === self::$profiles ) {
 			return;
 		}
+		// Bare microtime, NOT right_now() — see push_profile().
 		$after = null !== self::$clock ? ( self::$clock )() : \microtime( true );
 		$name  = \array_pop( self::$profile_stack );
 		if ( null === $name ) {

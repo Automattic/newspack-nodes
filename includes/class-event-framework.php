@@ -83,7 +83,7 @@ class Event_Framework {
 
 	/** Hot loop — clock refresh, and the expired-timer scan are inlined to save a call frame per tick. */
 	private function drain_inner( callable $should_continue, bool $has_pcntl ): void {
-		Core::$now = \microtime( true );
+		Core::right_now();
 		while ( $should_continue() ) {
 			if ( Core::$shutting_down ) {
 				break;
@@ -104,7 +104,7 @@ class Event_Framework {
 				\pcntl_signal_dispatch();
 			}
 
-			Core::$now = \microtime( true );
+			Core::right_now();
 
 			foreach ( $this->timers as $id => $node ) {
 				if ( $node->next_fire > Core::$now ) {
@@ -191,8 +191,10 @@ class Event_Framework {
 	 * (so web requests + cli/SSE drains never throw); throttled so per-line
 	 * writes don't re-run the check every time.
 	 *
-	 * Throttle reads the wall clock directly, not Core::$now — that clock is
-	 * frozen for the whole blocking job, so it can't gate this.
+	 * Throttle reads the live wall clock via Core::right_now(): Core::$now is
+	 * otherwise frozen for the whole blocking job (nothing refreshes it), so a
+	 * stale read couldn't gate this. Routing through right_now() also un-freezes
+	 * the cached clock at pump cadence, so mid-job message TIMESTAMPs advance.
 	 *
 	 * A Worker_Should_Stop raised here unwinds the whole fill() stack: broad
 	 * drain-path catches re-throw it before handling (ADR-14), so the mid-job
@@ -206,7 +208,7 @@ class Event_Framework {
 		if ( Core::in_stderr() ) {
 			return;
 		}
-		$now = \microtime( true );
+		$now = Core::right_now();
 		if ( $now - $this->last_pump < self::PUMP_INTERVAL_S ) {
 			return;
 		}

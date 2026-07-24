@@ -189,7 +189,7 @@ class Worker_Base {
 		if ( ! $this->lock->acquire() ) {
 			return false;
 		}
-		$this->start_time     = \microtime( true );
+		$this->start_time     = Core::right_now();
 		$this->last_heartbeat = $this->start_time;
 		$this->last_db_check  = $this->start_time;
 		return true;
@@ -438,7 +438,8 @@ class Worker_Base {
 	}
 
 	public function should_continue(): bool {
-		$now = \microtime( true );
+		// Under pump(), Core::$now is frozen mid-job: one fresh read, reused.
+		$now = Core::right_now();
 
 		if ( null === $this->lock || ! $this->lock->is_held() ) {
 			return $this->stop( 'lock lost' );

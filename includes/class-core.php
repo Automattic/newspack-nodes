@@ -141,6 +141,18 @@ class Core {
 	}
 
 	/**
+	 * The one fresh-clock call site (Tachikoma's $Tachikoma::Right_Now). Reads the
+	 * live hi-res clock, refreshes the cached per-tick clock as a side benefit, and
+	 * returns it. Inside the drain loop read Core::$now directly (the loop refreshes
+	 * it per tick); call this only where a genuinely fresh timestamp is needed
+	 * outside the drain (request/CLI scope) or where a blocking job has frozen $now.
+	 */
+	public static function right_now(): float {
+		self::$now = \microtime( true );
+		return self::$now;
+	}
+
+	/**
 	 * Emit on first sight, then suppress (re-windowed by prune_logs). The
 	 * throttle key is $text — the stable FIRST arg — ONLY; $extra is variable
 	 * payload printed on the first occurrence but never folded into the key, so
@@ -283,8 +295,7 @@ class Core {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( \rtrim( $text ) );
 		} );
-		self::$now       = \microtime( true );
-		self::$init_time = self::$now;
+		self::$init_time = self::right_now();
 		// Drop the timer set too, else an orphaned node's armed timer survives.
 		Event_Framework::reset();
 	}

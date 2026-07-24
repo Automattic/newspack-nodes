@@ -247,8 +247,8 @@ class Alerts {
 	 * @param string $severity One of the SEVERITY_* constants.
 	 */
 	public static function journal_event( string $key, string $text, string $severity ): void {
-		// Real clock: the supervisor loop never refreshes Core::$now.
-		$ts                            = \microtime( true );
+		// Fresh read: the supervisor loop never refreshes Core::$now.
+		$ts                            = Core::right_now();
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
 		$message[ Message::FROM ]      = 'alerts';
