@@ -67,7 +67,7 @@ class AdminTest extends TestCase {
 		// Use /tmp directly to dodge realpath/symlink mismatches on hosts whose
 		// sys_get_temp_dir() returns a symlinked path (e.g. macOS /var → /private/var).
 		// Config::ensure_path() requires realpath() to match the input exactly.
-		$this->base_dir = '/tmp/newspack-nodes-admin-test-' . \uniqid();
+		$this->base_dir = (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-admin-test-' . \uniqid();
 		\mkdir( $this->base_dir, 0755, true );
 
 		$this->use_base_dir( $this->base_dir );

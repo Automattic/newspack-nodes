@@ -12,6 +12,32 @@ The runtime is independent of any *application* — but not of WordPress. It own
 
 This is an early implementation of an idea pitched at the team meetup: the Lego-bricks architecture, brought to PHP/WordPress, without giving up production fitness on Atomic / WP-Cloud.
 
+## When NOT to use Nodes
+
+Nodes is a runtime, and a runtime you don't need is pure overhead. Reach for the
+incumbent when it already fits:
+
+- **One background job, now and then** — [Action Scheduler](https://actionscheduler.org/)
+  is one call, probably already installed, and runs anywhere WordPress does. Don't
+  install a node-graph runtime to send a welcome email.
+- **A scheduled task that tolerates drift** — `wp_schedule_event()` is free. WP-Cron's
+  known weakness (it fires on traffic, so quiet sites drift) is only worth solving when
+  it is actually your problem.
+- **Request-scope glue** — actions and filters compose fine at request scale; that's
+  what they're for.
+
+Nodes earns its keep when the shape of the problem is a **pipeline**: durable ordered
+logs you can replay, long-lived workers that hold state between messages, graphs you
+rewire in a topology file instead of code, and a REPL/dashboard view into all of it.
+The event logger (a firehose → routing → aggregation graph) is the native case.
+
+And one honest middle case: `newspack-cache-cozy` uses Nodes for a single
+Timer-enqueues-one-job loop — incumbent-shaped work — because the substrate was
+*already installed* for the event logger, and WP-Cron's traffic-dependence was exactly
+the failure it needed to escape. Marginal cost near zero, one real weakness solved.
+That's the test: if Nodes is already there, a one-node use is fine; if it isn't,
+don't add a runtime for one job.
+
 ## Learn it
 
 New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then work through the `docs/` set (mapped by reading order in **[docs/README.md](docs/README.md)**):
@@ -83,6 +109,14 @@ See [API.md](docs/API.md) for the request/response shapes.
 
 GPL-2.0-or-later
 
+## Testing
+
+The full suite — 3,000+ tests — runs on plain `phpunit` with WP stubs and an
+in-memory memcache double: no containers, no database, no memcached server, no
+WordPress install. `composer install && cd tests && ../vendor/bin/phpunit
+--enforce-time-limit` works on a bare laptop (macOS included) and finishes in
+under a minute.
+
 ## Status
 
-Pre-1.0, converging on 1.0. The load-bearing contracts — `fill()`, the 7-field message, sink/target routing ([ADR-1/2/7](docs/architecture-decisions.md)) — are settled; what still moves before 1.0 is at the edges (verb tables, schema fields), and every change lands in [CHANGELOG.md](CHANGELOG.md), with breaking changes and their fixes curated in [docs/upgrading.md](docs/upgrading.md). The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime.
+Pre-1.0, converging on 1.0. The load-bearing contracts — `fill()`, the 7-field message, sink/target routing ([ADR-1/2/7](docs/architecture-decisions.md)) — are settled. Any breaking change is curated with its fix in [docs/upgrading.md](docs/upgrading.md) (start at your installed version, apply everything above it); [CHANGELOG.md](CHANGELOG.md) has the full story per release. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime.

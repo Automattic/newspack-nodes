@@ -4,6 +4,26 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 0.51.0
+
+- **`set_snapshot_node` deleted; `add_snapshot_node` replaces it.** A Consumer now
+  snapshots a LIST of nodes; the offsetlog frame's `cache` is a map keyed by node name.
+  Fix: rename the verb in your TSL (repeat the line per node). If you READ frames
+  (`Partition_Node::read_latest_snapshot_cache()`), pass the new required `$node`
+  argument and descend `cache[<node>]`. Frames written by 0.50.x skip their snapshot
+  restore once on upgrade (state re-accumulates; cursors resume normally).
+- **`Job_Router` (event-logger) sheds `stale_timeout`** — staleness is the new
+  `Age_Sieve` node's job. Fix: drop Job_Router's positional argument and wire
+  `make_node Age_Sieve jobs:sieve 60 1` between it and `jobs:partition`.
+
+## 0.50.0
+
+- **Consumer cursors re-keyed to `{topology}.{source}.pN`.** Offsetlog paths in the
+  stock topologies flip from `{source}.{topology}.pN`; no migration shim — on upgrade
+  every consumer starts from its `default_offset` (the firehose default is `recent`).
+  Fix: nothing to do unless you pinned custom offsetlog paths; then re-key them to
+  match and expect one cursor reset.
+
 ## 0.48.0
 
 - **Profiling verbs collapsed into one `profile` toggle.** `enable_profiling` and `disable_profiling` are removed (no alias): bare `profile` toggles, `profile on` / `profile off` set idempotently. Anything invoking the old pair gets an unknown-command error. `list_profiles` is unchanged.

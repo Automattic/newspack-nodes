@@ -97,8 +97,12 @@ class Config {
 			);
 		}
 
-		// Canonical path must match input (prevents symlink attacks).
-		if ( $real !== $path ) {
+		// @longform The plantable attack is a symlink AT the leaf redirecting
+		// writes; symlinked ANCESTORS (macOS /tmp, /var -> /private/...) are
+		// OS facts. So: leaf must be a real dir, and the whole path must
+		// equal its parent-resolved expectation (catches `..` traversal too).
+		$parent = \realpath( \dirname( $path ) );
+		if ( \is_link( $path ) || false === $parent || \rtrim( $parent, '/' ) . '/' . \basename( $path ) !== $real ) {
 			throw new \RuntimeException(
 				\sprintf(
 					'Path %s resolves to %s - symlink or path traversal detected',

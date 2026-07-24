@@ -11,6 +11,24 @@ A few things this runtime assumes. It's WordPress-internal — there is no stand
 - **WP-CLI** — every command on this page (`wp plugin …`, `wp nodes status`, `wp nodes cli …`) is WP-CLI.
 - **memcache — optional to boot, load-bearing in practice.** The runtime comes up without it: `Bootstrap::init_memcached()` degrades to a null handle when no servers are configured rather than failing. But several paths then fail closed — HMAC command-auth refuses wire-arrived commands (it can't enforce single-use nonces), SSE slots fail closed, and live position/stats never publish, so the dashboards go dark. Workers still spawn and drain; you just lose the remote-command and live-stats surfaces. For the full experience, point `memcache_servers` at a running memcached.
 
+## Rosetta: WordPress → Nodes
+
+You already know these ideas — they just wear different names here. The right column
+is what the left column becomes when it needs durability, ordering, or a live view.
+
+| You know… | In Nodes… | The difference that matters |
+|---|---|---|
+| `add_action()` / `do_action()` | `Hook_Node`, or `register()` / `notify()` on any node | Same pub/sub idea, but wired in a topology file, not scattered through code |
+| `wp_schedule_event()` (cron) | `Timer_Node` | Fires inside an always-on worker: no traffic dependence, no drift |
+| `wp_schedule_single_event()` | `Job_Intake::queue( …, [ 'delay' => $s ] )` | Durable (survives restarts), visible in `wp nodes status` |
+| Action Scheduler job | `Job_Intake::queue()` + a `newspack_nodes/job_handlers` handler | Adds retries with backoff, batch fan-in, per-job stats |
+| `error_log()` → debug.log | `Log_Node` | Segmented, size/age-rotated, tailable from the dashboard |
+| Custom events table (`$wpdb`) | `Topic` / `Partition` | An append-only log you can replay from any offset |
+| Reading that table in a loop | `Consumer_Node` | A durable cursor: crash, respawn, resume where you left off |
+| Transient / object-cache value | `Table_Node` | Keyed store any process reads via `Table_Node::lookup()` |
+| REST endpoint per admin action | a CI verb (`Service_CI_Node`) | One schema entry: dispatch, auth, and help come free |
+| admin-ajax polling | the SSE stream | Push, not poll; every dashboard rides the same stream |
+
 ## The whole idea, one screen
 
 A **node** is a small object with exactly one entry point:

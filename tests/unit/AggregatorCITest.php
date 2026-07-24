@@ -39,7 +39,7 @@ class AggregatorCITest extends TestCase {
 		parent::setUp();
 		// /tmp directly to dodge symlink-resolved sys_get_temp_dir on macOS,
 		// matching ServersCITest / StatusCITest.
-		$this->tmp = '/tmp/aggregator-ci-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/aggregator-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		\mkdir( $this->tmp . '/topologies', 0755, true );
 		$this->use_base_dir( $this->tmp );

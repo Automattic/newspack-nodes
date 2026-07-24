@@ -29,7 +29,7 @@ class SettingsCITest extends TestCase {
 		parent::setUp();
 		// /tmp directly to dodge symlink-resolved sys_get_temp_dir on macOS,
 		// matching StatusCITest / AggregatorCITest.
-		$this->tmp = '/tmp/settings-ci-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/settings-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir( $this->tmp );
 		$GLOBALS['_wp_options']               = [];

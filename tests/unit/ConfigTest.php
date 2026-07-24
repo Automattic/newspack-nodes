@@ -28,7 +28,7 @@ class ConfigTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Config::reset();
-		$this->temp_dir = '/tmp/newspack-nodes-test-config-' . \uniqid();
+		$this->temp_dir = (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-test-config-' . \uniqid();
 		@\mkdir( $this->temp_dir, 0755, true );
 		// Clear WP option store between tests.
 		$GLOBALS['_wp_options'] = [];
@@ -468,6 +468,23 @@ class ConfigTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/symlink or path traversal detected/' );
 		Config::ensure_path( $link );
+	}
+
+	public function test_ensure_path_accepts_a_symlinked_ancestor(): void {
+		// macOS's /tmp and /var are OS symlinks (/private/...): only the LEAF
+		// being a symlink is the plantable attack; symlinked ancestors must
+		// pass, with the canonical path returned.
+		$target = "{$this->temp_dir}/target";
+		\mkdir( $target, 0755, true );
+		$link = "{$this->temp_dir}/oslink";
+		if ( ! @\symlink( $target, $link ) ) {
+			$this->markTestSkipped( 'symlink() unavailable in this environment' );
+		}
+
+		$validated = Config::ensure_path( "{$link}/base" );
+
+		$this->assertSame( \realpath( $target ) . '/base', $validated, 'ancestor symlink resolves; the canonical path comes back' );
+		$this->assertDirectoryExists( "{$target}/base" );
 	}
 
 	public function test_ensure_path_throws_when_path_unwritable_and_missing(): void {

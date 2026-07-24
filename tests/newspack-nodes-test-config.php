@@ -11,7 +11,8 @@
  */
 
 return [
-	'base_directory'   => '/tmp/newspack-nodes-test',
+	// realpath'd so macOS's /tmp -> /private/tmp symlink passes the path guard.
+	'base_directory'   => \rtrim( (string) \realpath( \sys_get_temp_dir() ), '/' ) . '/newspack-nodes-test',
 	'num_partitions'   => 1,
 	'segment_size'     => 1024,
 	'min_segments'     => 2,

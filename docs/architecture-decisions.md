@@ -149,12 +149,21 @@ guarantees.
 
 **Consequences:** Callers must know their payload size. Forgetting the opt-in on a >4 KB
 concurrent producer is a silent-corruption path — as is `void_warranty()` where single-writer
-isn't actually true (when in doubt, take the enforcing form). Correctness assumes a **local**
-POSIX filesystem.
+isn't actually true (when in doubt, take the enforcing form).
 
-**Revisit if:** `base_dir` can land on a non-local filesystem (NFS / overlay), where the 4 KB
-append-atomicity guarantee does not hold — then detect-and-refuse rather than corrupt quietly.
-(`mkdir`-as-lock stays NFS-safe; only the large append does not.)
+**Habitable zone:** everything under `base_directory` — locks, partitions, offsets, IPC —
+is scoped to **one host's local POSIX filesystem, shared by that host's PHP processes**.
+That is the design point, not a limitation to engineer around: the base dir is
+topology-worker IPC, and workers are per-host by construction. Outside the zone the
+guarantees simply don't hold — NFS/overlay mounts void the 4 KB append atomicity, and
+containers with separate `/tmp` are separate hosts (each runs its own fleet against its
+own base dir; pointing two containers' config at one *path* that is actually two
+filesystems split-brains silently). There is no runtime detection of exotic mounts —
+earlier drafts prescribed "detect-and-refuse," but no reliable portable signal exists on
+the platforms we run on. State the habitat; deploy inside it.
+
+**Revisit if:** a deployment genuinely needs cross-host coordination — that is a different
+transport (the hub/spoke remote channels), not a shared filesystem.
 
 ---
 

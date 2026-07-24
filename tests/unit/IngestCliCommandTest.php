@@ -23,7 +23,7 @@ class IngestCliCommandTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$staging = '/tmp/newspack-nodes-ingest-test-' . \uniqid();
+		$staging = (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-ingest-test-' . \uniqid();
 		\mkdir( $staging, 0755, true );
 		$this->tmp = \realpath( $staging ) ?: $staging;
 

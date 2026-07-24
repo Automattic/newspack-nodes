@@ -55,7 +55,7 @@ class AlertsTest extends TestCase {
 	 * @return string Base dir.
 	 */
 	private function arrange( array $types, array $config_extras = [] ): string {
-		$this->tmp = '/tmp/alerts-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/alerts-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir( $this->tmp, \array_merge( [ 'num_partitions' => 1 ], $config_extras ) );
 		\add_filter(

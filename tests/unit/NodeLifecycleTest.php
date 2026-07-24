@@ -55,7 +55,7 @@ class NodeLifecycleTest extends TestCase {
 	 * @return array<string, array{0: \Closure}>
 	 */
 	public static function node_factories(): array {
-		$base = \sys_get_temp_dir() . '/nodes-lifecycle-' . \bin2hex( \random_bytes( 4 ) );
+		$base = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-lifecycle-' . \bin2hex( \random_bytes( 4 ) );
 		@\mkdir( $base, 0700, true );
 		\file_put_contents( "{$base}/tail.log", '' );
 
