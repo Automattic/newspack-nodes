@@ -54,6 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `Worker_Base::last_error()` (protected-helper test seam) replaced by the
   standard static-Closure seam `Worker_Base::$last_error`.
+- `Config::is_declared()`'s miss path no longer resets and re-derives the
+  whole key registry — declarations are monotone, so a miss just re-fires
+  `DECLARE_ACTION` for late-hooking consumer plugins.
+- **Uninstall now removes the runtime disk tree.** Plugin deletion previously
+  deleted options only, leaving logs, locks, offsets, IPC, and deadletters
+  behind. `uninstall.php` now removes the known runtime subtrees at the
+  configured base directory (symlink-safe, containment-checked; operator
+  files sharing the base dir are spared).
 - **DevTools hub loads tab bundles on demand.** The Console, Vault, and
   Aggregator tab bundles (~517KB of JS+CSS) are no longer enqueued up front
   on the "Nodes" hub screen; each registers a lightweight placeholder carrying

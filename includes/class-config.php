@@ -244,11 +244,13 @@ class Config {
 	 * plugin's own value() accessor calls to validate a key against the shared
 	 * substrate registry before reading its own merged config.
 	 *
-	 * A miss re-pulls before it answers false: a consumer plugin that loads AFTER
-	 * the first read (this plugin's own file scope reads memcache_servers on an
-	 * admin request) hooks DECLARE_ACTION too late for that pull, and a one-shot
-	 * derive would deny its keys for the rest of the request. The re-pull is only
-	 * paid on a miss — which otherwise ends in a throw anyway.
+	 * A miss re-fires DECLARE_ACTION before it answers false: a consumer plugin
+	 * that loads AFTER the first read (this plugin's own file scope reads
+	 * memcache_servers on an admin request) hooks the action too late for that
+	 * pull, and a one-shot derive would deny its keys for the rest of the
+	 * request. Only the action re-fires — the substrate's own keys are already
+	 * registered (declarations are monotone) — and only on a miss, which
+	 * otherwise ends in a throw anyway.
 	 *
 	 * @api
 	 */
@@ -257,8 +259,14 @@ class Config {
 		if ( isset( self::$registered_keys[ $key ] ) ) {
 			return true;
 		}
-		self::$keys_declared = false;
-		self::declare_keys();
+		if ( \function_exists( 'do_action' ) && ! self::$declaring ) {
+			self::$declaring = true;
+			try {
+				\do_action( self::DECLARE_ACTION );
+			} finally {
+				self::$declaring = false;
+			}
+		}
 		return isset( self::$registered_keys[ $key ] );
 	}
 
