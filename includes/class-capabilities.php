@@ -14,6 +14,11 @@
  * default manage); Service_CI_Node wraps every handler with the declared
  * role. Endpoints call require()/can() directly.
  *
+ * Know what you grant: the `read` role's live surface is the SSE stream —
+ * the RAW log firehose (request URLs, hooks, payloads) and worker IPC/REPL
+ * output — not just shaped dashboards. And the map is fully trusted: a
+ * filter can also LOWER `manage` below manage_options; there is no floor.
+ *
  * @package Newspack_Nodes
  */
 

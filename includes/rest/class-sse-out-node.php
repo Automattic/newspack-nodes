@@ -587,7 +587,7 @@ class SSE_Out_Node extends Node {
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'stream' ],
 				// Capability-only gate; NO nonce (breaks cross-server pull).
-				'permission_callback' => static fn () => Capabilities::can( Capabilities::READ ),
+				'permission_callback' => static fn () => \function_exists( 'current_user_can' ) && Capabilities::can( Capabilities::READ ),
 				'args'                => [
 					'subscribe' => [ 'required' => true, 'type' => 'string' ],
 					'positions' => [ 'required' => false, 'type' => 'string' ],
