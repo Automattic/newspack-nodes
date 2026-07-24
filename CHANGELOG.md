@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-07-24
+
 ### Added
 - **One TSL statement front-end: `Shell_Node::parse_statements()`.** A public
   static sibling of `tokenize()` / `tokenize_spans()` — split → join backslash
