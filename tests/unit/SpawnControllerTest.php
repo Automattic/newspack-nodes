@@ -62,6 +62,36 @@ class SpawnControllerTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 	}
 
+	// ── spawn throttle ─────────────────────────────────────────────────────
+
+	public function test_spawn_rejects_a_respawn_inside_the_throttle_window(): void {
+		// The endpoint is the ONE gate every spawn crosses (supervisor tick,
+		// self_respawn, external UI). A crash-on-boot worker self-respawning as
+		// fast as FPM forks must be rejected here — the supervisor's own
+		// is_recently_spawned check never sees the self-respawn path.
+		$this->with_topology( [
+			'burnout' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+		$fired = 0;
+		\add_action( 'newspack_nodes/spawn_worker', function () use ( &$fired ): void {
+			++$fired;
+		} );
+		$req = $this->make_request( [
+			'type'      => 'burnout',
+			'partition' => 1,
+			'nonce'     => $this->supervisor->generate_spawn_token( \time() ),
+		] );
+
+		$first = $this->controller->spawn( $req );
+		$this->assertInstanceOf( \WP_REST_Response::class, $first );
+		$this->assertSame( 1, $fired );
+
+		$second = $this->controller->spawn( $req );
+		$this->assertInstanceOf( \WP_Error::class, $second, 'a respawn 0s later must be throttled' );
+		$this->assertSame( 'spawn_throttled', $second->get_error_code() );
+		$this->assertSame( 1, $fired, 'the throttled spawn must not reach spawn_worker' );
+	}
+
 	// ── register_routes ────────────────────────────────────────────────────
 
 	public function test_register_routes_registers_spawn_route(): void {

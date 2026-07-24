@@ -82,6 +82,9 @@ class Bootstrap {
 		\do_action( 'newspack_nodes/before_supervisor_run' );
 		try {
 			self::supervisor()->run();
+		} catch ( \Throwable $e ) {
+			// The tier of last resort must not fatal every cron minute.
+			Core::print_less_often( 'supervisor tick failed: ', $e->getMessage() );
 		} finally {
 			\do_action( 'newspack_nodes/after_supervisor_run' );
 		}
@@ -109,6 +112,8 @@ class Bootstrap {
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
+		// Self-respawn tokens must be minted at POST time, not worker boot.
+		Worker_Base::$token_provider ??= static fn (): string => self::supervisor()->generate_spawn_token( \time() );
 		// Fleet alerting: Site Health test + rate-limited alert emission.
 		\add_filter( 'site_status_tests', [ self::class, 'register_site_health_tests' ] );
 		\add_action( 'newspack_nodes/supervisor_periodic', [ Alerts::class, 'emit' ] );

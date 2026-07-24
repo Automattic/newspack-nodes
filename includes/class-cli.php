@@ -11,10 +11,28 @@ namespace Newspack_Nodes;
 
 class CLI {
 
+	/**
+	 * uid-source seam shared by the root-refusing verbs (`cli`, `run`). Lazily-
+	 * defaulted to the real `posix_getuid()` (-1 when the extension is absent);
+	 * tests reassign to simulate root without the runner being root.
+	 * Signature: `function (): int`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $uid_provider = null;
+
 	private string $base_dir;
 
 	public function __construct( string $base_dir ) {
 		$this->base_dir = \rtrim( $base_dir, '/' );
+	}
+
+	/** WP_CLI::error (exits) as root — root-owned IPC/lock dirs lock out the web-user fleet. */
+	public static function refuse_root( string $verb ): void {
+		$uid = ( self::$uid_provider ?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1 )();
+		if ( 0 === $uid ) {
+			\WP_CLI::error( "wp nodes {$verb} must run as the same user as the workers, not root." );
+		}
 	}
 
 	/**
@@ -71,8 +89,8 @@ class CLI {
 	 * One row per active Consumer — the lean per-reader STATE from the topicprobe
 	 * snapshot (`read_probe_index()`). Topology attribution (which topology/targets
 	 * a reader belongs to) is NOT here: the dashboard joins these rows onto the
-	 * `.tsl` graph by `reader`/`source`, and `wp nodes status` joins via
-	 * `Topology_Registry`. Keyed in the array by insertion; `reader` is the id.
+	 * `.tsl` graph by `reader`/`source`; `wp nodes status` renders them directly,
+	 * unattributed. Keyed in the array by insertion; `reader` is the id.
 	 *
 	 * @return array<int,array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}>
 	 */
@@ -131,23 +149,44 @@ class CLI {
 			if ( ! \preg_match( '/^(.+)\.p(\d+)\.lock\.d$/', $entry, $m ) ) {
 				continue;
 			}
-			$type      = $m[1];
-			$partition = (int) $m[2];
-			$hb        = "{$locks_dir}/{$entry}/heartbeat";
-			$mtime     = @\filemtime( $hb );
-			$stale     = ( false === $mtime || ( $now - $mtime ) > Lock_Node::STALE_TIMEOUT );
 			$workers[] = [
-				'type'         => $type,
-				'partition'    => $partition,
-				'heartbeat_at' => $mtime ?: 0,
-				'started_at'   => Lock_Node::get_started_time( "{$locks_dir}/{$entry}" ) ?? 0,
-				'stale'        => $stale,
-			];
+				'type'      => $m[1],
+				'partition' => (int) $m[2],
+			] + self::lock_liveness( "{$locks_dir}/{$entry}", $now );
 		}
 		\usort( $workers, fn ( $a, $b ) =>
 			[ $a['type'], $a['partition'] ] <=> [ $b['type'], $b['partition'] ]
 		);
 		return $workers;
+	}
+
+	/**
+	 * Liveness of the supervisor's own singleton lock, or null when it holds
+	 * no lock dir. The `.p<N>` worker scan can never see supervisor.lock.d —
+	 * without this the process the whole safety net rests on is invisible.
+	 *
+	 * @return array{heartbeat_at:int,started_at:int,stale:bool}|null
+	 */
+	public function supervisor_status(): ?array {
+		$dir = "{$this->base_dir}/locks/supervisor.lock.d";
+		if ( ! \is_dir( $dir ) ) {
+			return null;
+		}
+		return self::lock_liveness( $dir, \time() );
+	}
+
+	/**
+	 * Heartbeat/started/staleness triple for one lock dir (workers + supervisor).
+	 *
+	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
+	 */
+	private static function lock_liveness( string $dir, int $now ): array {
+		$mtime = @\filemtime( "{$dir}/heartbeat" );
+		return [
+			'heartbeat_at' => $mtime ?: 0,
+			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
+			'stale'        => ( false === $mtime || ( $now - $mtime ) > Lock_Node::STALE_TIMEOUT ),
+		];
 	}
 
 	/**

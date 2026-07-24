@@ -52,7 +52,7 @@ class Spawn_Controller {
 			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
 		}
 
-		// Internal HMAC path — no cap/rate limit (supervisor self-limits).
+		// Internal HMAC path — no cap/nonce; spawn() throttles per worker.
 		if ( $this->supervisor->validate_spawn_token( $nonce, \time() ) ) {
 			return true;
 		}
@@ -129,6 +129,17 @@ class Spawn_Controller {
 				[ 'status' => 400 ]
 			);
 		}
+
+		// The one throttle every spawn path crosses (Tachikoma-style).
+		$now = \microtime( true );
+		if ( $this->supervisor->is_recently_spawned( $type, $partition, $now ) ) {
+			return new \WP_Error(
+				'spawn_throttled',
+				\sprintf( '%s.p%d spawned less than %ds ago', $type, $partition, Supervisor_Base::MIN_SPAWN_INTERVAL_S ),
+				[ 'status' => 429 ]
+			);
+		}
+		$this->supervisor->record_spawn( $type, $partition, $now );
 
 		// Ack synchronously; work zombie-style (FPM detach no-op in CLI/test).
 		if ( \function_exists( 'fastcgi_finish_request' ) ) {

@@ -447,4 +447,25 @@ class SupervisorBaseTest extends TestCase {
 		);
 	}
 
+	public function test_spawn_ts_persists_to_the_shared_cache_backend(): void {
+		// ADR-9 claims memcache-backed spawn throttling; wp_cache_set is
+		// non-persistent without an object-cache drop-in. The ts must land in
+		// the Cache_Backend (Core::$memd here), not the WP object cache.
+		$memd                        = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		\Newspack_Nodes\Core::$memd = $memd;
+		try {
+			$s = new Supervisor_Base( $this->tmp );
+			$s->record_spawn( 'throttled-type', 3, 1234567.0 );
+
+			$stored = $memd->get( Supervisor_Base::SPAWN_TS_CACHE_KEY . 'throttled-type|3' );
+			$this->assertSame( 1234567, $stored, 'spawn ts must land in the shared backend' );
+
+			$fresh = new Supervisor_Base( $this->tmp );
+			$this->assertTrue( $fresh->is_recently_spawned( 'throttled-type', 3, 1234567.0 + 7 ) );
+			$this->assertFalse( $fresh->is_recently_spawned( 'throttled-type', 3, 1234567.0 + 31 ) );
+		} finally {
+			\Newspack_Nodes\Core::$memd = null;
+		}
+	}
+
 }

@@ -17,10 +17,15 @@ class WorkerBaseTest extends TestCase {
 		parent::setUp();
 		$this->tmp             = $this->make_temp_dir();
 		$this->saved_curl_exec = Core::$curl_exec;
+		// Deterministic shutdown classification: earlier tests' suppressed
+		// warnings must not read as fatals through the real error_get_last().
+		Worker_Base::$last_error = static fn (): ?array => null;
 	}
 
 	protected function tearDown(): void {
-		Core::$curl_exec = $this->saved_curl_exec;
+		Core::$curl_exec         = $this->saved_curl_exec;
+		Worker_Base::$last_error = null;
+		Worker_Base::$db_probe   = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -147,13 +152,15 @@ class WorkerBaseTest extends TestCase {
 		$w   = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$ref = new \ReflectionMethod( Worker_Base::class, 'is_fatal_shutdown' );
 
-		$w->test_last_error = null;
+		Worker_Base::$last_error = static fn (): ?array => null;
 		$this->assertFalse( $ref->invoke( $w ), 'a clean exit (no error) is not fatal' );
 
-		$w->test_last_error = [ 'type' => \E_WARNING, 'message' => 'x', 'file' => 'f', 'line' => 1 ];
+		Worker_Base::$last_error = static fn (): ?array =>
+			[ 'type' => \E_WARNING, 'message' => 'x', 'file' => 'f', 'line' => 1 ];
 		$this->assertFalse( $ref->invoke( $w ), 'a non-fatal warning is not a fatal shutdown' );
 
-		$w->test_last_error = [ 'type' => \E_ERROR, 'message' => 'oom', 'file' => 'f', 'line' => 1 ];
+		Worker_Base::$last_error = static fn (): ?array =>
+			[ 'type' => \E_ERROR, 'message' => 'oom', 'file' => 'f', 'line' => 1 ];
 		$this->assertTrue( $ref->invoke( $w ), 'E_ERROR (e.g. OOM) is a fatal shutdown' );
 	}
 
@@ -169,7 +176,7 @@ class WorkerBaseTest extends TestCase {
 		$w->acquire();
 		// Force a db-check window by backdating last_db_check.
 		$w->set_last_db_check_for_test( microtime( true ) - 31.0 );
-		$w->set_db_check_result( true );
+		Worker_Base::$db_probe = static fn (): bool => true;
 		$this->assertTrue( $w->should_continue() );
 		$this->assertSame( 0, $w->get_db_failures_for_test() );
 	}
@@ -177,7 +184,7 @@ class WorkerBaseTest extends TestCase {
 	public function test_should_continue_returns_false_after_three_consecutive_db_failures(): void {
 		$w = new DbCheckWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
-		$w->set_db_check_result( false );
+		Worker_Base::$db_probe = static fn (): bool => false;
 
 		// 1st failure.
 		$w->set_last_db_check_for_test( microtime( true ) - 31.0 );
@@ -200,19 +207,19 @@ class WorkerBaseTest extends TestCase {
 		$w->acquire();
 
 		// Failure.
-		$w->set_db_check_result( false );
+		Worker_Base::$db_probe = static fn (): bool => false;
 		$w->set_last_db_check_for_test( microtime( true ) - 31.0 );
 		$this->assertTrue( $w->should_continue() );
 		$this->assertSame( 1, $w->get_db_failures_for_test() );
 
 		// Pass — counter resets.
-		$w->set_db_check_result( true );
+		Worker_Base::$db_probe = static fn (): bool => true;
 		$w->set_last_db_check_for_test( microtime( true ) - 31.0 );
 		$this->assertTrue( $w->should_continue() );
 		$this->assertSame( 0, $w->get_db_failures_for_test() );
 
 		// Another failure — does NOT trip (counter started fresh).
-		$w->set_db_check_result( false );
+		Worker_Base::$db_probe = static fn (): bool => false;
 		$w->set_last_db_check_for_test( microtime( true ) - 31.0 );
 		$this->assertTrue( $w->should_continue() );
 		$this->assertSame( 1, $w->get_db_failures_for_test() );
@@ -221,7 +228,7 @@ class WorkerBaseTest extends TestCase {
 	public function test_should_continue_skips_db_check_within_interval(): void {
 		$w = new DbCheckWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
-		$w->set_db_check_result( false );
+		Worker_Base::$db_probe = static fn (): bool => false;
 		// last_db_check is "now" from acquire(); db_check should not run.
 		$this->assertTrue( $w->should_continue() );
 		$this->assertSame( 0, $w->get_db_failures_for_test(), 'within interval: db_check must not run' );
@@ -302,12 +309,57 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( $ref->invoke( $w ) );
 	}
 
-	public function test_db_check_passes_default_returns_true(): void {
-		// Default base implementation always passes — subclasses override to do
-		// real liveness checks.
+	public function test_db_probe_default_consults_wpdb_check_connection(): void {
+		// The default probe is a REAL liveness check, not a permanently-true
+		// stub: with a $wpdb present, its check_connection() verdict decides.
+		global $wpdb;
+		$prev = $wpdb ?? null;
+		$wpdb = new class() {
+			public int $calls = 0;
+			public function check_connection( bool $allow_bail = true ): bool {
+				++$this->calls;
+				return false;
+			}
+		};
+		Worker_Base::$db_probe = null; // exercise the real default closure.
+		try {
+			$w   = new TestableWorker( $this->tmp, 'test-worker', 0 );
+			$ref = new \ReflectionMethod( Worker_Base::class, 'db_check_passes' );
+			$this->assertFalse( $ref->invoke( $w ), 'a dead connection must fail the probe' );
+			$this->assertSame( 1, $wpdb->calls, 'the probe must consult $wpdb->check_connection' );
+		} finally {
+			$wpdb = $prev;
+		}
+	}
+
+	public function test_db_probe_default_passes_without_wpdb(): void {
+		// Bare harness / pre-WP contexts have no $wpdb; the probe stays quiet.
+		global $wpdb;
+		$prev = $wpdb ?? null;
+		$wpdb = null;
+		Worker_Base::$db_probe = null;
+		try {
+			$w   = new TestableWorker( $this->tmp, 'test-worker', 0 );
+			$ref = new \ReflectionMethod( Worker_Base::class, 'db_check_passes' );
+			$this->assertTrue( $ref->invoke( $w ) );
+		} finally {
+			$wpdb = $prev;
+		}
+	}
+
+	public function test_self_respawn_mints_a_fresh_token_via_the_provider(): void {
+		// The token captured at boot is ~max_runtime stale at recycle time —
+		// far outside the endpoint's 20s HMAC window, so reusing it 403s every
+		// normal self-respawn. When the provider is wired, mint at POST time.
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+		Worker_Base::$token_provider = static fn (): string => 'fresh-token-9f3';
+
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
-		$ref = new \ReflectionMethod( Worker_Base::class, 'db_check_passes' );
-		$this->assertTrue( $ref->invoke( $w ) );
+		$w->self_respawn( 'http://example/spawn', 'stale-boot-token' );
+
+		$this->assertCount( 1, $posts );
+		$this->assertSame( 'fresh-token-9f3', $posts[0]['body']['nonce'], 'self_respawn must not reuse the boot-time token' );
 	}
 
 	public function test_self_respawn_swallows_empty_url_without_posting(): void {
@@ -339,6 +391,27 @@ class WorkerBaseTest extends TestCase {
 
 		$this->assertSame( 'skipped', $result['status'] );
 		$this->assertSame( 'lock_held', $result['reason'] );
+	}
+
+	public function test_execute_skip_reason_distinguishes_permission_failure_from_contention(): void {
+		// Root-owned locks/ (the documented dndocker footgun): mkdir fails with
+		// EACCES, which is NOT contention. The reason must say so instead of
+		// the misdiagnosis chain reporting 'lock_held'.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'permission checks are moot as root' );
+		}
+		\mkdir( "{$this->tmp}/locks", 0555, true );
+		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
+		$w = new TestableWorker( $this->tmp, 'test-worker', 7 );
+		try {
+			$result = $w->execute( fn() => null, 'http://example/', 'token' );
+		} finally {
+			\chmod( "{$this->tmp}/locks", 0755 );
+		}
+
+		$this->assertSame( 'skipped', $result['status'] );
+		$this->assertStringContainsString( 'mkdir', $result['reason'], 'EACCES must not masquerade as contention' );
+		$this->assertStringNotContainsString( 'lock_held', $result['reason'] );
 	}
 
 	public function test_execute_runs_topology_then_releases_lock_and_respawns(): void {
@@ -464,8 +537,6 @@ class WorkerBaseTest extends TestCase {
 
 class TestableWorker extends Worker_Base {
 	public int $ipc_checkpoint_calls = 0;
-	/** Stub for error_get_last() so the fatal-shutdown branch is testable without a real fatal. */
-	public ?array $test_last_error = null;
 	public function set_start_time_for_test( float $t ): void {
 		$this->start_time = $t;
 	}
@@ -474,9 +545,6 @@ class TestableWorker extends Worker_Base {
 	}
 	public function set_stop_reason_for_test( string $reason ): void {
 		$this->stop_reason = $reason;
-	}
-	protected function last_error(): ?array {
-		return $this->test_last_error;
 	}
 	public function checkpoint_ipc_input(): void {
 		++$this->ipc_checkpoint_calls;
@@ -503,21 +571,11 @@ class FixedLimitWorker extends Worker_Base {
 }
 
 class DbCheckWorker extends Worker_Base {
-	private bool $db_pass = true;
-
-	public function set_db_check_result( bool $pass ): void {
-		$this->db_pass = $pass;
-	}
-
 	public function set_last_db_check_for_test( float $t ): void {
 		$this->last_db_check = $t;
 	}
 
 	public function get_db_failures_for_test(): int {
 		return $this->db_failures;
-	}
-
-	protected function db_check_passes(): bool {
-		return $this->db_pass;
 	}
 }

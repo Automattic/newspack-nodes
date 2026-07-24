@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Spawn throttling now gates every spawn path.** The spawn endpoint checks
+  and records the per-worker rate limit itself, so a crash-on-boot worker
+  self-respawning as fast as FPM forks is rejected on its first respawn —
+  previously only the supervisor's own posts were throttled. The persisted
+  spawn timestamp moved off `wp_cache_set` (non-persistent without an
+  object-cache drop-in, with an unreachable transient fallback) onto
+  `Cache_Backend::shared_first()` with a real transient fallback, so the
+  window actually survives across processes as ADR-9 claims.
+- **Lock failures carry a diagnosis.** `Lock_Node::acquire()` distinguishes a
+  permission-denied/IO `mkdir` failure from contention
+  (`Lock_Node::acquire_failure()`); `Worker_Base::execute()` surfaces that
+  reason instead of hardcoding `lock_held`, and `wp nodes run` prints it —
+  the root-owned-locks footgun no longer masquerades as a held lock three
+  layers deep. `wp nodes run` also refuses to run as root, like `wp nodes
+  cli` (shared `CLI::refuse_root()` guard).
+- **`wp nodes status` shows the supervisor.** The fleet table now leads with a
+  `supervisor` row (live/stale/down from `supervisor.lock.d`), which the
+  `.p<N>` lock scan could never match.
+- **The cron tier catches supervisor throwables.** `run_supervisor_tick()` was
+  try/finally with no catch, so the tier of last resort fataled every minute
+  on a persistent failure; it now logs (rate-limited) like the REST path.
+- **`db_check_passes()` is a real probe.** The permanently-true stub now
+  consults `$wpdb->check_connection( false )` via a `Worker_Base::$db_probe`
+  closure seam, so three consecutive DB failures actually recycle the worker.
+- **Self-respawn tokens are minted at POST time.** The HMAC token was captured
+  at worker boot and reused ~`max_runtime` (595s) later — far outside the
+  endpoint's 20s validation window, so every normal recycle's self-respawn
+  silently 403'd and only the supervisor tick ever respawned workers.
+  `Bootstrap::ensure_runtime_wired()` now installs
+  `Worker_Base::$token_provider`, which mints a current-window token inside
+  `self_respawn()`.
+
 ### Changed
+- `Worker_Base::last_error()` (protected-helper test seam) replaced by the
+  standard static-Closure seam `Worker_Base::$last_error`.
 - **DevTools hub loads tab bundles on demand.** The Console, Vault, and
   Aggregator tab bundles (~517KB of JS+CSS) are no longer enqueued up front
   on the "Nodes" hub screen; each registers a lightweight placeholder carrying

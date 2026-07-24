@@ -18,6 +18,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\CLI_Command;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
@@ -55,7 +56,7 @@ class CliCommandTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		CLI_Command::$uid_provider = null;
+		CLI::$uid_provider = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -65,7 +66,7 @@ class CliCommandTest extends TestCase {
 	public function test_cli_refuses_to_run_as_root(): void {
 		// Simulate uid 0 via the seam (the runner is non-root). The guard must
 		// refuse before any graph is built; WP_CLI::error is stubbed to throw.
-		CLI_Command::$uid_provider = static fn (): int => 0;
+		CLI::$uid_provider = static fn (): int => 0;
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/must run as the same user/' );
@@ -74,7 +75,7 @@ class CliCommandTest extends TestCase {
 	}
 
 	public function test_cli_bare_repl_exits_on_closed_piped_stdin(): void {
-		CLI_Command::$uid_provider = static fn (): int => 1000;
+		CLI::$uid_provider = static fn (): int => 1000;
 		$start = \microtime( true );
 
 		( new CLI_Command() )->cli( [], [] );
@@ -86,7 +87,7 @@ class CliCommandTest extends TestCase {
 	}
 
 	public function test_prepare_repl_bare_mode_sets_local_status_lines(): void {
-		CLI_Command::$uid_provider = static fn (): int => 1000;
+		CLI::$uid_provider = static fn (): int => 1000;
 		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
 
 		[ $shell, $dumper, $stdout ] = $ref->invoke( new CLI_Command(), [] );
@@ -100,7 +101,7 @@ class CliCommandTest extends TestCase {
 	}
 
 	public function test_prepare_repl_attached_mode_attaches_worker_and_sets_status_lines(): void {
-		CLI_Command::$uid_provider = static fn (): int => 1000;
+		CLI::$uid_provider = static fn (): int => 1000;
 		\mkdir( "{$this->tmp}/locks/jobs.p2.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/jobs.p2/input", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/jobs.p2/output", 0755, true );
@@ -121,7 +122,7 @@ class CliCommandTest extends TestCase {
 	}
 
 	public function test_prepare_repl_reports_unknown_attached_worker(): void {
-		CLI_Command::$uid_provider = static fn (): int => 1000;
+		CLI::$uid_provider = static fn (): int => 1000;
 		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
 
 		$this->expectException( \RuntimeException::class );

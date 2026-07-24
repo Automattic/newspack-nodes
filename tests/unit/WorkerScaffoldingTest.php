@@ -328,7 +328,9 @@ class WorkerScaffoldingTest extends TestCase {
 /** Worker with a settable error_get_last() so the fatal-shutdown branch is testable without a real fatal. */
 class FatalProbeWorker extends Worker_Base {
 	public ?array $err = null;
-	protected function last_error(): ?array {
-		return $this->err;
+	public function __construct( string $base_dir, string $worker_type, int $partition ) {
+		parent::__construct( $base_dir, $worker_type, $partition );
+		// Route the shared seam through this instance's scripted error.
+		Worker_Base::$last_error = fn (): ?array => $this->err;
 	}
 }

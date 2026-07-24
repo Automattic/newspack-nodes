@@ -139,6 +139,11 @@ class Worker_CLI_Command {
 		// One row per expected worker of each active topology; no lock = down.
 		$active = Bootstrap::get_topologies();
 		$rows   = [];
+		// Supervisor first — the safety net the fleet rows below depend on.
+		$sup = $this->cli()->supervisor_status();
+		if ( null !== $sup || ! empty( $active ) ) {
+			$rows[] = self::fleet_row( 'supervisor', -1, $sup, $now );
+		}
 		foreach ( $active as $name => $config ) {
 			// min 1 row: a num_partitions=0 misconfig must stay visible (down).
 			$partitions = \max( 1, self::entry_int( $config, 'num_partitions', 1 ) );
@@ -203,8 +208,8 @@ class Worker_CLI_Command {
 	 * One fleet-table row for a {topology, partition} slot.
 	 *
 	 * @param string                    $name Topology name.
-	 * @param int                       $p    Partition.
-	 * @param array<string, mixed>|null $w    Matching ls_workers() row, if any.
+	 * @param int                       $p    Partition; negative = unpartitioned (the supervisor).
+	 * @param array<string, mixed>|null $w    Matching liveness row, if any.
 	 * @param int                       $now  Clock.
 	 * @return array<string, int|string>
 	 */
@@ -217,7 +222,7 @@ class Worker_CLI_Command {
 			$state = $w['stale'] ? 'stale' : 'live';
 		}
 		return [
-			'Worker'    => "{$name}.p{$p}",
+			'Worker'    => $p < 0 ? $name : "{$name}.p{$p}",
 			'State'     => $state,
 			'Heartbeat' => $heartbeat_at > 0 ? CLI::format_duration( $now - $heartbeat_at ) . ' ago' : '-',
 			'Uptime'    => $started_at > 0 ? CLI::format_duration( $now - $started_at ) : '-',
@@ -418,6 +423,9 @@ class Worker_CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function run( array $args, array $assoc_args ): void {
+		// Same footgun as `cli`: root-owned IPC/locks lock out the web user.
+		CLI::refuse_root( 'run' );
+
 		$workers = $this->workers();
 		$valid   = \array_unique( \array_column( $workers, 'type' ) );
 
@@ -474,7 +482,9 @@ class Worker_CLI_Command {
 		$token     = $supervisor->generate_spawn_token( \time() );
 
 		$result = $wb->execute( $topology, $spawn_url, $token );
-		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] );
+		// The debugging verb: the skip reason IS the diagnosis — print it.
+		$detail = Core::as_string( $result['reason'] ?? $result['error'] ?? '' );
+		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] . ( '' !== $detail ? " ({$detail})" : '' ) );
 	}
 
 	/**
