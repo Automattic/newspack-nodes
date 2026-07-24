@@ -122,6 +122,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A `lazy` flag on a `newspack_nodes/devtools_tab_bundles` entry opts a
   contributor bundle into the same on-demand path.
 
+### Docs
+
+- **Doc-drift sweep + a `scripts/lint-docs.sh` guard.** Brought the prose back in
+  line with the runtime after the retention-axis rename: the Partition/Topic/Log
+  argument lists and the AND-gated-retention paragraph in `architecture-guide.md`,
+  the `make_node` lines in `writing-a-plugin.md` / `writing-a-dashboard.md` /
+  `writing-a-real-plugin.md`, and the `Log log <file> 1 2 7` example now use the
+  live `segment_size / min_segments / num_segments / min_lifetime / lifetime /
+  max_segments` tail. Renamed the stale `newspack-ai-newsletter` slug to
+  `newspack-intelligence` across the tutorial guides (the bundled
+  `example-ai-newsletter` toy is untouched). Added `TM_UNTYPED` to the message
+  type-flag list (10 → 11 flags). Reconciled the tutorial reading order in
+  `AGENTS.md` and the `nodes-dashboards` skill with the canonical `docs/README.md`
+  3-bucket index. The new grep-based `scripts/lint-docs.sh` (wired into
+  `scripts/pre-push`, runs on every push) asserts: no retired `max_lifetime` /
+  `max_lifespan` axis names outside CHANGELOG/upgrading, no `newspack-ai-newsletter`
+  slug, no removed aggregator verb on the `Aggregator_CI_Node` API.md row, and that
+  retention arg lists carry `<config:min_segments>`. Added a "Service-CI schema
+  changes update `docs/API.md`" gate to the `nodes-review` checklist.
+
 ## [0.52.0] - 2026-07-24
 
 ### Added

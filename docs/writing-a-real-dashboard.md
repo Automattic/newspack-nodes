@@ -107,7 +107,7 @@ When your real dashboard's CI doesn't show its verb buttons, this is the first t
 
 The toy's `Insights_CI` declared a `commands` array and got command buttons. A real pipeline also has **runtime triggers** — the fire-and-forget `TM_REQUEST` verbs that drive the graph (the toy's §8 `TICK`). Those live under a *different* schema key, `requests`, and the Inspector renders them as a distinct button kind.
 
-The real plugin's source nodes declare a `TICK` request (`newspack-ai-newsletter/includes/class-source-node.php`):
+The real plugin's source nodes declare a `TICK` request (`newspack-intelligence/includes/class-source-node.php`):
 
 ```php
 return \array_merge( parent::node_schema(), [
@@ -122,7 +122,7 @@ return \array_merge( parent::node_schema(), [
 ] );
 ```
 
-and the digest its `RESET` / `REGENERATE` requests (`newspack-ai-newsletter/includes/class-digest-builder-node.php`):
+and the digest its `RESET` / `REGENERATE` requests (`newspack-intelligence/includes/class-digest-builder-node.php`):
 
 ```php
 'requests'     => [
@@ -294,7 +294,7 @@ The most production-real surface of all — **where do the API credentials go?**
 
 The Vault is a real hub tab (`src/vault/`, registered `host: 'hub'` / `slug: 'vault'` via the `newspack_nodes/devtools_tab_bundles` filter) — a thin `VaultAdmin` view over the `Vault_CI_Node` credential store (`includes/rest/class-vault-ci-node.php`). Secrets persist server-side in the `newspack_nodes_vault` option and are **never** returned to the browser: `list`/`get` hand back `{ id, url, has_credentials, is_config }`, never the credential itself.
 
-Your topology only *references* an entry. A source node carries a `set_vault_id <id>` verb — a `vault_id`-typed `node_schema` arg, which the console renders as a Vault dropdown — and resolves that id to the raw secret at `config()` time via the `Vault_Secret` trait (`newspack-ai-newsletter/includes/class-github-source-node.php`: `cmd_set_vault_id` → `resolve_vault_secret`). Non-secret per-source config rides sibling verbs on the same node (`add_repo <owner/name>`, `add_url <feed>`), never the Vault.
+Your topology only *references* an entry. A source node carries a `set_vault_id <id>` verb — a `vault_id`-typed `node_schema` arg, which the console renders as a Vault dropdown — and resolves that id to the raw secret at `config()` time via the `Vault_Secret` trait (`newspack-intelligence/includes/class-github-source-node.php`: `cmd_set_vault_id` → `resolve_vault_secret`). Non-secret per-source config rides sibling verbs on the same node (`add_repo <owner/name>`, `add_url <feed>`), never the Vault.
 
 So the split is: **the operator enters the secret in the Vault tab; the topology points at it.** When the right surface is credentials, reach for the Vault entry + a `set_vault_id` reference — not a hand-rolled settings form and not a React page. The full credentials-in-the-Vault / config-in-the-topology model is [writing-a-real-plugin.md](writing-a-real-plugin.md) §4; here it's the reminder that the credential surface is a tab you already have.
 
@@ -306,11 +306,11 @@ The toy ran `npm run build` and `wp nodes status` and called it done. Shipping f
 
 **`release:archive` bundles `build/`, not `src/`, with an optimized autoloader.** The release zip carries the *built* `build/dashboard/index.js` (and its `.asset.php` / `.css` / `-rtl.css`), composer's `--no-dev` autoloader, and none of `src/` or `tests/`. So your `npm run build` output is the artifact — if you didn't build, the zip ships stale JS.
 
-**The setup scripts install a PREBUILT zip — they don't build.** This is the one that silently runs old code. `newspack-nodes.sh` / `newspack-ai-newsletter.sh` install the existing `release/*.zip`; they do not run esbuild. So the deploy loop is **`npm run release:archive` first, then the setup script** — otherwise `wp nodes` runs the previous build and your PHPUnit (which runs from `/services`) won't catch it because the source on disk *is* current; only the deployed copy is stale.
+**The setup scripts install a PREBUILT zip — they don't build.** This is the one that silently runs old code. `newspack-nodes.sh` / `newspack-intelligence.sh` install the existing `release/*.zip`; they do not run esbuild. So the deploy loop is **`npm run release:archive` first, then the setup script** — otherwise `wp nodes` runs the previous build and your PHPUnit (which runs from `/services`) won't catch it because the source on disk *is* current; only the deployed copy is stale.
 
 **A shared-source edit fans out to every consumer bundle.** Anything under `src/shared`, `src/debug-overlay`, or `src/build-kit` is *inlined* into each consumer's bundle at build time via the `@newspack-nodes/*` aliases — there is no shared runtime script. So editing, say, `ReplFooter`'s ceiling logic or `WP_EXTERNALS` means rebuilding **and redeploying every consumer** (newspack-nodes, event-logger-nodes, ai-newsletter), or the un-rebuilt ones ship the old inline copy. The toy's single bundle hid this; a real change to the shared kit doesn't get that luxury.
 
-**Mounting the debug overlay needs more jest config than the toy showed.** [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you a 2-key `createJestConfig` (`aliasBase` + `pinReactFrom`) — enough for the toy's thin view. But the moment you follow its §9 and actually mount `<DebugOverlay>` in your dashboard, jest has to resolve what the overlay drags in: `@wordpress/api-fetch` (the build externalizes it to `window.wp.apiFetch`) and `d3` (ESM-only, pulled transitively by the overlay's `OverviewTab` → `TopicsChart`). Whether each needs an `extraMappers` entry depends on your plugin's own `package.json`: `newspack-ai-newsletter` lists `@wordpress/api-fetch` as a real dependency, so jest resolves it natively and its `jest.config.js` maps only `d3`; the in-repo `examples/example-ai-newsletter/jest.config.js` has no such dependency and maps both. Copy whichever shape matches your dependency situation, plus a `transformIgnorePatterns` that opts d3's ESM packages out of the transform skip.
+**Mounting the debug overlay needs more jest config than the toy showed.** [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you a 2-key `createJestConfig` (`aliasBase` + `pinReactFrom`) — enough for the toy's thin view. But the moment you follow its §9 and actually mount `<DebugOverlay>` in your dashboard, jest has to resolve what the overlay drags in: `@wordpress/api-fetch` (the build externalizes it to `window.wp.apiFetch`) and `d3` (ESM-only, pulled transitively by the overlay's `OverviewTab` → `TopicsChart`). Whether each needs an `extraMappers` entry depends on your plugin's own `package.json`: `newspack-intelligence` lists `@wordpress/api-fetch` as a real dependency, so jest resolves it natively and its `jest.config.js` maps only `d3`; the in-repo `examples/example-ai-newsletter/jest.config.js` has no such dependency and maps both. Copy whichever shape matches your dependency situation, plus a `transformIgnorePatterns` that opts d3's ESM packages out of the transform skip.
 
 **Restart workers after deploy.** New PHP class code lives in the running worker process for up to ~10 more minutes otherwise — `wp nodes restart …` (per the env's restart verbs) makes the new node code live.
 

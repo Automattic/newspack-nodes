@@ -94,7 +94,7 @@ class Message {
 
 **Field layout rationale**: TIMESTAMP sits at index 1 so [WHAT + WHEN] groups at the front of the array. KEY/VALUE naming matches Kafka's `ProducerRecord<K,V>`, SQS message attributes, Redis Streams' `XADD key value`.
 
-**Type-flag bitmask** (10 flags):
+**Type-flag bitmask** (11 flags):
 
 ```
 TM_BYTESTREAM = 1;
@@ -107,7 +107,10 @@ TM_INFO       = 64;
 TM_REQUEST    = 128;
 TM_RESPONSE   = 256;
 TM_NOREPLY    = 512;
+TM_UNTYPED    = 1024;
 ```
+
+`TM_UNTYPED` is the mint default `new_message()` stamps: a free high bit matching NO type gate, so a message reaching a sink still carrying it is an untyped-message bug the drop audit names — not a message that is every type at once (what a `-1` sentinel would be).
 
 `TM_NOREPLY` is the fire-and-forget command flag: a `Shell` run with `want_reply( false )` (script / topology-load mode) ORs it onto each command and `Command_Interpreter_Node` then suppresses the routed reply (surfacing only an error to stderr). Without it, a worker's boot-topology command reply routes to `_output/<pid>` — which has no node in a worker — and bounces a dropped `NOT_AVAILABLE` on every startup.
 
@@ -244,7 +247,7 @@ One file-segmented append-only log, with an optional `.idx` companion. Storage p
 
 ```php
 $p = new Partition_Node();                              // no-arg ctor; config is positional via arguments()
-$p->arguments( [ $partition_dir, $segment_size, $num_segments, $max_lifespan ] );  // token array (list<string>)
+$p->arguments( [ $partition_dir, $segment_size, $min_segments, $num_segments, $min_lifetime, $lifetime, $max_segments ] );  // token array (list<string>)
 $p->fill( $message );                                   // ONLY ingress — no write()/produce()
 $p->flush();                                            // land the in-memory batch now
 $p->read_at( $segment_id, $offset, $length );           // read bytes
@@ -279,7 +282,7 @@ public static function hash_to_partition( string $key, int $num_partitions ): in
 
 Topic and any other partition router MUST call this same function. Diverging hash families across producers means the same key routes to different partitions and breaks ordering.
 
-**AND-gated retention**: `cleanup_segments` deletes a segment only when BOTH `count > num_segments` AND `(now - mtime) >= max_lifespan`. Low-traffic partitions may retain segments for days — documented behavior, not a bug.
+**Three-rule retention**: `cleanup_segments` prunes oldest-first above a hard floor of 2 segments when ANY rule fires — the **age rule** (older than `lifetime`, keeping at least `min_segments`), the **count rule** (more than `num_segments`, keeping anything younger than `min_lifetime`), or the **hard cap** (more than `max_segments` — UNCONDITIONAL; `min_lifetime` does not protect, only the floor of 2 does, so a hot partition full of young segments can't grow past it; `0` derives to `2 × num_segments`). Low-traffic partitions may still retain segments for days under the age/count floors — documented behavior, not a bug.
 
 **`SEGMENT_CACHE_TTL = 0.25` seconds**: segment-list cache so back-to-back reads don't `scandir` per call. Readers may see stale segment lists for up to 250ms after rotation. Consumer's checkpoint logic must tolerate this.
 
@@ -297,7 +300,7 @@ Multi-Partition wrapper. Hashes KEY to partition, falls back to round-robin when
 
 ```php
 $t = new Topic_Node();                                 // no-arg ctor; config is positional via arguments()
-$t->arguments( [ $dir_template, $num_partitions, $segment_size, $num_segments, $max_lifespan ] );  // token array
+$t->arguments( [ $dir_template, $num_partitions, $segment_size, $min_segments, $num_segments, $min_lifetime, $lifetime, $max_segments ] );  // token array
 $t->fill( $message );    // ONLY ingress — KEY -> partition routing; no write()
 $t->flush();             // flush every materialized partition's batch
 ```
@@ -344,7 +347,7 @@ $c->checkpoint();   // append a {segment, offset, attempts, reason, first_crash_
 
 **Echo** is a routing helper that re-addresses messages on the way through. Both `target` and `TO` set → `TO = target/TO` (path-prepend). Both empty → `TO = FROM` (return-to-sender along the trail). Otherwise TO is unchanged. TM_ERROR with empty TO is dropped rather than bounced (the producer isn't expecting the error trail).
 
-**Log** is the file-writer counterpart to Tail and a subclass of **Partition** (`Log extends Partition`). It differs from Partition at two seams only: it writes each fill()'d message's **VALUE** (the producer's payload, not the packed envelope) and lays its segments out as `{file}.{seg}` (`out.log.0`, `out.log.1`, …) rather than `{dir}/{seg}.log`. Constructor args: `(string $file, int $segment_size = …, int $num_segments = …)`. Rotation is monotonic and automatic when a segment passes `segment_size`; retention keeps the newest `num_segments` (AND-gated by `max_lifespan` like Partition). It inherits the rotate lock, `allow_large_writes()`/`void_warranty()`, and the 4KB PIPE_BUF cap — an oversize VALUE is dropped unless the cap is lifted. TM_ERROR/TM_EOF/TM_REQUEST are dropped (append-only; EOF never closes it; segmentation is size-driven, so there is no rotate request).
+**Log** is the file-writer counterpart to Tail and a subclass of **Partition** (`Log extends Partition`). It differs from Partition at two seams only: it writes each fill()'d message's **VALUE** (the producer's payload, not the packed envelope) and lays its segments out as `{file}.{seg}` (`out.log.0`, `out.log.1`, …) rather than `{dir}/{seg}.log`. Args: `make_node Log <name> <file> [segment_size] [min_segments] [num_segments] [min_lifetime] [lifetime] [max_segments]`. Rotation is monotonic and automatic when a segment passes `segment_size`; retention is Partition's three-rule scheme (`num_segments` count target / `lifetime` age / `max_segments` hard cap). It inherits the rotate lock, `allow_large_writes()`/`void_warranty()`, and the 4KB PIPE_BUF cap — an oversize VALUE is dropped unless the cap is lifted. TM_ERROR/TM_EOF/TM_REQUEST are dropped (append-only; EOF never closes it; segmentation is size-driven, so there is no rotate request).
 
 **Timer** (and its subclass **Router**) is the time-driven base. `set_timer( $interval_ms, $oneshot )` registers with Event_Framework; `fire_cb` is the Event_Framework-side hook; `fire()` is the override point for subclasses. Default `fire()` emits a TM_BYTESTREAM with the current timestamp at `target` and notifies `FIRE` listeners.
 

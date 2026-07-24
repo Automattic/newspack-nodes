@@ -64,4 +64,4 @@ Consumer dashboards live in their own `src/` trees (the substrate's own are `src
 
 ## Required background
 
-`nodes-review` gate #8d (everything sinks into the interpreter; flow via `target`/`TO`/invoke). The Tachikoma batching principle — the tick hitchhike means more fetchers cost the same one POST. Pair with the `docs/` tutorial track: `writing-a-dashboard.md` → `writing-a-real-dashboard.md` (the worked Publisher Insights rebuild) → `writing-a-view-node.md` (the thin per-widget view node).
+`nodes-review` gate #8d (everything sinks into the interpreter; flow via `target`/`TO`/invoke). The Tachikoma batching principle — the tick hitchhike means more fetchers cost the same one POST. Pair with the dashboard leg of the `docs/` tutorial track (see `docs/README.md`): `writing-a-dashboard.md` → `writing-a-real-dashboard.md` (the worked Publisher Insights rebuild) → `writing-a-view-node.md` (the thin per-widget view node).

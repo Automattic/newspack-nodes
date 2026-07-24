@@ -158,6 +158,10 @@ Verb handlers may throw freely. `interpret()` catches `\Throwable` and turns the
 
 Aliases share the same `cmd_foo`. When you add or remove a verb, audit `$C` for orphaned alias rows — leaving `'rm' => cmd_remove_node` after dropping `remove_node` is a silent zombie verb.
 
+### 10b. Service-CI schema changes update `docs/API.md`
+
+Adding, renaming, or removing a verb (or its args) on any `*_CI_Node` `node_schema()['commands']` — or changing a `dump_graph`/`dump_metadata` payload shape — MUST update the matching row/paragraph in `docs/API.md` in the same diff. API.md's Service-CI table is hand-kept, so a dropped verb leaves a ghost (the 0.47.1 `Aggregator_CI` `status`/`health`/`servers` removal is the case in point). `scripts/lint-docs.sh` guards the aggregator row specifically; the rest of the table it can't, so review it by hand.
+
 ## Style gates (lighter-weight)
 
 - WordPress VIP Go: snake_case, Yoda conditions, tabs, spaces inside `( $args )`. PHPCS catches most of these (`npm run lint:php`).

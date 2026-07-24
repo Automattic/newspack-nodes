@@ -43,6 +43,23 @@ final class CommunitySourceTest extends TestCase {
 		$this->assertTrue( method_exists( Community_Source_Demo_Node::class, 'items' ) );
 	}
 
+	public function test_tick_request_replies_with_emitted_count(): void {
+		$sink   = new Capture_Sink_Node();
+		$source = new Community_Source_Demo_Node();
+		$source->sink( $sink );
+
+		$req = $this->tick_request();
+		$source->fill( $req );
+
+		$replies = array_values( array_filter(
+			$sink->captured,
+			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_RESPONSE )
+		) );
+		$this->assertCount( 1, $replies, 'TICK replies once with the emitted count' );
+		$this->assertSame( '_repl', $replies[0][ Message::TO ], 'reply routes back TO the requester' );
+		$this->assertSame( 3, $replies[0][ Message::VALUE ]['emitted'], 'all three canned items counted' );
+	}
+
 	public function test_emitted_message_carries_TO_from_target(): void {
 		$sink   = new Capture_Sink_Node();
 		$source = new Community_Source_Demo_Node();

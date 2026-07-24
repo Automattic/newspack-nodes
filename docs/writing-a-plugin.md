@@ -8,7 +8,7 @@ The finished code is in [`examples/example-ai-newsletter/`](examples/example-ai-
 
 If you haven't run the example yet, do [getting-started.md](getting-started.md) first — it's the same pipeline, five minutes, no building.
 
-> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets below use bare names (`Releases_Source_Node`, `Summarizer_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Releases_Source_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`) and the durable log is `example-scored.p*`. So when you diff against [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/), map each bare name → its `_Demo` form. The teaching code reads cleaner without the suffix; the example needs it.
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets below use bare names (`Releases_Source_Node`, `Summarizer_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Releases_Source_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-intelligence`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`) and the durable log is `example-scored.p*`. So when you diff against [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/), map each bare name → its `_Demo` form. The teaching code reads cleaner without the suffix; the example needs it.
 
 ---
 
@@ -323,7 +323,7 @@ make_node Community_Source  community
 make_node Summarizer        summarizer
 make_node Digest_Builder    digest
 make_node Tee               tee
-make_node Log               log  /tmp/example-ai-newsletter/digest.md 1 7
+make_node Log               log  /tmp/example-ai-newsletter/digest.md 1 2 7
 connect_node releases   summarizer
 connect_node community  summarizer
 connect_node summarizer digest
@@ -338,7 +338,7 @@ A few things this file adds that the by-hand session didn't:
 
 - `var num_partitions = 1` is a topology **variable** — frontmatter the supervisor reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology still defaults to one partition, but copy the line so the example partitions the way the shipped file does.)
 - A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`. The `_repl` tap is what lets the topology console (and an attached `wp nodes cli`) actually *see* the emitted draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node introduced in step 6.)
-- `Log log <file> 1 7` passes the file's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `num_segments` (`7` → keep the last 7 segments `{file}.0`…`{file}.6`). The by-hand version omitted them and took the defaults (one large growing segment).
+- `Log log <file> 1 2 7` passes the file's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `min_segments` (`2`, the age-rule hard floor), `num_segments` (`7` → keep the last 7 segments `{file}.0`…`{file}.6`). The by-hand version omitted them and took the defaults (one large growing segment).
 
 `register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate it — `wp nodes activate` adds the topology to the active set and spawns its fleet immediately (the shipped active set is empty by default — nothing spawns until you activate it; you can also toggle it under **Settings → Nodes Runtime → Topologies**):
 
@@ -516,7 +516,7 @@ And the same contract is what makes each node testable in isolation: the example
 
 ## Where to go next
 
-- **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — the production deep dive: picks up where §7 stops and walks the real `newspack-ai-newsletter` plugin — a `Source` interface, real connectors (GitHub, Linear, RSS), a credential settings page, and a network test seam.
+- **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — the production deep dive: picks up where §7 stops and walks the real `newspack-intelligence` plugin — a `Source` interface, real connectors (GitHub, Linear, RSS), a credential settings page, and a network test seam.
 - **[getting-started.md](getting-started.md)** — the five-minute tour (if you skipped it).
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[API.md](API.md)** — the REST endpoints.

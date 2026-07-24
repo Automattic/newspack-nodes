@@ -46,14 +46,25 @@ class Releases_Source_Demo_Node extends Node {
 	 * @param array<int, mixed> $message Incoming request Message.
 	 */
 	private function handle_request( array $message ): void {
+		$emitted = 0;
 		foreach ( $this->items() as $item ) {
 			$response                   = Message::new_message();
 			$response[ Message::TYPE ]  = Message::TM_STRUCT;
 			$response[ Message::FROM ]  = $this->name;
 			$response[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
-			// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
+			// parent::fill stamps TO from the connected target, then sinks.
 			parent::fill( $response );
+			++$emitted;
 		}
+		// Reply { emitted } TO=FROM per Consumer_Node::handle_request.
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::KEY ]   = $message[ Message::KEY ];
+		$reply[ Message::VALUE ] = [ 'emitted' => $emitted ];
+		parent::fill( $reply );
 	}
 
 	public static function node_schema(): array {

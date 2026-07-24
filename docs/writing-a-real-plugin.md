@@ -9,19 +9,19 @@ protected function items(): array { return [ /* canned */ ]; }
 protected function items(): array { return My_Github_Source::recent_releases(); }
 ```
 
-That promise is true at the level of the *contract* — the summarizer and digest never learn the items stopped being canned. But "swap one method body" hand-waves a lot: real fetches block on the network, fail halfway, return duplicate items every tick, and need credentials an operator stores in the substrate's Vault. This guide is the deep dive. It walks the actual production plugin, **`newspack-ai-newsletter`** (the sibling repo, not the bundled `examples/example-ai-newsletter` toy), and shows everything we built *on top of* the toy to take it live.
+That promise is true at the level of the *contract* — the summarizer and digest never learn the items stopped being canned. But "swap one method body" hand-waves a lot: real fetches block on the network, fail halfway, return duplicate items every tick, and need credentials an operator stores in the substrate's Vault. This guide is the deep dive. It walks the actual production plugin, **`newspack-intelligence`** (the sibling repo, not the bundled `examples/example-ai-newsletter` toy), and shows everything we built *on top of* the toy to take it live.
 
 The shape is unchanged — three sources fan into a durable `ingest` partition, a consumer paces them through a summarizer, a scorer, and a second durable partition, and a final consumer feeds a digest builder. What changed is everything around the seam: a `Source` interface, a shared abstract base that owns the connector plumbing, three real connectors (GitHub, Linear, RSS/Atom), credentials kept in the substrate's **Vault** and referenced from the topology, and a test seam that lets all of it run under coverage without touching the network.
 
 > **The one thing to hold onto (still):** every node has one entry point, `fill( array $message ): void`. Nothing below changes that. The real connectors are *more code* than the toy, but they're the same node — they still mint a `TM_STRUCT` per item and forward to their sink. Everything new lives behind `fetch()`, which `fill()` calls and the graph never sees.
 
-The finished code is in the sibling [`newspack-ai-newsletter/`](../../newspack-ai-newsletter/) repo. Read along, or diff it against the toy.
+The finished code is in the sibling [`newspack-intelligence/`](../../newspack-intelligence/) repo. Read along, or diff it against the toy.
 
 ---
 
 ## 0. What changed — the same graph, real ends
 
-The toy graph and the real graph are the same boxes and arrows, plus a durable **ingest** layer the toy didn't need. Here's the production topology (`topologies/newspack-ai-newsletter.tsl`):
+The toy graph and the real graph are the same boxes and arrows, plus a durable **ingest** layer the toy didn't need. Here's the production topology (`topologies/newspack-intelligence.tsl`):
 
 ```
 github ┐
@@ -461,7 +461,7 @@ cmd feed:config add_url https://wordpress.org/news/feed/
 
 # ingest: raw fetched items buffer between the bursty sources and the LLM summarizer,
 # so a TICK's fetch+write is fast and the per-item enrich is paced by the consumer.
-make_node Partition ingest:partition <config:logs_dir>/ingest.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition ingest:partition <config:logs_dir>/ingest.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>
 cmd ingest:partition:config void_warranty
 make_node Consumer  ingest:consumer  <config:logs_dir>/ingest.p<partition> <config:offsets_dir>/ingest.p<partition>
 cmd ingest:consumer:config set_line_mode true
@@ -525,9 +525,9 @@ A real plugin lives in its own repo and installs on a site that already has the 
 **Deploy installs a prebuilt zip — build first.** The setup script installs the existing `release/*.zip`; it does **not** build. So the loop is *build, then deploy*:
 
 ```bash
-cd services/pyrobase/sources/newspack-ai-newsletter
-npm run release:archive    # builds release/newspack-ai-newsletter.zip
-docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-ai-newsletter.sh
+cd services/pyrobase/sources/newspack-intelligence
+npm run release:archive    # builds release/newspack-intelligence.zip
+docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-intelligence.sh
 ```
 
 Skip the build and your live `wp nodes` runs the *old* code — and because the PHPUnit suite runs from `/services`, the tests won't catch the stale deploy.
@@ -540,18 +540,18 @@ Skip the build and your live `wp nodes` runs the *old* code — and because the 
 docker exec eve-pyrobase1-1 wp nodes restart all --all-partitions --allow-root --path=/var/www/html
 ```
 
-**Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes `newspack-ai-newsletter.tsl` a *catalog* entry; the supervisor only spawns a topology in the *active* set. Activate it from the console's Topology Manager or with `topologies activate <name>`, then confirm:
+**Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes `newspack-intelligence.tsl` a *catalog* entry; the supervisor only spawns a topology in the *active* set. Activate it from the console's Topology Manager or with `topologies activate <name>`, then confirm:
 
 ```bash
 docker exec eve-pyrobase1-1 wp nodes status --allow-root --path=/var/www/html
-#   newspack-ai-newsletter  0  live  3s ago  2m 10s
+#   newspack-intelligence  0  live  3s ago  2m 10s
 ```
 
 **Tests run in the container, from `/services`, no network.** The closure-HTTP seam is what makes the connector suites hermetic — tests set `$http_get`/`$http_post` to return canned bodies, so nothing leaves the box:
 
 ```bash
 docker exec -u bend eve-pyrobase1-1 bash -c \
-  'cd /services/pyrobase/sources/newspack-ai-newsletter/tests && ../vendor/bin/phpunit'
+  'cd /services/pyrobase/sources/newspack-intelligence/tests && ../vendor/bin/phpunit'
 ```
 
 Lint to the same bar as the substrate — `npm run lint:php` (phpcs, VIP Go) and `npm run lint:phpstan` (level 10 + strict rules).
@@ -577,4 +577,4 @@ That was the short hop the toy guide promised — `items()` → `fetch()`. It tu
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the original toy Publisher Insights React dashboard walkthrough.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[architecture-decisions.md](architecture-decisions.md)** — the load-bearing ADRs (fire-and-forget §3, PIPE_BUF §4, lazy init §5).
-- **[`../../newspack-ai-newsletter/`](../../newspack-ai-newsletter/)** — the complete production plugin: `includes/`, `topologies/newspack-ai-newsletter.tsl`, the PHPUnit suite.
+- **[`../../newspack-intelligence/`](../../newspack-intelligence/)** — the complete production plugin: `includes/`, `topologies/newspack-intelligence.tsl`, the PHPUnit suite.

@@ -43,6 +43,24 @@ final class ReleasesSourceTest extends TestCase {
 		$this->assertTrue( method_exists( Releases_Source_Demo_Node::class, 'items' ) );
 	}
 
+	public function test_tick_request_replies_with_emitted_count(): void {
+		$sink   = new Capture_Sink_Node();
+		$source = new Releases_Source_Demo_Node();
+		$source->sink( $sink );
+
+		$req = $this->tick_request();
+		$source->fill( $req );
+
+		$replies = array_values( array_filter(
+			$sink->captured,
+			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_RESPONSE )
+		) );
+		$this->assertCount( 1, $replies, 'TICK replies once with the emitted count' );
+		$reply = $replies[0];
+		$this->assertSame( '_repl', $reply[ Message::TO ], 'reply routes back TO the requester' );
+		$this->assertSame( 2, $reply[ Message::VALUE ]['emitted'], 'both canned items counted' );
+	}
+
 	public function test_emitted_message_carries_TO_from_target(): void {
 		$sink   = new Capture_Sink_Node();
 		$source = new Releases_Source_Demo_Node();
