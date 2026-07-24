@@ -52,7 +52,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 	/** Stub the SSE dispatch; optionally capture each connect's opts. */
 	private function stub_sse_connect( ?array &$captured = null ): void {
-		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ) use ( &$captured ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
 			if ( null !== $captured ) {
 				$captured[] = $opts;
 			}

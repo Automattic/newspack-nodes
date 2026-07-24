@@ -209,7 +209,7 @@ class SseInTest extends TestCase {
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
 		$this->assertSame( 1748960000, $node->connection()['last_sse_heartbeat'] );
 
-		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -226,7 +226,7 @@ class SseInTest extends TestCase {
 
 	public function test_connection_exposes_actual_attempt_time(): void {
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -242,7 +242,7 @@ class SseInTest extends TestCase {
 		// during reconnect backoff. Disconnect must unregister.
 		Event_Framework::reset();
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -263,7 +263,7 @@ class SseInTest extends TestCase {
 		// base Remote_Link / Remote_IPC channel reconnects but is never serviced.
 		Event_Framework::reset();
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -302,7 +302,7 @@ class SseInTest extends TestCase {
 		$node->restore_position( 5, 10 );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( \CurlMultiHandle $multi, array $opts ) use ( &$captured ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -327,7 +327,7 @@ class SseInTest extends TestCase {
 		$node->configure( 'http://austin.example', 'u', 'p', '', 'firehose.p0', [], true, true );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( \CurlMultiHandle $multi, array $opts ) use ( &$captured ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();

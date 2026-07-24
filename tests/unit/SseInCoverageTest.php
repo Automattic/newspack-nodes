@@ -38,7 +38,7 @@ class SseInCoverageTest extends TestCase {
 
 	/** Install a dispatch seam that hands back a real idle easy handle (never transferred). */
 	private function dispatch_returns_handle(): void {
-		SSE_In_Node::$curl_dispatch = static function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -106,7 +106,7 @@ class SseInCoverageTest extends TestCase {
 
 	public function test_maybe_connect_dispatch_failure_sets_error_and_backoff(): void {
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static fn ( \CurlMultiHandle $m, array $o ): bool => false;
+		SSE_In_Node::$curl_dispatch = static fn ( array $o ): bool => false;
 
 		$this->assertFalse( $node->maybe_connect() );
 		$this->assertNull( $node->test_get_handle() );
@@ -121,7 +121,7 @@ class SseInCoverageTest extends TestCase {
 		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], true, false );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( \CurlMultiHandle $m, array $o ) use ( &$captured ): \CurlHandle {
+		SSE_In_Node::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
 			$captured[] = $o;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -131,11 +131,12 @@ class SseInCoverageTest extends TestCase {
 		$this->assertContains( 'Authorization: Bearer tok-123', $captured[0][ \CURLOPT_HTTPHEADER ] );
 	}
 
-	public function test_maybe_connect_reuses_one_multi_across_reconnects(): void {
+	public function test_reconnect_reuses_the_shared_multi(): void {
+		Event_Framework::reset();
 		[ $node ]  = $this->configured_node();
 		Core::$now = 1000.0;
 		$this->connect( $node );
-		$multi     = $this->read_private( $node, 'multi' );
+		$multi     = $this->read_private( Event_Framework::instance(), 'curl_multi' );
 		$this->assertInstanceOf( \CurlMultiHandle::class, $multi );
 
 		// Drop the handle and step past the backoff window so a second connect runs.
@@ -143,7 +144,7 @@ class SseInCoverageTest extends TestCase {
 		Core::$now = 2000.0;
 		$this->connect( $node );
 
-		$this->assertSame( $multi, $this->read_private( $node, 'multi' ) );
+		$this->assertSame( $multi, $this->read_private( Event_Framework::instance(), 'curl_multi' ) );
 	}
 
 	// ----- on_curl_data -----
@@ -155,8 +156,6 @@ class SseInCoverageTest extends TestCase {
 
 		$this->assertSame( 3, $node->on_curl_data( $foreign, 'abc' ) );
 		$this->assertCount( 0, $sink->captured );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_close
-		\curl_close( $foreign );
 	}
 
 	public function test_on_curl_data_zero_length_returns_zero(): void {
@@ -327,21 +326,22 @@ class SseInCoverageTest extends TestCase {
 
 	// ----- teardown -----
 
-	public function test_remove_node_closes_multi_and_drops_handle(): void {
+	public function test_remove_node_unregisters_handle_and_drops_it(): void {
+		Event_Framework::reset();
 		[ $node ] = $this->configured_node();
 		$this->connect( $node );
-		$this->assertInstanceOf( \CurlMultiHandle::class, $this->read_private( $node, 'multi' ) );
+		$this->assertArrayHasKey( \spl_object_id( $node ), Event_Framework::instance()->curl_handles() );
 
 		$node->remove_node();
 
-		$this->assertNull( $this->read_private( $node, 'multi' ) );
+		$this->assertSame( [], Event_Framework::instance()->curl_handles() );
 		$this->assertNull( $node->test_get_handle() );
 	}
 
-	public function test_remove_node_without_multi_does_not_throw(): void {
+	public function test_remove_node_without_a_connection_does_not_throw(): void {
 		[ $node ] = $this->configured_node();
 		$node->remove_node();
-		$this->assertNull( $this->read_private( $node, 'multi' ) );
+		$this->assertNull( $node->test_get_handle() );
 	}
 
 	public function test_disconnect_detaches_active_handle(): void {

@@ -32,11 +32,12 @@ class HTTP_Out_Node extends Timer_Node {
 
 	/**
 	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
-	 * handle, applies $opts via curl_setopt_array, and adds it to the multi.
-	 * Tests reassign to capture $opts without transferring — so the envelope-build,
-	 * auth-header assembly, and SSL/timeout opts run as real production code.
+	 * handle and applies $opts via curl_setopt_array (the Event_Framework owns the
+	 * shared multi + the add). Tests reassign to capture $opts without transferring —
+	 * so the envelope-build, auth-header assembly, and SSL/timeout opts run as real
+	 * production code.
 	 *
-	 * Signature: `function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle|false`.
+	 * Signature: `function ( array $opts ): \CurlHandle|false`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -62,9 +63,6 @@ class HTTP_Out_Node extends Timer_Node {
 
 	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
 	protected array $inflight = [];
-
-	/** @var \CurlMultiHandle|null Owned multi handle; created + registered lazily on first fill(). */
-	protected ?\CurlMultiHandle $multi = null;
 
 	/** Vault id whose url + credentials this node POSTs to. */
 	protected string $vault_id = '';
@@ -103,7 +101,7 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * One-shot flush: resolve the spoke from the Vault once, join the buffered
 	 * envelopes into one JSONL body, assemble auth + SSL opts, and enqueue a single
-	 * POST on the owned multi via the dispatch seam. Non-blocking: the transfer is
+	 * POST on the shared multi via the dispatch seam. Non-blocking: the transfer is
 	 * driven by the Event_Framework drain, never here.
 	 *
 	 * Public (widens Timer_Node's protected fire()) so the EF can invoke the flush
@@ -165,47 +163,29 @@ class HTTP_Out_Node extends Timer_Node {
 			\CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
 		];
 
-		$multi    = $this->ensure_multi();
-		$dispatch = self::$curl_dispatch ?? static function ( \CurlMultiHandle $m, array $o ): \CurlHandle|false {
-			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init, WordPress.WP.AlternativeFunctions.curl_curl_setopt_array, WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
+		$dispatch = self::$curl_dispatch ?? static function ( array $o ): \CurlHandle|false {
+			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init, WordPress.WP.AlternativeFunctions.curl_curl_setopt_array
 			$ch = \curl_init();
 			if ( false === $ch ) {
 				return false;
 			}
 			\curl_setopt_array( $ch, $o );
-			\curl_multi_add_handle( $m, $ch );
 			return $ch;
 			// phpcs:enable
 		};
 
-		$easy = $dispatch( $multi, $opts );
+		$easy = $dispatch( $opts );
 		if ( ! $easy instanceof \CurlHandle ) {
 			$this->print_less_often( "curl_init failed" );
 			return;
 		}
-		// Register on the idle->active edge; idle multi spins the loop.
-		$was_idle = [] === $this->inflight;
 		// Hold handle to avoid GC; freed ids get reused and collide keys.
 		$this->inflight[ \spl_object_id( $easy ) ] = [
 			'handle'   => $easy,
 			'vault_id' => $this->vault_id,
 			'url'      => $url,
 		];
-		if ( $was_idle ) {
-			Event_Framework::instance()->register_curl_handle( $this, $multi );
-		}
-	}
-
-	/** Owned multi handle, created lazily. Registration with the drain loop is
-	 * on-demand (only while a transfer is in flight) — see fill() / on_curl_message(). */
-	protected function ensure_multi(): \CurlMultiHandle {
-		if ( null !== $this->multi ) {
-			return $this->multi;
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_init
-		$multi       = \curl_multi_init();
-		$this->multi = $multi;
-		return $multi;
+		Event_Framework::instance()->register_curl_easy( $this, $easy );
 	}
 
 	/**
@@ -262,10 +242,6 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$this->detach( $easy );
 		unset( $this->inflight[ $id ] );
-		// Last transfer done -> idle: unregister so the loop won't spin.
-		if ( [] === $this->inflight ) {
-			Event_Framework::instance()->unregister_curl_handle( $this );
-		}
 	}
 
 	/**
@@ -295,9 +271,8 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Teardown: detach every in-flight easy handle (removed from the multi before
-	 * it closes), then unregister from the Event_Framework and close the multi.
-	 * Unregister BEFORE closing the multi (mirrors Remote_Source_Node::remove_node).
+	 * Teardown: detach every in-flight easy handle (unregistered from the shared
+	 * multi before it closes), then drop the pending batch.
 	 * @api Used by substrate.
 	 */
 	public function remove_node(): void {
@@ -306,25 +281,14 @@ class HTTP_Out_Node extends Timer_Node {
 			$this->detach( $context['handle'] );
 			unset( $this->inflight[ $id ] );
 		}
-		$multi = $this->multi;
-		if ( null !== $multi ) {
-			Event_Framework::instance()->unregister_curl_handle( $this );
-			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_close
-			@\curl_multi_close( $multi );
-			// phpcs:enable
-			$this->multi = null;
-		}
 		parent::remove_node();
 	}
 
-	/** Remove an easy handle from the multi + close it. Idempotent (order: remove before close). */
+	/** Unregister an easy handle from the shared multi + close it. Idempotent. */
 	protected function detach( \CurlHandle $easy ): void {
-		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_remove_handle, WordPress.WP.AlternativeFunctions.curl_curl_close
-		if ( null !== $this->multi ) {
-			@\curl_multi_remove_handle( $this->multi, $easy );
-		}
+		Event_Framework::instance()->unregister_curl_easy( $easy );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_close
 		@\curl_close( $easy );
-		// phpcs:enable
 	}
 
 	/** @api Resolved by make_node; consumed by topology wiring + later slices. */

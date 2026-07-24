@@ -21,11 +21,28 @@ class Event_Framework {
 
 	private static ?self $instance = null;
 
+	/**
+	 * curl-multi poll seam. Lazily-defaulted to the real curl_multi_exec + drain of
+	 * curl_multi_info_read. Tests reassign to feed synthetic CURLMSG_DONE infos so the
+	 * owner-routing runs as production code without a network transfer.
+	 *
+	 * Signature: `function ( \CurlMultiHandle $multi ): array<int,array<string,mixed>>`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $curl_poll = null;
+
 	/** The drain's continue-predicate, parked for pump() to re-run from inside a long job. Null outside a drain. */
 	private ?\Closure $continue_predicate = null;
 
-	/** @var array<int,array{node:Node,multi:\CurlMultiHandle,counter:int}> */
-	private array $curl_handles = [];
+	/** One shared multi handle for every registered easy handle; lazily created on first register. */
+	private ?\CurlMultiHandle $curl_multi = null;
+
+	/** @var array<int,Node> Owning node keyed by spl_object_id of the easy handle. */
+	private array $curl_owners = [];
+
+	/** @var array<int,int> Per-node completion counter keyed by spl_object_id of the node (list_handles introspection). */
+	private array $curl_counts = [];
 
 	/** True while inside `drain()`; lets callers detect "am I inside a worker event loop?" (false in web-request contexts). */
 	private bool $draining = false;
@@ -74,12 +91,10 @@ class Event_Framework {
 
 			$timeout_us = $this->next_timer_timeout_us();
 
-			// 1 blocking call/iteration: cURL handles, or usleep to timer.
-			if ( ! empty( $this->curl_handles ) ) {
-				foreach ( $this->curl_handles as $entry ) {
-					// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_select
-					\curl_multi_select( $entry['multi'], $timeout_us / 1_000_000.0 );
-				}
+			// 1 blocking call/iteration: the shared multi, or usleep to timer.
+			if ( ! empty( $this->curl_owners ) && null !== $this->curl_multi ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_select
+				\curl_multi_select( $this->curl_multi, $timeout_us / 1_000_000.0 );
 				$this->drain_curl_multi();
 			} elseif ( $timeout_us > 0 ) {
 				\usleep( $timeout_us );
@@ -120,20 +135,48 @@ class Event_Framework {
 	}
 
 	private function drain_curl_multi(): void {
+		if ( null === $this->curl_multi ) {
+			return;
+		}
 		// Raw cURL: wp_remote_get is one-shot; SSE pulls need curl_multi_*.
-		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_exec, WordPress.WP.AlternativeFunctions.curl_curl_multi_info_read
-		foreach ( $this->curl_handles as &$entry ) {
+		$poll = self::$curl_poll ?? static function ( \CurlMultiHandle $multi ): array {
+			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_exec, WordPress.WP.AlternativeFunctions.curl_curl_multi_info_read
 			$still_running = 0;
-			\curl_multi_exec( $entry['multi'], $still_running );
-			while ( $info = \curl_multi_info_read( $entry['multi'] ) ) {
-				if ( \method_exists( $entry['node'], 'on_curl_message' ) ) {
-					++$entry['counter']; // @longform ref writes the live entry; on_curl_message may unregister it after
-					$entry['node']->on_curl_message( $info );
-				}
+			\curl_multi_exec( $multi, $still_running );
+			$infos = [];
+			while ( $info = \curl_multi_info_read( $multi ) ) {
+				$infos[] = $info;
+			}
+			return $infos;
+			// phpcs:enable
+		};
+		$infos = $poll( $this->curl_multi );
+		if ( ! \is_array( $infos ) ) {
+			return;
+		}
+		foreach ( $infos as $info ) {
+			if ( \is_array( $info ) ) {
+				$this->dispatch_curl_info( $info );
 			}
 		}
-		unset( $entry );
-		// phpcs:enable
+	}
+
+	/**
+	 * Route one completion to its owning node (looked up by the easy handle) and tally it.
+	 *
+	 * @param array<mixed,mixed> $info
+	 */
+	private function dispatch_curl_info( array $info ): void {
+		$handle = $info['handle'] ?? null;
+		if ( ! ( $handle instanceof \CurlHandle ) ) {
+			return;
+		}
+		$node = $this->curl_owners[ \spl_object_id( $handle ) ] ?? null;
+		if ( null === $node || ! \method_exists( $node, 'on_curl_message' ) ) {
+			return;
+		}
+		++$this->curl_counts[ \spl_object_id( $node ) ]; // on_curl_message may unregister the handle after
+		$node->on_curl_message( $info );
 	}
 
 	public function is_running(): bool {
@@ -196,23 +239,63 @@ class Event_Framework {
 		unset( $this->timers[ \spl_object_id( $node ) ] );
 	}
 
-	/** @api Support for SSE streams. */
-	public function register_curl_handle( Node $node, \CurlMultiHandle $multi ): void {
-		$this->curl_handles[ \spl_object_id( $node ) ] = [ 'node' => $node, 'multi' => $multi, 'counter' => 0 ];
-	}
-
-	/** @api Support for SSE streams. */
-	public function unregister_curl_handle( Node $node ): void {
-		unset( $this->curl_handles[ \spl_object_id( $node ) ] );
+	/** Lazily create the one shared multi handle every easy handle attaches to. */
+	private function ensure_curl_multi(): \CurlMultiHandle {
+		if ( null === $this->curl_multi ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_init
+			$this->curl_multi = \curl_multi_init();
+		}
+		return $this->curl_multi;
 	}
 
 	/**
-	 * Registered curl handles, keyed by spl_object_id. Introspection for `list_handles`.
+	 * Add an easy handle to the shared multi and record its owner. The next drain
+	 * tick services it and routes its completion back to $node->on_curl_message().
 	 *
-	 * @return array<int, array{node: Node, multi: \CurlMultiHandle, counter: int}>
+	 * @api Support for SSE streams + outbound HTTP.
+	 */
+	public function register_curl_easy( Node $node, \CurlHandle $easy ): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
+		\curl_multi_add_handle( $this->ensure_curl_multi(), $easy );
+		$this->curl_owners[ \spl_object_id( $easy ) ] = $node;
+		$this->curl_counts[ \spl_object_id( $node ) ] ??= 0;
+	}
+
+	/**
+	 * Remove an easy handle from the shared multi and drop its owner. Idempotent.
+	 * Clears the per-node counter once that node has no more registered handles.
+	 *
+	 * @api Support for SSE streams + outbound HTTP.
+	 */
+	public function unregister_curl_easy( \CurlHandle $easy ): void {
+		$id   = \spl_object_id( $easy );
+		$node = $this->curl_owners[ $id ] ?? null;
+		if ( null === $node ) {
+			return;
+		}
+		if ( null !== $this->curl_multi ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_remove_handle
+			\curl_multi_remove_handle( $this->curl_multi, $easy );
+		}
+		unset( $this->curl_owners[ $id ] );
+		if ( ! \in_array( $node, $this->curl_owners, true ) ) {
+			unset( $this->curl_counts[ \spl_object_id( $node ) ] );
+		}
+	}
+
+	/**
+	 * Per-node cURL summary keyed by node spl_object_id. Introspection for `list_handles`
+	 * — one row per node with a registered easy handle, carrying its completion counter.
+	 *
+	 * @return array<int, array{node: Node, counter: int}>
 	 */
 	public function curl_handles(): array {
-		return $this->curl_handles;
+		$rows = [];
+		foreach ( $this->curl_owners as $node ) {
+			$nid = \spl_object_id( $node );
+			$rows[ $nid ] ??= [ 'node' => $node, 'counter' => $this->curl_counts[ $nid ] ?? 0 ];
+		}
+		return $rows;
 	}
 
 	public function install_signal_handlers(): void {

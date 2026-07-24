@@ -3,14 +3,14 @@
  * SSE_In: generic inbound SSE pull. A passive, hidden, programmatically-configured
  * source node.
  *
- * It owns one cURL multi handle (registered with the Event_Framework), one easy
- * handle (the SSE GET), one in-memory `{segment, offset}` cursor, and one SSE
- * connection's worth of parser state. It is a *source*: `fill()` is a no-op
- * (it doesn't receive messages); it parses Messages off the SSE feed and forwards
- * them to its sink with TO=target.
+ * It owns one easy handle (the SSE GET) registered on the Event_Framework's shared
+ * cURL multi, one in-memory `{segment, offset}` cursor, and one SSE connection's
+ * worth of parser state. It is a *source*: `fill()` is a no-op (it doesn't receive
+ * messages); it parses Messages off the SSE feed and forwards them to its sink with
+ * TO=target.
  *
  * It is passive: it owns NO timer. Inbound bytes flow via the Event_Framework's
- * cURL polling (`register_curl_handle` + `on_curl_message`, like HTTP_Out).
+ * cURL polling (`register_curl_easy` + `on_curl_message`, like HTTP_Out).
  * Connect / reconnect / stale are driven by a *patron* calling `maybe_connect()`
  * and `check_stale()`. The patron owns durable position persistence and any status
  * memcache write — SSE_In keeps only the in-memory cursor + connection state.
@@ -27,10 +27,6 @@ namespace Newspack_Nodes;
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_close
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_error
-// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_init
-// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
-// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_remove_handle
-// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_close
 // cURL is required for SSE multiplexing — wp_remote_get() can't do it.
 
 class SSE_In_Node extends Node {
@@ -49,11 +45,12 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
-	 * handle, applies $opts via curl_setopt_array, and adds it to the multi.
-	 * Tests reassign to capture $opts without transferring — so the URL build,
-	 * auth-header assembly, and SSL/timeout opts run as real production code.
+	 * handle and applies $opts via curl_setopt_array (the Event_Framework owns the
+	 * shared multi + the add). Tests reassign to capture $opts without transferring —
+	 * so the URL build, auth-header assembly, and SSL/timeout opts run as real
+	 * production code.
 	 *
-	 * Signature: `function ( \CurlMultiHandle $multi, array $opts ): \CurlHandle|false`.
+	 * Signature: `function ( array $opts ): \CurlHandle|false`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -82,7 +79,7 @@ class SSE_In_Node extends Node {
 	/** @var array{event:string, data:string} Current SSE event accumulator. */
 	private array  $current_event       = [ 'event' => '', 'data' => '' ];
 
-	/** Active easy handle when connected, null otherwise. */
+	/** Active easy handle when connected, null otherwise. Registered on the Event_Framework's shared multi. */
 	private ?\CurlHandle $handle        = null;
 	private float   $last_attempt       = 0.0;
 	private ?string $last_error         = null;
@@ -90,8 +87,6 @@ class SSE_In_Node extends Node {
 	private ?int    $last_http_code     = null;
 	private ?int    $last_sse_heartbeat = null;
 
-	/** Owned multi handle, registered with the Event_Framework. */
-	private ?\CurlMultiHandle $multi    = null;
 	/** @var array{segment:int, offset:int} Read cursor. */
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
 	private bool  $require_ssl          = false;
@@ -142,8 +137,6 @@ class SSE_In_Node extends Node {
 			return false;
 		}
 
-		$multi = $this->ensure_multi();
-
 		$endpoint = $this->url . '/wp-json/newspack-nodes/v1/messages/stream';
 		$params   = [
 			'subscribe' => $this->subscribe,
@@ -187,23 +180,18 @@ class SSE_In_Node extends Node {
 			},
 		];
 
-		$dispatch = self::$curl_dispatch ?? static function ( \CurlMultiHandle $m, array $o ): \CurlHandle|false {
+		$dispatch = self::$curl_dispatch ?? static function ( array $o ): \CurlHandle|false {
 			$ch = \curl_init();
 			if ( false === $ch ) {
 				return false;
 			}
 			\curl_setopt_array( $ch, $o );
-			$result = \curl_multi_add_handle( $m, $ch );
-			if ( 0 !== $result ) {
-				\curl_close( $ch );
-				return false;
-			}
 			return $ch;
 		};
 
-		$ch = $dispatch( $multi, $opts );
+		$ch = $dispatch( $opts );
 		if ( ! $ch instanceof \CurlHandle ) {
-			$this->last_error = 'curl_init / multi_add failed';
+			$this->last_error = 'curl_init failed';
 			$this->increase_backoff();
 			$this->set_state( 'DISCONNECTED', $this->last_error ?? '' );
 			return false;
@@ -220,25 +208,10 @@ class SSE_In_Node extends Node {
 		$this->handle             = $ch;
 		$this->last_attempt       = $now;
 		$this->slot               = null;
-		// Register each connect: reused multi won't self-register on reconnect.
-		Event_Framework::instance()->register_curl_handle( $this, $multi );
+		Event_Framework::instance()->register_curl_easy( $this, $ch );
 		// Opened; awaiting 'connected' handshake (CONNECTED replaces this).
 		$this->set_state( 'CONNECTING', $this->subscribe );
 		return true;
-	}
-
-	// --- cURL lifecycle ---
-
-	/** Ensure the owned multi handle exists. Registration with the drain loop is
-	 * per-connection (maybe_connect), NOT here — a reused multi across reconnect must
-	 * re-register or the reconnected stream is never serviced. Idempotent. */
-	private function ensure_multi(): \CurlMultiHandle {
-		if ( null !== $this->multi ) {
-			return $this->multi;
-		}
-		$multi       = \curl_multi_init();
-		$this->multi = $multi;
-		return $multi;
 	}
 
 	// --- Event_Framework callbacks (cURL multi) ---
@@ -268,7 +241,7 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Called by Event_Framework when curl_multi_info_read returns CURLMSG_DONE for
-	 * this node's multi. Reconnect/backoff on completion.
+	 * this node's easy handle. Reconnect/backoff on completion.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param array{msg?:int, handle?:\CurlHandle, result?:int} $info
@@ -279,11 +252,9 @@ class SSE_In_Node extends Node {
 		}
 		$handle = $info['handle'] ?? null;
 		if ( ! ( $handle instanceof \CurlHandle ) || $handle !== $this->handle ) {
-			// Stale or foreign handle — best-effort cleanup.
+			// Stale handle — best-effort cleanup off the shared multi.
 			if ( $handle instanceof \CurlHandle ) {
-				if ( null !== $this->multi ) {
-					@\curl_multi_remove_handle( $this->multi, $handle );
-				}
+				Event_Framework::instance()->unregister_curl_easy( $handle );
 				@\curl_close( $handle );
 			}
 			return;
@@ -489,19 +460,12 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Teardown: disconnect, then unregister from the Event_Framework + close the
-	 * multi. Unregister BEFORE closing (mirrors HTTP_Out_Node::remove_node).
+	 * Teardown: disconnect (unregisters the easy handle off the shared multi + closes it).
 	 *
 	 * @api Dynamic entrypoint.
 	 */
 	public function remove_node(): void {
 		$this->disconnect();
-		$multi = $this->multi;
-		if ( null !== $multi ) {
-			Event_Framework::instance()->unregister_curl_handle( $this );
-			@\curl_multi_close( $multi );
-			$this->multi = null;
-		}
 		parent::remove_node();
 	}
 
@@ -515,48 +479,47 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Detach the active handle from the multi + close it. Idempotent.
-	 * Order matters: curl_multi_remove_handle() MUST run before curl_close().
+	 * Detach the active handle: unregister it off the shared multi (so the drain
+	 * loop won't spin on a dead fd), then close it. Idempotent.
 	 */
 	private function detach_handle(): void {
 		$handle = $this->handle;
 		if ( ! ( $handle instanceof \CurlHandle ) ) {
 			return;
 		}
-		if ( null !== $this->multi ) {
-			@\curl_multi_remove_handle( $this->multi, $handle );
-			// Unregister so the drain loop won't spin on a fd-less multi.
-			Event_Framework::instance()->unregister_curl_handle( $this );
-		}
+		Event_Framework::instance()->unregister_curl_easy( $handle );
 		@\curl_close( $handle );
 		$this->handle    = null;
 		$this->connected = false;
 	}
 
 	/**
-	 * Backpressure valve — ARM: (re-)register the owned multi with the event loop so its
-	 * socket is serviced again. No-op until connected (no multi yet). The dual of disarm();
-	 * a buffering owner (Remote_Source) calls this when its buffer runs dry of complete lines.
+	 * Backpressure valve — ARM: re-add the easy handle to the shared multi so its socket
+	 * is serviced again, resuming the paused transfer. No-op until connected (no handle yet).
+	 * The dual of disarm(); a buffering owner (Remote_Source) calls this when its buffer runs
+	 * dry of complete lines.
 	 *
 	 * @api Support for the Remote_Source Buffered_Pump valve.
 	 */
 	public function arm(): void {
 		// Only register with a live handle; arming while disconnected respins.
-		if ( null !== $this->multi && $this->handle instanceof \CurlHandle ) {
-			Event_Framework::instance()->register_curl_handle( $this, $this->multi );
+		if ( $this->handle instanceof \CurlHandle ) {
+			Event_Framework::instance()->register_curl_easy( $this, $this->handle );
 		}
 	}
 
 	/**
-	 * Backpressure valve — DISARM: unregister from the event loop. The socket stops being
-	 * serviced (a pure select-set toggle — the easy handle stays open), so the kernel recv
-	 * buffer fills, the TCP window closes, and the remote SSE server blocks on write. Real
-	 * end-to-end backpressure. A buffering owner calls this once its buffer holds a line.
+	 * Backpressure valve — DISARM: remove the easy handle from the shared multi. libcurl
+	 * stops reading it (the handle stays open), so the kernel recv buffer fills, the TCP
+	 * window closes, and the remote SSE server blocks on write. Real end-to-end backpressure.
+	 * A buffering owner calls this once its buffer holds a line.
 	 *
 	 * @api Support for the Remote_Source Buffered_Pump valve.
 	 */
 	public function disarm(): void {
-		Event_Framework::instance()->unregister_curl_handle( $this );
+		if ( $this->handle instanceof \CurlHandle ) {
+			Event_Framework::instance()->unregister_curl_easy( $this->handle );
+		}
 	}
 
 	/**

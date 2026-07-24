@@ -80,7 +80,7 @@ class EventFrameworkTest extends TestCase {
 		$this->assertSame( 1, $timer_node->fired, 'Oneshot fires exactly once' );
 	}
 
-	public function test_register_curl_handle_tracks_node_for_multi_dispatch(): void {
+	public function test_register_curl_easy_tracks_node_for_multi_dispatch(): void {
 		$ef = Event_Framework::instance();
 
 		$node = new class extends \Newspack_Nodes\Node {
@@ -88,29 +88,72 @@ class EventFrameworkTest extends TestCase {
 			public function on_curl_message( array $info ): void { ++$this->curl_events; }
 		};
 
-		$mh = \curl_multi_init();
-		$ef->register_curl_handle( $node, $mh );
+		$easy = \curl_init();
+		$ef->register_curl_easy( $node, $easy );
 
 		$ef->drain( $this->boundedTicks( 1 ) );
 
-		$this->assertTrue( true, 'drain with empty curl multi handle did not crash' );
+		$this->assertTrue( true, 'drain with an idle easy handle did not crash' );
 
-		\curl_multi_close( $mh );
+		$ef->unregister_curl_easy( $easy );
 	}
 
-	public function test_unregister_curl_handle_removes_registered_handle(): void {
+	public function test_unregister_curl_easy_removes_registered_handle(): void {
 		$ef = Event_Framework::instance();
 
 		$node = new class extends \Newspack_Nodes\Node {};
-		$mh   = \curl_multi_init();
-		$ef->register_curl_handle( $node, $mh );
+		$easy = \curl_init();
+		$ef->register_curl_easy( $node, $easy );
 
-		$ef->unregister_curl_handle( $node );
+		$ef->unregister_curl_easy( $easy );
 
-		$handles = $this->read_private( $ef, 'curl_handles' );
-		$this->assertSame( [], $handles );
+		$this->assertSame( [], $this->read_private( $ef, 'curl_owners' ) );
+		$this->assertSame( [], $ef->curl_handles() );
 
-		\curl_multi_close( $mh );
+	}
+
+	public function test_drain_dispatches_curl_completions_to_the_owning_node(): void {
+		// The shared-multi contract: two nodes' easy handles are registered on ONE
+		// multi; a single drain tick must route each completion to the handle's owner,
+		// keyed by the easy handle — never by registration order.
+		$ef = Event_Framework::instance();
+
+		$recorder = static function (): object {
+			return new class extends \Newspack_Nodes\Node {
+				public ?\CurlHandle $seen = null;
+				public function on_curl_message( array $info ): void {
+					$this->seen = $info['handle'] ?? null;
+				}
+			};
+		};
+		$node_a = $recorder();
+		$node_b = $recorder();
+
+		$easy_a = \curl_init();
+		$easy_b = \curl_init();
+		$ef->register_curl_easy( $node_a, $easy_a );
+		$ef->register_curl_easy( $node_b, $easy_b );
+
+		// Shuffle the completion order to prove routing is by handle, not order.
+		Event_Framework::$curl_poll = static function ( \CurlMultiHandle $m ) use ( $easy_a, $easy_b ): array {
+			return [
+				[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_b, 'result' => \CURLE_OK ],
+				[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_a, 'result' => \CURLE_OK ],
+			];
+		};
+
+		$ticks = 0;
+		$ef->drain( function () use ( &$ticks ): bool {
+			Core::$now = \microtime( true );
+			return 0 === $ticks++;
+		} );
+
+		$this->assertSame( $easy_a, $node_a->seen, 'node A got its own handle back' );
+		$this->assertSame( $easy_b, $node_b->seen, 'node B got its own handle back' );
+
+		Event_Framework::$curl_poll = null;
+		$ef->unregister_curl_easy( $easy_a );
+		$ef->unregister_curl_easy( $easy_b );
 	}
 
 	public function test_drain_exits_when_shutting_down_flag_is_set(): void {
@@ -145,18 +188,18 @@ class EventFrameworkTest extends TestCase {
 		$curl_node = new class extends \Newspack_Nodes\Node {
 			public function on_curl_message( array $info ): void {}
 		};
-		$mh = \curl_multi_init();
-		$ef->register_curl_handle( $curl_node, $mh );
+		$easy = \curl_init();
+		$ef->register_curl_easy( $curl_node, $easy );
 
 		$start = \microtime( true );
 		$ef->drain( $this->boundedTicks( 1 ) );
 		$elapsed = \microtime( true ) - $start;
 
-		// curl_multi_select with empty multi handle returns near-immediately;
+		// curl_multi_select with an idle handle returns near-immediately;
 		// allow generous slack since we only run one iteration.
 		$this->assertLessThan( 1.0, $elapsed );
 
-		\curl_multi_close( $mh );
+		$ef->unregister_curl_easy( $easy );
 	}
 
 	// --- pump(): test helpers + in-job cooperative heartbeat ----------------

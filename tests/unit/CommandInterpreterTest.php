@@ -174,8 +174,8 @@ class CommandInterpreterTest extends TestCase {
 		Event_Framework::reset();
 		$node = new Echo_Node();
 		$node->name( 'sse0' );
-		$mh = \curl_multi_init();
-		Event_Framework::instance()->register_curl_handle( $node, $mh );
+		$easy = \curl_init();
+		Event_Framework::instance()->register_curl_easy( $node, $easy );
 
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_handles' );
 
@@ -196,8 +196,8 @@ class CommandInterpreterTest extends TestCase {
 
 		$sse = new Echo_Node();
 		$sse->name( 'sse0' );
-		$mh  = \curl_multi_init();
-		Event_Framework::instance()->register_curl_handle( $sse, $mh );
+		$easy = \curl_init();
+		Event_Framework::instance()->register_curl_easy( $sse, $easy );
 
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'runtime_stats' );
 
@@ -233,7 +233,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertArrayHasKey( 'profiles_total', $out );
 		$this->assertNull( $out['profiles'], 'profiles is null while profiling is disabled' );
 		$this->assertNull( $out['profiles_total'], 'profiles_total is null while profiling is disabled' );
-		\curl_multi_close( $mh );
+		Event_Framework::instance()->unregister_curl_easy( $easy );
 	}
 
 	public function test_runtime_stats_joins_router_profiles_when_profiling_is_enabled(): void {

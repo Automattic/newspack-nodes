@@ -15,7 +15,7 @@ class HttpOutTest extends TestCase {
 
 	/** Install a $curl_dispatch seam that records the opts and returns a real idle handle (never executed). */
 	private function capture_dispatch( array &$captured ): void {
-		HTTP_Out_Node::$curl_dispatch = function ( \CurlMultiHandle $multi, array $opts ) use ( &$captured ): \CurlHandle {
+		HTTP_Out_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init(); // idle handle as an opaque token; never transferred.
@@ -159,7 +159,7 @@ class HttpOutTest extends TestCase {
 		$node = $this->make_node( 'austin' );
 		$node->fire();
 		$this->assertCount( 0, $captured );
-		$this->assertNull( $this->read_private( $node, 'multi' ) ); // never created the multi
+		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) ); // nothing registered
 	}
 
 	public function test_fire_clears_armed_flag_for_next_cycle(): void {
@@ -234,7 +234,7 @@ class HttpOutTest extends TestCase {
 		$node->fill( $msg );
 		$node->fire();
 		$this->assertCount( 0, $captured ); // dropped, no throw
-		$this->assertNull( $this->read_private( $node, 'multi' ) ); // never created the multi
+		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) ); // nothing registered
 	}
 
 	public function test_fire_drops_when_url_empty(): void {
@@ -260,7 +260,8 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 2, $captured[0][ \CURLOPT_SSL_VERIFYHOST ] );
 	}
 
-	public function test_fire_lazily_creates_and_reuses_one_multi(): void {
+	public function test_fire_registers_each_easy_under_one_node_entry(): void {
+		Event_Framework::reset();
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
@@ -268,14 +269,13 @@ class HttpOutTest extends TestCase {
 		$first = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $first );
 		$node->fire();
-		$multi = $this->read_private( $node, 'multi' );
-		$this->assertInstanceOf( \CurlMultiHandle::class, $multi );
-		// A second batch reuses the same multi and adds one more in-flight handle.
+		$this->assertArrayHasKey( \spl_object_id( $node ), Event_Framework::instance()->curl_handles() );
+		// A second batch adds one more in-flight handle under the same node entry.
 		$second = $this->command_message( 'settings', 'update', 'k=w' );
 		$node->fill( $second );
 		$node->fire();
-		$this->assertSame( $multi, $this->read_private( $node, 'multi' ) ); // idempotent
-		$this->assertCount( 2, $this->read_private( $node, 'inflight' ) );  // two in-flight
+		$this->assertCount( 1, Event_Framework::instance()->curl_handles() ); // one node row
+		$this->assertCount( 2, $this->read_private( $node, 'inflight' ) );     // two in-flight
 	}
 
 	public function test_arguments_round_trip_via_dump_config(): void {
@@ -410,16 +410,18 @@ class HttpOutTest extends TestCase {
 	}
 
 	public function test_constructor_does_no_io(): void {
-		// Constructing must not create a curl-multi (ADR-5: no event-loop work in ctor).
+		// Constructing must register nothing on the shared multi (ADR-5: no event-loop work in ctor).
+		Event_Framework::reset();
 		$node = new HTTP_Out_Node();
-		$this->assertNull( $this->read_private( $node, 'multi' ) );
+		$this->assertNull( $this->read_private( Event_Framework::instance(), 'curl_multi' ) );
+		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
 	}
 
 	/** Drive a node to one in-flight handle, then return [node, easy-handle]. */
 	private function node_with_one_inflight(): array {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$easies = [];
-		HTTP_Out_Node::$curl_dispatch = function ( \CurlMultiHandle $m, array $o ) use ( &$easies ): \CurlHandle {
+		HTTP_Out_Node::$curl_dispatch = function ( array $o ) use ( &$easies ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			$ch       = \curl_init();
 			$easies[] = $ch;
@@ -503,7 +505,8 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
 	}
 
-	public function test_remove_node_unregisters_and_closes_multi(): void {
+	public function test_remove_node_unregisters_inflight_handles(): void {
+		Event_Framework::reset();
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
@@ -511,10 +514,10 @@ class HttpOutTest extends TestCase {
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
 		$node->fire();
-		$this->assertInstanceOf( \CurlMultiHandle::class, $this->read_private( $node, 'multi' ) );
+		$this->assertArrayHasKey( \spl_object_id( $node ), Event_Framework::instance()->curl_handles() );
 
 		$node->remove_node();
-		$this->assertNull( $this->read_private( $node, 'multi' ) );
+		$this->assertSame( [], Event_Framework::instance()->curl_handles() );
 		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
 	}
 
@@ -537,9 +540,10 @@ class HttpOutTest extends TestCase {
 	}
 
 	public function test_fire_uses_real_libcurl_dispatch_when_no_seam_installed(): void {
-		// With no $curl_dispatch seam the default closure runs for real: curl_init,
-		// curl_setopt_array, curl_multi_add_handle. No transfer happens (the EF drain
-		// never runs in unit tests), so the handle just sits in-flight until teardown.
+		// With no $curl_dispatch seam the default closure runs for real: curl_init +
+		// curl_setopt_array (the EF adds it to the shared multi). No transfer happens
+		// (the EF drain never runs in unit tests), so the handle sits in-flight until teardown.
+		Event_Framework::reset();
 		HTTP_Out_Node::$curl_dispatch = null;
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$node = $this->make_node( 'austin' );
@@ -547,7 +551,7 @@ class HttpOutTest extends TestCase {
 		$node->fill( $msg );
 		$node->fire();
 
-		$this->assertInstanceOf( \CurlMultiHandle::class, $this->read_private( $node, 'multi' ) );
+		$this->assertArrayHasKey( \spl_object_id( $node ), Event_Framework::instance()->curl_handles() );
 		$this->assertCount( 1, $this->read_private( $node, 'inflight' ) );
 		$node->remove_node(); // detach + close the real handle (no network transfer occurred)
 	}
@@ -555,7 +559,7 @@ class HttpOutTest extends TestCase {
 	public function test_fire_logs_and_tracks_nothing_when_dispatch_returns_false(): void {
 		// A dispatch seam that fails to produce a CurlHandle is logged rate-limited;
 		// fire() returns without tracking an in-flight handle (and never throws).
-		HTTP_Out_Node::$curl_dispatch = static fn ( \CurlMultiHandle $m, array $o ): bool => false;
+		HTTP_Out_Node::$curl_dispatch = static fn ( array $o ): bool => false;
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'set', 'k v' );
