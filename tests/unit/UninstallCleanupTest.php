@@ -66,4 +66,93 @@ final class UninstallCleanupTest extends TestCase {
 		$this->assertSame( 0, \Newspack_Nodes\delete_prefixed_options( $this->wpdb(), 'newspack_nodes_' ) );
 		$this->assertSame( 'https://example.test', $GLOBALS['_wp_options']['siteurl'] );
 	}
+
+	// ── delete_runtime_tree: logs/locks/offsets/ipc/deadletters must not survive plugin deletion ──
+
+	/** Seed a realistic runtime tree under a fresh temp base; returns the base. */
+	private function seed_runtime_tree(): string {
+		$base = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-uninstall-' . \uniqid();
+		foreach ( [
+			'logs/firehose.p0',
+			'locks/combined.p0.lock.d',
+			'offsets/combined.firehose.p0',
+			'ipc/combined.p0/input',
+			'deadletter/logs.firehose.p0',
+		] as $dir ) {
+			\mkdir( "{$base}/{$dir}", 0755, true );
+			\file_put_contents( "{$base}/{$dir}/0.log", 'x' );
+		}
+		return $base;
+	}
+
+	public function test_delete_runtime_tree_removes_every_runtime_subtree(): void {
+		$base = $this->seed_runtime_tree();
+
+		\Newspack_Nodes\delete_runtime_tree( $base );
+
+		$this->assertDirectoryDoesNotExist( $base, 'the runtime tree must not survive plugin deletion' );
+	}
+
+	public function test_delete_runtime_tree_spares_operator_files_beside_the_runtime(): void {
+		// Deletion is scoped to the KNOWN runtime subtrees — a base dir shared
+		// with operator files loses only the runtime's own dirs.
+		$base = $this->seed_runtime_tree();
+		\file_put_contents( "{$base}/operator-notes.txt", 'keep me' );
+
+		\Newspack_Nodes\delete_runtime_tree( $base );
+
+		$this->assertDirectoryDoesNotExist( "{$base}/logs" );
+		$this->assertDirectoryDoesNotExist( "{$base}/ipc" );
+		$this->assertFileExists( "{$base}/operator-notes.txt" );
+		\unlink( "{$base}/operator-notes.txt" );
+		\rmdir( $base );
+	}
+
+	public function test_delete_runtime_tree_does_not_follow_a_symlink_out_of_the_base(): void {
+		$victim = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-victim-' . \uniqid();
+		\mkdir( $victim, 0755, true );
+		\file_put_contents( "{$victim}/precious.txt", 'survive' );
+		$base = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-uninstall-' . \uniqid();
+		\mkdir( $base, 0755, true );
+		\symlink( $victim, "{$base}/logs" );
+
+		\Newspack_Nodes\delete_runtime_tree( $base );
+
+		$this->assertFileExists( "{$victim}/precious.txt", 'a planted symlink must never reach outside the base' );
+		\unlink( "{$victim}/precious.txt" );
+		\rmdir( $victim );
+		@\unlink( "{$base}/logs" );
+		@\rmdir( $base );
+	}
+
+	public function test_uninstall_cleanup_removes_the_tree_at_the_option_configured_base(): void {
+		$base                   = $this->seed_runtime_tree();
+		$GLOBALS['_wp_options'] = [ 'newspack_nodes_base_directory' => $base ];
+		$GLOBALS['wpdb']        = $this->wpdb();
+		try {
+			\Newspack_Nodes\uninstall_cleanup( 'newspack_nodes_' );
+		} finally {
+			unset( $GLOBALS['wpdb'] );
+		}
+
+		$this->assertDirectoryDoesNotExist( $base );
+		$this->assertArrayNotHasKey( 'newspack_nodes_base_directory', $GLOBALS['_wp_options'] );
+	}
+
+	public function test_runtime_base_directory_prefers_the_option_then_the_config_file(): void {
+		$GLOBALS['_wp_options'] = [ 'newspack_nodes_base_directory' => '/custom/nodes-base' ];
+		$this->assertSame( '/custom/nodes-base', \Newspack_Nodes\runtime_base_directory() );
+
+		$GLOBALS['_wp_options'] = [];
+		$conf                   = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-conf-' . \uniqid() . '.php';
+		\file_put_contents( $conf, "<?php return [ 'base_directory' => '/from/config-file' ];\n" );
+		$prev = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		try {
+			$this->assertSame( '/from/config-file', \Newspack_Nodes\runtime_base_directory() );
+		} finally {
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev ? '' : $prev ) );
+			\unlink( $conf );
+		}
+	}
 }

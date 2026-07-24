@@ -40,7 +40,57 @@ function delete_prefixed_options( $wpdb, string $prefix ): int {
 }
 
 /**
- * Delete all prefixed options, iterating every site on multisite.
+ * Resolve the runtime base directory WITHOUT loading the Config machinery:
+ * the option overlay, else the LOCAL_NEWSPACK_NODES_CONF file, else the
+ * shipped `newspack-nodes-config.php` — the same three-layer precedence
+ * `Config::get_base_directory()` reads. '' when nothing resolves.
+ */
+function runtime_base_directory(): string {
+	$opt = \function_exists( 'get_option' ) ? \get_option( 'newspack_nodes_base_directory' ) : false;
+	if ( \is_string( $opt ) && '' !== $opt ) {
+		return $opt;
+	}
+	$local      = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+	$candidates = \is_string( $local ) && '' !== $local ? [ $local ] : [];
+	$candidates[] = \dirname( __DIR__ ) . '/newspack-nodes-config.php';
+	foreach ( $candidates as $file ) {
+		if ( ! \is_file( $file ) ) {
+			continue;
+		}
+		$cfg = require $file;
+		$dir = \is_array( $cfg ) ? ( $cfg['base_directory'] ?? null ) : null;
+		if ( \is_string( $dir ) && '' !== $dir ) {
+			return $dir;
+		}
+	}
+	return '';
+}
+
+/**
+ * Remove the runtime's on-disk state — logs, locks, offsets, IPC, deadletters,
+ * user topologies. Scoped to the KNOWN runtime subtrees (a base dir shared
+ * with operator files loses only ours), symlink-safe and containment-checked
+ * via `Supervisor_Base::delete_directory_recursive`. The base dir itself goes
+ * only when the runtime owned everything in it (rmdir refuses non-empty).
+ *
+ * @param string $base_dir Configured runtime base directory.
+ */
+function delete_runtime_tree( string $base_dir ): void {
+	$base_dir = \rtrim( $base_dir, '/' );
+	if ( '' === $base_dir || ! \is_dir( $base_dir ) ) {
+		return;
+	}
+	require_once __DIR__ . '/class-supervisor-base.php';
+	foreach ( [ 'logs', 'locks', 'offsets', 'ipc', 'deadletter', 'topologies' ] as $subdir ) {
+		Supervisor_Base::delete_directory_recursive( "{$base_dir}/{$subdir}", $base_dir );
+	}
+	// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir -- one-time uninstall of the runtime's own reserved dir.
+	@\rmdir( $base_dir );
+}
+
+/**
+ * Delete the runtime disk tree, then all prefixed options (every site on
+ * multisite). Tree first — its location is read from an option this deletes.
  *
  * @param string $prefix Option-name prefix.
  * @return void
@@ -48,6 +98,9 @@ function delete_prefixed_options( $wpdb, string $prefix ): int {
 function uninstall_cleanup( string $prefix ): void {
 	global $wpdb;
 	/** @var \wpdb $wpdb */
+
+	// The fleet is network-global; one tree regardless of multisite.
+	delete_runtime_tree( runtime_base_directory() );
 
 	if ( \is_multisite() ) {
 		foreach ( \get_sites( [ 'fields' => 'ids', 'number' => 0 ] ) as $site_id ) {
