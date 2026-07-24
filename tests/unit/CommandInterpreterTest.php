@@ -458,6 +458,25 @@ class CommandInterpreterTest extends TestCase {
 		\unlink( $real );
 	}
 
+	public function test_tabulate_is_public_and_column_aligns_rows(): void {
+		// Promoted private → public static so Log_Sources / Node_Schema_Help /
+		// Service_CI subclasses share the ONE renderer. Two rows whose left cell
+		// widths differ force real padding (distinct from a no-op single-width).
+		$out = Command_Interpreter_Node::tabulate(
+			[ 'left', 'left' ],
+			[ 'NAME', 'VALUE' ],
+			[
+				[ 'x', 'short' ],
+				[ 'longer-name', 'v' ],
+			]
+		);
+
+		$this->assertSame(
+			"NAME        VALUE\nx           short\nlonger-name v",
+			$out
+		);
+	}
+
 	public function test_interpret_refuses_command_without_local_provenance(): void {
 		$interpreter   = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
