@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **DevTools hub loads tab bundles on demand.** The Console, Vault, and
+  Aggregator tab bundles (~517KB of JS+CSS) are no longer enqueued up front
+  on the "Nodes" hub screen; each registers a lightweight placeholder carrying
+  its shared `tabMeta`, and its real bundle is injected on first tab
+  activation. Initial hub page weight drops from ~1206KB to ~688KB (42% less).
+  A `lazy` flag on a `newspack_nodes/devtools_tab_bundles` entry opts a
+  contributor bundle into the same on-demand path.
+
 ## [0.52.0] - 2026-07-24
 
 ### Added

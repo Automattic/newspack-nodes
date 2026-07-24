@@ -30,6 +30,12 @@
 		height: auto;
 		min-height: 0;
 	}
+
+	// Shown while a lazy tab's bundle loads on first activation.
+	.nodes-devtools__lazy-loading {
+		padding: 24px;
+		color: var(--ink-2);
+	}
 }
 
 // Hub buttons: stock WP under the Newspack skins; themed under the decorative
