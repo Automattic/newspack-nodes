@@ -282,8 +282,8 @@ class WorkersCITest extends TestCase {
 	public function test_dump_graph_log_catalog_equals_the_gc_declared_set(): void {
 		// The dashboard log catalog is sourced from the SAME declared set the GC
 		// sweeps against (Log_Cleaner::declared_log_dirs) — one source of truth — so
-		// an externally-written, GC-whitelisted log (topicprobe, settings.p0) that a
-		// topology only CONSUMES shows its segments instead of "No segments".
+		// an externally-written, GC-whitelisted log (settings.p0) that a topology
+		// only CONSUMES shows its segments instead of "No segments".
 		$base = $this->arrange_base_dir();
 		$this->declare_partitions( $base, 'demo-workers', [ 'firehose' ] );
 
@@ -299,8 +299,9 @@ class WorkersCITest extends TestCase {
 		foreach ( \Newspack_Nodes\Log_Cleaner::declared_log_dirs() as $declared ) {
 			$this->assertContains( $declared, $catalog, "declared log '{$declared}' missing from catalog" );
 		}
-		// The whitelisted non-.tsl logs (only CONSUMED by topologies) must resolve.
-		$this->assertContains( 'topicprobe.p0', $catalog );
+		// The whitelisted non-.tsl log (only CONSUMED by topologies) must resolve.
+		// topicprobe.p0 is TSL-declared now (the topic-probe include) and rides
+		// the declared-set loop above when a declaring topology is active.
 		$this->assertContains( 'settings.p0', $catalog );
 
 		\Newspack_Nodes\Topology_Registry::reset();
@@ -507,10 +508,10 @@ class WorkersCITest extends TestCase {
 
 		$this->assertSame( $logs, $result['logs_dir'] );
 		$this->assertSame( [ '0-req', '1-req', 'ghost' ], $result['on_disk_basenames'] );
-		// topicprobe.p0 + settings.p0 are expected substrate logs (written outside any
-		// .tsl, GC-whitelisted in Log_Cleaner::declared_log_dirs). jobstats.p0 is not
-		// whitelisted — it's TSL-declared by job-worker, which isn't active here.
-		$this->assertSame( [ '0-req', '1-req', 'settings.p0', 'topicprobe.p0' ], $result['expected_basenames'] );
+		// settings.p0 is the one remaining whitelisted substrate log. jobstats.p0
+		// and topicprobe.p0 are TSL-declared (job-worker / the topic-probe
+		// include), and neither declaring topology is active here.
+		$this->assertSame( [ '0-req', '1-req', 'settings.p0' ], $result['expected_basenames'] );
 		$this->assertSame( [ 'ghost' ], $result['orphans'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();
