@@ -11,6 +11,8 @@
 
 namespace Newspack_Nodes\Admin;
 
+use Newspack_Nodes\Capabilities;
+
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
@@ -489,7 +491,7 @@ class Admin {
 		\add_menu_page(
 			\__( 'Newspack Nodes', 'newspack-nodes' ),
 			\__( 'Nodes', 'newspack-nodes' ),
-			'manage_options',
+			Capabilities::cap_for( Capabilities::MANAGE ),
 			self::HUB_MENU_SLUG,
 			[ $this, 'render_hub_page' ],
 			'dashicons-networking',
@@ -512,7 +514,7 @@ class Admin {
 		if ( ! \function_exists( 'current_user_can' ) ) {
 			return true; // CLI / no user context — don't lock out CLI tools.
 		}
-		if ( ! \current_user_can( 'manage_options' ) ) {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return false;
 		}
 
@@ -565,7 +567,7 @@ class Admin {
 		\add_options_page(
 			\__( 'Nodes Runtime Settings', 'newspack-nodes' ),
 			\__( 'Nodes Runtime', 'newspack-nodes' ),
-			'manage_options',
+			Capabilities::cap_for( Capabilities::MANAGE ),
 			self::MENU_SLUG,
 			[ $this, 'render_settings_page' ]
 		);

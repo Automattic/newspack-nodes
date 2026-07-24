@@ -28,6 +28,8 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Capabilities;
+
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
@@ -115,7 +117,7 @@ class HTTP_In_Node extends Node {
 	 * @return bool|\WP_Error
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
-		if ( ! \function_exists( 'current_user_can' ) || ! \current_user_can( 'manage_options' ) ) {
+		if ( ! \function_exists( 'current_user_can' ) || ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return false;
 		}
 		return $this->check_rate_limit();

@@ -15,6 +15,8 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Capabilities;
+
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Auth;
@@ -585,7 +587,7 @@ class SSE_Out_Node extends Node {
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'stream' ],
 				// Capability-only gate; NO nonce (breaks cross-server pull).
-				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
+				'permission_callback' => static fn () => Capabilities::can( Capabilities::READ ),
 				'args'                => [
 					'subscribe' => [ 'required' => true, 'type' => 'string' ],
 					'positions' => [ 'required' => false, 'type' => 'string' ],
