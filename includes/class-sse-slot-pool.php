@@ -48,20 +48,21 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Claim the first free slot via atomic add(). Fail-CLOSED: null handle
+	 * Claim the first free slot via atomic add(). Fail-CLOSED: no backend
 	 * returns false so the caller refuses the connection (HTTP 429).
 	 *
-	 * @return int|false Slot index 0..max_slots-1, or false if all taken / no memcache.
+	 * @return int|false Slot index 0..max_slots-1, or false if all taken / no store.
 	 */
 	public static function acquire( string $hostname, int $user_id, string $ip_hash, int $max_slots, int $ttl ): int|false {
-		if ( null === Core::$memd ) {
+		$backend = Cache_Backend::local_first();
+		if ( null === $backend ) {
 			return false;
 		}
 		// Opaque per-connection marker; only its presence (not value) is read.
 		$connection_id = \bin2hex( \random_bytes( 8 ) );
 		for ( $slot = 0; $slot < $max_slots; $slot++ ) {
 			$key = self::slot_key( $hostname, $user_id, $ip_hash, $slot );
-			if ( Core::$memd->add( $key, $connection_id, $ttl ) ) {
+			if ( $backend->add( $key, $connection_id, $ttl ) ) {
 				return $slot;
 			}
 		}
@@ -100,25 +101,28 @@ class SSE_Slot_Pool {
 
 	/** Release a slot. Fail-OPEN (slots auto-expire via TTL). */
 	public static function release( string $hostname, int $user_id, string $ip_hash, int $slot ): bool {
-		if ( null === Core::$memd ) {
+		$backend = Cache_Backend::local_first();
+		if ( null === $backend ) {
 			return true;
 		}
-		return Core::$memd->delete( self::slot_key( $hostname, $user_id, $ip_hash, $slot ) );
+		return $backend->delete( self::slot_key( $hostname, $user_id, $ip_hash, $slot ) );
 	}
 
 	/** Whether the slot is still held (no TTL refresh). Fail-CLOSED. */
 	public static function check( string $hostname, int $user_id, string $ip_hash, int $slot ): bool {
-		if ( null === Core::$memd ) {
+		$backend = Cache_Backend::local_first();
+		if ( null === $backend ) {
 			return false;
 		}
-		return false !== Core::$memd->get( self::slot_key( $hostname, $user_id, $ip_hash, $slot ) );
+		return false !== $backend->get( self::slot_key( $hostname, $user_id, $ip_hash, $slot ) );
 	}
 
 	/** Refresh slot TTL (client heartbeat). Fail-OPEN (true when no memcache). */
 	public static function touch( string $hostname, int $user_id, string $ip_hash, int $slot, int $ttl ): bool {
-		if ( null === Core::$memd ) {
+		$backend = Cache_Backend::local_first();
+		if ( null === $backend ) {
 			return true;
 		}
-		return Core::$memd->touch( self::slot_key( $hostname, $user_id, $ip_hash, $slot ), $ttl );
+		return $backend->touch( self::slot_key( $hostname, $user_id, $ip_hash, $slot ), $ttl );
 	}
 }

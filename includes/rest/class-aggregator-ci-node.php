@@ -178,7 +178,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			$partitions = [];
 			for ( $p = 0; $p < $num_partitions; $p++ ) {
 				$concrete         = Core::resolve_partition_template( $template, $p );
-				$val              = Core::$memd?->get( "np:remote:{$name}:{$concrete}" );
+				$val              = \Newspack_Nodes\Cache_Backend::shared_first()?->get( "np:remote:{$name}:{$concrete}" );
 				$partitions[ $p ] = Core::arr( $val );
 			}
 

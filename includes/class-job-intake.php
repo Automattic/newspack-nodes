@@ -133,14 +133,16 @@ class Job_Intake {
 	 * @param string|null                      $key   Optional partition key for all jobs.
 	 * @param string|null                      $batch Optional fan-in batch id (requires memcached).
 	 * @return int Number of jobs successfully written.
-	 * @throws \LogicException When $batch is given without memcached.
+	 * @throws \LogicException When $batch is given with no claim store (memcached or APCu).
 	 * @throws \RuntimeException When the batch id is already active.
 	 */
 	public function queue_many( array $jobs, ?string $key = null, ?string $batch = null ): int {
 		$options = [];
+		$backend = null;
 		if ( null !== $batch && '' !== $batch ) {
-			if ( null === Core::$memd ) {
-				throw new \LogicException( 'batch jobs require memcached (memcache_servers unconfigured)' );
+			$backend = Cache_Backend::shared_first();
+			if ( null === $backend ) {
+				throw new \LogicException( 'batch jobs require memcached or APCu' );
 			}
 			$valid = \count(
 				\array_filter(
@@ -150,11 +152,11 @@ class Job_Intake {
 						&& 1 === \preg_match( self::HANDLER_NAME_PATTERN, $job['handler'] )
 				)
 			);
-			if ( ! Core::$memd->add( self::BATCH_COUNT_KEY_PREFIX . $batch, $valid, self::BATCH_TTL_S ) ) {
+			if ( ! $backend->add( self::BATCH_COUNT_KEY_PREFIX . $batch, $valid, self::BATCH_TTL_S ) ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 				throw new \RuntimeException( "batch id already active: {$batch}" );
 			}
-			Core::$memd->add( self::BATCH_ERR_KEY_PREFIX . $batch, 0, self::BATCH_TTL_S );
+			$backend->add( self::BATCH_ERR_KEY_PREFIX . $batch, 0, self::BATCH_TTL_S );
 			$options['batch'] = $batch;
 		}
 
@@ -199,7 +201,7 @@ class Job_Intake {
 	 * @return bool True on success, false on validation failure, lock unavailable,
 	 *              write error, or a duplicate `unique` enqueue inside its window.
 	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or `unique` without a positive `unique_ttl`.
-	 * @throws \LogicException When `unique` is passed without memcached.
+	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
 	 * @throws \RuntimeException From the per-Partition write lock on a genuine concurrent writer.
 	 */
 	public function write_job( string $handler, array $parameters, ?string $key = null, ?string $id = null, array $options = [] ): bool {
@@ -299,6 +301,8 @@ class Job_Intake {
 	 *
 	 * LogicException family throughout: static queue() swallows RuntimeException
 	 * (its lock-contention boolean contract) and misuse must stay loud through it.
+	 * The claim store resolves shared-first: memcached scope when configured,
+	 * APCu keeping a memcached-less host functional.
 	 *
 	 * @param string               $handler Handler name (namespaces the slot).
 	 * @param array<string, mixed> $options The write_job options (unique + unique_ttl).
@@ -311,11 +315,12 @@ class Job_Intake {
 		if ( $ttl < 1 ) {
 			throw new \InvalidArgumentException( 'unique jobs require a positive unique_ttl' );
 		}
-		if ( null === Core::$memd ) {
-			throw new \LogicException( 'unique jobs require memcached (memcache_servers unconfigured)' );
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			throw new \LogicException( 'unique jobs require memcached or APCu' );
 		}
 		$slot = self::UNIQUE_KEY_PREFIX . $handler . ':' . Core::as_string( $options['unique'], '' );
-		return Core::$memd->add( $slot, 1, $ttl );
+		return $backend->add( $slot, 1, $ttl );
 	}
 
 	/**
