@@ -40,9 +40,29 @@ const lerp = ( a, b, t ) => [
 	a[ 1 ] + ( b[ 1 ] - a[ 1 ] ) * t,
 ];
 
-export function hullPath( rects, pad = 24 ) {
+// Shoelace area of a convex polygon (absolute).
+function polygonArea( poly ) {
+	let sum = 0;
+	for ( let i = 0; i < poly.length; i++ ) {
+		const [ x1, y1 ] = poly[ i ];
+		const [ x2, y2 ] = poly[ ( i + 1 ) % poly.length ];
+		sum += x1 * y2 - x2 * y1;
+	}
+	return Math.abs( sum ) / 2;
+}
+
+/**
+ * Hull geometry for one rect set: the rounded SVG path plus the convex
+ * polygon's TRUE area (a bbox over-counts badly when members are spread
+ * wide) — the sibling-overlap paint-order tiebreak.
+ *
+ * @param {Array}  rects `{x,y,w,h}` member rects.
+ * @param {number} pad   Hull padding around each rect.
+ * @return {{d: string, area: number}} Geometry, `d: ''` when degenerate.
+ */
+export function hullGeometry( rects, pad = 24 ) {
 	if ( ! rects || ! rects.length ) {
-		return '';
+		return { d: '', area: 0 };
 	}
 	const points = [];
 	for ( const r of rects ) {
@@ -55,8 +75,16 @@ export function hullPath( rects, pad = 24 ) {
 	}
 	const poly = hull( points );
 	if ( poly.length < 3 ) {
-		return '';
+		return { d: '', area: 0 };
 	}
+	return { d: roundedPath( poly ), area: polygonArea( poly ) };
+}
+
+export function hullPath( rects, pad = 24 ) {
+	return hullGeometry( rects, pad ).d;
+}
+
+function roundedPath( poly ) {
 	const parts = [];
 	for ( let i = 0; i < poly.length; i++ ) {
 		const prev = poly[ ( i - 1 + poly.length ) % poly.length ];

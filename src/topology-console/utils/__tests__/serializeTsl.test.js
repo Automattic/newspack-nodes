@@ -206,6 +206,69 @@ describe( 'serializeTsl', () => {
 		);
 	} );
 
+	it( 'emits an already-quoted raw span verbatim (quote type = semantics)', () => {
+		// Double quotes interpolate <…>; single quotes defer. parseTsl hands
+		// back raw spans, so re-quoting here would silently flip semantics.
+		const g = {
+			nodes: [
+				{
+					id: 's',
+					name: 'scorer',
+					class: 'Echo',
+					ctorArgs: [],
+					verbInvocations: [
+						{
+							verb: 'add_profile',
+							args: [ '"Engineers care about <team>"' ],
+						},
+					],
+				},
+			],
+			edges: [],
+		};
+		expect( serializeTsl( g ) ).toBe(
+			'make_node Echo scorer\n' +
+				'cmd scorer:config add_profile "Engineers care about <team>"\n'
+		);
+	} );
+
+	it( 'keeps the deferred-binder Topic ctor span verbatim', () => {
+		const g = {
+			nodes: [
+				{
+					id: 'j',
+					name: 'jobs',
+					class: 'Topic',
+					ctorArgs: [ "<config:logs_dir>/jobs.p'<partition>'", '4' ],
+					verbInvocations: [],
+				},
+			],
+			edges: [],
+		};
+		expect( serializeTsl( g ) ).toBe(
+			"make_node Topic jobs <config:logs_dir>/jobs.p'<partition>' 4\n"
+		);
+	} );
+
+	it( 'quotes a value with an UNBALANCED quote instead of leaking it', () => {
+		// A user-typed `it's` scans as one span equal to itself but leaves the
+		// quote open — emitted verbatim it would write an unterminated quote
+		// into the .tsl, which the fatal loader rejects at worker boot.
+		const g = {
+			nodes: [
+				{
+					id: 'n',
+					name: 'n',
+					class: 'Echo',
+					ctorArgs: [ "it's" ],
+					verbInvocations: [],
+				},
+			],
+			edges: [],
+		};
+		expect( serializeTsl( g ) ).toBe( "make_node Echo n 'it\\'s'\n" );
+	} );
+
 	it( 'omits empty-string ctor arg trailing slots', () => {
 		// Empty trailing slots are dropped, not emitted as literal tokens.
 		const g = {

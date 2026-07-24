@@ -797,14 +797,24 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		skip: () => toNeedsSseSession( cwd ) && ! ssePid,
 	} );
 
-	// Split on unquoted ';' so 'help; ls' dispatches as two commands.
+	// Unquoted ';' splits; a held continuation owns the whole next line.
 	const sendLine = useCallback(
 		( line, flags ) => {
-			for ( const stmt of splitStatements( line ) ) {
+			const stmts = shell?.hasPending()
+				? [ line ]
+				: splitStatements( line );
+			for ( const stmt of stmts ) {
 				dispatchStatement( stmt, flags );
 			}
+			if ( shell?.hasPending() ) {
+				appendTranscript( {
+					kind: 'sent',
+					text: '',
+					prompt: shell.pendingPrompt(),
+				} );
+			}
 		},
-		[ dispatchStatement ]
+		[ dispatchStatement, shell, appendTranscript ]
 	);
 
 	// Shared live-mode handlers (connect/remove/send/trace/invoke/drop).
@@ -940,10 +950,21 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				( n ) => n.id
 			)
 		);
-		// Depth-first: painting in order puts a nested hull atop its parent.
+		// @longform Depth per hull (parents paint below); a shared include
+		// takes its DEEPEST occurrence — it must ride above every parent
+		// chain pulling it, and the shallowest would pin it under one.
+		const depthOf = {};
+		const walkDepths = ( tree, depth ) => {
+			Object.entries( tree || {} ).forEach( ( [ name, subtree ] ) => {
+				depthOf[ name ] = Math.max( depthOf[ name ] ?? 0, depth );
+				walkDepths( subtree, depth + 1 );
+			} );
+		};
+		walkDepths( expandBaseline.tree, 1 );
 		return Object.entries( membership )
 			.map( ( [ include, memberIds ] ) => ( {
 				include,
+				depth: depthOf[ include ] ?? 0,
 				nodeIds: memberIds.filter( ( id ) => onScreen.has( id ) ),
 			} ) )
 			.filter( ( h ) => h.nodeIds.length > 0 );

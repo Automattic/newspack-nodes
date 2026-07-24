@@ -83,7 +83,7 @@ test( 'renders per-node NAME / COUNTER / LGST_MSG / READ / WRITTEN from the alwa
 	expect( row.textContent ).toContain( '512' ); // written
 } );
 
-test( 'shows "profiling" (no profile columns) when off, and enabling turns it on in the viewed scope', () => {
+test( 'shows "profile" (no profile columns) when off, and enabling turns it on in the viewed scope', () => {
 	seedMetadata( [
 		{ id: 'alpha', count: 12, lgstMsg: 0, bytesRead: 0, bytesWritten: 0 },
 	] );
@@ -92,7 +92,7 @@ test( 'shows "profiling" (no profile columns) when off, and enabling turns it on
 	expect( getByTestId( 'stats-grid' ).textContent ).not.toContain( 'AVG' );
 	expect( queryByText( 'stop profiling' ) ).toBeNull();
 	expect( RouterNode.profiles() ).toBeNull();
-	fireEvent.click( getByText( 'profiling' ) );
+	fireEvent.click( getByText( 'profile' ) );
 	// The command round-trips the graph to _cwd and enables profiling for real.
 	expect( RouterNode.profiles() ).not.toBeNull();
 } );
@@ -174,14 +174,14 @@ test( 'Enable flips the label to Disable optimistically at click, then reconcile
 	// Silence the click's immediate re-poll so we observe the PURE optimistic
 	// flip; in the live app that re-poll is an async round-trip, not synchronous.
 	Core.node( POLLER ).fire = () => {};
-	fireEvent.click( getByText( 'profiling' ) );
+	fireEvent.click( getByText( 'profile' ) );
 	// Optimistic: the label swaps now, before any poll reply confirms it.
 	expect( getByText( 'stop profiling' ) ).toBeTruthy();
-	expect( queryByText( 'profiling' ) ).toBeNull();
+	expect( queryByText( 'profile' ) ).toBeNull();
 	// An agreeing reply confirms and clears the override to server truth.
 	publish( { profiles: [], profiles_total: { avg: 0, time: 0, count: 0 } } );
 	expect( getByText( 'stop profiling' ) ).toBeTruthy();
-	expect( queryByText( 'profiling' ) ).toBeNull();
+	expect( queryByText( 'profile' ) ).toBeNull();
 } );
 
 test( 'a stale in-flight reply cannot flicker the optimistic toggle off', () => {
@@ -192,11 +192,11 @@ test( 'a stale in-flight reply cannot flicker the optimistic toggle off', () => 
 	publish( { profiles: null, profiles_total: null } );
 	// Silence the click's synchronous re-poll (live it is an async round-trip).
 	Core.node( POLLER ).fire = () => {};
-	fireEvent.click( getByText( 'profiling' ) );
+	fireEvent.click( getByText( 'profile' ) );
 	expect( getByText( 'stop profiling' ) ).not.toBeNull();
 	// A reply minted BEFORE the click arrives late, carrying stale truth.
 	publish( { profiles: null, profiles_total: null } );
-	expect( queryByText( 'profiling' ) ).toBeNull();
+	expect( queryByText( 'profile' ) ).toBeNull();
 	expect( getByText( 'stop profiling' ) ).not.toBeNull();
 	// The next reply confirms; the override clears to agreeing server truth.
 	publish( { profiles: [], profiles_total: { avg: 0, time: 0, count: 0 } } );
@@ -211,11 +211,11 @@ test( 'two disagreeing replies surrender the optimistic override (verb failed)',
 	publish( { profiles: null, profiles_total: null } );
 	// Silence the re-poll; simulate a verb that failed server-side.
 	Core.node( POLLER ).fire = () => {};
-	fireEvent.click( getByText( 'profiling' ) );
+	fireEvent.click( getByText( 'profile' ) );
 	publish( { profiles: null, profiles_total: null } );
 	publish( { profiles: null, profiles_total: null } );
 	// Server truth held after two full replies: the button stops lying.
-	expect( getByText( 'profiling' ) ).not.toBeNull();
+	expect( getByText( 'profile' ) ).not.toBeNull();
 } );
 
 test( 'the "stop profiling" button turns profiling off in the viewed scope', () => {

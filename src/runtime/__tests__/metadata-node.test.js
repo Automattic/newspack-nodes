@@ -464,7 +464,9 @@ describe( 'Metadata node', () => {
 	} );
 
 	describe( 'parseMetadata hides process scaffolding', () => {
-		it( 'drops the backbone + the per-worker TopicProbe and its log (nodes + edges)', () => {
+		it( 'drops the backbone but keeps the TSL-declared TopicProbe visible', () => {
+			// The probe moved into topology TSL (`include topic-probe`): it is
+			// an ordinary declared node now and renders like one.
 			const { nodes, edges } = parseMetadata( {
 				_command_interpreter: {
 					class: 'Command_Interpreter',
@@ -477,11 +479,16 @@ describe( 'Metadata node', () => {
 				'request-builder': { class: 'Request_Builder' },
 			} );
 			const ids = nodes.map( ( n ) => n.id ).sort();
-			expect( ids ).toEqual( [ 'firehose', 'request-builder' ] );
-			// No edge references the hidden probe/log (the probe→log edge is gone).
+			expect( ids ).toEqual( [
+				'_topicprobe',
+				'_topicprobe:log',
+				'firehose',
+				'request-builder',
+			] );
+			// The probe→log edge renders; nothing references the backbone.
 			const touched = edges.flatMap( ( e ) => [ e.from, e.to ] );
-			expect( touched ).not.toContain( '_topicprobe' );
-			expect( touched ).not.toContain( '_topicprobe:log' );
+			expect( touched ).toContain( '_topicprobe' );
+			expect( touched ).not.toContain( '_router' );
 		} );
 	} );
 } );

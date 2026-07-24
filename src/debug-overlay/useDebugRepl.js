@@ -228,7 +228,12 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 
 	const sendLine = useCallback(
 		( line ) => {
-			for ( const stmt of splitStatements( line ) ) {
+			const shellNode = shellRef.current;
+			// A held continuation owns the whole next line (no ';' splitting).
+			const stmts = shellNode?.hasPending()
+				? [ line ]
+				: splitStatements( line );
+			for ( const stmt of stmts ) {
 				dispatchStatement( stmt );
 			}
 			// Mirror `cd` shell.path change to _cwd.target and reactive cwd.

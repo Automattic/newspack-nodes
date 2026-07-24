@@ -11,6 +11,8 @@
  * the collapsed file's make_node set and therefore cannot own verbInvocations.
  */
 
+import { tokenize, tokenizeSpans } from '../../runtime/shell-node';
+
 const VERB_ALIASES = {
 	make: 'make_node',
 	connect: 'connect_node',
@@ -81,9 +83,10 @@ function normalizeLines( text ) {
 	let cwd = '';
 	let acc = '';
 	for ( const raw of String( text || '' ).split( '\n' ) ) {
-		// Backslash continuation: strip the slash, accumulate, read next.
-		if ( raw.trimEnd().endsWith( '\\' ) ) {
-			acc += raw.trimEnd().slice( 0, -1 ) + ' ';
+		// Backslash splice: ONE trailing \<newline> vanishes (Shell parity).
+		const line0 = raw.replace( /\r$/, '' );
+		if ( line0.endsWith( '\\' ) ) {
+			acc += line0.slice( 0, -1 );
 			continue;
 		}
 		const line = ( acc + raw ).trim();
@@ -93,6 +96,8 @@ function normalizeLines( text ) {
 		}
 		const canonicalized = canonicalVerb( line );
 		const tokens = tokenize( canonicalized );
+		// Raw spans keep quote chars: quote TYPE carries interpolation intent.
+		const spans = tokenizeSpans( canonicalized );
 		const verb = tokens[ 0 ] || '';
 		if ( CD_VERBS.has( verb ) ) {
 			cwd = cdPath( cwd, tokens[ 1 ] || '' );
@@ -102,11 +107,11 @@ function normalizeLines( text ) {
 			out.push( canonicalized );
 		} else if ( 'cmd' === verb ) {
 			const p = prefixPath( cwd, tokens[ 1 ] || '' );
-			out.push( `cmd ${ p } ${ tokens.slice( 2 ).join( ' ' ) }`.trim() );
+			out.push( `cmd ${ p } ${ spans.slice( 2 ).join( ' ' ) }`.trim() );
 		} else if ( '' !== cwd ) {
 			// A bare verb inside a cwd is a command to that node.
 			out.push(
-				`cmd ${ cwd } ${ verb } ${ tokens
+				`cmd ${ cwd } ${ verb } ${ spans
 					.slice( 1 )
 					.join( ' ' ) }`.trim()
 			);
@@ -114,32 +119,6 @@ function normalizeLines( text ) {
 			// Bare verb at root: a local command the static parser drops.
 			out.push( canonicalized );
 		}
-	}
-	return out;
-}
-
-function tokenize( line ) {
-	// Single-quote-aware tokenization (serializer only emits single quotes).
-	const out = [];
-	let buf = '';
-	let inQuote = false;
-	for ( let i = 0; i < line.length; i++ ) {
-		const ch = line[ i ];
-		if ( "'" === ch ) {
-			inQuote = ! inQuote;
-			continue;
-		}
-		if ( ! inQuote && /\s/.test( ch ) ) {
-			if ( buf.length ) {
-				out.push( buf );
-				buf = '';
-			}
-			continue;
-		}
-		buf += ch;
-	}
-	if ( buf.length ) {
-		out.push( buf );
 	}
 	return out;
 }
@@ -173,6 +152,7 @@ export function parseTsl( text ) {
 			continue;
 		}
 		const tokens = tokenize( line );
+		const spans = tokenizeSpans( line );
 		if ( tokens.length === 0 ) {
 			continue;
 		}
@@ -187,7 +167,8 @@ export function parseTsl( text ) {
 		if ( verb === 'make_node' && tokens.length >= 3 ) {
 			const className = tokens[ 1 ];
 			const name = tokens[ 2 ];
-			const ctorArgs = tokens.slice( 3 );
+			// Raw spans: an authored quote type must survive the round-trip.
+			const ctorArgs = spans.slice( 3 );
 			const node = {
 				id: name,
 				name,
@@ -212,7 +193,7 @@ export function parseTsl( text ) {
 			if ( owner ) {
 				owner.verbInvocations.push( {
 					verb: tokens[ 2 ],
-					args: tokens.slice( 3 ),
+					args: spans.slice( 3 ),
 				} );
 			} else if (
 				configTarget &&

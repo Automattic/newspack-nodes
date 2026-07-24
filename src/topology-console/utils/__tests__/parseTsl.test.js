@@ -37,6 +37,16 @@ describe( 'parseTsl', () => {
 		expect( g.nodes[ 0 ].id ).toBe( 'echo' );
 	} );
 
+	it( 'splices a backslash continuation with nothing (bash semantics)', () => {
+		const g = parseTsl( 'var num_partitions = 1\\\n6\nmake_node Echo z\n' );
+		expect( g.frontmatter ).toEqual( { num_partitions: '16' } );
+	} );
+
+	it( 'splices a mid-token backslash continuation in ctor args', () => {
+		const g = parseTsl( 'make_node Echo e hi\\\nbye\n' );
+		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [ 'hibye' ] );
+	} );
+
 	it( 'joins a backslash-continued var (parity with PHP frontmatter)', () => {
 		const g = parseTsl(
 			'var num_partitions = \\\n    7\nmake_node Echo z\n'
@@ -121,11 +131,67 @@ describe( 'parseTsl', () => {
 		expect( g.edges ).toEqual( [ { from: 'a', to: 'b' } ] );
 	} );
 
-	it( 'unwraps single-quoted args containing spaces', () => {
+	it( 'preserves quoted ctor args verbatim (quote type carries semantics)', () => {
 		const g = parseTsl( "make_node Hook h wp_loaded 'this has spaces'\n" );
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
 			'wp_loaded',
-			'this has spaces',
+			"'this has spaces'",
+		] );
+	} );
+
+	it( 'keeps the deferred-binder Topic pattern verbatim', () => {
+		const g = parseTsl(
+			"make_node Topic jobs <config:logs_dir>/jobs.p'<partition>' 4\n"
+		);
+		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
+			"<config:logs_dir>/jobs.p'<partition>'",
+			'4',
+		] );
+	} );
+
+	it( 'unwraps double-quoted and backtick args like the runtime Shell', () => {
+		const g = parseTsl(
+			'make_node Echo scorer\n' +
+				'cmd scorer:config add_profile "Engineers care about uptime"\n' +
+				'cmd scorer:config add_profile `Prioritize breaking news`\n'
+		);
+		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+			{
+				verb: 'add_profile',
+				args: [ '"Engineers care about uptime"' ],
+			},
+			{ verb: 'add_profile', args: [ '`Prioritize breaking news`' ] },
+		] );
+	} );
+
+	it( 'honors backslash escapes inside quotes (Shell tokenize parity)', () => {
+		const g = parseTsl(
+			"make_node Echo n\ncmd n:config set_label 'it\\'s \\\\quoted'\n"
+		);
+		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+			{ verb: 'set_label', args: [ "'it\\'s \\\\quoted'" ] },
+		] );
+	} );
+
+	it( 'keeps a quoted multi-word arg intact through a cd-scoped bare verb', () => {
+		const g = parseTsl(
+			'make_node Echo scorer\n' +
+				'cd scorer:config\n' +
+				'add_profile "Do not reward flame wars"\n' +
+				'cd /\n'
+		);
+		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+			{ verb: 'add_profile', args: [ '"Do not reward flame wars"' ] },
+		] );
+	} );
+
+	it( 'keeps a quoted multi-word arg intact through an explicit cmd path', () => {
+		const g = parseTsl(
+			'make_node Echo scorer\n' +
+				'cmd scorer:config add_profile "Deprioritize sports scores"\n'
+		);
+		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+			{ verb: 'add_profile', args: [ '"Deprioritize sports scores"' ] },
 		] );
 	} );
 
