@@ -42,7 +42,7 @@ class SiteHealthTest extends TestCase {
 	}
 
 	private function arrange( string $type ): string {
-		$this->tmp = '/tmp/site-health-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/site-health-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1 ] );
 		\add_filter(

@@ -309,7 +309,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_taillog_with_no_source_lists_the_registry_with_availability(): void {
 		$present = $this->write_fixed_width_log( 3, 59 );
-		$missing = \sys_get_temp_dir() . '/taillog-does-not-exist-9271';
+		$missing = (string) \realpath( \sys_get_temp_dir() ) . '/taillog-does-not-exist-9271';
 
 		Log_Sources::$builtin_sources = static fn (): array => [
 			'php'   => $present,
@@ -328,7 +328,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_taillog_missing_file_returns_a_teaching_error_naming_the_path(): void {
-		$missing = \sys_get_temp_dir() . '/taillog-absent-4418.log';
+		$missing = (string) \realpath( \sys_get_temp_dir() ) . '/taillog-absent-4418.log';
 
 		Log_Sources::$builtin_sources = static fn (): array => [ 'debug' => $missing ];
 
@@ -353,7 +353,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_taillog_sources_returns_a_struct_of_name_path_available_rows(): void {
 		$present = $this->write_fixed_width_log( 3, 59 );
-		$missing = \sys_get_temp_dir() . '/taillog-sources-absent-5573.log';
+		$missing = (string) \realpath( \sys_get_temp_dir() ) . '/taillog-sources-absent-5573.log';
 
 		Log_Sources::$builtin_sources = static fn (): array => [
 			'php'   => $present,

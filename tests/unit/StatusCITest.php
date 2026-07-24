@@ -35,7 +35,7 @@ class StatusCITest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		// /tmp directly to dodge symlink-resolved sys_get_temp_dir on macOS,
 		// matching AggregatorCITest.
-		$this->tmp = '/tmp/status-ci-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/status-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir( $this->tmp );
 		// The reported topology set is the substrate's ACTIVE set

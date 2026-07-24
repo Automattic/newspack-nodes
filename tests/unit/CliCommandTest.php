@@ -42,7 +42,7 @@ class CliCommandTest extends TestCase {
 		parent::setUp();
 		// Use /tmp/... directly so realpath() matches input on macOS where
 		// sys_get_temp_dir() resolves through /private/tmp.
-		$staging = '/tmp/newspack-nodes-cli-command-test-' . \uniqid();
+		$staging = (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-cli-command-test-' . \uniqid();
 		\mkdir( $staging, 0755, true );
 		$this->tmp = \realpath( $staging ) ?: $staging;
 

@@ -58,7 +58,7 @@ class WorkersCITest extends TestCase {
 	 * @return string The base dir path (so tests can seed files under it).
 	 */
 	private function arrange_base_dir(): string {
-		$this->tmp = '/tmp/workers-ci-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/workers-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir(
 			$this->tmp,
@@ -586,7 +586,7 @@ class WorkersCITest extends TestCase {
 	public function test_dump_metadata_max_segments_envelope_sources_from_config(): void {
 		// Post-retention-split the storage-estimate envelope reports max_segments
 		// (the count-rule ceiling), read straight from config — not a default.
-		$this->tmp = '/tmp/workers-ci-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/workers-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir(
 			$this->tmp,

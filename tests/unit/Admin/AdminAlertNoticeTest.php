@@ -49,7 +49,7 @@ class AdminAlertNoticeTest extends TestCase {
 	}
 
 	private function arrange( string $type ): string {
-		$this->tmp = '/tmp/admin-notice-test-' . \uniqid();
+		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/admin-notice-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1 ] );
 		\add_filter(

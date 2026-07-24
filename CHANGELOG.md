@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `Config::ensure_path()` accepts symlinked **ancestors** (macOS's `/tmp` and
+  `/var` resolve under `/private`) and returns the canonical path; only a
+  symlink at the **leaf** — the plantable attack — is refused. The full test
+  suite now runs bare on macOS (`php vendor/bin/phpunit`, no containers).
+
+### Changed
+- ADR-4 states the habitable zone (one host's local POSIX filesystem shared
+  by that host's PHP processes) instead of prescribing runtime detection of
+  exotic mounts; README gains "When NOT to use Nodes" and a Testing section;
+  getting-started opens with a WordPress→Nodes Rosetta table; upgrading.md
+  backfills the 0.50.0/0.51.0 entries its maintenance rule required.
+
 ## [0.51.0] - 2026-07-23
 
 ### Changed
