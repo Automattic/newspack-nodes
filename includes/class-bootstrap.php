@@ -65,6 +65,9 @@ class Bootstrap {
 
 	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
 	public static function run_supervisor_tick(): void {
+		if ( ! self::fleet_site() ) {
+			return; // Subsite: Supervisor::run() logs the stance; skip the wiring cost.
+		}
 		self::ensure_runtime_wired();
 		if ( ! self::is_supervisor_enabled() ) {
 			self::unschedule_supervisor();

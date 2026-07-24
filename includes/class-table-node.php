@@ -79,7 +79,10 @@ class Table_Node extends Node {
 			return null;
 		}
 		$value = Core::$memd->get( self::KEY_PREFIX . "{$ns}:{$key}" );
-		return false === $value ? null : $value;
+		if ( false === $value && \Memcached::RES_NOTFOUND === Core::$memd->getResultCode() ) {
+			return null;
+		}
+		return $value;
 	}
 
 	/**

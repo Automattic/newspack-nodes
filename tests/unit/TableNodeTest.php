@@ -85,6 +85,14 @@ class TableNodeTest extends TestCase {
 		$table->arguments( [ 'prices' ] );
 	}
 
+	public function test_a_stored_false_reads_back_as_false_not_missing(): void {
+		[ $table ] = $this->table();
+		$table->fill( $this->keyed( 'flag', false ) );
+
+		$this->assertFalse( Table_Node::lookup( 'prices', 'flag' ), 'RES_NOTFOUND disambiguates a stored false from a miss' );
+		$this->assertNull( Table_Node::lookup( 'prices', 'absent' ) );
+	}
+
 	public function test_rm_deletes_a_key(): void {
 		[ $table ] = $this->table();
 		$table->fill( $this->keyed( 'sku-9', 'gone-soon' ) );
