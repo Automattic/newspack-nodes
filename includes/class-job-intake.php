@@ -30,6 +30,24 @@ class Job_Intake {
 	public const LOG_BASENAME = 'jobintake';
 
 	/**
+	 * Basename of the single delayed-jobs partition (hardwired `.p0`, the
+	 * alerts.p0 precedent). Entries whose `not_before` is still in the future
+	 * land here; `Job_Delay::sweep()` circulates them until due.
+	 */
+	public const DELAY_BASENAME = 'jobdelay';
+
+	/** Memcache key prefixes for batch fan-in counters and the unique-enqueue gate. */
+	public const BATCH_COUNT_KEY_PREFIX = 'nodes-job-batch:';
+	public const BATCH_ERR_KEY_PREFIX   = 'nodes-job-batch-err:';
+	public const UNIQUE_KEY_PREFIX      = 'nodes-job-uniq:';
+
+	/** Batch counters outlive any sane batch runtime, then self-expire. */
+	public const BATCH_TTL_S = 7 * 86400;
+
+	/** Every option write_job() accepts; anything else throws (typos stay loud). */
+	private const OPTION_KEYS = [ 'not_before', 'delay', 'retries', 'attempt', 'batch', 'unique', 'unique_ttl' ];
+
+	/**
 	 * Maximum job size in bytes (32 MB). The canonical cap: Job_Worker_Node and
 	 * an application's Job_Router derive their limit from this constant.
 	 */
@@ -65,9 +83,9 @@ class Job_Intake {
 	private int $num_partitions;
 
 	/**
-	 * Partition instances for each partition index.
+	 * Partition instances keyed by "{basename}.p{index}".
 	 *
-	 * @var array<int, Partition_Node>
+	 * @var array<string, Partition_Node>
 	 */
 	private array $partitions = [];
 
@@ -103,12 +121,43 @@ class Job_Intake {
 	/**
 	 * Write multiple jobs in a batch.
 	 *
+	 * With a `$batch` id, every entry is tagged and an atomic memcache counter
+	 * is seeded to the valid-job count BEFORE writing — the Job_Worker
+	 * decrements it per settled job and the decrement that reaches 0 signals
+	 * completion (`newspack_nodes/job_worker/batch_complete` + an alerts.p0
+	 * row). A write that fails after seeding leaves the batch open; compare
+	 * the return value against your job count.
+	 *
 	 * @api Used by external plugins.
-	 * @param array<int, array<string, mixed>> $jobs Zero-indexed list of ['handler' => string, 'parameters' => array].
-	 * @param string|null                      $key  Optional partition key for all jobs.
+	 * @param array<int, array<string, mixed>> $jobs  Zero-indexed list of ['handler' => string, 'parameters' => array].
+	 * @param string|null                      $key   Optional partition key for all jobs.
+	 * @param string|null                      $batch Optional fan-in batch id (requires memcached).
 	 * @return int Number of jobs successfully written.
+	 * @throws \LogicException When $batch is given without memcached.
+	 * @throws \RuntimeException When the batch id is already active.
 	 */
-	public function queue_many( array $jobs, ?string $key = null ): int {
+	public function queue_many( array $jobs, ?string $key = null, ?string $batch = null ): int {
+		$options = [];
+		if ( null !== $batch && '' !== $batch ) {
+			if ( null === Core::$memd ) {
+				throw new \LogicException( 'batch jobs require memcached (memcache_servers unconfigured)' );
+			}
+			$valid = \count(
+				\array_filter(
+					$jobs,
+					static fn ( $job ): bool => \is_string( $job['handler'] ?? null )
+						&& \is_array( $job['parameters'] ?? [] )
+						&& 1 === \preg_match( self::HANDLER_NAME_PATTERN, $job['handler'] )
+				)
+			);
+			if ( ! Core::$memd->add( self::BATCH_COUNT_KEY_PREFIX . $batch, $valid, self::BATCH_TTL_S ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \RuntimeException( "batch id already active: {$batch}" );
+			}
+			Core::$memd->add( self::BATCH_ERR_KEY_PREFIX . $batch, 0, self::BATCH_TTL_S );
+			$options['batch'] = $batch;
+		}
+
 		$written = 0;
 
 		foreach ( $jobs as $job ) {
@@ -121,7 +170,7 @@ class Job_Intake {
 			}
 
 			/** @var array<string, mixed> $parameters */
-			if ( $this->write_job( $handler, $parameters, $key, \is_string( $id ) ? $id : null ) ) {
+			if ( $this->write_job( $handler, $parameters, $key, \is_string( $id ) ? $id : null, $options ) ) {
 				++$written;
 			}
 		}
@@ -142,9 +191,24 @@ class Job_Intake {
 	 * @param string|null $key        Optional partition key for consistent routing.
 	 * @param string|null $id         Optional per-job identity (top-level `id`) for durable
 	 *                                jobstats keying ("handler:id"); omitted entirely when null/empty.
-	 * @return bool True on success, false on validation failure, lock unavailable, or write error.
+	 * @param array<string, mixed>       $options    Optional behaviors: `not_before` (unix ts) or `delay`
+	 *                                (seconds) schedules the job via jobdelay.p0; `retries` (int)
+	 *                                opts into Job_Worker backoff retries; `unique` + `unique_ttl`
+	 *                                dedups the enqueue within the ttl window (requires memcached);
+	 *                                `attempt`/`batch` are internal passthrough fields.
+	 * @return bool True on success, false on validation failure, lock unavailable,
+	 *              write error, or a duplicate `unique` enqueue inside its window.
+	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or `unique` without a positive `unique_ttl`.
+	 * @throws \LogicException When `unique` is passed without memcached.
+	 * @throws \RuntimeException From the per-Partition write lock on a genuine concurrent writer.
 	 */
-	public function write_job( string $handler, array $parameters, ?string $key = null, ?string $id = null ): bool {
+	public function write_job( string $handler, array $parameters, ?string $key = null, ?string $id = null, array $options = [] ): bool {
+		$unknown = \array_diff( \array_keys( $options ), self::OPTION_KEYS );
+		if ( [] !== $unknown ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( 'unknown job option(s): ' . \implode( ', ', $unknown ) );
+		}
+
 		// Validate handler name.
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
 			return false;
@@ -153,6 +217,18 @@ class Job_Intake {
 		// The id rides in every jobstats KEY — bound it here.
 		if ( null !== $id && \strlen( $id ) > self::MAX_JOB_ID_LEN ) {
 			Core::stderr( '[Nodes] JobIntake: Job id exceeds ' . self::MAX_JOB_ID_LEN . ' chars for handler: ' . $handler );
+			return false;
+		}
+
+		if ( isset( $options['not_before'] ) && isset( $options['delay'] ) ) {
+			throw new \InvalidArgumentException( 'pass not_before OR delay, not both' );
+		}
+		$not_before = Core::num_float( $options['not_before'] ?? 0, 0.0 );
+		if ( isset( $options['delay'] ) ) {
+			$not_before = \microtime( true ) + Core::num_float( $options['delay'], 0.0 );
+		}
+
+		if ( isset( $options['unique'] ) && ! $this->claim_unique( $handler, $options ) ) {
 			return false;
 		}
 
@@ -178,6 +254,28 @@ class Job_Intake {
 		if ( null !== $id && '' !== $id ) {
 			$job['id'] = $id;
 		}
+		foreach ( [ 'retries', 'attempt' ] as $field ) {
+			$n = Core::as_int( $options[ $field ] ?? 0, 0 );
+			if ( $n > 0 ) {
+				$job[ $field ] = $n;
+			}
+		}
+		$batch = Core::as_string( $options['batch'] ?? '', '' );
+		if ( '' !== $batch ) {
+			$job['batch'] = $batch;
+		}
+		if ( null !== $key && '' !== $key ) {
+			// Keyed entries keep their key; retries + delivery re-hash it.
+			$job['key'] = $key;
+		}
+
+		// Still-future job: park it in jobdelay.p0 instead of the live intake.
+		$basename = self::LOG_BASENAME;
+		if ( $not_before > \microtime( true ) ) {
+			$job['not_before'] = $not_before;
+			$basename          = self::DELAY_BASENAME;
+			$partition         = 0;
+		}
 
 		$encoded = \wp_json_encode( $job );
 		if ( false === $encoded || \strlen( $encoded ) > self::MAX_JOB_SIZE ) {
@@ -190,8 +288,34 @@ class Job_Intake {
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::VALUE ]     = $job;
-		$this->partition_handle( $partition )->fill( $message );
+		$this->partition_handle( $partition, $basename )->fill( $message );
 		return true;
+	}
+
+	/**
+	 * Atomically claim the unique-enqueue slot for this window. The memcache
+	 * `add()` is the same claim idiom the command nonce and SSE slot pool use:
+	 * it fails iff the key already exists, so exactly one enqueue wins the ttl.
+	 *
+	 * LogicException family throughout: static queue() swallows RuntimeException
+	 * (its lock-contention boolean contract) and misuse must stay loud through it.
+	 *
+	 * @param string               $handler Handler name (namespaces the slot).
+	 * @param array<string, mixed> $options The write_job options (unique + unique_ttl).
+	 * @return bool True when this enqueue won the slot.
+	 * @throws \InvalidArgumentException Without a positive unique_ttl.
+	 * @throws \LogicException Without memcached.
+	 */
+	private function claim_unique( string $handler, array $options ): bool {
+		$ttl = Core::as_int( $options['unique_ttl'] ?? 0, 0 );
+		if ( $ttl < 1 ) {
+			throw new \InvalidArgumentException( 'unique jobs require a positive unique_ttl' );
+		}
+		if ( null === Core::$memd ) {
+			throw new \LogicException( 'unique jobs require memcached (memcache_servers unconfigured)' );
+		}
+		$slot = self::UNIQUE_KEY_PREFIX . $handler . ':' . Core::as_string( $options['unique'], '' );
+		return Core::$memd->add( $slot, 1, $ttl );
 	}
 
 	/**
@@ -199,15 +323,16 @@ class Job_Intake {
 	 * `allow_large_writes()` call acquires the partition's write lock — blocks
 	 * up to ~65s on a respawn race, throws on a genuine concurrent writer.
 	 */
-	private function partition_handle( int $partition ): Partition_Node {
-		if ( isset( $this->partitions[ $partition ] ) ) {
-			return $this->partitions[ $partition ];
+	private function partition_handle( int $partition, string $basename = self::LOG_BASENAME ): Partition_Node {
+		$slot = "{$basename}.p{$partition}";
+		if ( isset( $this->partitions[ $slot ] ) ) {
+			return $this->partitions[ $slot ];
 		}
-		$log_base = $this->base_dir . '/logs/' . self::LOG_BASENAME;
+		$log_base = $this->base_dir . '/logs/' . $basename;
 		// pid+object-id token: 2nd JobIntake won't clash with stale Core regs.
 		$instance_token = \getmypid() . '-' . \spl_object_id( $this );
 		$p              = new Partition_Node();
-		$p->name( self::LOG_BASENAME . ".{$instance_token}.p{$partition}" );
+		$p->name( "{$basename}.{$instance_token}.p{$partition}" );
 		// Sibling plumbing: patron-link so dump_metadata hides from canvas.
 		$p->patron( $p );
 		// Rule 4: sink into the interpreter only when one is in scope.
@@ -217,7 +342,7 @@ class Job_Intake {
 		}
 		$p->arguments( [ "{$log_base}.p{$partition}" ] );
 		$p->allow_large_writes();
-		$this->partitions[ $partition ] = $p;
+		$this->partitions[ $slot ] = $p;
 		return $p;
 	}
 
@@ -262,6 +387,7 @@ class Job_Intake {
 	 * @param string|null $key            Optional partition key (e.g., event ID).
 	 * @param string|null $base_dir       Override base directory.
 	 * @param int|null    $num_partitions Override partition count.
+	 * @param array<string, mixed>       $options        Optional behaviors — see write_job().
 	 * @return bool True on success, false on validation failure or unrecoverable
 	 *              lock contention (live concurrent writer on same partition).
 	 */
@@ -270,7 +396,8 @@ class Job_Intake {
 		array $parameters,
 		?string $key = null,
 		?string $base_dir = null,
-		?int $num_partitions = null
+		?int $num_partitions = null,
+		array $options = []
 	): bool {
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
 			return false;
@@ -278,7 +405,7 @@ class Job_Intake {
 
 		$intake = new self( $base_dir, $num_partitions );
 		try {
-			$result = $intake->write_job( $handler, $parameters, $key );
+			$result = $intake->write_job( $handler, $parameters, $key, null, $options );
 		} catch ( \RuntimeException $e ) {
 			$result = false;
 		} finally {

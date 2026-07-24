@@ -214,25 +214,9 @@ class Alerts {
 			return;
 		}
 		try {
-			$journal = self::journal();
-			// Real clock: the supervisor loop never refreshes Core::$now.
-			$ts = \microtime( true );
 			foreach ( $rows as $key => $row ) {
-				$message                       = Message::new_message();
-				$message[ Message::TYPE ]      = Message::TM_STRUCT;
-				$message[ Message::FROM ]      = 'alerts';
-				$message[ Message::TIMESTAMP ] = $ts;
-				$message[ Message::KEY ]       = (string) $key;
-				$message[ Message::VALUE ]     = [
-					'n'        => 1,
-					'k'        => 'alert',
-					'm'        => $row['m'],
-					'ts'       => $ts,
-					'severity' => $row['severity'],
-				];
-				$journal->fill( $message );
+				self::journal_event( (string) $key, $row['m'], $row['severity'] );
 			}
-			$journal->flush();
 			// Advance only after a durable write; failures retry next window.
 			if ( \function_exists( 'update_option' ) ) {
 				\update_option(
@@ -248,6 +232,38 @@ class Alerts {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( 'Alerts::emit journal write failed: ' . $e->getMessage() );
 		}
+	}
+
+	/**
+	 * Journal one row into alerts.p0 — the errors-family entry shape plus
+	 * `severity`, KEY = a stable per-condition key so consumers can dedupe.
+	 * Used by emit()'s transition rows and by non-fleet event producers
+	 * (Job_Worker batch completion). Throws on write failure; callers own
+	 * the swallow-or-not decision.
+	 *
+	 * @api Cross-class journal entry point.
+	 * @param string $key      Stable condition key (e.g. `batch:{id}`).
+	 * @param string $text     Human-readable one-liner (short by construction; PIPE_BUF-safe).
+	 * @param string $severity One of the SEVERITY_* constants.
+	 */
+	public static function journal_event( string $key, string $text, string $severity ): void {
+		// Real clock: the supervisor loop never refreshes Core::$now.
+		$ts                            = \microtime( true );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::FROM ]      = 'alerts';
+		$message[ Message::TIMESTAMP ] = $ts;
+		$message[ Message::KEY ]       = $key;
+		$message[ Message::VALUE ]     = [
+			'n'        => 1,
+			'k'        => 'alert',
+			'm'        => $text,
+			'ts'       => $ts,
+			'severity' => $severity,
+		];
+		$journal                       = self::journal();
+		$journal->fill( $message );
+		$journal->flush();
 	}
 
 	/**

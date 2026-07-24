@@ -427,4 +427,20 @@ class AlertsTest extends TestCase {
 		$this->assertSame( 0, $fired, 'the alert action was deleted; journaling replaced it' );
 		$this->assertNotEmpty( $this->journal_messages( $base ) );
 	}
+
+	public function test_journal_event_writes_one_row_with_the_errors_family_shape(): void {
+		$base = $this->arrange( [] );
+
+		Alerts::journal_event( 'batch:b7', 'batch b7 complete (3 jobs)', Alerts::SEVERITY_RESOLVED );
+
+		$messages = $this->journal_messages( $base );
+		$this->assertCount( 1, $messages );
+		$this->assertSame( 'batch:b7', $messages[0][ Message::KEY ] );
+		$value = $messages[0][ Message::VALUE ];
+		$this->assertSame( 1, $value['n'] );
+		$this->assertSame( 'alert', $value['k'] );
+		$this->assertSame( 'batch b7 complete (3 jobs)', $value['m'] );
+		$this->assertSame( Alerts::SEVERITY_RESOLVED, $value['severity'] );
+		$this->assertIsFloat( $value['ts'] );
+	}
 }

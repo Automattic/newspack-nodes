@@ -62,6 +62,10 @@ class Job_Worker_Node extends Node {
 	/** Cap on the durable last-run message so a jobstats record stays under PIPE_BUF. */
 	public const MAX_STAT_MESSAGE_LEN = 1024;
 
+	/** Retry backoff: RETRY_BASE_S * 2^attempt, capped at RETRY_MAX_S (SSE reconnect doubling, lifted). */
+	public const RETRY_BASE_S = 30;
+	public const RETRY_MAX_S  = 3600;
+
 	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
 	/** @api Used by unit tests. */
 	private int $jobs_executed = 0;
@@ -122,6 +126,7 @@ class Job_Worker_Node extends Node {
 		if ( ! \is_array( $entry ) ) {
 			return;
 		}
+		/** @var array<string, mixed> $entry */
 		$encoded = \wp_json_encode( $entry );
 		if ( false !== $encoded && \strlen( $encoded ) > self::MAX_JOB_SIZE ) {
 			$this->print_less_often( 'oversized entry, skipping' );
@@ -154,8 +159,9 @@ class Job_Worker_Node extends Node {
 		$ts  = Core::num_float( $entry['ts'] ?? 0, 0.0 );
 
 		// Apps hook request context on before/after_job; asymmetry deliberate.
-		$before_ok = false;
-		$outcome   = null;
+		$before_ok       = false;
+		$outcome         = null;
+		$retry_scheduled = false;
 		try {
 			try {
 				\do_action( 'newspack_nodes/job_worker/before_job', $handler, $id );
@@ -179,9 +185,16 @@ class Job_Worker_Node extends Node {
 					// Poison: record first — the throw skips post-try.
 					$outcome = [ 'status' => 'error', 'message' => $e->getMessage(), 'items_ok' => 0, 'items_err' => 0 ];
 					$this->record_job_stats( $key, $handler, $started, $queue_ms, $outcome );
-					throw $e;
+					// Opted-in retries re-park with backoff; else poison.
+					$retry_scheduled = $this->schedule_retry( $entry );
+					if ( ! $retry_scheduled ) {
+						throw $e;
+					}
 				}
-				$this->record_job_stats( $key, $handler, $started, $queue_ms, $outcome );
+				if ( ! $retry_scheduled ) {
+					// The retry path already recorded inside its catch.
+					$this->record_job_stats( $key, $handler, $started, $queue_ms, $outcome );
+				}
 			}
 		} finally {
 			// after_job always fires; swallow throw so it can't mask the error.
@@ -190,6 +203,11 @@ class Job_Worker_Node extends Node {
 			} catch ( \Throwable $e ) {
 				$this->print_less_often( 'after_job listener threw: ', $e->getMessage() );
 			}
+		}
+		$batch = Core::as_string( $entry['batch'] ?? '', '' );
+		if ( '' !== $batch && ! $retry_scheduled ) {
+			// A retry-scheduled job isn't settled; its batch stays open.
+			$this->settle_batch( $batch, $outcome );
 		}
 		++$this->jobs_executed;
 		++$this->jobs_since_cache_flush;
@@ -205,6 +223,99 @@ class Job_Worker_Node extends Node {
 			$this->set_state( 'CACHE_FLUSH', (string) $this->cache_flush_interval );
 			$this->jobs_since_cache_flush = 0;
 		}
+	}
+
+	/**
+	 * Re-park a thrown job in jobdelay.p0 with exponential backoff, when it
+	 * opted in (`retries`) and has attempts left. Returns false — falling back
+	 * to the poison path — when not opted in, exhausted, or the requeue write
+	 * itself fails (a job must never vanish into a failed swallow).
+	 *
+	 * @param array<string, mixed> $entry The jobs.log entry that threw.
+	 */
+	private function schedule_retry( array $entry ): bool {
+		$retries = Core::as_int( $entry['retries'] ?? 0, 0 );
+		$attempt = Core::as_int( $entry['attempt'] ?? 0, 0 );
+		if ( $retries < 1 || $attempt >= $retries ) {
+			return false;
+		}
+		$backoff = (float) \min( self::RETRY_MAX_S, self::RETRY_BASE_S * ( 2 ** $attempt ) );
+		$options = [
+			'not_before' => \microtime( true ) + $backoff,
+			'retries'    => $retries,
+			'attempt'    => $attempt + 1,
+		];
+		$batch   = Core::as_string( $entry['batch'] ?? '', '' );
+		if ( '' !== $batch ) {
+			$options['batch'] = $batch;
+		}
+		$key = Core::as_string( $entry['key'] ?? '', '' );
+		$id  = Core::as_string( $entry['id'] ?? '', '' );
+		/** @var array<string, mixed> $parameters */
+		$parameters = Core::arr( $entry['parameters'] ?? [], [] );
+		try {
+			$intake = new Job_Intake();
+			try {
+				return $intake->write_job(
+					Core::as_string( $entry['handler'] ?? '', '' ),
+					$parameters,
+					'' !== $key ? $key : null,
+					'' !== $id ? $id : null,
+					$options
+				);
+			} finally {
+				$intake->close();
+			}
+		} catch ( \Throwable $e ) {
+			$this->print_less_often( 'retry requeue failed, falling back to poison path: ', $e->getMessage() );
+			return false;
+		}
+	}
+
+	/**
+	 * Fold one settled batch member into the fan-in counters; the decrement
+	 * that reaches 0 signals completion — the `batch_complete` action plus one
+	 * alerts.p0 row (warning when any member erred, resolved when clean). A
+	 * missing counter (eviction) degrades loud, never blocks the job.
+	 *
+	 * A member that POISONS (throws with no retries left) does NOT settle: the
+	 * crash lineage re-runs it, so decrementing here would double-settle when
+	 * a re-run later succeeds. Its batch stays open — honestly — until the
+	 * member settles on a re-run or an operator `dl_requeue`s the quarantined
+	 * entry; a batch that never completes is pointing at its dead letter.
+	 *
+	 * @param string                                                                $batch   Batch id.
+	 * @param array{status:string,message:string,items_ok:int,items_err:int}|null   $outcome Classified outcome (null: job skipped by a before_job crash).
+	 */
+	private function settle_batch( string $batch, ?array $outcome ): void {
+		if ( null === Core::$memd ) {
+			$this->print_less_often( 'batch job settled without memcached: ', $batch );
+			return;
+		}
+		if ( null === $outcome || 'error' === $outcome['status'] ) {
+			Core::$memd->increment( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
+		}
+		$left = Core::$memd->decrement( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
+		if ( false === $left ) {
+			$this->print_less_often( 'batch counter missing (evicted or never seeded): ', $batch );
+			return;
+		}
+		if ( 0 !== $left ) {
+			return;
+		}
+		\do_action( 'newspack_nodes/job_worker/batch_complete', $batch );
+		$errors = Core::as_int( Core::$memd->get( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch ), 0 );
+		try {
+			Alerts::journal_event(
+				"batch:{$batch}",
+				"batch {$batch} complete" . ( $errors > 0 ? " ({$errors} job(s) failed)" : '' ),
+				$errors > 0 ? Alerts::SEVERITY_WARNING : Alerts::SEVERITY_RESOLVED
+			);
+		} catch ( \Throwable $e ) {
+			$this->print_less_often( 'batch completion journal failed: ', $e->getMessage() );
+		}
+		Core::$memd->delete( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
+		Core::$memd->delete( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
 	}
 
 	/**

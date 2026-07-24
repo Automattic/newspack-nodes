@@ -1,11 +1,13 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -25,7 +27,7 @@ class JobIntakeTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function read_all_jobintake_lines(): array {
+	private function read_all_jobintake_lines( string $dir_pattern = '/^jobintake\.p\d+$/' ): array {
 		$lines    = [];
 		$logs_dir = "{$this->tmp}/logs";
 		if ( ! is_dir( $logs_dir ) ) {
@@ -34,7 +36,7 @@ class JobIntakeTest extends TestCase {
 		// Walk every flat jobintake.p* partition dir + every segment. Each line
 		// on disk is a packed Tachikoma Message carrying the envelope in VALUE.
 		foreach ( scandir( $logs_dir ) as $entry ) {
-			if ( ! preg_match( '/^jobintake\.p\d+$/', $entry ) ) {
+			if ( ! preg_match( $dir_pattern, $entry ) ) {
 				continue;
 			}
 			$pdir = "{$logs_dir}/{$entry}";
@@ -369,5 +371,174 @@ class JobIntakeTest extends TestCase {
 			'removing the Partition must unregister its heartbeat, not orphan it'
 		);
 		$draining->setValue( $ef, false );
+	}
+
+	// --- Options: delayed / retries / unique / batch ------------------------
+
+	private function read_all_jobdelay_lines(): array {
+		return $this->read_all_jobintake_lines( '/^jobdelay\.p0$/' );
+	}
+
+	public function test_not_before_future_routes_to_jobdelay(): void {
+		$intake = new Job_Intake( $this->tmp, 4 );
+		$due    = \microtime( true ) + 500.0;
+		$this->assertTrue( $intake->write_job( 'delayed_h', [ 'z' => 9 ], 'affkey', 'id7', [ 'not_before' => $due ] ) );
+		$intake->close();
+
+		$this->assertSame( [], $this->read_all_jobintake_lines(), 'a future job must not enter jobintake' );
+		$lines = $this->read_all_jobdelay_lines();
+		$this->assertCount( 1, $lines );
+		$this->assertSame( 'delayed_h', $lines[0]['handler'] );
+		$this->assertSame( 'affkey', $lines[0]['key'], 'partition key must ride the delayed entry for delivery-time hashing' );
+		$this->assertSame( 'id7', $lines[0]['id'] );
+		$this->assertEqualsWithDelta( $due, $lines[0]['not_before'], 0.001 );
+	}
+
+	public function test_not_before_past_routes_to_jobintake_without_delay_fields(): void {
+		$intake = new Job_Intake( $this->tmp, 4 );
+		$this->assertTrue( $intake->write_job( 'prompt_h', [], 'affkey', null, [ 'not_before' => \microtime( true ) - 5.0 ] ) );
+		$intake->close();
+
+		$this->assertSame( [], $this->read_all_jobdelay_lines() );
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertCount( 1, $lines );
+		$this->assertArrayNotHasKey( 'not_before', $lines[0] );
+	}
+
+	public function test_keyed_live_entry_carries_its_key_for_retry_affinity(): void {
+		$intake = new Job_Intake( $this->tmp, 4 );
+		$this->assertTrue( $intake->write_job( 'keyed_h', [], 'affkey' ) );
+		$this->assertTrue( $intake->write_job( 'unkeyed_h', [] ) );
+		$intake->close();
+
+		$lines = array_column( $this->read_all_jobintake_lines(), null, 'handler' );
+		$this->assertSame( 'affkey', $lines['keyed_h']['key'], 'a keyed entry must remember its key so a retry re-parks on the same partition' );
+		$this->assertArrayNotHasKey( 'key', $lines['unkeyed_h'] );
+	}
+
+	public function test_delay_option_converts_to_not_before(): void {
+		$intake = new Job_Intake( $this->tmp, 4 );
+		$before = \microtime( true );
+		$this->assertTrue( $intake->write_job( 'delayed_h', [], null, null, [ 'delay' => 120 ] ) );
+		$intake->close();
+
+		$lines = $this->read_all_jobdelay_lines();
+		$this->assertCount( 1, $lines );
+		$this->assertGreaterThanOrEqual( $before + 119.0, $lines[0]['not_before'] );
+		$this->assertLessThanOrEqual( \microtime( true ) + 121.0, $lines[0]['not_before'] );
+	}
+
+	public function test_retries_option_rides_the_entry(): void {
+		$intake = new Job_Intake( $this->tmp, 4 );
+		$this->assertTrue( $intake->write_job( 'retry_h', [], null, null, [ 'retries' => 4 ] ) );
+		$intake->close();
+
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertCount( 1, $lines );
+		$this->assertSame( 4, $lines[0]['retries'] );
+		$this->assertArrayNotHasKey( 'attempt', $lines[0] );
+	}
+
+	public function test_unknown_option_throws(): void {
+		$intake = new Job_Intake( $this->tmp, 4 );
+		try {
+			$this->expectException( \InvalidArgumentException::class );
+			$this->expectExceptionMessageMatches( '/retrys/' );
+			$intake->write_job( 'typo_h', [], null, null, [ 'retrys' => 3 ] );
+		} finally {
+			$intake->close();
+		}
+	}
+
+	public function test_unique_without_memcached_throws(): void {
+		$prev       = Core::$memd;
+		Core::$memd = null;
+		$intake     = new Job_Intake( $this->tmp, 4 );
+		try {
+			// LogicException so the static queue()'s RuntimeException→false
+			// lock-contention catch can never silently swallow the misconfig.
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessageMatches( '/memcached/' );
+			$intake->write_job( 'uniq_h', [], null, null, [ 'unique' => 'u1', 'unique_ttl' => 77 ] );
+		} finally {
+			$intake->close();
+			Core::$memd = $prev;
+		}
+	}
+
+	public function test_unique_without_ttl_throws(): void {
+		$prev       = Core::$memd;
+		Core::$memd = new InMemoryMemcached();
+		$intake     = new Job_Intake( $this->tmp, 4 );
+		try {
+			$this->expectException( \InvalidArgumentException::class );
+			$this->expectExceptionMessageMatches( '/unique_ttl/' );
+			$intake->write_job( 'uniq_h', [], null, null, [ 'unique' => 'u1' ] );
+		} finally {
+			$intake->close();
+			Core::$memd = $prev;
+		}
+	}
+
+	public function test_unique_second_enqueue_in_window_is_dropped(): void {
+		$prev       = Core::$memd;
+		Core::$memd = new InMemoryMemcached();
+		$intake     = new Job_Intake( $this->tmp, 4 );
+		try {
+			$this->assertTrue( $intake->write_job( 'uniq_h', [ 'a' => 1 ], null, null, [ 'unique' => 'warm', 'unique_ttl' => 77 ] ) );
+			$this->assertFalse( $intake->write_job( 'uniq_h', [ 'a' => 2 ], null, null, [ 'unique' => 'warm', 'unique_ttl' => 77 ] ) );
+			$this->assertTrue( $intake->write_job( 'uniq_h', [ 'a' => 3 ], null, null, [ 'unique' => 'other', 'unique_ttl' => 77 ] ) );
+		} finally {
+			$intake->close();
+			Core::$memd = $prev;
+		}
+		$this->assertCount( 2, $this->read_all_jobintake_lines(), 'the duplicate enqueue must write nothing' );
+	}
+
+	public function test_queue_many_batch_seeds_counter_and_tags_entries(): void {
+		$prev       = Core::$memd;
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		$intake     = new Job_Intake( $this->tmp, 4 );
+		try {
+			$jobs = [
+				[ 'handler' => 'batch_h', 'parameters' => [ 'i' => 1 ] ],
+				[ 'handler' => 'batch_h', 'parameters' => [ 'i' => 2 ] ],
+				[ 'handler' => 'batch_h', 'parameters' => [ 'i' => 3 ] ],
+			];
+			$this->assertSame( 3, $intake->queue_many( $jobs, null, 'b42' ) );
+		} finally {
+			$intake->close();
+			Core::$memd = $prev;
+		}
+
+		$this->assertSame( 3, $memd->get( 'nodes-job-batch:b42' ) );
+		$this->assertSame( 0, $memd->get( 'nodes-job-batch-err:b42' ) );
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertCount( 3, $lines );
+		foreach ( $lines as $line ) {
+			$this->assertSame( 'b42', $line['batch'] );
+		}
+	}
+
+	public function test_queue_many_batch_without_memcached_throws(): void {
+		$prev       = Core::$memd;
+		Core::$memd = null;
+		$intake     = new Job_Intake( $this->tmp, 4 );
+		try {
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessageMatches( '/memcached/' );
+			$intake->queue_many( [ [ 'handler' => 'batch_h', 'parameters' => [] ] ], null, 'b43' );
+		} finally {
+			$intake->close();
+			Core::$memd = $prev;
+		}
+	}
+
+	public function test_static_queue_passes_options_through(): void {
+		$this->assertTrue( Job_Intake::queue( 'opt_h', [], null, $this->tmp, 4, [ 'retries' => 2 ] ) );
+		$lines = $this->read_all_jobintake_lines();
+		$this->assertCount( 1, $lines );
+		$this->assertSame( 2, $lines[0]['retries'] );
 	}
 }
