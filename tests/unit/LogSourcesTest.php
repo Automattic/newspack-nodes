@@ -296,4 +296,72 @@ class LogSourcesTest extends TestCase {
 			'a segmented source with no segments on disk has nothing to tail'
 		);
 	}
+
+	// ── taillog (moved off Command_Interpreter_Node) ─────────────────────────
+
+	/** Write $count rows of $width chars (+ newline) to a fresh temp file. */
+	private function write_fixed_width_log( int $count, int $width ): string {
+		$path  = "{$this->tmp}/tail-" . $count . 'x' . $width . '.log';
+		$lines = [];
+		for ( $i = 0; $i < $count; $i++ ) {
+			$lines[] = \str_pad( \sprintf( 'evlog-line-%04d', $i ), $width, '.' );
+		}
+		\file_put_contents( $path, \implode( "\n", $lines ) . "\n" );
+		return $path;
+	}
+
+	public function test_taillog_tails_the_last_bytes_and_drops_the_partial_first_line(): void {
+		// 40 rows x 60 bytes = 2400 bytes; a 1KB tail lands mid-row 22, so the
+		// first WHOLE row is 0023 — distinct from the 16KB default window.
+		$path = $this->write_fixed_width_log( 40, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$out = Log_Sources::taillog( [ 'php', '1' ] );
+
+		$this->assertStringStartsWith( 'evlog-line-0023', $out );
+		$this->assertStringNotContainsString( 'evlog-line-0000', $out );
+		$this->assertStringContainsString( 'evlog-line-0039', $out );
+	}
+
+	public function test_taillog_no_source_lists_the_registry_with_availability(): void {
+		$present = $this->write_fixed_width_log( 3, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
+
+		$out = Log_Sources::taillog( [] );
+
+		$this->assertStringContainsString( 'SOURCE', $out );
+		$this->assertStringContainsString( 'AVAILABLE', $out );
+		$this->assertStringContainsString( $present, $out );
+		$this->assertStringContainsString( '180', $out, '3 rows x 60 bytes' );
+	}
+
+	public function test_taillog_sources_returns_a_struct_of_rows(): void {
+		$present = $this->write_fixed_width_log( 3, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
+
+		$rows = Log_Sources::taillog( [ 'sources' ] );
+
+		$this->assertSame(
+			[
+				[
+					'name'      => 'php',
+					'path'      => $present,
+					'mode'      => 'file',
+					'available' => true,
+					'bytes'     => \filesize( $present ),
+				],
+			],
+			$rows
+		);
+	}
+
+	public function test_taillog_rejects_an_unknown_source_name_never_a_path(): void {
+		$path = $this->write_fixed_width_log( 3, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$out = Log_Sources::taillog( [ '../../../../etc/passwd' ] );
+
+		$this->assertStringContainsString( 'unknown log source', $out );
+		$this->assertStringNotContainsString( 'root:', $out );
+	}
 }

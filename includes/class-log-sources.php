@@ -39,6 +39,138 @@ class Log_Sources {
 	/** SSE-subscription name charset (leading name char blocks `.`/`..`). */
 	private const NAME_PATTERN = '/^[a-z0-9_-][a-z0-9_.-]*$/D';
 
+	/** `taillog` default / hard-cap tail window (KB). */
+	private const TAILLOG_DEFAULT_KB = 16;
+	private const TAILLOG_MAX_KB     = 64;
+
+	/**
+	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
+	 * fixed registry NAME (the shared registry: built-ins + config `log_sources` +
+	 * active-topology Log nodes). No source lists the registry with per-source
+	 * availability; the reserved name `sources` returns the registry as a struct
+	 * (array) a GUI reads; an unknown name or a missing/unreadable file returns a
+	 * teaching error naming the resolved path (errors-as-docs). The interpreter's
+	 * `taillog` verb delegates here — file I/O over a registry Log_Sources owns.
+	 *
+	 * @param list<string> $args
+	 * @return string|list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
+	 */
+	public static function taillog( array $args ): string|array {
+		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
+		$registry            = self::registry();
+
+		if ( 'sources' === $source ) {
+			return self::taillog_sources_struct( $registry );
+		}
+		if ( '' === $source ) {
+			return self::taillog_list( $registry );
+		}
+		if ( ! isset( $registry[ $source ] ) ) {
+			$known = \implode( ', ', \array_keys( $registry ) );
+			return "unknown log source: \"$source\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
+		}
+		// Segmented sources tail their NEWEST {path}.{seg}; file mode the path.
+		$path = self::tail_path( $registry[ $source ] );
+		if ( null === $path || ! \is_file( $path ) || ! \is_readable( $path ) ) {
+			return 'log unavailable: ' . ( $path ?? $registry[ $source ]['path'] ) . ' (missing or unreadable)';
+		}
+		$window = \max( 1, \min( \ctype_digit( $max_kb ) ? (int) $max_kb : self::TAILLOG_DEFAULT_KB, self::TAILLOG_MAX_KB ) );
+		return self::tail_file( $path, $window * 1024 );
+	}
+
+	/**
+	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes }
+	 * row per (deduped) registry entry, as a plain array a GUI reads to build its
+	 * source picker — mirrors the dump_metadata array-reply precedent. `bytes` is the
+	 * byte size a tail would read (the Log Viewer's replay-catch-up boundary); null
+	 * when the source has no readable file.
+	 *
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
+	 */
+	private static function taillog_sources_struct( array $registry ): array {
+		$rows = [];
+		foreach ( $registry as $name => $entry ) {
+			$rows[] = [
+				'name'      => $name,
+				'path'      => $entry['path'],
+				'mode'      => $entry['mode'],
+				'available' => self::is_available( $entry['path'], $entry['mode'] ),
+				'bytes'     => self::tail_bytes( $entry ),
+			];
+		}
+		return $rows;
+	}
+
+	/**
+	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
+	 * else the file. Null when there is no readable file (missing, or a segmented
+	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
+	 *
+	 * @param array{path: string, mode: string} $entry
+	 */
+	private static function tail_bytes( array $entry ): ?int {
+		$tail = self::tail_path( $entry );
+		if ( null === $tail || ! \is_file( $tail ) ) {
+			return null;
+		}
+		$size = \filesize( $tail );
+		return false === $size ? null : $size;
+	}
+
+	/**
+	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
+	 * Reuses the ONE Command_Interpreter_Node::tabulate renderer.
+	 *
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 */
+	private static function taillog_list( array $registry ): string {
+		$rows = [];
+		foreach ( $registry as $name => $entry ) {
+			// BYTES sizes what a tail reads: newest segment if segmented.
+			$size   = self::tail_bytes( $entry );
+			$rows[] = [
+				$name,
+				self::is_available( $entry['path'], $entry['mode'] ) ? 'yes' : 'no',
+				null === $size ? '-' : (string) $size,
+				$entry['path'],
+			];
+		}
+		return Command_Interpreter_Node::tabulate(
+			[ 'left', 'left', 'right', 'left' ],
+			[ 'SOURCE', 'AVAILABLE', 'BYTES', 'PATH' ],
+			$rows
+		);
+	}
+
+	/**
+	 * Read the last $max_bytes of $path from the end via a kernel-seek offset read,
+	 * dropping the (likely partial) first line when the window starts past byte 0.
+	 * Plain text out.
+	 *
+	 * @param string       $path      Registry-resolved log path.
+	 * @param positive-int $max_bytes Tail window (callers clamp to >= 1024).
+	 */
+	private static function tail_file( string $path, int $max_bytes ): string {
+		$size = \filesize( $path );
+		if ( false === $size ) {
+			return "log unavailable: $path (cannot read)";
+		}
+		// Read only the last window via the built-in's offset (kernel seek).
+		$start = $size > $max_bytes ? $size - $max_bytes : 0;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Bounded diagnostic read of a fixed-registry log path, never a URL.
+		$data = \file_get_contents( $path, false, null, $start, $max_bytes );
+		if ( false === $data ) {
+			return "log unavailable: $path (cannot read)";
+		}
+		// Dropped the partial first line (the window started mid-line).
+		if ( $start > 0 ) {
+			$nl   = \strpos( $data, "\n" );
+			$data = false === $nl ? '' : \substr( $data, $nl + 1 );
+		}
+		return $data;
+	}
+
 	/**
 	 * The merged registry: built-ins → config → topologies, first name wins,
 	 * realpath-deduped (insertion order is priority).

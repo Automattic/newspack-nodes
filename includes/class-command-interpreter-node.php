@@ -27,10 +27,6 @@ class Command_Interpreter_Node extends Node {
 	 */
 	public static ?\Closure $default_authorize = null;
 
-	/** `taillog` default / hard-cap tail window (KB). */
-	private const TAILLOG_DEFAULT_KB = 16;
-	private const TAILLOG_MAX_KB     = 64;
-
 	/**
 	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
 	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
@@ -383,7 +379,7 @@ class Command_Interpreter_Node extends Node {
 			'list_profiles'   => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_profiles( Core::as_string( $args[0] ?? '' ) ),
 			'log'             => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_log( $self, self::arg_strings( $args ) ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dmesg(),
-			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_taillog( self::arg_strings( $args ) ),
+			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): mixed => Log_Sources::taillog( self::arg_strings( $args ) ),
 			'dump_node'       => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump'            => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump_config'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dump_config( Core::as_string( $args[0] ?? '' ) ),
@@ -763,131 +759,6 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_dmesg(): string {
 		return \implode( '', Core::$recent_log );
-	}
-
-	/**
-	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
-	 * fixed registry NAME (the shared `Log_Sources` registry: built-ins + config
-	 * `log_sources` + active-topology Log nodes). No source lists the registry with
-	 * per-source availability; the reserved name `sources` returns the registry as
-	 * a struct (array) a GUI reads; an unknown name or a missing/unreadable file
-	 * returns a teaching error naming the resolved path (errors-as-docs).
-	 *
-	 * @param list<string> $args
-	 * @return string|list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
-	 */
-	private static function cmd_taillog( array $args ): string|array {
-		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
-		$registry = Log_Sources::registry();
-
-		if ( 'sources' === $source ) {
-			return self::taillog_sources_struct( $registry );
-		}
-		if ( '' === $source ) {
-			return self::taillog_list( $registry );
-		}
-		if ( ! isset( $registry[ $source ] ) ) {
-			$known = \implode( ', ', \array_keys( $registry ) );
-			return "unknown log source: \"$source\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
-		}
-		// Segmented sources tail their NEWEST {path}.{seg}; file mode the path.
-		$path = Log_Sources::tail_path( $registry[ $source ] );
-		if ( null === $path || ! \is_file( $path ) || ! \is_readable( $path ) ) {
-			return 'log unavailable: ' . ( $path ?? $registry[ $source ]['path'] ) . ' (missing or unreadable)';
-		}
-		$window = \max( 1, \min( \ctype_digit( $max_kb ) ? (int) $max_kb : self::TAILLOG_DEFAULT_KB, self::TAILLOG_MAX_KB ) );
-		return self::tail_file( $path, $window * 1024 );
-	}
-
-	/**
-	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes }
-	 * row per (deduped) registry entry, as a plain array a GUI reads to build its
-	 * source picker — mirrors the dump_metadata array-reply precedent. `bytes` is the
-	 * byte size a tail would read (the Log Viewer's replay-catch-up boundary); null
-	 * when the source has no readable file.
-	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
-	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
-	 */
-	private static function taillog_sources_struct( array $registry ): array {
-		$rows = [];
-		foreach ( $registry as $name => $entry ) {
-			$rows[] = [
-				'name'      => $name,
-				'path'      => $entry['path'],
-				'mode'      => $entry['mode'],
-				'available' => Log_Sources::is_available( $entry['path'], $entry['mode'] ),
-				'bytes'     => self::tail_bytes( $entry ),
-			];
-		}
-		return $rows;
-	}
-
-	/**
-	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
-	 * else the file. Null when there is no readable file (missing, or a segmented
-	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
-	 *
-	 * @param array{path: string, mode: string} $entry
-	 */
-	private static function tail_bytes( array $entry ): ?int {
-		$tail = Log_Sources::tail_path( $entry );
-		if ( null === $tail || ! \is_file( $tail ) ) {
-			return null;
-		}
-		$size = \filesize( $tail );
-		return false === $size ? null : $size;
-	}
-
-	/**
-	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
-	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
-	 */
-	private static function taillog_list( array $registry ): string {
-		$rows = [];
-		foreach ( $registry as $name => $entry ) {
-			// BYTES sizes what a tail reads: newest segment if segmented.
-			$size   = self::tail_bytes( $entry );
-			$rows[] = [
-				$name,
-				Log_Sources::is_available( $entry['path'], $entry['mode'] ) ? 'yes' : 'no',
-				null === $size ? '-' : (string) $size,
-				$entry['path'],
-			];
-		}
-		return self::tabulate(
-			[ 'left', 'left', 'right', 'left' ],
-			[ 'SOURCE', 'AVAILABLE', 'BYTES', 'PATH' ],
-			$rows
-		);
-	}
-
-	/**
-	 * Read the last $max_bytes of $path from the end via fseek, dropping the (likely
-	 * partial) first line when the window starts past byte 0. Plain text out.
-	 *
-	 * @param string       $path      Registry-resolved log path.
-	 * @param positive-int $max_bytes Tail window (callers clamp to >= 1024).
-	 */
-	private static function tail_file( string $path, int $max_bytes ): string {
-		$size = \filesize( $path );
-		if ( false === $size ) {
-			return "log unavailable: $path (cannot read)";
-		}
-		// Read only the last window via the built-in's offset (kernel seek).
-		$start = $size > $max_bytes ? $size - $max_bytes : 0;
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Bounded diagnostic read of a fixed-registry log path, never a URL.
-		$data = \file_get_contents( $path, false, null, $start, $max_bytes );
-		if ( false === $data ) {
-			return "log unavailable: $path (cannot read)";
-		}
-		// Dropped the partial first line (the window started mid-line).
-		if ( $start > 0 ) {
-			$nl   = \strpos( $data, "\n" );
-			$data = false === $nl ? '' : \substr( $data, $nl + 1 );
-		}
-		return $data;
 	}
 
 	/**
@@ -1450,7 +1321,7 @@ class Command_Interpreter_Node extends Node {
 		// Not a command — maybe a node TYPE: surface its node_schema().
 		$fqcn = self::resolve_class( $topic );
 		if ( null !== $fqcn ) {
-			return self::render_node_schema( $topic, $fqcn::node_schema() );
+			return Node_Schema_Help::render( $topic, $fqcn::node_schema() );
 		}
 		return "no such topic: \"$topic\"";
 	}
@@ -1493,96 +1364,16 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Render a node's node_schema() as a text help block: header (type + category),
-	 * description, capability flags, then argument / command / request / registration
-	 * sections — each present only when the schema declares it.
-	 *
-	 * @param array<string, mixed> $schema The node's node_schema().
-	 */
-	private static function render_node_schema( string $type, array $schema ): string {
-		$category = isset( $schema['category'] ) ? ' — ' . Core::as_string( $schema['category'] ) : '';
-		$out      = [ "### {$type}{$category} ###" ];
-		if ( isset( $schema['description'] ) ) {
-			$out[] = Core::as_string( $schema['description'] );
-		}
-
-		$flags = [];
-		foreach ( [ 'accepts_fill', 'has_target' ] as $flag ) {
-			if ( isset( $schema[ $flag ] ) ) {
-				$flags[] = $flag . '=' . ( $schema[ $flag ] ? 'true' : 'false' );
-			}
-		}
-		if ( ! empty( $flags ) ) {
-			$out[] = \implode( '  ', $flags );
-		}
-
-		$arg_rows = [];
-		foreach ( self::schema_list( $schema, 'arguments' ) as $arg ) {
-			if ( ! \is_array( $arg ) ) {
-				continue;
-			}
-			$spec = ! empty( $arg['required'] )
-				? 'required'
-				: ( \array_key_exists( 'default', $arg ) ? '=' . self::render_default( $arg['default'] ) : '' );
-			$arg_rows[] = [ Core::as_string( $arg['name'] ?? '' ), Core::as_string( $arg['type'] ?? '' ), $spec, Core::as_string( $arg['description'] ?? '' ) ];
-		}
-		if ( ! empty( $arg_rows ) ) {
-			$out[] = 'ARGUMENTS';
-			$out[] = self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $arg_rows );
-		}
-
-		foreach ( [ 'commands' => 'COMMANDS', 'requests' => 'REQUESTS' ] as $field => $label ) {
-			$rows = [];
-			foreach ( self::schema_list( $schema, $field ) as $entry ) {
-				if ( ! \is_array( $entry ) ) {
-					continue;
-				}
-				$rows[] = [ Core::as_string( $entry['name'] ?? '' ), Core::as_string( $entry['description'] ?? '' ) ];
-			}
-			if ( ! empty( $rows ) ) {
-				$out[] = $label;
-				$out[] = self::tabulate( [ 'left', 'left' ], null, $rows );
-			}
-		}
-
-		$registrations = self::schema_list( $schema, 'registrations' );
-		if ( ! empty( $registrations ) ) {
-			$out[] = 'REGISTRATIONS: ' . \implode( ', ', \array_map( static fn ( $r ): string => Core::as_string( $r ), $registrations ) );
-		}
-		return \implode( "\n", $out );
-	}
-
-	/**
-	 * Extract a node_schema() section (a `mixed` value) as a plain list; a
-	 * non-array section yields []. Callers guard each entry's own shape.
-	 *
-	 * @param array<string, mixed> $schema
-	 * @return list<mixed>
-	 */
-	private static function schema_list( array $schema, string $key ): array {
-		$list = $schema[ $key ] ?? null;
-		return \is_array( $list ) ? \array_values( $list ) : [];
-	}
-
-	/** Render an argument's default for the help table: bools as true/false, arrays as [], else the scalar. */
-	private static function render_default( mixed $default ): string {
-		if ( \is_bool( $default ) ) {
-			return $default ? 'true' : 'false';
-		}
-		if ( \is_array( $default ) ) {
-			return '[]';
-		}
-		return Core::as_string( $default );
-	}
-
-	/**
 	 * Column-aligned table rendering; the last left-aligned column isn't padded.
+	 * Public so the substrate's other text-table consumers (Log_Sources' taillog
+	 * listing, Node_Schema_Help, Service_CI subclasses) share the ONE renderer
+	 * rather than growing copies. Tachikoma keeps tabulate in CI; so do we.
 	 *
 	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
 	 * @param array<int,string>|null       $header Optional header row; null skips it.
 	 * @param array<int,array<int,string>> $rows
 	 */
-	private static function tabulate( array $dirs, ?array $header, array $rows ): string {
+	public static function tabulate( array $dirs, ?array $header, array $rows ): string {
 		$ncols = \count( $dirs );
 		$max   = \array_fill( 0, $ncols, 0 );
 		if ( null !== $header ) {
