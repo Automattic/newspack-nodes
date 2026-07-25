@@ -182,10 +182,17 @@
 // collapsed, it is the slim rail holding just the expand chevron
 // (mirrors the console's topology-palette-dock).
 .newspack-nodes-rail-dock {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 	flex-shrink: 0;
+
+	// Clearance for the pinned chevron (top: 6px + 18px box), like the
+	// console inspector's body padding.
+	&:not(.is-collapsed) {
+		padding-top: 30px;
+	}
 
 	&.is-collapsed {
 		width: 28px;
@@ -193,20 +200,22 @@
 	}
 
 	&.is-collapsed .newspack-nodes-rail-toggle {
-		align-self: center;
+		position: static;
+		margin-top: 8px;
 	}
 }
 
 .newspack-nodes-rail-toggle {
-	align-self: flex-end;
-	flex-shrink: 0;
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	z-index: 2;
 	width: 18px;
 	height: 18px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	padding: 0;
-	margin-bottom: 4px;
 	margin-right: 6px;
 	background: var(--paper-2, #262626);
 	color: var(--ink, #e0e0e0);
