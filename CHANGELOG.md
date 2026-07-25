@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-24
+
 ### Added
 - **Jobs dashboard: backlog + queue-latency graphs.** The hub's Jobs tab adds a
   Job Backlog panel (the jobs Consumer's lag, from the same topicprobe stream
