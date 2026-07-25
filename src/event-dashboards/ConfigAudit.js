@@ -9,7 +9,7 @@
  * filter narrows by option name; the count line reports matched / total.
  */
 
-import { useState } from '@wordpress/element';
+import { createPortal, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { useSettingsAuditStream } from './hooks/useSettingsAuditStream';
 import { useNodeState } from '../runtime/react';
@@ -43,9 +43,11 @@ function valueCell( modifier, value ) {
 /**
  * Config Audit hub tab.
  *
+ * @param {Object}   props                      Props.
+ * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the toolbar into.
  * @return {import('react').ReactElement} Rendered component.
  */
-export default function ConfigAudit() {
+export default function ConfigAudit( { headerControlsSlot } ) {
 	useSettingsAuditStream();
 	const view = useNodeState( VIEW_NODE, 'view' );
 	const entries = view?.entries ?? [];
@@ -56,50 +58,58 @@ export default function ConfigAudit() {
 		? entries.filter( ( e ) => e.option.toLowerCase().includes( query ) )
 		: entries;
 
+	const toolbar = (
+		<div className="newspack-nodes-toolbar">
+			<span className="newspack-nodes-toolbar-stats">
+				<span className="newspack-nodes-toolbar-stats__count">
+					{ query
+						? sprintf(
+								// translators: 1: matching changes, 2: total changes.
+								_n(
+									'%1$d / %2$d change',
+									'%1$d / %2$d changes',
+									entries.length,
+									'newspack-nodes'
+								),
+								rows.length,
+								entries.length
+						  )
+						: sprintf(
+								// translators: %d: number of recorded changes.
+								_n(
+									'%d change',
+									'%d changes',
+									entries.length,
+									'newspack-nodes'
+								),
+								entries.length
+						  ) }
+				</span>
+			</span>
+			<input
+				type="text"
+				className="newspack-nodes-search-input"
+				placeholder={ __( 'Filter option names…', 'newspack-nodes' ) }
+				value={ filter }
+				onChange={ ( e ) => setFilter( e.target.value ) }
+			/>
+		</div>
+	);
+	// LogStreamViewer slot convention: portal / inline / null-slot nothing.
+	let renderedToolbar = null;
+	if ( headerControlsSlot ) {
+		renderedToolbar = createPortal( toolbar, headerControlsSlot );
+	} else if ( undefined === headerControlsSlot ) {
+		renderedToolbar = toolbar;
+	}
+
 	return (
 		<div
 			className="nodes-config-audit"
 			role="region"
 			aria-label={ __( 'Config Audit', 'newspack-nodes' ) }
 		>
-			<div className="newspack-nodes-toolbar">
-				<input
-					type="text"
-					className="newspack-nodes-search-input"
-					placeholder={ __(
-						'Filter option names…',
-						'newspack-nodes'
-					) }
-					value={ filter }
-					onChange={ ( e ) => setFilter( e.target.value ) }
-				/>
-				<span className="newspack-nodes-toolbar-stats">
-					<span className="newspack-nodes-toolbar-stats__count">
-						{ query
-							? sprintf(
-									// translators: 1: matching changes, 2: total changes.
-									_n(
-										'%1$d / %2$d change',
-										'%1$d / %2$d changes',
-										entries.length,
-										'newspack-nodes'
-									),
-									rows.length,
-									entries.length
-							  )
-							: sprintf(
-									// translators: %d: number of recorded changes.
-									_n(
-										'%d change',
-										'%d changes',
-										entries.length,
-										'newspack-nodes'
-									),
-									entries.length
-							  ) }
-					</span>
-				</span>
-			</div>
+			{ renderedToolbar }
 
 			<p className="nodes-config-audit__note">
 				{ __(
