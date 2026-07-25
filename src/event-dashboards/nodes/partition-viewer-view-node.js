@@ -117,6 +117,8 @@ export class PartitionViewerViewNode extends Node {
 		} else if ( 'browse' === value.action ) {
 			// Replaying: capture the live boundary to detect catch-up against.
 			this.seek.browse( value.endSegment ?? null, value.endOffset ?? 0 );
+			// A rewind starts clean: replays must not mix into the live tail.
+			this._clear();
 		} else if ( 'follow' === value.action ) {
 			this.seek.follow();
 		}
