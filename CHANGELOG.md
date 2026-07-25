@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Rail highlight follows the clicked segment immediately.** Clicking a
+  segment highlighted the last-received segment until Play/Step delivered a
+  record from the new position; `browse()` now drops the stale pre-seek
+  breadcrumb (as `select()` already did), so the highlight falls back to the
+  clicked segment at once. Applies to all four log-stream dashboards.
+
 ## [1.4.0] - 2026-07-25
 
 ### Added

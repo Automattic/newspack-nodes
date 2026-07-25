@@ -128,6 +128,8 @@ export class SeekTracker {
 	 */
 	browse( endSegment = null, endOffset = 0 ) {
 		this.mode = 'replay';
+		// Pre-seek breadcrumb is stale: highlight falls to the clicked item.
+		this.lastReceivedSegment = null;
 		this.endSegment = endSegment;
 		this.endOffset = endOffset;
 		this.fileMode = null === endSegment && endOffset > 0;

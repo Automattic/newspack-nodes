@@ -66,6 +66,13 @@ describe( 'SeekTracker', () => {
 		expect( t.mode ).toBe( 'live' );
 	} );
 
+	it( 'browse() forgets the pre-seek received segment (highlight falls to the clicked one)', () => {
+		const t = new SeekTracker();
+		t.track( '98:500:40' ); // distinct from the null default
+		t.browse( 105, 1200 );
+		expect( t.lastReceivedSegment ).toBe( null );
+	} );
+
 	it( 'follow() returns to live and drops the boundary', () => {
 		const t = new SeekTracker();
 		t.browse( 105, 1200 );
