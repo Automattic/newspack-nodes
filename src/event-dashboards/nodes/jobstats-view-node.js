@@ -70,28 +70,34 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		const itemsErr = Number( value[ ITEMS_ERR ] ) || 0;
 		const durationMs = Number( value[ DURATION_MS ] ) || 0;
 		const queueMs = Number( value[ QUEUE_MS ] ) || 0;
+		const lastTs = Number( value[ LAST_TS ] ) || 0;
+		// Hidden reset: recycle onto the SAME cumulative (flat runs, new ts).
+		const reset =
+			null !== c._lastRuns &&
+			runs === c._lastRuns &&
+			lastTs > ( c.lastTs || 0 );
 		// Newest-record cumulative + last-run detail (newest table columns).
 		c.runs = runs;
 		c.errors = errors;
 		c.durationMs = durationMs;
 		c.itemsOk = itemsOk;
 		c.itemsErr = itemsErr;
-		c.lastTs = Number( value[ LAST_TS ] ) || 0;
+		c.lastTs = lastTs;
 		c.lastDurationMs = Number( value[ LAST_DURATION_MS ] ) || 0;
 		c.lastStatus = String( value[ LAST_STATUS ] || '' );
 		c.lastMessage = String( value[ LAST_MESSAGE ] || '' );
 
 		// Per-record rate (charts) + raw Δ (windowed totals) from one `_delta`.
 		const dt = ts > c._lastTs ? ts - c._lastTs : 0;
-		const runsRate = this._rate( c._lastRuns, runs, dt );
-		const errorsRate = this._rate( c._lastErrors, errors, dt );
-		const itemsRate = this._rate( c._lastItems, itemsOk, dt );
-		const runsDelta = this._delta( c._lastRuns, runs );
-		const errorsDelta = this._delta( c._lastErrors, errors );
-		const itemsOkDelta = this._delta( c._lastItems, itemsOk );
-		const itemsErrDelta = this._delta( c._lastItemsErr, itemsErr );
-		const durationDelta = this._delta( c._lastDuration, durationMs );
-		const queueDelta = this._delta( c._lastQueue, queueMs );
+		const runsRate = this._rate( c._lastRuns, runs, dt, reset );
+		const errorsRate = this._rate( c._lastErrors, errors, dt, reset );
+		const itemsRate = this._rate( c._lastItems, itemsOk, dt, reset );
+		const runsDelta = this._delta( c._lastRuns, runs, reset );
+		const errorsDelta = this._delta( c._lastErrors, errors, reset );
+		const itemsOkDelta = this._delta( c._lastItems, itemsOk, reset );
+		const itemsErrDelta = this._delta( c._lastItemsErr, itemsErr, reset );
+		const durationDelta = this._delta( c._lastDuration, durationMs, reset );
+		const queueDelta = this._delta( c._lastQueue, queueMs, reset );
 		c._lastRuns = runs;
 		c._lastErrors = errors;
 		c._lastItems = itemsOk;
@@ -118,24 +124,29 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	}
 
 	// Rate = that positive Δ over Δts; first sample / no dt yields 0.
-	_rate( prior, current, dt ) {
+	_rate( prior, current, dt, reset = false ) {
 		return null !== prior && dt > 0
-			? this._delta( prior, current ) / dt
+			? this._delta( prior, current, reset ) / dt
 			: 0;
 	}
 
 	/**
 	 * Positive counter Δ — the single source of the reset rule for BOTH the rate
-	 * and the windowed totals. First sample OR a reset (new < prior) counts the
-	 * NEW record's value: a fresh worker generation's runs=1 is one new run, never
-	 * negative, never eaten. A normal increment is the plain difference.
+	 * and the windowed totals. First sample OR a reset (new < prior, or `reset`
+	 * for a recycle that landed on an EQUAL cumulative — detected upstream via
+	 * the last-run ts) counts the NEW record's value: a fresh worker
+	 * generation's runs=1 is one new run, never negative, never eaten. A normal
+	 * increment is the plain difference.
 	 *
 	 * @param {number|null} prior   Prior cumulative value (null on first sample).
 	 * @param {number}      current This record's cumulative value.
+	 * @param {boolean}     [reset] Force the reset path (hidden equal-value reset).
 	 * @return {number} The non-negative delta contribution.
 	 */
-	_delta( prior, current ) {
-		return null === prior || current < prior ? current : current - prior;
+	_delta( prior, current, reset = false ) {
+		return null === prior || reset || current < prior
+			? current
+			: current - prior;
 	}
 
 	_entryView( c ) {

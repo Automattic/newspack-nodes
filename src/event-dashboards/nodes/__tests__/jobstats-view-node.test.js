@@ -94,6 +94,56 @@ describe( 'JobstatsViewNode', () => {
 		);
 	} );
 
+	it( 'a recycle landing on the SAME cumulative still counts the new run (hidden reset)', () => {
+		const v = new JobstatsViewNode();
+		// Gen A: one run, 82ms queued, last run at +90.
+		v.fill(
+			jobstatsMsg( {
+				runs: 1,
+				queueMs: 82,
+				lastTs: TS_BASE + 90,
+				ts: 100,
+			} )
+		);
+		// Gen B (recycled): counters reset to the SAME cumulative — equal runs
+		// hide the reset from the `<` rule, but the last-run ts is newer.
+		v.fill(
+			jobstatsMsg( {
+				runs: 1,
+				queueMs: 89467,
+				lastTs: TS_BASE + 200,
+				ts: 210,
+			} )
+		);
+		const snap = v.snapshot().evtemplate;
+		expect( snap.series.at( -1 ).queueLatencyMs ).toBe( 89467 );
+		expect( snap.series.at( -1 ).runsRate ).toBeCloseTo( 1 / 110 );
+		expect( snap.windowed.runs ).toBe( 2 );
+	} );
+
+	it( 'an idle sweep (same cumulative, same last-run ts) is not a reset', () => {
+		const v = new JobstatsViewNode();
+		v.fill(
+			jobstatsMsg( {
+				runs: 3,
+				queueMs: 450,
+				lastTs: TS_BASE + 90,
+				ts: 100,
+			} )
+		);
+		v.fill(
+			jobstatsMsg( {
+				runs: 3,
+				queueMs: 450,
+				lastTs: TS_BASE + 90,
+				ts: 115,
+			} )
+		);
+		const snap = v.snapshot().evtemplate;
+		expect( snap.series.at( -1 ).queueLatencyMs ).toBe( 0 );
+		expect( snap.windowed.runs ).toBe( 3 );
+	} );
+
 	it( 'computes runs-rate from consecutive RUNS deltas over the ts gap', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: 10, ts: 100 } ) );

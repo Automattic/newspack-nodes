@@ -17,8 +17,8 @@ const FILL_MODES = {
 	byteRate: RATE_MODE,
 	backlog: LEVEL_MODE,
 	cacheSize: LEVEL_MODE,
-	// A latency gauge: zero-filling a reporting gap would draw "instant".
-	queueLatencyMs: LEVEL_MODE,
+	// Event metric, not a gauge: hold painted the last job across idle hours.
+	queueLatencyMs: RATE_MODE,
 };
 
 /**
