@@ -85,61 +85,6 @@ class Log_Sources {
 	}
 
 	/**
-	 * The reserved `taillog read <source> <segment>:<offset>[:<length>]` reply:
-	 * the single LINE at a position, via the REAL read model — an ephemeral
-	 * Tail (file or segmented mode) seeked there and single-stepped through the
-	 * Durable_Reader debugger, so inode validation, segment rolls, and partial
-	 * lines behave exactly as they do on the live stream, and the emitted
-	 * record carries the stamped FROM + ID breadcrumb. Length-blind: a supplied
-	 * `:<length>` token is ignored. The reply's `cursor` is the post-step
-	 * position — the Log Viewer's paused single-step advance. File mode
-	 * validates the segment slot as the file's inode (a breadcrumb round-trip);
-	 * a mismatch re-seeks to 0 rather than reading a rotated-away generation.
-	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
-	 * @param string $name     Registry source name.
-	 * @param string $position `<segment>:<offset>[:<length>]`.
-	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
-	 */
-	private static function taillog_read( array $registry, string $name, string $position ): array|string {
-		$tokens = \explode( ':', $position );
-		if ( \count( $tokens ) < 2 || \count( $tokens ) > 3 || ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) {
-			return 'taillog read: invalid position (want <segment>:<offset>[:<length>])';
-		}
-		if ( ! isset( $registry[ $name ] ) ) {
-			$known = \implode( ', ', \array_keys( $registry ) );
-			return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
-		}
-		$entry    = $registry[ $name ];
-		$captured = null;
-		$capture  = new Callback_Node( static function ( array $message ) use ( &$captured ): void {
-			$captured = $message;
-		} );
-		$tail = new Tail_Node();
-		$tail->sink( $capture );
-		$tail->arguments( [ $entry['path'], '', '', $entry['mode'] ] );
-		$tail->set_stamp_as( $name );
-		$tail->next_offset( [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ] );
-		try {
-			$cursor = $tail->step();
-		} finally {
-			$tail->remove_node();
-		}
-		if ( null === $captured ) {
-			return "taillog read: no line at {$name} {$tokens[0]}:{$tokens[1]}";
-		}
-		return [
-			'source'  => $name,
-			'message' => $captured,
-			'cursor'  => [
-				'segment' => $cursor['segment'],
-				'offset'  => $cursor['offset'],
-			],
-			'at_eof'  => $cursor['at_eof'],
-		];
-	}
-
-	/**
 	 * The merged registry: built-ins → config → topologies, first name wins,
 	 * realpath-deduped (insertion order is priority).
 	 *
@@ -418,6 +363,61 @@ class Log_Sources {
 		}
 		$size = \filesize( $entry['path'] );
 		return false === $size ? null : $size;
+	}
+
+	/**
+	 * The reserved `taillog read <source> <segment>:<offset>[:<length>]` reply:
+	 * the single LINE at a position, via the REAL read model — an ephemeral
+	 * Tail (file or segmented mode) seeked there and single-stepped through the
+	 * Durable_Reader debugger, so inode validation, segment rolls, and partial
+	 * lines behave exactly as they do on the live stream, and the emitted
+	 * record carries the stamped FROM + ID breadcrumb. Length-blind: a supplied
+	 * `:<length>` token is ignored. The reply's `cursor` is the post-step
+	 * position — the Log Viewer's paused single-step advance. File mode
+	 * validates the segment slot as the file's inode (a breadcrumb round-trip);
+	 * a mismatch re-seeks to 0 rather than reading a rotated-away generation.
+	 *
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 * @param string $name     Registry source name.
+	 * @param string $position `<segment>:<offset>[:<length>]`.
+	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
+	 */
+	private static function taillog_read( array $registry, string $name, string $position ): array|string {
+		$tokens = \explode( ':', $position );
+		if ( \count( $tokens ) < 2 || \count( $tokens ) > 3 || ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) {
+			return 'taillog read: invalid position (want <segment>:<offset>[:<length>])';
+		}
+		if ( ! isset( $registry[ $name ] ) ) {
+			$known = \implode( ', ', \array_keys( $registry ) );
+			return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
+		}
+		$entry    = $registry[ $name ];
+		$captured = null;
+		$capture  = new Callback_Node( static function ( array $message ) use ( &$captured ): void {
+			$captured = $message;
+		} );
+		$tail = new Tail_Node();
+		$tail->sink( $capture );
+		$tail->arguments( [ $entry['path'], '', '', $entry['mode'] ] );
+		$tail->set_stamp_as( $name );
+		$tail->next_offset( [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ] );
+		try {
+			$cursor = $tail->step();
+		} finally {
+			$tail->remove_node();
+		}
+		if ( null === $captured ) {
+			return "taillog read: no line at {$name} {$tokens[0]}:{$tokens[1]}";
+		}
+		return [
+			'source'  => $name,
+			'message' => $captured,
+			'cursor'  => [
+				'segment' => $cursor['segment'],
+				'offset'  => $cursor['offset'],
+			],
+			'at_eof'  => $cursor['at_eof'],
+		];
 	}
 
 	/**

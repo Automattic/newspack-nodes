@@ -101,31 +101,6 @@ export class LogStreamViewNode extends Node {
 		}
 	}
 
-	// Subclass hook: shape one raw envelope into row fields, or null to drop.
-	// eslint-disable-next-line no-unused-vars
-	shapeRow( message ) {
-		return null;
-	}
-
-	// Subclass hook: false suspends breadcrumb tracking (e.g. mixed dirs).
-	seekTracking() {
-		return true;
-	}
-
-	// The published low-freq model; subclasses spread super's and add fields.
-	viewModel() {
-		return {
-			paused: this.paused,
-			connectionError: this.connectionError,
-			mode: this.seek.mode,
-			lastReceivedSegment: this.seek.lastReceivedSegment,
-		};
-	}
-
-	_publish() {
-		this.setState( 'view', this.viewModel() );
-	}
-
 	// Shape + track + append one raw envelope (the hot path).
 	_appendEnvelope( message ) {
 		const row = this.shapeRow( message );
@@ -136,11 +111,36 @@ export class LogStreamViewNode extends Node {
 		this._appendRow( row );
 	}
 
+	// Subclass hook: shape one raw envelope into row fields, or null to drop.
+	// eslint-disable-next-line no-unused-vars
+	shapeRow( message ) {
+		return null;
+	}
+
 	// Track the position breadcrumb; publishes on segment/catch-up change only.
 	_trackPosition( message ) {
 		if ( this.seekTracking() && this.seek.track( message[ ID ] ) ) {
 			this._publish();
 		}
+	}
+
+	// Subclass hook: false suspends breadcrumb tracking (e.g. mixed dirs).
+	seekTracking() {
+		return true;
+	}
+
+	_publish() {
+		this.setState( 'view', this.viewModel() );
+	}
+
+	// The published low-freq model; subclasses spread super's and add fields.
+	viewModel() {
+		return {
+			paused: this.paused,
+			connectionError: this.connectionError,
+			mode: this.seek.mode,
+			lastReceivedSegment: this.seek.lastReceivedSegment,
+		};
 	}
 
 	// Write a shaped row into the ring (O(1)); no setState on this hot path.
@@ -159,11 +159,6 @@ export class LogStreamViewNode extends Node {
 			isEven: this.lineCounter % 2 === 0,
 		} );
 		this.lpsSmoother.add( 1, Date.now() );
-	}
-
-	// Time-aware readout: an idle stream's rate decays instead of freezing.
-	get lps() {
-		return this.lpsSmoother.read( Date.now() );
 	}
 
 	// Clear buffer + counter + rate window (select / browse / clear).
@@ -208,6 +203,11 @@ export class LogStreamViewNode extends Node {
 		}
 		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
 		return this._ring[ idx ];
+	}
+
+	// Time-aware readout: an idle stream's rate decays instead of freezing.
+	get lps() {
+		return this.lpsSmoother.read( Date.now() );
 	}
 
 	// Number of live rows in the ring (O(1)).
