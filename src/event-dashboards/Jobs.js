@@ -14,11 +14,20 @@
 import { useMemo, useDeferredValue } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { useJobstatsStream } from './hooks/useJobstatsStream';
+import { useTopicProbeStream } from './hooks/useTopicProbeStream';
 import { useNodeState } from '../runtime/react';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
-import { formatCount, formatMsgRate, formatAge } from './formatters';
+import {
+	formatBytes,
+	formatCount,
+	formatMsgRate,
+	formatAge,
+} from './formatters';
 import './styles/jobs.scss';
+
+// The jobs Topic's concrete dirs are `jobs.p<N>`; bare `jobs` tolerated.
+const isJobsSource = ( source ) => /^jobs(\.p\d+)?$/.test( source || '' );
 
 // Milliseconds → a compact "Nms" / "N.Ns" label.
 function formatMs( ms ) {
@@ -42,6 +51,10 @@ export default function Jobs() {
 	const view = useNodeState( 'jobstats:view', 'view' );
 	const handlers = view?.handlers ?? {};
 
+	// The jobs Consumer's lag rides the topicprobe stream the Overview replays.
+	useTopicProbeStream( { mode: 'history' } );
+	const probeView = useNodeState( 'topicprobe:view', 'view' );
+
 	// Per-handler rate rollups, deferred so redraws stay off INP.
 	const deferred = useDeferredValue( handlers );
 	const runsSeries = useMemo(
@@ -51,6 +64,24 @@ export default function Jobs() {
 	const errorsSeries = useMemo(
 		() => topicChartSeries( deferred, 'errorsRate', ( c ) => c.handler ),
 		[ deferred ]
+	);
+	// Per IDENTITY, not handler: summing means across identities is invalid.
+	const latencySeries = useMemo(
+		() => topicChartSeries( deferred, 'queueLatencyMs', ( c ) => c.key ),
+		[ deferred ]
+	);
+	const deferredProbe = useDeferredValue( probeView?.consumers ?? {} );
+	const backlogSeries = useMemo(
+		() =>
+			topicChartSeries(
+				Object.fromEntries(
+					Object.entries( deferredProbe ).filter( ( [ , c ] ) =>
+						isJobsSource( c.source )
+					)
+				),
+				'backlog'
+			),
+		[ deferredProbe ]
 	);
 
 	// Identity rows, worst-first by windowed failures (matching the column).
@@ -78,6 +109,18 @@ export default function Jobs() {
 					series={ errorsSeries }
 					formatValue={ formatMsgRate }
 					fillMode={ fillModeForMetric( 'errorsRate' ) }
+				/>
+				<TopicsChart
+					title={ __( 'Job Backlog', 'newspack-nodes' ) }
+					series={ backlogSeries }
+					formatValue={ formatBytes }
+					fillMode={ fillModeForMetric( 'backlog' ) }
+				/>
+				<TopicsChart
+					title={ __( 'Job Queue Latency', 'newspack-nodes' ) }
+					series={ latencySeries }
+					formatValue={ formatMs }
+					fillMode={ fillModeForMetric( 'queueLatencyMs' ) }
 				/>
 			</div>
 
