@@ -10,7 +10,7 @@
  * (no partition column).
  */
 
-import { useCallback } from '@wordpress/element';
+import { useCallback, useEffect, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
@@ -27,6 +27,8 @@ import useLogPositions, {
 import './styles/log-viewer.scss';
 
 const ROW_HEIGHT = 18;
+// Catalog maintenance cadence (segment rotation + size growth).
+const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'logviewer:view';
 // SSE connector owns liveness; "Xs ago" reads its lastEventTime, not the view.
 const LINK_NODE = 'logviewer:link';
@@ -60,7 +62,7 @@ const renderRawRow = ( row ) => (
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogViewer( { headerControlsSlot } ) {
-	const { selectSource, setPaused, seek, sources, step } =
+	const { selectSource, setPaused, seek, sources, step, fetchSources } =
 		useLogViewerGraph();
 
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
@@ -84,6 +86,32 @@ export default function LogViewer( { headerControlsSlot } ) {
 	// Selection and seek both re-catalog (in the graph hook), so this is fresh.
 	const segments =
 		sources.find( ( s ) => s.name === currentSource )?.segments ?? [];
+
+	// Maintain the rail: re-catalog on a cadence while a source streams.
+	useEffect( () => {
+		if ( ! currentSource ) {
+			return undefined;
+		}
+		const id = setInterval( () => {
+			fetchSources().catch( () => {} );
+		}, SEGMENTS_REFRESH_MS );
+		return () => clearInterval( id );
+	}, [ currentSource, fetchSources ] );
+
+	// A record from an unknown segment = rotation; re-catalog once (no loops).
+	const staleSegmentRef = useRef( null );
+	useEffect( () => {
+		if (
+			null === lastReceivedSegment ||
+			staleSegmentRef.current === lastReceivedSegment ||
+			0 === segments.length ||
+			segments.some( ( s ) => s.id === lastReceivedSegment )
+		) {
+			return;
+		}
+		staleSegmentRef.current = lastReceivedSegment;
+		fetchSources().catch( () => {} );
+	}, [ lastReceivedSegment, segments, fetchSources ] );
 
 	// Seek intent; the DISPLAYED Live/Replay mode comes from the view.
 	const { segmentId, follow, browseSegment, replay } =

@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stepped to.
 
 ### Fixed
+- **The segment rail stays current.** Both viewers refresh their segment
+  list on a 10s cadence (sizes grow, rotated-out segments drop) and
+  refetch immediately when a record arrives from a segment the rail
+  doesn't know — a rotation shows up the moment its first record does,
+  not on the next tick. Previously the rail was fetched once per
+  selection and never again.
 - **A rewind clears the list.** Replay, a segment click, and an offset
   jump all clear the row buffer before replaying, so replayed records
   never mix into the stale live tail (Live keeps the buffer — resuming

@@ -118,6 +118,7 @@ describe( 'LogViewer', () => {
 	let setPaused;
 	let seek;
 	let step;
+	let fetchSources;
 
 	function mockGraph( sources = SOURCES ) {
 		useLogViewerGraph.mockReturnValue( {
@@ -126,6 +127,7 @@ describe( 'LogViewer', () => {
 			seek,
 			sources,
 			step,
+			fetchSources,
 		} );
 	}
 
@@ -137,9 +139,40 @@ describe( 'LogViewer', () => {
 		setPaused = jest.fn();
 		seek = jest.fn();
 		step = jest.fn();
+		fetchSources = jest.fn().mockResolvedValue( SOURCES );
 		useLogViewerGraph.mockClear();
 		mockGraph();
 		window.history.replaceState( {}, '', '/' );
+	} );
+
+	it( 'the source catalog refreshes on an interval while a source streams', () => {
+		jest.useFakeTimers();
+		registerViewFixture( { selected: 'gate' } );
+		render( <LogViewer /> );
+		expect( fetchSources ).not.toHaveBeenCalled();
+		act( () => {
+			jest.advanceTimersByTime( 10000 );
+		} );
+		expect( fetchSources ).toHaveBeenCalledTimes( 1 );
+		jest.useRealTimers();
+	} );
+
+	it( 'a record from an unknown segment re-catalogs once', () => {
+		const node = registerViewFixture( { selected: 'gate' } );
+		render( <LogViewer /> );
+		expect( fetchSources ).not.toHaveBeenCalled();
+		act( () => {
+			node.setState( 'view', {
+				...node.setStateCache.view,
+				lastReceivedSegment: 6,
+			} );
+		} );
+		expect( fetchSources ).toHaveBeenCalledTimes( 1 );
+		// The SAME unknown segment must not re-catalog again (no loop).
+		act( () => {
+			node.setState( 'view', { ...node.setStateCache.view } );
+		} );
+		expect( fetchSources ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'renders the sources as a toolbar dropdown, unavailable ones disabled', () => {

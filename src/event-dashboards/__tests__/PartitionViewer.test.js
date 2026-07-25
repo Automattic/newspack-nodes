@@ -291,6 +291,46 @@ describe( 'PartitionViewer', () => {
 		);
 	} );
 
+	it( 'the segment rail refreshes on an interval', async () => {
+		jest.useFakeTimers();
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		expect( fetchLogStatus ).toHaveBeenCalledTimes( 1 );
+		await act( async () => {
+			jest.advanceTimersByTime( 10000 );
+		} );
+		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+		jest.useRealTimers();
+	} );
+
+	it( 'a record from an unknown segment refetches the rail once', async () => {
+		fetchLogStatus.mockResolvedValue( {
+			segments: [ { id: 0, size: 10 } ],
+		} );
+		const node = registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		expect( fetchLogStatus ).toHaveBeenCalledTimes( 1 );
+		// A rotation: the stream reports a segment the rail doesn't know.
+		await act( async () => {
+			node.setState( 'view', {
+				...node.setStateCache.view,
+				lastReceivedSegment: 1,
+			} );
+		} );
+		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+		// The SAME unknown segment must not refetch again (no loop).
+		await act( async () => {
+			node.setState( 'view', { ...node.setStateCache.view } );
+		} );
+		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+	} );
+
 	it( 'debug toggle switches the list into the ID-KEY-VALUE debug renderer', async () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
