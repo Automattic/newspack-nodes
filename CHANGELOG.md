@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   live raw tail stays headerless).
 
 ### Fixed
+- **Smooth-scroll hysteresis**: gliding stops once you scroll past two row
+  heights and only resumes back under one, so hovering near the top can't
+  flip between glide and scroll-anchor modes every frame.
 - **The lines/s readout decays when the stream goes quiet** instead of
   freezing at its last value: the rate smoother gained a time-aware read
   that expires the 10s window, so an idle or paused stream's rate slides
