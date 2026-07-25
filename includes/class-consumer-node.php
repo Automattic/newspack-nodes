@@ -160,11 +160,6 @@ class Consumer_Node extends Timer_Node {
 		return new Partition_Node();
 	}
 
-	/** Requeue target: the source Partition this Consumer tails, so dl_requeue re-injects into it. */
-	protected function deadletter_requeue_target(): ?Partition_Node {
-		return $this->source;
-	}
-
 	/**
 	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
 	 * Consumer's schema args are source_dir + offsetlog_dir.
@@ -640,6 +635,11 @@ class Consumer_Node extends Timer_Node {
 			$this->cursor_offset = 0;
 			$this->buffer     = '';
 		}
+	}
+
+	/** Requeue target: the source Partition this Consumer tails, so dl_requeue re-injects into it. */
+	protected function deadletter_requeue_target(): ?Partition_Node {
+		return $this->source;
 	}
 
 	// Time-travel transport hooks; shared machinery in the Time_Travel trait.

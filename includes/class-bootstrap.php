@@ -63,38 +63,6 @@ class Bootstrap {
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
 	private static bool $schedule_event_context_is_supervisor = false;
 
-	/**
-	 * Boot-time version handshake for consumer plugins. `Requires Plugins`
-	 * guarantees the substrate is ACTIVE but says nothing about its version;
-	 * without this a consumer built against a newer substrate fatals on a
-	 * missing API mid-request. True when the loaded substrate satisfies $min;
-	 * otherwise registers an admin notice naming the dependent plugin and both
-	 * versions, and returns false so the consumer can stay dormant.
-	 *
-	 * @api Called from consumer plugins' deferred loaders (cross-repo, invisible here).
-	 *
-	 * @param string $min       Minimum substrate version the consumer needs.
-	 * @param string $dependent Human-readable consumer plugin name for the notice.
-	 */
-	public static function version_at_least( string $min, string $dependent ): bool {
-		if ( \version_compare( NEWSPACK_NODES_VERSION, $min, '>=' ) ) {
-			return true;
-		}
-		\add_action( 'admin_notices', static function () use ( $min, $dependent ): void {
-			\printf(
-				'<div class="notice notice-error"><p>%s</p></div>',
-				\esc_html( \sprintf(
-					/* translators: 1: consumer plugin name, 2: required version, 3: installed version. */
-					\__( '%1$s requires Newspack Nodes %2$s or newer (found %3$s) and is dormant until Newspack Nodes is updated.', 'newspack-nodes' ),
-					$dependent,
-					$min,
-					NEWSPACK_NODES_VERSION
-				) )
-			);
-		} );
-		return false;
-	}
-
 	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
 	public static function run_supervisor_tick(): void {
 		if ( ! self::fleet_site() ) {
@@ -120,6 +88,14 @@ class Bootstrap {
 		} finally {
 			\do_action( 'newspack_nodes/after_supervisor_run' );
 		}
+	}
+
+	/**
+	 * The fleet is network-global (locks/IPC/logs carry no blog namespace),
+	 * so exactly one site runs it: single-site always, multisite main only.
+	 */
+	public static function fleet_site(): bool {
+		return ! \function_exists( 'is_multisite' ) || ! \is_multisite() || \is_main_site();
 	}
 
 	/**
@@ -155,6 +131,17 @@ class Bootstrap {
 			self::init_memcached();
 		}
 		// Footgun: don't wire SSE_Slot_Pool here; force-loads SSE REST routes.
+	}
+
+	/** Build a Supervisor using NONCE_SALT for HMAC (factory seam injectable by tests). */
+	public static function supervisor(): Supervisor {
+		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
+		return $factory();
+	}
+
+	/** Configured base directory for runtime state (locks/, ipc/). */
+	public static function base_dir(): string {
+		return Config::get_base_directory();
 	}
 
 	/**
@@ -273,17 +260,6 @@ class Bootstrap {
 	public static function get_topology_catalog(): array {
 		self::ensure_runtime_wired();
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
-	}
-
-	/** Build a Supervisor using NONCE_SALT for HMAC (factory seam injectable by tests). */
-	public static function supervisor(): Supervisor {
-		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
-		return $factory();
-	}
-
-	/** Configured base directory for runtime state (locks/, ipc/). */
-	public static function base_dir(): string {
-		return Config::get_base_directory();
 	}
 
 	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
@@ -502,6 +478,38 @@ class Bootstrap {
 	}
 
 	/**
+	 * Boot-time version handshake for consumer plugins. `Requires Plugins`
+	 * guarantees the substrate is ACTIVE but says nothing about its version;
+	 * without this a consumer built against a newer substrate fatals on a
+	 * missing API mid-request. True when the loaded substrate satisfies $min;
+	 * otherwise registers an admin notice naming the dependent plugin and both
+	 * versions, and returns false so the consumer can stay dormant.
+	 *
+	 * @api Called from consumer plugins' deferred loaders (cross-repo, invisible here).
+	 *
+	 * @param string $min       Minimum substrate version the consumer needs.
+	 * @param string $dependent Human-readable consumer plugin name for the notice.
+	 */
+	public static function version_at_least( string $min, string $dependent ): bool {
+		if ( \version_compare( NEWSPACK_NODES_VERSION, $min, '>=' ) ) {
+			return true;
+		}
+		\add_action( 'admin_notices', static function () use ( $min, $dependent ): void {
+			\printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				\esc_html( \sprintf(
+					/* translators: 1: consumer plugin name, 2: required version, 3: installed version. */
+					\__( '%1$s requires Newspack Nodes %2$s or newer (found %3$s) and is dormant until Newspack Nodes is updated.', 'newspack-nodes' ),
+					$dependent,
+					$min,
+					NEWSPACK_NODES_VERSION
+				) )
+			);
+		} );
+		return false;
+	}
+
+	/**
 	 * Register the substrate's ONE `direct` Site Health test. Direct (not async):
 	 * the check is a handful of filemtime/glob reads, no HTTP.
 	 *
@@ -559,14 +567,6 @@ class Bootstrap {
 			'description' => $description,
 			'test'        => self::SITE_HEALTH_TEST,
 		];
-	}
-
-	/**
-	 * The fleet is network-global (locks/IPC/logs carry no blog namespace),
-	 * so exactly one site runs it: single-site always, multisite main only.
-	 */
-	public static function fleet_site(): bool {
-		return ! \function_exists( 'is_multisite' ) || ! \is_multisite() || \is_main_site();
 	}
 
 	/**

@@ -65,13 +65,6 @@ export class SettingsAuditViewNode extends Node {
 		this._maybePublish();
 	}
 
-	// Newest-first fresh copy: sort ts desc, arrival-seq (id) desc as tiebreak.
-	snapshot() {
-		return this._entries
-			.slice()
-			.sort( ( a, b ) => b.ts - a.ts || b.id - a.id );
-	}
-
 	// Leading-edge throttle + trailing flush so a burst's newest entry lands.
 	_maybePublish() {
 		const now = Date.now();
@@ -95,6 +88,13 @@ export class SettingsAuditViewNode extends Node {
 		}
 		this._lastPublish = Date.now();
 		this.setState( 'view', { entries: this.snapshot() } );
+	}
+
+	// Newest-first fresh copy: sort ts desc, arrival-seq (id) desc as tiebreak.
+	snapshot() {
+		return this._entries
+			.slice()
+			.sort( ( a, b ) => b.ts - a.ts || b.id - a.id );
 	}
 
 	// Cancel a pending trailing flush so no setState fires after teardown.

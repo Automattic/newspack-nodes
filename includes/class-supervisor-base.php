@@ -183,15 +183,6 @@ class Supervisor_Base {
 	}
 
 	/**
-	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
-	 * here would make the endpoint (which records on accept) reject the very
-	 * POST this record announces.
-	 */
-	public function record_spawn_local( string $type, int $partition, float $when ): void {
-		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
-	}
-
-	/**
 	 * Persist a spawn timestamp (Cache_Backend, transient fallback) so a respawn honors the rate limit.
 	 */
 	protected function persist_spawn_ts( string $key, float $when ): void {
@@ -242,5 +233,14 @@ class Supervisor_Base {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
+	 * here would make the endpoint (which records on accept) reject the very
+	 * POST this record announces.
+	 */
+	public function record_spawn_local( string $type, int $partition, float $when ): void {
+		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
 	}
 }

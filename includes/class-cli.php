@@ -28,14 +28,6 @@ class CLI {
 		$this->base_dir = \rtrim( $base_dir, '/' );
 	}
 
-	/** WP_CLI::error (exits) as root — root-owned IPC/lock dirs lock out the web-user fleet. */
-	public static function refuse_root( string $verb ): void {
-		$uid = ( self::$uid_provider ?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1 )();
-		if ( 0 === $uid ) {
-			\WP_CLI::error( "wp nodes {$verb} must run as the same user as the workers, not root." );
-		}
-	}
-
 	/**
 	 * Resolve IPC paths for a `{type}.p{N}` reader id; verifies the worker's lock dir exists.
 	 *
@@ -162,6 +154,20 @@ class CLI {
 	}
 
 	/**
+	 * Heartbeat/started/staleness triple for one lock dir (workers + supervisor).
+	 *
+	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
+	 */
+	private static function lock_liveness( string $dir, int $now ): array {
+		$mtime = @\filemtime( "{$dir}/heartbeat" );
+		return [
+			'heartbeat_at' => $mtime ?: 0,
+			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
+			'stale'        => ( false === $mtime || ( $now - $mtime ) > Lock_Node::STALE_TIMEOUT ),
+		];
+	}
+
+	/**
 	 * Liveness of the supervisor's own singleton lock, or null when it holds
 	 * no lock dir. The `.p<N>` worker scan can never see supervisor.lock.d —
 	 * without this the process the whole safety net rests on is invisible.
@@ -176,18 +182,12 @@ class CLI {
 		return self::lock_liveness( $dir, \time() );
 	}
 
-	/**
-	 * Heartbeat/started/staleness triple for one lock dir (workers + supervisor).
-	 *
-	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
-	 */
-	private static function lock_liveness( string $dir, int $now ): array {
-		$mtime = @\filemtime( "{$dir}/heartbeat" );
-		return [
-			'heartbeat_at' => $mtime ?: 0,
-			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
-			'stale'        => ( false === $mtime || ( $now - $mtime ) > Lock_Node::STALE_TIMEOUT ),
-		];
+	/** WP_CLI::error (exits) as root — root-owned IPC/lock dirs lock out the web-user fleet. */
+	public static function refuse_root( string $verb ): void {
+		$uid = ( self::$uid_provider ?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1 )();
+		if ( 0 === $uid ) {
+			\WP_CLI::error( "wp nodes {$verb} must run as the same user as the workers, not root." );
+		}
 	}
 
 	/**

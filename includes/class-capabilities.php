@@ -35,6 +35,24 @@ class Capabilities {
 	public const MANAGE = 'manage';
 
 	/**
+	 * Authorisation gate: throw unless the current user holds the role.
+	 * CommandInterpreter::interpret() catches and wraps as TM_COMMAND|TM_ERROR.
+	 *
+	 * @throws \RuntimeException When the current user lacks the role's capability.
+	 */
+	public static function require( string $role ): void {
+		if ( ! self::can( $role ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \RuntimeException( "permission denied: {$role} capability required" );
+		}
+	}
+
+	/** Whether the current user holds the role (true outside a WP user context). */
+	public static function can( string $role ): bool {
+		return ! \function_exists( 'current_user_can' ) || \current_user_can( self::cap_for( $role ) );
+	}
+
+	/**
 	 * Resolve a role to its WP capability through the filterable map.
 	 *
 	 * @param string $role One of READ|MANAGE.
@@ -54,23 +72,5 @@ class Capabilities {
 			throw new \InvalidArgumentException( "unknown capability role: {$role}" );
 		}
 		return $cap;
-	}
-
-	/** Whether the current user holds the role (true outside a WP user context). */
-	public static function can( string $role ): bool {
-		return ! \function_exists( 'current_user_can' ) || \current_user_can( self::cap_for( $role ) );
-	}
-
-	/**
-	 * Authorisation gate: throw unless the current user holds the role.
-	 * CommandInterpreter::interpret() catches and wraps as TM_COMMAND|TM_ERROR.
-	 *
-	 * @throws \RuntimeException When the current user lacks the role's capability.
-	 */
-	public static function require( string $role ): void {
-		if ( ! self::can( $role ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new \RuntimeException( "permission denied: {$role} capability required" );
-		}
 	}
 }

@@ -102,40 +102,6 @@ class Scaffold_CLI_Command {
 		return \array_keys( $files );
 	}
 
-	/**
-	 * Write one node class into the cwd plugin's includes/.
-	 *
-	 * @param string $class Class name (with or without the `_Node` suffix).
-	 * @return array<int, string> Paths written, relative to cwd.
-	 */
-	private function scaffold_node( string $class ): array {
-		if ( 1 !== \preg_match( '/^[A-Za-z_]+$/', $class ) ) {
-			\WP_CLI::error( "Invalid class name: {$class}. Use letters and underscores only, e.g. My_Filter." );
-		}
-		$class = (string) \preg_replace( '/_Node$/', '', $class );
-		$kebab = \strtolower( \str_replace( '_', '-', $class ) );
-		$path  = "includes/class-{$kebab}-node.php";
-
-		self::refuse_existing( [ $path ] );
-		self::write_file( $path, $this->node_template( self::prefix_from_slug( \basename( (string) \getcwd() ) ), $class, $kebab ) );
-		return [ $path ];
-	}
-
-	/**
-	 * Write one TSL topology (stock nodes only) into the cwd plugin's topologies/.
-	 *
-	 * @param string $name Topology name.
-	 * @return array<int, string> Paths written, relative to cwd.
-	 */
-	private function scaffold_topology( string $name ): array {
-		self::require_slug( $name );
-		$path = "topologies/{$name}.tsl";
-
-		self::refuse_existing( [ $path ] );
-		self::write_file( $path, $this->stock_topology_template( $name ) );
-		return [ $path ];
-	}
-
 	/** `WP_CLI::error` (exits) unless $slug matches `[a-z0-9-]+`. */
 	private static function require_slug( string $slug ): void {
 		if ( 1 !== \preg_match( '/^[a-z0-9-]+$/', $slug ) ) {
@@ -148,34 +114,6 @@ class Scaffold_CLI_Command {
 		$slug  = (string) \preg_replace( '/[^a-z0-9-]+/', '-', \strtolower( $slug ) );
 		$parts = \array_filter( \explode( '-', $slug ), static fn ( string $p ): bool => '' !== $p );
 		return \implode( '_', \array_map( 'ucfirst', $parts ) );
-	}
-
-	/**
-	 * `WP_CLI::error` (exits) if any target already exists — never overwrite.
-	 *
-	 * @param array<int, string> $paths Paths relative to cwd.
-	 */
-	private static function refuse_existing( array $paths ): void {
-		foreach ( $paths as $path ) {
-			if ( \file_exists( $path ) ) {
-				\WP_CLI::error( "Refusing to overwrite existing file: {$path}" );
-			}
-		}
-	}
-
-	/** Write $content to $path (relative to cwd), creating parent dirs; fail loud. */
-	private static function write_file( string $path, string $content ): void {
-		$dir = \dirname( $path );
-		if ( ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir -- CLI scaffolder writing into the operator's cwd.
-			if ( ! @\mkdir( $dir, 0755, true ) && ! \is_dir( $dir ) ) {
-				\WP_CLI::error( "Cannot create directory: {$dir}" );
-			}
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents -- CLI scaffolder writing into the operator's cwd.
-		if ( false === \file_put_contents( $path, $content ) ) {
-			\WP_CLI::error( "Cannot write file: {$path}" );
-		}
 	}
 
 	/** The plugin bootstrap: header + deferred `register_plugin()` call (tutorial §1/§8). */
@@ -332,23 +270,6 @@ TSL;
 	}
 
 	/**
-	 * A stock-nodes-only topology so it runs before any custom class exists.
-	 *
-	 * @param string $name Topology name.
-	 */
-	private function stock_topology_template( string $name ): string {
-		return <<<TSL
-# {$name} — scaffolded starter graph (stock nodes only): echo → log.
-# Replace Echo with your own node once `composer dump-autoload -o` knows it.
-var num_partitions = 1
-make_node Echo {$name}
-make_node Log  log <config:logs_dir>/{$name}-out 1 2 7
-connect_node {$name} log
-
-TSL;
-	}
-
-	/**
 	 * README pointing back at the substrate docs.
 	 *
 	 * @param string $slug Plugin slug.
@@ -375,5 +296,84 @@ Start with the newspack-nodes docs: `docs/getting-started.md`, then
 `docs/writing-a-plugin.md` — this scaffold matches that walkthrough's shapes.
 
 MD;
+	}
+
+	/**
+	 * `WP_CLI::error` (exits) if any target already exists — never overwrite.
+	 *
+	 * @param array<int, string> $paths Paths relative to cwd.
+	 */
+	private static function refuse_existing( array $paths ): void {
+		foreach ( $paths as $path ) {
+			if ( \file_exists( $path ) ) {
+				\WP_CLI::error( "Refusing to overwrite existing file: {$path}" );
+			}
+		}
+	}
+
+	/** Write $content to $path (relative to cwd), creating parent dirs; fail loud. */
+	private static function write_file( string $path, string $content ): void {
+		$dir = \dirname( $path );
+		if ( ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir -- CLI scaffolder writing into the operator's cwd.
+			if ( ! @\mkdir( $dir, 0755, true ) && ! \is_dir( $dir ) ) {
+				\WP_CLI::error( "Cannot create directory: {$dir}" );
+			}
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents -- CLI scaffolder writing into the operator's cwd.
+		if ( false === \file_put_contents( $path, $content ) ) {
+			\WP_CLI::error( "Cannot write file: {$path}" );
+		}
+	}
+
+	/**
+	 * Write one node class into the cwd plugin's includes/.
+	 *
+	 * @param string $class Class name (with or without the `_Node` suffix).
+	 * @return array<int, string> Paths written, relative to cwd.
+	 */
+	private function scaffold_node( string $class ): array {
+		if ( 1 !== \preg_match( '/^[A-Za-z_]+$/', $class ) ) {
+			\WP_CLI::error( "Invalid class name: {$class}. Use letters and underscores only, e.g. My_Filter." );
+		}
+		$class = (string) \preg_replace( '/_Node$/', '', $class );
+		$kebab = \strtolower( \str_replace( '_', '-', $class ) );
+		$path  = "includes/class-{$kebab}-node.php";
+
+		self::refuse_existing( [ $path ] );
+		self::write_file( $path, $this->node_template( self::prefix_from_slug( \basename( (string) \getcwd() ) ), $class, $kebab ) );
+		return [ $path ];
+	}
+
+	/**
+	 * Write one TSL topology (stock nodes only) into the cwd plugin's topologies/.
+	 *
+	 * @param string $name Topology name.
+	 * @return array<int, string> Paths written, relative to cwd.
+	 */
+	private function scaffold_topology( string $name ): array {
+		self::require_slug( $name );
+		$path = "topologies/{$name}.tsl";
+
+		self::refuse_existing( [ $path ] );
+		self::write_file( $path, $this->stock_topology_template( $name ) );
+		return [ $path ];
+	}
+
+	/**
+	 * A stock-nodes-only topology so it runs before any custom class exists.
+	 *
+	 * @param string $name Topology name.
+	 */
+	private function stock_topology_template( string $name ): string {
+		return <<<TSL
+# {$name} — scaffolded starter graph (stock nodes only): echo → log.
+# Replace Echo with your own node once `composer dump-autoload -o` knows it.
+var num_partitions = 1
+make_node Echo {$name}
+make_node Log  log <config:logs_dir>/{$name}-out 1 2 7
+connect_node {$name} log
+
+TSL;
 	}
 }

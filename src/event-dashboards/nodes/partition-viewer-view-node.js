@@ -66,14 +66,6 @@ export class PartitionViewerViewNode extends Node {
 		this.replies = new PendingReplies();
 	}
 
-	// Seek feedback surfaced for the published model (and view-node tests).
-	get mode() {
-		return this.seek.mode;
-	}
-	get lastReceivedSegment() {
-		return this.seek.lastReceivedSegment;
-	}
-
 	fill( message ) {
 		// Terminal node (no sink): count here for overlay throughput (not lps).
 		this.counter += 1;
@@ -131,25 +123,6 @@ export class PartitionViewerViewNode extends Node {
 		this.lps = 0;
 	}
 
-	// Publish only the low-freq model; lines/lps stay off setState (perf).
-	_publish() {
-		this.setState( 'view', {
-			logs: this.logs,
-			selected: this.selected,
-			paused: this.paused,
-			connectionError: this.connectionError,
-			mode: this.seek.mode,
-			lastReceivedSegment: this.seek.lastReceivedSegment,
-		} );
-	}
-
-	// Track the position breadcrumb; publishes on segment/catch-up change only.
-	_trackPosition( message ) {
-		if ( this.seek.track( message[ ID ] ) ) {
-			this._publish();
-		}
-	}
-
 	// Shape a raw SSE log envelope into a row and append it to the buffer.
 	_appendEnvelope( message ) {
 		const value = message[ VALUE ];
@@ -179,6 +152,25 @@ export class PartitionViewerViewNode extends Node {
 			partition = index.get( dir );
 		}
 		this._appendRow( partition, line );
+	}
+
+	// Track the position breadcrumb; publishes on segment/catch-up change only.
+	_trackPosition( message ) {
+		if ( this.seek.track( message[ ID ] ) ) {
+			this._publish();
+		}
+	}
+
+	// Publish only the low-freq model; lines/lps stay off setState (perf).
+	_publish() {
+		this.setState( 'view', {
+			logs: this.logs,
+			selected: this.selected,
+			paused: this.paused,
+			connectionError: this.connectionError,
+			mode: this.seek.mode,
+			lastReceivedSegment: this.seek.lastReceivedSegment,
+		} );
 	}
 
 	// Write a shaped row into the ring (O(1)); no setState on this hot path.
@@ -237,6 +229,14 @@ export class PartitionViewerViewNode extends Node {
 		}
 		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
 		return this._ring[ idx ];
+	}
+
+	// Seek feedback surfaced for the published model (and view-node tests).
+	get mode() {
+		return this.seek.mode;
+	}
+	get lastReceivedSegment() {
+		return this.seek.lastReceivedSegment;
 	}
 
 	// Number of live rows in the ring (O(1)).

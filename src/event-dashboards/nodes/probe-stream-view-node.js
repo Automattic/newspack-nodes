@@ -69,18 +69,6 @@ export class ProbeStreamViewNode extends Node {
 		this._maybePublish();
 	}
 
-	// A record older than the live window (the replay tail is longer than 24h).
-	_isExpired( ts ) {
-		return ts < Date.now() / 1000 - RETENTION_S;
-	}
-
-	// Ring-cap a per-key series in place after a push.
-	_capSeries( series ) {
-		if ( series.length > this.maxSamples ) {
-			series.shift();
-		}
-	}
-
 	// Drop keys whose last frame is older than the TTL (stopped/renamed).
 	_evictStale() {
 		const cutoff = Date.now() - this.ttlMs;
@@ -138,6 +126,18 @@ export class ProbeStreamViewNode extends Node {
 			out[ key ] = this._entryView( c );
 		}
 		return out;
+	}
+
+	// A record older than the live window (the replay tail is longer than 24h).
+	_isExpired( ts ) {
+		return ts < Date.now() / 1000 - RETENTION_S;
+	}
+
+	// Ring-cap a per-key series in place after a push.
+	_capSeries( series ) {
+		if ( series.length > this.maxSamples ) {
+			series.shift();
+		}
 	}
 
 	// Cancel a pending trailing flush so no setState fires after teardown.

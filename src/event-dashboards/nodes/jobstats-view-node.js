@@ -40,10 +40,6 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		this.modelKey = 'handlers';
 	}
 
-	_identityOf( value ) {
-		return value[ KEY ];
-	}
-
 	_accumulate( key, value, ts ) {
 		if ( this._isExpired( ts ) ) {
 			return;
@@ -121,6 +117,13 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		this._capSeries( c.series );
 	}
 
+	// Rate = that positive Δ over Δts; first sample / no dt yields 0.
+	_rate( prior, current, dt ) {
+		return null !== prior && dt > 0
+			? this._delta( prior, current ) / dt
+			: 0;
+	}
+
 	/**
 	 * Positive counter Δ — the single source of the reset rule for BOTH the rate
 	 * and the windowed totals. First sample OR a reset (new < prior) counts the
@@ -133,13 +136,6 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	 */
 	_delta( prior, current ) {
 		return null === prior || current < prior ? current : current - prior;
-	}
-
-	// Rate = that positive Δ over Δts; first sample / no dt yields 0.
-	_rate( prior, current, dt ) {
-		return null !== prior && dt > 0
-			? this._delta( prior, current ) / dt
-			: 0;
 	}
 
 	_entryView( c ) {
@@ -195,6 +191,10 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 			avgDurationMs: runs > 0 ? durationMs / runs : 0,
 			avgQueueMs: runs > 0 ? queueMs / runs : 0,
 		};
+	}
+
+	_identityOf( value ) {
+		return value[ KEY ];
 	}
 
 	static nodeSchema() {
