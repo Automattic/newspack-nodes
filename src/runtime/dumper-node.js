@@ -235,30 +235,6 @@ export class DumperNode extends Node {
 		}
 	}
 
-	// Buffer one entry into the ring (O(1)); caller picks the flush cadence.
-	_write( entry ) {
-		this._writeRing( this._stamp( entry ) );
-		this._sinceFlush += 1;
-	}
-
-	// Write into the ring at the head; overwrite the oldest once full (O(1)).
-	_writeRing( entry ) {
-		this._ring[ this._head ] = entry;
-		this._head = ( this._head + 1 ) % TRANSCRIPT_MAX;
-		this._count = Math.min( this._count + 1, TRANSCRIPT_MAX );
-	}
-
-	// Stamp an entry with a timeline ts + a unique React key.
-	_stamp( entry ) {
-		return {
-			...entry,
-			ts: entry.ts ?? Date.now() / 1000,
-			key: `${ Date.now() }-${ Math.random()
-				.toString( 36 )
-				.slice( 2, 7 ) }`,
-		};
-	}
-
 	// Queue one publish per frame; coalesces a burst into a single flush.
 	_scheduleFlush() {
 		if ( this._flushScheduled ) {
@@ -269,53 +245,6 @@ export class DumperNode extends Node {
 			this._flushScheduled = false;
 			this._flush();
 		} );
-	}
-
-	// Materialize + publish once; overflow past the cap drops (rate-limited).
-	_flush() {
-		const dropped = Math.max( 0, this._sinceFlush - TRANSCRIPT_MAX );
-		this._sinceFlush = 0;
-		if ( dropped > 0 ) {
-			this._droppedPending += dropped;
-			const now = Date.now();
-			if ( now - this._lastDropNoticeAt >= DROP_NOTICE_INTERVAL_MS ) {
-				this._writeRing(
-					this._stamp( {
-						kind: 'info',
-						text: `… ${ this._droppedPending } lines dropped (console flooding)`,
-					} )
-				);
-				this._droppedPending = 0;
-				this._lastDropNoticeAt = now;
-			}
-		}
-		this._transcript = this._materialize();
-		this._publish();
-	}
-
-	// The ring's live entries oldest-first as a fresh array (O(count)).
-	_materialize() {
-		const out = new Array( this._count );
-		const start =
-			( this._head - this._count + TRANSCRIPT_MAX ) % TRANSCRIPT_MAX;
-		for ( let i = 0; i < this._count; i++ ) {
-			out[ i ] = this._ring[ ( start + i ) % TRANSCRIPT_MAX ];
-		}
-		return out;
-	}
-
-	// Emit the transcript to subscribers (React render + persistence).
-	_publish() {
-		this.setState( 'transcript', this._transcript );
-	}
-
-	// Drop a queued flush (teardown / clear / restore supersede it).
-	_cancelPendingFlush() {
-		if ( this._flushScheduled ) {
-			this._cancelSchedule( this._flushHandle );
-			this._flushScheduled = false;
-			this._flushHandle = null;
-		}
 	}
 
 	// Fork a matching command reply to a one-shot capture, then clear it.
@@ -347,24 +276,49 @@ export class DumperNode extends Node {
 		this._flushNow();
 	}
 
+	// Buffer one entry into the ring (O(1)); caller picks the flush cadence.
+	_write( entry ) {
+		this._writeRing( this._stamp( entry ) );
+		this._sinceFlush += 1;
+	}
+
 	// Publish synchronously: supersede any queued frame flush and emit now.
 	_flushNow() {
 		this._cancelPendingFlush();
 		this._flush();
 	}
 
-	/**
-	 * Grab the NEXT command reply whose VALUE.name matches `verb` — the live-save
-	 * flow reuses the transcript round-trip to snapshot `dump_config` output. The
-	 * reply still renders into the transcript; this only forks a copy to `callback`.
-	 * One-shot: cleared as soon as it fires (a new call supersedes any pending one).
-	 *
-	 * @param {string}   verb     Command name to match (e.g. 'dump_config').
-	 * @param {Function} callback (payload, isError) invoked once on the match.
-	 * @return {void}
-	 */
-	captureNextReply( verb, callback ) {
-		this._captureReply = { verb, callback };
+	// Materialize + publish once; overflow past the cap drops (rate-limited).
+	_flush() {
+		const dropped = Math.max( 0, this._sinceFlush - TRANSCRIPT_MAX );
+		this._sinceFlush = 0;
+		if ( dropped > 0 ) {
+			this._droppedPending += dropped;
+			const now = Date.now();
+			if ( now - this._lastDropNoticeAt >= DROP_NOTICE_INTERVAL_MS ) {
+				this._writeRing(
+					this._stamp( {
+						kind: 'info',
+						text: `… ${ this._droppedPending } lines dropped (console flooding)`,
+					} )
+				);
+				this._droppedPending = 0;
+				this._lastDropNoticeAt = now;
+			}
+		}
+		this._transcript = this._materialize();
+		this._publish();
+	}
+
+	// Stamp an entry with a timeline ts + a unique React key.
+	_stamp( entry ) {
+		return {
+			...entry,
+			ts: entry.ts ?? Date.now() / 1000,
+			key: `${ Date.now() }-${ Math.random()
+				.toString( 36 )
+				.slice( 2, 7 ) }`,
+		};
 	}
 
 	// Seed the transcript from a persisted snapshot; caps to TRANSCRIPT_MAX.
@@ -380,6 +334,24 @@ export class DumperNode extends Node {
 		this._publish();
 	}
 
+	// Write into the ring at the head; overwrite the oldest once full (O(1)).
+	_writeRing( entry ) {
+		this._ring[ this._head ] = entry;
+		this._head = ( this._head + 1 ) % TRANSCRIPT_MAX;
+		this._count = Math.min( this._count + 1, TRANSCRIPT_MAX );
+	}
+
+	// The ring's live entries oldest-first as a fresh array (O(count)).
+	_materialize() {
+		const out = new Array( this._count );
+		const start =
+			( this._head - this._count + TRANSCRIPT_MAX ) % TRANSCRIPT_MAX;
+		for ( let i = 0; i < this._count; i++ ) {
+			out[ i ] = this._ring[ ( start + i ) % TRANSCRIPT_MAX ];
+		}
+		return out;
+	}
+
 	// Empty the transcript (the `clear` builtin); emits a fresh empty array.
 	clear() {
 		this._resetRing();
@@ -387,6 +359,11 @@ export class DumperNode extends Node {
 		this._cancelPendingFlush();
 		this._transcript = [];
 		this._publish();
+	}
+
+	// Emit the transcript to subscribers (React render + persistence).
+	_publish() {
+		this.setState( 'transcript', this._transcript );
 	}
 
 	// Drop every buffered entry + flood accounting.
@@ -401,6 +378,29 @@ export class DumperNode extends Node {
 	removeNode() {
 		this._cancelPendingFlush();
 		super.removeNode();
+	}
+
+	// Drop a queued flush (teardown / clear / restore supersede it).
+	_cancelPendingFlush() {
+		if ( this._flushScheduled ) {
+			this._cancelSchedule( this._flushHandle );
+			this._flushScheduled = false;
+			this._flushHandle = null;
+		}
+	}
+
+	/**
+	 * Grab the NEXT command reply whose VALUE.name matches `verb` — the live-save
+	 * flow reuses the transcript round-trip to snapshot `dump_config` output. The
+	 * reply still renders into the transcript; this only forks a copy to `callback`.
+	 * One-shot: cleared as soon as it fires (a new call supersedes any pending one).
+	 *
+	 * @param {string}   verb     Command name to match (e.g. 'dump_config').
+	 * @param {Function} callback (payload, isError) invoked once on the match.
+	 * @return {void}
+	 */
+	captureNextReply( verb, callback ) {
+		this._captureReply = { verb, callback };
 	}
 
 	// Programmatic-deps node: no positional config to round-trip.

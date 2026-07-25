@@ -47,6 +47,16 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	public static ?\Closure $http_call = null;
 
 	/**
+	 * Derive the dispatch table from the concrete subclass's node_schema() so each
+	 * verb is declared ONCE. Late static binding reads the subclass schema; the base
+	 * Command_Interpreter_Node has no ctor, so there's nothing to chain.
+	 */
+	public function __construct() {
+		parent::__construct();
+		$this->commands( self::commands_from_schema( static::node_schema() ) );
+	}
+
+	/**
 	 * POST a packed TM_COMMAND to a spoke's `/command` endpoint with stored Basic
 	 * Auth and return the reply's decoded `payload` array. Throws a
 	 * RuntimeException on any failure (WP_Error, non-200, non-JSON body, TM_ERROR,
@@ -138,16 +148,6 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 		$message[ Message::TO ]    = $to;
 		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
 		return Message::packed( $message );
-	}
-
-	/**
-	 * Derive the dispatch table from the concrete subclass's node_schema() so each
-	 * verb is declared ONCE. Late static binding reads the subclass schema; the base
-	 * Command_Interpreter_Node has no ctor, so there's nothing to chain.
-	 */
-	public function __construct() {
-		parent::__construct();
-		$this->commands( self::commands_from_schema( static::node_schema() ) );
 	}
 
 	/**

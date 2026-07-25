@@ -67,39 +67,6 @@ export class SeekTracker {
 	}
 
 	/**
-	 * Enter replay, capturing the catch-up boundary. Segmented: (endSegment,
-	 * size). File mode: null segment + a positive byte size (catch up by size,
-	 * or on inode rotation). Null segment + 0/absent size → never auto-flips.
-	 *
-	 * @param {?number} endSegment The end segment id, or null for file mode.
-	 * @param {number}  endOffset  The catch-up byte boundary.
-	 */
-	browse( endSegment = null, endOffset = 0 ) {
-		this.mode = 'replay';
-		this.endSegment = endSegment;
-		this.endOffset = endOffset;
-		this.fileMode = null === endSegment && endOffset > 0;
-		this.referenceSegment = null;
-	}
-
-	// Return to the live tail; drop the catch-up boundary.
-	follow() {
-		this.mode = 'live';
-		this.endSegment = null;
-		this.fileMode = false;
-		this.referenceSegment = null;
-	}
-
-	// Fresh subscription: live from a clean slate (drops the highlight too).
-	select() {
-		this.mode = 'live';
-		this.endSegment = null;
-		this.lastReceivedSegment = null;
-		this.fileMode = false;
-		this.referenceSegment = null;
-	}
-
-	/**
 	 * Track a record's `segment:offset:length` ID breadcrumb.
 	 *
 	 * @param {*} id The record's Message ID (a breadcrumb string, else ignored).
@@ -149,5 +116,38 @@ export class SeekTracker {
 			( segment > this.endSegment ||
 				( segment === this.endSegment && offsetEnd >= this.endOffset ) )
 		);
+	}
+
+	/**
+	 * Enter replay, capturing the catch-up boundary. Segmented: (endSegment,
+	 * size). File mode: null segment + a positive byte size (catch up by size,
+	 * or on inode rotation). Null segment + 0/absent size → never auto-flips.
+	 *
+	 * @param {?number} endSegment The end segment id, or null for file mode.
+	 * @param {number}  endOffset  The catch-up byte boundary.
+	 */
+	browse( endSegment = null, endOffset = 0 ) {
+		this.mode = 'replay';
+		this.endSegment = endSegment;
+		this.endOffset = endOffset;
+		this.fileMode = null === endSegment && endOffset > 0;
+		this.referenceSegment = null;
+	}
+
+	// Return to the live tail; drop the catch-up boundary.
+	follow() {
+		this.mode = 'live';
+		this.endSegment = null;
+		this.fileMode = false;
+		this.referenceSegment = null;
+	}
+
+	// Fresh subscription: live from a clean slate (drops the highlight too).
+	select() {
+		this.mode = 'live';
+		this.endSegment = null;
+		this.lastReceivedSegment = null;
+		this.fileMode = false;
+		this.referenceSegment = null;
 	}
 }

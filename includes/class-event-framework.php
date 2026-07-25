@@ -179,6 +179,28 @@ class Event_Framework {
 		$node->on_curl_message( $info );
 	}
 
+	/**
+	 * Add an easy handle to the shared multi and record its owner. The next drain
+	 * tick services it and routes its completion back to $node->on_curl_message().
+	 *
+	 * @api Support for SSE streams + outbound HTTP.
+	 */
+	public function register_curl_easy( Node $node, \CurlHandle $easy ): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
+		\curl_multi_add_handle( $this->ensure_curl_multi(), $easy );
+		$this->curl_owners[ \spl_object_id( $easy ) ] = $node;
+		$this->curl_counts[ \spl_object_id( $node ) ] ??= 0;
+	}
+
+	/** Lazily create the one shared multi handle every easy handle attaches to. */
+	private function ensure_curl_multi(): \CurlMultiHandle {
+		if ( null === $this->curl_multi ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_init
+			$this->curl_multi = \curl_multi_init();
+		}
+		return $this->curl_multi;
+	}
+
 	public function is_running(): bool {
 		return $this->draining;
 	}
@@ -239,28 +261,6 @@ class Event_Framework {
 
 	public function stop_timer( Timer_Node $node ): void {
 		unset( $this->timers[ \spl_object_id( $node ) ] );
-	}
-
-	/** Lazily create the one shared multi handle every easy handle attaches to. */
-	private function ensure_curl_multi(): \CurlMultiHandle {
-		if ( null === $this->curl_multi ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_init
-			$this->curl_multi = \curl_multi_init();
-		}
-		return $this->curl_multi;
-	}
-
-	/**
-	 * Add an easy handle to the shared multi and record its owner. The next drain
-	 * tick services it and routes its completion back to $node->on_curl_message().
-	 *
-	 * @api Support for SSE streams + outbound HTTP.
-	 */
-	public function register_curl_easy( Node $node, \CurlHandle $easy ): void {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
-		\curl_multi_add_handle( $this->ensure_curl_multi(), $easy );
-		$this->curl_owners[ \spl_object_id( $easy ) ] = $node;
-		$this->curl_counts[ \spl_object_id( $node ) ] ??= 0;
 	}
 
 	/**

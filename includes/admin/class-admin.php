@@ -83,41 +83,6 @@ class Admin {
 	}
 
 	/**
-	 * Render ONE fleet-alert notice summarizing the Alerts evaluator's count +
-	 * worst severity, shown only on the substrate's own admin pages to
-	 * manage_options users. Nothing renders when the fleet is clean.
-	 */
-	public function render_alert_notice(): void {
-		if ( ! self::current_user_allowed() ) {
-			return;
-		}
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		if ( ! \str_starts_with( $page, 'newspack-nodes' ) ) {
-			return;
-		}
-		$alerts = \Newspack_Nodes\Alerts::evaluate();
-		if ( empty( $alerts ) ) {
-			return;
-		}
-		$worst = \Newspack_Nodes\Alerts::worst_severity( $alerts );
-		$class = \Newspack_Nodes\Alerts::SEVERITY_CRITICAL === $worst ? 'notice-error' : 'notice-warning';
-		$message = \sprintf(
-			/* translators: 1: number of active fleet alerts, 2: worst severity (warning|critical). */
-			\__( 'Newspack Nodes: %1$d fleet alert(s), worst severity %2$s.', 'newspack-nodes' ),
-			\count( $alerts ),
-			$worst
-		);
-		\printf(
-			'<div class="notice %s"><p>%s <a href="%s">%s</a></p></div>',
-			\esc_attr( $class ),
-			\esc_html( $message ),
-			\esc_url( \admin_url( 'site-health.php' ) ),
-			\esc_html__( 'View fleet health', 'newspack-nodes' )
-		);
-	}
-
-	/**
 	 * Enqueue the event-dashboards bundle on the top-level "Nodes" hub page,
 	 * where its `host:'hub'` tabs (Topology Manager + Raw Logs) register.
 	 */
@@ -216,25 +181,6 @@ class Admin {
 	}
 
 	/**
-	 * The `NewspackNodesData` payload: shared restUrl/nonce under per-bundle
-	 * extras — one shape for enqueued and lazily-injected bundles alike.
-	 *
-	 * @param array<string, mixed> $localize Per-bundle extras (string keys).
-	 * @return array<string, mixed>
-	 */
-	private static function localize_data( array $localize ): array {
-		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		return \array_merge(
-			[
-				'restUrl' => \esc_url_raw( $rest_url ),
-				'nonce'   => $nonce,
-			],
-			$localize
-		);
-	}
-
-	/**
 	 * Cache-bust a stylesheet on its OWN content hash, not the JS bundle hash or
 	 * plugin version: a SCSS-only rebuild leaves the JS hash / version unchanged,
 	 * so reusing those would serve the stylesheet from cache behind a stale ?ver=
@@ -251,6 +197,25 @@ class Admin {
 			return $fallback;
 		}
 		return \md5_file( $css_path ) ?: $fallback;
+	}
+
+	/**
+	 * The `NewspackNodesData` payload: shared restUrl/nonce under per-bundle
+	 * extras — one shape for enqueued and lazily-injected bundles alike.
+	 *
+	 * @param array<string, mixed> $localize Per-bundle extras (string keys).
+	 * @return array<string, mixed>
+	 */
+	private static function localize_data( array $localize ): array {
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		return \array_merge(
+			[
+				'restUrl' => \esc_url_raw( $rest_url ),
+				'nonce'   => $nonce,
+			],
+			$localize
+		);
 	}
 
 	/** Filesystem path to a build subdir (e.g. 'vault' → '{plugin}/build/vault'). */
@@ -573,24 +538,37 @@ class Admin {
 	}
 
 	/**
-	 * Register the DevTools hub as the top-level "Nodes" admin menu (renders the
-	 * hub React mount div; the Console + Topologies load on it as tab bundles).
+	 * Render ONE fleet-alert notice summarizing the Alerts evaluator's count +
+	 * worst severity, shown only on the substrate's own admin pages to
+	 * manage_options users. Nothing renders when the fleet is clean.
 	 */
-	public function register_topology_admin_page(): void {
+	public function render_alert_notice(): void {
 		if ( ! self::current_user_allowed() ) {
 			return;
 		}
-		if ( ! \function_exists( 'add_menu_page' ) ) {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( ! \str_starts_with( $page, 'newspack-nodes' ) ) {
 			return;
 		}
-		\add_menu_page(
-			\__( 'Newspack Nodes', 'newspack-nodes' ),
-			\__( 'Nodes', 'newspack-nodes' ),
-			Capabilities::cap_for( Capabilities::MANAGE ),
-			self::HUB_MENU_SLUG,
-			[ $this, 'render_hub_page' ],
-			'dashicons-networking',
-			81
+		$alerts = \Newspack_Nodes\Alerts::evaluate();
+		if ( empty( $alerts ) ) {
+			return;
+		}
+		$worst = \Newspack_Nodes\Alerts::worst_severity( $alerts );
+		$class = \Newspack_Nodes\Alerts::SEVERITY_CRITICAL === $worst ? 'notice-error' : 'notice-warning';
+		$message = \sprintf(
+			/* translators: 1: number of active fleet alerts, 2: worst severity (warning|critical). */
+			\__( 'Newspack Nodes: %1$d fleet alert(s), worst severity %2$s.', 'newspack-nodes' ),
+			\count( $alerts ),
+			$worst
+		);
+		\printf(
+			'<div class="notice %s"><p>%s <a href="%s">%s</a></p></div>',
+			\esc_attr( $class ),
+			\esc_html( $message ),
+			\esc_url( \admin_url( 'site-health.php' ) ),
+			\esc_html__( 'View fleet health', 'newspack-nodes' )
 		);
 	}
 
@@ -623,6 +601,28 @@ class Admin {
 		}
 		$current_user = \wp_get_current_user();
 		return \in_array( $current_user->user_login, $allowed_users, true );
+	}
+
+	/**
+	 * Register the DevTools hub as the top-level "Nodes" admin menu (renders the
+	 * hub React mount div; the Console + Topologies load on it as tab bundles).
+	 */
+	public function register_topology_admin_page(): void {
+		if ( ! self::current_user_allowed() ) {
+			return;
+		}
+		if ( ! \function_exists( 'add_menu_page' ) ) {
+			return;
+		}
+		\add_menu_page(
+			\__( 'Newspack Nodes', 'newspack-nodes' ),
+			\__( 'Nodes', 'newspack-nodes' ),
+			Capabilities::cap_for( Capabilities::MANAGE ),
+			self::HUB_MENU_SLUG,
+			[ $this, 'render_hub_page' ],
+			'dashicons-networking',
+			81
+		);
 	}
 
 	/**

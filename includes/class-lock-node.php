@@ -135,11 +135,6 @@ class Lock_Node extends Node {
 		} while ( true );
 	}
 
-	/** Why the last acquire() failed ('' after success): 'lock_held' = contention; anything else is an I/O diagnosis. */
-	public function acquire_failure(): string {
-		return $this->acquire_failure;
-	}
-
 	/**
 	 * Steal an existing lock dir if orphaned (no heartbeat, past grace) or stale (mtime > timeout).
 	 *
@@ -252,6 +247,11 @@ class Lock_Node extends Node {
 		@\unlink( $lock_dir . '/' . self::RESTART_FLAG );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
 		@\rmdir( $lock_dir );
+	}
+
+	/** Why the last acquire() failed ('' after success): 'lock_held' = contention; anything else is an I/O diagnosis. */
+	public function acquire_failure(): string {
+		return $this->acquire_failure;
 	}
 
 	public function is_held(): bool {

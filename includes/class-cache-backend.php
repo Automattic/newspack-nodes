@@ -44,17 +44,17 @@ final class Cache_Backend {
 
 	private function __construct( private readonly ?\Memcached $memd ) {}
 
-	private static function apcu(): bool {
-		$check = self::$apcu_usable ?? static fn (): bool => \function_exists( 'apcu_enabled' ) && \apcu_enabled();
-		return (bool) $check();
-	}
-
 	/** APCu → memcached → null. */
 	public static function local_first(): ?self {
 		if ( self::apcu() ) {
 			return new self( null );
 		}
 		return null !== Core::$memd ? new self( Core::$memd ) : null;
+	}
+
+	private static function apcu(): bool {
+		$check = self::$apcu_usable ?? static fn (): bool => \function_exists( 'apcu_enabled' ) && \apcu_enabled();
+		return (bool) $check();
 	}
 
 	/** Memcached → APCu → null. */

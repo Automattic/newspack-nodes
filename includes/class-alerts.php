@@ -47,6 +47,74 @@ class Alerts {
 	private static ?Partition_Node $journal = null;
 
 	/**
+	 * Journal alert TRANSITIONS into `alerts.p0` — a row when a condition
+	 * raises or changes severity, and a `resolved` row when it clears. A
+	 * persisting condition journals nothing: the journal records state
+	 * changes, not heartbeats. Hooked to the supervisor's periodic tick; the
+	 * transient gate is a flap backstop (at most one batch per interval), and
+	 * the last-journaled state advances only on a successful write, so a
+	 * gated or failed tick reconciles on the next open window. Entries mirror
+	 * the errors family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is
+	 * the alert's stable key. The write is throw-guarded: a rotate-lock
+	 * timeout or unwritable dir must never unwind the supervisor tick.
+	 */
+	public static function emit(): void {
+		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
+			// Best-effort throttle window, not content dedup (TOCTOU OK).
+			if ( false !== \get_transient( self::EMIT_GATE ) ) {
+				return;
+			}
+			\set_transient( self::EMIT_GATE, 1, Core::num_int( Config::value( 'alert_emit_interval' ) ) );
+		}
+		$current = [];
+		foreach ( self::evaluate() as $alert ) {
+			$current[ Core::as_string( $alert['key'] ?? '' ) ] = $alert;
+		}
+		$last = \function_exists( 'get_option' ) ? Core::arr( \get_option( self::STATE_OPTION, [] ) ) : [];
+
+		$rows = [];
+		foreach ( $current as $key => $alert ) {
+			$severity = Core::as_string( $alert['severity'] ?? '' );
+			if ( ( $last[ $key ] ?? null ) !== $severity ) {
+				$rows[ $key ] = [
+					'm'        => Core::as_string( $alert['message'] ?? '' ),
+					'severity' => $severity,
+				];
+			}
+		}
+		foreach ( \array_keys( $last ) as $key ) {
+			if ( ! isset( $current[ $key ] ) ) {
+				$rows[ $key ] = [
+					'm'        => "resolved: {$key}",
+					'severity' => self::SEVERITY_RESOLVED,
+				];
+			}
+		}
+		if ( [] === $rows ) {
+			return;
+		}
+		try {
+			foreach ( $rows as $key => $row ) {
+				self::journal_event( (string) $key, $row['m'], $row['severity'] );
+			}
+			// Advance only after a durable write; failures retry next window.
+			if ( \function_exists( 'update_option' ) ) {
+				\update_option(
+					self::STATE_OPTION,
+					\array_map(
+						static fn ( array $alert ): string => Core::as_string( $alert['severity'] ?? '' ),
+						$current
+					),
+					false
+				);
+			}
+		} catch ( \Throwable $e ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			\error_log( 'Alerts::emit journal write failed: ' . $e->getMessage() );
+		}
+	}
+
+	/**
 	 * Compute the current alerts (pure — no side effects). Each alert is
 	 * `{ key, severity, message, ... }`; `key` is stable per condition so a
 	 * consumer can dedupe.
@@ -147,94 +215,6 @@ class Alerts {
 	}
 
 	/**
-	 * Worst severity across a list: critical if any critical, else warning if
-	 * any warning, else '' (empty list / no alerts).
-	 *
-	 * @param array<int,array<string,mixed>> $alerts
-	 */
-	public static function worst_severity( array $alerts ): string {
-		$worst = '';
-		foreach ( $alerts as $alert ) {
-			$severity = Core::as_string( $alert['severity'] ?? '' );
-			if ( self::SEVERITY_CRITICAL === $severity ) {
-				return self::SEVERITY_CRITICAL;
-			}
-			if ( self::SEVERITY_WARNING === $severity ) {
-				$worst = self::SEVERITY_WARNING;
-			}
-		}
-		return $worst;
-	}
-
-	/**
-	 * Journal alert TRANSITIONS into `alerts.p0` — a row when a condition
-	 * raises or changes severity, and a `resolved` row when it clears. A
-	 * persisting condition journals nothing: the journal records state
-	 * changes, not heartbeats. Hooked to the supervisor's periodic tick; the
-	 * transient gate is a flap backstop (at most one batch per interval), and
-	 * the last-journaled state advances only on a successful write, so a
-	 * gated or failed tick reconciles on the next open window. Entries mirror
-	 * the errors family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is
-	 * the alert's stable key. The write is throw-guarded: a rotate-lock
-	 * timeout or unwritable dir must never unwind the supervisor tick.
-	 */
-	public static function emit(): void {
-		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
-			// Best-effort throttle window, not content dedup (TOCTOU OK).
-			if ( false !== \get_transient( self::EMIT_GATE ) ) {
-				return;
-			}
-			\set_transient( self::EMIT_GATE, 1, Core::num_int( Config::value( 'alert_emit_interval' ) ) );
-		}
-		$current = [];
-		foreach ( self::evaluate() as $alert ) {
-			$current[ Core::as_string( $alert['key'] ?? '' ) ] = $alert;
-		}
-		$last = \function_exists( 'get_option' ) ? Core::arr( \get_option( self::STATE_OPTION, [] ) ) : [];
-
-		$rows = [];
-		foreach ( $current as $key => $alert ) {
-			$severity = Core::as_string( $alert['severity'] ?? '' );
-			if ( ( $last[ $key ] ?? null ) !== $severity ) {
-				$rows[ $key ] = [
-					'm'        => Core::as_string( $alert['message'] ?? '' ),
-					'severity' => $severity,
-				];
-			}
-		}
-		foreach ( \array_keys( $last ) as $key ) {
-			if ( ! isset( $current[ $key ] ) ) {
-				$rows[ $key ] = [
-					'm'        => "resolved: {$key}",
-					'severity' => self::SEVERITY_RESOLVED,
-				];
-			}
-		}
-		if ( [] === $rows ) {
-			return;
-		}
-		try {
-			foreach ( $rows as $key => $row ) {
-				self::journal_event( (string) $key, $row['m'], $row['severity'] );
-			}
-			// Advance only after a durable write; failures retry next window.
-			if ( \function_exists( 'update_option' ) ) {
-				\update_option(
-					self::STATE_OPTION,
-					\array_map(
-						static fn ( array $alert ): string => Core::as_string( $alert['severity'] ?? '' ),
-						$current
-					),
-					false
-				);
-			}
-		} catch ( \Throwable $e ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( 'Alerts::emit journal write failed: ' . $e->getMessage() );
-		}
-	}
-
-	/**
 	 * Journal one row into alerts.p0 — the errors-family entry shape plus
 	 * `severity`, KEY = a stable per-condition key so consumers can dedupe.
 	 * Used by emit()'s transition rows and by non-fleet event producers
@@ -280,6 +260,26 @@ class Alerts {
 		$partition->arguments( [ Config::get_logs_directory() . '/' . self::LOG_BASENAME . '.p0' ] );
 		self::$journal = $partition;
 		return $partition;
+	}
+
+	/**
+	 * Worst severity across a list: critical if any critical, else warning if
+	 * any warning, else '' (empty list / no alerts).
+	 *
+	 * @param array<int,array<string,mixed>> $alerts
+	 */
+	public static function worst_severity( array $alerts ): string {
+		$worst = '';
+		foreach ( $alerts as $alert ) {
+			$severity = Core::as_string( $alert['severity'] ?? '' );
+			if ( self::SEVERITY_CRITICAL === $severity ) {
+				return self::SEVERITY_CRITICAL;
+			}
+			if ( self::SEVERITY_WARNING === $severity ) {
+				$worst = self::SEVERITY_WARNING;
+			}
+		}
+		return $worst;
 	}
 
 	/**

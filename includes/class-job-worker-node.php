@@ -397,35 +397,6 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Probe seam: the accumulator as a LIST of positional Jobstats_Record snapshots
-	 * (one per identity), for the Job_Probe to sweep into jobstats.p0. Mirrors
-	 * Consumer_Node::probe_stats(), which yields ONE record; a worker owns many
-	 * identities, so this yields many. Empty until the first job runs.
-	 *
-	 * @return array<int,array<int,int|string>> Jobstats_Record-indexed positional arrays.
-	 */
-	public function probe_stats(): array {
-		$records = [];
-		foreach ( $this->job_stats as $key => $s ) {
-			$record                                    = [];
-			$record[ Jobstats_Record::KEY ]            = $key;
-			$record[ Jobstats_Record::HANDLER ]        = $s['handler'];
-			$record[ Jobstats_Record::RUNS ]           = $s['runs'];
-			$record[ Jobstats_Record::ERRORS ]         = $s['errors'];
-			$record[ Jobstats_Record::DURATION_MS ]    = (int) \round( $s['duration_ms'] );
-			$record[ Jobstats_Record::QUEUE_MS ]       = (int) \round( $s['queue_ms'] );
-			$record[ Jobstats_Record::ITEMS_OK ]       = $s['items_ok'];
-			$record[ Jobstats_Record::ITEMS_ERR ]      = $s['items_err'];
-			$record[ Jobstats_Record::LAST_TS ]        = $s['last_ts'];
-			$record[ Jobstats_Record::LAST_DURATION_MS ] = $s['last_duration_ms'];
-			$record[ Jobstats_Record::LAST_STATUS ]    = $s['last_status'];
-			$record[ Jobstats_Record::LAST_MESSAGE ]   = $s['last_message'];
-			$records[] = $record;
-		}
-		return $records;
-	}
-
-	/**
 	 * @param array<int, mixed> $message
 	 */
 	private function handle_request( array $message ): void {
@@ -508,6 +479,35 @@ class Job_Worker_Node extends Node {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Probe seam: the accumulator as a LIST of positional Jobstats_Record snapshots
+	 * (one per identity), for the Job_Probe to sweep into jobstats.p0. Mirrors
+	 * Consumer_Node::probe_stats(), which yields ONE record; a worker owns many
+	 * identities, so this yields many. Empty until the first job runs.
+	 *
+	 * @return array<int,array<int,int|string>> Jobstats_Record-indexed positional arrays.
+	 */
+	public function probe_stats(): array {
+		$records = [];
+		foreach ( $this->job_stats as $key => $s ) {
+			$record                                    = [];
+			$record[ Jobstats_Record::KEY ]            = $key;
+			$record[ Jobstats_Record::HANDLER ]        = $s['handler'];
+			$record[ Jobstats_Record::RUNS ]           = $s['runs'];
+			$record[ Jobstats_Record::ERRORS ]         = $s['errors'];
+			$record[ Jobstats_Record::DURATION_MS ]    = (int) \round( $s['duration_ms'] );
+			$record[ Jobstats_Record::QUEUE_MS ]       = (int) \round( $s['queue_ms'] );
+			$record[ Jobstats_Record::ITEMS_OK ]       = $s['items_ok'];
+			$record[ Jobstats_Record::ITEMS_ERR ]      = $s['items_err'];
+			$record[ Jobstats_Record::LAST_TS ]        = $s['last_ts'];
+			$record[ Jobstats_Record::LAST_DURATION_MS ] = $s['last_duration_ms'];
+			$record[ Jobstats_Record::LAST_STATUS ]    = $s['last_status'];
+			$record[ Jobstats_Record::LAST_MESSAGE ]   = $s['last_message'];
+			$records[] = $record;
+		}
+		return $records;
 	}
 
 	public static function node_schema(): array {
