@@ -174,13 +174,28 @@
 	flex-direction: column;
 }
 
-// The browse-rail collapse toggle: a slim chevron at the body's left edge.
+// @longform The browse-rail collapse chevron. Must match the console's
+// %topology-panel-toggle (topology-console/styles/graph-view.scss) so every
+// hide/show control reads identically; duplicated because placeholders
+// can't @extend across bundles.
 .newspack-nodes-rail-toggle {
 	align-self: flex-start;
 	flex-shrink: 0;
-	min-width: 0;
-	padding: 2px 8px;
+	width: 18px;
+	height: 18px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
 	margin-right: 8px;
-	line-height: 1.4;
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	background: var(--paper-2, #262626);
+	color: var(--ink, #e0e0e0);
+	border: 1px solid var(--ink-4, #6a6a6a);
+	border-radius: 2px;
+	cursor: pointer;
+	font: 700 12px/1 var(--font-mono, monospace);
+
+	&:hover {
+		background: var(--hover, #30363d);
+	}
 }

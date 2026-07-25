@@ -406,7 +406,7 @@ export default function LogStreamViewer( {
 			<div className={ `${ className }__body` }>
 				{ sidebar && (
 					<button
-						className="button newspack-nodes-rail-toggle"
+						className="newspack-nodes-rail-toggle"
 						onClick={ toggleRail }
 						title={
 							railOpen
