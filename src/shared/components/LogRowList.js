@@ -190,6 +190,11 @@ export default function LogRowList( {
 			const topRow = filtered ? filtered[ 0 ] : node?.lineAt( 0 );
 			const topId = topRow ? topRow.id : 0;
 
+			// First sight of a full ring baselines it — never glides it.
+			if ( 0 === lastTopIdRef.current && topId > 0 ) {
+				lastTopIdRef.current = topId;
+			}
+
 			// Debug: the newest rows, natural height, no window math.
 			if ( debug ) {
 				// Baseline stays current: leaving debug must not replay these.

@@ -105,6 +105,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   marked itself consumed. Step/Play then resumed from the old live tail,
   and only a second click (now genuinely paused) recorded the rewind. The
   gate refs now flip at the moment of the `setPaused` call.
+- **Leaving debug mode no longer replays anything, for real this time.**
+  The Log Viewer's live mode has no column header, so the chrome
+  reparented the list across the debug toggle — React remounted it with
+  fresh refs and the whole ring replayed as a glide. The list now keeps
+  ONE stable wrapper in both modes, and a freshly mounted list baselines
+  a pre-existing ring instead of gliding it.
 - **Leaving debug mode no longer replays the rows that arrived during
   it — nor the glide debt queued before entering it.** Debug zeroes the
   pending smooth-scroll offset along with the new-row baseline; both

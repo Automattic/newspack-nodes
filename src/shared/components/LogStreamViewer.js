@@ -408,16 +408,15 @@ export default function LogStreamViewer( {
 					</div>
 				) }
 
-				{ activeHeader ? (
-					<div
-						className={ `${ className }__main newspack-nodes-log-main` }
-					>
-						{ activeHeader }
-						{ list }
-					</div>
-				) : (
-					list
-				) }
+				{ /* ONE stable wrapper in BOTH modes: reparenting the list
+				     across the debug toggle would remount it (fresh refs =
+				     the whole ring replayed as a glide). */ }
+				<div
+					className={ `${ className }__main newspack-nodes-log-main` }
+				>
+					{ activeHeader }
+					{ list }
+				</div>
 			</div>
 		</div>
 	);
