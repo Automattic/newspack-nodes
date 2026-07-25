@@ -34,6 +34,11 @@
 	border-bottom: none;
 	font-weight: 600;
 	font-size: 13px;
+	// @longform Explicit so the height survives portals: a components-modal
+	// renders OUTSIDE the dashboard root, where line-height falls back to
+	// `normal` and the sort-arrow glyph's fallback-font metrics inflate the
+	// header (26.85px vs 18.85px in-root).
+	line-height: 1.45;
 }
 
 @mixin table-list {
@@ -49,8 +54,10 @@
 	border-bottom: 1px solid var(--paper-shadow);
 	cursor: pointer;
 
+	// The log-pane hover accent (LogRowList.scss) — a --paper-2 hover is
+	// invisible on panel surfaces.
 	&:hover {
-		background: var(--paper-2);
+		background: color-mix(in srgb, var(--cyan) 20%, var(--paper-2));
 	}
 
 	&.selected {
