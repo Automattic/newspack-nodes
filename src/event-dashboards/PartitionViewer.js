@@ -17,6 +17,7 @@ import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
 import { usePartitionViewerGraph } from './hooks/usePartitionViewerGraph';
 import LogStreamViewer from '@newspack-nodes/shared/components/LogStreamViewer';
+import LogListHeader from '@newspack-nodes/shared/components/LogListHeader';
 import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
 import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
@@ -27,7 +28,7 @@ import useLogPositions, {
 } from '@newspack-nodes/shared/hooks/useLogPositions';
 import './styles/partition-viewer.scss';
 
-const ROW_HEIGHT = 18;
+const ROW_HEIGHT = 33;
 // Segment-rail maintenance cadence (rotation + size growth).
 const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'partition:view';
@@ -43,7 +44,7 @@ const EMPTY_VIEW = {
 	lastReceivedSegment: null,
 };
 
-// One envelope row; row height + the P<n> gutter come from the partition CSS.
+// One envelope row: Key | Value cells; the P<n> gutter comes from the CSS.
 const renderPartitionRow = ( row ) => (
 	<div
 		key={ row.id }
@@ -52,8 +53,29 @@ const renderPartitionRow = ( row ) => (
 		}` }
 		data-p={ row.partition }
 	>
-		{ row.content }
+		<span className="newspack-nodes-log-row__key">{ row.key || '' }</span>
+		<span className="newspack-nodes-log-row__value">
+			{ row.value ?? row.content }
+		</span>
 	</div>
+);
+
+// Normal-mode column header, aligned via the shared row cell classes.
+const partitionHeader = (
+	<LogListHeader
+		columns={ [
+			{
+				key: 'key',
+				label: __( 'Key', 'newspack-nodes' ),
+				className: 'newspack-nodes-log-row__key',
+			},
+			{
+				key: 'value',
+				label: __( 'Value', 'newspack-nodes' ),
+				className: 'newspack-nodes-log-row__value',
+			},
+		] }
+	/>
 );
 
 /**
@@ -235,6 +257,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			renderRow={ renderPartitionRow }
 			rowHeight={ ROW_HEIGHT }
 			listClassName="newspack-nodes-partition-rows"
+			listHeader={ partitionHeader }
 		/>
 	);
 }

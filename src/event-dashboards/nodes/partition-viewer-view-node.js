@@ -1,10 +1,6 @@
-import { Node } from '../../runtime/node';
 import { FROM, KEY, VALUE, ID } from '../../runtime/message';
-import { PendingReplies } from '../../shared/pendingReplies';
-import { SeekTracker } from '../../shared/nodes/seekTracker';
-import { RateSmoother } from '../rateSmoother';
+import { LogStreamViewNode } from '../../shared/nodes/log-stream-view-node';
 
-const MAX_LINES = 100000;
 const MAX_LINE_LENGTH = 1000;
 // Debug-mode raw retention per row (pretty-printable); ~PIPE_BUF x2.
 const MAX_RAW_LENGTH = 8192;
@@ -13,87 +9,25 @@ const PARTITION_RE = /\.p(\d+)$/;
 /**
  * `partition:view` — owns the Partition Viewer view model.
  *
- * Two cadences, deliberately split for performance:
- * - HIGH frequency (the log stream): `_appendRow` writes each row into a fixed
- *   ring buffer (O(1): write at head, advance, overwrite oldest — no shift, no
- *   copy, no truncation) and feeds the lps smoother, but does NOT publish
- *   (`lps` is a time-aware getter, so an idle stream's rate decays). The React
- *   canvas reads the VISIBLE window straight off the ring each frame via
- *   `linesCount` + `lineAt(i)` (newest-first) — O(rows-on-screen), not O(buffer)
- *   — so neither a busy stream nor a full buffer re-renders or re-copies per
- *   frame. `lines` materializes the whole buffer newest-first for the rare
- *   full-scan consumers (the filter path + tests); it is NOT on the frame path.
- * - LOW frequency (control + catalog): only `_control` publishes the small view
- *   model via `setState('view', { logs, selected, paused, connectionError })` —
- *   the dropdown + pause button + selected value + reconnect banner, consumed by
- *   `useNodeState('partition:view','view')`.
+ * A `LogStreamViewNode` subclass: the ring, paused belt + step budget,
+ * decaying lps, seek tracking, reply settling, and the shared control verbs
+ * (`pause`/`step`/`connection`/`browse`/`follow`/`clear`) all live in the
+ * shared base. This class adds the Partition Viewer's specifics:
+ * - the `select` (set + clear) and `logs` (catalog) controls, and the
+ *   `{ logs, selected }` view-model fields they publish;
+ * - `shapeRow()`: shapes a raw SSE log envelope into a row — `KEY: VALUE`
+ *   line clipped at MAX_LINE_LENGTH, the debug trio (`msgId`, `key`, `raw`
+ *   clipped at MAX_RAW_LENGTH, `struct`), and the partition column derived
+ *   from the first FROM segment with a `.pN` suffix (else a stable
+ *   first-seen dir index).
  *
- * `fill()` ALSO handles the canonical
- * command-reply shape (VALUE = `{ name, payload }`) using a pending-Map gate
- * (mirrors serversView): the hook stashes `{ resolve, reject }` keyed by
- * `message[ID]` to await a verb's reply (list_logs / future CRUD). A
- * pending-matched TM_ERROR rejects the Promise but does NOT pollute the
- * view-model's global state.
- *
- * `fill()` accepts three message shapes:
- * - a TM_COMMAND|TM_RESPONSE reply (VALUE.name): settled via the pending Map.
- * - a control (`VALUE = { action, … }`): `select` (set + clear), `pause`, `logs`,
- *   `connection` (the SSE connection-status surface, hook-minted).
- * - a raw SSE log envelope (anything else): shaped inline into `{ p, line }`
- *   (logic inlined from the deleted `partition:transform`) and appended newest-first
- *   to a capped buffer (unless paused), updating lines/second.
- *
- * @param {number} [maxLines] Buffer cap (defaults to MAX_LINES; injectable for tests).
+ * @param {number} [maxLines] Buffer cap (base default; injectable for tests).
  */
-export class PartitionViewerViewNode extends Node {
-	// View-model/infra node: never a user-added node (see useGraphReset).
-	static isSystemNode = true;
+export class PartitionViewerViewNode extends LogStreamViewNode {
 	constructor( maxLines ) {
-		super();
-		this.maxLines = maxLines || MAX_LINES;
-		// Ring buffer: append at _head (mod maxLines), overwrite oldest; O(1).
-		this._ring = [];
-		this._head = 0;
-		this._count = 0;
-		this.lineCounter = 0;
-		// Windowed-average + EMA lines/s (the overlay's I/O counters share it).
-		this.lpsSmoother = new RateSmoother();
+		super( maxLines );
 		this.logs = [];
 		this.selected = '';
-		this.paused = false;
-		// Paused-step allowance: a `step` control admits this many envelopes.
-		this.stepBudget = 0;
-		this.connectionError = false;
-		// Seek/live feedback (rail highlight + replay→live flip).
-		this.seek = new SeekTracker();
-		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
-		this.replies = new PendingReplies();
-	}
-
-	fill( message ) {
-		// Terminal node (no sink): count here for overlay throughput (not lps).
-		this.counter += 1;
-		const value = message[ VALUE ];
-
-		// Settle a pending Promise; gate on VALUE.name so raw logs can't.
-		if (
-			value &&
-			'object' === typeof value &&
-			'name' in value &&
-			this.replies.settle( message )
-		) {
-			return;
-		}
-
-		if ( value && 'object' === typeof value && value.action ) {
-			// Low-frequency control/catalog path; publish to re-render.
-			this._control( value );
-			this._publish();
-			return;
-		}
-
-		// Otherwise a raw SSE log envelope: shape inline, append to buffer.
-		this._appendEnvelope( message );
 	}
 
 	_control( value ) {
@@ -102,44 +36,34 @@ export class PartitionViewerViewNode extends Node {
 			// A fresh log tails live from a clean slate — drop browse cursor.
 			this.seek.select();
 			this._clear();
-		} else if ( 'pause' === value.action ) {
-			this.paused = value.paused;
-			this.stepBudget = 0;
-		} else if ( 'step' === value.action ) {
-			this.stepBudget = Number( value.frames ?? 1 );
 		} else if ( 'logs' === value.action ) {
 			this.logs = value.logs;
 			if ( ! this.selected && value.logs.length > 0 ) {
 				this.selected = value.logs[ 0 ].key;
 			}
-		} else if ( 'connection' === value.action ) {
-			this.connectionError = !! value.connectionError;
-		} else if ( 'browse' === value.action ) {
-			// Replaying: capture the live boundary to detect catch-up against.
-			this.seek.browse( value.endSegment ?? null, value.endOffset ?? 0 );
-			// A rewind starts clean: replays must not mix into the live tail.
-			this._clear();
-		} else if ( 'follow' === value.action ) {
-			this.seek.follow();
+		} else {
+			super._control( value );
 		}
 	}
 
-	// Clear buffer + counter + LPS window on a log switch.
-	_clear() {
-		this.lines = [];
-		this.lineCounter = 0;
-		this.lpsSmoother.reset();
+	viewModel() {
+		return {
+			...super.viewModel(),
+			logs: this.logs,
+			selected: this.selected,
+		};
 	}
 
-	// Shape a raw SSE log envelope into a row and append it to the buffer.
-	_appendEnvelope( message ) {
+	// Shape a raw SSE log envelope into a row; empty VALUEs drop.
+	shapeRow( message ) {
 		const value = message[ VALUE ];
 		if ( value === '' || value === null || value === undefined ) {
-			return;
+			return null;
 		}
-		this._trackPosition( message );
 		const struct = 'string' !== typeof value;
 		let raw = struct ? JSON.stringify( value ) : value;
+		// Bare VALUE column; `content` keeps the KEY prefix for the filter.
+		let bare = raw;
 		let line = raw;
 		const key = message[ KEY ];
 		if ( 'string' === typeof key && '' !== key ) {
@@ -148,139 +72,43 @@ export class PartitionViewerViewNode extends Node {
 		if ( line.length > MAX_LINE_LENGTH ) {
 			line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
 		}
+		if ( bare.length > MAX_LINE_LENGTH ) {
+			bare = bare.substring( 0, MAX_LINE_LENGTH ) + '...';
+		}
 		if ( raw.length > MAX_RAW_LENGTH ) {
 			raw = raw.substring( 0, MAX_RAW_LENGTH ) + '...';
 		}
-		// First FROM segment with a .pN wins; else stable first-seen index.
-		const parts = String( message[ FROM ] || '' ).split( '/' );
-		const column = parts.find( ( part ) => PARTITION_RE.test( part ) );
-		let partition;
-		if ( column ) {
-			partition = parseInt( column.match( PARTITION_RE )[ 1 ], 10 );
-		} else {
-			const dir = parts.slice( 0, 2 ).join( '/' );
-			const index = ( this._partitionIndex ??= new Map() );
-			if ( ! index.has( dir ) ) {
-				index.set( dir, index.size );
-			}
-			partition = index.get( dir );
-		}
-		this._appendRow( partition, line, {
+		return {
+			partition: this._partitionFor( message ),
 			msgId: 'string' === typeof message[ ID ] ? message[ ID ] : '',
 			key: 'string' === typeof key ? key : '',
 			struct,
 			raw,
-		} );
-	}
-
-	// Track the position breadcrumb; publishes on segment/catch-up change only.
-	_trackPosition( message ) {
-		if ( this.seek.track( message[ ID ] ) ) {
-			this._publish();
-		}
-	}
-
-	// Publish only the low-freq model; lines/lps stay off setState (perf).
-	_publish() {
-		this.setState( 'view', {
-			logs: this.logs,
-			selected: this.selected,
-			paused: this.paused,
-			connectionError: this.connectionError,
-			mode: this.seek.mode,
-			lastReceivedSegment: this.seek.lastReceivedSegment,
-		} );
-	}
-
-	// Write a shaped row into the ring (O(1)); no setState on this hot path.
-	_appendRow( partition, line, debugFields = {} ) {
-		// Paused belt: drop frames, unless a step budget admits them.
-		if ( this.paused ) {
-			if ( this.stepBudget <= 0 ) {
-				return;
-			}
-			this.stepBudget -= 1;
-		}
-		this.lineCounter += 1;
-		this._writeRow( {
-			id: this.lineCounter,
-			partition,
-			...debugFields,
+			value: bare,
 			content: line,
-			isEven: this.lineCounter % 2 === 0,
-		} );
-		this._updateLinesPerSecond( 1 );
+		};
 	}
 
-	// Lines/sec over a 10s window, smoothed with a 0.1 EMA (RateSmoother).
-	_updateLinesPerSecond( newCount ) {
-		this.lpsSmoother.add( newCount, Date.now() );
-	}
-
-	// Time-aware readout: an idle stream's rate decays instead of freezing.
-	get lps() {
-		return this.lpsSmoother.read( Date.now() );
-	}
-
-	// Whole buffer newest-first, O(n): filter path + tests only, not frames.
-	get lines() {
-		const out = new Array( this._count );
-		for ( let i = 0; i < this._count; i++ ) {
-			out[ i ] = this.lineAt( i );
+	// First FROM segment with a .pN wins; else stable first-seen index.
+	_partitionFor( message ) {
+		const parts = String( message[ FROM ] || '' ).split( '/' );
+		const column = parts.find( ( part ) => PARTITION_RE.test( part ) );
+		if ( column ) {
+			return parseInt( column.match( PARTITION_RE )[ 1 ], 10 );
 		}
-		return out;
-	}
-
-	set lines( value ) {
-		this._ring = [];
-		this._head = 0;
-		this._count = 0;
-		if ( Array.isArray( value ) ) {
-			// Seed oldest-first so the newest row lands last (at head-1).
-			for ( let i = value.length - 1; i >= 0; i-- ) {
-				this._writeRow( value[ i ] );
-			}
+		const dir = parts.slice( 0, 2 ).join( '/' );
+		const index = ( this._partitionIndex ??= new Map() );
+		if ( ! index.has( dir ) ) {
+			index.set( dir, index.size );
 		}
-	}
-
-	// Write one row into the ring at the head and advance, capping at maxLines.
-	_writeRow( row ) {
-		this._ring[ this._head ] = row;
-		this._head = ( this._head + 1 ) % this.maxLines;
-		this._count = Math.min( this._count + 1, this.maxLines );
-	}
-
-	// The i-th row newest-first (i=0 newest), O(1); undefined out of range.
-	lineAt( i ) {
-		if ( i < 0 || i >= this._count ) {
-			return undefined;
-		}
-		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
-		return this._ring[ idx ];
-	}
-
-	// Seek feedback surfaced for the published model (and view-node tests).
-	get mode() {
-		return this.seek.mode;
-	}
-	get lastReceivedSegment() {
-		return this.seek.lastReceivedSegment;
-	}
-
-	// Number of live rows in the ring (O(1)).
-	get linesCount() {
-		return this._count;
+		return index.get( dir );
 	}
 
 	static nodeSchema() {
 		return {
-			category: 'Hidden',
+			...super.nodeSchema(),
 			description:
 				'Partition Viewer render-model sink (the React view node).',
-			// Terminal receiver: settles replies, no target → no out-port.
-			has_target: false,
-			arguments: [],
-			commands: [],
 		};
 	}
 }

@@ -30,6 +30,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enters pause mode, so Step walks it and Play streams from wherever you
   stepped to.
 
+### Added
+- **`LogStreamViewNode` — the shared view-node base every log-stream
+  dashboard extends** (`@newspack-nodes/shared/nodes/log-stream-view-node`).
+  The O(1) ring, paused belt + step budget, decaying lps, seek tracking,
+  reply settling, and the shared control verbs
+  (`pause`/`step`/`connection`/`browse`/`follow`/`clear`) now live in ONE
+  class; subclasses supply `shapeRow()` plus their extra controls and
+  view-model fields. `PartitionViewerViewNode` (and the Log Viewer's) are
+  now thin subclasses, and sibling plugins (event-logger-nodes' Request
+  Log / Error Log) extend the same base instead of carrying drifted
+  copies. `RateSmoother` moved to `shared/` with it.
+- **`LogStreamViewer` grew the adopter surface**: `title`, `toolbarExtras`,
+  `belowToolbar`, `listHeader`, `matchRow`, `filterPlaceholder`,
+  `renderCount`/`renderRate` label overrides, `hasKeyColumn`, and
+  `pickerOptions: null` for viewers without a source dropdown; `onStep` /
+  `onJump` are optional (the button and offset input hide until the
+  consumer provides handlers). The shared `LogListHeader` renders column
+  headers that align with the row cells by sharing their classes.
+
+### Changed
+- **One log-area style, normalized from the event-logger's request
+  stream**: the bordered pane with its scrollbar, the uppercase column
+  header capping it, 33px striped rows (skin-adaptive ink tint) with
+  accent hover, and fixed-width ID/KEY cells — now the canonical
+  `newspack-nodes-log-*` classes every dashboard shares. Column headers
+  landed per mode: Key | Value in Partition Viewer's live view, ID | Key |
+  Value in its debug view, ID | Value in the Log Viewer's debug view (its
+  live raw tail stays headerless).
+
 ### Fixed
 - **The lines/s readout decays when the stream goes quiet** instead of
   freezing at its last value: the rate smoother gained a time-aware read

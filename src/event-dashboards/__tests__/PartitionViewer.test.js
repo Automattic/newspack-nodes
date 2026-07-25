@@ -170,7 +170,7 @@ describe( 'PartitionViewer', () => {
 		const node = registerViewFixture( { logs: [] } );
 		await renderViewer();
 		expect( logRowListProps.getNode() ).toBe( node );
-		expect( logRowListProps.rowHeight ).toBe( 18 );
+		expect( logRowListProps.rowHeight ).toBe( 33 );
 		expect( logRowListProps.listClassName ).toBe(
 			'newspack-nodes-partition-rows'
 		);
@@ -329,6 +329,48 @@ describe( 'PartitionViewer', () => {
 			node.setState( 'view', { ...node.setStateCache.view } );
 		} );
 		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+	} );
+
+	it( 'normal mode shows a Key | Value column header and split row cells', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { container } = await renderViewer();
+		const ths = [
+			...container.querySelectorAll( '.newspack-nodes-log-header__th' ),
+		].map( ( el ) => el.textContent );
+		expect( ths ).toEqual( [ 'Key', 'Value' ] );
+
+		const { container: rowc } = render(
+			logRowListProps.renderRow( {
+				id: 9,
+				partition: 1,
+				key: 'jobstats',
+				value: '{"n":4}',
+				content: 'jobstats: {"n":4}',
+				isEven: false,
+			} )
+		);
+		expect(
+			rowc.querySelector( '.newspack-nodes-log-row__key' ).textContent
+		).toBe( 'jobstats' );
+		expect(
+			rowc.querySelector( '.newspack-nodes-log-row__value' ).textContent
+		).toBe( '{"n":4}' );
+	} );
+
+	it( 'debug mode shows an ID | Key | Value column header', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { getByText, container } = await renderViewer();
+		fireEvent.click( getByText( 'Debug' ) );
+		const ths = [
+			...container.querySelectorAll( '.newspack-nodes-log-header__th' ),
+		].map( ( el ) => el.textContent );
+		expect( ths ).toEqual( [ 'ID', 'Key', 'Value' ] );
 	} );
 
 	it( 'debug toggle switches the list into the ID-KEY-VALUE debug renderer', async () => {

@@ -305,6 +305,19 @@ describe( 'LogViewer', () => {
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );
 
+	it( 'no column header in normal mode; debug shows ID | Value (no Key)', () => {
+		registerViewFixture( { selected: 'php' } );
+		const { container, getByText } = render( <LogViewer /> );
+		expect(
+			container.querySelector( '.newspack-nodes-log-header' )
+		).toBeNull();
+		fireEvent.click( getByText( 'Debug' ) );
+		const ths = [
+			...container.querySelectorAll( '.newspack-nodes-log-header__th' ),
+		].map( ( el ) => el.textContent );
+		expect( ths ).toEqual( [ 'ID', 'Value' ] );
+	} );
+
 	it( 'a capped count reads visible/total, with no debug-cap banner', () => {
 		registerViewFixture( { selected: 'php' } );
 		const { container } = render( <LogViewer /> );
