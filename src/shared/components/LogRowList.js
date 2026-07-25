@@ -32,6 +32,9 @@ import './LogRowList.scss';
 
 const OVERSCAN = 5;
 
+// Glide-path paint cap: debt rows rendered ahead so decay reveals real rows.
+const DEBT_RENDER_CAP = 400;
+
 // Debug mode renders natural-height rows unvirtualized; bound the DOM cost.
 export const DEBUG_MAX_ROWS = 500;
 
@@ -81,6 +84,7 @@ export default function LogRowList( {
 		spacerTop: 0,
 		totalHeight: 0,
 		visible: 0,
+		offset: 0,
 	} );
 
 	// Rebase on clear / filter change: forget motion + the new-row baseline.
@@ -206,11 +210,6 @@ export default function LogRowList( {
 			} else if ( 0 !== offsetRef.current ) {
 				offsetRef.current = 0;
 			}
-			if ( contentRef.current ) {
-				contentRef.current.style.transform = offsetRef.current
-					? `translate3d(0,${ offsetRef.current }px,0)`
-					: '';
-			}
 
 			// Report stats up only when they change (idle frames stay quiet).
 			const s = statsPushedRef.current;
@@ -225,9 +224,19 @@ export default function LogRowList( {
 			const scrollTop = list ? list.scrollTop : 0;
 			const height = list ? list.clientHeight : 0;
 			const offset = offsetRef.current;
+			// @longform Bind the ring into the window: the viewport's shifted
+			// range plus the glide path the 1%/frame decay travels over the
+			// next ~8 frames (~8% of the debt) — revealed rows stay painted.
+			const debtRows = Math.max( 0, Math.floor( -offset / rowHeight ) );
+			const debtPaint = Math.min(
+				DEBT_RENDER_CAP,
+				Math.ceil( debtRows * 0.08 )
+			);
 			const start = Math.max(
 				0,
-				Math.floor( ( scrollTop - offset ) / rowHeight ) - OVERSCAN
+				Math.floor( ( scrollTop - offset ) / rowHeight ) -
+					OVERSCAN -
+					debtPaint
 			);
 			const end = Math.min(
 				visible,
@@ -253,12 +262,19 @@ export default function LogRowList( {
 				pushed.visible = visible;
 				pushed.start = start;
 				pushed.end = end;
+				// Offset commits WITH its rows: translate never leads window.
 				setModel( {
 					rows,
 					spacerTop: start * rowHeight,
 					totalHeight: visible * rowHeight,
 					visible,
+					offset: offsetRef.current,
 				} );
+			} else if ( contentRef.current ) {
+				// Decay-only frame: the painted glide path absorbs the nudge.
+				contentRef.current.style.transform = offsetRef.current
+					? `translate3d(0,${ offsetRef.current }px,0)`
+					: '';
 			}
 
 			rafRef.current = requestAnimationFrame( draw );
@@ -288,7 +304,12 @@ export default function LogRowList( {
 			<div
 				className="newspack-nodes-log-rows__content"
 				ref={ contentRef }
-				style={ { minHeight: model.totalHeight || undefined } }
+				style={ {
+					minHeight: model.totalHeight || undefined,
+					transform: model.offset
+						? `translate3d(0,${ model.offset }px,0)`
+						: undefined,
+				} }
 			>
 				{ 0 === model.visible ? (
 					<div className="newspack-nodes-log-rows__empty">
