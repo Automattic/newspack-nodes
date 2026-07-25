@@ -49,6 +49,13 @@ describe( 'fillModeForMetric', () => {
 		} );
 	} );
 
+	it( 'maps queue latency to RATE (an event metric — holding it painted the last job across idle hours)', () => {
+		expect( fillModeForMetric( 'queueLatencyMs' ) ).toEqual( {
+			fill: 'zero',
+			agg: 'max',
+		} );
+	} );
+
 	it( 'defaults an unknown metric to RATE (zero/max)', () => {
 		expect( fillModeForMetric( 'whatever' ) ).toEqual( {
 			fill: 'zero',
