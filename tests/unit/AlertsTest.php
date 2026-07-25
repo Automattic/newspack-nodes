@@ -405,7 +405,6 @@ class AlertsTest extends TestCase {
 			}
 		};
 		$property = new \ReflectionProperty( Alerts::class, 'journal' );
-		$property->setAccessible( true );
 		$property->setValue( null, $throwing_journal );
 
 		Alerts::emit();
