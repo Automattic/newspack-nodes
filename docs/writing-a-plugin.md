@@ -79,9 +79,9 @@ That's the whole "register a Nodes plugin" story — one call. (It used to be fo
 Once you depend on APIs from a specific substrate release, add the version handshake right after the `class_exists` gate — on an older substrate your plugin stays dormant with an admin notice instead of fataling mid-request (`Requires Plugins` only guarantees the substrate is *active*, not which version):
 
 ```php
-if ( \method_exists( '\Newspack_Nodes\Bootstrap', 'version_at_least' )
-	&& ! \Newspack_Nodes\Bootstrap::version_at_least( '0.54.0', 'Newspack AI Newsletter' ) ) {
-	return; // substrate too old — notice shown, plugin dormant
+if ( ! \method_exists( '\Newspack_Nodes\Bootstrap', 'version_at_least' )
+	|| ! \Newspack_Nodes\Bootstrap::version_at_least( '0.54.0', 'Newspack AI Newsletter' ) ) {
+	return; // substrate too old — plugin dormant (notice shown on 0.54+)
 }
 ```
 
