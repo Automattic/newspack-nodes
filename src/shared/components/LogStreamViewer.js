@@ -20,7 +20,7 @@ import {
 } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
-import LogRowList, { DEBUG_MAX_ROWS } from './LogRowList';
+import LogRowList from './LogRowList';
 import ConnectionBanner from './ConnectionBanner';
 import StalenessIndicator from './StalenessIndicator';
 
@@ -183,9 +183,9 @@ export default function LogStreamViewer( {
 
 			<span className="newspack-nodes-toolbar-stats">
 				<span className="newspack-nodes-toolbar-stats__count">
-					{ filter
+					{ stats.visible !== stats.total
 						? sprintf(
-								// translators: 1: number of matching lines, 2: total number of lines.
+								// translators: 1: number of lines shown, 2: total number of lines.
 								_n(
 									'%1$d / %2$d line',
 									'%1$d / %2$d lines',
@@ -280,20 +280,6 @@ export default function LogStreamViewer( {
 					'newspack-nodes'
 				) }
 			/>
-
-			{ debug && stats.visible > DEBUG_MAX_ROWS && (
-				<div className="newspack-nodes-debug-cap">
-					{ sprintf(
-						/* translators: 1: rendered row cap, 2: total matching rows. */
-						__(
-							'Debug shows the newest %1$d of %2$d rows — narrow with the filter.',
-							'newspack-nodes'
-						),
-						DEBUG_MAX_ROWS,
-						stats.visible
-					) }
-				</div>
-			) }
 
 			<div className={ `${ className }__body` }>
 				{ sidebar }

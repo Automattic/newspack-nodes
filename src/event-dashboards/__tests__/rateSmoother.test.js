@@ -41,3 +41,24 @@ describe( 'RateSmoother', () => {
 		expect( sm.smoothed ).toBe( 0 );
 	} );
 } );
+
+describe( 'read', () => {
+	it( 'decays to zero once the window empties, without an add', () => {
+		const s = new RateSmoother();
+		let rate = 0;
+		for ( let t = 0; t < 5; t++ ) {
+			rate = s.add( 100, 100000 + t * 1000 );
+		}
+		expect( rate ).toBeGreaterThan( 0 );
+		// Reads midway through the empty stretch decline…
+		expect( s.read( 100000 + 8000 ) ).toBeLessThanOrEqual( rate );
+		// …and a read past the whole window reports zero.
+		expect( s.read( 100000 + 20000 ) ).toBe( 0 );
+	} );
+
+	it( 'does not lift the smoothed rate while streaming', () => {
+		const s = new RateSmoother();
+		const afterAdd = s.add( 100, 200000 );
+		expect( s.read( 200000 ) ).toBeLessThanOrEqual( afterAdd );
+	} );
+} );

@@ -305,6 +305,18 @@ describe( 'LogViewer', () => {
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );
 
+	it( 'a capped count reads visible/total, with no debug-cap banner', () => {
+		registerViewFixture( { selected: 'php' } );
+		const { container } = render( <LogViewer /> );
+		act( () =>
+			logRowListProps.onStats( { total: 100000, visible: 500, lps: 0 } )
+		);
+		expect( container.textContent ).toMatch( /500 \/ 100000 lines/ );
+		expect(
+			container.querySelector( '.newspack-nodes-debug-cap' )
+		).toBeNull();
+	} );
+
 	it( 'seeds selectSource from ?source= once the catalog is available', () => {
 		window.history.replaceState( {}, '', '/?source=gate' );
 		registerViewFixture( { selected: 'php' } );

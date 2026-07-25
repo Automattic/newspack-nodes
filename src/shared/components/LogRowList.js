@@ -186,7 +186,8 @@ export default function LogRowList( {
 				lastTopIdRef.current = topId;
 				lastTopFilterRef.current = activeFilter;
 				const end = Math.min( visible, DEBUG_MAX_ROWS );
-				pushStats( visible );
+				// Report what debug actually shows; the toolbar reads x/total.
+				pushStats( end );
 				const pushed2 = modelPushedRef.current;
 				if (
 					node !== pushed2.node ||

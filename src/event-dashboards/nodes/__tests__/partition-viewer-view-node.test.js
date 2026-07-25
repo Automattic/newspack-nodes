@@ -209,6 +209,19 @@ test( 'browse clears the buffer: a rewind starts from a clean slate', () => {
 	expect( v.lps ).toBe( 0 );
 } );
 
+test( 'lps decays to zero when the stream goes quiet', () => {
+	const nowSpy = jest.spyOn( Date, 'now' ).mockReturnValue( 500000 );
+	const v = makeView( 'partition:view' );
+	for ( let i = 0; i < 200; i++ ) {
+		v.fill( envelopeMsg( { value: `line-${ i }` } ) );
+	}
+	expect( v.lps ).toBeGreaterThan( 0 );
+	// 15s of silence outlives the 10s window: the readout falls to zero.
+	nowSpy.mockReturnValue( 515000 );
+	expect( v.lps ).toBe( 0 );
+	nowSpy.mockRestore();
+} );
+
 test( 'follow (Live) does NOT clear the buffer', () => {
 	const v = makeView( 'partition:view' );
 	v.fill( envelopeMsg( { value: 'kept-line' } ) );

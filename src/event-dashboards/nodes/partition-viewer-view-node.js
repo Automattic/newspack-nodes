@@ -16,7 +16,8 @@ const PARTITION_RE = /\.p(\d+)$/;
  * Two cadences, deliberately split for performance:
  * - HIGH frequency (the log stream): `_appendRow` writes each row into a fixed
  *   ring buffer (O(1): write at head, advance, overwrite oldest — no shift, no
- *   copy, no truncation) and updates `this.lps`, but does NOT publish. The React
+ *   copy, no truncation) and feeds the lps smoother, but does NOT publish
+ *   (`lps` is a time-aware getter, so an idle stream's rate decays). The React
  *   canvas reads the VISIBLE window straight off the ring each frame via
  *   `linesCount` + `lineAt(i)` (newest-first) — O(rows-on-screen), not O(buffer)
  *   — so neither a busy stream nor a full buffer re-renders or re-copies per
@@ -57,7 +58,6 @@ export class PartitionViewerViewNode extends Node {
 		this.lineCounter = 0;
 		// Windowed-average + EMA lines/s (the overlay's I/O counters share it).
 		this.lpsSmoother = new RateSmoother();
-		this.lps = 0;
 		this.logs = [];
 		this.selected = '';
 		this.paused = false;
@@ -129,7 +129,6 @@ export class PartitionViewerViewNode extends Node {
 		this.lines = [];
 		this.lineCounter = 0;
 		this.lpsSmoother.reset();
-		this.lps = 0;
 	}
 
 	// Shape a raw SSE log envelope into a row and append it to the buffer.
@@ -215,7 +214,12 @@ export class PartitionViewerViewNode extends Node {
 
 	// Lines/sec over a 10s window, smoothed with a 0.1 EMA (RateSmoother).
 	_updateLinesPerSecond( newCount ) {
-		this.lps = this.lpsSmoother.add( newCount, Date.now() );
+		this.lpsSmoother.add( newCount, Date.now() );
+	}
+
+	// Time-aware readout: an idle stream's rate decays instead of freezing.
+	get lps() {
+		return this.lpsSmoother.read( Date.now() );
 	}
 
 	// Whole buffer newest-first, O(n): filter path + tests only, not frames.

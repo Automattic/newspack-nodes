@@ -41,13 +41,32 @@ export class RateSmoother {
 			this.buckets.push( { sec, count: n } );
 		}
 		this.windowTotal += n;
+		this._expire( sec );
+		const rate = this.windowTotal / this.windowSec;
+		this.smoothed += ( rate - this.smoothed ) * this.smoothing;
+		return this.smoothed;
+	}
+
+	// @longform Time-aware read for add-on-arrival feeders (the viewers' lps):
+	// with no adds the window never expires and the readout freezes at its
+	// last value. Expiring here lets an idle stream's rate decay to zero over
+	// the window; snapping `smoothed` down (never up) keeps rises EMA-smooth
+	// while falls track the emptying window.
+	read( nowMs ) {
+		this._expire( Math.floor( nowMs / 1000 ) );
+		const rate = this.windowTotal / this.windowSec;
+		if ( rate < this.smoothed ) {
+			this.smoothed = rate;
+		}
+		return this.smoothed;
+	}
+
+	// Drop buckets older than the window from the running total.
+	_expire( sec ) {
 		const oldest = sec - this.windowSec;
 		while ( this.buckets.length > 0 && this.buckets[ 0 ].sec <= oldest ) {
 			this.windowTotal -= this.buckets[ 0 ].count;
 			this.buckets.shift();
 		}
-		const rate = this.windowTotal / this.windowSec;
-		this.smoothed += ( rate - this.smoothed ) * this.smoothing;
-		return this.smoothed;
 	}
 }

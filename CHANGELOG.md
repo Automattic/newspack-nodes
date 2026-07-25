@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stepped to.
 
 ### Fixed
+- **The lines/s readout decays when the stream goes quiet** instead of
+  freezing at its last value: the rate smoother gained a time-aware read
+  that expires the 10s window, so an idle or paused stream's rate slides
+  to zero (and the readout disappears) within the window.
+- **The debug-cap banner is gone**; the line count tells the truth
+  instead. The count now reads `shown / total` whenever they differ —
+  debug's 500-row cap shows as `500 / 100000 lines`, the same format the
+  filter already used.
 - **The segment rail stays current.** Both viewers refresh their segment
   list on a 10s cadence (sizes grow, rotated-out segments drop) and
   refetch immediately when a record arrives from a segment the rail
