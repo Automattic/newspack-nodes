@@ -123,6 +123,20 @@ it( 'hides step and jump when the consumer provides no handlers', () => {
 	expect( titles ).not.toContain( '⏭' );
 } );
 
+it( 'stats sit left of the inputs so width changes cannot bounce them', () => {
+	const { container } = render( <LogStreamViewer { ...BASE } /> );
+	const toolbar = container.querySelector( '.newspack-nodes-toolbar' );
+	const children = [ ...toolbar.children ];
+	const stats = children.findIndex( ( el ) =>
+		el.classList.contains( 'newspack-nodes-toolbar-stats' )
+	);
+	const filterInput = children.findIndex( ( el ) =>
+		el.classList.contains( 'newspack-nodes-search-input' )
+	);
+	expect( stats ).toBeGreaterThan( -1 );
+	expect( stats ).toBeLessThan( filterInput );
+} );
+
 it( 'pickerOptions null renders neither a picker nor the empty status', () => {
 	const { container } = render(
 		<LogStreamViewer { ...BASE } pickerOptions={ null } />
