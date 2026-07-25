@@ -31,6 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stepped to.
 
 ### Fixed
+- **The viewers survive extreme firehose rates** (50k+ lines/s) with the
+  console Dumper's flood discipline: per-frame work is bounded regardless
+  of input rate. The smooth-scroll debt is capped at a 300-row glide budget
+  — uncapped, a firehose accrued debt ~50× faster than the 1%-per-frame
+  decay cleared it (≈88k rows at steady state), pushing the virtualization
+  window past the ring (the alternating blank viewport) and churning
+  hundreds of rows through React every frame. Past the budget the excess
+  appears instantly: the data always shows, only the animation drops; at
+  human-perceivable rates (a 200-row burst) the glide is byte-identical to
+  before. Toolbar stats publishes coalesce to a 250ms cadence instead of
+  re-rendering the chrome per frame, and row elements re-map only when the
+  window model commits, not on parent re-renders. The recommit guard also
+  watches the top row id: a saturated ring rotating under a pinned clamp
+  freezes every other guard input, and without the rotation tell the
+  viewport would show stale rows indefinitely (both regimes, debug too).
 - The virtualization window binds to the ring at any rate — the smooth
   scrolling is untouched. Two sync defects fixed: the translate was applied
   imperatively every frame while the row window committed through React a

@@ -47,10 +47,10 @@ beforeEach( () => {
 } );
 
 // Run every queued frame once (each re-arms; we drain the current batch).
-function tickFrame() {
+function tickFrame( ts = performance.now() ) {
 	const cbs = rafCbs;
 	rafCbs = [];
-	act( () => cbs.forEach( ( cb ) => cb( performance.now() ) ) );
+	act( () => cbs.forEach( ( cb ) => cb( ts ) ) );
 }
 
 const renderRow = ( row ) => (
@@ -167,6 +167,200 @@ it( 'a burst keeps the unbounded glide, with the ring bound into the window', ()
 	expect( rendered.length ).toBeLessThan( 60 );
 } );
 
+it( 'a flood caps the glide debt so the window stays bounded and fresh', () => {
+	const lines = rows( 5 );
+	const node = makeNode( lines );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+		/>
+	);
+	tickFrame();
+
+	// A 2000-row flood lands between frames — far past any perceivable glide.
+	const flood = Array.from( { length: 2000 }, ( _, i ) => ( {
+		id: 2005 - i,
+		partition: 0,
+		content: `flood-${ 2005 - i }`,
+		isEven: false,
+	} ) );
+	lines.unshift( ...flood );
+	tickFrame();
+
+	// The debt is clamped to the glide budget (MAX_DEBT_ROWS * rowHeight)…
+	const content = container.querySelector(
+		'.newspack-nodes-log-rows__content'
+	);
+	const m = ( content.style.transform || '' ).match( /,(-?[\d.]+)px,/ );
+	const offset = m ? parseFloat( m[ 1 ] ) : 0;
+	expect( Math.abs( offset ) ).toBeLessThanOrEqual( 300 * 18 );
+	// …so the painted window stays bounded instead of scaling with the flood…
+	const rendered = container.querySelectorAll( '.row' );
+	expect( rendered.length ).toBeLessThan( 100 );
+	// …while the glide invariant holds: painted rows start at/above the top.
+	const firstContent = rendered[ 0 ].getAttribute( 'data-content' );
+	const firstIndex = 2005 - parseInt( firstContent.split( '-' )[ 1 ], 10 );
+	expect( firstIndex * 18 + offset ).toBeLessThanOrEqual( 0 );
+} );
+
+it( 'a flood outrunning the ring never blanks the viewport', () => {
+	// @longform Ring capped at 300 while debt would exceed it: ids jump by
+	// 2000 but only the newest 300 survive — the uncapped debt put start
+	// past visible and rendered NOTHING (alternating-empty-viewport bug).
+	const lines = rows( 300 );
+	const node = makeNode( lines );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+		/>
+	);
+	tickFrame();
+
+	const churned = Array.from( { length: 300 }, ( _, i ) => ( {
+		id: 2300 - i,
+		partition: 0,
+		content: `churn-${ 2300 - i }`,
+		isEven: false,
+	} ) );
+	lines.length = 0;
+	lines.push( ...churned );
+	tickFrame();
+
+	expect( container.querySelectorAll( '.row' ).length ).toBeGreaterThan( 0 );
+} );
+
+// @longform A saturated ring pins linesCount while the pinned debt clamp
+// pins the offset — every recommit-guard input freezes even though the ring
+// keeps rotating. The guard must also watch the top row id, or the viewport
+// shows stale rows indefinitely (frozen is as broken as blank).
+it( 'a sustained flood at ring saturation keeps the window fresh', () => {
+	const lines = rows( 400 );
+	const node = makeNode( lines );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+		/>
+	);
+	tickFrame();
+
+	// Rotate the saturated ring hard for several frames (ids keep climbing).
+	const rotate = ( gen ) => {
+		const fresh = Array.from( { length: 400 }, ( _, i ) => ( {
+			id: gen * 1000 + 400 - i,
+			partition: 0,
+			content: `gen${ gen }-${ 400 - i }`,
+			isEven: false,
+		} ) );
+		lines.length = 0;
+		lines.push( ...fresh );
+	};
+	rotate( 1 );
+	tickFrame();
+	rotate( 2 );
+	tickFrame();
+	const before = [ ...container.querySelectorAll( '.row' ) ].map( ( el ) =>
+		el.getAttribute( 'data-content' )
+	);
+	rotate( 3 );
+	tickFrame();
+	const after = [ ...container.querySelectorAll( '.row' ) ].map( ( el ) =>
+		el.getAttribute( 'data-content' )
+	);
+	expect( after ).not.toEqual( before );
+	expect( after.join() ).toContain( 'gen3-' );
+} );
+
+it( 'debug mode stays fresh while a saturated ring rotates', () => {
+	const lines = rows( 40 );
+	const node = makeNode( lines );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+			debug
+		/>
+	);
+	tickFrame();
+
+	// Same count, newer ids: the visible/end guard alone would freeze this.
+	const fresh = Array.from( { length: 40 }, ( _, i ) => ( {
+		id: 1040 - i,
+		partition: 0,
+		content: `fresh-${ 1040 - i }`,
+		isEven: false,
+	} ) );
+	lines.length = 0;
+	lines.push( ...fresh );
+	tickFrame();
+
+	expect(
+		container.querySelector( '.row' ).getAttribute( 'data-content' )
+	).toBe( 'fresh-1040' );
+} );
+
+it( 'coalesces stats reports to the stats interval', () => {
+	const lines = rows( 10 );
+	const node = makeNode( lines );
+	const onStats = jest.fn();
+	render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+			onStats={ onStats }
+		/>
+	);
+	const t0 = performance.now();
+	tickFrame( t0 );
+	expect( onStats ).toHaveBeenCalledTimes( 1 );
+
+	// Rapid frames with changing totals stay quiet inside the interval…
+	lines.unshift( { id: 11, partition: 0, content: 'a', isEven: false } );
+	tickFrame( t0 + 16 );
+	lines.unshift( { id: 12, partition: 0, content: 'b', isEven: true } );
+	tickFrame( t0 + 32 );
+	expect( onStats ).toHaveBeenCalledTimes( 1 );
+
+	// …and the next frame past the interval publishes the fresh totals.
+	tickFrame( t0 + 300 );
+	expect( onStats ).toHaveBeenCalledTimes( 2 );
+	expect( onStats ).toHaveBeenLastCalledWith(
+		expect.objectContaining( { total: 12 } )
+	);
+} );
+
+it( 'reuses row elements when the parent re-renders with an unchanged model', () => {
+	const node = makeNode( rows( 20 ) );
+	const spyRender = jest.fn( renderRow );
+	const { rerender } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ spyRender }
+		/>
+	);
+	tickFrame();
+	const calls = spyRender.mock.calls.length;
+	expect( calls ).toBeGreaterThan( 0 );
+
+	// A parent re-render (e.g. a toolbar stats tick) must not re-map rows.
+	rerender(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ spyRender }
+		/>
+	);
+	expect( spyRender.mock.calls.length ).toBe( calls );
+} );
+
 it( 'debug mode renders the newest rows unvirtualized, capped at DEBUG_MAX_ROWS', () => {
 	const node = makeNode( rows( DEBUG_MAX_ROWS + 40 ) );
 	const { container } = render(
@@ -241,12 +435,14 @@ it( 'reads the current node each frame so a graph reinit is picked up', () => {
 			onStats={ onStats }
 		/>
 	);
-	tickFrame();
+	const t0 = performance.now();
+	tickFrame( t0 );
 	expect( onStats ).toHaveBeenLastCalledWith(
 		expect.objectContaining( { total: 10 } )
 	);
 	current = nodeB;
-	tickFrame();
+	// Past the stats-coalescing interval so the fresh node's totals publish.
+	tickFrame( t0 + 300 );
 	expect( onStats ).toHaveBeenLastCalledWith(
 		expect.objectContaining( { total: 25 } )
 	);
