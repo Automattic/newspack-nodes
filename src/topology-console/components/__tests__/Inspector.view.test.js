@@ -30,6 +30,21 @@ describe( 'Inspector (view mode)', () => {
 		).not.toBeNull();
 	} );
 
+	it( 'no-node palette groups are full Sections with no strip labels', () => {
+		const { container } = render( <Inspector { ...baseProps } /> );
+		const titles = [
+			...container.querySelectorAll( '.topology-insp__section-title' ),
+		].map( ( el ) => el.textContent );
+		expect( titles.slice( -3 ) ).toEqual( [
+			'Views',
+			'Toggles',
+			'Commands',
+		] );
+		expect(
+			container.querySelector( '.topology-insp__group-label' )
+		).toBeNull();
+	} );
+
 	it( 'no-node panel in EDIT mode shows an edit hint, not the live command palette', () => {
 		// Offline draft: no live command palette — edit mode shows a hint.
 		const { container, queryByText } = render(

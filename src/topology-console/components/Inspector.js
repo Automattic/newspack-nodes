@@ -1517,199 +1517,205 @@ export default function Inspector( {
 					rateSeries={ rateSeries }
 					local={ local }
 				/>
-				<div
-					className="topology-insp__commands"
-					data-testid="inspector-commands"
-				>
+				<div data-testid="inspector-commands">
 					{ /* VIEWS — buttons that open a modal (inspection panels +
 					     the composer), never a command down the transcript. */ }
-					<div className="topology-insp__group-label">
-						{ __( 'Views', 'newspack-nodes' ) }
-					</div>
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setStripModal( 'runtime' ) }
-						title={ __(
-							'Current-scope timers + handles as live sortable grids',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Runtime', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setStripModal( 'stats' ) }
-						title={ __(
-							'Per-node throughput + Router profiling as a sortable grid',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Profiler', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setStripModal( 'timeline' ) }
-						title={ __(
-							'DEBUG traces from the transcript as a filterable timeline',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Timeline', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className="button is-compact"
-						onClick={ () => setComposeOpen( true ) }
-						title={ __(
-							'Compose a message — pick a target, type, and value (full CLI equivalence)',
-							'newspack-nodes'
-						) }
-					>
-						{ __( 'Compose', 'newspack-nodes' ) }
-					</button>
+					<Section title={ __( 'Views', 'newspack-nodes' ) }>
+						<div className="topology-insp__commands">
+							<button
+								type="button"
+								className="button is-compact"
+								onClick={ () => setStripModal( 'runtime' ) }
+								title={ __(
+									'Current-scope timers + handles as live sortable grids',
+									'newspack-nodes'
+								) }
+							>
+								{ __( 'Runtime', 'newspack-nodes' ) }
+							</button>
+							<button
+								type="button"
+								className="button is-compact"
+								onClick={ () => setStripModal( 'stats' ) }
+								title={ __(
+									'Per-node throughput + Router profiling as a sortable grid',
+									'newspack-nodes'
+								) }
+							>
+								{ __( 'Profiler', 'newspack-nodes' ) }
+							</button>
+							<button
+								type="button"
+								className="button is-compact"
+								onClick={ () => setStripModal( 'timeline' ) }
+								title={ __(
+									'DEBUG traces from the transcript as a filterable timeline',
+									'newspack-nodes'
+								) }
+							>
+								{ __( 'Timeline', 'newspack-nodes' ) }
+							</button>
+							<button
+								type="button"
+								className="button is-compact"
+								onClick={ () => setComposeOpen( true ) }
+								title={ __(
+									'Compose a message — pick a target, type, and value (full CLI equivalence)',
+									'newspack-nodes'
+								) }
+							>
+								{ __( 'Compose', 'newspack-nodes' ) }
+							</button>
 
-					{ /* TOGGLES — stateful two-state buttons. Each flips
+							{ /* TOGGLES — stateful two-state buttons. Each flips
 					     optimistically (label swap + is-active) and reconciles to
 					     server truth: Trace + Profiling against the metadata poll,
 					     Verbose against the live LOCAL debug_level. */ }
-					<div className="topology-insp__group-label">
-						{ __( 'Toggles', 'newspack-nodes' ) }
-					</div>
-					<button
-						type="button"
-						className={ `button is-compact${
-							traceOn ? ' is-active' : ''
-						}` }
-						onClick={ () =>
-							onAction &&
-							onAction( 'trace', '*', traceOn ? 0 : 1 )
-						}
-						title={
-							traceOn
-								? __(
-										'Stop tracing every node — `trace * 0`',
-										'newspack-nodes'
-								  )
-								: __(
-										'Trace every node — `trace * 1`',
-										'newspack-nodes'
-								  )
-						}
-					>
-						{ traceOn
-							? __( 'stop trace', 'newspack-nodes' )
-							: __( 'trace', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className={ `button is-compact${
-							profilingOn ? ' is-active' : ''
-						}` }
-						onClick={ () => {
-							profilingDisagreeRef.current = 0;
-							setProfilingOptimistic( ! profilingOn );
-							if ( onAction ) {
-								onAction(
-									'command',
-									null,
-									profilingOn ? 'profile off' : 'profile on'
-								);
-							}
-						} }
-						title={
-							profilingOn
-								? __(
-										'Stop _router profiling — `profile off`',
-										'newspack-nodes'
-								  )
-								: __(
-										'Profile every _router dispatch — `profile on`',
-										'newspack-nodes'
-								  )
-						}
-					>
-						{ profilingOn
-							? __( 'stop profiling', 'newspack-nodes' )
-							: __( 'profile', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className={ `button is-compact${
-							debugOn ? ' is-active' : ''
-						}` }
-						onClick={ () =>
-							onAction &&
-							onAction(
-								'command',
-								null,
-								debugOn ? 'debug_level 0' : 'debug_level 1'
-							)
-						}
-						title={
-							debugOn
-								? __(
-										'Quiet the Dumper — `debug_level 0`',
-										'newspack-nodes'
-								  )
-								: __(
-										'Per-message Dumper header — `debug_level 1`',
-										'newspack-nodes'
-								  )
-						}
-					>
-						{ debugOn
-							? __( 'stop debug', 'newspack-nodes' )
-							: __( 'debug', 'newspack-nodes' ) }
-					</button>
-					<button
-						type="button"
-						className={ `button is-compact${
-							verboseOn ? ' is-active' : ''
-						}` }
-						onClick={ () =>
-							onAction &&
-							onAction(
-								'command',
-								null,
-								verboseOn ? 'debug_level 0' : 'debug_level 2'
-							)
-						}
-						title={
-							verboseOn
-								? __(
-										'Quiet the Dumper — `debug_level 0`',
-										'newspack-nodes'
-								  )
-								: __(
-										'Verbose Dumper trace — `debug_level 2`',
-										'newspack-nodes'
-								  )
-						}
-					>
-						{ verboseOn
-							? __( 'stop verbose', 'newspack-nodes' )
-							: __( 'verbose', 'newspack-nodes' ) }
-					</button>
-
+						</div>
+					</Section>
+					<Section title={ __( 'Toggles', 'newspack-nodes' ) }>
+						<div className="topology-insp__commands">
+							<button
+								type="button"
+								className={ `button is-compact${
+									traceOn ? ' is-active' : ''
+								}` }
+								onClick={ () =>
+									onAction &&
+									onAction( 'trace', '*', traceOn ? 0 : 1 )
+								}
+								title={
+									traceOn
+										? __(
+												'Stop tracing every node — `trace * 0`',
+												'newspack-nodes'
+										  )
+										: __(
+												'Trace every node — `trace * 1`',
+												'newspack-nodes'
+										  )
+								}
+							>
+								{ traceOn
+									? __( 'stop trace', 'newspack-nodes' )
+									: __( 'trace', 'newspack-nodes' ) }
+							</button>
+							<button
+								type="button"
+								className={ `button is-compact${
+									profilingOn ? ' is-active' : ''
+								}` }
+								onClick={ () => {
+									profilingDisagreeRef.current = 0;
+									setProfilingOptimistic( ! profilingOn );
+									if ( onAction ) {
+										onAction(
+											'command',
+											null,
+											profilingOn
+												? 'profile off'
+												: 'profile on'
+										);
+									}
+								} }
+								title={
+									profilingOn
+										? __(
+												'Stop _router profiling — `profile off`',
+												'newspack-nodes'
+										  )
+										: __(
+												'Profile every _router dispatch — `profile on`',
+												'newspack-nodes'
+										  )
+								}
+							>
+								{ profilingOn
+									? __( 'stop profiling', 'newspack-nodes' )
+									: __( 'profile', 'newspack-nodes' ) }
+							</button>
+							<button
+								type="button"
+								className={ `button is-compact${
+									debugOn ? ' is-active' : ''
+								}` }
+								onClick={ () =>
+									onAction &&
+									onAction(
+										'command',
+										null,
+										debugOn
+											? 'debug_level 0'
+											: 'debug_level 1'
+									)
+								}
+								title={
+									debugOn
+										? __(
+												'Quiet the Dumper — `debug_level 0`',
+												'newspack-nodes'
+										  )
+										: __(
+												'Per-message Dumper header — `debug_level 1`',
+												'newspack-nodes'
+										  )
+								}
+							>
+								{ debugOn
+									? __( 'stop debug', 'newspack-nodes' )
+									: __( 'debug', 'newspack-nodes' ) }
+							</button>
+							<button
+								type="button"
+								className={ `button is-compact${
+									verboseOn ? ' is-active' : ''
+								}` }
+								onClick={ () =>
+									onAction &&
+									onAction(
+										'command',
+										null,
+										verboseOn
+											? 'debug_level 0'
+											: 'debug_level 2'
+									)
+								}
+								title={
+									verboseOn
+										? __(
+												'Quiet the Dumper — `debug_level 0`',
+												'newspack-nodes'
+										  )
+										: __(
+												'Verbose Dumper trace — `debug_level 2`',
+												'newspack-nodes'
+										  )
+								}
+							>
+								{ verboseOn
+									? __( 'stop verbose', 'newspack-nodes' )
+									: __( 'verbose', 'newspack-nodes' ) }
+							</button>
+						</div>
+					</Section>
 					{ /* COMMANDS — stateless verb dumps into the transcript. */ }
-					<div className="topology-insp__group-label">
-						{ __( 'Commands', 'newspack-nodes' ) }
-					</div>
-					{ NO_NODE_COMMANDS.map( ( [ label, cmd ] ) => (
-						<button
-							key={ cmd }
-							type="button"
-							className="button is-compact"
-							onClick={ () =>
-								onAction && onAction( 'command', null, cmd )
-							}
-						>
-							{ label }
-						</button>
-					) ) }
+					<Section title={ __( 'Commands', 'newspack-nodes' ) }>
+						<div className="topology-insp__commands">
+							{ NO_NODE_COMMANDS.map( ( [ label, cmd ] ) => (
+								<button
+									key={ cmd }
+									type="button"
+									className="button is-compact"
+									onClick={ () =>
+										onAction &&
+										onAction( 'command', null, cmd )
+									}
+								>
+									{ label }
+								</button>
+							) ) }
+						</div>
+					</Section>
 				</div>
 				{ composeOpen && (
 					<ComposeModal

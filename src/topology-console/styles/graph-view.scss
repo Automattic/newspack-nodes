@@ -1564,34 +1564,13 @@
 }
 
 // Inside a Section the title already spaces the grid; drop the standalone gap.
-.topology-insp__section .topology-insp__actions {
+.topology-insp__section .topology-insp__actions,
+.topology-insp__section .topology-insp__commands {
 	margin-top: 0;
 }
 
 .topology-insp__actions-full {
 	grid-column: span 2;
-}
-
-// Group headers inside the no-node strip: span the 2-col grid and separate the
-// Views / Toggles / Commands clusters (the selected-node panel uses full
-// Sections instead). Styled from the strip's mono treatment (matches
-// .topology-insp__levels). The leading header drops the rule + gap so it
-// doesn't double the container's own margin-top.
-.topology-insp__group-label {
-	grid-column: span 2;
-	margin-top: 12px;
-	padding-top: 10px;
-	border-top: 1px solid var(--ink-4);
-	font: 700 9px var(--font-mono);
-	letter-spacing: 0.16em;
-	text-transform: uppercase;
-	color: var(--ink-3);
-
-	&:first-child {
-		margin-top: 0;
-		padding-top: 0;
-		border-top: 0;
-	}
 }
 
 // Compact button — the dense inspector action/verb grids. Native `.button`
@@ -1630,8 +1609,6 @@
 	flex-direction: column;
 	gap: 10px;
 	margin-bottom: 16px;
-	padding-bottom: 14px;
-	border-bottom: 1px solid var(--ink-4);
 }
 
 // dmesg error/warning/debug tallies (reused IoTelemetry counts).
