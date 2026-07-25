@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-07-24
+
 ### Added
 - **`wp nodes doctor`** — environment preflight for the four legs the runtime
   stands on (memcache roundtrip, WP-Cron supervisor event, base-dir
