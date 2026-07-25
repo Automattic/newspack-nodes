@@ -136,6 +136,34 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		);
 	};
 
+	// Offset jump: a full ID or a bare offset pauses and steps that message.
+	const handleJump = ( text ) => {
+		const full = text.match( /^(\d+):(\d+)(?::\d+)?$/ );
+		const bare = text.match( /^\d+$/ );
+		let position = null;
+		if ( full ) {
+			position = {
+				segment: parseInt( full[ 1 ], 10 ),
+				offset: parseInt( full[ 2 ], 10 ),
+			};
+		} else if ( bare ) {
+			const segment =
+				lastReceivedSegment ??
+				( 'number' === typeof segmentId ? segmentId : null );
+			if ( null !== segment ) {
+				position = { segment, offset: parseInt( text, 10 ) };
+			}
+		}
+		if ( ! position ) {
+			return;
+		}
+		setPaused( true );
+		browseSegment( position.segment );
+		Promise.resolve(
+			seek( selectedLog, { [ selectedLog ]: position }, null )
+		).then( () => step() );
+	};
+
 	// Re-read the live nodes each frame so a graph reinit is picked up.
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
 	const getLastEventTime = useCallback(
@@ -159,6 +187,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			connectionError={ connectionError }
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
+			onJump={ handleJump }
 			getViewNode={ getViewNode }
 			getLastEventTime={ getLastEventTime }
 			sidebar={

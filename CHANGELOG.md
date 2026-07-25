@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Debug rows + offset jump in both viewers.** A Debug toggle switches the
+  list into an unvirtualized ID · KEY · VALUE regime: the message-ID
+  breadcrumb (click-to-select for the jump input) and KEY as a gutter,
+  TM_STRUCT payloads pretty-printed, multi-line bytestreams and long lines
+  wrapped at natural row heights (bounded to the newest 500 rows, disclosed
+  when capped — narrow with the filter). A `seg:offset` input beside the
+  filter jumps: paste a full message ID (`seg:off:len`, length ignored) or a
+  bare offset (current segment), Enter pauses and steps exactly that message.
 - **Paused single-step in the Partition Viewer and Log Viewer.** A step
   button beside pause/play (paused-only) advances one message at a time —
   the stream stays fully OFFLINE while paused; each step fetches exactly one
