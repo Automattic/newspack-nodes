@@ -200,6 +200,22 @@ test( 'select sets the log and clears the buffer', () => {
 	expect( v.setStateCache.view.selected ).toBe( 'errors.p0' );
 } );
 
+test( 'browse clears the buffer: a rewind starts from a clean slate', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( envelopeMsg( { value: 'stale-live-line' } ) );
+	// Replay / segment click / offset jump all arrive as a browse control.
+	v.fill( controlMsg( { action: 'browse', endSegment: 3, endOffset: 90 } ) );
+	expect( v.lines ).toHaveLength( 0 );
+	expect( v.lps ).toBe( 0 );
+} );
+
+test( 'follow (Live) does NOT clear the buffer', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( envelopeMsg( { value: 'kept-line' } ) );
+	v.fill( controlMsg( { action: 'follow' } ) );
+	expect( v.lines ).toHaveLength( 1 );
+} );
+
 test( 'the published model carries only { connectionError, logs, selected, paused }', () => {
 	const v = makeView( 'partition:view' );
 	v.fill(

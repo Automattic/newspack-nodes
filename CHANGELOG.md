@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stepped to.
 
 ### Fixed
+- **A rewind clears the list.** Replay, a segment click, and an offset
+  jump all clear the row buffer before replaying, so replayed records
+  never mix into the stale live tail (Live keeps the buffer — resuming
+  the tail is a continuation, not a rewind).
 - **Selecting a past segment rewinds on the FIRST click.** The segment
   click pauses and seeks in one synchronous handler, but the pause gate
   only flipped on the React commit — so the seek still saw an active
