@@ -41,6 +41,21 @@ function controlMsg( payload ) {
 
 // --- Envelope-shaping branches inlined from the deleted partition:transform. ---
 
+test( 'a grouped stamp (offsets/x.pN) still parses its partition column', () => {
+	const v = makeView( 'partition:view' );
+	v.fill(
+		envelopeMsg( { from: 'offsets/combined.firehose.p3', value: 'a' } )
+	);
+	expect( v.lines[ 0 ].partition ).toBe( 3 );
+} );
+
+test( 'distinct grouped dirs without .pN get distinct synthetic indices', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( envelopeMsg( { from: 'deadletter/alpha', value: 'a' } ) );
+	v.fill( envelopeMsg( { from: 'deadletter/beta', value: 'b' } ) );
+	expect( v.lines[ 1 ].partition ).not.toBe( v.lines[ 0 ].partition );
+} );
+
 test( 'string VALUE passes through verbatim as the line content', () => {
 	const v = makeView( 'partition:view' );
 	v.fill( envelopeMsg( { value: 'plain text' } ) );

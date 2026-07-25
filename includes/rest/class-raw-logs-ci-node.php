@@ -45,7 +45,9 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	public static ?\Closure $on_probe = null;
 
 	/**
-	 * `log_status` verb handler — segment counts and sizes for a single concrete partition dir.
+	 * `log_status` verb handler — segment counts and sizes for a single concrete
+	 * partition dir. Accepts a bare logs key (`firehose.p0`) or a group-prefixed
+	 * one (`offsets/…`, `deadletter/…`).
 	 *
 	 * @param Command_Interpreter_Node $self Verb argument.
 	 * @param list<string> $args Verb argument.
@@ -53,9 +55,10 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_log_status( Command_Interpreter_Node $self, array $args ): array {
-		$log_key  = self::resolve_log_key( $args[0] ?? '' );
-		$base_dir = RuntimeConfig::get_base_directory();
-		$log_base = $base_dir . '/logs';
+		$log_key             = self::resolve_log_key( $args[0] ?? '' );
+		$base_dir            = RuntimeConfig::get_base_directory();
+		[ $group, $dir_key ] = self::split_group( $log_key );
+		$log_base            = "{$base_dir}/{$group}";
 
 		// Sibling plumbing: name + patron + sink the probe, read, remove.
 		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
@@ -66,7 +69,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			$partition->sink( $ci );
 		}
 		// Flat layout: the concrete dir IS one partition — stat it directly.
-		$partition->arguments( [ "{$log_base}/{$log_key}" ] );
+		$partition->arguments( [ "{$log_base}/{$dir_key}" ] );
 		// finally: a throw can't leave the node registered (would collide).
 		try {
 			if ( null !== self::$on_probe ) {
@@ -89,10 +92,11 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	/**
 	 * Map an inbound log argument to a known concrete catalog key. Falls through
 	 * to a firehose-ish concrete key when present (prefix preference), else the
-	 * first-discovered concrete dir.
+	 * first-discovered concrete dir. Catalog keys are bare logs basenames plus
+	 * `{group}/{basename}` for the offsets and deadletter roots.
 	 */
 	private static function resolve_log_key( string $log ): string {
-		$keys = Log_Discovery::on_disk();
+		$keys = \array_column( self::catalog_keys(), 'key' );
 		if ( empty( $keys ) ) {
 			return self::PREFERRED_LOG_PREFIX;
 		}
@@ -108,20 +112,43 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		}
 		return \in_array( $log, $keys, true ) ? $log : $default;
 	}
+
 	/**
-	 * `list_logs` verb handler — every on-disk log directory as {key,label}.
+	 * Split a catalog key into its root group + dir basename (bare = logs).
+	 *
+	 * @return array{0: string, 1: string}
+	 */
+	private static function split_group( string $key ): array {
+		$slash = \strpos( $key, '/' );
+		if ( false === $slash ) {
+			return [ 'logs', $key ];
+		}
+		return [ \substr( $key, 0, $slash ), \substr( $key, $slash + 1 ) ];
+	}
+
+	/** @return list<array{key: string, label: string}> The full grouped catalog. */
+	private static function catalog_keys(): array {
+		$result = [];
+		foreach ( Log_Discovery::groups() as $group => $names ) {
+			foreach ( $names as $name ) {
+				$key      = 'logs' === $group ? $name : "{$group}/{$name}";
+				$result[] = [
+					'key'   => $key,
+					'label' => $key,
+				];
+			}
+		}
+		return $result;
+	}
+
+	/**
+	 * `list_logs` verb handler — every on-disk partition dir as {key,label}:
+	 * bare logs keys, then `offsets/…` and `deadletter/…`.
 	 *
 	 * @return array<int, mixed>
 	 */
 	public static function cmd_list_logs(): array {
-		$result = [];
-		foreach ( Log_Discovery::on_disk() as $key ) {
-			$result[] = [
-				'key'   => $key,
-				'label' => $key,
-			];
-		}
-		return $result;
+		return self::catalog_keys();
 	}
 
 	public static function node_schema(): array {

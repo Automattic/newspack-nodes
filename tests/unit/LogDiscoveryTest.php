@@ -72,6 +72,28 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [ 'alpha.p0', 'middle.p0', 'zeta.p0' ], Log_Discovery::on_disk() );
 	}
 
+	public function test_groups_lists_logs_offsets_and_deadletter_basenames(): void {
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		\mkdir( "{$this->tmp}/offsets/combined.firehose.p0", 0755, true );
+		\mkdir( "{$this->tmp}/deadletter/job-worker.jobs.p0", 0755, true );
+
+		$groups = Log_Discovery::groups();
+
+		$this->assertSame( [ 'firehose.p0' ], $groups['logs'] );
+		$this->assertSame( [ 'combined.firehose.p0' ], $groups['offsets'] );
+		$this->assertSame( [ 'job-worker.jobs.p0' ], $groups['deadletter'] );
+	}
+
+	public function test_groups_returns_empty_lists_for_missing_roots(): void {
+		\mkdir( "{$this->tmp}/logs/solo.p0", 0755, true );
+
+		$groups = Log_Discovery::groups();
+
+		$this->assertSame( [ 'solo.p0' ], $groups['logs'] );
+		$this->assertSame( [], $groups['offsets'] );
+		$this->assertSame( [], $groups['deadletter'] );
+	}
+
 	public function test_ignores_non_dir_entries(): void {
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		// Stray Log file-sink segment FILE — GLOB_ONLYDIR skips it.

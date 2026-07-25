@@ -34,6 +34,61 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		parent::tearDown();
 	}
 
+	public function test_group_prefixed_subscription_opens_the_offsets_dir(): void {
+		\mkdir( "{$this->tmp}/offsets/combined.firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'offsets/combined.firehose.p0', null );
+
+		$this->assertCount( 1, $consumers );
+		$this->assertSame( 'offsets/combined.firehose.p0', $consumers[0]->stamped_as() );
+	}
+
+	public function test_group_prefixed_glob_fans_out_within_the_group(): void {
+		\mkdir( "{$this->tmp}/deadletter/combined.firehose.p0", 0755, true );
+		\mkdir( "{$this->tmp}/deadletter/combined.firehose.p1", 0755, true );
+		// A same-named LOGS dir must not leak into the deadletter glob.
+		\mkdir( "{$this->tmp}/logs/combined.firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'deadletter/combined.firehose.*', null );
+
+		$this->assertSame(
+			[ 'deadletter/combined.firehose.p0', 'deadletter/combined.firehose.p1' ],
+			\array_map( static fn ( $c ) => $c->stamped_as(), $consumers )
+		);
+	}
+
+	public function test_explicit_logs_prefix_is_rejected_not_aliased(): void {
+		// `logs/x` would stamp identically to bare `x` yet skip the IPC-tail
+		// preference — two spellings, different sources. One spelling only.
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$ctrl->open_subscription( 'logs/firehose.p0', null );
+	}
+
+	public function test_unknown_group_prefix_is_rejected(): void {
+		\mkdir( "{$this->tmp}/secrets/x.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$ctrl->open_subscription( 'secrets/x.p0', null );
+	}
+
+	public function test_group_prefix_traversal_is_rejected(): void {
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$ctrl->open_subscription( 'offsets/../logs/firehose.p0', null );
+	}
+
 	public function test_glob_subscription_returns_one_consumer_per_matched_dir(): void {
 		// A `{feed}.*` glob fans out to one Consumer per matching concrete log dir
 		// — the filesystem is the source of truth, not a hardcoded `.p{N}` count.
