@@ -2229,7 +2229,7 @@ export default function Inspector( {
 					{ isTee && (
 						<button
 							type="button"
-							className={ `button is-compact topology-insp__actions-full${
+							className={ `button is-compact${
 								tailOn ? ' is-active' : ''
 							}` }
 							onClick={ () =>

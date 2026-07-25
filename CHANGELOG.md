@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distance behind its source's head.
 
 ### Fixed
+- **Console Inspector's Connect toggle sizes to its label.** It spanned the
+  full Toggles row instead of sitting beside Trace.
 - **Job Queue Latency no longer paints the last job across idle hours.** The
   chart held each identity's most recent latency for the entire span it was
   the most recent job (identities stop emitting when their worker generation
