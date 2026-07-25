@@ -1,6 +1,6 @@
 # Newspack Nodes — Documentation Map
 
-Twelve docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
+Thirteen docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
 
 ## Start here
 
@@ -27,6 +27,7 @@ Facts, not tutorials.
 - **[API.md](API.md)** — read when you're calling the runtime over HTTP: the three REST endpoints and their request/response shapes.
 - **[cli.md](cli.md)** — read when you need a `wp nodes` verb: the one-page reference for every subcommand and the common flows.
 - **[troubleshooting.md](troubleshooting.md)** — read when something live is misbehaving: the REPL, worker health, log paths, and the failure modes we actually hit.
+- **[stability.md](stability.md)** — read when you need to know what you can build on: the frozen 1.0 surfaces, the deprecation policy, and what stays internal.
 - **[upgrading.md](upgrading.md)** — read when you're moving a consumer plugin across substrate versions: the breaking changes, with the fix beside each.
 
 ## Glossary
