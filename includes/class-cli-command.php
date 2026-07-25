@@ -34,6 +34,19 @@ namespace Newspack_Nodes;
 class CLI_Command {
 
 	/**
+	 * stdin seam. Lazily-defaulted to the real STDIN at the call sites. Tests
+	 * reassign to a fixture stream (e.g. an empty `php://memory`) so the
+	 * bare-REPL drain sees non-TTY EOF even when the phpunit runner's own
+	 * STDIN is an interactive terminal (which would park the reader at a
+	 * readline prompt forever).
+	 *
+	 * Signature: `function (): resource`.
+	 *
+	 * @var (\Closure(): resource)|null
+	 */
+	public static ?\Closure $stdin = null;
+
+	/**
 	 * Open an interactive REPL — bare mode (local graph) or attached mode (IPC to a worker).
 	 *
 	 * ## OPTIONS
@@ -146,7 +159,8 @@ class CLI_Command {
 		$dumper->set_shell( $shell );
 		$stdout->set_shell( $shell );
 		// readline only works on a real TTY; on a pipe it spins at 100% CPU.
-		$is_tty = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
+		$stdin  = ( self::$stdin ?? static fn () => \STDIN )();
+		$is_tty = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
 		$stdout->set_readline_mode( $is_tty && \function_exists( 'readline_callback_handler_install' ) );
 
 		if ( $attached && null !== $ipc ) {
@@ -178,11 +192,12 @@ class CLI_Command {
 	 */
 	private function run_repl( Shell_Node $shell, Dumper_Node $dumper, TTY_Out_Node $stdout ): void {
 		// readline only on a real TTY; pipes fall to fgets (EOF-terminating).
-		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
+		$stdin        = ( self::$stdin ?? static fn () => \STDIN )();
+		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
 		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
 
 		// Skip prompts when stdin is piped; they break `... | grep` consumers.
-		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, null, $is_tty );
+		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, $stdin, $is_tty );
 
 		// Sink needed: Timer_Node::fire_cb() skips fire()/stdin-drain if none.
 		$reader->sink( $shell );
