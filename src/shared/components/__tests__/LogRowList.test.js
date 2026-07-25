@@ -526,3 +526,62 @@ it( 'maintains scroll position when new rows arrive while scrolled down', () => 
 	tickFrame();
 	expect( list.scrollTop ).toBe( 200 + 4 * 18 );
 } );
+
+// @longform Hysteresis on the smooth-scroll mode: gliding STOPS at twice the
+// row height and only RESUMES below one row height, so hovering near the
+// boundary can't flip modes every frame (upper = 2x lower, per the
+// efficiency-principles hysteresis rule).
+describe( 'smooth-scroll hysteresis', () => {
+	function setup() {
+		const lines = rows( 60 );
+		const node = makeNode( lines );
+		const { container } = render(
+			<LogRowList
+				getNode={ () => node }
+				rowHeight={ 18 }
+				renderRow={ renderRow }
+			/>
+		);
+		tickFrame();
+		const list = container.querySelector( '.newspack-nodes-log-rows' );
+		const prepend = ( n ) => {
+			const top = lines[ 0 ].id;
+			for ( let k = 1; k <= n; k++ ) {
+				lines.unshift( {
+					id: top + k,
+					partition: 0,
+					content: `new-${ top + k }`,
+					isEven: false,
+				} );
+			}
+		};
+		return { list, prepend };
+	}
+
+	it( 'keeps gliding between one and two row heights on the way down', () => {
+		const { list, prepend } = setup();
+		list.scrollTop = 27; // 1.5 rows: above the old single threshold.
+		prepend( 4 );
+		tickFrame();
+		// Still smooth-scrolling: position held via offset, not scrollTop.
+		expect( list.scrollTop ).toBe( 27 );
+	} );
+
+	it( 'anchors past two row heights and stays anchored back inside the band', () => {
+		const { list, prepend } = setup();
+		list.scrollTop = 45; // 2.5 rows: past the stop threshold.
+		prepend( 4 );
+		tickFrame();
+		expect( list.scrollTop ).toBe( 45 + 4 * 18 );
+		// Back INSIDE the band (1.5 rows): anchoring persists (hysteresis).
+		list.scrollTop = 27;
+		prepend( 3 );
+		tickFrame();
+		expect( list.scrollTop ).toBe( 27 + 3 * 18 );
+		// Below ONE row height: smooth scrolling resumes.
+		list.scrollTop = 9;
+		prepend( 2 );
+		tickFrame();
+		expect( list.scrollTop ).toBe( 9 );
+	} );
+} );

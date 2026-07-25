@@ -44,6 +44,13 @@ import './LogRowList.scss';
 
 const OVERSCAN = 5;
 
+// @longform Smooth-scroll hysteresis (upper = 2x lower): gliding STOPS once
+// scrollTop passes STOP_GLIDE_ROWS row heights and only RESUMES back under
+// RESUME_GLIDE_ROWS, so a reader hovering near the top can't flip between
+// glide and scroll-anchor modes every frame.
+const RESUME_GLIDE_ROWS = 1;
+const STOP_GLIDE_ROWS = 2;
+
 // @longform Glide budget: rows of smooth-scroll debt a flood may queue.
 // Uncapped, a firehose accrues debt faster than the 1%/frame decay clears
 // it (50k lines/s ≈ 88k rows steady-state), pushing the window past the
@@ -80,6 +87,8 @@ export default function LogRowList( {
 	const offsetRef = useRef( 0 );
 	const rafRef = useRef( null );
 	const isAdjustingScrollRef = useRef( false );
+	// Hysteresis state: whether new rows glide (true) or anchor scrollTop.
+	const glidingRef = useRef( true );
 	// Newest row id already smooth-scrolled for (monotonic; cap-robust).
 	const lastTopIdRef = useRef( 0 );
 	const lastTopFilterRef = useRef( filter );
@@ -120,6 +129,7 @@ export default function LogRowList( {
 		lastTopFilterRef.current = filterRef.current;
 		offsetRef.current = 0;
 		isAdjustingScrollRef.current = false;
+		glidingRef.current = true;
 		modelPushedRef.current = {
 			visible: -1,
 			start: -1,
@@ -234,7 +244,14 @@ export default function LogRowList( {
 			lastTopIdRef.current = topId;
 
 			const list = listRef.current;
-			const isAtTop = ! list || list.scrollTop < rowHeight;
+			if ( list ) {
+				if ( list.scrollTop >= rowHeight * STOP_GLIDE_ROWS ) {
+					glidingRef.current = false;
+				} else if ( list.scrollTop < rowHeight * RESUME_GLIDE_ROWS ) {
+					glidingRef.current = true;
+				}
+			}
+			const isAtTop = ! list || glidingRef.current;
 			if ( newRows > 0 ) {
 				if ( isAtTop ) {
 					// Hold rows in place; the offset decays smoothly to 0.

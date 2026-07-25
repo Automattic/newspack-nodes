@@ -20,6 +20,7 @@ import LogStreamViewer from '@newspack-nodes/shared/components/LogStreamViewer';
 import LogListHeader from '@newspack-nodes/shared/components/LogListHeader';
 import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
 import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
+import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
 import { endPosition } from '../shared/nodes/seekTracker';
 import useLogPositions, {
@@ -180,22 +181,11 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	// Offset jump: a full ID or a bare offset pauses and steps that message.
 	const handleJump = ( text ) => {
-		const full = text.match( /^(\d+):(\d+)(?::\d+)?$/ );
-		const bare = text.match( /^\d+$/ );
-		let position = null;
-		if ( full ) {
-			position = {
-				segment: parseInt( full[ 1 ], 10 ),
-				offset: parseInt( full[ 2 ], 10 ),
-			};
-		} else if ( bare ) {
-			const segment =
-				lastReceivedSegment ??
-				( 'number' === typeof segmentId ? segmentId : null );
-			if ( null !== segment ) {
-				position = { segment, offset: parseInt( text, 10 ) };
-			}
-		}
+		const position = parseOffsetJump(
+			text,
+			lastReceivedSegment ??
+				( 'number' === typeof segmentId ? segmentId : null )
+		);
 		if ( ! position ) {
 			return;
 		}
