@@ -407,6 +407,38 @@ it( 'debug mode windows the filter matches the same way', () => {
 	);
 } );
 
+it( 'leaving debug mode does not replay rows that arrived during it', () => {
+	const lines = rows( 10 );
+	const node = makeNode( lines );
+	const props = {
+		getNode: () => node,
+		rowHeight: 18,
+		renderRow,
+	};
+	const { container, rerender } = render( <LogRowList { ...props } debug /> );
+	tickFrame();
+
+	// Rows stream in while debug is active (ids keep climbing).
+	for ( let k = 0; k < 60; k++ ) {
+		lines.unshift( {
+			id: 11 + k,
+			partition: 0,
+			content: `during-${ k }`,
+			isEven: false,
+		} );
+	}
+	tickFrame();
+
+	// Back to the live regime: no glide debt for already-seen rows.
+	rerender( <LogRowList { ...props } debug={ false } /> );
+	tickFrame();
+	const content = container.querySelector(
+		'.newspack-nodes-log-rows__content'
+	);
+	const m = ( content.style.transform || '' ).match( /,(-?[\d.]+)px,/ );
+	expect( m ? parseFloat( m[ 1 ] ) : 0 ).toBe( 0 );
+} );
+
 it( 'shows the empty label when there are no rows', () => {
 	const node = makeNode( [] );
 	const { container } = render(

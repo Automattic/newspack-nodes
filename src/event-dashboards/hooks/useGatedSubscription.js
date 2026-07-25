@@ -53,6 +53,8 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 	const [ isPaused, setIsPaused ] = useState( false );
 	const isPausedRef = useRef( isPaused );
 	isPausedRef.current = isPaused;
+	const isPageVisibleRef = useRef( isPageVisible );
+	isPageVisibleRef.current = isPageVisible;
 	// Open only when visible AND unpaused; pause outranks a refocus.
 	const isActive = isPageVisible && ! isPaused;
 	const isActiveRef = useRef( isActive );
@@ -60,12 +62,15 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 
 	// The intended {subscribe, positions}: the reopen source of truth.
 	const pendingTargetRef = useRef( null );
+	// True once a delivery lands in the current activation; cleared on close.
+	const deliveredRef = useRef( false );
 	// @longform setSubscribe, then immediately mark the target consumed: an
 	// explicit seek is single-use, so the NEXT reopen resumes live instead of
 	// re-applying it (see the module docblock).
 	const deliver = useCallback(
 		( subscribe, positions ) => {
 			pendingTargetRef.current = { subscribe, positions: null };
+			deliveredRef.current = true;
 			linkRef.current?.setSubscribe( subscribe, positions );
 		},
 		[ linkRef ]
@@ -91,10 +96,12 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 		}
 		if ( ! isActive ) {
 			link.close();
+			deliveredRef.current = false;
 			return;
 		}
 		const target = pendingTargetRef.current;
-		if ( target ) {
+		// A same-tick play+seek already delivered; don't overwrite its seek.
+		if ( target && ! deliveredRef.current ) {
 			deliver( target.subscribe, reopenSeed( link, target ) );
 		}
 	}, [ isActive, linkRef, deliver ] );
@@ -102,6 +109,9 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 	// Pause closes the stream (isActive effect); flag drives button + label.
 	const setPaused = useCallback(
 		( paused ) => {
+			// Refs flip NOW: a same-tick seek must record, not hit the stream.
+			isPausedRef.current = paused;
+			isActiveRef.current = isPageVisibleRef.current && ! paused;
 			setIsPaused( paused );
 			const m = newMessage();
 			m[ TYPE ] = TM_STRUCT;

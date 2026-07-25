@@ -31,11 +31,11 @@ beforeEach( () => {
 	mockPageVisible = true;
 } );
 
-function mount( link, view ) {
+function mount( link, view, fetchMessage ) {
 	return renderHook( () => {
 		const linkRef = useRef( link );
 		const viewRef = useRef( view );
-		return useGatedSubscription( { linkRef, viewRef } );
+		return useGatedSubscription( { linkRef, viewRef, fetchMessage } );
 	} );
 }
 
@@ -116,6 +116,72 @@ describe( 'useGatedSubscription', () => {
 
 		expect( link.setSubscribe ).toHaveBeenLastCalledWith( [ 'x.p0' ], {
 			'x.p0': { segment: 9, offset: 40 },
+		} );
+	} );
+
+	// @longform The segment-click handlers pause AND seek in one synchronous
+	// click. The pause gate must flip its refs immediately: waiting for the
+	// React commit let the seek see "active", DELIVER to the closing stream,
+	// and mark itself consumed — Step/Play then resumed the old live tail
+	// (the "click a segment twice to rewind" bug).
+	test( 'a seek in the same tick as pause records instead of delivering', () => {
+		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
+		const { result } = mount( link, { fill: jest.fn() } );
+		act( () => {
+			result.current.setPaused( true );
+			result.current.resubscribe( [ 'x.p0' ], {
+				'x.p0': { segment: 2, offset: 0 },
+			} );
+		} );
+		// The closed stream never saw the seek…
+		expect( link.setSubscribe ).not.toHaveBeenCalled();
+		// …and Play opens exactly at the recorded seek, not the live resume.
+		act( () => result.current.setPaused( false ) );
+		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'x.p0' ], {
+			'x.p0': { segment: 2, offset: 0 },
+		} );
+	} );
+
+	test( 'step after a same-tick pause+seek fetches the SEEK cursor', async () => {
+		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
+		const fetchMessage = jest.fn( () =>
+			Promise.resolve( {
+				message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
+				cursor: { segment: 2, offset: 9 },
+			} )
+		);
+		const { result } = mount( link, { fill: jest.fn() }, fetchMessage );
+		act( () => {
+			result.current.setPaused( true );
+			result.current.resubscribe( [ 'x.p0' ], {
+				'x.p0': { segment: 2, offset: 0 },
+			} );
+		} );
+		await act( async () => result.current.step() );
+		expect( fetchMessage ).toHaveBeenCalledWith( 'x.p0', {
+			segment: 2,
+			offset: 0,
+		} );
+	} );
+
+	// @longform The symmetric hole: play flips the gate refs synchronously,
+	// so a same-tick seek delivers immediately and is marked consumed — the
+	// isActive effect must NOT then re-deliver the consumed target at the
+	// live resume position, silently overwriting the seek it just applied.
+	test( 'play + a same-tick seek delivers once, at the seek', () => {
+		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
+		const { result } = mount( link, { fill: jest.fn() } );
+		act( () => result.current.setPaused( true ) );
+		link.setSubscribe.mockClear();
+		act( () => {
+			result.current.setPaused( false );
+			result.current.resubscribe( [ 'x.p0' ], {
+				'x.p0': { segment: 2, offset: 0 },
+			} );
+		} );
+		expect( link.setSubscribe ).toHaveBeenCalledTimes( 1 );
+		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'x.p0' ], {
+			'x.p0': { segment: 2, offset: 0 },
 		} );
 	} );
 

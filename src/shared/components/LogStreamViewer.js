@@ -45,10 +45,8 @@ const renderDebugRow = ( row ) => (
 		}` }
 		data-p={ row.partition }
 	>
-		<span className="newspack-nodes-log-row__meta">
-			{ row.msgId || '?' }
-			{ row.key ? ` ${ row.key }` : '' }
-		</span>
+		<span className="newspack-nodes-log-row__id">{ row.msgId || '?' }</span>
+		<span className="newspack-nodes-log-row__key">{ row.key || '' }</span>
 		<span className="newspack-nodes-log-row__value">
 			{ debugValue( row ) }
 		</span>

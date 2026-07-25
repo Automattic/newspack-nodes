@@ -31,6 +31,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stepped to.
 
 ### Fixed
+- **Selecting a past segment rewinds on the FIRST click.** The segment
+  click pauses and seeks in one synchronous handler, but the pause gate
+  only flipped on the React commit — so the seek still saw an active
+  stream, delivered itself to the link the commit was about to close, and
+  marked itself consumed. Step/Play then resumed from the old live tail,
+  and only a second click (now genuinely paused) recorded the rewind. The
+  gate refs now flip at the moment of the `setPaused` call.
+- **Leaving debug mode no longer replays the rows that arrived during
+  it.** The smooth-scroll baseline only advanced in the live regime, so
+  every row seen while debug was on counted as brand-new on exit and the
+  list glided through the whole backlog. Debug keeps the baseline current.
+- **Debug rows render their columns.** The debug regime's styles never
+  shipped, so rows kept the live list's fixed 18px height + clipping — a
+  pretty-printed struct showed exactly one character (`{`). Debug rows now
+  lay out as aligned ID · KEY · VALUE columns: natural heights, wrapped
+  values, structs keeping their line breaks, the ID column
+  click-to-select-all, and long keys ellipsized.
 - **The viewers survive extreme firehose rates** (50k+ lines/s) with the
   console Dumper's flood discipline: per-frame work is bounded regardless
   of input rate. The smooth-scroll debt is capped at a 300-row glide budget
