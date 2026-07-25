@@ -31,7 +31,6 @@ const BASE = {
 	onTogglePause: () => {},
 	onStep: () => {},
 	getViewNode: () => null,
-	getLastEventTime: () => null,
 	sidebar: null,
 	renderRow: () => null,
 	rowHeight: 18,
@@ -191,4 +190,14 @@ describe( 'rail toggle', () => {
 			container.querySelector( '.newspack-nodes-rail-toggle' )
 		).toBeNull();
 	} );
+} );
+
+it( 'the rate line always renders (0.0 included) and there is no heartbeat', () => {
+	const { container } = render( <LogStreamViewer { ...BASE } /> );
+	// Zero rate still occupies its line, so the header height never shifts.
+	expect(
+		container.querySelector( '.newspack-nodes-toolbar-stats__rps' )
+			.textContent
+	).toContain( '0.0' );
+	expect( container.querySelector( '.newspack-nodes-staleness' ) ).toBeNull();
 } );

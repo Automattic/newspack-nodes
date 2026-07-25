@@ -1,29 +1,22 @@
 /**
  * LogStreamViewer — the shared chrome of the substrate's log-stream dashboards
  * (Partition Viewer, Log Viewer): a toolbar (source dropdown, filter, line
- * counts + staleness, pause, clear) that portals into the hub header slot when
+ * counts + rate, pause, clear) that portals into the hub header slot when
  * given one, the reconnect banner, and the sidebar + virtualized row-list body.
  *
  * Presentational + local UI state only. The consumer mounts its own node graph
  * and passes the differing pieces: the picker catalog, the fully-configured
- * `LogBrowser` sidebar element, the row renderer, and two node accessors —
- * `getViewNode` (the ring `LogRowList` reads and Clear empties) and
- * `getLastEventTime` (the SSE link's last-frame clock behind "Xs ago") — so
- * this component stays runtime-free like its `LogRowList` sibling.
+ * `LogBrowser` sidebar element, the row renderer, and the `getViewNode`
+ * accessor (the ring `LogRowList` reads and Clear empties) — so this
+ * component stays runtime-free like its `LogRowList` sibling.
  */
 
-import {
-	useState,
-	useEffect,
-	useCallback,
-	createPortal,
-} from '@wordpress/element';
+import { useState, useCallback, createPortal } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import LogRowList from './LogRowList';
 import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
-import StalenessIndicator from './StalenessIndicator';
 
 // Pretty-print a struct row's raw JSON; anything else renders verbatim.
 const debugValue = ( row ) => {
@@ -113,7 +106,6 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {Function} [props.onStep]             Step one message (paused-only); absent = no step button.
  * @param {Function} [props.onJump]             Jump handler for the offset input; absent = no input.
  * @param {Function} props.getViewNode          `() => node` — the live ring node (rows + Clear).
- * @param {Function} props.getLastEventTime     `() => ?number` — the link's last-frame ms clock.
  * @param {*}        props.sidebar              The configured `LogBrowser` element.
  * @param {Function} props.renderRow            One-row renderer for `LogRowList`.
  * @param {number}   props.rowHeight            Fixed row height (px).
@@ -143,7 +135,6 @@ export default function LogStreamViewer( {
 	onStep,
 	onJump,
 	getViewNode,
-	getLastEventTime,
 	sidebar,
 	renderRow,
 	rowHeight,
@@ -184,17 +175,6 @@ export default function LogStreamViewer( {
 	const handleStats = useCallback( ( next ) => setStats( next ), [] );
 	// Bumped to rebase the list on Clear (also re-reads the emptied ring).
 	const [ resetSignal, setResetSignal ] = useState( 0 );
-
-	// Ticking "Xs ago" display, read off the link's last-frame clock.
-	const [ now, setNow ] = useState( Date.now() );
-	useEffect( () => {
-		const id = setInterval( () => setNow( Date.now() ), 1000 );
-		return () => clearInterval( id );
-	}, [] );
-	const lastEventTime = getLastEventTime();
-	const staleSec = lastEventTime
-		? Math.max( 0, Math.floor( ( now - lastEventTime ) / 1000 ) )
-		: null;
 
 	// Clear all lines — empties the node ring; the next frame reflects 0 lines.
 	const handleClear = () => {
@@ -240,18 +220,15 @@ export default function LogStreamViewer( {
 								stats.visible
 						  ) }
 				</span>
-				{ stats.lps > 0 && (
-					<span className="newspack-nodes-toolbar-stats__rps">
-						{ renderRate
-							? renderRate( stats.lps )
-							: sprintf(
-									// translators: %s: lines-per-second rate (one decimal place).
-									__( '%s lines/s', 'newspack-nodes' ),
-									stats.lps.toFixed( 1 )
-							  ) }
-					</span>
-				) }
-				<StalenessIndicator paused={ isPaused } staleSec={ staleSec } />
+				<span className="newspack-nodes-toolbar-stats__rps">
+					{ renderRate
+						? renderRate( stats.lps )
+						: sprintf(
+								// translators: %s: lines-per-second rate (one decimal place).
+								__( '%s lines/s', 'newspack-nodes' ),
+								stats.lps.toFixed( 1 )
+						  ) }
+				</span>
 			</span>
 
 			{ pickerOptions && pickerOptions.length === 0 && (

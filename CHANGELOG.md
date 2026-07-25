@@ -65,6 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   segment rail, remembered per dashboard.
 
 ### Fixed
+- **The toolbar height never shifts**: the rate line always renders (0.0
+  included) and the "Xs ago" heartbeat is gone from the log-stream
+  chrome (the gyroscope in-flight view keeps its own).
 - **A failed `/command` round-trip reports itself honestly**: a missing
   reply (the POST failed — e.g. mid-deploy — or an attached worker never
   answered) now toasts "Command got no reply…" instead of the misleading
