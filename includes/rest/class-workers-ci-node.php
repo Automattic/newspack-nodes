@@ -363,7 +363,13 @@ class Workers_CI_Node extends Service_CI_Node {
 	private static function collect_segment_size_overrides(): array {
 		$out = [];
 		foreach ( self::active_topologies() as $name => $_cfg ) {
-			$overrides = Topology_Registry::segment_size_overrides_for( $name );
+			try {
+				$overrides = Topology_Registry::segment_size_overrides_for( $name );
+			} catch ( \RuntimeException $e ) {
+				// Dormant provider: skip, do not fatal every admin page.
+				Core::print_less_often( "segment-size overrides skipped for {$name}: ", $e->getMessage() );
+				continue;
+			}
 			foreach ( $overrides as $basename => $size ) {
 				$out[ $basename ] = $size;
 			}

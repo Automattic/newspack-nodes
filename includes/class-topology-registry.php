@@ -265,8 +265,10 @@ class Topology_Registry {
 	 *
 	 * THROWS on a broken include. The safety gates read through here: an empty
 	 * write set reads as "no conflict" to find_conflicts and as "every one of its
-	 * logs is an orphan" to Log_Cleaner. Fail loud; graph_for (a display helper)
-	 * catches this itself so one bad .tsl can't take out the dashboard.
+	 * logs is an orphan" to Log_Cleaner. Fail loud; the display surfaces catch
+	 * for themselves (graph_for internally; Log_Cleaner::declared_dirs and
+	 * Workers_CI's override collector at their call sites) so one bad .tsl
+	 * can't take out the dashboard or wp-admin.
 	 *
 	 * @return list<string>
 	 * @throws \RuntimeException On an unknown include, a cycle, or a conflicting make_node.
