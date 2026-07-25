@@ -615,3 +615,21 @@ it( 'debug clears pending glide debt so exiting cannot replay it', () => {
 	const m = ( content.style.transform || '' ).match( /,(-?[\d.]+)px,/ );
 	expect( m ? parseFloat( m[ 1 ] ) : 0 ).toBe( 0 );
 } );
+
+it( 'mounting over an already-full ring starts at rest — no glide', () => {
+	// A remount (or reinit) must not treat pre-existing rows as new.
+	const node = makeNode( rows( 60 ) );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+		/>
+	);
+	tickFrame();
+	const content = container.querySelector(
+		'.newspack-nodes-log-rows__content'
+	);
+	const m = ( content.style.transform || '' ).match( /,(-?[\d.]+)px,/ );
+	expect( m ? parseFloat( m[ 1 ] ) : 0 ).toBe( 0 );
+} );

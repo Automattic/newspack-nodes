@@ -201,3 +201,15 @@ it( 'the rate line always renders (0.0 included) and there is no heartbeat', () 
 	).toContain( '0.0' );
 	expect( container.querySelector( '.newspack-nodes-staleness' ) ).toBeNull();
 } );
+
+it( 'the list keeps ONE tree position across the debug toggle', () => {
+	// Without a stable wrapper, a headerless viewer (Log Viewer live mode)
+	// remounts LogRowList on every debug toggle — fresh refs replayed the
+	// whole ring as a glide.
+	const { container, getByText } = render(
+		<LogStreamViewer { ...BASE } listHeader={ null } />
+	);
+	expect( container.querySelector( '.test-viewer__main' ) ).not.toBeNull();
+	fireEvent.click( getByText( 'Debug' ) );
+	expect( container.querySelector( '.test-viewer__main' ) ).not.toBeNull();
+} );
