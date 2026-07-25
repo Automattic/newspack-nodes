@@ -94,6 +94,35 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [], $groups['deadletter'] );
 	}
 
+	public function test_groups_yields_empty_lists_when_glob_errors(): void {
+		// The seam forces glob()'s false (I/O error) return for every root.
+		Log_Discovery::$glob = static fn ( string $pattern, int $flags ) => false;
+		try {
+			$this->assertSame(
+				[
+					'logs'       => [],
+					'offsets'    => [],
+					'deadletter' => [],
+				],
+				Log_Discovery::groups()
+			);
+		} finally {
+			Log_Discovery::$glob = null;
+		}
+	}
+
+	public function test_groups_memoize_within_process(): void {
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$first = Log_Discovery::groups();
+
+		// A dir added after the first call must NOT appear (cached wins).
+		\mkdir( "{$this->tmp}/deadletter/late.jobs.p3", 0755, true );
+		$second = Log_Discovery::groups();
+
+		$this->assertSame( $first, $second );
+		$this->assertSame( [], $second['deadletter'] );
+	}
+
 	public function test_ignores_non_dir_entries(): void {
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		// Stray Log file-sink segment FILE — GLOB_ONLYDIR skips it.
