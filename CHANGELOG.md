@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-24
+
 ### Changed
 - The static front-end's `STRUCTURAL_VERBS` carve-out is gone. A bare verb
   inside a cwd is a command to that node — `make_node` / `connect_node` /
