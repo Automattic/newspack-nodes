@@ -10,7 +10,19 @@ Newspack Nodes is a different bet. The substrate gives you one contract — ever
 
 The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific — the stock topologies are `topologies/job-worker.tsl`, which drives the generic Job_Worker_Node (its application context arriving through `before_job` / `after_job` hooks), and `topologies/settings-sync.tsl`, the single-instance settings-sync control plane. But the lifecycle underneath is all WordPress: config lives in the options table, the supervisor's safety net runs on WP-Cron, workers spawn and take commands over the REST API behind HMAC + nonce auth, and live position/stats ride in memcache. So "application-independent" is the honest claim; "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
 
-This is an early implementation of an idea pitched at the team meetup: the Lego-bricks architecture, brought to PHP/WordPress, without giving up production fitness on Atomic / WP-Cloud.
+This is the Lego-bricks architecture pitched at the team meetup, brought to PHP/WordPress — and running in production on WordPress.com Atomic.
+
+## The parts nothing else ships
+
+Job queues exist. These don't, anywhere else in WordPress:
+
+- **A live topology console.** A real graph editor over the running fleet: see every node and edge with live message counts, rewire a graph, save it back to its `.tsl` — from the browser.
+- **An attached REPL.** `wp nodes cli <worker>.p0` pivots into a live worker over IPC: `dump_node`, `trace`, `stats`, rewire sinks, send test messages — no restart, no redeploy.
+- **Time-travel debugging.** Readers checkpoint durable cursors, so a Consumer can pause, single-step, and seek back through the log's history while you watch downstream react.
+- **A Jobs dashboard.** Per-handler throughput, failures, run duration, queue latency, and backlog — replayed 24 hours deep from the durable jobstats log the workers already write.
+- **Errors as docs.** Runtime errors name their fix; `help <NodeType>` in the REPL renders any node's schema, arguments, and verbs from the class itself.
+- **An infra-free test suite.** 3,200+ tests on a bare laptop — no containers, no database, no memcached, under a minute.
+- **Written-down architecture.** Fourteen ADRs with context, alternatives, and the condition that would reopen each ([architecture-decisions.md](docs/architecture-decisions.md)).
 
 ## When NOT to use Nodes
 
@@ -120,4 +132,4 @@ under a minute.
 
 ## Status
 
-Pre-1.0, converging on 1.0. The load-bearing contracts — `fill()`, the 7-field message, sink/target routing ([ADR-1/2/7](docs/architecture-decisions.md)) — are settled. Any breaking change is curated with its fix in [docs/upgrading.md](docs/upgrading.md) (start at your installed version, apply everything above it); [CHANGELOG.md](CHANGELOG.md) has the full story per release. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime.
+1.0: the load-bearing names are frozen. **[docs/stability.md](docs/stability.md)** is the contract — which surfaces are frozen (the node contract, the message, TSL, the CLI, REST, hooks), the deprecation policy, and what stays internal. Breaking changes are curated with their fix in [docs/upgrading.md](docs/upgrading.md) (start at your installed version, apply everything above it); [CHANGELOG.md](CHANGELOG.md) has the full story per release. Four production plugins build on the substrate, `newspack-event-logger-nodes` first among them.

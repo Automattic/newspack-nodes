@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Jobs dashboard: backlog + queue-latency graphs.** The hub's Jobs tab adds a
+  Job Backlog panel (the jobs Consumer's lag, from the same topicprobe stream
+  the Overview replays) and a Job Queue Latency panel (per-handler Δqueue/Δruns
+  derived in the jobstats view) beside the runs/errors rate panels — per-handler
+  throughput, failures, duration, latency, and backlog on one screen.
+- **docs/stability.md** — the 1.0 stability contract: the frozen surfaces (node
+  contract, message, TSL, stock nodes, CLI, REST, hooks, Config_System,
+  consumer boot), the deprecation policy, and what stays internal.
+
+### Changed
+- **README leads with the unmatched surfaces** — topology console, attached
+  REPL, time-travel debugging, Jobs dashboard, errors-as-docs, the infra-free
+  suite, the ADRs — and states the WordPress.com Atomic production footing.
+
 ## [0.54.0] - 2026-07-24
 
 ### Added
