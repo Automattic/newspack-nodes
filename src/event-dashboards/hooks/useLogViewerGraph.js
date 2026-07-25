@@ -243,7 +243,7 @@ export function useLogViewerGraph( opts = {} ) {
 				apply( { action: 'follow' } );
 				return;
 			}
-			fetchSources()
+			return fetchSources()
 				.then( ( catalog ) => {
 					const source = Array.isArray( catalog )
 						? catalog.find( ( s ) => s.name === name )

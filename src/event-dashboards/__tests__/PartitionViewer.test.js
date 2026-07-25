@@ -291,6 +291,71 @@ describe( 'PartitionViewer', () => {
 		);
 	} );
 
+	it( 'debug toggle switches the list into the ID-KEY-VALUE debug renderer', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { getByText, container } = await renderViewer();
+		expect( logRowListProps.debug ).toBe( false );
+		fireEvent.click( getByText( 'Debug' ) );
+		expect( logRowListProps.debug ).toBe( true );
+
+		const { container: rowc } = render(
+			logRowListProps.renderRow( {
+				id: 1,
+				msgId: '7:120:30',
+				key: 'rid-4194',
+				struct: true,
+				raw: '{"deep":977}',
+				partition: 2,
+				isEven: false,
+			} )
+		);
+		const row = rowc.querySelector( '.newspack-nodes-log-row.is-debug' );
+		expect( row.textContent ).toContain( '7:120:30' );
+		expect( row.textContent ).toContain( 'rid-4194' );
+		// TM_STRUCT payloads pretty-print.
+		expect( row.textContent ).toContain( '"deep": 977' );
+		expect( container ).toBeTruthy();
+	} );
+
+	it( 'pasting a full message ID jumps paused and steps that one message', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { container } = await renderViewer();
+		const input = container.querySelector( '.newspack-nodes-offset-input' );
+		fireEvent.change( input, { target: { value: '7:120:30' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+		expect( seek ).toHaveBeenCalledWith(
+			'firehose',
+			{ firehose: { segment: 7, offset: 120 } },
+			null
+		);
+		await act( async () => {} );
+		expect( step ).toHaveBeenCalled();
+	} );
+
+	it( 'pasting a bare offset jumps within the last-received segment', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lastReceivedSegment: 9,
+		} );
+		const { container } = await renderViewer();
+		const input = container.querySelector( '.newspack-nodes-offset-input' );
+		fireEvent.change( input, { target: { value: '4400' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( seek ).toHaveBeenCalledWith(
+			'firehose',
+			{ firehose: { segment: 9, offset: 4400 } },
+			null
+		);
+	} );
+
 	it( 'browsing a segment seeks the stream to it at offset 0', async () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],

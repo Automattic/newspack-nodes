@@ -50,6 +50,39 @@ test( 'a step control admits exactly one envelope through a pause', () => {
 	expect( v.lines[ 0 ].content ).toBe( 'stepped through' );
 } );
 
+test( 'rows carry the debug fields: msgId, key, struct flag, raw value', () => {
+	const v = makeView( 'partition:view' );
+	const m = envelopeMsg( {
+		from: 'firehose.p0',
+		key: 'rid-4194',
+		value: { deep: { nested: 'struct 977' } },
+	} );
+	m[ TYPE ] = TM_STRUCT;
+	m[ ID ] = '7:120:30';
+	v.fill( m );
+	const row = v.lines[ 0 ];
+	expect( row.msgId ).toBe( '7:120:30' );
+	expect( row.key ).toBe( 'rid-4194' );
+	expect( row.struct ).toBe( true );
+	expect( row.raw ).toBe( '{"deep":{"nested":"struct 977"}}' );
+} );
+
+test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped at 8K', () => {
+	const v = makeView( 'partition:view' );
+	const long = 'line one\n' + 'x'.repeat( 3000 ) + '\nline three';
+	v.fill( envelopeMsg( { value: long } ) );
+	const row = v.lines[ 0 ];
+	// content stays single-line-clipped; raw keeps the full text.
+	expect( row.content.length ).toBeLessThanOrEqual( 1003 );
+	expect( row.raw ).toBe( long );
+	expect( row.struct ).toBe( false );
+
+	const huge = 'y'.repeat( 9000 );
+	v.fill( envelopeMsg( { value: huge } ) );
+	expect( v.lines[ 0 ].raw.length ).toBe( 8192 + 3 );
+	expect( v.lines[ 0 ].raw.endsWith( '...' ) ).toBe( true );
+} );
+
 // --- Envelope-shaping branches inlined from the deleted partition:transform. ---
 
 test( 'a grouped stamp (offsets/x.pN) still parses its partition column', () => {

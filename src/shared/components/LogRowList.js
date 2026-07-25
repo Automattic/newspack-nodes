@@ -22,6 +22,7 @@
  * @param {*}        [props.emptyLabel]    Rendered when no rows are visible.
  * @param {Function} [props.onStats]       `({ total, visible, lps }) => void`, called only on change.
  * @param {number}   [props.resetSignal]   Change it to rebase the projection (clear / new subscription).
+ * @param {boolean}  [props.debug]         Unvirtualized debug regime: the newest DEBUG_MAX_ROWS rows at natural height.
  * @param {string}   [props.listClassName] Extra class on the scroll container.
  * @return {import('react').ReactElement} The virtualized list.
  */
@@ -30,6 +31,9 @@ import { useState, useEffect, useRef, useCallback } from '@wordpress/element';
 import './LogRowList.scss';
 
 const OVERSCAN = 5;
+
+// Debug mode renders natural-height rows unvirtualized; bound the DOM cost.
+export const DEBUG_MAX_ROWS = 500;
 
 const defaultMatch = ( row, filterLower ) =>
 	String( row?.content ?? '' )
@@ -46,6 +50,7 @@ export default function LogRowList( {
 	onStats,
 	resetSignal = 0,
 	listClassName = '',
+	debug = false,
 } ) {
 	const listRef = useRef( null );
 	const contentRef = useRef( null );
@@ -120,6 +125,48 @@ export default function LogRowList( {
 				visible = filtered.length;
 			} else {
 				visible = total;
+			}
+
+			// Debug: the newest rows, natural height, no window math.
+			if ( debug ) {
+				const end = Math.min( visible, DEBUG_MAX_ROWS );
+				const s2 = statsPushedRef.current;
+				if (
+					total !== s2.total ||
+					visible !== s2.visible ||
+					lps !== s2.lps
+				) {
+					s2.total = total;
+					s2.visible = visible;
+					s2.lps = lps;
+					onStatsRef.current?.( { total, visible, lps } );
+				}
+				const pushed2 = modelPushedRef.current;
+				if (
+					node !== pushed2.node ||
+					visible !== pushed2.visible ||
+					end !== pushed2.end
+				) {
+					const debugRows = [];
+					for ( let i = 0; i < end; i++ ) {
+						const row = filtered ? filtered[ i ] : node.lineAt( i );
+						if ( row ) {
+							debugRows.push( row );
+						}
+					}
+					pushed2.node = node;
+					pushed2.visible = visible;
+					pushed2.start = 0;
+					pushed2.end = end;
+					setModel( {
+						rows: debugRows,
+						spacerTop: 0,
+						totalHeight: 0,
+						visible,
+					} );
+				}
+				rafRef.current = requestAnimationFrame( draw );
+				return;
 			}
 
 			// New rows via the MONOTONIC top id (survives the ring cap/pin).
@@ -219,7 +266,7 @@ export default function LogRowList( {
 
 		rafRef.current = requestAnimationFrame( draw );
 		return () => cancelAnimationFrame( rafRef.current );
-	}, [ getNode, rowHeight ] );
+	}, [ getNode, rowHeight, debug ] );
 
 	// Swallow the programmatic scroll we make when holding the read position.
 	const handleScroll = useCallback( () => {
@@ -230,7 +277,7 @@ export default function LogRowList( {
 
 	return (
 		<div
-			className={ `newspack-nodes-log-rows${
+			className={ `newspack-nodes-log-rows${ debug ? ' is-debug' : '' }${
 				listClassName ? ' ' + listClassName : ''
 			}` }
 			role="rowgroup"
@@ -241,7 +288,7 @@ export default function LogRowList( {
 			<div
 				className="newspack-nodes-log-rows__content"
 				ref={ contentRef }
-				style={ { minHeight: model.totalHeight } }
+				style={ { minHeight: model.totalHeight || undefined } }
 			>
 				{ 0 === model.visible ? (
 					<div className="newspack-nodes-log-rows__empty">

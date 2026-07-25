@@ -6,6 +6,8 @@ import { RateSmoother } from '../rateSmoother';
 
 const MAX_LINES = 100000;
 const MAX_LINE_LENGTH = 1000;
+// Debug-mode raw retention per row (pretty-printable); ~PIPE_BUF x2.
+const MAX_RAW_LENGTH = 8192;
 const PARTITION_RE = /\.p(\d+)$/;
 
 /**
@@ -135,13 +137,18 @@ export class PartitionViewerViewNode extends Node {
 			return;
 		}
 		this._trackPosition( message );
-		let line = 'string' === typeof value ? value : JSON.stringify( value );
+		const struct = 'string' !== typeof value;
+		let raw = struct ? JSON.stringify( value ) : value;
+		let line = raw;
 		const key = message[ KEY ];
 		if ( 'string' === typeof key && '' !== key ) {
 			line = `${ key }: ${ line }`;
 		}
 		if ( line.length > MAX_LINE_LENGTH ) {
 			line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
+		}
+		if ( raw.length > MAX_RAW_LENGTH ) {
+			raw = raw.substring( 0, MAX_RAW_LENGTH ) + '...';
 		}
 		// First FROM segment with a .pN wins; else stable first-seen index.
 		const parts = String( message[ FROM ] || '' ).split( '/' );
@@ -157,7 +164,12 @@ export class PartitionViewerViewNode extends Node {
 			}
 			partition = index.get( dir );
 		}
-		this._appendRow( partition, line );
+		this._appendRow( partition, line, {
+			msgId: 'string' === typeof message[ ID ] ? message[ ID ] : '',
+			key: 'string' === typeof key ? key : '',
+			struct,
+			raw,
+		} );
 	}
 
 	// Track the position breadcrumb; publishes on segment/catch-up change only.
@@ -180,7 +192,7 @@ export class PartitionViewerViewNode extends Node {
 	}
 
 	// Write a shaped row into the ring (O(1)); no setState on this hot path.
-	_appendRow( partition, line ) {
+	_appendRow( partition, line, debugFields = {} ) {
 		// Paused belt: drop frames, unless a step budget admits them.
 		if ( this.paused ) {
 			if ( this.stepBudget <= 0 ) {
@@ -192,6 +204,7 @@ export class PartitionViewerViewNode extends Node {
 		this._writeRow( {
 			id: this.lineCounter,
 			partition,
+			...debugFields,
 			content: line,
 			isEven: this.lineCounter % 2 === 0,
 		} );

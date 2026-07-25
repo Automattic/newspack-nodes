@@ -9,7 +9,7 @@
  */
 
 import { render, act } from '@testing-library/react';
-import LogRowList from '../LogRowList';
+import LogRowList, { DEBUG_MAX_ROWS } from '../LogRowList';
 
 // Minimal ring fixture: newest-first `lines`, the node API the list consumes.
 function makeNode( lines, lps = 0 ) {
@@ -124,6 +124,52 @@ it( 'filters the ring, reporting and rendering only matching rows', () => {
 	expect( rendered.length ).toBe( 2 );
 	rendered.forEach( ( el ) =>
 		expect( el.dataset.content ).toMatch( /zebra/ )
+	);
+} );
+
+it( 'debug mode renders the newest rows unvirtualized, capped at DEBUG_MAX_ROWS', () => {
+	const node = makeNode( rows( DEBUG_MAX_ROWS + 40 ) );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+			debug
+		/>
+	);
+	tickFrame();
+	// Every rendered row is real content (no spacer window math)…
+	expect( container.querySelectorAll( '.row' ).length ).toBe(
+		DEBUG_MAX_ROWS
+	);
+	// …starting from the NEWEST row.
+	expect(
+		container.querySelector( '.row' ).getAttribute( 'data-content' )
+	).toBe( `line-${ DEBUG_MAX_ROWS + 40 }` );
+	// Natural heights: no fixed-height spacer container sizing.
+	expect(
+		container.querySelector( '.newspack-nodes-log-rows.is-debug' )
+	).not.toBeNull();
+} );
+
+it( 'debug mode windows the filter matches the same way', () => {
+	const base = rows( 30, 'noise' );
+	base[ 3 ].content = 'needle 4194';
+	const node = makeNode( base );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+			filter="needle"
+			debug
+		/>
+	);
+	tickFrame();
+	const rendered = container.querySelectorAll( '.row' );
+	expect( rendered.length ).toBe( 1 );
+	expect( rendered[ 0 ].getAttribute( 'data-content' ) ).toBe(
+		'needle 4194'
 	);
 } );
 
